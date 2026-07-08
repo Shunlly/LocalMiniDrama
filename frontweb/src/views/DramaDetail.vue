@@ -105,6 +105,13 @@
         </el-form>
       </section>
 
+      <SourceIntakeWorkflowPanel
+        v-if="drama"
+        :drama-id="dramaId"
+        :drama="drama"
+        @refresh="loadDrama"
+      />
+
       <!-- 分集列表 -->
       <section class="section card">
         <div class="section-header">
@@ -565,6 +572,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, VideoPlay, Plus, Delete, Sunny, Moon, PictureFilled, Grid } from '@element-plus/icons-vue'
 import EpisodeBatchImportDialog from '@/components/EpisodeBatchImportDialog.vue'
+import SourceIntakeWorkflowPanel from '@/components/SourceIntakeWorkflowPanel.vue'
 import { useTheme } from '@/composables/useTheme'
 import { dramaAPI } from '@/api/drama'
 import { characterLibraryAPI } from '@/api/characterLibrary'

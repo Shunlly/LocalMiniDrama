@@ -15,6 +15,7 @@
 - [打包为 Windows exe](#打包为-windows-exe)
 - [配置文件说明](#配置文件说明)
 - [数据库与数据目录](#数据库与数据目录)
+- [Docker 启动](#docker-启动)
 - [常见问题 FAQ](#常见问题-faq)
 
 ---
@@ -184,6 +185,39 @@ AI 服务配置通过软件内「AI 配置」页面管理，无需手动编辑 Y
 | `%APPDATA%\LocalMiniDrama\` | exe 模式下的所有数据 |
 
 > ⚠️ 升级版本前建议备份 `data/` 目录；数据库会在启动时自动执行迁移脚本，一般无需手动操作。
+
+---
+
+## Docker 启动
+
+项目根目录已提供 `docker-compose.yml`，会同时启动后端和前端：
+
+```bash
+docker compose up --build
+```
+
+启动后访问：
+
+| 服务 | 地址 |
+|------|------|
+| 前端 | `http://localhost:3013` |
+| 后端健康检查 | `http://localhost:5679/health` |
+| API 根路径 | `http://localhost:5679/api/v1` |
+
+Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`、`python3`、`make`、`g++`，用于 `better-sqlite3` 等原生依赖和视频处理。容器会把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。
+
+停止服务：
+
+```bash
+docker compose down
+```
+
+如果只想使用 npm 脚本：
+
+```bash
+npm run docker:up
+npm run docker:down
+```
 
 ---
 

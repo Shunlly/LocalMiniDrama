@@ -5144,6 +5144,10 @@ async function onImportNovel() {
     formData.append('title', scriptTitle.value || '导入小说')
     formData.append('max_chapters', String(novelMaxChapters.value))
     formData.append('ai_summarize', String(novelAiSummarize.value))
+    if (store.dramaId) {
+      formData.append('drama_id', String(store.dramaId))
+      formData.append('start_workflow', 'false')
+    }
     const { default: axios } = await import('axios')
     const baseURL = (await import('@/utils/request')).default.defaults.baseURL || '/api/v1'
     const res = await axios.post(`${baseURL}/dramas/import-novel`, formData, {

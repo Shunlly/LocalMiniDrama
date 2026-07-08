@@ -21,6 +21,10 @@ const assetRoutes = require('./assets');
 const audioRoutes = require('./audio');
 const promptOverridesRoutes = require('./promptOverrides');
 const sceneModelMapRoutes = require('./sceneModelMap');
+const workflowRoutes = require('./workflows');
+const storySourceRoutes = require('./storySources');
+const qaReportRoutes = require('./qaReports');
+const timelineRoutes = require('./timelines');
 
 function setupRouter(cfg, db, log) {
   const r = express.Router();
@@ -47,6 +51,10 @@ function setupRouter(cfg, db, log) {
   const assets = assetRoutes(db, log);
   const audio = audioRoutes(db, log, cfg);
   const promptOverrides = promptOverridesRoutes.routes(db, log);
+  const workflows = workflowRoutes(db, log);
+  const storySources = storySourceRoutes(db, log);
+  const qaReports = qaReportRoutes(db, log);
+  const timelines = timelineRoutes(db, log);
 
   // ---------- dramas ----------
   r.get('/dramas', drama.listDramas);
@@ -56,6 +64,14 @@ function setupRouter(cfg, db, log) {
   r.get('/dramas/:id/export', drama.exportDrama);
   const multer = require('multer');
   const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } });
+  const sourceUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1 } });
+  const sourceUploadSingle = (req, res, next) => {
+    sourceUpload.single('file')(req, res, (err) => {
+      if (!err) return next();
+      if (err.code === 'LIMIT_FILE_SIZE') return response.badRequest(res, 'Source Intake text uploads are limited to 20MB');
+      return response.badRequest(res, err.message || 'Source Intake upload failed');
+    });
+  };
   r.post('/dramas/import', importUpload.single('file'), drama.importDrama);
   r.post('/dramas/import-novel', importUpload.single('file'), async (req, res) => {
     try {
@@ -71,14 +87,51 @@ function setupRouter(cfg, db, log) {
       const maxChapters = Number(req.body?.max_chapters) || 20;
       const aiSummarize = req.body?.ai_summarize === 'true' || req.body?.ai_summarize === true;
       const result = await novelImportService.importNovel(db, log, { text, title, maxChapters, aiSummarize });
+      const dramaId = Number(req.body?.drama_id || req.body?.dramaId || req.query?.drama_id || 0);
+      if (dramaId > 0) {
+        const sourceIntakeService = require('../services/sourceIntakeService');
+        const workflowService = require('../services/workflowService');
+        const startWorkflow = req.body?.start_workflow !== 'false' && req.body?.start_workflow !== false;
+        const targetEpisodeCount = Number(req.body?.target_episode_count || req.body?.episode_count || result.chapters?.length || 1);
+        const sourceResult = sourceIntakeService.createStorySource(db, log, {
+          drama_id: dramaId,
+          source_type: 'novel',
+          title,
+          text,
+          target_episode_count: targetEpisodeCount,
+          metadata: {
+            imported_from: 'legacy_import_novel',
+            legacy_chapter_count: result.total,
+            ai_summarize: aiSummarize,
+          },
+        });
+        result.story_source = sourceResult.source;
+        result.adaptation_plan = sourceResult.adaptation_plan;
+        if (startWorkflow) {
+          result.workflow_run = workflowService.startNovel2AnimeWorkflow(db, log, {
+            drama_id: dramaId,
+            source_id: sourceResult.source.id,
+            title,
+            source_type: 'novel',
+            target_episode_count: targetEpisodeCount,
+            style: req.body?.style || '',
+          });
+        }
+      }
       response.success(res, result);
     } catch (err) {
       log.error('dramas import-novel', { error: err.message });
+      if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
       response.internalError(res, err.message);
     }
   });
   r.get('/dramas/examples', drama.listExamples);
   r.post('/dramas/import-example', drama.importExample);
+  r.get('/dramas/:id/story-sources', storySources.listForDrama);
+  r.post('/dramas/:id/story-sources', storySources.createForDrama);
+  r.post('/dramas/:id/story-sources/upload', sourceUploadSingle, storySources.uploadForDrama);
+  r.get('/dramas/:id/timeline', timelines.getDramaTimeline);
+  r.get('/dramas/:id/timeline/manifest', timelines.exportDramaManifest);
   r.put('/dramas/:id/outline', drama.saveOutline);
   r.get('/dramas/:id/characters', drama.getCharacters);
   r.put('/dramas/:id/characters', drama.saveCharacters);
@@ -89,6 +142,22 @@ function setupRouter(cfg, db, log) {
   r.get('/dramas/:id', drama.getDrama);
   r.put('/dramas/:id', drama.updateDrama);
   r.delete('/dramas/:id', drama.deleteDrama);
+
+  // ---------- source intake / workflows / qa ----------
+  r.get('/story-sources/:source_id', storySources.get);
+  r.post('/story-sources/:source_id/adaptation-plans', storySources.createPlan);
+  r.post('/adaptation-plans/:plan_id/apply', storySources.applyPlan);
+  r.get('/workflows', workflows.list);
+  r.post('/workflows/novel2anime', workflows.startNovel2Anime);
+  r.get('/workflows/:run_id', workflows.get);
+  r.post('/workflows/:run_id/retry', workflows.retry);
+  r.post('/workflows/:run_id/cancel', workflows.cancel);
+  r.post('/workflows/:run_id/pause', workflows.pause);
+  r.post('/workflows/:run_id/resume', workflows.resume);
+  r.get('/qa/reports', qaReports.list);
+  r.post('/qa/audit', qaReports.audit);
+  r.get('/qa/reports/:report_id', qaReports.get);
+  r.post('/qa/reports/:report_id/remediate', qaReports.remediate);
 
   // ---------- ai-configs ----------
   r.get('/ai-configs', aiConfig.list);
@@ -297,6 +366,10 @@ function setupRouter(cfg, db, log) {
   // ---------- audio ----------
   r.post('/audio/extract', audio.extract);
   r.post('/audio/extract/batch', audio.extractBatch);
+
+  // ---------- timelines ----------
+  r.get('/episodes/:episode_id/timeline', timelines.getEpisodeTimeline);
+  r.get('/episodes/:episode_id/timeline/srt', timelines.exportEpisodeSrt);
 
   // ---------- settings ----------
   r.get('/settings/language', settings.getLanguage);

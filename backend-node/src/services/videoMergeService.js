@@ -279,6 +279,23 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
     'UPDATE video_merges SET status = ?, merged_url = ?, duration = ?, completed_at = ?, error_msg = ? WHERE id = ?'
   ).run('completed', finalMergedUrl, Math.round(totalDuration) || null, now, null, mergeId);
   db.prepare('UPDATE episodes SET video_url = ?, status = ?, updated_at = ? WHERE id = ?').run(finalMergedUrl, 'completed', now, episodeId);
+  try {
+    const qaService = require('./qaService');
+    const qaReport = qaService.auditDrama(db, log, {
+      drama_id: r.drama_id,
+      episode_id: episodeId,
+      mode: 'production',
+    });
+    if (!qaReport.passed && mergeOpts.enforce_qa_gate) {
+      const msg = `Production QA failed with score ${qaReport.score}`;
+      db.prepare('UPDATE video_merges SET status = ?, error_msg = ? WHERE id = ?').run('failed', msg, mergeId);
+      db.prepare('UPDATE episodes SET status = ?, updated_at = ? WHERE id = ?').run('draft', now, episodeId);
+      if (taskId) taskService.updateTaskError(db, taskId, msg);
+      return;
+    }
+  } catch (e) {
+    log.warn('Video merge: production QA skipped', { merge_id: mergeId, error: e.message });
+  }
   if (taskId) {
     taskService.updateTaskResult(db, taskId, { merge_id: mergeId, video_url: finalMergedUrl, duration: Math.round(totalDuration) });
   }

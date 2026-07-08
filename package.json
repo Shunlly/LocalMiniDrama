@@ -1,0 +1,14 @@
+{
+  "name": "localminidrama-workspace",
+  "private": true,
+  "scripts": {
+    "doctor": "node scripts/doctor.cjs",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "verify": "npm --prefix backend-node run verify && npm --prefix frontweb run verify",
+    "verify:e2e": "npm --prefix frontweb run e2e:smoke",
+    "verify:docker": "docker compose exec -T backend npm run verify && docker compose exec -T frontend npm run verify",
+    "verify:backend": "npm --prefix backend-node run verify",
+    "verify:frontend": "npm --prefix frontweb run verify"
+  }
+}

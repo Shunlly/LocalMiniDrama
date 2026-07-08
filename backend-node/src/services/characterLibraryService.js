@@ -10,6 +10,7 @@ const jimengMaterialHubService = require('./jimengMaterialHubService');
 const modelArkAssetConfigService = require('./modelArkAssetConfigService');
 const uploadService = require('./uploadService');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const {
   appendSourceIdFilters,
   findExistingLibraryItem,
@@ -358,7 +359,7 @@ function batchGenerateCharacterImages(db, log, cfg, characterIds, modelName, sty
   // 每个角色单独起一个异步任务，不阻塞响应
   for (const characterId of ids) {
     const charId = characterId;
-    setImmediate(async () => {
+    scheduleLegacyAsync(log, 'character_four_view_batch_item', async () => {
       try {
         const out = await generateCharacterFourViewImage(db, log, cfg, charId, modelName, style);
         if (!out.ok) {
@@ -369,7 +370,7 @@ function batchGenerateCharacterImages(db, log, cfg, characterIds, modelName, sty
       } catch (err) {
         log.error('Batch character four-view failed', { character_id: charId, error: err.message });
       }
-    });
+    }, { character_id: charId });
   }
   log.info('Batch character four-view tasks queued', { total: ids.length });
   return { ok: true, count: ids.length };

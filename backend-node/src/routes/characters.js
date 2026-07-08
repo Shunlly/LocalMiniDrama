@@ -4,6 +4,7 @@ const response = require('../response');
 const characterLibraryService = require('../services/characterLibraryService');
 const storageLayout = require('../services/storageLayout');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
+const { scheduleLegacyAsync } = require('../services/legacyAsyncSchedulerService');
 
 function routes(db, cfg, log, uploadService) {
   return {
@@ -244,9 +245,9 @@ function routes(db, cfg, log, uploadService) {
       if (!charRow) return response.notFound(res, '角色不存在');
       if (!charRow.appearance) return response.badRequest(res, '角色缺少外貌描述，无法提炼锚点');
       const { enrichIdentityAnchors } = require('../services/characterGenerationService');
-      setImmediate(() => {
+      scheduleLegacyAsync(log, 'character_anchor_extract_route', () => {
         enrichIdentityAnchors(db, log, charRow.id, charRow.appearance).catch(() => {});
-      });
+      }, { character_id: charRow.id });
       response.success(res, { message: '锚点提炼已启动，请稍后刷新查看' });
     },
     generateFourViewImage: async (req, res) => {

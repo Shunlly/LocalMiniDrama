@@ -1,0 +1,14 @@
+.git
+.github
+**/node_modules
+**/dist
+**/data
+**/.env
+**/*.db
+**/*.db-shm
+**/*.db-wal
+desktop/dist
+desktop/backend-app-secure
+desktop/release*
+backend-node/deploy-pack
+backend-node/tools/ffmpeg/*.exe

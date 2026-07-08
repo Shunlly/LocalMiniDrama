@@ -3,6 +3,7 @@
 const storageLayout = require('./storageLayout');
 const { resolveStylePreset } = require('../constants/generationStylePresets');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 
 /**
  * 清理 image_url：如果数据库中存储的是 base64 data URL，则返回 null。
@@ -834,9 +835,9 @@ function finalizeEpisode(db, log, episodeId, baseUrl, body = {}) {
   const created = videoMergeService.create(db, log, mergeReq);
   const mergeId = created.merge_id || created.id;
   db.prepare('UPDATE episodes SET status = ? WHERE id = ?').run('processing', episodeId);
-  setImmediate(() => {
+  scheduleLegacyAsync(log, 'episode_video_merge', () => {
     videoMergeService.processVideoMerge(db, log, mergeId, baseUrl);
-  });
+  }, { merge_id: mergeId, episode_id: episodeId });
   return {
     message: '视频合成任务已创建，正在后台处理',
     merge_id: mergeId,

@@ -2,6 +2,7 @@ const response = require('../response');
 const videoService = require('../services/videoService');
 const taskService = require('../services/taskService');
 const { normalizeAspectRatioForApi } = require('../services/videoClient');
+const { scheduleLegacyAsync } = require('../services/legacyAsyncSchedulerService');
 
 function routes(db, log) {
   return {
@@ -66,9 +67,9 @@ function routes(db, log) {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing', ?, ?, ?)`
         ).run(dramaId, storyboardId, provider, prompt, model, duration, aspectRatio, resolution, seed, cameraFixed, watermark, imageUrl, firstFrameUrl, lastFrameUrl, refImagesJson, task.id, now, now);
         const videoGenId = db.prepare('SELECT last_insert_rowid() as id').get().id;
-        setImmediate(() => {
+        scheduleLegacyAsync(log, 'video_generation_route', () => {
           videoService.processVideoGeneration(db, log, videoGenId);
-        });
+        }, { video_generation_id: videoGenId, task_id: task.id, drama_id: dramaId });
         const item = videoService.getById(db, videoGenId);
         response.created(res, item || { id: videoGenId, task_id: task.id, status: 'processing' });
       } catch (err) {

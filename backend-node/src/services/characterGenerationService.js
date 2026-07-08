@@ -4,6 +4,7 @@ const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
 const { safeParseAIJSON, extractFirstArray } = require('../utils/safeJson');
 const characterLibraryService = require('./characterLibraryService');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { mergeCfgStyleWithDrama } = require('../utils/dramaStyleMerge');
 
 /**
@@ -157,12 +158,12 @@ async function processCharacterGeneration(db, cfg, log, taskID, req) {
     const newCharId = info.lastInsertRowid;
     // 异步后台提炼视觉锚点 + 预生成图片提示词，不阻塞主流程
     if (char.appearance) {
-      setImmediate(() => {
+      scheduleLegacyAsync(log, 'character_anchor_prompt_prefill', () => {
         enrichIdentityAnchors(db, log, newCharId, char.appearance).catch(() => {});
         characterLibraryService.generateCharacterPromptOnly(db, log, effectiveCfg, newCharId, undefined, undefined).catch((err) => {
           log.warn('[提取角色] 预生成polished_prompt失败', { character_id: newCharId, error: err.message });
         });
-      });
+      }, { character_id: newCharId, drama_id: dramaId });
     }
     characters.push({
       id: newCharId,
@@ -193,7 +194,7 @@ function generateCharacters(db, cfg, log, req) {
   const dramaId = String(req.drama_id || '');
   if (!dramaId) throw new Error('drama_id 必填');
   const task = taskService.createTask(db, log, 'character_generation', dramaId);
-  setImmediate(() => {
+  scheduleLegacyAsync(log, 'character_generation', () => {
     processCharacterGeneration(db, cfg, log, task.id, {
       drama_id: req.drama_id,
       episode_id: req.episode_id,
@@ -203,7 +204,7 @@ function generateCharacters(db, cfg, log, req) {
     }).catch((err) => {
       log.error('processCharacterGeneration fatal', { error: err.message, task_id: task.id });
     });
-  });
+  }, { task_id: task.id, drama_id: dramaId });
   return task.id;
 }
 

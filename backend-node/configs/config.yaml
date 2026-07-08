@@ -8,6 +8,8 @@ server:
   host: 0.0.0.0
   cors_origins:
     - http://localhost:3012
+    - http://localhost:3013
+    - http://127.0.0.1:3013
   read_timeout: 600
   write_timeout: 600
   insecure_tls: true

@@ -12,6 +12,7 @@ function createApp() {
   const db = getDb(config.database);
   const { runMigrationsAndEnsure } = require('./db/migrate.js');
   runMigrationsAndEnsure(db);
+  require('./services/skillRegistryService').ensureDefaultSkills(db);
 
   // 厂商锁定模式：在迁移完成后同步 vendor_lock 配置
   const { applyVendorLock } = require('./services/aiConfigService');
@@ -23,6 +24,9 @@ function createApp() {
 
   const { resumeProcessingVideoGenerations } = require('./services/videoService');
   resumeProcessingVideoGenerations(db, log);
+
+  const workflowService = require('./services/workflowService');
+  workflowService.resumeActiveWorkflowRunsOnStartup(db, log);
 
   const app = express();
   app.use(express.json({ limit: '10mb' }));

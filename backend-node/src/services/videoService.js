@@ -83,6 +83,7 @@ const { randomUUID } = require('crypto');
 const videoClient = require('./videoClient');
 const taskService = require('./taskService');
 const storageLayout = require('./storageLayout');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { getFfmpegPath, hasLocalFfmpeg } = require('../utils/ffmpegPath');
 
 /** @returns {{ dir: string, relPrefix: string }} 与图片 uploads 一致的工程子目录规则 */
@@ -359,11 +360,11 @@ function resumeProcessingVideoGenerations(db, log) {
     log.info('Resuming video generation polls', { count: resumable.length });
   }
   for (const r of resumable) {
-    setImmediate(() => {
+    scheduleLegacyAsync(log, 'video_generation_poll_resume', () => {
       resumePollForVideoGeneration(db, log, r.id).catch((e) => {
         log.error('resumePollForVideoGeneration unhandled', { videoGenId: r.id, error: e.message });
       });
-    });
+    }, { video_generation_id: r.id });
   }
 }
 

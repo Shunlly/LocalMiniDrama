@@ -61,6 +61,7 @@ const uploadService = require('./uploadService');
 const storageLayout = require('./storageLayout');
 const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 
 const LAST_FRAME_TYPES = new Set(['last', 'storyboard_last', 'tail', 'last_frame']);
 
@@ -574,9 +575,9 @@ function create(db, log, req) {
   );
   const imageGenId = info.lastInsertRowid;
   if (!imageGenId) throw new Error('insert failed');
-  setImmediate(() => {
+  scheduleLegacyAsync(log, 'image_generation', () => {
     processImageGeneration(db, log, imageGenId);
-  });
+  }, { image_generation_id: imageGenId, task_id: taskId, drama_id: req.drama_id });
   return { id: imageGenId, task_id: taskId, status: 'pending', ...getById(db, imageGenId) };
 }
 

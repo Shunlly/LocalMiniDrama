@@ -1,0 +1,990 @@
+const { v4: uuidv4 } = require('uuid');
+const dramaService = require('./dramaService');
+const sourceIntakeService = require('./sourceIntakeService');
+const qaService = require('./qaService');
+const providerSdkService = require('./providerSdkService');
+const skillRegistryService = require('./skillRegistryService');
+const characterContinuityService = require('./characterContinuityService');
+
+const RUN_ACTIVE_STATUSES = new Set(['pending', 'processing']);
+const RUN_TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+const processingRunIds = new Set();
+const queuedWorkflowRuns = new Map();
+let queueDrainScheduled = false;
+
+const NOVEL2ANIME_STEPS = [
+  { key: 'source_intake', label: 'Source intake' },
+  { key: 'adaptation_plan', label: 'Adaptation plan' },
+  { key: 'apply_episodes', label: 'Apply episodes' },
+  { key: 'asset_bible', label: 'Asset bible' },
+  { key: 'storyboard_draft', label: 'Storyboard draft' },
+  { key: 'image_generation', label: 'Mock image generation' },
+  { key: 'video_generation', label: 'Mock video generation' },
+  { key: 'audio_generation', label: 'Mock audio generation' },
+  { key: 'timeline_plan', label: 'Timeline plan' },
+  { key: 'post_composite', label: 'Mock post composite' },
+  { key: 'qa_audit', label: 'QA audit' },
+];
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function parseJson(value, fallback = null) {
+  if (value == null || value === '') return fallback;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function toJson(value) {
+  return JSON.stringify(value == null ? {} : value);
+}
+
+function recordSkill(db, run, step, skillName, input, output, status = 'success') {
+  return skillRegistryService.recordSkillInvocation(db, {
+    workflow_step_id: step?.id || null,
+    run_id: run?.id || null,
+    skill_name: skillName,
+    input,
+    output,
+    status,
+  });
+}
+
+function rowToRun(row) {
+  return {
+    id: row.id,
+    drama_id: row.drama_id,
+    episode_id: row.episode_id,
+    type: row.type,
+    status: row.status,
+    progress: row.progress ?? 0,
+    current_step: row.current_step,
+    input_json: parseJson(row.input_json, {}),
+    output_json: parseJson(row.output_json, {}),
+    error: row.error,
+    started_at: row.started_at,
+    completed_at: row.completed_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function rowToStep(row) {
+  return {
+    id: row.id,
+    run_id: row.run_id,
+    step_key: row.step_key,
+    status: row.status,
+    attempts: row.attempts ?? 0,
+    input_json: parseJson(row.input_json, {}),
+    output_json: parseJson(row.output_json, {}),
+    error: row.error,
+    sort_order: row.sort_order ?? 0,
+    started_at: row.started_at,
+    completed_at: row.completed_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function getWorkflowRun(db, runId) {
+  const row = db.prepare('SELECT * FROM workflow_runs WHERE id = ? AND deleted_at IS NULL').get(String(runId));
+  return row ? rowToRun(row) : null;
+}
+
+function getWorkflowSteps(db, runId) {
+  return db.prepare(
+    'SELECT * FROM workflow_steps WHERE run_id = ? ORDER BY sort_order ASC, created_at ASC'
+  ).all(String(runId)).map(rowToStep);
+}
+
+function getWorkflowRunDetail(db, runId) {
+  const run = getWorkflowRun(db, runId);
+  if (!run) return null;
+  return { ...run, steps: getWorkflowSteps(db, run.id) };
+}
+
+function listWorkflowRuns(db, query = {}) {
+  let sql = 'SELECT * FROM workflow_runs WHERE deleted_at IS NULL';
+  const params = [];
+  if (query.drama_id != null) {
+    sql += ' AND drama_id = ?';
+    params.push(Number(query.drama_id));
+  }
+  if (query.type) {
+    sql += ' AND type = ?';
+    params.push(String(query.type));
+  }
+  if (query.status) {
+    sql += ' AND status = ?';
+    params.push(String(query.status));
+  }
+  sql += ' ORDER BY created_at DESC LIMIT ?';
+  params.push(Math.max(1, Math.min(100, Number(query.limit) || 20)));
+  return db.prepare(sql).all(...params).map(rowToRun);
+}
+
+function createWorkflowRun(db, log, params) {
+  const dramaId = Number(params.drama_id || params.dramaId);
+  if (!dramaId || !dramaService.getDramaById(db, dramaId)) {
+    const err = new Error('drama_id is required and must reference an existing drama');
+    err.code = 'BAD_REQUEST';
+    throw err;
+  }
+  const type = String(params.type || 'novel2anime').trim();
+  const steps = params.steps && params.steps.length ? params.steps : NOVEL2ANIME_STEPS;
+  const id = uuidv4();
+  const createdAt = nowIso();
+  skillRegistryService.ensureDefaultSkills(db);
+  const runInput = {
+    drama_id: dramaId,
+    episode_id: params.episode_id || null,
+    type,
+    source_id: params.source_id || null,
+    adaptation_plan_id: params.adaptation_plan_id || null,
+    overwrite_existing_episodes: params.overwrite_existing_episodes === true || params.overwrite === true,
+    title: params.title || '',
+    source_type: params.source_type || '',
+    target_episode_count: params.target_episode_count || params.episode_count || null,
+    style: params.style || '',
+    qa_mode: params.qa_mode === 'production' || params.mode === 'production' ? 'production' : 'draft',
+    text_excerpt: String(params.text || '').slice(0, 1000),
+    options: params.options || {},
+  };
+
+  const tx = db.transaction(() => {
+    db.prepare(
+      `INSERT INTO workflow_runs
+       (id, drama_id, episode_id, type, status, progress, current_step, input_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`
+    ).run(id, dramaId, params.episode_id || null, type, steps[0]?.key || null, toJson(runInput), createdAt, createdAt);
+
+    const insertStep = db.prepare(
+      `INSERT INTO workflow_steps
+       (id, run_id, step_key, status, attempts, input_json, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, 'pending', 0, ?, ?, ?, ?)`
+    );
+    steps.forEach((step, index) => {
+      const stepInput = index === 0 ? {
+        drama_id: dramaId,
+        source_id: params.source_id || null,
+        adaptation_plan_id: params.adaptation_plan_id || null,
+        text: params.text || '',
+        title: params.title || '',
+        source_type: params.source_type || '',
+        target_episode_count: params.target_episode_count || params.episode_count || null,
+        style: params.style || '',
+        metadata: params.metadata || {},
+      } : {};
+      insertStep.run(uuidv4(), id, step.key, toJson(stepInput), index, createdAt, createdAt);
+    });
+  });
+  tx();
+  log?.info?.('Workflow run created', { run_id: id, type, drama_id: dramaId });
+  return getWorkflowRunDetail(db, id);
+}
+
+function setRunStatus(db, runId, status, patch = {}) {
+  const now = nowIso();
+  const run = getWorkflowRun(db, runId);
+  if (!run) return null;
+  const startedAt = patch.started_at !== undefined ? patch.started_at : (run.started_at || (status === 'processing' ? now : null));
+  const completedAt = patch.completed_at !== undefined
+    ? patch.completed_at
+    : (RUN_TERMINAL_STATUSES.has(status) ? now : null);
+  db.prepare(
+    `UPDATE workflow_runs
+     SET status = ?, progress = ?, current_step = ?, output_json = ?, error = ?, started_at = ?, completed_at = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(
+    status,
+    patch.progress ?? run.progress ?? 0,
+    patch.current_step !== undefined ? patch.current_step : run.current_step,
+    patch.output_json !== undefined ? toJson(patch.output_json) : toJson(run.output_json || {}),
+    patch.error !== undefined ? patch.error : run.error,
+    startedAt,
+    completedAt,
+    now,
+    runId
+  );
+  return getWorkflowRun(db, runId);
+}
+
+function setStepStatus(db, stepId, status, patch = {}) {
+  const now = nowIso();
+  const row = db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(String(stepId));
+  if (!row) return null;
+  const startedAt = patch.started_at !== undefined ? patch.started_at : (row.started_at || (status === 'processing' ? now : null));
+  const completedAt = patch.completed_at !== undefined
+    ? patch.completed_at
+    : (status === 'completed' || status === 'failed' || status === 'cancelled' ? now : null);
+  const attempts = patch.attempts !== undefined ? patch.attempts : row.attempts;
+  db.prepare(
+    `UPDATE workflow_steps
+     SET status = ?, attempts = ?, output_json = ?, error = ?, started_at = ?, completed_at = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(
+    status,
+    attempts,
+    patch.output_json !== undefined ? toJson(patch.output_json) : row.output_json,
+    patch.error !== undefined ? patch.error : row.error,
+    startedAt,
+    completedAt,
+    now,
+    stepId
+  );
+  return db.prepare('SELECT * FROM workflow_steps WHERE id = ?').get(String(stepId));
+}
+
+function previousOutput(steps, stepKey) {
+  const step = steps.find((s) => s.step_key === stepKey);
+  return step ? step.output_json || {} : {};
+}
+
+function splitScriptIntoBeats(script, count) {
+  const sentences = String(script || '')
+    .split(/(?<=[。！？!?；;.\n])/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const desired = Math.max(1, Math.min(8, Number(count) || Math.ceil(sentences.length / 2) || 3));
+  if (!sentences.length) return ['Story beat'];
+  const beats = [];
+  for (let i = 0; i < desired; i++) {
+    const start = Math.floor((i * sentences.length) / desired);
+    const end = Math.floor(((i + 1) * sentences.length) / desired);
+    const chunk = sentences.slice(start, Math.max(start + 1, end)).join('');
+    if (chunk.trim()) beats.push(chunk.trim());
+  }
+  return beats.length ? beats : [String(script).slice(0, 400)];
+}
+
+function ensureAssetBible(db, log, dramaId) {
+  const now = nowIso();
+  const eventRows = db.prepare(
+    'SELECT characters, location, detail FROM story_events WHERE drama_id = ? ORDER BY event_no ASC, id ASC'
+  ).all(Number(dramaId));
+  const characterNames = new Set();
+  const locations = new Set();
+  for (const event of eventRows) {
+    const chars = parseJson(event.characters, []);
+    if (Array.isArray(chars)) chars.forEach((name) => {
+      const clean = String(name || '').trim();
+      if (clean) characterNames.add(clean);
+    });
+    const location = String(event.location || '').trim();
+    if (location) locations.add(location);
+  }
+  if (!characterNames.size) characterNames.add('主角');
+  if (!locations.size) locations.add('主要场景');
+
+  const insertCharacter = db.prepare(
+    `INSERT INTO characters
+     (drama_id, name, role, description, personality, appearance, image_url, local_path, identity_anchors, sort_order, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  let characterCreated = 0;
+  Array.from(characterNames).slice(0, 12).forEach((name, index) => {
+    const exists = db.prepare(
+      'SELECT id FROM characters WHERE drama_id = ? AND name = ? AND deleted_at IS NULL'
+    ).get(Number(dramaId), name);
+    if (exists) return;
+    insertCharacter.run(
+      Number(dramaId),
+      name,
+      index === 0 ? 'main' : 'supporting',
+      `${name} from the source story.`,
+      'Keep motivation, voice, and visual identity consistent across episodes.',
+      `${name} has a locked visual identity for storyboard and media generation.`,
+      `mock://dramas/${dramaId}/characters/${index + 1}/reference.png`,
+      `mock://dramas/${dramaId}/characters/${index + 1}/reference.png`,
+      toJson({ locked_name: name, source: 'workflow_asset_bible', consistency_rule: 'do not rewrite identity anchors in downstream steps' }),
+      index,
+      now,
+      now
+    );
+    characterCreated += 1;
+  });
+
+  const insertScene = db.prepare(
+    `INSERT INTO scenes (drama_id, location, time, prompt, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'draft', ?, ?)`
+  );
+  let sceneCreated = 0;
+  Array.from(locations).slice(0, 12).forEach((location) => {
+    const exists = db.prepare(
+      'SELECT id FROM scenes WHERE drama_id = ? AND location = ? AND deleted_at IS NULL'
+    ).get(Number(dramaId), location);
+    if (exists) return;
+    insertScene.run(Number(dramaId), location, 'day', `${location}, cinematic short-drama environment, continuity locked`, now, now);
+    sceneCreated += 1;
+  });
+
+  const propExists = db.prepare('SELECT id FROM props WHERE drama_id = ? AND deleted_at IS NULL LIMIT 1').get(Number(dramaId));
+  let propCreated = 0;
+  if (!propExists) {
+    db.prepare(
+      `INSERT INTO props (drama_id, name, type, description, prompt, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      Number(dramaId),
+      '关键道具',
+      'story',
+      'A reusable key prop extracted as a placeholder until detailed prop extraction runs.',
+      'key story prop, visually consistent, clear silhouette',
+      now,
+      now
+    );
+    propCreated = 1;
+  }
+
+  const continuity = characterContinuityService.ensureCharacterContinuity(db, log, dramaId);
+  log?.info?.('Workflow asset bible prepared', { drama_id: dramaId, characterCreated, sceneCreated, propCreated });
+  return {
+    character_created: characterCreated,
+    scene_created: sceneCreated,
+    prop_created: propCreated,
+    character_continuity: {
+      character_count: continuity.character_count,
+      updated: continuity.updated,
+      episode_range: continuity.episode_range,
+    },
+  };
+}
+
+function createCreativeReview(db, { dramaId, runId, sourceId, role, targetType, targetId, status, findings }) {
+  const now = nowIso();
+  const existing = db.prepare(
+    `SELECT id FROM creative_reviews
+     WHERE run_id = ? AND role = ? AND target_type = ? AND COALESCE(target_id, '') = COALESCE(?, '')
+     ORDER BY id ASC LIMIT 1`
+  ).get(runId || null, role, targetType, targetId || null);
+  if (existing) return existing.id;
+  const info = db.prepare(
+    `INSERT INTO creative_reviews
+     (drama_id, run_id, source_id, role, target_type, target_id, status, findings_json, created_at, resolved_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    dramaId || null,
+    runId || null,
+    sourceId || null,
+    role,
+    targetType,
+    targetId || null,
+    status || 'locked',
+    toJson(findings || []),
+    now,
+    status === 'locked' || status === 'resolved' ? now : null
+  );
+  return Number(info.lastInsertRowid);
+}
+
+function ensureStoryboardDraft(db, log, dramaId) {
+  const now = nowIso();
+  const episodes = db.prepare(
+    'SELECT * FROM episodes WHERE drama_id = ? AND deleted_at IS NULL ORDER BY episode_number ASC'
+  ).all(Number(dramaId));
+  const insertStoryboard = db.prepare(
+    `INSERT INTO storyboards
+     (episode_id, storyboard_number, title, description, layout_description, location, time, duration, dialogue, narration,
+      action, atmosphere, image_prompt, video_prompt, shot_type, angle, movement, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`
+  );
+  let created = 0;
+  let skippedEpisodes = 0;
+
+  for (const episode of episodes) {
+    const existing = db.prepare(
+      "SELECT COUNT(*) AS count FROM storyboards WHERE episode_id = ? AND deleted_at IS NULL AND COALESCE(status, '') != 'stale'"
+    ).get(episode.id).count || 0;
+    if (existing > 0) {
+      skippedEpisodes += 1;
+      continue;
+    }
+    const beats = splitScriptIntoBeats(episode.script_content, 4);
+    beats.forEach((beat, index) => {
+      const num = index + 1;
+      const title = `E${episode.episode_number || episode.id}-${num}`;
+      const location = index === 0 ? '主要场景' : '';
+      const action = beat.slice(0, 500);
+      insertStoryboard.run(
+        episode.id,
+        num,
+        title,
+        action,
+        'Stable composition with clear character blocking and readable action.',
+        location,
+        'day',
+        5,
+        '',
+        index === 0 ? `Episode ${episode.episode_number || ''} setup.` : '',
+        action,
+        'dramatic, clear, production-ready',
+        `${action}, ${location || 'story location'}, consistent character design, clean cinematic anime frame`,
+        `${action}, camera movement follows the emotional beat, preserve character identity and scene continuity`,
+        index === 0 ? 'wide' : 'medium',
+        'eye_level',
+        index % 2 === 0 ? 'slow push in' : 'static hold',
+        now,
+        now
+      );
+      created += 1;
+    });
+  }
+  log?.info?.('Workflow storyboard draft prepared', { drama_id: dramaId, created, skippedEpisodes });
+  return { storyboard_created: created, episode_count: episodes.length, skipped_episodes: skippedEpisodes };
+}
+
+function findOrCreateTimelineTrack(db, episodeId, type, name, sortOrder) {
+  const existing = db.prepare(
+    'SELECT id FROM timeline_tracks WHERE episode_id = ? AND type = ? ORDER BY id ASC LIMIT 1'
+  ).get(Number(episodeId), type);
+  if (existing) return existing.id;
+  const now = nowIso();
+  const info = db.prepare(
+    `INSERT INTO timeline_tracks (episode_id, type, name, sort_order, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(Number(episodeId), type, name, sortOrder, now, now);
+  return Number(info.lastInsertRowid);
+}
+
+function insertTimelineItemIfMissing(db, trackId, storyboardId, startSec, endSec, sourcePath, metadata) {
+  const existing = db.prepare(
+    'SELECT id FROM timeline_items WHERE track_id = ? AND storyboard_id = ? LIMIT 1'
+  ).get(Number(trackId), Number(storyboardId));
+  if (existing) return false;
+  const now = nowIso();
+  db.prepare(
+    `INSERT INTO timeline_items (track_id, storyboard_id, start_sec, end_sec, source_path, metadata, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(Number(trackId), Number(storyboardId), startSec, endSec, sourcePath, toJson(metadata), now, now);
+  return true;
+}
+
+function ensureTimelinePlan(db, log, dramaId) {
+  const episodes = db.prepare(
+    'SELECT id, episode_number FROM episodes WHERE drama_id = ? AND deleted_at IS NULL ORDER BY episode_number ASC'
+  ).all(Number(dramaId));
+  let trackCreatedOrFound = 0;
+  let itemCreated = 0;
+
+  for (const episode of episodes) {
+    const tracks = {
+      video: findOrCreateTimelineTrack(db, episode.id, 'video', 'Video', 10),
+      subtitle: findOrCreateTimelineTrack(db, episode.id, 'subtitle', 'Subtitles', 20),
+      voice: findOrCreateTimelineTrack(db, episode.id, 'voice', 'Voice', 30),
+      dialogue: findOrCreateTimelineTrack(db, episode.id, 'dialogue', 'Dialogue', 35),
+      effect: findOrCreateTimelineTrack(db, episode.id, 'effect', 'Effects', 40),
+      bgm: findOrCreateTimelineTrack(db, episode.id, 'bgm', 'BGM', 50),
+      transition: findOrCreateTimelineTrack(db, episode.id, 'transition', 'Transitions', 60),
+    };
+    trackCreatedOrFound += Object.keys(tracks).length;
+    const storyboards = db.prepare(
+      'SELECT id, storyboard_number, duration, dialogue, narration FROM storyboards WHERE episode_id = ? AND deleted_at IS NULL ORDER BY storyboard_number ASC, id ASC'
+    ).all(episode.id);
+    let cursor = 0;
+    for (const sb of storyboards) {
+      const duration = Math.max(1, Number(sb.duration) || 5);
+      const start = cursor;
+      const end = cursor + duration;
+      if (insertTimelineItemIfMissing(db, tracks.video, sb.id, start, end, `mock://storyboard/${sb.id}/video`, { workflow: 'novel2anime', placeholder: true })) itemCreated += 1;
+      if (insertTimelineItemIfMissing(db, tracks.subtitle, sb.id, start, end, sb.dialogue || sb.narration || '', { kind: 'subtitle' })) itemCreated += 1;
+      if (insertTimelineItemIfMissing(db, tracks.voice, sb.id, start, end, `mock://storyboard/${sb.id}/voice`, { kind: 'voice', placeholder: true })) itemCreated += 1;
+      if (insertTimelineItemIfMissing(db, tracks.dialogue, sb.id, start, end, sb.dialogue || '', { kind: 'dialogue', placeholder: !sb.dialogue })) itemCreated += 1;
+      if (insertTimelineItemIfMissing(db, tracks.effect, sb.id, start, end, `mock://storyboard/${sb.id}/effect`, { kind: 'effect', placeholder: true })) itemCreated += 1;
+      if (insertTimelineItemIfMissing(db, tracks.bgm, sb.id, start, end, `mock://storyboard/${sb.id}/bgm`, { kind: 'bgm', placeholder: true })) itemCreated += 1;
+      if (insertTimelineItemIfMissing(db, tracks.transition, sb.id, start, end, `mock://storyboard/${sb.id}/transition`, { kind: 'transition', placeholder: true })) itemCreated += 1;
+      cursor = end;
+    }
+  }
+  log?.info?.('Workflow timeline plan prepared', { drama_id: dramaId, episode_count: episodes.length, itemCreated });
+  return { episode_count: episodes.length, track_count: trackCreatedOrFound, timeline_item_created: itemCreated };
+}
+
+function executeStep(db, log, run, step, allSteps) {
+  if (step.step_key === 'source_intake') {
+    const input = step.input_json || {};
+    if (input.source_id) {
+      const detail = sourceIntakeService.getSourceDetail(db, input.source_id);
+      if (!detail) throw new Error('Source not found');
+      if (Number(detail.source.drama_id) !== Number(run.drama_id)) {
+        throw new Error('Source does not belong to this drama');
+      }
+      let adaptationPlanId = input.adaptation_plan_id || detail.adaptation_plans[0]?.id || null;
+      if (adaptationPlanId) {
+        const plan = sourceIntakeService.getAdaptationPlanById(db, adaptationPlanId);
+        if (!plan || Number(plan.source_id) !== Number(detail.source.id)) {
+          throw new Error('Adaptation plan does not belong to this source');
+        }
+      }
+      const output = {
+        source_id: detail.source.id,
+        source_type: detail.source.source_type,
+        item_count: detail.items.length,
+        event_count: detail.events.length,
+        event_edge_count: detail.event_edges?.length || 0,
+        adaptation_plan_id: adaptationPlanId,
+      };
+      recordSkill(db, run, step, 'localminidrama-source-intake', input, output);
+      return output;
+    }
+    const result = sourceIntakeService.createStorySource(db, log, input);
+    const output = {
+      source_id: result.source.id,
+      source_type: result.source.source_type,
+      item_count: result.items.length,
+      event_count: result.events.length,
+      event_edge_count: result.event_edges?.length || 0,
+      adaptation_plan_id: result.adaptation_plan?.id || null,
+    };
+    recordSkill(db, run, step, 'localminidrama-source-intake', input, output);
+    return output;
+  }
+
+  if (step.step_key === 'adaptation_plan') {
+    const sourceOut = previousOutput(allSteps, 'source_intake');
+    const sourceId = sourceOut.source_id;
+    if (!sourceId) throw new Error('source_intake output missing source_id');
+    let plan = sourceOut.adaptation_plan_id
+      ? sourceIntakeService.getAdaptationPlanById(db, sourceOut.adaptation_plan_id)
+      : sourceIntakeService.getLatestPlanForSource(db, sourceId);
+    if (!plan) {
+      const runInput = run.input_json || {};
+      plan = sourceIntakeService.createAdaptationPlan(db, log, sourceId, {
+        target_episode_count: runInput.target_episode_count,
+        style: runInput.style,
+      });
+    }
+    const reviewId = createCreativeReview(db, {
+      dramaId: run.drama_id,
+      runId: run.id,
+      sourceId,
+      role: 'script_writer',
+      targetType: 'adaptation_plan',
+      targetId: String(plan.id),
+      status: 'locked',
+      findings: [
+        { check: 'source_traceability', passed: true },
+        { check: 'episode_beats', passed: Array.isArray(plan.plan_json?.episodes) && plan.plan_json.episodes.length > 0 },
+      ],
+    });
+    const output = {
+      adaptation_plan_id: plan.id,
+      source_id: plan.source_id,
+      episode_count: plan.target_episode_count,
+      status: plan.status,
+      creative_review_id: reviewId,
+    };
+    recordSkill(db, run, step, 'localminidrama-script-adapter', { source_id: sourceId }, output);
+    return output;
+  }
+
+  if (step.step_key === 'apply_episodes') {
+    const planOut = previousOutput(allSteps, 'adaptation_plan');
+    if (!planOut.adaptation_plan_id) throw new Error('adaptation_plan output missing adaptation_plan_id');
+    const result = sourceIntakeService.applyAdaptationPlanToEpisodes(db, log, planOut.adaptation_plan_id, {
+      overwrite_existing_episodes: run.input_json?.overwrite_existing_episodes === true,
+    });
+    if (!result) throw new Error('Failed to apply adaptation plan');
+    recordSkill(db, run, step, 'localminidrama-script-adapter', { adaptation_plan_id: planOut.adaptation_plan_id }, result);
+    return result;
+  }
+
+  if (step.step_key === 'asset_bible') {
+    const result = ensureAssetBible(db, log, run.drama_id);
+    const sourceOut = previousOutput(allSteps, 'source_intake');
+    result.creative_review_id = createCreativeReview(db, {
+      dramaId: run.drama_id,
+      runId: run.id,
+      sourceId: sourceOut.source_id || null,
+      role: 'art_designer',
+      targetType: 'asset_bible',
+      targetId: String(run.drama_id),
+      status: 'locked',
+      findings: [
+        { check: 'character_anchors', passed: true },
+        { check: 'scene_prop_seed_assets', passed: true },
+      ],
+    });
+    recordSkill(db, run, step, 'art-direction', { drama_id: run.drama_id }, result);
+    recordSkill(db, run, step, 'character-design-sheet', { drama_id: run.drama_id }, result);
+    return result;
+  }
+
+  if (step.step_key === 'storyboard_draft') {
+    const result = ensureStoryboardDraft(db, log, run.drama_id);
+    result.creative_review_id = createCreativeReview(db, {
+      dramaId: run.drama_id,
+      runId: run.id,
+      role: 'animator',
+      targetType: 'storyboard_draft',
+      targetId: String(run.drama_id),
+      status: 'locked',
+      findings: [
+        { check: 'shot_duration', passed: true },
+        { check: 'image_video_prompts', passed: true },
+      ],
+    });
+    recordSkill(db, run, step, 'video-storyboard', { drama_id: run.drama_id }, result);
+    return result;
+  }
+
+  if (step.step_key === 'image_generation') {
+    const result = providerSdkService.generateStoryboardImages(db, log, {
+      drama_id: run.drama_id,
+      run_id: run.id,
+      workflow_step_id: step.id,
+      image_size: run.input_json?.options?.image_size,
+    });
+    recordSkill(db, run, step, 'image-generation', { drama_id: run.drama_id }, result);
+    recordSkill(db, run, step, 'localminidrama-provider-sdk', { provider_type: 'image', drama_id: run.drama_id }, result);
+    return result;
+  }
+
+  if (step.step_key === 'video_generation') {
+    const result = providerSdkService.generateStoryboardVideos(db, log, {
+      drama_id: run.drama_id,
+      run_id: run.id,
+      workflow_step_id: step.id,
+      aspect_ratio: run.input_json?.options?.aspect_ratio || run.input_json?.metadata?.aspect_ratio,
+    });
+    recordSkill(db, run, step, 'video-prompting', { drama_id: run.drama_id }, result);
+    recordSkill(db, run, step, 'seedance-prompt-zh', { drama_id: run.drama_id }, result);
+    recordSkill(db, run, step, 'localminidrama-provider-sdk', { provider_type: 'video', drama_id: run.drama_id }, result);
+    return result;
+  }
+
+  if (step.step_key === 'audio_generation') {
+    const result = providerSdkService.generateStoryboardAudio(db, log, {
+      drama_id: run.drama_id,
+      run_id: run.id,
+      workflow_step_id: step.id,
+    });
+    recordSkill(db, run, step, 'localminidrama-provider-sdk', { provider_type: 'tts', drama_id: run.drama_id }, result);
+    return result;
+  }
+
+  if (step.step_key === 'timeline_plan') {
+    const result = ensureTimelinePlan(db, log, run.drama_id);
+    return result;
+  }
+
+  if (step.step_key === 'post_composite') {
+    const result = providerSdkService.compositeEpisodes(db, log, {
+      drama_id: run.drama_id,
+      run_id: run.id,
+      workflow_step_id: step.id,
+    });
+    recordSkill(db, run, step, 'video-use', { drama_id: run.drama_id }, result);
+    recordSkill(db, run, step, 'localminidrama-provider-sdk', { provider_type: 'compositor', drama_id: run.drama_id }, result);
+    return result;
+  }
+
+  if (step.step_key === 'qa_audit') {
+    const qaMode = run.input_json?.qa_mode === 'production' ? 'production' : 'draft';
+    const report = qaService.auditDrama(db, log, {
+      drama_id: run.drama_id,
+      episode_id: run.episode_id,
+      run_id: run.id,
+      mode: qaMode,
+    });
+    if (!report.passed) {
+      const error = new Error(`QA gate failed with score ${report.score}`);
+      error.report = report;
+      throw error;
+    }
+    const reviewId = createCreativeReview(db, {
+      dramaId: run.drama_id,
+      runId: run.id,
+      role: 'director',
+      targetType: 'qa_report',
+      targetId: String(report.id),
+      status: 'locked',
+      findings: [
+        { check: 'qa_score', passed: report.score >= 80, score: report.score },
+        { check: 'final_acceptance', passed: report.passed },
+      ],
+    });
+    const output = {
+      qa_report_id: report.id,
+      score: report.score,
+      passed: report.passed,
+      issue_count: report.report_json?.issues?.length || 0,
+      creative_review_id: reviewId,
+    };
+    recordSkill(db, run, step, 'localminidrama-continuity-qa', { drama_id: run.drama_id }, output);
+    recordSkill(db, run, step, 'localminidrama-workflow-auditor', { run_id: run.id }, output);
+    return output;
+  }
+
+  throw new Error(`Unknown workflow step: ${step.step_key}`);
+}
+
+async function processWorkflowRun(db, log, runId) {
+  if (processingRunIds.has(String(runId))) return getWorkflowRunDetail(db, runId);
+  processingRunIds.add(String(runId));
+  try {
+  let run = getWorkflowRun(db, runId);
+  if (!run) return null;
+  if (RUN_TERMINAL_STATUSES.has(run.status)) return getWorkflowRunDetail(db, runId);
+  if (run.status === 'paused') return getWorkflowRunDetail(db, runId);
+
+  setRunStatus(db, runId, 'processing', {
+    progress: run.progress || 0,
+    current_step: run.current_step,
+    error: null,
+  });
+
+  while (true) {
+    run = getWorkflowRun(db, runId);
+    if (!run || RUN_TERMINAL_STATUSES.has(run.status)) return getWorkflowRunDetail(db, runId);
+    if (run.status === 'paused') return getWorkflowRunDetail(db, runId);
+    const steps = getWorkflowSteps(db, runId);
+    const failedStep = steps.find((step) => step.status === 'failed');
+    if (failedStep) {
+      return getWorkflowRunDetail(db, runId);
+    }
+    const step = steps.find((s) => s.status !== 'completed');
+    if (!step) {
+      setRunStatus(db, runId, 'completed', {
+        progress: 100,
+        current_step: null,
+        output_json: { completed_step_count: steps.length },
+        error: null,
+      });
+      log?.info?.('Workflow run completed', { run_id: runId });
+      return getWorkflowRunDetail(db, runId);
+    }
+
+    const attempts = (step.attempts || 0) + 1;
+    setStepStatus(db, step.id, 'processing', { attempts, error: null, completed_at: null });
+    setRunStatus(db, runId, 'processing', {
+      progress: Math.floor((steps.filter((s) => s.status === 'completed').length / Math.max(steps.length, 1)) * 100),
+      current_step: step.step_key,
+      error: null,
+      completed_at: null,
+    });
+
+    try {
+      const latestRun = getWorkflowRun(db, runId);
+      if (!latestRun || RUN_TERMINAL_STATUSES.has(latestRun.status) || latestRun.status === 'paused') {
+        return getWorkflowRunDetail(db, runId);
+      }
+      const latestSteps = getWorkflowSteps(db, runId);
+      const output = executeStep(db, log, latestRun, { ...step, attempts }, latestSteps);
+      const afterRun = getWorkflowRun(db, runId);
+      const afterStep = db.prepare('SELECT status FROM workflow_steps WHERE id = ?').get(String(step.id));
+      if (!afterRun || RUN_TERMINAL_STATUSES.has(afterRun.status) || afterRun.status === 'paused' || afterStep?.status === 'cancelled') {
+        return getWorkflowRunDetail(db, runId);
+      }
+      setStepStatus(db, step.id, 'completed', { output_json: output, error: null });
+      const completedCount = getWorkflowSteps(db, runId).filter((s) => s.status === 'completed').length;
+      setRunStatus(db, runId, 'processing', {
+        progress: Math.min(99, Math.floor((completedCount / Math.max(steps.length, 1)) * 100)),
+        current_step: step.step_key,
+        error: null,
+      });
+    } catch (err) {
+      const output = err.report ? {
+        qa_report_id: err.report.id,
+        score: err.report.score,
+        passed: false,
+        issue_count: err.report.report_json?.issues?.length || 0,
+      } : undefined;
+      setStepStatus(db, step.id, 'failed', {
+        output_json: output,
+        error: err.message || String(err),
+      });
+      setRunStatus(db, runId, 'failed', {
+        progress: Math.floor((steps.filter((s) => s.status === 'completed').length / Math.max(steps.length, 1)) * 100),
+        current_step: step.step_key,
+        error: err.message || String(err),
+      });
+      log?.error?.('Workflow run failed', { run_id: runId, step_key: step.step_key, error: err.message });
+      return getWorkflowRunDetail(db, runId);
+    }
+  }
+  } finally {
+    processingRunIds.delete(String(runId));
+  }
+}
+
+function scheduleWorkflowRun(db, log, runId) {
+  queuedWorkflowRuns.set(String(runId), { db, log, runId: String(runId) });
+  if (queueDrainScheduled) return;
+  queueDrainScheduled = true;
+  Promise.resolve().then(drainWorkflowQueue);
+}
+
+async function drainWorkflowQueue() {
+  queueDrainScheduled = false;
+  const entries = Array.from(queuedWorkflowRuns.values());
+  queuedWorkflowRuns.clear();
+  for (const entry of entries) {
+    try {
+      await processWorkflowRun(entry.db, entry.log, entry.runId);
+    } catch (err) {
+      entry.log?.error?.('Workflow run fatal error', { run_id: entry.runId, error: err.message });
+      setRunStatus(entry.db, entry.runId, 'failed', { error: err.message || String(err) });
+    }
+  }
+  if (queuedWorkflowRuns.size && !queueDrainScheduled) {
+    queueDrainScheduled = true;
+    Promise.resolve().then(drainWorkflowQueue);
+  }
+}
+
+function startNovel2AnimeWorkflow(db, log, params) {
+  const run = createWorkflowRun(db, log, { ...params, type: 'novel2anime', steps: NOVEL2ANIME_STEPS });
+  scheduleWorkflowRun(db, log, run.id);
+  return run;
+}
+
+function stepsFromKeys(stepKeys) {
+  const keySet = new Set(stepKeys || []);
+  return NOVEL2ANIME_STEPS.filter((step) => keySet.has(step.key));
+}
+
+function startNovel2AnimeRepairWorkflow(db, log, params) {
+  const action = String(params.action || '').trim();
+  const actionSteps = {
+    refresh_asset_bible: ['asset_bible', 'qa_audit'],
+    repair_storyboards: ['storyboard_draft', 'image_generation', 'video_generation', 'audio_generation', 'timeline_plan', 'post_composite', 'qa_audit'],
+    repair_timeline: ['timeline_plan', 'post_composite', 'qa_audit'],
+    audit_only: ['qa_audit'],
+  };
+  const steps = stepsFromKeys(actionSteps[action] || actionSteps.repair_storyboards);
+  if (!steps.length) {
+    const err = new Error(`Unsupported repair action: ${action}`);
+    err.code = 'BAD_REQUEST';
+    throw err;
+  }
+  const run = createWorkflowRun(db, log, {
+    ...params,
+    type: `novel2anime:${action || 'repair'}`,
+    steps,
+    metadata: {
+      ...(params.metadata || {}),
+      repair_action: action || 'repair_storyboards',
+    },
+  });
+  scheduleWorkflowRun(db, log, run.id);
+  return run;
+}
+
+function retryWorkflowRun(db, log, runId, options = {}) {
+  const run = getWorkflowRun(db, runId);
+  if (!run) return null;
+  if (run.status !== 'failed') {
+    const err = new Error('Only failed workflow runs can be retried');
+    err.code = 'BAD_REQUEST';
+    throw err;
+  }
+  const now = nowIso();
+  const stepInputs = options.step_inputs && typeof options.step_inputs === 'object' ? options.step_inputs : {};
+  for (const [stepKey, input] of Object.entries(stepInputs)) {
+    db.prepare(
+      `UPDATE workflow_steps
+       SET input_json = ?, updated_at = ?
+       WHERE run_id = ? AND step_key = ? AND status = 'failed'`
+    ).run(toJson(input), now, run.id, stepKey);
+  }
+  db.prepare(
+    `UPDATE workflow_steps
+     SET status = 'pending', error = NULL, completed_at = NULL, updated_at = ?
+     WHERE run_id = ? AND status = 'failed'`
+  ).run(now, run.id);
+  setRunStatus(db, run.id, 'pending', { error: null, completed_at: null });
+  scheduleWorkflowRun(db, log, run.id);
+  return getWorkflowRunDetail(db, run.id);
+}
+
+function cancelWorkflowRun(db, log, runId, reason = 'User cancelled workflow') {
+  const run = getWorkflowRun(db, runId);
+  if (!run) return null;
+  if (RUN_TERMINAL_STATUSES.has(run.status)) return getWorkflowRunDetail(db, runId);
+  const now = nowIso();
+  db.prepare(
+    `UPDATE workflow_steps
+     SET status = 'cancelled', error = ?, completed_at = ?, updated_at = ?
+     WHERE run_id = ? AND status IN ('pending', 'processing')`
+  ).run(reason, now, now, run.id);
+  setRunStatus(db, run.id, 'cancelled', { error: reason });
+  log?.info?.('Workflow run cancelled', { run_id: run.id });
+  return getWorkflowRunDetail(db, run.id);
+}
+
+function pauseWorkflowRun(db, log, runId, reason = 'User paused workflow') {
+  const run = getWorkflowRun(db, runId);
+  if (!run) return null;
+  if (RUN_TERMINAL_STATUSES.has(run.status) || run.status === 'paused') return getWorkflowRunDetail(db, runId);
+  const now = nowIso();
+  db.prepare(
+    `UPDATE workflow_steps
+     SET status = 'pending', error = ?, updated_at = ?
+     WHERE run_id = ? AND status = 'processing'`
+  ).run(reason, now, run.id);
+  setRunStatus(db, run.id, 'paused', { error: reason, completed_at: null });
+  log?.info?.('Workflow run paused', { run_id: run.id });
+  return getWorkflowRunDetail(db, run.id);
+}
+
+function resumeWorkflowRun(db, log, runId) {
+  const run = getWorkflowRun(db, runId);
+  if (!run) return null;
+  if (run.status !== 'paused') {
+    const err = new Error('Only paused workflow runs can be resumed');
+    err.code = 'BAD_REQUEST';
+    throw err;
+  }
+  setRunStatus(db, run.id, 'pending', { error: null, completed_at: null });
+  scheduleWorkflowRun(db, log, run.id);
+  log?.info?.('Workflow run resumed', { run_id: run.id });
+  return getWorkflowRunDetail(db, run.id);
+}
+
+function resumeActiveWorkflowRunsOnStartup(db, log) {
+  const runs = db.prepare(
+    `SELECT id FROM workflow_runs
+     WHERE status IN ('pending', 'processing') AND deleted_at IS NULL
+     ORDER BY created_at ASC`
+  ).all();
+  for (const row of runs) {
+    db.prepare(
+      `UPDATE workflow_steps
+       SET status = 'pending', updated_at = ?
+       WHERE run_id = ? AND status = 'processing'`
+    ).run(nowIso(), row.id);
+    scheduleWorkflowRun(db, log, row.id);
+  }
+  if (runs.length) log?.info?.('Workflow runs resumed on startup', { count: runs.length });
+  return runs.length;
+}
+
+module.exports = {
+  NOVEL2ANIME_STEPS,
+  createWorkflowRun,
+  startNovel2AnimeWorkflow,
+  startNovel2AnimeRepairWorkflow,
+  processWorkflowRun,
+  scheduleWorkflowRun,
+  retryWorkflowRun,
+  cancelWorkflowRun,
+  pauseWorkflowRun,
+  resumeWorkflowRun,
+  resumeActiveWorkflowRunsOnStartup,
+  getWorkflowRun,
+  getWorkflowSteps,
+  getWorkflowRunDetail,
+  listWorkflowRuns,
+  rowToRun,
+  rowToStep,
+  ensureAssetBible,
+  ensureStoryboardDraft,
+  ensureTimelinePlan,
+  createCreativeReview,
+};

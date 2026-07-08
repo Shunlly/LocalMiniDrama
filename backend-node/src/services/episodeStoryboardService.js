@@ -7,6 +7,7 @@ const safeJson = require('../utils/safeJson');
 const { safeParseAIJSON, extractJsonCandidate, repairTruncatedJsonArray, extractFirstArray } = safeJson;
 const loadConfig = require('../config').loadConfig;
 const angleService = require('./angleService');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 
 /**
  * 分镜专用 generateText 包装：
@@ -1291,7 +1292,7 @@ The user enabled narrator voice-over for the whole episode. Every shot object MU
     universal_omni_storyboard: wantUniversalOmni,
   });
 
-  setImmediate(() => {
+  scheduleLegacyAsync(log, 'storyboard_generation', () => {
     // 传入 imageRatio 同时覆盖 default_video_ratio 和 default_image_ratio，
     // 确保分镜图/视频提示词、场景提取提示词都使用项目设定的比例
     const runCfg = { ...cfg, style: { ...(cfg?.style || {}), default_video_ratio: imageRatio, default_image_ratio: imageRatio } };
@@ -1312,7 +1313,7 @@ The user enabled narrator voice-over for the whole episode. Every shot object MU
       wantUniversalOmni,
       clipSec
     );
-  });
+  }, { task_id: task.id, episode_id: episodeId });
 
   return { task_id: task.id, status: 'pending', message: '分镜生成任务已创建，正在后台处理...' };
 }

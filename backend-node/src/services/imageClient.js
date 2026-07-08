@@ -9,6 +9,7 @@ const taskService = require('./taskService');
 const { loadConfig } = require('../config');
 const { postJSONWithTimeout } = require('./aiClient');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 
 /** 图生 POST 使用 Node http(s)，默认 10 分钟，避免 undici fetch 大包体/慢链路下模糊失败 */
 const IMAGE_HTTP_TIMEOUT_MS = 600000;
@@ -1671,7 +1672,7 @@ function createAndGenerateImage(db, log, opts) {
     }
   }
 
-  setImmediate(async () => {
+  scheduleLegacyAsync(log, 'legacy_image_client_generation', async () => {
     try {
       db.prepare('UPDATE image_generations SET status = ? WHERE id = ?').run('processing', imageGenId);
       const result = await callImageApi(db, log, {
@@ -1823,7 +1824,7 @@ function createAndGenerateImage(db, log, opts) {
       }
       log.error('Image generation error', { image_gen_id: imageGenId, task_id: taskId, error: err.message });
     }
-  });
+  }, { image_generation_id: imageGenId, task_id: taskId, drama_id: dramaIdNum });
 
   const row = db.prepare('SELECT * FROM image_generations WHERE id = ?').get(imageGenId);
   return row ? rowToItem(row) : { id: imageGenId, task_id: taskId, status: 'pending', drama_id: dramaIdNum, character_id: charIdNum, scene_id: sceneIdNum, prompt, model, size, quality, created_at: now, updated_at: now };

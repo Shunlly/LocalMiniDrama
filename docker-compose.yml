@@ -1,0 +1,40 @@
+name: localminidrama
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend-node/Dockerfile
+    container_name: localminidrama-backend
+    environment:
+      NODE_ENV: development
+      PORT: "5679"
+    ports:
+      - "5679:5679"
+    volumes:
+      - ./backend-node/data:/app/data
+      - ./backend-node/configs:/app/configs
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:5679/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontweb/Dockerfile
+    container_name: localminidrama-frontend
+    environment:
+      VITE_BACKEND_PROXY_TARGET: http://backend:5679
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3013:3013"
+    depends_on:
+      backend:
+        condition: service_healthy

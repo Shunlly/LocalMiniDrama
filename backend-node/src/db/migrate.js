@@ -510,6 +510,379 @@ function ensureAllColumns(database) {
     )`);
   } catch (_) {}
 
+  // --- novel2anime architecture tables ---
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS story_sources (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      drama_id INTEGER NOT NULL DEFAULT 0,
+      source_type TEXT NOT NULL DEFAULT '',
+      title TEXT,
+      raw_text_path TEXT,
+      content_hash TEXT,
+      metadata TEXT,
+      created_at TEXT NOT NULL DEFAULT '',
+      deleted_at TEXT
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'story_sources', [
+    { name: 'drama_id', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { name: 'source_type', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'title', type: 'TEXT' },
+    { name: 'raw_text_path', type: 'TEXT' },
+    { name: 'content_hash', type: 'TEXT' },
+    { name: 'metadata', type: 'TEXT' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'deleted_at', type: 'TEXT' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS source_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_id INTEGER NOT NULL DEFAULT 0,
+      item_type TEXT NOT NULL DEFAULT '',
+      item_no INTEGER DEFAULT 0,
+      title TEXT,
+      raw_text TEXT,
+      summary TEXT,
+      status TEXT NOT NULL DEFAULT 'ready',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'source_items', [
+    { name: 'source_id', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { name: 'item_type', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'item_no', type: 'INTEGER DEFAULT 0' },
+    { name: 'title', type: 'TEXT' },
+    { name: 'raw_text', type: 'TEXT' },
+    { name: 'summary', type: 'TEXT' },
+    { name: 'status', type: 'TEXT NOT NULL DEFAULT \'ready\'' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'updated_at', type: 'TEXT' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS story_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      drama_id INTEGER NOT NULL DEFAULT 0,
+      source_item_id INTEGER,
+      event_no INTEGER DEFAULT 0,
+      title TEXT,
+      detail TEXT,
+      characters TEXT,
+      location TEXT,
+      tension INTEGER DEFAULT 1,
+      hook_score INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT ''
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'story_events', [
+    { name: 'drama_id', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { name: 'source_item_id', type: 'INTEGER' },
+    { name: 'event_no', type: 'INTEGER DEFAULT 0' },
+    { name: 'title', type: 'TEXT' },
+    { name: 'detail', type: 'TEXT' },
+    { name: 'characters', type: 'TEXT' },
+    { name: 'location', type: 'TEXT' },
+    { name: 'tension', type: 'INTEGER DEFAULT 1' },
+    { name: 'hook_score', type: 'INTEGER DEFAULT 1' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS adaptation_plans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      drama_id INTEGER NOT NULL DEFAULT 0,
+      source_id INTEGER NOT NULL DEFAULT 0,
+      target_episode_count INTEGER DEFAULT 1,
+      style TEXT,
+      plan_json TEXT,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'adaptation_plans', [
+    { name: 'drama_id', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { name: 'source_id', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { name: 'target_episode_count', type: 'INTEGER DEFAULT 1' },
+    { name: 'style', type: 'TEXT' },
+    { name: 'plan_json', type: 'TEXT' },
+    { name: 'status', type: 'TEXT NOT NULL DEFAULT \'draft\'' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'updated_at', type: 'TEXT' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS workflow_runs (
+      id TEXT PRIMARY KEY,
+      drama_id INTEGER NOT NULL DEFAULT 0,
+      episode_id INTEGER,
+      type TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      progress INTEGER DEFAULT 0,
+      current_step TEXT,
+      input_json TEXT,
+      output_json TEXT,
+      error TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      deleted_at TEXT
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'workflow_runs', [
+    { name: 'drama_id', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { name: 'episode_id', type: 'INTEGER' },
+    { name: 'type', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'status', type: 'TEXT NOT NULL DEFAULT \'pending\'' },
+    { name: 'progress', type: 'INTEGER DEFAULT 0' },
+    { name: 'current_step', type: 'TEXT' },
+    { name: 'input_json', type: 'TEXT' },
+    { name: 'output_json', type: 'TEXT' },
+    { name: 'error', type: 'TEXT' },
+    { name: 'started_at', type: 'TEXT' },
+    { name: 'completed_at', type: 'TEXT' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'updated_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'deleted_at', type: 'TEXT' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS workflow_steps (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL DEFAULT '',
+      step_key TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER DEFAULT 0,
+      input_json TEXT,
+      output_json TEXT,
+      error TEXT,
+      sort_order INTEGER DEFAULT 0,
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT ''
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'workflow_steps', [
+    { name: 'run_id', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'step_key', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'status', type: 'TEXT NOT NULL DEFAULT \'pending\'' },
+    { name: 'attempts', type: 'INTEGER DEFAULT 0' },
+    { name: 'input_json', type: 'TEXT' },
+    { name: 'output_json', type: 'TEXT' },
+    { name: 'error', type: 'TEXT' },
+    { name: 'sort_order', type: 'INTEGER DEFAULT 0' },
+    { name: 'started_at', type: 'TEXT' },
+    { name: 'completed_at', type: 'TEXT' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'updated_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS qa_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      drama_id INTEGER NOT NULL DEFAULT 0,
+      episode_id INTEGER,
+      run_id TEXT,
+      score INTEGER DEFAULT 0,
+      passed INTEGER DEFAULT 0,
+      report_json TEXT,
+      created_at TEXT NOT NULL DEFAULT ''
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'qa_reports', [
+    { name: 'drama_id', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { name: 'episode_id', type: 'INTEGER' },
+    { name: 'run_id', type: 'TEXT' },
+    { name: 'score', type: 'INTEGER DEFAULT 0' },
+    { name: 'passed', type: 'INTEGER DEFAULT 0' },
+    { name: 'report_json', type: 'TEXT' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS creative_reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      drama_id INTEGER,
+      run_id TEXT,
+      source_id INTEGER,
+      role TEXT NOT NULL DEFAULT '',
+      target_type TEXT NOT NULL DEFAULT '',
+      target_id TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      findings_json TEXT,
+      created_at TEXT NOT NULL DEFAULT '',
+      resolved_at TEXT
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'creative_reviews', [
+    { name: 'drama_id', type: 'INTEGER' },
+    { name: 'run_id', type: 'TEXT' },
+    { name: 'source_id', type: 'INTEGER' },
+    { name: 'role', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'target_type', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'target_id', type: 'TEXT' },
+    { name: 'status', type: 'TEXT NOT NULL DEFAULT \'open\'' },
+    { name: 'findings_json', type: 'TEXT' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'resolved_at', type: 'TEXT' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS timeline_tracks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      episode_id INTEGER NOT NULL DEFAULT 0,
+      type TEXT NOT NULL DEFAULT '',
+      name TEXT,
+      sort_order INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'timeline_tracks', [
+    { name: 'episode_id', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { name: 'type', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'name', type: 'TEXT' },
+    { name: 'sort_order', type: 'INTEGER DEFAULT 0' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'updated_at', type: 'TEXT' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS timeline_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      track_id INTEGER NOT NULL DEFAULT 0,
+      storyboard_id INTEGER,
+      start_sec REAL DEFAULT 0,
+      end_sec REAL DEFAULT 0,
+      source_path TEXT,
+      metadata TEXT,
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'timeline_items', [
+    { name: 'track_id', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { name: 'storyboard_id', type: 'INTEGER' },
+    { name: 'start_sec', type: 'REAL DEFAULT 0' },
+    { name: 'end_sec', type: 'REAL DEFAULT 0' },
+    { name: 'source_path', type: 'TEXT' },
+    { name: 'metadata', type: 'TEXT' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'updated_at', type: 'TEXT' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS provider_invocations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workflow_step_id TEXT,
+      run_id TEXT,
+      provider_type TEXT NOT NULL DEFAULT '',
+      provider_name TEXT NOT NULL DEFAULT 'mock',
+      model TEXT,
+      mode TEXT NOT NULL DEFAULT 'mock',
+      input_hash TEXT,
+      output_json TEXT,
+      status TEXT NOT NULL DEFAULT 'success',
+      cost_estimate REAL DEFAULT 0,
+      error_message TEXT,
+      created_at TEXT NOT NULL DEFAULT ''
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'provider_invocations', [
+    { name: 'workflow_step_id', type: 'TEXT' },
+    { name: 'run_id', type: 'TEXT' },
+    { name: 'provider_type', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'provider_name', type: 'TEXT NOT NULL DEFAULT \'mock\'' },
+    { name: 'model', type: 'TEXT' },
+    { name: 'mode', type: 'TEXT NOT NULL DEFAULT \'mock\'' },
+    { name: 'input_hash', type: 'TEXT' },
+    { name: 'output_json', type: 'TEXT' },
+    { name: 'status', type: 'TEXT NOT NULL DEFAULT \'success\'' },
+    { name: 'cost_estimate', type: 'REAL DEFAULT 0' },
+    { name: 'error_message', type: 'TEXT' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS skill_registry (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      skill_name TEXT NOT NULL UNIQUE,
+      skill_version TEXT,
+      owner_role TEXT,
+      workflow_node TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      mode TEXT NOT NULL DEFAULT 'mock',
+      input_schema_json TEXT,
+      output_schema_json TEXT,
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT ''
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'skill_registry', [
+    { name: 'skill_name', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'skill_version', type: 'TEXT' },
+    { name: 'owner_role', type: 'TEXT' },
+    { name: 'workflow_node', type: 'TEXT' },
+    { name: 'enabled', type: 'INTEGER NOT NULL DEFAULT 1' },
+    { name: 'mode', type: 'TEXT NOT NULL DEFAULT \'mock\'' },
+    { name: 'input_schema_json', type: 'TEXT' },
+    { name: 'output_schema_json', type: 'TEXT' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'updated_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS skill_invocations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workflow_step_id TEXT,
+      run_id TEXT,
+      skill_name TEXT NOT NULL DEFAULT '',
+      input_hash TEXT,
+      output_hash TEXT,
+      status TEXT NOT NULL DEFAULT 'success',
+      cost_estimate REAL DEFAULT 0,
+      error_message TEXT,
+      created_at TEXT NOT NULL DEFAULT ''
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'skill_invocations', [
+    { name: 'workflow_step_id', type: 'TEXT' },
+    { name: 'run_id', type: 'TEXT' },
+    { name: 'skill_name', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'input_hash', type: 'TEXT' },
+    { name: 'output_hash', type: 'TEXT' },
+    { name: 'status', type: 'TEXT NOT NULL DEFAULT \'success\'' },
+    { name: 'cost_estimate', type: 'REAL DEFAULT 0' },
+    { name: 'error_message', type: 'TEXT' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+  ]);
+
+  try {
+    database.exec(`CREATE TABLE IF NOT EXISTS story_event_edges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      drama_id INTEGER NOT NULL DEFAULT 0,
+      source_id INTEGER,
+      from_event_id INTEGER NOT NULL DEFAULT 0,
+      to_event_id INTEGER NOT NULL DEFAULT 0,
+      relation_type TEXT NOT NULL DEFAULT 'next',
+      description TEXT,
+      created_at TEXT NOT NULL DEFAULT ''
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'story_event_edges', [
+    { name: 'drama_id', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { name: 'source_id', type: 'INTEGER' },
+    { name: 'from_event_id', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { name: 'to_event_id', type: 'INTEGER NOT NULL DEFAULT 0' },
+    { name: 'relation_type', type: 'TEXT NOT NULL DEFAULT \'next\'' },
+    { name: 'description', type: 'TEXT' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+  ]);
+
   // --- global_settings（全局键值设置表） ---
   try {
     database.exec(`CREATE TABLE IF NOT EXISTS global_settings (

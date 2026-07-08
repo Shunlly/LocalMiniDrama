@@ -5,6 +5,7 @@ const imageClient = require('./imageClient');
 const propService = require('./propService');
 const uploadService = require('./uploadService');
 const storageLayout = require('./storageLayout');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { aspectRatioToSize } = require('./imageService');
 
 function appendPrompt(base, extra) {
@@ -156,11 +157,11 @@ function generatePropImage(db, log, propId, opts) {
   }
 
   const task = taskService.createTask(db, log, 'prop_image_generation', String(propId));
-  setImmediate(() => {
+  scheduleLegacyAsync(log, 'prop_image_generation', () => {
     processPropImageGeneration(db, log, task.id, propId, opts || {}).catch((err) => {
       log.error('processPropImageGeneration fatal', { error: err.message, task_id: task.id });
     });
-  });
+  }, { task_id: task.id, prop_id: propId });
   return task.id;
 }
 
