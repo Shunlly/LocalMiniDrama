@@ -1,5 +1,6 @@
 const response = require('../response');
 const sourceIntakeService = require('../services/sourceIntakeService');
+const webSourceImportService = require('../services/webSourceImportService');
 const path = require('path');
 
 const MAX_SOURCE_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -129,6 +130,32 @@ module.exports = function storySourceRoutes(db, log) {
         response.created(res, result);
       } catch (err) {
         log.error('story sources upload', { error: err.message, drama_id: req.params.id });
+        badRequestOrInternal(res, err);
+      }
+    },
+
+    async importUrlForDrama(req, res) {
+      try {
+        const body = req.body || {};
+        const fetched = await webSourceImportService.fetchWebSource(body.source_url || body.url);
+        const metadata = {
+          ...parseMetadata(body.metadata),
+          imported_from: 'source_intake_url',
+          source_url: fetched.url,
+          fetched_content_type: fetched.content_type,
+          fetched_text_length: fetched.text_length,
+          fetched_text_truncated: fetched.truncated,
+        };
+        const result = sourceIntakeService.createStorySource(db, log, {
+          ...body,
+          drama_id: req.params.id,
+          text: fetched.text,
+          title: body.title || fetched.title || fetched.url,
+          metadata,
+        });
+        response.created(res, result);
+      } catch (err) {
+        log.error('story sources import url', { error: err.message, drama_id: req.params.id });
         badRequestOrInternal(res, err);
       }
     },

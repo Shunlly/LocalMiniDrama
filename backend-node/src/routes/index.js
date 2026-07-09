@@ -130,6 +130,7 @@ function setupRouter(cfg, db, log) {
   r.get('/dramas/:id/story-sources', storySources.listForDrama);
   r.post('/dramas/:id/story-sources', storySources.createForDrama);
   r.post('/dramas/:id/story-sources/upload', sourceUploadSingle, storySources.uploadForDrama);
+  r.post('/dramas/:id/story-sources/import-url', storySources.importUrlForDrama);
   r.get('/dramas/:id/timeline', timelines.getDramaTimeline);
   r.get('/dramas/:id/timeline/manifest', timelines.exportDramaManifest);
   r.put('/dramas/:id/outline', drama.saveOutline);

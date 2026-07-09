@@ -12,6 +12,9 @@ export const sourceIntakeAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
+  importUrlForDrama(dramaId, data) {
+    return request.post(`/dramas/${dramaId}/story-sources/import-url`, data)
+  },
   get(sourceId) {
     return request.get(`/story-sources/${sourceId}`)
   },

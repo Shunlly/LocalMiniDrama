@@ -44,6 +44,15 @@
             <el-input v-model="form.title" placeholder="故事素材标题" />
           </el-form-item>
 
+          <el-form-item label="网页 URL">
+            <el-input
+              v-model="form.source_url"
+              clearable
+              placeholder="粘贴公开网页或纯文本链接，系统会抽取正文作为素材"
+            />
+            <div class="field-help">仅导入公开可访问的文本/HTML 页面；请确认素材版权或授权。</div>
+          </el-form-item>
+
           <el-form-item label="本地文本文件">
             <div class="file-row">
               <input
@@ -278,6 +287,7 @@ const form = reactive({
   title: '',
   source_type: '',
   target_episode_count: 1,
+  source_url: '',
   text: '',
 })
 
@@ -304,7 +314,8 @@ const sourceDetailLoading = ref(false)
 const sourceDetail = ref(null)
 let pollTimer = null
 
-const hasSourceInput = computed(() => Boolean(sourceFile.value || form.text.trim()))
+const hasWebSourceUrl = computed(() => Boolean(String(form.source_url || '').trim()))
+const hasSourceInput = computed(() => Boolean(sourceFile.value || hasWebSourceUrl.value || form.text.trim()))
 const runState = computed(() => normalizeWorkflowRun(selectedRun.value))
 const timelineSummary = computed(() => normalizeTimelineSummary(timeline.value))
 const latestQa = computed(() => {
@@ -433,11 +444,19 @@ async function createSourceFromForm() {
   if (sourceFile.value) {
     return sourceIntakeAPI.uploadForDrama(props.dramaId, buildSourceUploadFormData(form, props.drama, sourceFile.value))
   }
+  if (hasWebSourceUrl.value) {
+    const payload = buildSourceIntakePayload({ ...form, text: '' }, props.drama)
+    return sourceIntakeAPI.importUrlForDrama(props.dramaId, {
+      ...payload,
+      source_url: String(form.source_url || '').trim(),
+    })
+  }
   return sourceIntakeAPI.createForDrama(props.dramaId, buildSourceIntakePayload(form, props.drama))
 }
 
 function resetSourceInput() {
   form.text = ''
+  form.source_url = ''
   clearSelectedFile()
 }
 
@@ -458,7 +477,7 @@ async function importSourceOnly() {
 async function startWorkflow() {
   workflowStarting.value = true
   try {
-    if (sourceFile.value) {
+    if (sourceFile.value || hasWebSourceUrl.value) {
       const result = await createSourceFromForm()
       selectedRun.value = await startWorkflowFromSource(result.source, { silent: true })
     } else {
@@ -670,6 +689,12 @@ onBeforeUnmount(stopPoll)
 .file-name {
   color: #a1a1aa;
   font-size: 12px;
+}
+.field-help {
+  margin-top: 6px;
+  color: #71717a;
+  font-size: 12px;
+  line-height: 1.45;
 }
 .status-pane,
 .intake-pane {
