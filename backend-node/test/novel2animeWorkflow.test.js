@@ -305,6 +305,8 @@ describe('workflowService novel2anime', () => {
     assert.equal(productionReport.passed, false);
     assert.equal(productionReport.report_json.mode, 'production');
     assert.equal(productionReport.report_json.issues.some((issue) => issue.code === 'media_timeline_incomplete'), true);
+    assert.equal(productionReport.report_json.issues.some((issue) => issue.code === 'provider_audit_missing'), true);
+    assert.equal(productionReport.report_json.checks.some((check) => check.key === 'provider_sdk_audit' && check.passed === false), true);
 
     const dramaTimeline = timelineService.getDramaTimeline(db, 1);
     assert.equal(dramaTimeline.summary.episode_count, 2);
@@ -314,6 +316,141 @@ describe('workflowService novel2anime', () => {
     assert.equal(manifest.episodes.length, 2);
     const srt = timelineService.exportEpisodeSrt(db, dramaTimeline.episodes[0].episode.id);
     assert.equal(srt.content.includes('-->'), true);
+  });
+
+  it('fails production QA without run-scoped non-mock provider audit records', async () => {
+    const db = createDb();
+    const run = workflowService.createWorkflowRun(db, log, {
+      drama_id: 1,
+      type: 'novel2anime',
+      text: sampleStoryboardText(),
+      source_type: 'storyboard',
+      title: 'Provider Gate',
+      target_episode_count: 1,
+      style: 'anime style',
+    });
+
+    await workflowService.processWorkflowRun(db, log, run.id);
+    const now = new Date().toISOString();
+    const storyboards = db.prepare('SELECT id FROM storyboards WHERE deleted_at IS NULL ORDER BY id ASC').all();
+    assert.equal(storyboards.length >= 2, true);
+    db.prepare('UPDATE storyboards SET video_url = ?, local_path = ?, updated_at = ? WHERE id = ?')
+      .run('media/videos/real-one.mp4', null, now, storyboards[0].id);
+    db.prepare(
+      `INSERT INTO video_generations
+       (drama_id, storyboard_id, provider, prompt, model, video_url, local_path, status, completed_at, created_at, updated_at)
+       VALUES (1, ?, 'real-provider', 'prompt', 'real-video', 'media/videos/real-one.mp4', 'media/videos/real-one.mp4', 'completed', ?, ?, ?)`
+    ).run(storyboards[0].id, now, now, now);
+
+    const report = qaService.auditDrama(db, log, {
+      drama_id: 1,
+      mode: 'production',
+    });
+
+    assert.equal(report.passed, false);
+    assert.equal(report.report_json.issues.some((issue) => issue.code === 'provider_audit_missing'), true);
+    const mediaIssue = report.report_json.issues.find((issue) => issue.code === 'media_timeline_incomplete');
+    assert.ok(mediaIssue);
+    assert.deepEqual(mediaIssue.target.missing_real_media_storyboard_ids, storyboards.slice(1).map((sb) => sb.id));
+  });
+
+  it('rejects mock-like provider audit rows in production QA', async () => {
+    const db = createDb();
+    const run = workflowService.createWorkflowRun(db, log, {
+      drama_id: 1,
+      type: 'novel2anime',
+      text: sampleStoryboardText(),
+      source_type: 'storyboard',
+      title: 'Mock Provider Spoof',
+      target_episode_count: 1,
+      style: 'anime style',
+    });
+
+    await workflowService.processWorkflowRun(db, log, run.id);
+    const now = new Date().toISOString();
+    const storyboards = db.prepare('SELECT id FROM storyboards WHERE deleted_at IS NULL ORDER BY id ASC').all();
+    for (const sb of storyboards) {
+      db.prepare('UPDATE storyboards SET video_url = ?, image_url = ?, audio_local_path = ?, updated_at = ? WHERE id = ?')
+        .run(`media/videos/${sb.id}.mp4`, `media/images/${sb.id}.png`, `media/audio/${sb.id}.wav`, now, sb.id);
+      db.prepare(
+        `INSERT INTO video_generations
+         (drama_id, storyboard_id, provider, prompt, model, video_url, local_path, status, completed_at, created_at, updated_at)
+         VALUES (1, ?, 'Mock ', 'prompt', 'mock-video', ?, ?, 'completed', ?, ?, ?)`
+      ).run(sb.id, `media/videos/mock-${sb.id}.mp4`, `media/videos/mock-${sb.id}.mp4`, now, now, now);
+    }
+
+    db.prepare('DELETE FROM provider_invocations WHERE run_id = ?').run(run.id);
+    const rows = [
+      ['image', 'Mock ', 'Production', '{"image_url":"mock://spoof/image.png"}'],
+      ['video', 'mock-video', 'production', '{"video_url":"media/videos/1.mp4"}'],
+      ['tts', 'mock', 'production', '{"audio_url":"media/audio/1.wav"}'],
+      ['compositor', 'mock-compositor', 'production', '{"merged_url":"media/videos/merged.mp4"}'],
+    ];
+    for (const [providerType, providerName, mode, outputJson] of rows) {
+      db.prepare(
+        `INSERT INTO provider_invocations
+         (run_id, provider_type, provider_name, model, mode, input_hash, output_json, status, cost_estimate, created_at)
+         VALUES (?, ?, ?, 'spoof', ?, 'hash', ?, 'success', 0, ?)`
+      ).run(run.id, providerType, providerName, mode, outputJson, now);
+    }
+
+    const report = qaService.auditDrama(db, log, {
+      drama_id: 1,
+      run_id: run.id,
+      mode: 'production',
+    });
+
+    assert.equal(report.passed, false);
+    assert.equal(report.report_json.issues.some((issue) => issue.code === 'provider_audit_missing'), true);
+    const providerCheck = report.report_json.checks.find((check) => check.key === 'provider_sdk_audit');
+    assert.equal(providerCheck.passed, false);
+    assert.deepEqual(providerCheck.production_provider_types, []);
+  });
+
+  it('requires provider output media fields rather than generic success payloads', async () => {
+    const db = createDb();
+    const run = workflowService.createWorkflowRun(db, log, {
+      drama_id: 1,
+      type: 'novel2anime',
+      text: sampleStoryboardText(),
+      source_type: 'storyboard',
+      title: 'Provider Output Gate',
+      target_episode_count: 1,
+      style: 'anime style',
+    });
+
+    await workflowService.processWorkflowRun(db, log, run.id);
+    const now = new Date().toISOString();
+    const storyboards = db.prepare('SELECT id FROM storyboards WHERE deleted_at IS NULL ORDER BY id ASC').all();
+    for (const sb of storyboards) {
+      db.prepare('UPDATE storyboards SET video_url = ?, image_url = ?, audio_local_path = ?, updated_at = ? WHERE id = ?')
+        .run(`media/videos/${sb.id}.mp4`, `media/images/${sb.id}.png`, `media/audio/${sb.id}.wav`, now, sb.id);
+      db.prepare(
+        `INSERT INTO video_generations
+         (drama_id, storyboard_id, provider, prompt, model, video_url, local_path, status, completed_at, created_at, updated_at)
+         VALUES (1, ?, 'real-provider', 'prompt', 'real-video', ?, ?, 'completed', ?, ?, ?)`
+      ).run(sb.id, `media/videos/${sb.id}.mp4`, `media/videos/${sb.id}.mp4`, now, now, now);
+    }
+
+    db.prepare('DELETE FROM provider_invocations WHERE run_id = ?').run(run.id);
+    for (const providerType of ['image', 'video', 'tts', 'compositor']) {
+      db.prepare(
+        `INSERT INTO provider_invocations
+         (run_id, provider_type, provider_name, model, mode, input_hash, output_json, status, cost_estimate, created_at)
+         VALUES (?, ?, 'real-provider', 'model', 'production', 'hash', '{"status":"ok"}', 'success', 0, ?)`
+      ).run(run.id, providerType, now);
+    }
+
+    const report = qaService.auditDrama(db, log, {
+      drama_id: 1,
+      run_id: run.id,
+      mode: 'production',
+    });
+
+    assert.equal(report.passed, false);
+    const providerCheck = report.report_json.checks.find((check) => check.key === 'provider_sdk_audit');
+    assert.equal(providerCheck.passed, false);
+    assert.deepEqual(providerCheck.production_provider_types, []);
   });
 
   it('can retry a failed workflow step without rerunning completed steps', async () => {
@@ -392,9 +529,11 @@ describe('workflowService novel2anime', () => {
     assert.ok(remediation.workflow_run.id);
 
     const completed = await waitForTerminalRun(db, remediation.workflow_run.id);
-    assert.equal(completed.status, 'completed');
+    assert.equal(completed.status, 'failed');
     const reports = qaService.listQaReports(db, { drama_id: 1, run_id: remediation.workflow_run.id });
-    assert.equal(reports[0].passed, true);
+    assert.equal(reports[0].passed, false);
+    assert.equal(reports[0].report_json.mode, 'production');
+    assert.equal(reports[0].report_json.issues.some((issue) => issue.code === 'media_timeline_incomplete'), true);
   });
 
   it('can run granular QA remediation workflows for asset bible and timeline repairs', async () => {

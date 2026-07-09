@@ -2,7 +2,7 @@
 
 # 🎬 本地短剧助手
 
-**本地 AI 短剧 & 漫剧生成工具 —— 下载即用，完全开源，数据不出本机**
+**本地优先的 AI 短剧 & 漫剧生成工具 —— 下载即用，完全开源，数据默认保存在本机**
 
 *LocalMiniDrama · AI-powered short drama creator*
 
@@ -25,21 +25,21 @@
 
 <table>
 <tr>
-<td width="25%" align="center"><b>🔒 本地优先</b><br/>SQLite + 本地文件，素材不上云</td>
+<td width="25%" align="center"><b>🔒 本地优先</b><br/>SQLite + 本地文件，外部 AI 按配置调用</td>
 <td width="25%" align="center"><b>🎬 全流程</b><br/>剧本 → 角色/场景 → 分镜 → 视频合成</td>
 <td width="25%" align="center"><b>🤖 多模型</b><br/>通义 / 火山 / 可灵 / Gemini 等</td>
 <td width="25%" align="center"><b>🗺 双视图</b><br/>列表精细编辑 + 画布批量编排</td>
 </tr>
 </table>
 
-市面上 AI 短剧工具不少，但真正能**本地离线运行、开箱即用、素材不上云**的几乎没有。  
-本项目用纯 JavaScript 从零搭建，接入你自己的 AI API，打开即可生成完整 AI 短剧。
+市面上 AI 短剧工具不少，但真正能**本地保存工程数据、开箱即用、灵活接入自有 AI API**的并不多。
+本项目用纯 JavaScript 从零搭建；SQLite 数据库和生成文件默认保存在本机，使用外部 AI、图床或中转站时，提示词、参考图或素材会发送到对应服务。
 
-> ✅ 无订阅费 · ✅ 数据本地存储 · ✅ 支持多家 AI 服务商 · ✅ 完全开源可二次开发
+> ✅ 无订阅费 · ✅ 工程数据默认本地存储 · ✅ 支持多家 AI 服务商 · ✅ 完全开源可二次开发
 
 ---
 
-## 📌 最新动态（v1.2.8）
+## 📌 v1.2.8 动态
 
 - 🆕 **Agnes AI 接入**：文本 / 图片 / 视频一键配置，一个 Key 覆盖全流程
 - 🆕 **画布模式增强**：剧本节点、右键菜单、浮动工具栏、画布内新建/删除/整集生成
@@ -188,7 +188,7 @@
 
 ### 方式二：源码开发
 
-> Node.js ≥ 18
+> 推荐 Node.js 20.x。`package.json` 的 engine 下限为 Node.js >= 18，但当前验证路径以 Node 20 / Docker 为准。
 
 ```bash
 git clone https://github.com/xuanyustudio/LocalMiniDrama.git
@@ -196,8 +196,8 @@ cd LocalMiniDrama
 
 # 后端（端口 5679）
 cd backend-node && npm install
-cp configs/config.example.yaml configs/config.yaml   # 填入 API Key
-npm run migrate && npm start
+# configs/config.yaml 已随仓库提供；AI Key 通过前端「AI 配置」写入数据库
+npm start
 
 # 前端（端口 3013，新终端）
 cd frontweb && npm install && npm run dev
@@ -222,6 +222,8 @@ cd frontweb && npm install && npm run dev
 | NanoBanana（含代理） | — | ✅ | — |
 | 本地 Ollama 等 OpenAI 兼容 | ✅ | — | — |
 | 其他 OpenAI 兼容接口 | ✅ | ✅ | — |
+
+> 上表描述经典文本/生图/生视频链路。Novel2Anime 工作流的媒体、配音与合成步骤当前仍是本地 mock/占位链路；production QA 会拒绝 mock 产物，真实 provider SDK 接入放在后续阶段。
 
 ---
 
@@ -251,7 +253,8 @@ LocalMiniDrama/
 | ✅ | Seedance 2.0 + 全能模式 | 多图 `@图片N` · `universal_segment_text` |
 | ✅ | 画布工作流 | 列表/画布双视图 · 整组重跑 · 节点面板 |
 | 📋 | **场景图 → 全景图** | 由场景参考图 AI 扩展超宽/360° 全景，供大景别运镜与场景库 |
-| 📋 | 分镜参考图自由上传 | 任意图片作为分镜参考 |
+| ✅ | 列表侧分镜参考图/首尾帧上传 | 制作页列表模式已支持上传和绑定 |
+| 📋 | 画布侧参考图统一入口 | 画布生成时自由选择参考图 |
 | 📋 | 参考图自由选择 | 生图时手动指定角色/场景参考 |
 | 📋 | 宫格图生成视频 | 多帧合图作为视频输入（部分模型已支持） |
 
@@ -276,7 +279,7 @@ LocalMiniDrama/
 | 用户 | 场景 |
 |------|------|
 | 📹 内容创作者 | 批量生产 AI 短剧 / 漫剧 |
-| 🔒 隐私敏感 | 素材与剧本完全留在本机 |
+| 🔒 隐私敏感 | 工程数据默认本地保存；外部 AI 调用按所选服务商传输 |
 | 🛠 开发者 | 二次开发、接入新 AI 服务商 |
 | 🌱 入门探索 | 低成本体验 AI 视频全流程 |
 

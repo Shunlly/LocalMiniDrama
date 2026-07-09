@@ -28,6 +28,61 @@ function isRealMediaPath(value) {
   return true;
 }
 
+function isMockProviderName(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return text === 'mock' || text === 'mock-compositor' || text.startsWith('mock-');
+}
+
+function hasRealMediaFieldKey(key) {
+  const text = String(key || '').toLowerCase();
+  return text === 'url' ||
+    text === 'urls' ||
+    text === 'files' ||
+    text.endsWith('_url') ||
+    text.endsWith('_urls') ||
+    text.endsWith('_path') ||
+    text.endsWith('_paths') ||
+    text.includes('media') ||
+    text.includes('asset') ||
+    text.includes('file');
+}
+
+function outputHasRealValue(value) {
+  const parsed = parseJson(value, null);
+  const stack = parsed == null ? [{ key: 'output', value }] : [{ key: '', value: parsed }];
+  while (stack.length) {
+    const { key, value: item } = stack.pop();
+    if (item == null) continue;
+    if (Array.isArray(item)) {
+      item.forEach((child) => stack.push({ key, value: child }));
+      continue;
+    }
+    if (typeof item === 'object') {
+      Object.entries(item).forEach(([childKey, child]) => stack.push({ key: childKey, value: child }));
+      continue;
+    }
+    if (typeof item === 'string' && hasRealMediaFieldKey(key) && isRealMediaPath(item)) return true;
+  }
+  return false;
+}
+
+function isNonMockProviderRow(row) {
+  const providerName = String(row.provider_name || '').trim().toLowerCase();
+  const mode = String(row.mode || '').trim().toLowerCase();
+  const status = String(row.status || '').trim().toLowerCase();
+  return status === 'success' &&
+    mode !== 'mock' &&
+    !isMockProviderName(providerName) &&
+    outputHasRealValue(row.output_json);
+}
+
+function isNonMockGenerationRow(row) {
+  const providerName = String(row.provider || '').trim().toLowerCase();
+  return !!providerName &&
+    !isMockProviderName(providerName) &&
+    (isRealMediaPath(row.image_url) || isRealMediaPath(row.video_url) || isRealMediaPath(row.local_path));
+}
+
 function addIssue(issues, code, severity, message, target = {}) {
   issues.push({ code, severity, message, target });
 }
@@ -162,43 +217,64 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
   else addIssue(issues, 'storyboards_incomplete', 'error', 'Each storyboard needs visual action, duration, image prompt, and video prompt', { drama_id: dramaId, episode_id: episodeId });
   checks.push({ key: 'storyboards', passed: storyboardsOk, weight: 20, storyboard_count: storyboards.length, complete_count: completeStoryboards.length });
 
-  const mediaStoryboards = storyboards.filter((sb) => (
-    isRealMediaPath(sb.video_url) ||
-    isRealMediaPath(sb.local_path) ||
-    isRealMediaPath(sb.image_url) ||
-    isRealMediaPath(sb.audio_local_path) ||
-    isRealMediaPath(sb.narration_audio_local_path)
-  ));
-  let generatedMediaCount = 0;
+  const realMediaStoryboardIds = new Set();
+  for (const sb of storyboards) {
+    if (
+      isRealMediaPath(sb.video_url) ||
+      isRealMediaPath(sb.local_path) ||
+      isRealMediaPath(sb.image_url) ||
+      isRealMediaPath(sb.audio_local_path) ||
+      isRealMediaPath(sb.narration_audio_local_path)
+    ) {
+      realMediaStoryboardIds.add(Number(sb.id));
+    }
+  }
+  let generatedMediaRows = [];
   if (storyboards.length) {
     const sbIds = storyboards.map((sb) => sb.id);
     const placeholders = sbIds.map(() => '?').join(',');
-    generatedMediaCount = count(
-      db,
-      `SELECT COUNT(*) AS count FROM (
-         SELECT storyboard_id FROM image_generations
-          WHERE storyboard_id IN (${placeholders})
-            AND status = 'completed'
-            AND deleted_at IS NULL
-            AND provider != 'mock'
-            AND COALESCE(image_url, local_path, '') NOT LIKE 'mock://%'
-         UNION
-         SELECT storyboard_id FROM video_generations
-          WHERE storyboard_id IN (${placeholders})
-            AND status = 'completed'
-            AND deleted_at IS NULL
-            AND provider != 'mock'
-            AND COALESCE(video_url, local_path, '') NOT LIKE 'mock://%'
-       )`,
-      ...sbIds,
+    generatedMediaRows = db.prepare(
+       `SELECT storyboard_id, provider, image_url, NULL AS video_url, local_path
+          FROM image_generations
+         WHERE storyboard_id IN (${placeholders})
+           AND status = 'completed'
+           AND deleted_at IS NULL`
+    ).all(
       ...sbIds
-    );
+    ).filter(isNonMockGenerationRow);
+    const generatedVideoRows = db.prepare(
+       `SELECT storyboard_id, provider, NULL AS image_url, video_url, local_path
+          FROM video_generations
+         WHERE storyboard_id IN (${placeholders})
+           AND status = 'completed'
+           AND deleted_at IS NULL`
+    ).all(
+      ...sbIds
+    ).filter(isNonMockGenerationRow);
+    generatedMediaRows.push(...generatedVideoRows);
+    for (const row of generatedMediaRows) {
+      realMediaStoryboardIds.add(Number(row.storyboard_id));
+    }
   }
   const timeline = hasTimelineForEpisodes(db, episodeIds);
-  const realMediaOk = storyboards.length > 0 && (mediaStoryboards.length > 0 || generatedMediaCount > 0);
+  const realMediaCoverageCount = realMediaStoryboardIds.size;
+  const realMediaOk = storyboards.length > 0 && realMediaCoverageCount > 0;
+  const fullRealMediaCoverageOk = storyboards.length > 0 && realMediaCoverageCount === storyboards.length;
   const mediaOk = draftMode
     ? storyboards.length > 0 && timeline.ok && (realMediaOk || timeline.itemCount >= storyboards.length)
-    : storyboards.length > 0 && timeline.ok && realMediaOk;
+    : storyboards.length > 0 && timeline.ok && fullRealMediaCoverageOk;
+  const mediaIssueTarget = {
+    drama_id: dramaId,
+    episode_id: episodeId,
+    track_types: timeline.trackTypes,
+    storyboard_count: storyboards.length,
+    real_media_storyboard_count: realMediaCoverageCount,
+  };
+  if (!draftMode && storyboards.length > realMediaCoverageCount) {
+    mediaIssueTarget.missing_real_media_storyboard_ids = storyboards
+      .filter((sb) => !realMediaStoryboardIds.has(Number(sb.id)))
+      .map((sb) => sb.id);
+  }
   if (mediaOk) score += 15;
   else addIssue(
     issues,
@@ -206,16 +282,18 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     draftMode ? 'warning' : 'error',
     draftMode
       ? 'Timeline plan is incomplete for draft workflow QA'
-      : 'Final QA requires non-mock generated media, not only placeholders',
-    { drama_id: dramaId, episode_id: episodeId, track_types: timeline.trackTypes }
+      : 'Final QA requires non-mock generated media for every storyboard, not only placeholders',
+    mediaIssueTarget
   );
   checks.push({
     key: 'media_timeline',
     passed: mediaOk,
     weight: 15,
     mode: auditMode,
-    media_storyboard_count: mediaStoryboards.length,
-    generated_media_count: generatedMediaCount,
+    media_storyboard_count: realMediaCoverageCount,
+    generated_media_count: generatedMediaRows.length,
+    storyboard_count: storyboards.length,
+    full_real_media_coverage: fullRealMediaCoverageOk,
     track_count: timeline.trackCount,
     timeline_item_count: timeline.itemCount,
     track_types: timeline.trackTypes,
@@ -234,14 +312,55 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
   if (workflowOk) score += 10;
   checks.push({ key: 'workflow_integrity', passed: workflowOk, weight: 10, step_count: stepRows.length });
 
+  const requiredProviderTypes = ['image', 'video', 'tts', 'compositor'];
+  let providerCount = 0;
+  let skillCount = 0;
+  let providerRows = [];
   if (run_id) {
-    const providerCount = count(db, 'SELECT COUNT(*) AS count FROM provider_invocations WHERE run_id = ?', String(run_id));
-    const skillCount = count(db, 'SELECT COUNT(*) AS count FROM skill_invocations WHERE run_id = ?', String(run_id));
-    const providerOk = providerCount >= 4;
+    providerCount = count(db, 'SELECT COUNT(*) AS count FROM provider_invocations WHERE run_id = ?', String(run_id));
+    skillCount = count(db, 'SELECT COUNT(*) AS count FROM skill_invocations WHERE run_id = ?', String(run_id));
+    try {
+      providerRows = db.prepare(
+        `SELECT provider_type, provider_name, mode, status, output_json
+           FROM provider_invocations
+          WHERE run_id = ?`
+      ).all(String(run_id));
+    } catch (_) {}
+  }
+  const productionProviderTypes = new Set(
+    providerRows
+      .filter(isNonMockProviderRow)
+      .map((row) => String(row.provider_type || '').trim().toLowerCase())
+  );
+  const providerOk = draftMode
+    ? (!run_id || providerCount >= 4)
+    : !!run_id && requiredProviderTypes.every((type) => productionProviderTypes.has(type));
+  if (!providerOk) addIssue(
+    issues,
+    'provider_audit_missing',
+    draftMode ? 'warning' : 'error',
+    draftMode
+      ? 'Provider generation audit records are missing or incomplete'
+      : 'Production QA requires successful non-mock provider audit records for image, video, tts, and compositor outputs',
+    {
+      run_id: run_id || null,
+      provider_count: providerCount,
+      required_provider_types: draftMode ? [] : requiredProviderTypes,
+      production_provider_types: Array.from(productionProviderTypes),
+    }
+  );
+  checks.push({
+    key: 'provider_sdk_audit',
+    passed: providerOk,
+    weight: 0,
+    mode: auditMode,
+    provider_count: providerCount,
+    required_provider_types: draftMode ? [] : requiredProviderTypes,
+    production_provider_types: Array.from(productionProviderTypes),
+  });
+  if (run_id) {
     const skillOk = skillCount >= 4;
-    if (!providerOk) addIssue(issues, 'provider_audit_missing', 'warning', 'Provider generation audit records are missing or incomplete', { run_id, provider_count: providerCount });
     if (!skillOk) addIssue(issues, 'skill_audit_missing', 'warning', 'Skill invocation audit records are missing or incomplete', { run_id, skill_count: skillCount });
-    checks.push({ key: 'provider_sdk_audit', passed: providerOk, weight: 0, provider_count: providerCount });
     checks.push({ key: 'skill_registry_audit', passed: skillOk, weight: 0, skill_count: skillCount });
   }
 
@@ -500,6 +619,7 @@ function remediateQaReport(db, log, reportId, options = {}) {
     const run = workflowService.startNovel2AnimeRepairWorkflow(db, log, {
       drama_id: report.drama_id,
       episode_id: report.episode_id || null,
+      mode: report.report_json?.mode === 'production' ? 'production' : 'draft',
       action: automatedAction.code,
       target_episode_count: options.target_episode_count || undefined,
       overwrite_existing_episodes: options.overwrite_existing_episodes === true,
@@ -551,6 +671,7 @@ function remediateQaReport(db, log, reportId, options = {}) {
     drama_id: report.drama_id,
     episode_id: report.episode_id || null,
     source_id: source.id,
+    mode: report.report_json?.mode === 'production' ? 'production' : 'draft',
     title: source.title || '',
     source_type: source.source_type || '',
     target_episode_count: options.target_episode_count || undefined,

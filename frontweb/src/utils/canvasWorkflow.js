@@ -1,4 +1,4 @@
-import { parseDramaMetadata } from './canvasLayout'
+import { parseDramaMetadata } from './canvasLayout.js'
 
 export const DEFAULT_PIPELINE = ['image', 'video', 'audio']
 
@@ -32,11 +32,13 @@ export function getStoryboardGroupMap(workflowGroups) {
 export function createWorkflowGroup(existingGroups, { title, storyboardIds, pipeline = DEFAULT_PIPELINE }) {
   const ids = [...new Set((storyboardIds || []).map(Number).filter(Number.isFinite))]
   if (!ids.length) throw new Error('请至少选择一个分镜')
+  const normalizedPipeline = normalizePipeline(pipeline, { allowEmpty: true })
+  if (!normalizedPipeline.length) throw new Error('Please select at least one workflow step')
   const group = {
     id: `wg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     title: title || `工作流 ${(existingGroups?.length || 0) + 1}`,
     storyboard_ids: ids,
-    pipeline: normalizePipeline(pipeline),
+    pipeline: normalizedPipeline,
     created_at: new Date().toISOString(),
   }
   return [...(existingGroups || []), group]
@@ -46,9 +48,10 @@ export function deleteWorkflowGroup(existingGroups, groupId) {
   return (existingGroups || []).filter((g) => g.id !== groupId)
 }
 
-export function normalizePipeline(pipeline) {
+export function normalizePipeline(pipeline, options = {}) {
   const allowed = ['image', 'video', 'audio']
   const list = Array.isArray(pipeline) ? pipeline.filter((s) => allowed.includes(s)) : []
+  if (options.allowEmpty) return list
   return list.length ? list : [...DEFAULT_PIPELINE]
 }
 

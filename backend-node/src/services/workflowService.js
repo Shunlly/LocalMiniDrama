@@ -505,7 +505,7 @@ function ensureTimelinePlan(db, log, dramaId) {
   return { episode_count: episodes.length, track_count: trackCreatedOrFound, timeline_item_created: itemCreated };
 }
 
-function executeStep(db, log, run, step, allSteps) {
+async function executeStep(db, log, run, step, allSteps) {
   if (step.step_key === 'source_intake') {
     const input = step.input_json || {};
     if (input.source_id) {
@@ -775,7 +775,7 @@ async function processWorkflowRun(db, log, runId) {
         return getWorkflowRunDetail(db, runId);
       }
       const latestSteps = getWorkflowSteps(db, runId);
-      const output = executeStep(db, log, latestRun, { ...step, attempts }, latestSteps);
+      const output = await executeStep(db, log, latestRun, { ...step, attempts }, latestSteps);
       const afterRun = getWorkflowRun(db, runId);
       const afterStep = db.prepare('SELECT status FROM workflow_steps WHERE id = ?').get(String(step.id));
       if (!afterRun || RUN_TERMINAL_STATUSES.has(afterRun.status) || afterRun.status === 'paused' || afterStep?.status === 'cancelled') {

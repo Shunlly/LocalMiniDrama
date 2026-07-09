@@ -4269,6 +4269,8 @@ async function onGenerateSbFrameImage(sb, slot) {
       const pollRes = await pollTask(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
       if (pollRes?.status === 'failed') {
         sb.errorMsg = pollRes.error || '生成失败'
+      } else if (pollRes?.status !== 'completed') {
+        sb.errorMsg = pollRes?.error || '生成未完成'
       } else {
         await loadDrama()
         restoreSelectionsFromBackend()
@@ -4351,8 +4353,11 @@ async function onGenerateSbImage(sb) {
       const pollRes = await pollTask(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
       if (pollRes?.status === 'failed') {
         sb.errorMsg = pollRes.error || '生成失败'
-      } else {
+      } else if (pollRes?.status === 'completed') {
         ElMessage.success('分镜图生成完成')
+      } else {
+        sb.errorMsg = pollRes?.error || '分镜图生成未完成'
+        ElMessage.warning(sb.errorMsg)
       }
     } else {
       await loadSingleStoryboardMedia(sb.id)
@@ -7442,8 +7447,15 @@ async function runOneClickPipeline(textOnly = false) {
     }
 
     if (textOnly) {
-      pipelineCurrentStep.value = '文本框架已就绪（未生成图片与视频）'
-      ElMessage.success('文本框架已生成：角色、场景、道具与分镜脚本已就绪')
+      const errorCount = pipelineErrorLog.value.length
+      pipelineCurrentStep.value = errorCount
+        ? `文本框架流程已结束，${errorCount} 项失败（未生成图片与视频）`
+        : '文本框架已就绪（未生成图片与视频）'
+      if (errorCount) {
+        ElMessage.warning(`文本框架流程已结束，${errorCount} 项失败`)
+      } else {
+        ElMessage.success('文本框架已生成：角色、场景、道具与分镜脚本已就绪')
+      }
       return
     }
 
@@ -7701,9 +7713,16 @@ async function runOneClickPipeline(textOnly = false) {
       addPipelineError('合成整集视频', e.message || String(e))
     }
 
-    pipelineCurrentStep.value = '一键生成视频流程已执行完成'
-    ElMessage.success('一键生成视频流程已执行完成')
-    trackFilmCreateAction('one_click_generate_complete', {
+    const errorCount = pipelineErrorLog.value.length
+    pipelineCurrentStep.value = errorCount
+      ? `一键生成视频流程已结束，${errorCount} 项失败`
+      : '一键生成视频流程已执行完成'
+    if (errorCount) {
+      ElMessage.warning(`一键生成视频流程已结束，${errorCount} 项失败`)
+    } else {
+      ElMessage.success('一键生成视频流程已执行完成')
+    }
+    trackFilmCreateAction(errorCount ? 'one_click_generate_partial' : 'one_click_generate_complete', {
       extra: { error_count: pipelineErrorLog.value.length },
     })
   } catch (e) {
@@ -8041,8 +8060,15 @@ async function runRepairPipeline() {
       addPipelineError('生成整集视频', e.message || String(e))
     }
 
-    pipelineCurrentStep.value = '补全并生成流程已执行完成'
-    ElMessage.success('修复缺失流程已执行完成')
+    const errorCount = pipelineErrorLog.value.length
+    pipelineCurrentStep.value = errorCount
+      ? `补全并生成流程已结束，${errorCount} 项失败`
+      : '补全并生成流程已执行完成'
+    if (errorCount) {
+      ElMessage.warning(`补全并生成流程已结束，${errorCount} 项失败`)
+    } else {
+      ElMessage.success('修复缺失流程已执行完成')
+    }
   } catch (e) {
     addPipelineError('流程', e.message || String(e))
   }

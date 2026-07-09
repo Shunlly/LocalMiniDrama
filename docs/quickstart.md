@@ -45,7 +45,7 @@
 
 | 依赖 | 版本要求 |
 |------|----------|
-| Node.js | >= 18 |
+| Node.js | 推荐 20.x；代码 engine 下限为 >= 18 |
 | npm | 随 Node.js 附带 |
 | Git | 任意版本 |
 
@@ -59,15 +59,9 @@ cd backend-node
 # 安装依赖
 npm install
 
-# 复制配置文件模板
-cp configs/config.example.yaml configs/config.yaml
-# Windows PowerShell:
-# copy configs\config.example.yaml configs\config.yaml
-
-# 编辑 config.yaml，填入你的 AI API 地址与密钥（见配置指南）
-
-# 首次运行：初始化数据库
-npm run migrate
+# configs/config.yaml 已随仓库提供，通常无需复制模板
+# AI API 地址与密钥通过前端「AI 配置」页面写入数据库
+# npm run migrate 仅在首次手动初始化或新增 migration SQL 后需要；服务启动会自动补列
 
 # 启动服务（默认端口 5679）
 npm start
@@ -230,7 +224,7 @@ cd backend-node
 npm install
 ```
 
-如果仍然报错，可能是 Node.js 版本不兼容，请升级到 >= 18。
+如果仍然报错，可能是 Node.js 版本不兼容，请升级到 Node.js 20.x。
 
 ---
 

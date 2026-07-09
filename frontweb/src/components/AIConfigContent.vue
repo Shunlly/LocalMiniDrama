@@ -1046,7 +1046,7 @@ input_reference = (图片文件，可选)</pre>
           v-if="testServiceType === 'image' || testServiceType === 'storyboard_image' || testServiceType === 'video'"
           type="success"
           title="连接成功"
-          description="API Key 有效，网络已连通。提示：测试仅验证 Key 合法性，不实际生成图片/视频，模型名填错、账号未开通该功能或配额不足时实际生成仍可能报错。"
+          description="连通性探针通过。提示：测试不等同于真实生成验收，模型名填错、账号未开通该功能、配额不足或服务商临时不可用时，实际生成仍可能报错。"
           show-icon
           :closable="false"
         />
@@ -1099,6 +1099,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder } from '@element-plus/icons-vue'
 import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
+import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '@/utils/aiConfigExport.js'
 import PromptEditor from '@/components/PromptEditor.vue'
 import SceneModelMap from '@/components/SceneModelMap.vue'
 import Sd2AssetManagement from '@/components/Sd2AssetManagement.vue'
@@ -1157,6 +1158,10 @@ const loading = ref(false)
 const list = ref([])
 const selectedRows = ref([])
 const batchDeleting = ref(false)
+const MASKED_SECRET = '********'
+function isMaskedSecret(value) {
+  return String(value || '').trim() === MASKED_SECRET
+}
 const vendorLock = ref({ enabled: false, config_file: '' })
 const dialogVisible = ref(false)
 const editingId = ref(null)
@@ -1808,7 +1813,8 @@ function openEdit(row) {
 }
 
 async function submit() {
-  await formRef.value?.validate?.().catch(() => {})
+  const valid = await formRef.value?.validate?.().catch(() => false)
+  if (valid === false) return
   saving.value = true
   try {
     let modelList = parseModelText(form.value.modelText)
@@ -1924,8 +1930,9 @@ async function fetchJimeng2MaterialAssets(firstPage) {
   jimeng2AssetsLoading.value = true
   try {
     const data = await aiAPI.listJimeng2MaterialAssets({
+      id: editingId.value || undefined,
       base_url: form.value.base_url.trim(),
-      api_key: form.value.api_key,
+      api_key: isMaskedSecret(form.value.api_key) ? undefined : form.value.api_key,
       limit: 20,
       cursor: firstPage ? undefined : jimeng2AssetsNextCursor.value || undefined,
     })
@@ -1966,11 +1973,13 @@ async function openTest(row) {
   testResult.value = null
   testError.value = ''
   testServiceType.value = row.service_type || 'text'
+  const testModel = row.default_model || (Array.isArray(row.model) ? row.model[0] : row.model)
   try {
     await aiAPI.testConnection({
+      id: row.id,
       base_url: row.base_url,
-      api_key: row.api_key,
-      model: Array.isArray(row.model) ? row.model[0] : row.model,
+      api_key: isMaskedSecret(row.api_key) ? undefined : row.api_key,
+      model: testModel,
       provider: row.provider,
       endpoint: row.endpoint,
       service_type: row.service_type,
@@ -2127,7 +2136,7 @@ async function submitOneKeyAgnes() {
 async function exportConfigs() {
   try {
     const configs = await aiAPI.list()
-    const exportData = configs.map(({ id, created_at, updated_at, ...rest }) => rest)
+    const exportData = configs.map(sanitizeConfigForExport)
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -2166,14 +2175,14 @@ async function importConfigs(event) {
           provider: cfg.provider,
           api_protocol: cfg.api_protocol || null,
           base_url: cfg.base_url,
-          api_key: cfg.api_key || '',
+          api_key: isMaskedSecret(cfg.api_key) ? '' : (cfg.api_key || ''),
           endpoint: cfg.endpoint || null,
           query_endpoint: cfg.query_endpoint || null,
           model: models,
           default_model: cfg.default_model || null,
           priority: cfg.priority ?? 0,
           is_default: !!cfg.is_default,
-          settings: cfg.settings || null
+          settings: stripMaskedSecretsFromSettings(cfg.settings) || null
         })
         success++
       } catch (_) {

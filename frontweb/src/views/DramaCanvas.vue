@@ -733,7 +733,7 @@ async function onCreateWorkflowGroup() {
     workflowGroups.value = createWorkflowGroup(workflowGroups.value, {
       title: value?.trim() || undefined,
       storyboardIds: selectedStoryboardIds.value,
-      pipeline: normalizePipeline(pipelineSteps.value),
+      pipeline: normalizePipeline(pipelineSteps.value, { allowEmpty: true }),
     })
     activeGroupId.value = workflowGroups.value[workflowGroups.value.length - 1]?.id || null
     await persistCanvasState({ groupsOnly: true })
@@ -775,7 +775,7 @@ async function onRunActiveGroup() {
   try {
     const summary = await runWorkflowGroup(drama.value, {
       ...group,
-      pipeline: normalizePipeline(group.pipeline?.length ? group.pipeline : pipelineSteps.value),
+      pipeline: normalizePipeline(Array.isArray(group.pipeline) ? group.pipeline : pipelineSteps.value, { allowEmpty: true }),
     }, {
       stopOnError: true,
       generationOptions: getCanvasGenerationOptions(),

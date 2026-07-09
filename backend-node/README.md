@@ -32,7 +32,7 @@
 
 | 依赖 | 版本 |
 |------|------|
-| Node.js | >= 18 |
+| Node.js | 推荐 20.x；代码 engine 下限为 >= 18 |
 | npm | 随 Node.js 附带 |
 
 ---
@@ -45,19 +45,14 @@ cd backend-node
 # 安装依赖
 npm install
 
-# 复制配置文件
-cp configs/config.example.yaml configs/config.yaml
-# Windows: copy configs\config.example.yaml configs\config.yaml
-
-# 编辑 config.yaml，填入 AI API 配置（也可通过前端「AI 配置」页面管理）
-
-# 首次运行：初始化数据库表
-npm run migrate
+# configs/config.yaml 已随仓库提供，通常无需复制模板
+# AI API 配置通过前端「AI 配置」页面管理并写入数据库
+# npm run migrate 通常无需手动执行；服务启动会自动执行迁移并补齐表/列
 
 # 生产启动（默认端口 5679）
 npm start
 
-# 开发模式（nodemon 热重载）
+# 开发模式（Node.js --watch 热重载）
 npm run dev
 ```
 
@@ -73,8 +68,7 @@ Server started on port 5679
 ```
 backend-node/
 ├── configs/
-│   ├── config.example.yaml     # 配置模板（提交到 Git）
-│   └── config.yaml             # 实际配置（不提交，自行创建）
+│   └── config.yaml             # 仓库内默认配置；AI Key 存储在数据库 ai_service_configs
 ├── data/
 │   ├── drama_generator.db      # SQLite 数据库
 │   └── storage/                # 生成的图片/视频本地文件
@@ -85,8 +79,7 @@ backend-node/
 │       └── merged/             # 合成后的完整视频
 ├── migrations/
 │   ├── 01_init.sql             # 初始建表
-│   ├── 02_local_path.sql       # 本地路径字段
-│   └── 03_async_tasks_frame_prompts.sql
+│   └── 02_add_default_model.sql ... 24_provider_skill_pipeline.sql
 ├── src/
 │   ├── app.js                  # Express 应用（路由注册、中间件）
 │   ├── server.js               # HTTP 服务入口
@@ -96,16 +89,20 @@ backend-node/
 │   │   └── index.js            # YAML 配置加载
 │   ├── db/
 │   │   ├── index.js            # better-sqlite3 连接
-│   │   └── migrate.js          # 启动时自动补列（ensureColumns）
+│   │   └── migrate.js          # runMigrationsAndEnsure：执行 SQL 迁移并补齐表/列
 │   ├── routes/
 │   │   ├── index.js            # 路由总入口
 │   │   ├── drama.js            # 剧本 / 导出 / 导入
 │   │   ├── videos.js           # 视频生成任务
 │   │   ├── images.js           # 图片生成任务
-│   │   ├── tasks.js            # 异步任务查询
+│   │   ├── task.js             # 异步任务查询
+│   │   ├── storySources.js     # Novel2Anime Source Intake
+│   │   ├── workflows.js        # Novel2Anime 工作流
+│   │   ├── qaReports.js        # QA 报告与修复
+│   │   ├── timelines.js        # 时间线 / SRT / manifest
 │   │   ├── aiConfig.js         # AI 服务商配置 CRUD
-│   │   ├── settings.js         # 全局设置
-│   │   └── static.js           # 静态文件服务（/static）
+│   │   └── settings.js         # 全局设置
+│   │   # /static 静态文件服务在 src/app.js 中挂载
 │   └── services/
 │       ├── dramaService.js             # 剧本 CRUD 与数据组装
 │       ├── episodeStoryboardService.js # 分镜生成核心逻辑
@@ -315,8 +312,8 @@ style:
 - `local_path TEXT` — 相对于 `storage/` 根目录的相对路径
 
 **数据库迁移：**
-- `npm run migrate` — 运行 `migrations/` 目录下的 SQL 文件
-- 每次服务启动时自动执行 `ensureColumns()`，确保所有列存在（支持旧数据库升级）
+- 每次服务启动时自动执行 `runMigrationsAndEnsure()`：先应用 `migrations/` SQL 文件，再执行表/列兼容性补齐（支持旧数据库升级）
+- `npm run migrate` — 手动运行同一迁移流程；通常用于首次手动初始化或显式迁移验证
 
 ---
 
@@ -367,6 +364,8 @@ style:
 - **Seedance 2.x** 请求时长会在后端吸附到 **4–15 秒**；默认走 `POST /v1/videos/generations`（可用配置 **Endpoint** 覆盖）。实现见 `videoClient.js`（`volcengine_omni` 分支）。
 
 **可灵 Omni（`kling_omni`）** 同样支持分镜全能模式的多图参考与片段描述-only 提交逻辑，配置方式见前端 AI 配置页说明。
+
+> Novel2Anime 工作流与上述经典生图/生视频链路不同：当前媒体、配音和合成步骤仍使用本地 mock provider SDK 产物，production QA 会要求真实 image/video/tts/compositor provider audit 记录后才允许通过。真实 Novel2Anime 工作流 provider 路由、ComfyUI/Ollama/cloud model 编排和 FFmpeg-backed Novel2Anime compositor provider 集成仍属后续接入范围。
 
 ### 提示词国际化
 

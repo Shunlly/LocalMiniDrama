@@ -2,9 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { buildSourceIntakePayload, inferSourceTypeFromFilename, normalizeSourceType } from '../src/utils/sourceIntakeAdapter.js'
+import { createWorkflowGroup, normalizePipeline } from '../src/utils/canvasWorkflow.js'
 import { normalizeWorkflowRun, workflowStepLabel } from '../src/utils/workflowRunStatus.js'
 import { normalizeQaReport } from '../src/utils/qaReport.js'
 import { formatDuration, normalizeTimelineSummary } from '../src/utils/timelineSummary.js'
+import { assetImageUrl, audioUrl } from '../src/utils/mediaUrl.js'
+import { hasStoryboardImage, hasStoryboardVideo, resolveSbVideoRecord, videoRecordUrl } from '../src/utils/storyboardMedia.js'
+import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '../src/utils/aiConfigExport.js'
 
 test('buildSourceIntakePayload normalizes form data for backend source intake', () => {
   const payload = buildSourceIntakePayload({
@@ -65,10 +69,10 @@ test('normalizeWorkflowRun exposes retry, pause, resume and cancel states', () =
   assert.equal(failed.canResume, false)
   assert.equal(failed.failedStep.step_key, 'qa_audit')
   assert.equal(workflowStepLabel('timeline_plan'), '时间线')
-  assert.equal(workflowStepLabel('image_generation'), '生图')
-  assert.equal(workflowStepLabel('video_generation'), '生成视频')
-  assert.equal(workflowStepLabel('audio_generation'), '配音')
-  assert.equal(workflowStepLabel('post_composite'), '合成')
+  assert.equal(workflowStepLabel('image_generation'), '生图（占位）')
+  assert.equal(workflowStepLabel('video_generation'), '视频（占位）')
+  assert.equal(workflowStepLabel('audio_generation'), '配音（占位）')
+  assert.equal(workflowStepLabel('post_composite'), '合成（占位）')
 
   const active = normalizeWorkflowRun({
     id: 'run-2',
@@ -93,6 +97,15 @@ test('normalizeWorkflowRun exposes retry, pause, resume and cancel states', () =
   assert.equal(paused.canCancel, false)
   assert.equal(paused.canPause, false)
   assert.equal(paused.canResume, true)
+
+  const placeholder = normalizeWorkflowRun({
+    id: 'run-4',
+    type: 'novel2anime',
+    status: 'completed',
+    steps: [{ step_key: 'post_composite', status: 'completed' }],
+  })
+  assert.equal(placeholder.label, '占位流程完成')
+  assert.equal(placeholder.novel2animePlaceholder, true)
 })
 
 test('normalizeQaReport counts severities and remediation actions', () => {
@@ -141,4 +154,100 @@ test('normalizeTimelineSummary summarizes timeline tracks and duration', () => {
   assert.equal(summary.itemCount, 28)
   assert.equal(summary.hasRequiredTracks, true)
   assert.equal(formatDuration(summary.durationSec), '1:35')
+})
+
+test('normalizeTimelineSummary flags all-placeholder timeline items', () => {
+  const summary = normalizeTimelineSummary({
+    episodes: [
+      {
+        summary: { track_count: 2, item_count: 2, duration_sec: 10, track_types: ['video', 'voice'] },
+        tracks: [
+          { items: [{ source_path: 'mock://storyboard/1/video' }] },
+          { items: [{ source_path: 'mock://storyboard/1/voice', metadata: { placeholder: true } }] },
+        ],
+      },
+    ],
+  })
+
+  assert.equal(summary.itemCount, 2)
+  assert.equal(summary.placeholderItemCount, 2)
+  assert.equal(summary.hasPlaceholderItems, true)
+  assert.equal(summary.hasOnlyPlaceholderItems, true)
+
+  const mixed = normalizeTimelineSummary({
+    summary: {
+      episode_count: 1,
+      track_count: 7,
+      item_count: 3,
+      track_types: ['video', 'subtitle', 'voice', 'dialogue', 'effect', 'bgm', 'transition'],
+    },
+    episodes: [
+      {
+        tracks: [
+          { items: [{ source_path: 'mock://storyboard/1/video' }] },
+          { items: [{ source_path: 'subtitles/1.srt' }, { source_path: 'media/audio/1.wav' }] },
+        ],
+      },
+    ],
+  })
+  assert.equal(mixed.hasRequiredTracks, true)
+  assert.equal(mixed.hasPlaceholderItems, true)
+  assert.equal(mixed.hasOnlyPlaceholderItems, false)
+})
+
+test('canvas workflow keeps explicit empty pipeline invalid instead of defaulting to all steps', () => {
+  assert.deepEqual(normalizePipeline([], { allowEmpty: true }), [])
+  assert.deepEqual(normalizePipeline([]), ['image', 'video', 'audio'])
+  assert.throws(
+    () => createWorkflowGroup([], { title: 'empty', storyboardIds: [1], pipeline: [] }),
+    /workflow step/
+  )
+})
+
+test('media helpers do not treat mock placeholders as usable assets', () => {
+  assert.equal(assetImageUrl({ local_path: 'mock://storyboard/1/image', image_url: 'placeholder://storyboard/1/image' }), '')
+  assert.equal(assetImageUrl({ local_path: 'mock://storyboard/1/image', image_url: 'https://example.com/real.png' }), 'https://example.com/real.png')
+  assert.equal(audioUrl('placeholder://storyboard/1/audio'), '')
+
+  const sb = {
+    id: 1,
+    image_url: 'mock://storyboard/1/image',
+    local_path: 'placeholder://storyboard/1/local',
+    video_url: 'mock://storyboard/1/video',
+  }
+  assert.equal(hasStoryboardImage(sb, {}, {}), false)
+  assert.equal(hasStoryboardVideo(sb, {}), false)
+  assert.equal(resolveSbVideoRecord(sb, {}), null)
+  assert.equal(videoRecordUrl({ video_url: 'mock://storyboard/1/video' }), '')
+
+  const realVideo = { id: 1, video_url: 'https://example.com/real.mp4', status: 'completed' }
+  assert.equal(hasStoryboardVideo({ id: 1 }, { 1: [realVideo] }), true)
+  assert.equal(videoRecordUrl(realVideo), 'https://example.com/real.mp4')
+})
+
+test('AI config export and import helpers strip masked settings secrets', () => {
+  const settings = JSON.stringify({
+    auth_mode: 'volc_sign',
+    access_key_id: '********',
+    secret_access_key: '********',
+    nested: { token: '********', safe: 'visible' },
+  })
+  const cleaned = JSON.parse(stripMaskedSecretsFromSettings(settings))
+  assert.equal(cleaned.access_key_id, '')
+  assert.equal(cleaned.secret_access_key, '')
+  assert.equal(cleaned.nested.token, '')
+  assert.equal(cleaned.nested.safe, 'visible')
+
+  const exported = sanitizeConfigForExport({
+    id: 1,
+    created_at: '2026-01-01',
+    updated_at: '2026-01-02',
+    api_key: '********',
+    api_key_set: true,
+    name: 'cfg',
+    settings,
+  })
+  assert.equal(exported.api_key, '')
+  assert.equal('id' in exported, false)
+  assert.equal(JSON.parse(exported.settings).secret_access_key, '')
 })

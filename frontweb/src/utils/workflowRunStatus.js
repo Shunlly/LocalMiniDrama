@@ -9,6 +9,7 @@ const STATUS_LABELS = {
 
 export function normalizeWorkflowRun(run) {
   const steps = Array.isArray(run?.steps) ? run.steps : []
+  const novel2animePlaceholder = run?.type === 'novel2anime'
   const failedStep = steps.find((step) => step.status === 'failed') || null
   const activeStep = steps.find((step) => step.status === 'processing') || steps.find((step) => step.status === 'pending') || null
   const completedCount = steps.filter((step) => step.status === 'completed').length
@@ -19,7 +20,10 @@ export function normalizeWorkflowRun(run) {
   return {
     id: run?.id || '',
     status: run?.status || 'pending',
-    label: STATUS_LABELS[run?.status] || run?.status || '等待中',
+    label: novel2animePlaceholder && run?.status === 'completed'
+      ? '占位流程完成'
+      : STATUS_LABELS[run?.status] || run?.status || '等待中',
+    novel2animePlaceholder,
     active,
     canRetry: run?.status === 'failed',
     canPause: active,
@@ -40,11 +44,11 @@ export function workflowStepLabel(stepKey) {
     apply_episodes: '写入分集',
     asset_bible: '资产 Bible',
     storyboard_draft: '分镜草稿',
-    image_generation: '生图',
-    video_generation: '生成视频',
-    audio_generation: '配音',
+    image_generation: '生图（占位）',
+    video_generation: '视频（占位）',
+    audio_generation: '配音（占位）',
     timeline_plan: '时间线',
-    post_composite: '合成',
+    post_composite: '合成（占位）',
     qa_audit: 'QA 审计',
   }
   return labels[stepKey] || stepKey

@@ -121,8 +121,12 @@ export function useCharacters(deps) {
       })
       const taskId = res?.task_id
       if (taskId) {
-        await pollTask(taskId, () => loadDrama(), meta)
-        ElMessage.success('角色生成完成')
+        const pollRes = await pollTask(taskId, () => loadDrama(), meta)
+        if (pollRes?.status === 'completed') {
+          ElMessage.success('角色生成完成')
+        } else {
+          ElMessage.warning(pollRes?.error || '角色生成未完成')
+        }
       } else {
         await loadDrama()
       }
@@ -345,8 +349,11 @@ export function useCharacters(deps) {
         const pollRes = await pollTask(taskId, () => loadDrama(), meta)
         if (pollRes?.status === 'failed') {
           char.errorMsg = pollRes.error || '生成失败'
-        } else {
+        } else if (pollRes?.status === 'completed') {
           ElMessage.success('角色图片已生成')
+        } else {
+          char.errorMsg = pollRes?.error || '角色图片生成未完成'
+          ElMessage.warning(char.errorMsg)
         }
       } else {
         await loadDrama()

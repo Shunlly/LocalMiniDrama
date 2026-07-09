@@ -93,6 +93,9 @@
               <span>{{ formatTime(selectedRun.created_at) }}</span>
               <span v-if="runState.activeStep">当前：{{ workflowStepLabel(runState.activeStep.step_key) }}</span>
             </div>
+            <div v-if="runState.novel2animePlaceholder" class="placeholder-note">
+              Novel2Anime 当前媒体步骤使用本地 mock 占位，production QA 会要求真实 provider 产物。
+            </div>
 
             <details class="run-detail" open>
               <summary>步骤明细</summary>
@@ -191,8 +194,8 @@
         <div class="status-block timeline-block">
           <div class="block-head">
             <span>时间线摘要</span>
-            <el-tag v-if="timelineSummary.itemCount" size="small" :type="timelineSummary.hasRequiredTracks ? 'success' : 'warning'">
-              {{ timelineSummary.itemCount }} 条
+            <el-tag v-if="timelineSummary.itemCount" size="small" :type="timelineSummary.hasPlaceholderItems ? 'warning' : timelineSummary.hasRequiredTracks ? 'success' : 'warning'">
+              {{ timelineSummary.hasOnlyPlaceholderItems ? '占位' : timelineSummary.hasPlaceholderItems ? '含占位' : timelineSummary.itemCount + ' 条' }}
             </el-tag>
           </div>
           <div v-if="timelineSummary.episodeCount" class="timeline-summary">
@@ -200,6 +203,7 @@
             <span>{{ timelineSummary.trackCount }} 轨</span>
             <span>{{ formatDuration(timelineSummary.durationSec) }}</span>
             <span>{{ timelineSummary.trackTypes.join(' / ') }}</span>
+            <span v-if="timelineSummary.placeholderItemCount">{{ timelineSummary.placeholderItemCount }} 条占位</span>
           </div>
           <div v-else class="empty-line">暂无时间线</div>
         </div>
@@ -706,6 +710,15 @@ onBeforeUnmount(stopPoll)
   margin: 8px 0 10px;
   color: #a1a1aa;
   font-size: 12px;
+}
+.placeholder-note {
+  margin: 8px 0 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.12);
+  font-size: 12px;
+  line-height: 1.45;
 }
 .run-detail,
 .qa-detail {

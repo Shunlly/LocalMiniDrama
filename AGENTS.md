@@ -38,7 +38,7 @@ cd frontweb && npm run build
 - Pure JavaScript (no TypeScript) throughout.
 - Backend uses `node --watch` for hot reloading in dev mode (`npm run dev`).
 - Database is SQLite (embedded via `better-sqlite3`), auto-created in `backend-node/data/`.
-- Migrations run automatically on backend startup (`ensureColumns()`); explicit `npm run migrate` only needed for first-time setup or after adding new migration SQL files.
+- Backend startup runs `runMigrationsAndEnsure()`: it applies SQL migrations and then performs table/column compatibility ensures. Explicit `npm run migrate` is mainly for manual initialization or migration verification.
 - Config file at `backend-node/configs/config.yaml` already exists in the repo — no need to copy from example.
 - AI content generation requires external API keys (configured via the app's "AI 配置" page), but the app fully functions without them for development/testing purposes.
 - The backend also serves the built frontend from `frontweb/dist/` at port 5679 when the dist folder exists; during development, use the Vite dev server at port 3013 instead.

@@ -112,8 +112,10 @@ export function useProps(deps) {
       const taskId = res?.task_id
       if (taskId) {
         const pollRes = await pollTask(taskId, () => loadDrama(), meta)
-        if (pollRes?.status !== 'failed') {
+        if (pollRes?.status === 'completed') {
           ElMessage.success('道具提取完成')
+        } else {
+          ElMessage.warning(pollRes?.error || '道具提取未完成')
         }
       } else {
         await loadDrama()
@@ -307,8 +309,11 @@ export function useProps(deps) {
         const pollRes = await pollTask(taskId, () => loadDrama(), meta)
         if (pollRes?.status === 'failed') {
           prop.errorMsg = pollRes.error || '生成失败'
-        } else {
+        } else if (pollRes?.status === 'completed') {
           ElMessage.success('道具图片已生成')
+        } else {
+          prop.errorMsg = pollRes?.error || '道具图片生成未完成'
+          ElMessage.warning(prop.errorMsg)
         }
       } else {
         await loadDrama()

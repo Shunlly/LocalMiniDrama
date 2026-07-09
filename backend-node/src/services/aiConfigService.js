@@ -10,6 +10,100 @@ function normalizeApiKeyForService(serviceType, apiKey) {
   return apiKey;
 }
 const { applyDeepSeekConnectivityOptions } = require('./deepseekConfig');
+const MASKED_SECRET = '********';
+
+function isMaskedSecret(value) {
+  return String(value || '').trim() === MASKED_SECRET;
+}
+
+function hasSecret(value) {
+  return value != null && String(value).trim() !== '';
+}
+
+function maskSecretValue(value) {
+  return hasSecret(value) ? MASKED_SECRET : '';
+}
+
+function isSensitiveSettingKey(key) {
+  const text = String(key || '');
+  return /api[_-]?key/i.test(text) ||
+    /access[_-]?key/i.test(text) ||
+    /secret/i.test(text) ||
+    /password/i.test(text) ||
+    /^token$/i.test(text) ||
+    /[_-]token$/i.test(text) ||
+    /Token$/.test(text);
+}
+
+function maskSensitiveSettingsObject(value) {
+  if (Array.isArray(value)) return value.map(maskSensitiveSettingsObject);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (isSensitiveSettingKey(key)) {
+      out[key] = maskSecretValue(child);
+    } else {
+      out[key] = maskSensitiveSettingsObject(child);
+    }
+  }
+  return out;
+}
+
+function parseSettingsValue(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function maskSensitiveSettings(settings) {
+  const parsed = parseSettingsValue(settings);
+  if (!parsed) {
+    if (typeof settings !== 'string') return settings;
+    let masked = settings;
+    masked = masked.replace(/((?:api[_-]?key|access[_-]?key|secret|password|token)[^=:,\n]*[=:]\s*)(["']?)([^"',\s}]+)/gi, '$1$2********');
+    masked = masked.replace(/\b(sk-[A-Za-z0-9._-]{6,})\b/g, '********');
+    return masked;
+  }
+  return JSON.stringify(maskSensitiveSettingsObject(parsed));
+}
+
+function preserveMaskedSettingsValue(nextValue, existingValue) {
+  if (isMaskedSecret(nextValue)) return existingValue;
+  if (Array.isArray(nextValue)) {
+    return nextValue.map((item, index) => preserveMaskedSettingsValue(item, Array.isArray(existingValue) ? existingValue[index] : undefined));
+  }
+  if (nextValue && typeof nextValue === 'object') {
+    const out = {};
+    for (const [key, child] of Object.entries(nextValue)) {
+      out[key] = preserveMaskedSettingsValue(child, existingValue && typeof existingValue === 'object' ? existingValue[key] : undefined);
+    }
+    return out;
+  }
+  return nextValue;
+}
+
+function preserveMaskedSettings(nextSettings, existingSettings) {
+  if (nextSettings == null) return nextSettings;
+  const nextParsed = parseSettingsValue(nextSettings);
+  if (!nextParsed) return nextSettings;
+  const existingParsed = parseSettingsValue(existingSettings) || {};
+  return JSON.stringify(preserveMaskedSettingsValue(nextParsed, existingParsed));
+}
+
+function configForResponse(config) {
+  if (!config) return config;
+  return {
+    ...config,
+    api_key: maskSecretValue(config.api_key),
+    api_key_set: hasSecret(config.api_key),
+    settings: maskSensitiveSettings(config.settings),
+  };
+}
+
 function modelToDb(model) {
   if (model == null) return null;
   if (Array.isArray(model)) return JSON.stringify(model);
@@ -159,7 +253,7 @@ function updateConfig(db, log, id, req) {
     updates.push('base_url = ?');
     params.push(req.base_url);
   }
-  if (req.api_key != null) {
+  if (req.api_key != null && !isMaskedSecret(req.api_key)) {
     updates.push('api_key = ?');
     const st = req.service_type != null ? req.service_type : existing.service_type;
     params.push(normalizeApiKeyForService(st, req.api_key));
@@ -186,7 +280,7 @@ function updateConfig(db, log, id, req) {
   }
   if (req.settings != null) {
     updates.push('settings = ?');
-    params.push(req.settings);
+    params.push(preserveMaskedSettings(req.settings, existing.settings));
   }
   if (typeof req.is_default === 'boolean') {
     updates.push('is_default = ?');
@@ -579,4 +673,8 @@ module.exports = {
   getVendorLockStatus,
   applyVendorLock,
   bulkUpdateApiKey,
+  configForResponse,
+  isMaskedSecret,
+  maskSensitiveSettings,
+  preserveMaskedSettings,
 };
