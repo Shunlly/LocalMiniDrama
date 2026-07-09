@@ -1100,6 +1100,7 @@ import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRoun
 import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
 import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '@/utils/aiConfigExport.js'
+import { CUSTOM_PROVIDER_SENTINEL, getBaseUrlForProvider, getProviderEndpointDefaults, getProviderProtocol, providerConfigs } from '@/utils/aiProviderPresets.js'
 import PromptEditor from '@/components/PromptEditor.vue'
 import SceneModelMap from '@/components/SceneModelMap.vue'
 import Sd2AssetManagement from '@/components/Sd2AssetManagement.vue'
@@ -1226,7 +1227,7 @@ function onServiceTypeChange() {
     const p = form.value.provider
     const pcfg = (providerConfigs.jimeng2_character_auth || []).find((x) => x.id === p)
     if (pcfg) {
-      if (!form.value.base_url?.trim()) form.value.base_url = getBaseUrlForProvider(p)
+      if (!form.value.base_url?.trim()) form.value.base_url = getBaseUrlForProvider(p, st)
       form.value.modelText = '-'
       form.value.default_model = '-'
       form.value.endpoint = ''
@@ -1242,7 +1243,10 @@ function onServiceTypeChange() {
   const current = form.value.provider
   if (!current || !listByType.some((p) => p.id === current)) {
     form.value.provider = ''
+    form.value.api_protocol = ''
     form.value.base_url = ''
+    form.value.endpoint = ''
+    form.value.query_endpoint = ''
     form.value.modelText = ''
     form.value.default_model = ''
   }
@@ -1296,126 +1300,6 @@ const oneKeyVolcSaving = ref(false)
 const oneKeyAgnesVisible = ref(false)
 const oneKeyAgnesKey = ref('')
 const oneKeyAgnesSaving = ref(false)
-
-/** 预设厂商与模型（与参考前端一致） */
-const providerConfigs = {
-  text: [
-    { id: 'openai', name: 'OpenAI', models: ['gpt-4o', 'gpt-4', 'gpt-3.5-turbo'] },
-    { id: 'volcengine', name: '火山引擎', models: ['deepseek-v3-2-251201', 'doubao-1-5-pro-32k-250115', 'kimi-k2-thinking-251104'] },
-    // { id: 'chatfire', name: 'Chatfire', models: ['gemini-3-flash-preview', 'claude-sonnet-4-5-20250929', 'doubao-seed-1-8-251228'] },
-    { id: 'gemini', name: 'Google Gemini', models: ['gemini-2.5-pro', 'gemini-3-flash-preview'] },
-    { id: 'deepseek', name: 'DeepSeek', models: ['deepseek-v4-flash', 'deepseek-v4-pro'] },
-    { id: 'qwen', name: '通义千问', models: ['qwen3-max', 'qwen-plus', 'qwen-flash'] },
-    { id: 'agnes', name: 'Agnes AI', models: ['agnes-2.0-flash'] }
-  ],
-  image: [
-    { id: 'volcengine', name: '火山引擎', models: ['doubao-seedream-4-5-251128', 'doubao-seedream-4-0-250828'] },
-    { id: 'kling', name: '可灵 Kling', models: ['kling-image', 'kling-omni-image'] },
-    { id: 'nano_banana', name: 'NanoBanana', models: ['nano-banana-2', 'nano-banana-pro', 'nano-banana'] },
-    // { id: 'chatfire', name: 'Chatfire', models: ['nano-banana-pro', 'doubao-seedream-4-5-251128', 'qwen-image'] },
-    { id: 'gemini', name: 'Google Gemini', models: ['gemini-2.5-flash-image', 'gemini-2.5-flash-image-preview', 'gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'] },
-    { id: 'openai', name: 'OpenAI', models: ['dall-e-3', 'dall-e-2'] },
-    { id: 'dashscope', name: '通义万象', models: ['wan2.6-image', 'qwen-image-edit-plus-2026-01-09', 'qwen-image-edit-plus', 'qwen-image-edit-max'] },
-    { id: 'qwen_image', name: '通义千问', models: ['qwen-image-max', 'qwen-image-plus', 'qwen-image'] },
-    { id: 'agnes', name: 'Agnes AI', models: ['agnes-image-2.1-flash', 'agnes-image-2.0-flash'] }
-  ],
-  storyboard_image: [
-    { id: 'dashscope', name: '通义万象', models: ['wan2.6-image', 'qwen-image-edit-plus-2026-01-09', 'qwen-image-edit-plus', 'qwen-image-edit-max'] },
-    { id: 'volcengine', name: '火山引擎', models: ['doubao-seedream-4-5-251128', 'doubao-seedream-4-0-250828'] },
-    { id: 'kling', name: '可灵 Kling', models: ['kling-image', 'kling-omni-image'] },
-    { id: 'nano_banana', name: 'NanoBanana', models: ['nano-banana-2', 'nano-banana-pro', 'nano-banana'] },
-    // { id: 'chatfire', name: 'Chatfire', models: ['nano-banana-pro', 'doubao-seedream-4-5-251128', 'qwen-image'] },
-    { id: 'gemini', name: 'Google Gemini', models: ['gemini-2.5-flash-image', 'gemini-2.5-flash-image-preview', 'gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview'] },
-    { id: 'openai', name: 'OpenAI', models: ['dall-e-3', 'dall-e-2'] },
-    { id: 'agnes', name: 'Agnes AI', models: ['agnes-image-2.1-flash', 'agnes-image-2.0-flash'] }
-  ],
-  video: [
-    { id: 'klingai', name: '可灵官方 Omni (api-beijing.klingai.com)', models: ['kling-video-o1', 'kling-v3-omni'] },
-    { id: 'ffir', name: '飞儿API / 可灵 Omni-Video (ffir.cn)', models: ['kling-video-o1', 'kling-v3-omni'] },
-    { id: 'kling', name: '可灵 Kling', models: ['kling-omni-video', 'kling-video', 'kling-motion-control'] },
-    { id: 'vidu', name: 'Vidu', models: ['viduq2', 'viduq2-pro', 'viduq2-turbo', 'viduq3-pro'] },
-    { id: 'volces', name: '火山引擎', models: ['doubao-seedance-2-0-260128', 'doubao-seedance-2-0-fast-260128', 'doubao-seedance-1-5-pro-251215', 'doubao-seedance-1-0-lite-i2v-250428', 'doubao-seedance-1-0-lite-t2v-250428', 'doubao-seedance-1-0-pro-250528', 'doubao-seedance-1-0-pro-fast-251015'] },
-    // { id: 'chatfire', name: 'Chatfire', models: ['doubao-seedance-1-5-pro-251215', 'doubao-seedance-1-0-lite-i2v-250428', 'doubao-seedance-1-0-lite-t2v-250428', 'doubao-seedance-1-0-pro-250528', 'doubao-seedance-1-0-pro-fast-251015', 'sora-2', 'sora-2-pro'] },
-    { id: 'minimax', name: 'MiniMax 海螺', models: ['MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-2.3-Fast', 'MiniMax-Hailuo-02'] },
-    { id: 'gemini', name: 'Google Gemini (Veo)', models: ['veo-3.1-generate-preview', 'veo-3.0-generate-preview', 'veo-3.0-fast-generate-preview'] },
-    { id: 'dashscope', name: '通义万相', models: ['wan2.6-r2v-flash', 'wan2.6-t2v', 'wan2.2-kf2v-flash', 'wan2.6-i2v-flash', 'wanx2.1-vace-plus'] },
-    {
-      id: 'jimeng_ai_api',
-      name: 'Jimeng AI API（自建即梦免费 API）',
-      models: [
-        'jimeng-video-seedance-2.0',
-        'seedance-2.0',
-        'jimeng-video-seedance-2.0-fast',
-        'jimeng-video-3.0',
-        'jimeng-video-3.0-pro',
-        'jimeng-video-3.5-pro',
-      ],
-    },
-    { id: 'openai', name: 'OpenAI', models: ['sora-2', 'sora-2-pro'] },
-    { id: 'xai', name: 'xAI Grok Imagine', models: ['grok-imagine-video'] },
-    { id: 'agnes', name: 'Agnes AI', models: ['agnes-video-v2.0'] },
-  ],
-  tts: [
-    { id: 'minimax', name: 'MiniMax T2A', models: ['speech-02-hd', 'speech-02-turbo'] },
-  ],
-  jimeng2_character_auth: [
-    { id: 'jimeng_material_api', name: '即梦业务素材 API（/api/business/v1）', models: ['-'] },
-  ],
-}
-
-/** 厂商 id → 默认接口规范（api_protocol） */
-const providerProtocolMap = {
-  // image / storyboard_image
-  volcengine: 'volcengine',
-  volces: 'volcengine',
-  volc: 'volcengine',
-  nano_banana: 'nano_banana',
-  dashscope: 'dashscope',
-  qwen_image: 'dashscope',
-  gemini: 'gemini',
-  google: 'gemini',
-  kling: 'kling',
-  ffir: 'kling_omni',
-  klingai: 'kling_omni',
-  // video
-  vidu: 'vidu',
-  xai: 'xai',
-  grok: 'xai',
-  minimax: 'openai',
-  openai: 'openai',
-  chatfire: 'openai',
-  qwen: 'openai',
-  deepseek: 'openai',
-  agnes: 'openai',
-  jimeng_ai_api: 'jimeng_ai_api',
-  jimeng_material_api: '',
-}
-
-/** 厂商 id → 默认 Base URL（与参考前端 AIConfigDialog 757-775 一致） */
-function getBaseUrlForProvider(provider) {
-  if (!provider) return ''
-  const p = String(provider).toLowerCase()
-  if (p === 'gemini' || p === 'google') return 'https://generativelanguage.googleapis.com'
-  if (p === 'minimax') return 'https://api.minimaxi.com/v1'
-  if (p === 'volces' || p === 'volcengine') return 'https://ark.cn-beijing.volces.com/api/v3'
-  if (p === 'openai') return 'https://api.openai.com/v1'
-  if (p === 'deepseek') return 'https://api.deepseek.com'
-  if (p === 'dashscope') return 'https://dashscope.aliyuncs.com'
-  if (p === 'qwen_image') return 'https://dashscope.aliyuncs.com'
-  if (p === 'qwen') return 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-  if (p === 'nano_banana') return 'https://api.nanobananaapi.ai'
-  if (p === 'vidu') return 'https://api.vidu.cn'
-  if (p === 'kling') return 'https://api.klingai.com'
-  if (p === 'klingai') return 'https://api-beijing.klingai.com'
-  if (p === 'ffir') return 'https://ffir.cn'
-  if (p === 'jimeng_ai_api') return 'http://127.0.0.1:8000'
-  if (p === 'jimeng_material_api') return 'https://silvamux.tingyutech.com'
-  if (p === 'xai' || p === 'grok') return 'https://api.x.ai'
-  if (p === 'agnes') return 'https://apihub.agnes-ai.com/v1'
-  return 'https://api.chatfire.site/v1'
-}
-
-const CUSTOM_PROVIDER_SENTINEL = '__custom__'
 
 function parseSettings(settings) {
   if (!settings) return {}
@@ -1479,7 +1363,7 @@ const availableModels = computed(() => {
 const endpointPreviewInfo = computed(() => {
   const { provider, api_protocol, base_url, service_type, endpoint, query_endpoint } = form.value
   const p = String(provider || '').toLowerCase()
-  const proto = api_protocol || providerProtocolMap[p] || ''
+  const proto = api_protocol || getProviderProtocol(p, service_type) || ''
   const base = (base_url || '').replace(/\/$/, '')
 
   if (service_type === 'jimeng2_character_auth') {
@@ -1503,7 +1387,7 @@ const endpointPreviewInfo = computed(() => {
     if (p === 'minimax') {
       submitPath = '/t2a_v2?GroupId={group_id}'
     } else {
-      submitPath = endpoint || '/tts'
+      submitPath = endpoint || '/audio/speech'
     }
   } else if (service_type === 'image' || service_type === 'storyboard_image') {
     if (endpoint) {
@@ -1620,6 +1504,8 @@ function onProviderChange(providerId) {
     form.value.provider = ''
     form.value.api_protocol = ''
     form.value.base_url = ''
+    form.value.endpoint = ''
+    form.value.query_endpoint = ''
     form.value.modelText = ''
     form.value.default_model = ''
     return
@@ -1628,19 +1514,24 @@ function onProviderChange(providerId) {
   const p = (providerConfigs[st] || []).find((x) => x.id === providerId)
   if (!p) {
     form.value.base_url = ''
+    form.value.endpoint = ''
+    form.value.query_endpoint = ''
     form.value.modelText = ''
     form.value.default_model = ''
     return
   }
-  form.value.base_url = getBaseUrlForProvider(providerId)
+  form.value.base_url = getBaseUrlForProvider(providerId, st)
   form.value.modelText = (p.models || []).join('\n')
   form.value.default_model = (p.models && p.models[0]) || ''
   if (providerId === 'deepseek') {
     form.value.deepseek_thinking = 'disabled'
     form.value.deepseek_reasoning_effort = 'high'
   }
-  // 自动填充接口规范
-  form.value.api_protocol = providerProtocolMap[providerId] || (st === 'text' ? '' : 'openai')
+  // 自动填充接口规范与默认端点；先清理旧厂商残留的端点，避免切换后继续调用上一个厂商。
+  form.value.api_protocol = getProviderProtocol(providerId, st) || (st === 'text' ? '' : 'openai')
+  const endpointDefaults = getProviderEndpointDefaults(providerId, st, form.value.api_protocol)
+  form.value.endpoint = endpointDefaults.endpoint || ''
+  form.value.query_endpoint = endpointDefaults.query_endpoint || ''
   if (st === 'video' && providerId === 'jimeng_ai_api') {
     form.value.endpoint = ''
     form.value.query_endpoint = ''
