@@ -20,7 +20,7 @@ Security fixes are only provided for the latest release.
 如果你发现了安全漏洞，请通过以下方式私下联系我们：  
 If you discover a security vulnerability, please contact us privately:
 
-- **GitHub Security Advisory**：点击仓库页面的 [Security](../../security/advisories/new) 标签 → Report a vulnerability
+- **GitHub Security Advisory**：打开 [Report a vulnerability](https://github.com/xuanyustudio/LocalMiniDrama/security/advisories/new)
 - **微信 / WeChat**：通过 README 中的二维码添加作者微信私信
 
 ### 响应流程 / Response Process
@@ -32,10 +32,10 @@ If you discover a security vulnerability, please contact us privately:
 
 ### 注意事项 / Notes
 
-本项目是**本地离线桌面应用**，不涉及服务端数据传输。用户的 AI API Key 和项目数据均存储在本地，不经过任何第三方服务器。主要安全风险集中在：
+本项目是**本地优先桌面应用**：SQLite 工程数据和生成文件默认保存在本机，AI API Key 存储在本地数据库。调用用户配置的 AI 服务、图床或中转站时，提示词、参考图和相关素材会发送到对应第三方端点；项目本身不提供托管中转服务。主要安全风险集中在：
 
 - 本地文件读写权限
 - 对接第三方 AI API 时的网络请求
 - 依赖包的已知漏洞
 
-This is a **local desktop application**. No user data or API keys are transmitted through any third-party server. Security risks are mainly related to local file access, outbound AI API requests, and known dependency vulnerabilities.
+This is a **local-first desktop application**. SQLite project data, generated files, and AI API keys are stored locally by default. When you call a configured AI provider, image host, or gateway, prompts, reference images, related media, and the credentials required by that endpoint are sent directly to that third party. LocalMiniDrama does not operate a hosted relay service. Security risks are mainly related to local file access, outbound third-party API requests, and known dependency vulnerabilities.

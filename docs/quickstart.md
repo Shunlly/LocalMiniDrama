@@ -22,7 +22,7 @@
 
 ## 运行方式一：下载 exe（推荐普通用户）
 
-1. 前往 **[Releases](../../releases)** 页面下载最新版本：
+1. 前往 **[Releases](https://github.com/xuanyustudio/LocalMiniDrama/releases)** 页面下载最新版本：
    - `本地短剧助手 Setup x.x.x.exe` — NSIS 安装包（推荐，可选安装路径）
    - `本地短剧助手 x.x.x.exe` — 免安装便携版，解压即用
 
@@ -30,7 +30,7 @@
 
 3. 首次运行会在以下路径生成配置文件：
    ```
-   %APPDATA%\LocalMiniDrama\backend\configs\config.yaml
+   %APPDATA%\localminidrama-desktop\backend\configs\config.yaml
    ```
 
 4. 点击软件右上角「AI 配置」，填入你的 AI API Key，即可开始使用。
@@ -143,7 +143,7 @@ npm run dist:cn
 
 ## 配置文件说明
 
-配置文件位于 `backend-node/configs/config.yaml`（开发模式）或 `%APPDATA%\LocalMiniDrama\backend\configs\config.yaml`（exe 模式）。
+配置文件位于 `backend-node/configs/config.yaml`（开发模式）或 `%APPDATA%\localminidrama-desktop\backend\configs\config.yaml`（exe 模式）。
 
 主要配置项：
 
@@ -156,8 +156,10 @@ database:
 
 storage:
   local_path: ./data/storage        # 生成图片/视频的本地存储目录
+  upload_disk_reserve_bytes: 536870912 # 上传后至少保留 512MB 可用空间
 
-language: zh          # 界面及提示词语言（zh / en）
+app:
+  language: zh        # 界面及提示词语言（zh / en）
 
 style:
   default_style: realistic           # 默认画风
@@ -176,7 +178,7 @@ AI 服务配置通过软件内「AI 配置」页面管理，无需手动编辑 Y
 |------|------|
 | `backend-node/data/drama_generator.db` | SQLite 数据库（开发模式） |
 | `backend-node/data/storage/` | 生成的图片和视频文件 |
-| `%APPDATA%\LocalMiniDrama\` | exe 模式下的所有数据 |
+| `%APPDATA%\localminidrama-desktop\` | exe 模式下的所有数据 |
 
 > ⚠️ 升级版本前建议备份 `data/` 目录；数据库会在启动时自动执行迁移脚本，一般无需手动操作。
 
@@ -187,7 +189,8 @@ AI 服务配置通过软件内「AI 配置」页面管理，无需手动编辑 Y
 项目根目录已提供 `docker-compose.yml`，会同时启动后端和前端：
 
 ```bash
-docker compose up --build
+docker compose up -d --build
+docker compose ps
 ```
 
 启动后访问：
@@ -198,7 +201,17 @@ docker compose up --build
 | 后端健康检查 | `http://localhost:5679/health` |
 | API 根路径 | `http://localhost:5679/api/v1` |
 
-Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`、`python3`、`make`、`g++`，用于 `better-sqlite3` 等原生依赖和视频处理。容器会把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。
+Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`、`python3`、`make`、`g++`，用于 `better-sqlite3` 等原生依赖和视频处理。容器会把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器运行 Vite 开发服务器，但源码没有 bind mount；修改前端或后端代码后需要重新执行 `docker compose up -d --build`。
+
+Docker 默认只把 `5679` 和 `3013` 绑定到宿主机 `127.0.0.1`，不会向局域网公开无认证接口。确需远程访问时，请先增加反向代理、认证和 TLS，再显式调整端口绑定。
+
+容器内完整验证：
+
+```bash
+npm run verify:docker
+```
+
+该命令依次执行后端静态检查、测试与流程审计，以及前端静态检查、测试和生产构建。宿主机若使用 Node.js 24 等缺少 `better-sqlite3` 预编译产物的版本，可直接以 Docker/Node 20 作为权威验证路径。
 
 停止服务：
 
@@ -254,7 +267,7 @@ npm run dist
 ### Q: 生成的图片/视频保存在哪里？
 
 开发模式：`backend-node/data/storage/`  
-exe 模式：`%APPDATA%\LocalMiniDrama\backend\data\storage\`
+exe 模式：`%APPDATA%\localminidrama-desktop\backend\data\storage\`
 
 目录结构：
 ```

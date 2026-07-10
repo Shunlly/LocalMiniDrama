@@ -17,6 +17,14 @@ export const uploadAPI = {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   },
+  /** 上传图片或视频并写入全局素材中心。 */
+  uploadAsset(file) {
+    const form = new FormData()
+    form.append('file', file)
+    return request.post('/assets/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
   /**
    * 从图片（base64 data URL 或 http URL）提取实体特征描述，不依赖已有实体 ID。
    * entityType: 'character' | 'scene' | 'prop'

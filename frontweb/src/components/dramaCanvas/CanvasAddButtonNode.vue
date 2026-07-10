@@ -34,8 +34,8 @@ function onClick() {
   width: 176px;
   padding: 14px 12px;
   border-radius: 10px;
-  border: 1px dashed rgba(129, 140, 248, 0.45);
-  background: rgba(24, 24, 27, 0.65);
+  border: 1px dashed var(--canvas-indigo-border, rgba(129, 140, 248, 0.45));
+  background: var(--canvas-add-surface, rgba(24, 24, 27, 0.65));
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -43,7 +43,7 @@ function onClick() {
   transition: border-color 0.15s, background 0.15s;
 }
 .canvas-add-node:hover {
-  border-color: #818cf8;
+  border-color: var(--canvas-indigo-strong, #818cf8);
   background: rgba(129, 140, 248, 0.12);
 }
 .add-icon {
@@ -51,7 +51,7 @@ function onClick() {
   height: 22px;
   border-radius: 6px;
   background: rgba(129, 140, 248, 0.2);
-  color: #a5b4fc;
+  color: var(--canvas-indigo-text, #a5b4fc);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -61,13 +61,26 @@ function onClick() {
 }
 .add-label {
   font-size: 12px;
-  color: #a1a1aa;
+  color: var(--canvas-text-muted, #a1a1aa);
 }
-.kind-character { border-color: rgba(52, 211, 153, 0.4); }
-.kind-character .add-icon { background: rgba(52, 211, 153, 0.18); color: #6ee7b7; }
-.kind-scene { border-color: rgba(96, 165, 250, 0.4); }
-.kind-scene .add-icon { background: rgba(96, 165, 250, 0.18); color: #93c5fd; }
-.kind-prop { border-color: rgba(251, 191, 36, 0.4); }
-.kind-prop .add-icon { background: rgba(251, 191, 36, 0.18); color: #fcd34d; }
-.kind-storyboard { border-color: rgba(167, 139, 250, 0.45); width: 200px; }
+.kind-character {
+  border-color: var(--canvas-emerald-border, rgba(52, 211, 153, 0.4));
+  background: var(--canvas-add-character-surface, var(--canvas-add-surface));
+}
+.kind-character .add-icon { background: rgba(52, 211, 153, 0.18); color: var(--canvas-emerald-text, #6ee7b7); }
+.kind-scene {
+  border-color: var(--canvas-blue-border, rgba(96, 165, 250, 0.4));
+  background: var(--canvas-add-scene-surface, var(--canvas-add-surface));
+}
+.kind-scene .add-icon { background: rgba(96, 165, 250, 0.18); color: var(--canvas-blue-text, #93c5fd); }
+.kind-prop {
+  border-color: var(--canvas-amber-border, rgba(251, 191, 36, 0.4));
+  background: var(--canvas-add-prop-surface, var(--canvas-add-surface));
+}
+.kind-prop .add-icon { background: rgba(251, 191, 36, 0.18); color: var(--canvas-amber-text, #fcd34d); }
+.kind-storyboard {
+  width: 200px;
+  border-color: var(--canvas-violet-border, rgba(167, 139, 250, 0.45));
+  background: var(--canvas-add-storyboard-surface, var(--canvas-add-surface));
+}
 </style>

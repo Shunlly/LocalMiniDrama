@@ -189,7 +189,7 @@ export function getBaseUrlForProvider(provider, serviceType = '') {
   if (p === 'jimeng_ai_api') return 'http://127.0.0.1:8000'
   if (p === 'jimeng_material_api') return 'https://silvamux.tingyutech.com'
   if (p === 'agnes') return 'https://apihub.agnes-ai.com/v1'
-  return 'https://api.chatfire.site/v1'
+  return ''
 }
 
 export function getProviderEndpointDefaults(provider, serviceType = '', protocol = '') {

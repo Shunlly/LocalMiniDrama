@@ -2,13 +2,13 @@
 
 # 🎬 LocalMiniDrama
 
-**A locally-running AI short drama & comic generator — download and run, no cloud required, fully open source**
+**A local-first AI short drama & comic generator — bring your own local or hosted providers, fully open source**
 
-[![version](https://img.shields.io/badge/version-1.2.8-blue?style=flat-square)](../../releases)
+[![version](https://img.shields.io/badge/version-1.2.8-blue?style=flat-square)](https://github.com/xuanyustudio/LocalMiniDrama/releases)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](../LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](#)
 [![stack](https://img.shields.io/badge/Vue3%20%2B%20Node.js%20%2B%20Electron-informational?style=flat-square)](#)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](../../pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/xuanyustudio/LocalMiniDrama/pulls)
 
 **[中文](../README.md) | English | [Author's Story](story.md)**
 
@@ -16,10 +16,10 @@
 
 ---
 
-There are plenty of AI short-drama tools out there, but almost none that truly run **offline locally, work out of the box, and keep your assets private**.  
-This project is built entirely in JavaScript from scratch. Connect your own AI API and start generating your own AI short drama immediately.
+LocalMiniDrama keeps projects and generated files on your machine by default while letting you connect your own AI services. Generation is not fully offline: prompts, reference images, or media are sent to the provider and proxy endpoints you explicitly configure.
+This project is built entirely in JavaScript from scratch. Review each provider's privacy policy before sending sensitive material.
 
-> ✅ No subscription · ✅ Data stays local · ✅ Multiple AI providers · ✅ Fully open source
+> ✅ No mandatory subscription · ✅ Projects stored locally by default · ✅ Multiple AI providers · ✅ Fully open source
 
 ---
 
@@ -75,7 +75,9 @@ This project is built entirely in JavaScript from scratch. Connect your own AI A
 
 ### 🤖 AI Configuration
 
-- Three independent model slots: **image generation**, **video generation**, **text generation**
+- Coverage summary for five core services: **text**, **asset image**, **storyboard image**, **video**, and **TTS**
+- Each service has independent providers, models, defaults, and connection-test status
+- The configuration form groups basic details, provider authentication, collapsed advanced API settings, models, and invocation policy
 - Compatible with **Alibaba DashScope**, **Volcengine (Doubao)**, **locally-deployed models** and any OpenAI-compatible API
 - Visual config panel; changes take effect immediately; **connection test** supported
 - Built-in quick-setup wizards for DashScope, Volcengine, and Agnes AI, with step-by-step API key instructions
@@ -91,14 +93,14 @@ This project is built entirely in JavaScript from scratch. Connect your own AI A
 
 ### Option A — Download exe (recommended)
 
-Go to **[Releases](../../releases)** and download the latest:
+Go to **[Releases](https://github.com/xuanyustudio/LocalMiniDrama/releases)** and download the latest:
 - `LocalMiniDrama Setup x.x.x.exe` — NSIS installer
 - `LocalMiniDrama x.x.x.exe` — portable, no install needed
 
 Double-click → open **AI Config** → enter your API key → start creating.
 
 > On first launch a config file is created at:  
-> `%APPDATA%\LocalMiniDrama\backend\configs\config.yaml`
+> `%APPDATA%\localminidrama-desktop\backend\configs\config.yaml`
 
 ### Option B — Development Mode
 
@@ -106,24 +108,22 @@ Double-click → open **AI Config** → enter your API key → start creating.
 
 ```bash
 # 1. Clone
-git clone https://github.com/your-username/LocalMiniDrama.git
+git clone https://github.com/xuanyustudio/LocalMiniDrama.git
 cd LocalMiniDrama
 
 # 2. Backend (port 5679)
 cd backend-node
 npm install
-cp configs/config.example.yaml configs/config.yaml
-# Edit config.yaml — set your AI API endpoint and key
-npm run migrate   # first run: initialise DB
-npm start
+# configs/config.yaml is already included; startup applies migrations automatically
+npm run dev
 
-# 3. Frontend (new terminal, port 3013)
+# 3. Frontend (from the repository root in a new terminal, port 3013)
 cd frontweb
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3013` in your browser.
+Open `http://localhost:3013`, then add provider URLs, models, and API keys on the **AI Config** page. AI service credentials are stored in the local SQLite database, not in `config.yaml`.
 
 You can also double-click `run_dev.bat` at the project root to **start both servers at once**.
 
@@ -189,7 +189,7 @@ Full version history → **[CHANGELOG](changelog.md)**
 - 🆕 **Agnes AI** — one-click setup for text (`agnes-2.0-flash`), image (`agnes-image-2.1-flash`), and video (`agnes-video-v2.0`) with a single API key
 - 🆕 **Canvas mode enhancements** — script node on canvas, context menu, floating toolbar, in-canvas create/delete, batch episode generation
 - 🆕 **ModelArk private asset library** — configure BytePlus / Volcengine Ark asset groups for Seedance 2.0 character certification (AK/SK or Bearer auth)
-- 🔧 **Configurable image proxy** — `upload_url`, timeout (default 180s), and retry count in `config.yaml`; stale cache URLs auto-reupload
+- 🔧 **Opt-in image proxy** — set `upload_url` explicitly in `config.yaml`; without it, LocalMiniDrama does not upload local images to a public proxy
 - 🔧 **Prompt improvements** · **Storyboard image count limit fix**
 
 **v1.2.7 highlights:**
@@ -218,7 +218,7 @@ Full version history → **[CHANGELOG](changelog.md)**
 | User | Scenario |
 |------|----------|
 | 📹 Content creators | Batch-produce AI short dramas / comics |
-| 🔒 Privacy-conscious users | Keep all assets local, no cloud uploads |
+| 🔒 Privacy-conscious users | Keep project data local while explicitly controlling provider and proxy endpoints |
 | 🛠 Developers | Extend AI providers or customise the pipeline |
 | 🌱 Beginners | Explore the AI video space at zero cost |
 
@@ -233,7 +233,7 @@ Full version history → **[CHANGELOG](changelog.md)**
 | **oiioii** | Open source, lightweight AI visual creation, flexible deployment |
 | **ChatFire** | AI dialogue-based short drama; inspired this project's backend design |
 
-This project focuses on **local offline use, a friendly UI, and easy customisation**. Feel free to open an [Issue](../../issues) to recommend other tools.
+This project focuses on **local-first project storage, a friendly UI, and easy customisation**. Feel free to open an [Issue](https://github.com/xuanyustudio/LocalMiniDrama/issues) to recommend other tools.
 
 ---
 
@@ -241,8 +241,8 @@ This project focuses on **local offline use, a friendly UI, and easy customisati
 
 All contributions are welcome!
 
-- 🐛 **Report a bug** → [New Issue](../../issues/new)
-- 💡 **Suggest a feature** → [New Issue](../../issues/new)
+- 🐛 **Report a bug** → [New Issue](https://github.com/xuanyustudio/LocalMiniDrama/issues/new)
+- 💡 **Suggest a feature** → [New Issue](https://github.com/xuanyustudio/LocalMiniDrama/issues/new)
 - 🔧 **Submit code** → Fork → Edit → Pull Request
 - ⭐ **Star the project** → Help others discover it
 

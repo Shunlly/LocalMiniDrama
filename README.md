@@ -44,7 +44,7 @@
 - 🆕 **Agnes AI 接入**：文本 / 图片 / 视频一键配置，一个 Key 覆盖全流程
 - 🆕 **画布模式增强**：剧本节点、右键菜单、浮动工具栏、画布内新建/删除/整集生成
 - 🆕 **ModelArk 私有资产库**：SD2 角色认证对接火山方舟资产组，AK/SK 与 Bearer 双鉴权
-- 🔧 **图床可配置**：`upload_url` / 超时（默认 180s）/ 重试次数写入 `config.yaml`；缓存 URL 失效自动重传
+- 🔧 **图床显式启用**：只有在 `config.yaml` 配置 `upload_url` 后才会上传本地图片；未配置时不使用公网图床
 - 🔧 **提示词优化** · **分镜图片数量上限修复**
 
 完整记录 → **[CHANGELOG.md](CHANGELOG.md)**
@@ -147,6 +147,7 @@
 - **工程 ZIP 导出/导入** · **全局素材库** · **16:9 / 9:16 / 1:1 画幅**
 - **经典 / 全能分镜** · **`@图片N` 多图参考** · **尾帧衔接** · **导出分镜表 HTML**
 - **图片/视频提示词**全文编辑 · 手动上传/拖拽替换参考图
+- **项目就绪度与唯一下一步** · **素材五步流程** · 生成动作不可用时直接说明原因
 
 </details>
 
@@ -167,7 +168,7 @@
 
 ### 🤖 AI 配置 · 🌓 亮/暗主题 · 自定义提示词
 
-三类模型独立配置（图/视频/文本）；一键配置通义/火山；9 类提示词可自定义覆盖。
+AI 配置按文本、素材图片、分镜图片、视频和 TTS 五类核心服务展示覆盖状态、默认配置与连接测试结果；新增配置时按基础信息、厂商认证、高级接口、模型和调用策略逐步填写。支持一键配置通义、火山和 Agnes，9 类提示词可自定义覆盖。
 
 ---
 
@@ -184,7 +185,7 @@
 
 双击运行 → 「AI 配置」填入 API Key → 开始创作。
 
-> 首次运行配置：`%APPDATA%\LocalMiniDrama\backend\configs\config.yaml`
+> 首次运行配置：`%APPDATA%\localminidrama-desktop\backend\configs\config.yaml`
 
 ### 方式二：源码开发
 
@@ -204,6 +205,15 @@ cd frontweb && npm install && npm run dev
 ```
 
 浏览器打开 `http://localhost:3013`，或双击根目录 **`run_dev.bat`** 一键启动。
+
+也可以直接从仓库根目录使用 Docker：
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+前端仍访问 `http://localhost:3013`，后端健康检查为 `http://localhost:5679/health`。Compose 默认仅绑定宿主机 `127.0.0.1`，不会把无认证接口直接暴露到局域网。改动前后端源码后需重新执行 `docker compose up -d --build`；完整容器验证可运行 `npm run verify:docker`。
 
 📖 [详细开发/打包/Docker 指南](docs/quickstart.md) · [AI 配置指南](docs/configuration.md)
 

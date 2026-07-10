@@ -25,3 +25,13 @@ desktop/release-icon-test-7
 desktop/backend-app-secure
 build
 frontweb-edu
+.codex-audit/
+coverage/
+playwright-report/
+test-results/
+*.log
+*.db-wal
+*.db-shm
+.env.local
+.env.*.local
+desktop/dist/

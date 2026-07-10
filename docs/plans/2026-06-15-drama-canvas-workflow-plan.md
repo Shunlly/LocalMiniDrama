@@ -201,12 +201,19 @@ frontweb/src/
     useCanvasStoryboardMedia.js  # 批量加载 images/videos
     useCanvasWorkflowRunner.js   # 单步/整组生成（export runImageStep 等）
   utils/
+    canvasActionState.js        # 工具栏动作禁用原因
+    canvasUiState.js            # 空状态与上下文工具显示规则
     dramaCanvasAdapter.js        # drama → Vue Flow 图
     canvasLayout.js              # layout 解析/持久化
     canvasWorkflow.js            # workflow_groups CRUD
     storyboardMedia.js           # 首帧/尾帧/视频 URL 解析（对齐列表模式）
     mediaUrl.js
   components/dramaCanvas/
+    CanvasDesktopToolbar.vue    # 创建内容 / 工作流 / 批量生成分组工具栏
+    CanvasToolbarGroup.vue      # 桌面工具组容器
+    CanvasWorkflowToolbarGroup.vue
+    CanvasWorkflowSidebarList.vue
+    CanvasEmptyState.vue        # 新建/选择剧集与列表模式入口
     CanvasAssetNode.vue
     CanvasAssetPanel.vue
     CanvasEpisodeNode.vue

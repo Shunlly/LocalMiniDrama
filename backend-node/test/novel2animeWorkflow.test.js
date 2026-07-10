@@ -1,5 +1,8 @@
-const { describe, it } = require('node:test');
+const { after, describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const Database = require('better-sqlite3');
 
 const { runMigrationsAndEnsure } = require('../src/db/migrate');
@@ -16,6 +19,19 @@ const log = {
   warn() {},
   error() {},
 };
+
+const previousStorySourceRoot = process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT;
+const testStorySourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-story-sources-'));
+process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT = testStorySourceRoot;
+
+after(() => {
+  if (previousStorySourceRoot == null) {
+    delete process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT;
+  } else {
+    process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT = previousStorySourceRoot;
+  }
+  fs.rmSync(testStorySourceRoot, { recursive: true, force: true });
+});
 
 function createDb() {
   const db = new Database(':memory:');
@@ -101,7 +117,9 @@ describe('sourceIntakeService', () => {
         target_episode_count: 2,
       });
       assert.equal(result.source.source_type, sourceType);
-      assert.equal(result.source.raw_text_path.startsWith('data/story_sources/1/'), true);
+      const rawTextPath = path.resolve(process.cwd(), result.source.raw_text_path);
+      assert.equal(rawTextPath.startsWith(`${path.resolve(testStorySourceRoot)}${path.sep}`), true);
+      assert.equal(fs.existsSync(rawTextPath), true);
       assert.ok(result.items.length >= 1);
       assert.ok(result.events.length >= 1);
       if (result.events.length > 1) {

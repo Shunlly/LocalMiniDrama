@@ -14,7 +14,13 @@ html.dark {
   --text-muted:    #a1a1aa;
   --text-subtle:   #71717a;
   --text-faint:    #52525b;
+  --status-success: #4ade80;
+  --status-warning: #fbbf24;
+  --accent-text:   #ddd6fe;
   --shadow:        0 2px 12px rgba(0,0,0,.4);
+  --button-disabled-bg: rgba(39, 39, 42, 0.92);
+  --button-disabled-border: rgba(82, 82, 91, 0.95);
+  --button-disabled-text: #71717a;
 }
 
 /* =====================================================
@@ -32,7 +38,13 @@ html.light {
   --text-muted:    #52525b;
   --text-subtle:   #71717a;
   --text-faint:    #a1a1aa;
+  --status-success: #15803d;
+  --status-warning: #a16207;
+  --accent-text:   #6d28d9;
   --shadow:        0 2px 12px rgba(0,0,0,.08);
+  --button-disabled-bg: #e4e1ea;
+  --button-disabled-border: #d7d3df;
+  --button-disabled-text: #8f899b;
 }
 
 /* ── 通用基础 ── */
@@ -266,17 +278,16 @@ html.light .el-card {
 
 /* 页面标题区美化 */
 html.light .header {
-  background: linear-gradient(135deg, #ffffff 0%, #faf9ff 100%) !important;
+  background: #ffffff !important;
   border-bottom: 1px solid #e8e8ef !important;
   box-shadow: 0 1px 8px rgba(0,0,0,.05) !important;
 }
 
-/* Logo 加紫色渐变 */
+/* Logo */
 html.light .logo {
-  background: linear-gradient(135deg, #7c3aed, #a78bfa) !important;
-  -webkit-background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  background-clip: text !important;
+  background: none !important;
+  color: #4338ca !important;
+  -webkit-text-fill-color: currentColor !important;
 }
 
 /* 项目卡片美化 */
@@ -295,12 +306,12 @@ html.light .project-card:hover {
 
 /* 操作卡片（快速开始）美化 */
 html.light .action-card {
-  background: linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%) !important;
+  background: #faf5ff !important;
   border: 2px dashed #c4b5fd !important;
 }
 html.light .action-card:hover {
   border-color: #a78bfa !important;
-  background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%) !important;
+  background: #f5f3ff !important;
 }
 html.light .action-card-title {
   color: #7c3aed !important;
@@ -359,15 +370,41 @@ html.light .el-table tr .el-button.is-link.el-button--danger span {
 html.light .el-button {
   border-radius: 8px !important;
 }
-/* 勿作用于 is-plain：否则背景被强制为实色渐变而字色仍为 plain 主色，对比度丢失 */
-html.light .el-button--primary:not(.is-link):not(.is-plain) {
-  background: linear-gradient(135deg, #7c3aed, #6d28d9) !important;
-  border-color: transparent !important;
+/* 勿作用于 is-plain：否则背景被强制为实色而字色仍为 plain 主色，对比度丢失 */
+html.light .el-button--primary:not(.is-link):not(.is-plain):not(.is-disabled):not(:disabled) {
+  background: #7c3aed !important;
+  border-color: #7c3aed !important;
   box-shadow: 0 2px 8px rgba(124,58,237,.25) !important;
 }
-html.light .el-button--primary:not(.is-link):not(.is-plain):hover {
-  background: linear-gradient(135deg, #6d28d9, #5b21b6) !important;
+html.light .el-button--primary:not(.is-link):not(.is-plain):not(.is-disabled):not(:disabled):hover {
+  background: #6d28d9 !important;
+  border-color: #6d28d9 !important;
   box-shadow: 0 4px 12px rgba(124,58,237,.35) !important;
+}
+html.light .el-button--primary.is-disabled:not(.is-link):not(.is-plain),
+html.light .el-button--primary:disabled:not(.is-link):not(.is-plain) {
+  color: #8f899b !important;
+  background: #e4e1ea !important;
+  border-color: #d7d3df !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+  cursor: not-allowed !important;
+}
+.el-button.is-disabled:not(.is-link):not(.is-text),
+.el-button:disabled:not(.is-link):not(.is-text),
+.el-button.is-disabled:not(.is-link):not(.is-text):hover,
+.el-button:disabled:not(.is-link):not(.is-text):hover {
+  color: var(--button-disabled-text) !important;
+  background: var(--button-disabled-bg) !important;
+  border-color: var(--button-disabled-border) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+.el-button.is-disabled:not(.is-link):not(.is-text) .el-icon,
+.el-button:disabled:not(.is-link):not(.is-text) .el-icon {
+  color: inherit !important;
 }
 html.light .el-button.is-link {
   background: transparent !important;

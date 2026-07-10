@@ -47,39 +47,49 @@
     </header>
 
     <!-- 左侧固定侧边栏 -->
-    <nav class="quick-nav" :class="{ collapsed: navCollapsed }" aria-label="快捷导航">
+    <nav id="film-create-quick-nav" class="quick-nav" :class="{ collapsed: navCollapsed }" aria-label="快捷导航">
       <div class="nav-sidebar-header">
         <span v-if="!navCollapsed" class="nav-sidebar-title">导航</span>
-        <div class="nav-toggle" :title="navCollapsed ? '展开导航' : '收起导航'" @click="toggleNav()">
+        <button
+          type="button"
+          class="nav-toggle"
+          :title="navCollapsed ? '展开导航' : '收起导航'"
+          :aria-label="navCollapsed ? '展开导航' : '收起导航'"
+          :aria-expanded="!navCollapsed"
+          aria-controls="film-create-quick-nav"
+          @click="toggleNav()"
+        >
           <el-icon><Expand v-if="navCollapsed" /><Fold v-else /></el-icon>
-        </div>
+        </button>
       </div>
 
       <!-- 步骤列表 -->
       <div class="nav-steps">
-        <div
+        <button
           v-for="(step, idx) in navSteps"
           :key="step.key"
+          type="button"
           class="nav-step"
           :class="['status-' + step.status]"
+          :title="`跳转到${step.label}`"
           @click="scrollToAnchor(step.anchor)"
         >
           <!-- 左侧连接线 -->
-          <div class="step-connector-wrap">
-            <div v-if="idx > 0" class="step-line step-line-top" :class="{ filled: navSteps[idx - 1].status === 'done' }" />
-            <div
+          <span class="step-connector-wrap">
+            <span v-if="idx > 0" class="step-line step-line-top" :class="{ filled: navSteps[idx - 1].status === 'done' }" />
+            <span
               class="step-dot"
               :class="['dot-' + step.status]"
             >
               <el-icon v-if="step.status === 'done'" class="dot-icon"><Check /></el-icon>
               <el-icon v-else-if="step.status === 'generating'" class="dot-icon spin"><Loading /></el-icon>
               <span v-else class="dot-num">{{ idx + 1 }}</span>
-            </div>
-            <div v-if="idx < navSteps.length - 1" class="step-line step-line-bottom" :class="{ filled: step.status === 'done' }" />
-          </div>
+            </span>
+            <span v-if="idx < navSteps.length - 1" class="step-line step-line-bottom" :class="{ filled: step.status === 'done' }" />
+          </span>
 
           <!-- 右侧文字 + 状态徽章 -->
-          <div class="step-body">
+          <span class="step-body">
             <span class="step-label">{{ step.label }}</span>
             <span v-if="step.count > 0 && step.status !== 'done'" class="step-count">{{ step.count }}</span>
             <span v-if="step.status === 'partial'" class="step-badge partial-badge" title="部分完成">
@@ -88,17 +98,23 @@
             <span v-else-if="step.status === 'generating'" class="step-badge gen-badge" title="生成中">
               <el-icon class="spin"><Loading /></el-icon>
             </span>
-          </div>
-        </div>
+          </span>
+        </button>
       </div>
 
       <!-- 分镜子列表 -->
       <div v-if="!navCollapsed && storyboards.length > 0" class="nav-group">
-        <div class="nav-sub-toggle" @click="storyboardMenuExpanded = !storyboardMenuExpanded">
+        <button
+          type="button"
+          class="nav-sub-toggle"
+          :aria-expanded="storyboardMenuExpanded"
+          aria-controls="storyboard-nav-list"
+          @click="storyboardMenuExpanded = !storyboardMenuExpanded"
+        >
           <el-icon><Minus v-if="storyboardMenuExpanded" /><Plus v-else /></el-icon>
           <span>分镜列表</span>
-        </div>
-        <div v-show="storyboardMenuExpanded" class="nav-sub-list">
+        </button>
+        <div id="storyboard-nav-list" v-show="storyboardMenuExpanded" class="nav-sub-list">
           <template v-for="(sb, i) in storyboards" :key="sb.id">
             <!-- 段落标题行 -->
             <div
@@ -108,13 +124,14 @@
               <span class="nav-segment-dot" />
               {{ sb.segment_title }}
             </div>
-            <div
+            <button
+              type="button"
               class="nav-sub-item"
               :title="sb.title || '分镜 ' + (i + 1)"
               @click="scrollToAnchor('sb-' + sb.id)"
             >
               {{ i + 1 }}. {{ sb.title || '分镜' }}
-            </div>
+            </button>
           </template>
         </div>
       </div>
@@ -236,21 +253,6 @@
               <div id="anchor-script" class="script-sub-block">
                 <h2 class="section-title">剧本</h2>
                 <div class="row gap" style="margin-bottom: 10px; flex-wrap: wrap;">
-                  <el-select
-                    v-model="selectedEpisodeId"
-                    placeholder="选择集数"
-                    clearable
-                    style="width: 130px"
-                    :disabled="!dramaId"
-                    @change="onEpisodeSelect"
-                  >
-                    <el-option
-                      v-for="ep in (store.drama?.episodes || [])"
-                      :key="ep.id"
-                      :label="ep.title || '第' + (ep.episode_number || 0) + '集'"
-                      :value="ep.id"
-                    />
-                  </el-select>
                   <el-input v-model="scriptTitle" placeholder="集标题" style="width: 150px" />
                   <el-button v-if="dramaId" style="margin-left: auto" @click="onAddEpisode">
                     <el-icon><Plus /></el-icon>添加一集
@@ -348,118 +350,80 @@
             <div class="select-script-title">{{ d.title || '未命名' }}</div>
             <div class="select-script-desc">{{ (d.description || '暂无简介').slice(0, 200) }}{{ (d.description && d.description.length > 200) ? '…' : '' }}</div>
           </div>
-          <div v-if="!selectScriptLoading && selectScriptDramas.length === 0" class="select-script-empty">剧本库为空，请先在「剧本管理」创建剧本</div>
-          <div v-else-if="!selectScriptLoading && selectableScriptDramas.length === 0" class="select-script-empty">没有可导入的其他剧本</div>
+          <div v-if="!selectScriptLoading && selectScriptDramas.length === 0" class="select-script-empty">
+            <p>剧本库为空，可直接在当前项目创作剧本</p>
+            <el-button type="primary" @click="returnToScriptCreation">开始创作剧本</el-button>
+          </div>
+          <div v-else-if="!selectScriptLoading && selectableScriptDramas.length === 0" class="select-script-empty">
+            <p>没有可导入的其他剧本</p>
+            <el-button type="primary" @click="returnToScriptCreation">返回创作剧本</el-button>
+          </div>
         </div>
       </el-dialog>
 
-      <!-- 一键全流程生成 -->
-      <section class="section card pipeline-section">
-        <div class="one-click-actions">
-          <span class="one-click-label">🚀 一键全流程</span>
-          <el-select v-model="projectAspectRatio" style="width: 130px" @change="() => saveProjectSettings(false)">
-            <el-option label="16:9 横屏" value="16:9" />
-            <el-option label="9:16 竖屏" value="9:16" />
-            <el-option label="3:4 竖版" value="3:4" />
-            <el-option label="1:1 方形" value="1:1" />
-            <el-option label="4:3" value="4:3" />
-            <el-option label="21:9 宽银幕" value="21:9" />
-          </el-select>
-          <el-select v-model="videoClipDuration" style="width: 105px" @change="() => saveProjectSettings(false)">
-            <el-option label="4秒/段" :value="4" />
-            <el-option label="5秒/段" :value="5" />
-            <el-option label="8秒/段" :value="8" />
-            <el-option label="10秒/段" :value="10" />
-            <el-option label="12秒/段" :value="12" />
-            <el-option label="15秒/段" :value="15" />
-          </el-select>
-          <el-select v-model="scriptLanguage" placeholder="分镜语言" clearable style="width: 105px">
-            <el-option label="中文" value="zh" />
-            <el-option label="英文" value="en" />
-          </el-select>
-          <StylePickerButton
-            v-model="generationStyle"
-            :options="generationStyleOptions"
-            @change="() => saveProjectSettings(true)"
-          />
-          <el-button
-            type="primary"
-            :loading="pipelineRunning && !pipelinePaused"
-            :disabled="!currentEpisodeId || pipelineRunning"
-            @click="startOneClickPipeline"
-          >
-            一键成片带图片视频
-          </el-button>
-          <el-button
-            :loading="pipelineRunning && !pipelinePaused"
-            :disabled="!currentEpisodeId || pipelineRunning"
-            title="仅提取角色、场景、道具与生成分镜文本，不生成图片与视频"
-            @click="startTextFrameworkPipeline"
-          >
-            生成文本框架
-          </el-button>
-          <template v-if="pipelineRunning">
-            <el-button v-if="!pipelinePaused" type="warning" @click="pipelinePaused = true">⏸ 暂停</el-button>
-            <el-button v-else type="success" @click="onPipelineResume">▶ 继续</el-button>
-          </template>
-        </div>
-        <div v-if="pipelineRunning || pipelineErrorLog.length > 0" class="pipeline-status">
-          <div v-if="pipelineCurrentStep" class="pipeline-current-step">
-            <span v-if="pipelineStepIndex > 0" class="pipeline-step-badge">{{ pipelineStepIndex }}/{{ pipelineStepTotal }}</span>
-            {{ pipelineCurrentStep.replace(/^\[步骤 \d+\/\d+\] /, '') }}
-          </div>
-          <!-- 阶段间倒计时 -->
-          <div v-if="pipelineCountdown > 0" class="pipeline-countdown">
-            <div class="pipeline-countdown-ring">
-              <span class="pipeline-countdown-num">{{ pipelineCountdown }}</span>
-              <span class="pipeline-countdown-unit">秒</span>
-            </div>
-            <div class="pipeline-countdown-body">
-              <p class="pipeline-countdown-msg">{{ pipelineCountdownMsg }}</p>
-              <div class="pipeline-countdown-actions">
-                <el-button size="small" type="success" @click="skipPipelineCountdown">⚡ 立即开始下一阶段</el-button>
-                <el-button v-if="!pipelinePaused" size="small" type="warning" @click="pipelinePaused = true">⏸ 暂停倒计时</el-button>
-                <span v-else class="pipeline-countdown-paused">已暂停 — 点击右上角"继续"恢复</span>
-              </div>
-            </div>
-          </div>
-          <div v-if="pipelineActiveTasks.size > 0" class="pipeline-active-tasks">
-            <span
-              v-for="label in Array.from(pipelineActiveTasks)"
-              :key="label"
-              class="pipeline-task-chip"
-            >
-              <span class="pipeline-task-dot" />{{ label }}
-            </span>
-          </div>
-          <div v-if="pipelineErrorLog.length > 0" class="pipeline-error-log">
-            <div class="pipeline-error-title">执行过程中的错误：</div>
-            <div v-for="(entry, idx) in pipelineErrorLog" :key="idx" class="pipeline-error-line">
-              [{{ entry.step }}] {{ entry.message }}
-            </div>
-          </div>
-        </div>
-      </section>
+      <FilmCreatePipelinePanel
+        v-model:aspect-ratio="projectAspectRatio"
+        v-model:clip-duration="videoClipDuration"
+        v-model:script-language="scriptLanguage"
+        v-model:generation-style="generationStyle"
+        :generation-style-options="generationStyleOptions"
+        :disabled-reason="pipelineActionDisabledReason"
+        :running="pipelineRunning"
+        :paused="pipelinePaused"
+        :error-log="pipelineErrorLog"
+        :current-step="pipelineCurrentStep"
+        :step-index="pipelineStepIndex"
+        :step-total="pipelineStepTotal"
+        :countdown="pipelineCountdown"
+        :countdown-message="pipelineCountdownMsg"
+        :active-tasks="pipelineActiveTasks"
+        @save-settings="saveProjectSettings"
+        @start-one-click="startOneClickPipeline"
+        @start-text-framework="startTextFrameworkPipeline"
+        @pause="pipelinePaused = true"
+        @resume="onPipelineResume"
+        @skip-countdown="skipPipelineCountdown"
+      />
 
       <!-- 资源管理：角色 / 道具 / 场景 -->
       <section class="section card resource-panel">
-        <div class="collapse-header" @click="resourcePanelCollapsed = !resourcePanelCollapsed">
-          <h2 class="section-title">资源管理</h2>
-          <el-icon class="collapse-icon"><ArrowUp v-if="!resourcePanelCollapsed" /><ArrowDown v-else /></el-icon>
-        </div>
-        <div v-show="!resourcePanelCollapsed" class="resource-panel-body">
+        <h2 class="collapse-heading">
+          <button
+            type="button"
+            class="collapse-header"
+            :aria-expanded="!resourcePanelCollapsed"
+            aria-controls="resource-panel-body"
+            @click="resourcePanelCollapsed = !resourcePanelCollapsed"
+          >
+            <span class="section-title">资源管理</span>
+            <el-icon class="collapse-icon"><ArrowUp v-if="!resourcePanelCollapsed" /><ArrowDown v-else /></el-icon>
+          </button>
+        </h2>
+        <div id="resource-panel-body" v-show="!resourcePanelCollapsed" class="resource-panel-body">
           <!-- 角色生成 -->
           <div id="anchor-characters" class="resource-block card">
-            <div class="collapse-header resource-block-header" @click="charactersBlockCollapsed = !charactersBlockCollapsed">
-              <h3 class="resource-block-title">角色生成</h3>
-              <el-icon class="collapse-icon"><ArrowUp v-if="!charactersBlockCollapsed" /><ArrowDown v-else /></el-icon>
-            </div>
-            <div v-show="!charactersBlockCollapsed" class="resource-block-body">
+            <h3 class="collapse-heading">
+              <button
+                type="button"
+                class="collapse-header resource-block-header"
+                :aria-expanded="!charactersBlockCollapsed"
+                aria-controls="characters-block-body"
+                @click="charactersBlockCollapsed = !charactersBlockCollapsed"
+              >
+                <span class="resource-block-title">角色生成</span>
+                <el-icon class="collapse-icon"><ArrowUp v-if="!charactersBlockCollapsed" /><ArrowDown v-else /></el-icon>
+              </button>
+            </h3>
+            <div id="characters-block-body" v-show="!charactersBlockCollapsed" class="resource-block-body">
               <div class="asset-actions">
-                <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="!dramaId" @click="onGenerateCharacters">
-                  剧本自动提取角色
-                </el-button>
-                <el-button size="small" :disabled="!dramaId" @click="openAddCharacter">添加角色</el-button>
+                <ActionGate :reason="characterGenerationDisabledReason" label="剧本自动提取角色">
+                  <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" @click="onGenerateCharacters">
+                    剧本自动提取角色
+                  </el-button>
+                </ActionGate>
+                <ActionGate :reason="projectActionDisabledReason" label="添加角色">
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" @click="openAddCharacter">添加角色</el-button>
+                </ActionGate>
                 <el-button size="small" @click="showCharLibrary = true">本剧角色库</el-button>
               </div>
               <div class="asset-list asset-list-two">
@@ -599,14 +563,26 @@
 
           <!-- 道具生成 -->
           <div id="anchor-props" class="resource-block card">
-            <div class="collapse-header resource-block-header" @click="propsBlockCollapsed = !propsBlockCollapsed">
-              <h3 class="resource-block-title">道具生成</h3>
-              <el-icon class="collapse-icon"><ArrowUp v-if="!propsBlockCollapsed" /><ArrowDown v-else /></el-icon>
-            </div>
-            <div v-show="!propsBlockCollapsed" class="resource-block-body">
+            <h3 class="collapse-heading">
+              <button
+                type="button"
+                class="collapse-header resource-block-header"
+                :aria-expanded="!propsBlockCollapsed"
+                aria-controls="props-block-body"
+                @click="propsBlockCollapsed = !propsBlockCollapsed"
+              >
+                <span class="resource-block-title">道具生成</span>
+                <el-icon class="collapse-icon"><ArrowUp v-if="!propsBlockCollapsed" /><ArrowDown v-else /></el-icon>
+              </button>
+            </h3>
+            <div id="props-block-body" v-show="!propsBlockCollapsed" class="resource-block-body">
               <div class="asset-actions">
-                <el-button type="primary" size="small" :loading="propsExtracting" :disabled="!currentEpisodeId" @click="onExtractProps">从剧本提取道具</el-button>
-                <el-button size="small" :disabled="!dramaId" @click="showAddProp = true">添加道具</el-button>
+                <ActionGate :reason="propsExtractionDisabledReason" label="从剧本提取道具">
+                  <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" @click="onExtractProps">从剧本提取道具</el-button>
+                </ActionGate>
+                <ActionGate :reason="projectActionDisabledReason" label="添加道具">
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" @click="showAddProp = true">添加道具</el-button>
+                </ActionGate>
                 <el-button size="small" @click="showPropLibrary = true">本剧道具库</el-button>
               </div>
               <div class="prop-gen-mode" style="margin: 8px 0; font-size: 13px;">
@@ -698,16 +674,28 @@
 
           <!-- 场景生成 -->
           <div id="anchor-scenes" class="resource-block card">
-            <div class="collapse-header resource-block-header" @click="scenesBlockCollapsed = !scenesBlockCollapsed">
-              <h3 class="resource-block-title">场景生成</h3>
-              <el-icon class="collapse-icon"><ArrowUp v-if="!scenesBlockCollapsed" /><ArrowDown v-else /></el-icon>
-            </div>
-            <div v-show="!scenesBlockCollapsed" class="resource-block-body">
+            <h3 class="collapse-heading">
+              <button
+                type="button"
+                class="collapse-header resource-block-header"
+                :aria-expanded="!scenesBlockCollapsed"
+                aria-controls="scenes-block-body"
+                @click="scenesBlockCollapsed = !scenesBlockCollapsed"
+              >
+                <span class="resource-block-title">场景生成</span>
+                <el-icon class="collapse-icon"><ArrowUp v-if="!scenesBlockCollapsed" /><ArrowDown v-else /></el-icon>
+              </button>
+            </h3>
+            <div id="scenes-block-body" v-show="!scenesBlockCollapsed" class="resource-block-body">
               <div class="asset-actions">
-                <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="!currentEpisodeId" @click="onExtractScenes">
-                  从剧本提取场景
-                </el-button>
-                <el-button size="small" :disabled="!dramaId" @click="openAddScene">添加场景</el-button>
+                <ActionGate :reason="scenesExtractionDisabledReason" label="从剧本提取场景">
+                  <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" @click="onExtractScenes">
+                    从剧本提取场景
+                  </el-button>
+                </ActionGate>
+                <ActionGate :reason="projectActionDisabledReason" label="添加场景">
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" @click="openAddScene">添加场景</el-button>
+                </ActionGate>
                 <el-button size="small" @click="showSceneLibrary = true">本剧场景库</el-button>
               </div>
               <div class="scene-gen-mode" style="margin: 8px 0; font-size: 13px;">
@@ -864,41 +852,52 @@
         </div>
         <div class="asset-actions sb-batch-actions">
           <div class="flex">
-            <el-button
-              type="primary"
-              size="large"
-              :loading="storyboardGenerating || universalOmniPolishRunning"
-              :disabled="!currentEpisodeId || storyboardGenerating || universalOmniPolishRunning"
-              @click="onGenerateStoryboard"
+            <ActionGate
+              :reason="storyboardActionDisabledReason"
+              :label="storyboards.length > 0 ? '重新生成分镜' : 'AI 生成分镜'"
             >
-              {{ storyboards.length > 0 ? '重新生成分镜' : 'AI 生成分镜' }}
-            </el-button>
-            <ElButton type="info" plain size="large" @click="onAddSingleStoryboard">
-            添加一个分镜
-            </ElButton>
+              <el-button
+                type="primary"
+                size="large"
+                :loading="storyboardGenerating || universalOmniPolishRunning"
+                :disabled="Boolean(storyboardActionDisabledReason)"
+                @click="onGenerateStoryboard"
+              >
+                {{ storyboards.length > 0 ? '重新生成分镜' : 'AI 生成分镜' }}
+              </el-button>
+            </ActionGate>
+            <ActionGate :reason="episodeActionDisabledReason" label="添加一个分镜">
+              <el-button type="info" plain size="large" :disabled="Boolean(episodeActionDisabledReason)" @click="onAddSingleStoryboard">
+                添加一个分镜
+              </el-button>
+            </ActionGate>
           </div>
           <template v-if="storyboards.length > 0">
             <div class="sb-batch-right">
-              <el-button
-                type="success"
-                plain
-                size="large"
-                :loading="batchImageRunning"
-                :disabled="!currentEpisodeId || batchImageRunning || batchVideoRunning || pipelineRunning || storyboardGenerating || universalOmniPolishRunning"
-                @click="startBatchImageGeneration"
-              >
-                批量生成分镜图
-              </el-button>
-              <el-button
-                type="warning"
-                plain
-                size="large"
-                :loading="batchVideoRunning"
-                :disabled="!currentEpisodeId || batchImageRunning || batchVideoRunning || pipelineRunning || storyboardGenerating || universalOmniPolishRunning"
-                @click="startBatchVideoGeneration"
-              >
-                批量生成分镜视频
-              </el-button>
+              <ActionGate :reason="batchActionDisabledReason" label="批量生成分镜图">
+                <el-button
+                  type="success"
+                  plain
+                  size="large"
+                  :loading="batchImageRunning"
+                  :disabled="Boolean(batchActionDisabledReason)"
+                  @click="startBatchImageGeneration"
+                >
+                  批量生成分镜图
+                </el-button>
+              </ActionGate>
+              <ActionGate :reason="batchActionDisabledReason" label="批量生成分镜视频">
+                <el-button
+                  type="warning"
+                  plain
+                  size="large"
+                  :loading="batchVideoRunning"
+                  :disabled="Boolean(batchActionDisabledReason)"
+                  @click="startBatchVideoGeneration"
+                >
+                  批量生成分镜视频
+                </el-button>
+              </ActionGate>
               <el-button v-if="batchImageRunning" size="large" type="danger" plain @click="batchImageStopping = true">停止图片</el-button>
               <el-button v-if="batchVideoRunning" size="large" type="danger" plain @click="batchVideoStopping = true">停止视频</el-button>
             </div>
@@ -1477,16 +1476,18 @@
                   <div v-if="getSbVideoError(sb.id)" class="sb-video-error">
                     {{ getSbVideoError(sb.id) }}
                   </div>
-                  <el-button
-                    type="primary"
-                    size="small"
-                    class="sb-generate-video-btn"
-                    :loading="isSbVideoGenerating(sb.id)"
-                    :disabled="!sbCanSubmitVideo(sb) || isSbVideoGenerating(sb.id)"
-                    @click="onGenerateSbVideo(sb)"
-                  >
-                    生成分镜视频
-                  </el-button>
+                  <ActionGate :reason="sbVideoGenerationDisabledReason(sb)" label="生成分镜视频">
+                    <el-button
+                      type="primary"
+                      size="small"
+                      class="sb-generate-video-btn"
+                      :loading="isSbVideoGenerating(sb.id)"
+                      :disabled="Boolean(sbVideoGenerationDisabledReason(sb))"
+                      @click="onGenerateSbVideo(sb)"
+                    >
+                      生成分镜视频
+                    </el-button>
+                  </ActionGate>
                 </template>
               </div>
               <!-- 视频历史条：有多条历史时显示，点击可切换 -->
@@ -1506,7 +1507,9 @@
                 </div>
               </div>
               <div v-if="getSbVideo(sb.id)" class="sb-video-actions">
-                <el-button size="small" :loading="isSbVideoGenerating(sb.id)" :disabled="!sbCanSubmitVideo(sb) || isSbVideoGenerating(sb.id)" @click="onGenerateSbVideo(sb)">重新生成</el-button>
+                <ActionGate :reason="sbVideoGenerationDisabledReason(sb)" label="重新生成">
+                  <el-button size="small" :loading="isSbVideoGenerating(sb.id)" :disabled="Boolean(sbVideoGenerationDisabledReason(sb))" @click="onGenerateSbVideo(sb)">重新生成</el-button>
+                </ActionGate>
                 <el-tooltip v-if="getNextStoryboard(sb.id)" content="提取本视频尾帧，设为下一个分镜的首帧" placement="top">
                   <el-button size="small" :loading="linkingTailFrameIds.has(sb.id)" @click="onLinkTailFrameToNext(sb)">尾帧衔接</el-button>
                 </el-tooltip>
@@ -1520,6 +1523,15 @@
                     <el-icon><VideoPlay /></el-icon>
                   </el-button>
                 </el-tooltip>
+              </div>
+              <div
+                v-if="!sbCanSubmitVideo(sb)"
+                class="sb-video-disabled-reason"
+                role="status"
+                tabindex="0"
+              >
+                <el-icon><WarningFilled /></el-icon>
+                <span>{{ sbVideoGenerationDisabledReason(sb) }}</span>
               </div>
               <div class="sb-video-prompt-label">
                 <span class="sb-dot"></span>
@@ -1607,15 +1619,17 @@
       <!-- 8. 合成视频 -->
       <section id="anchor-video" class="section card">
         <h2 class="section-title">合成视频</h2>
-        <el-button
-          type="primary"
-          size="large"
-          :loading="videoStatus === 'generating'"
-          :disabled="!currentEpisodeId || storyboards.length === 0 || videoStatus === 'generating'"
-          @click="onGenerateVideo"
-        >
-          合成视频
-        </el-button>
+        <ActionGate :reason="composeActionDisabledReason" label="合成视频">
+          <el-button
+            type="primary"
+            size="large"
+            :loading="videoStatus === 'generating'"
+            :disabled="Boolean(composeActionDisabledReason)"
+            @click="onGenerateVideo"
+          >
+            合成视频
+          </el-button>
+        </ActionGate>
         <div v-if="videoStatus === 'generating'" class="video-progress">
           <el-progress :percentage="videoProgress" :status="videoProgress >= 100 ? 'success' : undefined" />
           <p>视频生成中...</p>
@@ -1991,7 +2005,10 @@
                 </div>
               </div>
             </div>
-            <div v-if="!charLibraryLoading && charLibraryList.length === 0" class="library-empty">暂无本剧角色库记录，可将本剧角色「加入本剧库」后在此查看</div>
+            <div v-if="!charLibraryLoading && charLibraryList.length === 0" class="library-empty">
+              <p>暂无本剧角色库记录，可将本剧角色「加入本剧库」后在此查看</p>
+              <el-button type="primary" @click="returnToCharacterPanel">去角色面板</el-button>
+            </div>
           </div>
           <div class="library-pagination">
             <el-pagination
@@ -2027,7 +2044,10 @@
                 </div>
               </div>
             </div>
-            <div v-if="!dramaAllCharLoading && dramaAllCharList.length === 0" class="library-empty">本剧暂无制作角色，请先在角色面板创建</div>
+            <div v-if="!dramaAllCharLoading && dramaAllCharList.length === 0" class="library-empty">
+              <p>本剧暂无制作角色</p>
+              <el-button type="primary" @click="returnToCharacterPanel">创建角色</el-button>
+            </div>
           </div>
           <div class="library-pagination">
             <el-pagination
@@ -2632,9 +2652,18 @@ import { propLibraryAPI } from '@/api/propLibrary'
 import { generationSettingsAPI } from '@/api/prompts'
 import { parseScriptIntoEpisodes, episodesListToPlainScript } from '@/utils/scriptEpisodes'
 import { exportStoryboardSheet } from '@/utils/exportStoryboardSheet'
-import StylePickerButton from '@/components/StylePickerButton.vue'
 import AIConfigContent from '@/components/AIConfigContent.vue'
 import UniversalSegmentOmniAtEditor from '@/components/UniversalSegmentOmniAtEditor.vue'
+import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import FilmCreatePipelinePanel from '@/components/filmCreate/FilmCreatePipelinePanel.vue'
+import {
+  batchGenerationDisabledReason,
+  composeVideoDisabledReason,
+  episodeResourceDisabledReason,
+  pipelineDisabledReason,
+  projectResourceDisabledReason,
+  storyboardDisabledReason,
+} from '@/utils/filmCreateActionState'
 import {
   generationStyleOptions,
   getStylePromptEn,
@@ -3198,6 +3227,54 @@ const batchVideoRunning = ref(false)
 const batchVideoStopping = ref(false)
 const batchVideoProgress = ref({ current: 0, total: 0, failed: 0 })
 const batchVideoErrors = ref([])
+const projectActionDisabledReason = computed(() => projectResourceDisabledReason({
+  hasProject: Boolean(dramaId.value),
+}))
+const episodeActionDisabledReason = computed(() => episodeResourceDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+}))
+const characterGenerationDisabledReason = computed(() => projectResourceDisabledReason({
+  hasProject: Boolean(dramaId.value),
+  running: charactersGenerating.value,
+  label: '角色',
+}))
+const propsExtractionDisabledReason = computed(() => episodeResourceDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+  running: propsExtracting.value,
+  label: '道具',
+}))
+const scenesExtractionDisabledReason = computed(() => episodeResourceDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+  running: scenesExtracting.value,
+  label: '场景',
+}))
+const pipelineActionDisabledReason = computed(() => pipelineDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+  pipelineRunning: pipelineRunning.value,
+}))
+const storyboardActionDisabledReason = computed(() => storyboardDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+  storyboardGenerating: storyboardGenerating.value,
+  omniPolishing: universalOmniPolishRunning.value,
+}))
+const batchActionDisabledReason = computed(() => batchGenerationDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+  pipelineRunning: pipelineRunning.value,
+  storyboardGenerating: storyboardGenerating.value,
+  omniPolishing: universalOmniPolishRunning.value,
+  batchImageRunning: batchImageRunning.value,
+  batchVideoRunning: batchVideoRunning.value,
+}))
+const composeActionDisabledReason = computed(() => composeVideoDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+  storyboardCount: storyboards.value.length,
+  videoGenerating: videoStatus.value === 'generating',
+  pipelineRunning: pipelineRunning.value,
+  storyboardGenerating: storyboardGenerating.value,
+  omniPolishing: universalOmniPolishRunning.value,
+  batchImageRunning: batchImageRunning.value,
+  batchVideoRunning: batchVideoRunning.value,
+}))
 // P0-1: 连贯帧模式
 const videoFrameContiguity = ref(false)
 // P0-3: 分镜超分辨率 loading set
@@ -5000,6 +5077,21 @@ function openSelectScriptDialog() {
   showSelectScriptDialog.value = true
 }
 
+async function returnToScriptCreation() {
+  showSelectScriptDialog.value = false
+  scriptWorkbenchMode.value = 'create'
+  await nextTick()
+  scrollToAnchor('anchor-script')
+}
+
+async function returnToCharacterPanel() {
+  showCharLibrary.value = false
+  resourcePanelCollapsed.value = false
+  charactersBlockCollapsed.value = false
+  await nextTick()
+  scrollToAnchor('anchor-characters')
+}
+
 async function loadSelectScriptList() {
   selectScriptLoading.value = true
   try {
@@ -6057,6 +6149,14 @@ function sbCanSubmitVideo(sb) {
   return false
 }
 
+function sbVideoGenerationDisabledReason(sb) {
+  if (isSbVideoGenerating(sb?.id)) return '正在生成分镜视频，请等待完成'
+  if (sbCanSubmitVideo(sb)) return ''
+  return isSbUniversalMode(sb?.id)
+    ? '请先填写视频提示词或全能片段描述'
+    : '请先填写视频提示词'
+}
+
 /** 提交给视频 API 的文案：全能模式有片段描述时仅提交该段（不拼接 video_prompt，避免动作/旁白盖过 @图片 等编排） */
 function buildSbVideoPromptForApi(sb, { preferClassicPrompt = false } = {}) {
   const vp = (sb.video_prompt || '').toString().trim()
@@ -7028,7 +7128,10 @@ function getFinalizeMergeOptions() {
 }
 
 async function onGenerateVideo() {
-  if (!currentEpisodeId.value) return
+  if (composeActionDisabledReason.value) {
+    ElMessage.warning(composeActionDisabledReason.value)
+    return
+  }
   const epId = currentEpisodeId.value
   const did = dramaId.value
   const dramaTitle = store.drama?.title || ''
@@ -8247,6 +8350,9 @@ html.light .select-script-title {
   color: #71717a;
   padding: 24px;
 }
+.select-script-empty p {
+  margin: 0 0 12px;
+}
 .preview-ep-tabs {
   margin-top: 4px;
 }
@@ -8593,8 +8699,12 @@ html.light .nav-sidebar-title { color: #7c3aed; }
   justify-content: center;
   width: 28px;
   height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   cursor: pointer;
   color: #5a5a66;
+  font: inherit;
   transition: color 0.15s, background 0.15s;
   border-radius: 6px;
   flex-shrink: 0;
@@ -8614,6 +8724,12 @@ html.light .nav-toggle:hover { color: #374151; background: rgba(0,0,0,0.05); }
   display: flex;
   align-items: stretch;
   gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   border-radius: 6px;
   padding: 3px 6px 3px 0;
@@ -8748,7 +8864,14 @@ html.light .step-count { background: rgba(0,0,0,0.04); color: #9ca3af; }
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
   padding: 5px 12px;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
   font-size: 12px;
   color: #5a5a66;
   cursor: pointer;
@@ -8765,7 +8888,13 @@ html.light .nav-sub-toggle:hover { color: #374151; }
 }
 html.light .nav-sub-list { background: rgba(99,102,241,0.03); }
 .nav-sub-item {
+  display: block;
+  width: calc(100% - 8px);
   padding: 4px 10px 4px 26px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
   font-size: 11.5px;
   color: #52525b;
   cursor: pointer;
@@ -8779,6 +8908,13 @@ html.light .nav-sub-list { background: rgba(99,102,241,0.03); }
 html.light .nav-sub-item { color: #9ca3af; }
 .nav-sub-item:hover { color: #d4d4d8; background: rgba(255,255,255,0.04); }
 html.light .nav-sub-item:hover { color: #1e1b4b; background: rgba(99,102,241,0.06); }
+.nav-toggle:focus-visible,
+.nav-step:focus-visible,
+.nav-sub-toggle:focus-visible,
+.nav-sub-item:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: -2px;
+}
 
 .main {
   margin-left: 180px;
@@ -8823,157 +8959,6 @@ html.light .card:hover {
   letter-spacing: -0.01em;
 }
 html.light .section-title { color: #1e1b4b; }
-.pipeline-section {
-  padding: 12px 16px !important;
-}
-.one-click-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.one-click-label {
-  font-size: 14px;
-  color: var(--el-text-color-primary);
-  white-space: nowrap;
-  font-weight: 600;
-}
-.pipeline-status {
-  margin-top: 12px;
-  padding: 12px;
-  background: var(--el-fill-color-light);
-  border-radius: 8px;
-  font-size: 13px;
-}
-.pipeline-current-step {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  color: var(--el-text-color-primary);
-  font-weight: 500;
-  font-size: 13px;
-}
-.pipeline-step-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  padding: 1px 7px;
-  border-radius: 10px;
-  background: var(--el-color-primary);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.pipeline-active-tasks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-.pipeline-task-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 10px 2px 6px;
-  border-radius: 12px;
-  background: rgba(64, 158, 255, 0.12);
-  border: 1px solid rgba(64, 158, 255, 0.3);
-  color: var(--el-color-primary);
-  font-size: 12px;
-  white-space: nowrap;
-}
-.pipeline-task-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--el-color-primary);
-  flex-shrink: 0;
-  animation: pipeline-dot-pulse 1.2s ease-in-out infinite;
-}
-@keyframes pipeline-dot-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.75); }
-}
-.pipeline-error-log {
-  margin-top: 0;
-  padding: 12px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 8px;
-  font-size: 13px;
-  color: #fca5a5;
-  max-height: 200px;
-  overflow-y: auto;
-}
-.pipeline-status .pipeline-error-log {
-  margin-top: 8px;
-}
-.pipeline-error-title {
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.pipeline-error-line {
-  margin-bottom: 4px;
-  word-break: break-all;
-}
-/* 阶段间倒计时 */
-.pipeline-countdown {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  margin: 10px 0 8px;
-  padding: 12px 14px;
-  background: rgba(103, 194, 58, 0.08);
-  border: 1px solid rgba(103, 194, 58, 0.35);
-  border-radius: 10px;
-}
-.pipeline-countdown-ring {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  background: rgba(103, 194, 58, 0.15);
-  border: 2px solid rgba(103, 194, 58, 0.6);
-  flex-shrink: 0;
-}
-.pipeline-countdown-num {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--el-color-success);
-  line-height: 1;
-}
-.pipeline-countdown-unit {
-  font-size: 11px;
-  color: var(--el-color-success);
-  opacity: 0.8;
-}
-.pipeline-countdown-body {
-  flex: 1;
-  min-width: 0;
-}
-.pipeline-countdown-msg {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: var(--el-text-color-primary);
-  line-height: 1.5;
-}
-.pipeline-countdown-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.pipeline-countdown-paused {
-  font-size: 12px;
-  color: var(--el-color-warning);
-}
 /* 批量生成分镜图/视频 */
 .sb-batch-actions {
   display: flex;
@@ -9148,17 +9133,31 @@ html.light .section-title { color: #1e1b4b; }
   padding: 0;
   overflow: hidden;
 }
+.collapse-heading {
+  margin: 0;
+  font: inherit;
+}
 .collapse-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   padding: 14px 20px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   user-select: none;
   transition: background 0.2s;
 }
 .collapse-header:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+.collapse-header:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: -2px;
 }
 .resource-panel .collapse-header {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -10229,6 +10228,19 @@ html.light .sb-video-placeholder {
   flex-shrink: 0;
   padding-top: 6px;
 }
+.sb-video-disabled-reason {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+  color: var(--el-color-warning);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.sb-video-disabled-reason:focus-visible {
+  outline: 2px solid var(--el-color-warning);
+  outline-offset: 2px;
+}
 .sb-video-regenerating-overlay {
   display: flex;
   align-items: center;
@@ -10618,6 +10630,9 @@ html.light .sb-narration-input :deep(.el-textarea__inner::placeholder) {
   text-align: center;
   color: #5a5a66;
   padding: 40px 20px;
+}
+.library-empty p {
+  margin: 0 0 12px;
 }
 .library-pagination {
   margin-top: 12px;

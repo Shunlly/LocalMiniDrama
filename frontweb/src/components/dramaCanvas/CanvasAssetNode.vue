@@ -98,23 +98,23 @@ const statusChip = computed(() => {
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--border-muted, #3f3f46);
-  background: var(--bg-card, #18181b);
+  background: var(--canvas-card-surface, var(--bg-card, #18181b));
   box-shadow: var(--shadow, 0 4px 16px rgba(0, 0, 0, 0.35));
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .canvas-asset-node.focused {
-  border-color: #34d399;
-  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.45), 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-color: var(--canvas-success-text, #34d399);
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.45), var(--canvas-node-focus-shadow, 0 8px 24px rgba(0, 0, 0, 0.35));
 }
 .canvas-asset-node.processing {
-  border-color: #60a5fa;
+  border-color: var(--canvas-info-text, #60a5fa);
   animation: asset-pulse 1.4s ease-in-out infinite;
 }
 .cover {
   position: relative;
   height: 108px;
-  background: #09090b;
+  background: var(--canvas-media-well, #09090b);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -151,21 +151,21 @@ const statusChip = computed(() => {
   font-size: 9px;
   padding: 1px 5px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #a1a1aa;
+  background: var(--canvas-chip-surface, rgba(255, 255, 255, 0.08));
+  color: var(--canvas-text-muted, #a1a1aa);
 }
 .status-chip.st-busy,
-.status-chip.st-processing { color: #60a5fa; background: rgba(96, 165, 250, 0.15); }
-.status-chip.st-ready { color: #34d399; background: rgba(52, 211, 153, 0.12); }
-.status-chip.st-failed { color: #f87171; background: rgba(248, 113, 113, 0.12); }
+.status-chip.st-processing { color: var(--canvas-info-text, #60a5fa); background: rgba(96, 165, 250, 0.15); }
+.status-chip.st-ready { color: var(--canvas-success-text, #34d399); background: rgba(52, 211, 153, 0.12); }
+.status-chip.st-failed { color: var(--canvas-danger-text, #f87171); background: rgba(248, 113, 113, 0.12); }
 .kind {
   font-size: 11px;
-  color: var(--text-subtle, #71717a);
+  color: var(--canvas-text-subtle, var(--text-subtle, #71717a));
   margin-top: 2px;
 }
-.kind-character { border-color: rgba(52, 211, 153, 0.45); }
-.kind-scene { border-color: rgba(96, 165, 250, 0.45); }
-.kind-prop { border-color: rgba(251, 191, 36, 0.45); }
+.kind-character { border-color: var(--canvas-emerald-border, rgba(52, 211, 153, 0.45)); }
+.kind-scene { border-color: var(--canvas-blue-border, rgba(96, 165, 250, 0.45)); }
+.kind-prop { border-color: var(--canvas-amber-border, rgba(251, 191, 36, 0.45)); }
 .highlighted {
   box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.65), 0 8px 24px rgba(52, 211, 153, 0.2);
 }

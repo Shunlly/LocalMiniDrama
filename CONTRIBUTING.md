@@ -27,15 +27,15 @@ By participating, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md
 
 ## 报告 Bug / Reporting Bugs
 
-1. 先在 [Issues](../../issues) 搜索确认是否已有相同问题
-2. 如果没有，点击 [新建 Issue](../../issues/new/choose) 并选择 **Bug 报告** 模板
+1. 先在 [Issues](https://github.com/xuanyustudio/LocalMiniDrama/issues) 搜索确认是否已有相同问题
+2. 如果没有，点击 [新建 Issue](https://github.com/xuanyustudio/LocalMiniDrama/issues/new/choose) 并选择 **Bug 报告** 模板
 3. 尽量填写完整的复现步骤、环境信息和截图
 
 ---
 
 ## 功能建议 / Feature Requests
 
-1. 在 [Issues](../../issues) 中搜索是否已有相似建议
+1. 在 [Issues](https://github.com/xuanyustudio/LocalMiniDrama/issues) 中搜索是否已有相似建议
 2. 选择 **功能建议** 模板新建 Issue
 3. 描述清楚使用场景，有助于我们评估优先级
 
@@ -82,13 +82,11 @@ git push origin feature/your-feature-name
 ```bash
 cd backend-node
 npm install
-cp configs/config.example.yaml configs/config.yaml
-# 编辑 config.yaml，填入你的 AI API 配置
-npm run migrate   # 首次运行，初始化数据库
-npm start         # 默认端口 5679
+# configs/config.yaml 已随仓库提供，启动时会自动执行迁移
+npm run dev       # 默认端口 5679
 ```
 
-### 启动前端
+### 启动前端（在仓库根目录打开新终端）
 
 ```bash
 cd frontweb
@@ -97,6 +95,8 @@ npm run dev       # 默认端口 3013
 ```
 
 浏览器访问 `http://localhost:3013`
+
+在页面的「AI 配置」中填写 Provider 地址、模型和 API Key；AI 服务凭据存储在本地 SQLite 数据库，不写入 `config.yaml`。
 
 ### 一键启动（Windows）
 

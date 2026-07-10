@@ -33,8 +33,17 @@ function contentHash(text) {
   return crypto.createHash('sha256').update(String(text || ''), 'utf8').digest('hex');
 }
 
+function resolveStorySourceRoot() {
+  const testRoot = process.env.NODE_TEST_CONTEXT
+    ? String(process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT || '').trim()
+    : '';
+  return testRoot
+    ? path.resolve(testRoot)
+    : path.join(process.cwd(), 'data', 'story_sources');
+}
+
 function persistRawSourceText(dramaId, hash, text) {
-  const dir = path.join(process.cwd(), 'data', 'story_sources', String(dramaId));
+  const dir = path.join(resolveStorySourceRoot(), String(dramaId));
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, `${hash}.txt`);
   if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, String(text || ''), 'utf8');

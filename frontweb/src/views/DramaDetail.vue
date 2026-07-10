@@ -105,15 +105,21 @@
         </el-form>
       </section>
 
+      <ProjectReadinessPanel
+        v-if="drama"
+        :readiness="projectReadiness"
+        @action="handleReadinessAction"
+      />
+
       <SourceIntakeWorkflowPanel
         v-if="drama"
         :drama-id="dramaId"
         :drama="drama"
-        @refresh="loadDrama"
+        @refresh="handleSourceWorkflowRefresh"
       />
 
       <!-- 分集列表 -->
-      <section class="section card">
+      <section id="episode-list" class="section card">
         <div class="section-header">
           <div class="section-title">分集列表</div>
           <span class="section-count">共 {{ episodes.length }} 集</span>
@@ -122,14 +128,43 @@
             <el-icon><Plus /></el-icon>新增一集
           </el-button>
         </div>
-        <div v-if="episodes.length === 0" class="empty-tip">暂无分集，点击「新增一集」开始创作</div>
+        <div v-if="episodes.length === 0" class="empty-state">
+          <div class="empty-state-title">{{ episodeEmptyState.title }}</div>
+          <div class="empty-state-copy">{{ episodeEmptyState.description }}</div>
+          <div class="empty-state-actions">
+            <el-tooltip :content="episodeEmptyState.primaryDisabledReason" :disabled="!episodeEmptyState.primaryDisabledReason" placement="top">
+              <span class="tooltip-trigger">
+                <el-button type="primary" :disabled="Boolean(episodeEmptyState.primaryDisabledReason)" @click="handleReadinessAction(episodeEmptyState.primaryAction)">
+                  {{ episodeEmptyState.primaryAction.label }}
+                </el-button>
+              </span>
+            </el-tooltip>
+            <el-button v-if="episodeEmptyState.unblockAction" @click="handleReadinessAction(episodeEmptyState.unblockAction)">
+              {{ episodeEmptyState.unblockAction.label }}
+            </el-button>
+            <el-button @click="openEpisodeBatchImport">批量导入剧本</el-button>
+            <el-button :loading="addingEpisode" @click="onAddEpisode">
+              <el-icon><Plus /></el-icon>新增空白集
+            </el-button>
+          </div>
+          <div v-if="episodeEmptyState.primaryDisabledReason" class="empty-state-note">{{ episodeEmptyState.primaryDisabledReason }}</div>
+        </div>
+        <div v-if="false && episodes.length === 0" class="empty-state">
+          <div class="empty-state-title">还没有分集</div>
+          <div class="empty-state-copy">可以先导入故事素材自动拆分，也可以批量导入已有剧本或创建空白分集。</div>
+          <div class="empty-state-actions">
+            <el-button type="primary" @click="scrollToSourceIntake">导入故事素材</el-button>
+            <el-button @click="openEpisodeBatchImport">批量导入剧本</el-button>
+            <el-button :loading="addingEpisode" @click="onAddEpisode">
+              <el-icon><Plus /></el-icon>新增空白集
+            </el-button>
+          </div>
+        </div>
         <div v-else class="episode-grid">
           <div
             v-for="ep in episodes"
             :key="ep.id"
             class="episode-card"
-            title="点击进入制作页"
-            @click="goEpisode(ep.id)"
           >
             <div class="episode-card-header">
               <span class="episode-num">第 {{ ep.episode_number ?? ep.number ?? '?' }} 集</span>
@@ -140,6 +175,8 @@
                 circle
                 :icon="Delete"
                 :loading="deletingEpisodeId === ep.id"
+                :aria-label="`删除第 ${ep.episode_number ?? ep.number ?? '?'} 集`"
+                :title="`删除第 ${ep.episode_number ?? ep.number ?? '?'} 集`"
                 @click.stop="onDeleteEpisode(ep)"
               />
             </div>
@@ -151,23 +188,26 @@
               </span>
               <span v-if="ep.status" class="ep-stat ep-stat--status" :class="'ep-status--' + ep.status">{{ epStatusLabel(ep.status) }}</span>
             </div>
-            <div class="episode-enter">
+            <button type="button" class="episode-enter" :aria-label="`进入${ep.title || `第 ${ep.episode_number ?? ep.number ?? '?'} 集`}制作`" @click="goEpisode(ep.id)">
               <el-icon class="episode-enter-icon"><VideoPlay /></el-icon>
               进入制作
-            </div>
+            </button>
           </div>
         </div>
       </section>
 
       <!-- 本剧资源库（Tab 切换） -->
-      <section class="section card res-section">
-        <nav class="res-tabbar">
+      <section id="project-resources" class="section card res-section">
+        <nav class="res-tabbar" role="tablist" aria-label="项目资源分类">
           <span class="res-tab-group-label">资源库</span>
           <button
             v-for="t in [{v:'lib-char',label:'角色'},{v:'lib-scene',label:'场景'},{v:'lib-prop',label:'道具'}]"
             :key="t.v"
+            type="button"
+            role="tab"
             class="res-tab res-tab--lib"
             :class="{ active: activeResTab === t.v }"
+            :aria-selected="activeResTab === t.v"
             @click="activeResTab = t.v"
           >{{ t.label }}</button>
           <span class="res-tab-spacer"></span>
@@ -175,8 +215,11 @@
           <button
             v-for="t in [{v:'drama-char',label:'角色'},{v:'drama-scene',label:'场景'},{v:'drama-prop',label:'道具'}]"
             :key="t.v"
+            type="button"
+            role="tab"
             class="res-tab res-tab--drama"
             :class="{ active: activeResTab === t.v }"
+            :aria-selected="activeResTab === t.v"
             @click="activeResTab = t.v"
           >{{ t.label }}</button>
         </nav>
@@ -202,7 +245,10 @@
                 </div>
               </div>
             </div>
-            <div v-if="!charLoading && charList.length === 0" class="library-empty">暂无本剧角色库记录，可在制作页面「加入本剧库」</div>
+            <div v-if="!charLoading && charList.length === 0" class="library-empty resource-empty-state">
+              <span>暂无本剧角色库记录</span>
+              <el-button size="small" type="primary" plain @click="openImport('char')">从素材库导入角色</el-button>
+            </div>
           </div>
           <div class="library-pagination">
             <el-pagination v-model:current-page="charPage" v-model:page-size="charPageSize" :total="charTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" @current-change="loadCharList" @size-change="loadCharList" />
@@ -230,7 +276,10 @@
                 </div>
               </div>
             </div>
-            <div v-if="!sceneLoading && sceneList.length === 0" class="library-empty">暂无本剧场景库记录，可在制作页面「加入本剧库」</div>
+            <div v-if="!sceneLoading && sceneList.length === 0" class="library-empty resource-empty-state">
+              <span>暂无本剧场景库记录</span>
+              <el-button size="small" type="primary" plain @click="openImport('scene')">从素材库导入场景</el-button>
+            </div>
           </div>
           <div class="library-pagination">
             <el-pagination v-model:current-page="scenePage" v-model:page-size="scenePageSize" :total="sceneTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" @current-change="loadSceneList" @size-change="loadSceneList" />
@@ -258,7 +307,10 @@
                 </div>
               </div>
             </div>
-            <div v-if="!propLoading && propList.length === 0" class="library-empty">暂无本剧道具库记录，可在制作页面「加入本剧库」</div>
+            <div v-if="!propLoading && propList.length === 0" class="library-empty resource-empty-state">
+              <span>暂无本剧道具库记录</span>
+              <el-button size="small" type="primary" plain @click="openImport('prop')">从素材库导入道具</el-button>
+            </div>
           </div>
           <div class="library-pagination">
             <el-pagination v-model:current-page="propPage" v-model:page-size="propPageSize" :total="propTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" @current-change="loadPropList" @size-change="loadPropList" />
@@ -285,7 +337,10 @@
                 </div>
               </div>
             </template>
-            <div v-else class="library-empty">本剧暂无制作角色，请前往剧集制作页面创建</div>
+            <div v-else class="library-empty resource-empty-state">
+              <span>本剧暂无制作角色</span>
+              <el-button size="small" type="primary" @click="goCreate">进入制作页提取角色</el-button>
+            </div>
           </div>
         </template>
 
@@ -310,7 +365,10 @@
                 </div>
               </div>
             </template>
-            <div v-else class="library-empty">本剧暂无制作场景，请前往剧集制作页面创建</div>
+            <div v-else class="library-empty resource-empty-state">
+              <span>本剧暂无制作场景</span>
+              <el-button size="small" type="primary" @click="goCreate">进入制作页提取场景</el-button>
+            </div>
           </div>
         </template>
 
@@ -335,7 +393,10 @@
                 </div>
               </div>
             </template>
-            <div v-else class="library-empty">本剧暂无制作道具，请前往剧集制作页面创建</div>
+            <div v-else class="library-empty resource-empty-state">
+              <span>本剧暂无制作道具</span>
+              <el-button size="small" type="primary" @click="goCreate">进入制作页提取道具</el-button>
+            </div>
           </div>
         </template>
       </section>
@@ -539,7 +600,12 @@
             </div>
           </div>
         </div>
-        <div v-if="!importLoading && importList.length === 0" class="library-empty">素材库暂无内容</div>
+        <div v-if="!importLoading && importList.length === 0" class="library-empty resource-empty-state">
+          <span>素材库暂无内容</span>
+          <el-button size="small" type="primary" @click="importVisible = false; goCreate()">
+            前往制作页新增并入库
+          </el-button>
+        </div>
       </div>
       <div class="library-pagination">
         <el-pagination
@@ -572,9 +638,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, VideoPlay, Plus, Delete, Sunny, Moon, PictureFilled, Grid } from '@element-plus/icons-vue'
 import EpisodeBatchImportDialog from '@/components/EpisodeBatchImportDialog.vue'
+import ProjectReadinessPanel from '@/components/ProjectReadinessPanel.vue'
 import SourceIntakeWorkflowPanel from '@/components/SourceIntakeWorkflowPanel.vue'
 import { useTheme } from '@/composables/useTheme'
 import { dramaAPI } from '@/api/drama'
+import { aiAPI } from '@/api/ai'
+import { sourceIntakeAPI } from '@/api/sourceIntake'
 import { characterLibraryAPI } from '@/api/characterLibrary'
 import { sceneLibraryAPI } from '@/api/sceneLibrary'
 import { propLibraryAPI } from '@/api/propLibrary'
@@ -585,6 +654,7 @@ import { characterAPI } from '@/api/characters'
 import { sceneAPI } from '@/api/scenes'
 import { propAPI } from '@/api/props'
 import { stylePromptMetadataForSave, backfillDramaStylePromptMetadataIfNeeded } from '@/constants/styleOptions'
+import { buildProjectReadiness } from '@/utils/projectReadiness'
 
 const route = useRoute()
 const { isDark, toggle: toggleTheme } = useTheme()
@@ -884,6 +954,14 @@ async function generateDramaPropImg() {
 const loading = ref(false)
 const drama = ref(null)
 const episodes = ref([])
+const aiConfigs = ref([])
+const sourceCount = ref(0)
+const projectReadiness = computed(() => buildProjectReadiness({
+  drama: drama.value,
+  sourceCount: sourceCount.value,
+  aiConfigs: aiConfigs.value,
+}))
+const episodeEmptyState = computed(() => projectReadiness.value.episodeEmptyState)
 const nextEpisodeNumber = computed(() => (
   episodes.value.length > 0
     ? Math.max(...episodes.value.map((e) => Number(e.episode_number) || 0), 0) + 1
@@ -921,6 +999,55 @@ async function loadDrama() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadReadinessDependencies() {
+  const [configsResult, sourcesResult] = await Promise.allSettled([
+    aiAPI.list(),
+    sourceIntakeAPI.listForDrama(dramaId),
+  ])
+  if (configsResult.status === 'fulfilled') aiConfigs.value = configsResult.value || []
+  if (sourcesResult.status === 'fulfilled') sourceCount.value = Array.isArray(sourcesResult.value) ? sourcesResult.value.length : 0
+}
+
+async function handleSourceWorkflowRefresh() {
+  await Promise.all([loadDrama(), loadReadinessDependencies()])
+}
+
+function scrollToSection(id) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function scrollToSourceIntake() {
+  scrollToSection('source-intake-workflow')
+}
+
+function openEpisodeBatchImport() {
+  episodeBatchImportDialogRef.value?.openDialog?.()
+}
+
+function handleReadinessAction(action) {
+  if (!action) return
+  if (action.target === 'ai-config') {
+    router.push({ path: '/ai-config', query: { service_type: action.serviceType || '' } })
+    return
+  }
+  if (action.target === 'source-workflow') {
+    scrollToSourceIntake()
+    return
+  }
+  if (action.target === 'episode-list') {
+    scrollToSection('episode-list')
+    return
+  }
+  if (action.target === 'project-resources') {
+    scrollToSection('project-resources')
+    return
+  }
+  const query = {}
+  if (action.episodeId) query.episode = action.episodeId
+  if (action.id) query.focus = action.id
+  router.push({ path: `/film/${dramaId}`, query })
 }
 
 let infoSaveTimer = null
@@ -1213,6 +1340,7 @@ watch(activeResTab, (tab) => {
 
 onMounted(() => {
   loadDrama()
+  loadReadinessDependencies()
   loadCharList()
   if (route.query.importBatch) {
     setTimeout(() => {
@@ -1350,6 +1478,19 @@ html.light .section-title { color: #18181b; }
 .section-count { color: #71717a; font-size: 0.85rem; }
 .info-form { max-width: 100%; }
 .empty-tip { color: #71717a; text-align: center; padding: 32px; }
+.empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 34px 24px;
+  border: 1px dashed var(--border-muted);
+  background: var(--bg-inner);
+  text-align: center;
+}
+.empty-state-title { color: var(--text-primary); font-size: 15px; font-weight: 600; }
+.empty-state-copy { max-width: 620px; color: var(--text-subtle); font-size: 12px; line-height: 1.6; }
+.empty-state-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+.empty-state-note { color: var(--status-warning); font-size: 11px; line-height: 1.5; }
 
 /* 分集卡片 */
 .episode-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
@@ -1358,7 +1499,6 @@ html.light .section-title { color: #18181b; }
   border: 1px solid rgba(63, 63, 70, 0.6);
   border-radius: 12px;
   padding: 16px;
-  cursor: pointer;
   transition: border-color 0.25s, transform 0.2s, box-shadow 0.25s, background 0.2s;
   display: flex;
   flex-direction: column;
@@ -1388,16 +1528,28 @@ html.light .section-title { color: #18181b; }
   transform: translateX(3px);
 }
 .episode-enter {
+  width: 100%;
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px solid #27272a;
+  padding-right: 0;
+  padding-bottom: 0;
+  padding-left: 0;
+  border: 0;
+  border-top: 1px solid var(--border-color);
+  background: transparent;
   font-size: 0.78rem;
-  color: #52525b;
+  color: var(--text-faint);
+  font-family: inherit;
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 4px;
   opacity: 0.7;
   transition: color 0.2s, opacity 0.2s;
+}
+.episode-enter:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 4px;
 }
 .episode-enter-icon {
   font-size: 0.85rem;
@@ -1430,6 +1582,7 @@ html.light .section-title { color: #18181b; }
 .library-item-desc { font-size: 0.85rem; color: #a1a1aa; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .library-item-actions { display: flex; gap: 8px; }
 .library-empty { text-align: center; color: #71717a; padding: 40px 20px; }
+.resource-empty-state { display: grid; justify-items: center; gap: 12px; width: 100%; }
 .library-pagination { margin-top: 12px; display: flex; justify-content: center; }
 
 /* ——— 编辑器风格 Tab 栏 ——— */
@@ -1473,7 +1626,10 @@ html.light .section-title { color: #18181b; }
   white-space: nowrap;
   transition: color 0.15s, background 0.15s;
   flex-shrink: 0;
-  outline: none;
+}
+.res-tab:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: -2px;
 }
 .res-tab::after {
   content: '';

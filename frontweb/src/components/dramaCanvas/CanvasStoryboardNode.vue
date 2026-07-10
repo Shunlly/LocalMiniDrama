@@ -70,16 +70,16 @@ const isNodeBusy = computed(() => {
   width: 200px;
   padding: 12px 14px;
   border-radius: 12px;
-  border: 1px solid rgba(129, 140, 248, 0.35);
-  background: var(--bg-card, #18181b);
+  border: 1px solid var(--canvas-indigo-border, rgba(129, 140, 248, 0.35));
+  background: var(--canvas-card-surface, var(--bg-card, #18181b));
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .canvas-sb-node:hover,
 .canvas-sb-node.selected,
 .canvas-sb-node.focused {
-  border-color: #818cf8;
-  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.35), 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-color: var(--canvas-indigo-strong, #818cf8);
+  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.35), var(--canvas-node-focus-shadow, 0 8px 24px rgba(0, 0, 0, 0.35));
 }
 .head {
   display: flex;
@@ -90,14 +90,14 @@ const isNodeBusy = computed(() => {
 .num {
   font-size: 12px;
   font-weight: 700;
-  color: #a5b4fc;
+  color: var(--canvas-indigo-text, #a5b4fc);
 }
 .wf-badge {
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 999px;
   background: rgba(251, 191, 36, 0.18);
-  color: #fcd34d;
+  color: var(--canvas-amber-text, #fcd34d);
   max-width: 88px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -105,7 +105,7 @@ const isNodeBusy = computed(() => {
 }
 .seg {
   font-size: 10px;
-  color: #71717a;
+  color: var(--canvas-text-subtle, #71717a);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -115,7 +115,7 @@ const isNodeBusy = computed(() => {
   padding: 1px 6px;
   border-radius: 999px;
   background: rgba(167, 139, 250, 0.2);
-  color: #c4b5fd;
+  color: var(--canvas-violet-text, #c4b5fd);
 }
 .title {
   font-size: 13px;
@@ -134,15 +134,15 @@ const isNodeBusy = computed(() => {
   font-size: 10px;
   padding: 2px 6px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #a1a1aa;
+  background: var(--canvas-chip-surface-soft, rgba(255, 255, 255, 0.06));
+  color: var(--canvas-text-muted, #a1a1aa);
 }
-.st-completed { color: #34d399 !important; background: rgba(52, 211, 153, 0.12) !important; }
-.st-processing { color: #60a5fa !important; }
-.st-failed { color: #f87171 !important; }
+.st-completed { color: var(--canvas-success-text, #34d399) !important; background: rgba(52, 211, 153, 0.12) !important; }
+.st-processing { color: var(--canvas-info-text, #60a5fa) !important; }
+.st-failed { color: var(--canvas-danger-text, #f87171) !important; }
 .processing {
   animation: sb-pulse 1.4s ease-in-out infinite;
-  border-color: #60a5fa;
+  border-color: var(--canvas-info-text, #60a5fa);
 }
 .highlighted {
   box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.75), 0 8px 28px rgba(99, 102, 241, 0.25);
@@ -156,6 +156,6 @@ const isNodeBusy = computed(() => {
 }
 .hint {
   font-size: 10px;
-  color: #52525b;
+  color: var(--canvas-text-faint, #52525b);
 }
 </style>

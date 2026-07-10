@@ -43,7 +43,7 @@ const router = createRouter({
       path: '/media-library',
       name: 'media-library',
       component: () => import('@/views/MediaLibrary.vue'),
-      meta: { title: '媒体素材库' }
+      meta: { title: '素材中心' }
     }
   ]
 })

@@ -334,6 +334,7 @@ function setupRouter(cfg, db, log) {
 
   // ---------- assets ----------
   r.get('/assets', assets.list);
+  r.post('/assets/upload', uploadModule.multerMediaSingle, uploadHandlers.uploadAsset);
   r.post('/assets', assets.create);
   r.post('/assets/import/image/:image_gen_id', assets.importImage);
   r.post('/assets/import/video/:video_gen_id', assets.importVideo);

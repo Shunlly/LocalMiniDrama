@@ -18,7 +18,7 @@ const logger = require('./logger.js');
 
 const { app, config } = createApp();
 const port = Number(process.env.PORT) || config.server?.port || 5679;
-const host = config.server?.host || '0.0.0.0';
+const host = process.env.HOST || config.server?.host || '127.0.0.1';
 
 const server = app.listen(port, host, () => {
   logger.info('Server starting', { port, host });

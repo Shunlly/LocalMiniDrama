@@ -9,8 +9,9 @@ services:
     environment:
       NODE_ENV: development
       PORT: "5679"
+      HOST: "0.0.0.0"
     ports:
-      - "5679:5679"
+      - "127.0.0.1:5679:5679"
     volumes:
       - ./backend-node/data:/app/data
       - ./backend-node/configs:/app/configs
@@ -34,7 +35,7 @@ services:
       VITE_BACKEND_PROXY_TARGET: http://backend:5679
       CHOKIDAR_USEPOLLING: "true"
     ports:
-      - "3013:3013"
+      - "127.0.0.1:3013:3013"
     depends_on:
       backend:
         condition: service_healthy

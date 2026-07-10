@@ -1,4 +1,3 @@
-```markdown
 文件 欧先生提供@全力以赴提供
 
 # ComfyUI OpenAI API Proxy

@@ -3,6 +3,88 @@
     <el-tabs v-model="activeTab" class="config-tabs">
       <el-tab-pane label="AI 配置" name="configs">
         <div class="tab-content">
+          <section class="coverage-panel" aria-labelledby="ai-service-coverage-title">
+            <div class="coverage-header">
+              <div>
+                <div class="coverage-title-row">
+                  <h2 id="ai-service-coverage-title">AI 服务就绪度</h2>
+                  <el-tag :type="serviceCoverage.ready ? 'success' : 'warning'" size="small" effect="light">
+                    {{ serviceCoverage.readyCount }}/{{ serviceCoverage.totalCount }} 类已就绪
+                  </el-tag>
+                </div>
+                <p>每类服务需要一个启用的默认配置。点击服务可查看配置，缺失项可直接补充。</p>
+              </div>
+              <span class="coverage-test-note">连接测试结果仅显示后端记录或本次页面会话结果</span>
+            </div>
+            <div class="coverage-summary-strip">
+              <div
+                v-for="card in coverageSummaryCards"
+                :key="card.key"
+                class="coverage-summary-card"
+                :class="`summary-${card.tone}`"
+              >
+                <span>{{ card.label }}</span>
+                <strong>{{ card.value }}</strong>
+              </div>
+            </div>
+            <div class="coverage-grid">
+              <article
+                v-for="item in serviceCoverage.services"
+                :key="item.type"
+                class="coverage-item"
+                :class="[
+                  `coverage-${item.state}`,
+                  { 'is-selected': activeServiceFilter === item.type },
+                ]"
+              >
+                <button
+                  type="button"
+                  class="coverage-select"
+                  :aria-pressed="activeServiceFilter === item.type"
+                  @click="onCoverageSelect(item)"
+                >
+                  <span :class="['coverage-icon', `coverage-icon-${item.type}`]">
+                    <el-icon>
+                      <ChatDotRound v-if="item.type === 'text'" />
+                      <Picture v-else-if="item.type === 'image'" />
+                      <Film v-else-if="item.type === 'storyboard_image'" />
+                      <VideoCamera v-else-if="item.type === 'video'" />
+                      <Microphone v-else />
+                    </el-icon>
+                  </span>
+                  <span class="coverage-item-main">
+                    <span class="coverage-item-heading">
+                      <strong>{{ item.label }}</strong>
+                      <el-tag :type="coverageStateTagType(item)" size="small" effect="plain">
+                        {{ coverageStateLabel(item) }}
+                      </el-tag>
+                    </span>
+                    <span class="coverage-description">{{ item.description }}</span>
+                    <span class="coverage-config-count">{{ coverageInventoryLabel(item) }}</span>
+                    <span class="coverage-config-detail">{{ coverageConfigDetail(item) }}</span>
+                    <span :class="['coverage-test-status', `test-${item.test.status}`]">
+                      <span class="coverage-status-dot" />
+                      {{ coverageTestLabel(item.test) }}
+                    </span>
+                  </span>
+                </button>
+                <span class="coverage-actions">
+                  <el-button
+                    v-for="action in coverageActions(item)"
+                    :key="`${item.type}-${action.key}`"
+                    link
+                    size="small"
+                    :type="action.emphasis === 'primary' ? 'primary' : 'info'"
+                    class="coverage-action-link"
+                    @click.stop="onCoverageAction(item, action)"
+                  >
+                    {{ action.label }}
+                  </el-button>
+                </span>
+              </article>
+            </div>
+          </section>
+
           <!-- 普通模式操作栏 -->
           <div v-if="!vendorLock.enabled" class="content-actions">
             <div class="actions-left">
@@ -63,10 +145,18 @@
               一键换Key
             </el-button>
           </div>
-          <p class="default-tip">每种服务类型仅有一个默认配置：文本用于生成故事；文本生成图片用于角色/场景/道具图；分镜图片生成用于分镜图（支持参考图）；视频用于生成视频；语音合成 TTS 用于分镜配音；即梦2角色认证用于创作页 SD2 认证（网关 Token）；SD2 资产库用于官方 ModelArk 私有资产（在未配置即梦2角色认证时供 SD2 认证使用）。</p>
+          <div v-if="activeServiceFilter" class="config-filter-bar">
+            <span>
+              当前只看：<strong>{{ serviceTypeLabel(activeServiceFilter) }}</strong>
+              <span class="filter-count">{{ filteredList.length }} 条</span>
+            </span>
+            <el-button link type="primary" @click="clearServiceFilter">查看全部配置</el-button>
+          </div>
+          <p class="default-tip">生成任务会优先使用同类服务中已启用的默认配置。即梦2角色认证和 SD2 资产库属于扩展能力，不计入上方五类基础生成服务。</p>
+          <div ref="configListSectionRef">
           <el-table
             v-loading="loading"
-            :data="list"
+            :data="filteredList"
             stripe
             style="width: 100%"
             @selection-change="onSelectionChange"
@@ -109,7 +199,29 @@
                 <el-button v-if="!vendorLock.enabled" link type="danger" size="small" @click="onDelete(row)">删除</el-button>
               </template>
             </el-table-column>
+            <template #empty>
+              <div class="config-empty-state">
+                <el-icon class="config-empty-icon"><MagicStick /></el-icon>
+                <strong>{{ activeServiceFilter ? `暂无${serviceTypeLabel(activeServiceFilter)}配置` : '还没有 AI 服务配置' }}</strong>
+                <span>
+                  {{ activeServiceFilter ? '添加一个配置并设为默认，即可用于对应生成环节。' : '先添加文本、图片或视频厂商，生成流程会自动使用默认配置。' }}
+                </span>
+                <div class="config-empty-actions">
+                  <el-button
+                    v-if="!vendorLock.enabled"
+                    type="primary"
+                    size="small"
+                    @click="openAddForService(activeServiceFilter || 'text')"
+                  >
+                    <el-icon><Plus /></el-icon>
+                    {{ activeServiceFilter ? `添加${serviceTypeLabel(activeServiceFilter)}配置` : '添加第一个配置' }}
+                  </el-button>
+                  <el-button v-if="activeServiceFilter" size="small" @click="clearServiceFilter">查看全部</el-button>
+                </div>
+              </div>
+            </template>
           </el-table>
+          </div>
         </div>
       </el-tab-pane>
       <el-tab-pane label="高级设置（提示词）" name="prompts">
@@ -205,7 +317,9 @@
     <el-dialog
       v-model="dialogVisible"
       :title="vendorLock.enabled ? '修改 API Key / 默认模型' : (editingId ? '编辑配置' : '添加配置')"
-      width="520px"
+      width="720px"
+      top="4vh"
+      class="ai-config-dialog"
       :close-on-click-modal="false"
       @closed="resetForm"
     >
@@ -254,6 +368,14 @@
 
       <!-- 普通模式：完整表单 -->
       <el-form v-else ref="formRef" :model="form" :rules="rules" label-width="100px">
+        <section class="config-form-section">
+          <div class="config-section-header">
+            <div>
+              <h4>基础信息</h4>
+              <p>先确定服务用途和便于识别的配置名称。</p>
+            </div>
+            <span class="config-section-index">01</span>
+          </div>
         <el-form-item prop="service_type">
           <template #label>
             <span class="form-label-tip">服务类型
@@ -281,6 +403,26 @@
             <el-option label="即梦2角色认证" value="jimeng2_character_auth" />
           </el-select>
         </el-form-item>
+        <el-form-item prop="name">
+          <template #label>
+            <span class="form-label-tip">名称
+              <el-tooltip content="配置的显示名，用于在列表中区分不同配置，选择厂商后可自动生成。" placement="top" popper-class="cfg-tip-popper">
+                <el-icon class="tip-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </span>
+          </template>
+          <el-input v-model="form.name" placeholder="如：OpenAI 图文，可自动生成" />
+        </el-form-item>
+        </section>
+
+        <section class="config-form-section">
+          <div class="config-section-header">
+            <div>
+              <h4>厂商与认证</h4>
+              <p>选择预设厂商可自动带入模型和接口参数，也支持自定义兼容服务。</p>
+            </div>
+            <span class="config-section-index">02</span>
+          </div>
         <el-form-item prop="provider">
           <template #label>
             <span class="form-label-tip">厂商
@@ -313,27 +455,6 @@
               :value="p.id"
               :class="p.id === '__custom__' ? 'provider-custom-option' : ''"
             />
-          </el-select>
-        </el-form-item>
-        <!-- 接口规范：仅图片/分镜/视频类型显示，预设厂商自动填充；自定义厂商必选 -->
-        <el-form-item v-if="form.service_type !== 'text' && form.service_type !== 'tts' && form.service_type !== 'jimeng2_character_auth'">
-          <template #label>
-            <span class="form-label-tip">接口规范
-              <el-icon class="tip-icon" style="cursor:pointer;color:#409eff" @click="showProtocolHelp = true"><QuestionFilled /></el-icon>
-            </span>
-          </template>
-          <el-select v-model="form.api_protocol" style="width: 100%" placeholder="选择接口规范（自定义厂商必选）" clearable>
-            <el-option label="OpenAI 兼容（大多数中转站默认）" value="openai" />
-            <el-option label="火山引擎（豆包 Seedream / Seedance）" value="volcengine" />
-            <el-option label="火山即梦 Seedance 全能（方舟多图参考，Seedance 2.0 等）" value="volcengine_omni" />
-            <el-option label="通义万象 DashScope" value="dashscope" />
-            <el-option label="Google Gemini（图片 / Veo 视频）" value="gemini" />
-            <el-option label="Sora 中转站（multipart/form-data，seconds+size）" value="sora" />
-            <el-option label="Veo3 兼容（JSON，images+enhance_prompt，自动翻译英文）" value="veo3" />
-            <el-option label="Vidu 视频" value="vidu" />
-            <el-option label="可灵 Omni-Video（官方 api-beijing / ffir 中转，O1 全能）" value="kling_omni" />
-            <el-option label="xAI Grok Imagine（官方 prompt + aspect_ratio，/v1/videos/generations）" value="xai" />
-            <el-option label="NanoBanana" value="nano_banana" />
           </el-select>
         </el-form-item>
 
@@ -496,40 +617,6 @@ input_reference = (图片文件，可选)</pre>
             <el-button @click="showProtocolHelp = false">关闭</el-button>
           </template>
         </el-dialog>
-        <el-form-item prop="name">
-          <template #label>
-            <span class="form-label-tip">名称
-              <el-tooltip content="配置的显示名，用于在列表中区分不同配置，选择厂商后可自动生成。" placement="top" popper-class="cfg-tip-popper">
-                <el-icon class="tip-icon"><QuestionFilled /></el-icon>
-              </el-tooltip>
-            </span>
-          </template>
-          <el-input v-model="form.name" placeholder="如：OpenAI 图文，可自动生成" />
-        </el-form-item>
-        <el-form-item prop="base_url">
-          <template #label>
-            <span class="form-label-tip">{{ form.service_type === 'jimeng2_character_auth' ? '网关 URL' : 'Base URL' }}
-              <el-tooltip placement="top" popper-class="cfg-tip-popper">
-                <template #content>
-                  <div class="cfg-tip-content">
-                    <template v-if="form.service_type === 'jimeng2_character_auth'">
-                      即梦业务素材库网关的<b>根地址</b>（不含 <code>/api/business/v1</code> 路径）。须与素材库实际部署一致。
-                    </template>
-                    <template v-else>
-                      API 接口地址，选择预设厂商后自动填入，一般无需修改。<br>
-                      示例：https://dashscope.aliyuncs.com
-                    </template>
-                  </div>
-                </template>
-                <el-icon class="tip-icon"><QuestionFilled /></el-icon>
-              </el-tooltip>
-            </span>
-          </template>
-          <el-input
-            v-model="form.base_url"
-            :placeholder="form.service_type === 'jimeng2_character_auth' ? '如 https://your-gateway.com' : '选择预设厂商后自动填充，可修改'"
-          />
-        </el-form-item>
         <el-form-item prop="api_key">
           <template #label>
             <span class="form-label-tip">{{ form.service_type === 'jimeng2_character_auth' ? 'Token' : 'API Key' }}
@@ -680,6 +767,67 @@ input_reference = (图片文件，可选)</pre>
             <p class="field-tip">仅 MiniMax T2A 需要此字段。</p>
           </el-form-item>
         </template>
+        </section>
+
+        <el-collapse v-model="advancedFormSections" class="advanced-config-collapse">
+          <el-collapse-item name="endpoint">
+            <template #title>
+              <div class="advanced-config-title">
+                <span>
+                  <strong>高级接口设置</strong>
+                  <small>Base URL、接口规范及自定义端点</small>
+                </span>
+                <el-tag size="small" type="info" effect="plain">一般无需修改</el-tag>
+              </div>
+            </template>
+            <div class="advanced-config-content">
+              <!-- 接口规范：仅图片/分镜/视频类型显示，预设厂商自动填充；自定义厂商必选 -->
+              <el-form-item v-if="form.service_type !== 'text' && form.service_type !== 'tts' && form.service_type !== 'jimeng2_character_auth'">
+                <template #label>
+                  <span class="form-label-tip">接口规范
+                    <button type="button" class="tip-button" aria-label="查看接口规范说明" title="查看接口规范说明" @click.stop="showProtocolHelp = true">
+                      <el-icon class="tip-icon"><QuestionFilled /></el-icon>
+                    </button>
+                  </span>
+                </template>
+                <el-select v-model="form.api_protocol" style="width: 100%" placeholder="选择接口规范（自定义厂商必选）" clearable>
+                  <el-option label="OpenAI 兼容（大多数中转站默认）" value="openai" />
+                  <el-option label="火山引擎（豆包 Seedream / Seedance）" value="volcengine" />
+                  <el-option label="火山即梦 Seedance 全能（方舟多图参考，Seedance 2.0 等）" value="volcengine_omni" />
+                  <el-option label="通义万象 DashScope" value="dashscope" />
+                  <el-option label="Google Gemini（图片 / Veo 视频）" value="gemini" />
+                  <el-option label="Sora 中转站（multipart/form-data，seconds+size）" value="sora" />
+                  <el-option label="Veo3 兼容（JSON，images+enhance_prompt，自动翻译英文）" value="veo3" />
+                  <el-option label="Vidu 视频" value="vidu" />
+                  <el-option label="可灵 Omni-Video（官方 api-beijing / ffir 中转，O1 全能）" value="kling_omni" />
+                  <el-option label="xAI Grok Imagine（官方 prompt + aspect_ratio，/v1/videos/generations）" value="xai" />
+                  <el-option label="NanoBanana" value="nano_banana" />
+                </el-select>
+              </el-form-item>
+              <el-form-item prop="base_url">
+                <template #label>
+                  <span class="form-label-tip">{{ form.service_type === 'jimeng2_character_auth' ? '网关 URL' : 'Base URL' }}
+                    <el-tooltip placement="top" popper-class="cfg-tip-popper">
+                      <template #content>
+                        <div class="cfg-tip-content">
+                          <template v-if="form.service_type === 'jimeng2_character_auth'">
+                            即梦业务素材库网关的<b>根地址</b>（不含 <code>/api/business/v1</code> 路径）。须与素材库实际部署一致。
+                          </template>
+                          <template v-else>
+                            API 接口地址，选择预设厂商后自动填入，一般无需修改。<br>
+                            示例：https://dashscope.aliyuncs.com
+                          </template>
+                        </div>
+                      </template>
+                      <el-icon class="tip-icon"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </span>
+                </template>
+                <el-input
+                  v-model="form.base_url"
+                  :placeholder="form.service_type === 'jimeng2_character_auth' ? '如 https://your-gateway.com' : '选择预设厂商后自动填充，可修改'"
+                />
+              </el-form-item>
 
         <!-- 端点配置：视频必填（自定义厂商）；图片/分镜在使用代理或特殊厂商时填写 -->
         <template v-if="form.service_type !== 'text' && form.service_type !== 'tts' && form.service_type !== 'jimeng2_character_auth'">
@@ -743,7 +891,18 @@ input_reference = (图片文件，可选)</pre>
           <p v-else-if="endpointPreviewInfo.isJimeng2Auth" class="ep-tip">角色「SD2认证」将调用上述地址注册素材（POST 创建、GET 查询状态）。</p>
           <p v-else class="ep-tip">以上为系统推断的实际调用地址（可手动填写上方端点字段来覆盖）</p>
         </div>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
 
+        <section v-if="form.service_type !== 'jimeng2_character_auth'" class="config-form-section">
+          <div class="config-section-header">
+            <div>
+              <h4>模型</h4>
+              <p>维护该厂商可用模型，并指定生成任务实际使用的默认模型。</p>
+            </div>
+            <span class="config-section-index">03</span>
+          </div>
         <template v-if="form.service_type !== 'jimeng2_character_auth'">
         <el-form-item>
           <template #label>
@@ -822,6 +981,16 @@ input_reference = (图片文件，可选)</pre>
           <p class="field-tip">官方旧模型名将在 2026-07-24 废弃；新配置建议使用 deepseek-v4-flash 或 deepseek-v4-pro。</p>
         </el-form-item>
         </template>
+        </section>
+
+        <section class="config-form-section config-policy-section">
+          <div class="config-section-header">
+            <div>
+              <h4>调用策略</h4>
+              <p>同类服务有多个配置时，默认项优先于普通配置，优先级用于后续排序。</p>
+            </div>
+            <span class="config-section-index">{{ form.service_type === 'jimeng2_character_auth' ? '03' : '04' }}</span>
+          </div>
         <el-form-item>
           <template #label>
             <span class="form-label-tip">优先级
@@ -848,6 +1017,7 @@ input_reference = (图片文件，可选)</pre>
           </template>
           <el-switch v-model="form.is_default" />
         </el-form-item>
+        </section>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -1094,16 +1264,31 @@ input_reference = (图片文件，可选)</pre>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder } from '@element-plus/icons-vue'
 import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
 import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '@/utils/aiConfigExport.js'
+import { buildAiServiceCoverage, getAiServiceCoverageActions } from '@/utils/aiConfigCoverage.js'
 import { CUSTOM_PROVIDER_SENTINEL, getBaseUrlForProvider, getProviderEndpointDefaults, getProviderProtocol, providerConfigs } from '@/utils/aiProviderPresets.js'
 import PromptEditor from '@/components/PromptEditor.vue'
 import SceneModelMap from '@/components/SceneModelMap.vue'
 import Sd2AssetManagement from '@/components/Sd2AssetManagement.vue'
+
+const props = defineProps({
+  initialServiceType: {
+    type: String,
+    default: '',
+  },
+})
+
+const filterableServiceTypes = new Set(['text', 'image', 'storyboard_image', 'video', 'tts'])
+
+function normalizeInitialServiceType(value) {
+  const normalized = String(value || '').trim()
+  return filterableServiceTypes.has(normalized) ? normalized : ''
+}
 
 const activeTab = ref('configs')
 const importFileRef = ref(null)
@@ -1157,6 +1342,20 @@ async function saveGenerationSettings() {
 }
 const loading = ref(false)
 const list = ref([])
+const activeServiceFilter = ref(normalizeInitialServiceType(props.initialServiceType))
+const configListSectionRef = ref(null)
+watch(
+  () => props.initialServiceType,
+  async (value) => {
+    const normalized = normalizeInitialServiceType(value)
+    if (normalized === activeServiceFilter.value) return
+    activeServiceFilter.value = normalized
+    if (!normalized) return
+    await nextTick()
+    configListSectionRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
+  },
+)
+const sessionTestStatusById = ref({})
 const selectedRows = ref([])
 const batchDeleting = ref(false)
 const MASKED_SECRET = '********'
@@ -1177,6 +1376,7 @@ const jimeng2AssetsRows = ref([])
 const jimeng2AssetsHasMore = ref(false)
 const jimeng2AssetsNextCursor = ref(null)
 const formRef = ref(null)
+const advancedFormSections = ref([])
 const form = ref({
   service_type: 'text',
   name: '',
@@ -1300,6 +1500,121 @@ const oneKeyVolcSaving = ref(false)
 const oneKeyAgnesVisible = ref(false)
 const oneKeyAgnesKey = ref('')
 const oneKeyAgnesSaving = ref(false)
+
+const serviceCoverage = computed(() => (
+  buildAiServiceCoverage(list.value, sessionTestStatusById.value)
+))
+
+const coverageSummaryCards = computed(() => ([
+  {
+    key: 'ready',
+    label: '已就绪',
+    value: `${serviceCoverage.value.readyCount}/${serviceCoverage.value.totalCount}`,
+    tone: serviceCoverage.value.ready ? 'success' : 'warning',
+  },
+  {
+    key: 'attention',
+    label: '待补齐',
+    value: serviceCoverage.value.attentionCount,
+    tone: serviceCoverage.value.attentionCount ? 'warning' : 'success',
+  },
+  {
+    key: 'failed-tests',
+    label: '测试失败',
+    value: serviceCoverage.value.testFailedCount,
+    tone: serviceCoverage.value.testFailedCount ? 'danger' : 'success',
+  },
+  {
+    key: 'untested',
+    label: '待测试',
+    value: serviceCoverage.value.untestedCount,
+    tone: serviceCoverage.value.untestedCount ? 'info' : 'success',
+  },
+]))
+
+const filteredList = computed(() => {
+  if (!activeServiceFilter.value) return list.value
+  return list.value.filter((row) => row.service_type === activeServiceFilter.value)
+})
+
+function coverageStateLabel(item) {
+  if (item.state === 'default') return '默认已就绪'
+  if (item.issue === 'inactive') return '未启用'
+  if (item.state === 'configured') return '缺少默认'
+  return '未配置'
+}
+
+function coverageStateTagType(item) {
+  if (item.state === 'default') return 'success'
+  if (item.state === 'configured') return 'warning'
+  return 'danger'
+}
+
+function coverageConfigDetail(item) {
+  if (item.state === 'missing') return '尚无配置'
+  if (item.issue === 'inactive') return `${item.configuredCount} 个配置，均未启用`
+  if (!item.defaultConfig) return `${item.activeCount} 个启用配置，请设置默认项`
+  const config = item.defaultConfig
+  const model = config.default_model || (Array.isArray(config.model) ? config.model[0] : config.model)
+  const identity = config.name || config.provider || '默认配置'
+  return model ? `${identity} · ${model}` : identity
+}
+
+function coverageInventoryLabel(item) {
+  if (item.state === 'missing') return '未配置'
+  const active = item.activeCount ? `启用 ${item.activeCount}` : '启用 0'
+  return `已配置 ${item.configuredCount} 条 · ${active}`
+}
+
+function coverageTestLabel(test) {
+  if (test.status === 'passed') return test.source === 'session' ? '本次测试通过' : '最近测试通过'
+  if (test.status === 'failed') return test.source === 'session' ? '本次测试失败' : '最近测试失败'
+  return '尚无测试记录'
+}
+
+function clearServiceFilter() {
+  activeServiceFilter.value = ''
+}
+
+function coverageActions(item) {
+  return getAiServiceCoverageActions(item, { vendorLocked: vendorLock.value.enabled })
+}
+
+async function focusServiceConfigs(serviceType) {
+  activeServiceFilter.value = serviceType
+  await nextTick()
+  configListSectionRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
+}
+
+async function onCoverageSelect(item) {
+  if (item.state === 'missing' && !vendorLock.value.enabled) {
+    openAddForService(item.type)
+    return
+  }
+  await focusServiceConfigs(item.type)
+}
+
+async function onCoverageAction(item, action) {
+  if (action.action === 'add') {
+    openAddForService(item.type)
+    return
+  }
+  if (action.action === 'edit') {
+    if (item.targetConfig) {
+      openEdit(item.targetConfig)
+    } else {
+      openAddForService(item.type)
+    }
+    return
+  }
+  if (action.action === 'test') {
+    if (item.targetConfig) {
+      await openTest(item.targetConfig)
+    }
+    return
+  }
+  await focusServiceConfigs(item.type)
+}
 
 function parseSettings(settings) {
   if (!settings) return {}
@@ -1624,6 +1939,7 @@ function parseModelText(text) {
 function resetForm() {
   editingId.value = null
   presetModelPick.value = ''
+  advancedFormSections.value = []
   form.value = {
     service_type: 'text',
     name: '',
@@ -1653,8 +1969,17 @@ function openAdd() {
   dialogVisible.value = true
 }
 
+function openAddForService(serviceType) {
+  resetForm()
+  form.value.service_type = serviceType || 'text'
+  activeServiceFilter.value = form.value.service_type
+  onServiceTypeChange()
+  dialogVisible.value = true
+}
+
 function openEdit(row) {
   editingId.value = row.id
+  advancedFormSections.value = []
   const model = Array.isArray(row.model) ? row.model : (row.model ? [row.model] : [])
   const modelList = model.map((m) => String(m).trim()).filter(Boolean)
   const defaultInList = row.default_model && modelList.includes(row.default_model)
@@ -1877,9 +2202,17 @@ async function openTest(row) {
       settings: row.settings
     })
     testResult.value = true
+    sessionTestStatusById.value = {
+      ...sessionTestStatusById.value,
+      [row.id]: { status: 'passed', testedAt: new Date().toISOString() },
+    }
   } catch (e) {
     testResult.value = false
     testError.value = e?.message || '请求失败'
+    sessionTestStatusById.value = {
+      ...sessionTestStatusById.value,
+      [row.id]: { status: 'failed', testedAt: new Date().toISOString() },
+    }
   }
 }
 
@@ -2097,10 +2430,9 @@ async function loadVendorLock() {
   }
 }
 
-onMounted(() => {
-  loadVendorLock()
-  loadList()
-  loadGenerationSettings()
+onMounted(async () => {
+  await Promise.all([loadVendorLock(), loadList(), loadGenerationSettings()])
+  if (activeServiceFilter.value) await focusServiceConfigs(activeServiceFilter.value)
 })
 </script>
 
@@ -2125,6 +2457,335 @@ onMounted(() => {
   padding-top: 16px;
   max-height: calc(100vh - 320px);
   overflow-y: auto;
+}
+.coverage-panel {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
+  border-radius: 8px;
+  background: var(--el-bg-color, #fff);
+}
+.coverage-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 14px;
+}
+.coverage-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.coverage-title-row h2 {
+  margin: 0;
+  color: var(--el-text-color-primary, #303133);
+  font-size: 16px;
+  line-height: 24px;
+  letter-spacing: 0;
+}
+.coverage-header p {
+  margin: 4px 0 0;
+  color: var(--el-text-color-regular, #606266);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.coverage-test-note {
+  max-width: 260px;
+  color: var(--el-text-color-secondary, #909399);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: right;
+}
+.coverage-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.coverage-summary-card {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
+  border-radius: 6px;
+  background: var(--el-fill-color-blank, #fff);
+}
+.coverage-summary-card span {
+  color: var(--el-text-color-secondary, #909399);
+  font-size: 12px;
+  line-height: 18px;
+}
+.coverage-summary-card strong {
+  color: var(--el-text-color-primary, #303133);
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+}
+.coverage-summary-card.summary-success {
+  border-color: rgba(16, 185, 129, 0.24);
+  background: #ecfdf5;
+}
+.coverage-summary-card.summary-warning {
+  border-color: rgba(245, 158, 11, 0.24);
+  background: #fffbeb;
+}
+.coverage-summary-card.summary-danger {
+  border-color: rgba(239, 68, 68, 0.24);
+  background: #fef2f2;
+}
+.coverage-summary-card.summary-info {
+  border-color: rgba(59, 130, 246, 0.24);
+  background: #eff6ff;
+}
+.coverage-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.coverage-item {
+  min-width: 0;
+  min-height: 142px;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  align-items: start;
+  gap: 8px 10px;
+  padding: 12px;
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
+  border-radius: 6px;
+  background: var(--el-fill-color-blank, #fff);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+.coverage-item:hover {
+  border-color: var(--el-color-primary-light-5, #a0cfff);
+  box-shadow: 0 2px 8px rgba(31, 41, 55, 0.08);
+}
+.coverage-select:focus-visible {
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: 2px;
+}
+.coverage-item.is-selected {
+  border-color: var(--el-color-primary, #409eff);
+  background: var(--el-color-primary-light-9, #ecf5ff);
+}
+.coverage-select {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.coverage-icon {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 16px;
+}
+.coverage-icon-text { color: #2563eb; background: #eff6ff; }
+.coverage-icon-image { color: #047857; background: #ecfdf5; }
+.coverage-icon-storyboard_image { color: #7c3aed; background: #f5f3ff; }
+.coverage-icon-video { color: #c2410c; background: #fff7ed; }
+.coverage-icon-tts { color: #0f766e; background: #f0fdfa; }
+.coverage-item-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.coverage-item-heading {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.coverage-item-heading strong {
+  color: var(--el-text-color-primary, #303133);
+  font-size: 13px;
+  line-height: 20px;
+}
+.coverage-description,
+.coverage-config-count,
+.coverage-config-detail,
+.coverage-test-status {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.coverage-description {
+  color: var(--el-text-color-regular, #606266);
+}
+.coverage-config-count {
+  color: var(--el-text-color-secondary, #909399);
+}
+.coverage-config-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--el-text-color-primary, #303133);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.coverage-test-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--el-text-color-secondary, #909399);
+}
+.coverage-status-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: #9ca3af;
+}
+.coverage-test-status.test-passed { color: #047857; }
+.coverage-test-status.test-passed .coverage-status-dot { background: #10b981; }
+.coverage-test-status.test-failed { color: #b91c1c; }
+.coverage-test-status.test-failed .coverage-status-dot { background: #ef4444; }
+.coverage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 2px;
+}
+.coverage-action-link {
+  min-height: 20px;
+  padding: 0;
+}
+.config-filter-bar {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--el-color-primary-light-7, #c6e2ff);
+  border-radius: 6px;
+  background: var(--el-color-primary-light-9, #ecf5ff);
+  color: var(--el-text-color-regular, #606266);
+  font-size: 13px;
+}
+.filter-count {
+  margin-left: 6px;
+  color: var(--el-text-color-secondary, #909399);
+}
+.config-empty-state {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--el-text-color-regular, #606266);
+}
+.config-empty-state strong {
+  color: var(--el-text-color-primary, #303133);
+  font-size: 14px;
+}
+.config-empty-state > span {
+  max-width: 440px;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+.config-empty-icon {
+  color: var(--el-color-primary, #409eff);
+  font-size: 28px;
+}
+.config-empty-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.config-form-section {
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
+  border-radius: 8px;
+  background: var(--el-fill-color-blank, #fff);
+}
+.config-policy-section {
+  margin-bottom: 0;
+}
+.config-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.config-section-header h4 {
+  margin: 0;
+  color: var(--el-text-color-primary, #303133);
+  font-size: 15px;
+  line-height: 22px;
+}
+.config-section-header p {
+  margin: 4px 0 0;
+  color: var(--el-text-color-regular, #606266);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.config-section-index {
+  flex: 0 0 auto;
+  min-width: 34px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--el-color-primary-light-9, #ecf5ff);
+  color: var(--el-color-primary, #409eff);
+  font-size: 12px;
+  font-weight: 600;
+}
+.advanced-config-collapse {
+  margin-bottom: 18px;
+}
+.advanced-config-title {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-right: 12px;
+}
+.advanced-config-title span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.advanced-config-title strong {
+  color: var(--el-text-color-primary, #303133);
+  font-size: 14px;
+  line-height: 20px;
+}
+.advanced-config-title small {
+  color: var(--el-text-color-secondary, #909399);
+  font-size: 12px;
+  line-height: 18px;
+}
+.advanced-config-content {
+  padding-top: 8px;
 }
 .content-actions {
   display: flex;
@@ -2406,6 +3067,23 @@ code {
 .tip-icon:hover {
   color: #409eff;
 }
+.tip-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.tip-button:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 1px;
+}
 .endpoint-preview-box {
   background: #f0f7ff;
   border: 1px solid #c6e0ff;
@@ -2532,5 +3210,18 @@ code {
 .gs-tip-note {
   color: #909399;
   font-size: 12px;
+}
+@media (max-width: 1440px) {
+  .coverage-summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .coverage-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 1120px) {
+  .coverage-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

@@ -6,26 +6,30 @@
           <span class="logo-main">本地短剧助手</span>
           <span class="logo-sub">LocalMiniDrama</span>
         </h1>
-        <!-- 公共资源库（左侧，靛紫调） -->
+        <!-- 素材入口：通用媒体为一级入口，语义素材保留在分类菜单中 -->
         <div class="header-library">
-          <el-button class="btn-library" @click="showCharLibrary = true">
-            <el-icon><User /></el-icon>素材角色
+          <el-button class="btn-library btn-material-center" title="打开素材中心" @click="goMaterialCenter">
+            <el-icon><Files /></el-icon>素材中心
           </el-button>
-          <el-button class="btn-library" @click="showSceneLibrary = true">
-            <el-icon><PictureFilled /></el-icon>素材场景
-          </el-button>
-          <el-button class="btn-library" @click="showPropLibrary = true">
-            <el-icon><Box /></el-icon>素材道具
-          </el-button>
+          <el-dropdown trigger="click" placement="bottom-start" @command="openSemanticLibrary">
+            <el-button class="btn-library btn-semantic-library">
+              <el-icon><Collection /></el-icon>分类素材
+              <el-icon class="dropdown-caret"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="character"><el-icon><User /></el-icon>角色素材库</el-dropdown-item>
+                <el-dropdown-item command="scene"><el-icon><PictureFilled /></el-icon>场景素材库</el-dropdown-item>
+                <el-dropdown-item command="prop"><el-icon><Box /></el-icon>道具素材库</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
         <!-- 右侧操作区 -->
         <div class="header-actions">
           <!-- 暂时隐藏，功能待完善 -->
           <!-- <el-button class="btn-library" title="自由创作" @click="$router.push('/free-create')">
             <el-icon><MagicStick /></el-icon>自由创作
-          </el-button>
-          <el-button class="btn-library" title="媒体素材库" @click="$router.push('/media-library')">
-            <el-icon><Files /></el-icon>素材库
           </el-button> -->
           <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
             <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
@@ -35,7 +39,7 @@
             <el-icon><Setting /></el-icon>AI配置
           </el-button>
           <el-button class="btn-import" :loading="importing" @click="triggerImport">
-            <el-icon><Upload /></el-icon>导入项目
+            <el-icon><Upload /></el-icon>导入项目包
           </el-button>
           <input ref="importFileInput" type="file" accept=".zip" style="display:none" @change="onImportFile" />
           <el-button type="primary" class="btn-new" @click="goNewProject">
@@ -48,17 +52,24 @@
     <main class="main">
       <div v-loading="loading" class="projects-wrap">
         <div class="project-grid">
-          <!-- 操作卡片：始终作为第一个格子 -->
-          <div class="project-card action-card">
+          <!-- 空项目时提供完整起步路径；已有项目时使用顶部主操作，避免重复入口。 -->
+          <div v-if="!loading && dramas.length === 0" class="project-card action-card action-card--empty">
             <div class="action-card-inner">
-              <h3 class="action-card-title">快速开始</h3>
+              <h3 class="action-card-title">{{ !loading && dramas.length === 0 ? '还没有短剧项目' : '快速开始' }}</h3>
+              <p v-if="!loading && dramas.length === 0" class="action-card-desc">创建项目、导入项目包，或先去素材中心准备后续要复用的图片和视频。</p>
               <div class="action-card-buttons">
                 <el-button type="primary" size="large" class="action-btn action-btn-new" @click="goNewProject">
-                  <el-icon><Plus /></el-icon>新建短剧项目
+                  <el-icon><Plus /></el-icon>新建项目
                 </el-button>
                 <el-button size="large" class="action-btn action-btn-import" :loading="importing" @click="triggerImport">
-                  <el-icon><Upload /></el-icon>导入短剧项目
+                  <el-icon><Upload /></el-icon>导入项目包
                 </el-button>
+              </div>
+              <div v-if="!loading && dramas.length === 0" class="action-card-secondary">
+                <el-button class="action-btn-material" @click="goMaterialCenter">
+                  <el-icon><Files /></el-icon>前往素材中心
+                </el-button>
+                <p class="action-card-note">网页 URL 导入和角色、场景、道具入库仍在项目内完成。</p>
               </div>
               <div v-if="exampleList.length > 0" class="action-card-example">
                 <div class="example-hint">
@@ -86,13 +97,39 @@
             class="project-card"
             @click="openProject(d.id)"
           >
-            <div class="project-card-actions" @click.stop>
-              <el-button size="small" circle :icon="Download" title="导出项目" :loading="exportingId === d.id" @click="onExport(d)" />
-              <el-button size="small" circle :icon="Edit" title="编辑" @click="openEditDialog(d)" />
-              <el-button size="small" type="danger" plain circle :icon="Delete" title="删除" @click="onDelete(d)" />
-            </div>
             <div class="project-card-body">
-              <h3 class="project-title">{{ d.title || '未命名项目' }}</h3>
+              <div class="project-card-header">
+                <h3 class="project-title" :title="d.title || '未命名项目'">{{ d.title || '未命名项目' }}</h3>
+                <el-dropdown
+                  trigger="click"
+                  placement="bottom-end"
+                  popper-class="project-actions-dropdown"
+                  @click.stop
+                  @command="handleProjectAction($event, d)"
+                >
+                  <el-button
+                    class="project-menu-button"
+                    text
+                    circle
+                    :loading="exportingId === d.id"
+                    title="项目操作"
+                    :aria-label="`打开项目「${d.title || '未命名项目'}」操作菜单`"
+                  >
+                    <el-icon><MoreFilled /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="export" :disabled="exportingId === d.id">
+                        <el-icon><Download /></el-icon>导出项目
+                      </el-dropdown-item>
+                      <el-dropdown-item command="edit"><el-icon><Edit /></el-icon>编辑项目</el-dropdown-item>
+                      <el-dropdown-item command="delete" divided class="project-action-danger">
+                        <el-icon><Delete /></el-icon>删除项目
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
               <p class="project-desc">{{ d.description || '暂无描述' }}</p>
               <div class="project-badges">
                 <span class="badge badge-status" :class="'badge-status--' + (d.status || 'draft')">{{ formatStatus(d.status) }}</span>
@@ -343,9 +380,9 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files } from '@element-plus/icons-vue'
+import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files, Collection, ArrowDown, MoreFilled } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import { dramaAPI } from '@/api/drama'
 import { characterLibraryAPI } from '@/api/characterLibrary'
@@ -358,7 +395,14 @@ import { imagesAPI } from '@/api/images'
 import { taskAPI } from '@/api/task'
 
 const router = useRouter()
+const route = useRoute()
 const { isDark, toggle: toggleTheme } = useTheme()
+
+function openSemanticLibrary(type) {
+  if (type === 'character') showCharLibrary.value = true
+  if (type === 'scene') showSceneLibrary.value = true
+  if (type === 'prop') showPropLibrary.value = true
+}
 
 // 库编辑图片 – 文件输入 refs
 const charLibFileRef  = ref(null)
@@ -695,6 +739,18 @@ function goNewProject() {
   showNewDialog.value = true
 }
 
+function goMaterialCenter() {
+  router.push('/media-library')
+}
+
+function maybeOpenNewDialogFromRoute() {
+  if (route.query.new !== '1') return
+  showNewDialog.value = true
+  const nextQuery = { ...route.query }
+  delete nextQuery.new
+  router.replace({ path: route.path, query: nextQuery })
+}
+
 function resetNewForm() {
   newForm.value = { title: '', description: '', aspect_ratio: '16:9' }
 }
@@ -743,6 +799,12 @@ async function submitEdit() {
 
 function openProject(id) {
   router.push('/drama/' + id)
+}
+
+function handleProjectAction(action, drama) {
+  if (action === 'export') return onExport(drama)
+  if (action === 'edit') return openEditDialog(drama)
+  if (action === 'delete') return onDelete(drama)
 }
 
 function onExport(d) {
@@ -810,6 +872,7 @@ async function onDelete(d) {
 }
 
 onMounted(async () => {
+  maybeOpenNewDialogFromRoute()
   loadList()
   loadExamples()
   try {
@@ -824,10 +887,6 @@ onMounted(async () => {
   min-height: 100vh;
   background: #08080d;
   color: #e4e4e7;
-  background-image:
-    radial-gradient(ellipse 70% 45% at 50% -10%, rgba(99, 102, 241, 0.18) 0%, transparent 70%),
-    radial-gradient(ellipse 50% 35% at 85% 55%, rgba(139, 92, 246, 0.1) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 30% at 10% 80%, rgba(79, 70, 229, 0.08) 0%, transparent 60%);
 }
 .header {
   background: rgba(12, 12, 18, 0.82);
@@ -860,11 +919,7 @@ onMounted(async () => {
   font-size: 1.1rem;
   font-weight: 700;
   letter-spacing: -0.01em;
-  background: linear-gradient(135deg, #a5b4fc 0%, #c084fc 50%, #f0abfc 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  filter: drop-shadow(0 0 10px rgba(168, 85, 247, 0.35));
+  color: #c7d2fe;
 }
 .logo-sub {
   font-size: 0.68rem;
@@ -883,6 +938,16 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   margin-left: 20px;
+}
+.btn-material-center {
+  font-weight: 600;
+  --el-button-bg-color: rgba(99, 102, 241, 0.2);
+  --el-button-border-color: rgba(129, 140, 248, 0.55);
+  --el-button-text-color: #c7d2fe;
+}
+.btn-semantic-library .dropdown-caret {
+  margin-left: 2px;
+  font-size: 12px;
 }
 .header-actions {
   margin-left: auto;
@@ -1006,14 +1071,14 @@ html.light .btn-import {
   position: absolute;
   inset: 0;
   border-radius: 14px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, transparent 60%);
+  background: transparent;
   pointer-events: none;
 }
 .project-card:hover {
   border-color: rgba(99, 102, 241, 0.55);
   background: rgba(28, 28, 36, 0.9);
   transform: translateY(-3px);
-  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.15), 0 0 0 1px rgba(99, 102, 241, 0.1), 0 2px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 10px 28px rgba(99, 102, 241, 0.12), 0 0 0 1px rgba(99, 102, 241, 0.08), 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
 /* 操作卡片 */
@@ -1021,17 +1086,17 @@ html.light .btn-import {
   cursor: default;
   border-style: dashed;
   border-color: rgba(99, 102, 241, 0.4);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(139, 92, 246, 0.04) 100%);
+  background: rgba(99, 102, 241, 0.04);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: inset 0 0 40px rgba(99, 102, 241, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.04);
 }
 .action-card:hover {
   border-color: rgba(99, 102, 241, 0.65);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.07) 100%);
+  background: rgba(99, 102, 241, 0.07);
   transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.12), inset 0 0 40px rgba(99, 102, 241, 0.06);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.1), inset 0 0 0 1px rgba(99, 102, 241, 0.06);
 }
 .action-card::before {
   display: none;
@@ -1043,16 +1108,26 @@ html.light .btn-import {
   align-items: center;
   gap: 16px;
 }
+.action-card--empty {
+  grid-column: 1 / -1;
+  min-height: 320px;
+}
 .action-card-title {
   font-size: 1rem;
   font-weight: 600;
   color: #a5b4fc;
   margin: 0;
 }
+.action-card-desc {
+  margin: -8px 0 0;
+  color: #a1a1aa;
+  font-size: 0.875rem;
+}
 .action-card-buttons {
   display: flex;
   gap: 12px;
   width: 100%;
+  flex-wrap: wrap;
   justify-content: center;
 }
 .action-btn {
@@ -1068,6 +1143,26 @@ html.light .btn-import {
   --el-button-hover-bg-color: rgba(99, 102, 241, 0.22);
   --el-button-hover-border-color: rgba(99, 102, 241, 0.55);
   --el-button-hover-text-color: #c7d2fe;
+}
+.action-card-secondary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.action-btn-material {
+  --el-button-bg-color: rgba(255, 255, 255, 0.02);
+  --el-button-border-color: rgba(99, 102, 241, 0.28);
+  --el-button-text-color: #c7d2fe;
+  --el-button-hover-bg-color: rgba(99, 102, 241, 0.14);
+  --el-button-hover-border-color: rgba(129, 140, 248, 0.5);
+  --el-button-hover-text-color: #e0e7ff;
+}
+.action-card-note {
+  margin: 0;
+  color: #8b8b97;
+  font-size: 0.82rem;
+  text-align: center;
 }
 .action-card-example {
   width: 100%;
@@ -1104,15 +1199,25 @@ html.light .btn-import {
   --el-button-hover-text-color: #22c55e;
 }
 .project-card-body {
-  padding-right: 56px;
+  min-width: 0;
+}
+.project-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 .project-title {
+  min-width: 0;
   font-size: 1.05rem;
-  margin: 0 0 8px;
+  line-height: 1.4;
+  margin: 2px 0 0;
   color: #fafafa;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .project-desc {
   font-size: 0.875rem;
@@ -1191,19 +1296,19 @@ html.light .btn-import {
   color: #71717a;
   margin: 0;
 }
-.project-card-actions {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  display: flex;
-  gap: 6px;
+.project-menu-button {
+  --el-button-size: 30px;
+  color: #a1a1aa;
+  margin-top: -2px;
+  align-self: start;
 }
-.project-card-actions .el-button {
-  --el-button-size: 28px;
-  padding: 0;
+.project-menu-button:hover,
+.project-menu-button:focus-visible {
+  color: #e4e4e7;
+  background: rgba(99, 102, 241, 0.16);
 }
-.project-card-actions .el-button .el-icon {
-  font-size: 14px;
+:global(.project-actions-dropdown .project-action-danger) {
+  color: var(--el-color-danger);
 }
 
 /* 公共库弹窗 */
@@ -1257,9 +1362,6 @@ html.light .btn-import {
 html.light .film-list {
   background: #f5f3ff;
   color: #1e1b4b;
-  background-image:
-    radial-gradient(ellipse 70% 45% at 50% -10%, rgba(99, 102, 241, 0.1) 0%, transparent 70%),
-    radial-gradient(ellipse 50% 35% at 85% 55%, rgba(139, 92, 246, 0.06) 0%, transparent 60%);
 }
 html.light .header {
   background: rgba(248, 246, 255, 0.88);
@@ -1267,11 +1369,7 @@ html.light .header {
   box-shadow: 0 1px 0 rgba(99, 102, 241, 0.1), 0 4px 16px rgba(99, 102, 241, 0.06);
 }
 html.light .logo-main {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #9333ea 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.2));
+  color: #4f46e5;
 }
 html.light .logo-sub {
   color: #9ca3af;
@@ -1284,7 +1382,7 @@ html.light .project-card {
   backdrop-filter: none;
 }
 html.light .project-card::before {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.03) 0%, transparent 60%);
+  background: transparent;
 }
 html.light .project-card:hover {
   border-color: rgba(99, 102, 241, 0.5);
@@ -1292,17 +1390,33 @@ html.light .project-card:hover {
   box-shadow: 0 12px 36px rgba(99, 102, 241, 0.12), 0 0 0 1px rgba(99, 102, 241, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 html.light .action-card {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(139, 92, 246, 0.04) 100%);
+  background: rgba(99, 102, 241, 0.05);
   border-color: rgba(99, 102, 241, 0.35);
 }
 html.light .action-card:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.07) 100%);
+  background: rgba(99, 102, 241, 0.08);
   border-color: rgba(99, 102, 241, 0.55);
 }
 html.light .action-card-title { color: #4f46e5; }
 html.light .project-title { color: #1e1b4b; }
 html.light .project-desc { color: #4b5563; }
 html.light .project-meta { color: #6b7280; }
+html.light .action-card-desc { color: #6b7280; }
+html.light .action-btn-material {
+  --el-button-bg-color: rgba(79, 70, 229, 0.04);
+  --el-button-border-color: rgba(79, 70, 229, 0.22);
+  --el-button-text-color: #4338ca;
+  --el-button-hover-bg-color: rgba(79, 70, 229, 0.1);
+  --el-button-hover-border-color: rgba(79, 70, 229, 0.38);
+  --el-button-hover-text-color: #3730a3;
+}
+html.light .action-card-note { color: #6b7280; }
+html.light .project-menu-button { color: #6b7280; }
+html.light .project-menu-button:hover,
+html.light .project-menu-button:focus-visible {
+  color: #3730a3;
+  background: rgba(79, 70, 229, 0.1);
+}
 html.light .example-hint-text { color: #6b7280; }
 html.light .library-item {
   background: #faf9ff;

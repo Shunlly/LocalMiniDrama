@@ -1,3 +1,7 @@
+const fs = require('fs');
+const path = require('path');
+const { loadConfig } = require('../config');
+
 function list(db, query) {
   let sql = 'FROM assets WHERE deleted_at IS NULL';
   const params = [];
@@ -8,6 +12,11 @@ function list(db, query) {
   if (query.type) {
     sql += ' AND type = ?';
     params.push(query.type);
+  }
+  const keyword = String(query.keyword ?? '').trim();
+  if (keyword) {
+    sql += ' AND name LIKE ?';
+    params.push(`%${keyword}%`);
   }
   const countRow = db.prepare('SELECT COUNT(*) as total ' + sql).get(...params);
   const total = countRow.total || 0;
@@ -27,6 +36,10 @@ function rowToItem(r) {
     category: r.category,
     url: r.url,
     local_path: r.local_path,
+    file_size: r.file_size,
+    mime_type: r.mime_type,
+    width: r.width,
+    height: r.height,
     duration: r.duration,
     image_gen_id: r.image_gen_id,
     video_gen_id: r.video_gen_id,
@@ -82,10 +95,106 @@ function update(db, log, id, req) {
   return getById(db, id);
 }
 
-function deleteById(db, log, id) {
-  const now = new Date().toISOString();
-  const result = db.prepare('UPDATE assets SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL').run(now, Number(id));
-  return result.changes > 0;
+function normalizeLocalPath(localPath) {
+  const raw = String(localPath || '').trim().replace(/\\/g, '/');
+  if (!raw || raw.includes('\0')) return null;
+  const normalized = path.posix.normalize(raw).replace(/^\.\//, '');
+  if (
+    !normalized
+    || normalized === '..'
+    || normalized.startsWith('../')
+    || path.posix.isAbsolute(normalized)
+    || /^[a-zA-Z]:\//.test(normalized)
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function localPathReferenceKey(localPath) {
+  const normalized = normalizeLocalPath(localPath);
+  return process.platform === 'win32' && normalized ? normalized.toLowerCase() : normalized;
+}
+
+function isWithinRoot(rootPath, candidatePath) {
+  const relative = path.relative(rootPath, candidatePath);
+  return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function configuredStorageRoot(options = {}) {
+  if (options.storageRoot) return path.resolve(options.storageRoot);
+  const cfg = loadConfig();
+  const rawStorage = cfg?.storage?.local_path || './data/storage';
+  return path.isAbsolute(rawStorage) ? rawStorage : path.join(process.cwd(), rawStorage);
+}
+
+function resolveControlledUploadPath(storageRoot, localPath) {
+  const normalized = normalizeLocalPath(localPath);
+  if (!normalized) return null;
+  const segments = normalized.split('/');
+  if (segments.length < 2 || segments[segments.length - 2] !== 'uploads') return null;
+
+  const root = path.resolve(storageRoot);
+  const candidate = path.resolve(root, ...segments);
+  if (!isWithinRoot(root, candidate)) return null;
+  if (fs.existsSync(candidate)) {
+    const realRoot = fs.realpathSync.native(root);
+    const realCandidate = fs.realpathSync.native(candidate);
+    if (!isWithinRoot(realRoot, realCandidate)) return null;
+  }
+  return { absolutePath: candidate, normalizedPath: normalized };
+}
+
+function deleteById(db, log, id, options = {}) {
+  const assetId = Number(id);
+  let removedPath = null;
+  let removablePath = null;
+  const performDelete = db.transaction(() => {
+    const row = db.prepare(
+      'SELECT id, local_path FROM assets WHERE id = ? AND deleted_at IS NULL'
+    ).get(assetId);
+    if (!row) return false;
+
+    const result = db.prepare(
+      'UPDATE assets SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL'
+    ).run(new Date().toISOString(), assetId);
+    if (result.changes === 0) return false;
+
+    const storageRoot = configuredStorageRoot(options);
+    const controlled = resolveControlledUploadPath(storageRoot, row.local_path);
+    if (!controlled) return true;
+
+    const sharedRows = db.prepare(
+      'SELECT local_path FROM assets WHERE id <> ? AND deleted_at IS NULL AND local_path IS NOT NULL'
+    ).all(assetId);
+    const hasSharedReference = sharedRows.some(
+      (candidate) => localPathReferenceKey(candidate.local_path) === localPathReferenceKey(controlled.normalizedPath)
+    );
+    if (hasSharedReference) return true;
+
+    removablePath = controlled.absolutePath;
+    return true;
+  });
+
+  const deleted = performDelete();
+  if (deleted && removablePath) {
+    try {
+      fs.unlinkSync(removablePath);
+      removedPath = removablePath;
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        log?.warn?.('Asset file cleanup failed after database commit', {
+          asset_id: assetId,
+          path: removablePath,
+          error: err.message,
+        });
+      }
+    }
+  }
+  if (deleted && log?.info) {
+    log.info('Asset deleted', { asset_id: assetId, removed_file: removedPath });
+  }
+  return deleted;
 }
 
 function importFromImage(db, log, imageGenId) {

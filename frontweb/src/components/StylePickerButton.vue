@@ -1,9 +1,13 @@
 <template>
   <div class="style-picker-wrap">
     <!-- 触发按钮，外观与 el-select 一致 -->
-    <div
+    <button
+      type="button"
       class="style-picker-trigger"
       :class="{ 'has-value': !!modelValue }"
+      aria-haspopup="dialog"
+      :aria-expanded="visible"
+      :aria-label="selectedOption ? `生成风格：${selectedOption.label}，打开选择器` : `${placeholder}，打开选择器`"
       @click="visible = true"
     >
       <template v-if="selectedOption">
@@ -12,10 +16,17 @@
       </template>
       <span v-else class="spt-placeholder">{{ placeholder }}</span>
       <el-icon class="spt-arrow"><ArrowDown /></el-icon>
-      <span v-if="modelValue" class="spt-clear" @click.stop="emit('update:modelValue', ''); emit('change', '')">
-        <el-icon><CircleClose /></el-icon>
-      </span>
-    </div>
+    </button>
+    <button
+      v-if="modelValue"
+      type="button"
+      class="spt-clear"
+      title="清除生成风格"
+      aria-label="清除生成风格"
+      @click="clearSelection"
+    >
+      <el-icon><CircleClose /></el-icon>
+    </button>
 
     <!-- 选择弹窗 -->
     <el-dialog
@@ -45,14 +56,16 @@
         <template v-for="group in filteredGroups" :key="group.label">
           <div class="spd-group-title">{{ group.label }}</div>
           <div class="spd-grid">
-            <div
+            <button
               v-for="opt in group.options"
               :key="opt.value"
+              type="button"
               class="spd-item"
               :class="{ 'is-active': modelValue === opt.value }"
+              :aria-pressed="modelValue === opt.value"
               @click="select(opt)"
             >
-              <div class="spd-thumb" :style="thumbStyle(opt)">
+              <span class="spd-thumb" :style="thumbStyle(opt)">
                 <img
                   v-if="opt.thumb"
                   :src="opt.thumb"
@@ -61,10 +74,10 @@
                   @error="(e) => e.target.style.display = 'none'"
                 />
                 <span v-if="!opt.thumb" class="spd-thumb-text">{{ opt.label.slice(0, 2) }}</span>
-              </div>
-              <div class="spd-name">{{ opt.label }}</div>
-              <div v-if="modelValue === opt.value" class="spd-check">✓</div>
-            </div>
+              </span>
+              <span class="spd-name">{{ opt.label }}</span>
+              <span v-if="modelValue === opt.value" class="spd-check" aria-hidden="true">✓</span>
+            </button>
           </div>
         </template>
         <div v-if="filteredGroups.length === 0" class="spd-empty">没有匹配的风格</div>
@@ -119,9 +132,13 @@ function select(opt) {
   visible.value = false
 }
 
-function clearAndClose() {
+function clearSelection() {
   emit('update:modelValue', '')
   emit('change', '')
+}
+
+function clearAndClose() {
+  clearSelection()
   visible.value = false
 }
 </script>
@@ -129,8 +146,10 @@ function clearAndClose() {
 <style scoped>
 .style-picker-wrap {
   display: inline-block;
+  position: relative;
 }
 .style-picker-trigger {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -142,6 +161,8 @@ function clearAndClose() {
   cursor: pointer;
   font-size: 13px;
   color: var(--el-text-color-placeholder);
+  font: inherit;
+  text-align: left;
   user-select: none;
   min-width: 150px;
   transition: border-color 0.2s;
@@ -152,6 +173,13 @@ function clearAndClose() {
 }
 .style-picker-trigger.has-value {
   color: var(--el-text-color-primary);
+  padding-right: 34px;
+}
+.style-picker-trigger:focus-visible,
+.spt-clear:focus-visible,
+.spd-item:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 .spt-swatch {
   width: 16px;
@@ -174,7 +202,15 @@ function clearAndClose() {
   flex-shrink: 0;
 }
 .spt-clear {
-  flex-shrink: 0;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
   font-size: 14px;
   color: var(--el-text-color-placeholder);
   display: flex;
@@ -215,6 +251,9 @@ function clearAndClose() {
   margin-bottom: 18px;
 }
 .spd-item {
+  appearance: none;
+  width: 100%;
+  padding: 0;
   cursor: pointer;
   border-radius: 8px;
   overflow: hidden;
@@ -222,6 +261,9 @@ function clearAndClose() {
   transition: border-color 0.15s, transform 0.1s;
   position: relative;
   background: var(--el-fill-color-light);
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 .spd-item:hover {
   border-color: var(--el-color-primary-light-5);
@@ -253,6 +295,7 @@ function clearAndClose() {
   letter-spacing: 1px;
 }
 .spd-name {
+  display: block;
   font-size: 12px;
   text-align: center;
   padding: 4px 4px 5px;

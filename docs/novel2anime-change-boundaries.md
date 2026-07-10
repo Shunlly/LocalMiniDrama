@@ -14,13 +14,14 @@ This document separates completed local/mock workflow work from deferred real in
 
 ## Deferred Boundary
 
-The following remain intentionally out of scope until the real integration phase:
+The following remain intentionally out of scope until the real Novel2Anime integration phase:
 
-- Real ComfyUI image generation.
-- Real Ollama local model routing.
-- Real cloud provider routing for production image/video/audio generation.
-- Real FFmpeg compositor as the workflow compositor.
+- Real ComfyUI and Ollama adapters inside the Novel2Anime unified workflow.
+- Real cloud image/video/audio/TTS execution through the Novel2Anime provider SDK pipeline.
+- Real FFmpeg compositor as the Novel2Anime workflow compositor.
 - Real PDF OCR, image OCR, audio transcription, and video transcription for Source Intake.
+
+The classic text, image, and video creation routes may already call providers configured on the AI Configuration page. Those classic routes are not part of this deferred boundary.
 
 ## Acceptance Rule
 

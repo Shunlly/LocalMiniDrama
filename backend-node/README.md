@@ -139,8 +139,10 @@ database:
 
 storage:
   local_path: ./data/storage      # 图片/视频本地存储根目录
+  upload_disk_reserve_bytes: 536870912 # 上传后至少保留 512MB 可用空间
 
-language: zh                      # 提示词语言（zh / en）
+app:
+  language: zh                    # 提示词语言（zh / en）
 
 style:
   default_style: realistic         # 默认绘图风格
@@ -273,6 +275,9 @@ style:
 | GET | `/dramas/:id/props` | 获取剧集道具 |
 | POST | `/episodes/:id/extract-props` | 从剧本提取道具（触发任务） |
 | POST | `/props/:id/generate-image` | 生成道具图片 |
+| GET | `/assets` | 分页查询素材中心图片/视频 |
+| POST | `/assets/upload` | 上传图片或视频并写入素材中心（单文件最大 100MB；最多 2 个并发；保留磁盘空间；图片完整解码、视频 `ffprobe` 校验；失败清理） |
+| DELETE | `/assets/:id` | 软删除素材记录；无其他有效引用时同步删除受控 `uploads/` 文件 |
 
 ### 静态文件
 
@@ -369,7 +374,7 @@ style:
 
 ### 提示词国际化
 
-`promptI18n.js` 管理所有提示词模板，支持中文（zh）和英文（en）两套模板，通过 `config.yaml` 中的 `language` 字段切换。
+`promptI18n.js` 管理所有提示词模板，支持中文（zh）和英文（en）两套模板，通过 `config.yaml` 中的 `app.language` 字段切换。
 
 ---
 

@@ -45,6 +45,7 @@ test('provider defaults are service-type aware', () => {
   assert.equal(getProviderProtocol('xai', 'video'), 'xai')
   assert.equal(getBaseUrlForProvider('xai', 'text'), 'https://api.x.ai/v1')
   assert.equal(getBaseUrlForProvider('xai', 'video'), 'https://api.x.ai')
+  assert.equal(getBaseUrlForProvider('custom-provider', 'text'), '')
 })
 
 test('endpoint defaults prevent provider switching residue', () => {

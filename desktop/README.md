@@ -67,7 +67,7 @@ npm run dist:cn
 | `LocalMiniDrama Setup x.x.x.exe` | NSIS 安装包（有安装引导，可选安装目录） |
 | `LocalMiniDrama x.x.x.exe` | 便携版（单文件，无需安装，双击即用） |
 
-首次运行时，会在用户数据目录（如 `%APPDATA%/LocalMiniDrama`）下生成 `backend/`，包含 `configs/config.yaml`（从 example 复制）和 `data/`（数据库与文件存储），按需修改配置即可。
+首次运行时，会在用户数据目录 `%APPDATA%/localminidrama-desktop` 下生成 `backend/`，包含 `configs/config.yaml`（从打包配置复制）和 `data/`（数据库与文件存储）。
 
 ---
 
@@ -93,7 +93,7 @@ npm run dist:cn
 双击运行 exe 时，后端日志会自动写入：
 
 ```
-%APPDATA%\LocalMiniDrama\backend\logs\app.log
+%APPDATA%\localminidrama-desktop\backend\logs\app.log
 ```
 
 用记事本或 VS Code 打开后，点击「AI 生成角色」等按钮，查看是否有对应请求行、报错信息，便于判断是请求未发出、AI 超时还是配置有误。
@@ -120,10 +120,10 @@ $env:LOCALMINIDRAMA_DEVTOOLS=1
 配置文件位于：
 
 ```
-%APPDATA%\LocalMiniDrama\backend\configs\config.yaml
+%APPDATA%\localminidrama-desktop\backend\configs\config.yaml
 ```
 
-AI 相关配置需在软件「AI 配置」弹窗中填写并保存（会写入上述 yaml 文件）；本机网络需能访问对应 API（如 dashscope、volcengine 等）。
+AI 相关配置需在软件「AI 配置」页面填写并保存，数据写入 `%APPDATA%\localminidrama-desktop\backend\data\drama_generator.db` 的 `ai_service_configs` 表；`config.yaml` 只保存通用运行设置。本机网络需能访问对应 API（如 dashscope、volcengine 等）。
 
 ---
 

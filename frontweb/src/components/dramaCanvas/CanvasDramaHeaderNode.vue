@@ -32,14 +32,14 @@ const storyboardCount = computed(() =>
   min-width: 280px;
   padding: 14px 18px;
   border-radius: 12px;
-  border: 1px solid rgba(129, 140, 248, 0.45);
-  background: linear-gradient(135deg, rgba(49, 46, 129, 0.55), rgba(24, 24, 27, 0.92));
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--canvas-indigo-border, rgba(129, 140, 248, 0.45));
+  background: var(--canvas-project-surface, linear-gradient(135deg, rgba(49, 46, 129, 0.55), rgba(24, 24, 27, 0.92)));
+  box-shadow: var(--canvas-project-shadow, 0 8px 32px rgba(0, 0, 0, 0.35));
 }
 .title {
   font-size: 16px;
   font-weight: 700;
-  color: #f4f4f5;
+  color: var(--canvas-project-title, #f4f4f5);
   margin-bottom: 6px;
 }
 .meta {
@@ -47,6 +47,6 @@ const storyboardCount = computed(() =>
   flex-wrap: wrap;
   gap: 10px;
   font-size: 12px;
-  color: #a1a1aa;
+  color: var(--canvas-text-muted, #a1a1aa);
 }
 </style>

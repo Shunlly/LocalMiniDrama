@@ -30,16 +30,21 @@ function create(type) {
   gap: 6px;
   padding: 8px 12px;
   border-radius: 10px;
-  border: 1px solid #3f3f46;
-  background: rgba(24, 24, 27, 0.94);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-muted, #3f3f46);
+  background: var(--canvas-panel-surface, rgba(24, 24, 27, 0.94));
+  box-shadow: var(--canvas-node-focus-shadow, 0 8px 24px rgba(0, 0, 0, 0.35));
   flex-wrap: wrap;
   max-width: calc(100% - 24px);
 }
 .toolbar-label {
   font-size: 11px;
-  color: #71717a;
+  color: var(--canvas-text-subtle, #71717a);
   margin-right: 4px;
   white-space: nowrap;
+}
+
+.canvas-floating-toolbar :deep(.el-button:focus-visible) {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 2px;
 }
 </style>

@@ -2,14 +2,21 @@
   <div class="media-library-page">
     <div class="page-header">
       <div class="header-left">
-        <el-button text @click="$router.back()">
+        <el-button text class="back-link" @click="goHome">
           <el-icon><ArrowLeft /></el-icon>
-          返回
+          项目首页
         </el-button>
-        <h2 class="page-title">媒体素材库</h2>
+        <div class="title-wrap">
+          <h1 class="page-title">素材中心</h1>
+          <p class="page-subtitle">上传后的图片和视频会在所有项目里复用；网页 URL 导入和分类素材入库仍在项目内完成。</p>
+        </div>
       </div>
       <div class="header-actions">
-        <el-button type="primary" plain @click="triggerUpload">
+        <el-button @click="goNewProject">
+          <el-icon><Plus /></el-icon>
+          新建项目
+        </el-button>
+        <el-button type="primary" @click="triggerUpload">
           <el-icon><Upload /></el-icon>
           上传素材
         </el-button>
@@ -17,9 +24,27 @@
       </div>
     </div>
 
+    <section v-if="loading || mediaItems.length > 0" class="entry-strip" aria-label="素材入口说明">
+      <div class="entry-item">
+        <span class="entry-label">上传到素材中心</span>
+        <p class="entry-description">把图片和视频放进全局素材，后续项目可以直接复用。</p>
+        <el-button text class="entry-action" @click="triggerUpload">立即上传</el-button>
+      </div>
+      <div class="entry-item">
+        <span class="entry-label">网页 URL 导入</span>
+        <p class="entry-description">网页正文导入仍在项目里完成，用于建立故事素材。</p>
+        <el-button text class="entry-action" @click="goNewProject">新建项目后导入网页 URL</el-button>
+      </div>
+      <div class="entry-item">
+        <span class="entry-label">角色 / 场景 / 道具入库</span>
+        <p class="entry-description">在项目里点“加入素材库”后，会同步到首页里的分类素材入口。</p>
+        <el-button text class="entry-action" @click="goHome">返回项目首页</el-button>
+      </div>
+    </section>
+
     <!-- 筛选栏 -->
     <div class="filter-bar">
-      <el-radio-group v-model="mediaType" class="type-filter" @change="loadMedia">
+      <el-radio-group v-model="mediaType" class="type-filter" @change="applyFilters">
         <el-radio-button value="all">全部</el-radio-button>
         <el-radio-button value="image">图片</el-radio-button>
         <el-radio-button value="video">视频</el-radio-button>
@@ -43,24 +68,51 @@
 
     <!-- 媒体网格 -->
     <div v-loading="loading" class="media-grid">
-      <div
+      <article
         v-for="item in mediaItems"
         :key="item.id"
         class="media-card"
-        :class="{ selected: selectedIds.has(item.id) }"
-        @click="toggleSelect(item)"
+        :class="{
+          selected: selectedIds.has(item.id),
+          'actions-visible': isActionLayerVisible(item.id),
+        }"
+        :aria-labelledby="`media-name-${item.id}`"
+        @mouseenter="showPointerActions(item.id)"
+        @mouseleave="hidePointerActions(item.id)"
+        @focusin="showKeyboardActions(item.id)"
+        @focusout="hideKeyboardActions(item.id, $event)"
       >
         <div class="media-thumb">
-          <video v-if="item.type === 'video'" :src="itemUrl(item)" class="thumb-video" muted />
-          <img v-else :src="itemUrl(item)" class="thumb-img" />
-          <div class="media-overlay">
-            <el-icon v-if="selectedIds.has(item.id)" class="check-icon"><CircleCheck /></el-icon>
-            <div class="overlay-actions" @click.stop>
+          <video
+            v-if="item.type === 'video'"
+            :src="itemUrl(item)"
+            :aria-label="thumbnailAlt(item)"
+            class="thumb-video"
+            muted
+          />
+          <img v-else :src="itemUrl(item)" :alt="thumbnailAlt(item)" class="thumb-img" />
+          <label class="selection-control" :title="selectionLabel(item)">
+            <input
+              type="checkbox"
+              class="selection-input"
+              :checked="selectedIds.has(item.id)"
+              :aria-label="selectionLabel(item)"
+              @change="setItemSelected(item, $event.target.checked)"
+            />
+            <span class="selection-indicator" aria-hidden="true">
+              <el-icon class="selection-check"><CircleCheck /></el-icon>
+            </span>
+          </label>
+          <div class="media-overlay" :aria-hidden="!isActionLayerVisible(item.id)">
+            <div class="overlay-actions">
               <el-button
                 size="small"
                 plain
                 class="preview-btn"
-                @click.stop="openPreview(item)"
+                :title="actionLabel('预览', item)"
+                :aria-label="actionLabel('预览', item)"
+                :tabindex="isActionLayerVisible(item.id) ? 0 : -1"
+                @click="openPreview(item)"
               >
                 <el-icon><ZoomIn /></el-icon>
               </el-button>
@@ -68,7 +120,10 @@
                 size="small"
                 type="danger"
                 plain
-                @click.stop="deleteItem(item)"
+                :title="actionLabel('删除', item)"
+                :aria-label="actionLabel('删除', item)"
+                :tabindex="isActionLayerVisible(item.id) ? 0 : -1"
+                @click="deleteItem(item)"
               >
                 <el-icon><Delete /></el-icon>
               </el-button>
@@ -76,14 +131,31 @@
           </div>
         </div>
         <div class="media-info">
-          <span class="media-name" :title="item.name">{{ item.name || '未命名' }}</span>
+          <span :id="`media-name-${item.id}`" class="media-name" :title="item.name">{{ item.name || '未命名' }}</span>
           <span class="media-meta">{{ formatSize(item.size) }}</span>
         </div>
-      </div>
+      </article>
 
       <div v-if="!loading && mediaItems.length === 0" class="empty-media">
         <el-icon class="empty-icon"><Files /></el-icon>
-        <p>暂无素材，点击上传按钮添加</p>
+        <h2 class="empty-title">{{ hasActiveFilters ? '没有匹配的素材' : '素材中心还是空的' }}</h2>
+        <p class="empty-description">{{ hasActiveFilters ? '调整关键词或素材类型后再试。' : '上传图片或视频，后续项目可以直接复用。' }}</p>
+        <div class="empty-actions">
+          <template v-if="hasActiveFilters">
+            <el-button @click="clearFilters">清除筛选</el-button>
+            <el-button type="primary" @click="triggerUpload">
+              <el-icon><Upload /></el-icon>上传素材
+            </el-button>
+          </template>
+          <template v-else>
+            <el-button type="primary" @click="triggerUpload">
+              <el-icon><Upload /></el-icon>上传素材
+            </el-button>
+            <el-button @click="goNewProject">新建项目后导入网页 URL</el-button>
+            <el-button text @click="goHome">返回项目首页</el-button>
+          </template>
+        </div>
+        <p v-if="!hasActiveFilters" class="empty-note">需要把角色、场景或道具沉淀到分类素材时，请先在项目内点“加入素材库”。</p>
       </div>
     </div>
 
@@ -111,11 +183,17 @@
         <video
           v-if="previewItem?.type === 'video'"
           :src="itemUrl(previewItem)"
+          :aria-label="videoPreviewLabel(previewItem)"
           controls
           class="preview-video"
           autoplay
         />
-        <img v-else-if="previewItem" :src="itemUrl(previewItem)" class="preview-image" />
+        <img
+          v-else-if="previewItem"
+          :src="itemUrl(previewItem)"
+          :alt="previewAlt(previewItem)"
+          class="preview-image"
+        />
       </div>
       <div class="preview-meta">
         <div class="meta-row"><span>名称：</span>{{ previewItem?.name || '未命名' }}</div>
@@ -127,15 +205,23 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue'
+import { computed, ref, onMounted, reactive } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Upload, Search, Loading, CircleCheck,
-  ZoomIn, Delete, Files
+  ZoomIn, Delete, Files, Plus
 } from '@element-plus/icons-vue'
 import { uploadAPI } from '@/api/upload'
 import request from '@/utils/request'
+import {
+  createLatestMediaRequestGuard,
+  formatMediaSize as formatSize,
+  hasActiveMediaFilters,
+  normalizeMediaItem as normalizeItem,
+} from '@/utils/mediaLibrary'
 
+const router = useRouter()
 const loading = ref(false)
 const uploading = ref(false)
 const uploadProgress = ref({ current: 0, total: 0 })
@@ -149,7 +235,19 @@ const selectedIds = reactive(new Set())
 const showPreview = ref(false)
 const previewItem = ref(null)
 const uploadInput = ref(null)
+const hoveredCardId = ref(null)
+const focusedCardId = ref(null)
+const hasActiveFilters = computed(() => hasActiveMediaFilters(mediaType.value, keyword.value))
+const mediaRequestGuard = createLatestMediaRequestGuard()
 let keywordTimer = null
+
+function goHome() {
+  router.push('/')
+}
+
+function goNewProject() {
+  router.push({ path: '/', query: { new: '1' } })
+}
 
 function triggerUpload() {
   uploadInput.value?.click()
@@ -160,26 +258,42 @@ async function onUpload(e) {
   if (!files.length) return
   uploading.value = true
   uploadProgress.value = { current: 0, total: files.length }
+  let succeeded = 0
   for (const file of files) {
     try {
-      await uploadAPI.uploadImage(file)
-      uploadProgress.value.current++
+      await uploadAPI.uploadAsset(file)
+      succeeded++
     } catch (err) {
       ElMessage.warning(`${file.name} 上传失败: ${err.message}`)
+    } finally {
+      uploadProgress.value.current++
     }
   }
   uploading.value = false
   e.target.value = ''
-  ElMessage.success(`${files.length} 个素材上传完成`)
+  if (succeeded === files.length) ElMessage.success(`${succeeded} 个素材上传完成`)
+  else if (succeeded > 0) ElMessage.warning(`已上传 ${succeeded}/${files.length} 个素材`)
   loadMedia()
 }
 
 function debouncedLoad() {
   clearTimeout(keywordTimer)
-  keywordTimer = setTimeout(loadMedia, 400)
+  keywordTimer = setTimeout(applyFilters, 400)
+}
+
+function applyFilters() {
+  page.value = 1
+  loadMedia()
+}
+
+function clearFilters() {
+  mediaType.value = 'all'
+  keyword.value = ''
+  applyFilters()
 }
 
 async function loadMedia() {
+  const requestId = mediaRequestGuard.begin()
   loading.value = true
   try {
     const params = {
@@ -187,24 +301,20 @@ async function loadMedia() {
       page_size: pageSize.value,
     }
     if (mediaType.value !== 'all') params.type = mediaType.value
-    if (keyword.value) params.keyword = keyword.value
+    if (keyword.value.trim()) params.keyword = keyword.value.trim()
     const res = await request.get('/assets', { params })
-    mediaItems.value = (res?.items || []).map(normalizeItem)
-    total.value = res?.total || 0
+    mediaRequestGuard.commit(requestId, () => {
+      mediaItems.value = (res?.items || []).map(normalizeItem)
+      total.value = res?.pagination?.total ?? res?.total ?? 0
+    })
   } catch (err) {
-    mediaItems.value = []
+    mediaRequestGuard.commit(requestId, () => {
+      mediaItems.value = []
+    })
   } finally {
-    loading.value = false
-  }
-}
-
-function normalizeItem(item) {
-  const url = item.url || item.image_url || item.video_url || ''
-  const isVideo = url.match(/\.(mp4|webm|mov)$/i) || item.type === 'video'
-  return {
-    ...item,
-    type: isVideo ? 'video' : 'image',
-    name: item.name || item.filename || (url.split('/').pop()),
+    mediaRequestGuard.commit(requestId, () => {
+      loading.value = false
+    })
   }
 }
 
@@ -215,19 +325,55 @@ function itemUrl(item) {
   return item.url || item.image_url || item.video_url || ''
 }
 
-function formatSize(size) {
-  if (!size) return ''
-  if (size > 1024 * 1024) return (size / 1024 / 1024).toFixed(1) + ' MB'
-  if (size > 1024) return (size / 1024).toFixed(0) + ' KB'
-  return size + ' B'
+function accessibleItemName(item) {
+  return item?.name?.trim() || '未命名素材'
 }
 
-function toggleSelect(item) {
-  if (selectedIds.has(item.id)) {
-    selectedIds.delete(item.id)
-  } else {
-    selectedIds.add(item.id)
-  }
+function thumbnailAlt(item) {
+  return `素材缩略图：${accessibleItemName(item)}`
+}
+
+function previewAlt(item) {
+  return `素材预览图：${accessibleItemName(item)}`
+}
+
+function videoPreviewLabel(item) {
+  return `素材视频预览：${accessibleItemName(item)}`
+}
+
+function selectionLabel(item) {
+  const action = selectedIds.has(item.id) ? '取消选择' : '选择'
+  return `${action}素材：${accessibleItemName(item)}`
+}
+
+function actionLabel(action, item) {
+  return `${action}素材：${accessibleItemName(item)}`
+}
+
+function setItemSelected(item, selected) {
+  if (selected) selectedIds.add(item.id)
+  else selectedIds.delete(item.id)
+}
+
+function isActionLayerVisible(itemId) {
+  return selectedIds.has(itemId) || hoveredCardId.value === itemId || focusedCardId.value === itemId
+}
+
+function showPointerActions(itemId) {
+  hoveredCardId.value = itemId
+}
+
+function hidePointerActions(itemId) {
+  if (hoveredCardId.value === itemId) hoveredCardId.value = null
+}
+
+function showKeyboardActions(itemId) {
+  focusedCardId.value = itemId
+}
+
+function hideKeyboardActions(itemId, event) {
+  if (event.currentTarget.contains(event.relatedTarget)) return
+  if (focusedCardId.value === itemId) focusedCardId.value = null
 }
 
 function openPreview(item) {
@@ -267,28 +413,95 @@ onMounted(loadMedia)
 <style scoped>
 .media-library-page {
   min-height: 100vh;
-  background: #f5f7fa;
-  padding: 20px;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  padding: 24px;
 }
 
 .page-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border-color);
+  gap: 20px;
 }
 
 .header-left {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.back-link {
+  padding-left: 0;
+}
+
+.title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .page-title {
-  font-size: 22px;
-  font-weight: 600;
-  color: #1a1a2e;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-bright);
   margin: 0;
+}
+
+.page-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.entry-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--border-color);
+  box-shadow: var(--shadow);
+}
+
+.entry-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 18px;
+  background: var(--bg-card);
+}
+
+.entry-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.entry-description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.entry-action {
+  padding-left: 0;
 }
 
 .filter-bar {
@@ -308,7 +521,7 @@ onMounted(loadMedia)
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  color: #409eff;
+  color: var(--el-color-primary);
   font-size: 14px;
 }
 
@@ -320,13 +533,13 @@ onMounted(loadMedia)
 }
 
 .media-card {
-  background: #fff;
+  background: var(--bg-card);
   border-radius: 8px;
   overflow: hidden;
-  border: 2px solid transparent;
-  cursor: pointer;
+  border: 1px solid var(--border-color);
+  cursor: default;
   transition: all .2s;
-  box-shadow: 0 1px 4px rgba(0,0,0,.06);
+  box-shadow: var(--shadow);
 }
 
 .media-card:hover {
@@ -334,12 +547,13 @@ onMounted(loadMedia)
 }
 
 .media-card.selected {
-  border-color: #409eff;
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 1px var(--el-color-primary), var(--shadow);
 }
 
 .media-thumb {
   aspect-ratio: 1;
-  background: #f3f4f6;
+  background: var(--bg-inner);
   overflow: hidden;
   position: relative;
 }
@@ -356,28 +570,61 @@ onMounted(loadMedia)
   inset: 0;
   background: rgba(0,0,0,.35);
   opacity: 0;
+  pointer-events: none;
   transition: opacity .2s;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.media-card:hover .media-overlay {
+.media-card.actions-visible .media-overlay {
   opacity: 1;
+  pointer-events: auto;
 }
 
-.media-card.selected .media-overlay {
-  opacity: 1;
-}
-
-.check-icon {
+.selection-control {
   position: absolute;
   top: 8px;
   right: 8px;
-  font-size: 20px;
-  color: #409eff;
-  background: #fff;
+  z-index: 2;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  cursor: pointer;
+}
+
+.selection-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.selection-indicator {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: transparent;
+  background: rgba(255, 255, 255, .92);
+  border: 2px solid rgba(31, 41, 55, .55);
   border-radius: 50%;
+  transition: border-color .2s, box-shadow .2s, color .2s;
+}
+
+.selection-check {
+  font-size: 20px;
+}
+
+.selection-input:checked + .selection-indicator {
+  color: var(--el-color-primary);
+  border-color: #fff;
+}
+
+.selection-input:focus-visible + .selection-indicator {
+  outline: 3px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 
 .overlay-actions {
@@ -392,7 +639,7 @@ onMounted(loadMedia)
 .media-name {
   display: block;
   font-size: 12px;
-  color: #374151;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -400,7 +647,7 @@ onMounted(loadMedia)
 
 .media-meta {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--text-subtle);
 }
 
 .empty-media {
@@ -409,13 +656,42 @@ onMounted(loadMedia)
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 300px;
-  color: #9ca3af;
-  gap: 12px;
+  min-height: 340px;
+  color: var(--text-subtle);
+  gap: 10px;
 }
 
 .empty-icon {
   font-size: 48px;
+}
+
+.empty-title {
+  margin: 4px 0 0;
+  color: var(--text-bright);
+  font-size: 18px;
+}
+
+.empty-description {
+  margin: 0 0 8px;
+  color: var(--text-subtle);
+  font-size: 14px;
+}
+
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.empty-note {
+  max-width: 560px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-subtle);
+  text-align: center;
 }
 
 .pagination {
