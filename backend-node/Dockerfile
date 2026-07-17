@@ -39,7 +39,8 @@ COPY --chown=node:node backend-node/prompts ./prompts
 COPY --chown=node:node backend-node/scripts ./scripts
 COPY --chown=root:root backend-node/docker-entrypoint.sh /usr/local/bin/localminidrama-entrypoint
 
-RUN mkdir -p /app/data \
+RUN sed -i 's/\r$//' /usr/local/bin/localminidrama-entrypoint \
+  && mkdir -p /app/data \
   && chown node:node /app/data \
   && chmod 0755 /usr/local/bin/localminidrama-entrypoint
 

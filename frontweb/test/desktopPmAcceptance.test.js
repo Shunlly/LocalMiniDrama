@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
-const routerSource = read('../src/router/index.js')
+const routerSource = read('../src/router/index.js').replace(/\r\n?/g, '\n')
 const aiConfigSource = read('../src/views/AiConfig.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const sourceIntakeSource = read('../src/components/SourceIntakeWorkflowPanel.vue')

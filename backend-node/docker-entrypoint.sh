@@ -1,4 +1,5 @@
 #!/bin/sh
+# Keep this file LF-terminated because Docker executes the shebang directly.
 set -eu
 
 if [ "$(id -u)" = "0" ]; then

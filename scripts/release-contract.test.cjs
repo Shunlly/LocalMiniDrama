@@ -25,9 +25,13 @@ const { getTrustedMediaToolRelease } = require('../desktop/scripts/media-tool-po
 const { FUSE_POLICY } = require('../desktop/scripts/electron-fuses')
 
 const root = path.resolve(__dirname, '..')
+const gitAttributes = fs.readFileSync(path.join(root, '.gitattributes'), 'utf8')
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8')
 const backendTrivyIgnore = fs.readFileSync(path.join(root, 'backend-node', '.trivyignore.yaml'), 'utf8')
+const backendDockerfile = fs.readFileSync(path.join(root, 'backend-node', 'Dockerfile'), 'utf8')
+const backendEntrypoint = fs.readFileSync(path.join(root, 'backend-node', 'docker-entrypoint.sh'), 'utf8')
 const ciWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'ci.yml'), 'utf8')
+const dockerArtifactVerifierSource = fs.readFileSync(path.join(root, 'scripts', 'verify-docker-artifact.cjs'), 'utf8')
 const releaseVerifierSource = fs.readFileSync(path.join(root, 'scripts', 'verify-release.cjs'), 'utf8')
 const artifactGitleaksConfig = fs.readFileSync(path.join(root, '.gitleaks-artifacts.toml'), 'utf8')
 const rootPackage = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
@@ -244,6 +248,15 @@ test('package test scripts use Node discovery instead of shell-expanded globs', 
   for (const packageJson of [frontendPackage, backendPackage]) {
     assert.doesNotMatch(packageJson.scripts.test, /[?*]/)
   }
+})
+
+test('Docker entrypoint remains executable across Windows checkouts', () => {
+  assert.ok(gitAttributes.split(/\r?\n/).includes('*.sh text eol=lf'))
+  assert.equal(backendEntrypoint.includes('\r'), false)
+  assert.match(backendEntrypoint, /^#!\/bin\/sh\n/)
+  assert.ok(backendDockerfile.includes("sed -i 's/\\r$//' /usr/local/bin/localminidrama-entrypoint"))
+  assert.match(dockerArtifactVerifierSource, /runtime entrypoint contains CRLF line endings/)
+  assert.match(dockerArtifactVerifierSource, /runtime entrypoint has an invalid shebang/)
 })
 
 test('Windows release verification executes npm through node instead of spawning a batch file', () => {
