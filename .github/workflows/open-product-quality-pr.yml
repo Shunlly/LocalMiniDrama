@@ -84,19 +84,14 @@ jobs:
 
           function failureSnippet(log) {
             const lines = redact(log).split(/\r?\n/)
-            const selected = new Set()
-            const pattern = /##\[error\]|\b(error|failed|failure|EACCES|EPERM|ENOENT|mismatch|not found|expected|actual)\b|npm (ERR!|error)/i
-            for (let index = 0; index < lines.length; index += 1) {
-              if (!pattern.test(lines[index])) continue
-              for (let cursor = Math.max(0, index - 5); cursor <= Math.min(lines.length - 1, index + 8); cursor += 1) {
-                selected.add(cursor)
-              }
-            }
-            const indexes = [...selected].sort((a, b) => a - b).slice(-220)
-            const snippet = indexes.length
-              ? indexes.map((index) => lines[index]).join('\n')
-              : lines.slice(-160).join('\n')
-            return snippet.slice(-14000)
+            const markers = lines
+              .map((line, index) => (/##\[error\]|Process completed with exit code|npm (ERR!|error)|AssertionError|Error:/i.test(line) ? index : -1))
+              .filter((index) => index >= 0)
+            const marker = markers.at(-1)
+            const snippet = marker == null
+              ? lines.slice(-100).join('\n')
+              : lines.slice(Math.max(0, marker - 70), Math.min(lines.length, marker + 12)).join('\n')
+            return snippet.slice(-6000)
           }
 
           try {
