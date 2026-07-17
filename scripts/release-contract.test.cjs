@@ -31,6 +31,8 @@ const ciWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'ci.y
 const releaseVerifierSource = fs.readFileSync(path.join(root, 'scripts', 'verify-release.cjs'), 'utf8')
 const artifactGitleaksConfig = fs.readFileSync(path.join(root, '.gitleaks-artifacts.toml'), 'utf8')
 const rootPackage = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+const backendPackage = JSON.parse(fs.readFileSync(path.join(root, 'backend-node', 'package.json'), 'utf8'))
+const frontendPackage = JSON.parse(fs.readFileSync(path.join(root, 'frontweb', 'package.json'), 'utf8'))
 const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'))
 
 function jobBlock(name, source = workflow) {
@@ -234,6 +236,14 @@ test('release workflow uses the Node 20 baseline from CI', () => {
   assert.ok(setupNodeActions.length > 0)
   assert.equal(nodeVersions.length, setupNodeActions.length, 'every setup-node action must declare a Node version')
   assert.deepEqual([...new Set(nodeVersions)], ['20'])
+})
+
+test('package test scripts use Node discovery instead of shell-expanded globs', () => {
+  assert.equal(frontendPackage.scripts.test, 'node --test')
+  assert.equal(backendPackage.scripts.test, 'node --test --test-concurrency=1')
+  for (const packageJson of [frontendPackage, backendPackage]) {
+    assert.doesNotMatch(packageJson.scripts.test, /[?*]/)
+  }
 })
 
 test('Windows release verification executes npm through node instead of spawning a batch file', () => {

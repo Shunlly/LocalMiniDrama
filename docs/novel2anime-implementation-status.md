@@ -1,11 +1,11 @@
 # Novel2Anime Implementation Status
 
 Date: 2026-07-17
-Release scope: LocalMiniDrama 1.3.0 desktop
+Release scope: LocalMiniDrama 1.3.1 desktop
 
 ## Status
 
-The desktop Novel2Anime workflow is implemented end to end and is part of the 1.3.0 release candidate. It covers source intake, extraction, adaptation, asset generation, storyboards, media generation, TTS, FFmpeg composition, QA, repair, export, recovery, and cleanup.
+The desktop Novel2Anime workflow is implemented end to end and is part of the 1.3.1 release candidate. It covers source intake, extraction, adaptation, asset generation, storyboards, media generation, TTS, FFmpeg composition, QA, repair, export, recovery, and cleanup.
 
 The production E2E uses a deterministic local OpenAI-compatible provider harness so the workflow can be verified without committing external credentials. Availability, quota, billing, and model-specific behavior of any third-party account remain external concerns and must be checked from AI Configuration before a real production run.
 
@@ -57,7 +57,7 @@ npm run verify:release:windows
 npm run verify:release:artifacts
 ```
 
-`verify:release:windows` builds and smoke-tests the unverified Setup, Portable, and Unpacked candidate plus SBOMs; it never creates a final release manifest before independent artifact scans pass. The production E2E covers text, asset/storyboard image, video, TTS, FFmpeg composition, playback at desktop viewports, final download, project export, injected failure recovery, and zero-residue cleanup. Final evidence is written under `artifacts/e2e-production/` and must report version `1.3.0`, the release commit SHA, and `working_tree_dirty=false`.
+`verify:release:windows` builds and smoke-tests the unverified Setup, Portable, and Unpacked candidate plus SBOMs; it never creates a final release manifest before independent artifact scans pass. The production E2E covers text, asset/storyboard image, video, TTS, FFmpeg composition, playback at desktop viewports, final download, project export, injected failure recovery, and zero-residue cleanup. Final evidence is written under `artifacts/e2e-production/` and must report version `1.3.1`, the release commit SHA, and `working_tree_dirty=false`.
 
 The Trivy vulnerability gate reads the backend, frontend, desktop, and release CycloneDX SBOMs separately. Its configuration gate scans the three real Dockerfiles rather than the extracted application tree. The backend bind-mount ownership exception is path-scoped in `backend-node/.trivyignore.yaml`, recorded in artifact security evidence, and expires on 2027-07-17 for review.
 
@@ -65,7 +65,7 @@ The Trivy vulnerability gate reads the backend, frontend, desktop, and release C
 
 ### Mobile Web
 
-The 1.3.0 acceptance matrix is desktop-only. Mobile reflow, touch-specific behavior, and a mobile Canvas/list fallback remain deferred and must not be inferred as complete from desktop screenshots or tests.
+The 1.3.1 acceptance matrix is desktop-only. Mobile reflow, touch-specific behavior, and a mobile Canvas/list fallback remain deferred and must not be inferred as complete from desktop screenshots or tests.
 
 ### External Provider Deep Validation
 
