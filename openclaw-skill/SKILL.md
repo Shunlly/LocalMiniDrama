@@ -1,4 +1,4 @@
-﻿---
+---
 name: local-mini-drama
 version: 1.1.0
 description: LocalMiniDrama 本地短剧助手 — 通过自然语言控制短剧项目全流程：创建剧本、生成角色/场景/道具、生成分镜、批量出图、出视频、合成完整剧集、支持小说导入和工程导入导出
@@ -21,7 +21,7 @@ requiredContext:
   - drama_id
   - episode_id
 author: xuanyustudio
-homepage: https://github.com/xuanyustudio/LocalMiniDrama
+homepage: https://github.com/Shunlly/LocalMiniDrama
 ---
 
 # LocalMiniDrama 本地短剧助手

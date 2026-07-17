@@ -1,38 +1,114 @@
 // 与 Go pkg/ai + application/services/ai_service 对齐：读取 ai_service_configs，调用 OpenAI 兼容的 chat completions
 const aiConfigService = require('./aiConfigService');
 const { applyDeepSeekChatOptions } = require('./deepseekConfig');
+const uploadService = require('./uploadService');
+const { validateHttpRequestTarget } = require('./secureHttpFetch');
 const https = require('https');
 const http = require('http');
+const net = require('net');
+const fs = require('fs');
+const {
+  createProviderHttpError,
+  createSafeProviderLogger,
+  sanitizeProviderException,
+  summarizeProviderResponse,
+  toSafeProviderErrorMessage,
+} = require('./providerErrorSanitizer');
+
+const JSON_REQUEST_MAX_BYTES = 128 * 1024 * 1024;
+const JSON_RESPONSE_MAX_BYTES = 128 * 1024 * 1024;
+const TEXT_RESPONSE_MAX_BYTES = 8 * 1024 * 1024;
+const STREAM_RESPONSE_MAX_BYTES = 32 * 1024 * 1024;
+const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const VISION_IMAGE_TIMEOUT_MS = 30000;
+const VISION_IMAGE_MAX_REDIRECTS = 3;
+
+function providerNetworkOptions(config, lookup) {
+  return aiConfigService.getProviderNetworkOptions(config, { lookup });
+}
+
+async function pinnedRequestTarget(url, networkOptions = {}) {
+  const validated = await validateHttpRequestTarget(url, networkOptions);
+  const selected = validated.addresses[0];
+  return {
+    parsed: validated.parsed,
+    requestOptions: {
+      protocol: validated.parsed.protocol,
+      hostname: validated.parsed.hostname,
+      port: validated.parsed.port || (validated.parsed.protocol === 'https:' ? 443 : 80),
+      path: validated.parsed.pathname + validated.parsed.search,
+      servername: net.isIP(validated.parsed.hostname) ? undefined : validated.parsed.hostname,
+      lookup: uploadService.createPinnedDnsLookup(selected),
+    },
+  };
+}
+
+function assertRequestBodyLimit(bodyStr, maxBytes = JSON_REQUEST_MAX_BYTES) {
+  const bytes = Buffer.byteLength(bodyStr);
+  if (bytes > maxBytes) {
+    throw new uploadService.UnsafeMediaReferenceError('AI request body exceeds the size limit.');
+  }
+  return bytes;
+}
+
+function collectResponse(res, maxBytes, onComplete, onError) {
+  const declaredLength = Number(res.headers['content-length'] || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    res.destroy();
+    onError(new uploadService.UnsafeMediaReferenceError('AI response exceeds the size limit.'));
+    return;
+  }
+  const chunks = [];
+  let bytes = 0;
+  res.on('data', (chunk) => {
+    bytes += chunk.length;
+    if (bytes > maxBytes) {
+      res.destroy(new uploadService.UnsafeMediaReferenceError('AI response exceeds the size limit.'));
+      return;
+    }
+    chunks.push(chunk);
+  });
+  res.on('end', () => onComplete(Buffer.concat(chunks, bytes).toString('utf8')));
+  res.on('error', onError);
+}
+
+function safeRequestError(error, operation) {
+  return sanitizeProviderException(error, {
+    provider: 'AI provider',
+    operation,
+  });
+}
 
 /**
  * 非流式 POST，发送 JSON body，等待完整 HTTP 响应后返回。
  * 用于视觉分析等短请求，兼容 o-series 推理模型和各种第三方代理。
  */
-function postJSONNonStream(url, headers, body, timeoutMs = 120000) {
+async function postJSONNonStream(url, headers, body, timeoutMs = 120000, networkOptions = {}) {
+  const target = await pinnedRequestTarget(url, networkOptions);
   return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const mod = parsed.protocol === 'https:' ? https : http;
+    const mod = target.parsed.protocol === 'https:' ? https : http;
     const bodyStr = JSON.stringify(body);
+    const bodyBytes = assertRequestBodyLimit(bodyStr, networkOptions.maxRequestBytes);
     const reqHeaders = {
       'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(bodyStr),
+      'Content-Length': bodyBytes,
       ...headers,
     };
     const options = {
-      hostname: parsed.hostname,
-      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-      path: parsed.pathname + parsed.search,
+      ...target.requestOptions,
       method: 'POST',
       headers: reqHeaders,
     };
 
     const req = mod.request(options, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf-8');
+      collectResponse(res, networkOptions.maxResponseBytes || TEXT_RESPONSE_MAX_BYTES, (raw) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
-          return reject(new Error(`HTTP ${res.statusCode}: ${raw.slice(0, 500)}`));
+          return reject(createProviderHttpError({
+            provider: 'AI provider',
+            operation: 'vision request',
+            status: res.statusCode,
+            responseBody: raw,
+          }));
         }
         try {
           const json = JSON.parse(raw);
@@ -44,12 +120,11 @@ function postJSONNonStream(url, headers, body, timeoutMs = 120000) {
         } catch (_) {
           resolve({ status: res.statusCode, body: null, raw });
         }
-      });
-      res.on('error', reject);
+      }, (error) => reject(safeRequestError(error, 'vision request')));
     });
 
     const timer = setTimeout(() => { req.destroy(); reject(new Error(`Vision request timeout after ${timeoutMs}ms`)); }, timeoutMs);
-    req.on('error', (e) => { clearTimeout(timer); reject(e); });
+    req.on('error', (e) => { clearTimeout(timer); reject(safeRequestError(e, 'vision request')); });
     req.on('close', () => clearTimeout(timer));
     req.write(bodyStr);
     req.end();
@@ -61,35 +136,30 @@ function postJSONNonStream(url, headers, body, timeoutMs = 120000) {
  * 避免 undici fetch 在慢链路或大包体（多参考图 base64）下长时间挂起后以模糊的 fetch failed 结束。
  * @returns {Promise<{ statusCode: number, raw: string }>}
  */
-function postJSONWithTimeout(url, headers, body, timeoutMs = 600000) {
+async function postJSONWithTimeout(url, headers, body, timeoutMs = 600000, networkOptions = {}) {
+  const target = await pinnedRequestTarget(url, networkOptions);
   return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const mod = parsed.protocol === 'https:' ? https : http;
+    const mod = target.parsed.protocol === 'https:' ? https : http;
     const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+    const bodyBytes = assertRequestBodyLimit(bodyStr, networkOptions.maxRequestBytes);
     const reqHeaders = {
       'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(bodyStr),
+      'Content-Length': bodyBytes,
       ...headers,
     };
     const options = {
-      hostname: parsed.hostname,
-      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-      path: parsed.pathname + parsed.search,
+      ...target.requestOptions,
       method: 'POST',
       headers: reqHeaders,
     };
 
     const req = mod.request(options, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
+      collectResponse(res, networkOptions.maxResponseBytes || JSON_RESPONSE_MAX_BYTES, (raw) => {
         clearTimeout(timer);
-        const raw = Buffer.concat(chunks).toString('utf-8');
         resolve({ statusCode: res.statusCode || 0, raw });
-      });
-      res.on('error', (e) => {
+      }, (e) => {
         clearTimeout(timer);
-        reject(e);
+        reject(safeRequestError(e, 'image request'));
       });
     });
 
@@ -99,7 +169,7 @@ function postJSONWithTimeout(url, headers, body, timeoutMs = 600000) {
     }, timeoutMs);
     req.on('error', (e) => {
       clearTimeout(timer);
-      reject(e);
+      reject(safeRequestError(e, 'image request'));
     });
     req.write(bodyStr);
     req.end();
@@ -112,22 +182,21 @@ function postJSONWithTimeout(url, headers, body, timeoutMs = 600000) {
  * 彻底解决分镜等长耗时任务的 "fetch failed / timeout" 问题。
  * silenceTimeoutMs：连续多少毫秒无任何数据才判定超时（默认 60 秒）。
  */
-function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onProgress = null) {
+async function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onProgress = null, networkOptions = {}) {
+  const target = await pinnedRequestTarget(url, networkOptions);
   return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const mod = parsed.protocol === 'https:' ? https : http;
+    const mod = target.parsed.protocol === 'https:' ? https : http;
     // 强制开启流式输出
     const streamBody = { ...body, stream: true };
     const bodyStr = JSON.stringify(streamBody);
+    const bodyBytes = assertRequestBodyLimit(bodyStr, networkOptions.maxRequestBytes);
     const reqHeaders = {
       'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(bodyStr),
+      'Content-Length': bodyBytes,
       ...headers,
     };
     const options = {
-      hostname: parsed.hostname,
-      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-      path: parsed.pathname + parsed.search,
+      ...target.requestOptions,
       method: 'POST',
       headers: reqHeaders,
     };
@@ -145,23 +214,35 @@ function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onProgress
       const statusCode = res.statusCode;
       // 非 2xx 时先读完整 body 再报错（可能是 JSON 错误信息）
       if (statusCode < 200 || statusCode >= 300) {
-        const errChunks = [];
-        res.on('data', (c) => errChunks.push(c));
-        res.on('end', () => {
+        collectResponse(res, networkOptions.maxErrorBytes || TEXT_RESPONSE_MAX_BYTES, (raw) => {
           clearTimeout(silenceTimer);
-          reject(new Error(`HTTP ${statusCode}: ${Buffer.concat(errChunks).toString('utf-8').slice(0, 500)}`));
-        });
+          reject(createProviderHttpError({
+            provider: 'AI provider',
+            operation: 'stream request',
+            status: statusCode,
+            responseBody: raw,
+          }));
+        }, (error) => reject(safeRequestError(error, 'stream request')));
         return;
       }
 
       let accumulated = '';
       let sseBuffer = '';
+      let rawResponse = '';
+      let receivedBytes = 0;
       let firstToken = true;
       resetSilenceTimer();
 
       res.on('data', (chunk) => {
+        receivedBytes += chunk.length;
+        if (receivedBytes > (networkOptions.maxResponseBytes || STREAM_RESPONSE_MAX_BYTES)) {
+          res.destroy(new uploadService.UnsafeMediaReferenceError('AI stream response exceeds the size limit.'));
+          return;
+        }
         resetSilenceTimer();
-        sseBuffer += chunk.toString('utf-8');
+        const chunkText = chunk.toString('utf-8');
+        rawResponse += chunkText;
+        sseBuffer += chunkText;
         // 按行解析 SSE
         const lines = sseBuffer.split('\n');
         sseBuffer = lines.pop(); // 保留不完整的最后一行
@@ -187,12 +268,18 @@ function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onProgress
 
       res.on('end', () => {
         clearTimeout(silenceTimer);
+        if (!accumulated && rawResponse.trim()) {
+          try {
+            const payload = JSON.parse(rawResponse);
+            accumulated = payload.choices?.[0]?.message?.content || payload.choices?.[0]?.text || '';
+          } catch (_) {}
+        }
         resolve({ status: statusCode, body: accumulated });
       });
-      res.on('error', (e) => { clearTimeout(silenceTimer); reject(e); });
+      res.on('error', (e) => { clearTimeout(silenceTimer); reject(safeRequestError(e, 'stream request')); });
     });
 
-    req.on('error', (e) => { clearTimeout(silenceTimer); reject(e); });
+    req.on('error', (e) => { clearTimeout(silenceTimer); reject(safeRequestError(e, 'stream request')); });
     resetSilenceTimer(); // 连接建立阶段也需要计时
     req.write(bodyStr);
     req.end();
@@ -200,22 +287,51 @@ function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onProgress
 }
 
 // 使用前端设置的「默认」与「优先级」：listConfigs 已按 is_default DESC, priority DESC 排序
-function getDefaultConfig(db, serviceType) {
-  const configs = aiConfigService.listConfigs(db, serviceType);
-  const active = configs.filter((c) => c.is_active);
-  if (active.length === 0) return null;
-  const defaultOne = active.find((c) => c.is_default);
-  return defaultOne != null ? defaultOne : active[0];
+function normalizeProvider(value) {
+  return String(value || '').trim().toLowerCase();
 }
 
-function getConfigForModel(db, serviceType, modelName) {
-  const configs = aiConfigService.listConfigs(db, serviceType);
-  for (const config of configs) {
-    if (!config.is_active) continue;
+function filterActiveConfigs(configs, preferredProvider) {
+  let active = configs.filter((config) => config.is_active);
+  const provider = normalizeProvider(preferredProvider);
+  if (provider) active = active.filter((config) => normalizeProvider(config.provider) === provider);
+  return active;
+}
+
+function selectDefaultConfig(configs) {
+  const defaultOne = configs.find((config) => config.is_default);
+  return defaultOne || configs[0] || null;
+}
+
+function resolveConfigForModel(configs, modelName, preferredProvider) {
+  const active = filterActiveConfigs(configs, preferredProvider);
+  const matches = active.filter((config) => {
     const models = Array.isArray(config.model) ? config.model : [config.model];
-    if (models.includes(modelName)) return config;
-  }
-  return null;
+    return models.includes(modelName);
+  });
+  if (matches.length <= 1) return { config: matches[0] || null, ambiguous: false };
+  const defaultMatch = matches.find((config) => config.is_default);
+  if (defaultMatch) return { config: defaultMatch, ambiguous: false };
+  const providers = new Set(matches.map((config) => normalizeProvider(config.provider)));
+  return providers.size === 1
+    ? { config: matches[0], ambiguous: false }
+    : { config: null, ambiguous: true };
+}
+
+function selectConfigForModel(configs, modelName, preferredProvider) {
+  return resolveConfigForModel(configs, modelName, preferredProvider).config;
+}
+
+function getDefaultConfig(db, serviceType, preferredProvider) {
+  const configs = aiConfigService.listConfigs(db, serviceType);
+  const active = filterActiveConfigs(configs, preferredProvider);
+  if (active.length === 0) return null;
+  return selectDefaultConfig(active);
+}
+
+function getConfigForModel(db, serviceType, modelName, preferredProvider) {
+  const configs = aiConfigService.listConfigs(db, serviceType);
+  return selectConfigForModel(configs, modelName, preferredProvider);
 }
 
 function buildChatUrl(config) {
@@ -232,54 +348,70 @@ function getModelFromConfig(config, preferredModel) {
   return models[0] || 'gpt-3.5-turbo';
 }
 
+function buildAuthHeaders(config) {
+  const apiKey = String(config?.api_key || '').trim();
+  return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+}
+
 /**
  * 从 ai_model_map 表查找业务场景对应的模型配置
  * 返回 { config, modelOverride } 或 null（未配置时）
  */
-function getConfigFromModelMap(db, sceneKey) {
+function getConfigFromModelMap(db, sceneKey, expectedServiceType) {
   try {
     const row = db.prepare('SELECT * FROM ai_model_map WHERE key = ?').get(sceneKey);
     if (!row) return null;
-    const configs = aiConfigService.listConfigs(db, row.service_type || 'text');
+    const mappedServiceType = String(row.service_type || 'text').trim().toLowerCase();
+    const requestedServiceType = String(expectedServiceType || '').trim().toLowerCase();
+    if (requestedServiceType && mappedServiceType !== requestedServiceType) return null;
+    const configs = aiConfigService.listConfigs(db, mappedServiceType);
+    const active = filterActiveConfigs(configs);
     let config = null;
     if (row.config_id) {
-      config = configs.find((c) => c.id === row.config_id && c.is_active) || null;
+      config = active.find((item) => String(item.id) === String(row.config_id)) || null;
     }
-    if (!config) {
-      config = configs.find((c) => c.is_active && c.is_default) || configs.find((c) => c.is_active) || null;
-    }
+    if (!config && row.model_override) config = selectConfigForModel(active, row.model_override);
+    if (!config) config = selectDefaultConfig(active);
     return config ? { config, modelOverride: row.model_override || null } : null;
   } catch (_) {
     return null;
   }
 }
 
+function resolveTextRoute(db, serviceType, options = {}) {
+  const requestedServiceType = String(serviceType || 'text').trim().toLowerCase() || 'text';
+  const preferredModel = options.model;
+  const preferredProvider = options.provider ?? options.preferred_provider ?? options.preferredProvider;
+  if (options.scene_key) {
+    const mapped = getConfigFromModelMap(db, options.scene_key, requestedServiceType);
+    if (mapped) return { ...mapped, source: 'scene_key', serviceType: requestedServiceType };
+  }
+  let config = preferredModel
+    ? getConfigForModel(db, requestedServiceType, preferredModel, preferredProvider)
+    : null;
+  if (preferredModel && !config) {
+    const configs = aiConfigService.listConfigs(db, requestedServiceType);
+    if (resolveConfigForModel(configs, preferredModel, preferredProvider).ambiguous) return null;
+  }
+  const source = config ? 'model' : 'default';
+  if (!config) config = getDefaultConfig(db, requestedServiceType, preferredProvider);
+  return config
+    ? { config, modelOverride: null, source, serviceType: requestedServiceType }
+    : null;
+}
+
 async function generateText(db, log, serviceType, userPrompt, systemPrompt, options = {}) {
+  log = createSafeProviderLogger(log);
   const { model: preferredModel, temperature = 0.7, json_mode = false, min_max_tokens = null, streamCallback = null, scene_key = null } = options;
 
   // F2: 若传入 scene_key，优先从 ai_model_map 查找对应的模型路由配置
-  let config = null;
-  let routedModelOverride = null;
-  if (scene_key) {
-    const mapped = getConfigFromModelMap(db, scene_key);
-    if (mapped) {
-      config = mapped.config;
-      routedModelOverride = mapped.modelOverride;
-      log.info('AI generateText: scene_key routing', { scene_key, config_id: config.id, model_override: routedModelOverride });
-    }
-  }
-
-  if (!config) {
-    config = preferredModel
-      ? getConfigForModel(db, serviceType, preferredModel)
-      : getDefaultConfig(db, serviceType);
-  }
-  if (!config && preferredModel === undefined) {
-    // 兜底：如果前端传了 undefined，且没找到默认，尝试重新找一下（可能 serviceType 传值问题，或者数据库问题）
-    config = getDefaultConfig(db, 'text');
-  }
-  if (!config) {
+  const route = resolveTextRoute(db, serviceType, options);
+  if (!route) {
     throw new Error(`未配置文本模型，请在「AI 配置」中添加 ${serviceType} 类型 且已启用的配置`);
+  }
+  const { config, modelOverride: routedModelOverride } = route;
+  if (scene_key && route.source === 'scene_key') {
+    log.info('AI generateText: scene_key routing', { scene_key, config_id: config.id, model_override: routedModelOverride });
   }
   // scene_key 路由的模型覆盖优先级 > preferredModel
   const effectivePreferredModel = routedModelOverride || preferredModel;
@@ -337,7 +469,11 @@ async function generateText(db, log, serviceType, userPrompt, systemPrompt, opti
   body = applyDeepSeekChatOptions(config, body);
   const startMs = Date.now();
   log.info('AI generateText request', { url: url.slice(0, 60), model, max_tokens: finalMaxTokens ?? '(model default)', json_mode, stream: true });
-  const res = await postJSONStream(url, { Authorization: 'Bearer ' + (config.api_key || '') }, body, 60000, (receivedLen, event, accumulated) => {
+  const requestHeaders = buildAuthHeaders(config);
+  if (options.idempotency_key) {
+    requestHeaders['Idempotency-Key'] = String(options.idempotency_key).trim().slice(0, 200);
+  }
+  const res = await postJSONStream(url, requestHeaders, body, 60000, (receivedLen, event, accumulated) => {
     if (event === 'first_token') {
       log.info('AI stream first token', { model, ttft_ms: Date.now() - startMs });
     } else if (receivedLen > 0 && receivedLen % 500 < 20) {
@@ -346,14 +482,14 @@ async function generateText(db, log, serviceType, userPrompt, systemPrompt, opti
     }
     // 调用者提供的流式回调（如分镜增量解析），传入当前已积累的完整文本
     if (streamCallback && accumulated) streamCallback(accumulated);
-  });
+  }, providerNetworkOptions(config, options.provider_dns_lookup));
   // 流式模式下 res.body 已是拼接好的完整文本内容（非 JSON）
   const content = res.body;
   const elapsedMs = Date.now() - startMs;
   if (!content) {
     throw new Error('AI 返回内容为空');
   }
-  log.info('AI raw response received', { model, text_length: content.length, elapsed_ms: elapsedMs, text_preview: content.slice(0, 200) });
+  log.info('AI response received', { model, text_length: content.length, elapsed_ms: elapsedMs });
   return content;
 }
 
@@ -362,27 +498,15 @@ async function generateText(db, log, serviceType, userPrompt, systemPrompt, opti
  * @param {(delta: string) => void} onDelta 仅增量片段（UTF-8 字符串）
  */
 async function streamGenerateText(db, log, serviceType, userPrompt, systemPrompt, options = {}, onDelta) {
+  log = createSafeProviderLogger(log);
   const { model: preferredModel, temperature = 0.7, json_mode = false, min_max_tokens = null, scene_key = null } = options;
-  let config = null;
-  let routedModelOverride = null;
-  if (scene_key) {
-    const mapped = getConfigFromModelMap(db, scene_key);
-    if (mapped) {
-      config = mapped.config;
-      routedModelOverride = mapped.modelOverride;
-      log.info('AI streamGenerateText: scene_key routing', { scene_key, config_id: config.id, model_override: routedModelOverride });
-    }
-  }
-  if (!config) {
-    config = preferredModel
-      ? getConfigForModel(db, serviceType, preferredModel)
-      : getDefaultConfig(db, serviceType);
-  }
-  if (!config && preferredModel === undefined) {
-    config = getDefaultConfig(db, 'text');
-  }
-  if (!config) {
+  const route = resolveTextRoute(db, serviceType, options);
+  if (!route) {
     throw new Error(`未配置文本模型，请在「AI 配置」中添加 ${serviceType} 类型 且已启用的配置`);
+  }
+  const { config, modelOverride: routedModelOverride } = route;
+  if (scene_key && route.source === 'scene_key') {
+    log.info('AI streamGenerateText: scene_key routing', { scene_key, config_id: config.id, model_override: routedModelOverride });
   }
   const effectivePreferredModel = routedModelOverride || preferredModel;
   const model = getModelFromConfig(config, effectivePreferredModel);
@@ -443,7 +567,7 @@ async function streamGenerateText(db, log, serviceType, userPrompt, systemPrompt
   let lastLen = 0;
   const res = await postJSONStream(
     url,
-    { Authorization: 'Bearer ' + (config.api_key || '') },
+    buildAuthHeaders(config),
     body,
     silenceMs,
     (receivedLen, event, accumulated) => {
@@ -454,7 +578,8 @@ async function streamGenerateText(db, log, serviceType, userPrompt, systemPrompt
       const delta = accumulated.slice(lastLen);
       lastLen = accumulated.length;
       if (onDelta && delta) onDelta(delta);
-    }
+    },
+    providerNetworkOptions(config, options.provider_dns_lookup)
   );
   const content = res.body;
   if (!content) {
@@ -465,7 +590,7 @@ async function streamGenerateText(db, log, serviceType, userPrompt, systemPrompt
 }
 
 /**
- * 从 entity（角色/场景/道具）记录中找到一张可用图片，返回 { imageUrl, isLocal, localAbsPath }。
+ * 从 entity（角色/场景/道具）记录中找到一张可用图片。
  * 优先顺序：ref_image → local_path → image_url → extra_images[0]
  */
 function resolveEntityImageSource(entity, cfg) {
@@ -473,79 +598,111 @@ function resolveEntityImageSource(entity, cfg) {
     const raw = cfg?.storage?.local_path || './data/storage';
     return require('path').isAbsolute(raw) ? raw : require('path').join(process.cwd(), raw);
   })();
-
-  // 用户手动上传的参考图优先
-  if (entity.ref_image) {
-    const ref = String(entity.ref_image);
-    if (ref.startsWith('http')) return { imageUrl: ref, isLocal: false };
-    return { localAbsPath: require('path').join(storagePath, ref), isLocal: true };
-  }
-  if (entity.local_path) {
-    return { localAbsPath: require('path').join(storagePath, entity.local_path), isLocal: true };
-  }
-  if (entity.image_url && String(entity.image_url).startsWith('http')) {
-    return { imageUrl: entity.image_url, isLocal: false };
-  }
-  // 尝试 extra_images 第一张
+  const candidates = [entity?.ref_image, entity?.local_path, entity?.image_url];
   try {
     const extras = entity.extra_images
       ? (typeof entity.extra_images === 'string' ? JSON.parse(entity.extra_images) : entity.extra_images)
       : [];
-    if (Array.isArray(extras) && extras[0]) {
-      const first = extras[0];
-      if (String(first).startsWith('http')) return { imageUrl: first, isLocal: false };
-      return { localAbsPath: require('path').join(storagePath, first), isLocal: true };
-    }
+    if (Array.isArray(extras)) candidates.push(...extras);
   } catch (_) {}
+
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim();
+    if (!value) continue;
+    if (/^https?:\/\//i.test(value) || value.startsWith('data:')) {
+      return { imageUrl: value, isLocal: false };
+    }
+    const resolved = uploadService.resolveStorageReference(storagePath, value);
+    if (resolved) {
+      return {
+        storagePath,
+        storageReference: resolved.relativePath,
+        isLocal: true,
+      };
+    }
+  }
   return null;
+}
+
+function imageMimeType(detected) {
+  return detected?.mimeType || 'image/jpeg';
+}
+
+async function validateVisionImageBuffer(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > VISION_IMAGE_MAX_BYTES) {
+    throw new uploadService.UnsafeMediaReferenceError('Vision reference image exceeds the size limit.');
+  }
+  const detected = await uploadService.validateAllowedUpload(buffer, 'image');
+  return { buffer, mimeType: imageMimeType(detected) };
+}
+
+async function loadVisionImage(imageSource, config, options = {}) {
+  const providerNetwork = providerNetworkOptions(config, options.media_dns_lookup);
+  if (!imageSource || typeof imageSource !== 'object') {
+    throw new uploadService.UnsafeMediaReferenceError('Vision reference image is required.');
+  }
+
+  if (imageSource.storageReference) {
+    const opened = uploadService.openStorageFile(imageSource.storagePath, imageSource.storageReference);
+    try {
+      if (opened.stat.size > VISION_IMAGE_MAX_BYTES) {
+        throw new uploadService.UnsafeMediaReferenceError('Vision reference image exceeds the size limit.');
+      }
+      const validated = await validateVisionImageBuffer(fs.readFileSync(opened.fd));
+      return { ...validated, sourceType: 'storage', reference: opened.relativePath };
+    } finally {
+      fs.closeSync(opened.fd);
+    }
+  }
+
+  if (imageSource.localAbsPath) {
+    throw new uploadService.UnsafeMediaReferenceError('Absolute vision reference paths are not allowed.');
+  }
+
+  const value = String(imageSource.imageUrl || '').trim();
+  if (value.startsWith('data:')) {
+    const match = value.match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i);
+    const encodedLimit = Math.ceil(VISION_IMAGE_MAX_BYTES * 4 / 3) + 16;
+    if (!match || match[2].length > encodedLimit) {
+      throw new uploadService.UnsafeMediaReferenceError('Vision data URL is invalid or too large.');
+    }
+    const validated = await validateVisionImageBuffer(Buffer.from(match[2].replace(/\s/g, ''), 'base64'));
+    return { ...validated, sourceType: 'data' };
+  }
+
+  const downloaded = await uploadService.downloadBufferViaNodeHttp(value, VISION_IMAGE_TIMEOUT_MS, 0, {
+    maxBytes: VISION_IMAGE_MAX_BYTES,
+    maxRedirects: VISION_IMAGE_MAX_REDIRECTS,
+    accept: 'image/*',
+    trustedOrigins: providerNetwork.trustedOrigins,
+    allowPrivateOrigins: providerNetwork.allowPrivateOrigins,
+    lookup: providerNetwork.lookup,
+  });
+  const validated = await validateVisionImageBuffer(downloaded.buffer);
+  return { ...validated, sourceType: 'remote', reference: downloaded.finalUrl };
 }
 
 /**
  * 使用视觉模型（vision）分析图片内容，返回文本描述。
- * imageSource: { localAbsPath: string } 或 { imageUrl: string }
+ * imageSource: { storagePath, storageReference } 或 { imageUrl }
  * 使用 OpenAI vision 消息格式（兼容 GPT-4o / Gemini openai-compat / Qwen-VL 等）。
  */
 async function generateTextWithVision(db, log, serviceType, userPrompt, systemPrompt, imageSource, options = {}) {
-  const fs = require('fs');
-  const path = require('path');
-
-  // 解析图片为 base64 data URL 或 HTTP URL
-  let imageUrlForApi;
-  let imageLogInfo = {};
-  if (imageSource.imageUrl) {
-    imageUrlForApi = imageSource.imageUrl;
-    if (imageUrlForApi.startsWith('data:')) {
-      // base64 data URL：只记录类型和大小，不记录内容
-      const mimeMatch = imageUrlForApi.match(/^data:([^;]+);base64,/);
-      const mime = mimeMatch ? mimeMatch[1] : 'unknown';
-      const b64Len = imageUrlForApi.length - (mimeMatch ? mimeMatch[0].length : 0);
-      imageLogInfo = { image_type: 'base64', image_mime: mime, image_size_kb: Math.round(b64Len * 0.75 / 1024) };
-    } else {
-      imageLogInfo = { image_type: 'url', image_url: imageUrlForApi.slice(0, 100) };
-    }
-  } else if (imageSource.localAbsPath) {
-    if (!fs.existsSync(imageSource.localAbsPath)) {
-      throw new Error(`图片文件不存在：${imageSource.localAbsPath}`);
-    }
-    const buf = fs.readFileSync(imageSource.localAbsPath);
-    const ext = path.extname(imageSource.localAbsPath).toLowerCase();
-    const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' };
-    const mime = mimeMap[ext] || 'image/jpeg';
-    imageUrlForApi = `data:${mime};base64,${buf.toString('base64')}`;
-    imageLogInfo = { image_type: 'local_file', image_path: imageSource.localAbsPath, image_size_kb: Math.round(buf.length / 1024), image_mime: mime };
-  } else {
-    throw new Error('imageSource 必须包含 imageUrl 或 localAbsPath');
-  }
-
+  log = createSafeProviderLogger(log);
   // 复用 generateText 的配置查找逻辑
   const { model: preferredModel, temperature = 0.3, max_tokens = 500 } = options;
-  let config = preferredModel
-    ? getConfigForModel(db, serviceType, preferredModel)
-    : getDefaultConfig(db, serviceType);
-  if (!config) config = getDefaultConfig(db, 'text');
+  const route = resolveTextRoute(db, serviceType, options);
+  const config = route?.config || null;
   if (!config) throw new Error(`未配置文本模型，请在「AI 配置」中添加 ${serviceType} 类型的配置`);
-  const model = getModelFromConfig(config, preferredModel);
+  const model = getModelFromConfig(config, route.modelOverride || preferredModel);
   const url = buildChatUrl(config);
+  const loadedImage = await loadVisionImage(imageSource, config, options);
+  const imageUrlForApi = `data:${loadedImage.mimeType};base64,${loadedImage.buffer.toString('base64')}`;
+  const imageLogInfo = {
+    image_type: loadedImage.sourceType,
+    image_mime: loadedImage.mimeType,
+    image_size_kb: Math.round(loadedImage.buffer.length / 1024),
+  };
 
   log.info('[Vision] 开始请求', {
     config_id: config.id,
@@ -592,7 +749,9 @@ async function generateTextWithVision(db, log, serviceType, userPrompt, systemPr
   let res;
   try {
     // 使用非流式请求：视觉分析响应短，且流式对推理模型（o1/o3/o4）和部分代理兼容性差
-    res = await postJSONNonStream(url, { Authorization: 'Bearer ' + (config.api_key || '') }, body, 120000);
+    res = await postJSONNonStream(url, buildAuthHeaders(config), body, 120000, {
+      ...providerNetworkOptions(config, options.provider_dns_lookup),
+    });
   } catch (httpErr) {
     log.error('[Vision] HTTP 请求失败', { model, url: url.slice(0, 80), error: httpErr.message });
     throw httpErr;
@@ -602,11 +761,16 @@ async function generateTextWithVision(db, log, serviceType, userPrompt, systemPr
     log.error('[Vision] 返回内容为空', {
       model,
       status: res.status,
-      raw_response: (res.raw || '').slice(0, 300),
+      ...summarizeProviderResponse(res.raw),
     });
-    throw new Error(`AI vision 返回内容为空（HTTP ${res.status}），原始响应：${(res.raw || '').slice(0, 200)}`);
+    throw createProviderHttpError({
+      provider: 'AI provider',
+      operation: 'vision response',
+      status: res.status,
+      responseBody: res.raw,
+    });
   }
-  log.info('[Vision] 请求成功', { model, elapsed_ms: Date.now() - startMs, result_len: content.length, result_preview: content.slice(0, 100) });
+  log.info('[Vision] 请求成功', { model, elapsed_ms: Date.now() - startMs, result_len: content.length });
   return content.trim();
 }
 
@@ -644,6 +808,7 @@ const EXTRACT_PROMPTS = {
  * imageUrl: http URL 或 data:image/xxx;base64,... 格式的 data URL
  */
 async function extractDescriptionFromImage(db, log, entityType, imageUrl, entityName) {
+  log = createSafeProviderLogger(log);
   const prompts = EXTRACT_PROMPTS[entityType];
   if (!prompts) throw new Error(`不支持的实体类型：${entityType}`);
 
@@ -671,12 +836,15 @@ async function extractDescriptionFromImage(db, log, entityType, imageUrl, entity
   } catch (err) {
     log.error('[Vision] extractDescriptionFromImage 失败', {
       entity_type: entityType,
-      raw_error: err.message,
+      error: err,
     });
-    const errMsg = /image|vision|visual|multimodal/i.test(err.message)
-      ? `AI 模型不支持图片识别，请在「AI 配置」中使用支持视觉的模型（如 GPT-4o、Gemini 1.5 等）【原始错误：${err.message.slice(0, 120)}】`
-      : `AI 分析失败：${err.message}`;
-    return { ok: false, error: errMsg };
+    return {
+      ok: false,
+      error: toSafeProviderErrorMessage(err, {
+        provider: 'AI provider',
+        operation: 'vision analysis',
+      }),
+    };
   }
 }
 
@@ -697,9 +865,12 @@ function isRefusalResponse(text) {
 }
 
 module.exports = {
+  buildAuthHeaders,
   getDefaultConfig,
   getConfigForModel,
   getConfigFromModelMap,
+  getModelFromConfig,
+  resolveTextRoute,
   generateText,
   streamGenerateText,
   generateTextWithVision,

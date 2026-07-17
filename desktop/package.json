@@ -1,6 +1,7 @@
 {
   "name": "localminidrama-desktop",
-  "version": "1.2.8",
+  "version": "1.3.0",
+  "mediaToolsVersion": "8.1.2",
   "description": "LocalMiniDrama 本地桌面客户端",
   "main": "main.js",
   "author": "LocalMiniDrama",
@@ -8,75 +9,140 @@
   "scripts": {
     "prestart": "node scripts/copy-backend.js",
     "start": "electron .",
+    "test": "node --test test/url-security.test.js test/single-instance.test.js test/copy-backend.test.js test/user-data-migration.test.js test/package-config.test.js test/ffmpeg-runtime.test.js test/media-tool-policy.test.js test/shutdown-controller.test.js test/main-lifecycle.test.js test/smoke-windows.test.js test/artifact-security.test.js",
     "build:front": "cd ../frontweb && npm run build",
     "copy-front": "node scripts/copy-front.js",
-    "clean:unpacked": "node scripts/clean-win-unpacked.js",
-    "pack": "npm run prepare-backend && npm run build:front && npm run copy-front && npm run clean:unpacked && electron-builder --dir",
-    "dist": "npm run prepare-backend && npm run build:front && npm run copy-front && npm run clean:unpacked && electron-builder --win",
+    "clean:release": "node scripts/clean-win-unpacked.js",
+    "clean:unpacked": "npm run clean:release",
+    "rebuild:native": "node scripts/rebuild-native.js",
+    "stage:media": "node scripts/verify-native-deps.js --stage-media-tools",
+    "verify:media": "node scripts/media-tool-policy.js verify-tools",
+    "verify:native": "electron scripts/verify-native-deps.js",
+    "verify:deps": "node scripts/verify-dependency-tree.js",
+    "smoke:unpacked": "node scripts/smoke-windows.js unpacked",
+    "smoke:portable": "node scripts/smoke-windows.js portable",
+    "smoke:installer": "node scripts/smoke-windows.js installer",
+    "smoke:windows": "node scripts/smoke-windows.js all",
+    "package:unpacked": "node scripts/verify-windows-artifacts.js package",
+    "prepare:artifact-scan": "node scripts/verify-windows-artifacts.js prepare",
+    "record:artifact-security": "node scripts/verify-windows-artifacts.js record",
+    "verify:fuses": "node scripts/verify-windows-artifacts.js fuses",
+    "verify": "npm run test && node --check main.js && node --check scripts/copy-backend.js && node --check scripts/clean-win-unpacked.js && node --check scripts/electron-fuses.js && node --check scripts/media-tool-policy.js && node --check scripts/rebuild-native.js && node --check scripts/shutdown-controller.js && node --check scripts/single-instance.js && node --check scripts/user-data-migration.js && node --check scripts/verify-windows-artifacts.js && node --check scripts/window-shell.js && node --check scripts/verify-dependency-tree.js && node --check scripts/verify-native-deps.js && node --check scripts/smoke-windows.js && npm run verify:deps && npm run stage:media && npm run verify:native",
+    "pack": "npm run prepare-backend && npm run rebuild:native && npm run build:front && npm run copy-front && npm run clean:release && npm run verify:media && npm run stage:media && electron-builder --dir --publish never",
+    "dist": "npm run prepare-backend && npm run rebuild:native && npm run build:front && npm run copy-front && npm run clean:release && npm run verify:media && npm run stage:media && electron-builder --win --publish never",
     "dist:cn": "node scripts/dist-cn.js",
     "dist:mac": "bash dist-mac.sh",
-    "postinstall": "node scripts/copy-backend.js && electron-builder install-app-deps",
+    "postinstall": "node scripts/copy-backend.js && npm run rebuild:native",
     "prepare-backend": "node scripts/copy-backend.js"
   },
   "dependencies": {
-    "@volcengine/openapi": "^1.36.1",
+    "@napi-rs/canvas": "0.1.80",
+    "@volcengine/openapi": "^1.36.2",
     "adm-zip": "^0.5.16",
-    "better-sqlite3": "^11.6.0",
+    "better-sqlite3": "12.11.1",
+    "buffer": "6.0.3",
     "cors": "^2.8.5",
-    "express": "^4.21.0",
-    "js-yaml": "^4.1.0",
+    "express": "^4.22.2",
+    "js-yaml": "^4.3.0",
     "jsonrepair": "^3.13.3",
     "jsonwebtoken": "^9.0.3",
     "multer": "^1.4.5-lts.1",
+    "pdfjs-dist": "4.10.38",
     "sharp": "^0.34.5",
-    "uuid": "^10.0.0"
+    "uuid": "^11.1.1"
   },
   "devDependencies": {
-    "electron": "^28.0.0",
-    "electron-builder": "^24.9.1"
+    "@electron/fuses": "2.1.3",
+    "electron": "43.1.1",
+    "electron-builder": "26.15.3",
+    "node-gyp": "12.4.0"
+  },
+  "overrides": {
+    "path-to-regexp": "0.1.13",
+    "@volcengine/openapi": {
+      "axios": "^1.18.1",
+      "form-data": "^3.0.5",
+      "protobufjs": "7.6.5",
+      "uuid": "^11.1.1"
+    }
   },
   "build": {
     "appId": "com.localminidrama.desktop",
     "productName": "本地短剧助手",
-    "artifactName": "LocalMiniDrama ${version}.${ext}",
+    "beforePack": "./scripts/media-tool-policy.js",
+    "afterPack": "./scripts/electron-fuses.js",
+    "npmRebuild": false,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "loadBrowserProcessSpecificV8Snapshot": false,
+      "grantFileProtocolExtraPrivileges": false
+    },
     "directories": {
       "output": "release"
     },
     "files": [
       "main.js",
       "package.json",
-      "backend-app/**/*",
+      "scripts/shutdown-controller.js",
+      "scripts/single-instance.js",
+      "scripts/user-data-migration.js",
+      "scripts/url-security.js",
+      "scripts/window-shell.js",
+      "backend-app/configs/config.yaml",
+      "backend-app/migrations/**/*.sql",
+      "backend-app/prompts/**/*.md",
+      "backend-app/src/**/*.js",
       "node_modules/**/*"
     ],
     "asarUnpack": [
       "node_modules/better-sqlite3/**",
-      "node_modules/sharp/**"
+      "node_modules/sharp/**",
+      "node_modules/@napi-rs/canvas/**",
+      "node_modules/@napi-rs/canvas-*/**"
     ],
     "extraResources": [
       {
         "from": "frontweb-dist",
         "to": "frontweb/dist",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "../example_drama",
         "to": "example_drama",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
-        "from": "../backend-node/tools/ffmpeg",
+        "from": "release/.media-tools",
         "to": "ffmpeg",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
-      "target": ["nsis", "portable"],
-      "icon": null,
-      "signAndEditExecutable": false
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png",
+      "signExecutable": false
     },
     "nsis": {
+      "artifactName": "LocalMiniDrama-Setup-${version}-${arch}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "portable": {
+      "artifactName": "LocalMiniDrama-Portable-${version}-${arch}.${ext}"
     }
   }
 }

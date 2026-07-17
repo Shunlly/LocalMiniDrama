@@ -1,16 +1,16 @@
 <template>
-  <div class="film-create" :class="{ 'sidebar-collapsed': navCollapsed }">
+  <div class="film-create" :class="{ 'sidebar-collapsed': navCollapsed, 'project-state-active': projectLoadState !== 'ready' }">
     <!-- 顶部 -->
     <header class="header">
       <div class="header-inner">
-        <h1 class="logo" @click="goList">
+        <button type="button" class="logo" aria-label="返回项目列表" @click="goList">
           <span class="logo-main">本地短剧助手</span>
           <span class="logo-sub">LocalMiniDrama</span>
-        </h1>
+        </button>
         <span class="breadcrumb-sep">›</span>
-        <span class="page-title">{{ dramaId ? (store.drama?.title || '项目') : '新建故事' }}</span>
+        <span class="page-title">{{ projectPageTitle }}</span>
         <el-select
-          v-if="dramaId"
+          v-if="projectLoadState === 'ready' && dramaId"
           v-model="selectedEpisodeId"
           class="header-episode-select"
           placeholder="选择集数"
@@ -26,11 +26,11 @@
             :value="ep.id"
           />
         </el-select>
-        <el-button v-if="dramaId" class="btn-back-drama" @click="router.push('/drama/' + dramaId)">
+        <el-button v-if="projectLoadState === 'ready' && dramaId" class="btn-back-drama" @click="router.push('/drama/' + dramaId)">
           <el-icon><ArrowLeft /></el-icon>
           返回剧集
         </el-button>
-        <el-button v-if="dramaId" type="primary" plain class="btn-canvas-mode" @click="goCanvasMode">
+        <el-button v-if="projectLoadState === 'ready' && dramaId" type="primary" plain class="btn-canvas-mode" @click="goCanvasMode">
           <el-icon><Grid /></el-icon>
           画布模式
         </el-button>
@@ -38,7 +38,7 @@
           <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
             <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
             {{ isDark ? '浅色' : '暗色' }}
-          </el-button><el-button class="btn-ai-config" @click="showAiConfigDialog = true">
+          </el-button><el-button class="btn-ai-config" :disabled="projectLoadState !== 'ready'" @click="openAiConfig()">
             <el-icon><Setting /></el-icon>
             AI配置
           </el-button>
@@ -47,39 +47,49 @@
     </header>
 
     <!-- 左侧固定侧边栏 -->
-    <nav class="quick-nav" :class="{ collapsed: navCollapsed }" aria-label="快捷导航">
+    <nav v-if="projectLoadState === 'ready'" id="film-create-quick-nav" class="quick-nav" :class="{ collapsed: navCollapsed }" aria-label="快捷导航">
       <div class="nav-sidebar-header">
         <span v-if="!navCollapsed" class="nav-sidebar-title">导航</span>
-        <div class="nav-toggle" :title="navCollapsed ? '展开导航' : '收起导航'" @click="toggleNav()">
+        <button
+          type="button"
+          class="nav-toggle"
+          :title="navCollapsed ? '展开导航' : '收起导航'"
+          :aria-label="navCollapsed ? '展开导航' : '收起导航'"
+          :aria-expanded="!navCollapsed"
+          aria-controls="film-create-quick-nav"
+          @click="toggleNav()"
+        >
           <el-icon><Expand v-if="navCollapsed" /><Fold v-else /></el-icon>
-        </div>
+        </button>
       </div>
 
       <!-- 步骤列表 -->
       <div class="nav-steps">
-        <div
+        <button
           v-for="(step, idx) in navSteps"
           :key="step.key"
+          type="button"
           class="nav-step"
           :class="['status-' + step.status]"
+          :title="`跳转到${step.label}`"
           @click="scrollToAnchor(step.anchor)"
         >
           <!-- 左侧连接线 -->
-          <div class="step-connector-wrap">
-            <div v-if="idx > 0" class="step-line step-line-top" :class="{ filled: navSteps[idx - 1].status === 'done' }" />
-            <div
+          <span class="step-connector-wrap">
+            <span v-if="idx > 0" class="step-line step-line-top" :class="{ filled: navSteps[idx - 1].status === 'done' }" />
+            <span
               class="step-dot"
               :class="['dot-' + step.status]"
             >
               <el-icon v-if="step.status === 'done'" class="dot-icon"><Check /></el-icon>
               <el-icon v-else-if="step.status === 'generating'" class="dot-icon spin"><Loading /></el-icon>
               <span v-else class="dot-num">{{ idx + 1 }}</span>
-            </div>
-            <div v-if="idx < navSteps.length - 1" class="step-line step-line-bottom" :class="{ filled: step.status === 'done' }" />
-          </div>
+            </span>
+            <span v-if="idx < navSteps.length - 1" class="step-line step-line-bottom" :class="{ filled: step.status === 'done' }" />
+          </span>
 
           <!-- 右侧文字 + 状态徽章 -->
-          <div class="step-body">
+          <span class="step-body">
             <span class="step-label">{{ step.label }}</span>
             <span v-if="step.count > 0 && step.status !== 'done'" class="step-count">{{ step.count }}</span>
             <span v-if="step.status === 'partial'" class="step-badge partial-badge" title="部分完成">
@@ -88,17 +98,23 @@
             <span v-else-if="step.status === 'generating'" class="step-badge gen-badge" title="生成中">
               <el-icon class="spin"><Loading /></el-icon>
             </span>
-          </div>
-        </div>
+          </span>
+        </button>
       </div>
 
       <!-- 分镜子列表 -->
       <div v-if="!navCollapsed && storyboards.length > 0" class="nav-group">
-        <div class="nav-sub-toggle" @click="storyboardMenuExpanded = !storyboardMenuExpanded">
+        <button
+          type="button"
+          class="nav-sub-toggle"
+          :aria-expanded="storyboardMenuExpanded"
+          aria-controls="storyboard-nav-list"
+          @click="storyboardMenuExpanded = !storyboardMenuExpanded"
+        >
           <el-icon><Minus v-if="storyboardMenuExpanded" /><Plus v-else /></el-icon>
           <span>分镜列表</span>
-        </div>
-        <div v-show="storyboardMenuExpanded" class="nav-sub-list">
+        </button>
+        <div id="storyboard-nav-list" v-show="storyboardMenuExpanded" class="nav-sub-list">
           <template v-for="(sb, i) in storyboards" :key="sb.id">
             <!-- 段落标题行 -->
             <div
@@ -108,13 +124,14 @@
               <span class="nav-segment-dot" />
               {{ sb.segment_title }}
             </div>
-            <div
+            <button
+              type="button"
               class="nav-sub-item"
               :title="sb.title || '分镜 ' + (i + 1)"
               @click="scrollToAnchor('sb-' + sb.id)"
             >
               {{ i + 1 }}. {{ sb.title || '分镜' }}
-            </div>
+            </button>
           </template>
         </div>
       </div>
@@ -168,7 +185,51 @@
       </div>
     </nav>
 
-    <main class="main">
+    <main v-if="projectLoadState === 'loading'" class="main project-state-main" aria-busy="true">
+      <section class="project-load-state" role="status" aria-live="polite">
+        <el-icon class="project-load-state-icon is-loading"><Loading /></el-icon>
+        <h1>正在加载制作项目</h1>
+        <p>正在读取剧本、制作资源和分镜媒体。</p>
+      </section>
+    </main>
+
+    <main v-else-if="projectLoadState === 'error'" class="main project-state-main">
+      <section
+        ref="projectLoadFailureRef"
+        class="project-load-state project-load-state--error"
+        role="alert"
+        aria-labelledby="film-project-load-error-title"
+        tabindex="-1"
+      >
+        <el-icon class="project-load-state-icon"><WarningFilled /></el-icon>
+        <h1 id="film-project-load-error-title">{{ projectLoadNotFound ? '制作项目不存在' : '暂时无法打开制作项目' }}</h1>
+        <p>{{ projectLoadError }}</p>
+        <p v-if="projectLoadNotFound" class="project-load-state-assurance">项目可能已移入回收站或被删除，请返回项目列表确认。</p>
+        <p v-else class="project-load-state-assurance">项目数据没有被删除，当前页面已停止所有项目编辑和生成操作。</p>
+        <div class="project-load-state-actions">
+          <el-button v-if="!projectLoadNotFound" type="primary" :loading="projectLoadPending" @click="retryFilmProjectLoad">
+            <el-icon><Refresh /></el-icon>重试加载
+          </el-button>
+          <el-button @click="goList">
+            <el-icon><ArrowLeft /></el-icon>返回项目列表
+          </el-button>
+        </div>
+      </section>
+    </main>
+
+    <main v-else class="main">
+      <section
+        v-if="projectDependencyWarning"
+        class="project-dependency-warning"
+        role="status"
+        aria-live="polite"
+      >
+        <el-icon><WarningFilled /></el-icon>
+        <span>{{ projectDependencyWarning }}</span>
+        <el-button size="small" :loading="projectDependencyLoading" @click="retryProjectDependencies">
+          <el-icon><Refresh /></el-icon>重试加载素材
+        </el-button>
+      </section>
       <!-- 角色/道具/场景上传图片用，单例放在外层避免 v-for 导致 ref 为数组 -->
       <input
         ref="resourceImageFileInput"
@@ -236,21 +297,6 @@
               <div id="anchor-script" class="script-sub-block">
                 <h2 class="section-title">剧本</h2>
                 <div class="row gap" style="margin-bottom: 10px; flex-wrap: wrap;">
-                  <el-select
-                    v-model="selectedEpisodeId"
-                    placeholder="选择集数"
-                    clearable
-                    style="width: 130px"
-                    :disabled="!dramaId"
-                    @change="onEpisodeSelect"
-                  >
-                    <el-option
-                      v-for="ep in (store.drama?.episodes || [])"
-                      :key="ep.id"
-                      :label="ep.title || '第' + (ep.episode_number || 0) + '集'"
-                      :value="ep.id"
-                    />
-                  </el-select>
                   <el-input v-model="scriptTitle" placeholder="集标题" style="width: 150px" />
                   <el-button v-if="dramaId" style="margin-left: auto" @click="onAddEpisode">
                     <el-icon><Plus /></el-icon>添加一集
@@ -271,6 +317,12 @@
                   >
                     保存当前集
                   </el-button>
+                  <span
+                    class="script-save-status"
+                    :class="`is-${scriptDraftStatus}`"
+                    role="status"
+                    aria-live="polite"
+                  >{{ scriptDraftStatusLabel }}</span>
                 </div>
               </div>
             </div>
@@ -338,128 +390,96 @@
         @open="loadSelectScriptList"
       >
         <div v-loading="selectScriptLoading || selectScriptImporting" class="select-script-list">
-          <div
+          <button
+            type="button"
             v-for="d in selectableScriptDramas"
             :key="d.id"
             class="select-script-item"
             :class="{ disabled: selectScriptImporting }"
+            :disabled="selectScriptImporting"
             @click="!selectScriptImporting && onPickScriptFromDialog(d.id)"
           >
-            <div class="select-script-title">{{ d.title || '未命名' }}</div>
-            <div class="select-script-desc">{{ (d.description || '暂无简介').slice(0, 200) }}{{ (d.description && d.description.length > 200) ? '…' : '' }}</div>
+            <span class="select-script-title">{{ d.title || '未命名' }}</span>
+            <span class="select-script-desc">{{ (d.description || '暂无简介').slice(0, 200) }}{{ (d.description && d.description.length > 200) ? '…' : '' }}</span>
+          </button>
+          <div v-if="!selectScriptLoading && selectScriptDramas.length === 0" class="select-script-empty">
+            <p>剧本库为空，可直接在当前项目创作剧本</p>
+            <el-button type="primary" @click="returnToScriptCreation">开始创作剧本</el-button>
           </div>
-          <div v-if="!selectScriptLoading && selectScriptDramas.length === 0" class="select-script-empty">剧本库为空，请先在「剧本管理」创建剧本</div>
-          <div v-else-if="!selectScriptLoading && selectableScriptDramas.length === 0" class="select-script-empty">没有可导入的其他剧本</div>
+          <div v-else-if="!selectScriptLoading && selectableScriptDramas.length === 0" class="select-script-empty">
+            <p>没有可导入的其他剧本</p>
+            <el-button type="primary" @click="returnToScriptCreation">返回创作剧本</el-button>
+          </div>
         </div>
       </el-dialog>
 
-      <!-- 一键全流程生成 -->
-      <section class="section card pipeline-section">
-        <div class="one-click-actions">
-          <span class="one-click-label">🚀 一键全流程</span>
-          <el-select v-model="projectAspectRatio" style="width: 130px" @change="() => saveProjectSettings(false)">
-            <el-option label="16:9 横屏" value="16:9" />
-            <el-option label="9:16 竖屏" value="9:16" />
-            <el-option label="3:4 竖版" value="3:4" />
-            <el-option label="1:1 方形" value="1:1" />
-            <el-option label="4:3" value="4:3" />
-            <el-option label="21:9 宽银幕" value="21:9" />
-          </el-select>
-          <el-select v-model="videoClipDuration" style="width: 105px" @change="() => saveProjectSettings(false)">
-            <el-option label="4秒/段" :value="4" />
-            <el-option label="5秒/段" :value="5" />
-            <el-option label="8秒/段" :value="8" />
-            <el-option label="10秒/段" :value="10" />
-            <el-option label="12秒/段" :value="12" />
-            <el-option label="15秒/段" :value="15" />
-          </el-select>
-          <el-select v-model="scriptLanguage" placeholder="分镜语言" clearable style="width: 105px">
-            <el-option label="中文" value="zh" />
-            <el-option label="英文" value="en" />
-          </el-select>
-          <StylePickerButton
-            v-model="generationStyle"
-            :options="generationStyleOptions"
-            @change="() => saveProjectSettings(true)"
-          />
-          <el-button
-            type="primary"
-            :loading="pipelineRunning && !pipelinePaused"
-            :disabled="!currentEpisodeId || pipelineRunning"
-            @click="startOneClickPipeline"
-          >
-            一键成片带图片视频
-          </el-button>
-          <el-button
-            :loading="pipelineRunning && !pipelinePaused"
-            :disabled="!currentEpisodeId || pipelineRunning"
-            title="仅提取角色、场景、道具与生成分镜文本，不生成图片与视频"
-            @click="startTextFrameworkPipeline"
-          >
-            生成文本框架
-          </el-button>
-          <template v-if="pipelineRunning">
-            <el-button v-if="!pipelinePaused" type="warning" @click="pipelinePaused = true">⏸ 暂停</el-button>
-            <el-button v-else type="success" @click="onPipelineResume">▶ 继续</el-button>
-          </template>
-        </div>
-        <div v-if="pipelineRunning || pipelineErrorLog.length > 0" class="pipeline-status">
-          <div v-if="pipelineCurrentStep" class="pipeline-current-step">
-            <span v-if="pipelineStepIndex > 0" class="pipeline-step-badge">{{ pipelineStepIndex }}/{{ pipelineStepTotal }}</span>
-            {{ pipelineCurrentStep.replace(/^\[步骤 \d+\/\d+\] /, '') }}
-          </div>
-          <!-- 阶段间倒计时 -->
-          <div v-if="pipelineCountdown > 0" class="pipeline-countdown">
-            <div class="pipeline-countdown-ring">
-              <span class="pipeline-countdown-num">{{ pipelineCountdown }}</span>
-              <span class="pipeline-countdown-unit">秒</span>
-            </div>
-            <div class="pipeline-countdown-body">
-              <p class="pipeline-countdown-msg">{{ pipelineCountdownMsg }}</p>
-              <div class="pipeline-countdown-actions">
-                <el-button size="small" type="success" @click="skipPipelineCountdown">⚡ 立即开始下一阶段</el-button>
-                <el-button v-if="!pipelinePaused" size="small" type="warning" @click="pipelinePaused = true">⏸ 暂停倒计时</el-button>
-                <span v-else class="pipeline-countdown-paused">已暂停 — 点击右上角"继续"恢复</span>
-              </div>
-            </div>
-          </div>
-          <div v-if="pipelineActiveTasks.size > 0" class="pipeline-active-tasks">
-            <span
-              v-for="label in Array.from(pipelineActiveTasks)"
-              :key="label"
-              class="pipeline-task-chip"
-            >
-              <span class="pipeline-task-dot" />{{ label }}
-            </span>
-          </div>
-          <div v-if="pipelineErrorLog.length > 0" class="pipeline-error-log">
-            <div class="pipeline-error-title">执行过程中的错误：</div>
-            <div v-for="(entry, idx) in pipelineErrorLog" :key="idx" class="pipeline-error-line">
-              [{{ entry.step }}] {{ entry.message }}
-            </div>
-          </div>
-        </div>
-      </section>
+      <FilmCreatePipelinePanel
+        v-model:aspect-ratio="projectAspectRatio"
+        v-model:clip-duration="videoClipDuration"
+        v-model:script-language="scriptLanguage"
+        v-model:generation-style="generationStyle"
+        :generation-style-options="generationStyleOptions"
+        :production-disabled-reason="productionPipelineActionDisabledReason"
+        :draft-disabled-reason="pipelineActionDisabledReason"
+        :production-readiness-reason="productionReadinessReason"
+        :production-readiness-service-type="productionReadinessServiceType"
+        :running="pipelineRunning"
+        :paused="pipelinePaused"
+        :error-log="pipelineErrorLog"
+        :current-step="pipelineCurrentStep"
+        :step-index="pipelineStepIndex"
+        :step-total="pipelineStepTotal"
+        :countdown="pipelineCountdown"
+        :countdown-message="pipelineCountdownMsg"
+        :active-tasks="pipelineActiveTasks"
+        @save-settings="saveProjectSettings"
+        @start-one-click="startOneClickPipeline"
+        @start-text-framework="startTextFrameworkPipeline"
+        @open-ai-config="openAiConfig"
+        @pause="pipelinePaused = true"
+        @resume="onPipelineResume"
+        @skip-countdown="skipPipelineCountdown"
+      />
 
       <!-- 资源管理：角色 / 道具 / 场景 -->
       <section class="section card resource-panel">
-        <div class="collapse-header" @click="resourcePanelCollapsed = !resourcePanelCollapsed">
-          <h2 class="section-title">资源管理</h2>
-          <el-icon class="collapse-icon"><ArrowUp v-if="!resourcePanelCollapsed" /><ArrowDown v-else /></el-icon>
-        </div>
-        <div v-show="!resourcePanelCollapsed" class="resource-panel-body">
+        <h2 class="collapse-heading">
+          <button
+            type="button"
+            class="collapse-header"
+            :aria-expanded="!resourcePanelCollapsed"
+            aria-controls="resource-panel-body"
+            @click="resourcePanelCollapsed = !resourcePanelCollapsed"
+          >
+            <span class="section-title">资源管理</span>
+            <el-icon class="collapse-icon"><ArrowUp v-if="!resourcePanelCollapsed" /><ArrowDown v-else /></el-icon>
+          </button>
+        </h2>
+        <div id="resource-panel-body" v-show="!resourcePanelCollapsed" class="resource-panel-body">
           <!-- 角色生成 -->
           <div id="anchor-characters" class="resource-block card">
-            <div class="collapse-header resource-block-header" @click="charactersBlockCollapsed = !charactersBlockCollapsed">
-              <h3 class="resource-block-title">角色生成</h3>
-              <el-icon class="collapse-icon"><ArrowUp v-if="!charactersBlockCollapsed" /><ArrowDown v-else /></el-icon>
-            </div>
-            <div v-show="!charactersBlockCollapsed" class="resource-block-body">
+            <h3 class="collapse-heading">
+              <button
+                type="button"
+                class="collapse-header resource-block-header"
+                :aria-expanded="!charactersBlockCollapsed"
+                aria-controls="characters-block-body"
+                @click="charactersBlockCollapsed = !charactersBlockCollapsed"
+              >
+                <span class="resource-block-title">角色生成</span>
+                <el-icon class="collapse-icon"><ArrowUp v-if="!charactersBlockCollapsed" /><ArrowDown v-else /></el-icon>
+              </button>
+            </h3>
+            <div id="characters-block-body" v-show="!charactersBlockCollapsed" class="resource-block-body">
               <div class="asset-actions">
-                <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="!dramaId" @click="onGenerateCharacters">
-                  剧本自动提取角色
-                </el-button>
-                <el-button size="small" :disabled="!dramaId" @click="openAddCharacter">添加角色</el-button>
+                <ActionGate :reason="characterGenerationDisabledReason" label="剧本自动提取角色">
+                  <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" @click="onGenerateCharacters">
+                    剧本自动提取角色
+                  </el-button>
+                </ActionGate>
+                <ActionGate :reason="projectActionDisabledReason" label="添加角色">
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" @click="openAddCharacter">添加角色</el-button>
+                </ActionGate>
                 <el-button size="small" @click="showCharLibrary = true">本剧角色库</el-button>
               </div>
               <div class="asset-list asset-list-two">
@@ -559,8 +579,11 @@
                       class="asset-cover"
                       :class="{ 'asset-cover--clickable': hasAssetImage(char), 'asset-cover--dragover': dragOverResourceKey === 'char-' + char.id }"
                       role="button"
-                      tabindex="0"
+                      :tabindex="hasAssetImage(char) ? 0 : -1"
+                      :aria-label="hasAssetImage(char) ? `预览${char.name || '角色'}图片` : undefined"
                       @click="hasAssetImage(char) && openImagePreview(assetImageUrl(char))"
+                      @keydown.enter.prevent="hasAssetImage(char) && openImagePreview(assetImageUrl(char))"
+                      @keydown.space.prevent="hasAssetImage(char) && openImagePreview(assetImageUrl(char))"
                       @dragover="onResourceDragOver($event, 'character', char.id)"
                       @dragleave="onResourceDragLeave($event, 'char-' + char.id)"
                       @drop="onResourceDrop($event, 'character', char.id)"
@@ -573,7 +596,9 @@
                     <!-- 额外参考图条 -->
                     <div v-if="parseExtraImages(char).length" class="extra-images-strip">
                       <div v-for="ep in parseExtraImages(char)" :key="ep" class="extra-thumb" :title="'点击设为主图（悬停左上角可放大预览）'">
-                        <img :src="localPathToUrl(ep)" alt="" @click="onSetPrimaryImage('character', char, ep)" />
+                        <button type="button" class="extra-thumb-primary" :aria-label="`将${char.name || '角色'}参考图设为主图`" @click="onSetPrimaryImage('character', char, ep)">
+                          <img :src="localPathToUrl(ep)" alt="" />
+                        </button>
                         <button class="thumb-preview-btn" title="放大预览" @click.stop="openImagePreview(localPathToUrl(ep))">
                           <el-icon :size="10"><ZoomIn /></el-icon>
                         </button>
@@ -599,14 +624,26 @@
 
           <!-- 道具生成 -->
           <div id="anchor-props" class="resource-block card">
-            <div class="collapse-header resource-block-header" @click="propsBlockCollapsed = !propsBlockCollapsed">
-              <h3 class="resource-block-title">道具生成</h3>
-              <el-icon class="collapse-icon"><ArrowUp v-if="!propsBlockCollapsed" /><ArrowDown v-else /></el-icon>
-            </div>
-            <div v-show="!propsBlockCollapsed" class="resource-block-body">
+            <h3 class="collapse-heading">
+              <button
+                type="button"
+                class="collapse-header resource-block-header"
+                :aria-expanded="!propsBlockCollapsed"
+                aria-controls="props-block-body"
+                @click="propsBlockCollapsed = !propsBlockCollapsed"
+              >
+                <span class="resource-block-title">道具生成</span>
+                <el-icon class="collapse-icon"><ArrowUp v-if="!propsBlockCollapsed" /><ArrowDown v-else /></el-icon>
+              </button>
+            </h3>
+            <div id="props-block-body" v-show="!propsBlockCollapsed" class="resource-block-body">
               <div class="asset-actions">
-                <el-button type="primary" size="small" :loading="propsExtracting" :disabled="!currentEpisodeId" @click="onExtractProps">从剧本提取道具</el-button>
-                <el-button size="small" :disabled="!dramaId" @click="showAddProp = true">添加道具</el-button>
+                <ActionGate :reason="propsExtractionDisabledReason" label="从剧本提取道具">
+                  <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" @click="onExtractProps">从剧本提取道具</el-button>
+                </ActionGate>
+                <ActionGate :reason="projectActionDisabledReason" label="添加道具">
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" @click="showAddProp = true">添加道具</el-button>
+                </ActionGate>
                 <el-button size="small" @click="showPropLibrary = true">本剧道具库</el-button>
               </div>
               <div class="prop-gen-mode" style="margin: 8px 0; font-size: 13px;">
@@ -657,8 +694,11 @@
                       class="asset-cover"
                       :class="{ 'asset-cover--clickable': hasAssetImage(prop), 'asset-cover--dragover': dragOverResourceKey === 'prop-' + prop.id }"
                       role="button"
-                      tabindex="0"
+                      :tabindex="hasAssetImage(prop) ? 0 : -1"
+                      :aria-label="hasAssetImage(prop) ? `预览${prop.name || '道具'}图片` : undefined"
                       @click="hasAssetImage(prop) && openImagePreview(assetImageUrl(prop))"
+                      @keydown.enter.prevent="hasAssetImage(prop) && openImagePreview(assetImageUrl(prop))"
+                      @keydown.space.prevent="hasAssetImage(prop) && openImagePreview(assetImageUrl(prop))"
                       @dragover="onResourceDragOver($event, 'prop', prop.id)"
                       @dragleave="onResourceDragLeave($event, 'prop-' + prop.id)"
                       @drop="onResourceDrop($event, 'prop', prop.id)"
@@ -670,7 +710,9 @@
                     </div>
                     <div v-if="parseExtraImages(prop).length" class="extra-images-strip">
                       <div v-for="ep in parseExtraImages(prop)" :key="ep" class="extra-thumb" title="点击设为主图（悬停左上角可放大预览）">
-                        <img :src="localPathToUrl(ep)" alt="" @click="onSetPrimaryImage('prop', prop, ep)" />
+                        <button type="button" class="extra-thumb-primary" :aria-label="`将${prop.name || '道具'}参考图设为主图`" @click="onSetPrimaryImage('prop', prop, ep)">
+                          <img :src="localPathToUrl(ep)" alt="" />
+                        </button>
                         <button class="thumb-preview-btn" title="放大预览" @click.stop="openImagePreview(localPathToUrl(ep))">
                           <el-icon :size="10"><ZoomIn /></el-icon>
                         </button>
@@ -698,16 +740,28 @@
 
           <!-- 场景生成 -->
           <div id="anchor-scenes" class="resource-block card">
-            <div class="collapse-header resource-block-header" @click="scenesBlockCollapsed = !scenesBlockCollapsed">
-              <h3 class="resource-block-title">场景生成</h3>
-              <el-icon class="collapse-icon"><ArrowUp v-if="!scenesBlockCollapsed" /><ArrowDown v-else /></el-icon>
-            </div>
-            <div v-show="!scenesBlockCollapsed" class="resource-block-body">
+            <h3 class="collapse-heading">
+              <button
+                type="button"
+                class="collapse-header resource-block-header"
+                :aria-expanded="!scenesBlockCollapsed"
+                aria-controls="scenes-block-body"
+                @click="scenesBlockCollapsed = !scenesBlockCollapsed"
+              >
+                <span class="resource-block-title">场景生成</span>
+                <el-icon class="collapse-icon"><ArrowUp v-if="!scenesBlockCollapsed" /><ArrowDown v-else /></el-icon>
+              </button>
+            </h3>
+            <div id="scenes-block-body" v-show="!scenesBlockCollapsed" class="resource-block-body">
               <div class="asset-actions">
-                <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="!currentEpisodeId" @click="onExtractScenes">
-                  从剧本提取场景
-                </el-button>
-                <el-button size="small" :disabled="!dramaId" @click="openAddScene">添加场景</el-button>
+                <ActionGate :reason="scenesExtractionDisabledReason" label="从剧本提取场景">
+                  <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" @click="onExtractScenes">
+                    从剧本提取场景
+                  </el-button>
+                </ActionGate>
+                <ActionGate :reason="projectActionDisabledReason" label="添加场景">
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" @click="openAddScene">添加场景</el-button>
+                </ActionGate>
                 <el-button size="small" @click="showSceneLibrary = true">本剧场景库</el-button>
               </div>
               <div class="scene-gen-mode" style="margin: 8px 0; font-size: 13px;">
@@ -758,8 +812,11 @@
                       class="asset-cover"
                       :class="{ 'asset-cover--clickable': hasAssetImage(scene), 'asset-cover--dragover': dragOverResourceKey === 'scene-' + scene.id }"
                       role="button"
-                      tabindex="0"
+                      :tabindex="hasAssetImage(scene) ? 0 : -1"
+                      :aria-label="hasAssetImage(scene) ? `预览${scene.location || '场景'}图片` : undefined"
                       @click="hasAssetImage(scene) && openImagePreview(assetImageUrl(scene))"
+                      @keydown.enter.prevent="hasAssetImage(scene) && openImagePreview(assetImageUrl(scene))"
+                      @keydown.space.prevent="hasAssetImage(scene) && openImagePreview(assetImageUrl(scene))"
                       @dragover="onResourceDragOver($event, 'scene', scene.id)"
                       @dragleave="onResourceDragLeave($event, 'scene-' + scene.id)"
                       @drop="onResourceDrop($event, 'scene', scene.id)"
@@ -771,7 +828,9 @@
                     </div>
                     <div v-if="parseExtraImages(scene).length" class="extra-images-strip">
                       <div v-for="ep in parseExtraImages(scene)" :key="ep" class="extra-thumb" title="点击设为主图（悬停左上角可放大预览）">
-                        <img :src="localPathToUrl(ep)" alt="" @click="onSetPrimaryImage('scene', scene, ep)" />
+                        <button type="button" class="extra-thumb-primary" :aria-label="`将${scene.location || '场景'}参考图设为主图`" @click="onSetPrimaryImage('scene', scene, ep)">
+                          <img :src="localPathToUrl(ep)" alt="" />
+                        </button>
                         <button class="thumb-preview-btn" title="放大预览" @click.stop="openImagePreview(localPathToUrl(ep))">
                           <el-icon :size="10"><ZoomIn /></el-icon>
                         </button>
@@ -830,13 +889,13 @@
         </div>
         <div class="sb-config-row sb-narration-export-row" style="margin-top:10px;flex-wrap:wrap;align-items:center;gap:12px">
           <el-checkbox v-model="storyboardUseFirstLastFrame" @change="onStoryboardUseFirstLastFrameChange">
-            首尾帧参考图（经典模式双槽；图生前先走专业帧提示词模块 first/last，再生图；视频绑定 first/last_frame_url）
+            首尾帧参考图（生成首帧和尾帧，帮助视频保持镜头衔接）
           </el-checkbox>
           <el-checkbox v-model="storyboardUniversalOmni" @change="() => saveProjectSettings(false)">
-            全能分镜模式（每镜输出多子分镜段落式 universal_segment_text，与「生成/润色全能提示词」同版式）
+            多段分镜模式（每镜生成可直接用于长提示词的分段描述）
           </el-checkbox>
           <el-checkbox v-model="storyboardIncludeNarration" @change="() => saveProjectSettings(false)">
-            生成分镜时生成解说旁白（narration，与对白分开，便于后期 TTS）
+            同时生成解说旁白（与对白分轨，便于配音和字幕）
           </el-checkbox>
           <el-button
             v-if="storyboards.length > 0"
@@ -864,43 +923,58 @@
         </div>
         <div class="asset-actions sb-batch-actions">
           <div class="flex">
-            <el-button
-              type="primary"
-              size="large"
-              :loading="storyboardGenerating || universalOmniPolishRunning"
-              :disabled="!currentEpisodeId || storyboardGenerating || universalOmniPolishRunning"
-              @click="onGenerateStoryboard"
+            <ActionGate
+              :reason="storyboardActionDisabledReason"
+              :label="storyboards.length > 0 ? '重新生成分镜' : 'AI 生成分镜'"
             >
-              {{ storyboards.length > 0 ? '重新生成分镜' : 'AI 生成分镜' }}
-            </el-button>
-            <ElButton type="info" plain size="large" @click="onAddSingleStoryboard">
-            添加一个分镜
-            </ElButton>
+              <el-button
+                type="primary"
+                size="large"
+                :loading="storyboardGenerating || universalOmniPolishRunning"
+                :disabled="Boolean(storyboardActionDisabledReason)"
+                @click="onGenerateStoryboard"
+              >
+                {{ storyboards.length > 0 ? '重新生成分镜' : 'AI 生成分镜' }}
+              </el-button>
+            </ActionGate>
+            <ActionGate :reason="episodeActionDisabledReason" label="添加一个分镜">
+              <el-button type="info" plain size="large" :disabled="Boolean(episodeActionDisabledReason)" @click="onAddSingleStoryboard">
+                添加一个分镜
+              </el-button>
+            </ActionGate>
           </div>
           <template v-if="storyboards.length > 0">
             <div class="sb-batch-right">
-              <el-button
-                type="success"
-                plain
-                size="large"
-                :loading="batchImageRunning"
-                :disabled="!currentEpisodeId || batchImageRunning || batchVideoRunning || pipelineRunning || storyboardGenerating || universalOmniPolishRunning"
-                @click="startBatchImageGeneration"
-              >
-                批量生成分镜图
-              </el-button>
-              <el-button
-                type="warning"
-                plain
-                size="large"
-                :loading="batchVideoRunning"
-                :disabled="!currentEpisodeId || batchImageRunning || batchVideoRunning || pipelineRunning || storyboardGenerating || universalOmniPolishRunning"
-                @click="startBatchVideoGeneration"
-              >
-                批量生成分镜视频
-              </el-button>
+              <ActionGate :reason="batchActionDisabledReason" label="批量生成分镜图">
+                <el-button
+                  type="success"
+                  plain
+                  size="large"
+                  :loading="batchImageRunning"
+                  :disabled="Boolean(batchActionDisabledReason)"
+                  @click="startBatchImageGeneration"
+                >
+                  批量生成分镜图
+                </el-button>
+              </ActionGate>
+              <ActionGate :reason="batchVideoActionDisabledReason" label="批量生成分镜视频">
+                <el-button
+                  type="warning"
+                  plain
+                  size="large"
+                  :loading="batchVideoRunning"
+                  :disabled="Boolean(batchVideoActionDisabledReason)"
+                  @click="startBatchVideoGeneration"
+                >
+                  批量生成分镜视频
+                </el-button>
+              </ActionGate>
               <el-button v-if="batchImageRunning" size="large" type="danger" plain @click="batchImageStopping = true">停止图片</el-button>
               <el-button v-if="batchVideoRunning" size="large" type="danger" plain @click="batchVideoStopping = true">停止视频</el-button>
+            </div>
+            <div v-if="videoCapabilityReason" class="batch-video-capability" role="alert">
+              <span>{{ videoCapabilityReason }}</span>
+              <el-button link type="primary" @click="openAiConfig('video')">前往 AI 配置</el-button>
             </div>
             <!-- 连贯帧模式 UI 暂时隐藏（保留变量与批量生成逻辑，后续可快速恢复） -->
             <div v-if="false" class="batch-video-options" style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:13px;">
@@ -996,7 +1070,17 @@
             >
               {{ isSbUniversalMode(sb.id) ? '经典分镜' : '全能模式' }}
             </el-button>
-            <el-button size="small" plain class="sb-ctrl-btn" title="在本镜头前增加一个分镜" @click="onInsertStoryboardBefore(sb)">＋ 新增</el-button>
+            <el-button
+              size="small"
+              plain
+              class="sb-ctrl-btn"
+              :aria-label="`在分镜${i + 1}前插入新分镜`"
+              title="在本镜头前插入新分镜"
+              @click="onInsertStoryboardBefore(sb)"
+            >
+              <el-icon aria-hidden="true"><Plus /></el-icon>
+              <span>插入分镜</span>
+            </el-button>
             <el-button
               class="sb-ctrl-delete"
               type="danger"
@@ -1073,44 +1157,49 @@
                 <div v-if="getSbSelectedScene(sb.id)" class="sb-thumb-row">
                   <span class="sb-thumb-label">场景</span>
                   <div class="sb-thumb-list">
-                    <div
+                    <button
+                      type="button"
                       v-for="s in [getSbSelectedScene(sb.id)]"
                       :key="s.id"
                       class="sb-thumb-item sb-thumb-scene"
                       :class="{ 'sb-thumb-clickable': hasAssetImage(s) }"
                       :title="s.location"
-                      role="button"
+                      :disabled="!hasAssetImage(s)"
+                      :aria-label="`预览${s.location || '场景'}图片`"
                       @click="hasAssetImage(s) && openImagePreview(assetImageUrl(s))"
                     >
                       <img v-if="hasAssetImage(s)" :src="assetImageUrl(s)" alt="" />
                       <span v-else class="sb-thumb-placeholder">{{ (s.location || '')[0] }}</span>
-                    </div>
+                    </button>
                   </div>
                 </div>
                 <div v-if="(characters || []).length" class="sb-thumb-row">
                   <span class="sb-thumb-label">角色</span>
                   <div class="sb-thumb-list">
-                    <div
+                    <button
+                      type="button"
                       v-for="c in getSbSelectedCharacters(sb.id)"
                       :key="c.id"
                       class="sb-thumb-item sb-thumb-avatar"
                       :class="{ 'sb-thumb-clickable': hasAssetImage(c) }"
                       :title="c.name"
-                      role="button"
+                      :disabled="!hasAssetImage(c)"
+                      :aria-label="`预览${c.name || '角色'}图片`"
                       @click="hasAssetImage(c) && openImagePreview(assetImageUrl(c))"
                     >
                       <img v-if="hasAssetImage(c)" :src="assetImageUrl(c)" alt="" />
                       <span v-else class="sb-thumb-placeholder">{{ (c.name || '')[0] }}</span>
-                    </div>
+                    </button>
                     <el-dropdown trigger="click" @command="(cmd) => onSbAddCharacterCommand(sb.id, cmd)">
-                      <div
+                      <button
+                        type="button"
                         class="sb-thumb-item sb-thumb-avatar sb-thumb-add-char"
                         title="添加角色"
-                        role="button"
+                        aria-label="添加角色"
                         @click.stop
                       >
                         <el-icon><Plus /></el-icon>
-                      </div>
+                      </button>
                       <template #dropdown>
                         <el-dropdown-menu class="sb-char-add-dropdown">
                           <el-dropdown-item
@@ -1131,18 +1220,20 @@
                 <div v-if="getSbSelectedProps(sb.id).length" class="sb-thumb-row">
                   <span class="sb-thumb-label">物品</span>
                   <div class="sb-thumb-list">
-                    <div
+                    <button
+                      type="button"
                       v-for="p in getSbSelectedProps(sb.id)"
                       :key="p.id"
                       class="sb-thumb-item sb-thumb-prop"
                       :class="{ 'sb-thumb-clickable': hasAssetImage(p) }"
                       :title="p.name"
-                      role="button"
+                      :disabled="!hasAssetImage(p)"
+                      :aria-label="`预览${p.name || '道具'}图片`"
                       @click="hasAssetImage(p) && openImagePreview(assetImageUrl(p))"
                     >
                       <img v-if="hasAssetImage(p)" :src="assetImageUrl(p)" alt="" />
                       <span v-else class="sb-thumb-placeholder">{{ (p.name || '')[0] }}</span>
-                    </div>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1164,16 +1255,21 @@
                   v-model="sbNarration[sb.id]"
                   type="textarea"
                   :rows="2"
-                  placeholder="本镜解说文案（画外音 / 纪录片式旁白，供 TTS 或导出 SRT）"
+                  placeholder="本镜解说文案（画外音 / 纪录片式旁白，可生成配音或导出字幕）"
                   class="sb-narration-input"
                   @blur="() => onSaveSbNarrationField(sb)"
                 />
                 <div v-if="(sbNarration[sb.id] || sb.narration || '').toString().trim()" class="sb-narration-actions">
-                  <el-tooltip content="解说旁白配音（TTS）" placement="top">
-                    <el-button size="small" :loading="ttsSbNarrationIds.has(sb.id)" @click="onTtsSbNarration(sb)">
+                  <ActionGate :reason="ttsGenerationDisabledReason(sb.id, 'narration')" label="解说配音">
+                    <el-button
+                      size="small"
+                      :loading="ttsSbNarrationIds.has(sb.id)"
+                      :disabled="Boolean(ttsGenerationDisabledReason(sb.id, 'narration'))"
+                      @click="onTtsSbNarration(sb)"
+                    >
                       解说配音
                     </el-button>
-                  </el-tooltip>
+                  </ActionGate>
                   <el-tooltip v-if="sbNarrationAudioRelPath(sb)" content="播放解说旁白配音" placement="top">
                     <el-button size="small" @click="playSbNarrationTts(sb)">
                       <el-icon><VideoPlay /></el-icon>
@@ -1273,20 +1369,14 @@
                       <div class="sb-fl-slot-label">首帧</div>
                       <div class="sb-fl-slot-body">
                         <template v-if="getSbFirstImage(sb.id)">
-                          <img
-                            :src="assetImageUrl(getSbFirstImage(sb.id))"
-                            class="sb-generated-img"
-                            alt=""
-                            @click="openImagePreview(assetImageUrl(getSbFirstImage(sb.id)))"
-                          />
+                          <button type="button" class="sb-generated-preview" aria-label="预览分镜首帧" @click="openImagePreview(assetImageUrl(getSbFirstImage(sb.id)))">
+                            <img :src="assetImageUrl(getSbFirstImage(sb.id))" class="sb-generated-img" alt="分镜首帧" />
+                          </button>
                         </template>
-                        <template v-else-if="sb.image_url || sb.composed_image">
-                          <img
-                            :src="imageUrl(sb.composed_image || sb.image_url)"
-                            class="sb-generated-img"
-                            alt=""
-                            @click="openImagePreview(imageUrl(sb.composed_image || sb.image_url))"
-                          />
+                        <template v-else-if="storyboardImageUrl(sb)">
+                          <button type="button" class="sb-generated-preview" aria-label="预览分镜首帧" @click="openImagePreview(storyboardImageUrl(sb))">
+                            <img :src="storyboardImageUrl(sb)" class="sb-generated-img" alt="分镜首帧" />
+                          </button>
                         </template>
                         <template v-else>
                           <span class="sb-fl-empty">动作前静止</span>
@@ -1309,13 +1399,9 @@
                       <div class="sb-fl-slot-label">尾帧</div>
                       <div class="sb-fl-slot-body">
                         <template v-if="getSbLastImage(sb.id)">
-                          <img
-                            :src="assetImageUrl(getSbLastImage(sb.id))"
-                            class="sb-generated-img"
-                            alt=""
-                            :title="getSbLastImage(sb.id).prompt || ''"
-                            @click="openImagePreview(assetImageUrl(getSbLastImage(sb.id)))"
-                          />
+                          <button type="button" class="sb-generated-preview" aria-label="预览分镜尾帧" :title="getSbLastImage(sb.id).prompt || ''" @click="openImagePreview(assetImageUrl(getSbLastImage(sb.id)))">
+                            <img :src="assetImageUrl(getSbLastImage(sb.id))" class="sb-generated-img" alt="分镜尾帧" />
+                          </button>
                         </template>
                         <template v-else>
                           <span class="sb-fl-empty">动作后结果</span>
@@ -1348,15 +1434,16 @@
                       :key="item.key"
                       class="sb-img-thumb"
                       :title="stripItemTitle(sb.id, item)"
-                      @click="onStripItemClick(sb, item)"
                     >
-                      <img :src="item.src" alt="" />
-                      <span v-if="item.frameBadge" class="sb-img-thumb-label">{{ item.frameBadge }}</span>
-                      <span v-else-if="item.label" class="sb-img-thumb-label">{{ item.label }}</span>
-                      <button class="thumb-preview-btn" title="放大预览" @click.stop="openImagePreview(item.src)">
+                      <button type="button" class="sb-img-thumb-primary" :aria-label="stripItemTitle(sb.id, item)" @click="onStripItemClick(sb, item)">
+                        <img :src="item.src" alt="" />
+                        <span v-if="item.frameBadge" class="sb-img-thumb-label">{{ item.frameBadge }}</span>
+                        <span v-else-if="item.label" class="sb-img-thumb-label">{{ item.label }}</span>
+                      </button>
+                      <button type="button" class="thumb-preview-btn" title="放大预览" aria-label="放大预览历史图" @click.stop="openImagePreview(item.src)">
                         <el-icon :size="10"><ZoomIn /></el-icon>
                       </button>
-                      <button v-if="item.img?.id" class="extra-thumb-remove" title="删除历史图" @click.stop="onRemoveSbHistoryImage(sb.id, item.img.id)">×</button>
+                      <button v-if="item.img?.id" type="button" class="extra-thumb-remove" title="删除历史图" aria-label="删除历史图" @click.stop="onRemoveSbHistoryImage(sb.id, item.img.id)">×</button>
                     </div>
                   </div>
                 </template>
@@ -1364,22 +1451,26 @@
                 <template v-else>
                 <div class="sb-main-image-wrap">
                   <template v-if="getSbImage(sb.id)">
-                    <img
-                      :src="assetImageUrl(getSbImage(sb.id))"
-                      class="sb-generated-img"
-                      alt=""
-                      :title="getSbImage(sb.id).prompt || ''"
-                      @click="openImagePreview(assetImageUrl(getSbImage(sb.id)))"
-                    />
+                    <button type="button" class="sb-generated-preview" aria-label="预览分镜主图" :title="getSbImage(sb.id).prompt || ''" @click="openImagePreview(assetImageUrl(getSbImage(sb.id)))">
+                      <img :src="assetImageUrl(getSbImage(sb.id))" class="sb-generated-img" alt="分镜主图" />
+                    </button>
                     <div v-if="getSbImage(sb.id).prompt" class="sb-main-img-prompt">{{ getSbImage(sb.id).prompt }}</div>
                   </template>
-                  <template v-else-if="sb.composed_image || sb.image_url">
-                    <img
-                      :src="imageUrl(sb.composed_image || sb.image_url)"
-                      class="sb-generated-img"
-                      alt=""
-                      @click="openImagePreview(imageUrl(sb.composed_image || sb.image_url))"
-                    />
+                  <template v-else-if="storyboardImageUrl(sb)">
+                    <button type="button" class="sb-generated-preview" aria-label="预览分镜主图" @click="openImagePreview(storyboardImageUrl(sb))">
+                      <img :src="storyboardImageUrl(sb)" class="sb-generated-img" alt="分镜主图" />
+                    </button>
+                  </template>
+                  <template v-else-if="hasSbDraftImagePlaceholder(sb)">
+                    <div class="sb-draft-placeholder" role="status">
+                      <strong>草稿占位</strong>
+                      <span>尚未生成可预览的分镜图，可切换到正式模式或手动上传。</span>
+                    </div>
+                    <el-button type="primary" size="small" class="sb-gen-btn" :loading="generatingSbImageIds.has(sb.id)" @click="onGenerateSbImage(sb)">
+                      <el-icon><MagicStick /></el-icon>
+                      生成分镜参考图
+                    </el-button>
+                    <el-button size="small" :loading="uploadingSbImageId === sb.id" @click="onUploadSbImageClick(sb)">上传</el-button>
                   </template>
                   <template v-else-if="sb.error_msg || sb.errorMsg">
                     <div class="sb-image-error" :title="sb.error_msg || sb.errorMsg">{{ sb.error_msg || sb.errorMsg }}</div>
@@ -1406,14 +1497,15 @@
                     :key="item.key"
                     class="sb-img-thumb"
                     :title="[item.label, item.prompt].filter(Boolean).join('\n\n') || '点击设为主图'"
-                    @click="onSelectStripItem(sb, item)"
                   >
-                    <img :src="item.src" alt="" />
-                    <span v-if="item.label" class="sb-img-thumb-label">{{ item.label }}</span>
-                    <button class="thumb-preview-btn" title="放大预览" @click.stop="openImagePreview(item.src)">
+                    <button type="button" class="sb-img-thumb-primary" :aria-label="[item.label, item.prompt].filter(Boolean).join('，') || '设为分镜主图'" @click="onSelectStripItem(sb, item)">
+                      <img :src="item.src" alt="" />
+                      <span v-if="item.label" class="sb-img-thumb-label">{{ item.label }}</span>
+                    </button>
+                    <button type="button" class="thumb-preview-btn" title="放大预览" aria-label="放大预览历史图" @click.stop="openImagePreview(item.src)">
                       <el-icon :size="10"><ZoomIn /></el-icon>
                     </button>
-                    <button v-if="item.img?.id" class="extra-thumb-remove" title="删除历史图" @click.stop="onRemoveSbHistoryImage(sb.id, item.img.id)">×</button>
+                    <button v-if="item.img?.id" type="button" class="extra-thumb-remove" title="删除历史图" aria-label="删除历史图" @click.stop="onRemoveSbHistoryImage(sb.id, item.img.id)">×</button>
                   </div>
                 </div>
                 </template>
@@ -1477,16 +1569,18 @@
                   <div v-if="getSbVideoError(sb.id)" class="sb-video-error">
                     {{ getSbVideoError(sb.id) }}
                   </div>
-                  <el-button
-                    type="primary"
-                    size="small"
-                    class="sb-generate-video-btn"
-                    :loading="isSbVideoGenerating(sb.id)"
-                    :disabled="!sbCanSubmitVideo(sb) || isSbVideoGenerating(sb.id)"
-                    @click="onGenerateSbVideo(sb)"
-                  >
-                    生成分镜视频
-                  </el-button>
+                  <ActionGate :reason="sbVideoGenerationDisabledReason(sb)" label="生成分镜视频">
+                    <el-button
+                      type="primary"
+                      size="small"
+                      class="sb-generate-video-btn"
+                      :loading="isSbVideoGenerating(sb.id)"
+                      :disabled="Boolean(sbVideoGenerationDisabledReason(sb))"
+                      @click="onGenerateSbVideo(sb)"
+                    >
+                      生成分镜视频
+                    </el-button>
+                  </ActionGate>
                 </template>
               </div>
               <!-- 视频历史条：有多条历史时显示，点击可切换 -->
@@ -1494,7 +1588,8 @@
                 <el-tooltip content="历史视频：点击可切换为当前视频" placement="top" :show-arrow="false">
                   <el-icon class="sb-strip-hint-icon"><InfoFilled /></el-icon>
                 </el-tooltip>
-                <div
+                <button
+                  type="button"
                   v-for="item in getVideoStripItems(sb.id)"
                   :key="item.key"
                   class="sb-video-thumb"
@@ -1503,23 +1598,39 @@
                 >
                   <video :src="item.src" preload="metadata" class="sb-video-thumb-player" />
                   <span class="sb-video-thumb-label">{{ item.label }}</span>
-                </div>
+                </button>
               </div>
               <div v-if="getSbVideo(sb.id)" class="sb-video-actions">
-                <el-button size="small" :loading="isSbVideoGenerating(sb.id)" :disabled="!sbCanSubmitVideo(sb) || isSbVideoGenerating(sb.id)" @click="onGenerateSbVideo(sb)">重新生成</el-button>
+                <ActionGate :reason="sbVideoGenerationDisabledReason(sb)" label="重新生成">
+                  <el-button size="small" :loading="isSbVideoGenerating(sb.id)" :disabled="Boolean(sbVideoGenerationDisabledReason(sb))" @click="onGenerateSbVideo(sb)">重新生成</el-button>
+                </ActionGate>
                 <el-tooltip v-if="getNextStoryboard(sb.id)" content="提取本视频尾帧，设为下一个分镜的首帧" placement="top">
                   <el-button size="small" :loading="linkingTailFrameIds.has(sb.id)" @click="onLinkTailFrameToNext(sb)">尾帧衔接</el-button>
                 </el-tooltip>
-                <el-tooltip v-if="sb.dialogue" content="对白配音（TTS）" placement="top">
-                  <el-button size="small" :loading="ttsSbIds.has(sb.id)" @click="onTtsSbDialogue(sb)">
+                <ActionGate v-if="sb.dialogue" :reason="ttsGenerationDisabledReason(sb.id, 'dialogue')" label="对白配音">
+                  <el-button
+                    size="small"
+                    :loading="ttsSbIds.has(sb.id)"
+                    :disabled="Boolean(ttsGenerationDisabledReason(sb.id, 'dialogue'))"
+                    @click="onTtsSbDialogue(sb)"
+                  >
                     对白配音
                   </el-button>
-                </el-tooltip>
+                </ActionGate>
                 <el-tooltip v-if="sb.dialogue && sbDialogueAudioRelPath(sb)" content="播放对白配音" placement="top">
                   <el-button size="small" @click="playSbDialogueTts(sb)">
                     <el-icon><VideoPlay /></el-icon>
                   </el-button>
                 </el-tooltip>
+              </div>
+              <div
+                v-if="!sbCanSubmitVideo(sb)"
+                class="sb-video-disabled-reason"
+                role="status"
+                tabindex="0"
+              >
+                <el-icon><WarningFilled /></el-icon>
+                <span>{{ sbVideoGenerationDisabledReason(sb) }}</span>
               </div>
               <div class="sb-video-prompt-label">
                 <span class="sb-dot"></span>
@@ -1583,7 +1694,7 @@
           <el-form-item label="对白烧录">
             <div class="video-option-row">
               <el-switch v-model="videoBurnDialogue" />
-              <span v-if="videoBurnDialogue" class="video-option-hint">开启后，将把各镜「配音」生成的对白 TTS 按分镜时长对齐并混入整集成片（无对白音频的分镜为静音）。可与「字幕」旁白同时开启，两条音轨会叠混。</span>
+              <span v-if="videoBurnDialogue" class="video-option-hint">开启后，将把各镜生成的对白配音按分镜时长对齐并混入整集成片（无对白音频的分镜为静音）。可与「字幕」旁白同时开启，两条音轨会叠混。</span>
             </div>
           </el-form-item>
           <el-form-item label="水印">
@@ -1607,15 +1718,17 @@
       <!-- 8. 合成视频 -->
       <section id="anchor-video" class="section card">
         <h2 class="section-title">合成视频</h2>
-        <el-button
-          type="primary"
-          size="large"
-          :loading="videoStatus === 'generating'"
-          :disabled="!currentEpisodeId || storyboards.length === 0 || videoStatus === 'generating'"
-          @click="onGenerateVideo"
-        >
-          合成视频
-        </el-button>
+        <ActionGate :reason="composeActionDisabledReason" label="合成视频">
+          <el-button
+            type="primary"
+            size="large"
+            :loading="videoStatus === 'generating'"
+            :disabled="Boolean(composeActionDisabledReason)"
+            @click="onGenerateVideo"
+          >
+            合成视频
+          </el-button>
+        </ActionGate>
         <div v-if="videoStatus === 'generating'" class="video-progress">
           <el-progress :percentage="videoProgress" :status="videoProgress >= 100 ? 'success' : undefined" />
           <p>视频生成中...</p>
@@ -1627,26 +1740,51 @@
           <el-alert type="error" :title="videoErrorMsg" show-icon />
         </div>
         <div v-if="currentEpisodeVideoUrl" class="video-preview-wrap">
-          <p class="video-preview-label">本集合成视频预览</p>
+          <div class="video-preview-header">
+            <p class="video-preview-label">本集合成视频预览</p>
+            <el-button
+              type="primary"
+              plain
+              :loading="videoDownloadStatus === 'downloading'"
+              @click="downloadCurrentEpisodeVideo"
+            >
+              <el-icon><Download /></el-icon>
+              {{ videoDownloadStatus === 'error' ? '重试下载' : '下载成片' }}
+            </el-button>
+          </div>
           <video
             :src="currentEpisodeVideoUrl"
             controls
             class="video-preview-player"
             preload="metadata"
           />
+          <p
+            v-if="videoDownloadStatus !== 'idle'"
+            class="video-download-status"
+            :class="{ 'is-error': videoDownloadStatus === 'error' }"
+            :role="videoDownloadStatus === 'error' ? 'alert' : 'status'"
+            aria-live="polite"
+          >
+            {{ videoDownloadStatus === 'downloading'
+              ? '正在验证并下载成片...'
+              : videoDownloadStatus === 'success'
+                ? '成片下载已完成。'
+                : videoDownloadError }}
+          </p>
         </div>
       </section>
     </main>
 
+    <template v-if="projectLoadState === 'ready'">
     <!-- 添加道具弹窗 -->
     <el-dialog v-model="showAddProp" title="添加道具" width="600px" @close="() => { addPropForm = { name: '', type: '', description: '', prompt: '' }; addPropAddRefImage = null }">
       <el-form label-width="90px">
         <el-form-item label="参考图">
           <div class="ref-image-zone">
-            <div class="ref-image-box" @click="addPropAddRefFileInput?.click()" @drop.prevent="onRefImageDrop2('addProp', $event)" @dragover.prevent>
-              <img v-if="addPropAddRefImage" :src="addPropAddRefImage.dataUrl" class="ref-preview-img" />
-              <div v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></div>
-            </div>
+            <button type="button" class="ref-image-box" aria-label="选择道具参考图" @click="addPropAddRefFileInput?.click()" @drop.prevent="onRefImageDrop2('addProp', $event)" @dragover.prevent>
+              <img v-if="addPropAddRefImage" :src="addPropAddRefImage.dataUrl" alt="待上传道具参考图" class="ref-preview-img" />
+              <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
+            </button>
             <div v-if="addPropAddRefImage" class="ref-actions">
               <el-button type="primary" size="small" :loading="extractingPropAddDesc" @click="doExtractFromRef2('addProp')">提取特征描述</el-button>
               <el-button size="small" @click="addPropAddRefImage = null">移除</el-button>
@@ -1684,19 +1822,21 @@
         <!-- 参考图上传区（新增/编辑均显示） -->
         <el-form-item label="参考图">
           <div class="ref-image-zone">
-            <div class="ref-image-box" @click="addCharRefFileInput?.click()" @drop.prevent="onRefImageDrop('character', $event)" @dragover.prevent>
+            <button type="button" class="ref-image-box" aria-label="选择角色参考图" @click="addCharRefFileInput?.click()" @drop.prevent="onRefImageDrop('character', $event)" @dragover.prevent>
               <!-- 优先：刚上传的新参考图 -->
-              <img v-if="addCharRefImage" :src="addCharRefImage.dataUrl" class="ref-preview-img" />
+              <img v-if="addCharRefImage" :src="addCharRefImage.dataUrl" alt="待上传角色参考图" class="ref-preview-img" />
               <!-- 次之：已保存的参考图 -->
               <img v-else-if="editCharacterForm.ref_image"
                 :src="editCharacterForm.ref_image.startsWith('http') ? editCharacterForm.ref_image : '/static/' + editCharacterForm.ref_image"
+                alt="已保存角色参考图"
                 class="ref-preview-img" />
               <!-- 最后：主图（半透明，提示可上传参考图替代） -->
               <img v-else-if="editCharacterForm.id && (editCharacterForm.image_url || editCharacterForm.local_path)"
                 :src="assetImageUrl(editCharacterForm)"
+                alt="角色主图"
                 class="ref-preview-img" style="opacity:0.5" />
-              <div v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></div>
-            </div>
+              <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
+            </button>
             <div v-if="addCharRefImage" class="ref-actions">
               <el-button type="primary" size="small" :loading="extractingCharAppearance" @click="doExtractFromRef('character')">提取特征描述</el-button>
               <el-button size="small" @click="addCharRefImage = null">移除</el-button>
@@ -1834,15 +1974,16 @@
         <!-- 参考图上传区（新增/编辑均显示） -->
         <el-form-item label="参考图">
           <div class="ref-image-zone">
-            <div class="ref-image-box" @click="addPropRefFileInput?.click()" @drop.prevent="onRefImageDrop('prop', $event)" @dragover.prevent>
-              <img v-if="addPropRefImage" :src="addPropRefImage.dataUrl" class="ref-preview-img" />
+            <button type="button" class="ref-image-box" aria-label="选择道具参考图" @click="addPropRefFileInput?.click()" @drop.prevent="onRefImageDrop('prop', $event)" @dragover.prevent>
+              <img v-if="addPropRefImage" :src="addPropRefImage.dataUrl" alt="待上传道具参考图" class="ref-preview-img" />
               <img v-else-if="editPropForm.ref_image"
                 :src="editPropForm.ref_image.startsWith('http') ? editPropForm.ref_image : '/static/' + editPropForm.ref_image"
+                alt="已保存道具参考图"
                 class="ref-preview-img" />
               <img v-else-if="editPropForm.id && (editPropForm.image_url || editPropForm.local_path)"
-                :src="assetImageUrl(editPropForm)" class="ref-preview-img" style="opacity:0.5" />
-              <div v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></div>
-            </div>
+                :src="assetImageUrl(editPropForm)" alt="道具主图" class="ref-preview-img" style="opacity:0.5" />
+              <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
+            </button>
             <div v-if="addPropRefImage" class="ref-actions">
               <el-button type="primary" size="small" :loading="extractingPropDesc" @click="doExtractFromRef('prop')">提取特征描述</el-button>
               <el-button size="small" @click="addPropRefImage = null">移除</el-button>
@@ -1893,15 +2034,16 @@
         <!-- 参考图上传区（新增/编辑均显示） -->
         <el-form-item label="参考图">
           <div class="ref-image-zone">
-            <div class="ref-image-box" @click="addSceneRefFileInput?.click()" @drop.prevent="onRefImageDrop('scene', $event)" @dragover.prevent>
-              <img v-if="addSceneRefImage" :src="addSceneRefImage.dataUrl" class="ref-preview-img" />
+            <button type="button" class="ref-image-box" aria-label="选择场景参考图" @click="addSceneRefFileInput?.click()" @drop.prevent="onRefImageDrop('scene', $event)" @dragover.prevent>
+              <img v-if="addSceneRefImage" :src="addSceneRefImage.dataUrl" alt="待上传场景参考图" class="ref-preview-img" />
               <img v-else-if="editSceneForm.ref_image"
                 :src="editSceneForm.ref_image.startsWith('http') ? editSceneForm.ref_image : '/static/' + editSceneForm.ref_image"
+                alt="已保存场景参考图"
                 class="ref-preview-img" />
               <img v-else-if="editSceneForm.id && (editSceneForm.image_url || editSceneForm.local_path)"
-                :src="assetImageUrl(editSceneForm)" class="ref-preview-img" style="opacity:0.5" />
-              <div v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></div>
-            </div>
+                :src="assetImageUrl(editSceneForm)" alt="场景主图" class="ref-preview-img" style="opacity:0.5" />
+              <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
+            </button>
             <div v-if="addSceneRefImage" class="ref-actions">
               <el-button type="primary" size="small" :loading="extractingSceneDesc" @click="doExtractFromRef('scene')">提取特征描述</el-button>
               <el-button size="small" @click="addSceneRefImage = null">移除</el-button>
@@ -1977,10 +2119,10 @@
           </div>
           <div v-loading="charLibraryLoading" class="library-list">
             <div v-for="item in charLibraryList" :key="'lib-' + item.id" class="library-item">
-              <div class="library-item-cover" @click="openImagePreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" alt="" />
+              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '角色'}图片`" @click="openImagePreview(assetImageUrl(item))">
+                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '角色图片'" />
                 <span v-else class="library-item-placeholder">暂无图</span>
-              </div>
+              </button>
               <div class="library-item-info">
                 <div class="library-item-name">{{ item.name || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}{{ (item.description || '').length > 60 ? '…' : '' }}</div>
@@ -1991,7 +2133,10 @@
                 </div>
               </div>
             </div>
-            <div v-if="!charLibraryLoading && charLibraryList.length === 0" class="library-empty">暂无本剧角色库记录，可将本剧角色「加入本剧库」后在此查看</div>
+            <div v-if="!charLibraryLoading && charLibraryList.length === 0" class="library-empty">
+              <p>暂无本剧角色库记录，可将本剧角色「加入本剧库」后在此查看</p>
+              <el-button type="primary" @click="returnToCharacterPanel">去角色面板</el-button>
+            </div>
           </div>
           <div class="library-pagination">
             <el-pagination
@@ -2012,10 +2157,10 @@
           </div>
           <div v-loading="dramaAllCharLoading" class="library-list">
             <div v-for="item in dramaAllCharList" :key="'drama-' + item.id" class="library-item">
-              <div class="library-item-cover" @click="openImagePreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" alt="" />
+              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '角色'}图片`" @click="openImagePreview(assetImageUrl(item))">
+                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '角色图片'" />
                 <span v-else class="library-item-placeholder">暂无图</span>
-              </div>
+              </button>
               <div class="library-item-info">
                 <div class="library-item-name">
                   {{ item.name || '未命名' }}
@@ -2027,7 +2172,10 @@
                 </div>
               </div>
             </div>
-            <div v-if="!dramaAllCharLoading && dramaAllCharList.length === 0" class="library-empty">本剧暂无制作角色，请先在角色面板创建</div>
+            <div v-if="!dramaAllCharLoading && dramaAllCharList.length === 0" class="library-empty">
+              <p>本剧暂无制作角色</p>
+              <el-button type="primary" @click="returnToCharacterPanel">创建角色</el-button>
+            </div>
           </div>
           <div class="library-pagination">
             <el-pagination
@@ -2078,10 +2226,10 @@
           </div>
           <div v-loading="propLibraryLoading" class="library-list">
             <div v-for="item in propLibraryList" :key="'plib-' + item.id" class="library-item">
-              <div class="library-item-cover" @click="openImagePreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" alt="" />
+              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '道具'}图片`" @click="openImagePreview(assetImageUrl(item))">
+                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '道具图片'" />
                 <span v-else class="library-item-placeholder">暂无图</span>
-              </div>
+              </button>
               <div class="library-item-info">
                 <div class="library-item-name">{{ item.name || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
@@ -2104,10 +2252,10 @@
           </div>
           <div v-loading="dramaAllPropLoading" class="library-list">
             <div v-for="item in dramaAllPropList" :key="'pdr-' + item.id" class="library-item">
-              <div class="library-item-cover" @click="openImagePreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" alt="" />
+              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '道具'}图片`" @click="openImagePreview(assetImageUrl(item))">
+                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '道具图片'" />
                 <span v-else class="library-item-placeholder">暂无图</span>
-              </div>
+              </button>
               <div class="library-item-info">
                 <div class="library-item-name">{{ item.name || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
@@ -2158,10 +2306,10 @@
           </div>
           <div v-loading="sceneLibraryLoading" class="library-list">
             <div v-for="item in sceneLibraryList" :key="'slib-' + item.id" class="library-item">
-              <div class="library-item-cover" @click="openImagePreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" alt="" />
+              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.location || item.time || '场景'}图片`" @click="openImagePreview(assetImageUrl(item))">
+                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.location || item.time || '场景图片'" />
                 <span v-else class="library-item-placeholder">暂无图</span>
-              </div>
+              </button>
               <div class="library-item-info">
                 <div class="library-item-name">{{ item.location || item.time || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
@@ -2184,10 +2332,10 @@
           </div>
           <div v-loading="dramaAllSceneLoading" class="library-list">
             <div v-for="item in dramaAllSceneList" :key="'sdr-' + item.id" class="library-item">
-              <div class="library-item-cover" @click="openImagePreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" alt="" />
+              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.location || item.time || '场景'}图片`" @click="openImagePreview(assetImageUrl(item))">
+                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.location || item.time || '场景图片'" />
                 <span v-else class="library-item-placeholder">暂无图</span>
-              </div>
+              </button>
               <div class="library-item-info">
                 <div class="library-item-name">{{ item.location || '未命名' }}<span v-if="item.time" class="library-item-sub"> · {{ item.time }}</span></div>
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
@@ -2343,6 +2491,72 @@
             <el-radio-button value="universal">全能模式</el-radio-button>
           </el-radio-group>
           <div class="vp-mode-hint">全能模式：中间为片段描述；生视频时使用 <strong>AI 配置里当前启用的视频</strong>（接口规范 <code>kling_omni</code> 或 <code>volcengine_omni</code>，模型如 <code>kling-video-o1</code>、<code>doubao-seedance-2-0-260128</code> 等）并合并场景/角色/道具等参考图（不含经典分镜主图）。经典字段保留，可随时切回。</div>
+        </el-form-item>
+        <el-form-item v-if="getSbGridImages(videoParamsTarget.id).length" label="视频参考图">
+          <el-select
+            v-model="sbVideoReferenceImageId[videoParamsTarget.id]"
+            clearable
+            placeholder="默认使用主图/首帧"
+            style="width:280px"
+          >
+            <el-option
+              v-for="image in getSbGridImages(videoParamsTarget.id)"
+              :key="image.id"
+              :label="image.frame_type === 'nine_grid' ? `九宫格整图 #${image.id}` : `四宫格整图 #${image.id}`"
+              :value="image.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="素材中心参考图">
+          <div class="vp-reference-panel">
+            <div class="vp-reference-toolbar">
+              <el-button size="small" @click="openGlobalMediaPicker(videoParamsTarget, 'reference-primary')">设为视频主参考</el-button>
+              <el-button size="small" plain @click="openGlobalMediaPicker(videoParamsTarget, 'reference')">添加自由参考图</el-button>
+            </div>
+            <div v-if="getSbFreeReferenceItems(videoParamsTarget).length" class="vp-reference-list">
+              <div
+                v-for="(item, index) in getSbFreeReferenceItems(videoParamsTarget)"
+                :key="item.asset_id || item.local_path || item.image_url || index"
+                class="vp-reference-item"
+              >
+                <button
+                  type="button"
+                  class="vp-reference-thumb"
+                  :aria-label="`预览自由参考图 ${item.name || index + 1}`"
+                  @click="openImagePreview(assetImageUrl(item))"
+                >
+                  <img :src="assetImageUrl(item)" :alt="item.name || `自由参考图 ${index + 1}`" />
+                </button>
+                <div class="vp-reference-body">
+                  <div class="vp-reference-title-row">
+                    <span class="vp-reference-title">{{ item.name || `自由参考图 ${index + 1}` }}</span>
+                    <el-tag v-if="index === 0" size="small" effect="plain" type="success">主参考</el-tag>
+                  </div>
+                  <div class="vp-reference-meta">{{ item.source_drama_title || '全局上传' }}</div>
+                  <div class="vp-reference-actions">
+                    <el-button
+                      v-if="index !== 0"
+                      size="small"
+                      link
+                      type="primary"
+                      @click="onPromoteSbFreeReferenceImage(videoParamsTarget, item)"
+                    >
+                      设为主参考
+                    </el-button>
+                    <el-button
+                      size="small"
+                      link
+                      type="danger"
+                      @click="onRemoveSbFreeReferenceImage(videoParamsTarget, index)"
+                    >
+                      移除
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="vp-reference-empty">当前分镜还没有从素材中心挂载自由参考图。</div>
+          </div>
         </el-form-item>
         <el-row :gutter="12">
           <el-col :span="12">
@@ -2589,35 +2803,38 @@
 
     <!-- AI 配置弹窗（不跳转，避免本页内容丢失） -->
     <el-dialog v-model="showAiConfigDialog" title="AI 配置" width="90%" destroy-on-close class="ai-config-dialog">
-      <AIConfigContent v-if="showAiConfigDialog" />
+      <AIConfigContent v-if="showAiConfigDialog" :initial-service-type="aiConfigInitialServiceType" />
     </el-dialog>
 
-    <!-- 图片放大预览：点击遮罩或图片关闭 -->
-    <Teleport to="body">
-      <div
-        v-if="previewImageUrl"
-        class="image-preview-overlay"
-        @click="closeImagePreview"
-      >
-        <img :src="previewImageUrl" alt="" class="image-preview-img" @click.stop="closeImagePreview" />
-      </div>
-    </Teleport>
+    <ImagePreviewDialog
+      :model-value="Boolean(previewImageUrl)"
+      :src="previewImageUrl || ''"
+      title="制作资源图片预览"
+      @update:model-value="(visible) => { if (!visible) closeImagePreview() }"
+    />
+    <GlobalMediaPickerDialog
+      v-model="showGlobalMediaPicker"
+      :title="globalMediaPickerTitle"
+      :accept="globalMediaPickerAccept"
+      :context="globalMediaPickerContext"
+      @select="onGlobalMediaAssetSelected"
+    />
+    </template>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, reactive, nextTick } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Setting, Plus, Minus, Sunny, Moon, MagicStick, Upload, Delete, Check, Loading, WarningFilled, User, Box, Picture, Film, VideoCamera, Document, InfoFilled, Refresh, ZoomIn, QuestionFilled, DocumentAdd, Expand, Fold, VideoPlay, Grid, Close } from '@element-plus/icons-vue'
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Setting, Plus, Minus, Sunny, Moon, MagicStick, Upload, Delete, Check, Loading, WarningFilled, User, Box, Picture, Film, VideoCamera, Document, InfoFilled, Refresh, ZoomIn, QuestionFilled, DocumentAdd, Expand, Fold, VideoPlay, Grid, Close, Download } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import { useFilmStore } from '@/stores/film'
 import { useGenerationTaskStore, GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { syncGeneratingSetsFromStore, buildEpisodeContext, buildExtractTaskMeta, isEpisodeExtractRunning } from '@/composables/useGenerationTaskSync'
 import { dramaAPI } from '@/api/drama'
 import { generationAPI } from '@/api/generation'
-import { aiAPI } from '@/api/ai'
 import { characterAPI } from '@/api/characters'
 import { propAPI } from '@/api/props'
 import { sceneAPI } from '@/api/scenes'
@@ -2629,12 +2846,38 @@ import { uploadAPI } from '@/api/upload'
 import { characterLibraryAPI } from '@/api/characterLibrary'
 import { sceneLibraryAPI } from '@/api/sceneLibrary'
 import { propLibraryAPI } from '@/api/propLibrary'
-import { generationSettingsAPI } from '@/api/prompts'
 import { parseScriptIntoEpisodes, episodesListToPlainScript } from '@/utils/scriptEpisodes'
+import { buildEpisodeDraftPayload, createScriptDraftController } from '@/utils/scriptDraft'
+import { isPlaceholderMediaUrl, probeImageSource, storyboardImageUrl } from '@/utils/mediaUrl'
+import { getSbImagesList, hasRealMediaValue } from '@/utils/storyboardMedia'
+import {
+  buildStoryboardVideoRequest,
+  collectStoryboardReferenceSlots,
+  collectStoryboardReferenceUrls,
+  createStoryboardReferenceFromAsset,
+  normalizeStoryboardReferenceImages,
+  upsertStoryboardReferenceImage,
+  videoConfigSupportsGridReference,
+  videoConfigSupportsOmni,
+} from '@/utils/storyboardVideoRequest'
 import { exportStoryboardSheet } from '@/utils/exportStoryboardSheet'
-import StylePickerButton from '@/components/StylePickerButton.vue'
 import AIConfigContent from '@/components/AIConfigContent.vue'
+import GlobalMediaPickerDialog from '@/components/GlobalMediaPickerDialog.vue'
+import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import UniversalSegmentOmniAtEditor from '@/components/UniversalSegmentOmniAtEditor.vue'
+import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import FilmCreatePipelinePanel from '@/components/filmCreate/FilmCreatePipelinePanel.vue'
+import {
+  batchGenerationDisabledReason,
+  composeVideoDisabledReason,
+  episodeResourceDisabledReason,
+  getVideoGenerationCapability,
+  pipelineDisabledReason,
+  projectResourceDisabledReason,
+  storyboardDisabledReason,
+  userFacingVideoGenerationError,
+} from '@/utils/filmCreateActionState'
+import { normalizeProductionReadiness } from '@/utils/sourceWorkflowLaunch'
 import {
   generationStyleOptions,
   getStylePromptEn,
@@ -2654,6 +2897,21 @@ const store = useFilmStore()
 const genStore = useGenerationTaskStore()
 const { isDark, toggle: toggleTheme } = useTheme()
 const { videoResolution: storeVideoResolution } = storeToRefs(store)
+const initialRouteProjectId = route.params.id && route.params.id !== 'new' ? Number(route.params.id) : null
+const projectLoadState = ref(initialRouteProjectId ? 'loading' : 'ready')
+const projectLoadError = ref('')
+const projectLoadNotFound = ref(false)
+const projectLoadPending = ref(false)
+const projectLoadFailureRef = ref(null)
+const projectDependencyWarning = ref('')
+const projectDependencyLoading = ref(false)
+let projectLoadRequestId = 0
+let projectDependencyRequestId = 0
+const projectPageTitle = computed(() => {
+  if (projectLoadState.value === 'loading') return '正在加载项目'
+  if (projectLoadState.value === 'error') return '项目加载失败'
+  return store.dramaId ? (store.drama?.title || '项目') : '新建故事'
+})
 
 // ── Composable: Navigation ─────────────────────────────
 const { navCollapsed, storyboardMenuExpanded, toggleNav, scrollToTop, scrollToAnchor } = useNavigation()
@@ -2670,8 +2928,52 @@ function goCanvasMode() {
 
 
 const showAiConfigDialog = ref(false)
+const aiConfigInitialServiceType = ref('')
+const videoCapabilityConfigs = ref([])
+const videoCapabilityLoading = ref(true)
+const videoCapabilityFailed = ref(false)
+const authoritativeProductionReadiness = ref(null)
+const productionReadinessLoading = ref(true)
+const productionReadinessFailed = ref(false)
+const videoGenerationCapability = computed(() => getVideoGenerationCapability(
+  videoCapabilityConfigs.value,
+  { loading: videoCapabilityLoading.value, failed: videoCapabilityFailed.value },
+))
+const videoCapabilityReason = computed(() => videoGenerationCapability.value.reason)
+const productionCapabilityGaps = computed(() => (
+  authoritativeProductionReadiness.value?.missing_capabilities || []
+))
+const productionReadinessReason = computed(() => {
+  if (productionReadinessLoading.value) return '正在检查完整成片所需的 AI 服务与本地合成能力。'
+  if (productionReadinessFailed.value) return '无法确认完整成片制作能力，请刷新后重试。'
+  if (!productionCapabilityGaps.value.length) return ''
+  return productionCapabilityGaps.value
+    .map((gap) => `${gap.label}：${gap.detail}`)
+    .join('；')
+})
+const productionReadinessServiceType = computed(() => (
+  productionCapabilityGaps.value.find((gap) => gap.service_type)?.service_type || ''
+))
+const ttsCapabilityReason = computed(() => {
+  if (productionReadinessLoading.value) return '正在检查语音合成配置，请稍候。'
+  if (productionReadinessFailed.value) return '无法确认语音合成配置，请刷新后重试或前往 AI 配置检查。'
+  const gap = productionCapabilityGaps.value.find((item) => item?.service_type === 'tts')
+  return gap ? `${gap.label}：${gap.detail}` : ''
+})
+
+function openAiConfig(serviceType = '') {
+  aiConfigInitialServiceType.value = ['text', 'image', 'storyboard_image', 'video', 'tts'].includes(serviceType)
+    ? serviceType
+    : ''
+  showAiConfigDialog.value = true
+}
 watch(showAiConfigDialog, (open) => {
-  if (!open) invalidateActiveVideoAiConfigCache()
+  if (open) return
+  invalidateActiveVideoAiConfigCache()
+  Promise.allSettled([
+    refreshVideoGenerationCapability(),
+    refreshProductionReadiness(),
+  ])
 })
 const storyInput = ref('')
 const storyStyle = ref('')
@@ -2708,6 +3010,13 @@ const savedCurrentEpisodeNumber = ref(1)
 const scriptLanguage = ref('zh')
 const scriptStoryboardStyle = ref('')
 const scriptGenerating = ref(false)
+const scriptDraftStatus = ref('saved')
+const scriptDraftStatusLabel = computed(() => ({
+  dirty: '未保存',
+  saving: '自动保存中',
+  saved: '已保存',
+  error: '自动保存失败',
+}[scriptDraftStatus.value] || '已保存'))
 const isStoryGenRunning = computed(() => {
   if (storyGenerating.value || scriptGenerating.value) return true
   return genStore.getAllRunningTasks().some(
@@ -2772,6 +3081,81 @@ const props = computed(() => store.props)
 const storyboards = computed(() => store.storyboards)
 const currentEpisode = computed(() => store.currentEpisode)
 const currentEpisodeId = computed(() => store.currentEpisode?.id ?? null)
+const showGlobalMediaPicker = ref(false)
+const globalMediaPickerMode = ref('reference')
+const globalMediaPickerTarget = ref(null)
+const globalMediaPickerAccept = computed(() => 'image')
+const globalMediaPickerTitle = computed(() => (
+  globalMediaPickerMode.value === 'reference-primary'
+    ? '从素材中心选择视频主参考图'
+    : '从素材中心添加自由参考图'
+))
+const globalMediaPickerContext = computed(() => {
+  const sb = globalMediaPickerTarget.value
+  const epNum = currentEpisode.value?.episode_number
+  return {
+    projectTitle: store.drama?.title || '未命名项目',
+    episodeLabel: epNum != null ? `第${epNum}集` : '',
+    storyboardLabel: sb?.storyboard_number != null ? `分镜 #${sb.storyboard_number}` : '',
+    usageLabel: globalMediaPickerMode.value === 'reference-primary'
+      ? '将放到自由参考图首位，作为无主图时的视频主参考'
+      : '将追加到当前分镜的自由参考图',
+  }
+})
+const scriptDraftController = createScriptDraftController({
+  saveSnapshot: persistScriptDraftSnapshot,
+  onStateChange: (state) => {
+    scriptDraftStatus.value = state
+  },
+})
+
+function captureScriptDraft() {
+  const episode = store.currentEpisode
+  if (!store.dramaId || !episode?.id) return null
+  return {
+    dramaId: Number(store.dramaId),
+    episodeId: Number(episode.id),
+    episodeNumber: Number(episode.episode_number) || 1,
+    title: scriptTitle.value || '',
+    content: scriptContent.value || '',
+  }
+}
+
+function markScriptDraftSaved() {
+  scriptDraftController.markSaved(captureScriptDraft())
+}
+
+async function persistScriptDraftSnapshot(snapshot) {
+  if (!snapshot || Number(store.dramaId) !== Number(snapshot.dramaId)) {
+    throw new Error('项目已切换，草稿未自动保存')
+  }
+  const episodes = store.drama?.episodes || []
+  const payload = buildEpisodeDraftPayload(episodes, snapshot)
+  await dramaAPI.saveEpisodes(snapshot.dramaId, payload)
+
+  const target = episodes.find((episode) => (
+    Number(episode.id) === Number(snapshot.episodeId)
+      || Number(episode.episode_number) === Number(snapshot.episodeNumber)
+  ))
+  if (target) {
+    target.title = snapshot.title
+    target.script_content = snapshot.content
+  }
+  if (Number(store.currentEpisode?.id) === Number(snapshot.episodeId)) {
+    store.currentEpisode.title = snapshot.title
+    store.currentEpisode.script_content = snapshot.content
+  }
+}
+
+async function flushScriptDraft() {
+  await scriptDraftController.flush()
+}
+
+watch(
+  [scriptTitle, () => scriptContent.value, currentEpisodeId],
+  () => scriptDraftController.queue(captureScriptDraft()),
+  { flush: 'post' },
+)
 const videoProgress = computed(() => store.videoProgress)
 const videoStatus = computed(() => store.videoStatus)
 
@@ -2783,8 +3167,160 @@ const currentEpisodeVideoUrl = computed(() => {
   const url = currentEpisode.value?.video_url
   if (!url || !String(url).trim()) return ''
   const s = String(url).trim()
+  if (isPlaceholderMediaUrl(s)) return ''
   if (s.startsWith('http://') || s.startsWith('https://')) return s
+  if (s.startsWith('/static/')) return s
   return '/static/' + s.replace(/^\//, '')
+})
+
+function normalizeVideoDownloadFilenamePart(value, fallback) {
+  const normalized = String(value ?? '')
+    .normalize('NFKC')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/g, '')
+    .trim()
+    .slice(0, 72)
+  return normalized || fallback
+}
+
+function videoExtensionForBlob(blob) {
+  const contentType = String(blob?.type || '').toLowerCase().split(';')[0].trim()
+  const extensions = {
+    'video/webm': 'webm',
+    'video/quicktime': 'mov',
+    'video/x-matroska': 'mkv',
+    'video/avi': 'avi',
+    'video/x-msvideo': 'avi',
+  }
+  return extensions[contentType] || 'mp4'
+}
+
+function buildEpisodeVideoFilename(title, episodeNumber, blob) {
+  const safeTitle = normalizeVideoDownloadFilenamePart(title, 'LocalMiniDrama')
+  const numericEpisode = Number(episodeNumber)
+  const safeEpisode = Number.isFinite(numericEpisode) && numericEpisode > 0
+    ? String(Math.trunc(numericEpisode))
+    : normalizeVideoDownloadFilenamePart(episodeNumber, '当前')
+  return `${safeTitle}-第${safeEpisode}集-成片.${videoExtensionForBlob(blob)}`
+}
+
+function isJsonVideoDownloadType(contentType) {
+  const normalized = String(contentType || '').toLowerCase().split(';')[0].trim()
+  return normalized === 'application/json' || normalized === 'text/json' || normalized.endsWith('+json')
+}
+
+async function blobContainsJsonPayload(blob) {
+  if (!blob || blob.size > 1024 * 1024 || typeof blob.text !== 'function') return false
+  try {
+    const text = (await blob.text()).trim()
+    if (!text || (!text.startsWith('{') && !text.startsWith('['))) return false
+    JSON.parse(text)
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
+async function fetchVerifiedVideoBlob(url, fetchImpl = globalThis.fetch) {
+  const source = String(url || '').trim()
+  if (!source) throw new Error('没有可下载的成片地址。')
+
+  let response
+  try {
+    response = await fetchImpl(source, {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: { Accept: 'video/*, application/octet-stream;q=0.9' },
+    })
+  } catch (_) {
+    throw new Error('无法连接本地服务，成片下载未开始。')
+  }
+
+  if (!response?.ok) {
+    const status = Number(response?.status)
+    const suffix = Number.isFinite(status) && status > 0 ? `（HTTP ${status}）` : ''
+    throw new Error(`服务器暂时无法提供成片${suffix}。`)
+  }
+
+  const contentType = response.headers?.get?.('content-type') || ''
+  if (isJsonVideoDownloadType(contentType)) {
+    throw new Error('服务器返回了错误信息，未下载任何文件。')
+  }
+
+  let blob
+  try {
+    blob = await response.blob()
+  } catch (_) {
+    throw new Error('无法读取成片文件，请重试。')
+  }
+  if (!blob || !Number.isFinite(blob.size) || blob.size <= 0) {
+    throw new Error('成片文件为空，未下载任何文件。')
+  }
+  if (isJsonVideoDownloadType(blob.type) || await blobContainsJsonPayload(blob)) {
+    throw new Error('服务器返回了错误信息，未下载任何文件。')
+  }
+  return blob
+}
+
+function triggerBlobDownload(blob, filename, environment = globalThis) {
+  const objectUrl = environment.URL.createObjectURL(blob)
+  const anchor = environment.document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = filename
+  anchor.rel = 'noopener'
+  anchor.style.display = 'none'
+  environment.document.body.appendChild(anchor)
+  try {
+    anchor.click()
+  } finally {
+    anchor.remove()
+    environment.URL.revokeObjectURL(objectUrl)
+  }
+}
+
+const videoDownloadStatus = ref('idle')
+const videoDownloadError = ref('')
+
+function friendlyVideoDownloadError(error) {
+  const message = String(error?.message || '')
+  const safePrefixes = [
+    '没有可下载的成片地址',
+    '无法连接本地服务',
+    '服务器暂时无法提供成片',
+    '服务器返回了错误信息',
+    '无法读取成片文件',
+    '成片文件为空',
+  ]
+  return safePrefixes.some((prefix) => message.startsWith(prefix))
+    ? message
+    : '成片下载失败，请检查本地服务后重试。'
+}
+
+async function downloadCurrentEpisodeVideo() {
+  if (videoDownloadStatus.value === 'downloading') return
+  videoDownloadStatus.value = 'downloading'
+  videoDownloadError.value = ''
+  try {
+    const blob = await fetchVerifiedVideoBlob(currentEpisodeVideoUrl.value)
+    const filename = buildEpisodeVideoFilename(
+      store.drama?.title,
+      currentEpisode.value?.episode_number,
+      blob,
+    )
+    triggerBlobDownload(blob, filename)
+    videoDownloadStatus.value = 'success'
+    ElMessage.success('成片下载已完成')
+  } catch (error) {
+    videoDownloadError.value = friendlyVideoDownloadError(error)
+    videoDownloadStatus.value = 'error'
+    ElMessage.error(videoDownloadError.value)
+  }
+}
+
+watch([currentEpisodeId, currentEpisodeVideoUrl], () => {
+  videoDownloadStatus.value = 'idle'
+  videoDownloadError.value = ''
 })
 
 const storyboardGenerating = computed(() =>
@@ -2816,10 +3352,13 @@ const pipelineActiveTasks = reactive(new Set())
 
 async function loadPipelineConcurrency() {
   try {
-    const res = await generationSettingsAPI.get()
+    const res = await requestCoreJson('/settings/generation')
     pipelineConcurrency.value = Math.max(1, Number(res?.concurrency) || 3)
     pipelineVideoConcurrency.value = Math.max(1, Number(res?.video_concurrency) || 3)
-  } catch (_) {}
+    return true
+  } catch (_) {
+    return false
+  }
 }
 
 /**
@@ -3033,12 +3572,16 @@ const navSteps = computed(() => {
   )
   const sbImgStatus = sbImgGen ? 'generating' : sbImgDone ? 'done' : sbList.length > 0 ? 'partial' : 'pending'
 
-  // 视频
+  // 成片合成：分镜视频齐备只是前置条件，只有整集视频存在才算完成。
   const sbVideoAllDone = sbList.length > 0 && sbList.every(sb => getSbAllVideos(sb.id).length > 0)
   const sbVideoSome = sbList.some(sb => getSbAllVideos(sb.id).length > 0)
   const sbVideoGen = batchVideoRunning.value || generatingSbVideoIds.size > 0
     || epRunning.some((t) => t.resourceType === GEN_RESOURCE.SB_VIDEO)
-  const videoStatus = sbVideoGen ? 'generating' : sbVideoAllDone ? 'done' : sbVideoSome ? 'partial' : 'pending'
+  const compositeStatus = videoStatus.value === 'generating'
+    ? 'generating'
+    : currentEpisodeVideoUrl.value
+      ? 'done'
+      : (sbVideoGen || sbVideoAllDone || sbVideoSome) ? 'partial' : 'pending'
 
   return [
     { key: 'script',   label: '故事剧本',   anchor: 'anchor-script',     status: scriptStatus,    count: hasScript ? 1 : 0 },
@@ -3047,7 +3590,7 @@ const navSteps = computed(() => {
     { key: 'scenes',   label: '场景',        anchor: 'anchor-scenes',     status: sceneStatus,     count: sceneList.length },
     { key: 'sb',       label: '分镜脚本',   anchor: 'anchor-storyboard', status: sbScriptStatus,  count: sbList.length },
     { key: 'sbimg',    label: '分镜图',      anchor: 'anchor-storyboard', status: sbImgStatus,     count: sbList.length },
-    { key: 'video',    label: '分镜视频',   anchor: 'anchor-video',      status: videoStatus,     count: 0 },
+    { key: 'video',    label: '合成视频',   anchor: 'anchor-video',      status: compositeStatus, count: 0 },
   ]
 })
 
@@ -3173,6 +3716,7 @@ const regeneratingLayoutSbIds = reactive(new Set())  // 正在 AI 重新生成�
 const sbCreationMode = ref({})
 /** 全能模式片段描述（存库 universal_segment_text，与经典参考图字段独立） */
 const sbUniversalSegmentText = ref({})
+const sbVideoReferenceImageId = ref({})
 // 分镜图片/视频列表（由 /images?storyboard_id=xx 和 /videos?storyboard_id=xx 拉取）
 const sbImages = ref({})
 const sbVideos = ref({})
@@ -3191,6 +3735,7 @@ const inferringParams = ref(false)
 const showVideoParamsDialog = ref(false)
 const videoParamsTarget = ref(null)
 const videoParamsSaving = ref(false)
+const savingSbReferenceImages = reactive(new Set())
 const splitByAudioLoading = ref(false)
 const batchImageErrors = ref([])
 // 批量生成分镜视频
@@ -3198,6 +3743,64 @@ const batchVideoRunning = ref(false)
 const batchVideoStopping = ref(false)
 const batchVideoProgress = ref({ current: 0, total: 0, failed: 0 })
 const batchVideoErrors = ref([])
+const projectActionDisabledReason = computed(() => projectResourceDisabledReason({
+  hasProject: Boolean(dramaId.value),
+}))
+const episodeActionDisabledReason = computed(() => episodeResourceDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+}))
+const characterGenerationDisabledReason = computed(() => projectResourceDisabledReason({
+  hasProject: Boolean(dramaId.value),
+  running: charactersGenerating.value,
+  label: '角色',
+}))
+const propsExtractionDisabledReason = computed(() => episodeResourceDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+  running: propsExtracting.value,
+  label: '道具',
+}))
+const scenesExtractionDisabledReason = computed(() => episodeResourceDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+  running: scenesExtracting.value,
+  label: '场景',
+}))
+const pipelineActionDisabledReason = computed(() => pipelineDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+  pipelineRunning: pipelineRunning.value,
+}))
+const productionPipelineActionDisabledReason = computed(() => (
+  pipelineActionDisabledReason.value || productionReadinessReason.value
+))
+const storyboardActionDisabledReason = computed(() => storyboardDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+  storyboardGenerating: storyboardGenerating.value,
+  omniPolishing: universalOmniPolishRunning.value,
+}))
+const batchActionDisabledReason = computed(() => batchGenerationDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+  pipelineRunning: pipelineRunning.value,
+  storyboardGenerating: storyboardGenerating.value,
+  omniPolishing: universalOmniPolishRunning.value,
+  batchImageRunning: batchImageRunning.value,
+  batchVideoRunning: batchVideoRunning.value,
+}))
+const batchVideoActionDisabledReason = computed(() => (
+  batchActionDisabledReason.value || videoCapabilityReason.value
+))
+const playableStoryboardVideoCount = computed(() => (
+  storyboards.value.filter((storyboard) => Boolean(assetVideoUrl(getSbVideo(storyboard.id)))).length
+))
+const composeActionDisabledReason = computed(() => composeVideoDisabledReason({
+  hasEpisode: Boolean(currentEpisodeId.value),
+  storyboardCount: storyboards.value.length,
+  playableVideoCount: playableStoryboardVideoCount.value,
+  videoGenerating: videoStatus.value === 'generating',
+  pipelineRunning: pipelineRunning.value,
+  storyboardGenerating: storyboardGenerating.value,
+  omniPolishing: universalOmniPolishRunning.value,
+  batchImageRunning: batchImageRunning.value,
+  batchVideoRunning: batchVideoRunning.value,
+}))
 // P0-1: 连贯帧模式
 const videoFrameContiguity = ref(false)
 // P0-3: 分镜超分辨率 loading set
@@ -3205,6 +3808,13 @@ const upscalingSbIds = reactive(new Set())
 // P2-4: TTS 状态
 const ttsSbIds = reactive(new Set())
 const ttsSbNarrationIds = reactive(new Set())
+function ttsGenerationDisabledReason(storyboardId, kind = 'dialogue') {
+  const running = kind === 'narration'
+    ? ttsSbNarrationIds.has(storyboardId)
+    : ttsSbIds.has(storyboardId)
+  if (running) return '正在生成配音，请等待完成'
+  return ttsCapabilityReason.value
+}
 // 尾帧衔接 loading 状态
 const linkingTailFrameIds = reactive(new Set())
 // “上镜尾帧”（将上一分镜尾帧图片直接设为当前首帧）loading 状态
@@ -3518,6 +4128,7 @@ function onSbImageDrop(e, sb) {
 
 const baseUrl = ref('')
 const previewImageUrl = ref(null)
+let previewImageRequestId = 0
 function imageUrl(url) {
   if (!url) return ''
   if (url.startsWith('http')) return url
@@ -3527,34 +4138,47 @@ function imageUrl(url) {
 /** 优先使用本地地址，避免远程图失效。item 为 { image_url, local_path } 或字符串 url */
 function assetImageUrl(item) {
   if (!item) return ''
-  if (typeof item === 'string') return imageUrl(item)
+  if (typeof item === 'string') return isPlaceholderMediaUrl(item) ? '' : imageUrl(item)
   const localPath = item.local_path && String(item.local_path).trim()
-  if (localPath) {
+  if (localPath && !isPlaceholderMediaUrl(localPath)) {
     const p = localPath.replace(/^\//, '')
     return '/static/' + p
   }
-  if (item.image_url) return imageUrl(item.image_url)
+  if (item.image_url && !isPlaceholderMediaUrl(item.image_url)) return imageUrl(item.image_url)
   return ''
 }
 function hasAssetImage(item) {
   if (!item) return false
-  return !!(item.image_url || item.local_path)
+  return hasRealMediaValue(item.image_url) || hasRealMediaValue(item.local_path)
 }
 function getSelectedStyle() {
   return getSelectedStylePrompt()
 }
-function openImagePreview(url) {
-  previewImageUrl.value = url
+async function openImagePreview(url) {
+  const source = String(url || '').trim()
+  if (!source || isPlaceholderMediaUrl(source)) {
+    ElMessage.info('这是草稿占位图，尚无可预览的真实图片。')
+    return
+  }
+  const requestId = ++previewImageRequestId
+  const renderable = await probeImageSource(source)
+  if (requestId !== previewImageRequestId) return
+  if (!renderable) {
+    ElMessage.warning('图片无法加载，请检查文件是否仍存在或重新生成。')
+    return
+  }
+  previewImageUrl.value = source
 }
 function closeImagePreview() {
+  previewImageRequestId += 1
   previewImageUrl.value = null
 }
 /** 视频地址：优先 local_path（/static/），否则 video_url */
 function assetVideoUrl(item) {
   if (!item) return ''
   const localPath = item.local_path && String(item.local_path).trim()
-  if (localPath) return '/static/' + localPath.replace(/^\//, '')
-  if (item.video_url) return imageUrl(item.video_url)
+  if (localPath && !isPlaceholderMediaUrl(localPath)) return '/static/' + localPath.replace(/^\//, '')
+  if (item.video_url && !isPlaceholderMediaUrl(item.video_url)) return imageUrl(item.video_url)
   return ''
 }
 /** 远程视频须为 http(s)，避免上游 FAILURE 时把错误文案写入 video_url */
@@ -3567,7 +4191,7 @@ function isHttpVideoUrl(url) {
 function recordHasPlayableVideoUrl(i) {
   if (!i) return false
   const lp = i.local_path && String(i.local_path).trim()
-  if (lp) return true
+  if (lp && !isPlaceholderMediaUrl(lp)) return true
   return isHttpVideoUrl(i.video_url)
 }
 /** 主播放器强制随记录/地址重建，避免重新生成后 <video> 仍缓存旧 src */
@@ -3643,7 +4267,7 @@ function getSbLastImage(storyboardId) {
   const typed = images.find((i) => i.frame_type === 'storyboard_last')
   if (typed) return typed
 
-  if (sb?.last_frame_image_url || sb?.last_frame_local_path) {
+  if (hasRealMediaValue(sb?.last_frame_image_url) || hasRealMediaValue(sb?.last_frame_local_path)) {
     return {
       id: sb.last_frame_image_id,
       image_url: sb.last_frame_image_url,
@@ -3657,9 +4281,19 @@ function getSbLastImage(storyboardId) {
 /** 该分镜是否有图（接口拉取的或 composed_image） */
 function hasSbImage(sb) {
   if (storyboardUseFirstLastFrame.value && !isSbUniversalMode(sb.id)) {
-    return !!(getSbFirstImage(sb.id) || (sb && (sb.composed_image || sb.image_url)))
+    return !!(
+      getSbFirstImage(sb.id)
+      || hasRealMediaValue(sb?.composed_image)
+      || hasRealMediaValue(sb?.image_url)
+      || hasRealMediaValue(sb?.local_path)
+    )
   }
-  return !!(getSbImage(sb.id) || (sb && (sb.composed_image || sb.image_url)))
+  return !!(
+    getSbImage(sb.id)
+    || hasRealMediaValue(sb?.composed_image)
+    || hasRealMediaValue(sb?.image_url)
+    || hasRealMediaValue(sb?.local_path)
+  )
 }
 
 function hasSbFirstLastPair(sb) {
@@ -3667,9 +4301,15 @@ function hasSbFirstLastPair(sb) {
 }
 /** 取该分镜下所有已完成的非四宫格图片列表 */
 function getSbAllImages(storyboardId) {
-  const list = sbImages.value[storyboardId]
-  if (!Array.isArray(list)) return []
-  return list.filter((i) => i.status === 'completed' && i.frame_type !== 'quad_grid' && i.frame_type !== 'nine_grid' && (i.image_url || i.local_path))
+  return getSbImagesList(sbImages.value, storyboardId)
+}
+function hasSbDraftImagePlaceholder(sb) {
+  const directValues = [sb?.image_url, sb?.local_path, sb?.composed_image]
+  if (directValues.some((value) => isPlaceholderMediaUrl(value))) return true
+  const records = sbImages.value[sb?.id]
+  return Array.isArray(records) && records.some((record) => (
+    isPlaceholderMediaUrl(record?.image_url) || isPlaceholderMediaUrl(record?.local_path)
+  ))
 }
 /** 取当前主图（首尾帧模式下等同首帧） */
 function getSbImage(storyboardId) {
@@ -3688,7 +4328,11 @@ function getSbImage(storyboardId) {
 function getQuadGridImage(storyboardId) {
   const list = sbImages.value[storyboardId]
   if (!Array.isArray(list)) return null
-  return list.find((i) => i.status === 'completed' && (i.frame_type === 'quad_grid' || i.frame_type === 'nine_grid') && (i.image_url || i.local_path)) || null
+  return list.find((i) => (
+    i.status === 'completed'
+    && (i.frame_type === 'quad_grid' || i.frame_type === 'nine_grid')
+    && (hasRealMediaValue(i.image_url) || hasRealMediaValue(i.local_path))
+  )) || null
 }
 /** 取该分镜所有已完成的视频记录 */
 function getSbAllVideos(storyboardId) {
@@ -3747,12 +4391,14 @@ function onSelectSbMainVideo(sb, video) {
   sbSelectedVideoId.value = { ...sbSelectedVideoId.value, [sb.id]: video.id }
   storyboardsAPI.update(sb.id, {
     video_url: video.video_url || null,
-    local_path: video.local_path || undefined,
+    video_local_path: video.local_path || null,
   }).catch(e => console.warn('[主视频] 保存后端失败', e))
 }
 /** 取该分镜最近一次视频生成的错误信息（从 API 返回的记录或本地即时错误） */
 function getSbVideoError(storyboardId) {
-  if (sbVideoErrors.value[storyboardId]) return sbVideoErrors.value[storyboardId]
+  if (sbVideoErrors.value[storyboardId]) {
+    return userFacingVideoGenerationError(sbVideoErrors.value[storyboardId])
+  }
   const list = sbVideos.value[storyboardId]
   if (!Array.isArray(list) || list.length === 0) return ''
   const hasCompleted = list.some((i) => i.status === 'completed' && recordHasPlayableVideoUrl(i))
@@ -3762,12 +4408,12 @@ function getSbVideoError(storyboardId) {
   )
   if (bogusCompleted) {
     const u = String(bogusCompleted.video_url || '').trim()
-    if (u) return u
-    if (bogusCompleted.error_msg) return bogusCompleted.error_msg
+    if (u) return userFacingVideoGenerationError(u)
+    if (bogusCompleted.error_msg) return userFacingVideoGenerationError(bogusCompleted.error_msg)
   }
   const failed = list.filter((i) => i.status === 'failed' && i.error_msg)
   if (failed.length === 0) return ''
-  return failed[0].error_msg
+  return userFacingVideoGenerationError(failed[0].error_msg)
 }
 
 async function loadStoryboardMedia() {
@@ -3775,10 +4421,11 @@ async function loadStoryboardMedia() {
   if (boards.length === 0) {
     sbImages.value = {}
     sbVideos.value = {}
-    return
+    return { failedCount: 0, total: 0 }
   }
   const nextImages = { ...sbImages.value }
   const nextVideos = { ...sbVideos.value }
+  let failedCount = 0
   await Promise.all(
     boards.map(async (sb) => {
       try {
@@ -3789,6 +4436,7 @@ async function loadStoryboardMedia() {
         nextImages[sb.id] = (imgRes && imgRes.items) ? imgRes.items : []
         nextVideos[sb.id] = (vidRes && vidRes.items) ? vidRes.items : []
       } catch (_) {
+        failedCount += 1
         nextImages[sb.id] = []
         nextVideos[sb.id] = []
       }
@@ -3798,6 +4446,7 @@ async function loadStoryboardMedia() {
   sbVideos.value = nextVideos
   // 从后端恢复主图选择
   restoreSelectionsFromBackend()
+  return { failedCount, total: boards.length }
 }
 
 function getGeneratingSetsBag() {
@@ -4269,6 +4918,8 @@ async function onGenerateSbFrameImage(sb, slot) {
       const pollRes = await pollTask(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
       if (pollRes?.status === 'failed') {
         sb.errorMsg = pollRes.error || '生成失败'
+      } else if (pollRes?.status !== 'completed') {
+        sb.errorMsg = pollRes?.error || '生成未完成'
       } else {
         await loadDrama()
         restoreSelectionsFromBackend()
@@ -4305,10 +4956,10 @@ async function onGenerateSbFrameImage(sb, slot) {
 }
 
 async function onGenerateSbFramePair(sb) {
-  const hasFirst = !!(getSbFirstImage(sb.id) || (sb.image_url || sb.composed_image))
+  const hasFirst = !!(getSbFirstImage(sb.id) || storyboardImageUrl(sb))
   if (!hasFirst) {
     await onGenerateSbFrameImage(sb, 'first')
-    if (!getSbFirstImage(sb.id) && !(sb.image_url || sb.composed_image)) return
+    if (!getSbFirstImage(sb.id) && !storyboardImageUrl(sb)) return
   }
   await onGenerateSbFrameImage(sb, 'last')
 }
@@ -4351,8 +5002,11 @@ async function onGenerateSbImage(sb) {
       const pollRes = await pollTask(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
       if (pollRes?.status === 'failed') {
         sb.errorMsg = pollRes.error || '生成失败'
-      } else {
+      } else if (pollRes?.status === 'completed') {
         ElMessage.success('分镜图生成完成')
+      } else {
+        sb.errorMsg = pollRes?.error || '分镜图生成未完成'
+        ElMessage.warning(sb.errorMsg)
       }
     } else {
       await loadSingleStoryboardMedia(sb.id)
@@ -4462,6 +5116,7 @@ function syncStoryboardStateFromEpisode(ep) {
   const nextLayoutDescription = {}
   const nextCreationMode = {}
   const nextUniversalSegment = {}
+  const nextVideoReferenceImageId = {}
   for (const sb of boards) {
     nextScene[sb.id] = sb.scene_id ?? null
     nextDialogue[sb.id] = sb.dialogue ?? ''
@@ -4487,6 +5142,7 @@ function syncStoryboardStateFromEpisode(ep) {
     nextPropIds[sb.id] = Array.isArray(sb.prop_ids) ? sb.prop_ids : []
     nextCreationMode[sb.id] = sb.creation_mode === 'universal' ? 'universal' : 'classic'
     nextUniversalSegment[sb.id] = (sb.universal_segment_text ?? '').toString()
+    nextVideoReferenceImageId[sb.id] = sb.video_reference_image_id ? Number(sb.video_reference_image_id) : ''
   }
   sbCharacterIds.value = nextCharIds
   sbPropIds.value = nextPropIds
@@ -4511,14 +5167,38 @@ function syncStoryboardStateFromEpisode(ep) {
   sbLayoutDescription.value = nextLayoutDescription
   sbCreationMode.value = nextCreationMode
   sbUniversalSegmentText.value = nextUniversalSegment
+  sbVideoReferenceImageId.value = nextVideoReferenceImageId
+}
+function getSbGridImages(storyboardId) {
+  const list = sbImages.value[storyboardId]
+  if (!Array.isArray(list)) return []
+  return list.filter((image) => (
+    image.status === 'completed' &&
+    (image.frame_type === 'quad_grid' || image.frame_type === 'nine_grid') &&
+    (hasRealMediaValue(image.image_url) || hasRealMediaValue(image.local_path))
+  ))
 }
 
-function onEpisodeSelect(epId) {
+function getSbVideoReferenceGrid(sb) {
+  if (!sb?.id) return null
+  const selectedId = Number(sbVideoReferenceImageId.value[sb.id] || sb.video_reference_image_id)
+  if (!Number.isFinite(selectedId) || selectedId <= 0) return null
+  return getSbGridImages(sb.id).find((image) => Number(image.id) === selectedId) || null
+}
+
+async function onEpisodeSelect(epId) {
+  try {
+    await flushScriptDraft()
+  } catch (_) {
+    selectedEpisodeId.value = store.currentEpisode?.id ?? null
+    return
+  }
   if (epId == null) {
     store.setCurrentEpisode(null)
     store.setScriptContent('')
     scriptTitle.value = ''
     syncStoryboardStateFromEpisode(null)
+    markScriptDraftSaved()
     return
   }
   const list = store.drama?.episodes || []
@@ -4528,15 +5208,118 @@ function onEpisodeSelect(epId) {
   store.setScriptContent(ep.script_content || '')
   scriptTitle.value = ep.title || '第' + (ep.episode_number || 0) + '集'
   syncStoryboardStateFromEpisode(ep)
-  loadStoryboardMedia()
-  recoverAndSyncEpisodeTasks(epId)
+  markScriptDraftSaved()
+  await refreshProjectDependencies(epId)
 }
 
-async function loadDrama() {
-  if (!store.dramaId) return
+function friendlyFilmProjectLoadError(error) {
+  const status = Number(error?.status || error?.response?.status)
+  if (status === 404) return '该项目不存在，或已移入回收站。'
+  if (status >= 500) return '本地服务暂时不可用，请稍后重试。'
+  return '无法连接本地服务，请确认服务已经启动后重试。'
+}
+
+async function refreshProjectDependencies(episodeId, { includeProjectCapabilities = false } = {}) {
+  const dependencyRequestId = ++projectDependencyRequestId
+  projectDependencyLoading.value = true
+  projectDependencyWarning.value = ''
+  const dependencyJobs = [
+    loadStoryboardMedia(),
+    recoverAndSyncEpisodeTasks(episodeId),
+  ]
+  if (includeProjectCapabilities) {
+    dependencyJobs.push(
+      loadPipelineConcurrency(),
+      refreshVideoGenerationCapability(),
+      refreshProductionReadiness(),
+    )
+  }
+  const [mediaResult, taskResult, settingsResult, videoCapabilityResult, readinessResult] = await Promise.allSettled(dependencyJobs)
+  if (dependencyRequestId !== projectDependencyRequestId) return false
+
+  const warnings = []
+  if (mediaResult.status === 'rejected') {
+    warnings.push('分镜媒体暂时无法加载')
+  } else if (mediaResult.value?.failedCount > 0) {
+    warnings.push(`${mediaResult.value.failedCount} 个分镜的媒体暂时无法加载`)
+  }
+  if (taskResult.status === 'rejected') warnings.push('生成任务状态暂时无法同步')
+  if (includeProjectCapabilities) {
+    if (settingsResult.status === 'rejected' || settingsResult.value !== true) warnings.push('生成并发设置暂时无法加载')
+    if (videoCapabilityResult.status === 'rejected' || videoCapabilityFailed.value) warnings.push('视频模型能力暂时无法确认')
+    if (readinessResult.status === 'rejected' || productionReadinessFailed.value) warnings.push('完整成片就绪状态暂时无法确认')
+  }
+  projectDependencyWarning.value = warnings.length
+    ? `${warnings.join('；')}。项目已正常打开，可重试加载素材。`
+    : ''
+  projectDependencyLoading.value = false
+  return warnings.length === 0
+}
+
+async function retryProjectDependencies() {
+  if (projectLoadState.value !== 'ready') return
+  await refreshProjectDependencies(currentEpisodeId.value, { includeProjectCapabilities: true })
+}
+
+function coreRequestError(status) {
+  const error = new Error('PROJECT_LOAD_FAILED')
+  error.status = Number(status) || 0
+  return error
+}
+
+async function requestCoreJson(path, { method = 'GET', body, fetchImpl = globalThis.fetch } = {}) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15000)
+  let response
   try {
-    let d = await dramaAPI.get(store.dramaId)
-    d = await backfillDramaStylePromptMetadataIfNeeded(dramaAPI, store.dramaId, d)
+    response = await fetchImpl(`/api/v1${path}`, {
+      method,
+      credentials: 'same-origin',
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    })
+  } catch (_) {
+    throw coreRequestError(0)
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  let payload = null
+  try {
+    payload = response.status === 204 ? null : await response.json()
+  } catch (_) {
+    throw coreRequestError(response.status)
+  }
+  if (!response.ok || payload?.success === false) throw coreRequestError(response.status)
+  return payload?.data !== undefined ? payload.data : payload
+}
+
+const coreDramaAPI = {
+  get(id) {
+    return requestCoreJson(`/dramas/${encodeURIComponent(id)}`)
+  },
+  saveOutline(id, data) {
+    return requestCoreJson(`/dramas/${encodeURIComponent(id)}/outline`, { method: 'PUT', body: data })
+  },
+}
+
+async function loadDrama({ blocking = projectLoadState.value !== 'ready' } = {}) {
+  const requestedDramaId = Number(store.dramaId)
+  if (!Number.isFinite(requestedDramaId) || requestedDramaId <= 0) return false
+  const requestId = ++projectLoadRequestId
+  projectLoadPending.value = true
+  projectLoadError.value = ''
+  projectLoadNotFound.value = false
+  projectDependencyWarning.value = ''
+  if (blocking) projectLoadState.value = 'loading'
+  try {
+    let d = await coreDramaAPI.get(requestedDramaId)
+    d = await backfillDramaStylePromptMetadataIfNeeded(coreDramaAPI, requestedDramaId, d)
+    if (requestId !== projectLoadRequestId) return false
     store.setDrama(d)
     // 恢复「故事生成」框的梗概（项目 description 存的是故事梗概）
     storyInput.value = (d.description || '').toString().trim()
@@ -4570,12 +5353,31 @@ async function loadDrama() {
       scriptTitle.value = ''
       selectedEpisodeId.value = null
     }
+    markScriptDraftSaved()
     syncStoryboardStateFromEpisode(ep)
-    await loadStoryboardMedia()
-    await recoverAndSyncEpisodeTasks(ep?.id)
+    projectLoadState.value = 'ready'
+    projectLoadNotFound.value = false
+    await refreshProjectDependencies(ep?.id, { includeProjectCapabilities: true })
+    return true
   } catch (e) {
-    ElMessage.error(e.message || '加载失败')
+    if (requestId !== projectLoadRequestId) return false
+    scriptDraftController.dispose()
+    store.reset()
+    store.setDrama({ id: requestedDramaId })
+    projectLoadNotFound.value = Number(e?.status || e?.response?.status) === 404
+    projectLoadError.value = friendlyFilmProjectLoadError(e)
+    projectLoadState.value = 'error'
+    projectDependencyWarning.value = ''
+    await nextTick()
+    projectLoadFailureRef.value?.focus()
+    return false
+  } finally {
+    if (requestId === projectLoadRequestId) projectLoadPending.value = false
   }
+}
+
+async function retryFilmProjectLoad() {
+  await loadDrama({ blocking: true })
 }
 
 const EMPTY_ARR = []
@@ -4607,7 +5409,9 @@ function getMovementLabel(m) {
     bullet_time: '子弹时间',
     dutch_angle_move: '荷兰角',
     dolly_track: '推轨',
-    slowmo_orbit: '升格环绕'
+    slowmo_orbit: '升格环绕',
+    'slow push in': '缓慢推镜',
+    'static hold': '固定镜头'
   }
   return map[m] || m
 }
@@ -4995,6 +5799,21 @@ function openSelectScriptDialog() {
   showSelectScriptDialog.value = true
 }
 
+async function returnToScriptCreation() {
+  showSelectScriptDialog.value = false
+  scriptWorkbenchMode.value = 'create'
+  await nextTick()
+  scrollToAnchor('anchor-script')
+}
+
+async function returnToCharacterPanel() {
+  showCharLibrary.value = false
+  resourcePanelCollapsed.value = false
+  charactersBlockCollapsed.value = false
+  await nextTick()
+  scrollToAnchor('anchor-characters')
+}
+
 async function loadSelectScriptList() {
   selectScriptLoading.value = true
   try {
@@ -5144,6 +5963,10 @@ async function onImportNovel() {
     formData.append('title', scriptTitle.value || '导入小说')
     formData.append('max_chapters', String(novelMaxChapters.value))
     formData.append('ai_summarize', String(novelAiSummarize.value))
+    if (store.dramaId) {
+      formData.append('drama_id', String(store.dramaId))
+      formData.append('start_workflow', 'false')
+    }
     const { default: axios } = await import('axios')
     const baseURL = (await import('@/utils/request')).default.defaults.baseURL || '/api/v1'
     const res = await axios.post(`${baseURL}/dramas/import-novel`, formData, {
@@ -5205,12 +6028,14 @@ async function onGenerateScript() {
   }
   scriptGenerating.value = true
   try {
+    await flushScriptDraft()
     const result = await saveScriptToBackend(content)
     if (result?.created) {
       ElMessage.success('项目已创建，剧本已保存')
     } else {
       ElMessage.success('剧本已保存')
     }
+    markScriptDraftSaved()
     trackFilmCreateAction('save_script_complete', {
       extra: { created_project: !!result?.created },
     })
@@ -5385,14 +6210,13 @@ function onResourceImageFileChange(ev) {
 function getSbFirstFrameUrl(sb) {
   const img = storyboardUseFirstLastFrame.value ? getSbFirstImage(sb.id) : getSbImage(sb.id)
   if (img && (img.image_url || img.local_path)) return assetImageUrl(img)
-  if (sb.composed_image || sb.image_url) return imageUrl(sb.composed_image || sb.image_url)
-  return ''
+  return storyboardImageUrl(sb)
 }
 
 function getSbLastFrameUrl(sb) {
   const img = getSbLastImage(sb.id)
   if (img && (img.image_url || img.local_path)) return assetImageUrl(img)
-  if (sb.last_frame_image_url || sb.last_frame_local_path) {
+  if (hasRealMediaValue(sb.last_frame_image_url) || hasRealMediaValue(sb.last_frame_local_path)) {
     return assetImageUrl({ image_url: sb.last_frame_image_url, local_path: sb.last_frame_local_path })
   }
   return ''
@@ -5531,6 +6355,11 @@ async function onTtsSbDialogue(sb) {
     ElMessage.warning('该分镜没有对白内容')
     return
   }
+  const disabledReason = ttsGenerationDisabledReason(sb.id, 'dialogue')
+  if (disabledReason) {
+    ElMessage.warning(disabledReason)
+    return
+  }
   ttsSbIds.add(sb.id)
   try {
     const res = await fetch('/api/v1/audio/extract', {
@@ -5549,7 +6378,7 @@ async function onTtsSbDialogue(sb) {
       ElMessage.success('配音已生成')
     }
   } catch (e) {
-    ElMessage.error(e.message || 'TTS 配音失败')
+    ElMessage.error(e.message || '对白配音失败')
   } finally {
     ttsSbIds.delete(sb.id)
   }
@@ -5561,6 +6390,11 @@ async function onTtsSbNarration(sb) {
   const text = ((sbNarration.value[sb.id] ?? sb.narration) || '').toString().trim()
   if (!text) {
     ElMessage.warning('该分镜没有解说旁白内容')
+    return
+  }
+  const disabledReason = ttsGenerationDisabledReason(sb.id, 'narration')
+  if (disabledReason) {
+    ElMessage.warning(disabledReason)
     return
   }
   ttsSbNarrationIds.add(sb.id)
@@ -5581,7 +6415,7 @@ async function onTtsSbNarration(sb) {
       ElMessage.success('解说配音已生成')
     }
   } catch (e) {
-    ElMessage.error(e.message || '解说 TTS 失败')
+    ElMessage.error(e.message || '解说配音失败')
   } finally {
     ttsSbNarrationIds.delete(sb.id)
   }
@@ -6048,6 +6882,15 @@ function sbCanSubmitVideo(sb) {
   return false
 }
 
+function sbVideoGenerationDisabledReason(sb) {
+  if (isSbVideoGenerating(sb?.id)) return '正在生成分镜视频，请等待完成'
+  if (videoCapabilityReason.value) return videoCapabilityReason.value
+  if (sbCanSubmitVideo(sb)) return ''
+  return isSbUniversalMode(sb?.id)
+    ? '请先填写视频提示词或全能片段描述'
+    : '请先填写视频提示词'
+}
+
 /** 提交给视频 API 的文案：全能模式有片段描述时仅提交该段（不拼接 video_prompt，避免动作/旁白盖过 @图片 等编排） */
 function buildSbVideoPromptForApi(sb, { preferClassicPrompt = false } = {}) {
   const vp = (sb.video_prompt || '').toString().trim()
@@ -6060,74 +6903,220 @@ function buildSbVideoPromptForApi(sb, { preferClassicPrompt = false } = {}) {
   return vp
 }
 
-/** 全能模式：与 collectSbOmniReferenceAbsoluteUrls 同序的参考槽位（用于 @ 选择器缩略图） */
-function getSbUniversalOmniRefSlots(sb) {
-  if (!sb?.id) return []
-  const out = []
-  let idx = 1
-  const scene = getSbSelectedScene(sb.id)
-  if (scene && hasAssetImage(scene)) {
-    out.push({
-      index: idx++,
-      kind: 'scene',
-      name: (scene.name || '场景').toString(),
-      thumbUrl: assetImageUrl(scene),
-    })
+function currentStoryboardReferenceState(sb) {
+  if (!sb?.id) return sb || {}
+  return {
+    ...sb,
+    scene_id: sbSceneId.value[sb.id] ?? sb.scene_id,
+    characters: sbCharacterIds.value[sb.id] ?? sb.characters,
+    prop_ids: sbPropIds.value[sb.id] ?? sb.prop_ids,
   }
-  for (const c of getSbSelectedCharacters(sb.id)) {
-    if (hasAssetImage(c)) {
-      out.push({
-        index: idx++,
-        kind: 'character',
-        name: (c.name || '角色').toString(),
-        thumbUrl: assetImageUrl(c),
-      })
-    }
-  }
-  for (const p of getSbSelectedProps(sb.id)) {
-    if (hasAssetImage(p)) {
-      out.push({
-        index: idx++,
-        kind: 'prop',
-        name: (p.name || '物品').toString(),
-        thumbUrl: assetImageUrl(p),
-      })
-    }
-  }
-  return out
 }
 
-/** 全能模式：场景/角色/物品 → 绝对 URL 列表（不含经典分镜中间主图；供可灵 Omni / 火山多图参考，最多 10，方舟侧最多取 9 张） */
+function findStoryboardRow(sbId) {
+  return (storyboards.value || []).find((row) => Number(row.id) === Number(sbId)) || null
+}
+
+function mergeStoryboardIntoStore(nextRow) {
+  if (!nextRow?.id) return
+  const mergeIntoList = (list) => {
+    if (!Array.isArray(list)) return
+    const row = list.find((item) => Number(item.id) === Number(nextRow.id))
+    if (row) Object.assign(row, nextRow)
+  }
+  mergeIntoList(store.currentEpisode?.storyboards)
+  for (const episode of store.drama?.episodes || []) mergeIntoList(episode.storyboards)
+  if (videoParamsTarget.value?.id === nextRow.id) {
+    videoParamsTarget.value = { ...videoParamsTarget.value, ...nextRow }
+  }
+}
+
+function getSbFreeReferenceItems(sb) {
+  return normalizeStoryboardReferenceImages(currentStoryboardReferenceState(sb))
+}
+
+function getSbPrimaryFreeReferenceItem(sb) {
+  return getSbFreeReferenceItems(sb)[0] || null
+}
+
+function collectSbFreeReferenceAbsoluteUrls(sb) {
+  if (!sb?.id) return []
+  return collectStoryboardReferenceUrls(
+    currentDramaReferenceEntities(),
+    currentStoryboardReferenceState(sb),
+    { kinds: ['free'], toAbsolute: toAbsoluteImageUrl, limit: 10 }
+  )
+}
+
+function uniqueStoryboardReferenceUrls(values, limit = 10) {
+  const next = []
+  const seen = new Set()
+  for (const raw of values || []) {
+    const value = String(raw || '').trim()
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    next.push(value)
+    if (next.length >= limit) break
+  }
+  return next
+}
+
+async function saveStoryboardReferenceImages(sb, nextImages, successMessage) {
+  if (!sb?.id || savingSbReferenceImages.has(sb.id)) return false
+  savingSbReferenceImages.add(sb.id)
+  try {
+    const updated = await storyboardsAPI.update(sb.id, { reference_images: nextImages })
+    mergeStoryboardIntoStore(updated)
+    ElMessage.success(successMessage)
+    return true
+  } catch (e) {
+    ElMessage.error(e.message || '保存分镜参考图失败')
+    return false
+  } finally {
+    savingSbReferenceImages.delete(sb.id)
+  }
+}
+
+function openGlobalMediaPicker(sb, mode = 'reference') {
+  if (!sb?.id) return
+  globalMediaPickerMode.value = mode
+  globalMediaPickerTarget.value = findStoryboardRow(sb.id) || sb
+  showGlobalMediaPicker.value = true
+}
+
+async function onGlobalMediaAssetSelected(asset) {
+  const sb = globalMediaPickerTarget.value
+  if (!sb?.id) return
+  const reference = createStoryboardReferenceFromAsset(asset)
+  if (!reference) {
+    ElMessage.warning('当前闭环先支持把图片挂到分镜参考图')
+    return
+  }
+  const prepend = globalMediaPickerMode.value === 'reference-primary'
+  const result = upsertStoryboardReferenceImage(currentStoryboardReferenceState(sb), reference, { prepend })
+  if (result.status === 'invalid') {
+    ElMessage.warning('所选素材缺少可用图片地址，无法挂到分镜参考图')
+    return
+  }
+  if (result.status === 'duplicate' && !prepend) {
+    ElMessage.warning('该图片已经挂到当前分镜的自由参考图中')
+    return
+  }
+  if (result.status === 'duplicate' && prepend) {
+    ElMessage.warning('该图片已经是当前分镜的视频主参考')
+    return
+  }
+  const message = prepend ? '已设置为当前分镜的视频主参考图' : '已添加到当前分镜的自由参考图'
+  const saved = await saveStoryboardReferenceImages(sb, result.items, message)
+  if (saved) {
+    showGlobalMediaPicker.value = false
+    globalMediaPickerTarget.value = findStoryboardRow(sb.id) || sb
+  }
+}
+
+async function onRemoveSbFreeReferenceImage(sb, index) {
+  const items = getSbFreeReferenceItems(sb)
+  if (index < 0 || index >= items.length) return
+  const nextImages = items.filter((_, itemIndex) => itemIndex !== index)
+  await saveStoryboardReferenceImages(sb, nextImages, '已移除分镜自由参考图')
+}
+
+async function onPromoteSbFreeReferenceImage(sb, item) {
+  const result = upsertStoryboardReferenceImage(currentStoryboardReferenceState(sb), item, { prepend: true })
+  if (result.status === 'duplicate') {
+    ElMessage.warning('该图片已经是当前分镜的视频主参考')
+    return
+  }
+  await saveStoryboardReferenceImages(sb, result.items, '已更新当前分镜的视频主参考图')
+}
+
+function currentDramaReferenceEntities() {
+  return {
+    scenes: scenes.value || [],
+    characters: characters.value || [],
+    props: props.value || [],
+  }
+}
+
+/** 全能模式：场景、角色、物品和自由参考图槽位（用于 @ 选择器缩略图） */
+function getSbUniversalOmniRefSlots(sb) {
+  if (!sb?.id) return []
+  return collectStoryboardReferenceSlots(
+    currentDramaReferenceEntities(),
+    currentStoryboardReferenceState(sb)
+  ).map((slot) => ({
+    index: slot.index,
+    kind: slot.kind,
+    name: slot.name,
+    thumbUrl: slot.url,
+  }))
+}
+
+/** 全能模式：统一收集场景、角色、物品和自由参考图，最多 10 张。 */
 function collectSbOmniReferenceAbsoluteUrls(sb) {
   if (!sb?.id) return []
-  const urls = []
-  const seen = new Set()
-  function pushAbs(u) {
-    const abs = toAbsoluteImageUrl(u)
-    if (!abs || seen.has(abs)) return
-    seen.add(abs)
-    urls.push(abs)
-  }
-  const scene = getSbSelectedScene(sb.id)
-  if (scene && hasAssetImage(scene)) pushAbs(assetImageUrl(scene))
-  for (const c of getSbSelectedCharacters(sb.id)) {
-    if (hasAssetImage(c)) pushAbs(assetImageUrl(c))
-  }
-  for (const p of getSbSelectedProps(sb.id)) {
-    if (hasAssetImage(p)) pushAbs(assetImageUrl(p))
-  }
-  return urls.slice(0, 10)
+  return collectStoryboardReferenceUrls(
+    currentDramaReferenceEntities(),
+    currentStoryboardReferenceState(sb),
+    { toAbsolute: toAbsoluteImageUrl, limit: 10 }
+  )
 }
 
 /** 非 Seedance2 全能降级：仅场景参考图（若有） */
 function collectSbSceneOnlyReferenceAbsoluteUrls(sb) {
   if (!sb?.id) return []
-  const scene = getSbSelectedScene(sb.id)
-  if (scene && hasAssetImage(scene)) {
-    const abs = toAbsoluteImageUrl(assetImageUrl(scene))
-    return abs ? [abs] : []
+  return collectStoryboardReferenceUrls(
+    currentDramaReferenceEntities(),
+    currentStoryboardReferenceState(sb),
+    { kinds: ['scene'], toAbsolute: toAbsoluteImageUrl, limit: 1 }
+  )
+}
+
+function getSbPrimaryReferenceAbsoluteUrl(sb) {
+  const primary = getSbPrimaryFreeReferenceItem(sb)
+  return primary ? toAbsoluteImageUrl(assetImageUrl(primary)) : ''
+}
+
+async function buildStoryboardVideoReferencePayload(sb, options = {}) {
+  const universal = options.universal === true
+  const universalOmni = options.universalOmni === true
+  const selectedGrid = options.selectedGrid || null
+  const gridAbsoluteUrl = selectedGrid ? toAbsoluteImageUrl(assetImageUrl(selectedGrid)) : ''
+  const omniRefs = universal ? [gridAbsoluteUrl, ...collectSbOmniReferenceAbsoluteUrls(sb)].filter(Boolean) : []
+  const sceneOnlyRefs = universal && !universalOmni ? collectSbSceneOnlyReferenceAbsoluteUrls(sb) : []
+  const freeRefs = collectSbFreeReferenceAbsoluteUrls(sb)
+  const primaryReferenceUrl = getSbPrimaryReferenceAbsoluteUrl(sb)
+  const mainImageUrl = selectedGrid ? '' : toAbsoluteImageUrl((options.mainImageUrl || await getMainImageUrlForVideo(sb) || ''))
+  let absoluteUrl = gridAbsoluteUrl || mainImageUrl || primaryReferenceUrl
+  let referenceUrls = []
+
+  if (universalOmni) {
+    referenceUrls = uniqueStoryboardReferenceUrls(omniRefs, 10)
+    if (!absoluteUrl) absoluteUrl = referenceUrls[0] || ''
+  } else if (universal) {
+    referenceUrls = uniqueStoryboardReferenceUrls([absoluteUrl, ...sceneOnlyRefs, ...freeRefs], 10)
+    if (!absoluteUrl) absoluteUrl = referenceUrls[0] || ''
+  } else {
+    referenceUrls = uniqueStoryboardReferenceUrls([absoluteUrl, ...freeRefs], 10)
+    if (!absoluteUrl) absoluteUrl = referenceUrls[0] || ''
   }
-  return []
+
+  const frameUrls = sbVideoFirstLastUrls(sb, universalOmni, options.contiguityFirstFrameUrl || null)
+  const firstFrameUrl = selectedGrid ? gridAbsoluteUrl : (frameUrls.first || absoluteUrl || undefined)
+  const lastFrameUrl = selectedGrid ? undefined : frameUrls.last
+  if (!universalOmni && lastFrameUrl) {
+    referenceUrls = uniqueStoryboardReferenceUrls([...referenceUrls, lastFrameUrl], 10)
+  }
+
+  return {
+    absoluteUrl,
+    gridAbsoluteUrl,
+    referenceUrls: referenceUrls.length ? referenceUrls : undefined,
+    firstFrameUrl,
+    lastFrameUrl,
+    omniRefs,
+    sceneOnlyRefs,
+  }
 }
 
 let activeVideoAiConfigCache = null
@@ -6139,53 +7128,65 @@ function invalidateActiveVideoAiConfigCache() {
   activeVideoAiConfigCacheAt = 0
 }
 
+function getNovel2AnimeReadiness(data) {
+  return requestCoreJson('/workflows/novel2anime/readiness', { method: 'POST', body: data })
+}
+
+async function refreshProductionReadiness() {
+  productionReadinessLoading.value = true
+  productionReadinessFailed.value = false
+  authoritativeProductionReadiness.value = null
+  try {
+    const readiness = await getNovel2AnimeReadiness({
+      drama_id: dramaId.value,
+      qa_mode: 'production',
+    })
+    authoritativeProductionReadiness.value = normalizeProductionReadiness(readiness)
+  } catch (_) {
+    productionReadinessFailed.value = true
+  } finally {
+    productionReadinessLoading.value = false
+  }
+  return {
+    ready: !productionReadinessFailed.value
+      && Boolean(authoritativeProductionReadiness.value?.ready),
+    reason: productionReadinessReason.value,
+  }
+}
+
+async function refreshVideoGenerationCapability() {
+  videoCapabilityLoading.value = true
+  videoCapabilityFailed.value = false
+  let capability
+  try {
+    const rows = await requestCoreJson('/ai-configs?service_type=video')
+    videoCapabilityConfigs.value = Array.isArray(rows) ? rows : []
+    capability = getVideoGenerationCapability(videoCapabilityConfigs.value)
+    activeVideoAiConfigCache = capability.config
+  } catch (_) {
+    videoCapabilityConfigs.value = []
+    videoCapabilityFailed.value = true
+    capability = getVideoGenerationCapability([], { failed: true })
+    activeVideoAiConfigCache = null
+  } finally {
+    activeVideoAiConfigCacheAt = Date.now()
+    videoCapabilityLoading.value = false
+  }
+  return capability
+}
+
 async function getActiveVideoAiConfig() {
   const now = Date.now()
-  if (activeVideoAiConfigCache && now - activeVideoAiConfigCacheAt < ACTIVE_VIDEO_AI_CONFIG_TTL_MS) {
+  if (now - activeVideoAiConfigCacheAt < ACTIVE_VIDEO_AI_CONFIG_TTL_MS) {
     return activeVideoAiConfigCache
   }
-  try {
-    const rows = await aiAPI.list('video')
-    const list = Array.isArray(rows) ? rows : []
-    const active = list.filter((c) => c.is_active !== false)
-    activeVideoAiConfigCache = active.find((c) => c.is_default) || active[0] || null
-  } catch {
-    activeVideoAiConfigCache = null
-  }
-  activeVideoAiConfigCacheAt = now
-  return activeVideoAiConfigCache
-}
-
-function videoModelNameFromAiConfig(cfg) {
-  if (!cfg) return ''
-  const dm = (cfg.default_model || '').toString().trim()
-  if (dm) return dm
-  const m = cfg.model
-  if (Array.isArray(m) && m.length) return String(m[0]).trim()
-  return String(m || '').trim()
-}
-
-/** 模型名含 seedance 且含 2-0（与后端 videoClient 判定 Seedance 2.x 对齐） */
-function isSeedance2VideoModel(modelName) {
-  const m = String(modelName || '').toLowerCase()
-  if (!m.includes('seedance')) return false
-  return /2[-_]0/.test(m) || /seedance[-_]?2|seedance2/.test(m)
+  const capability = await refreshVideoGenerationCapability()
+  return capability.config
 }
 
 /** 全能分镜 + 当前视频配置是否可走多图参考（火山 Seedance 2.0、可灵 Omni、Agnes Video 等） */
 function canUseUniversalOmniVideoApi(cfg) {
-  if (!cfg) return false
-  const proto = String(cfg.api_protocol || '').toLowerCase()
-  const provider = String(cfg.provider || '').toLowerCase()
-  const model = videoModelNameFromAiConfig(cfg).toLowerCase()
-  if (proto === 'kling_omni') return true
-  if (proto === 'volcengine_omni') {
-    return isSeedance2VideoModel(model)
-  }
-  if (proto === 'agnes' || provider === 'agnes' || /agnes-video/.test(model)) {
-    return true
-  }
-  return false
+  return videoConfigSupportsOmni(cfg)
 }
 
 async function confirmUniversalNonSeedance2Video() {
@@ -6322,6 +7323,7 @@ async function onSaveSbVideoFields(sb) {
       layout_description: (sbLayoutDescription.value[sb.id] || '').toString().trim() || null,
       creation_mode: sbCreationMode.value[sb.id] === 'universal' ? 'universal' : 'classic',
       universal_segment_text: (sbUniversalSegmentText.value[sb.id] || '').toString().trim() || null,
+      video_reference_image_id: sbVideoReferenceImageId.value[sb.id] || null,
     })
     const rebuilt = await storyboardsAPI.rebuildVideoPrompt(sb.id)
     const newVp = (rebuilt?.video_prompt && String(rebuilt.video_prompt).trim()) || ''
@@ -6360,6 +7362,10 @@ function onVideoParamsDialogClosed() {
   if (!row) return
   sbCreationMode.value = { ...sbCreationMode.value, [sb.id]: row.creation_mode === 'universal' ? 'universal' : 'classic' }
   sbUniversalSegmentText.value = { ...sbUniversalSegmentText.value, [sb.id]: (row.universal_segment_text ?? '').toString() }
+  sbVideoReferenceImageId.value = {
+    ...sbVideoReferenceImageId.value,
+    [sb.id]: row.video_reference_image_id ? Number(row.video_reference_image_id) : '',
+  }
 }
 
 function countDialogueLinesInSb(sb) {
@@ -6463,11 +7469,30 @@ async function onRegenerateLayoutDescription(sb) {
 }
 
 async function onGenerateSbVideo(sb) {
-  if (!dramaId.value || !sb?.id || !sbCanSubmitVideo(sb)) return
+  if (!dramaId.value || !sb?.id) return
+  const disabledReason = sbVideoGenerationDisabledReason(sb)
+  if (disabledReason) {
+    ElMessage.warning(disabledReason)
+    return
+  }
   const universal = isSbUniversalMode(sb.id)
+  const selectedGridId = Number(sbVideoReferenceImageId.value[sb.id] || sb.video_reference_image_id)
+  const selectedGrid = getSbVideoReferenceGrid(sb)
+  if (selectedGridId > 0 && !selectedGrid) {
+    ElMessage.error('选中的宫格视频参考图不存在，请重新选择')
+    return
+  }
+  const videoCfg = universal || selectedGrid ? await getActiveVideoAiConfig() : null
+  if (selectedGrid && !videoConfigSupportsGridReference(videoCfg)) {
+    await ElMessageBox.alert(
+      '当前视频模型未声明支持宫格整图参考。请在 AI 配置的高级设置中启用 supports_grid_reference，或改回主图/首帧。',
+      '宫格参考不受支持',
+      { confirmButtonText: '知道了', type: 'warning' }
+    )
+    return
+  }
   let universalOmniApi = universal
   if (universal) {
-    const videoCfg = await getActiveVideoAiConfig()
     if (!canUseUniversalOmniVideoApi(videoCfg)) {
       try {
         await confirmUniversalNonSeedance2Video()
@@ -6477,14 +7502,18 @@ async function onGenerateSbVideo(sb) {
       universalOmniApi = false
     }
   }
-  const omniRefs = universalOmniApi ? collectSbOmniReferenceAbsoluteUrls(sb) : []
+  const gridAbsoluteUrl = selectedGrid ? toAbsoluteImageUrl(assetImageUrl(selectedGrid)) : ''
+  const omniRefs = universalOmniApi
+    ? [gridAbsoluteUrl, ...collectSbOmniReferenceAbsoluteUrls(sb)].filter(Boolean)
+    : []
   const sceneOnlyRefs = universal && !universalOmniApi ? collectSbSceneOnlyReferenceAbsoluteUrls(sb) : []
-  const hasClassicFrame = !!getSbFirstFrameUrl(sb)
+  const freeRefs = collectSbFreeReferenceAbsoluteUrls(sb)
+  const hasClassicFrame = !!(gridAbsoluteUrl || getSbFirstFrameUrl(sb) || getSbPrimaryReferenceAbsoluteUrl(sb))
   let hasAnyImage = false
   if (universalOmniApi) {
     hasAnyImage = omniRefs.length > 0
   } else if (universal) {
-    hasAnyImage = hasClassicFrame || sceneOnlyRefs.length > 0
+      hasAnyImage = hasClassicFrame || sceneOnlyRefs.length > 0 || freeRefs.length > 0
   } else {
     hasAnyImage = hasClassicFrame
   }
@@ -6521,47 +7550,32 @@ async function onGenerateSbVideo(sb) {
   }
   storyboardsAPI.update(sb.id, { video_url: null }).catch(() => {})
   try {
-    let absoluteUrl = ''
-    let referenceUrls = undefined
-    if (universalOmniApi) {
-      referenceUrls = omniRefs.length ? omniRefs : undefined
-      absoluteUrl = omniRefs[0] || ''
-    } else if (universal) {
-      const firstFrameUrl = await getMainImageUrlForVideo(sb)
-      absoluteUrl = toAbsoluteImageUrl(firstFrameUrl)
-      if (absoluteUrl) {
-        referenceUrls = sceneOnlyRefs.length ? sceneOnlyRefs : [absoluteUrl]
-      } else {
-        referenceUrls = sceneOnlyRefs.length ? sceneOnlyRefs : undefined
-        absoluteUrl = sceneOnlyRefs[0] || ''
-      }
-    } else {
-      const firstFrameUrl = await getMainImageUrlForVideo(sb)
-      absoluteUrl = toAbsoluteImageUrl(firstFrameUrl)
-      referenceUrls = absoluteUrl ? [absoluteUrl] : undefined
-    }
-    const { first: vFirst, last: vLast } = sbVideoFirstLastUrls(sb, universalOmniApi, null)
-    if (!universalOmniApi && vLast && referenceUrls && !referenceUrls.includes(vLast)) {
-      referenceUrls = [...referenceUrls, vLast]
-    }
-    const preferClassicPrompt = universal && !universalOmniApi
-    const res = await videosAPI.create({
-      drama_id: dramaId.value,
-      storyboard_id: sb.id,
-      prompt: buildSbVideoPromptForApi(sb, { preferClassicPrompt }),
-      image_url: universalOmniApi ? undefined : ((vFirst || absoluteUrl) || undefined),
-      first_frame_url: universalOmniApi ? undefined : (vFirst || absoluteUrl || undefined),
-      last_frame_url: universalOmniApi ? undefined : vLast,
-      reference_image_urls: referenceUrls,
-      style: getSelectedStyle(),
-      aspect_ratio: projectAspectRatio.value || '16:9',
-      resolution: videoResolution.value || undefined,
-      duration: getSbVideoDurationForApi(sb),
+    const referencePayload = await buildStoryboardVideoReferencePayload(sb, {
+      universal,
+      universalOmni: universalOmniApi,
+      selectedGrid,
     })
+    const vFirst = referencePayload.firstFrameUrl || referencePayload.absoluteUrl
+    const vLast = referencePayload.lastFrameUrl
+    const preferClassicPrompt = universal && !universalOmniApi
+    const res = await videosAPI.create(buildStoryboardVideoRequest({
+      dramaId: dramaId.value,
+      storyboard: sb,
+      prompt: buildSbVideoPromptForApi(sb, { preferClassicPrompt }),
+      universalOmni: universalOmniApi,
+      firstFrameUrl: vFirst,
+      lastFrameUrl: vLast,
+      referenceImageUrls: referencePayload.referenceUrls,
+      style: getSelectedStyle(),
+      aspectRatio: projectAspectRatio.value || '16:9',
+      resolution: videoResolution.value,
+      duration: getSbVideoDurationForApi(sb),
+      videoReferenceImageId: selectedGrid?.id,
+    }))
     if (res?.task_id) {
       const pollRes = await pollTask(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
       if (pollRes?.status === 'failed') {
-        sbVideoErrors.value[sb.id] = pollRes.error || '视频生成失败'
+        sbVideoErrors.value[sb.id] = userFacingVideoGenerationError(pollRes.error)
       } else if (pollRes?.status === 'completed') {
         sbVideoErrors.value[sb.id] = ''
         ElMessage.success('视频生成完成')
@@ -6571,8 +7585,9 @@ async function onGenerateSbVideo(sb) {
       ElMessage.success('视频生成已提交，请稍后查看')
     }
   } catch (e) {
-    sbVideoErrors.value[sb.id] = e.message || '提交失败'
-    ElMessage.error(e.message || '提交失败')
+    const message = userFacingVideoGenerationError(e?.message, '视频生成提交失败，请稍后重试。')
+    sbVideoErrors.value[sb.id] = message
+    ElMessage.error(message)
   } finally {
     generatingSbVideoIds.delete(sb.id)
     genStore.markDone(meta)
@@ -6871,6 +7886,13 @@ async function startBatchImageGeneration() {
 
 async function startBatchVideoGeneration() {
   if (!currentEpisodeId.value || batchVideoRunning.value || pipelineRunning.value) return
+  const videoCapability = await refreshVideoGenerationCapability()
+  if (!videoCapability.ready) {
+    ElMessage.warning(videoCapability.reason)
+    return
+  }
+  const batchVideoCfg = videoCapability.config
+  const batchUniversalOmni = canUseUniversalOmniVideoApi(batchVideoCfg)
   batchVideoErrors.value = []
   batchVideoStopping.value = false
   batchVideoRunning.value = true
@@ -6884,9 +7906,12 @@ async function startBatchVideoGeneration() {
     const todo = boards.filter((sb) => {
       const vidList = sbVideos.value[sb.id] || []
       if (vidList.some((v) => v.status === 'completed' && recordHasPlayableVideoUrl(v))) return false
+      const selectedGrid = getSbVideoReferenceGrid(sb)
+      if (selectedGrid) return true
       if (isSbUniversalMode(sb.id)) {
         if (!sbCanSubmitVideo(sb)) return false
-        return collectSbOmniReferenceAbsoluteUrls(sb).length > 0
+        if (batchUniversalOmni) return true
+        return !!(getSbFirstFrameUrl(sb) || collectSbSceneOnlyReferenceAbsoluteUrls(sb).length)
       }
       return !!getSbFirstFrameUrl(sb)
     })
@@ -6907,13 +7932,25 @@ async function startBatchVideoGeneration() {
         if (batchVideoStopping.value) break
         const sb = todo[videoQueueIdx++]
         const universal = isSbUniversalMode(sb.id)
-        const omniRefs = universal ? collectSbOmniReferenceAbsoluteUrls(sb) : []
-        if (!universal && !getSbFirstFrameUrl(sb)) {
+        const universalOmni = universal && batchUniversalOmni
+        const selectedGrid = getSbVideoReferenceGrid(sb)
+        if (selectedGrid && !videoConfigSupportsGridReference(batchVideoCfg)) {
+          batchVideoErrors.value.push(`#${sb.storyboard_number ?? sb.id}: 当前视频模型不支持宫格整图参考`)
+          batchVideoProgress.value = { ...batchVideoProgress.value, failed: batchVideoProgress.value.failed + 1 }
           videoDoneCount++
           batchVideoProgress.value = { ...batchVideoProgress.value, current: videoDoneCount }
           continue
         }
-        if (universal && !omniRefs.length) {
+        const gridAbsoluteUrl = selectedGrid ? toAbsoluteImageUrl(assetImageUrl(selectedGrid)) : ''
+        const omniRefs = universalOmni
+          ? [gridAbsoluteUrl, ...collectSbOmniReferenceAbsoluteUrls(sb)].filter(Boolean)
+          : []
+        if (!universal && !gridAbsoluteUrl && !getSbFirstFrameUrl(sb) && !getSbPrimaryReferenceAbsoluteUrl(sb)) {
+          videoDoneCount++
+          batchVideoProgress.value = { ...batchVideoProgress.value, current: videoDoneCount }
+          continue
+        }
+        if (universalOmni && !omniRefs.length && !sbCanSubmitVideo(sb)) {
           videoDoneCount++
           batchVideoProgress.value = { ...batchVideoProgress.value, current: videoDoneCount }
           continue
@@ -6927,11 +7964,15 @@ async function startBatchVideoGeneration() {
             delete next[sb.id]
             sbSelectedVideoId.value = next
           }
-          const firstFrameUrl = await getMainImageUrlForVideo(sb)
-          const absoluteUrl = universal ? (omniRefs[0] || '') : toAbsoluteImageUrl(firstFrameUrl)
+          const seedPayload = await buildStoryboardVideoReferencePayload(sb, {
+            universal,
+            universalOmni,
+            selectedGrid,
+          })
+          const absoluteUrl = seedPayload.absoluteUrl || ''
           // 连贯帧：提取上一条视频末帧作为参考（全能模式不走连贯帧替换）
           let contiguityFirstFrameUrl = absoluteUrl
-          if (contiguity && prevVideoItem && !universal) {
+          if (contiguity && prevVideoItem && !universal && !selectedGrid) {
             const prevVideoUrl = prevVideoItem.local_path
               ? toAbsoluteImageUrl('/static/' + prevVideoItem.local_path.replace(/^\//, ''))
               : prevVideoItem.video_url
@@ -6948,26 +7989,29 @@ async function startBatchVideoGeneration() {
               } catch (_) {}
             }
           }
-          const { first: vFirst, last: vLast } = sbVideoFirstLastUrls(sb, universal, contiguityFirstFrameUrl || undefined)
-          let refUrls = universal
-            ? (omniRefs.length ? omniRefs : undefined)
-            : (absoluteUrl ? [absoluteUrl] : undefined)
-          if (!universal && vLast && refUrls && !refUrls.includes(vLast)) {
-            refUrls = [...refUrls, vLast]
-          }
-          const res = await videosAPI.create({
-            drama_id: dramaId.value,
-            storyboard_id: sb.id,
-            prompt: buildSbVideoPromptForApi(sb),
-            image_url: vFirst || undefined,
-            first_frame_url: vFirst,
-            last_frame_url: vLast,
-            reference_image_urls: refUrls,
-            style: getSelectedStyle(),
-            aspect_ratio: projectAspectRatio.value || '16:9',
-            resolution: videoResolution.value || undefined,
-            duration: getSbVideoDurationForApi(sb),
+          const referencePayload = await buildStoryboardVideoReferencePayload(sb, {
+            universal,
+            universalOmni,
+            selectedGrid,
+            contiguityFirstFrameUrl: contiguityFirstFrameUrl || undefined,
           })
+          const vFirst = referencePayload.firstFrameUrl
+          const vLast = referencePayload.lastFrameUrl
+          const refUrls = referencePayload.referenceUrls
+          const res = await videosAPI.create(buildStoryboardVideoRequest({
+            dramaId: dramaId.value,
+            storyboard: sb,
+            prompt: buildSbVideoPromptForApi(sb, { preferClassicPrompt: universal && !universalOmni }),
+            universalOmni,
+            firstFrameUrl: vFirst,
+            lastFrameUrl: vLast,
+            referenceImageUrls: refUrls,
+            style: getSelectedStyle(),
+            aspectRatio: projectAspectRatio.value || '16:9',
+            resolution: videoResolution.value,
+            duration: getSbVideoDurationForApi(sb),
+            videoReferenceImageId: selectedGrid?.id,
+          }))
           if (res?.task_id) {
             const meta = buildSbGenMeta(sb, GEN_RESOURCE.SB_VIDEO, '分镜视频')
             const pollRes = await pollTask(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
@@ -7019,7 +8063,10 @@ function getFinalizeMergeOptions() {
 }
 
 async function onGenerateVideo() {
-  if (!currentEpisodeId.value) return
+  if (composeActionDisabledReason.value) {
+    ElMessage.warning(composeActionDisabledReason.value)
+    return
+  }
   const epId = currentEpisodeId.value
   const did = dramaId.value
   const dramaTitle = store.drama?.title || ''
@@ -7241,6 +8288,11 @@ async function pipelineWithRetry(stepName, fn, maxRetries = 3) {
 
 async function startOneClickPipeline() {
   if (!currentEpisodeId.value || pipelineRunning.value) return
+  const productionCapability = await refreshProductionReadiness()
+  if (!productionCapability.ready) {
+    ElMessage.warning(productionCapability.reason)
+    return
+  }
   trackFilmCreateAction('one_click_generate_start')
   pipelineErrorLog.value = []
   pipelineCurrentStep.value = ''
@@ -7438,8 +8490,15 @@ async function runOneClickPipeline(textOnly = false) {
     }
 
     if (textOnly) {
-      pipelineCurrentStep.value = '文本框架已就绪（未生成图片与视频）'
-      ElMessage.success('文本框架已生成：角色、场景、道具与分镜脚本已就绪')
+      const errorCount = pipelineErrorLog.value.length
+      pipelineCurrentStep.value = errorCount
+        ? `文本框架流程已结束，${errorCount} 项失败（未生成图片与视频）`
+        : '文本框架已就绪（未生成图片与视频）'
+      if (errorCount) {
+        ElMessage.warning(`文本框架流程已结束，${errorCount} 项失败`)
+      } else {
+        ElMessage.success('文本框架已生成：角色、场景、道具与分镜脚本已就绪')
+      }
       return
     }
 
@@ -7642,29 +8701,26 @@ async function runOneClickPipeline(textOnly = false) {
           const stepName = '分镜视频 #' + (sb.storyboard_number ?? sb.id)
           const ok = await pipelineWithRetry(stepName, async () => {
             const universal = isSbUniversalMode(sb.id)
-            const omniRefs = universal ? collectSbOmniReferenceAbsoluteUrls(sb) : []
-            const firstFrameUrl = await getMainImageUrlForVideo(sb)
-            const absoluteUrl = universal ? (omniRefs[0] || '') : toAbsoluteImageUrl(firstFrameUrl)
-            const { first: vFirst, last: vLast } = sbVideoFirstLastUrls(sb, universal, null)
-            let refUrls = universal
-              ? (omniRefs.length ? omniRefs : undefined)
-              : (absoluteUrl ? [absoluteUrl] : undefined)
-            if (!universal && vLast && refUrls && !refUrls.includes(vLast)) {
-              refUrls = [...refUrls, vLast]
-            }
-            const res = await videosAPI.create({
-              drama_id: dramaIdVal,
-              storyboard_id: sb.id,
+            const referencePayload = await buildStoryboardVideoReferencePayload(sb, {
+              universal,
+              universalOmni: universal,
+            })
+            const vFirst = referencePayload.firstFrameUrl
+            const vLast = referencePayload.lastFrameUrl
+            const refUrls = referencePayload.referenceUrls
+            const res = await videosAPI.create(buildStoryboardVideoRequest({
+              dramaId: dramaIdVal,
+              storyboard: sb,
               prompt: buildSbVideoPromptForApi(sb),
-              image_url: vFirst || undefined,
-              first_frame_url: vFirst,
-              last_frame_url: vLast,
-              reference_image_urls: refUrls,
+              universalOmni: universal,
+              firstFrameUrl: vFirst,
+              lastFrameUrl: vLast,
+              referenceImageUrls: refUrls,
               style,
-              aspect_ratio: projectAspectRatio.value || '16:9',
+              aspectRatio: projectAspectRatio.value || '16:9',
               resolution: videoResolution.value || undefined,
               duration: getSbVideoDurationForApi(sb),
-            })
+            }))
             if (res?.task_id) {
               const meta = buildSbGenMeta(sb, GEN_RESOURCE.SB_VIDEO, '分镜视频')
               const result = await pollTaskWithPause(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
@@ -7697,9 +8753,16 @@ async function runOneClickPipeline(textOnly = false) {
       addPipelineError('合成整集视频', e.message || String(e))
     }
 
-    pipelineCurrentStep.value = '一键生成视频流程已执行完成'
-    ElMessage.success('一键生成视频流程已执行完成')
-    trackFilmCreateAction('one_click_generate_complete', {
+    const errorCount = pipelineErrorLog.value.length
+    pipelineCurrentStep.value = errorCount
+      ? `一键生成视频流程已结束，${errorCount} 项失败`
+      : '一键生成视频流程已执行完成'
+    if (errorCount) {
+      ElMessage.warning(`一键生成视频流程已结束，${errorCount} 项失败`)
+    } else {
+      ElMessage.success('一键生成视频流程已执行完成')
+    }
+    trackFilmCreateAction(errorCount ? 'one_click_generate_partial' : 'one_click_generate_complete', {
       extra: { error_count: pipelineErrorLog.value.length },
     })
   } catch (e) {
@@ -7983,28 +9046,25 @@ async function runRepairPipeline() {
           const stepName = '分镜视频 #' + (sb.storyboard_number ?? sb.id)
           const ok = await pipelineWithRetry(stepName, async () => {
             const universal = isSbUniversalMode(sb.id)
-            const omniRefs = universal ? collectSbOmniReferenceAbsoluteUrls(sb) : []
-            const firstFrameUrl = await getMainImageUrlForVideo(sb)
-            const absoluteUrl = universal ? (omniRefs[0] || '') : toAbsoluteImageUrl(firstFrameUrl)
-            const { first: vFirst, last: vLast } = sbVideoFirstLastUrls(sb, universal, null)
-            let refUrls = universal
-              ? (omniRefs.length ? omniRefs : undefined)
-              : (absoluteUrl ? [absoluteUrl] : undefined)
-            if (!universal && vLast && refUrls && !refUrls.includes(vLast)) {
-              refUrls = [...refUrls, vLast]
-            }
-            const res = await videosAPI.create({
-              drama_id: dramaIdVal,
-              storyboard_id: sb.id,
+            const referencePayload = await buildStoryboardVideoReferencePayload(sb, {
+              universal,
+              universalOmni: universal,
+            })
+            const vFirst = referencePayload.firstFrameUrl
+            const vLast = referencePayload.lastFrameUrl
+            const refUrls = referencePayload.referenceUrls
+            const res = await videosAPI.create(buildStoryboardVideoRequest({
+              dramaId: dramaIdVal,
+              storyboard: sb,
               prompt: buildSbVideoPromptForApi(sb),
-              image_url: vFirst || undefined,
-              first_frame_url: vFirst,
-              last_frame_url: vLast,
-              reference_image_urls: refUrls,
-              aspect_ratio: projectAspectRatio.value || '16:9',
+              universalOmni: universal,
+              firstFrameUrl: vFirst,
+              lastFrameUrl: vLast,
+              referenceImageUrls: refUrls,
+              aspectRatio: projectAspectRatio.value || '16:9',
               resolution: videoResolution.value || undefined,
               duration: getSbVideoDurationForApi(sb),
-            })
+            }))
             if (res?.task_id) {
               const meta = buildSbGenMeta(sb, GEN_RESOURCE.SB_VIDEO, '分镜视频')
               const result = await pollTaskWithPause(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
@@ -8037,26 +9097,80 @@ async function runRepairPipeline() {
       addPipelineError('生成整集视频', e.message || String(e))
     }
 
-    pipelineCurrentStep.value = '补全并生成流程已执行完成'
-    ElMessage.success('修复缺失流程已执行完成')
+    const errorCount = pipelineErrorLog.value.length
+    pipelineCurrentStep.value = errorCount
+      ? `补全并生成流程已结束，${errorCount} 项失败`
+      : '补全并生成流程已执行完成'
+    if (errorCount) {
+      ElMessage.warning(`补全并生成流程已结束，${errorCount} 项失败`)
+    } else {
+      ElMessage.success('修复缺失流程已执行完成')
+    }
   } catch (e) {
     addPipelineError('流程', e.message || String(e))
   }
 }
 
 
+function handleBeforeUnload(event) {
+  if (!scriptDraftController.hasPendingChanges()) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+async function allowNavigationAfterDraftFlush() {
+  if (!scriptDraftController.hasPendingChanges()) return true
+  try {
+    await flushScriptDraft()
+    return true
+  } catch (_) {
+    try {
+      await ElMessageBox.confirm(
+        '自动保存失败。继续离开会丢失本次剧本修改。',
+        '剧本尚未保存',
+        {
+          type: 'warning',
+          confirmButtonText: '仍然离开',
+          cancelButtonText: '留在本页',
+        },
+      )
+      scriptDraftController.markSaved(null)
+      return true
+    } catch (_) {
+      return false
+    }
+  }
+}
+
+onBeforeRouteLeave(allowNavigationAfterDraftFlush)
+onBeforeRouteUpdate(allowNavigationAfterDraftFlush)
+
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  scriptDraftController.dispose()
 })
 
 function applyRouteToStore() {
   const id = route.params.id
+  projectLoadRequestId += 1
+  projectDependencyRequestId += 1
+  projectLoadError.value = ''
+  projectLoadNotFound.value = false
+  projectDependencyWarning.value = ''
+  projectLoadPending.value = false
+  projectDependencyLoading.value = false
   if (id && id !== 'new') {
+    projectLoadState.value = 'loading'
+    store.reset()
     store.setDrama({ id: Number(id) })
     if (route.query.episode) {
       selectedEpisodeId.value = Number(route.query.episode)
+    } else {
+      selectedEpisodeId.value = null
     }
-    loadDrama()
+    loadDrama({ blocking: true })
   } else {
+    projectLoadState.value = 'ready'
     store.reset()
     storyInput.value = ''
     scriptTitle.value = ''
@@ -8067,12 +9181,20 @@ function applyRouteToStore() {
     scriptLanguage.value = 'zh'
     scriptStoryboardStyle.value = ''
     generationStyle.value = ''
+    markScriptDraftSaved()
   }
 }
 
 onMounted(async () => {
-  loadPipelineConcurrency()
+  window.addEventListener('beforeunload', handleBeforeUnload)
   applyRouteToStore()
+  if (!route.params.id || route.params.id === 'new') {
+    Promise.allSettled([
+      loadPipelineConcurrency(),
+      refreshVideoGenerationCapability(),
+      refreshProductionReadiness(),
+    ])
+  }
 })
 
 watch(() => route.params.id, () => {
@@ -8175,13 +9297,19 @@ html.light .preview-block-title {
   overflow-y: auto;
 }
 .select-script-item {
+  width: 100%;
   padding: 12px 14px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   margin-bottom: 8px;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
+.select-script-item:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
 .select-script-item:hover {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(99, 102, 241, 0.35);
@@ -8200,6 +9328,7 @@ html.light .select-script-item:hover {
   background: rgba(99, 102, 241, 0.06);
 }
 .select-script-title {
+  display: block;
   font-weight: 600;
   color: #e4e4e7;
   margin-bottom: 6px;
@@ -8208,6 +9337,7 @@ html.light .select-script-title {
   color: #1e1b4b;
 }
 .select-script-desc {
+  display: block;
   font-size: 13px;
   color: #9ca0b2;
   line-height: 1.45;
@@ -8216,6 +9346,9 @@ html.light .select-script-title {
   text-align: center;
   color: #71717a;
   padding: 24px;
+}
+.select-script-empty p {
+  margin: 0 0 12px;
 }
 .preview-ep-tabs {
   margin-top: 4px;
@@ -8255,7 +9388,7 @@ html.light .film-create {
   margin-left: 48px;
 }
 html.light .header {
-  background: rgba(255, 255, 255, 0.82) !important;
+  background: #ffffff !important;
   border-bottom-color: rgba(139, 92, 246, 0.1) !important;
   box-shadow: 0 1px 0 rgba(139,92,246,0.06), 0 4px 20px rgba(139, 92, 246, 0.05) !important;
 }
@@ -8266,6 +9399,12 @@ html.light .header {
 }
 .logo {
   margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -8563,8 +9702,12 @@ html.light .nav-sidebar-title { color: #7c3aed; }
   justify-content: center;
   width: 28px;
   height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   cursor: pointer;
   color: #5a5a66;
+  font: inherit;
   transition: color 0.15s, background 0.15s;
   border-radius: 6px;
   flex-shrink: 0;
@@ -8584,6 +9727,12 @@ html.light .nav-toggle:hover { color: #374151; background: rgba(0,0,0,0.05); }
   display: flex;
   align-items: stretch;
   gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   border-radius: 6px;
   padding: 3px 6px 3px 0;
@@ -8718,7 +9867,14 @@ html.light .step-count { background: rgba(0,0,0,0.04); color: #9ca3af; }
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
   padding: 5px 12px;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
   font-size: 12px;
   color: #5a5a66;
   cursor: pointer;
@@ -8735,7 +9891,13 @@ html.light .nav-sub-toggle:hover { color: #374151; }
 }
 html.light .nav-sub-list { background: rgba(99,102,241,0.03); }
 .nav-sub-item {
+  display: block;
+  width: calc(100% - 8px);
   padding: 4px 10px 4px 26px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
   font-size: 11.5px;
   color: #52525b;
   cursor: pointer;
@@ -8749,6 +9911,14 @@ html.light .nav-sub-list { background: rgba(99,102,241,0.03); }
 html.light .nav-sub-item { color: #9ca3af; }
 .nav-sub-item:hover { color: #d4d4d8; background: rgba(255,255,255,0.04); }
 html.light .nav-sub-item:hover { color: #1e1b4b; background: rgba(99,102,241,0.06); }
+.nav-toggle:focus-visible,
+.nav-step:focus-visible,
+.nav-sub-toggle:focus-visible,
+.nav-sub-item:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: -2px;
+}
+.logo:focus-visible { outline: 2px solid #818cf8; outline-offset: 4px; }
 
 .main {
   margin-left: 180px;
@@ -8756,6 +9926,58 @@ html.light .nav-sub-item:hover { color: #1e1b4b; background: rgba(99,102,241,0.0
   padding: 24px 32px 48px;
   transition: margin-left 0.25s cubic-bezier(.4,0,.2,1);
 }
+.project-state-active .header,
+.project-state-active .main {
+  margin-left: 0;
+}
+.project-state-active.sidebar-collapsed .main { margin-left: 0; }
+.project-state-main {
+  min-height: calc(100vh - 72px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+.project-load-state {
+  width: min(760px, 100%);
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 32px;
+  padding: 40px;
+  border: 1px solid rgba(113, 113, 122, 0.45);
+  border-radius: 8px;
+  background: rgba(30, 31, 40, 0.94);
+  text-align: center;
+}
+.project-load-state:focus { outline: none; }
+.project-load-state:focus-visible { outline: 2px solid #818cf8; outline-offset: 3px; }
+.project-load-state--error { border-color: rgba(248, 113, 113, 0.48); }
+.project-load-state-icon { font-size: 36px; color: #a1a1aa; }
+.project-load-state--error .project-load-state-icon { color: #f87171; }
+.project-load-state h1 { margin: 4px 0 0; font-size: 1.3rem; color: #f4f4f5; }
+.project-load-state p { max-width: 620px; margin: 0; color: #a1a1aa; line-height: 1.65; }
+.project-load-state .project-load-state-assurance { color: #d4d4d8; }
+.project-load-state-actions { display: flex; gap: 10px; margin-top: 12px; }
+.project-dependency-warning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  border-radius: 6px;
+  background: rgba(120, 53, 15, 0.15);
+  color: #fcd34d;
+}
+.project-dependency-warning span { flex: 1; line-height: 1.5; }
+html.light .project-load-state { background: #fff; border-color: #d4d4d8; }
+html.light .project-load-state--error { border-color: #fca5a5; }
+html.light .project-load-state h1 { color: #18181b; }
+html.light .project-load-state p { color: #52525b; }
+html.light .project-dependency-warning { background: #fffbeb; color: #92400e; border-color: #fcd34d; }
 .sidebar-collapsed .main {
   margin-left: 48px;
 }
@@ -8793,157 +10015,6 @@ html.light .card:hover {
   letter-spacing: -0.01em;
 }
 html.light .section-title { color: #1e1b4b; }
-.pipeline-section {
-  padding: 12px 16px !important;
-}
-.one-click-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.one-click-label {
-  font-size: 14px;
-  color: var(--el-text-color-primary);
-  white-space: nowrap;
-  font-weight: 600;
-}
-.pipeline-status {
-  margin-top: 12px;
-  padding: 12px;
-  background: var(--el-fill-color-light);
-  border-radius: 8px;
-  font-size: 13px;
-}
-.pipeline-current-step {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  color: var(--el-text-color-primary);
-  font-weight: 500;
-  font-size: 13px;
-}
-.pipeline-step-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  padding: 1px 7px;
-  border-radius: 10px;
-  background: var(--el-color-primary);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.pipeline-active-tasks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-.pipeline-task-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 10px 2px 6px;
-  border-radius: 12px;
-  background: rgba(64, 158, 255, 0.12);
-  border: 1px solid rgba(64, 158, 255, 0.3);
-  color: var(--el-color-primary);
-  font-size: 12px;
-  white-space: nowrap;
-}
-.pipeline-task-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--el-color-primary);
-  flex-shrink: 0;
-  animation: pipeline-dot-pulse 1.2s ease-in-out infinite;
-}
-@keyframes pipeline-dot-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.75); }
-}
-.pipeline-error-log {
-  margin-top: 0;
-  padding: 12px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 8px;
-  font-size: 13px;
-  color: #fca5a5;
-  max-height: 200px;
-  overflow-y: auto;
-}
-.pipeline-status .pipeline-error-log {
-  margin-top: 8px;
-}
-.pipeline-error-title {
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.pipeline-error-line {
-  margin-bottom: 4px;
-  word-break: break-all;
-}
-/* 阶段间倒计时 */
-.pipeline-countdown {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  margin: 10px 0 8px;
-  padding: 12px 14px;
-  background: rgba(103, 194, 58, 0.08);
-  border: 1px solid rgba(103, 194, 58, 0.35);
-  border-radius: 10px;
-}
-.pipeline-countdown-ring {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  background: rgba(103, 194, 58, 0.15);
-  border: 2px solid rgba(103, 194, 58, 0.6);
-  flex-shrink: 0;
-}
-.pipeline-countdown-num {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--el-color-success);
-  line-height: 1;
-}
-.pipeline-countdown-unit {
-  font-size: 11px;
-  color: var(--el-color-success);
-  opacity: 0.8;
-}
-.pipeline-countdown-body {
-  flex: 1;
-  min-width: 0;
-}
-.pipeline-countdown-msg {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: var(--el-text-color-primary);
-  line-height: 1.5;
-}
-.pipeline-countdown-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.pipeline-countdown-paused {
-  font-size: 12px;
-  color: var(--el-color-warning);
-}
 /* 批量生成分镜图/视频 */
 .sb-batch-actions {
   display: flex;
@@ -8957,6 +10028,16 @@ html.light .section-title { color: #1e1b4b; }
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.batch-video-capability {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: var(--el-color-warning);
+  font-size: 12px;
+  line-height: 1.45;
 }
 .batch-status {
   margin-top: 12px;
@@ -9084,10 +10165,14 @@ html.light .section-title { color: #1e1b4b; }
   background: #fafafa;
   flex-shrink: 0;
   transition: border-color 0.2s;
+  padding: 0;
+  color: inherit;
+  font: inherit;
 }
 .ref-image-box:hover {
   border-color: #409eff;
 }
+.ref-image-box:focus-visible { outline: 2px solid #409eff; outline-offset: 2px; }
 .ref-preview-img {
   width: 100%;
   height: 100%;
@@ -9118,17 +10203,31 @@ html.light .section-title { color: #1e1b4b; }
   padding: 0;
   overflow: hidden;
 }
+.collapse-heading {
+  margin: 0;
+  font: inherit;
+}
 .collapse-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   padding: 14px 20px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   user-select: none;
   transition: background 0.2s;
 }
 .collapse-header:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+.collapse-header:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: -2px;
 }
 .resource-panel .collapse-header {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -9309,25 +10408,7 @@ html.light .section-desc { color: #6b7280; }
   font-size: 0.9rem;
   pointer-events: none;
 }
-.image-preview-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  background: rgba(10, 10, 15, 0.88);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-.image-preview-img {
-  max-width: 90vw;
-  max-height: 90vh;
-  object-fit: contain;
-  cursor: pointer;
-  pointer-events: auto;
-}
+.asset-cover[role="button"]:focus-visible { outline: 2px solid #818cf8; outline-offset: -2px; }
 .asset-info { padding: 10px; }
 .asset-name { font-weight: 600; margin-bottom: 4px; color: #e4e4e7; }
 .asset-desc {
@@ -9390,6 +10471,15 @@ html.light .asset-cover-actions { border-top-color: rgba(139,92,246,0.1); }
 }
 .extra-thumb:hover { border-color: #a78bfa; }
 .extra-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.extra-thumb-primary {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.extra-thumb-primary:focus-visible { outline: 2px solid #818cf8; outline-offset: -2px; }
 .extra-thumb-remove {
   position: absolute;
   top: 1px;
@@ -9435,7 +10525,9 @@ html.light .asset-cover-actions { border-top-color: rgba(139,92,246,0.1); }
   height: 10px;
 }
 .extra-thumb:hover .extra-thumb-remove,
-.extra-thumb:hover .thumb-preview-btn { opacity: 1; }
+.extra-thumb:hover .thumb-preview-btn,
+.extra-thumb:focus-within .extra-thumb-remove,
+.extra-thumb:focus-within .thumb-preview-btn { opacity: 1; }
 .sb-img-thumb:hover .extra-thumb-remove,
 .sb-img-thumb:hover .thumb-preview-btn { opacity: 1; }
 html.light .extra-images-strip { background: rgba(139,92,246,0.05); }
@@ -9722,13 +10814,19 @@ html.light .sb-panel {
 }
 .sb-thumb-item {
   flex-shrink: 0;
+  padding: 0;
+  border: 0;
   border-radius: 6px;
   overflow: hidden;
   background: #22232d;
+  color: inherit;
+  font: inherit;
 }
 .sb-thumb-item.sb-thumb-clickable {
   cursor: pointer;
 }
+.sb-thumb-item:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+.sb-thumb-item:disabled { cursor: default; }
 .sb-thumb-avatar {
   width: 32px;
   height: 32px;
@@ -9853,6 +10951,19 @@ html.light .sb-image-area:hover {
   object-fit: contain;
   border-radius: 8px;
 }
+.sb-generated-preview {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-in;
+}
+.sb-generated-preview:focus-visible { outline: 2px solid #818cf8; outline-offset: -2px; }
 .sb-image-file-input { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
 .sb-gen-btn { margin-top: 4px; }
 .sb-image-area img.sb-generated-img { cursor: pointer; }
@@ -10081,6 +11192,16 @@ html.light .sb-ctrl-mode-btn.el-button:hover {
   height: 52px;
 }
 .sb-img-thumb:hover { border-color: var(--el-color-primary); }
+.sb-img-thumb:focus-within { border-color: var(--el-color-primary); }
+.sb-img-thumb-primary {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.sb-img-thumb-primary:focus-visible { outline: 2px solid #818cf8; outline-offset: -2px; }
 .sb-img-thumb img {
   width: 100%;
   height: 100%;
@@ -10105,6 +11226,30 @@ html.light .sb-ctrl-mode-btn.el-button:hover {
   align-items: center;
   justify-content: center;
   min-height: 80px;
+}
+.sb-draft-placeholder {
+  width: 100%;
+  min-height: 88px;
+  margin-bottom: 8px;
+  padding: 12px;
+  display: grid;
+  place-content: center;
+  gap: 4px;
+  border: 1px dashed var(--el-border-color);
+  border-radius: 6px;
+  background: var(--el-fill-color-lighter);
+  color: var(--el-text-color-regular);
+  text-align: center;
+}
+.sb-draft-placeholder strong {
+  color: var(--el-color-warning-dark-2);
+  font-size: 12px;
+}
+.sb-draft-placeholder span {
+  max-width: 320px;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  line-height: 1.45;
 }
 /* 主图下方提示词预览 */
 .sb-main-img-prompt {
@@ -10199,6 +11344,19 @@ html.light .sb-video-placeholder {
   flex-shrink: 0;
   padding-top: 6px;
 }
+.sb-video-disabled-reason {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+  color: var(--el-color-warning);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.sb-video-disabled-reason:focus-visible {
+  outline: 2px solid var(--el-color-warning);
+  outline-offset: 2px;
+}
 .sb-video-regenerating-overlay {
   display: flex;
   align-items: center;
@@ -10222,12 +11380,18 @@ html.light .sb-video-placeholder {
   border-radius: 5px;
   overflow: hidden;
   cursor: pointer;
+  padding: 0;
+  background: transparent;
   border: 1.5px solid transparent;
   flex-shrink: 0;
   transition: border-color 0.15s;
 }
 .sb-video-thumb:hover {
   border-color: #a855f7;
+}
+.sb-video-thumb:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
 }
 .sb-video-thumb-player {
   width: 100%;
@@ -10285,6 +11449,100 @@ html.light .sb-video-placeholder {
 }
 .vp-dialog-form .el-form-item {
   margin-bottom: 12px;
+}
+.vp-dialog-form :deep(.el-form-item__content) {
+  min-width: 0;
+}
+.vp-reference-panel {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vp-reference-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.vp-reference-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  width: 100%;
+  max-height: 176px;
+  overflow-y: auto;
+}
+.vp-reference-item {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+}
+.vp-reference-thumb {
+  width: 64px;
+  height: 64px;
+  min-width: 64px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  background: var(--el-fill-color-dark);
+  cursor: pointer;
+}
+.vp-reference-thumb:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+.vp-reference-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.vp-reference-body {
+  min-width: 0;
+}
+.vp-reference-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.vp-reference-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vp-reference-meta {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vp-reference-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+.vp-reference-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+.vp-reference-empty {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .sb-video-prompt-text {
   font-size: 0.85rem;
@@ -10508,8 +11766,15 @@ html.light .sb-narration-input :deep(.el-textarea__inner::placeholder) {
   padding-top: 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+.video-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
 .video-preview-label {
-  margin: 0 0 10px;
+  margin: 0;
   font-size: 0.95rem;
   color: #a1a1aa;
 }
@@ -10520,6 +11785,13 @@ html.light .sb-narration-input :deep(.el-textarea__inner::placeholder) {
   border-radius: 8px;
   background: #1a1b24;
 }
+.video-download-status {
+  margin: 10px 0 0;
+  color: #a1a1aa;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.video-download-status.is-error { color: #f87171; }
 
 /* 公共库弹窗 */
 .library-dialog .el-dialog__body { padding-top: 8px; }
@@ -10564,13 +11836,19 @@ html.light .sb-narration-input :deep(.el-textarea__inner::placeholder) {
   height: 72px;
   flex-shrink: 0;
   background: #252630;
+  padding: 0;
+  border: 0;
   border-radius: 6px;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  color: inherit;
+  font: inherit;
 }
+.library-item-cover:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+.library-item-cover:disabled { cursor: default; }
 .library-item-cover img {
   width: 100%;
   height: 100%;
@@ -10588,6 +11866,9 @@ html.light .sb-narration-input :deep(.el-textarea__inner::placeholder) {
   text-align: center;
   color: #5a5a66;
   padding: 40px 20px;
+}
+.library-empty p {
+  margin: 0 0 12px;
 }
 .library-pagination {
   margin-top: 12px;
@@ -10691,5 +11972,21 @@ html.light .frame-layout-anchor {
   color: #64748b;
   margin-top: 4px;
   line-height: 1.4;
+}
+
+.script-save-status {
+  align-self: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.script-save-status.is-dirty,
+.script-save-status.is-error {
+  color: var(--status-warning);
+}
+
+.script-save-status.is-saving {
+  color: var(--accent-text);
 }
 </style>

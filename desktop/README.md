@@ -1,10 +1,10 @@
 # LocalMiniDrama 桌面客户端
 
-基于 Electron 的本地桌面应用，内嵌 `backend-node` 与 `frontweb`，打包为 Windows exe / macOS dmg 后可直接运行。当前版本：**v1.2.8**
+基于 Electron 的本地桌面应用，内嵌 `backend-node` 与 `frontweb`。本轮正式发布目标为 Windows x64 Setup 与 Portable；macOS 构建会主动拒绝执行，不在当前验收矩阵。当前版本：**v1.3.0**
 
 ---
 
-## 主要功能（v1.2.8）
+## 主要功能（v1.3.0）
 
 | 模块 | 功能 |
 |------|------|
@@ -52,6 +52,19 @@ npm install
 npm run dist
 ```
 
+打包前必须能解析并执行 **8.1.2** 的 `ffmpeg` 与 `ffprobe`。脚本会依次从 `FFMPEG_PATH` / `FFPROBE_PATH`、`backend-node/tools/ffmpeg/` 和系统 `PATH` 查找，将验证通过的两支工具暂存到被 Git 忽略的 `desktop/release/.media-tools/`，随后作为同一份 `extraResources` 写入发行物。可单独运行 `npm run stage:media` 检查该门禁；正式发布还会按 `media-tool-policy.js` 中固定的包、载荷和可执行文件 SHA-256 复验。
+
+源码仓库不提交媒体二进制。Windows 本地构建可安装指定版本后显式设置路径：
+
+```powershell
+choco install ffmpeg --version=8.1.2 -y --no-progress --allow-downgrade
+$env:FFMPEG_PATH = (Get-Command ffmpeg.exe).Source
+$env:FFPROBE_PATH = (Get-Command ffprobe.exe).Source
+npm run verify
+```
+
+GitHub CI/Release 会从固定 URL 获取该版本并在使用前逐层校验哈希。
+
 **国内网络**：若从 GitHub 下载 Electron 或 winCodeSign 超时，使用国内镜像：
 
 ```bash
@@ -64,10 +77,13 @@ npm run dist:cn
 
 | 文件 | 说明 |
 |------|------|
-| `LocalMiniDrama Setup x.x.x.exe` | NSIS 安装包（有安装引导，可选安装目录） |
-| `LocalMiniDrama x.x.x.exe` | 便携版（单文件，无需安装，双击即用） |
+| `LocalMiniDrama-Setup-x.x.x-x64.exe` | NSIS 安装包（有安装引导，可选安装目录） |
+| `LocalMiniDrama-Portable-x.x.x-x64.exe` | 便携版（单文件，无需安装，双击即用） |
+| `win-unpacked/` | 未压缩桌面目录，用于发布前检查和冒烟 |
+| `media-tools.json` / `release-manifest.json` / `SHA256SUMS` | 媒体工具来源、制品清单和 SHA-256 校验 |
+| `*.cdx.json` | 源码与桌面依赖的 CycloneDX SBOM |
 
-首次运行时，会在用户数据目录（如 `%APPDATA%/LocalMiniDrama`）下生成 `backend/`，包含 `configs/config.yaml`（从 example 复制）和 `data/`（数据库与文件存储），按需修改配置即可。
+首次运行时，会在用户数据目录 `%APPDATA%/localminidrama-desktop` 下生成 `backend/`，包含 `configs/config.yaml`（从打包配置复制）、`data/`（数据库与文件存储）及 `tools/ffmpeg/`。启动程序会分别补齐缺失的 `ffmpeg.exe` 与 `ffprobe.exe`，不会覆盖用户已替换的任一工具。
 
 ---
 
@@ -78,11 +94,15 @@ npm run dist:cn
 | `npm start` | 启动 Electron（开发模式） |
 | `npm run build:front` | 仅构建前端（frontweb） |
 | `npm run copy-front` | 将 frontweb/dist 复制到 desktop/frontweb-dist（打包前置步骤） |
+| `npm test` | 运行桌面安全、单实例、打包合同及媒体工具恢复测试 |
+| `npm run verify` | 运行桌面完整门禁，包括依赖树、SBOM、原生 ABI 和媒体工具执行验证 |
+| `npm run stage:media` | 查找、执行验证并暂存打包使用的 ffmpeg 与 ffprobe |
 | `npm run pack` | 构建前端 + 复制 + 打出未压缩目录（便于检查打包内容） |
 | `npm run dist` | 构建前端 + 复制 + 打出 Windows 安装包与便携 exe |
+| `npm run smoke:windows` | 启动验证 unpacked、portable、NSIS，并执行打包内 ffmpeg/ffprobe 与部分 userData 恢复场景 |
 | `npm run dist:cn` | 同上，使用国内镜像（Electron、electron-builder 二进制） |
 | `npm run prepare-backend` | 将 backend-node 复制到 backend-app（打包前置步骤） |
-| `bash dist-mac.sh` | macOS 一键打包（完整版 + 纯净版 DMG，含国内镜像加速） |
+| `bash dist-mac.sh` | 主动失败并说明 macOS 不在当前发布矩阵，不会构建或上传制品 |
 
 ---
 
@@ -93,7 +113,7 @@ npm run dist:cn
 双击运行 exe 时，后端日志会自动写入：
 
 ```
-%APPDATA%\LocalMiniDrama\backend\logs\app.log
+%APPDATA%\localminidrama-desktop\backend\logs\app.log
 ```
 
 用记事本或 VS Code 打开后，点击「AI 生成角色」等按钮，查看是否有对应请求行、报错信息，便于判断是请求未发出、AI 超时还是配置有误。
@@ -101,7 +121,7 @@ npm run dist:cn
 ### 2. 从命令行运行（实时日志）
 
 ```powershell
-& "D:\path\to\release\LocalMiniDrama 1.2.8.exe"
+& "D:\path\to\release\LocalMiniDrama-Portable-1.3.0-x64.exe"
 ```
 
 日志会直接打印在终端，操作软件时可实时看到所有输出。
@@ -110,7 +130,7 @@ npm run dist:cn
 
 ```powershell
 $env:LOCALMINIDRAMA_DEVTOOLS=1
-& "D:\path\to\release\LocalMiniDrama 1.2.8.exe"
+& "D:\path\to\release\LocalMiniDrama-Portable-1.3.0-x64.exe"
 ```
 
 在 Network 面板查看各 API 请求（如 `POST /api/v1/generation/characters`）是否正常发出和返回。
@@ -120,15 +140,16 @@ $env:LOCALMINIDRAMA_DEVTOOLS=1
 配置文件位于：
 
 ```
-%APPDATA%\LocalMiniDrama\backend\configs\config.yaml
+%APPDATA%\localminidrama-desktop\backend\configs\config.yaml
 ```
 
-AI 相关配置需在软件「AI 配置」弹窗中填写并保存（会写入上述 yaml 文件）；本机网络需能访问对应 API（如 dashscope、volcengine 等）。
+AI 相关配置需在软件「AI 配置」页面填写并保存，数据写入 `%APPDATA%\localminidrama-desktop\backend\data\drama_generator.db` 的 `ai_service_configs` 表；`config.yaml` 只保存通用运行设置。本机网络需能访问对应 API（如 dashscope、volcengine 等）。
 
 ---
 
 ## 依赖
 
-- Node.js >= 18
+- Node.js 20
+- FFmpeg 与 FFprobe（通过环境变量、仓库工具目录或系统 PATH 提供，打包时会实际执行 `-version`）
 - 本仓库中的 `backend-node`（打包时通过 `prepare-backend` 复制到 `backend-app`）
 - 前端需先在 `frontweb` 目录执行 `npm run build`，再打包或开发运行

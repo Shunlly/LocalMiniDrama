@@ -1,5 +1,15 @@
 'use strict';
 
+const { secureHttpFetch } = require('./secureHttpFetch');
+const {
+  buildProviderErrorMessage,
+  summarizeProviderResponse,
+  toSafeProviderErrorMessage,
+} = require('./providerErrorSanitizer');
+
+const HUB_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+const HUB_REQUEST_TIMEOUT_MS = 30000;
+
 /**
  * 即梦2角色认证 — 业务侧「素材管理」HTTP API（与官方路径一致，如 /api/business/v1/assets）。
  * 网关 URL 与 Token 从 AI 配置（service_type = jimeng2_character_auth）读取；可选兼容旧版 config 中的 jimeng_material_hub / silvamux_hub。
@@ -40,12 +50,20 @@ function normalizeMaterialHubToken(raw) {
   return s;
 }
 
-/** 日志/报错用：首尾片段，便于与 curl 测试密钥对照（不含完整密钥） */
-function tokenFingerprint(tok) {
-  const s = String(tok || '').trim();
-  if (!s) return '';
-  if (s.length <= 12) return '(过短)';
-  return `${s.slice(0, 7)}…${s.slice(-4)}`;
+function sameOrigin(left, right) {
+  try {
+    return new URL(left).origin === new URL(right).origin;
+  } catch (_) {
+    return false;
+  }
+}
+
+function safeOrigin(value) {
+  try {
+    return new URL(value).origin;
+  } catch (_) {
+    return '[invalid-provider-origin]';
+  }
 }
 
 /**
@@ -125,7 +143,6 @@ function buildHubContext(cfg, db, log) {
     db_config_id: row?.id ?? null,
     db_config_name: row?.name ?? null,
     db_api_key_field_chars: dbKeyLen,
-    token_fingerprint: tokenFingerprint(tok),
     request_header_shape: 'Authorization: Bearer <token>',
     note:
       '若 raw_had_leading_bearer_prefix 为 true，旧版会发出 Bearer Bearer…；现已规范化。环境变量 JIMENG2_CHARACTER_AUTH_TOKEN 优先于数据库 api_key。请求头仅发送 Authorization（勿重复 authorization，部分 model_ark 网关会判为无效 Token）。',
@@ -133,17 +150,25 @@ function buildHubContext(cfg, db, log) {
 
   if (log && typeof log.info === 'function') {
     log.info('[JimengMaterialHub] buildHubContext 鉴权诊断（不含密钥原文）', {
-      hub_gateway: baseUrl,
+      hub_origin: safeOrigin(baseUrl),
       token_present: !!tok,
       ...hubAuthDiag,
     });
   }
 
-  return { baseUrl, token: tok, poll_max_ms, poll_interval_ms, hubAuthDiag, tokenFingerprint: tokenFingerprint(tok) };
+  const trustedOrigins = row?.base_url && sameOrigin(baseUrl, row.base_url) ? [row.base_url] : [];
+  return {
+    baseUrl,
+    token: tok,
+    poll_max_ms,
+    poll_interval_ms,
+    hubAuthDiag,
+    trustedOrigins,
+  };
 }
 
 /** model_ark 等网关在拉取图片失败时仍返回 HTTP 200 + { error: "..." }，无 id */
-function hubBusinessErrorMessage(json) {
+function rawHubBusinessError(json) {
   if (!json || typeof json !== 'object' || Array.isArray(json)) return null;
   const err = json.error ?? json.Error;
   if (typeof err === 'string' && err.trim()) return err.trim();
@@ -151,6 +176,41 @@ function hubBusinessErrorMessage(json) {
     return String(json.message || json.msg || json.detail || '网关业务失败').slice(0, 2000);
   }
   return null;
+}
+
+function hubErrorReason(value, status) {
+  const text = String(value || '');
+  if (status === 401 || status === 403 || /invalid\s*token|unauthorized|forbidden/i.test(text)) {
+    return 'HUB_AUTH';
+  }
+  if (/DownloadFailed|download media|accessible|fetch-object|tos: request error/i.test(text)) {
+    return 'HUB_MEDIA_DOWNLOAD';
+  }
+  return 'HUB_UPSTREAM';
+}
+
+function hubBusinessErrorMessage(json) {
+  if (!rawHubBusinessError(json)) return null;
+  return buildProviderErrorMessage({
+    provider: 'Jimeng material hub',
+    operation: 'request',
+    status: 502,
+    responseBody: json,
+  });
+}
+
+function hubFailure(status, responseBody, rawHint) {
+  return {
+    ok: false,
+    status,
+    reason: hubErrorReason(rawHint, status),
+    error: buildProviderErrorMessage({
+      provider: 'Jimeng material hub',
+      operation: 'request',
+      status,
+      responseBody,
+    }),
+  };
 }
 
 function pickAssetId(obj) {
@@ -228,8 +288,8 @@ async function hubJson(path, ctx, { method, body, log } = {}) {
 
   if (log && typeof log.info === 'function' && method === 'POST' && path === '/assets' && body?.url) {
     log.info('[JimengMaterialHub] POST /api/business/v1/assets', {
-      hub_gateway: base,
-      register_image_url: body.url,
+      hub_origin: safeOrigin(base),
+      register_image_present: true,
       asset_name: body.name,
       asset_type: body.asset_type,
       bearer_token_payload_chars: token.length,
@@ -237,40 +297,74 @@ async function hubJson(path, ctx, { method, body, log } = {}) {
   }
   if (log && typeof log.info === 'function' && method === 'GET' && String(path || '').startsWith('/assets')) {
     log.info('[JimengMaterialHub] GET /api/business/v1/assets', {
-      hub_gateway: base,
-      path_query: String(path).includes('?') ? String(path).split('?')[1]?.slice(0, 120) : '',
+      hub_origin: safeOrigin(base),
       bearer_token_payload_chars: token.length,
     });
   }
 
-  const res = await fetch(url, init);
+  let res;
+  try {
+    res = await secureHttpFetch(url, { ...init, redirect: 'error' }, {
+      trustedOrigins: ctx.trustedOrigins || [base],
+      allowPrivateOrigins: ctx.allowPrivateOrigins,
+      lookup: ctx.networkLookup,
+      timeoutMs: HUB_REQUEST_TIMEOUT_MS,
+      maxBytes: HUB_MAX_RESPONSE_BYTES,
+      maxRedirects: 0,
+    });
+  } catch (error) {
+    const safeMessage = toSafeProviderErrorMessage(error, {
+      provider: 'Jimeng material hub',
+      operation: 'request',
+    });
+    log?.warn?.('[JimengMaterialHub] request failed', {
+      path: String(path || '').split('?', 1)[0],
+      method: method || 'GET',
+      hub_origin: safeOrigin(base),
+      error: safeMessage,
+    });
+    return { ok: false, error: safeMessage };
+  }
   const text = await res.text();
   let json = null;
   try {
     json = text ? JSON.parse(text) : {};
   } catch (_) {
-    json = { _raw: text };
+    const error = buildProviderErrorMessage({
+      provider: 'Jimeng material hub',
+      operation: 'response',
+      status: res.status,
+      responseBody: text,
+    });
+    log?.warn?.('[JimengMaterialHub] invalid JSON response', {
+      path: String(path || '').split('?', 1)[0],
+      method: method || 'GET',
+      http_status: res.status,
+      hub_origin: safeOrigin(base),
+      ...summarizeProviderResponse(text),
+    });
+    return { ok: false, status: res.status, error };
   }
   if (!res.ok) {
     const detail = json?.detail || json?.title || json?.message || text || res.statusText;
     const detailStr = typeof detail === 'string' ? detail : JSON.stringify(detail);
+    const safeMessage = buildProviderErrorMessage({
+      provider: 'Jimeng material hub',
+      operation: 'request',
+      status: res.status,
+      responseBody: json,
+      code: hubErrorReason(detailStr, res.status),
+    });
     if (log && typeof log.warn === 'function') {
-      const baseWarn = {
-        path,
+      log.warn('[JimengMaterialHub] HTTP error', {
+        path: String(path || '').split('?', 1)[0],
         method: method || 'GET',
-        httpStatus: res.status,
-        hub_gateway: base,
-        register_image_url: body && body.url ? body.url : undefined,
-        response_preview: detailStr.slice(0, 2000),
-        bearer_token_payload_chars: token.length,
-      };
-      if (res.status === 401) {
-        baseWarn.hint401 =
-          'invalid token 常见原因：密钥与网关不匹配；机器上 JIMENG2_CHARACTER_AUTH_TOKEN 等环境变量覆盖数据库配置；配置里写了「Bearer xxx」导致旧版双重 Bearer（请看 buildHubContext 日志 raw_had_leading_bearer_prefix）';
-      }
-      log.warn('[JimengMaterialHub] HTTP 错误', baseWarn);
+        http_status: res.status,
+        hub_origin: safeOrigin(base),
+        ...summarizeProviderResponse(json),
+      });
     }
-    return { ok: false, status: res.status, error: detailStr };
+    return { ok: false, status: res.status, error: safeMessage };
   }
   const bizErr = hubBusinessErrorMessage(json);
   if (bizErr) {
@@ -279,9 +373,8 @@ async function hubJson(path, ctx, { method, body, log } = {}) {
         path,
         method: method || 'GET',
         httpStatus: res.status,
-        hub_gateway: base,
-        register_image_url: body && body.url ? body.url : undefined,
-        response_preview: bizErr.slice(0, 2000),
+        hub_origin: safeOrigin(base),
+        ...summarizeProviderResponse(json),
       });
     }
     return { ok: false, status: res.status, error: bizErr };
@@ -365,7 +458,6 @@ module.exports = {
   buildHubContext,
   hubToken,
   normalizeMaterialHubToken,
-  tokenFingerprint,
   hubBusinessErrorMessage,
   unwrapMaterialHubAssetView,
   createImageAsset,

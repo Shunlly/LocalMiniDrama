@@ -29,22 +29,24 @@ function updateTaskStatus(db, taskId, status, progress, message) {
   const now = new Date().toISOString();
   let completedAt = null;
   if (status === 'completed' || status === 'failed') completedAt = now;
-  db.prepare(
+  const result = db.prepare(
     `UPDATE async_tasks SET status = ?, progress = ?, message = ?, updated_at = ?, completed_at = ?
-     WHERE id = ?`
+     WHERE id = ? AND status NOT IN ('completed', 'failed')`
   ).run(status, progress ?? 0, message || '', now, completedAt, taskId);
+  return result.changes > 0;
 }
 
 function updateTaskError(db, taskId, errMsg) {
   const now = new Date().toISOString();
   try {
-    db.prepare(
+    const result = db.prepare(
       `UPDATE async_tasks SET status = 'failed', error = ?, progress = 0, completed_at = ?, updated_at = ?
-       WHERE id = ?`
+       WHERE id = ? AND status NOT IN ('completed', 'failed')`
     ).run(errMsg || '', now, now, taskId);
+    return result.changes > 0;
   } catch (e) {
     if ((e.message || '').includes('error')) {
-      updateTaskStatus(db, taskId, 'failed', 0, errMsg || '任务失败');
+      return updateTaskStatus(db, taskId, 'failed', 0, errMsg || '任务失败');
     } else throw e;
   }
 }
@@ -52,10 +54,11 @@ function updateTaskError(db, taskId, errMsg) {
 function updateTaskResult(db, taskId, result) {
   const now = new Date().toISOString();
   const resultStr = typeof result === 'string' ? result : JSON.stringify(result || {});
-  db.prepare(
+  const update = db.prepare(
     `UPDATE async_tasks SET status = 'completed', progress = 100, result = ?, completed_at = ?, updated_at = ?
-     WHERE id = ?`
+     WHERE id = ? AND status NOT IN ('completed', 'failed')`
   ).run(resultStr, now, now, taskId);
+  return update.changes > 0;
 }
 
 function rowToTask(r) {
@@ -87,7 +90,9 @@ function cancelTask(db, log, taskId, reason) {
     return { ok: true, already_done: true, task };
   }
   const msg = (reason || USER_CANCEL_TASK_MSG).toString().trim() || USER_CANCEL_TASK_MSG;
-  updateTaskError(db, taskId, msg);
+  if (!updateTaskError(db, taskId, msg)) {
+    return { ok: true, already_done: true, task: getTask(db, taskId) };
+  }
   log.info('Task cancelled by user', { task_id: taskId, type: task.type });
   return { ok: true, task: getTask(db, taskId) };
 }
@@ -97,8 +102,17 @@ function cancelTask(db, log, taskId, reason) {
  */
 function failOrphanedAsyncTasksOnStartup(db, log) {
   const rows = db.prepare(
-    `SELECT id, type, status, resource_id FROM async_tasks
-     WHERE status IN ('pending', 'processing') AND deleted_at IS NULL`
+    `SELECT task.id, task.type, task.status, task.resource_id
+       FROM async_tasks task
+       LEFT JOIN video_generations video
+         ON video.task_id = task.id
+        AND video.status = 'processing'
+        AND video.deleted_at IS NULL
+        AND video.provider_task_id IS NOT NULL
+        AND TRIM(video.provider_task_id) != ''
+      WHERE task.status IN ('pending', 'processing')
+        AND task.deleted_at IS NULL
+        AND video.id IS NULL`
   ).all();
   if (!rows.length) return 0;
   log.warn('Failing orphaned async tasks after startup', { count: rows.length });

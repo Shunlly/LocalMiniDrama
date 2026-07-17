@@ -1,0 +1,24 @@
+{
+  "name": "localminidrama-workspace",
+  "private": true,
+  "scripts": {
+    "check": "node --check scripts/doctor.cjs && node --check scripts/generate-release-metadata.cjs && node --check scripts/runtime-config-policy.cjs && node --check scripts/verify-docker-artifact.cjs && node --check scripts/verify-release-version.cjs && node --check scripts/verify-release.cjs && node --check scripts/release-contract.test.cjs && npm run test:release",
+    "doctor": "node scripts/doctor.cjs",
+    "release:manifest": "node scripts/generate-release-metadata.cjs desktop/release",
+    "test:release": "node --test scripts/release-contract.test.cjs",
+    "verify:version": "node scripts/verify-release-version.cjs",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "verify": "npm run check && npm run verify:version && npm --prefix backend-node run verify && npm --prefix frontweb run verify && npm --prefix desktop run verify",
+    "verify:release": "node scripts/verify-release.cjs",
+    "verify:release:artifacts": "node scripts/generate-release-metadata.cjs --verify desktop/release",
+    "verify:release:source": "node scripts/verify-release.cjs --source-only",
+    "verify:release:windows": "node scripts/verify-release.cjs --windows-only",
+    "verify:e2e": "npm --prefix frontweb run e2e:production",
+    "verify:docker": "npm run verify:docker:artifact && npm run verify:docker:containers",
+    "verify:docker:artifact": "node scripts/verify-docker-artifact.cjs",
+    "verify:docker:containers": "docker compose --profile verify run --rm --build --no-deps backend-verify && docker compose --profile verify run --rm --build --no-deps frontend-verify npm run verify",
+    "verify:backend": "npm --prefix backend-node run verify",
+    "verify:frontend": "npm --prefix frontweb run verify"
+  }
+}

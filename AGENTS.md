@@ -19,18 +19,25 @@ Frontend proxies `/api` and `/static` to backend via Vite config.
 
 ```bash
 # Backend tests (Node.js built-in test runner)
-cd backend-node && node --test test/*.test.js
+npm --prefix backend-node test
 
 # Frontend tests (ESM, Node.js built-in test runner)
-cd frontweb && node --test test/*.test.js
+npm --prefix frontweb test
 ```
 
 No ESLint or other lint tool is configured in this codebase.
 
+Use the package-level verification scripts before handoff:
+
+```bash
+npm --prefix backend-node run verify
+npm --prefix frontweb run verify
+```
+
 ### Building
 
 ```bash
-cd frontweb && npm run build
+npm --prefix frontweb run build
 ```
 
 ### Key Development Notes
@@ -38,7 +45,8 @@ cd frontweb && npm run build
 - Pure JavaScript (no TypeScript) throughout.
 - Backend uses `node --watch` for hot reloading in dev mode (`npm run dev`).
 - Database is SQLite (embedded via `better-sqlite3`), auto-created in `backend-node/data/`.
-- Migrations run automatically on backend startup (`ensureColumns()`); explicit `npm run migrate` only needed for first-time setup or after adding new migration SQL files.
+- Backend startup runs `runMigrationsAndEnsure()`: it applies SQL migrations and then performs table/column compatibility ensures. Explicit `npm run migrate` is mainly for manual initialization or migration verification.
 - Config file at `backend-node/configs/config.yaml` already exists in the repo — no need to copy from example.
 - AI content generation requires external API keys (configured via the app's "AI 配置" page), but the app fully functions without them for development/testing purposes.
 - The backend also serves the built frontend from `frontweb/dist/` at port 5679 when the dist folder exists; during development, use the Vite dev server at port 3013 instead.
+- Docker uses Node.js 20. Run `docker compose up -d --build --wait` after source changes because the compose services do not bind-mount application source. Use `npm run verify:docker` from the repo root for container-level verification.

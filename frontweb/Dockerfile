@@ -1,0 +1,32 @@
+FROM node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+
+WORKDIR /app
+
+ENV NODE_ENV=development
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
+COPY frontweb/package*.json ./
+RUN npm ci
+
+COPY frontweb/Dockerfile ./Dockerfile
+COPY frontweb/index.html ./index.html
+COPY frontweb/Dockerfile.prod ./Dockerfile.prod
+COPY frontweb/vite.config.js ./vite.config.js
+COPY frontweb/public ./public
+COPY frontweb/src ./src
+COPY frontweb/scripts ./scripts
+COPY frontweb/test ./test
+COPY backend-node/scripts/e2e-provider.js /backend-node/scripts/e2e-provider.js
+COPY backend-node/Dockerfile /backend-node/Dockerfile
+COPY backend-node/docker-entrypoint.sh /backend-node/docker-entrypoint.sh
+COPY docker-compose.yml /docker-compose.yml
+COPY .github/workflows/ci.yml /.github/workflows/ci.yml
+COPY .github/workflows/release.yml /.github/workflows/release.yml
+COPY .gitignore /.gitignore
+
+RUN chown -R node:node /app
+USER node
+
+EXPOSE 3013
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

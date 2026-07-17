@@ -6,42 +6,45 @@
           <span class="logo-main">本地短剧助手</span>
           <span class="logo-sub">LocalMiniDrama</span>
         </h1>
-        <!-- 公共资源库（左侧，靛紫调） -->
+        <!-- 素材入口：通用媒体为一级入口，语义素材保留在分类菜单中 -->
         <div class="header-library">
-          <el-button class="btn-library" @click="showCharLibrary = true">
-            <el-icon><User /></el-icon>素材角色
+          <el-button class="btn-library btn-material-center" title="打开素材中心" @click="goMaterialCenter">
+            <el-icon><Files /></el-icon>素材中心
           </el-button>
-          <el-button class="btn-library" @click="showSceneLibrary = true">
-            <el-icon><PictureFilled /></el-icon>素材场景
-          </el-button>
-          <el-button class="btn-library" @click="showPropLibrary = true">
-            <el-icon><Box /></el-icon>素材道具
-          </el-button>
+          <el-dropdown :disabled="listWriteLocked" trigger="click" placement="bottom-start" @command="openSemanticLibrary">
+            <el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked">
+              <el-icon><Collection /></el-icon>分类素材
+              <el-icon class="dropdown-caret"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="character"><el-icon><User /></el-icon>角色素材库</el-dropdown-item>
+                <el-dropdown-item command="scene"><el-icon><PictureFilled /></el-icon>场景素材库</el-dropdown-item>
+                <el-dropdown-item command="prop"><el-icon><Box /></el-icon>道具素材库</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
         <!-- 右侧操作区 -->
         <div class="header-actions">
-          <!-- 暂时隐藏，功能待完善 -->
-          <!-- <el-button class="btn-library" title="自由创作" @click="$router.push('/free-create')">
+          <el-button class="btn-library" title="打开自由创作" @click="router.push({ name: 'free-create' })">
             <el-icon><MagicStick /></el-icon>自由创作
           </el-button>
-          <el-button class="btn-library" title="媒体素材库" @click="$router.push('/media-library')">
-            <el-icon><Files /></el-icon>素材库
-          </el-button> -->
-          <el-button v-if="!vendorLockEnabled" class="btn-wechat" title="扫码联系作者" @click="showWechat = true">
-            <el-icon><ChatDotSquare /></el-icon>微信我
+          <el-button class="btn-trash" title="打开项目回收站" @click="openTrash">
+            <el-icon><Delete /></el-icon>回收站
           </el-button>
           <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
             <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
             {{ isDark ? '浅色' : '暗色' }}
           </el-button>
-          <el-button class="btn-settings" @click="showAiConfigDialog = true">
+          <el-button class="btn-settings" :disabled="listWriteLocked" @click="showAiConfigDialog = true">
             <el-icon><Setting /></el-icon>AI配置
           </el-button>
-          <el-button class="btn-import" :loading="importing" @click="triggerImport">
-            <el-icon><Upload /></el-icon>导入项目
+          <el-button class="btn-import" :loading="importing" :disabled="listWriteLocked" @click="triggerImport">
+            <el-icon><Upload /></el-icon>导入项目包
           </el-button>
           <input ref="importFileInput" type="file" accept=".zip" style="display:none" @change="onImportFile" />
-          <el-button type="primary" class="btn-new" @click="goNewProject">
+          <el-button type="primary" class="btn-new" :disabled="listWriteLocked" @click="goNewProject">
             <el-icon><Plus /></el-icon>新建项目
           </el-button>
         </div>
@@ -49,18 +52,67 @@
     </header>
 
     <main class="main">
-      <div v-loading="loading" class="projects-wrap">
+      <div v-loading="loading" class="projects-wrap" :aria-busy="loading">
+        <section
+          v-if="listError"
+          class="data-load-state"
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+        >
+          <div class="data-load-state__content">
+            <h2>{{ listIsStale ? '项目列表刷新失败' : '项目数据加载失败' }}</h2>
+            <p>暂时无法确认服务器中的最新项目。您的项目数据没有被删除。</p>
+            <p v-if="listIsStale" class="data-load-state__stale">下方显示上次成功加载的数据，当前内容已过期；成功重试前不能新增、导入、编辑或移除项目。</p>
+            <p v-else class="data-load-state__detail">项目空态不会在连接恢复前显示，也不会执行任何项目写操作。</p>
+            <p class="data-load-state__detail">错误详情：{{ listError }}</p>
+          </div>
+          <el-button type="primary" plain :loading="loading" @click="loadList">
+            <el-icon><RefreshLeft /></el-icon>重试加载
+          </el-button>
+        </section>
+
+        <section
+          v-if="exportFailure"
+          class="export-failure-state"
+          role="alert"
+          aria-live="assertive"
+        >
+          <div>
+            <strong>项目“{{ exportFailure.drama.title || '未命名项目' }}”导出失败</strong>
+            <p>{{ exportFailure.message }}。项目内容未受影响，可以重试。</p>
+          </div>
+          <el-button
+            type="primary"
+            plain
+            :loading="exportingId === exportFailure.drama.id"
+            :disabled="exportingId !== null && exportingId !== exportFailure.drama.id"
+            @click="onExport(exportFailure.drama)"
+          >
+            <el-icon><RefreshLeft /></el-icon>重试导出
+          </el-button>
+        </section>
+
         <div class="project-grid">
-          <!-- 操作卡片：始终作为第一个格子 -->
-          <div class="project-card action-card">
+          <!-- 空项目时提供完整起步路径；已有项目时使用顶部主操作，避免重复入口。 -->
+          <section v-if="!loading && hasSuccessfulListLoad && !listError && dramas.length === 0" class="action-card action-card--empty">
             <div class="action-card-inner">
-              <h3 class="action-card-title">快速开始</h3>
+              <h2 class="action-card-title">还没有短剧项目</h2>
+              <p class="action-card-desc">新建空白项目，或继续已有项目包。</p>
               <div class="action-card-buttons">
-                <el-button type="primary" size="large" class="action-btn action-btn-new" @click="goNewProject">
-                  <el-icon><Plus /></el-icon>新建短剧项目
+                <el-button type="primary" size="large" class="action-btn action-btn-new" :disabled="listWriteLocked" @click="goNewProject">
+                  <el-icon><Plus /></el-icon>新建项目
                 </el-button>
-                <el-button size="large" class="action-btn action-btn-import" :loading="importing" @click="triggerImport">
-                  <el-icon><Upload /></el-icon>导入短剧项目
+                <el-button size="large" class="action-btn action-btn-import" :loading="importing" :disabled="listWriteLocked" @click="triggerImport">
+                  <el-icon><Upload /></el-icon>导入项目包
+                </el-button>
+              </div>
+              <div class="action-card-secondary">
+                <el-button class="action-btn-material" @click="goMaterialCenter">
+                  <el-icon><Files /></el-icon>前往素材中心
+                </el-button>
+                <el-button class="action-btn-trash" @click="openTrash">
+                  <el-icon><Delete /></el-icon>查看回收站
                 </el-button>
               </div>
               <div v-if="exampleList.length > 0" class="action-card-example">
@@ -75,6 +127,7 @@
                     size="small"
                     class="example-btn"
                     :loading="importingExample === ex.filename"
+                    :disabled="listWriteLocked"
                     @click="onImportExample(ex)"
                   >
                     <el-icon><FolderOpened /></el-icon>{{ ex.name }}
@@ -82,35 +135,133 @@
                 </div>
               </div>
             </div>
-          </div>
-          <div
+          </section>
+          <article
             v-for="d in dramas"
             :key="d.id"
             class="project-card"
-            @click="openProject(d.id)"
           >
-            <div class="project-card-actions" @click.stop>
-              <el-button size="small" circle :icon="Download" title="导出项目" :loading="exportingId === d.id" @click="onExport(d)" />
-              <el-button size="small" circle :icon="Edit" title="编辑" @click="openEditDialog(d)" />
-              <el-button size="small" type="danger" plain circle :icon="Delete" title="删除" @click="onDelete(d)" />
-            </div>
-            <div class="project-card-body">
-              <h3 class="project-title">{{ d.title || '未命名项目' }}</h3>
-              <p class="project-desc">{{ d.description || '暂无描述' }}</p>
-              <div class="project-badges">
-                <span class="badge badge-status" :class="'badge-status--' + (d.status || 'draft')">{{ formatStatus(d.status) }}</span>
-                <span v-if="d.episodes?.length" class="badge badge-episodes">{{ d.episodes.length }} 集</span>
-                <span v-if="totalStoryboards(d) > 0" class="badge badge-storyboards">{{ totalStoryboards(d) }} 分镜</span>
-                <span v-if="d.metadata?.aspect_ratio" class="badge badge-ratio">{{ d.metadata.aspect_ratio }}</span>
-                <span v-if="d.style" class="badge badge-style">{{ formatStyle(d.style) }}</span>
-                <span v-if="d.genre" class="badge badge-genre">{{ formatGenre(d.genre) }}</span>
+            <RouterLink
+              class="project-card-link"
+              :to="{ name: 'drama-detail', params: { id: d.id } }"
+              :aria-label="`打开项目「${d.title || '未命名项目'}」`"
+            >
+              <div class="project-card-body">
+                <div class="project-card-header">
+                  <h3 class="project-title" :title="d.title || '未命名项目'">{{ d.title || '未命名项目' }}</h3>
+                </div>
+                <p class="project-desc">{{ d.description || '暂无描述' }}</p>
+                <div class="project-badges">
+                  <span class="badge badge-status" :class="'badge-status--' + (d.status || 'draft')">{{ formatStatus(d.status) }}</span>
+                  <span v-if="d.episodes?.length" class="badge badge-episodes">{{ d.episodes.length }} 集</span>
+                  <span v-if="totalStoryboards(d) > 0" class="badge badge-storyboards">{{ totalStoryboards(d) }} 分镜</span>
+                  <span v-if="d.metadata?.aspect_ratio" class="badge badge-ratio">{{ d.metadata.aspect_ratio }}</span>
+                  <span v-if="d.style" class="badge badge-style">{{ formatStyle(d.style) }}</span>
+                  <span v-if="d.genre" class="badge badge-genre">{{ formatGenre(d.genre) }}</span>
+                </div>
+                <p class="project-meta">{{ formatDate(d.updated_at) }}</p>
               </div>
-              <p class="project-meta">{{ formatDate(d.updated_at) }}</p>
-            </div>
-          </div>
+            </RouterLink>
+            <el-dropdown
+              class="project-card-menu"
+              trigger="click"
+              placement="bottom-end"
+              popper-class="project-actions-dropdown"
+              @click.stop
+              @command="handleProjectAction($event, d)"
+            >
+              <el-button
+                class="project-menu-button"
+                text
+                circle
+                :loading="exportingId === d.id"
+                title="项目操作"
+                :aria-label="`打开项目「${d.title || '未命名项目'}」操作菜单`"
+              >
+                <el-icon><MoreFilled /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="export" :disabled="exportingId === d.id">
+                    <el-icon><Download /></el-icon>导出项目
+                  </el-dropdown-item>
+                  <el-dropdown-item command="edit" :disabled="listWriteLocked"><el-icon><Edit /></el-icon>编辑项目</el-dropdown-item>
+                  <el-dropdown-item command="trash" :disabled="listWriteLocked" divided>
+                    <el-icon><Delete /></el-icon>移入回收站
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </article>
         </div>
       </div>
     </main>
+
+    <el-dialog
+      v-model="showTrashDialog"
+      title="项目回收站"
+      width="680px"
+      :style="{ maxWidth: 'calc(100vw - 32px)' }"
+      destroy-on-close
+      @open="loadTrash"
+    >
+      <div class="trash-policy" role="note">
+        <el-icon class="trash-policy-icon" aria-hidden="true"><FolderOpened /></el-icon>
+        <div>
+          <strong>移除后仍可恢复</strong>
+          <p>项目内容、剧集、分镜和关联素材会完整保留。恢复项目后可继续编辑和生成。</p>
+        </div>
+      </div>
+      <div v-loading="trashLoading" class="trash-dialog-content">
+        <p v-if="trashError" class="trash-error" role="alert">{{ trashError }}</p>
+        <div
+          v-else-if="!trashLoading && trashItems.length === 0"
+          class="trash-empty"
+          role="status"
+        >
+          <el-icon aria-hidden="true"><Delete /></el-icon>
+          <p>回收站中没有项目</p>
+        </div>
+        <ul v-else-if="trashItems.length > 0" class="trash-list" aria-label="已移除项目">
+          <li v-for="item in trashItems" :key="item.id" class="trash-list-item">
+            <div class="trash-item-main">
+              <h3 class="trash-item-title">{{ item.title || '未命名项目' }}</h3>
+              <p class="trash-item-meta">
+                移入时间：<time :datetime="item.removed_at || ''">{{ formatDate(item.removed_at) }}</time>
+              </p>
+              <p class="trash-item-retention">内容与关联素材已保留</p>
+            </div>
+            <el-button
+              class="trash-restore-button"
+              type="primary"
+              plain
+              :loading="restoringId === item.id"
+              :disabled="listWriteLocked || (restoringId !== null && restoringId !== item.id)"
+              :aria-label="`恢复项目「${item.title || '未命名项目'}」`"
+              @click="restoreFromTrash(item)"
+            >
+              <el-icon><RefreshLeft /></el-icon>恢复
+            </el-button>
+          </li>
+        </ul>
+        <p class="trash-live-status" role="status" aria-live="polite">
+          {{ trashAnnouncement || (trashLoading ? '正在加载回收站' : `回收站中共有 ${trashTotal} 个项目`) }}
+        </p>
+      </div>
+      <el-pagination
+        v-if="trashTotal > trashPageSize"
+        v-model:current-page="trashPage"
+        :page-size="trashPageSize"
+        :total="trashTotal"
+        layout="total, prev, pager, next"
+        class="trash-pagination"
+        aria-label="回收站分页"
+        @current-change="loadTrash"
+      />
+      <template #footer>
+        <el-button @click="showTrashDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 新建项目：先填标题和描述 -->
     <el-dialog
@@ -141,7 +292,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showNewDialog = false">取消</el-button>
-        <el-button type="primary" :loading="newSaving" :disabled="!newForm.title?.trim()" @click="submitNew">确定</el-button>
+        <el-button type="primary" :loading="newSaving" :disabled="listWriteLocked || !newForm.title?.trim()" @click="submitNew">确定</el-button>
       </template>
     </el-dialog>
 
@@ -157,16 +308,24 @@
       </div>
       <div v-loading="charLibraryLoading" class="library-list">
         <div v-for="item in charLibraryList" :key="item.id" class="library-item">
-          <div class="library-item-cover" @click="openImagePreview(assetImageUrl(item))">
-            <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" alt="" />
-            <span v-else class="library-item-placeholder">暂无图</span>
+          <button
+            v-if="assetImageUrl(item)"
+            type="button"
+            class="library-item-cover"
+            :aria-label="`预览角色素材「${item.name || '未命名'}」图片`"
+            @click="openImagePreview(assetImageUrl(item), `角色素材「${item.name || '未命名'}」预览图`)"
+          >
+            <img :src="assetImageUrl(item)" :alt="`角色素材「${item.name || '未命名'}」预览图`" />
+          </button>
+          <div v-else class="library-item-cover library-item-cover--empty">
+            <span class="library-item-placeholder">暂无图</span>
           </div>
           <div class="library-item-info">
             <div class="library-item-name">{{ item.name || '未命名' }}</div>
             <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}{{ (item.description || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
-              <el-button size="small" @click="openEditCharLibrary(item)">编辑</el-button>
-              <el-button size="small" type="danger" plain @click="onDeleteCharLibrary(item)">删除</el-button>
+              <el-button size="small" :disabled="listWriteLocked" @click="openEditCharLibrary(item)">编辑</el-button>
+              <el-button size="small" type="danger" plain :disabled="listWriteLocked" @click="onDeleteCharLibrary(item)">删除</el-button>
             </div>
           </div>
         </div>
@@ -182,13 +341,21 @@
       <el-form v-if="editCharLibraryForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
-            <div class="lib-img-thumb" @click="openImagePreview(assetImageUrl(editCharLibraryForm))">
-              <img v-if="editCharLibraryForm.image_url || editCharLibraryForm.local_path" :src="assetImageUrl(editCharLibraryForm)" />
-              <div v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></div>
+            <button
+              v-if="assetImageUrl(editCharLibraryForm)"
+              type="button"
+              class="lib-img-thumb"
+              :aria-label="`预览角色素材「${editCharLibraryForm.name || '未命名'}」图片`"
+              @click="openImagePreview(assetImageUrl(editCharLibraryForm), `角色素材「${editCharLibraryForm.name || '未命名'}」预览图`)"
+            >
+              <img :src="assetImageUrl(editCharLibraryForm)" :alt="`角色素材「${editCharLibraryForm.name || '未命名'}」预览图`" />
+            </button>
+            <div v-else class="lib-img-thumb lib-img-thumb--empty" role="img" aria-label="角色素材暂无图片">
+              <div class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></div>
             </div>
             <div class="lib-img-btns">
-              <el-button size="small" :loading="editCharLibraryForm.imgUploading" @click="charLibFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editCharLibraryForm.imgGenerating" @click="doGenerateLibImg(editCharLibraryForm, (editCharLibraryForm.name + (editCharLibraryForm.description ? ', ' + editCharLibraryForm.description : '')), characterLibraryAPI, loadCharLibraryList)">AI 生成</el-button>
+              <el-button size="small" :loading="editCharLibraryForm.imgUploading" :disabled="listWriteLocked" @click="charLibFileRef.click()">上传图片</el-button>
+              <el-button size="small" type="primary" :loading="editCharLibraryForm.imgGenerating" :disabled="listWriteLocked" @click="doGenerateLibImg(editCharLibraryForm, (editCharLibraryForm.name + (editCharLibraryForm.description ? ', ' + editCharLibraryForm.description : '')), characterLibraryAPI, loadCharLibraryList)">AI 生成</el-button>
             </div>
           </div>
           <input ref="charLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editCharLibraryForm, characterLibraryAPI, loadCharLibraryList)" />
@@ -200,7 +367,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditCharLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editCharLibrarySaving" @click="submitEditCharLibrary">保存</el-button>
+        <el-button type="primary" :loading="editCharLibrarySaving" :disabled="listWriteLocked" @click="submitEditCharLibrary">保存</el-button>
       </template>
     </el-dialog>
 
@@ -211,16 +378,24 @@
       </div>
       <div v-loading="sceneLibraryLoading" class="library-list">
         <div v-for="item in sceneLibraryList" :key="item.id" class="library-item">
-          <div class="library-item-cover" @click="openImagePreview(assetImageUrl(item))">
-            <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" alt="" />
-            <span v-else class="library-item-placeholder">暂无图</span>
+          <button
+            v-if="assetImageUrl(item)"
+            type="button"
+            class="library-item-cover"
+            :aria-label="`预览场景素材「${item.location || item.time || '未命名'}」图片`"
+            @click="openImagePreview(assetImageUrl(item), `场景素材「${item.location || item.time || '未命名'}」预览图`)"
+          >
+            <img :src="assetImageUrl(item)" :alt="`场景素材「${item.location || item.time || '未命名'}」预览图`" />
+          </button>
+          <div v-else class="library-item-cover library-item-cover--empty">
+            <span class="library-item-placeholder">暂无图</span>
           </div>
           <div class="library-item-info">
             <div class="library-item-name">{{ item.location || item.time || '未命名' }}</div>
             <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
-              <el-button size="small" @click="openEditSceneLibrary(item)">编辑</el-button>
-              <el-button size="small" type="danger" plain @click="onDeleteSceneLibrary(item)">删除</el-button>
+              <el-button size="small" :disabled="listWriteLocked" @click="openEditSceneLibrary(item)">编辑</el-button>
+              <el-button size="small" type="danger" plain :disabled="listWriteLocked" @click="onDeleteSceneLibrary(item)">删除</el-button>
             </div>
           </div>
         </div>
@@ -236,13 +411,21 @@
       <el-form v-if="editSceneLibraryForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
-            <div class="lib-img-thumb" @click="openImagePreview(assetImageUrl(editSceneLibraryForm))">
-              <img v-if="editSceneLibraryForm.image_url || editSceneLibraryForm.local_path" :src="assetImageUrl(editSceneLibraryForm)" />
-              <div v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></div>
+            <button
+              v-if="assetImageUrl(editSceneLibraryForm)"
+              type="button"
+              class="lib-img-thumb"
+              :aria-label="`预览场景素材「${editSceneLibraryForm.location || editSceneLibraryForm.time || '未命名'}」图片`"
+              @click="openImagePreview(assetImageUrl(editSceneLibraryForm), `场景素材「${editSceneLibraryForm.location || editSceneLibraryForm.time || '未命名'}」预览图`)"
+            >
+              <img :src="assetImageUrl(editSceneLibraryForm)" :alt="`场景素材「${editSceneLibraryForm.location || editSceneLibraryForm.time || '未命名'}」预览图`" />
+            </button>
+            <div v-else class="lib-img-thumb lib-img-thumb--empty" role="img" aria-label="场景素材暂无图片">
+              <div class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></div>
             </div>
             <div class="lib-img-btns">
-              <el-button size="small" :loading="editSceneLibraryForm.imgUploading" @click="sceneLibFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editSceneLibraryForm.imgGenerating" @click="doGenerateLibImg(editSceneLibraryForm, ([editSceneLibraryForm.location, editSceneLibraryForm.time, editSceneLibraryForm.description].filter(Boolean).join(', ')), sceneLibraryAPI, loadSceneLibraryList)">AI 生成</el-button>
+              <el-button size="small" :loading="editSceneLibraryForm.imgUploading" :disabled="listWriteLocked" @click="sceneLibFileRef.click()">上传图片</el-button>
+              <el-button size="small" type="primary" :loading="editSceneLibraryForm.imgGenerating" :disabled="listWriteLocked" @click="doGenerateLibImg(editSceneLibraryForm, ([editSceneLibraryForm.location, editSceneLibraryForm.time, editSceneLibraryForm.description].filter(Boolean).join(', ')), sceneLibraryAPI, loadSceneLibraryList)">AI 生成</el-button>
             </div>
           </div>
           <input ref="sceneLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editSceneLibraryForm, sceneLibraryAPI, loadSceneLibraryList)" />
@@ -255,7 +438,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditSceneLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editSceneLibrarySaving" @click="submitEditSceneLibrary">保存</el-button>
+        <el-button type="primary" :loading="editSceneLibrarySaving" :disabled="listWriteLocked" @click="submitEditSceneLibrary">保存</el-button>
       </template>
     </el-dialog>
 
@@ -266,16 +449,24 @@
       </div>
       <div v-loading="propLibraryLoading" class="library-list">
         <div v-for="item in propLibraryList" :key="item.id" class="library-item">
-          <div class="library-item-cover" @click="openImagePreview(assetImageUrl(item))">
-            <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" alt="" />
-            <span v-else class="library-item-placeholder">暂无图</span>
+          <button
+            v-if="assetImageUrl(item)"
+            type="button"
+            class="library-item-cover"
+            :aria-label="`预览道具素材「${item.name || '未命名'}」图片`"
+            @click="openImagePreview(assetImageUrl(item), `道具素材「${item.name || '未命名'}」预览图`)"
+          >
+            <img :src="assetImageUrl(item)" :alt="`道具素材「${item.name || '未命名'}」预览图`" />
+          </button>
+          <div v-else class="library-item-cover library-item-cover--empty">
+            <span class="library-item-placeholder">暂无图</span>
           </div>
           <div class="library-item-info">
             <div class="library-item-name">{{ item.name || '未命名' }}</div>
             <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
-              <el-button size="small" @click="openEditPropLibrary(item)">编辑</el-button>
-              <el-button size="small" type="danger" plain @click="onDeletePropLibrary(item)">删除</el-button>
+              <el-button size="small" :disabled="listWriteLocked" @click="openEditPropLibrary(item)">编辑</el-button>
+              <el-button size="small" type="danger" plain :disabled="listWriteLocked" @click="onDeletePropLibrary(item)">删除</el-button>
             </div>
           </div>
         </div>
@@ -291,13 +482,21 @@
       <el-form v-if="editPropLibraryForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
-            <div class="lib-img-thumb" @click="openImagePreview(assetImageUrl(editPropLibraryForm))">
-              <img v-if="editPropLibraryForm.image_url || editPropLibraryForm.local_path" :src="assetImageUrl(editPropLibraryForm)" />
-              <div v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></div>
+            <button
+              v-if="assetImageUrl(editPropLibraryForm)"
+              type="button"
+              class="lib-img-thumb"
+              :aria-label="`预览道具素材「${editPropLibraryForm.name || '未命名'}」图片`"
+              @click="openImagePreview(assetImageUrl(editPropLibraryForm), `道具素材「${editPropLibraryForm.name || '未命名'}」预览图`)"
+            >
+              <img :src="assetImageUrl(editPropLibraryForm)" :alt="`道具素材「${editPropLibraryForm.name || '未命名'}」预览图`" />
+            </button>
+            <div v-else class="lib-img-thumb lib-img-thumb--empty" role="img" aria-label="道具素材暂无图片">
+              <div class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></div>
             </div>
             <div class="lib-img-btns">
-              <el-button size="small" :loading="editPropLibraryForm.imgUploading" @click="propLibFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editPropLibraryForm.imgGenerating" @click="doGenerateLibImg(editPropLibraryForm, (editPropLibraryForm.name + (editPropLibraryForm.description ? ', ' + editPropLibraryForm.description : '')), propLibraryAPI, loadPropLibraryList)">AI 生成</el-button>
+              <el-button size="small" :loading="editPropLibraryForm.imgUploading" :disabled="listWriteLocked" @click="propLibFileRef.click()">上传图片</el-button>
+              <el-button size="small" type="primary" :loading="editPropLibraryForm.imgGenerating" :disabled="listWriteLocked" @click="doGenerateLibImg(editPropLibraryForm, (editPropLibraryForm.name + (editPropLibraryForm.description ? ', ' + editPropLibraryForm.description : '')), propLibraryAPI, loadPropLibraryList)">AI 生成</el-button>
             </div>
           </div>
           <input ref="propLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editPropLibraryForm, propLibraryAPI, loadPropLibraryList)" />
@@ -309,24 +508,15 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditPropLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editPropLibrarySaving" @click="submitEditPropLibrary">保存</el-button>
+        <el-button type="primary" :loading="editPropLibrarySaving" :disabled="listWriteLocked" @click="submitEditPropLibrary">保存</el-button>
       </template>
     </el-dialog>
 
-    <!-- 微信二维码 -->
-    <el-dialog v-if="!vendorLockEnabled" v-model="showWechat" title="微信联系作者" width="320px" align-center>
-      <div style="text-align:center;padding:8px 0 4px">
-        <img src="/wx.jpg" alt="微信二维码" style="width:240px;height:240px;object-fit:contain;border-radius:8px;" />
-        <p style="margin:12px 0 0;font-size:13px;color:var(--text-secondary,#a1a1aa);">扫码添加微信，欢迎交流</p>
-      </div>
-    </el-dialog>
-
-    <!-- 图片放大预览 -->
-    <Teleport to="body">
-      <div v-if="previewImageUrl" class="image-preview-overlay" @click="previewImageUrl = null">
-        <img :src="previewImageUrl" alt="" class="image-preview-img" @click.stop="previewImageUrl = null" />
-      </div>
-    </Teleport>
+    <ImagePreviewDialog
+      v-model="showImagePreview"
+      :src="previewImage.src"
+      :alt="previewImage.alt"
+    />
 
     <!-- 编辑项目：修改标题和故事 -->
     <el-dialog
@@ -346,30 +536,39 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditDialog = false">取消</el-button>
-        <el-button type="primary" :loading="editSaving" :disabled="!editForm.title?.trim()" @click="submitEdit">保存</el-button>
+        <el-button type="primary" :loading="editSaving" :disabled="listWriteLocked || !editForm.title?.trim()" @click="submitEdit">保存</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, ChatDotSquare, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files } from '@element-plus/icons-vue'
+import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files, Collection, ArrowDown, MoreFilled, RefreshLeft } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import { dramaAPI } from '@/api/drama'
 import { characterLibraryAPI } from '@/api/characterLibrary'
 import { sceneLibraryAPI } from '@/api/sceneLibrary'
 import { propLibraryAPI } from '@/api/propLibrary'
 import AIConfigContent from '@/components/AIConfigContent.vue'
+import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import { uploadAPI } from '@/api/upload'
 import { aiAPI } from '@/api/ai'
 import { imagesAPI } from '@/api/images'
 import { taskAPI } from '@/api/task'
 
 const router = useRouter()
+const route = useRoute()
 const { isDark, toggle: toggleTheme } = useTheme()
+
+function openSemanticLibrary(type) {
+  if (listWriteLocked.value) return
+  if (type === 'character') showCharLibrary.value = true
+  if (type === 'scene') showSceneLibrary.value = true
+  if (type === 'prop') showPropLibrary.value = true
+}
 
 // 库编辑图片 – 文件输入 refs
 const charLibFileRef  = ref(null)
@@ -378,6 +577,10 @@ const propLibFileRef  = ref(null)
 
 // 共享：上传图片
 async function doUploadLibImg(event, form, api, reloadFn) {
+  if (listWriteLocked.value) {
+    if (event.target) event.target.value = ''
+    return
+  }
   const file = event.target?.files?.[0]
   if (event.target) event.target.value = ''
   if (!file || !form?.id) return
@@ -398,6 +601,7 @@ async function doUploadLibImg(event, form, api, reloadFn) {
 
 // 共享：AI 生成图片
 async function doGenerateLibImg(form, prompt, api, reloadFn) {
+  if (listWriteLocked.value) return
   if (!prompt?.trim()) { ElMessage.warning('请先填写名称或描述'); return }
   form.imgGenerating = true
   try {
@@ -430,13 +634,18 @@ async function doGenerateLibImg(form, prompt, api, reloadFn) {
 const loading = ref(false)
 const dramas = ref([])
 const total = ref(0)
+const listError = ref('')
+const hasSuccessfulListLoad = ref(false)
+const listIsStale = computed(() => Boolean(listError.value) && hasSuccessfulListLoad.value)
+const listWriteLocked = computed(() => loading.value || !hasSuccessfulListLoad.value || Boolean(listError.value))
+let listRequestSequence = 0
 
 const showAiConfigDialog = ref(false)
-const showWechat = ref(false)
 const vendorLockEnabled = ref(false)
 
 // 图片预览
-const previewImageUrl = ref(null)
+const showImagePreview = ref(false)
+const previewImage = ref({ src: '', alt: '图片预览' })
 function assetImageUrl(item) {
   if (!item) return ''
   if (typeof item === 'string') return item.startsWith('http') ? item : item
@@ -444,8 +653,11 @@ function assetImageUrl(item) {
   if (localPath) return '/static/' + localPath.replace(/^\//, '')
   return item.image_url || ''
 }
-function openImagePreview(url) {
-  if (url) previewImageUrl.value = url
+function openImagePreview(url, alt = '图片预览') {
+  const src = String(url || '').trim()
+  if (!src) return
+  previewImage.value = { src, alt }
+  showImagePreview.value = true
 }
 
 // 公共角色库
@@ -477,10 +689,12 @@ function debouncedLoadCharLibrary() {
   charLibraryKeywordTimer = setTimeout(() => { charLibraryPage.value = 1; loadCharLibraryList() }, 300)
 }
 function openEditCharLibrary(item) {
+  if (listWriteLocked.value) return
   editCharLibraryForm.value = { id: item.id, name: item.name ?? '', category: item.category ?? '', description: item.description ?? '', tags: item.tags ?? '', image_url: item.image_url ?? '', local_path: item.local_path ?? null, imgUploading: false, imgGenerating: false }
   showEditCharLibrary.value = true
 }
 async function submitEditCharLibrary() {
+  if (listWriteLocked.value) return
   if (!editCharLibraryForm.value?.id) return
   editCharLibrarySaving.value = true
   try {
@@ -491,6 +705,7 @@ async function submitEditCharLibrary() {
   } catch (e) { ElMessage.error(e.message || '保存失败') } finally { editCharLibrarySaving.value = false }
 }
 async function onDeleteCharLibrary(item) {
+  if (listWriteLocked.value) return
   try { await ElMessageBox.confirm(`确定删除公共角色「${(item.name || '未命名').slice(0, 20)}」吗？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
   try { await characterLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadCharLibraryList() } catch (e) { ElMessage.error(e.message || '删除失败') }
 }
@@ -524,10 +739,12 @@ function debouncedLoadSceneLibrary() {
   sceneLibraryKeywordTimer = setTimeout(() => { sceneLibraryPage.value = 1; loadSceneLibraryList() }, 300)
 }
 function openEditSceneLibrary(item) {
+  if (listWriteLocked.value) return
   editSceneLibraryForm.value = { id: item.id, location: item.location ?? '', time: item.time ?? '', category: item.category ?? '', description: item.description ?? '', tags: item.tags ?? '', image_url: item.image_url ?? '', local_path: item.local_path ?? null, imgUploading: false, imgGenerating: false }
   showEditSceneLibrary.value = true
 }
 async function submitEditSceneLibrary() {
+  if (listWriteLocked.value) return
   if (!editSceneLibraryForm.value?.id) return
   editSceneLibrarySaving.value = true
   try {
@@ -538,6 +755,7 @@ async function submitEditSceneLibrary() {
   } catch (e) { ElMessage.error(e.message || '保存失败') } finally { editSceneLibrarySaving.value = false }
 }
 async function onDeleteSceneLibrary(item) {
+  if (listWriteLocked.value) return
   const name = (item.location || item.time || '未命名').slice(0, 20)
   try { await ElMessageBox.confirm(`确定删除公共场景「${name}」吗？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
   try { await sceneLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadSceneLibraryList() } catch (e) { ElMessage.error(e.message || '删除失败') }
@@ -572,10 +790,12 @@ function debouncedLoadPropLibrary() {
   propLibraryKeywordTimer = setTimeout(() => { propLibraryPage.value = 1; loadPropLibraryList() }, 300)
 }
 function openEditPropLibrary(item) {
+  if (listWriteLocked.value) return
   editPropLibraryForm.value = { id: item.id, name: item.name ?? '', category: item.category ?? '', description: item.description ?? '', tags: item.tags ?? '', image_url: item.image_url ?? '', local_path: item.local_path ?? null, imgUploading: false, imgGenerating: false }
   showEditPropLibrary.value = true
 }
 async function submitEditPropLibrary() {
+  if (listWriteLocked.value) return
   if (!editPropLibraryForm.value?.id) return
   editPropLibrarySaving.value = true
   try {
@@ -586,6 +806,7 @@ async function submitEditPropLibrary() {
   } catch (e) { ElMessage.error(e.message || '保存失败') } finally { editPropLibrarySaving.value = false }
 }
 async function onDeletePropLibrary(item) {
+  if (listWriteLocked.value) return
   try { await ElMessageBox.confirm(`确定删除公共道具「${(item.name || '未命名').slice(0, 20)}」吗？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
   try { await propLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadPropLibraryList() } catch (e) { ElMessage.error(e.message || '删除失败') }
 }
@@ -594,8 +815,19 @@ const showNewDialog = ref(false)
 const newForm = ref({ title: '', description: '', aspect_ratio: '16:9' })
 const newSaving = ref(false)
 const exportingId = ref(null)
+const exportFailure = ref(null)
 const importing = ref(false)
 const importFileInput = ref(null)
+
+const showTrashDialog = ref(false)
+const trashItems = ref([])
+const trashLoading = ref(false)
+const trashError = ref('')
+const trashAnnouncement = ref('')
+const trashPage = ref(1)
+const trashPageSize = ref(10)
+const trashTotal = ref(0)
+const restoringId = ref(null)
 
 const exampleList = ref([])
 const importingExample = ref(null)
@@ -607,6 +839,7 @@ function loadExamples() {
 }
 
 async function onImportExample(ex) {
+  if (listWriteLocked.value) return
   importingExample.value = ex.filename
   try {
     const data = await dramaAPI.importExample(ex.filename)
@@ -624,20 +857,36 @@ const showEditDialog = ref(false)
 const editForm = ref({ id: null, title: '', description: '' })
 const editSaving = ref(false)
 
-function loadList() {
+function describeProjectLoadError(error) {
+  const backendMessage = error?.response?.data?.error?.message
+  if (backendMessage) return backendMessage
+  const status = Number(error?.response?.status)
+  if (Number.isInteger(status) && status > 0) return `项目服务暂时不可用（HTTP ${status}）`
+  if (error?.code === 'ECONNABORTED') return '连接项目服务超时，请稍后重试'
+  return '无法连接项目服务，请检查服务是否已启动'
+}
+
+async function loadList() {
+  const requestId = ++listRequestSequence
   loading.value = true
-  dramaAPI
-    .list({ page: 1, page_size: 50 })
-    .then((res) => {
-      dramas.value = res?.items ?? []
-      total.value = res?.pagination?.total ?? 0
-    })
-    .catch(() => {
-      dramas.value = []
-    })
-    .finally(() => {
-      loading.value = false
-    })
+  let loaded = false
+  try {
+    const res = await dramaAPI.list({ page: 1, page_size: 50 })
+    if (requestId !== listRequestSequence) return false
+    dramas.value = res?.items ?? []
+    total.value = res?.pagination?.total ?? 0
+    hasSuccessfulListLoad.value = true
+    listError.value = ''
+    loaded = true
+  } catch (error) {
+    if (requestId === listRequestSequence) {
+      listError.value = describeProjectLoadError(error)
+    }
+  } finally {
+    if (requestId === listRequestSequence) loading.value = false
+  }
+  if (loaded) maybeOpenNewDialogFromRoute()
+  return loaded
 }
 
 function formatDate(val) {
@@ -704,7 +953,68 @@ function totalStoryboards(d) {
 }
 
 function goNewProject() {
+  if (listWriteLocked.value) return
   showNewDialog.value = true
+}
+
+function openTrash() {
+  trashError.value = ''
+  trashAnnouncement.value = ''
+  showTrashDialog.value = true
+}
+
+async function loadTrash() {
+  trashLoading.value = true
+  trashError.value = ''
+  try {
+    const res = await dramaAPI.listTrash({
+      page: trashPage.value,
+      page_size: trashPageSize.value,
+    })
+    trashItems.value = res?.items ?? []
+    trashTotal.value = res?.pagination?.total ?? 0
+    if (res?.pagination?.page != null) trashPage.value = res.pagination.page
+  } catch (error) {
+    trashItems.value = []
+    trashTotal.value = 0
+    trashError.value = error.message || '回收站加载失败，请重试'
+  } finally {
+    trashLoading.value = false
+  }
+}
+
+async function restoreFromTrash(item) {
+  if (listWriteLocked.value) return
+  if (restoringId.value !== null) return
+  restoringId.value = item.id
+  trashError.value = ''
+  trashAnnouncement.value = ''
+  try {
+    await dramaAPI.restore(item.id)
+    if (trashItems.value.length === 1 && trashPage.value > 1) trashPage.value -= 1
+    await loadTrash()
+    loadList()
+    const title = item.title || '未命名项目'
+    trashAnnouncement.value = `项目「${title}」已恢复，内容与关联素材保持不变。`
+    ElMessage.success('项目已恢复')
+  } catch (error) {
+    trashError.value = error.message || '恢复失败，请重试'
+  } finally {
+    restoringId.value = null
+  }
+}
+
+function goMaterialCenter() {
+  router.push('/media-library')
+}
+
+function maybeOpenNewDialogFromRoute() {
+  if (listWriteLocked.value) return
+  if (route.query.new !== '1') return
+  showNewDialog.value = true
+  const nextQuery = { ...route.query }
+  delete nextQuery.new
+  router.replace({ path: route.path, query: nextQuery })
 }
 
 function resetNewForm() {
@@ -712,6 +1022,7 @@ function resetNewForm() {
 }
 
 async function submitNew() {
+  if (listWriteLocked.value) return
   const title = newForm.value.title?.trim()
   if (!title) return
   newSaving.value = true
@@ -720,7 +1031,7 @@ async function submitNew() {
     showNewDialog.value = false
     ElMessage.success('项目已创建')
     loadList()
-    router.push('/film/' + drama.id)
+    router.push('/drama/' + drama.id)
   } catch (e) {
     ElMessage.error(e.message || '创建失败')
   } finally {
@@ -729,6 +1040,7 @@ async function submitNew() {
 }
 
 function openEditDialog(d) {
+  if (listWriteLocked.value) return
   editForm.value = { id: d.id, title: d.title || '', description: d.description || '' }
   showEditDialog.value = true
 }
@@ -738,6 +1050,7 @@ function resetEditForm() {
 }
 
 async function submitEdit() {
+  if (listWriteLocked.value) return
   const title = editForm.value.title?.trim()
   if (!title || editForm.value.id == null) return
   editSaving.value = true
@@ -753,35 +1066,108 @@ async function submitEdit() {
   }
 }
 
-function openProject(id) {
-  router.push('/drama/' + id)
+function handleProjectAction(action, drama) {
+  if (action === 'export') return onExport(drama)
+  if (action === 'edit') return openEditDialog(drama)
+  if (action === 'trash') return moveToTrash(drama)
 }
 
-function onExport(d) {
-  if (exportingId.value) return
-  exportingId.value = d.id
+function sanitizeExportFilename(title) {
+  let stem = String(title || 'drama')
+    .replace(/\.zip$/i, '')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+    .replace(/^\.+/, '')
+    .replace(/[. ]+$/g, '')
+    .trim()
+    .slice(0, 80)
+  if (!stem) stem = 'drama'
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem)) stem = `project-${stem}`
+  return `${stem}.zip`
+}
+
+async function inspectExportJsonBlob(blob) {
+  const contentType = String(blob?.type || '').toLowerCase()
+  const prefix = await blob.slice(0, Math.min(blob.size, 2048)).text()
+  const trimmed = prefix.trimStart()
+  const looksLikeJson = contentType.includes('json') || trimmed.startsWith('{') || trimmed.startsWith('[')
+  if (!looksLikeJson) return null
   try {
-    // 大 ZIP 用浏览器原生下载，避免 axios blob 经 dev proxy 整包缓冲导致 ERR_FAILED
-    const a = document.createElement('a')
-    a.href = `/api/v1/dramas/${d.id}/export`
-    a.download = `${d.title || 'drama'}.zip`
-    a.rel = 'noopener'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    ElMessage.success('开始下载')
-  } catch (e) {
-    ElMessage.error(e.message || '导出失败')
+    const payload = JSON.parse(await blob.text())
+    const message = payload?.error?.message || payload?.message || (typeof payload?.error === 'string' ? payload.error : '')
+    return message || '导出服务返回了 JSON，而不是项目压缩包'
+  } catch (_) {
+    return '导出服务返回了无法识别的错误内容'
+  }
+}
+
+async function validateExportBlob(blob) {
+  if (typeof Blob === 'undefined' || !(blob instanceof Blob)) throw new Error('导出服务未返回文件')
+  if (blob.size <= 0) throw new Error('导出的项目包为空')
+  const jsonError = await inspectExportJsonBlob(blob)
+  if (jsonError) throw new Error(jsonError)
+  const signature = new Uint8Array(await blob.slice(0, 4).arrayBuffer())
+  const isZip = signature[0] === 0x50 && signature[1] === 0x4b && (
+    (signature[2] === 0x03 && signature[3] === 0x04)
+    || (signature[2] === 0x05 && signature[3] === 0x06)
+    || (signature[2] === 0x07 && signature[3] === 0x08)
+  )
+  if (!isZip) throw new Error('导出文件格式无效，请重试')
+  return blob
+}
+
+async function resolveExportFailureMessage(error) {
+  const responseBody = error?.response?.data
+  if (typeof Blob !== 'undefined' && responseBody instanceof Blob && responseBody.size > 0) {
+    const blobMessage = await inspectExportJsonBlob(responseBody)
+    if (blobMessage) return blobMessage
+  }
+  if (responseBody && typeof responseBody === 'object') {
+    const responseMessage = responseBody?.error?.message || responseBody?.message
+    if (responseMessage) return responseMessage
+  }
+  return error?.message || '项目包导出失败，请重试'
+}
+
+async function onExport(d) {
+  if (exportingId.value !== null) return
+  exportingId.value = d.id
+  let downloadUrl = ''
+  let anchor = null
+  try {
+    const blob = await validateExportBlob(await dramaAPI.exportDrama(d.id))
+    downloadUrl = URL.createObjectURL(blob)
+    anchor = document.createElement('a')
+    anchor.href = downloadUrl
+    anchor.download = sanitizeExportFilename(d.title)
+    anchor.rel = 'noopener'
+    document.body.appendChild(anchor)
+    anchor.click()
+    exportFailure.value = null
+    ElMessage.success('项目包已验证，下载已开始')
+  } catch (error) {
+    const message = await resolveExportFailureMessage(error)
+    exportFailure.value = {
+      drama: { id: d.id, title: d.title || '未命名项目' },
+      message,
+    }
+    ElMessage.error(message)
   } finally {
+    if (anchor?.isConnected) anchor.remove()
+    if (downloadUrl) URL.revokeObjectURL(downloadUrl)
     exportingId.value = null
   }
 }
 
 function triggerImport() {
+  if (listWriteLocked.value) return
   importFileInput.value?.click()
 }
 
 async function onImportFile(e) {
+  if (listWriteLocked.value) {
+    if (e.target) e.target.value = ''
+    return
+  }
   const file = e.target.files?.[0]
   if (!file) return
   e.target.value = ''
@@ -802,22 +1188,24 @@ async function onImportFile(e) {
   }
 }
 
-async function onDelete(d) {
+async function moveToTrash(d) {
+  if (listWriteLocked.value) return
   try {
     await ElMessageBox.confirm(
-      `确定要删除项目「${(d.title || '未命名').slice(0, 20)}${(d.title && d.title.length > 20) ? '…' : ''}」吗？此操作不可恢复。`,
-      '删除确认',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+      `项目「${(d.title || '未命名').slice(0, 20)}${(d.title && d.title.length > 20) ? '…' : ''}」将移入回收站。项目内容和关联素材会完整保留，可随时恢复。`,
+      '移入回收站',
+      { type: 'warning', confirmButtonText: '移入回收站', cancelButtonText: '取消' }
     )
   } catch {
     return
   }
   try {
-    await dramaAPI.delete(d.id)
-    ElMessage.success('已删除')
+    await dramaAPI.moveToTrash(d.id)
+    ElMessage.success('项目已移入回收站')
     loadList()
+    if (showTrashDialog.value) loadTrash()
   } catch (e) {
-    ElMessage.error(e.message || '删除失败')
+    ElMessage.error(e.message || '移入回收站失败')
   }
 }
 
@@ -836,10 +1224,6 @@ onMounted(async () => {
   min-height: 100vh;
   background: #08080d;
   color: #e4e4e7;
-  background-image:
-    radial-gradient(ellipse 70% 45% at 50% -10%, rgba(99, 102, 241, 0.18) 0%, transparent 70%),
-    radial-gradient(ellipse 50% 35% at 85% 55%, rgba(139, 92, 246, 0.1) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 30% at 10% 80%, rgba(79, 70, 229, 0.08) 0%, transparent 60%);
 }
 .header {
   background: rgba(12, 12, 18, 0.82);
@@ -871,17 +1255,13 @@ onMounted(async () => {
 .logo-main {
   font-size: 1.1rem;
   font-weight: 700;
-  letter-spacing: -0.01em;
-  background: linear-gradient(135deg, #a5b4fc 0%, #c084fc 50%, #f0abfc 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  filter: drop-shadow(0 0 10px rgba(168, 85, 247, 0.35));
+  letter-spacing: 0;
+  color: #c7d2fe;
 }
 .logo-sub {
   font-size: 0.68rem;
   font-weight: 400;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   color: #6d6d7a;
   -webkit-text-fill-color: #6d6d7a;
   filter: none;
@@ -896,11 +1276,38 @@ onMounted(async () => {
   gap: 6px;
   margin-left: 20px;
 }
+.btn-material-center {
+  font-weight: 600;
+  --el-button-bg-color: rgba(99, 102, 241, 0.2);
+  --el-button-border-color: rgba(129, 140, 248, 0.55);
+  --el-button-text-color: #c7d2fe;
+}
+.btn-semantic-library .dropdown-caret {
+  margin-left: 2px;
+  font-size: 12px;
+}
 .header-actions {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.btn-trash {
+  --el-button-bg-color: rgba(148, 163, 184, 0.08);
+  --el-button-border-color: rgba(148, 163, 184, 0.28);
+  --el-button-text-color: #cbd5e1;
+  --el-button-hover-bg-color: rgba(148, 163, 184, 0.16);
+  --el-button-hover-border-color: rgba(148, 163, 184, 0.46);
+  --el-button-hover-text-color: #f1f5f9;
+}
+html.light .btn-trash {
+  --el-button-bg-color: #ffffff;
+  --el-button-border-color: #cbd1d9;
+  --el-button-text-color: #4b5563;
+  --el-button-hover-bg-color: #f3f4f6;
+  --el-button-hover-border-color: #8b95a3;
+  --el-button-hover-text-color: #1f2937;
 }
 
 /* 资源库按钮 —— 靛紫调 */
@@ -944,25 +1351,6 @@ html.light .btn-theme {
   --el-button-hover-text-color: #4f46e5;
 }
 
-/* 微信我按钮 —— 绿调 */
-.btn-wechat {
-  --el-button-bg-color: rgba(34, 197, 94, 0.1);
-  --el-button-border-color: rgba(34, 197, 94, 0.3);
-  --el-button-text-color: #22c55e;
-  --el-button-hover-bg-color: rgba(34, 197, 94, 0.2);
-  --el-button-hover-border-color: rgba(34, 197, 94, 0.5);
-  --el-button-hover-text-color: #16a34a;
-  transition: all 0.2s;
-}
-html.light .btn-wechat {
-  --el-button-bg-color: rgba(21, 128, 61, 0.08);
-  --el-button-border-color: rgba(21, 128, 61, 0.3);
-  --el-button-text-color: #166534;
-  --el-button-hover-bg-color: rgba(21, 128, 61, 0.14);
-  --el-button-hover-border-color: rgba(21, 128, 61, 0.5);
-  --el-button-hover-text-color: #14532d;
-}
-
 /* AI配置按钮 —— 琥珀调 */
 .btn-settings {
   --el-button-bg-color: rgba(234, 179, 8, 0.1);
@@ -1001,6 +1389,51 @@ html.light .btn-import {
 .projects-wrap {
   min-height: 200px;
 }
+.data-load-state,
+.export-failure-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-left: 4px solid #f87171;
+  border-radius: 8px;
+  background: rgba(127, 29, 29, 0.16);
+  color: #fecaca;
+}
+.export-failure-state {
+  border-color: rgba(251, 191, 36, 0.42);
+  border-left-color: #fbbf24;
+  background: rgba(120, 53, 15, 0.14);
+  color: #fde68a;
+}
+.data-load-state__content,
+.export-failure-state > div {
+  min-width: 0;
+}
+.data-load-state h2,
+.export-failure-state strong {
+  display: block;
+  margin: 0 0 5px;
+  color: #fff7ed;
+  font-size: 0.96rem;
+  line-height: 1.4;
+}
+.data-load-state p,
+.export-failure-state p {
+  margin: 3px 0 0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+.data-load-state__stale {
+  color: #fde68a;
+}
+.data-load-state__detail {
+  color: #fca5a5;
+  overflow-wrap: anywhere;
+}
 .empty {
   text-align: center;
   padding: 48px 24px;
@@ -1024,67 +1457,87 @@ html.light .btn-import {
   position: relative;
   background: rgba(24, 24, 30, 0.75);
   border: 1px solid rgba(63, 63, 70, 0.6);
-  border-radius: 14px;
-  padding: 20px;
-  cursor: pointer;
+  border-radius: 8px;
+  padding: 0;
   transition: border-color 0.25s, background 0.25s, transform 0.25s, box-shadow 0.25s;
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   overflow: hidden;
 }
+.project-card-link {
+  display: block;
+  height: 100%;
+  padding: 20px;
+  border-radius: inherit;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.project-card-link:focus-visible {
+  outline: 2px solid #a5b4fc;
+  outline-offset: -3px;
+}
+.project-card:focus-within {
+  border-color: rgba(129, 140, 248, 0.75);
+}
 .project-card::before {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 14px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, transparent 60%);
+  border-radius: 8px;
+  background: transparent;
   pointer-events: none;
 }
 .project-card:hover {
   border-color: rgba(99, 102, 241, 0.55);
   background: rgba(28, 28, 36, 0.9);
   transform: translateY(-3px);
-  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.15), 0 0 0 1px rgba(99, 102, 241, 0.1), 0 2px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 10px 28px rgba(99, 102, 241, 0.12), 0 0 0 1px rgba(99, 102, 241, 0.08), 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
 /* 操作卡片 */
 .action-card {
   cursor: default;
-  border-style: dashed;
-  border-color: rgba(99, 102, 241, 0.4);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(139, 92, 246, 0.04) 100%);
   display: flex;
   align-items: center;
-  justify-content: center;
-  box-shadow: inset 0 0 40px rgba(99, 102, 241, 0.04);
+  justify-content: flex-start;
 }
 .action-card:hover {
-  border-color: rgba(99, 102, 241, 0.65);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.07) 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(99, 102, 241, 0.12), inset 0 0 40px rgba(99, 102, 241, 0.06);
+  transform: none;
+  box-shadow: none;
 }
 .action-card::before {
   display: none;
 }
 .action-card-inner {
-  width: 100%;
+  width: min(680px, 100%);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 16px;
+  align-items: flex-start;
+  gap: 14px;
+}
+.action-card--empty {
+  grid-column: 1 / -1;
+  min-height: 260px;
+  padding: 44px 12px;
 }
 .action-card-title {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #a5b4fc;
+  font-size: 1.35rem;
+  font-weight: 650;
+  color: #f4f4f5;
   margin: 0;
+}
+.action-card-desc {
+  margin: -4px 0 4px;
+  color: #a1a1aa;
+  font-size: 0.875rem;
 }
 .action-card-buttons {
   display: flex;
   gap: 12px;
   width: 100%;
-  justify-content: center;
+  flex-wrap: wrap;
+  justify-content: flex-start;
 }
 .action-btn {
   min-width: 150px;
@@ -1099,6 +1552,34 @@ html.light .btn-import {
   --el-button-hover-bg-color: rgba(99, 102, 241, 0.22);
   --el-button-hover-border-color: rgba(99, 102, 241, 0.55);
   --el-button-hover-text-color: #c7d2fe;
+}
+.action-card-secondary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.action-btn-material {
+  --el-button-bg-color: rgba(255, 255, 255, 0.02);
+  --el-button-border-color: rgba(99, 102, 241, 0.28);
+  --el-button-text-color: #c7d2fe;
+  --el-button-hover-bg-color: rgba(99, 102, 241, 0.14);
+  --el-button-hover-border-color: rgba(129, 140, 248, 0.5);
+  --el-button-hover-text-color: #e0e7ff;
+}
+.action-btn-trash {
+  --el-button-bg-color: transparent;
+  --el-button-border-color: rgba(148, 163, 184, 0.28);
+  --el-button-text-color: #a1a1aa;
+  --el-button-hover-bg-color: rgba(148, 163, 184, 0.1);
+  --el-button-hover-border-color: rgba(148, 163, 184, 0.5);
+  --el-button-hover-text-color: #e4e4e7;
+}
+.action-card-note {
+  margin: 0;
+  color: #8b8b97;
+  font-size: 0.82rem;
+  text-align: center;
 }
 .action-card-example {
   width: 100%;
@@ -1135,15 +1616,26 @@ html.light .btn-import {
   --el-button-hover-text-color: #22c55e;
 }
 .project-card-body {
-  padding-right: 56px;
+  min-width: 0;
+}
+.project-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding-right: 36px;
 }
 .project-title {
+  min-width: 0;
   font-size: 1.05rem;
-  margin: 0 0 8px;
+  line-height: 1.4;
+  margin: 2px 0 0;
   color: #fafafa;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .project-desc {
   font-size: 0.875rem;
@@ -1222,19 +1714,125 @@ html.light .btn-import {
   color: #71717a;
   margin: 0;
 }
-.project-card-actions {
+.project-menu-button {
+  --el-button-size: 30px;
+  color: #a1a1aa;
+  margin-top: -2px;
+  align-self: start;
+}
+.project-card-menu {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
+}
+.project-menu-button:hover,
+.project-menu-button:focus-visible {
+  color: #e4e4e7;
+  background: rgba(99, 102, 241, 0.16);
+}
+.trash-policy {
   display: flex;
-  gap: 6px;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border-left: 3px solid #2dd4bf;
+  background: rgba(20, 184, 166, 0.08);
 }
-.project-card-actions .el-button {
-  --el-button-size: 28px;
+.trash-policy-icon {
+  margin-top: 2px;
+  flex: 0 0 auto;
+  color: #5eead4;
+  font-size: 20px;
+}
+.trash-policy strong {
+  display: block;
+  color: #f4f4f5;
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+.trash-policy p {
+  margin: 4px 0 0;
+  color: #a1a1aa;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+.trash-dialog-content {
+  min-height: 180px;
+}
+.trash-list {
+  list-style: none;
+  margin: 0;
   padding: 0;
+  border-top: 1px solid #303038;
 }
-.project-card-actions .el-button .el-icon {
-  font-size: 14px;
+.trash-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 20px;
+  min-height: 108px;
+  padding: 16px 2px;
+  border-bottom: 1px solid #303038;
+}
+.trash-item-main {
+  min-width: 0;
+}
+.trash-item-title {
+  margin: 0 0 6px;
+  overflow: hidden;
+  color: #f4f4f5;
+  font-size: 0.98rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trash-item-meta,
+.trash-item-retention {
+  margin: 0;
+  color: #a1a1aa;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.trash-item-retention {
+  color: #5eead4;
+}
+.trash-restore-button {
+  min-width: 92px;
+}
+.trash-empty {
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #71717a;
+}
+.trash-empty .el-icon {
+  font-size: 28px;
+}
+.trash-empty p,
+.trash-error,
+.trash-live-status {
+  margin: 0;
+}
+.trash-error {
+  padding: 12px;
+  border-left: 3px solid #f87171;
+  background: rgba(239, 68, 68, 0.08);
+  color: #fca5a5;
+}
+.trash-live-status {
+  min-height: 20px;
+  margin-top: 12px;
+  color: #a1a1aa;
+  font-size: 0.8rem;
+}
+.trash-pagination {
+  margin-top: 14px;
+  justify-content: center;
 }
 
 /* 公共库弹窗 */
@@ -1242,7 +1840,9 @@ html.light .btn-import {
 
 /* 编辑弹框内图片区 */
 .lib-img-editor { display: flex; align-items: center; gap: 14px; }
-.lib-img-thumb { width: 88px; height: 88px; border-radius: 8px; overflow: hidden; cursor: zoom-in; background: var(--bg-inner, #1c1c1e); border: 1px solid var(--border-color, #27272a); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.lib-img-thumb { width: 88px; height: 88px; padding: 0; border-radius: 8px; overflow: hidden; background: var(--bg-inner, #1c1c1e); border: 1px solid var(--border-color, #27272a); color: inherit; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+button.lib-img-thumb { cursor: zoom-in; }
+.lib-img-thumb--empty { cursor: default; }
 .lib-img-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .lib-img-empty { color: var(--text-faint, #52525b); font-size: 26px; }
 .lib-img-btns { display: flex; flex-direction: column; gap: 8px; }
@@ -1266,6 +1866,7 @@ html.light .btn-import {
 .library-item-cover {
   width: 72px;
   height: 72px;
+  padding: 0;
   flex-shrink: 0;
   border-radius: 6px;
   overflow: hidden;
@@ -1273,7 +1874,14 @@ html.light .btn-import {
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  color: inherit;
+}
+button.library-item-cover { cursor: zoom-in; }
+.library-item-cover--empty { cursor: default; }
+.library-item-cover:focus-visible,
+.lib-img-thumb:focus-visible {
+  outline: 2px solid #a5b4fc;
+  outline-offset: 2px;
 }
 .library-item-cover img { width: 100%; height: 100%; object-fit: cover; }
 .library-item-placeholder { font-size: 0.8rem; color: #71717a; }
@@ -1286,54 +1894,96 @@ html.light .btn-import {
 
 /* ===== 亮色模式适配 ===== */
 html.light .film-list {
-  background: #f5f3ff;
-  color: #1e1b4b;
-  background-image:
-    radial-gradient(ellipse 70% 45% at 50% -10%, rgba(99, 102, 241, 0.1) 0%, transparent 70%),
-    radial-gradient(ellipse 50% 35% at 85% 55%, rgba(139, 92, 246, 0.06) 0%, transparent 60%);
+  background: #f7f8fa;
+  color: #20242c;
 }
+html.light .data-load-state,
+html.light .export-failure-state {
+  background: #fff7ed;
+  border-color: #fdba74;
+  border-left-color: #dc2626;
+  color: #9a3412;
+}
+html.light .export-failure-state {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  border-left-color: #d97706;
+  color: #92400e;
+}
+html.light .data-load-state h2,
+html.light .export-failure-state strong {
+  color: #7f1d1d;
+}
+html.light .data-load-state__stale { color: #92400e; }
+html.light .data-load-state__detail { color: #b91c1c; }
 html.light .header {
-  background: rgba(248, 246, 255, 0.88);
-  border-bottom-color: rgba(99, 102, 241, 0.2);
-  box-shadow: 0 1px 0 rgba(99, 102, 241, 0.1), 0 4px 16px rgba(99, 102, 241, 0.06);
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom-color: #e4e7ec;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.04);
 }
 html.light .logo-main {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #9333ea 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.2));
+  color: #4f46e5;
 }
 html.light .logo-sub {
   color: #9ca3af;
   -webkit-text-fill-color: #9ca3af;
 }
 html.light .project-card {
-  background: rgba(255, 255, 255, 0.9);
-  border-color: rgba(199, 210, 254, 0.8);
-  box-shadow: 0 1px 4px rgba(99, 102, 241, 0.06), 0 2px 12px rgba(0, 0, 0, 0.04);
+  background: #ffffff;
+  border-color: #e1e5eb;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
   backdrop-filter: none;
 }
 html.light .project-card::before {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.03) 0%, transparent 60%);
+  background: transparent;
 }
 html.light .project-card:hover {
-  border-color: rgba(99, 102, 241, 0.5);
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 12px 36px rgba(99, 102, 241, 0.12), 0 0 0 1px rgba(99, 102, 241, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+  border-color: #aeb6c2;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
 }
 html.light .action-card {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(139, 92, 246, 0.04) 100%);
-  border-color: rgba(99, 102, 241, 0.35);
+  background: transparent;
 }
 html.light .action-card:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.07) 100%);
-  border-color: rgba(99, 102, 241, 0.55);
+  background: transparent;
 }
-html.light .action-card-title { color: #4f46e5; }
-html.light .project-title { color: #1e1b4b; }
+html.light .action-card-title { color: #20242c; }
+html.light .project-title { color: #20242c; }
 html.light .project-desc { color: #4b5563; }
 html.light .project-meta { color: #6b7280; }
+html.light .action-card-desc { color: #6b7280; }
+html.light .action-btn-import {
+  --el-button-bg-color: #ffffff;
+  --el-button-border-color: #b8c0cc;
+  --el-button-text-color: #374151;
+  --el-button-hover-bg-color: #f3f4f6;
+  --el-button-hover-border-color: #7c8796;
+  --el-button-hover-text-color: #111827;
+}
+html.light .action-btn-material {
+  --el-button-bg-color: rgba(79, 70, 229, 0.04);
+  --el-button-border-color: rgba(79, 70, 229, 0.22);
+  --el-button-text-color: #4338ca;
+  --el-button-hover-bg-color: rgba(79, 70, 229, 0.1);
+  --el-button-hover-border-color: rgba(79, 70, 229, 0.38);
+  --el-button-hover-text-color: #3730a3;
+}
+html.light .action-btn-trash {
+  --el-button-bg-color: transparent;
+  --el-button-border-color: #cbd1d9;
+  --el-button-text-color: #4b5563;
+  --el-button-hover-bg-color: #f3f4f6;
+  --el-button-hover-border-color: #8b95a3;
+  --el-button-hover-text-color: #1f2937;
+}
+html.light .action-card-note { color: #6b7280; }
+html.light .project-menu-button { color: #6b7280; }
+html.light .project-menu-button:hover,
+html.light .project-menu-button:focus-visible {
+  color: #3730a3;
+  background: rgba(79, 70, 229, 0.1);
+}
 html.light .example-hint-text { color: #6b7280; }
 html.light .library-item {
   background: #faf9ff;
@@ -1347,27 +1997,28 @@ html.light .lib-img-thumb {
   border-color: #e5e7eb;
 }
 html.light .lib-img-empty { color: #9ca3af; }
+html.light .trash-policy {
+  background: #ecfdf5;
+  border-left-color: #0f766e;
+}
+html.light .trash-policy-icon,
+html.light .trash-item-retention { color: #0f766e; }
+html.light .trash-policy strong,
+html.light .trash-item-title { color: #20242c; }
+html.light .trash-policy p,
+html.light .trash-item-meta,
+html.light .trash-live-status { color: #5b6470; }
+html.light .trash-list,
+html.light .trash-list-item { border-color: #e1e5eb; }
+html.light .trash-empty { color: #6b7280; }
+html.light .trash-error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
 html.light .badge-status--draft {
   background: rgba(107, 114, 128, 0.1);
   color: #4b5563;
   border-color: rgba(107, 114, 128, 0.25);
 }
 
-/* ===== 图片放大预览 ===== */
-.image-preview-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,.85);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  cursor: zoom-out;
-}
-.image-preview-img {
-  max-width: 90vw;
-  max-height: 90vh;
-  border-radius: 8px;
-  object-fit: contain;
-}
 </style>

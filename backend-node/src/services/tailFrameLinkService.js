@@ -2,6 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { getFfmpegPath, hasLocalFfmpeg } = require('../utils/ffmpegPath');
+const response = require('../response');
+const uploadService = require('./uploadService');
 
 /**
  * 尾帧衔接服务：提取当前分镜视频的最后一帧，设为下一个分镜的首帧
@@ -10,15 +12,28 @@ function routes(db, cfg, log) {
   return {
     linkTailFrame: async (req, res) => {
       try {
-        const storyboardId = parseInt(req.params.id, 10);
+        const storyboardId = Number(req.params.id);
         const body = req.body || {};
-        const dramaId = body.drama_id;
+        const dramaId = Number(body.drama_id);
 
-        if (!storyboardId || !dramaId) {
-          return res.status(400).json({ error: '缺少必要参数' });
+        if (!Number.isSafeInteger(storyboardId) || storyboardId <= 0 ||
+            !Number.isSafeInteger(dramaId) || dramaId <= 0) {
+          return response.badRequest(res, '分镜和项目参数必须是正整数');
         }
 
-        // 1. 获取当前分镜的最新已完成视频
+        // 1. 校验分镜归属，避免跨项目写入。
+        const currentSb = db.prepare(`
+          SELECT sb.episode_id, sb.storyboard_number, ep.drama_id
+          FROM storyboards sb
+          INNER JOIN episodes ep ON ep.id = sb.episode_id
+          WHERE sb.id = ? AND sb.deleted_at IS NULL AND ep.deleted_at IS NULL
+        `).get(storyboardId);
+        if (!currentSb) return response.notFound(res, '分镜不存在');
+        if (Number(currentSb.drama_id) !== dramaId) {
+          return response.forbidden(res, '分镜不属于当前项目');
+        }
+
+        // 2. 获取当前分镜的最新已完成视频
         const video = db.prepare(`
           SELECT id, local_path, video_url FROM video_generations
           WHERE storyboard_id = ? AND status = 'completed' AND deleted_at IS NULL
@@ -26,15 +41,10 @@ function routes(db, cfg, log) {
         `).get(storyboardId);
 
         if (!video || !video.local_path) {
-          return res.status(400).json({ error: '当前分镜没有可用的本地视频文件' });
+          return response.badRequest(res, '当前分镜没有可用的本地视频文件');
         }
 
-        // 2. 找到下一个分镜
-        const currentSb = db.prepare('SELECT episode_id, storyboard_number FROM storyboards WHERE id = ?').get(storyboardId);
-        if (!currentSb) {
-          return res.status(404).json({ error: '分镜不存在' });
-        }
-
+        // 3. 找到下一个分镜
         const nextSb = db.prepare(`
           SELECT id, storyboard_number FROM storyboards
           WHERE episode_id = ? AND storyboard_number > ? AND deleted_at IS NULL
@@ -42,41 +52,37 @@ function routes(db, cfg, log) {
         `).get(currentSb.episode_id, currentSb.storyboard_number || 0);
 
         if (!nextSb) {
-          return res.status(400).json({ error: '没有下一个分镜可供衔接' });
+          return response.badRequest(res, '没有下一个分镜可供衔接');
         }
 
-        // 3. 检查 ffmpeg 是否可用
-        if (!hasLocalFfmpeg()) {
-          return res.status(500).json({ error: '服务器未安装 ffmpeg，无法提取视频帧' });
-        }
-
-        const ffmpeg = getFfmpegPath();
-
-        // 4. 构建视频文件绝对路径
-        // local_path 通常是相对路径，如 media/videos/xxx.mp4
+        // 4. 只允许读取存储根目录中的普通文件，拒绝绝对路径、穿越和符号链接。
         const rawStorage = cfg?.storage?.local_path || './data/storage';
         const storageBase = path.isAbsolute(rawStorage)
           ? rawStorage
           : path.join(process.cwd(), rawStorage);
-        const videoAbsPath = path.isAbsolute(video.local_path)
-          ? video.local_path
-          : path.join(storageBase, video.local_path.replace(/^\/+/, ''));
+        let videoReference;
+        try {
+          videoReference = uploadService.resolveStorageReference(storageBase, video.local_path);
+        } catch (_) {
+          return response.badRequest(res, '视频文件引用无效或文件不存在');
+        }
+        const videoAbsPath = videoReference.absolutePath;
 
-        if (!fs.existsSync(videoAbsPath)) {
-          return res.status(400).json({ error: '视频文件不存在: ' + video.local_path });
+        // 5. 检查 ffmpeg 是否可用
+        if (!hasLocalFfmpeg()) {
+          return response.error(res, 503, 'FFMPEG_UNAVAILABLE', 'FFmpeg 不可用，暂时无法提取视频帧');
         }
 
-        // 5. 准备输出图片路径
+        const ffmpeg = getFfmpegPath();
+
+        // 6. 准备输出图片路径
         const timestamp = Date.now();
         const outputFileName = `tailframe_${storyboardId}_to_${nextSb.id}_${timestamp}.jpg`;
-        const imagesDir = path.join(storageBase, 'media', 'images');
-        if (!fs.existsSync(imagesDir)) {
-          fs.mkdirSync(imagesDir, { recursive: true });
-        }
+        const imagesDir = uploadService.ensureStorageDirectory(storageBase, 'media/images').directory;
         const outputAbsPath = path.join(imagesDir, outputFileName);
         const outputRelPath = `media/images/${outputFileName}`;
 
-        // 6. 使用 ffmpeg 提取最后一帧
+        // 7. 使用 ffmpeg 提取最后一帧
         // 使用 -sseof -1 定位到最后一秒，然后取第一帧
         log.info('[尾帧衔接] 开始提取', { from: video.local_path, to: outputRelPath });
 
@@ -92,14 +98,14 @@ function routes(db, cfg, log) {
 
         if (result.error || result.status !== 0) {
           log.error('[尾帧衔接] ffmpeg 失败', { stderr: result.stderr?.slice(-500) });
-          return res.status(500).json({ error: 'ffmpeg 提取帧失败: ' + (result.stderr || result.error?.message || '未知错误') });
+          return response.error(res, 500, 'FRAME_EXTRACTION_FAILED', 'FFmpeg 未能提取视频尾帧');
         }
 
         if (!fs.existsSync(outputAbsPath)) {
-          return res.status(500).json({ error: '提取帧后文件未生成' });
+          return response.error(res, 500, 'FRAME_OUTPUT_MISSING', '尾帧提取未生成输出文件');
         }
 
-        // 7. 获取图片尺寸（可选，用于记录）
+        // 8. 获取图片尺寸（可选，用于记录）
         let width = null, height = null;
         try {
           const { getFfprobePath } = require('../utils/ffmpegPath');
@@ -114,7 +120,7 @@ function routes(db, cfg, log) {
           }
         } catch (_) { /* 忽略尺寸探测错误 */ }
 
-        // 8. 在 image_generations 表创建记录
+        // 9. 在 image_generations 表创建记录
         const now = new Date().toISOString();
         const prompt = `尾帧衔接：从分镜 #${currentSb.storyboard_number ?? storyboardId} 视频提取的最后一帧`;
 
@@ -149,7 +155,7 @@ function routes(db, cfg, log) {
 
         const newImageId = info.lastInsertRowid;
 
-        // 9. 更新下一个分镜的 first_frame_image_id
+        // 10. 更新下一个分镜的 first_frame_image_id
         // 先获取当前首帧（用于历史记录，如果需要）
         const nextSbCurrent = db.prepare('SELECT first_frame_image_id, image_url, local_path FROM storyboards WHERE id = ?').get(nextSb.id);
 
@@ -166,8 +172,7 @@ function routes(db, cfg, log) {
           prev_first_frame_id: nextSbCurrent?.first_frame_image_id
         });
 
-        res.json({
-          success: true,
+        return response.success(res, {
           message: '尾帧衔接成功',
           next_storyboard_id: nextSb.id,
           new_first_frame_image_id: newImageId,
@@ -176,8 +181,8 @@ function routes(db, cfg, log) {
         });
 
       } catch (err) {
-        log.error('storyboards link-tail-frame', { error: err.message, stack: err.stack });
-        res.status(500).json({ error: err.message || '尾帧衔接失败' });
+        log.error('storyboards link-tail-frame', { error: err.message });
+        return response.internalError(res, '尾帧衔接失败');
       }
     }
   };

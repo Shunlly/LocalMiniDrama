@@ -1,0 +1,15 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated outputs and local runtime data are scanned by separate artifact gates"
+paths = [
+  '''(^|/)\.codex-audit/''',
+  '''(^|/)artifacts/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)backend-node/data/''',
+  '''(^|/)desktop/backend-app/''',
+  '''(^|/)desktop/frontweb-dist/''',
+  '''(^|/)desktop/release(?:-[^/]+)?/''',
+  '''(^|/)frontweb/dist/''',
+]

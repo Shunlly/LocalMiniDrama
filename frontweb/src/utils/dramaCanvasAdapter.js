@@ -1,21 +1,22 @@
-import { parseCanvasLayout, resolveNodePosition } from './canvasLayout'
-import { getStoryboardGroupMap, parseWorkflowGroups } from './canvasWorkflow'
-import { assetImageUrl, storyboardImageUrl, storyboardVideoUrl, audioUrl } from './mediaUrl'
+import { parseCanvasLayout, resolveNodePosition } from './canvasLayout.js'
+import { getStoryboardGroupMap, parseWorkflowGroups } from './canvasWorkflow.js'
+import { assetImageUrl, storyboardImageUrl, storyboardVideoUrl, audioUrl } from './mediaUrl.js'
 import {
   dramaUsesFirstLastFrame,
+  getStoryboardMediaAvailability,
   imageRecordUrl,
   resolveSbFirstImageRecord,
   resolveSbLastImageRecord,
   resolveSbMainImageRecord,
   resolveSbVideoRecord,
   videoRecordUrl,
-} from './storyboardMedia'
+} from './storyboardMedia.js'
 
 const ASSET_X = 48
 const SCRIPT_OFFSET_X = 248
 const ASSET_SECTION_GAP = 36
 const ASSET_ROW_H = 188
-const PIPELINE_X = 360
+const PIPELINE_X = 496
 const EPISODE_ROW_GAP = 48
 const SB_GAP_Y = 280
 const MEDIA_OFFSET_X = 228
@@ -203,6 +204,12 @@ function buildEpisodePipeline(episode, savedLayout, startY, options = {}) {
     const sbX = PIPELINE_X
     const rowY = rowYBase + index * SB_GAP_Y
     const wfGroup = groupMap.get(sb.id)
+    const mediaAvailability = getStoryboardMediaAvailability(
+      sb,
+      imagesBySbId,
+      videosBySbId,
+      options.drama,
+    )
     nodes.push(makeNode({
       id: sbId,
       type: 'canvasStoryboard',
@@ -211,6 +218,7 @@ function buildEpisodePipeline(episode, savedLayout, startY, options = {}) {
         storyboard: sb,
         episodeId: episode.id,
         index: index + 1,
+        mediaAvailability,
         workflowGroup: wfGroup ? { id: wfGroup.id, title: wfGroup.title } : null,
       },
     }))
@@ -251,23 +259,19 @@ function buildEpisodePipeline(episode, savedLayout, startY, options = {}) {
 
       if (useFirstLast) {
         const firstUrl = imageRecordUrl(resolveSbFirstImageRecord(sb, imagesBySbId))
-        if (firstUrl) {
-          const imgId = `sbimg-first:${sb.id}`
-          pipelineTailId = appendMediaImageNode(nodes, edges, {
-            savedLayout, sb, sbId, fromId: pipelineTailId, mediaX, mediaY, imgId, url: firstUrl,
-            frameKind: 'first', frameLabel: '首帧',
-          })
-          mediaX += MEDIA_GAP_X
-        }
+        const firstId = `sbimg-first:${sb.id}`
+        pipelineTailId = appendMediaImageNode(nodes, edges, {
+          savedLayout, sb, sbId, fromId: pipelineTailId, mediaX, mediaY, imgId: firstId, url: firstUrl,
+          frameKind: 'first', frameLabel: '首帧',
+        })
+        mediaX += MEDIA_GAP_X
         const lastUrl = imageRecordUrl(resolveSbLastImageRecord(sb, imagesBySbId))
-        if (lastUrl) {
-          const imgId = `sbimg-last:${sb.id}`
-          pipelineTailId = appendMediaImageNode(nodes, edges, {
-            savedLayout, sb, sbId, fromId: pipelineTailId, mediaX, mediaY, imgId, url: lastUrl,
-            frameKind: 'last', frameLabel: '尾帧',
-          })
-          mediaX += MEDIA_GAP_X
-        }
+        const lastId = `sbimg-last:${sb.id}`
+        pipelineTailId = appendMediaImageNode(nodes, edges, {
+          savedLayout, sb, sbId, fromId: pipelineTailId, mediaX, mediaY, imgId: lastId, url: lastUrl,
+          frameKind: 'last', frameLabel: '尾帧',
+        })
+        mediaX += MEDIA_GAP_X
       } else {
         const mainUrl = imageRecordUrl(resolveSbMainImageRecord(sb, imagesBySbId)) || storyboardImageUrl(sb)
         if (mainUrl) {
@@ -299,13 +303,14 @@ function buildEpisodePipeline(episode, savedLayout, startY, options = {}) {
       mediaX += MEDIA_GAP_X
     }
 
-    if (sb.audio_local_path) {
+    const dialogueAudioUrl = audioUrl(sb.audio_local_path)
+    if (dialogueAudioUrl) {
       const audId = `sbaud:${sb.id}:dialogue`
       nodes.push(makeNode({
         id: audId,
         type: 'canvasMedia',
         position: resolveNodePosition(savedLayout, audId, { x: mediaX, y: mediaY }),
-        data: { kind: 'audio', storyboard: sb, url: audioUrl(sb.audio_local_path), audioType: 'dialogue' },
+        data: { kind: 'audio', storyboard: sb, url: dialogueAudioUrl, audioType: 'dialogue' },
       }))
       edges.push(makeEdge({
         id: `e-sb-aud-${sb.id}`,
@@ -413,6 +418,7 @@ export function buildDramaCanvasGraph(drama, options = {}) {
   for (const ep of episodes) {
     const block = buildEpisodePipeline(ep, savedLayout, pipelineY, {
       ...options,
+      drama,
       workflowGroupMap,
       useFirstLastFrame,
     })

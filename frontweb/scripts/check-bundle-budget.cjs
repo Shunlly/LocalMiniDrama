@@ -1,0 +1,86 @@
+const fs = require('node:fs')
+const path = require('node:path')
+const zlib = require('node:zlib')
+
+const DIST_ROOT = path.resolve(__dirname, '..', 'dist')
+const MANIFEST_PATH = path.join(DIST_ROOT, '.vite', 'manifest.json')
+const BUDGETS = Object.freeze({
+  initialJavaScriptGzip: 120 * 1024,
+  initialCssGzip: 40 * 1024,
+  asyncChunkGzip: 130 * 1024,
+})
+
+function gzipSize(relativePath) {
+  const absolutePath = path.join(DIST_ROOT, relativePath)
+  return zlib.gzipSync(fs.readFileSync(absolutePath), { level: 9 }).length
+}
+
+function collectInitialEntries(manifest, entryKey) {
+  const visited = new Set()
+  const visit = (key) => {
+    if (!key || visited.has(key)) return
+    const item = manifest[key]
+    if (!item) throw new Error(`Bundle manifest references missing entry: ${key}`)
+    visited.add(key)
+    for (const imported of item.imports || []) visit(imported)
+  }
+  visit(entryKey)
+  return visited
+}
+
+function formatBytes(value) {
+  return `${(value / 1024).toFixed(1)} KiB gzip`
+}
+
+function verifyBundleBudget(manifest) {
+  const entry = Object.entries(manifest).find(([, item]) => item.isEntry && item.file?.endsWith('.js'))
+  if (!entry) throw new Error('Bundle manifest has no JavaScript application entry')
+
+  const initialKeys = collectInitialEntries(manifest, entry[0])
+  const initialJsFiles = new Set()
+  const initialCssFiles = new Set()
+  for (const key of initialKeys) {
+    const item = manifest[key]
+    if (item.file?.endsWith('.js')) initialJsFiles.add(item.file)
+    for (const cssFile of item.css || []) initialCssFiles.add(cssFile)
+  }
+
+  const initialJavaScriptGzip = [...initialJsFiles].reduce((sum, file) => sum + gzipSize(file), 0)
+  const initialCssGzip = [...initialCssFiles].reduce((sum, file) => sum + gzipSize(file), 0)
+  const oversizedAsyncChunks = Object.entries(manifest)
+    .filter(([key, item]) => item.file?.endsWith('.js') && !initialKeys.has(key))
+    .map(([, item]) => ({ file: item.file, gzip: gzipSize(item.file) }))
+    .filter((item) => item.gzip > BUDGETS.asyncChunkGzip)
+
+  const failures = []
+  if (initialJavaScriptGzip > BUDGETS.initialJavaScriptGzip) {
+    failures.push(`initial JavaScript is ${formatBytes(initialJavaScriptGzip)} (budget ${formatBytes(BUDGETS.initialJavaScriptGzip)})`)
+  }
+  if (initialCssGzip > BUDGETS.initialCssGzip) {
+    failures.push(`initial CSS is ${formatBytes(initialCssGzip)} (budget ${formatBytes(BUDGETS.initialCssGzip)})`)
+  }
+  for (const item of oversizedAsyncChunks) {
+    failures.push(`${item.file} is ${formatBytes(item.gzip)} (async budget ${formatBytes(BUDGETS.asyncChunkGzip)})`)
+  }
+  if (failures.length) throw new Error(`Bundle budget exceeded:\n- ${failures.join('\n- ')}`)
+
+  return {
+    initialJavaScriptGzip,
+    initialCssGzip,
+    largestAsyncChunkGzip: Math.max(0, ...Object.entries(manifest)
+      .filter(([key, item]) => item.file?.endsWith('.js') && !initialKeys.has(key))
+      .map(([, item]) => gzipSize(item.file))),
+  }
+}
+
+function main() {
+  if (!fs.existsSync(MANIFEST_PATH)) throw new Error(`Vite manifest not found: ${MANIFEST_PATH}`)
+  const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'))
+  const result = verifyBundleBudget(manifest)
+  fs.rmSync(path.dirname(MANIFEST_PATH), { recursive: true, force: true })
+  console.log(JSON.stringify({ bundle_budget: 'passed', ...result }))
+}
+
+module.exports = { BUDGETS, collectInitialEntries, verifyBundleBudget }
+
+if (require.main === module) main()

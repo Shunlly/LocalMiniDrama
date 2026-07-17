@@ -3,3 +3,8 @@ dist/
 data/
 *.db
 .env
+.env.*
+!.env.example
+configs/ai-configs-*.json
+coverage/
+test-results/

@@ -1,6 +1,7 @@
 <template>
   <div
     class="canvas-node-panel asset-panel nodrag nopan nowheel"
+    tabindex="-1"
     :class="'kind-' + kind"
     @pointerdown.stop
     @mousedown.stop
@@ -85,6 +86,38 @@
                 placeholder="场景描述"
               />
             </el-form-item>
+            <section class="panorama-section" aria-label="场景全景图" aria-live="polite">
+              <div class="panorama-head">
+                <span>360° 全景图</span>
+                <CanvasActionGate
+                  :reason="panoramaDisabledReason"
+                  :label="panoramaPreviewUrl ? '重新生成场景全景图' : '生成场景全景图'"
+                  description-id="canvas-reason-generate-panorama"
+                >
+                  <el-button
+                    size="small"
+                    type="primary"
+                    plain
+                    :icon="panoramaPreviewUrl ? Refresh : Picture"
+                    :loading="panoramaGenerating"
+                    :disabled="Boolean(panoramaDisabledReason)"
+                    :aria-label="panoramaPreviewUrl ? '重新生成场景全景图' : '生成场景全景图'"
+                    @click.stop="generatePanorama"
+                  >
+                    {{ panoramaPreviewUrl ? '重新生成' : '生成全景图' }}
+                  </el-button>
+                </CanvasActionGate>
+              </div>
+              <div class="panorama-preview">
+                <img v-if="panoramaPreviewUrl" :src="panoramaPreviewUrl" alt="场景全景图" />
+                <div v-else class="panorama-empty">暂无全景图</div>
+                <div v-if="panoramaGenerating" class="panorama-loading">
+                  <span class="spinner" />
+                  <span>生成全景图…</span>
+                </div>
+              </div>
+              <p v-if="panoramaError" class="panorama-error" role="alert">{{ panoramaError }}</p>
+            </section>
           </template>
 
           <template v-else>
@@ -134,11 +167,14 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Picture, Refresh } from '@element-plus/icons-vue'
 import { characterAPI } from '@/api/characters'
 import { sceneAPI } from '@/api/scenes'
 import { propAPI } from '@/api/props'
+import { taskAPI } from '@/api/task'
 import { useCanvasContext } from '@/composables/useCanvasContext'
 import { generateAssetReferenceImage } from '@/composables/useCanvasAssetGenerate'
+import CanvasActionGate from './CanvasActionGate.vue'
 import { assetImageUrl } from '@/utils/mediaUrl'
 
 const props = defineProps({
@@ -150,6 +186,10 @@ const props = defineProps({
 const ctx = useCanvasContext()
 const saving = ref(false)
 const generating = ref(false)
+const panoramaGenerating = ref(false)
+const panoramaError = ref('')
+const panoramaScene = ref(null)
+let panoramaLoadToken = 0
 const form = reactive({
   name: '',
   role: '',
@@ -171,6 +211,21 @@ const kindIcon = computed(() => {
 })
 
 const previewUrl = computed(() => assetImageUrl(props.entity))
+const panoramaPreviewUrl = computed(() => {
+  const scene = Number(panoramaScene.value?.id) === Number(props.entity?.id)
+    ? panoramaScene.value
+    : props.entity
+  return assetImageUrl({
+    local_path: scene?.panorama_local_path,
+    image_url: scene?.panorama_image_url,
+  })
+})
+const hasSceneSource = computed(() => Boolean(previewUrl.value))
+const panoramaDisabledReason = computed(() => {
+  if (!hasSceneSource.value) return '请先生成场景主图'
+  if (generating.value) return '场景主图正在生成，请等待完成'
+  return ''
+})
 const canGenerate = computed(() => !previewUrl.value)
 const entityStatus = computed(() => props.entity?.status || '')
 const entityStatusLabel = computed(() => {
@@ -195,6 +250,45 @@ function syncForm(entity) {
 }
 
 watch(() => props.entity, (e) => syncForm(e), { immediate: true, deep: true })
+watch(() => [props.kind, props.entity?.id], () => {
+  panoramaLoadToken += 1
+  panoramaError.value = ''
+  panoramaScene.value = null
+  refreshPanoramaScene()
+}, { immediate: true })
+
+async function refreshPanoramaScene() {
+  if (props.kind !== 'scene' || !props.entity?.id) return
+  const sceneId = Number(props.entity.id)
+  const token = ++panoramaLoadToken
+  try {
+    const data = await sceneAPI.get(sceneId)
+    if (token === panoramaLoadToken && Number(props.entity?.id) === sceneId) {
+      panoramaScene.value = data?.scene || data || null
+    }
+  } catch (_) {}
+}
+
+function panoramaTaskError(task) {
+  if (typeof task?.error === 'string' && task.error.trim()) return task.error
+  if (task?.error?.message) return task.error.message
+  return task?.message || '全景图生成失败'
+}
+
+async function waitForPanoramaTask(taskId, maxAttempts = 450, interval = 2000) {
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise((resolve) => setTimeout(resolve, interval))
+    try {
+      const task = await taskAPI.get(taskId)
+      if (task?.status === 'completed') return
+      if (task?.status === 'failed') throw new Error(panoramaTaskError(task))
+    } catch (error) {
+      if (error?.message && error.message !== 'Network Error') throw error
+      if (i === maxAttempts - 1) throw new Error(error?.message || '全景图任务轮询失败')
+    }
+  }
+  throw new Error('全景图生成超时，请稍后刷新查看')
+}
 
 function onSelectVisibleChange(open) {
   if (open) ctx?.suppressPaneClick?.()
@@ -293,6 +387,27 @@ async function generateImage() {
   }
 }
 
+async function generatePanorama() {
+  if (!hasSceneSource.value || panoramaGenerating.value) return
+  panoramaGenerating.value = true
+  panoramaError.value = ''
+  try {
+    const result = await sceneAPI.generatePanorama(props.entity.id)
+    const taskId = result?.image_generation?.task_id || result?.task_id
+    if (!taskId) throw new Error('全景图任务未返回任务 ID')
+    await waitForPanoramaTask(taskId)
+    await refreshPanoramaScene()
+    await ctx?.refreshDrama?.(true)
+    await ctx?.refresh?.(true)
+    ElMessage.success('全景图已生成')
+  } catch (error) {
+    panoramaError.value = error?.message || '全景图生成失败'
+    ElMessage.error(panoramaError.value)
+  } finally {
+    panoramaGenerating.value = false
+  }
+}
+
 function highlightRelated() {
   ctx?.setHighlightAsset?.(props.nodeId)
 }
@@ -304,9 +419,9 @@ function highlightRelated() {
   width: min(520px, 92vw);
   padding: 10px 14px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(52, 211, 153, 0.4);
-  background: rgba(15, 15, 18, 0.97);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--canvas-emerald-border, rgba(52, 211, 153, 0.4));
+  background: var(--canvas-panel-surface, rgba(15, 15, 18, 0.97));
+  box-shadow: var(--canvas-raised-shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
 }
 .panel-head {
   display: flex;
@@ -314,7 +429,7 @@ function highlightRelated() {
   justify-content: space-between;
   font-size: 12px;
   font-weight: 700;
-  color: #6ee7b7;
+  color: var(--canvas-emerald-text, #6ee7b7);
   margin-bottom: 10px;
 }
 .panel-body {
@@ -332,8 +447,8 @@ function highlightRelated() {
   height: 108px;
   border-radius: 10px;
   overflow: hidden;
-  background: #09090b;
-  border: 1px solid #3f3f46;
+  background: var(--canvas-media-well, #09090b);
+  border: 1px solid var(--border-muted, #3f3f46);
 }
 .preview-box img {
   width: 100%;
@@ -357,7 +472,7 @@ function highlightRelated() {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  background: rgba(9, 9, 11, 0.82);
+  background: var(--canvas-loading-surface, rgba(9, 9, 11, 0.82));
   font-size: 10px;
   color: #d4d4d8;
   text-align: center;
@@ -366,8 +481,8 @@ function highlightRelated() {
 .spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.12);
-  border-top-color: #34d399;
+  border: 2px solid var(--canvas-spinner-track, rgba(255, 255, 255, 0.12));
+  border-top-color: var(--canvas-success-text, #34d399);
   border-radius: 50%;
   animation: spin 0.75s linear infinite;
 }
@@ -375,11 +490,11 @@ function highlightRelated() {
   margin-top: 6px;
   font-size: 10px;
   text-align: center;
-  color: #71717a;
+  color: var(--canvas-text-subtle, #71717a);
 }
-.entity-status.st-processing { color: #60a5fa; }
-.entity-status.st-completed { color: #34d399; }
-.entity-status.st-failed { color: #f87171; }
+.entity-status.st-processing { color: var(--canvas-info-text, #60a5fa); }
+.entity-status.st-completed { color: var(--canvas-success-text, #34d399); }
+.entity-status.st-failed { color: var(--canvas-danger-text, #f87171); }
 .form-col {
   flex: 1;
   min-width: 0;
@@ -388,7 +503,7 @@ function highlightRelated() {
   margin-bottom: 6px;
 }
 .compact-form :deep(.el-form-item__label) {
-  color: #71717a;
+  color: var(--canvas-text-subtle, #71717a);
   font-size: 11px;
   padding-right: 6px;
 }
@@ -409,23 +524,76 @@ function highlightRelated() {
 .flex-1 { flex: 1; min-width: 0; }
 .type-field { width: 108px; flex-shrink: 0; }
 .time-field { width: 96px; flex-shrink: 0; }
+.panorama-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--canvas-divider, rgba(63, 63, 70, 0.6));
+}
+.panorama-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+  color: var(--canvas-text-muted, #a1a1aa);
+  font-size: 11px;
+  font-weight: 600;
+}
+.panorama-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  overflow: hidden;
+  border: 1px solid var(--border-muted, #3f3f46);
+  border-radius: 6px;
+  background: var(--canvas-media-well, #09090b);
+}
+.panorama-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.panorama-empty,
+.panorama-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--canvas-text-subtle, #71717a);
+  font-size: 11px;
+}
+.panorama-loading {
+  flex-direction: column;
+  gap: 6px;
+  color: #d4d4d8;
+  background: var(--canvas-loading-surface, rgba(9, 9, 11, 0.82));
+}
+.panorama-error {
+  margin: 6px 0 0;
+  color: var(--canvas-danger-text, #f87171);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
 .panel-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px solid rgba(63, 63, 70, 0.6);
+  border-top: 1px solid var(--canvas-divider, rgba(63, 63, 70, 0.6));
 }
 .panel-actions :deep(.el-button) {
   margin: 0;
 }
-.kind-scene { border-color: rgba(96, 165, 250, 0.45); }
-.kind-scene .panel-head { color: #93c5fd; }
-.kind-scene .spinner { border-top-color: #93c5fd; }
-.kind-prop { border-color: rgba(251, 191, 36, 0.45); }
-.kind-prop .panel-head { color: #fcd34d; }
-.kind-prop .spinner { border-top-color: #fcd34d; }
+.kind-scene { border-color: var(--canvas-blue-border, rgba(96, 165, 250, 0.45)); }
+.kind-scene .panel-head { color: var(--canvas-blue-text, #93c5fd); }
+.kind-scene .spinner { border-top-color: var(--canvas-blue-text, #93c5fd); }
+.kind-prop { border-color: var(--canvas-amber-border, rgba(251, 191, 36, 0.45)); }
+.kind-prop .panel-head { color: var(--canvas-amber-text, #fcd34d); }
+.kind-prop .spinner { border-top-color: var(--canvas-amber-text, #fcd34d); }
 @keyframes spin {
   to { transform: rotate(360deg); }
 }

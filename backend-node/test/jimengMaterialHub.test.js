@@ -5,16 +5,16 @@ const assert = require('node:assert/strict');
 const {
   hubBusinessErrorMessage,
   normalizeMaterialHubToken,
-  tokenFingerprint,
   unwrapMaterialHubAssetView,
 } = require('../src/services/jimengMaterialHubService');
 
 describe('jimengMaterialHub response parsing', () => {
   it('hubBusinessErrorMessage detects model_ark 200+error body', () => {
     const msg = hubBusinessErrorMessage({
-      error: '[Failed to download media from the provided URL.]',
+      error: '[Failed to download media from https://vendor.invalid/image?token=synthetic-private-value.]',
     });
-    assert.match(msg, /download media/i);
+    assert.match(msg, /failed/i);
+    assert.doesNotMatch(msg, /synthetic-private-value|vendor\.invalid/);
   });
 
   it('unwrapMaterialHubAssetView parses flat AssetView', () => {
@@ -43,7 +43,4 @@ describe('jimengMaterialHub response parsing', () => {
     assert.equal(t, 'sk-testkey');
   });
 
-  it('tokenFingerprint shows head and tail only', () => {
-    assert.equal(tokenFingerprint('sk-abcdefghijklmnop'), 'sk-abcd…mnop');
-  });
 });

@@ -1,17 +1,67 @@
 /**
- * TTS 语音合成服务
- * 支持多种 TTS 接口：minimax、edge-tts（本地）、通用 HTTP
+ * TTS synthesis service for MiniMax and OpenAI-compatible providers.
  */
-const https = require('https');
-const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { randomUUID } = require('crypto');
+const { createHash, randomUUID } = require('crypto');
+const aiConfigService = require('./aiConfigService');
+const { secureHttpFetch } = require('./secureHttpFetch');
 
-/**
- * 使用 MiniMax T2A v2 合成语音
- */
-async function synthesizeWithMinimax(text, voiceId, apiKey, groupId, model) {
+const DEFAULT_TTS_TIMEOUT_MS = 120000;
+const MAX_TTS_TIMEOUT_MS = 5 * 60 * 1000;
+const MAX_TTS_RESPONSE_BYTES = 25 * 1024 * 1024;
+
+function badRequest(message) {
+  const error = new Error(message);
+  error.code = 'BAD_REQUEST';
+  return error;
+}
+
+function normalizeIdempotencyKey(value) {
+  return String(value || '').trim().slice(0, 200);
+}
+
+function normalizeTtsTimeoutMs(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_TTS_TIMEOUT_MS;
+  return Math.min(Math.max(Math.round(parsed), 1000), MAX_TTS_TIMEOUT_MS);
+}
+
+async function postTtsRequest(url, body, headers, timeoutMs, providerName, networkOptions = {}) {
+  try {
+    return await secureHttpFetch(url, {
+      method: 'POST',
+      headers,
+      body,
+      redirect: 'error',
+    }, {
+      ...networkOptions,
+      requireHttpsForPublic: true,
+      maxRedirects: 0,
+      maxBytes: MAX_TTS_RESPONSE_BYTES,
+      timeoutMs: normalizeTtsTimeoutMs(timeoutMs),
+    });
+  } catch (error) {
+    if (error?.name === 'TimeoutError') {
+      const timeoutError = new Error(`${providerName} TTS request timeout`);
+      timeoutError.name = 'TimeoutError';
+      throw timeoutError;
+    }
+    throw error;
+  }
+}
+
+async function synthesizeWithMinimax(
+  text,
+  voiceId,
+  apiKey,
+  groupId,
+  model,
+  baseUrl,
+  timeoutMs,
+  idempotencyKey,
+  networkOptions = {}
+) {
   const body = JSON.stringify({
     model: model || 'speech-02-hd',
     text,
@@ -29,47 +79,42 @@ async function synthesizeWithMinimax(text, voiceId, apiKey, groupId, model) {
       channel: 1,
     },
   });
-  const url = `https://api.minimax.chat/v1/t2a_v2?GroupId=${groupId}`;
-  return new Promise((resolve, reject) => {
-    const reqOpts = {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Length': Buffer.byteLength(body),
-      },
-    };
-    const urlObj = new URL(url);
-    const client = urlObj.protocol === 'https:' ? https : http;
-    const req = client.request(urlObj, reqOpts, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`MiniMax TTS HTTP ${res.statusCode}: ${Buffer.concat(chunks).toString()}`));
-          return;
-        }
-        const data = JSON.parse(Buffer.concat(chunks).toString());
-        if (data.base_resp?.status_code !== 0) {
-          reject(new Error(`MiniMax TTS error: ${data.base_resp?.status_msg || 'unknown'}`));
-          return;
-        }
-        const audioHex = data.data?.audio;
-        if (!audioHex) { reject(new Error('MiniMax TTS 未返回音频')); return; }
-        resolve(Buffer.from(audioHex, 'hex'));
-      });
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
+  const base = (baseUrl || 'https://api.minimax.chat/v1').replace(/\/+$/, '');
+  const url = `${base}/t2a_v2?GroupId=${encodeURIComponent(groupId || '')}`;
+  const response = await postTtsRequest(url, body, {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${apiKey}`,
+    ...(normalizeIdempotencyKey(idempotencyKey)
+      ? { 'Idempotency-Key': normalizeIdempotencyKey(idempotencyKey) }
+      : {}),
+  }, timeoutMs, 'MiniMax', networkOptions);
+
+  if (response.status !== 200) throw new Error(`MiniMax TTS HTTP ${response.status}`);
+  let data;
+  try {
+    data = await response.json();
+  } catch (_) {
+    throw new Error('MiniMax TTS returned invalid JSON');
+  }
+  if (data.base_resp?.status_code !== 0) {
+    throw new Error(`MiniMax TTS error ${data.base_resp?.status_code ?? 'unknown'}`);
+  }
+  const audioHex = data.data?.audio;
+  if (!audioHex) throw new Error('MiniMax TTS returned no audio');
+  return Buffer.from(audioHex, 'hex');
 }
 
-/**
- * 使用 OpenAI TTS API 合成语音（兼容所有 OpenAI 格式的代理）
- * POST {base_url}/audio/speech  body: { model, input, voice, response_format, speed }
- */
-async function synthesizeWithOpenai(text, voice, apiKey, baseUrl, model, speed) {
+async function synthesizeWithOpenai(
+  text,
+  voice,
+  apiKey,
+  baseUrl,
+  model,
+  speed,
+  timeoutMs,
+  idempotencyKey,
+  networkOptions = {}
+) {
   const url = (baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '') + '/audio/speech';
   const body = JSON.stringify({
     model: model || 'tts-1',
@@ -78,96 +123,108 @@ async function synthesizeWithOpenai(text, voice, apiKey, baseUrl, model, speed) 
     response_format: 'mp3',
     speed: speed || 1.0,
   });
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const mod = parsed.protocol === 'https:' ? https : http;
-    const reqOpts = {
-      hostname: parsed.hostname,
-      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-      path: parsed.pathname + parsed.search,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-        ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
-      },
-    };
-    const req = mod.request(reqOpts, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const buf = Buffer.concat(chunks);
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          reject(new Error(`OpenAI TTS HTTP ${res.statusCode}: ${buf.toString('utf-8').slice(0, 500)}`));
-          return;
-        }
-        resolve(buf);
-      });
-    });
-    const timer = setTimeout(() => { req.destroy(); reject(new Error('OpenAI TTS 请求超时')); }, 120000);
-    req.on('error', (e) => { clearTimeout(timer); reject(e); });
-    req.on('close', () => clearTimeout(timer));
-    req.write(body);
-    req.end();
-  });
+  const response = await postTtsRequest(url, body, {
+    'Content-Type': 'application/json',
+    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    ...(normalizeIdempotencyKey(idempotencyKey)
+      ? { 'Idempotency-Key': normalizeIdempotencyKey(idempotencyKey) }
+      : {}),
+  }, timeoutMs, 'OpenAI', networkOptions);
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`OpenAI TTS HTTP ${response.status}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
 }
 
-/**
- * 合成 TTS 并保存到本地文件
- * @returns {{ local_path: string, audio_url: string }}
- */
-async function synthesize(db, log, { text, storyboard_id, config, storage_base, voice_id, speed }) {
-  if (!text || !text.trim()) throw new Error('text 不能为空');
-  const aiConfigService = require('./aiConfigService');
+async function synthesize(db, log, {
+  text,
+  storyboard_id,
+  config,
+  storage_base,
+  voice_id,
+  speed,
+  idempotency_key,
+  provider_dns_lookup,
+}) {
+  if (!text || !text.trim()) throw badRequest('text cannot be empty');
   const ttsConfig = config || (() => {
     const configs = aiConfigService.listConfigs(db, 'tts');
-    const active = configs.filter((c) => c.is_active);
-    return active.find((c) => c.is_default) || active[0];
+    const active = configs.filter((item) => item.is_active);
+    return active.find((item) => item.is_default) || active[0];
   })();
-  if (!ttsConfig) throw new Error('未配置 TTS 模型，请在「AI 配置」中添加 service_type=tts 的配置');
+  if (!ttsConfig) throw badRequest('No TTS provider is configured');
 
-  const provider = (ttsConfig.provider || '').toLowerCase();
+  const provider = String(ttsConfig.provider || '').toLowerCase();
   let ttsSettings = {};
-  try { ttsSettings = JSON.parse(ttsConfig.settings || '{}'); } catch (_) {}
-  // 外部传入的 voice_id / speed 优先（海外化场景），否则取配置值
+  if (ttsConfig.settings && typeof ttsConfig.settings === 'object') {
+    ttsSettings = ttsConfig.settings;
+  } else {
+    try { ttsSettings = JSON.parse(ttsConfig.settings || '{}'); } catch (_) {}
+  }
   const voiceId = voice_id || ttsConfig.voice_id || ttsSettings.voice_id || '';
   const groupId = ttsConfig.group_id || ttsSettings.group_id || '';
-  const ttsModel = ttsConfig.default_model || (Array.isArray(ttsConfig.model) ? ttsConfig.model[0] : ttsConfig.model) || '';
+  const ttsModel = ttsConfig.default_model
+    || (Array.isArray(ttsConfig.model) ? ttsConfig.model[0] : ttsConfig.model)
+    || '';
   const finalSpeed = speed || ttsSettings.speed || 1.0;
-  let audioBuffer;
+  const timeoutMs = normalizeTtsTimeoutMs(ttsSettings.timeout_ms || ttsSettings.timeout);
+  const idempotencyKey = normalizeIdempotencyKey(idempotency_key);
+  const networkOptions = aiConfigService.getProviderNetworkOptions(ttsConfig, {
+    lookup: provider_dns_lookup,
+  });
 
+  const audioDir = path.join(storage_base, 'audio');
+  if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir, { recursive: true });
+  const filenameSuffix = idempotencyKey
+    ? createHash('sha256').update(idempotencyKey, 'utf8').digest('hex').slice(0, 16)
+    : randomUUID().slice(0, 8);
+  const filename = `tts_sb${storyboard_id || 'x'}_${filenameSuffix}.mp3`;
+  const filePath = path.join(audioDir, filename);
+  const localPath = `audio/${filename}`;
+  if (idempotencyKey && fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
+    return { local_path: localPath, idempotent_reuse: true };
+  }
+
+  let audioBuffer;
   if (provider === 'minimax') {
     audioBuffer = await synthesizeWithMinimax(
       text,
       voiceId || 'female-shaonv',
       ttsConfig.api_key,
       groupId,
-      ttsModel || 'speech-02-hd'
+      ttsModel || 'speech-02-hd',
+      ttsConfig.base_url,
+      timeoutMs,
+      idempotencyKey,
+      networkOptions
     );
   } else if (provider === 'openai' || ttsConfig.base_url) {
-    console.log('==c sxy synthesizeWithOpenai', text, voiceId, ttsConfig.api_key, ttsConfig.base_url, ttsModel, finalSpeed);
     audioBuffer = await synthesizeWithOpenai(
       text,
       voiceId || 'alloy',
       ttsConfig.api_key,
       ttsConfig.base_url,
       ttsModel || 'tts-1',
-      finalSpeed
+      finalSpeed,
+      timeoutMs,
+      idempotencyKey,
+      networkOptions
     );
   } else {
-    throw new Error(`不支持的 TTS provider: ${provider}，目前支持 openai、minimax`);
+    throw new Error(`Unsupported TTS provider: ${provider}`);
   }
 
-  // 保存到本地
-  const audioDir = path.join(storage_base, 'audio');
-  if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir, { recursive: true });
-  const filename = `tts_sb${storyboard_id || 'x'}_${randomUUID().slice(0, 8)}.mp3`;
-  const filePath = path.join(audioDir, filename);
   fs.writeFileSync(filePath, audioBuffer);
-  const localPath = `audio/${filename}`;
-  log.info('[TTS] 合成完成', { storyboard_id, local_path: localPath, provider });
-  try { const cs = require('./cloudService'); cs.reportUsage('tts', ttsModel || '', '', 0); } catch (_) {}
+  log.info('[TTS] synthesis complete', { storyboard_id, local_path: localPath, provider });
+  try { const cloudService = require('./cloudService'); cloudService.reportUsage('tts', ttsModel || '', '', 0); } catch (_) {}
   return { local_path: localPath };
 }
 
-module.exports = { synthesize };
+module.exports = {
+  DEFAULT_TTS_TIMEOUT_MS,
+  normalizeTtsTimeoutMs,
+  synthesize,
+  synthesizeWithMinimax,
+  synthesizeWithOpenai,
+};

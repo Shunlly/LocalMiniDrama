@@ -16,10 +16,10 @@ export const useFilmStore = defineStore('film', () => {
   const videoStateByKey = ref({})
 
   const dramaId = computed(() => drama.value?.id ?? null)
-  // 角色/道具/场景默认只显示本集资源（随「选择第几集」变化）
-  const characters = computed(() => currentEpisode.value?.characters ?? [])
-  const scenes = computed(() => currentEpisode.value?.scenes ?? [])
-  const props = computed(() => currentEpisode.value?.props ?? [])
+  // Resources belong to the drama. Episode collections are association views only.
+  const characters = computed(() => drama.value?.characters ?? [])
+  const scenes = computed(() => drama.value?.scenes ?? [])
+  const props = computed(() => drama.value?.props ?? [])
   const storyboards = computed(() => currentEpisode.value?.storyboards ?? [])
 
   const currentVideoKey = computed(() =>

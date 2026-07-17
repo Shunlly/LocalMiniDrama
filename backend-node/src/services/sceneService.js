@@ -1,7 +1,9 @@
 // 场景：与 Go scene_handler + storyboard_composition 对齐
 const imageClient = require('./imageClient');
+const imageService = require('./imageService');
 const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
+const uploadService = require('./uploadService');
 const { mergeCfgStyleWithDrama } = require('../utils/dramaStyleMerge');
 
 function applySceneStyleOverride(cfg, styleOverride) {
@@ -120,6 +122,9 @@ function listByDramaId(db, dramaId) {
     description: row.description || null,
     image_url: row.image_url,
     local_path: row.local_path,
+    panorama_image_url: row.panorama_image_url || null,
+    panorama_local_path: row.panorama_local_path || null,
+    panorama_image_id: row.panorama_image_id ?? null,
     extra_images: row.extra_images || null,
     status: row.status,
     created_at: row.created_at,
@@ -139,6 +144,9 @@ function getSceneById(db, id) {
     polished_prompt_single: row.polished_prompt_single || null,
     image_url: row.image_url,
     local_path: row.local_path,
+    panorama_image_url: row.panorama_image_url || null,
+    panorama_local_path: row.panorama_local_path || null,
+    panorama_image_id: row.panorama_image_id ?? null,
     extra_images: row.extra_images || null,
     status: row.status,
     created_at: row.created_at,
@@ -458,6 +466,77 @@ async function generateSceneSingleImage(db, log, cfg, sceneId, modelName, style)
   return { ok: true, image_generation: imageGen };
 }
 
+function resolveScenePanoramaSource(scene, cfg = null) {
+  if (!scene) return null;
+  const loadedCfg = cfg || require('../config').loadConfig();
+  const rawStoragePath = loadedCfg?.storage?.local_path || './data/storage';
+  const storagePath = require('path').isAbsolute(rawStoragePath)
+    ? rawStoragePath
+    : require('path').join(process.cwd(), rawStoragePath);
+  for (const candidate of [scene.local_path, scene.image_url]) {
+    const value = String(candidate || '').trim();
+    if (!value || !imageService.isUsableProviderReference(value)) continue;
+    if (/^https?:\/\//i.test(value)) {
+      return uploadService.assertPublicHttpUrlSyntax(value).toString();
+    }
+    const resolved = uploadService.resolveStorageReference(storagePath, value, { mustExist: false });
+    if (resolved) return resolved.relativePath;
+  }
+  return null;
+}
+
+function buildScenePanoramaPrompt(scene) {
+  const context = [
+    scene?.location ? `Scene location: ${String(scene.location).trim()}` : '',
+    scene?.time ? `Time of day: ${String(scene.time).trim()}` : '',
+  ].filter(Boolean).join('\n');
+  return [
+    'Use the provided scene main image as the sole visual reference.',
+    'Expand the depicted environment into one complete equirectangular 360-degree panorama with an exact 2:1 aspect ratio, covering 360 degrees horizontally and 180 degrees vertically.',
+    'Preserve the source scene identity, architecture, materials, lighting, color palette, and spatial logic while reconstructing the environment outside the original camera view.',
+    'Keep the horizon level and centered. Produce a single continuous environment image, not a collage, split view, cubemap, fisheye view, tiny planet, frame, or image with text.',
+    context,
+  ].filter(Boolean).join('\n');
+}
+
+function generateScenePanoramaImage(db, log, sceneId, modelName, style) {
+  const sceneRow = db.prepare(
+    `SELECT id, drama_id, location, time, image_url, local_path
+       FROM scenes WHERE id = ? AND deleted_at IS NULL`
+  ).get(Number(sceneId));
+  if (!sceneRow) return { ok: false, error: 'scene not found' };
+
+  const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(sceneRow.drama_id);
+  if (!drama) return { ok: false, error: 'unauthorized' };
+
+  let sourceImage;
+  try {
+    sourceImage = resolveScenePanoramaSource(sceneRow);
+  } catch (_) {
+    return { ok: false, error: 'unsafe scene source image' };
+  }
+  if (!sourceImage) return { ok: false, error: 'scene source image required' };
+
+  const imageGeneration = imageService.create(db, log, {
+    drama_id: sceneRow.drama_id,
+    scene_id: sceneRow.id,
+    frame_type: 'scene_panorama',
+    reference_images: [sourceImage],
+    prompt: buildScenePanoramaPrompt(sceneRow),
+    style: style || undefined,
+    model: modelName || undefined,
+    size: '2048x1024',
+    quality: 'standard',
+    provider: 'openai',
+  });
+
+  log.info('[场景全景图] 图片生成任务已提交', {
+    scene_id: sceneRow.id,
+    image_gen_id: imageGeneration?.id,
+  });
+  return { ok: true, image_generation: imageGeneration };
+}
+
 /**
  * 从场景现有图片中反向提取场景描述，更新 prompt 字段。
  */
@@ -505,7 +584,10 @@ module.exports = {
   getSceneById,
   generateSceneFourViewImage,
   generateSceneSingleImage,
+  generateScenePanoramaImage,
   generateScenePromptOnly,
   generateSceneSinglePromptOnly,
   extractSceneFromImage,
+  buildScenePanoramaPrompt,
+  resolveScenePanoramaSource,
 };

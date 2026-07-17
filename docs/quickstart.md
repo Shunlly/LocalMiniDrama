@@ -15,21 +15,22 @@
 - [打包为 Windows exe](#打包为-windows-exe)
 - [配置文件说明](#配置文件说明)
 - [数据库与数据目录](#数据库与数据目录)
+- [Docker 启动](#docker-启动)
 - [常见问题 FAQ](#常见问题-faq)
 
 ---
 
 ## 运行方式一：下载 exe（推荐普通用户）
 
-1. 前往 **[Releases](../../releases)** 页面下载最新版本：
-   - `本地短剧助手 Setup x.x.x.exe` — NSIS 安装包（推荐，可选安装路径）
-   - `本地短剧助手 x.x.x.exe` — 免安装便携版，解压即用
+1. 前往 **[Releases](https://github.com/Shunlly/LocalMiniDrama/releases)** 页面下载最新版本：
+   - `LocalMiniDrama-Setup-x.x.x-x64.exe` — NSIS 安装包（推荐，可选安装路径）
+   - `LocalMiniDrama-Portable-x.x.x-x64.exe` — 免安装便携版
 
 2. 双击运行，软件会自动启动内置后端服务。
 
 3. 首次运行会在以下路径生成配置文件：
    ```
-   %APPDATA%\LocalMiniDrama\backend\configs\config.yaml
+   %APPDATA%\localminidrama-desktop\backend\configs\config.yaml
    ```
 
 4. 点击软件右上角「AI 配置」，填入你的 AI API Key，即可开始使用。
@@ -44,7 +45,7 @@
 
 | 依赖 | 版本要求 |
 |------|----------|
-| Node.js | >= 18 |
+| Node.js | >= 20；发布与 Docker 验证使用 20.x |
 | npm | 随 Node.js 附带 |
 | Git | 任意版本 |
 
@@ -58,15 +59,9 @@ cd backend-node
 # 安装依赖
 npm install
 
-# 复制配置文件模板
-cp configs/config.example.yaml configs/config.yaml
-# Windows PowerShell:
-# copy configs\config.example.yaml configs\config.yaml
-
-# 编辑 config.yaml，填入你的 AI API 地址与密钥（见配置指南）
-
-# 首次运行：初始化数据库
-npm run migrate
+# configs/config.yaml 已随仓库提供，通常无需复制模板
+# AI API 地址与密钥通过前端「AI 配置」页面写入数据库
+# npm run migrate 仅在首次手动初始化或新增 migration SQL 后需要；服务启动会自动补列
 
 # 启动服务（默认端口 5679）
 npm start
@@ -136,8 +131,13 @@ npm run dist:cn
 ```
 
 打包产物位于 `desktop/release/` 目录：
-- `本地短剧助手 Setup x.x.x.exe` — NSIS 安装包
-- `本地短剧助手 x.x.x.exe` — 便携版
+- `LocalMiniDrama-Setup-x.x.x-x64.exe` — NSIS 安装包
+- `LocalMiniDrama-Portable-x.x.x-x64.exe` — 便携版
+- `LocalMiniDrama-Unpacked-x.x.x-x64.zip` — 免安装解包版
+
+正式候选必须从仓库根目录运行 `npm run verify:release:source` 和 Windows 上的 `npm run verify:release:windows`。发布工作流会为后端、前端、桌面及发布包生成四份 CycloneDX SBOM，并独立执行 Gitleaks、Trivy、Microsoft Defender、Electron Fuse、制品清单与 `SHA256SUMS` 校验；已有候选可用 `npm run verify:release:artifacts` 离线复核。
+
+后端容器入口只在启动时以 root 修正绑定数据目录的属主，随后立即通过 `setpriv` 以 `node` 用户执行服务。对应 Trivy `AVD-DS-0002` 例外仅作用于 `backend-node/Dockerfile`，记录在 `backend-node/.trivyignore.yaml`，并于 2027-07-17 到期复审。
 
 **打包原理：**
 1. 构建前端静态文件
@@ -148,7 +148,7 @@ npm run dist:cn
 
 ## 配置文件说明
 
-配置文件位于 `backend-node/configs/config.yaml`（开发模式）或 `%APPDATA%\LocalMiniDrama\backend\configs\config.yaml`（exe 模式）。
+配置文件位于 `backend-node/configs/config.yaml`（开发模式）或 `%APPDATA%\localminidrama-desktop\backend\configs\config.yaml`（exe 模式）。
 
 主要配置项：
 
@@ -161,8 +161,10 @@ database:
 
 storage:
   local_path: ./data/storage        # 生成图片/视频的本地存储目录
+  upload_disk_reserve_bytes: 536870912 # 上传后至少保留 512MB 可用空间
 
-language: zh          # 界面及提示词语言（zh / en）
+app:
+  language: zh        # 界面及提示词语言（zh / en）
 
 style:
   default_style: realistic           # 默认画风
@@ -181,9 +183,56 @@ AI 服务配置通过软件内「AI 配置」页面管理，无需手动编辑 Y
 |------|------|
 | `backend-node/data/drama_generator.db` | SQLite 数据库（开发模式） |
 | `backend-node/data/storage/` | 生成的图片和视频文件 |
-| `%APPDATA%\LocalMiniDrama\` | exe 模式下的所有数据 |
+| `backend-node/data/story_sources/` | 导入的原始故事素材 |
+| `backend-node/data/backups/` | 默认全量备份归档目录 |
+| `%APPDATA%\localminidrama-desktop\` | exe 模式下的所有数据 |
 
-> ⚠️ 升级版本前建议备份 `data/` 目录；数据库会在启动时自动执行迁移脚本，一般无需手动操作。
+升级版本前建议先执行 `npm --prefix backend-node run backup:data`。备份命令会校验数据库和媒体引用，并默认排除 AI Key、URL 签名等凭据；数据库会在启动时自动执行迁移脚本，一般无需手动操作。
+
+---
+
+## Docker 启动
+
+项目根目录已提供 `docker-compose.yml`，会同时启动后端和前端：
+
+```bash
+docker compose up -d --build --wait
+docker compose ps
+```
+
+启动后访问：
+
+| 服务 | 地址 |
+|------|------|
+| 前端 | `http://localhost:3013` |
+| 后端健康检查 | `http://localhost:5679/health` |
+| 后端就绪检查 | `http://localhost:5679/ready` |
+| API 根路径 | `http://localhost:5679/api/v1` |
+
+Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`、`python3`、`make`、`g++`，用于 `better-sqlite3` 等原生依赖和视频处理。容器会把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器使用 Nginx 提供 Vite 的生产构建产物，源码没有 bind mount；修改前端或后端代码后需要重新执行 `docker compose up -d --build --wait`。
+
+Docker 默认只把 `5679` 和 `3013` 绑定到宿主机 `127.0.0.1`，不会向局域网公开无认证接口。确需远程访问时，请先增加反向代理、认证和 TLS，再显式调整端口绑定。
+
+容器内完整验证：
+
+```bash
+npm run verify:docker
+```
+
+该命令依次执行后端静态检查、测试与流程审计，以及前端静态检查、测试和生产构建。宿主机若使用 Node.js 24 等缺少 `better-sqlite3` 预编译产物的版本，可直接以 Docker/Node 20 作为权威验证路径。
+
+停止服务：
+
+```bash
+docker compose down
+```
+
+如果只想使用 npm 脚本：
+
+```bash
+npm run docker:up
+npm run docker:down
+```
 
 ---
 
@@ -196,7 +245,7 @@ cd backend-node
 npm install
 ```
 
-如果仍然报错，可能是 Node.js 版本不兼容，请升级到 >= 18。
+如果仍然报错，可能是 Node.js 版本不兼容，请升级到 Node.js 20.x。
 
 ---
 
@@ -226,7 +275,7 @@ npm run dist
 ### Q: 生成的图片/视频保存在哪里？
 
 开发模式：`backend-node/data/storage/`  
-exe 模式：`%APPDATA%\LocalMiniDrama\backend\data\storage\`
+exe 模式：`%APPDATA%\localminidrama-desktop\backend\data\storage\`
 
 目录结构：
 ```
@@ -242,16 +291,26 @@ storage/
 
 ### Q: 如何备份/迁移项目数据？
 
-**方法一（推荐）**：在软件首页点击项目卡片上的「导出」按钮，下载 ZIP 格式的工程文件，在新机器上导入即可。
+**单个项目**：在软件首页点击项目卡片上的「导出」，下载项目 ZIP，在新机器上导入。
 
-**方法二**：直接备份整个 `data/` 目录，将其复制到新机器的相同位置。
+**完整数据（推荐在升级/迁移前使用）**：
+
+```bash
+npm --prefix backend-node run backup:data -- --output D:\backup\localminidrama.zip
+
+# 恢复时先停止后端或 Docker，确认目标端口和数据库未被占用
+npm --prefix backend-node run restore:data -- --input D:\backup\localminidrama.zip --yes
+```
+
+恢复会先校验归档清单、大小、路径和 SQLite 完整性，并为目标数据保留恢复前回滚副本。安全备份不会携带 Provider 凭据，恢复后需要在「AI 配置」重新填写 Key 并执行连接测试。
+
+**离线目录副本**：只有在后端和 Docker 均已停止时，才可复制整个 `backend-node/data/`；不要在 SQLite 正在写入时直接拷贝。
 
 ---
 
 ### Q: 支持 Mac / Linux 吗？
 
-目前仅测试了 Windows。后端（Node.js）理论上跨平台，前端（Vue 3）完全跨平台，但桌面版（Electron）打包仅配置了 Windows 目标。  
-欢迎提 PR 添加 Mac / Linux 打包支持。
+当前发布和验收矩阵仅包含 Windows x64 Setup、Portable 与 unpacked。后端和前端可在其他平台源码运行，但桌面 macOS 构建脚本会主动拒绝执行，Linux 桌面制品也不在本次支持范围。
 
 ---
 

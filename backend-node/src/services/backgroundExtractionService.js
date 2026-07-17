@@ -3,6 +3,7 @@ const taskService = require('./taskService');
 const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
 const sceneService = require('./sceneService');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { safeParseAIJSON, extractFirstArray } = require('../utils/safeJson');
 
 function normalizeLanguage(language) {
@@ -39,12 +40,14 @@ async function extractBackgroundsFromScript(db, cfg, log, scriptContent, dramaId
   if (!scriptContent || !scriptContent.trim()) return [];
   const systemPrompt = promptI18n.getSceneExtractionPrompt(cfg, style);
   const prompt = (promptI18n.getLanguage(cfg) === 'en' ? '[Script Content]\n' : '【剧本内容】\n') + scriptContent;
-  console.log('systemPrompt', systemPrompt);
-  console.log('prompt', prompt);
+  log.info('Background extraction prompt prepared', {
+    system_prompt_length: String(systemPrompt || '').length,
+    prompt_length: String(prompt || '').length,
+  });
   const text = await aiClient.generateText(db, log, 'text', prompt, systemPrompt, { scene_key: 'scene_extraction', model: model || undefined, temperature: 0.7 });
   let list = [];
   try {
-    const parsed = safeParseAIJSON(text, log);
+    const parsed = safeParseAIJSON(text, null, log);
     list = extractFirstArray(parsed) || [];
   } catch (_) {
     list = [];
@@ -148,11 +151,11 @@ async function processBackgroundExtraction(db, cfg, log, taskID, episodeId, mode
       // polished_prompt 是完整四视图图片提示词，提取后始终为空，需要异步预生成
       if (effectiveCfg) {
         const capturedStyle = style;
-        setImmediate(() => {
+        scheduleLegacyAsync(log, 'scene_prompt_prefill', () => {
           sceneService.generateScenePromptOnly(db, log, effectiveCfg, scene.id, undefined, capturedStyle).catch((err) => {
             log.warn('[提取场景] 预生成polished_prompt失败', { scene_id: scene.id, error: err.message });
           });
-        });
+        }, { scene_id: scene.id, episode_id: episodeId });
       }
     }
   }
@@ -196,12 +199,12 @@ function extractBackgroundsForEpisode(db, cfg, log, episodeId, model, style, lan
   }
 
   const task = taskService.createTask(db, log, 'background_extraction', String(episodeId));
-  setImmediate(() => {
+  scheduleLegacyAsync(log, 'background_extraction', () => {
     processBackgroundExtraction(db, runCfg, log, task.id, episodeId, model, style, language).catch((err) => {
       log.error('processBackgroundExtraction fatal', { error: err.message, task_id: task.id });
       taskService.updateTaskError(db, task.id, err.message || '场景提取失败');
     });
-  });
+  }, { task_id: task.id, episode_id: episodeId });
   return task.id;
 }
 

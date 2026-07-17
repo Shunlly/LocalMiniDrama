@@ -1,0 +1,421 @@
+<template>
+  <section class="section card pipeline-section" aria-labelledby="pipeline-title">
+    <div class="pipeline-toolbar">
+      <div class="pipeline-heading">
+        <el-icon><VideoPlay /></el-icon>
+        <span id="pipeline-title">全流程生成</span>
+      </div>
+
+      <div class="pipeline-actions">
+        <el-popover placement="bottom-start" :width="390" trigger="click">
+          <template #reference>
+            <el-button plain>
+              <el-icon><Setting /></el-icon>
+              生成设置
+            </el-button>
+          </template>
+          <div class="pipeline-settings">
+            <label class="pipeline-setting">
+              <span>画面比例</span>
+              <el-select
+                :model-value="aspectRatio"
+                @update:model-value="updateSetting('aspectRatio', $event)"
+              >
+                <el-option label="16:9 横屏" value="16:9" />
+                <el-option label="9:16 竖屏" value="9:16" />
+                <el-option label="3:4 竖版" value="3:4" />
+                <el-option label="1:1 方形" value="1:1" />
+                <el-option label="4:3" value="4:3" />
+                <el-option label="21:9 宽银幕" value="21:9" />
+              </el-select>
+            </label>
+            <label class="pipeline-setting">
+              <span>单镜时长</span>
+              <el-select
+                :model-value="clipDuration"
+                @update:model-value="updateSetting('clipDuration', $event)"
+              >
+                <el-option label="4 秒" :value="4" />
+                <el-option label="5 秒" :value="5" />
+                <el-option label="8 秒" :value="8" />
+                <el-option label="10 秒" :value="10" />
+                <el-option label="12 秒" :value="12" />
+                <el-option label="15 秒" :value="15" />
+              </el-select>
+            </label>
+            <label class="pipeline-setting">
+              <span>分镜语言</span>
+              <el-select
+                :model-value="scriptLanguage"
+                clearable
+                @update:model-value="updateSetting('scriptLanguage', $event)"
+              >
+                <el-option label="中文" value="zh" />
+                <el-option label="英文" value="en" />
+              </el-select>
+            </label>
+            <label class="pipeline-setting pipeline-setting-wide">
+              <span>生成风格</span>
+              <StylePickerButton
+                :model-value="generationStyle"
+                :options="generationStyleOptions"
+                @update:model-value="$emit('update:generationStyle', $event)"
+                @change="$emit('save-settings', true)"
+              />
+            </label>
+          </div>
+        </el-popover>
+
+        <div class="pipeline-mode-action">
+          <span class="pipeline-mode-label is-production">完整成片</span>
+          <ActionGate label="一键生成成片" :reason="productionReason">
+            <el-button
+              type="primary"
+              :loading="running && !paused"
+              :disabled="Boolean(productionReason)"
+              @click="$emit('start-one-click')"
+            >
+              一键生成成片
+            </el-button>
+          </ActionGate>
+        </div>
+        <div class="pipeline-mode-action">
+          <span class="pipeline-mode-label is-draft">草稿预演</span>
+          <ActionGate label="仅生成文本框架" :reason="draftReason">
+            <el-button
+              :loading="running && !paused"
+              :disabled="Boolean(draftReason)"
+              @click="$emit('start-text-framework')"
+            >
+              仅生成文本框架
+            </el-button>
+          </ActionGate>
+        </div>
+        <template v-if="running">
+          <el-button v-if="!paused" type="warning" @click="$emit('pause')">暂停</el-button>
+          <el-button v-else type="success" @click="$emit('resume')">继续</el-button>
+        </template>
+      </div>
+    </div>
+
+    <div v-if="productionReadinessReason" class="production-readiness-alert" role="alert">
+      <span>{{ productionReadinessReason }}</span>
+      <el-button link type="primary" @click="$emit('open-ai-config', productionReadinessServiceType)">前往 AI 配置</el-button>
+    </div>
+
+    <div v-if="running || errorLog.length > 0" class="pipeline-status" aria-live="polite">
+      <div v-if="currentStep" class="pipeline-current-step">
+        <span v-if="stepIndex > 0" class="pipeline-step-badge">{{ stepIndex }}/{{ stepTotal }}</span>
+        {{ cleanCurrentStep }}
+      </div>
+      <div v-if="countdown > 0" class="pipeline-countdown">
+        <div class="pipeline-countdown-ring" aria-hidden="true">
+          <span class="pipeline-countdown-num">{{ countdown }}</span>
+          <span class="pipeline-countdown-unit">秒</span>
+        </div>
+        <div class="pipeline-countdown-body">
+          <p class="pipeline-countdown-msg">{{ countdownMessage }}</p>
+          <div class="pipeline-countdown-actions">
+            <el-button size="small" type="success" @click="$emit('skip-countdown')">立即开始下一阶段</el-button>
+            <el-button v-if="!paused" size="small" type="warning" @click="$emit('pause')">暂停倒计时</el-button>
+            <span v-else class="pipeline-countdown-paused">已暂停，点击“继续”恢复</span>
+          </div>
+        </div>
+      </div>
+      <div v-if="activeTaskLabels.length > 0" class="pipeline-active-tasks" aria-label="执行中的任务">
+        <span v-for="label in activeTaskLabels" :key="label" class="pipeline-task-chip">
+          <span class="pipeline-task-dot" />{{ label }}
+        </span>
+      </div>
+      <div v-if="errorLog.length > 0" class="pipeline-error-log" role="alert">
+        <div class="pipeline-error-title">执行过程中的错误</div>
+        <div v-for="(entry, index) in errorLog" :key="index" class="pipeline-error-line">
+          [{{ entry.step }}] {{ entry.message }}
+        </div>
+      </div>
+    </div>
+  </section>
+</template>
+
+<script setup>
+import { computed } from 'vue'
+import { Setting, VideoPlay } from '@element-plus/icons-vue'
+import StylePickerButton from '@/components/StylePickerButton.vue'
+import ActionGate from '@/components/filmCreate/ActionGate.vue'
+
+const props = defineProps({
+  aspectRatio: { type: String, default: '16:9' },
+  clipDuration: { type: Number, default: 5 },
+  scriptLanguage: { type: String, default: '' },
+  generationStyle: { type: String, default: '' },
+  generationStyleOptions: { type: Array, default: () => [] },
+  disabledReason: { type: String, default: '' },
+  productionDisabledReason: { type: String, default: '' },
+  draftDisabledReason: { type: String, default: '' },
+  productionReadinessReason: { type: String, default: '' },
+  productionReadinessServiceType: { type: String, default: '' },
+  running: { type: Boolean, default: false },
+  paused: { type: Boolean, default: false },
+  errorLog: { type: Array, default: () => [] },
+  currentStep: { type: String, default: '' },
+  stepIndex: { type: Number, default: 0 },
+  stepTotal: { type: Number, default: 0 },
+  countdown: { type: Number, default: 0 },
+  countdownMessage: { type: String, default: '' },
+  activeTasks: { type: [Array, Set], default: () => [] },
+})
+
+const emit = defineEmits([
+  'update:aspectRatio',
+  'update:clipDuration',
+  'update:scriptLanguage',
+  'update:generationStyle',
+  'save-settings',
+  'start-one-click',
+  'start-text-framework',
+  'open-ai-config',
+  'pause',
+  'resume',
+  'skip-countdown',
+])
+
+const activeTaskLabels = computed(() => Array.from(props.activeTasks || []))
+const cleanCurrentStep = computed(() => props.currentStep.replace(/^\[步骤 \d+\/\d+\] /, ''))
+const productionReason = computed(() => props.productionDisabledReason || props.disabledReason)
+const draftReason = computed(() => props.draftDisabledReason || props.disabledReason)
+
+function updateSetting(name, value) {
+  emit(`update:${name}`, value)
+  emit('save-settings', false)
+}
+</script>
+
+<style scoped>
+.pipeline-section {
+  padding: 14px 16px;
+}
+
+.pipeline-toolbar,
+.pipeline-actions,
+.pipeline-heading {
+  display: flex;
+  align-items: center;
+}
+
+.pipeline-toolbar {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pipeline-heading {
+  gap: 7px;
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.pipeline-actions {
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pipeline-mode-action {
+  display: inline-grid;
+  gap: 4px;
+  justify-items: stretch;
+}
+
+.pipeline-mode-label {
+  color: var(--el-text-color-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+}
+
+.pipeline-mode-label.is-production {
+  color: var(--el-color-danger);
+}
+
+.pipeline-mode-label.is-draft {
+  color: var(--el-color-info);
+}
+
+.production-readiness-alert {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--el-color-warning);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.pipeline-settings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.pipeline-setting {
+  display: grid;
+  gap: 6px;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+}
+
+.pipeline-setting-wide {
+  grid-column: 1 / -1;
+}
+
+.pipeline-setting-wide :deep(.style-picker-wrap),
+.pipeline-setting-wide :deep(.style-picker-trigger) {
+  width: 100%;
+}
+
+.pipeline-status {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.pipeline-current-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: var(--el-text-color-primary);
+  font-weight: 500;
+}
+
+.pipeline-step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--el-color-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pipeline-active-tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.pipeline-task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px 2px 6px;
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 12px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pipeline-task-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--el-color-primary);
+  animation: pipeline-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pipeline-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+.pipeline-error-log {
+  max-height: 200px;
+  margin-top: 8px;
+  padding: 12px;
+  overflow-y: auto;
+  border: 1px solid var(--el-color-danger-light-5);
+  border-radius: 6px;
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+}
+
+.pipeline-error-title {
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.pipeline-error-line {
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.pipeline-countdown {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 10px 0 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--el-color-success-light-5);
+  border-radius: 6px;
+  background: var(--el-color-success-light-9);
+}
+
+.pipeline-countdown-ring {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 54px;
+  height: 54px;
+  border: 2px solid var(--el-color-success-light-3);
+  border-radius: 50%;
+  color: var(--el-color-success);
+}
+
+.pipeline-countdown-num {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pipeline-countdown-unit {
+  font-size: 11px;
+}
+
+.pipeline-countdown-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.pipeline-countdown-msg {
+  margin: 0 0 8px;
+  color: var(--el-text-color-primary);
+  line-height: 1.5;
+}
+
+.pipeline-countdown-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pipeline-countdown-paused {
+  color: var(--el-color-warning);
+  font-size: 12px;
+}
+</style>

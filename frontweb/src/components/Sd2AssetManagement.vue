@@ -265,6 +265,11 @@ const props = defineProps({
 
 const emit = defineEmits(['saved'])
 
+const MASKED_SECRET = '********'
+function isMaskedSecret(value) {
+  return String(value || '').trim() === MASKED_SECRET
+}
+
 const baseUrl = ref('')
 const apiKey = ref('')
 const pathMode = ref('open_api_query')
@@ -279,6 +284,7 @@ const signRegion = ref('')
 const billingModel = ref('')
 const fillConfigId = ref(null)
 const savedConfigId = ref(null)
+const sourceConfigId = ref(null)
 const savingConfig = ref(false)
 /** 创作页 SD2 认证默认写入的资产组 */
 const assetGroupIdForCert = ref('')
@@ -348,6 +354,7 @@ function parseSettingsJson(raw) {
 function loadFromSavedRow(row) {
   if (!row) return
   savedConfigId.value = row.id
+  sourceConfigId.value = row.id
   baseUrl.value = (row.base_url || '').replace(/\/$/, '')
   apiKey.value = row.api_key || ''
   const s = parseSettingsJson(row.settings)
@@ -396,6 +403,10 @@ async function saveToAiConfig() {
     ElMessage.warning('请填写默认资产组 Id（创作页 SD2 认证需要）')
     return
   }
+  if (authMode.value === 'bearer' && isMaskedSecret(apiKey.value) && !savedConfigId.value) {
+    ElMessage.warning('当前 API Key 是掩码，请先更新已关联配置，或重新输入真实 Key 后再保存')
+    return
+  }
   const settings = {
     auth_mode: authMode.value,
     path_mode: pathMode.value,
@@ -414,7 +425,9 @@ async function saveToAiConfig() {
     name: 'SD2 资产库',
     provider: 'model_ark',
     base_url: baseUrl.value.trim(),
-    api_key: authMode.value === 'bearer' ? apiKey.value : '',
+    api_key: authMode.value === 'bearer'
+      ? (isMaskedSecret(apiKey.value) ? undefined : apiKey.value)
+      : '',
     model: ['-'],
     default_model: '-',
     priority: 10,
@@ -477,9 +490,10 @@ function onFillFromSaved(id) {
   if (id == null || id === '') return
   const c = (props.configs || []).find((x) => x.id === id)
   if (!c) return
+  sourceConfigId.value = c.id
   baseUrl.value = (c.base_url || '').replace(/\/$/, '')
   apiKey.value = c.api_key || ''
-  ElMessage.success('已填入所选配置的 Base URL 与 API Key')
+  ElMessage.success('已填入所选配置的 Base URL；密钥将复用该配置')
 }
 
 function onGroupRowChange(row) {
@@ -499,6 +513,7 @@ function mergeBillingModel(payload, withModel) {
 
 function connReady() {
   if (!baseUrl.value.trim()) return false
+  if (savedConfigId.value) return true
   if (authMode.value === 'volc_sign') {
     return !!(accessKeyId.value.trim() && secretAccessKey.value.trim())
   }
@@ -507,6 +522,7 @@ function connReady() {
 
 function connWarn() {
   if (!baseUrl.value.trim()) return '请先填写 Base URL'
+  if (savedConfigId.value) return ''
   if (authMode.value === 'volc_sign') {
     if (!accessKeyId.value.trim() || !secretAccessKey.value.trim()) {
       return '官方 OpenAPI 请填写 Access Key ID 与 Secret Access Key（控制台 IAM，非推理 API Key）'
@@ -523,6 +539,7 @@ function connWarn() {
 async function call(action, payload, opts = {}) {
   const { withBillingModel = false } = opts
   const body = {
+    config_id: savedConfigId.value || sourceConfigId.value || undefined,
     base_url: baseUrl.value.trim(),
     action,
     path_mode: pathMode.value,
@@ -534,10 +551,10 @@ async function call(action, payload, opts = {}) {
     body.project_name = projectName.value.trim()
   }
   if (authMode.value === 'bearer') {
-    body.api_key = apiKey.value
+    body.api_key = isMaskedSecret(apiKey.value) ? undefined : apiKey.value
   } else {
-    body.access_key_id = accessKeyId.value.trim()
-    body.secret_access_key = secretAccessKey.value.trim()
+    body.access_key_id = isMaskedSecret(accessKeyId.value) ? undefined : accessKeyId.value.trim()
+    body.secret_access_key = isMaskedSecret(secretAccessKey.value) ? undefined : secretAccessKey.value.trim()
     if (signRegion.value.trim()) body.sign_region = signRegion.value.trim()
   }
   return aiAPI.modelArkAsset(body)

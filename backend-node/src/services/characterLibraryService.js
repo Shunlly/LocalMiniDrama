@@ -10,6 +10,7 @@ const jimengMaterialHubService = require('./jimengMaterialHubService');
 const modelArkAssetConfigService = require('./modelArkAssetConfigService');
 const uploadService = require('./uploadService');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const {
   appendSourceIdFilters,
   findExistingLibraryItem,
@@ -358,7 +359,7 @@ function batchGenerateCharacterImages(db, log, cfg, characterIds, modelName, sty
   // 每个角色单独起一个异步任务，不阻塞响应
   for (const characterId of ids) {
     const charId = characterId;
-    setImmediate(async () => {
+    scheduleLegacyAsync(log, 'character_four_view_batch_item', async () => {
       try {
         const out = await generateCharacterFourViewImage(db, log, cfg, charId, modelName, style);
         if (!out.ok) {
@@ -369,7 +370,7 @@ function batchGenerateCharacterImages(db, log, cfg, characterIds, modelName, sty
       } catch (err) {
         log.error('Batch character four-view failed', { character_id: charId, error: err.message });
       }
-    });
+    }, { character_id: charId });
   }
   log.info('Batch character four-view tasks queued', { total: ids.length });
   return { ok: true, count: ids.length };
@@ -733,8 +734,6 @@ function formatSd2HubError(errMsg, hubCtx) {
     '保存前可用「列出素材」验证；若列出成功而 SD2 仍失败，说明未保存或存在多条配置未设为默认。',
   ];
   if (diag.db_config_id != null) parts.push(`当前读取的配置：id=${diag.db_config_id}${diag.db_config_name ? `「${diag.db_config_name}」` : ''}。`);
-  const fp = diag.token_fingerprint || hubCtx?.tokenFingerprint;
-  if (fp) parts.push(`Token 指纹：${fp}（请与 curl 测试通过时 Bearer 密钥的首尾字符对照是否一致）。`);
   return parts.join('');
 }
 
@@ -853,7 +852,7 @@ async function registerCharacterViaJimengHub(db, log, cfg, characterId, hubCtx, 
     character_id: Number(characterId),
     character_name: charRow.name,
     drama_id: charRow.drama_id,
-    resolved_register_image_url: String(registerImageUrl).slice(0, 500),
+    register_image_present: Boolean(registerImageUrl),
     hub_gateway: hubCtx.baseUrl,
     hub_auth_diag: hubCtx.hubAuthDiag || null,
     asset_name: assetName,

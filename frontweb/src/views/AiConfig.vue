@@ -2,33 +2,56 @@
   <div class="ai-config">
     <header class="header">
       <div class="header-inner">
-        <h1 class="logo" @click="goList">
+        <button type="button" class="logo" :aria-label="backButtonLabel" @click="goBack">
           <span class="logo-main">本地短剧助手</span>
           <span class="logo-sub">LocalMiniDrama</span>
-        </h1>
-        <span class="page-title">AI 配置</span>
-        <el-button class="btn-back" @click="goList">
+        </button>
+        <h1 class="page-title">AI 配置</h1>
+        <el-button class="btn-back" @click="goBack">
           <el-icon><ArrowLeft /></el-icon>
-          返回
+          {{ backButtonText }}
         </el-button>
       </div>
     </header>
 
     <main class="main">
-      <AIConfigContent />
+      <AIConfigContent :initial-service-type="initialServiceType" />
     </main>
   </div>
 </template>
 
 <script setup>
-import { useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import AIConfigContent from '@/components/AIConfigContent.vue'
 
 const router = useRouter()
+const route = useRoute()
+const filterableServiceTypes = new Set(['text', 'image', 'storyboard_image', 'video', 'tts'])
+const initialServiceType = computed(() => {
+  const raw = Array.isArray(route.query.service_type)
+    ? route.query.service_type[0]
+    : route.query.service_type
+  const normalized = String(raw || '').trim()
+  return filterableServiceTypes.has(normalized) ? normalized : ''
+})
+const returnTo = computed(() => {
+  const normalize = route.meta.normalizeReturnTo
+  return typeof normalize === 'function' ? normalize(route.query.returnTo) : ''
+})
+const returnsToFreeCreate = computed(() => returnTo.value.startsWith('/free-create'))
+const backButtonText = computed(() => {
+  if (returnsToFreeCreate.value) return '返回自由创作'
+  return returnTo.value ? '返回项目' : '返回首页'
+})
+const backButtonLabel = computed(() => {
+  if (returnsToFreeCreate.value) return '返回自由创作'
+  return returnTo.value ? '返回原项目' : '返回项目列表'
+})
 
-function goList() {
-  router.push({ name: 'list' })
+function goBack() {
+  router.replace(returnTo.value || { name: 'list' })
 }
 </script>
 
@@ -71,6 +94,12 @@ html.light .header {
 }
 .logo {
   margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -80,6 +109,11 @@ html.light .header {
 }
 .logo:hover {
   filter: drop-shadow(0 0 10px rgba(139, 92, 246, 0.5));
+}
+.logo:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 4px;
+  border-radius: 4px;
 }
 .logo-main {
   font-size: 1.1rem;
@@ -108,6 +142,7 @@ html.light .logo-sub {
 }
 .page-title {
   flex: 1;
+  margin: 0;
   font-size: 16px;
   color: #a1a1aa;
 }

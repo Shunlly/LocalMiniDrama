@@ -174,16 +174,37 @@ function fixUnquotedStringValues(str) {
 /**
  * @param {string} aiResponse
  * @param {object|Array} v - 默认值类型（用于判断期望返回类型）
- * @param {object} [log] - 可选 logger，有 warn/info 方法；不传则用 console.warn
+ * @param {object} [log] - 可选 logger，有 warn/warnw 方法
  * @param {object} [outMeta] - 可选输出元数据对象，解析后会写入 { truncated: boolean }
  */
 function safeParseAIJSON(aiResponse, v, log, outMeta) {
+  const looksLikeLogger = v && !Array.isArray(v) && typeof v === 'object'
+    && ['warn', 'warnw', 'info', 'infow', 'error', 'errorw']
+      .some((method) => typeof v[method] === 'function');
+  if (looksLikeLogger) {
+    if (!log) log = v;
+    v = undefined;
+  }
+
   const _warn = (msg, extra) => {
     if (log && typeof log.warn === 'function') {
       log.warn(msg, extra);
-    } else {
-      console.warn('[safeParseAIJSON]', msg, extra || '');
+    } else if (log && typeof log.warnw === 'function') {
+      log.warnw(msg, extra);
     }
+  };
+
+  const parseErrorDetails = (err, textLength) => {
+    const details = { error_code: 'INVALID_JSON', text_length: textLength };
+    const message = typeof err?.message === 'string' ? err.message : '';
+    const position = /\bposition\s+(\d+)\b/i.exec(message);
+    const lineColumn = /\bline\s+(\d+)\s+column\s+(\d+)\b/i.exec(message);
+    if (position) details.parse_position = Number(position[1]);
+    if (lineColumn) {
+      details.parse_line = Number(lineColumn[1]);
+      details.parse_column = Number(lineColumn[2]);
+    }
+    return details;
   };
 
   if (!_jsonrepair) {
@@ -216,7 +237,8 @@ function safeParseAIJSON(aiResponse, v, log, outMeta) {
     }
     return parsed;
   } catch (err) {
-    _warn('AI JSON 破损，尝试修复', { original_error: err.message, text_length: jsonStr.length, text_head: jsonStr.slice(0, 120000) });
+    const errorDetails = parseErrorDetails(err, jsonStr.length);
+    _warn('AI JSON 破损，尝试修复', errorDetails);
 
     // 策略 0：AI 将数组包进对象（如 {"storyboards":[...]}），且因截断导致外层对象不完整。
     // 提取内部数组候选串，后续所有截断修复策略对它重新执行一遍。
@@ -417,7 +439,16 @@ function safeParseAIJSON(aiResponse, v, log, outMeta) {
       } catch (_) {}
     }
 
-    throw new Error('JSON解析失败: ' + err.message);
+    const parseError = new Error(
+      errorDetails.parse_position === undefined
+        ? 'JSON解析失败'
+        : `JSON解析失败 (position ${errorDetails.parse_position})`
+    );
+    parseError.code = 'AI_JSON_PARSE_FAILED';
+    if (errorDetails.parse_position !== undefined) {
+      parseError.position = errorDetails.parse_position;
+    }
+    throw parseError;
   }
 }
 

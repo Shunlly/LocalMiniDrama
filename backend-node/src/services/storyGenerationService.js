@@ -3,6 +3,7 @@ const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
 const taskService = require('./taskService');
 const dramaService = require('./dramaService');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { safeParseAIJSON } = require('../utils/safeJson');
 const loadConfig = require('../config').loadConfig;
 
@@ -41,7 +42,7 @@ async function generateStory(db, log, body) {
   // 解析 JSON，支持多种 AI 返回格式
   let parsed = null;
   try {
-    parsed = safeParseAIJSON(rawText, log);
+    parsed = safeParseAIJSON(rawText, null, log);
   } catch (e) {
     log && log.warn && log.warn('Story JSON parse failed', { error: e.message });
   }
@@ -157,12 +158,12 @@ function startStoryGeneration(db, log, req) {
   }
 
   const task = taskService.createTask(db, log, 'story_generation', dramaId);
-  setImmediate(() => {
+  scheduleLegacyAsync(log, 'story_generation', () => {
     processStoryGeneration(db, log, task.id, req).catch((err) => {
       log.error('processStoryGeneration fatal', { error: err.message, task_id: task.id });
       taskService.updateTaskError(db, task.id, err.message || '故事生成失败');
     });
-  });
+  }, { task_id: task.id, drama_id: dramaId });
   return task.id;
 }
 

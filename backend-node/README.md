@@ -5,12 +5,12 @@
 → [项目主页](../README.md) | [快速开始](../docs/quickstart.md) | [AI 配置](../docs/configuration.md) | [版本历史](../docs/changelog.md) | [作者故事](../docs/story.md) | [English](../docs/en.md)
 
 **官方仓库：**
-[![GitHub](https://img.shields.io/badge/GitHub-xuanyustudio%2FLocalMiniDrama-181717?logo=github)](https://github.com/xuanyustudio/LocalMiniDrama)
+[![GitHub](https://img.shields.io/badge/GitHub-Shunlly%2FLocalMiniDrama-181717?logo=github)](https://github.com/Shunlly/LocalMiniDrama)
 [![Gitee](https://img.shields.io/badge/Gitee-bi__shang__a%2Flocalminidrama-C71D23?logo=gitee)](https://gitee.com/bi_shang_a/localminidrama)
 
-> 遇到问题或有功能建议，欢迎在 [GitHub Issues](https://github.com/xuanyustudio/LocalMiniDrama/issues) 或 [Gitee Issues](https://gitee.com/bi_shang_a/localminidrama/issues) 提交反馈。
+> 遇到问题或有功能建议，欢迎在 [GitHub Issues](https://github.com/Shunlly/LocalMiniDrama/issues) 或 [Gitee Issues](https://gitee.com/bi_shang_a/localminidrama/issues) 提交反馈。
 
-> **本包版本：** `1.2.8`（与仓库根目录 [CHANGELOG](../CHANGELOG.md)、前端与桌面 `package.json` 对齐）
+> **本包版本：** `1.3.0`（与仓库根目录 [CHANGELOG](../CHANGELOG.md)、前端与桌面 `package.json` 对齐）
 
 ---
 
@@ -32,7 +32,7 @@
 
 | 依赖 | 版本 |
 |------|------|
-| Node.js | >= 18 |
+| Node.js | >= 20；发布与 Docker 验证使用 20.x |
 | npm | 随 Node.js 附带 |
 
 ---
@@ -45,20 +45,22 @@ cd backend-node
 # 安装依赖
 npm install
 
-# 复制配置文件
-cp configs/config.example.yaml configs/config.yaml
-# Windows: copy configs\config.example.yaml configs\config.yaml
-
-# 编辑 config.yaml，填入 AI API 配置（也可通过前端「AI 配置」页面管理）
-
-# 首次运行：初始化数据库表
-npm run migrate
+# configs/config.yaml 已随仓库提供，通常无需复制模板
+# AI API 配置通过前端「AI 配置」页面管理并写入数据库
+# npm run migrate 通常无需手动执行；服务启动会自动执行迁移并补齐表/列
 
 # 生产启动（默认端口 5679）
 npm start
 
-# 开发模式（nodemon 热重载）
+# 开发模式（Node.js --watch 热重载）
 npm run dev
+
+# 静态检查、全部测试与流程审计
+npm run verify
+
+# 全量数据备份；恢复前必须停止后端
+npm run backup:data -- --output D:\backup\localminidrama.zip
+npm run restore:data -- --input D:\backup\localminidrama.zip --yes
 ```
 
 启动成功后终端输出：
@@ -73,10 +75,11 @@ Server started on port 5679
 ```
 backend-node/
 ├── configs/
-│   ├── config.example.yaml     # 配置模板（提交到 Git）
-│   └── config.yaml             # 实际配置（不提交，自行创建）
+│   └── config.yaml             # 仓库内默认配置；AI Key 存储在数据库 ai_service_configs
 ├── data/
 │   ├── drama_generator.db      # SQLite 数据库
+│   ├── story_sources/          # 原始故事素材
+│   ├── backups/                # 默认备份归档
 │   └── storage/                # 生成的图片/视频本地文件
 │       ├── images/             # 分镜生成图
 │       ├── characters/         # 角色图
@@ -85,27 +88,30 @@ backend-node/
 │       └── merged/             # 合成后的完整视频
 ├── migrations/
 │   ├── 01_init.sql             # 初始建表
-│   ├── 02_local_path.sql       # 本地路径字段
-│   └── 03_async_tasks_frame_prompts.sql
+│   └── 02_add_default_model.sql ... 34_ai_config_single_default.sql
 ├── src/
 │   ├── app.js                  # Express 应用（路由注册、中间件）
 │   ├── server.js               # HTTP 服务入口
-│   ├── logger.js               # 日志（pino）
+│   ├── logger.js               # 结构化日志与敏感信息清理
 │   ├── response.js             # 统一响应格式工具
 │   ├── config/
 │   │   └── index.js            # YAML 配置加载
 │   ├── db/
 │   │   ├── index.js            # better-sqlite3 连接
-│   │   └── migrate.js          # 启动时自动补列（ensureColumns）
+│   │   └── migrate.js          # runMigrationsAndEnsure：执行 SQL 迁移并补齐表/列
 │   ├── routes/
 │   │   ├── index.js            # 路由总入口
 │   │   ├── drama.js            # 剧本 / 导出 / 导入
 │   │   ├── videos.js           # 视频生成任务
 │   │   ├── images.js           # 图片生成任务
-│   │   ├── tasks.js            # 异步任务查询
+│   │   ├── task.js             # 异步任务查询
+│   │   ├── storySources.js     # Novel2Anime Source Intake
+│   │   ├── workflows.js        # Novel2Anime 工作流
+│   │   ├── qaReports.js        # QA 报告与修复
+│   │   ├── timelines.js        # 时间线 / SRT / manifest
 │   │   ├── aiConfig.js         # AI 服务商配置 CRUD
-│   │   ├── settings.js         # 全局设置
-│   │   └── static.js           # 静态文件服务（/static）
+│   │   └── settings.js         # 全局设置
+│   │   # /static 静态文件服务在 src/app.js 中挂载
 │   └── services/
 │       ├── dramaService.js             # 剧本 CRUD 与数据组装
 │       ├── episodeStoryboardService.js # 分镜生成核心逻辑
@@ -142,8 +148,10 @@ database:
 
 storage:
   local_path: ./data/storage      # 图片/视频本地存储根目录
+  upload_disk_reserve_bytes: 536870912 # 上传后至少保留 512MB 可用空间
 
-language: zh                      # 提示词语言（zh / en）
+app:
+  language: zh                    # 提示词语言（zh / en）
 
 style:
   default_style: realistic         # 默认绘图风格
@@ -157,7 +165,7 @@ style:
 
 ## 各大平台中转站示例配置
 
-仓库根目录（与 `backend-node` 同级）下的 [`各大平台中转站配置/`](https://github.com/xuanyustudio/LocalMiniDrama/tree/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE) 提供多家常见中转站的 **完整 JSON 示例**，可直接对照导入前端「AI 配置」，再改为自己的 Key 与地址。
+仓库根目录（与 `backend-node` 同级）下的 [`各大平台中转站配置/`](https://github.com/Shunlly/LocalMiniDrama/tree/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE) 提供多家常见中转站的 **完整 JSON 示例**，可直接对照导入前端「AI 配置」，再改为自己的 Key 与地址。
 
 | 文件 | 说明 |
 |------|------|
@@ -169,8 +177,8 @@ style:
 
 **示意图（与 JSON 互补）：**
 
-- [官方即梦 2.0 配置](https://github.com/xuanyustudio/LocalMiniDrama/blob/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE/%E5%AE%98%E6%96%B9%E5%8D%B3%E6%A2%A62.0%E9%85%8D%E7%BD%AE.png)
-- [本地反向代理即梦 Free API 配置](https://github.com/xuanyustudio/LocalMiniDrama/blob/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE/%E8%B0%83%E7%94%A8%E6%9C%AC%E5%9C%B0%E5%8F%8D%E5%90%91%E4%BB%A3%E7%90%86%E5%8D%B3%E6%A2%A6freeapi%E7%9A%84%E9%85%8D%E7%BD%AE.png)
+- [官方即梦 2.0 配置](https://github.com/Shunlly/LocalMiniDrama/blob/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE/%E5%AE%98%E6%96%B9%E5%8D%B3%E6%A2%A62.0%E9%85%8D%E7%BD%AE.png)
+- [本地反向代理即梦 Free API 配置](https://github.com/Shunlly/LocalMiniDrama/blob/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE/%E8%B0%83%E7%94%A8%E6%9C%AC%E5%9C%B0%E5%8F%8D%E5%90%91%E4%BB%A3%E7%90%86%E5%8D%B3%E6%A2%A6freeapi%E7%9A%84%E9%85%8D%E7%BD%AE.png)
 
 若中转商控制台中的商品名（如「即梦 2.0」）与示例里的 **模型 ID**（如 `doubao-seedream-4-0-250828`）表述不一致，以对方实际开放的模型 ID 为准，并在本系统中与 JSON 保持一致。更多面向最终用户的说明见仓库根目录 [项目主页 `index.html`](../index.html) 中的「AI 与各大平台中转站」区块（发布页展示用）。
 
@@ -276,6 +284,9 @@ style:
 | GET | `/dramas/:id/props` | 获取剧集道具 |
 | POST | `/episodes/:id/extract-props` | 从剧本提取道具（触发任务） |
 | POST | `/props/:id/generate-image` | 生成道具图片 |
+| GET | `/assets` | 分页查询素材中心图片/视频 |
+| POST | `/assets/upload` | 上传图片或视频并写入素材中心（单文件最大 100MB；最多 2 个并发；保留磁盘空间；图片完整解码、视频 `ffprobe` 校验；失败清理） |
+| DELETE | `/assets/:id` | 软删除素材记录；无其他有效引用时同步删除受控 `uploads/` 文件 |
 
 ### 静态文件
 
@@ -315,8 +326,8 @@ style:
 - `local_path TEXT` — 相对于 `storage/` 根目录的相对路径
 
 **数据库迁移：**
-- `npm run migrate` — 运行 `migrations/` 目录下的 SQL 文件
-- 每次服务启动时自动执行 `ensureColumns()`，确保所有列存在（支持旧数据库升级）
+- 每次服务启动时自动执行 `runMigrationsAndEnsure()`：先应用 `migrations/` SQL 文件，再执行表/列兼容性补齐（支持旧数据库升级）
+- `npm run migrate` — 手动运行同一迁移流程；通常用于首次手动初始化或显式迁移验证
 
 ---
 
@@ -368,9 +379,11 @@ style:
 
 **可灵 Omni（`kling_omni`）** 同样支持分镜全能模式的多图参考与片段描述-only 提交逻辑，配置方式见前端 AI 配置页说明。
 
+> Novel2Anime 工作流与上述经典生图/生视频链路不同：当前媒体、配音和合成步骤仍使用本地 mock provider SDK 产物，production QA 会要求真实 image/video/tts/compositor provider audit 记录后才允许通过。真实 Novel2Anime 工作流 provider 路由、ComfyUI/Ollama/cloud model 编排和 FFmpeg-backed Novel2Anime compositor provider 集成仍属后续接入范围。
+
 ### 提示词国际化
 
-`promptI18n.js` 管理所有提示词模板，支持中文（zh）和英文（en）两套模板，通过 `config.yaml` 中的 `language` 字段切换。
+`promptI18n.js` 管理所有提示词模板，支持中文（zh）和英文（en）两套模板，通过 `config.yaml` 中的 `app.language` 字段切换。
 
 ---
 
@@ -390,7 +403,7 @@ style:
 2. 在本系统 AI 配置中填写 **Base URL**（如 `http://127.0.0.1:8000`）、**API Key** 填即梦 **Session**（多个用英文逗号分隔）。
 3. 后端会请求对方 `POST /v1/videos/generations`（可用配置项 **Endpoint** 覆盖路径），Seedance 多图场景需分镜带参考图；返回为同步 `data[0].url`，无需轮询。
 
-字段级对照可参考仓库 [`各大平台中转站配置/调用本地反向代理即梦freeapi的配置.png`](https://github.com/xuanyustudio/LocalMiniDrama/blob/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE/%E8%B0%83%E7%94%A8%E6%9C%AC%E5%9C%B0%E5%8F%8D%E5%90%91%E4%BB%A3%E7%90%86%E5%8D%B3%E6%A2%A6freeapi%E7%9A%84%E9%85%8D%E7%BD%AE.png)。该路径为 **OpenAI 兼容的本地即梦代理（视频为主）**，与上文「即梦（Seedream）Volcengine 图生图与文生图」所描述的 **`volcengine` 直连中转图 API** 不是同一套协议，请按实际接入分别配置、勿混用字段。
+字段级对照可参考仓库 [`各大平台中转站配置/调用本地反向代理即梦freeapi的配置.png`](https://github.com/Shunlly/LocalMiniDrama/blob/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE/%E8%B0%83%E7%94%A8%E6%9C%AC%E5%9C%B0%E5%8F%8D%E5%90%91%E4%BB%A3%E7%90%86%E5%8D%B3%E6%A2%A6freeapi%E7%9A%84%E9%85%8D%E7%BD%AE.png)。该路径为 **OpenAI 兼容的本地即梦代理（视频为主）**，与上文「即梦（Seedream）Volcengine 图生图与文生图」所描述的 **`volcengine` 直连中转图 API** 不是同一套协议，请按实际接入分别配置、勿混用字段。
 
 ### 添加新的数据库字段
 

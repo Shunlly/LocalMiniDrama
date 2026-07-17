@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <clipPath id="clapper-clip">
+      <path d="M198 284 778 174c31-6 60 15 66 46l18 96-674 127-18-96c-6-31 6-57 28-63Z"/>
+    </clipPath>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="196" fill="#17181f"/>
+  <rect x="66" y="66" width="892" height="892" rx="178" fill="none" stroke="#f6f2e8" stroke-width="12"/>
+  <path d="M198 284 778 174c31-6 60 15 66 46l18 96-674 127-18-96c-6-31 6-57 28-63Z" fill="#f6f2e8"/>
+  <g clip-path="url(#clapper-clip)">
+    <path d="m154 273 133-25 78 137-133 25Z" fill="#ef6262"/>
+    <path d="m287 248 134-25 78 137-134 25Z" fill="#20a39e"/>
+    <path d="m421 223 133-26 79 138-134 25Z" fill="#f4c95d"/>
+    <path d="m554 197 134-25 78 137-133 26Z" fill="#ef6262"/>
+    <path d="m688 172 133-25 79 137-134 25Z" fill="#20a39e"/>
+  </g>
+  <path d="M188 431h674v356c0 43-35 78-78 78H266c-43 0-78-35-78-78V431Z" fill="#f6f2e8"/>
+  <path d="M250 505h550v264c0 19-15 34-34 34H284c-19 0-34-15-34-34V505Z" fill="#252733"/>
+  <path d="m461 564 174 102-174 102V564Z" fill="#ef6262"/>
+  <path d="M776 158c9 45 34 70 79 79-45 9-70 34-79 79-9-45-34-70-79-79 45-9 70-34 79-79Z" fill="#f4c95d" stroke="#17181f" stroke-width="12" stroke-linejoin="round"/>
+  <circle cx="311" cy="688" r="20" fill="#20a39e"/>
+  <circle cx="739" cy="688" r="20" fill="#f4c95d"/>
+</svg>

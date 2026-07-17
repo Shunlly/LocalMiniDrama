@@ -3,6 +3,7 @@ const taskService = require('./taskService');
 const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
 const propService = require('./propService');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { safeParseAIJSON, extractFirstArray } = require('../utils/safeJson');
 let _cfg = null; // 由 extractPropsForEpisode 注入，供异步任务使用
 
@@ -60,7 +61,7 @@ async function processPropExtraction(db, log, taskId, episodeId) {
 
   let extractedProps = [];
   try {
-    const parsed = safeParseAIJSON(response, log);
+    const parsed = safeParseAIJSON(response, null, log);
     extractedProps = extractFirstArray(parsed) || [];
   } catch (_) {
     taskService.updateTaskError(db, taskId, '解析 AI 返回的 JSON 失败');
@@ -108,11 +109,11 @@ async function processPropExtraction(db, log, taskId, episodeId) {
       createdProps.push(prop);
       // 若提取时没有生成 prompt，异步后台补生成
       if (!prop.prompt && _cfg) {
-        setImmediate(() => {
+        scheduleLegacyAsync(log, 'prop_prompt_prefill', () => {
           propService.generatePropPromptOnly(db, log, _cfg, prop.id, undefined, undefined).catch((err) => {
             log.warn('[提取道具] 预生成提示词失败', { prop_id: prop.id, error: err.message });
           });
-        });
+        }, { prop_id: prop.id, episode_id: episodeId });
       }
     }
   }
@@ -141,11 +142,11 @@ function extractPropsForEpisode(db, log, episodeId, cfg) {
   }
 
   const task = taskService.createTask(db, log, 'prop_extraction', String(episodeId));
-  setImmediate(() => {
+  scheduleLegacyAsync(log, 'prop_extraction', () => {
     processPropExtraction(db, log, task.id, episodeId).catch((err) => {
       log.error('processPropExtraction fatal', { error: err.message, task_id: task.id });
     });
-  });
+  }, { task_id: task.id, episode_id: episodeId });
   return task.id;
 }
 

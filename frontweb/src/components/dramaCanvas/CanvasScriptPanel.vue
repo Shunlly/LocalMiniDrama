@@ -1,6 +1,7 @@
 <template>
   <div
     class="canvas-node-panel script-panel nodrag nopan nowheel"
+    tabindex="-1"
     @pointerdown.stop
     @mousedown.stop
     @click.stop
@@ -151,9 +152,9 @@ async function onExtractAll() {
   width: min(520px, 92vw);
   padding: 10px 14px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(251, 191, 36, 0.45);
-  background: rgba(15, 15, 18, 0.97);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--canvas-amber-border, rgba(251, 191, 36, 0.45));
+  background: var(--canvas-panel-surface, rgba(15, 15, 18, 0.97));
+  box-shadow: var(--canvas-raised-shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
 }
 .panel-head {
   display: flex;
@@ -161,7 +162,7 @@ async function onExtractAll() {
   justify-content: space-between;
   font-size: 12px;
   font-weight: 700;
-  color: #fcd34d;
+  color: var(--canvas-amber-text, #fcd34d);
   margin-bottom: 6px;
 }
 .head-right {
@@ -171,19 +172,19 @@ async function onExtractAll() {
 }
 .busy-tag {
   font-size: 10px;
-  color: #93c5fd;
+  color: var(--canvas-blue-text, #93c5fd);
 }
 .flow-hint {
   margin: 0 0 10px;
   font-size: 10px;
   line-height: 1.45;
-  color: #71717a;
+  color: var(--canvas-text-subtle, #71717a);
 }
 .compact-form :deep(.el-form-item) {
   margin-bottom: 8px;
 }
 .compact-form :deep(.el-form-item__label) {
-  color: #71717a;
+  color: var(--canvas-text-subtle, #71717a);
   font-size: 11px;
 }
 .compact-form :deep(.el-textarea__inner) {
@@ -196,18 +197,18 @@ async function onExtractAll() {
   justify-content: space-between;
   gap: 8px;
   font-size: 10px;
-  color: #a1a1aa;
+  color: var(--canvas-text-muted, #a1a1aa);
   margin-bottom: 8px;
 }
 .len {
-  color: #71717a;
+  color: var(--canvas-text-subtle, #71717a);
 }
 .panel-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   padding-top: 8px;
-  border-top: 1px solid rgba(63, 63, 70, 0.6);
+  border-top: 1px solid var(--canvas-divider, rgba(63, 63, 70, 0.6));
 }
 .panel-actions :deep(.el-button) {
   margin: 0;

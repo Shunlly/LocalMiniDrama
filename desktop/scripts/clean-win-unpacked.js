@@ -2,9 +2,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawnSync, execSync } = require('child_process');
+const { spawnSync } = require('child_process');
 
-const unpackedDir = path.join(__dirname, '..', 'release', 'win-unpacked');
+const releaseDir = path.join(__dirname, '..', 'release');
 
 function log(msg) {
   process.stdout.write(`${msg}\n`);
@@ -12,38 +12,40 @@ function log(msg) {
 
 function stopWindowsAppProcesses() {
   if (process.platform !== 'win32') return;
-  const names = ['本地短剧助手.exe', 'LocalMiniDrama.exe'];
-  for (const name of names) {
-    spawnSync('taskkill', ['/F', '/IM', name, '/T'], { stdio: 'ignore', shell: true });
-  }
-  try {
-    const ps = [
-      "Get-CimInstance Win32_Process |",
-      "Where-Object { $_.ExecutablePath -like '*LocalMiniDrama*' -or $_.ExecutablePath -like '*win-unpacked*' -or $_.Name -like 'LocalMiniDrama*' } |",
-      "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
-    ].join(' ');
-    execSync(`powershell -NoProfile -Command "${ps}"`, { stdio: 'ignore', timeout: 15000 });
-  } catch (_) {}
+  const ps = [
+    "$root = [IO.Path]::GetFullPath($env:LOCALMINIDRAMA_RELEASE_DIR).TrimEnd('\\') + '\\'",
+    'Get-CimInstance Win32_Process |',
+    'Where-Object {',
+    '  $_.ExecutablePath -and',
+    '  [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($root, [StringComparison]::OrdinalIgnoreCase)',
+    '} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }',
+  ].join(' ');
+  spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+    stdio: 'ignore',
+    timeout: 15000,
+    windowsHide: true,
+    env: { ...process.env, LOCALMINIDRAMA_RELEASE_DIR: releaseDir },
+  });
 }
 
 function removeDir(dir) {
   if (!fs.existsSync(dir)) {
-    log('[clean] release/win-unpacked not found, skip');
+    log('[clean] release directory not found, skip');
     return true;
   }
   try {
     fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 500 });
-    log('[clean] release/win-unpacked removed');
+    log('[clean] release directory removed');
     return true;
   } catch (err) {
     const stale = `${dir}.stale-${Date.now()}`;
     try {
       fs.renameSync(dir, stale);
-      log(`[clean] could not delete win-unpacked, renamed to ${path.basename(stale)}`);
+      log(`[clean] could not delete release directory, renamed to ${path.basename(stale)}`);
       return true;
     } catch (renameErr) {
       log(`[clean] FAILED: ${err.message}`);
-      log('[clean] Close running LocalMiniDrama exe, close Explorer on release/win-unpacked, then retry.');
+      log('[clean] Close running LocalMiniDrama exe and Explorer windows under desktop/release, then retry.');
       log('[clean] Or reboot if antivirus is scanning app.asar.');
       return false;
     }
@@ -51,5 +53,5 @@ function removeDir(dir) {
 }
 
 stopWindowsAppProcesses();
-if (!removeDir(unpackedDir)) process.exit(1);
+if (!removeDir(releaseDir)) process.exit(1);
 log('[clean] ready for electron-builder');

@@ -3,6 +3,7 @@ const loadConfig = require('../config').loadConfig;
 const promptI18n = require('./promptI18n');
 const aiClient = require('./aiClient');
 const taskService = require('./taskService');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { safeParseAIJSON } = require('../utils/safeJson');
 const storyboardService = require('./storyboardService');
 const angleService = require('./angleService');
@@ -403,7 +404,10 @@ function parseFramePromptJSON(log, aiResponse) {
       return { prompt: data.prompt, description: data.description || '' };
     }
   } catch (e) {
-    log.warn('Frame prompt JSON parse failed', { error: e.message, response_head: (aiResponse || '').slice(0, 200) });
+    log.warn('Frame prompt JSON parse failed', {
+      error: e.message,
+      response_chars: String(aiResponse || '').length,
+    });
   }
   return null;
 }
@@ -600,9 +604,9 @@ function generateFramePrompt(db, log, storyboardId, frameType, panelCount, model
     throw new Error('不支持的 frame_type，可选: first, key, last, panel, action');
   }
   const task = taskService.createTask(db, log, 'frame_prompt_generation', String(storyboardId));
-  setImmediate(() => {
+  scheduleLegacyAsync(log, 'frame_prompt_generation', () => {
     processFramePromptGeneration(db, log, task.id, storyboardId, frameType, panelCount || 0, model);
-  });
+  }, { task_id: task.id, storyboard_id: storyboardId, frame_type: frameType });
   log.info('Frame prompt task created', { task_id: task.id, storyboard_id: storyboardId, frame_type: frameType });
   return task.id;
 }

@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Raw ASAR containers are scanned through their mandatory extracted .contents trees"
+paths = [
+  '''(^|/)\.artifact-scan/\.evidence/''',
+  '''(^|/)[^/]+\.asar$''',
+]

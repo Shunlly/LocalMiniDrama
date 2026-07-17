@@ -61,6 +61,7 @@ const uploadService = require('./uploadService');
 const storageLayout = require('./storageLayout');
 const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
+const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 
 const LAST_FRAME_TYPES = new Set(['last', 'storyboard_last', 'tail', 'last_frame']);
 
@@ -529,8 +530,20 @@ function mergePromptWithStyle(prompt, style) {
   return base + ', ' + styleText;
 }
 
+function isUsableProviderReference(value) {
+  const text = String(value || '').trim();
+  return !!text && !/^(?:mock|placeholder):\/\//i.test(text);
+}
+
 function create(db, log, req) {
   const now = new Date().toISOString();
+  const idempotencyKey = String(req.idempotency_key || '').trim() || null;
+  if (idempotencyKey) {
+    const existing = db.prepare(
+      'SELECT id FROM image_generations WHERE idempotency_key = ? AND deleted_at IS NULL'
+    ).get(idempotencyKey);
+    if (existing) return { ...getById(db, existing.id), idempotent_reuse: true };
+  }
   const task = taskService.createTask(db, log, 'image_generation', String(req.drama_id || ''));
   const taskId = task.id;
   const frameType = req.frame_type ?? null;
@@ -540,10 +553,9 @@ function create(db, log, req) {
       ? JSON.stringify(req.reference_images.slice(0, 10))
       : null;
   if (req.reference_images && Array.isArray(req.reference_images)) {
-    log.info('reference_images 完整路径（请求入参）', {
+    log.info('reference_images received', {
       image_gen_create: true,
       count: req.reference_images.length,
-      reference_images: req.reference_images,
     });
   }
   const mergedPrompt = mergePromptWithStyle(req.prompt || '', req.style);
@@ -554,12 +566,13 @@ function create(db, log, req) {
   }
   const useFirstFrameLayoutLock = resolveUseFirstFrameLayoutLock(req, frameType);
   const info = db.prepare(
-    `INSERT INTO image_generations (storyboard_id, drama_id, scene_id, provider, prompt, negative_prompt, model, frame_type, reference_images, use_first_frame_layout_lock, size, status, task_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
+    `INSERT INTO image_generations (storyboard_id, drama_id, scene_id, character_id, provider, prompt, negative_prompt, model, frame_type, reference_images, use_first_frame_layout_lock, size, status, task_id, idempotency_key, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`
   ).run(
     req.storyboard_id ?? null,
     Number(req.drama_id) || 0,
     sceneId,
+    req.character_id != null ? Number(req.character_id) : null,
     req.provider || 'openai',
     mergedPrompt,
     req.negative_prompt ?? null,
@@ -569,15 +582,76 @@ function create(db, log, req) {
     useFirstFrameLayoutLock,
     reqSize,
     taskId,
+    idempotencyKey,
     now,
     now
   );
   const imageGenId = info.lastInsertRowid;
   if (!imageGenId) throw new Error('insert failed');
-  setImmediate(() => {
-    processImageGeneration(db, log, imageGenId);
-  });
+  if (req.__defer_processing !== true) {
+    scheduleLegacyAsync(log, 'image_generation', () => {
+      processImageGeneration(db, log, imageGenId);
+    }, { image_generation_id: imageGenId, task_id: taskId, drama_id: req.drama_id });
+  }
   return { id: imageGenId, task_id: taskId, status: 'pending', ...getById(db, imageGenId) };
+}
+
+async function createAndProcessImage(db, log, req) {
+  const created = create(db, log, { ...req, __defer_processing: true });
+  if (created.status === 'completed') return created;
+  if (created.idempotent_reuse && ['processing', 'failed'].includes(created.status)) {
+    db.prepare("UPDATE image_generations SET status = 'pending', error_msg = NULL, updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), created.id);
+  }
+  await processImageGeneration(db, log, created.id);
+  const completed = getById(db, created.id);
+  if (!completed || completed.status !== 'completed') {
+    throw new Error(completed?.error_msg || 'Image generation did not complete');
+  }
+  if (req.require_local !== false && !isUsableProviderReference(completed.local_path)) {
+    const message = 'Image generation completed without a durable local file';
+    const now = new Date().toISOString();
+    db.prepare('UPDATE image_generations SET status = ?, error_msg = ?, updated_at = ? WHERE id = ?')
+      .run('failed', message, now, created.id);
+    if (created.task_id) taskService.updateTaskError(db, created.task_id, message);
+    throw new Error(message);
+  }
+  return completed;
+}
+
+function bindCompletedSceneImage(db, row, imageUrl, localPath, now) {
+  if (row.scene_id == null || row.storyboard_id != null) return { bound: false };
+
+  if (row.frame_type === 'scene_panorama') {
+    const result = db.prepare(
+      `UPDATE scenes
+          SET panorama_image_url = ?, panorama_local_path = ?, panorama_image_id = ?, updated_at = ?
+        WHERE id = ? AND deleted_at IS NULL`
+    ).run(imageUrl, localPath, row.id, now, row.scene_id);
+    return { bound: result.changes > 0, target: 'panorama' };
+  }
+
+  const oldScene = db.prepare('SELECT local_path, image_url, extra_images FROM scenes WHERE id = ?').get(row.scene_id);
+  const oldPath = oldScene?.local_path || oldScene?.image_url || '';
+  let sceneExtras = [];
+  try { sceneExtras = oldScene?.extra_images ? JSON.parse(oldScene.extra_images) : []; } catch (_) {}
+  if (!Array.isArray(sceneExtras)) sceneExtras = [];
+  if (oldPath && !sceneExtras.includes(oldPath)) sceneExtras.push(oldPath);
+  const sceneExtraJson = sceneExtras.length ? JSON.stringify(sceneExtras) : null;
+  try {
+    db.prepare("UPDATE scenes SET image_url = ?, local_path = ?, extra_images = ?, status = 'generated', updated_at = ? WHERE id = ?").run(
+      imageUrl, localPath, sceneExtraJson, now, row.scene_id
+    );
+  } catch (e) {
+    if ((e.message || '').includes('extra_images')) {
+      db.prepare("UPDATE scenes SET image_url = ?, local_path = ?, status = 'generated', updated_at = ? WHERE id = ?").run(
+        imageUrl, localPath, now, row.scene_id
+      );
+    } else {
+      throw e;
+    }
+  }
+  return { bound: true, target: 'main' };
 }
 
 /**
@@ -1035,11 +1109,24 @@ async function processImageGeneration(db, log, imageGenId) {
         }
       }
     }
+    if (reference_image_urls && reference_image_urls.length > 0) {
+      const labels = String(reference_context_note || '').split('\n').filter(Boolean);
+      const kept = [];
+      const keptLabels = [];
+      reference_image_urls.forEach((reference, index) => {
+        if (!isUsableProviderReference(reference)) return;
+        kept.push(reference);
+        if (labels[index]) keptLabels.push(labels[index]);
+      });
+      reference_image_urls = kept.length ? kept : null;
+      reference_context_note = keptLabels.length
+        ? keptLabels.map((label, index) => label.replace(/^Image\s+\d+/i, `Image ${index + 1}`)).join('\n')
+        : null;
+    }
     log.info('[图生] Step2 参考图', {
       id: imageGenId,
       source: reference_source || '无',
       count: reference_image_urls ? reference_image_urls.length : 0,
-      paths: (reference_image_urls || []).map(s => String(s).slice(0, 80)),
       elapsed: elapsed(),
     });
 
@@ -1378,6 +1465,7 @@ async function processImageGeneration(db, log, imageGenId) {
       system_prompt: apiSystemPrompt,
       negative_prompt: row.negative_prompt || undefined,
       frame_identity_lock: isFrameIdentityLock,
+      idempotency_key: row.idempotency_key || undefined,
     });
     log.info('[图生] Step4 图生 API 返回', { id: imageGenId, api_ms: Date.now() - tApi, has_error: !!result.error, elapsed: elapsed() });
 
@@ -1446,36 +1534,15 @@ async function processImageGeneration(db, log, imageGenId) {
     db.prepare(
       'UPDATE image_generations SET status = ?, image_url = ?, local_path = ?, completed_at = ?, updated_at = ? WHERE id = ?'
     ).run('completed', persistedImageUrl, localPath, now2, now2, imageGenId);
+    const sceneBinding = bindCompletedSceneImage(db, row, persistedImageUrl, localPath, now2);
     if (row.task_id) {
       taskService.updateTaskResult(db, row.task_id, {
         image_generation_id: imageGenId,
         image_url: persistedImageUrl,
+        frame_type: row.frame_type || null,
+        scene_binding: sceneBinding.target || null,
         status: 'completed',
       });
-    }
-    
-    if (row.scene_id != null && row.storyboard_id == null) {
-      // 旧图追加到 extra_images，与上传逻辑保持一致
-      const oldScene = db.prepare('SELECT local_path, image_url, extra_images FROM scenes WHERE id = ?').get(row.scene_id);
-      const oldPath = oldScene?.local_path || oldScene?.image_url || '';
-      let sceneExtras = [];
-      try { sceneExtras = oldScene?.extra_images ? JSON.parse(oldScene.extra_images) : []; } catch (_) {}
-      if (!Array.isArray(sceneExtras)) sceneExtras = [];
-      if (oldPath && !sceneExtras.includes(oldPath)) sceneExtras.push(oldPath);
-      const sceneExtraJson = sceneExtras.length ? JSON.stringify(sceneExtras) : null;
-      try {
-        db.prepare("UPDATE scenes SET image_url = ?, local_path = ?, extra_images = ?, status = 'generated', updated_at = ? WHERE id = ?").run(
-          persistedImageUrl, localPath, sceneExtraJson, now2, row.scene_id
-        );
-      } catch (e) {
-        if ((e.message || '').includes('extra_images')) {
-          db.prepare("UPDATE scenes SET image_url = ?, local_path = ?, status = 'generated', updated_at = ? WHERE id = ?").run(
-            persistedImageUrl, localPath, now2, row.scene_id
-          );
-        } else {
-          throw e;
-        }
-      }
     }
     log.info('[图生] ✓ 完成', { id: imageGenId, local_path: localPath, total_elapsed: elapsed() });
 
@@ -1564,6 +1631,7 @@ function deleteById(db, log, id) {
       const sid = Number(row.storyboard_id);
       db.prepare(`UPDATE storyboards SET first_frame_image_id = NULL, image_url = NULL, local_path = NULL, updated_at = ? WHERE id = ? AND first_frame_image_id = ?`).run(now, sid, numId);
       db.prepare(`UPDATE storyboards SET last_frame_image_id = NULL, last_frame_image_url = NULL, last_frame_local_path = NULL, updated_at = ? WHERE id = ? AND last_frame_image_id = ?`).run(now, sid, numId);
+      db.prepare(`UPDATE storyboards SET video_reference_image_id = NULL, updated_at = ? WHERE id = ? AND video_reference_image_id = ?`).run(now, sid, numId);
     }
   } catch (e) {
     try { log?.warn?.('[image delete] 清除分镜绑定失败', { id: numId, err: e.message }); } catch (_) {}
@@ -1682,6 +1750,9 @@ module.exports = {
   getBackgroundsForEpisode,
   upload,
   processImageGeneration,
+  createAndProcessImage,
+  bindCompletedSceneImage,
   aspectRatioToSize,
+  isUsableProviderReference,
   syncStoryboardCharacters,
 };

@@ -1,5 +1,6 @@
 // AI 配置 CRUD，与 Go application/services/ai_service.go 对齐
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const { normalizeMaterialHubToken } = require('./jimengMaterialHubService');
 
@@ -10,6 +11,509 @@ function normalizeApiKeyForService(serviceType, apiKey) {
   return apiKey;
 }
 const { applyDeepSeekConnectivityOptions } = require('./deepseekConfig');
+const { probeComfyUiConnection, sanitizeProviderText } = require('./comfyUiClient');
+const uploadService = require('./uploadService');
+const { secureHttpFetch, validateHttpRequestTarget } = require('./secureHttpFetch');
+const MASKED_SECRET = '********';
+
+const LOCAL_ONLY_PROVIDERS = new Set([
+  'comfyui',
+  'comfy_ui',
+  'jimeng_ai_api',
+  'lmstudio',
+  'local_openai',
+  'local_sd',
+  'local_tts',
+  'ollama',
+]);
+const LOCAL_MODE_CAPABLE_PROVIDERS = new Set([
+  ...LOCAL_ONLY_PROVIDERS,
+  'openai_compatible',
+]);
+const BLOCKED_LOCAL_HOSTS = new Set([
+  'instance-data',
+  'metadata',
+  'metadata.azure.internal',
+  'metadata.google.internal',
+]);
+const BLOCKED_PROVIDER_IPS = new Set([
+  '100.100.100.200',
+  '168.63.129.16',
+  '169.254.169.254',
+  '169.254.170.2',
+  'fd00:ec2::254',
+]);
+
+function providerUrlValidationError(message) {
+  const error = new Error(message);
+  error.code = 'INVALID_PROVIDER_URL';
+  error.status = 400;
+  return error;
+}
+
+function normalizedProviderId(value) {
+  return String(value || '').trim().toLowerCase().replace(/-/g, '_');
+}
+
+function isAllowedLocalIpv4(hostname) {
+  const octets = hostname.split('.').map(Number);
+  if (octets.length !== 4 || octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) {
+    return false;
+  }
+  return octets[0] === 10
+    || octets[0] === 127
+    || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
+    || (octets[0] === 192 && octets[1] === 168);
+}
+
+function isAllowedLocalIpv6(hostname) {
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (host === '::1') return true;
+  const first = host.split(':', 1)[0];
+  if (!/^[0-9a-f]{4}$/.test(first)) return false;
+  return (parseInt(first, 16) & 0xfe00) === 0xfc00;
+}
+
+function isExplicitLocalProviderHost(hostname) {
+  const host = String(hostname || '').trim().replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase();
+  if (!host
+    || BLOCKED_LOCAL_HOSTS.has(host)
+    || BLOCKED_PROVIDER_IPS.has(host)
+    || host.endsWith('.metadata.google.internal')) return false;
+  const family = net.isIP(host);
+  if (family === 4) return isAllowedLocalIpv4(host);
+  if (family === 6) return isAllowedLocalIpv6(host);
+  return !host.includes('.')
+    || host === 'localhost'
+    || host.endsWith('.localhost')
+    || host.endsWith('.local')
+    || host.endsWith('.internal')
+    || host.endsWith('.home.arpa')
+    || host.endsWith('.docker.internal');
+}
+
+function isExplicitLocalProviderConfig(config = {}) {
+  const provider = normalizedProviderId(config.provider);
+  if (!LOCAL_MODE_CAPABLE_PROVIDERS.has(provider)) return false;
+  const settings = parseSettingsValue(config.settings) || {};
+  return settings.allow_local_http === true;
+}
+
+function normalizeProviderBaseUrl(value, config = {}) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch (_) {
+    throw providerUrlValidationError('base_url 必须是合法的 HTTP(S) URL');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw providerUrlValidationError('base_url 仅支持 HTTP(S)');
+  }
+  if (parsed.username || parsed.password) {
+    throw providerUrlValidationError('base_url 不得包含用户名或密码，请使用认证字段');
+  }
+  if (parsed.search) {
+    throw providerUrlValidationError('base_url 不得包含查询参数，请使用 endpoint 或认证字段');
+  }
+  if (parsed.hash) {
+    throw providerUrlValidationError('base_url 不得包含 URL 片段');
+  }
+  const localTarget = isExplicitLocalProviderHost(parsed.hostname);
+  const localMode = isExplicitLocalProviderConfig(config);
+  const normalizedHost = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (BLOCKED_LOCAL_HOSTS.has(normalizedHost)
+    || BLOCKED_PROVIDER_IPS.has(normalizedHost)
+    || normalizedHost.endsWith('.metadata.google.internal')
+    || (net.isIP(normalizedHost) && !localTarget && !uploadService.isGloballyRoutableIp(normalizedHost))) {
+    throw providerUrlValidationError('Provider URL targets a blocked or non-routable address');
+  }
+  if (localTarget && !localMode) {
+    throw providerUrlValidationError('Private or local provider URLs require an explicitly recognized local provider mode');
+  }
+  if (parsed.protocol === 'http:' && (!localTarget || !localMode)) {
+    throw providerUrlValidationError('Globally routable provider URLs must use HTTPS');
+  }
+  return parsed.toString().replace(/\/$/, '');
+}
+
+function getProviderNetworkOptions(config = {}, overrides = {}) {
+  const baseUrl = normalizeProviderBaseUrl(config.base_url, config);
+  if (!baseUrl) throw providerUrlValidationError('base_url is required');
+  const parsed = new URL(baseUrl);
+  const allowPrivate = isExplicitLocalProviderHost(parsed.hostname) && isExplicitLocalProviderConfig(config);
+  return {
+    ...overrides,
+    baseUrl,
+    trustedOrigins: [baseUrl],
+    allowPrivateOrigins: allowPrivate ? [baseUrl] : [],
+    requireHttpsForPublic: true,
+  };
+}
+
+function sanitizeProviderUrlForResponse(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return raw;
+  try {
+    const parsed = new URL(raw);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    parsed.username = '';
+    parsed.password = '';
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString().replace(/\/$/, '');
+  } catch (_) {
+    return '';
+  }
+}
+
+function isMaskedSecret(value) {
+  return String(value || '').trim() === MASKED_SECRET;
+}
+
+function hasSecret(value) {
+  return value != null && String(value).trim() !== '';
+}
+
+function maskSecretValue(value) {
+  return hasSecret(value) ? MASKED_SECRET : '';
+}
+
+const SECRET_SETTING_WORDS = new Set([
+  'authorization',
+  'cookie',
+  'credential',
+  'credentials',
+  'key',
+  'keys',
+  'password',
+  'passwords',
+  'secret',
+  'secrets',
+  'sig',
+  'signature',
+  'signatures',
+  'token',
+  'tokens',
+]);
+
+const TOKEN_BUSINESS_WORDS = new Set([
+  'budget',
+  'cached',
+  'completion',
+  'cost',
+  'count',
+  'input',
+  'limit',
+  'max',
+  'min',
+  'output',
+  'price',
+  'prompt',
+  'rate',
+  'total',
+  'usage',
+]);
+
+function settingKeyWords(key) {
+  return String(key || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+function isTokenBusinessField(words) {
+  const compact = words.join('');
+  if (!compact.includes('token')) return false;
+  const hasSecretContext = [
+    'access', 'api', 'auth', 'authorization', 'bearer', 'client', 'credential',
+    'cookie', 'key', 'password', 'refresh', 'secret', 'session',
+  ].some((word) => compact.includes(word));
+  return !hasSecretContext && [...TOKEN_BUSINESS_WORDS].some((word) => compact.includes(word));
+}
+
+function isSensitiveSettingKey(key) {
+  const words = settingKeyWords(key);
+  if (isTokenBusinessField(words)) return false;
+  const compact = words.join('');
+  if (compact === 'auth' || compact === 'authentication' || compact === 'xauth' || compact.endsWith('authentication')) return true;
+  if (words.some((word) => word !== 'key' && word !== 'keys' && SECRET_SETTING_WORDS.has(word))) return true;
+  if (compact === 'sig' || /authorization|cookie|credential|secret|signature|token|password/.test(compact)) return true;
+  if (compact === 'key' || compact === 'keys') return true;
+  return compact.includes('key') && [
+    'access', 'api', 'auth', 'bearer', 'client', 'credential', 'encrypt',
+    'private', 'secret', 'session', 'signing', 'xapi',
+  ].some((context) => compact.includes(context));
+}
+
+const SAFE_RESPONSE_HEADER_NAMES = new Set([
+  'accept',
+  'acceptencoding',
+  'cachecontrol',
+  'contenttype',
+  'useragent',
+]);
+
+function isHeaderContainerKey(key) {
+  return settingKeyWords(key).some((word) => word === 'header' || word === 'headers');
+}
+
+function isSafeResponseHeaderName(name) {
+  return SAFE_RESPONSE_HEADER_NAMES.has(settingKeyWords(name).join(''));
+}
+
+function isSensitiveQueryParameter(key) {
+  const compact = settingKeyWords(key).join('');
+  return compact === 'auth'
+    || compact === 'apikey'
+    || compact === 'key'
+    || compact === 'sig'
+    || /authorization|bearer|cookie|credential|password|secret|signature|sessiontoken|token/.test(compact)
+    || (compact.includes('key') && /access|api|auth|client|private|secret|session|signing|xapi/.test(compact));
+}
+
+const SAFE_PROVIDER_QUERY_PARAMETERS = new Set([
+  'alt',
+  'apiversion',
+  'format',
+  'page',
+  'pagesize',
+  'prettyprint',
+  'responseformat',
+  'version',
+  'view',
+]);
+
+function isSafeProviderQueryParameter(key) {
+  return SAFE_PROVIDER_QUERY_PARAMETERS.has(settingKeyWords(key).join(''));
+}
+
+function normalizeProviderEndpoint(value, fieldName = 'endpoint') {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.length > 2048
+    || !raw.startsWith('/')
+    || raw.startsWith('//')
+    || raw.includes('\\')
+    || /[\u0000-\u0020\u007f]/.test(raw)) {
+    throw providerUrlValidationError(`${fieldName} 必须是受控的相对 URL 路径`);
+  }
+  if (raw.includes('#')) throw providerUrlValidationError(`${fieldName} 不得包含 URL 片段`);
+  const queryIndex = raw.indexOf('?');
+  const pathname = queryIndex >= 0 ? raw.slice(0, queryIndex) : raw;
+  const query = queryIndex >= 0 ? raw.slice(queryIndex + 1) : '';
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(pathname);
+  } catch (_) {
+    throw providerUrlValidationError(`${fieldName} 包含无效的 URL 编码`);
+  }
+  if (decodedPath.includes('\\') || decodedPath.split('/').some((segment) => segment === '.' || segment === '..')) {
+    throw providerUrlValidationError(`${fieldName} 包含不安全的路径段`);
+  }
+  for (const key of new URLSearchParams(query).keys()) {
+    if (isSensitiveQueryParameter(key) || !isSafeProviderQueryParameter(key)) {
+      throw providerUrlValidationError(`${fieldName} 不得在查询参数中携带凭据`);
+    }
+  }
+  return raw;
+}
+
+function sanitizeProviderEndpointForResponse(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return raw;
+  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\') || /[\u0000-\u001f\u007f]/.test(raw)) return '';
+  const hashIndex = raw.indexOf('#');
+  const withoutHash = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+  const queryIndex = withoutHash.indexOf('?');
+  if (queryIndex < 0) return withoutHash;
+  const pathname = withoutHash.slice(0, queryIndex);
+  const params = new URLSearchParams(withoutHash.slice(queryIndex + 1));
+  for (const key of [...params.keys()]) {
+    if (isSensitiveQueryParameter(key) || !isSafeProviderQueryParameter(key)) params.delete(key);
+  }
+  const query = params.toString();
+  return `${pathname}${query ? `?${query}` : ''}`;
+}
+
+function sanitizeProtocolRelativeProviderUrl(value) {
+  try {
+    const parsed = new URL(`https:${value}`);
+    parsed.username = '';
+    parsed.password = '';
+    parsed.search = '';
+    parsed.hash = '';
+    return `//${parsed.host}${parsed.pathname}`.replace(/\/$/, '');
+  } catch (_) {
+    return '';
+  }
+}
+
+function sanitizeRelativeProviderLocation(value) {
+  const hashIndex = value.indexOf('#');
+  const withoutHash = hashIndex >= 0 ? value.slice(0, hashIndex) : value;
+  const queryIndex = withoutHash.indexOf('?');
+  if (queryIndex < 0) return withoutHash;
+  const pathname = withoutHash.slice(0, queryIndex);
+  const params = new URLSearchParams(withoutHash.slice(queryIndex + 1));
+  for (const key of [...params.keys()]) {
+    if (isSensitiveQueryParameter(key) || !isSafeProviderQueryParameter(key)) params.delete(key);
+  }
+  const query = params.toString();
+  return `${pathname}${query ? `?${query}` : ''}`;
+}
+
+function sanitizeProviderLocationForResponse(value) {
+  if (typeof value !== 'string') return value;
+  const raw = value.trim();
+  if (!raw) return value;
+  if (/^https?:\/\//i.test(raw)) return sanitizeProviderUrlForResponse(raw);
+  if (raw.startsWith('//')) return sanitizeProtocolRelativeProviderUrl(raw);
+  if (raw.startsWith('/') || /^[A-Za-z0-9._~-]+\/[^\s]*[?#]/.test(raw)) {
+    return sanitizeRelativeProviderLocation(raw);
+  }
+
+  return value
+    .replace(/https?:\/\/[^\s,"'<>[\]{}(),;]+/gi, (url) => sanitizeProviderUrlForResponse(url))
+    .replace(/(^|[^:])(\/\/[^\s,"'<>[\]{}(),;]+)/gi, (match, prefix, url) => (
+      `${prefix}${sanitizeProtocolRelativeProviderUrl(url)}`
+    ))
+    .replace(
+      /[A-Za-z0-9._~:@%+=\/-]+\?[^\s,"'<>[\]{}(),;]+/gi,
+      (url) => sanitizeRelativeProviderLocation(url)
+    );
+}
+
+function maskHeaderCollection(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return maskSecretValue(entry);
+      const headerName = entry.name ?? entry.key ?? '';
+      const safe = isSafeResponseHeaderName(headerName);
+      const out = {};
+      for (const [key, child] of Object.entries(entry)) {
+        if (key === 'name' || key === 'key') out[key] = child;
+        else if (key === 'value' || key === 'values') out[key] = safe
+          ? maskSensitiveSettingsObject(child, key)
+          : maskSecretValue(child);
+        else out[key] = isSensitiveSettingKey(key) ? maskSecretValue(child) : maskSensitiveSettingsObject(child, key);
+      }
+      return out;
+    });
+  }
+  if (!value || typeof value !== 'object') return maskSecretValue(value);
+  const out = {};
+  for (const [name, child] of Object.entries(value)) {
+    out[name] = isSafeResponseHeaderName(name)
+      ? maskSensitiveSettingsObject(child, name)
+      : maskSecretValue(child);
+  }
+  return out;
+}
+
+function maskSensitiveSettingsObject(value, parentKey = '') {
+  if (isHeaderContainerKey(parentKey)) return maskHeaderCollection(value);
+  if (Array.isArray(value)) return value.map((child) => maskSensitiveSettingsObject(child, parentKey));
+  if (typeof value === 'string') return sanitizeProviderLocationForResponse(value);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (isSensitiveSettingKey(key)) {
+      out[key] = maskSecretValue(child);
+    } else if (isHeaderContainerKey(key)) {
+      out[key] = maskHeaderCollection(child);
+    } else {
+      out[key] = maskSensitiveSettingsObject(child, key);
+    }
+  }
+  return out;
+}
+
+function parseSettingsValue(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function maskSensitiveSettings(settings) {
+  const parsed = parseSettingsValue(settings);
+  if (!parsed) {
+    if (typeof settings !== 'string') return settings;
+    let masked = settings.replace(
+      /([A-Za-z][A-Za-z0-9_-]*)(\s*[:=]\s*)(.*?)(?=(?:\s+|,\s*)[A-Za-z][A-Za-z0-9_-]*\s*[:=]|[,}\n]|$)/g,
+      (match, key, separator) => isSensitiveSettingKey(key)
+        ? `${key}${separator}${MASKED_SECRET}`
+        : match
+    );
+    masked = masked.replace(/\b(sk-[A-Za-z0-9._-]{6,})\b/g, '********');
+    return sanitizeProviderLocationForResponse(masked);
+  }
+  return JSON.stringify(maskSensitiveSettingsObject(parsed));
+}
+
+function preserveMaskedSettingsValue(nextValue, existingValue) {
+  if (isMaskedSecret(nextValue)) return existingValue;
+  if (Array.isArray(nextValue)) {
+    return nextValue.map((item, index) => preserveMaskedSettingsValue(item, Array.isArray(existingValue) ? existingValue[index] : undefined));
+  }
+  if (nextValue && typeof nextValue === 'object') {
+    const out = {};
+    for (const [key, child] of Object.entries(nextValue)) {
+      out[key] = preserveMaskedSettingsValue(child, existingValue && typeof existingValue === 'object' ? existingValue[key] : undefined);
+    }
+    return out;
+  }
+  return nextValue;
+}
+
+function preserveMaskedSettings(nextSettings, existingSettings) {
+  if (nextSettings == null) return nextSettings;
+  const nextParsed = parseSettingsValue(nextSettings);
+  if (!nextParsed) return nextSettings;
+  const existingParsed = parseSettingsValue(existingSettings) || {};
+  return JSON.stringify(preserveMaskedSettingsValue(nextParsed, existingParsed));
+}
+
+function hasStoredCredentialValue(value) {
+  const normalized = String(value || '').trim();
+  return normalized !== '' && normalized !== MASKED_SECRET;
+}
+
+function hasStoredCredentials(config = {}) {
+  if (hasStoredCredentialValue(config.api_key)) return true;
+  const settings = parseSettingsValue(config.settings) || {};
+  const credentialPairs = [
+    ['kling_access_key', 'kling_secret_key'],
+    ['access_key', 'secret_key'],
+    ['access_key_id', 'secret_access_key'],
+  ];
+  return credentialPairs.some(([accessKey, secretKey]) => (
+    hasStoredCredentialValue(settings[accessKey])
+      && hasStoredCredentialValue(settings[secretKey])
+  ));
+}
+
+function configForResponse(config) {
+  if (!config) return config;
+  const maskedConfig = maskSensitiveSettingsObject(config);
+  return {
+    ...maskedConfig,
+    base_url: sanitizeProviderUrlForResponse(config.base_url),
+    endpoint: sanitizeProviderEndpointForResponse(config.endpoint),
+    query_endpoint: sanitizeProviderEndpointForResponse(config.query_endpoint),
+    api_key: maskSecretValue(config.api_key),
+    api_key_set: hasStoredCredentialValue(config.api_key),
+    credential_set: hasStoredCredentials(config),
+    settings: maskSensitiveSettings(config.settings),
+  };
+}
+
 function modelToDb(model) {
   if (model == null) return null;
   if (Array.isArray(model)) return JSON.stringify(model);
@@ -27,23 +531,7 @@ function modelFromDb(val) {
   }
 }
 
-/** 每种服务类型只保留一个默认：若有多个 is_default=1，只保留优先级最高（同优先级取 id 最小）的那条 */
-function ensureSingleDefaultPerType(db) {
-  const types = ['text', 'image', 'storyboard_image', 'video', 'tts', 'jimeng2_character_auth', 'model_ark_asset'];
-  for (const st of types) {
-    const rows = db.prepare(
-      'SELECT id, priority FROM ai_service_configs WHERE deleted_at IS NULL AND service_type = ? AND is_default = 1 ORDER BY priority DESC, id ASC'
-    ).all(st);
-    if (rows.length <= 1) continue;
-    const keepId = rows[0].id;
-    db.prepare(
-      'UPDATE ai_service_configs SET is_default = 0 WHERE deleted_at IS NULL AND service_type = ? AND id != ?'
-    ).run(st, keepId);
-  }
-}
-
 function listConfigs(db, serviceType) {
-  ensureSingleDefaultPerType(db);
   const order = 'ORDER BY is_default DESC, priority DESC, created_at DESC';
   let sql = 'SELECT * FROM ai_service_configs WHERE deleted_at IS NULL ' + order;
   const params = [];
@@ -56,10 +544,15 @@ function listConfigs(db, serviceType) {
 }
 
 function clearOtherDefault(db, serviceType, exceptId) {
-  const stmt = db.prepare(
+  if (exceptId == null) {
+    db.prepare(
+      'UPDATE ai_service_configs SET is_default = 0 WHERE deleted_at IS NULL AND service_type = ?'
+    ).run(serviceType);
+    return;
+  }
+  db.prepare(
     'UPDATE ai_service_configs SET is_default = 0 WHERE deleted_at IS NULL AND service_type = ? AND id != ?'
-  );
-  stmt.run(serviceType, exceptId);
+  ).run(serviceType, exceptId);
 }
 
 function getConfig(db, id) {
@@ -112,35 +605,66 @@ function createConfig(db, log, req) {
     }
   }
   const defaultModel = req.default_model != null ? String(req.default_model).trim() || null : null;
-  const info = db.prepare(
-    `INSERT INTO ai_service_configs (service_type, provider, api_protocol, name, base_url, api_key, model, default_model, endpoint, query_endpoint, priority, is_default, is_active, settings, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
-  ).run(
-    req.service_type || 'text',
-    req.provider || '',
-    req.api_protocol || '',
-    req.name || '',
-    req.base_url || '',
-    normalizeApiKeyForService(req.service_type, req.api_key || ''),
-    model,
-    defaultModel,
-    endpoint,
-    queryEndpoint,
-    req.priority ?? 0,
-    req.is_default ? 1 : 0,
-    req.settings || null,
-    now,
-    now
-  );
+  const normalizedBaseUrl = normalizeProviderBaseUrl(req.base_url, req);
+  endpoint = normalizeProviderEndpoint(endpoint, 'endpoint');
+  queryEndpoint = normalizeProviderEndpoint(queryEndpoint, 'query_endpoint');
+  const serviceType = req.service_type || 'text';
+  const insertConfig = db.transaction(() => {
+    if (req.is_default) clearOtherDefault(db, serviceType, null);
+    return db.prepare(
+      `INSERT INTO ai_service_configs (service_type, provider, api_protocol, name, base_url, api_key, model, default_model, endpoint, query_endpoint, priority, is_default, is_active, settings, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
+    ).run(
+      serviceType,
+      req.provider || '',
+      req.api_protocol || '',
+      req.name || '',
+      normalizedBaseUrl,
+      normalizeApiKeyForService(req.service_type, req.api_key || ''),
+      model,
+      defaultModel,
+      endpoint,
+      queryEndpoint,
+      req.priority ?? 0,
+      req.is_default ? 1 : 0,
+      req.settings || null,
+      now,
+      now
+    );
+  });
+  const info = insertConfig.immediate();
   log.info('AI config created', { config_id: info.lastInsertRowid, provider: req.provider });
   const newId = info.lastInsertRowid;
-  if (req.is_default) clearOtherDefault(db, req.service_type || 'text', newId);
   return getConfig(db, newId);
 }
 
 function updateConfig(db, log, id, req) {
   const existing = getConfig(db, id);
   if (!existing) return null;
+  const normalizedSettings = req.settings !== undefined
+    ? (req.settings == null ? null : preserveMaskedSettings(req.settings, existing.settings))
+    : existing.settings;
+  const candidate = {
+    ...existing,
+    ...req,
+    base_url: req.base_url != null ? req.base_url : existing.base_url,
+    api_key: req.api_key != null && !isMaskedSecret(req.api_key) ? req.api_key : existing.api_key,
+    settings: normalizedSettings,
+  };
+  const requiresNetworkValidation = req.base_url != null
+    || req.provider != null
+    || req.settings !== undefined
+    || (req.api_key != null && !isMaskedSecret(req.api_key));
+  const normalizedBaseUrl = requiresNetworkValidation
+    ? normalizeProviderBaseUrl(candidate.base_url, candidate)
+    : existing.base_url;
+  let originChanged = String(existing.base_url || '') !== normalizedBaseUrl;
+  try {
+    originChanged = new URL(existing.base_url).origin !== new URL(normalizedBaseUrl).origin;
+  } catch (_) {}
+  if (originChanged && new URL(normalizedBaseUrl).protocol === 'http:' && hasStoredCredentials(candidate)) {
+    throw providerUrlValidationError('Stored credentials cannot be moved automatically to a new HTTP provider origin');
+  }
   const updates = [];
   const params = [];
   if (req.name != null) {
@@ -157,9 +681,9 @@ function updateConfig(db, log, id, req) {
   }
   if (req.base_url != null) {
     updates.push('base_url = ?');
-    params.push(req.base_url);
+    params.push(normalizedBaseUrl);
   }
-  if (req.api_key != null) {
+  if (req.api_key != null && !isMaskedSecret(req.api_key)) {
     updates.push('api_key = ?');
     const st = req.service_type != null ? req.service_type : existing.service_type;
     params.push(normalizeApiKeyForService(st, req.api_key));
@@ -178,15 +702,15 @@ function updateConfig(db, log, id, req) {
   }
   if (req.endpoint !== undefined) {
     updates.push('endpoint = ?');
-    params.push(req.endpoint || '');
+    params.push(normalizeProviderEndpoint(req.endpoint, 'endpoint'));
   }
   if (req.query_endpoint !== undefined) {
     updates.push('query_endpoint = ?');
-    params.push(req.query_endpoint || '');
+    params.push(normalizeProviderEndpoint(req.query_endpoint, 'query_endpoint'));
   }
-  if (req.settings != null) {
+  if (req.settings !== undefined) {
     updates.push('settings = ?');
-    params.push(req.settings);
+    params.push(normalizedSettings);
   }
   if (typeof req.is_default === 'boolean') {
     updates.push('is_default = ?');
@@ -198,8 +722,11 @@ function updateConfig(db, log, id, req) {
   }
   if (updates.length === 0) return existing;
   params.push(new Date().toISOString(), id);
-  db.prepare('UPDATE ai_service_configs SET ' + updates.join(', ') + ', updated_at = ? WHERE id = ?').run(...params);
-  if (req.is_default === true) clearOtherDefault(db, existing.service_type, id);
+  const applyUpdate = db.transaction(() => {
+    if (req.is_default === true) clearOtherDefault(db, existing.service_type, id);
+    db.prepare('UPDATE ai_service_configs SET ' + updates.join(', ') + ', updated_at = ? WHERE id = ?').run(...params);
+  });
+  applyUpdate.immediate();
   log.info('AI config updated', { config_id: id });
   return getConfig(db, id);
 }
@@ -248,25 +775,142 @@ function rowToConfig(r) {
  * @param opts { base_url, api_key, model (string|string[]), provider?, endpoint?, settings? }
  * @returns Promise<void> 成功 resolve，失败 reject(error)
  */
-async function testConnection(opts) {
-  const base = (opts.base_url || '').replace(/\/$/, '');
+const CONNECTION_TEST_TIMEOUT_MS = 15000;
+
+async function fetchConnectionProbe(url, options = {}, networkOptions = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CONNECTION_TEST_TIMEOUT_MS);
+  try {
+    if (typeof networkOptions.fetchImpl === 'function') {
+      await validateHttpRequestTarget(url, networkOptions);
+      return await networkOptions.fetchImpl(url, {
+        ...options,
+        redirect: 'error',
+        signal: controller.signal,
+      });
+    }
+    return await secureHttpFetch(url, { ...options, redirect: 'error', signal: controller.signal }, {
+      trustedOrigins: networkOptions.trustedOrigins,
+      allowPrivateOrigins: networkOptions.allowPrivateOrigins,
+      requireHttpsForPublic: true,
+      lookup: networkOptions.lookup,
+      timeoutMs: CONNECTION_TEST_TIMEOUT_MS,
+      maxBytes: 2 * 1024 * 1024,
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('连接测试超时，请检查服务地址或网络');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function probeOpenAICompatibleModels(base, apiKey, networkOptions) {
+  const url = `${base}/models`;
+  const res = await fetchConnectionProbe(url, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}` },
+  }, networkOptions);
+  if (res.ok) return;
+  const text = await res.text();
+  let detail = '';
+  try {
+    const parsed = JSON.parse(text);
+    detail = parsed?.error?.message || parsed?.message || '';
+  } catch (_) {
+    detail = text;
+  }
+  const suffix = detail ? ` - ${String(detail).slice(0, 150)}` : '';
+  throw new Error(`模型列表探测失败: ${res.status}${suffix}`);
+}
+
+function isApiKeyOptionalConnection(opts = {}) {
+  const provider = String(opts.provider || '').trim().toLowerCase().replace(/-/g, '_');
+  const protocol = String(opts.api_protocol || '').trim().toLowerCase().replace(/-/g, '_');
+  return provider === 'ollama'
+    || provider === 'comfyui'
+    || provider === 'comfy_ui'
+    || protocol === 'comfyui'
+    || protocol === 'comfy_ui';
+}
+
+function ollamaProbeUrls(baseUrl) {
+  const parsed = new URL(baseUrl);
+  const pathWithoutSlash = parsed.pathname.replace(/\/+$/, '');
+  const rootPath = pathWithoutSlash.replace(/\/v1$/i, '');
+  const root = `${parsed.origin}${rootPath}`.replace(/\/+$/, '');
+  const openAiBase = /\/v1$/i.test(pathWithoutSlash)
+    ? `${parsed.origin}${pathWithoutSlash}`
+    : `${root}/v1`;
+  return [`${root}/api/tags`, `${openAiBase}/models`];
+}
+
+async function probeOllamaConnection(baseUrl, apiKey, networkOptions) {
+  const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+  const failures = [];
+  for (const url of ollamaProbeUrls(baseUrl)) {
+    try {
+      const response = await fetchConnectionProbe(url, { method: 'GET', headers }, networkOptions);
+      if (response.ok) return;
+      const raw = await response.text();
+      failures.push({ status: response.status, detail: sanitizeProviderText(raw, apiKey ? [apiKey] : []) });
+    } catch (error) {
+      failures.push({ detail: sanitizeProviderText(error?.message, apiKey ? [apiKey] : []) });
+    }
+  }
+  const last = failures[failures.length - 1] || {};
+  const status = last.status ? ` (HTTP ${last.status})` : '';
+  const detail = last.detail ? `: ${last.detail}` : '';
+  throw new Error(`Ollama 模型列表探测失败${status}${detail}`);
+}
+
+async function testConnectionUnsafe(opts) {
+  const providerNetwork = getProviderNetworkOptions(opts, {
+    lookup: opts.provider_dns_lookup,
+  });
+  const base = providerNetwork.baseUrl;
   if (!base) throw new Error('base_url 必填');
-  if (!opts.api_key) throw new Error('api_key 必填');
   const models = Array.isArray(opts.model) ? opts.model : opts.model != null ? [opts.model] : [];
   const model = models[0] || '';
   if (!model && (opts.provider === 'gemini' || opts.provider === 'google')) throw new Error('model 必填');
   const provider = (opts.provider || 'openai').toLowerCase();
+  const apiProtocol = (opts.api_protocol || '').toLowerCase();
   const serviceType = (opts.service_type || '').toLowerCase();
+  const networkOptions = {
+    ...providerNetwork,
+    fetchImpl: opts.fetch_impl,
+  };
   let endpoint = opts.endpoint || '';
+  if (!opts.api_key && !isApiKeyOptionalConnection({ provider, api_protocol: apiProtocol })) {
+    throw new Error('api_key 必填');
+  }
+
+  if (provider === 'ollama') {
+    await probeOllamaConnection(base, opts.api_key || '', networkOptions);
+    return;
+  }
+
+  if (provider === 'comfyui' || provider === 'comfy_ui' || apiProtocol === 'comfyui' || apiProtocol === 'comfy_ui') {
+    await probeComfyUiConnection({
+      base_url: base,
+      api_key: opts.api_key || '',
+      settings: opts.settings,
+    }, {
+      fetch_impl: opts.fetch_impl,
+      network_lookup: opts.provider_dns_lookup,
+      trusted_origins: networkOptions.trustedOrigins,
+    });
+    return;
+  }
 
   // --- NanoBanana ---
   if (provider === 'nano_banana') {
     // 用 record-info 查询一个不存在的 taskId：401/403=key 无效，404=key 有效已联通
     const url = base + '/api/v1/nanobanana/record-info?taskId=test-connectivity';
-    const res = await fetch(url, {
+    const res = await fetchConnectionProbe(url, {
       method: 'GET',
       headers: { Authorization: 'Bearer ' + (opts.api_key || '') },
-    });
+    }, networkOptions);
     if (res.status === 401 || res.status === 403) {
       const text = await res.text();
       let errMsg = `API Key 无效 (${res.status})`;
@@ -282,11 +926,11 @@ async function testConnection(opts) {
     const path = endpoint.replace(/{model}/g, model || 'gemini-pro');
     const url = base + (path.startsWith('/') ? path : '/' + path) + '?key=' + encodeURIComponent(opts.api_key || '');
     const body = { contents: [{ parts: [{ text: 'Hello' }] }] };
-    const res = await fetch(url, {
+    const res = await fetchConnectionProbe(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    }, networkOptions);
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`请求失败: ${res.status} ${text.slice(0, 200)}`);
@@ -298,6 +942,11 @@ async function testConnection(opts) {
     return;
   }
 
+  if (apiProtocol === 'openai' || provider === 'openai' || provider === 'openai-compatible') {
+    await probeOpenAICompatibleModels(base, opts.api_key, networkOptions);
+    return;
+  }
+
   // --- TTS 语音合成 ---
   if (serviceType === 'tts') {
     // MiniMax T2A：用 /v1/models 或直接对 chat 端点做轻量探针
@@ -306,11 +955,11 @@ async function testConnection(opts) {
     // 为避免真实扣费，使用非计费的 list-voices 或 models 接口
     const probeUrl = ttsBase + '/text_to_speech';
     const probeBody = JSON.stringify({ model: model || 'speech-02-hd', text: 'hi', stream: false });
-    const res = await fetch(probeUrl, {
+    const res = await fetchConnectionProbe(probeUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (opts.api_key || '') },
       body: probeBody,
-    });
+    }, networkOptions);
     if (res.status === 401 || res.status === 403) {
       const text = await res.text();
       let errMsg = `API Key 无效 (${res.status})`;
@@ -347,12 +996,11 @@ async function testConnection(opts) {
   if (isDashscope && (isImageService || isVideoService || looksLikeImageModel || looksLikeVideoModel || isDashscopeNonChatEndpoint)) {
     const chatUrl = base.replace(/\/(api\/v1|compatible-mode)\/.*$/, '') + '/compatible-mode/v1/chat/completions';
     const body = { model: 'qwen-turbo', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 };
-    console.log('[testConnection] DashScope 非文本服务，用 compatible chat 验证 key', { chatUrl, serviceType, model });
-    const res = await fetch(chatUrl, {
+    const res = await fetchConnectionProbe(chatUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + opts.api_key },
       body: JSON.stringify(body),
-    });
+    }, networkOptions);
     // 401/403 = key 无效，其他均视为联通
     if (res.status === 401 || res.status === 403) {
       const text = await res.text();
@@ -369,12 +1017,11 @@ async function testConnection(opts) {
     const chatPath = '/chat/completions';
     const url = base + chatPath;
     const body = { model: model || '', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 };
-    console.log('[testConnection] 视频服务，用 chat/completions 验证 key', { url, serviceType, model });
-    const res = await fetch(url, {
+    const res = await fetchConnectionProbe(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (opts.api_key || '') },
       body: JSON.stringify(body),
-    });
+    }, networkOptions);
     // 401/403 = key 无效；其他（400 模型不存在等）视为联通
     if (res.status === 401 || res.status === 403) {
       const text = await res.text();
@@ -391,15 +1038,14 @@ async function testConnection(opts) {
     const path = endpoint.startsWith('/') ? endpoint : '/' + endpoint;
     const url = base + path;
     const body = { model: model || '', prompt: 'test connectivity', n: 1 };
-    console.log('[testConnection] 图片服务', { url, serviceType, model, body });
-    const res = await fetch(url, {
+    const res = await fetchConnectionProbe(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: 'Bearer ' + (opts.api_key || ''),
       },
       body: JSON.stringify(body),
-    });
+    }, networkOptions);
     // 401/403 = key 无效；其他状态（含 400 参数错误、429 限流等）表示已联通
     if (res.status === 401 || res.status === 403) {
       const text = await res.text();
@@ -439,15 +1085,14 @@ async function testConnection(opts) {
     { provider, base_url: base, settings: opts.settings },
     body
   );
-  console.log('[testConnection] 文本/chat 服务', { url, serviceType, model });
-  const res = await fetch(url, {
+  const res = await fetchConnectionProbe(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: 'Bearer ' + (opts.api_key || ''),
     },
     body: JSON.stringify(body),
-  });
+  }, networkOptions);
   if (!res.ok) {
     const text = await res.text();
     let errMsg = `请求失败: ${res.status}`;
@@ -465,6 +1110,20 @@ async function testConnection(opts) {
   }
 }
 
+async function testConnection(opts) {
+  try {
+    return await testConnectionUnsafe(opts);
+  } catch (error) {
+    const secrets = [opts?.api_key, opts?.access_key_id, opts?.secret_access_key, opts?.session_token]
+      .filter((value) => value != null && String(value).length >= 3)
+      .map(String);
+    const message = sanitizeProviderText(error?.message, secrets) || '连接测试失败';
+    const safeError = new Error(message);
+    if (error?.code) safeError.code = error.code;
+    throw safeError;
+  }
+}
+
 /**
  * 返回 vendor_lock 状态
  */
@@ -476,10 +1135,89 @@ function getVendorLockStatus(cfg) {
   };
 }
 
+function normalizeVendorSettings(settings) {
+  if (settings == null || settings === '') return null;
+  return typeof settings === 'string' ? settings : JSON.stringify(settings);
+}
+
+function normalizeVendorConfig(item, index) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    throw new Error(`config at index ${index} must be an object`);
+  }
+  const serviceType = String(item.service_type || 'text').trim() || 'text';
+  const config = {
+    service_type: serviceType,
+    provider: String(item.provider || '').trim(),
+    api_protocol: String(item.api_protocol || ''),
+    name: String(item.name || ''),
+    base_url: String(item.base_url || ''),
+    api_key: normalizeApiKeyForService(serviceType, String(item.api_key || '')),
+    model: modelToDb(item.model) || '[]',
+    default_model: item.default_model != null ? String(item.default_model).trim() || null : null,
+    endpoint: String(item.endpoint || ''),
+    query_endpoint: String(item.query_endpoint || ''),
+    priority: item.priority ?? 0,
+    is_default: item.is_default ? 1 : 0,
+    is_active: 1,
+    settings: normalizeVendorSettings(item.settings),
+  };
+  config.base_url = normalizeProviderBaseUrl(config.base_url, config);
+  config.endpoint = normalizeProviderEndpoint(config.endpoint, 'endpoint');
+  config.query_endpoint = normalizeProviderEndpoint(config.query_endpoint, 'query_endpoint');
+  return config;
+}
+
+function reconcileVendorConfigDefaults(configs) {
+  const defaults = new Map();
+  for (const config of configs) {
+    if (!config.is_default) continue;
+    const current = defaults.get(config.service_type);
+    if (!current || Number(config.priority || 0) > Number(current.priority || 0)) {
+      if (current) current.is_default = 0;
+      defaults.set(config.service_type, config);
+    } else {
+      config.is_default = 0;
+    }
+  }
+  return configs;
+}
+
+function vendorConfigIdentity(config) {
+  return `${String(config.service_type || 'text').trim().toLowerCase()}\u0000${String(config.provider || '').trim().toLowerCase()}`;
+}
+
+function pickVendorConfigRow(rows, config, claimedIds) {
+  const identity = vendorConfigIdentity(config);
+  const available = rows.filter((row) => !claimedIds.has(row.id) && vendorConfigIdentity(row) === identity);
+  const named = available.filter((row) => String(row.name || '') === config.name);
+  return named.find((row) => row.deleted_at == null)
+    || available.find((row) => row.deleted_at == null)
+    || named[0]
+    || available[0]
+    || null;
+}
+
+function vendorRowMatches(row, config) {
+  return row.deleted_at == null
+    && String(row.service_type || '') === config.service_type
+    && String(row.provider || '') === config.provider
+    && String(row.api_protocol || '') === config.api_protocol
+    && String(row.name || '') === config.name
+    && String(row.base_url || '') === config.base_url
+    && String(row.api_key || '') === String(config.api_key || '')
+    && String(row.model || '') === config.model
+    && (row.default_model == null ? null : String(row.default_model)) === config.default_model
+    && String(row.endpoint || '') === config.endpoint
+    && String(row.query_endpoint || '') === config.query_endpoint
+    && Number(row.priority || 0) === Number(config.priority || 0)
+    && Number(row.is_default || 0) === config.is_default
+    && Number(row.is_active == null ? 1 : row.is_active) === config.is_active
+    && (row.settings == null ? null : String(row.settings)) === config.settings;
+}
+
 /**
- * 启动时同步 vendor_lock 指定的配置文件到数据库。
- * - 软删除所有现有配置，按文件重新导入
- * - 若同 service_type + provider 在 DB 中已有记录，则保留用户修改过的 api_key
+ * Synchronize vendor-lock configs atomically while retaining matching row IDs.
+ * Existing API keys remain user-managed; all other fields come from the lock file.
  */
 function applyVendorLock(db, log, cfg) {
   const status = getVendorLockStatus(cfg);
@@ -500,61 +1238,116 @@ function applyVendorLock(db, log, cfg) {
     if (fs.existsSync(p)) { raw = fs.readFileSync(p, 'utf8'); break; }
   }
   if (!raw) {
-    console.warn('[vendor_lock] config file not found:', configFile);
+    log?.warn?.('[vendor_lock] config file not found', { config_file: configFile });
     return;
   }
 
   let configs;
   try {
-    configs = JSON.parse(raw);
-    if (!Array.isArray(configs)) throw new Error('config file must be a JSON array');
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error('config file must be a JSON array');
+    configs = reconcileVendorConfigDefaults(parsed.map(normalizeVendorConfig));
   } catch (e) {
-    console.error('[vendor_lock] failed to parse config file:', e.message);
+    log?.error?.('[vendor_lock] failed to parse config file', { error: e.message });
     return;
   }
 
-  // 保存现有 api_key（key: "service_type:provider"）
-  const existing = db.prepare('SELECT service_type, provider, api_key FROM ai_service_configs WHERE deleted_at IS NULL').all();
-  const savedKeys = new Map();
-  for (const row of existing) {
-    savedKeys.set(`${row.service_type}:${row.provider}`, row.api_key);
-  }
+  const synchronize = db.transaction(() => {
+    const now = new Date().toISOString();
+    const existing = db.prepare(
+      'SELECT * FROM ai_service_configs ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, id ASC'
+    ).all();
+    const claimedIds = new Set();
+    const synchronized = [];
+    let inserted = 0;
+    let updated = 0;
 
-  const now = new Date().toISOString();
-  db.prepare('UPDATE ai_service_configs SET deleted_at = ? WHERE deleted_at IS NULL').run(now);
-
-  for (const item of configs) {
-    const mapKey = `${item.service_type}:${item.provider}`;
-    const apiKey = savedKeys.get(mapKey) ?? item.api_key ?? '';
-    const model = Array.isArray(item.model)
-      ? JSON.stringify(item.model)
-      : item.model ? JSON.stringify([item.model]) : '[]';
-    db.prepare(
+    const update = db.prepare(
+      `UPDATE ai_service_configs
+          SET service_type = ?, provider = ?, api_protocol = ?, name = ?, base_url = ?, api_key = ?,
+              model = ?, default_model = ?, endpoint = ?, query_endpoint = ?, priority = ?, is_default = ?,
+              is_active = ?, settings = ?, updated_at = ?, deleted_at = NULL
+        WHERE id = ?`
+    );
+    const insert = db.prepare(
       `INSERT INTO ai_service_configs
         (service_type, provider, api_protocol, name, base_url, api_key, model, default_model, endpoint, query_endpoint, priority, is_default, is_active, settings, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
-    ).run(
-      item.service_type || 'text',
-      item.provider || '',
-      item.api_protocol || '',
-      item.name || '',
-      item.base_url || '',
-      apiKey,
-      model,
-      item.default_model || null,
-      item.endpoint || '',
-      item.query_endpoint || '',
-      item.priority ?? 0,
-      item.is_default ? 1 : 0,
-      item.settings || null,
-      now,
-      now
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
-  }
+
+    for (const serviceType of new Set(configs.map((config) => config.service_type))) {
+      clearOtherDefault(db, serviceType, null);
+    }
+
+    for (const config of configs) {
+      const row = pickVendorConfigRow(existing, config, claimedIds);
+      const values = {
+        ...config,
+        api_key: row ? row.api_key : config.api_key,
+      };
+      let id;
+      if (row) {
+        id = row.id;
+        claimedIds.add(id);
+        if (!vendorRowMatches(row, values)) {
+          update.run(
+            values.service_type, values.provider, values.api_protocol, values.name, values.base_url,
+            values.api_key, values.model, values.default_model, values.endpoint, values.query_endpoint,
+            values.priority, values.is_default, values.is_active, values.settings, now, id
+          );
+          updated += 1;
+        }
+      } else {
+        const info = insert.run(
+          values.service_type, values.provider, values.api_protocol, values.name, values.base_url,
+          values.api_key, values.model, values.default_model, values.endpoint, values.query_endpoint,
+          values.priority, values.is_default, values.is_active, values.settings, now, now
+        );
+        id = Number(info.lastInsertRowid);
+        claimedIds.add(id);
+        inserted += 1;
+      }
+      synchronized.push({ id, name: values.name, identity: vendorConfigIdentity(values) });
+    }
+
+    const softDelete = db.prepare(
+      'UPDATE ai_service_configs SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
+    );
+    for (const row of existing) {
+      if (!claimedIds.has(row.id) && row.deleted_at == null) softDelete.run(now, now, row.id);
+    }
+
+    const remap = db.prepare('UPDATE ai_model_map SET config_id = ?, updated_at = ? WHERE config_id = ?');
+    for (const row of existing) {
+      if (claimedIds.has(row.id)) continue;
+      const sameIdentity = synchronized.filter((item) => item.identity === vendorConfigIdentity(row));
+      const replacement = sameIdentity.find((item) => item.name === String(row.name || '')) || sameIdentity[0];
+      if (replacement) remap.run(replacement.id, now, row.id);
+    }
+    db.prepare(
+      `UPDATE ai_model_map
+          SET config_id = NULL, updated_at = ?
+        WHERE config_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ai_service_configs config
+             WHERE config.id = ai_model_map.config_id AND config.deleted_at IS NULL
+          )`
+    ).run(now);
+
+    return { count: configs.length, inserted, updated };
+  });
+
+  const result = synchronize.immediate();
   for (const item of configs) {
-    console.log(`[vendor_lock] loaded: service_type=${item.service_type} provider=${item.provider} api_protocol=${item.api_protocol || '(auto)'} endpoint=${item.endpoint || '(auto)'}`);
+    log?.info?.('[vendor_lock] config loaded', {
+      service_type: item.service_type,
+      provider: item.provider,
+      api_protocol: item.api_protocol || '(auto)',
+      endpoint: item.endpoint || '(auto)',
+    });
   }
-  console.log(`[vendor_lock] synced ${configs.length} configs from ${configFile}`);
+  log?.info?.('[vendor_lock] configs synchronized', { ...result, config_file: configFile });
+  return result;
 }
 
 /**
@@ -570,6 +1363,12 @@ function bulkUpdateApiKey(db, log, newKey) {
 }
 
 module.exports = {
+  CONNECTION_TEST_TIMEOUT_MS,
+  fetchConnectionProbe,
+  probeOpenAICompatibleModels,
+  probeOllamaConnection,
+  ollamaProbeUrls,
+  isApiKeyOptionalConnection,
   listConfigs,
   getConfig,
   createConfig,
@@ -579,4 +1378,16 @@ module.exports = {
   getVendorLockStatus,
   applyVendorLock,
   bulkUpdateApiKey,
+  configForResponse,
+  hasStoredCredentials,
+  getProviderNetworkOptions,
+  isExplicitLocalProviderConfig,
+  isExplicitLocalProviderHost,
+  isMaskedSecret,
+  maskSensitiveSettings,
+  preserveMaskedSettings,
+  normalizeProviderBaseUrl,
+  normalizeProviderEndpoint,
+  sanitizeProviderUrlForResponse,
+  sanitizeProviderEndpointForResponse,
 };

@@ -2,9 +2,9 @@
   <div class="free-create-page">
     <div class="page-header">
       <div class="header-left">
-        <el-button text @click="$router.back()">
+        <el-button text aria-label="返回项目首页" @click="goBack">
           <el-icon><ArrowLeft /></el-icon>
-          返回
+          项目首页
         </el-button>
         <h2 class="page-title">自由创作</h2>
       </div>
@@ -15,9 +15,39 @@
       <!-- 左侧：输入面板 -->
       <div class="input-panel">
         <el-tabs v-model="mode" class="mode-tabs">
-          <el-tab-pane label="🎨 生成图片" name="image" />
-          <el-tab-pane label="🎬 生成视频" name="video" />
+          <el-tab-pane name="image">
+            <template #label>
+              <span class="mode-tab-label"><el-icon><Picture /></el-icon>生成图片</span>
+            </template>
+          </el-tab-pane>
+          <el-tab-pane name="video">
+            <template #label>
+              <span class="mode-tab-label"><el-icon><VideoCamera /></el-icon>生成视频</span>
+            </template>
+          </el-tab-pane>
         </el-tabs>
+
+        <div
+          class="service-readiness"
+          :class="`is-${generationCapability.status}`"
+          role="status"
+          aria-live="polite"
+        >
+          <el-icon aria-hidden="true">
+            <Loading v-if="generationCapability.status === 'loading'" class="is-loading" />
+            <CircleCheck v-else-if="generationCapability.ready" />
+            <Warning v-else />
+          </el-icon>
+          <span>{{ generationCapability.message }}</span>
+          <el-button
+            v-if="generationCapability.status !== 'loading' && !generationCapability.ready"
+            link
+            type="primary"
+            @click="openAiConfig"
+          >
+            配置{{ activeServiceLabel }}服务
+          </el-button>
+        </div>
 
         <div class="form-section">
           <div class="form-label">提示词 <span class="required">*</span></div>
@@ -32,38 +62,120 @@
 
         <div v-if="mode === 'video'" class="form-section">
           <div class="form-label">参考图（可选）</div>
-          <div class="ref-image-zone" @click="triggerRefImageUpload" @dragover.prevent @drop.prevent="onRefImageDrop">
-            <template v-if="refImageDataUrl">
-              <img :src="refImageDataUrl" class="ref-preview" />
-              <div class="ref-actions">
-                <el-button size="small" type="danger" plain @click.stop="clearRefImage">移除</el-button>
-              </div>
-            </template>
-            <template v-else>
-              <el-icon class="upload-icon"><Picture /></el-icon>
-              <div class="upload-tip">点击或拖拽上传参考图</div>
-            </template>
+          <div
+            class="ref-image-zone"
+            :class="`is-${refImageUploadStatus}`"
+            :aria-busy="refImageUploadStatus === 'uploading'"
+            @dragover.prevent
+            @drop.prevent="onRefImageDrop"
+          >
+            <button
+              type="button"
+              class="ref-image-trigger"
+              :aria-label="refImageTriggerLabel"
+              :aria-describedby="refImageUploadStatus === 'idle' ? undefined : 'ref-image-upload-status'"
+              :disabled="refImageUploadStatus === 'uploading'"
+              @click="triggerRefImageUpload"
+            >
+              <template v-if="refImageUploadStatus === 'success' && refImageDataUrl">
+                <img :src="refImageDataUrl" class="ref-preview" alt="当前视频参考图" />
+              </template>
+              <template v-else-if="refImageUploadStatus === 'uploading'">
+                <el-icon class="upload-icon is-loading" aria-hidden="true"><Loading /></el-icon>
+                <span class="upload-tip">正在上传 {{ refImageFileName }}</span>
+              </template>
+              <template v-else-if="refImageUploadStatus === 'error'">
+                <el-icon class="upload-icon is-error" aria-hidden="true"><CircleClose /></el-icon>
+                <span class="upload-tip is-error">参考图上传失败</span>
+              </template>
+              <template v-else>
+                <el-icon class="upload-icon" aria-hidden="true"><Picture /></el-icon>
+                <span class="upload-tip">点击或拖拽上传参考图</span>
+              </template>
+            </button>
           </div>
-          <input ref="refImageInput" type="file" accept="image/*" style="display:none" @change="onRefImageChange" />
         </div>
+
+        <div
+          v-if="refImageUploadStatus !== 'idle'"
+          id="ref-image-upload-status"
+          ref="refImageUploadStatusRef"
+          class="ref-upload-status"
+          :class="`is-${refImageUploadStatus}`"
+          :role="refImageUploadStatus === 'error' ? 'alert' : 'status'"
+          :aria-live="refImageUploadStatus === 'error' ? 'assertive' : 'polite'"
+          :tabindex="refImageUploadStatus === 'error' ? -1 : undefined"
+        >
+          <el-icon aria-hidden="true">
+            <Loading v-if="refImageUploadStatus === 'uploading'" class="is-loading" />
+            <CircleCheck v-else-if="refImageUploadStatus === 'success'" />
+            <CircleClose v-else />
+          </el-icon>
+          <span class="ref-upload-message">{{ refImageUploadMessage }}</span>
+          <div class="ref-actions">
+            <el-button
+              v-if="refImageUploadStatus === 'error'"
+              size="small"
+              type="primary"
+              plain
+              @click="retryRefImageUpload"
+            >
+              重试上传
+            </el-button>
+            <el-button
+              v-if="refImageUploadStatus !== 'uploading'"
+              size="small"
+              type="danger"
+              plain
+              @click="clearRefImage"
+            >
+              移除
+            </el-button>
+            <el-button v-else size="small" plain @click="clearRefImage">取消上传</el-button>
+          </div>
+        </div>
+        <input
+          ref="refImageInput"
+          class="visually-hidden"
+          type="file"
+          accept="image/*"
+          :disabled="refImageUploadStatus === 'uploading'"
+          @change="onRefImageChange"
+        />
 
         <div class="form-section form-row">
           <div class="form-item">
             <div class="form-label">风格</div>
             <el-input v-model="style" placeholder="例如: cinematic, anime..." />
           </div>
-          <div v-if="mode === 'image'" class="form-item">
-            <div class="form-label">比例</div>
-            <el-select v-model="aspectRatio">
-              <el-option label="16:9" value="16:9" />
-              <el-option label="9:16" value="9:16" />
-              <el-option label="1:1" value="1:1" />
-              <el-option label="4:3" value="4:3" />
+          <div class="form-item">
+            <div class="form-label">{{ mode === 'video' ? '视频比例' : '画面比例' }}</div>
+            <el-radio-group
+              v-if="mode === 'video'"
+              v-model="aspectRatio"
+              aria-label="视频画面比例"
+              class="aspect-ratio-group"
+            >
+              <el-radio-button
+                v-for="option in aspectRatioOptions"
+                :key="option.value"
+                :label="option.value"
+              >
+                {{ option.label }}
+              </el-radio-button>
+            </el-radio-group>
+            <el-select v-else v-model="aspectRatio" aria-label="画面比例">
+              <el-option
+                v-for="option in aspectRatioOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
             </el-select>
           </div>
           <div v-if="mode === 'video'" class="form-item">
             <div class="form-label">时长</div>
-            <el-select v-model="duration">
+            <el-select v-model="duration" aria-label="视频时长">
               <el-option label="3秒" :value="3" />
               <el-option label="5秒" :value="5" />
               <el-option label="8秒" :value="8" />
@@ -76,7 +188,8 @@
           type="primary"
           size="large"
           :loading="generating"
-          :disabled="!prompt.trim()"
+          :disabled="generateDisabled"
+          :title="generateDisabledReason"
           class="generate-btn"
           @click="generate"
         >
@@ -92,8 +205,11 @@
         </div>
 
         <div v-if="results.length === 0 && !generating" class="empty-result">
-          <el-icon class="empty-icon"><MagicStick /></el-icon>
-          <p>生成的内容将显示在这里</p>
+          <el-icon class="empty-icon">
+            <Picture v-if="mode === 'image'" />
+            <VideoCamera v-else />
+          </el-icon>
+          <p>填写提示词后，生成结果会显示在这里</p>
         </div>
 
         <div v-if="generating" class="generating-tip">
@@ -111,12 +227,15 @@
                 class="result-video"
                 loop
               />
-              <img
+              <button
                 v-else-if="item.type === 'image' && item.url"
-                :src="item.url"
-                class="result-image"
-                @click="previewUrl = item.url"
-              />
+                type="button"
+                class="result-image-button"
+                :aria-label="`预览${resultImageAlt(item, idx)}`"
+                @click="openImagePreview(item, idx)"
+              >
+                <img :src="item.url" class="result-image" :alt="resultImageAlt(item, idx)" />
+              </button>
               <div v-else-if="item.status === 'pending' || item.status === 'processing'" class="media-loading">
                 <el-icon class="is-loading"><Loading /></el-icon>
                 <span>{{ item.status === 'processing' ? '生成中...' : '排队中...' }}</span>
@@ -137,22 +256,35 @@
       </div>
     </div>
 
-    <!-- 图片预览 -->
-    <div v-if="previewUrl" class="image-preview-overlay" @click="previewUrl = null">
-      <img :src="previewUrl" class="preview-img" @click.stop />
-    </div>
+    <ImagePreviewDialog
+      v-model="showImagePreview"
+      :src="previewImage.src"
+      :alt="previewImage.alt"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Picture, MagicStick, Loading, CircleClose } from '@element-plus/icons-vue'
+import { ArrowLeft, CircleCheck, Picture, Loading, CircleClose, VideoCamera, Warning } from '@element-plus/icons-vue'
+import { aiAPI } from '@/api/ai'
 import { imagesAPI } from '@/api/images'
 import { videosAPI } from '@/api/videos'
 import { uploadAPI } from '@/api/upload'
 import { generationSettingsAPI } from '@/api/prompts'
+import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
+import { getServiceConfigReadiness } from '@/utils/aiServiceReadiness'
+import {
+  buildFreeCreateGenerationPayload,
+  getFreeCreateAspectRatioOptions,
+  getReferenceUploadBlockReason,
+  normalizeFreeCreateAspectRatio,
+} from '@/utils/freeCreate'
 
+const router = useRouter()
+const route = useRoute()
 const mode = ref('image')
 const prompt = ref('')
 const style = ref('')
@@ -160,52 +292,239 @@ const aspectRatio = ref('16:9')
 const duration = ref(5)
 const generating = ref(false)
 const results = ref([])
-const previewUrl = ref(null)
+const showImagePreview = ref(false)
+const previewImage = ref({ src: '', alt: '生成图片预览' })
 const refImageDataUrl = ref(null)
 const refImageLocalPath = ref(null)
 const refImageInput = ref(null)
+const refImageFile = ref(null)
+const refImageFileName = ref('参考图')
+const refImageUploadStatus = ref('idle')
+const refImageUploadError = ref('')
+const refImageUploadStatusRef = ref(null)
+let refImageUploadAttempt = 0
 /** 与后端视频异步超时一致（分钟 → 毫秒） */
 const videoPollMaxMs = ref(30 * 60 * 1000)
+const aiConfigs = ref([])
+const configLoadState = ref('loading')
 
-onMounted(async () => {
+const activeServiceType = computed(() => mode.value === 'video' ? 'video' : 'image')
+const activeServiceLabel = computed(() => mode.value === 'video' ? '视频' : '图片')
+const aspectRatioOptions = computed(() => getFreeCreateAspectRatioOptions(mode.value))
+const activeServiceConfig = computed(() => {
+  const configs = aiConfigs.value.filter((config) => (
+    config?.service_type === activeServiceType.value
+    && config?.is_active !== false
+    && config?.is_active !== 0
+    && config?.is_active !== '0'
+  ))
+  return configs.find((config) => config.is_default === true || config.is_default === 1)
+    || configs[0]
+    || null
+})
+const generationCapability = computed(() => {
+  if (configLoadState.value === 'loading') {
+    return { ready: false, status: 'loading', message: `正在检查${activeServiceLabel.value}服务...` }
+  }
+  if (configLoadState.value === 'error') {
+    return { ready: false, status: 'error', message: `无法读取${activeServiceLabel.value}服务配置` }
+  }
+  const readiness = getServiceConfigReadiness(activeServiceConfig.value)
+  if (readiness.ready) {
+    const identity = activeServiceConfig.value?.name || activeServiceConfig.value?.provider || activeServiceLabel.value
+    return {
+      ...readiness,
+      status: 'ready',
+      message: `${activeServiceLabel.value}服务已就绪：${identity}${readiness.model ? ` / ${readiness.model}` : ''}`,
+    }
+  }
+  const issueMessage = {
+    missing_config: `尚未配置可用的${activeServiceLabel.value}服务`,
+    missing_model: `${activeServiceLabel.value}服务尚未选择可用模型`,
+    missing_credentials: `${activeServiceLabel.value}服务缺少访问凭据`,
+    missing_workflow: `${activeServiceLabel.value}服务缺少生成工作流`,
+  }[readiness.issue]
+  return {
+    ...readiness,
+    status: 'missing',
+    message: issueMessage || `${activeServiceLabel.value}服务尚未就绪`,
+  }
+})
+const referenceUploadBlockReason = computed(() => getReferenceUploadBlockReason(
+  refImageUploadStatus.value,
+  refImageUploadError.value,
+  refImageLocalPath.value,
+))
+const refImageTriggerLabel = computed(() => {
+  if (refImageUploadStatus.value === 'uploading') return '视频参考图正在上传'
+  if (refImageUploadStatus.value === 'success') return '更换视频参考图'
+  if (refImageUploadStatus.value === 'error') return '重新选择视频参考图'
+  return '上传视频参考图'
+})
+const refImageUploadMessage = computed(() => {
+  if (refImageUploadStatus.value === 'uploading') {
+    return `参考图上传中：${refImageFileName.value}`
+  }
+  if (refImageUploadStatus.value === 'success') {
+    return `参考图上传成功：${refImageFileName.value}`
+  }
+  return `参考图上传失败：${refImageUploadError.value || '请重试或移除'}`
+})
+const generateDisabled = computed(() => (
+  generating.value
+  || !prompt.value.trim()
+  || !generationCapability.value.ready
+  || Boolean(referenceUploadBlockReason.value)
+))
+const generateDisabledReason = computed(() => {
+  if (!prompt.value.trim()) return '请先填写提示词'
+  if (referenceUploadBlockReason.value) return referenceUploadBlockReason.value
+  if (!generationCapability.value.ready) return generationCapability.value.message
+  return ''
+})
+
+watch(mode, (nextMode) => {
+  aspectRatio.value = normalizeFreeCreateAspectRatio(nextMode, aspectRatio.value)
+}, { immediate: true })
+
+function goBack() {
+  router.push({ name: 'list' })
+}
+
+async function loadGenerationSettings() {
   try {
     const res = await generationSettingsAPI.get()
     const m = Math.max(1, Number(res?.video_generation_timeout_minutes) || 30)
     videoPollMaxMs.value = m * 60 * 1000
   } catch (_) {}
+}
+
+async function loadServiceConfigs() {
+  configLoadState.value = 'loading'
+  try {
+    aiConfigs.value = await aiAPI.list()
+    configLoadState.value = 'loaded'
+  } catch (_) {
+    aiConfigs.value = []
+    configLoadState.value = 'error'
+  }
+}
+
+function openAiConfig() {
+  const returnTo = router.resolve({
+    name: 'free-create',
+    query: { mode: mode.value },
+  }).fullPath
+  router.push({
+    name: 'ai-config',
+    query: {
+      service_type: activeServiceType.value,
+      returnTo,
+    },
+  })
+}
+
+onMounted(async () => {
+  const requestedMode = Array.isArray(route.query.mode) ? route.query.mode[0] : route.query.mode
+  if (requestedMode === 'image' || requestedMode === 'video') mode.value = requestedMode
+  await Promise.all([loadGenerationSettings(), loadServiceConfigs()])
 })
 
 function triggerRefImageUpload() {
+  if (refImageUploadStatus.value === 'uploading') return
+  if (refImageInput.value) refImageInput.value.value = ''
   refImageInput.value?.click()
 }
 
+function resultImageAlt(item, index) {
+  const description = String(item?.prompt || '').trim().replace(/\s+/g, ' ').slice(0, 80)
+  return `第 ${index + 1} 张生成图片${description ? `：${description}` : ''}`
+}
+
+function openImagePreview(item, index) {
+  if (!item?.url) return
+  previewImage.value = { src: item.url, alt: resultImageAlt(item, index) }
+  showImagePreview.value = true
+}
+
 function clearRefImage() {
+  refImageUploadAttempt += 1
   refImageDataUrl.value = null
   refImageLocalPath.value = null
+  refImageFile.value = null
+  refImageFileName.value = '参考图'
+  refImageUploadStatus.value = 'idle'
+  refImageUploadError.value = ''
+  if (refImageInput.value) refImageInput.value.value = ''
 }
 
 async function onRefImageChange(e) {
   const file = e.target.files?.[0]
   if (!file) return
-  processRefImageFile(file)
+  await processRefImageFile(file)
   e.target.value = ''
 }
 
 function onRefImageDrop(e) {
+  if (refImageUploadStatus.value === 'uploading') return
   const file = e.dataTransfer?.files?.[0]
-  if (file && file.type.startsWith('image/')) processRefImageFile(file)
+  if (file) processRefImageFile(file)
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error('无法读取参考图文件'))
+    reader.onabort = () => reject(new Error('参考图文件读取已取消'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function showReferenceUploadError(message, attemptId) {
+  if (attemptId !== refImageUploadAttempt) return
+  refImageDataUrl.value = null
+  refImageLocalPath.value = null
+  refImageUploadStatus.value = 'error'
+  refImageUploadError.value = message || '上传失败，请重试或移除'
+  await nextTick()
+  refImageUploadStatusRef.value?.focus()
 }
 
 async function processRefImageFile(file) {
-  const reader = new FileReader()
-  reader.onload = async (ev) => {
-    refImageDataUrl.value = ev.target.result
-    try {
-      const res = await uploadAPI.uploadImage(file)
-      refImageLocalPath.value = res?.local_path || null
-    } catch (_) {}
+  const attemptId = ++refImageUploadAttempt
+  refImageFile.value = file
+  refImageFileName.value = String(file?.name || '参考图')
+  refImageDataUrl.value = null
+  refImageLocalPath.value = null
+  refImageUploadError.value = ''
+
+  if (!String(file?.type || '').startsWith('image/')) {
+    await showReferenceUploadError('请选择图片文件', attemptId)
+    return false
   }
-  reader.readAsDataURL(file)
+
+  refImageUploadStatus.value = 'uploading'
+  try {
+    const dataUrl = await readFileAsDataUrl(file)
+    if (attemptId !== refImageUploadAttempt) return false
+    const res = await uploadAPI.uploadImage(file)
+    if (attemptId !== refImageUploadAttempt) return false
+    const localPath = String(res?.local_path || '').trim()
+    if (!localPath) throw new Error('服务器未返回可用的参考图地址')
+    refImageDataUrl.value = dataUrl
+    refImageLocalPath.value = localPath
+    refImageUploadStatus.value = 'success'
+    return true
+  } catch (error) {
+    await showReferenceUploadError(error?.message || '上传失败，请重试或移除', attemptId)
+    return false
+  }
+}
+
+async function retryRefImageUpload() {
+  if (!refImageFile.value || refImageUploadStatus.value === 'uploading') return
+  await processRefImageFile(refImageFile.value)
 }
 
 function clearResults() {
@@ -222,6 +541,14 @@ function downloadItem(item) {
 
 async function generate() {
   if (!prompt.value.trim()) return
+  if (referenceUploadBlockReason.value) {
+    ElMessage.error(referenceUploadBlockReason.value)
+    return
+  }
+  if (!generationCapability.value.ready) {
+    ElMessage.warning(generationCapability.value.message)
+    return
+  }
   generating.value = true
   const newItem = {
     type: mode.value,
@@ -233,12 +560,18 @@ async function generate() {
   }
   results.value.unshift(newItem)
   try {
+    const body = buildFreeCreateGenerationPayload({
+      mode: mode.value,
+      prompt: prompt.value,
+      style: style.value,
+      aspectRatio: aspectRatio.value,
+      duration: duration.value,
+      referenceUploadStatus: refImageUploadStatus.value,
+      referenceUploadError: refImageUploadError.value,
+      referenceImageLocalPath: refImageLocalPath.value,
+    })
     if (mode.value === 'image') {
-      const res = await imagesAPI.create({
-        prompt: prompt.value,
-        style: style.value || undefined,
-        aspect_ratio: aspectRatio.value,
-      })
+      const res = await imagesAPI.create(body)
       if (res?.task_id) {
         await pollImageTask(res.task_id, newItem)
       } else if (res?.image_url || res?.local_path) {
@@ -246,16 +579,6 @@ async function generate() {
         newItem.status = 'completed'
       }
     } else {
-      const body = {
-        prompt: prompt.value,
-        style: style.value || undefined,
-        aspect_ratio: aspectRatio.value,
-        duration: duration.value,
-      }
-      if (refImageLocalPath.value) {
-        body.first_frame_url = refImageLocalPath.value
-        body.image_url = '/static/' + refImageLocalPath.value
-      }
       const res = await videosAPI.create(body)
       if (res?.task_id) {
         await pollVideoTask(res.task_id, newItem)
@@ -377,6 +700,44 @@ async function pollVideoTask(taskId, item) {
   margin-bottom: 16px;
 }
 
+.mode-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.service-readiness {
+  min-height: 40px;
+  margin: -6px 0 16px;
+  padding: 9px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #4b5563;
+  font-size: 13px;
+}
+
+.service-readiness span {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.service-readiness.is-ready {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.service-readiness.is-missing,
+.service-readiness.is-error {
+  border-color: #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+}
+
 .form-section {
   margin-bottom: 16px;
 }
@@ -398,23 +759,38 @@ async function pollVideoTask(taskId, item) {
 
 .form-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
 .form-item {
   flex: 1;
+  min-width: 100px;
 }
 
 .form-item .el-select {
   width: 100%;
 }
 
+.aspect-ratio-group {
+  display: flex;
+  width: 100%;
+}
+
+.aspect-ratio-group :deep(.el-radio-button) {
+  flex: 1 1 0;
+}
+
+.aspect-ratio-group :deep(.el-radio-button__inner) {
+  width: 100%;
+  padding: 8px 0;
+}
+
 .ref-image-zone {
   border: 2px dashed #d1d5db;
   border-radius: 8px;
-  padding: 20px;
+  padding: 0;
   text-align: center;
-  cursor: pointer;
   transition: border-color .2s;
   min-height: 100px;
   display: flex;
@@ -425,8 +801,44 @@ async function pollVideoTask(taskId, item) {
   position: relative;
 }
 
-.ref-image-zone:hover {
+.ref-image-zone:hover,
+.ref-image-zone:focus-within {
   border-color: #409eff;
+}
+
+.ref-image-zone.is-error {
+  border-color: #f87171;
+  background: #fef2f2;
+}
+
+.ref-image-zone.is-success {
+  border-color: #86efac;
+}
+
+.ref-image-trigger {
+  width: 100%;
+  min-height: 96px;
+  padding: 20px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.ref-image-trigger:disabled {
+  cursor: wait;
+}
+
+.ref-image-trigger:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -4px;
 }
 
 .ref-preview {
@@ -435,18 +847,75 @@ async function pollVideoTask(taskId, item) {
   border-radius: 6px;
 }
 
-.ref-actions {
-  margin-top: 8px;
-}
-
 .upload-icon {
   font-size: 28px;
   color: #9ca3af;
 }
 
+.upload-icon.is-error,
+.upload-tip.is-error {
+  color: #b91c1c;
+}
+
 .upload-tip {
   font-size: 12px;
   color: #9ca3af;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.ref-upload-status {
+  min-height: 40px;
+  margin: -8px 0 16px;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #4b5563;
+  font-size: 12px;
+}
+
+.ref-upload-status.is-success {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.ref-upload-status.is-error {
+  border-color: #f87171;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.ref-upload-status:focus-visible {
+  outline: 2px solid #b91c1c;
+  outline-offset: 2px;
+}
+
+.ref-upload-message {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.ref-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .generate-btn {
@@ -524,7 +993,21 @@ async function pollVideoTask(taskId, item) {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
+}
+
+.result-image-button {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
   cursor: zoom-in;
+}
+
+.result-image-button:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: -3px;
 }
 
 .result-video {
@@ -566,21 +1049,4 @@ async function pollVideoTask(taskId, item) {
   gap: 6px;
 }
 
-.image-preview-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,.85);
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: zoom-out;
-}
-
-.preview-img {
-  max-width: 90vw;
-  max-height: 90vh;
-  object-fit: contain;
-  border-radius: 8px;
-}
 </style>

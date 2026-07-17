@@ -3,5 +3,10 @@ dist/
 data/
 *.db
 .env
+.env.*
+!.env.example
+coverage/
+playwright-report/
+test-results/
 config.yaml
 !config.example.yaml
