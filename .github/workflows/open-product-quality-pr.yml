@@ -1,0 +1,122 @@
+name: Open product quality completion PR
+
+on:
+  push:
+    branches:
+      - codex/pr-open-product-quality-completion
+    paths:
+      - .github/workflows/open-product-quality-pr.yml
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  open-and-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create draft PR and expose sanitized failure context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          node --input-type=module <<'NODE'
+          const repository = process.env.REPOSITORY
+          const [owner] = repository.split('/')
+          const headers = {
+            accept: 'application/vnd.github+json',
+            authorization: `Bearer ${process.env.GH_TOKEN}`,
+            'x-github-api-version': '2022-11-28',
+            'user-agent': 'LocalMiniDrama-release-helper',
+          }
+
+          const request = (path, options = {}) => fetch(`https://api.github.com/repos/${repository}${path}`, {
+            ...options,
+            headers: { ...headers, ...(options.headers || {}) },
+          })
+
+          const escapeCommand = (value) => String(value)
+            .replace(/%/g, '%25')
+            .replace(/\r/g, '%0D')
+            .replace(/\n/g, '%0A')
+
+          const redact = (value) => String(value)
+            .replace(/sk-[A-Za-z0-9_-]{8,}/g, '[REDACTED]')
+            .replace(/(authorization|api[_-]?key|token|secret)(\s*[:=]\s*)[^\s,;]+/gi, '$1$2[REDACTED]')
+
+          async function ensurePullRequest() {
+            const head = 'codex/product-quality-completion'
+            const existing = await request(`/pulls?state=open&head=${encodeURIComponent(`${owner}:${head}`)}&base=main`)
+            if (!existing.ok) throw new Error(`list pull requests failed: ${existing.status} ${await existing.text()}`)
+            const matches = await existing.json()
+            if (matches.length) return matches[0]
+
+            const response = await request('/pulls', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                base: 'main',
+                head,
+                draft: true,
+                maintainer_can_modify: true,
+                title: 'feat: complete product quality and release hardening',
+                body: [
+                  '## What changed',
+                  '',
+                  '- completes the desktop Novel2Anime workflow, provider/model configuration, source intake, cross-project media reuse, canvas workflow, backup/restore, and error recovery',
+                  '- hardens provider boundaries, imports/exports, lifecycle handling, Docker runtime, Electron packaging, and release evidence',
+                  '- adds Node 20 CI, production Docker images, production E2E, Windows smoke tests, SBOMs, artifact scanning, and browser-backed product acceptance',
+                  '',
+                  '## Verification',
+                  '',
+                  'Source commit: `3df241d494886c6c58aee09e60ba290aac8f160f`',
+                  '',
+                  '- local source, Docker, production E2E, Windows Setup/Portable/Unpacked, Gitleaks, Trivy, Defender, Electron Fuse, and offline manifest gates passed',
+                  '- mobile reflow, Authenticode signing, and exhaustive external provider/account validation remain explicitly deferred',
+                  '- remote CI failures are being investigated and must be green before merge',
+                ].join('\n'),
+              }),
+            })
+            if (!response.ok) throw new Error(`create pull request failed: ${response.status} ${await response.text()}`)
+            return response.json()
+          }
+
+          function failureSnippet(log) {
+            const lines = redact(log).split(/\r?\n/)
+            const selected = new Set()
+            const pattern = /##\[error\]|\b(error|failed|failure|EACCES|EPERM|ENOENT|mismatch|not found|expected|actual)\b|npm (ERR!|error)/i
+            for (let index = 0; index < lines.length; index += 1) {
+              if (!pattern.test(lines[index])) continue
+              for (let cursor = Math.max(0, index - 5); cursor <= Math.min(lines.length - 1, index + 8); cursor += 1) {
+                selected.add(cursor)
+              }
+            }
+            const indexes = [...selected].sort((a, b) => a - b).slice(-220)
+            const snippet = indexes.length
+              ? indexes.map((index) => lines[index]).join('\n')
+              : lines.slice(-160).join('\n')
+            return snippet.slice(-14000)
+          }
+
+          try {
+            const pullRequest = await ensurePullRequest()
+            console.log(`Draft PR #${pullRequest.number}: ${pullRequest.html_url}`)
+          } catch (error) {
+            console.log(`::warning file=.github/workflows/open-product-quality-pr.yml,line=1,title=PR helper::${escapeCommand(redact(error.message))}`)
+          }
+
+          for (const job of [
+            { id: 87855977763, title: 'Windows release candidate failure' },
+            { id: 87855977753, title: 'Docker production E2E failure' },
+          ]) {
+            try {
+              const response = await request(`/actions/jobs/${job.id}/logs`)
+              if (!response.ok) throw new Error(`job log request failed: ${response.status} ${await response.text()}`)
+              const snippet = failureSnippet(await response.text())
+              console.log(`::notice file=.github/workflows/ci.yml,line=1,title=${job.title}::${escapeCommand(snippet)}`)
+            } catch (error) {
+              console.log(`::warning file=.github/workflows/ci.yml,line=1,title=${job.title}::${escapeCommand(redact(error.message))}`)
+            }
+          }
+          NODE
