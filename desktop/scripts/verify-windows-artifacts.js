@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { stripVTControlCharacters } = require('node:util');
 const asar = require('@electron/asar');
 const { getPath7za } = require('app-builder-lib/out/toolsets/7zip');
 const { archive } = require('app-builder-lib/out/targets/archive');
@@ -57,7 +58,8 @@ function run(command, args, options = {}) {
 
 function parseFuseReport(output) {
   const states = {};
-  for (const line of String(output || '').split(/\r?\n/)) {
+  const normalizedOutput = stripVTControlCharacters(String(output || ''));
+  for (const line of normalizedOutput.split(/\r?\n/)) {
     const match = line.match(/^\s{2}([A-Za-z][A-Za-z0-9]+) is (Enabled|Disabled|Removed)$/);
     if (match) states[match[1]] = match[2];
   }

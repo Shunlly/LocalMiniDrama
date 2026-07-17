@@ -24,6 +24,17 @@ test('release fuse report recognizes every Electron 43 fuse and its required sta
   assert.equal(FUSE_POLICY.WasmTrapHandlers, false);
 });
 
+test('release fuse report ignores ANSI styling emitted by the Node 20 fuse CLI', () => {
+  const lines = ['Analyzing app: \u001b[36mLocalMiniDrama.exe\u001b[39m', 'Fuse Version: \u001b[36mv1\u001b[39m'];
+  for (const [name, enabled] of Object.entries(FUSE_POLICY)) {
+    const state = enabled ? '\u001b[32mEnabled\u001b[39m' : '\u001b[31mDisabled\u001b[39m';
+    lines.push(`  \u001b[33m${name}\u001b[39m is ${state}`);
+  }
+  assert.deepEqual(parseFuseReport(lines.join('\r\n')), Object.fromEntries(
+    Object.entries(FUSE_POLICY).map(([name, enabled]) => [name, enabled ? 'Enabled' : 'Disabled'])
+  ));
+});
+
 test('release scan requires Setup, Portable, and Unpacked artifacts from one version', () => {
   assert.deepEqual(artifactNames('1.3.0'), {
     portable: 'LocalMiniDrama-Portable-1.3.0-x64.exe',
