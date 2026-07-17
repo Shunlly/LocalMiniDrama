@@ -86,8 +86,15 @@ jobs:
           $mediaToolsVersion = (Get-Content desktop/package.json | ConvertFrom-Json).mediaToolsVersion
           if ($mediaToolsVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid desktop mediaToolsVersion' }
           choco install ffmpeg --version=$mediaToolsVersion -y --no-progress --allow-downgrade
-          $ffmpegPath = (Get-Command ffmpeg.exe).Source
-          $ffprobePath = (Get-Command ffprobe.exe).Source
+          if (-not $env:ChocolateyInstall) { throw 'ChocolateyInstall is unavailable after FFmpeg installation' }
+          $binaryRoot = Join-Path $env:ChocolateyInstall 'lib\ffmpeg\tools\ffmpeg\bin'
+          $ffmpegPath = Join-Path $binaryRoot 'ffmpeg.exe'
+          $ffprobePath = Join-Path $binaryRoot 'ffprobe.exe'
+          if (-not (Test-Path -LiteralPath $ffmpegPath) -or -not (Test-Path -LiteralPath $ffprobePath)) {
+            throw "Chocolatey FFmpeg package binaries are missing from $binaryRoot"
+          }
+          node desktop/scripts/media-tool-policy.js verify-tools $ffmpegPath $ffprobePath win32 x64
+          if ($LASTEXITCODE -ne 0) { throw 'Chocolatey FFmpeg executable trust verification failed' }
           & $ffmpegPath -version
           & $ffprobePath -version
           "FFMPEG_PATH=$ffmpegPath" >> $env:GITHUB_ENV
@@ -159,10 +166,12 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
+      - name: Verify Docker build context boundaries
+        run: npm run verify:docker:artifact
       - name: Start production containers and local E2E provider
         run: docker compose --profile e2e up -d --build --wait
       - name: Verify code inside containers
-        run: npm run verify:docker
+        run: npm run verify:docker:containers
       - name: Run full production workflow, QA, timeline, export and browser checks
         if: always()
         run: npm run verify:e2e

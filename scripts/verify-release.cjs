@@ -50,9 +50,10 @@ function verifySourceAndContainers() {
   let primaryError = null
   try {
     runNpm(['run', 'verify'])
+    runNpm(['run', 'verify:docker:artifact'])
     composeAttempted = true
     run(dockerCommand, ['compose', '--profile', 'e2e', 'up', '-d', '--build', '--wait'])
-    runNpm(['run', 'verify:docker'])
+    runNpm(['run', 'verify:docker:containers'])
     runNpm(['run', 'verify:e2e'])
   } catch (error) {
     primaryError = error

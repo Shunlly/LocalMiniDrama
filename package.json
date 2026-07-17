@@ -15,7 +15,9 @@
     "verify:release:source": "node scripts/verify-release.cjs --source-only",
     "verify:release:windows": "node scripts/verify-release.cjs --windows-only",
     "verify:e2e": "npm --prefix frontweb run e2e:production",
-    "verify:docker": "node scripts/verify-docker-artifact.cjs && docker compose --profile verify run --rm --build --no-deps backend-verify && docker compose --profile verify run --rm --build --no-deps frontend-verify npm run verify",
+    "verify:docker": "npm run verify:docker:artifact && npm run verify:docker:containers",
+    "verify:docker:artifact": "node scripts/verify-docker-artifact.cjs",
+    "verify:docker:containers": "docker compose --profile verify run --rm --build --no-deps backend-verify && docker compose --profile verify run --rm --build --no-deps frontend-verify npm run verify",
     "verify:backend": "npm --prefix backend-node run verify",
     "verify:frontend": "npm --prefix frontweb run verify"
   }

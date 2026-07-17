@@ -30,6 +30,7 @@ const backendTrivyIgnore = fs.readFileSync(path.join(root, 'backend-node', '.tri
 const ciWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'ci.yml'), 'utf8')
 const releaseVerifierSource = fs.readFileSync(path.join(root, 'scripts', 'verify-release.cjs'), 'utf8')
 const artifactGitleaksConfig = fs.readFileSync(path.join(root, '.gitleaks-artifacts.toml'), 'utf8')
+const rootPackage = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'))
 
 function jobBlock(name, source = workflow) {
@@ -261,8 +262,42 @@ test('Windows CI builds the complete unverified candidate before independent sec
 
   const desktopJob = jobBlock('desktop', ciWorkflow)
   assert.match(desktopJob, /npm run verify:release:windows/)
+  assert.match(desktopJob, /ChocolateyInstall[\s\S]*media-tool-policy\.js verify-tools/)
+  assert.doesNotMatch(desktopJob, /Get-Command ffmpeg\.exe/)
   assert.match(desktopJob, /desktop\/release\/\*\.zip/)
   assert.doesNotMatch(desktopJob, /release-manifest\.json|SHA256SUMS/)
+})
+
+test('Docker artifact boundaries are checked before production bind mounts change ownership', () => {
+  assert.equal(rootPackage.scripts['verify:docker'], 'npm run verify:docker:artifact && npm run verify:docker:containers')
+  assert.equal(rootPackage.scripts['verify:docker:artifact'], 'node scripts/verify-docker-artifact.cjs')
+  assert.match(rootPackage.scripts['verify:docker:containers'], /backend-verify[\s\S]*frontend-verify/)
+
+  for (const source of [jobBlock('docker-production-e2e', ciWorkflow), jobBlock('production-e2e', workflow)]) {
+    const artifact = source.indexOf('npm run verify:docker:artifact')
+    const start = source.indexOf('docker compose --profile e2e up')
+    const containers = source.indexOf('npm run verify:docker:containers')
+    assert.ok(artifact >= 0 && artifact < start, 'Docker artifact boundary check must run before production startup')
+    assert.ok(start >= 0 && start < containers, 'container verification must run after production startup')
+  }
+
+  const sourceVerificationStart = releaseVerifierSource.indexOf('function verifySourceAndContainers()')
+  const sourceVerificationEnd = releaseVerifierSource.indexOf('\nfunction writeSbom(', sourceVerificationStart)
+  const sourceVerification = releaseVerifierSource.slice(sourceVerificationStart, sourceVerificationEnd)
+  const artifactVerification = sourceVerification.indexOf("['run', 'verify:docker:artifact']")
+  const productionStartup = sourceVerification.indexOf("['compose', '--profile', 'e2e', 'up'")
+  const containerVerification = sourceVerification.indexOf("['run', 'verify:docker:containers']")
+  assert.ok(artifactVerification >= 0, 'release verification is missing the Docker artifact boundary check')
+  assert.ok(productionStartup >= 0, 'release verification is missing production container startup')
+  assert.ok(containerVerification >= 0, 'release verification is missing container verification')
+  assert.ok(
+    artifactVerification < productionStartup,
+    'release verification must check the Docker build context before mounting production data'
+  )
+  assert.ok(
+    productionStartup < containerVerification,
+    'release verification must run container tests after production startup'
+  )
 })
 
 test('artifact secret scanning excludes only pass markers and raw ASAR containers', () => {

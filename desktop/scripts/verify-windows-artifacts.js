@@ -97,10 +97,30 @@ async function packageUnpacked() {
   const executable = require('./electron-fuses').findWindowsExecutable(unpackedDirectory);
   assertFusePolicy(executable);
   const output = path.join(releaseRoot, artifactNames().unpacked);
-  fs.rmSync(output, { force: true });
-  await archive('zip', output, unpackedDirectory, { compression: 'normal' });
+  await createVerifiedZip(unpackedDirectory, output);
   assert.ok(fs.statSync(output).size > 0, 'Unpacked release archive is empty');
   return output;
+}
+
+async function createVerifiedZip(source, output, runtime = {}) {
+  const archiveWriter = runtime.archiveWriter || archive;
+  const sevenZip = runtime.sevenZip || await getPath7za();
+  const runCommand = runtime.runCommand || run;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    fs.rmSync(output, { force: true });
+    await archiveWriter('zip', output, source, { compression: 'normal' });
+    try {
+      runCommand(sevenZip, ['t', '-bd', output]);
+      return { output, attempts: attempt };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  fs.rmSync(output, { force: true });
+  throw new Error(`Unpacked release archive failed CRC validation after two attempts: ${lastError?.message || 'unknown error'}`);
 }
 
 async function extractArchive(sevenZip, source, destination) {
@@ -270,6 +290,7 @@ if (require.main === module) {
 module.exports = {
   artifactNames,
   assertFusePolicy,
+  createVerifiedZip,
   parseFuseReport,
   prepareArtifactScan,
   recordArtifactSecurity,

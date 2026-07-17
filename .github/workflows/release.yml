@@ -38,10 +38,12 @@ jobs:
           npm --prefix backend-node audit --audit-level=high --registry=https://registry.npmjs.org
           npm --prefix frontweb audit --audit-level=high --registry=https://registry.npmjs.org
           npm --prefix desktop audit --audit-level=high --registry=https://registry.npmjs.org
+      - name: Verify Docker build context boundaries
+        run: npm run verify:docker:artifact
       - name: Start production containers and local protocol-compatible provider
         run: docker compose --profile e2e up -d --build --wait
       - name: Verify application code inside containers
-        run: npm run verify:docker
+        run: npm run verify:docker:containers
       - name: Run production workflow, QA, timeline, export and browser checks
         if: always()
         run: npm run verify:e2e
