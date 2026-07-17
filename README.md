@@ -6,18 +6,18 @@
 
 *LocalMiniDrama · AI-powered short drama creator*
 
-[![version](https://img.shields.io/badge/version-1.2.8-blue?style=flat-square)](https://github.com/xuanyustudio/LocalMiniDrama/releases)
+[![version](https://img.shields.io/badge/version-1.3.0-blue?style=flat-square)](https://github.com/Shunlly/LocalMiniDrama/releases)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](#-快速开始)
 [![stack](https://img.shields.io/badge/Vue3%20%2B%20Node.js%20%2B%20Electron-informational?style=flat-square)](#-项目架构)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/xuanyustudio/LocalMiniDrama/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/Shunlly/LocalMiniDrama/pulls)
 
 **[English](docs/en.md) · 简体中文 · [作者故事](docs/story.md)**
 
-[![GitHub](https://img.shields.io/badge/GitHub-xuanyustudio%2FLocalMiniDrama-181717?logo=github&style=flat-square)](https://github.com/xuanyustudio/LocalMiniDrama)
+[![GitHub](https://img.shields.io/badge/GitHub-Shunlly%2FLocalMiniDrama-181717?logo=github&style=flat-square)](https://github.com/Shunlly/LocalMiniDrama)
 [![Gitee](https://img.shields.io/badge/Gitee-bi__shang__a%2Flocalminidrama-C71D23?logo=gitee&style=flat-square)](https://gitee.com/bi_shang_a/localminidrama)
 
-[**⬇️ 下载 Release**](https://github.com/xuanyustudio/LocalMiniDrama/releases) · [**🚀 快速开始**](#-快速开始) · [**📖 配置 AI**](docs/configuration.md) · [**🗺 画布文档**](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
+[**⬇️ 下载 Release**](https://github.com/Shunlly/LocalMiniDrama/releases) · [**🚀 快速开始**](#-快速开始) · [**📖 配置 AI**](docs/configuration.md) · [**🗺 画布文档**](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
 
 </div>
 
@@ -39,13 +39,13 @@
 
 ---
 
-## 📌 v1.2.8 动态
+## 📌 v1.3.0 动态
 
-- 🆕 **Agnes AI 接入**：文本 / 图片 / 视频一键配置，一个 Key 覆盖全流程
-- 🆕 **画布模式增强**：剧本节点、右键菜单、浮动工具栏、画布内新建/删除/整集生成
-- 🆕 **ModelArk 私有资产库**：SD2 角色认证对接火山方舟资产组，AK/SK 与 Bearer 双鉴权
-- 🔧 **图床显式启用**：只有在 `config.yaml` 配置 `upload_url` 后才会上传本地图片；未配置时不使用公网图床
-- 🔧 **提示词优化** · **分镜图片数量上限修复**
+- 🆕 **桌面创作流程收口**：项目就绪度给出唯一下一步，素材导入、处理、QA、修复、剧集与时间线形成可恢复的五步流程
+- 🆕 **多厂商 AI 配置**：按文本、素材图片、分镜图片、视频和 TTS 管理模型，支持连接测试、默认配置和本地/云端路由
+- 🆕 **Novel2Anime 生产链路**：PDF/图片 OCR、音视频转写、图片/视频/TTS 生成与 FFmpeg 合成串成可验收工作流
+- 🔧 **制作页与画布体验**：统一动作门禁、失败反馈、自动保存与离开保护，并补齐全景图、参考图、时间线和批量工作流
+- 🔒 **发布安全与运维**：本机监听、SSRF/导入导出边界、敏感配置脱敏、可信媒体工具、数据备份恢复与生产 Docker 门禁
 
 完整记录 → **[CHANGELOG.md](CHANGELOG.md)**
 
@@ -176,23 +176,23 @@ AI 配置按文本、素材图片、分镜图片、视频和 TTS 五类核心服
 
 ### 方式一：下载 exe（推荐）
 
-前往 **[Releases 下载页](https://github.com/xuanyustudio/LocalMiniDrama/releases)**：
+前往 **[Releases 下载页](https://github.com/Shunlly/LocalMiniDrama/releases)**：
 
 | 版本 | 说明 | 适合 |
 |------|------|------|
-| `本地短剧助手 x.x.x.exe` | 标准版，**含示例项目** | 新手入门 |
-| `本地短剧助手-Lite-x.x.x.exe` | Lite 版，体积更小 | 熟悉流程后 |
+| `LocalMiniDrama-Setup-x.x.x-x64.exe` | Windows x64 安装版，可选择安装目录 | 日常使用 |
+| `LocalMiniDrama-Portable-x.x.x-x64.exe` | Windows x64 便携版，无需安装 | 试用与移动使用 |
 
 双击运行 → 「AI 配置」填入 API Key → 开始创作。
 
-> 首次运行配置：`%APPDATA%\localminidrama-desktop\backend\configs\config.yaml`
+> 当前 Windows 包未做 Authenticode 签名，首次运行可能触发 SmartScreen；请从 GitHub Releases 下载并核对 `SHA256SUMS`。首次运行配置位于 `%APPDATA%\localminidrama-desktop\backend\configs\config.yaml`。
 
 ### 方式二：源码开发
 
-> 推荐 Node.js 20.x。`package.json` 的 engine 下限为 Node.js >= 18，但当前验证路径以 Node 20 / Docker 为准。
+> 需要 Node.js >= 20，发布与 Docker 验证统一使用 Node.js 20。
 
 ```bash
-git clone https://github.com/xuanyustudio/LocalMiniDrama.git
+git clone https://github.com/Shunlly/LocalMiniDrama.git
 cd LocalMiniDrama
 
 # 后端（端口 5679）
@@ -209,11 +209,11 @@ cd frontweb && npm install && npm run dev
 也可以直接从仓库根目录使用 Docker：
 
 ```bash
-docker compose up -d --build
+docker compose up -d --build --wait
 docker compose ps
 ```
 
-前端仍访问 `http://localhost:3013`，后端健康检查为 `http://localhost:5679/health`。Compose 默认仅绑定宿主机 `127.0.0.1`，不会把无认证接口直接暴露到局域网。改动前后端源码后需重新执行 `docker compose up -d --build`；完整容器验证可运行 `npm run verify:docker`。
+前端仍访问 `http://localhost:3013`，后端健康/就绪检查为 `http://localhost:5679/health` 和 `http://localhost:5679/ready`。Compose 默认仅绑定宿主机 `127.0.0.1`，不会把无认证接口直接暴露到局域网。改动前后端源码后需重新执行 `docker compose up -d --build --wait`；完整容器验证可运行 `npm run verify:docker`。桌面产品验收报告可在 `http://localhost:3013/reports/product-acceptance/report.html` 查看。
 
 📖 [详细开发/打包/Docker 指南](docs/quickstart.md) · [AI 配置指南](docs/configuration.md)
 
@@ -231,9 +231,9 @@ docker compose ps
 | Vidu 生数科技 | — | — | ✅ |
 | NanoBanana（含代理） | — | ✅ | — |
 | 本地 Ollama 等 OpenAI 兼容 | ✅ | — | — |
-| 其他 OpenAI 兼容接口 | ✅ | ✅ | — |
+| 其他 OpenAI 兼容接口 | ✅ | ✅ | ✅ |
 
-> 上表描述经典文本/生图/生视频链路。Novel2Anime 工作流的媒体、配音与合成步骤当前仍是本地 mock/占位链路；production QA 会拒绝 mock 产物，真实 provider SDK 接入放在后续阶段。
+> Novel2Anime 生产工作流会调用已启用并通过就绪检查的文本、素材图、分镜图、视频和 TTS 配置，再由本机 FFmpeg 合成。OpenAI 兼容表示公共协议可路由，不代表每个中转站或模型都支持全部媒体端点；真实账号仍需在「AI 配置」执行连接测试。production QA 会拒绝 mock/占位产物。
 
 ---
 
@@ -252,7 +252,7 @@ LocalMiniDrama/
 |----|------|
 | 前端 | Vue 3 · Vite · Element Plus · Pinia · @vue-flow/core |
 | 后端 | Node.js · Express · SQLite (better-sqlite3) |
-| 桌面 | Electron 28 · electron-builder |
+| 桌面 | Electron 43.1.1 · electron-builder 26 |
 
 ---
 
@@ -268,7 +268,7 @@ LocalMiniDrama/
 | 📋 | 参考图自由选择 | 生图时手动指定角色/场景参考 |
 | 📋 | 宫格图生成视频 | 多帧合图作为视频输入（部分模型已支持） |
 
-> 认领功能或提建议 → [New Issue](https://github.com/xuanyustudio/LocalMiniDrama/issues/new)
+> 认领功能或提建议 → [New Issue](https://github.com/Shunlly/LocalMiniDrama/issues/new)
 
 <details>
 <summary><b>📋 更多历史版本亮点（v1.2.3 及更早）</b></summary>
@@ -297,8 +297,8 @@ LocalMiniDrama/
 
 ## 🤝 参与贡献
 
-- 🐛 [报告 Bug](https://github.com/xuanyustudio/LocalMiniDrama/issues/new)
-- 💡 [功能建议](https://github.com/xuanyustudio/LocalMiniDrama/issues/new)
+- 🐛 [报告 Bug](https://github.com/Shunlly/LocalMiniDrama/issues/new)
+- 💡 [功能建议](https://github.com/Shunlly/LocalMiniDrama/issues/new)
 - 🔧 Fork → PR
 - ⭐ **Star** 帮助更多人发现本项目
 
@@ -341,6 +341,6 @@ LocalMiniDrama/
 
 **如果这个项目对你有帮助，请点 ⭐ Star —— 这是对作者最大的鼓励！**
 
-[⬇️ 立即下载](https://github.com/xuanyustudio/LocalMiniDrama/releases) · [📖 快速开始文档](docs/quickstart.md) · [🗺 画布文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
+[⬇️ 立即下载](https://github.com/Shunlly/LocalMiniDrama/releases) · [📖 快速开始文档](docs/quickstart.md) · [🗺 画布文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
 
 </div>

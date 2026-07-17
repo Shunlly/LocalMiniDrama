@@ -51,6 +51,22 @@ function listDramas(db, log) {
   };
 }
 
+function listTrashedDramas(db, log) {
+  return (req, res) => {
+    try {
+      const { dramas, total, page, pageSize } = dramaService.listTrashedDramas(db, {
+        page: req.query.page || 1,
+        page_size: req.query.page_size || 20,
+        keyword: req.query.keyword || '',
+      });
+      response.successWithPagination(res, dramas, total, page, pageSize);
+    } catch (err) {
+      log.errorw('List trashed dramas failed', { error: err.message });
+      response.internalError(res, '获取回收站失败');
+    }
+  };
+}
+
 function updateDrama(db, log) {
   return (req, res) => {
     const drama = dramaService.updateDrama(db, log, req.params.id, req.body || {});
@@ -59,11 +75,27 @@ function updateDrama(db, log) {
   };
 }
 
-function deleteDrama(db, log) {
+function moveDramaToTrash(db, log) {
   return (req, res) => {
-    const ok = dramaService.deleteDrama(db, log, req.params.id);
-    if (!ok) return response.notFound(res, '剧本不存在');
-    response.success(res, { message: '删除成功' });
+    const drama = dramaService.moveDramaToTrash(db, log, req.params.id);
+    if (!drama) return response.notFound(res, '项目不存在或已在回收站中');
+    response.success(res, {
+      message: '项目已移入回收站',
+      project: drama,
+      retention: dramaService.getTrashRetentionPolicy(),
+    });
+  };
+}
+
+function restoreDrama(db, log) {
+  return (req, res) => {
+    const drama = dramaService.restoreDrama(db, log, req.params.id);
+    if (!drama) return response.notFound(res, '项目不存在或不在回收站中');
+    response.success(res, {
+      message: '项目已恢复',
+      project: drama,
+      retention: dramaService.getTrashRetentionPolicy(),
+    });
   };
 }
 
@@ -177,24 +209,47 @@ function exportDrama(db, cfg, log) {
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(safeName)}.zip`);
       res.send(buffer);
     } catch (err) {
-      log.error('Export drama failed', { error: err.message });
+      log.error('Export drama failed', {
+        code: err.code,
+        error: err.message,
+        archive_path: err.details?.archive_path,
+        reason: err.details?.reason,
+      });
+      if (err?.name === 'DramaExportError') {
+        return response.error(
+          res,
+          err.statusCode || 413,
+          err.code || 'EXPORT_REJECTED',
+          err.message,
+          err.details
+        );
+      }
       response.internalError(res, err.message || '导出失败');
     }
   };
 }
 
-function importDrama(db, cfg, log) {
+function importDrama(db, cfg, log, importOptions = {}) {
   return (req, res) => {
     try {
       if (!req.file || !req.file.buffer) {
         return response.badRequest(res, '请上传 ZIP 文件');
       }
-      const result = dramaImportService.importDrama(db, cfg, log, req.file.buffer);
+      const result = dramaImportService.importDrama(db, cfg, log, req.file.buffer, importOptions);
       response.created(res, result);
     } catch (err) {
       log.error('Import drama failed', { error: err.message });
-      if (err.message && (err.message.includes('格式') || err.message.includes('缺少') || err.message.includes('损坏'))) {
-        return response.badRequest(res, err.message);
+      if (err?.code === 'SOURCE_ORIGINAL_QUOTA_EXCEEDED') {
+        return response.error(res, 413, err.code, err.message);
+      }
+      if (err?.name === 'DramaImportError') {
+        const status = [
+          'ARCHIVE_TOO_LARGE',
+          'ENTRY_SIZE_LIMIT',
+          'TOTAL_SIZE_LIMIT',
+          'MATERIALIZED_SIZE_LIMIT',
+        ].includes(err.code) ? 413 : 400;
+        return response.error(res, status, err.code, err.message);
       }
       response.internalError(res, err.message || '导入失败');
     }
@@ -231,7 +286,7 @@ function listExamples(log) {
   };
 }
 
-function importExample(db, cfg, log) {
+function importExample(db, cfg, log, importOptions = {}) {
   return (req, res) => {
     const fs = require('fs');
     const path = require('path');
@@ -246,10 +301,13 @@ function importExample(db, cfg, log) {
     if (!fs.existsSync(filePath)) return response.notFound(res, '示例文件不存在');
     try {
       const buffer = fs.readFileSync(filePath);
-      const result = dramaImportService.importDrama(db, cfg, log, buffer);
+      const result = dramaImportService.importDrama(db, cfg, log, buffer, importOptions);
       response.created(res, result);
     } catch (err) {
       log.error('Import example failed', { error: err.message });
+      if (err?.code === 'SOURCE_ORIGINAL_QUOTA_EXCEEDED') {
+        return response.error(res, 413, err.code, err.message);
+      }
       response.internalError(res, err.message || '导入示例失败');
     }
   };
@@ -279,13 +337,15 @@ function generateStoryboard(db, log) {
   };
 }
 
-module.exports = function dramaRoutes(db, cfg, log) {
+module.exports = function dramaRoutes(db, cfg, log, options = {}) {
   return {
     createDrama: createDrama(db, log),
     getDrama: getDrama(db, cfg),
     listDramas: listDramas(db, log),
+    listTrashedDramas: listTrashedDramas(db, log),
     updateDrama: updateDrama(db, log),
-    deleteDrama: deleteDrama(db, log),
+    moveDramaToTrash: moveDramaToTrash(db, log),
+    restoreDrama: restoreDrama(db, log),
     getDramaStats: getDramaStats(db, log),
     saveOutline: saveOutline(db, log),
     getCharacters: getCharacters(db),
@@ -298,8 +358,12 @@ module.exports = function dramaRoutes(db, cfg, log) {
     downloadEpisodeVideo: downloadEpisodeVideo(db),
     generateStoryboard: generateStoryboard(db, log),
     exportDrama: exportDrama(db, cfg, log),
-    importDrama: importDrama(db, cfg, log),
+    importDrama: importDrama(db, cfg, log, {
+      sourceOriginalQuotaBytes: options.sourceOriginalQuotaBytes,
+    }),
     listExamples: listExamples(log),
-    importExample: importExample(db, cfg, log),
+    importExample: importExample(db, cfg, log, {
+      sourceOriginalQuotaBytes: options.sourceOriginalQuotaBytes,
+    }),
   };
 };

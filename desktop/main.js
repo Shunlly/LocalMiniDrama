@@ -1,19 +1,129 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const MAX_MAIN_LOG_STRING_LENGTH = 2048;
+const REDACTED = '[REDACTED]';
+const AUTHORIZATION_LABEL_SOURCE = '(?:(?:proxy[-_ ]?)?authorization|auth(?:orization)?[-_ ]?header)';
+const COOKIE_LABEL_SOURCE = '(?:set[-_ ]?cookie|cookie)';
+const SECRET_LABEL_SOURCE = '(?:x[-_ ]?api[-_ ]?key|api[-_ ]?key|access[-_ ]?key(?:[-_ ]?id)?|client[-_ ]?secret|private[-_ ]?key|secret|password|passwd|passphrase|credential|(?:access|refresh|id|session|csrf|xsrf|auth)[-_ ]?token|token|signature|sig)';
+const SENSITIVE_QUERY_KEY_PATTERN = /^(?:auth(?:orization)?|api[-_ ]?key|apikey|key|access[-_ ]?key(?:[-_ ]?id)?|awsaccesskeyid|client[-_ ]?secret|private[-_ ]?key|secret|password|passwd|passphrase|credential|(?:access|refresh|id|session|csrf|xsrf|auth)[-_ ]?token|token|signature|sig|code|cookie|x[-_ ]?amz[-_ ]?(?:signature|credential|security[-_ ]?token)|x[-_ ]?goog[-_ ]?(?:signature|credential))$/i;
+const URL_USERINFO_PATTERN = /((?:[a-z][a-z0-9+.-]*:)?\/\/)[^/?#\s"'<>]*@/gi;
+const QUERY_PARAMETER_PATTERN = /([?&#;])([^?&#;=\s"'<>]+)([ \t]*=[ \t]*)["']?([^?&#;\s"'<>]*)/g;
+const JWT_PATTERN = /\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{3,}\.[A-Za-z0-9_-]{8,}\b/g;
+const AUTH_SCHEME_PATTERN = /\b(Bearer|Basic|Token|API[-_ ]?Key)\b[ \t]+(?:token[ \t]*=[ \t]*)?(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s,;}"']+)/gi;
+
+function assignmentPatterns(labelSource) {
+  const prefix = `(\\b${labelSource}\\b["']?[ \\t]*[:=][ \\t]*)`;
+  return {
+    doubleQuoted: new RegExp(`${prefix}"(?:\\\\.|[^"\\\\\\r\\n])*"`, 'gi'),
+    singleQuoted: new RegExp(`${prefix}'(?:\\\\.|[^'\\\\\\r\\n])*'`, 'gi'),
+    unquoted: new RegExp(`${prefix}(?!["'])[^\\s,;}"'&?#]+`, 'gi'),
+  };
+}
+
+const AUTHORIZATION_PATTERNS = assignmentPatterns(AUTHORIZATION_LABEL_SOURCE);
+AUTHORIZATION_PATTERNS.unquoted = new RegExp(
+  `(\\b${AUTHORIZATION_LABEL_SOURCE}\\b["']?[ \\t]*[:=][ \\t]*)(?!["'])[^\\r\\n]+`,
+  'gi'
+);
+const COOKIE_PATTERNS = assignmentPatterns(COOKIE_LABEL_SOURCE);
+COOKIE_PATTERNS.unquoted = new RegExp(
+  `(\\b${COOKIE_LABEL_SOURCE}\\b["']?[ \\t]*[:=][ \\t]*)(?!["'])[^\\r\\n]+`,
+  'gi'
+);
+const SECRET_PATTERNS = assignmentPatterns(SECRET_LABEL_SOURCE);
+
+function redactAssignments(text, patterns) {
+  return text
+    .replace(patterns.doubleQuoted, `$1"${REDACTED}"`)
+    .replace(patterns.singleQuoted, `$1'${REDACTED}'`)
+    .replace(patterns.unquoted, `$1${REDACTED}`);
+}
+
+function decodeQueryKey(value) {
+  try {
+    return decodeURIComponent(value.replace(/\+/g, ' '));
+  } catch (_) {
+    return value;
+  }
+}
+
+function redactUrlCredentials(text) {
+  const withoutUserinfo = text.replace(URL_USERINFO_PATTERN, '$1');
+  return withoutUserinfo.replace(
+    QUERY_PARAMETER_PATTERN,
+    (match, delimiter, key, equals) => {
+      if (!SENSITIVE_QUERY_KEY_PATTERN.test(decodeQueryKey(key))) return match;
+      return `${delimiter}${key}${equals}${REDACTED}`;
+    }
+  );
+}
+
+function sanitizeMainLogString(value, maxLength = MAX_MAIN_LOG_STRING_LENGTH) {
+  let text = redactUrlCredentials(String(value ?? ''));
+  text = redactAssignments(text, AUTHORIZATION_PATTERNS);
+  text = text.replace(AUTH_SCHEME_PATTERN, (_match, scheme) => `${scheme} ${REDACTED}`);
+  text = redactAssignments(text, COOKIE_PATTERNS);
+  text = redactAssignments(text, SECRET_PATTERNS);
+  text = text.replace(JWT_PATTERN, REDACTED);
+  text = text.replace(/\bsk-[A-Za-z0-9._-]{6,}\b/gi, REDACTED);
+  if (text.length > maxLength) {
+    return `${text.slice(0, maxLength)}...[truncated ${text.length - maxLength} chars]`;
+  }
+  return text;
+}
+
+function summarizeExternalUrl(value) {
+  const raw = String(value ?? '');
+  const protocolRelative = raw.startsWith('//');
+  const relative = !protocolRelative && /^(?:\/|\.\.?\/)/.test(raw);
+  try {
+    const parsed = new URL(
+      protocolRelative ? `https:${raw}` : raw,
+      relative ? 'https://local.invalid/' : undefined
+    );
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '[disallowed-url]';
+    const pathSummary = parsed.pathname || '/';
+    if (relative) return sanitizeMainLogString(pathSummary, 1024);
+    if (protocolRelative) return sanitizeMainLogString(`//${parsed.host}${pathSummary}`, 1024);
+    return sanitizeMainLogString(`${parsed.origin}${pathSummary}`, 1024);
+  } catch (_) {
+    return '[invalid-url]';
+  }
+}
+
+const { app, BrowserWindow, Menu, dialog, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { migrateLegacyUserData } = require('./scripts/user-data-migration');
 
 // 显式固定 userData 目录，使开发模式与打包 exe 路径完全一致，防止 productName 变更导致路径漂移
-const USERDATA_DIR = path.join(app.getPath('appData'), 'localminidrama-desktop');
+const APP_DATA_DIR = app.getPath('appData');
+const USERDATA_DIR = process.env.LOCALMINIDRAMA_USER_DATA_DIR
+  ? path.resolve(process.env.LOCALMINIDRAMA_USER_DATA_DIR)
+  : path.join(APP_DATA_DIR, 'localminidrama-desktop');
+const LEGACY_USERDATA_DIR = process.env.LOCALMINIDRAMA_USER_DATA_DIR &&
+  process.env.LOCALMINIDRAMA_LEGACY_USER_DATA_DIR
+  ? path.resolve(process.env.LOCALMINIDRAMA_LEGACY_USER_DATA_DIR)
+  : undefined;
+
+// This must run before any logger or Electron API can create the new userData directory.
+const legacyUserDataMigration = migrateLegacyUserData({
+  appDataDir: APP_DATA_DIR,
+  userDataDir: USERDATA_DIR,
+  legacyUserDataDir: LEGACY_USERDATA_DIR,
+});
 app.setPath('userData', USERDATA_DIR);
 
 const MAIN_STARTUP_LOG = path.join(USERDATA_DIR, 'main-startup.log');
 function writeMainLog(msg) {
-  const line = `${new Date().toISOString()} ${msg}\n`;
+  const line = `${new Date().toISOString()} ${sanitizeMainLogString(msg)}\n`;
   try {
     if (!fs.existsSync(USERDATA_DIR)) fs.mkdirSync(USERDATA_DIR, { recursive: true });
     fs.appendFileSync(MAIN_STARTUP_LOG, line);
   } catch (_) {}
 }
+
+let mainWindow = null;
+const { acquireSingleInstanceLock } = require('./scripts/single-instance');
+const hasSingleInstanceLock = acquireSingleInstanceLock(app, () => mainWindow, writeMainLog);
 
 process.on('uncaughtException', (err) => {
   writeMainLog(`uncaughtException: ${err && err.stack ? err.stack : err}`);
@@ -23,25 +133,44 @@ process.on('unhandledRejection', (reason) => {
   writeMainLog(`unhandledRejection: ${text}`);
 });
 
-writeMainLog(`main.js loaded packaged=${app.isPackaged} exec=${process.execPath}`);
+writeMainLog(
+  `main.js loaded pid=${process.pid} primary=${hasSingleInstanceLock} packaged=${app.isPackaged} ` +
+  `appData=${APP_DATA_DIR} userData=${USERDATA_DIR} migration=${legacyUserDataMigration.reason} ` +
+  `exec=${process.execPath}`
+);
+if (legacyUserDataMigration.migrated) {
+  writeMainLog(
+    `migrated legacy userData directory source=${legacyUserDataMigration.source} ` +
+    `destination=${legacyUserDataMigration.destination}`
+  );
+} else if (legacyUserDataMigration.reason === 'rename-failed') {
+  writeMainLog(
+    `legacy userData migration failed source=${legacyUserDataMigration.source} ` +
+    `destination=${legacyUserDataMigration.destination} error=${legacyUserDataMigration.error.message}`
+  );
+}
 
-// 兼容迁移：若旧路径 LocalMiniDrama 有数据而新路径为空，自动迁移
-;(function migrateOldUserData() {
-  const oldPath = path.join(app.getPath('appData'), 'LocalMiniDrama');
-  if (fs.existsSync(oldPath) && !fs.existsSync(USERDATA_DIR)) {
-    try {
-      fs.renameSync(oldPath, USERDATA_DIR);
-    } catch (e) {
-      // rename 跨驱动器时会失败，此时静默忽略，用户数据仍可手动迁移
-    }
-  }
-})();
+const {
+  isAllowedExternalUrl,
+  isAllowedRendererPermission,
+  isTrustedAppUrl,
+} = require('./scripts/url-security');
+const { createShutdownController } = require('./scripts/shutdown-controller');
+const {
+  createRendererRecoveryController,
+  getInitialWindowBounds,
+} = require('./scripts/window-shell');
+
+const shutdownController = hasSingleInstanceLock
+  ? createShutdownController({ app, log: writeMainLog })
+  : null;
+if (shutdownController) {
+  app.on('before-quit', (event) => shutdownController.handleBeforeQuit(event));
+}
 
 const BACKEND_APP_PATH = path.join(__dirname, 'backend-app');
 const BACKEND_NODE_PATH = path.join(__dirname, '..', 'backend-node');
 const DEFAULT_PORT = 5679;
-
-let serverInstance = null;
 
 /** 开发模式用 backend-node（改代码即生效）；打包后用 backend-app */
 function getBackendModulePath() {
@@ -93,7 +222,10 @@ function ensureBackendCwd(backendCwd) {
         fs.writeFileSync(configPath, yaml.dump(userCfg, { lineWidth: -1 }), 'utf8');
       }
     } catch (e) {
-      console.warn('[config] Failed to sync vendor_lock from bundled config:', e.message);
+      console.warn(
+        '[config] Failed to sync vendor_lock from bundled config:',
+        sanitizeMainLogString(e.message)
+      );
     }
   }
 }
@@ -110,39 +242,32 @@ function ensureFfmpeg(backendCwd) {
   const ffprobeName = isWin ? 'ffprobe.exe' : 'ffprobe';
 
   const destDir = path.join(backendCwd, 'tools', 'ffmpeg');
-  const destFfmpeg = path.join(destDir, ffmpegName);
-
-  // 已存在则跳过（支持用户手动替换）
-  if (fs.existsSync(destFfmpeg)) {
-    console.log('[ffmpeg] Already exists at', destFfmpeg);
-    return;
-  }
-
   const srcDir = path.join(process.resourcesPath, 'ffmpeg');
-  const srcFfmpeg = path.join(srcDir, ffmpegName);
-  if (!fs.existsSync(srcFfmpeg)) {
-    console.warn(
-      '[ffmpeg] Bundled ffmpeg not found, skipping auto-extract. Expected:',
-      srcFfmpeg,
-      '(打包前请将 ffmpeg.exe 放入 backend-node/tools/ffmpeg，并确保 package.json 的 extraResources 包含该目录)'
-    );
-    return;
-  }
 
-  try {
-    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-    fs.copyFileSync(srcFfmpeg, destFfmpeg);
-    if (!isWin) fs.chmodSync(destFfmpeg, 0o755);
-
-    const srcFfprobe = path.join(srcDir, ffprobeName);
-    if (fs.existsSync(srcFfprobe)) {
-      const destFfprobe = path.join(destDir, ffprobeName);
-      fs.copyFileSync(srcFfprobe, destFfprobe);
-      if (!isWin) fs.chmodSync(destFfprobe, 0o755);
+  for (const name of [ffmpegName, ffprobeName]) {
+    const destination = path.join(destDir, name);
+    if (fs.existsSync(destination)) {
+      console.log(`[ffmpeg] ${name} already exists at`, destination);
+      continue;
     }
-    console.log('[ffmpeg] Auto-extracted to', destDir);
-  } catch (e) {
-    console.warn('[ffmpeg] Auto-extract failed:', e.message);
+
+    const source = path.join(srcDir, name);
+    if (!fs.existsSync(source)) {
+      console.warn(`[ffmpeg] Bundled ${name} not found. Expected:`, source);
+      continue;
+    }
+
+    try {
+      if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+      fs.copyFileSync(source, destination);
+      if (!isWin) fs.chmodSync(destination, 0o755);
+      console.log(`[ffmpeg] Auto-extracted ${name} to`, destination);
+    } catch (e) {
+      console.warn(
+        `[ffmpeg] Failed to auto-extract ${name}:`,
+        sanitizeMainLogString(e.message)
+      );
+    }
   }
 }
 
@@ -177,15 +302,128 @@ function findFreePort(preferredPort) {
 
 function createWindow(port) {
   Menu.setApplicationMenu(null);
+  const initialBounds = getInitialWindowBounds(screen.getPrimaryDisplay());
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    webPreferences: { nodeIntegration: false, contextIsolation: true },
+    ...initialBounds,
+    minWidth: Math.min(1024, initialBounds.width),
+    minHeight: Math.min(640, initialBounds.height),
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
+    },
     show: false,
   });
+  mainWindow = win;
+  const recoveryController = createRendererRecoveryController({
+    dialog,
+    getWindow: () => mainWindow === win ? mainWindow : null,
+    log: writeMainLog,
+    reloadWindow: ({ trigger }) => {
+      if (win.isDestroyed()) return null;
+      if (win.isMinimized()) win.restore();
+      if (!win.isVisible()) win.show();
+      writeMainLog(`renderer recovery reload requested trigger=${trigger}`);
+      win.focus();
+      win.webContents.reloadIgnoringCache();
+      return null;
+    },
+    requestQuit: ({ trigger }) => {
+      writeMainLog(`renderer recovery quit requested trigger=${trigger}`);
+      return shutdownController.requestShutdown(`renderer-recovery-${trigger}`, 1);
+    },
+  });
+
+  let rendererLoaded = false;
+  let windowReady = false;
+  let readinessLogged = false;
+  const reportWindowRendererReady = () => {
+    if (readinessLogged || !rendererLoaded || !windowReady) return;
+    readinessLogged = true;
+    writeMainLog('window-renderer ready');
+  };
+
+  const openExternal = (url) => {
+    if (!isAllowedExternalUrl(url)) return;
+    shell.openExternal(url).catch((err) => {
+      const errorTypeCandidate = String(err && (err.code || err.name) || 'unknown');
+      const errorType = /^[A-Za-z0-9_.-]{1,64}$/.test(errorTypeCandidate)
+        ? errorTypeCandidate
+        : 'unknown';
+      writeMainLog(`openExternal failed target=${summarizeExternalUrl(url)} error=${errorType}`);
+    });
+  };
+  const guardNavigation = (event, url) => {
+    if (isTrustedAppUrl(url, port)) return;
+    event.preventDefault();
+    openExternal(url);
+  };
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', guardNavigation);
+  win.webContents.on('will-redirect', guardNavigation);
+  win.webContents.on('will-attach-webview', (event) => event.preventDefault());
+
+  const appSession = win.webContents.session;
+  const canUsePermission = (webContents, permission, url, details) =>
+    webContents === win.webContents &&
+    isAllowedRendererPermission(permission, url, port, details && details.isMainFrame);
+  appSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    callback(canUsePermission(webContents, permission, details.requestingUrl, details));
+  });
+  appSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) =>
+    canUsePermission(
+      webContents,
+      permission,
+      details.requestingUrl || requestingOrigin,
+      details
+    )
+  );
+  if (typeof appSession.setDevicePermissionHandler === 'function') {
+    appSession.setDevicePermissionHandler(() => false);
+  }
+
+  win.webContents.on('did-finish-load', () => {
+    rendererLoaded = true;
+    reportWindowRendererReady();
+  });
+  win.webContents.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
+    const mainFrame = isMainFrame !== false;
+    writeMainLog(`did-fail-load code=${code} mainFrame=${mainFrame}`);
+    if (!mainFrame || code === -3) return;
+    recoveryController.handleFailure('did-fail-load', `加载失败（${code}）：${description || 'unknown'}`);
+  });
+  win.webContents.on('render-process-gone', (_event, details) => {
+    const reason = details && details.reason ? details.reason : 'unknown';
+    const exitCode = details && Number.isInteger(details.exitCode) ? details.exitCode : 'unknown';
+    writeMainLog(`renderer error render-process-gone reason=${reason} exitCode=${exitCode}`);
+    recoveryController.handleFailure(
+      'render-process-gone',
+      `渲染进程已退出（${reason}，exitCode=${exitCode}）。`
+    );
+  });
+  win.webContents.on('console-message', (_event, detailsOrLevel) => {
+    const level = detailsOrLevel && typeof detailsOrLevel === 'object'
+      ? detailsOrLevel.level
+      : detailsOrLevel;
+    if (level === 'error' || level === 3) writeMainLog('renderer error console-message');
+  });
+  win.on('unresponsive', () => {
+    writeMainLog('renderer error unresponsive');
+    recoveryController.handleFailure('unresponsive', '页面长时间无响应。');
+  });
+
   win.once('ready-to-show', () => {
+    windowReady = true;
     win.show();
     writeMainLog('window ready-to-show');
+    reportWindowRendererReady();
   });
   // 若页面长期不触发 ready-to-show，避免用户误以为“点了没反应”
   setTimeout(() => {
@@ -194,12 +432,12 @@ function createWindow(port) {
       writeMainLog('window shown (fallback timeout, check page load)');
     }
   }, 8000);
-  win.webContents.on('did-fail-load', (_e, code, desc, url) => {
-    writeMainLog(`did-fail-load code=${code} desc=${desc} url=${url}`);
-  });
   writeMainLog(`createWindow loadURL http://127.0.0.1:${port}`);
   win.loadURL(`http://127.0.0.1:${port}`);
-  win.on('closed', () => app.quit());
+  win.on('close', (event) => shutdownController.handleWindowClose(event));
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+  });
   if (process.env.LOCALMINIDRAMA_DEVTOOLS === '1') {
     win.webContents.openDevTools();
   }
@@ -212,6 +450,7 @@ async function startBackend() {
   ensureFfmpeg(backendCwd);
   process.env.WEB_DIST_PATH = getWebDistPath();
   if (app.isPackaged) {
+    process.env.NODE_ENV = 'production';
     process.env.LOG_FILE = path.join(backendCwd, 'logs', 'app.log');
     process.env.EXAMPLE_DRAMA_PATH = path.join(process.resourcesPath, 'example_drama');
   } else {
@@ -223,56 +462,65 @@ async function startBackend() {
   try {
     require(path.join(backendModulePath, 'src', 'db', 'migrate.js'));
   } catch (err) {
-    console.warn('Migration warning:', err.message);
+    console.warn('Migration warning:', sanitizeMainLogString(err.message));
   }
 
   const { createApp } = require(path.join(backendModulePath, 'src', 'app.js'));
   const { createServer } = require('http');
-  const { app: expressApp, config } = createApp();
+  const backendResources = createApp();
+  shutdownController.setBackendResources(backendResources);
+  const { app: expressApp, config } = backendResources;
   const preferredPort = config.server?.port || DEFAULT_PORT;
 
-  // 自动探测空闲端口：优先默认端口，被占时由 OS 分配，支持多实例同时运行
+  // 自动探测空闲端口：优先默认端口，被其他应用占用时由 OS 分配。
   const port = await findFreePort(preferredPort);
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} in use, using ${port}`);
   }
+  if (shutdownController.isShutdownRequested()) return null;
 
   return new Promise((resolve, reject) => {
     const server = createServer(expressApp);
-    serverInstance = server;
-    server.on('error', reject);
+    shutdownController.setHttpServer(server);
+    let startupSettled = false;
+    server.on('error', (error) => {
+      if (!startupSettled) {
+        startupSettled = true;
+        reject(error);
+        return;
+      }
+      writeMainLog(`HTTP server error after startup: ${error.stack || error}`);
+      shutdownController.requestShutdown('http-server-error', 1);
+    });
     server.listen(port, '127.0.0.1', () => {
+      if (startupSettled) return;
+      startupSettled = true;
       console.log('Backend listening on', port);
-      resolve(port);
+      resolve(shutdownController.isShutdownRequested() ? null : port);
     });
   });
 }
 
-app.whenReady().then(async () => {
+if (hasSingleInstanceLock) app.whenReady().then(async () => {
   writeMainLog('app.whenReady');
   let port;
   try {
     port = await startBackend();
+    if (port === null || shutdownController.isShutdownRequested()) return;
     writeMainLog(`startBackend ok port=${port}`);
   } catch (err) {
+    if (shutdownController.isShutdownRequested()) return;
     const stack = err && err.stack ? err.stack : String(err);
     writeMainLog(`Failed to start backend\n${stack}`);
-    console.error('Failed to start backend', err);
+    console.error('Failed to start backend', sanitizeMainLogString(stack));
     const { dialog } = require('electron');
     dialog.showErrorBox(
       '本地短剧助手启动失败',
       `后端服务未能启动，请查看日志：\n${MAIN_STARTUP_LOG}\n\n${stack}`
     );
-    app.quit();
+    await shutdownController.requestShutdown('startup-failure', 1);
     return;
   }
   // startBackend 的 Promise 在 listen 回调中 resolve，服务器此时已就绪，直接建窗口
   createWindow(port);
-});
-
-app.on('before-quit', () => {
-  if (serverInstance) {
-    serverInstance.close();
-    serverInstance = null;
-  }
 });

@@ -13,8 +13,14 @@ export const dramaAPI = {
   update(id, data) {
     return request.put(`/dramas/${id}`, data)
   },
-  delete(id) {
+  moveToTrash(id) {
     return request.delete(`/dramas/${id}`)
+  },
+  listTrash(params) {
+    return request.get('/dramas/trash', { params: params || {} })
+  },
+  restore(id) {
+    return request.post(`/dramas/${id}/restore`)
   },
   saveEpisodes(id, episodes) {
     return request.put(`/dramas/${id}/episodes`, { episodes })

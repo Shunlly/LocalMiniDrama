@@ -98,6 +98,7 @@ assertContainsAll(migration24, [
 
 for (const rel of [
   'src/services/sourceIntakeService.js',
+  'src/services/sourceMediaExtractionService.js',
   'src/services/workflowService.js',
   'src/services/qaService.js',
   'src/services/providerSdkService.js',
@@ -107,6 +108,9 @@ for (const rel of [
   'src/routes/workflows.js',
   'src/routes/qaReports.js',
   'test/novel2animeWorkflow.test.js',
+  'test/sourceMediaExtraction.test.js',
+  'test/serverLifecycle.test.js',
+  'test/workflowDrainLifecycle.test.js',
 ]) {
   assert(exists(rel), `missing required file: ${rel}`);
 }
@@ -127,6 +131,7 @@ assert(routesIndex.includes('legacy_import_novel'), 'legacy import-novel route m
 const app = read('src/app.js');
 assert(app.includes('resumeActiveWorkflowRunsOnStartup'), 'app startup must resume active workflow runs');
 assert(app.includes('ensureDefaultSkills'), 'app startup must seed skill registry');
+assert(app.includes('createBackgroundTaskContextMiddleware'), 'API requests must run inside the background task context');
 
 const sourceIntake = read('src/services/sourceIntakeService.js');
 assertContainsAll(sourceIntake, [
@@ -137,8 +142,11 @@ assertContainsAll(sourceIntake, [
 
 const workflow = read('src/services/workflowService.js');
 assertContainsAll(workflow, [
-  'queuedWorkflowRuns',
+  'workflowQueues',
+  'backgroundTasks.assertAccepting()',
+  'backgroundTasks.schedule(',
   'drainWorkflowQueue',
+  'assertNovel2AnimeLaunchReadiness',
   'image_generation',
   'video_generation',
   'audio_generation',
@@ -181,10 +189,24 @@ const storySourcesRoutes = read('src/routes/storySources.js');
 assertContainsAll(storySourcesRoutes, [
   'uploadForDrama',
   'source_intake_upload',
-  'MAX_SOURCE_UPLOAD_BYTES',
-  'Real PDF, image, audio, and video OCR/transcription intake is deferred',
-  'decodeUploadedText',
+  'extractUploadedSource',
+  'sanitizeUploadMetadata',
 ], 'story sources routes');
+
+const sourceMediaExtraction = read('src/services/sourceMediaExtractionService.js');
+assertContainsAll(sourceMediaExtraction, [
+  'MAX_SOURCE_UPLOAD_BYTES',
+  'MAX_EXTRACTED_TEXT_BYTES',
+  'detectMagic',
+  'extractPdf',
+  'ocrImageWithFallback',
+  'transcribeAudio',
+  'extractVideoAndTranscribe',
+  'getFfmpegPath',
+  'createTempDir',
+  'extractUploadedSource',
+], 'source media extraction service');
+assert(!storySourcesRoutes.includes('Real PDF, image, audio, and video OCR/transcription intake is deferred'), 'story source upload must not claim implemented media extraction is deferred');
 
 const timelineService = read('src/services/timelineService.js');
 assertContainsAll(timelineService, [
@@ -202,7 +224,12 @@ assertContainsAll(asyncAudit, [
 ], 'async audit service');
 const legacyScheduler = read('src/services/legacyAsyncSchedulerService.js');
 assertContainsAll(legacyScheduler, [
+  'AsyncLocalStorage',
+  'createHook',
+  'assertAccepting',
+  'runTracked',
   'scheduleLegacyAsync',
+  'shutdownBackgroundTasks',
   'getLegacyAsyncSchedulerState',
 ], 'legacy async scheduler service');
 

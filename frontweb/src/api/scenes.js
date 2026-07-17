@@ -39,5 +39,8 @@ export const sceneAPI = {
   },
   generateFourViewImage(sceneId, model, style) {
     return request.post(`/scenes/${sceneId}/generate-four-view-image`, { model, style })
+  },
+  generatePanorama(sceneId, data = {}) {
+    return request.post(`/scenes/${sceneId}/generate-panorama`, data)
   }
 }

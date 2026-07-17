@@ -1,0 +1,6 @@
+misconfigurations:
+  - id: AVD-DS-0002
+    paths:
+      - Dockerfile
+    statement: The entrypoint starts as root only to repair bind-mounted data ownership, then execs as node via setpriv.
+    expired_at: 2027-07-17

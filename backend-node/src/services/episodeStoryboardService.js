@@ -270,6 +270,11 @@ function getStoryboardsForEpisode(db, episodeId) {
       })(),
       composed_image: r.composed_image,
       video_url: r.video_url,
+      video_local_path: r.video_local_path ?? null,
+      reference_images: (() => {
+        try { return r.reference_images ? JSON.parse(r.reference_images) : []; } catch (_) { return []; }
+      })(),
+      video_reference_image_id: r.video_reference_image_id ?? null,
       audio_local_path: r.audio_local_path ?? null,
       narration_audio_local_path: r.narration_audio_local_path ?? null,
       status: r.status || 'pending',
@@ -1524,7 +1529,7 @@ function updateStoryboardAsSplitSegment(db, sbId, baseRow, plan, now) {
     `UPDATE storyboards SET
       title = ?, duration = ?, dialogue = ?, narration = ?, action = ?, result = ?,
       shot_type = ?, movement = ?, universal_segment_text = NULL,
-      video_prompt = NULL, video_url = NULL, audio_local_path = NULL,
+      video_prompt = NULL, video_url = NULL, video_local_path = NULL, audio_local_path = NULL,
       narration_audio_local_path = NULL, status = 'pending', updated_at = ?
      WHERE id = ? AND deleted_at IS NULL`
   ).run(

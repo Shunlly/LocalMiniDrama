@@ -11,10 +11,16 @@
           processing: isNodeBusy || entityStatus === 'processing',
         },
       ]"
+      role="button"
+      tabindex="0"
+      :aria-label="accessibleLabel"
+      :aria-expanded="showPanel"
+      @keydown.enter.stop.prevent="openPanel"
+      @keydown.space.stop.prevent="openPanel"
     >
       <Handle type="source" :position="Position.Right" />
       <div class="cover">
-        <img v-if="thumbUrl && !isNodeBusy" :src="thumbUrl" alt="" />
+        <img v-if="thumbUrl && !isNodeBusy" :src="thumbUrl" :alt="`${displayName}${kindLabel}参考图`" />
         <div v-else-if="!isNodeBusy" class="cover-placeholder">{{ kindIcon }}</div>
         <CanvasNodeStatusOverlay :node-id="id" />
       </div>
@@ -84,6 +90,14 @@ const statusChip = computed(() => {
   if (thumbUrl.value) return { key: 'ready', label: '有图' }
   return null
 })
+
+const accessibleLabel = computed(() => (
+  `${kindLabel.value}${displayName.value}，${statusChip.value?.label || '暂无图片'}，按 Enter 或空格展开`
+))
+
+function openPanel() {
+  ctx?.setFocusedNode?.(props.id)
+}
 </script>
 
 <style scoped>
@@ -153,6 +167,10 @@ const statusChip = computed(() => {
   border-radius: 4px;
   background: var(--canvas-chip-surface, rgba(255, 255, 255, 0.08));
   color: var(--canvas-text-muted, #a1a1aa);
+}
+.canvas-asset-node:focus-visible {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 3px;
 }
 .status-chip.st-busy,
 .status-chip.st-processing { color: var(--canvas-info-text, #60a5fa); background: rgba(96, 165, 250, 0.15); }

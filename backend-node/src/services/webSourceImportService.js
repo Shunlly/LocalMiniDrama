@@ -1,5 +1,6 @@
 const dns = require('dns').promises;
 const net = require('net');
+const uploadService = require('./uploadService');
 
 const MAX_WEB_SOURCE_BYTES = 2 * 1024 * 1024;
 const MAX_WEB_SOURCE_TEXT_CHARS = 200000;
@@ -77,16 +78,13 @@ function parseHttpUrl(rawUrl) {
 }
 
 async function assertPublicHttpUrl(rawUrl, resolver = dns.lookup) {
-  const parsed = parseHttpUrl(rawUrl);
-  if (!net.isIP(parsed.hostname)) {
-    const addresses = await resolver(parsed.hostname, { all: true, verbatim: false });
-    const list = Array.isArray(addresses) ? addresses : [addresses];
-    if (!list.length) throw badRequest('网页 URL 无法解析');
-    if (list.some((item) => !item?.address || isPrivateAddress(item.address))) {
-      throw badRequest('不允许导入解析到内网、回环或链路本地地址的 URL');
-    }
+  try {
+    const validated = await uploadService.validatePublicHttpUrl(rawUrl, { lookup: resolver });
+    validated.parsed.hash = '';
+    return validated.parsed;
+  } catch (error) {
+    throw badRequest(error?.message || '网页 URL 不安全');
   }
-  return parsed;
 }
 
 function decodeHtmlEntities(text) {
@@ -170,74 +168,30 @@ function extractTextFromWebPayload(raw, contentType = '') {
   };
 }
 
-async function readResponseTextLimited(res, limitBytes = MAX_WEB_SOURCE_BYTES) {
-  const reader = res.body?.getReader?.();
-  if (!reader) {
-    const text = await res.text();
-    if (Buffer.byteLength(text, 'utf8') > limitBytes) throw badRequest('网页内容超过导入大小限制');
-    return text;
-  }
-
-  const chunks = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > limitBytes) {
-      try { await reader.cancel(); } catch (_) {}
-      throw badRequest('网页内容超过导入大小限制');
-    }
-    chunks.push(Buffer.from(value));
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
-
-async function fetchWithTimeout(url, fetchImpl, options = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), WEB_SOURCE_TIMEOUT_MS);
-  try {
-    return await fetchImpl(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function fetchWebSource(rawUrl, opts = {}) {
-  const fetchImpl = opts.fetchImpl || global.fetch;
-  if (typeof fetchImpl !== 'function') throw new Error('fetch is not available in this Node runtime');
   const resolver = opts.resolver || dns.lookup;
-  let parsed = await assertPublicHttpUrl(rawUrl, resolver);
-
-  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
-    const res = await fetchWithTimeout(parsed.toString(), fetchImpl, {
-      redirect: 'manual',
-      headers: {
-        Accept: 'text/html,text/plain,application/json;q=0.8,*/*;q=0.2',
-        'User-Agent': 'LocalMiniDrama-SourceIntake/1.0',
-      },
+  const downloadImpl = opts.downloadImpl || uploadService.downloadBufferViaNodeHttp;
+  let downloaded;
+  try {
+    downloaded = await downloadImpl(rawUrl, opts.timeoutMs || WEB_SOURCE_TIMEOUT_MS, 0, {
+      lookup: resolver,
+      maxBytes: opts.maxBytes || MAX_WEB_SOURCE_BYTES,
+      maxRedirects: MAX_REDIRECTS,
+      accept: 'text/html,text/plain,application/json;q=0.8,*/*;q=0.2',
     });
-    if ([301, 302, 303, 307, 308].includes(res.status)) {
-      const location = res.headers.get('location');
-      if (!location) throw badRequest('网页重定向缺少目标地址');
-      parsed = await assertPublicHttpUrl(new URL(location, parsed).toString(), resolver);
-      continue;
-    }
-    if (!res.ok) throw badRequest(`网页请求失败：HTTP ${res.status}`);
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType && !/(text\/|html|json|xml|csv|markdown)/i.test(contentType)) {
-      throw badRequest('网页素材目前只支持文本或 HTML 内容');
-    }
-    const raw = await readResponseTextLimited(res, opts.maxBytes || MAX_WEB_SOURCE_BYTES);
-    const extracted = extractTextFromWebPayload(raw, contentType);
-    return {
-      url: parsed.toString(),
-      content_type: contentType,
-      ...extracted,
-    };
+  } catch (error) {
+    throw badRequest(`网页请求失败：${error?.message || '网络错误'}`);
   }
-
-  throw badRequest('网页重定向次数过多');
+  const contentType = downloaded.contentType || '';
+  if (contentType && !/(text\/|html|json|xml|csv|markdown)/i.test(contentType)) {
+    throw badRequest('网页素材目前只支持文本或 HTML 内容');
+  }
+  const extracted = extractTextFromWebPayload(downloaded.buffer.toString('utf8'), contentType);
+  return {
+    url: downloaded.finalUrl,
+    content_type: contentType,
+    ...extracted,
+  };
 }
 
 module.exports = {

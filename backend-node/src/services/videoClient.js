@@ -1,9 +1,12 @@
 // ? Go pkg/video + VideoGenerationService ????????? API??????(????)
 const fs = require('fs');
 const path = require('path');
+const { AsyncLocalStorage } = require('async_hooks');
 const aiConfigService = require('./aiConfigService');
 let sharp; try { sharp = require('sharp'); } catch (_) { sharp = null; }
-const { uploadLocalImageToProxy, uploadToImageProxy } = require('./uploadService');
+const uploadService = require('./uploadService');
+const { uploadLocalImageToProxy, uploadToImageProxy } = uploadService;
+const VIDEO_REFERENCE_MAX_BYTES = 25 * 1024 * 1024;
 const imageClient = require('./imageClient');
 const {
   clampToGeminiImageAspectRatio,
@@ -17,6 +20,48 @@ const {
   unsafeDecodeKlingJwtPayload,
   jwtPartLengths,
 } = require('./klingJwt');
+const {
+  fetchVideoWithTimeout: runtimeFetchVideoWithTimeout,
+  resolveVideoTimeoutMs,
+} = require('./videoGateway/providerRuntime');
+const {
+  createSafeProviderLogger,
+  providerFailure,
+  sanitizeLogValue,
+  sanitizeProviderException,
+  sanitizeProviderResult,
+  summarizeProviderResponse,
+} = require('./providerErrorSanitizer');
+
+const createSafeVideoLogger = createSafeProviderLogger;
+
+const videoRequestContext = new AsyncLocalStorage();
+
+function normalizeIdempotencyKey(value) {
+  return String(value || '').trim().slice(0, 200);
+}
+
+function fetchVideoWithTimeout(url, options = {}, timeoutMs, networkOptions) {
+  const requestContext = videoRequestContext.getStore();
+  const idempotencyKey = normalizeIdempotencyKey(requestContext?.idempotencyKey);
+  const headers = idempotencyKey
+    ? { ...(options.headers || {}), 'Idempotency-Key': idempotencyKey }
+    : options.headers;
+  return runtimeFetchVideoWithTimeout(
+    url,
+    { ...options, headers, redirect: 'error' },
+    timeoutMs,
+    networkOptions || requestContext?.networkOptions || {}
+  );
+}
+
+function videoProviderFailure(provider, operation, status, responseBody, code) {
+  return providerFailure({ provider, operation, status, responseBody, code });
+}
+
+function videoProviderException(error, provider, operation) {
+  return sanitizeProviderException(error, { provider, operation });
+}
 
 /**
  * ?? provider ??????????api_protocol ??????????
@@ -48,7 +93,7 @@ function resolveVideoProtocol(config, modelHint) {
   if (!explicit && protocol === 'openai') {
     if (/api\.x\.ai(\/|$)/.test(baseLower)) protocol = 'xai';
     else if (/grok-imagine|grok.*video/.test(modelLower)) protocol = 'xai';
-    else if (p === 'agnes' || /agnes-video|apihub\.agnes-ai\.com/i.test(baseLower)) protocol = 'agnes';
+    else if (provider === 'agnes' || /agnes-video|apihub\.agnes-ai\.com/i.test(baseLower)) protocol = 'agnes';
   }
   return protocol;
 }
@@ -154,7 +199,6 @@ function logKlingOmniAuthDebug(cfg, bearerToken, log) {
       mode: 'official_jwt',
       secret_key_hmac_input: resolveKlingSecretKeyBase64Flag(cfg) ? 'base64_decoded_bytes' : 'utf8_string',
       access_key_len: ak.length,
-      access_key_hint: ak.length <= 8 ? '****' : `${ak.slice(0, 4)}...${ak.slice(-4)}`,
       secret_key_len: sk.length,
       jwt_parts_b64url_len: lens,
       jwt_payload_decoded: payload
@@ -295,24 +339,14 @@ function resolveImageInputForOmniLocalBase64(rawUrl, files_base_url, storage_loc
   const raw = (rawUrl || '').trim();
   if (!raw) return null;
   if (raw.startsWith('data:')) return raw;
-  if (/localhost|127\.0\.0\.1/i.test(raw) && storage_local_path) {
-    const baseUrl = (files_base_url || '').replace(/\/$/, '');
-    const afterStatic = raw.split('/static/')[1] || (baseUrl ? raw.replace(baseUrl + '/', '').replace(baseUrl, '') : null);
-    const relPath = afterStatic ? afterStatic.replace(/^\//, '') : null;
-    if (relPath) {
-      const filePath = path.join(storage_local_path, relPath);
-      try {
-        if (fs.existsSync(filePath)) {
-          const buf = fs.readFileSync(filePath);
-          const ext = path.extname(filePath).toLowerCase();
-          const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' }[ext] || 'image/jpeg';
-          log.info('[KlingOmni] 图床失败兜底 → base64', { file: filePath, video_gen_id });
-          return 'data:' + mime + ';base64,' + buf.toString('base64');
-        }
-      } catch (e) {
-        log.warn('[KlingOmni] 读本地图失败', { error: e.message, video_gen_id });
-      }
+  try {
+    const local = loadStorageImage(raw, storage_local_path);
+    if (local) {
+      log.info('[KlingOmni] 图床失败后使用 storage 图片 base64', { file: local.relativePath, video_gen_id });
+      return `data:${local.mimeType};base64,${local.buffer.toString('base64')}`;
     }
+  } catch (e) {
+    log.warn('[KlingOmni] 读取 storage 图片失败', { error: e.message, video_gen_id });
   }
   return raw;
 }
@@ -326,7 +360,7 @@ async function resolveImageInputForOmniAsync(rawUrl, files_base_url, storage_loc
   if (raw.startsWith('data:')) return raw;
 
   const isPublicHttp = /^https?:\/\//i.test(raw) && !/localhost|127\.0\.0\.1/i.test(raw);
-  if (isPublicHttp) return raw;
+  if (isPublicHttp) return (await uploadService.validatePublicHttpUrl(raw)).url;
 
   if (storage_local_path) {
     const tag = `kling_omni_vg${video_gen_id}_${index}`;
@@ -360,7 +394,7 @@ async function resolveVolcOmniImageAsync(rawUrl, files_base_url, storage_local_p
   if (raw.startsWith('data:')) return raw;
 
   const isPublicHttp = /^https?:\/\//i.test(raw) && !/localhost|127\.0\.0\.1/i.test(raw);
-  if (isPublicHttp) return raw;
+  if (isPublicHttp) return (await uploadService.validatePublicHttpUrl(raw)).url;
 
   if (storage_local_path && !useImageProxyForVideo()) {
     const b64 = resolveVolcClassicImage(raw, files_base_url, storage_local_path, log, video_gen_id, `ref_${index}`);
@@ -416,7 +450,7 @@ async function resolveImageInputForAgnesAsync(db, rawUrl, files_base_url, storag
   const raw = (rawUrl || '').trim();
   if (!raw) return null;
 
-  if (isPublicHttpUrl(raw)) return raw;
+  if (isPublicHttpUrl(raw)) return (await uploadService.validatePublicHttpUrl(raw)).url;
 
   const publicFromBase = publicUrlFromLocalRef(raw, files_base_url);
   if (publicFromBase) {
@@ -466,7 +500,12 @@ async function resolveImageInputForAgnesAsync(db, rawUrl, files_base_url, storag
     }
   }
 
-  log.warn('[Agnes] 参考图无法转为公网 URL', { video_gen_id, index, raw_head: raw.slice(0, 80) });
+  log.warn('[Agnes] 参考图无法转为公网 URL', {
+    video_gen_id,
+    index,
+    reference_type: raw.startsWith('data:') ? 'data' : /^https?:\/\//i.test(raw) ? 'url' : 'local',
+    reference_length: raw.length,
+  });
   return null;
 }
 
@@ -563,7 +602,7 @@ async function callVolcengineOmniVideoApi(config, log, opts) {
         const afterStatic = u.split('/static/')[1] || (baseUrl ? u.replace(baseUrl + '/', '').replace(baseUrl, '') : null);
         const relPath = afterStatic ? afterStatic.replace(/^\//, '') : null;
         if (relPath) {
-          const filePath = path.join(storage_local_path, relPath);
+          const filePath = uploadService.resolveStorageReference(storage_local_path, relPath).absolutePath;
           try {
             if (fs.existsSync(filePath)) {
               const buf = fs.readFileSync(filePath);
@@ -592,13 +631,24 @@ async function callVolcengineOmniVideoApi(config, log, opts) {
   if (isSeedance2 && opts.voice_reference_url) {
     let voiceUrl = String(opts.voice_reference_url).trim();
     if (voiceUrl) {
+      const localVoice = loadStorageFile(voiceUrl, storage_local_path, uploadService.DEFAULT_REMOTE_MEDIA_MAX_BYTES);
+      if (localVoice) {
+        const mime = {
+          '.mp3': 'audio/mpeg',
+          '.wav': 'audio/wav',
+          '.m4a': 'audio/mp4',
+          '.ogg': 'audio/ogg',
+        }[localVoice.extension];
+        if (!mime) throw new uploadService.UnsafeMediaReferenceError('Local reference audio type is not supported.');
+        voiceUrl = `data:${mime};base64,${localVoice.buffer.toString('base64')}`;
+      }
       // 复用图片的本地文件转 base64 逻辑
       if (/localhost|127\.0\.0\.1/i.test(voiceUrl) && storage_local_path && (files_base_url || '').match(/localhost|127\.0\.0\.1/i)) {
         const baseUrl = (files_base_url || '').replace(/\/$/, '');
         const afterStatic = voiceUrl.split('/static/')[1] || (baseUrl ? voiceUrl.replace(baseUrl + '/', '').replace(baseUrl, '') : null);
         const relPath = afterStatic ? afterStatic.replace(/^\//, '') : null;
         if (relPath) {
-          const filePath = path.join(storage_local_path, relPath);
+          const filePath = uploadService.resolveStorageReference(storage_local_path, relPath).absolutePath;
           try {
             if (fs.existsSync(filePath)) {
               const buf = fs.readFileSync(filePath);
@@ -625,15 +675,15 @@ async function callVolcengineOmniVideoApi(config, log, opts) {
     const contentSummary = body.content.map((part, idx) => {
       const t = part.type || 'unknown';
       const role = part.role || null;
-      let preview = '';
+      let valueLength = 0;
       if (t === 'text' && part.text) {
-        preview = String(part.text).slice(0, 80);
+        valueLength = String(part.text).length;
       } else if (part.image_url?.url) {
-        preview = String(part.image_url.url).slice(0, 80);
+        valueLength = String(part.image_url.url).length;
       } else if (part.audio_url?.url) {
-        preview = String(part.audio_url.url).slice(0, 80);
+        valueLength = String(part.audio_url.url).length;
       }
-      return { idx, type: t, role, preview };
+      return { idx, type: t, role, value_length: valueLength };
     });
 
     const hasAudioRef = body.content.some(p => p.role === 'reference_audio' || p.type === 'audio_url');
@@ -667,7 +717,7 @@ async function callVolcengineOmniVideoApi(config, log, opts) {
     has_voice_ref: !!voice_reference_url,
   });
 
-  const res = await fetch(url, {
+  const res = await fetchVideoWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -676,25 +726,21 @@ async function callVolcengineOmniVideoApi(config, log, opts) {
     body: JSON.stringify(body),
   });
   const raw = await res.text();
-  log.info('[VolcOmni] 创建响应', { video_gen_id, status: res.status, raw: raw.slice(0, 1000) });
+  log.info('[VolcOmni] 创建响应', {
+    video_gen_id,
+    status: res.status,
+    ...summarizeProviderResponse(raw),
+  });
 
   if (!res.ok) {
-    let errMsg = '火山 Seedance 全能创建失败: ' + res.status;
-    try {
-      const errJson = JSON.parse(raw);
-      const msg = errJson.error?.message || errJson.message || errJson.error;
-      if (msg) errMsg += ' - ' + String(msg).slice(0, 300);
-    } catch (_) {
-      if (raw) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    return { error: errMsg };
+    return videoProviderFailure('VolcOmni', 'video request', res.status, raw);
   }
 
   let data;
   try {
     data = JSON.parse(raw);
   } catch (e) {
-    return { error: '火山 Seedance 全能响应非 JSON: ' + raw.slice(0, 200) };
+    return videoProviderFailure('VolcOmni', 'video response', res.status, raw);
   }
 
   const taskId = data.id || data.task_id || (data.data && data.data.id);
@@ -708,7 +754,7 @@ async function callVolcengineOmniVideoApi(config, log, opts) {
     log.info('[VolcOmni] 返回 task_id', { video_gen_id, task_id: taskId, status });
     return { task_id: taskId, status: status || 'processing' };
   }
-  return { error: '火山 Seedance 全能未返回 task_id 或 video_url: ' + JSON.stringify(data).slice(0, 300) };
+  return videoProviderFailure('VolcOmni', 'video response', res.status, data);
 }
 
 /**
@@ -816,20 +862,19 @@ async function callKlingOmniVideoApi(config, log, opts) {
     image_count: image_list.length,
   });
 
-  const res = await fetch(createUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+  const res = await fetchVideoWithTimeout(createUrl, { method: 'POST', headers, body: JSON.stringify(body) });
   const raw = await res.text();
-  log.info('[KlingOmni] 创建响应', { video_gen_id, status: res.status, raw: raw.slice(0, 800) });
+  log.info('[KlingOmni] 创建响应', {
+    video_gen_id,
+    status: res.status,
+    ...summarizeProviderResponse(raw),
+  });
 
   if (!res.ok) {
-    let errMsg = 'Kling Omni 创建失败: ' + res.status;
     let errJson;
     try {
       errJson = JSON.parse(raw);
-      const msg = errJson.message || errJson.msg || errJson.error?.message || errJson.error;
-      if (msg) errMsg += ' - ' + String(msg).slice(0, 300);
-    } catch (_) {
-      if (raw) errMsg += ' - ' + raw.slice(0, 200);
-    }
+    } catch (_) {}
     if (res.status === 401) {
       log.warn('[KlingOmni] 401 排查', {
         video_gen_id,
@@ -840,18 +885,18 @@ async function callKlingOmniVideoApi(config, log, opts) {
           '若用官方 AK/SK：确认未与 Secret 对调；在 AI 配置中尝试勾选「SecretKey 为 Base64」；Base URL 区域（北京/新加坡）须与密钥一致',
       });
     }
-    return { error: errMsg };
+    return videoProviderFailure('KlingOmni', 'video request', res.status, raw, errJson?.code);
   }
 
   let data;
   try {
     data = JSON.parse(raw);
   } catch (e) {
-    return { error: 'Kling Omni 响应非 JSON: ' + raw.slice(0, 200) };
+    return videoProviderFailure('KlingOmni', 'video response', res.status, raw);
   }
 
   if (data.code !== undefined && Number(data.code) !== 0) {
-    return { error: `Kling Omni 错误(${data.code}): ${data.message || data.msg || 'unknown'}` };
+    return videoProviderFailure('KlingOmni', 'video request', res.status, data, data.code);
   }
 
   const directUrl = pickProxyVideoUrl(data);
@@ -865,7 +910,7 @@ async function callKlingOmniVideoApi(config, log, opts) {
     data?.data?.task?.id ||
     data?.result?.task_id;
   if (!taskId) {
-    return { error: 'Kling Omni 未返回 task_id: ' + raw.slice(0, 300) };
+    return videoProviderFailure('KlingOmni', 'video response', res.status, data);
   }
 
   const encoded = 'omni:' + String(taskId);
@@ -891,15 +936,27 @@ function parseKlingOmniPollVideoUrl(data) {
 }
 
 // ??????????????????listConfigs ?? is_default DESC, priority DESC ??
-function getDefaultVideoConfig(db, preferredModel) {
+function getDefaultVideoConfig(db, preferredModel, preferredProvider) {
   const configs = aiConfigService.listConfigs(db, 'video');
-  const active = configs.filter((c) => c.is_active);
+  let active = configs.filter((c) => c.is_active);
   if (active.length === 0) return null;
+  if (preferredProvider && String(preferredProvider).trim()) {
+    const wanted = String(preferredProvider).trim().toLowerCase();
+    const matchingProvider = active.filter((config) => (
+      String(config.provider || '').trim().toLowerCase() === wanted
+    ));
+    if (matchingProvider.length === 0) return null;
+    active = matchingProvider;
+  }
   if (preferredModel) {
     for (const c of active) {
-      const models = Array.isArray(c.model) ? c.model : (c.model != null ? [c.model] : []);
+      const models = [
+        ...(Array.isArray(c.model) ? c.model : (c.model != null ? [c.model] : [])),
+        c.default_model,
+      ].filter(Boolean);
       if (models.includes(preferredModel)) return c;
     }
+    return null;
   }
   const defaultOne = active.find((c) => c.is_default);
   return defaultOne != null ? defaultOne : active[0];
@@ -1258,27 +1315,11 @@ async function callKlingVideoApi(config, log, opts) {
   if (rawImgUrl) {
     if (rawImgUrl.startsWith('data:')) {
       imageInput = rawImgUrl;
-    } else if (/localhost|127\.0\.0\.1/i.test(rawImgUrl) && storage_local_path) {
-      const baseUrl = (files_base_url || '').replace(/\/$/, '');
-      const afterStatic = rawImgUrl.split('/static/')[1] || (baseUrl ? rawImgUrl.replace(baseUrl + '/', '').replace(baseUrl, '') : null);
-      const relPath = afterStatic ? afterStatic.replace(/^\//, '') : null;
-      if (relPath) {
-        const filePath = require('path').join(storage_local_path, relPath);
-        try {
-          if (require('fs').existsSync(filePath)) {
-            const buf = require('fs').readFileSync(filePath);
-            const ext = require('path').extname(filePath).toLowerCase();
-            const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' }[ext] || 'image/jpeg';
-            imageInput = 'data:' + mime + ';base64,' + buf.toString('base64');
-            log.info('[Kling视频] 本地图片 → base64', { file: filePath, size_kb: Math.round(buf.length / 1024), video_gen_id });
-          }
-        } catch (e) {
-          log.warn('[Kling视频] 读取本地图片失败', { error: e.message, video_gen_id });
-          imageInput = rawImgUrl;
-        }
-      }
     } else {
-      imageInput = rawImgUrl;
+      const local = loadStorageImage(rawImgUrl, storage_local_path);
+      imageInput = local
+        ? `data:${local.mimeType};base64,${local.buffer.toString('base64')}`
+        : rawImgUrl;
     }
   }
 
@@ -1342,29 +1383,25 @@ async function callKlingVideoApi(config, log, opts) {
     ratio,
   });
 
-  const res = await fetch(createUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+  const res = await fetchVideoWithTimeout(createUrl, { method: 'POST', headers, body: JSON.stringify(body) });
   const raw = await res.text();
-  log.info('[Kling视频] 原始响应', { video_gen_id, status: res.status, raw: raw.slice(0, 500) });
+  log.info('[Kling视频] 响应摘要', {
+    video_gen_id,
+    status: res.status,
+    ...summarizeProviderResponse(raw),
+  });
 
   if (!res.ok) {
-    let errMsg = '可灵视频生成请求失败: ' + res.status;
-    try {
-      const errJson = JSON.parse(raw);
-      const msg = errJson.message || errJson.msg || errJson.error?.message || errJson.error;
-      if (msg) errMsg += ' - ' + String(msg).slice(0, 200);
-    } catch (_) {
-      if (raw) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    return { error: errMsg };
+    return videoProviderFailure('Kling', 'video request', res.status, raw);
   }
 
   let data;
   try { data = JSON.parse(raw); } catch (e) {
-    return { error: '可灵视频响应格式异常: ' + raw.slice(0, 200) };
+    return videoProviderFailure('Kling', 'video response', res.status, raw);
   }
 
   if (data.code !== undefined && data.code !== 0) {
-    return { error: `可灵错误(${data.code}): ${data.message || '未知错误'}` };
+    return videoProviderFailure('Kling', 'video request', res.status, data, data.code);
   }
 
   // 同步返回视频 URL（极少见，兜底）
@@ -1376,7 +1413,7 @@ async function callKlingVideoApi(config, log, opts) {
 
   const taskId = data?.data?.task_id;
   if (!taskId) {
-    return { error: '可灵未返回 task_id: ' + raw.slice(0, 200) };
+    return videoProviderFailure('Kling', 'video response', res.status, data);
   }
 
   // 在 task_id 中编码任务类型，轮询时用于还原正确的查询端点
@@ -1427,26 +1464,13 @@ async function callDashScopeVideoApi(config, log, opts) {
   function toImageInput(value) {
     if (!value || !String(value).trim()) return null;
     const s = String(value).trim();
-    let relPath = null;
-    if (s.startsWith('http://') || s.startsWith('https://')) {
-      if (!isLocalhost || !storage_local_path) return s;
-      const afterStatic = s.split('/static/')[1] || (baseUrl ? s.replace(baseUrl + '/', '').replace(baseUrl, '') : null);
-      if (afterStatic) relPath = afterStatic.replace(/^\//, '');
-      else return s;
-    } else if (storage_local_path) {
-      relPath = s.replace(/^\//, '');
-    }
-    if (!relPath) return toPublicUrl(s);
-    const filePath = path.join(storage_local_path, relPath);
     try {
-      if (!fs.existsSync(filePath)) return toPublicUrl(s);
-      const buf = fs.readFileSync(filePath);
-      const ext = path.extname(filePath).toLowerCase();
-      const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.bmp': 'image/bmp' }[ext] || 'image/png';
-      return 'data:' + mime + ';base64,' + buf.toString('base64');
-    } catch (e) {
-      return toPublicUrl(s);
+      const local = loadStorageImage(s, storage_local_path);
+      if (local) return `data:${local.mimeType};base64,${local.buffer.toString('base64')}`;
+    } catch (_) {
+      return null;
     }
+    return /^https?:\/\//i.test(s) ? s : null;
   }
 
   let url;
@@ -1524,7 +1548,7 @@ async function callDashScopeVideoApi(config, log, opts) {
     image_urls: imageUrlsInBody,
   });
   log.info('Video API request (DashScope)', { url: url.slice(0, 70), model, video_gen_id });
-  const res = await fetch(url, {
+  const res = await fetchVideoWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1535,16 +1559,12 @@ async function callDashScopeVideoApi(config, log, opts) {
   });
   const raw = await res.text();
   if (!res.ok) {
-    let errMsg = '????????: ' + res.status;
-    try {
-      const errJson = JSON.parse(raw);
-      if (errJson.message) errMsg += ' - ' + errJson.message;
-      else if (errJson.code) errMsg += ' - ' + errJson.code;
-    } catch (_) {
-      if (raw && raw.length) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    log.error('DashScope video create failed', { status: res.status, body: raw.slice(0, 300), video_gen_id });
-    return { error: errMsg };
+    log.error('DashScope video create failed', {
+      status: res.status,
+      video_gen_id,
+      ...summarizeProviderResponse(raw),
+    });
+    return videoProviderFailure('DashScope', 'video request', res.status, raw);
   }
   let data;
   try {
@@ -1553,7 +1573,7 @@ async function callDashScopeVideoApi(config, log, opts) {
     return { error: '??????????' };
   }
   if (data.code) {
-    return { error: data.message || data.code || '????????' };
+    return videoProviderFailure('DashScope', 'video request', res.status, data, data.code);
   }
   const taskId = data?.output?.task_id;
   if (taskId) return { task_id: taskId, status: 'PENDING' };
@@ -1579,42 +1599,18 @@ async function callGeminiVideoApi(config, log, opts) {
 
   const instance = { prompt: prompt || '' };
 
-  // i2v?????? base64?Gemini ??? localhost URL???????? fetch ?? URL?
+  // Gemini accepts inline image bytes; resolve local and remote references through the shared boundary.
   if (image_url && image_url.trim()) {
-    let imageB64 = null;
-    let mimeType = 'image/jpeg';
-    const imgUrl = image_url.trim();
-    if (imgUrl.startsWith('data:')) {
-      const m = imgUrl.match(/^data:([\w/]+);base64,(.+)$/);
-      if (m) { imageB64 = m[2]; mimeType = m[1]; }
-    } else if ((files_base_url || '').match(/localhost|127\.0\.0\.1/i) && storage_local_path) {
-      const baseUrl = (files_base_url || '').replace(/\/$/, '');
-      const afterStatic = imgUrl.split('/static/')[1] || imgUrl.replace(baseUrl + '/', '').replace(baseUrl, '');
-      const relPath = afterStatic ? afterStatic.replace(/^\//, '') : null;
-      if (relPath) {
-        const filePath = path.join(storage_local_path, relPath);
-        try {
-          if (fs.existsSync(filePath)) {
-            const buf = fs.readFileSync(filePath);
-            const ext = path.extname(filePath).toLowerCase();
-            mimeType = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' }[ext] || 'image/jpeg';
-            imageB64 = buf.toString('base64');
-          }
-        } catch (_) {}
+    try {
+      const image = await loadReferenceImageBuffer(image_url, storage_local_path);
+      if (image) {
+        instance.image = {
+          bytesBase64Encoded: image.buffer.toString('base64'),
+          mimeType: image.mimeType,
+        };
       }
-    } else {
-      try {
-        const imgRes = await fetch(imgUrl, { method: 'GET' });
-        if (imgRes.ok) {
-          const buf = Buffer.from(await imgRes.arrayBuffer());
-          const ct = imgRes.headers.get('content-type') || 'image/jpeg';
-          mimeType = ct.split(';')[0].trim();
-          imageB64 = buf.toString('base64');
-        }
-      } catch (_) {}
-    }
-    if (imageB64) {
-      instance.image = { bytesBase64Encoded: imageB64, mimeType };
+    } catch (error) {
+      log.warn('Gemini reference image rejected', { error: error.message, video_gen_id });
     }
   }
 
@@ -1641,7 +1637,7 @@ async function callGeminiVideoApi(config, log, opts) {
     has_image: !!instance.image,
   });
 
-  const res = await fetch(url, {
+  const res = await fetchVideoWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1651,16 +1647,12 @@ async function callGeminiVideoApi(config, log, opts) {
   });
   const raw = await res.text();
   if (!res.ok) {
-    let errMsg = 'Gemini ????????: ' + res.status;
-    try {
-      const errJson = JSON.parse(raw);
-      const msg = errJson.error?.message || errJson.message;
-      if (msg) errMsg += ' - ' + String(msg).slice(0, 200);
-    } catch (_) {
-      if (raw) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    log.error('Gemini Video API failed', { status: res.status, body: raw.slice(0, 300), video_gen_id });
-    return { error: errMsg };
+    log.error('Gemini Video API failed', {
+      status: res.status,
+      video_gen_id,
+      ...summarizeProviderResponse(raw),
+    });
+    return videoProviderFailure('Gemini', 'video request', res.status, raw);
   }
 
   let data;
@@ -1714,34 +1706,13 @@ function viduLetterboxCanvasPixels(aspectStr) {
  */
 async function loadViduReferenceImageBuffer(rawImgUrl, publicImgUrl, storage_local_path, log, video_gen_id) {
   try {
-    let buf = null;
     const raw = (rawImgUrl || '').trim();
-    if (raw.startsWith('data:image')) {
-      const i = raw.indexOf(',');
-      const b64 = i >= 0 ? raw.slice(i + 1) : '';
-      buf = Buffer.from(b64, 'base64');
-    } else if (/localhost|127\.0\.0\.1/i.test(raw) && storage_local_path) {
-      const afterStatic = raw.split('/static/')[1];
-      if (afterStatic) {
-        const localFile = path.join(storage_local_path, afterStatic.replace(/^\//, ''));
-        if (fs.existsSync(localFile)) buf = fs.readFileSync(localFile);
-      }
-    }
-    if (!buf) {
-      const fetchUrl = (publicImgUrl || '').trim() || raw;
-      if (!fetchUrl || fetchUrl.startsWith('data:')) return null;
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), 25000);
-      try {
-        const res = await fetch(fetchUrl, { signal: ac.signal });
-        if (!res.ok) return null;
-        buf = Buffer.from(await res.arrayBuffer());
-      } finally {
-        clearTimeout(timer);
-      }
-      if (buf.length > 25 * 1024 * 1024) return null;
-    }
-    return buf;
+    const local = raw ? await loadReferenceImageBuffer(raw, storage_local_path) : null;
+    if (local) return local.buffer;
+    const publicValue = String(publicImgUrl || '').trim();
+    if (!publicValue || publicValue === raw) return null;
+    const downloaded = await loadReferenceImageBuffer(publicValue, storage_local_path);
+    return downloaded?.buffer || null;
   } catch (e) {
     log.warn('[Vidu] load reference image buffer failed', { error: e.message, video_gen_id });
     return null;
@@ -1786,13 +1757,10 @@ async function probeViduReferenceImageSize(rawImgUrl, publicImgUrl, storage_loca
     const raw = (rawImgUrl || '').trim();
     if (raw.startsWith('data:image')) {
       probeSource = 'data_url';
-    } else if (/localhost|127\.0\.0\.1/i.test(raw) && storage_local_path) {
-      const afterStatic = raw.split('/static/')[1];
-      if (afterStatic) {
-        const localFile = path.join(storage_local_path, afterStatic.replace(/^\//, ''));
-        if (fs.existsSync(localFile)) probeSource = 'local_static';
-        else log.info('[Vidu] probe image: local path missing, will try fetch', { video_gen_id, localFile });
-      }
+    } else if (storage_local_path) {
+      try {
+        if (loadStorageImage(raw, storage_local_path)) probeSource = 'local_static';
+      } catch (_) {}
     }
     if (!probeSource) {
       const fetchUrl = (publicImgUrl || '').trim() || raw;
@@ -1812,9 +1780,7 @@ async function probeViduReferenceImageSize(rawImgUrl, publicImgUrl, storage_loca
     }
     if (probeSource === 'data_url') log.info('[Vidu] probe image: source=data URL', { video_gen_id, bytes: buf.length });
     if (probeSource === 'local_static') {
-      const afterStatic = raw.split('/static/')[1];
-      const localFile = path.join(storage_local_path, afterStatic.replace(/^\//, ''));
-      log.info('[Vidu] probe image: source=local file', { video_gen_id, localFile, bytes: buf.length });
+      log.info('[Vidu] probe image: source=local storage', { video_gen_id, bytes: buf.length });
     }
     if (probeSource === 'http_fetch') log.info('[Vidu] probe image: fetch ok', { video_gen_id, bytes: buf.length });
 
@@ -1911,22 +1877,27 @@ async function callViduVideoApi(config, log, opts) {
   }
 
   let publicImgUrl = null;
-  // ????localhost ? ??????? URL
   if (hasImage) {
     const rawImgUrl = image_url.trim();
-    if (/localhost|127\.0\.0\.1/i.test(rawImgUrl)) {
-      log.info('[Vidu] ???? localhost???????', { original: rawImgUrl, video_gen_id });
+    let localImage = null;
+    try { localImage = loadStorageImage(rawImgUrl, storage_local_path); } catch (_) {}
+    if (localImage) {
+      log.info('[Vidu] resolving storage reference image', { relative_path: localImage.relativePath, video_gen_id });
       publicImgUrl = await uploadLocalImageToProxy(storage_local_path, rawImgUrl, log, `vidu_vg${video_gen_id}`);
       if (publicImgUrl) {
         log.info('[Vidu] ????????', { proxy: publicImgUrl, video_gen_id });
-      } else if (files_base_url && !/localhost|127\.0\.0\.1/i.test(files_base_url)) {
-        publicImgUrl = (files_base_url || '').replace(/\/$/, '') + rawImgUrl.replace(/^https?:\/\/[^/]+/, '');
+      } else if (files_base_url) {
+        publicImgUrl = publicUrlFromLocalRef(rawImgUrl, files_base_url);
         log.warn('[Vidu] ????????? files_base_url', { converted: publicImgUrl, video_gen_id });
       } else {
         log.warn('[Vidu] ???????? URL??????', { video_gen_id });
       }
     } else {
-      publicImgUrl = rawImgUrl;
+      try {
+        publicImgUrl = (await uploadService.validatePublicHttpUrl(rawImgUrl)).url;
+      } catch (error) {
+        log.warn('[Vidu] rejected unsafe remote reference image', { error: error.message, video_gen_id });
+      }
     }
     if (publicImgUrl) {
       let imageUrlForVidu = publicImgUrl;
@@ -2025,41 +1996,36 @@ async function callViduVideoApi(config, log, opts) {
   });
   logVideoPostRequest(log, 'Vidu', url, body, video_gen_id, { model: modelName, auth: isOfficialVidu ? 'Token' : 'Bearer' });
 
-  const res = await fetch(url, {
+  const res = await fetchVideoWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: authHeader },
     body: JSON.stringify(body),
   });
   const raw = await res.text();
-  log.info('[Vidu] raw response', {
+  log.info('[Vidu] response summary', {
     status: res.status,
-    body_chars: raw.length,
-    body_preview: raw.slice(0, 1200),
     video_gen_id,
+    ...summarizeProviderResponse(raw),
   });
 
   if (!res.ok) {
-    let errMsg = 'Vidu request failed: ' + res.status;
-    try {
-      const errJson = JSON.parse(raw);
-      const msg = errJson.message || errJson.err_code || errJson.error?.message || errJson.error;
-      if (msg) errMsg += ' - ' + String(msg).slice(0, 200);
-    } catch (_) {
-      if (raw) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    log.error('[Vidu] Video API failed', { status: res.status, body: raw.slice(0, 300), video_gen_id });
-    return { error: errMsg };
+    log.error('[Vidu] Video API failed', {
+      status: res.status,
+      video_gen_id,
+      ...summarizeProviderResponse(raw),
+    });
+    return videoProviderFailure('Vidu', 'video request', res.status, raw);
   }
 
   let data;
   try { data = JSON.parse(raw); } catch (_) {
-    return { error: 'Vidu bad response: ' + raw.slice(0, 200) };
+    return videoProviderFailure('Vidu', 'video response', res.status, raw);
   }
 
   const taskId = data?.task_id || data?.id;
   if (!taskId) {
-    log.error('[Vidu] no task_id in response', { video_gen_id, raw: raw.slice(0, 300) });
-    return { error: 'Vidu no task_id returned' };
+    log.error('[Vidu] no task_id in response', { video_gen_id, ...summarizeProviderResponse(data) });
+    return videoProviderFailure('Vidu', 'video response', res.status, data);
   }
   log.info('[Vidu] task created', {
     task_id: taskId,
@@ -2084,8 +2050,9 @@ async function resolveVeo3ImageForApi(rawImgUrl, storage_local_path, log, video_
   const tag = `videoref_${video_gen_id || '0'}`;
   try {
     const host = new URL(raw).hostname.toLowerCase();
-    if (host.includes('imageproxy.zhongzhuan.chat')) {
-      return { kind: 'url', value: raw };
+    if (host === 'imageproxy.zhongzhuan.chat') {
+      const validated = await uploadService.validatePublicHttpUrl(raw);
+      return { kind: 'url', value: validated.url };
     }
   } catch (_) {
     /* 非绝对 URL */
@@ -2125,7 +2092,7 @@ async function resolveVeo3ImageForApi(rawImgUrl, storage_local_path, log, video_
       } catch (_) {
         /* keep */
       }
-      const localFile = path.join(storage_local_path, safeRel);
+      const localFile = uploadService.resolveStorageReference(storage_local_path, safeRel).absolutePath;
       const resolved = path.resolve(localFile);
       const baseResolved = path.resolve(storage_local_path);
       if (resolved.startsWith(baseResolved) && fs.existsSync(localFile)) {
@@ -2144,7 +2111,16 @@ async function resolveVeo3ImageForApi(rawImgUrl, storage_local_path, log, video_
 
   if (/^https?:\/\//i.test(raw)) {
     try {
-      const dlRes = await fetch(raw);
+      const downloaded = await uploadService.downloadBufferViaNodeHttp(raw, resolveVideoTimeoutMs('media'), 0, {
+        maxBytes: VIDEO_REFERENCE_MAX_BYTES,
+        accept: 'image/*,application/octet-stream',
+      });
+      const dlRes = {
+        ok: true,
+        status: 200,
+        headers: { get: (name) => String(name).toLowerCase() === 'content-type' ? downloaded.contentType : null },
+        arrayBuffer: async () => downloaded.buffer,
+      };
       if (dlRes.ok) {
         const buf = Buffer.from(await dlRes.arrayBuffer());
         const ct = (dlRes.headers.get('content-type') || '').split(';')[0].trim() || 'image/jpeg';
@@ -2154,9 +2130,19 @@ async function resolveVeo3ImageForApi(rawImgUrl, storage_local_path, log, video_
         log.warn('[视频参考图] 拉取后图床失败 → base64', { video_gen_id });
         return { kind: 'data', value: `data:${mime};base64,${buf.toString('base64')}` };
       }
-      log.warn('[视频参考图] fetch 非 2xx', { status: dlRes.status, url_head: raw.slice(0, 96), video_gen_id });
+      log.warn('[视频参考图] fetch 非 2xx', {
+        status: dlRes.status,
+        reference_type: /^https?:\/\//i.test(raw) ? 'url' : 'other',
+        reference_length: raw.length,
+        video_gen_id,
+      });
     } catch (e) {
-      log.warn('[视频参考图] fetch 失败', { error: e.message, url_head: raw.slice(0, 96), video_gen_id });
+      log.warn('[视频参考图] fetch 失败', {
+        error: e,
+        reference_type: /^https?:\/\//i.test(raw) ? 'url' : 'other',
+        reference_length: raw.length,
+        video_gen_id,
+      });
     }
     return { kind: 'url', value: raw };
   }
@@ -2204,7 +2190,7 @@ async function callVeo3VideoApi(config, log, opts) {
   });
   logVideoPostRequest(log, 'Veo3', url, body, video_gen_id, { model });
 
-  const res = await fetch(url, {
+  const res = await fetchVideoWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -2213,23 +2199,19 @@ async function callVeo3VideoApi(config, log, opts) {
     body: JSON.stringify(body),
   });
   const raw = await res.text();
-  log.info('[Veo3] raw response', { status: res.status, raw: raw.slice(0, 1000), video_gen_id });
+  log.info('[Veo3] response summary', {
+    status: res.status,
+    video_gen_id,
+    ...summarizeProviderResponse(raw),
+  });
 
   if (!res.ok) {
-    let errMsg = 'Veo3 request failed: ' + res.status;
-    try {
-      const errJson = JSON.parse(raw);
-      const msg = errJson.error?.message || errJson.message || errJson.error;
-      if (msg) errMsg += ' - ' + (typeof msg === 'string' ? msg : JSON.stringify(msg).slice(0, 200));
-    } catch (_) {
-      if (raw) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    return { error: errMsg };
+    return videoProviderFailure('Veo3', 'video request', res.status, raw);
   }
 
   let data;
   try { data = JSON.parse(raw); } catch (e) {
-    return { error: 'Veo3 bad response: ' + e.message + ' | raw: ' + raw.slice(0, 200) };
+    return videoProviderFailure('Veo3', 'video response', res.status, raw);
   }
 
   const directUrl = pickProxyVideoUrl(data);
@@ -2244,8 +2226,11 @@ async function callVeo3VideoApi(config, log, opts) {
     return { task_id: String(taskId), status: data.status || 'processing' };
   }
 
-  log.error('[Veo3] cannot parse task_id or video_url', { data: JSON.stringify(data).slice(0, 500), video_gen_id });
-  return { error: 'Veo3 no task_id or video_url: ' + JSON.stringify(data).slice(0, 300) };
+  log.error('[Veo3] cannot parse task_id or video_url', {
+    video_gen_id,
+    ...summarizeProviderResponse(data),
+  });
+  return videoProviderFailure('Veo3', 'video response', res.status, data);
 }
 
 /** Agnes Video V2.0：POST /videos JSON，轮询 GET /videos/{task_id} */
@@ -2256,7 +2241,154 @@ function summarizeMediaValueForLog(value) {
   if (value == null) return value;
   const s = String(value);
   if (s.startsWith('data:')) return `(base64, ${s.length} chars)`;
-  return s;
+  return sanitizeLogValue(s, 'media_url');
+}
+
+async function validateVideoMediaReferences(opts = {}) {
+  const out = { ...opts };
+  const validationOptions = {
+    storagePath: opts.storage_local_path,
+    lookup: opts.media_dns_lookup,
+  };
+  for (const key of [
+    'image_url',
+    'first_frame_url',
+    'last_frame_url',
+    'first_frame_local_path',
+    'last_frame_local_path',
+    'voice_reference_url',
+  ]) {
+    if (out[key] == null || String(out[key]).trim() === '') continue;
+    const validated = await uploadService.validateMediaReference(out[key], validationOptions);
+    out[key] = validated.canonical;
+  }
+  if (Array.isArray(out.reference_urls)) {
+    const references = [];
+    for (const value of out.reference_urls.slice(0, 10)) {
+      if (value == null || String(value).trim() === '') continue;
+      const validated = await uploadService.validateMediaReference(value, validationOptions);
+      references.push(validated.canonical);
+    }
+    out.reference_urls = references;
+  }
+  if (out.files_base_url) {
+    try {
+      const validatedBase = await uploadService.validatePublicHttpUrl(out.files_base_url, {
+        lookup: opts.media_dns_lookup,
+      });
+      out.files_base_url = validatedBase.url.replace(/\/$/, '');
+    } catch (_) {
+      out.files_base_url = '';
+    }
+  }
+  return out;
+}
+
+function trustedProviderOrigins(config) {
+  const baseUrl = String(config?.base_url || '').trim();
+  const enabled = config?.is_active === true || config?.is_active === 1 || config?.is_active === '1';
+  return baseUrl && enabled ? [baseUrl] : [];
+}
+
+async function validateProviderRequestUrl(url, config, options = {}) {
+  const value = String(url || '').trim();
+  if (!value) throw new uploadService.UnsafeMediaReferenceError('Provider URL is not configured.');
+  return uploadService.validatePublicHttpUrl(value, {
+    trustedOrigins: trustedProviderOrigins(config),
+    lookup: options.lookup,
+  });
+}
+
+async function validateProviderDispatch(config, options = {}) {
+  return validateProviderRequestUrl(config?.base_url, config, options);
+}
+
+function loadStorageFile(value, storageLocalPath, maxBytes = VIDEO_REFERENCE_MAX_BYTES) {
+  if (!storageLocalPath || !value) return null;
+  const resolved = uploadService.resolveStorageReference(storageLocalPath, value);
+  if (!resolved) return null;
+  const stat = fs.statSync(resolved.absolutePath);
+  if (stat.size <= 0 || stat.size > maxBytes) {
+    throw new uploadService.UnsafeMediaReferenceError('Local reference media exceeds the size limit.');
+  }
+  return {
+    buffer: fs.readFileSync(resolved.absolutePath),
+    filename: path.basename(resolved.absolutePath),
+    extension: path.extname(resolved.absolutePath).toLowerCase(),
+    relativePath: resolved.relativePath,
+  };
+}
+
+function loadStorageImage(value, storageLocalPath, maxBytes = uploadService.DEFAULT_REMOTE_MEDIA_MAX_BYTES) {
+  if (!storageLocalPath || !value) return null;
+  const local = loadStorageFile(value, storageLocalPath, maxBytes);
+  if (!local) return null;
+  const ext = local.extension;
+  const mimeType = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+  }[ext];
+  if (!mimeType) throw new Error('Local reference image type is not supported');
+  return {
+    ...local,
+    mimeType,
+  };
+}
+
+function decodeInlineImage(value, maxBytes = VIDEO_REFERENCE_MAX_BYTES) {
+  const match = /^data:(image\/(?:jpeg|png|webp|gif));base64,([a-z0-9+/=\s]+)$/i.exec(String(value || ''));
+  if (!match) return null;
+  const encoded = match[2].replace(/\s/g, '');
+  if (encoded.length > Math.ceil(maxBytes * 4 / 3) + 4) {
+    throw new uploadService.UnsafeMediaReferenceError('Inline reference image exceeds the size limit.');
+  }
+  const buffer = Buffer.from(encoded, 'base64');
+  if (buffer.length <= 0 || buffer.length > maxBytes) {
+    throw new uploadService.UnsafeMediaReferenceError('Inline reference image exceeds the size limit.');
+  }
+  return {
+    buffer,
+    filename: 'reference.' + (match[1].toLowerCase() === 'image/jpeg' ? 'jpg' : match[1].slice(6).toLowerCase()),
+    mimeType: match[1].toLowerCase(),
+  };
+}
+
+async function loadReferenceImageBuffer(value, storageLocalPath, options = {}) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const inline = decodeInlineImage(raw, options.maxBytes);
+  if (inline) return inline;
+
+  let local;
+  try {
+    local = loadStorageImage(raw, storageLocalPath, options.maxBytes || VIDEO_REFERENCE_MAX_BYTES);
+  } catch (error) {
+    if (!/^https?:\/\//i.test(raw)) throw error;
+  }
+  if (local) return local;
+  if (!/^https?:\/\//i.test(raw)) {
+    throw new uploadService.UnsafeMediaReferenceError('Reference image is not a safe storage file or public URL.');
+  }
+
+  const downloaded = await uploadService.downloadBufferViaNodeHttp(
+    raw,
+    options.timeoutMs || resolveVideoTimeoutMs('media'),
+    0,
+    {
+      maxBytes: options.maxBytes || VIDEO_REFERENCE_MAX_BYTES,
+      accept: 'image/*,application/octet-stream',
+      lookup: options.lookup,
+    }
+  );
+  const detected = await uploadService.validateAllowedUpload(downloaded.buffer, 'image');
+  return {
+    buffer: downloaded.buffer,
+    filename: `reference${detected.extension}`,
+    mimeType: detected.mimeType,
+  };
 }
 
 /** 格式化视频 POST JSON 请求体，便于日志排查参考图/关键帧策略 */
@@ -2287,6 +2419,12 @@ function formatVideoPostBodyForLog(body) {
   }
   if (Array.isArray(clone.content)) {
     clone.content = clone.content.map((part) => {
+      if (part?.type === 'text' && typeof part.text === 'string') {
+        return {
+          ...part,
+          text: `[REDACTED_PROMPT length=${part.text.length}]`,
+        };
+      }
       if (part?.type === 'image_url' && part.image_url?.url) {
         return {
           ...part,
@@ -2299,7 +2437,13 @@ function formatVideoPostBodyForLog(body) {
       return part;
     });
   }
-  return clone;
+  const sanitized = sanitizeLogValue(clone);
+  if (clone.extra_body && typeof clone.extra_body === 'object' && !Array.isArray(clone.extra_body)) {
+    sanitized.extra_body = Object.fromEntries(
+      Object.entries(clone.extra_body).map(([key, value]) => [key, sanitizeLogValue(value, key)])
+    );
+  }
+  return sanitized;
 }
 
 function logVideoPostRequest(log, provider, url, body, video_gen_id, meta = {}) {
@@ -2484,7 +2628,7 @@ async function callAgnesVideoApi(db, config, log, opts) {
     prompt_len: (body.prompt || '').length,
   });
 
-  const res = await fetch(url, {
+  const res = await fetchVideoWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -2493,25 +2637,21 @@ async function callAgnesVideoApi(db, config, log, opts) {
     body: JSON.stringify(body),
   });
   const raw = await res.text();
-  log.info('[Agnes] raw response', { status: res.status, raw: raw.slice(0, 1000), video_gen_id });
+  log.info('[Agnes] response summary', {
+    status: res.status,
+    video_gen_id,
+    ...summarizeProviderResponse(raw),
+  });
 
   if (!res.ok) {
-    let errMsg = 'Agnes 视频请求失败: ' + res.status;
-    try {
-      const errJson = JSON.parse(raw);
-      const msg = errJson.error?.message || errJson.message || errJson.error;
-      if (msg) errMsg += ' - ' + (typeof msg === 'string' ? msg : JSON.stringify(msg).slice(0, 200));
-    } catch (_) {
-      if (raw) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    return { error: errMsg };
+    return videoProviderFailure('Agnes', 'video request', res.status, raw);
   }
 
   let data;
   try {
     data = JSON.parse(raw);
   } catch (e) {
-    return { error: 'Agnes 响应解析失败: ' + e.message + ' | raw: ' + raw.slice(0, 200) };
+    return videoProviderFailure('Agnes', 'video response', res.status, raw);
   }
 
   const directUrl = pickProxyVideoUrl(data);
@@ -2526,8 +2666,8 @@ async function callAgnesVideoApi(db, config, log, opts) {
     return { task_id: String(taskId), status: data.status || 'processing' };
   }
 
-  log.error('[Agnes] 无 task_id 或 video_url', { data: JSON.stringify(data).slice(0, 500), video_gen_id });
-  return { error: 'Agnes 未返回 task_id 或 video_url: ' + JSON.stringify(data).slice(0, 300) };
+  log.error('[Agnes] 无 task_id 或 video_url', { video_gen_id, ...summarizeProviderResponse(data) });
+  return videoProviderFailure('Agnes', 'video response', res.status, data);
 }
 
 /**
@@ -2564,53 +2704,20 @@ async function callSoraVideoApi(config, log, opts) {
   const rawImgUrl = (image_url || '').trim();
 
   if (rawImgUrl) {
-    if (rawImgUrl.startsWith('data:')) {
-      const m = rawImgUrl.match(/^data:([\w/]+);base64,(.+)$/s);
-      if (m) {
-        imageMime = m[1];
-        imageBuffer = Buffer.from(m[2], 'base64');
-        const ext = imageMime.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
-        imageFilename = `reference.${ext}`;
-      } else {
-        log.warn('[Sora] ???? base64 ??????', { video_gen_id });
+    try {
+      const image = await loadReferenceImageBuffer(rawImgUrl, storage_local_path);
+      if (image) {
+        imageBuffer = image.buffer;
+        imageMime = image.mimeType;
+        const extension = imageMime === 'image/png' ? 'png' : imageMime === 'image/webp' ? 'webp' : imageMime === 'image/gif' ? 'gif' : 'jpg';
+        imageFilename = `reference.${extension}`;
+        log.info('[Sora] reference image resolved', {
+          size_kb: Math.round(imageBuffer.length / 1024),
+          video_gen_id,
+        });
       }
-    } else if (/localhost|127\.0\.0\.1/i.test(rawImgUrl)) {
-      // localhost URL ? ?????????
-      try {
-        const afterStatic = rawImgUrl.split('/static/')[1];
-        if (afterStatic && storage_local_path) {
-          const localFile = path.join(storage_local_path, afterStatic.replace(/^\//, ''));
-          if (fs.existsSync(localFile)) {
-            imageBuffer = fs.readFileSync(localFile);
-            const ext = path.extname(localFile).toLowerCase();
-            const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
-            imageMime = mimeMap[ext] || 'image/jpeg';
-            imageFilename = path.basename(localFile);
-            log.info('[Sora] ????????', { file: localFile, size_kb: Math.round(imageBuffer.length / 1024), video_gen_id });
-          } else {
-            log.warn('[Sora] ??????????', { file: localFile, video_gen_id });
-          }
-        }
-      } catch (e) {
-        log.warn('[Sora] ?????????', { error: e.message, video_gen_id });
-      }
-    } else {
-      // ?? URL ? ??
-      try {
-        const dlRes = await fetch(rawImgUrl);
-        if (dlRes.ok) {
-          const ct = (dlRes.headers.get('content-type') || '').split(';')[0].trim();
-          imageMime = ct || 'image/jpeg';
-          imageBuffer = Buffer.from(await dlRes.arrayBuffer());
-          const ext = imageMime.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
-          imageFilename = `reference.${ext}`;
-          log.info('[Sora] ????????', { url: rawImgUrl, size_kb: Math.round(imageBuffer.length / 1024), video_gen_id });
-        } else {
-          log.warn('[Sora] ?????????', { status: dlRes.status, url: rawImgUrl, video_gen_id });
-        }
-      } catch (e) {
-        log.warn('[Sora] ?????????', { error: e.message, video_gen_id });
-      }
+    } catch (error) {
+      log.warn('[Sora] reference image rejected', { error: error.message, video_gen_id });
     }
   }
 
@@ -2682,16 +2789,14 @@ async function callSoraVideoApi(config, log, opts) {
   });
   log.info('[Sora] Video POST 请求体 (multipart)', {
     video_gen_id,
-    post_body: JSON.stringify({
-      model,
-      prompt,
-      seconds: dur,
-      size,
-      input_reference: imageBuffer ? { filename: imageFilename, mime: imageMime, bytes: imageBuffer.length } : null,
-    }, null, 2),
+    model,
+    prompt_length: String(prompt || '').length,
+    seconds: dur,
+    size,
+    input_reference: imageBuffer ? { filename: imageFilename, mime: imageMime, bytes: imageBuffer.length } : null,
   });
 
-  const res = await fetch(url, {
+  const res = await fetchVideoWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': `multipart/form-data; boundary=${boundary}`,
@@ -2700,23 +2805,19 @@ async function callSoraVideoApi(config, log, opts) {
     body: bodyBuffer,
   });
   const raw = await res.text();
-  log.info('[Sora] raw response', { status: res.status, raw: raw.slice(0, 1000), video_gen_id });
+  log.info('[Sora] response summary', {
+    status: res.status,
+    video_gen_id,
+    ...summarizeProviderResponse(raw),
+  });
 
   if (!res.ok) {
-    let errMsg = 'Sora ????????: ' + res.status;
-    try {
-      const errJson = JSON.parse(raw);
-      const msg = errJson.error?.message || errJson.message || errJson.error;
-      if (msg) errMsg += ' - ' + (typeof msg === 'string' ? msg : JSON.stringify(msg).slice(0, 200));
-    } catch (_) {
-      if (raw) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    return { error: errMsg };
+    return videoProviderFailure('Sora', 'video request', res.status, raw);
   }
 
   let data;
   try { data = JSON.parse(raw); } catch (e) {
-    return { error: 'Sora ??????: ' + e.message + ' | raw: ' + raw.slice(0, 200) };
+    return videoProviderFailure('Sora', 'video response', res.status, raw);
   }
 
   // ?????? URL（含中转 result_url）
@@ -2733,8 +2834,8 @@ async function callSoraVideoApi(config, log, opts) {
     return { task_id: String(taskId), status: data.status || 'processing' };
   }
 
-  log.error('[Sora] ???? task_id ? video_url', { data: JSON.stringify(data).slice(0, 500), video_gen_id });
-  return { error: 'Sora ??? task_id ? video_url???: ' + JSON.stringify(data).slice(0, 300) };
+  log.error('[Sora] ???? task_id ? video_url', { video_gen_id, ...summarizeProviderResponse(data) });
+  return videoProviderFailure('Sora', 'video response', res.status, data);
 }
 
 function isJimengFreeApiSeedanceModel(model) {
@@ -2758,12 +2859,20 @@ async function resolveJimengApiImageBuffer(rawUrl, files_base_url, storage_local
     }
     return null;
   }
+  try {
+    const local = loadStorageImage(raw, storage_local_path);
+    if (local) {
+      return { buffer: local.buffer, filename: `ref_${index}${local.extension}` };
+    }
+  } catch (error) {
+    if (!/^https?:\/\//i.test(raw)) throw error;
+  }
   if (/localhost|127\.0\.0\.1/i.test(raw) && storage_local_path) {
     const baseUrl = (files_base_url || '').replace(/\/$/, '');
     const afterStatic = raw.split('/static/')[1] || (baseUrl ? raw.replace(baseUrl + '/', '').replace(baseUrl, '') : null);
     const relPath = afterStatic ? afterStatic.replace(/^\//, '') : null;
     if (relPath) {
-      const filePath = path.join(storage_local_path, relPath);
+      const filePath = uploadService.resolveStorageReference(storage_local_path, relPath).absolutePath;
       try {
         if (fs.existsSync(filePath)) {
           const buf = fs.readFileSync(filePath);
@@ -2775,16 +2884,15 @@ async function resolveJimengApiImageBuffer(rawUrl, files_base_url, storage_local
     }
   }
   if (raw.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(raw)) {
-    try {
-      if (fs.existsSync(raw)) {
-        const buf = fs.readFileSync(raw);
-        return { buffer: buf, filename: path.basename(raw) || 'ref_' + index + '.jpg' };
-      }
-    } catch (_) {}
+    throw new uploadService.UnsafeMediaReferenceError('Absolute reference image paths are not allowed.');
   }
   const isPublicHttp = /^https?:\/\//i.test(raw) && !/localhost|127\.0\.0\.1/i.test(raw);
   if (isPublicHttp) {
-    const res = await fetch(raw);
+    const downloaded = await uploadService.downloadBufferViaNodeHttp(raw, resolveVideoTimeoutMs('media'), 0, {
+      maxBytes: VIDEO_REFERENCE_MAX_BYTES,
+      accept: 'image/*,application/octet-stream',
+    });
+    const res = { ok: true, status: 200, arrayBuffer: async () => downloaded.buffer };
     if (!res.ok) throw new Error('拉取参考图失败 HTTP ' + res.status);
     const ab = await res.arrayBuffer();
     return { buffer: Buffer.from(ab), filename: 'ref_' + index + '.jpg' };
@@ -2792,7 +2900,11 @@ async function resolveJimengApiImageBuffer(rawUrl, files_base_url, storage_local
   if (storage_local_path) {
     const proxyUrl = await uploadLocalImageToProxy(storage_local_path, raw, log, 'jimeng_ai_vg' + video_gen_id + '_' + index);
     if (proxyUrl) {
-      const res = await fetch(proxyUrl);
+      const downloaded = await uploadService.downloadBufferViaNodeHttp(proxyUrl, resolveVideoTimeoutMs('media'), 0, {
+        maxBytes: VIDEO_REFERENCE_MAX_BYTES,
+        accept: 'image/*,application/octet-stream',
+      });
+      const res = { ok: true, status: 200, arrayBuffer: async () => downloaded.buffer };
       if (!res.ok) throw new Error('图床参考图拉取失败 HTTP ' + res.status);
       const ab = await res.arrayBuffer();
       return { buffer: Buffer.from(ab), filename: 'ref_' + index + '.jpg' };
@@ -2874,7 +2986,7 @@ async function callJimengAiApiVideo(config, log, opts) {
   const headers = { Authorization: 'Bearer ' + apiKey };
   let fetchOpts = { method: 'POST', headers };
 
-  const longWaitMs = 10 * 60 * 1000;
+  const longWaitMs = resolveVideoTimeoutMs('synchronous');
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
     fetchOpts.signal = AbortSignal.timeout(longWaitMs);
   }
@@ -2914,30 +3026,28 @@ async function callJimengAiApiVideo(config, log, opts) {
 
   let res;
   try {
-    res = await fetch(url, fetchOpts);
+    res = await fetchVideoWithTimeout(url, fetchOpts, longWaitMs);
   } catch (e) {
-    const msg = e.name === 'AbortError' || e.name === 'TimeoutError' ? '请求超时（视频生成较慢，可稍后重试）' : e.message;
-    log.error('[JimengAI] 请求失败', { video_gen_id, message: e.message });
-    return { error: 'Jimeng AI API 请求失败: ' + msg };
+    const safeError = videoProviderException(e, 'JimengAI', 'video request');
+    log.error('[JimengAI] 请求失败', { video_gen_id, error: safeError });
+    return { error: safeError.message };
   }
 
   const raw = await res.text();
-  log.info('[JimengAI] 响应', { video_gen_id, status: res.status, raw_head: raw.slice(0, 800) });
+  log.info('[JimengAI] 响应', {
+    video_gen_id,
+    status: res.status,
+    ...summarizeProviderResponse(raw),
+  });
   let data;
   try {
     data = JSON.parse(raw);
   } catch (_) {
-    return { error: 'Jimeng AI API 非 JSON 响应 (' + res.status + '): ' + raw.slice(0, 300) };
+    return videoProviderFailure('JimengAI', 'video response', res.status, raw);
   }
 
   if (!res.ok) {
-    const errMsg =
-      data?.error?.message ||
-      data?.error ||
-      data?.errmsg ||
-      data?.message ||
-      raw.slice(0, 400);
-    return { error: 'Jimeng AI API ' + res.status + ': ' + (typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg)) };
+    return videoProviderFailure('JimengAI', 'video request', res.status, data, data?.code);
   }
 
   const videoUrl = data?.data?.[0]?.url || data?.data?.[0]?.video_url;
@@ -2946,7 +3056,7 @@ async function callJimengAiApiVideo(config, log, opts) {
     return { video_url: String(videoUrl) };
   }
 
-  return { error: 'Jimeng AI API 未返回 data[0].url: ' + JSON.stringify(data).slice(0, 400) };
+  return videoProviderFailure('JimengAI', 'video response', res.status, data);
 }
 
 function resolveXaiVideoResolution(resolution) {
@@ -3103,7 +3213,7 @@ async function callXaiVideoApi(config, log, opts) {
       : undefined,
   });
 
-  const res = await fetch(url, {
+  const res = await fetchVideoWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -3112,25 +3222,21 @@ async function callXaiVideoApi(config, log, opts) {
     body: JSON.stringify(body),
   });
   const raw = await res.text();
-  log.info('[xAI视频] 响应', { video_gen_id, status: res.status, head: raw.slice(0, 500) });
+  log.info('[xAI视频] 响应', {
+    video_gen_id,
+    status: res.status,
+    ...summarizeProviderResponse(raw),
+  });
 
   if (!res.ok) {
-    let errMsg = 'xAI 视频请求失败: ' + res.status;
-    try {
-      const errJson = JSON.parse(raw);
-      const msg = errJson.error?.message || errJson.message || errJson.error;
-      if (msg) errMsg += ' - ' + String(msg).slice(0, 220);
-    } catch (_) {
-      if (raw) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    return { error: errMsg };
+    return videoProviderFailure('xAI', 'video request', res.status, raw);
   }
 
   let data;
   try {
     data = JSON.parse(raw);
   } catch (e) {
-    return { error: 'xAI 响应非 JSON: ' + raw.slice(0, 200) };
+    return videoProviderFailure('xAI', 'video response', res.status, raw);
   }
 
   const direct = pickProxyVideoUrl(data);
@@ -3145,7 +3251,7 @@ async function callXaiVideoApi(config, log, opts) {
     return { task_id: String(reqId), status: 'submitted' };
   }
 
-  return { error: 'xAI 未返回 request_id 或视频地址: ' + JSON.stringify(data).slice(0, 300) };
+  return videoProviderFailure('xAI', 'video response', res.status, data);
 }
 
 const VIDEO_PROTOCOLS_SUPPORT_SD2_ASSET_SCHEME = new Set([
@@ -3303,39 +3409,22 @@ function resolveVolcClassicImage(rawUrl, files_base_url, storage_local_path, log
   // 已经是公网 https 且不含 localhost 的，直接返回
   if (/^https?:\/\//i.test(u) && !/localhost|127\.0\.0\.1/i.test(u)) return u;
 
-  const fb = (files_base_url || '').replace(/\/$/, '');
-  const baseIndicatesLocal = fb && /localhost|127\.0\.0\.1/i.test(fb);
-  const urlIndicatesLocal = /localhost|127\.0\.0\.1/i.test(u);
-
-  if ((baseIndicatesLocal || urlIndicatesLocal) && storage_local_path) {
-    let rel = null;
-    const marker = '/static/';
-    const idx = u.toLowerCase().indexOf(marker);
-    if (idx >= 0) {
-      rel = u.slice(idx + marker.length).replace(/^\//, '').split('?')[0];
-    } else if (fb) {
-      rel = u.replace(fb + '/', '').replace(fb, '').replace(/^\//, '').split('?')[0];
-    } else if (!/^https?:\/\//i.test(u)) {
-      // 纯相对路径（来自 local_path 兜底）
-      rel = u.replace(/^\//, '').split('?')[0];
+  try {
+    const local = loadStorageImage(u, storage_local_path);
+    if (local) {
+      if (log && log.info) {
+        log.info('[Volc] storage 首/尾帧已转为 base64 提交', {
+          video_gen_id,
+          role: roleHint,
+          rel: local.relativePath.slice(0, 80),
+        });
+      }
+      return `data:${local.mimeType};base64,${local.buffer.toString('base64')}`;
     }
-    if (rel) {
-      const filePath = path.join(storage_local_path, rel);
-      try {
-        if (fs.existsSync(filePath)) {
-          const buf = fs.readFileSync(filePath);
-          const ext = path.extname(filePath).toLowerCase();
-          const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.bmp': 'image/bmp' }[ext] || 'image/png';
-          const b64 = 'data:' + mime + ';base64,' + buf.toString('base64');
-          if (log && log.info) {
-            log.info('[Volc] 本地首/尾帧已转为 base64 提交', { video_gen_id, role: roleHint, rel: rel.slice(0, 80) });
-          }
-          return b64;
-        }
-      } catch (_) {}
-    }
+  } catch (_) {
+    return null;
   }
-  // 兜底返回原始值（中转或公网会处理）
+  // Remote values were DNS-validated by callVideoApi immediately before dispatch.
   return u;
 }
 
@@ -3343,7 +3432,9 @@ function resolveVolcClassicImage(rawUrl, files_base_url, storage_local_path, log
  * ?????? API?ChatFire/?? ? ?????
  * @returns {Promise<{ task_id?: string, video_url?: string, error?: string }>}
  */
-async function callVideoApi(db, log, opts) {
+async function callVideoApiInternal(db, log, opts) {
+  log = createSafeVideoLogger(log);
+  opts = await validateVideoMediaReferences(opts);
   const {
     prompt,
     model: preferredModel,
@@ -3362,10 +3453,23 @@ async function callVideoApi(db, log, opts) {
     storage_local_path,
     video_gen_id
   } = opts;
-  const config = getDefaultVideoConfig(db, preferredModel);
+  const config = getDefaultVideoConfig(
+    db,
+    preferredModel,
+    opts.preferred_provider || opts.preferredProvider || opts.provider
+  );
   if (!config) {
     throw new Error('???????????AI ?????? video ?????????');
   }
+  const requestContext = videoRequestContext.getStore();
+  if (requestContext) {
+    requestContext.networkOptions = {
+      fetchImpl: opts.fetch_impl,
+      lookup: opts.provider_dns_lookup || config.provider_dns_lookup,
+      trustedOrigins: trustedProviderOrigins(config),
+    };
+  }
+  await validateProviderDispatch(config, { lookup: opts.provider_dns_lookup });
   const model = getModelFromConfig(config, preferredModel);
   const provider = (config.provider || '').toLowerCase();
   const protocol = resolveVideoProtocol(config, preferredModel);
@@ -3397,7 +3501,11 @@ async function callVideoApi(db, log, opts) {
         chosen = voiceMap.values().next().value;
       }
       if (chosen) {
-        opts.voice_reference_url = chosen;
+        const validatedVoice = await uploadService.validateMediaReference(chosen, {
+          storagePath: opts.storage_local_path,
+          lookup: opts.media_dns_lookup,
+        });
+        opts.voice_reference_url = validatedVoice.canonical;
         log.info('[视频][SD2][全能] 自动为 Seedance 2.0 注入角色音色参考（来自角色 seedance2_voice_asset）', {
           video_gen_id,
           storyboard_id: opts.storyboard_id,
@@ -3508,7 +3616,12 @@ async function callVideoApi(db, log, opts) {
   }
 
   if (protocol === 'kling_omni') {
-    return callKlingOmniVideoApi(applyKlingOmniEnvOverrides(config), log, {
+    const effectiveConfig = applyKlingOmniEnvOverrides(config);
+    await uploadService.validatePublicHttpUrl(effectiveConfig.base_url, {
+      trustedOrigins: [config.base_url],
+      lookup: opts.provider_dns_lookup,
+    });
+    return callKlingOmniVideoApi(effectiveConfig, log, {
       prompt,
       model,
       duration: opts.duration,
@@ -3684,7 +3797,7 @@ async function callVideoApi(db, log, opts) {
     has_last_frame: !!lastForApi,
     frame_count: (firstForApi ? 1 : 0) + (lastForApi ? 1 : 0),
   });
-  const res = await fetch(url, {
+  const res = await fetchVideoWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -3693,27 +3806,26 @@ async function callVideoApi(db, log, opts) {
     body: JSON.stringify(body),
   });
   const raw = await res.text();
-  log.info('Video API raw response', { video_gen_id, status: res.status, raw: raw.slice(0, 1000) });
+  log.info('Video API response summary', {
+    video_gen_id,
+    status: res.status,
+    ...summarizeProviderResponse(raw),
+  });
   if (!res.ok) {
-    log.error('Video API failed', { status: res.status, body: raw.slice(0, 500) });
-    let errMsg = '????????: ' + res.status;
-    try {
-      const errJson = JSON.parse(raw);
-      const msg = errJson.error?.message || errJson.message || errJson.error;
-      if (msg) errMsg += ' - ' + (typeof msg === 'string' ? msg : JSON.stringify(msg).slice(0, 200));
-    } catch (_) {
-      if (raw && raw.length) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    return { error: errMsg };
+    log.error('Video API failed', { status: res.status, ...summarizeProviderResponse(raw) });
+    return videoProviderFailure('Video provider', 'video request', res.status, raw);
   }
   let data;
   try {
     data = JSON.parse(raw);
   } catch (e) {
-    log.error('Video API response JSON parse failed', { video_gen_id, raw: raw.slice(0, 1000), parse_error: e.message });
-    return { error: '??????????: ' + e.message + ' | raw: ' + raw.slice(0, 200) };
+    log.error('Video API response JSON parse failed', {
+      video_gen_id,
+      ...summarizeProviderResponse(raw),
+    });
+    return videoProviderFailure('Video provider', 'video response', res.status, raw);
   }
-  log.info('Video API parsed response', { video_gen_id, data: JSON.stringify(data).slice(0, 500) });
+  log.info('Video API parsed response', { video_gen_id, ...summarizeProviderResponse(data) });
   const taskId = data.id || data.task_id || (data.data && data.data.id);
   const status = data.status || (data.data && data.data.status);
   const videoUrl = pickProxyVideoUrl(data);
@@ -3725,14 +3837,31 @@ async function callVideoApi(db, log, opts) {
     log.info('Video API returned task_id', { video_gen_id, task_id: taskId, status });
     return { task_id: taskId, status: status || 'processing' };
   }
-  log.error('Video API: no task_id or video_url in response', { video_gen_id, data: JSON.stringify(data).slice(0, 500) });
-  return { error: '??? task_id ? video_url?????: ' + JSON.stringify(data).slice(0, 300) };
+  log.error('Video API: no task_id or video_url in response', {
+    video_gen_id,
+    ...summarizeProviderResponse(data),
+  });
+  return videoProviderFailure('Video provider', 'video response', res.status, data);
+}
+
+async function callVideoApi(db, log, opts = {}) {
+  const idempotencyKey = normalizeIdempotencyKey(opts.idempotency_key);
+  return videoRequestContext.run({ idempotencyKey }, async () => {
+    const provider = opts.preferred_provider || opts.preferredProvider || opts.provider || 'Video provider';
+    try {
+      const result = await callVideoApiInternal(db, log, opts);
+      return sanitizeProviderResult(result, { provider, operation: 'video generation' });
+    } catch (error) {
+      throw sanitizeProviderException(error, { provider, operation: 'video generation' });
+    }
+  });
 }
 
 /**
  * ??????????????????/ChatFire ? ???? DashScope?
  */
-async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 300, intervalMs = 10000) {
+async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAttempts = 300, intervalMs = 10000) {
+  log = createSafeVideoLogger(log);
   const provider = (config.provider || '').toLowerCase();
   const protocol = resolveVideoProtocol(config);
   const isDashScope = protocol === 'dashscope';
@@ -3743,13 +3872,6 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
   const isKling = protocol === 'kling';
   const isKlingOmni = protocol === 'kling_omni' || (typeof taskId === 'string' && taskId.startsWith('omni:'));
   const isVeo3 = protocol === 'veo3';
-  /** 轮询日志里响应体最大字符数（即梦/方舟等 JSON 可能较长）；0 表示不截断（慎用） */
-  const pollLogBodyMax = (() => {
-    const v = String(process.env.VIDEO_POLL_LOG_MAX || '16384').trim();
-    if (v === '0' || v.toLowerCase() === 'full') return Infinity;
-    const n = parseInt(v, 10);
-    return Number.isFinite(n) && n > 0 ? Math.min(n, 512 * 1024) : 16384;
-  })();
   const isVolcPoll =
     provider === 'volces' ||
     provider === 'volcengine' ||
@@ -3814,29 +3936,35 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
         headers = { Authorization: 'Bearer ' + (config.api_key || '') };
       }
       const pollRound = attempt + 1;
+      await validateProviderRequestUrl(url, config, { lookup: config.provider_dns_lookup });
       log.info('[poll] 发起查询', { video_gen_id: videoGenId, round: pollRound, url });
-      const res = await fetch(url, { method: 'GET', headers });
+      const res = await fetchVideoWithTimeout(
+        url,
+        { method: 'GET', headers },
+        resolveVideoTimeoutMs('poll'),
+        {
+          fetchImpl: config.fetch_impl,
+          lookup: config.provider_dns_lookup,
+          trustedOrigins: trustedProviderOrigins(config),
+        }
+      );
       const raw = await res.text();
-      const bodyLogged =
-        pollLogBodyMax === Infinity
-          ? raw
-          : raw.length <= pollLogBodyMax
-            ? raw
-            : raw.slice(0, pollLogBodyMax) + `\n... [poll 响应已截断 前${pollLogBodyMax}字符 / 共${raw.length}字符，可设环境变量 VIDEO_POLL_LOG_MAX=0 输出全文]`;
       log.info('[poll] 查询 HTTP 结果', {
         video_gen_id: videoGenId,
         round: pollRound,
         http_status: res.status,
-        bytes: raw.length,
-        body: bodyLogged,
+        ...summarizeProviderResponse(raw),
       });
       if (!res.ok) {
         log.warn('[poll] 查询非 2xx', {
           video_gen_id: videoGenId,
           round: pollRound,
           http_status: res.status,
-          body: bodyLogged.slice(0, 4000),
+          ...summarizeProviderResponse(raw),
         });
+        if (res.status >= 400 && res.status < 500) {
+          return videoProviderFailure(provider || 'Video provider', 'video task', res.status, raw);
+        }
         continue;
       }
       let data;
@@ -3846,17 +3974,15 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
         log.warn('[poll] 响应非 JSON', {
           video_gen_id: videoGenId,
           round: pollRound,
-          error: parseErr.message,
-          body_head: raw.slice(0, 800),
+          ...summarizeProviderResponse(raw),
         });
         continue;
       }
 
       if (isKling) {
         if (data.code !== undefined && data.code !== 0) {
-          const msg = data.message || `可灵错误码: ${data.code}`;
-          log.warn('[Kling poll] API 错误', { video_gen_id: videoGenId, code: data.code, msg });
-          return { error: msg };
+          log.warn('[Kling poll] API 错误', { video_gen_id: videoGenId, code: data.code });
+          return videoProviderFailure('Kling', 'video task', res.status, data, data.code);
         }
         const status = (data?.data?.task_status || '').toLowerCase();
         log.info('[Kling poll] 状态', { video_gen_id: videoGenId, attempt, status, task_id: taskId });
@@ -3869,9 +3995,11 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
           return { error: '可灵任务完成但未返回视频地址' };
         }
         if (status === 'failed') {
-          const errMsg = data?.data?.task_status_msg || '任务失败';
-          log.warn('[Kling poll] 任务失败', { video_gen_id: videoGenId, error: errMsg });
-          return { error: '可灵视频生成失败: ' + errMsg };
+          log.warn('[Kling poll] 任务失败', {
+            video_gen_id: videoGenId,
+            ...summarizeProviderResponse(data),
+          });
+          return videoProviderFailure('Kling', 'video task', res.status, data, data.code);
         }
         // submitted / processing → 继续轮询
         continue;
@@ -3879,9 +4007,8 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
 
       if (isKlingOmni) {
         if (data.code !== undefined && Number(data.code) !== 0) {
-          const msg = data.message || data.msg || `Kling Omni 错误码 ${data.code}`;
-          log.warn('[KlingOmni poll] API 错误', { video_gen_id: videoGenId, code: data.code, msg });
-          return { error: msg };
+          log.warn('[KlingOmni poll] API 错误', { video_gen_id: videoGenId, code: data.code });
+          return videoProviderFailure('KlingOmni', 'video task', res.status, data, data.code);
         }
         const st = (data?.data?.task_status || data?.task_status || data?.status || '').toLowerCase();
         const videoUrlOmni = parseKlingOmniPollVideoUrl(data);
@@ -3891,11 +4018,10 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
           return { video_url: videoUrlOmni };
         }
         if (st === 'succeed' || st === 'success' || st === 'completed' || st === 'succeeded' || st === 'done') {
-          return { error: 'Kling Omni 标记完成但未解析到视频地址' };
+          return videoProviderFailure('KlingOmni', 'video task response', res.status, data);
         }
         if (st === 'failed' || st === 'error') {
-          const errMsg = data?.data?.task_status_msg || data?.task_status_msg || data?.message || '任务失败';
-          return { error: 'Kling Omni: ' + String(errMsg).slice(0, 400) };
+          return videoProviderFailure('KlingOmni', 'video task', res.status, data, data.code);
         }
         continue;
       }
@@ -3904,9 +4030,11 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
         const status = extractPollTaskStatus(data);
         log.info('[Veo3 poll] task status', { video_gen_id: videoGenId, attempt, status, id: data.task_id || data.id });
         if (isPollTaskFailed(status)) {
-          const msg = extractPollFailureMessage(data) || data.data?.error || 'Veo3 task failed';
-          log.warn('[Veo3 poll] task failed', { video_gen_id: videoGenId, msg });
-          return { error: String(msg).slice(0, 500) };
+          log.warn('[Veo3 poll] task failed', {
+            video_gen_id: videoGenId,
+            ...summarizeProviderResponse(data),
+          });
+          return videoProviderFailure('Veo3', 'video task', res.status, data, data?.error?.code);
         }
         const videoUrl = pickProxyVideoUrl(data);
         if (videoUrl) {
@@ -3914,8 +4042,8 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
           return { video_url: videoUrl };
         }
         if (status === 'succeeded' || status === 'completed' || status === 'done') {
-          log.warn('[Veo3 poll] completed but no video_url', { data: JSON.stringify(data).slice(0, 500) });
-          return { error: 'Veo3 completed but no video URL: ' + JSON.stringify(data).slice(0, 300) };
+          log.warn('[Veo3 poll] completed but no video_url', summarizeProviderResponse(data));
+          return videoProviderFailure('Veo3', 'video task response', res.status, data);
         }
         continue;
       }
@@ -3924,9 +4052,11 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
         const status = extractPollTaskStatus(data);
         log.info('[Sora poll] ????', { video_gen_id: videoGenId, attempt, status, progress: data.progress, id: data.id });
         if (isPollTaskFailed(status)) {
-          const msg = extractPollFailureMessage(data) || 'Sora 任务失败';
-          log.warn('[Sora poll] 任务失败', { video_gen_id: videoGenId, msg, data: JSON.stringify(data).slice(0, 300) });
-          return { error: String(msg).slice(0, 500) };
+          log.warn('[Sora poll] 任务失败', {
+            video_gen_id: videoGenId,
+            ...summarizeProviderResponse(data),
+          });
+          return videoProviderFailure('Sora', 'video task', res.status, data, data?.error?.code);
         }
         // succeeded / completed / done ? ??? URL
         const videoUrl = pickProxyVideoUrl(data);
@@ -3935,8 +4065,11 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
           return { video_url: videoUrl };
         }
         if (status === 'succeeded' || status === 'completed' || status === 'done') {
-          log.warn('[Sora poll] ????????? video_url', { video_gen_id: videoGenId, data: JSON.stringify(data).slice(0, 500) });
-          return { error: 'Sora ?????????????????: ' + JSON.stringify(data).slice(0, 300) };
+          log.warn('[Sora poll] ????????? video_url', {
+            video_gen_id: videoGenId,
+            ...summarizeProviderResponse(data),
+          });
+          return videoProviderFailure('Sora', 'video task response', res.status, data);
         }
         // queued / processing / running ? ????
         continue;
@@ -3946,9 +4079,11 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
         const status = extractPollTaskStatus(data);
         log.info('[Agnes poll] 状态', { video_gen_id: videoGenId, attempt, status, progress: data.progress, id: data.id });
         if (isPollTaskFailed(status)) {
-          const msg = extractPollFailureMessage(data) || 'Agnes 视频任务失败';
-          log.warn('[Agnes poll] 任务失败', { video_gen_id: videoGenId, msg, data: JSON.stringify(data).slice(0, 300) });
-          return { error: String(msg).slice(0, 500) };
+          log.warn('[Agnes poll] 任务失败', {
+            video_gen_id: videoGenId,
+            ...summarizeProviderResponse(data),
+          });
+          return videoProviderFailure('Agnes', 'video task', res.status, data, data?.error?.code);
         }
         const videoUrl = pickProxyVideoUrl(data);
         if (videoUrl && isPlausibleHttpVideoUrl(videoUrl)) {
@@ -3956,8 +4091,11 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
           return { video_url: videoUrl };
         }
         if (status === 'succeeded' || status === 'completed' || status === 'done') {
-          log.warn('[Agnes poll] 标记完成但未返回 video_url', { video_gen_id: videoGenId, data: JSON.stringify(data).slice(0, 500) });
-          return { error: 'Agnes 任务完成但未返回视频地址: ' + JSON.stringify(data).slice(0, 300) };
+          log.warn('[Agnes poll] 标记完成但未返回 video_url', {
+            video_gen_id: videoGenId,
+            ...summarizeProviderResponse(data),
+          });
+          return videoProviderFailure('Agnes', 'video task response', res.status, data);
         }
         continue;
       }
@@ -3966,9 +4104,8 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
         const state = (data?.state || data?.status || data?.data?.status || '').toLowerCase();
         log.info('[Vidu poll] ????', { video_gen_id: videoGenId, attempt, state, id: taskId });
         if (state === 'failed' || state === 'error') {
-          const msg = data?.err_code || data?.message || data?.error?.message || data?.error || 'Vidu ??????';
-          log.warn('[Vidu poll] ????', { video_gen_id: videoGenId, msg });
-          return { error: String(msg) };
+          log.warn('[Vidu poll] ????', { video_gen_id: videoGenId, ...summarizeProviderResponse(data) });
+          return videoProviderFailure('Vidu', 'video task', res.status, data, data?.err_code);
         }
         // ?? ent/v2 ???????? success???? creations[0].url
         // ??????????????? succeeded/completed/done???? video_url/url ?
@@ -3981,7 +4118,7 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
           return { video_url: videoUrl };
         }
         if (state === 'success' || state === 'succeeded' || state === 'completed' || state === 'done') {
-          log.warn('[Vidu poll] ???????? video_url', { data: JSON.stringify(data).slice(0, 500) });
+          log.warn('[Vidu poll] ???????? video_url', summarizeProviderResponse(data));
           return { error: 'Vidu ??????????' };
         }
         continue;
@@ -3989,7 +4126,7 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
 
       if (isGemini) {
         if (data.error) {
-          return { error: data.error.message || 'Gemini ??????' };
+          return videoProviderFailure('Gemini', 'video task', res.status, data, data.error?.code);
         }
         if (data.done === true) {
           const videoUri = data.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
@@ -4004,15 +4141,13 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
         const videoUrl = parseDashScopeVideoUrl(data);
         if (videoUrl) return { video_url: videoUrl };
         if (taskStatus === 'FAILED' || taskStatus === 'CANCELED') {
-          const msg = data?.message || data?.output?.message || taskStatus;
           log.warn('DashScope ????????? download image failed????? URL ???????? localhost?', {
             video_gen_id: videoGenId,
             task_id: taskId,
             task_status: taskStatus,
-            message: msg,
-            output: data?.output,
+            ...summarizeProviderResponse(data),
           });
-          return { error: msg || '????????' };
+          return videoProviderFailure('DashScope', 'video task', res.status, data, data?.code);
         }
         continue;
       }
@@ -4021,37 +4156,55 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
       const failMsg = extractPollFailureMessage(data);
       const errMsg = data.error && (typeof data.error === 'string' ? data.error : data.error.message);
       if (isVolcPoll) {
-        const summaryJson = JSON.stringify(data);
-        const sum =
-          pollLogBodyMax === Infinity
-            ? summaryJson
-            : summaryJson.length <= pollLogBodyMax
-              ? summaryJson
-              : summaryJson.slice(0, pollLogBodyMax) + `... [共${summaryJson.length}字符]`;
         log.info('[poll] 方舟/火山 解析摘要', {
           video_gen_id: videoGenId,
           round: pollRound,
           top_level_status: status,
           has_video_url: !!videoUrl,
-          error_hint: failMsg || errMsg || data?.error?.code || data?.message || null,
-          parsed_json: sum,
+          ...summarizeProviderResponse(data),
         });
       }
       if (isPollTaskFailed(status) || errMsg) {
-        const msg = failMsg || errMsg || status || '任务失败';
-        log.warn('[poll] 任务失败', { video_gen_id: videoGenId, round: pollRound, status, msg });
-        return { error: String(msg).slice(0, 500) };
+        log.warn('[poll] 任务失败', {
+          video_gen_id: videoGenId,
+          round: pollRound,
+          status,
+          ...summarizeProviderResponse(data),
+        });
+        return videoProviderFailure(provider || 'Video provider', 'video task', res.status, data, data?.error?.code);
       }
       if (videoUrl && isPlausibleHttpVideoUrl(videoUrl)) return { video_url: videoUrl };
       if (failMsg) {
-        log.warn('[poll] 上游返回失败文案', { video_gen_id: videoGenId, round: pollRound, msg: failMsg.slice(0, 200) });
-        return { error: failMsg.slice(0, 500) };
+        log.warn('[poll] 上游返回失败文案', {
+          video_gen_id: videoGenId,
+          round: pollRound,
+          ...summarizeProviderResponse(data),
+        });
+        return videoProviderFailure(provider || 'Video provider', 'video task', res.status, data, data?.error?.code);
       }
     } catch (e) {
       log.warn('Video poll request failed', { attempt, error: e.message });
     }
   }
   return { error: '??????' };
+}
+
+async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 300, intervalMs = 10000) {
+  const provider = config?.provider || 'Video provider';
+  try {
+    const result = await pollVideoTaskInternal(
+      db,
+      log,
+      videoGenId,
+      taskId,
+      config,
+      maxAttempts,
+      intervalMs
+    );
+    return sanitizeProviderResult(result, { provider, operation: 'video task' });
+  } catch (error) {
+    throw sanitizeProviderException(error, { provider, operation: 'video task' });
+  }
 }
 
 module.exports = {
@@ -4063,4 +4216,12 @@ module.exports = {
   pickProxyVideoUrl,
   buildAgnesVideoImagePayload,
   formatVideoPostBodyForLog,
+  resolveVideoProtocol,
+  fetchVideoWithTimeout,
+  createSafeVideoLogger,
+  loadReferenceImageBuffer,
+  resolveJimengApiImageBuffer,
+  validateProviderDispatch,
+  validateProviderRequestUrl,
+  validateVideoMediaReferences,
 };

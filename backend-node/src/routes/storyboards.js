@@ -275,6 +275,7 @@ function routes(db, log) {
         response.success(res, sb);
       } catch (err) {
         log.error('storyboards update', { error: err.message });
+        if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
         response.internalError(res, err.message);
       }
     },
@@ -383,12 +384,13 @@ function routes(db, log) {
     },
     episodeStoryboardsGenerate: (req, res) => {
       try {
+        const body = req.body || {};
         const taskId = episodeStoryboardService.generateStoryboard(
           db,
           log,
           req.params.episode_id,
-          req.query.model,
-          req.query.style
+          body.model,
+          body.style
         );
         response.success(res, { task_id: taskId, status: 'pending', message: '分镜头生成任务已创建，正在后台处理...' });
       } catch (err) {

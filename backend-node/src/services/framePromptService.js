@@ -404,7 +404,10 @@ function parseFramePromptJSON(log, aiResponse) {
       return { prompt: data.prompt, description: data.description || '' };
     }
   } catch (e) {
-    log.warn('Frame prompt JSON parse failed', { error: e.message, response_head: (aiResponse || '').slice(0, 200) });
+    log.warn('Frame prompt JSON parse failed', {
+      error: e.message,
+      response_chars: String(aiResponse || '').length,
+    });
   }
   return null;
 }

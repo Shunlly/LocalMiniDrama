@@ -1,5 +1,4 @@
 .git
-.github
 **/node_modules
 **/dist
 **/data
@@ -12,3 +11,21 @@ desktop/backend-app-secure
 desktop/release*
 backend-node/deploy-pack
 backend-node/tools/ffmpeg/*.exe
+
+# Local configuration and credential material must not enter the build context.
+**/configs/**
+!backend-node/configs
+!backend-node/configs/config.yaml
+**/ai-configs/**
+**/.env*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+
+# Generated Electron staging and release artifacts are never Docker inputs.
+desktop/backend-app
+desktop/backend-app-secure
+desktop/frontweb-dist
+desktop/release
+desktop/release-*

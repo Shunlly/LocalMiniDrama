@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const Database = require('better-sqlite3');
 const storageLayout = require('../src/services/storageLayout');
+const uploadService = require('../src/services/uploadService');
 
 const E2E_TITLE_PREFIX = 'E2E Novel2Anime ';
 const E2E_PURGE_CONFIRMATION = 'LOCALMINIDRAMA_E2E_PURGE';
@@ -353,6 +354,99 @@ function resolveProjectStorageDirectory(storageRoot, dramaRow) {
   return target;
 }
 
+function collectFixtureAudioReferences(db, context, cache) {
+  return uniqueValues([
+    ...selectValues(db, 'storyboards', 'audio_local_path', [
+      { column: 'id', values: context.storyboardIds },
+    ], cache),
+    ...selectValues(db, 'storyboards', 'narration_audio_local_path', [
+      { column: 'id', values: context.storyboardIds },
+    ], cache),
+  ].map((value) => String(value || '').trim()).filter(Boolean));
+}
+
+function collectExternalAudioReferences(db, context, cache) {
+  const values = [];
+  const storyboardColumns = tableColumns(db, 'storyboards', cache);
+  if (storyboardColumns?.has('id')) {
+    const pathColumns = ['audio_local_path', 'narration_audio_local_path']
+      .filter((column) => storyboardColumns.has(column));
+    if (pathColumns.length > 0) {
+      const ids = uniqueValues(context.storyboardIds);
+      const where = ids.length > 0
+        ? `${quoteIdentifier('id')} NOT IN (${ids.map(() => '?').join(', ')})`
+        : '1 = 1';
+      const rows = db.prepare(
+        `SELECT ${pathColumns.map(quoteIdentifier).join(', ')} FROM ${quoteIdentifier('storyboards')} WHERE ${where}`
+      ).all(...ids);
+      for (const row of rows) values.push(...pathColumns.map((column) => row[column]));
+    }
+  }
+
+  const timelineColumns = tableColumns(db, 'timeline_items', cache);
+  if (timelineColumns?.has('source_path')) {
+    const conditions = [];
+    const params = [];
+    for (const [column, rawValues] of [
+      ['storyboard_id', context.storyboardIds],
+      ['track_id', context.trackIds],
+    ]) {
+      const ids = uniqueValues(rawValues);
+      if (!timelineColumns.has(column) || ids.length === 0) continue;
+      conditions.push(
+        `(${quoteIdentifier(column)} IS NULL OR ${quoteIdentifier(column)} NOT IN (${ids.map(() => '?').join(', ')}))`
+      );
+      params.push(...ids);
+    }
+    const where = conditions.length > 0 ? conditions.join(' AND ') : '1 = 1';
+    const rows = db.prepare(
+      `SELECT ${quoteIdentifier('source_path')} AS value FROM ${quoteIdentifier('timeline_items')} WHERE ${where}`
+    ).all(...params);
+    values.push(...rows.map((row) => row.value));
+  }
+
+  return uniqueValues(values.map((value) => String(value || '').trim()).filter(Boolean));
+}
+
+function normalizeStorageReference(storageRoot, value) {
+  const resolved = uploadService.resolveStorageReference(storageRoot, value, { mustExist: false });
+  return resolved?.relativePath || null;
+}
+
+async function removeFixtureAudioFiles(db, storageRoot, context, cache) {
+  const candidates = new Map();
+  for (const value of collectFixtureAudioReferences(db, context, cache)) {
+    const relativePath = normalizeStorageReference(storageRoot, value);
+    if (relativePath) candidates.set(relativePath, value);
+  }
+
+  const externalReferences = new Set();
+  for (const value of collectExternalAudioReferences(db, context, cache)) {
+    try {
+      const relativePath = normalizeStorageReference(storageRoot, value);
+      if (relativePath) externalReferences.add(relativePath);
+    } catch (_) {
+      // Unrelated legacy references must not prevent cleanup of controlled E2E media.
+    }
+  }
+
+  const result = { candidates: candidates.size, deleted: 0, missing: 0, shared: 0 };
+  for (const [relativePath, originalValue] of candidates) {
+    if (externalReferences.has(relativePath)) {
+      result.shared += 1;
+      continue;
+    }
+    const resolved = uploadService.resolveStorageReference(storageRoot, originalValue, { allowMissing: true });
+    if (!resolved) {
+      result.missing += 1;
+      continue;
+    }
+    await fs.unlink(resolved.absolutePath);
+    result.deleted += 1;
+  }
+  return result;
+}
+
 async function removeStorySourceDirectory(storySourceRoot, dramaId) {
   const target = resolveStorySourceDirectory(storySourceRoot, dramaId);
   let stat;
@@ -420,6 +514,14 @@ async function purgeE2EFixture({ db, dramaId, expectedTitle, storySourceRoot, st
   const normalizedId = normalizeDramaId(dramaId);
   const dramaRow = assertE2EFixture(db, normalizedId, expectedTitle);
   resolveProjectStorageDirectory(storageRoot, dramaRow);
+  const mediaCache = new Map();
+  const mediaContext = collectFixtureContext(db, normalizedId, mediaCache);
+  const mediaCleanup = await removeFixtureAudioFiles(
+    db,
+    storageRoot,
+    mediaContext,
+    mediaCache
+  );
   await removeStorySourceDirectory(storySourceRoot, normalizedId);
   await removeProjectStorageDirectory(storageRoot, dramaRow);
 
@@ -456,6 +558,7 @@ async function purgeE2EFixture({ db, dramaId, expectedTitle, storySourceRoot, st
     drama_id: normalizedId,
     title: expectedTitle,
     deleted: result.deleted,
+    media_cleanup: mediaCleanup,
     residual: result.residual,
     verified: true,
   };

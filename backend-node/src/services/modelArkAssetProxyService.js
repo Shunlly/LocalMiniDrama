@@ -2,6 +2,15 @@
 
 const querystring = require('querystring');
 const { Signer } = require('@volcengine/openapi');
+const { secureHttpFetch } = require('./secureHttpFetch');
+const {
+  createProviderHttpError,
+  sanitizeProviderException,
+  summarizeProviderResponse,
+} = require('./providerErrorSanitizer');
+
+const MODEL_ARK_TIMEOUT_MS = 30000;
+const MODEL_ARK_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 const ALLOWED_ACTIONS = new Set([
   'CreateAssetGroup',
@@ -124,6 +133,7 @@ async function fetchSignedOpenApi({
   signRegion,
   signService,
   projectName,
+  networkOptions,
 }) {
   const ver = (apiVersion || '2024-01-01').toString().trim() || '2024-01-01';
   const { protocol, host, pathname } = parseSignedOpenApiUrl(base);
@@ -154,29 +164,43 @@ async function fetchSignedOpenApi({
   const qs = querystring.stringify(request.params);
   const url = `${protocol}//${host}${pathname}?${qs}`;
 
-  const res = await fetch(url, {
+  const res = await secureHttpFetch(url, {
     method: 'POST',
     headers: request.headers,
     body: bodyStr,
-    redirect: 'manual',
+    redirect: 'error',
+  }, {
+    trustedOrigins: networkOptions?.trustedOrigins || [base],
+    allowPrivateOrigins: networkOptions?.allowPrivateOrigins,
+    lookup: networkOptions?.lookup,
+    timeoutMs: MODEL_ARK_TIMEOUT_MS,
+    maxBytes: MODEL_ARK_MAX_RESPONSE_BYTES,
+    maxRedirects: 0,
   });
   return res;
 }
 
-async function fetchBearer(url, method, token, bodyObj) {
+async function fetchBearer(url, method, token, bodyObj, networkOptions = {}) {
   const headers = {
     Authorization: `Bearer ${token}`,
   };
   const init = {
     method: String(method || 'POST').toUpperCase(),
     headers,
-    redirect: 'manual',
+    redirect: 'error',
   };
   if (init.method !== 'GET' && init.method !== 'HEAD') {
     headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(bodyObj && typeof bodyObj === 'object' ? bodyObj : {});
   }
-  return fetch(url, init);
+  return secureHttpFetch(url, init, {
+    trustedOrigins: networkOptions.trustedOrigins,
+    allowPrivateOrigins: networkOptions.allowPrivateOrigins,
+    lookup: networkOptions.lookup,
+    timeoutMs: MODEL_ARK_TIMEOUT_MS,
+    maxBytes: MODEL_ARK_MAX_RESPONSE_BYTES,
+    maxRedirects: 0,
+  });
 }
 
 async function callModelArkAsset(opts, log) {
@@ -195,6 +219,9 @@ async function callModelArkAsset(opts, log) {
     sign_service,
     session_token,
     project_name,
+    trusted_origins,
+    allow_private_origins,
+    network_lookup,
   } = opts;
 
   if (!action || typeof action !== 'string') throw new Error('缺少 action');
@@ -216,7 +243,13 @@ async function callModelArkAsset(opts, log) {
     bodyObj.ProjectName = pnScope;
   }
   let res;
+  const networkOptions = {
+    trustedOrigins: Array.isArray(trusted_origins) && trusted_origins.length ? trusted_origins : [base],
+    allowPrivateOrigins: allow_private_origins,
+    lookup: network_lookup,
+  };
 
+  try {
   if (modeAuth === 'volc_sign') {
     const ak = String(access_key_id || '').trim();
     const sk = String(secret_access_key || '').trim();
@@ -237,12 +270,19 @@ async function callModelArkAsset(opts, log) {
       signRegion: sign_region,
       signService: sign_service,
       projectName: pnScope,
+      networkOptions,
     });
   } else {
     const token = normalizeBearerToken(api_key);
     if (!token) throw new Error('缺少 api_key');
     const url = buildRequestUrl(base, pathMode, act, api_version, pnScope);
-    res = await fetchBearer(url, method, token, bodyObj);
+    res = await fetchBearer(url, method, token, bodyObj, networkOptions);
+  }
+  } catch (error) {
+    throw sanitizeProviderException(error, {
+      provider: 'ModelArk',
+      operation: act,
+    });
   }
 
   const text = await res.text();
@@ -250,15 +290,25 @@ async function callModelArkAsset(opts, log) {
   try {
     data = text ? JSON.parse(text) : null;
   } catch (_) {
-    data = { _raw: text };
+    throw createProviderHttpError({
+      provider: 'ModelArk',
+      operation: act,
+      status: res.status,
+      responseBody: text,
+    });
   }
   if (!res.ok) {
-    const msg = extractUpstreamMessage(data, text) || `HTTP ${res.status}`;
-    const err = new Error(String(msg).slice(0, 2000));
-    err.status = res.status;
-    err.payload = data;
-    if (log) log.warn('modelArkAsset proxy upstream error', { action: act, status: res.status });
-    throw err;
+    if (log) log.warn('modelArkAsset proxy upstream error', {
+      action: act,
+      status: res.status,
+      ...summarizeProviderResponse(data),
+    });
+    throw createProviderHttpError({
+      provider: 'ModelArk',
+      operation: act,
+      status: res.status,
+      responseBody: data,
+    });
   }
   return data;
 }

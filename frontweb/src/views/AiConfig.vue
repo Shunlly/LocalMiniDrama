@@ -2,14 +2,14 @@
   <div class="ai-config">
     <header class="header">
       <div class="header-inner">
-        <button type="button" class="logo" aria-label="返回项目列表" @click="goList">
+        <button type="button" class="logo" :aria-label="backButtonLabel" @click="goBack">
           <span class="logo-main">本地短剧助手</span>
           <span class="logo-sub">LocalMiniDrama</span>
         </button>
         <h1 class="page-title">AI 配置</h1>
-        <el-button class="btn-back" @click="goList">
+        <el-button class="btn-back" @click="goBack">
           <el-icon><ArrowLeft /></el-icon>
-          返回
+          {{ backButtonText }}
         </el-button>
       </div>
     </header>
@@ -36,9 +36,22 @@ const initialServiceType = computed(() => {
   const normalized = String(raw || '').trim()
   return filterableServiceTypes.has(normalized) ? normalized : ''
 })
+const returnTo = computed(() => {
+  const normalize = route.meta.normalizeReturnTo
+  return typeof normalize === 'function' ? normalize(route.query.returnTo) : ''
+})
+const returnsToFreeCreate = computed(() => returnTo.value.startsWith('/free-create'))
+const backButtonText = computed(() => {
+  if (returnsToFreeCreate.value) return '返回自由创作'
+  return returnTo.value ? '返回项目' : '返回首页'
+})
+const backButtonLabel = computed(() => {
+  if (returnsToFreeCreate.value) return '返回自由创作'
+  return returnTo.value ? '返回原项目' : '返回项目列表'
+})
 
-function goList() {
-  router.push({ name: 'list' })
+function goBack() {
+  router.replace(returnTo.value || { name: 'list' })
 }
 </script>
 

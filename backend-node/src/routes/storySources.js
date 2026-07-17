@@ -1,32 +1,34 @@
+const path = require('node:path');
 const response = require('../response');
 const sourceIntakeService = require('../services/sourceIntakeService');
+const sourceMediaExtractionService = require('../services/sourceMediaExtractionService');
+const uploadService = require('../services/uploadService');
 const webSourceImportService = require('../services/webSourceImportService');
-const path = require('path');
 
-const MAX_SOURCE_UPLOAD_BYTES = 20 * 1024 * 1024;
-const TEXT_FILE_EXTENSIONS = new Set(['.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json']);
-const DEFERRED_MULTIMEDIA_EXTENSIONS = new Set([
-  '.pdf',
-  '.doc',
-  '.docx',
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.webp',
-  '.gif',
-  '.mp3',
-  '.wav',
-  '.m4a',
-  '.aac',
-  '.mp4',
-  '.mov',
-  '.mkv',
-  '.avi',
-]);
+const MAX_UPLOAD_METADATA_BYTES = 64 * 1024;
+const SENSITIVE_UPLOAD_METADATA_KEY = /api[_-]?key|access[_-]?key|secret|password|token|raw[_-]?text|full[_-]?text|extracted[_-]?text|ocr[_-]?text|transcript/i;
 
 function badRequestOrInternal(res, err) {
   if (err && err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
+  if (uploadService.isUploadStorageError(err)) {
+    return response.error(
+      res,
+      507,
+      err.code || 'INSUFFICIENT_STORAGE',
+      'Insufficient storage capacity for the source original.'
+    );
+  }
   return response.internalError(res, err.message || 'Story source operation failed');
+}
+
+function resolveSourceStoragePath(routeOptions) {
+  if (routeOptions.storagePath) return path.resolve(routeOptions.storagePath);
+  const testRoot = process.env.NODE_TEST_CONTEXT
+    ? String(process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT || '').trim()
+    : '';
+  return testRoot
+    ? path.resolve(testRoot)
+    : path.join(process.cwd(), 'data', 'storage');
 }
 
 function inferSourceTypeFromFilename(filename) {
@@ -45,45 +47,38 @@ function parseMetadata(value) {
   return sourceIntakeService.normalizeMetadata(value);
 }
 
-function isDeferredMultimedia(file, ext) {
-  const mimetype = String(file?.mimetype || '').toLowerCase();
-  return DEFERRED_MULTIMEDIA_EXTENSIONS.has(ext) ||
-    mimetype.startsWith('image/') ||
-    mimetype.startsWith('audio/') ||
-    mimetype.startsWith('video/') ||
-    mimetype === 'application/pdf';
+function sanitizeMetadataNode(value, depth = 0) {
+  if (depth > 6 || value == null) return value == null ? value : null;
+  if (typeof value === 'string') return value.slice(0, 2000);
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) return value.slice(0, 100).map((item) => sanitizeMetadataNode(item, depth + 1));
+  if (typeof value !== 'object') return null;
+  const safe = {};
+  for (const [key, child] of Object.entries(value).slice(0, 100)) {
+    if (SENSITIVE_UPLOAD_METADATA_KEY.test(key)) continue;
+    safe[key] = sanitizeMetadataNode(child, depth + 1);
+  }
+  return safe;
 }
 
-function decodeUploadedText(file) {
-  if (!file || !file.buffer) {
-    const err = new Error('source file is required');
+function sanitizeUploadMetadata(value) {
+  const metadata = sanitizeMetadataNode(parseMetadata(value));
+  if (Buffer.byteLength(JSON.stringify(metadata), 'utf8') > MAX_UPLOAD_METADATA_BYTES) {
+    const err = new Error('Source upload metadata is limited to 64KB.');
     err.code = 'BAD_REQUEST';
     throw err;
   }
-  const originalName = file.originalname || '';
-  const ext = path.extname(originalName).toLowerCase();
-  if (Number(file.size || file.buffer.length || 0) > MAX_SOURCE_UPLOAD_BYTES) {
-    const err = new Error('Source Intake text uploads are limited to 20MB. Split the source or use the deferred multimedia/OCR pipeline later.');
-    err.code = 'BAD_REQUEST';
-    throw err;
-  }
-  if (ext && !TEXT_FILE_EXTENSIONS.has(ext)) {
-    const err = new Error('only text-like source files are supported for Source Intake upload');
-    if (isDeferredMultimedia(file, ext)) {
-      err.message = 'Real PDF, image, audio, and video OCR/transcription intake is deferred. Upload a text, markdown, subtitle, CSV/TSV, or JSON source for now.';
-    }
-    err.code = 'BAD_REQUEST';
-    throw err;
-  }
-  if (!ext && isDeferredMultimedia(file, ext)) {
-    const err = new Error('Real multimedia OCR/transcription intake is deferred. Upload a text-like source file for now.');
-    err.code = 'BAD_REQUEST';
-    throw err;
-  }
-  return file.buffer.toString('utf8').replace(/^\uFEFF/, '');
+  return metadata;
 }
 
-module.exports = function storySourceRoutes(db, log) {
+module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
+  const storagePath = resolveSourceStoragePath(routeOptions);
+  const originalStorage = {
+    storagePath,
+    quotaBytes: routeOptions.originalQuotaBytes,
+    reserveBytes: routeOptions.originalReserveBytes,
+    getAvailableBytes: routeOptions.getAvailableBytes,
+  };
   return {
     listForDrama(req, res) {
       try {
@@ -108,24 +103,36 @@ module.exports = function storySourceRoutes(db, log) {
       }
     },
 
-    uploadForDrama(req, res) {
+    async uploadForDrama(req, res) {
       try {
-        const text = decodeUploadedText(req.file);
-        const file = req.file;
+        const extracted = await sourceMediaExtractionService.extractUploadedSource(
+          db,
+          req.file,
+          routeOptions.extractionOptions || {}
+        );
+        const file = extracted.file;
         const body = req.body || {};
         const result = sourceIntakeService.createStorySource(db, log, {
           ...body,
           drama_id: req.params.id,
-          text,
-          source_type: body.source_type || inferSourceTypeFromFilename(file.originalname),
-          title: body.title || String(file.originalname || '').replace(/\.[^.]+$/, ''),
+          text: extracted.text,
+          source_type: body.source_type || inferSourceTypeFromFilename(file.filename),
+          title: body.title || String(file.filename || '').replace(/\.[^.]+$/, ''),
           metadata: {
-            ...parseMetadata(body.metadata),
-            uploaded_filename: file.originalname || '',
-            uploaded_mimetype: file.mimetype || '',
-            uploaded_size: file.size || 0,
+            ...sanitizeUploadMetadata(body.metadata),
+            uploaded_filename: file.filename,
+            uploaded_mimetype: file.declared_mime || file.mime,
+            uploaded_size: file.size,
             imported_from: 'source_intake_upload',
+            ...extracted.metadata,
           },
+          original_file: {
+            buffer: req.file.buffer,
+            extension: file.extension,
+            format: file.format,
+            mime: file.mime,
+          },
+          original_storage: originalStorage,
         });
         response.created(res, result);
       } catch (err) {
@@ -168,6 +175,26 @@ module.exports = function storySourceRoutes(db, log) {
       } catch (err) {
         log.error('story sources get', { error: err.message, source_id: req.params.source_id });
         badRequestOrInternal(res, err);
+      }
+    },
+
+    downloadOriginal(req, res) {
+      try {
+        const source = sourceIntakeService.getSourceById(db, req.params.source_id);
+        if (!source) return response.notFound(res, 'Story source not found');
+        const original = uploadService.readStorySourceOriginal(storagePath, source);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('Content-Disposition', `attachment; filename="${original.serverFilename}"`);
+        res.setHeader('Content-Length', String(original.size));
+        res.setHeader('Content-Type', original.mime);
+        res.setHeader('X-Content-SHA256', original.sha256);
+        return res.status(200).send(original.buffer);
+      } catch (err) {
+        if (err?.code === 'SOURCE_ORIGINAL_NOT_FOUND') {
+          return response.notFound(res, err.message);
+        }
+        log.error('story source original download', { error: err.message, source_id: req.params.source_id });
+        return badRequestOrInternal(res, err);
       }
     },
 

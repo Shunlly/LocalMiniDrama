@@ -1,97 +1,76 @@
 # Novel2Anime Implementation Status
 
-Date: 2026-07-10
+Date: 2026-07-17
+Release scope: LocalMiniDrama 1.3.0 desktop
 
-Scope completed through 2026-07-10: the 11 non-real-provider tasks, 8 blocker cleanups, the final local cleanup pass, and 9 desktop Web upgrades. Desktop Web is accepted; mobile Web and real Novel2Anime provider execution remain deferred.
+## Status
 
-## 8 Blocker Cleanup
+The desktop Novel2Anime workflow is implemented end to end and is part of the 1.3.0 release candidate. It covers source intake, extraction, adaptation, asset generation, storyboards, media generation, TTS, FFmpeg composition, QA, repair, export, recovery, and cleanup.
 
-Completed after the 11-item phase:
+The production E2E uses a deterministic local OpenAI-compatible provider harness so the workflow can be verified without committing external credentials. Availability, quota, billing, and model-specific behavior of any third-party account remain external concerns and must be checked from AI Configuration before a real production run.
 
-1. Old async system fully converged: raw `setImmediate(` calls were removed from `backend-node/src`; legacy fire-and-forget work now goes through `legacyAsyncSchedulerService`, and `asyncAuditService` is a zero-raw-call gate.
-2. Production QA gate hardened: production QA rejects `mock://` / `placeholder://` media, requires real media coverage for every storyboard, and requires non-mock provider audit records for `image`, `video`, `tts`, and `compositor`. The local mock workflow runs draft QA by default.
-3. Story IR / adaptation quality improved: readable Chinese/English rules now classify sources, split storyboard/script/transcript material, extract characters and locations, infer semantic edges, and write richer episode plan fields (`source_trace`, `beats`, `conflict`, `reveal`, `continuity_notes`).
-4. Large file / multimedia intake hardened: Source Intake upload has a 20MB text-file limit, parses metadata JSON strings, and clearly rejects deferred PDF/image/audio/video OCR/transcription.
-5. Browser-level E2E validation added: `frontweb/scripts/e2e-smoke.cjs` opens the real frontend with Playwright, creates backend test data, and verifies the workflow panel in browser.
-6. Encoding debt cleaned on relevant workflow surfaces: `qaService`, `sourceIntakeService`, `SourceIntakeWorkflowPanel.vue`, and workflow UI utils were cleaned of garbled user-facing text.
-7. Host dev environment stabilized: root `doctor` script and `.nvmrc` document the Node 20/Docker path and detect missing native dependencies.
-8. Change boundary organized: `docs/novel2anime-change-boundaries.md` records completed areas and deferred real integrations.
+## Completed Product Flow
 
-## Final Cleanup Pass
+1. Project Readiness exposes one next action across AI configuration, source, script/episodes, assets, storyboards, and media.
+2. Source Intake presents `Import source -> Start processing -> QA -> Repair -> Episodes / Timeline` with executable empty and failure states.
+3. Film Create and Canvas share project data, action prerequisites, task progress, failure recovery, reference media, first/last frames, and composition output.
+4. Media Library supports validated local upload, search, type filtering, URL intake boundaries, preview, download, and cleanup.
+5. Production QA requires real local media plus successful non-mock provider audit records for text/image/video/TTS/compositor stages.
 
-Completed on 2026-07-09:
+## Production Provider Execution
 
-1. AI config secret handling: API responses mask `api_key` and sensitive `settings`, expose `api_key_set`, preserve stored secrets when the frontend sends `********`, and export configs with blank API keys.
-2. Saved-config execution paths: connection test, Jimeng material assets, and ModelArk asset proxy can use saved `id` / `config_id` without resending plaintext secrets.
-3. Production QA cannot be bypassed by omitting `run_id`; production remediation keeps production mode instead of falling back to draft.
-4. Mock-like provider rows are rejected case/space/mock-output aware, and production provider audit must contain successful non-mock output values for every required provider type.
-5. Frontend workflow semantics: empty canvas pipelines are invalid, poll results require `status === 'completed'`, one-click/repair flows warn on accumulated failures, and Novel2Anime media/composite UI labels are explicit placeholders.
-6. Documentation now states the current provider boundary: classic image/video flows can call configured providers, while Novel2Anime media/TTS/compositor execution remains placeholder-only until the later real-provider integration phase.
+- Text adaptation routes through an active configured text service, including OpenAI-compatible cloud gateways and local Ollama-compatible routes.
+- Asset and storyboard images route through configured image services; ComfyUI execution includes workflow submission, history polling, output retrieval, cancellation, timeout, and error sanitization.
+- Storyboard video uses the configured video service with bounded polling, retry, cancellation, idempotency, and local media persistence.
+- Dialogue and narration use the configured TTS service and persist validated local audio.
+- Episode composition validates FFmpeg/FFprobe, combines video and audio tracks, stores a local merged output, and records compositor evidence.
+- Provider calls record sanitized audit state, idempotency keys, cost semantics, status, and safe error summaries.
 
-## Desktop Web Upgrade Completion (9/9)
+## Source Extraction
 
-Completed and accepted on 2026-07-10:
+- Text-like files are decoded and normalized with upload and content limits.
+- PDF sources use embedded text where available and configured OCR for image-only pages.
+- Images use the configured OCR-capable vision service.
+- Audio uses an active OpenAI-compatible transcription service.
+- Video is probed, duration-limited, converted to bounded audio with FFmpeg, and sent to transcription.
+- Original source files remain project-scoped and are included in safe project/full-data export policies.
 
-| # | Upgrade | Completion |
-|---|---|---|
-| 1 | Shared disabled-action semantics | Enabled primary actions retain their emphasis; disabled actions are visibly muted, have no shadow, use `not-allowed`, and expose a blocking reason or a direct recovery action on the upgraded workflow surfaces. |
-| 2 | Project home | Project titles and actions no longer compete for the same space; export/edit/delete are in a stable action menu, the material entry is consolidated, and the no-project state links directly to create, import, and Material Center actions. |
-| 3 | Material Center | `/media-library` is the desktop entry for reusable images and videos, with upload, server-side name search, type filters, explicit empty/no-result states, and clear boundaries for project-side URL import and character/scene/prop library intake. The backend streams uploads through temporary disk files, validates image/video signatures, assigns a safe server-side extension, and cleans temporary or rolled-back files; the single-file limit remains 100MB. |
-| 4 | AI service readiness | AI Configuration summarizes text, material image, storyboard image, video, and TTS coverage, including configured/default state and persisted or session connection-test state, with add/view/edit/test actions. |
-| 5 | Progressive AI configuration form | The dialog is grouped into basic information, provider/authentication, model, and call-policy sections; advanced endpoint/protocol settings are collapsed by default. |
-| 6 | Project readiness and one next step | Project Detail summarizes six production stages (AI configuration, source, script/episodes, assets, storyboards, and media) and exposes one current next action. Empty episode states point to the exact prerequisite. |
-| 7 | Five-step story-source flow | Source Intake, Workflow, QA, remediation, and delivery are presented as `Import source -> Start processing -> QA -> Repair -> Episodes / Timeline`, with current-step summaries, action reasons, and executable empty states. |
-| 8 | List production workspace | `FilmCreate` delegates full-pipeline controls to a dedicated panel, groups generation settings, and gates project, episode, storyboard, batch, pipeline, and composition actions with concrete prerequisite or in-progress reasons. |
-| 9 | Canvas workspace | Desktop canvas controls are split into Create, Workflow, and Batch Generate groups; workflow controls appear only with useful selection/saved-workflow context, the empty canvas provides one primary action plus a List Mode fallback, and light-theme nodes use readable semantic surfaces with non-overlapping default columns. |
+## Reliability And Security
 
-## Completed 11 Items
+- Workflow runs support pause, resume, retry, cancel, startup recovery, shutdown drain, and recorded step side effects.
+- Provider requests apply timeouts, finite retries, cancellation, response-size limits, safe redirects, and SSRF checks.
+- AI configuration responses, exports, backups, logs, and Provider errors redact keys, credentials, URL signatures, and nested sensitive fields.
+- Import/export and media paths use controlled roots, archive entry/size limits, media signature checks, and rollback cleanup.
+- Full data backup verifies SQLite and referenced files; restore refuses a live database/port and retains a pre-restore rollback copy.
 
-1. Legacy async containment: added `asyncAuditService` and audit-script enforcement for current `setImmediate` entrypoints.
-2. Legacy entrypoint workflow bridge: `/dramas/import-novel` writes Source Intake records when `drama_id` is supplied, and existing sources can start workflows.
-3. Backend file upload: added `POST /dramas/:id/story-sources/upload` for text-like source files.
-4. Story IR enhancement: event graph now includes inferred `cause`, `conflict`, `reveal`, and `hook` edges in addition to `next`.
-5. QA auto-remediation: added granular actions `refresh_asset_bible`, `repair_storyboards`, `repair_timeline`, and `start_or_retry_workflow`.
-6. Skill / prompt split: added local templates under `backend-node/prompts/skills/`.
-7. Character consistency: added local continuity snapshots, identity anchors, stages, and mock reference assets.
-8. Timeline enhancement: added drama/episode timeline APIs, SRT export, and manifest export.
-9. Frontend workflow experience: added backend upload use, source detail drawer, workflow detail expansion, QA remediation progress, and timeline summary.
-10. Tests and audits: expanded backend and frontend tests plus flow audit coverage.
-11. Documentation and validation: this file records the completed scope and deferred real-provider scope.
+## Verification Evidence
 
-## Validation
-
-Accepted on 2026-07-10 with the current working tree:
+Release acceptance requires all of the following on the same source revision:
 
 ```bash
-docker compose up -d --build
+npm run verify
 npm run verify:docker
-npm --prefix frontweb run verify
 npm run verify:e2e
+npm run verify:release:source
+npm run verify:release:windows
+# After independent Gitleaks, Trivy, Defender, extraction, and Fuse checks:
+npm run verify:release:artifacts
 ```
 
-Docker validation result:
-- Images rebuilt successfully from the current source; backend and frontend containers started, and the backend reported healthy.
-- Backend Docker/Node 20 verify: 116 JavaScript files checked, **78/78 tests passed**, and the flow audit passed.
-- Frontend verify: 85 JavaScript files checked, **91/91 tests passed**, and the Vite production build completed (1,658 modules transformed).
-- `http://localhost:5679/health` returned `{ "status": "ok" }`.
+`verify:release:windows` builds and smoke-tests the unverified Setup, Portable, and Unpacked candidate plus SBOMs; it never creates a final release manifest before independent artifact scans pass. The production E2E covers text, asset/storyboard image, video, TTS, FFmpeg composition, playback at desktop viewports, final download, project export, injected failure recovery, and zero-residue cleanup. Final evidence is written under `artifacts/e2e-production/` and must report version `1.3.0`, the release commit SHA, and `working_tree_dirty=false`.
 
-E2E and browser acceptance:
-- `npm run verify:e2e` passed. The Playwright smoke test creates a temporary drama and source inside a guarded `try/finally`, opens `/drama/:id` at 1366 x 900, verifies Project Readiness and all five source-flow steps plus Start Processing, then closes the browser, removes the registered source directory, calls the regular DELETE route, and runs the Docker-only hard-purge script. The purge verifies that the fixture leaves no related SQLite rows or `data/story_sources/<id>` directory.
-- Desktop browser walkthrough passed at 1440 x 900 for project cards, Material Center, AI service readiness and the progressive configuration dialog, Project Readiness and the five-step source flow, List Production, and Canvas. All six pages had no root-level horizontal overflow; the final walkthrough produced no console warning or error.
-- Disabled primary actions were visually and programmatically confirmed as muted, shadow-free, and `not-allowed`, while blocker text and recovery actions remained visible.
+The Trivy vulnerability gate reads the backend, frontend, desktop, and release CycloneDX SBOMs separately. Its configuration gate scans the three real Dockerfiles rather than the extracted application tree. The backend bind-mount ownership exception is path-scoped in `backend-node/.trivyignore.yaml`, recorded in artifact security evidence, and expires on 2027-07-17 for review.
 
-## Deferred
-
-The following are intentionally outside the accepted scope:
+## Deferred Boundaries
 
 ### Mobile Web
 
-- The 9/9 completion and browser acceptance above are desktop-only.
-- The 2026-07-10 audit found the 390 x 844 project home, Project Detail, and List Production pages not acceptable because of horizontal overflow and desktop-only form/header layout. Mobile reflow, touch behavior, and a mobile Canvas/list-mode fallback are deferred and must not be inferred as complete from the desktop result.
+The 1.3.0 acceptance matrix is desktop-only. Mobile reflow, touch-specific behavior, and a mobile Canvas/list fallback remain deferred and must not be inferred as complete from desktop screenshots or tests.
 
-### Real Novel2Anime Providers
+### External Provider Deep Validation
 
-- Existing classic text/image/video flows may call providers saved in AI Configuration; that capability is not the deferred item.
-- The Novel2Anime unified workflow still uses mock/placeholder execution for real image/video media, TTS, and compositor steps through `providerSdkService`. Browser and E2E acceptance did not call or validate external generation providers.
-- Real ComfyUI and Ollama adapters, cloud-model production routing for the Novel2Anime workflow, real TTS/media provider execution, and the FFmpeg-backed Novel2Anime compositor adapter remain deferred.
-- Production QA deliberately rejects placeholder media and requires successful non-mock audit output for `image`, `video`, `tts`, and `compositor`; provider availability, quota, and gateway failures remain external integration concerns.
+The generic production adapters and routing are implemented. The release does not claim that every vendor, model revision, private deployment, account quota, or billing policy has been validated. Each real endpoint must be configured locally, connection-tested, and accepted with non-sensitive sample content before production use. Provider credentials are never included in repository, reports, E2E evidence, exports, or backups.
+
+### Desktop Signing And Other Platforms
+
+Windows x64 Setup, Portable, and unpacked are the release targets. Authenticode signing, macOS artifacts, and Linux desktop artifacts are deferred; the macOS build script fails closed instead of producing an unverified artifact.

@@ -2,54 +2,48 @@
   <div class="canvas-desktop-toolbar">
     <div class="toolbar-main-row">
       <CanvasToolbarGroup title="创建内容" aria-label="创建内容" :helper="contentHelper">
-        <el-tooltip :disabled="!actionReasons.editScript" :content="actionReasons.editScript" placement="bottom">
-          <span class="tooltip-anchor">
-            <el-button
-              size="small"
-              type="warning"
-              plain
-              :disabled="Boolean(actionReasons.editScript)"
-              @click="emit('edit-script')"
-            >
-              <el-icon><Document /></el-icon>
-              剧本
-            </el-button>
-          </span>
-        </el-tooltip>
-        <el-tooltip :disabled="!actionReasons.createStoryboard" :content="actionReasons.createStoryboard" placement="bottom">
-          <span class="tooltip-anchor">
-            <el-button
-              size="small"
-              :disabled="Boolean(actionReasons.createStoryboard)"
-              @click="emit('create', 'storyboard')"
-            >
-              <el-icon><Plus /></el-icon>
-              分镜
-            </el-button>
-          </span>
-        </el-tooltip>
+        <CanvasActionGate :reason="actionReasons.editScript" label="编辑剧本" description-id="canvas-reason-edit-script">
+          <el-button
+            size="small"
+            type="warning"
+            plain
+            :disabled="Boolean(actionReasons.editScript)"
+            @click="emit('edit-script')"
+          >
+            <el-icon><Document /></el-icon>
+            剧本
+          </el-button>
+        </CanvasActionGate>
+        <CanvasActionGate :reason="actionReasons.createStoryboard" label="新建分镜" description-id="canvas-reason-create-storyboard">
+          <el-button
+            size="small"
+            :disabled="Boolean(actionReasons.createStoryboard)"
+            @click="emit('create', 'storyboard')"
+          >
+            <el-icon><Plus /></el-icon>
+            分镜
+          </el-button>
+        </CanvasActionGate>
         <el-button size="small" @click="emit('create', 'episode')">
           <el-icon><Tickets /></el-icon>
           剧集
         </el-button>
-        <el-tooltip :disabled="!actionReasons.createAsset" :content="actionReasons.createAsset" placement="bottom">
-          <span class="tooltip-anchor">
-            <el-dropdown trigger="click" :disabled="Boolean(actionReasons.createAsset)" @command="emit('create', $event)">
-              <el-button size="small" :disabled="Boolean(actionReasons.createAsset)">
-                <el-icon><Box /></el-icon>
-                素材
-                <el-icon class="dropdown-arrow"><ArrowDown /></el-icon>
-              </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="character">新建角色</el-dropdown-item>
-                  <el-dropdown-item command="scene">新建场景</el-dropdown-item>
-                  <el-dropdown-item command="prop">新建道具</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </span>
-        </el-tooltip>
+        <CanvasActionGate :reason="actionReasons.createAsset" label="新建素材" description-id="canvas-reason-create-asset">
+          <el-dropdown trigger="click" :disabled="Boolean(actionReasons.createAsset)" @command="emit('create', $event)">
+            <el-button size="small" :disabled="Boolean(actionReasons.createAsset)">
+              <el-icon><Box /></el-icon>
+              素材
+              <el-icon class="dropdown-arrow"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="character">新建角色</el-dropdown-item>
+                <el-dropdown-item command="scene">新建场景</el-dropdown-item>
+                <el-dropdown-item command="prop">新建道具</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </CanvasActionGate>
       </CanvasToolbarGroup>
 
       <CanvasWorkflowToolbarGroup
@@ -60,6 +54,7 @@
         :pipeline-steps="pipelineSteps"
         :workflow-running="workflowRunning"
         :action-reasons="actionReasons"
+        :action-config-services="actionConfigServices"
         @update:pipeline-steps="emit('update:pipelineSteps', $event)"
         @update:active-group-id="emit('update:activeGroupId', $event)"
         @create-workflow="emit('create-workflow')"
@@ -68,46 +63,45 @@
       />
 
       <CanvasToolbarGroup title="批量生成" aria-label="本集批量生成" :helper="batchHelper">
-        <el-tooltip :disabled="!actionReasons.generateStoryboards" :content="actionReasons.generateStoryboards" placement="bottom">
-          <span class="tooltip-anchor">
-            <el-button
-              size="small"
-              type="primary"
-              :loading="episodeGenerating"
-              :disabled="Boolean(actionReasons.generateStoryboards)"
-              @click="emit('generate-storyboards')"
-            >
-              <el-icon><MagicStick /></el-icon>
-              AI 分镜
-            </el-button>
-          </span>
-        </el-tooltip>
-        <el-tooltip :disabled="!actionReasons.batchImages" :content="actionReasons.batchImages" placement="bottom">
-          <span class="tooltip-anchor">
-            <el-button
-              size="small"
-              :loading="episodeGenerating"
-              :disabled="Boolean(actionReasons.batchImages)"
-              @click="emit('batch-images')"
-            >
-              <el-icon><Picture /></el-icon>
-              批量生图
-            </el-button>
-          </span>
-        </el-tooltip>
-        <el-tooltip :disabled="!actionReasons.batchVideos" :content="actionReasons.batchVideos" placement="bottom">
-          <span class="tooltip-anchor">
-            <el-button
-              size="small"
-              :loading="episodeGenerating"
-              :disabled="Boolean(actionReasons.batchVideos)"
-              @click="emit('batch-videos')"
-            >
-              <el-icon><VideoPlay /></el-icon>
-              批量生视频
-            </el-button>
-          </span>
-        </el-tooltip>
+        <CanvasActionGate :reason="actionReasons.generateStoryboards" label="AI 生成分镜" description-id="canvas-reason-generate-storyboards">
+          <el-button
+            size="small"
+            type="primary"
+            :loading="episodeGenerating"
+            :disabled="Boolean(actionReasons.generateStoryboards)"
+            @click="emit('generate-storyboards')"
+          >
+            <el-icon><MagicStick /></el-icon>
+            AI 分镜
+          </el-button>
+        </CanvasActionGate>
+        <CanvasActionGate :reason="actionReasons.batchImages" label="批量生成图片" description-id="canvas-reason-batch-images">
+          <el-button
+            size="small"
+            :loading="episodeGenerating"
+            :disabled="Boolean(actionReasons.batchImages)"
+            @click="emit('batch-images')"
+          >
+            <el-icon><Picture /></el-icon>
+            批量生图
+          </el-button>
+        </CanvasActionGate>
+        <CanvasActionGate
+          :reason="actionReasons.batchVideos"
+          label="批量生成视频"
+          description-id="canvas-reason-batch-videos"
+          :config-service-type="actionConfigServices.batchVideos"
+        >
+          <el-button
+            size="small"
+            :loading="episodeGenerating"
+            :disabled="Boolean(actionReasons.batchVideos)"
+            @click="emit('batch-videos')"
+          >
+            <el-icon><VideoPlay /></el-icon>
+            批量生视频
+          </el-button>
+        </CanvasActionGate>
       </CanvasToolbarGroup>
 
       <div class="toolbar-utilities" aria-label="画布工具">
@@ -154,6 +148,7 @@ import { computed } from 'vue'
 
 import CanvasToolbarGroup from './CanvasToolbarGroup.vue'
 import CanvasWorkflowToolbarGroup from './CanvasWorkflowToolbarGroup.vue'
+import CanvasActionGate from './CanvasActionGate.vue'
 
 const props = defineProps({
   selectedStoryboardCount: { type: Number, default: 0 },
@@ -165,6 +160,7 @@ const props = defineProps({
   episodeGenerating: { type: Boolean, default: false },
   episodeGenProgress: { type: String, default: '' },
   actionReasons: { type: Object, default: () => ({}) },
+  actionConfigServices: { type: Object, default: () => ({}) },
   aligningNodes: { type: Boolean, default: false },
   isDark: { type: Boolean, default: false },
 })
@@ -222,10 +218,6 @@ const batchHelper = computed(() => (
 
 .workflow-group {
   flex: 1 1 340px;
-}
-
-.tooltip-anchor {
-  display: inline-flex;
 }
 
 .dropdown-arrow {

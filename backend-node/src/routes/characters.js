@@ -1,10 +1,96 @@
-const fs = require('fs');
 const path = require('path');
 const response = require('../response');
 const characterLibraryService = require('../services/characterLibraryService');
 const storageLayout = require('../services/storageLayout');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
 const { scheduleLegacyAsync } = require('../services/legacyAsyncSchedulerService');
+
+const VOICE_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.ogg']);
+
+function resolveStorageRoot(cfg) {
+  const rawStorage = cfg?.storage?.local_path || './data/storage';
+  return path.isAbsolute(rawStorage)
+    ? rawStorage
+    : path.join(process.cwd(), rawStorage);
+}
+
+function configuredDiskReserveBytes(cfg, uploadService) {
+  const supplied = cfg?.storage?.upload_disk_reserve_bytes
+    ?? process.env.LOCALMINIDRAMA_UPLOAD_DISK_RESERVE_BYTES;
+  const value = Number(supplied);
+  return Number.isFinite(value) && value >= 0
+    ? value
+    : uploadService.DEFAULT_UPLOAD_DISK_RESERVE_BYTES;
+}
+
+function parseVoiceAsset(value) {
+  if (!value) return null;
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function isOwnedVoicePath(relativePath, dramaId, characterId) {
+  const directory = path.posix.dirname(relativePath);
+  const filename = path.posix.basename(relativePath);
+  const extension = path.posix.extname(filename).toLowerCase();
+  if (!VOICE_EXTENSIONS.has(extension)) return false;
+
+  const legacyDirectory = `drama_${dramaId}/characters/voice`;
+  if (directory === legacyDirectory) {
+    return new RegExp(`^char_${characterId}_voice_[0-9]{10,17}\\.(?:mp3|wav|m4a|ogg)$`, 'i')
+      .test(filename);
+  }
+
+  const ownedDirectory = `${legacyDirectory}/char_${characterId}`;
+  return directory === ownedDirectory
+    && /^[0-9]{8}T[0-9]{6}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:mp3|wav|m4a|ogg)$/i.test(filename);
+}
+
+function removePreviousVoiceFile(uploadService, storageRoot, previousAsset, charRow, replacementPath, log) {
+  const reference = previousAsset?.local_path
+    || (String(previousAsset?.url || '').startsWith('/static/') ? previousAsset.url : null);
+  if (!reference) return false;
+  try {
+    const relativePath = uploadService.normalizeStorageRelativeReference(reference);
+    if (
+      relativePath === replacementPath
+      || !isOwnedVoicePath(relativePath, charRow.drama_id, charRow.id)
+    ) {
+      log?.warn?.('Skipped deletion of unowned character voice file', { character_id: charRow.id });
+      return false;
+    }
+    const resolved = uploadService.resolveStorageReference(storageRoot, relativePath, { allowMissing: true });
+    if (!resolved) return false;
+    uploadService.removeFile(resolved.absolutePath, log);
+    return true;
+  } catch (error) {
+    log?.warn?.('Skipped unsafe character voice cleanup', {
+      character_id: charRow.id,
+      error_code: error?.code || 'VOICE_CLEANUP_REJECTED',
+    });
+    return false;
+  }
+}
+
+function sendVoiceUploadFailure(res, error, uploadService) {
+  if (uploadService.isUploadStorageError(error)) {
+    response.error(res, 507, 'INSUFFICIENT_STORAGE', '存储空间不足，请清理磁盘后重试');
+    return true;
+  }
+  if (error?.code === 'MEDIA_VALIDATION_UNAVAILABLE') {
+    response.error(res, 503, error.code, error.message);
+    return true;
+  }
+  if (uploadService.isUploadValidationError(error)) {
+    response.error(res, 400, error.code, error.message);
+    return true;
+  }
+  return false;
+}
 
 function routes(db, cfg, log, uploadService) {
   return {
@@ -325,58 +411,83 @@ function routes(db, cfg, log, uploadService) {
     },
     /** Seedance 2.0 角色音色参考音频上传 */
     sd2VoiceUpload: async (req, res) => {
+      let persisted = null;
+      let databaseUpdated = false;
       try {
         const charId = Number(req.params.id);
         const charRow = db
-          .prepare('SELECT id, drama_id FROM characters WHERE id = ? AND deleted_at IS NULL')
+          .prepare('SELECT id, drama_id, seedance2_voice_asset FROM characters WHERE id = ? AND deleted_at IS NULL')
           .get(charId);
         if (!charRow) return response.notFound(res, '角色不存在');
 
-        if (!req.file) return response.badRequest(res, '请上传音频文件');
+        const source = req.file?.path || req.file?.buffer;
+        if (!source) return response.badRequest(res, '请上传音频文件');
 
-        const allowedExt = ['.mp3', '.wav', '.m4a', '.ogg'];
-        const ext = path.extname(req.file.originalname || '').toLowerCase();
-        if (!allowedExt.includes(ext)) {
-          return response.badRequest(res, '仅支持 mp3/wav/m4a/ogg 格式');
-        }
+        const detected = req.file.detectedType
+          || await uploadService.validateAllowedUpload(source, 'audio');
+        const storageRoot = resolveStorageRoot(cfg);
+        const saveFile = req.file.path
+          ? uploadService.uploadFileFromPath
+          : uploadService.uploadFile;
+        persisted = saveFile(
+          storageRoot,
+          '',
+          log,
+          source,
+          req.file.originalname || 'voice-reference',
+          req.file.mimetype,
+          `char_${charId}`,
+          `drama_${charRow.drama_id}/characters/voice`,
+          'audio',
+          detected,
+          {
+            reserveBytes: configuredDiskReserveBytes(cfg, uploadService),
+            getAvailableBytes: uploadService.getAvailableDiskBytes,
+          }
+        );
 
-        const storageLocalPath = cfg?.storage?.local_path;
-        const storageRoot = storageLocalPath
-          ? path.isAbsolute(storageLocalPath)
-            ? storageLocalPath
-            : path.join(process.cwd(), storageLocalPath)
-          : path.join(process.cwd(), 'data', 'storage');
-
-        const relDir = `drama_${charRow.drama_id}/characters/voice`;
-        const absDir = path.join(storageRoot, relDir);
-        if (!fs.existsSync(absDir)) fs.mkdirSync(absDir, { recursive: true });
-
-        const safeName = `char_${charId}_voice_${Date.now()}${ext}`;
-        const absPath = path.join(absDir, safeName);
-        fs.writeFileSync(absPath, req.file.buffer);
-
-        const publicUrl = `/static/${relDir}/${safeName}`;
         const now = new Date().toISOString();
-
         const payload = {
           status: 'active',
-          url: publicUrl,
-          local_path: `${relDir}/${safeName}`,
+          url: persisted.url,
+          local_path: persisted.local_path,
           certified_at: now,
-          duration: null,
-          format: ext.replace('.', ''),
+          duration: persisted.duration,
+          format: persisted.extension.replace('.', ''),
         };
 
-        db.prepare('UPDATE characters SET seedance2_voice_asset = ?, updated_at = ? WHERE id = ?').run(
+        const update = db.prepare(
+          'UPDATE characters SET seedance2_voice_asset = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
+        ).run(
           JSON.stringify(payload),
           now,
           charId
         );
+        if (update.changes !== 1) {
+          const error = new Error('角色不存在');
+          error.code = 'CHARACTER_NOT_FOUND';
+          throw error;
+        }
+        databaseUpdated = true;
+
+        removePreviousVoiceFile(
+          uploadService,
+          storageRoot,
+          parseVoiceAsset(charRow.seedance2_voice_asset),
+          charRow,
+          persisted.local_path,
+          log
+        );
 
         response.success(res, { message: 'Seedance 2.0 音色参考已保存', seedance2_voice_asset: payload });
       } catch (err) {
+        if (persisted && !databaseUpdated) uploadService.removeFile(persisted.absolute_path, log);
+        if (err?.code === 'CHARACTER_NOT_FOUND') return response.notFound(res, '角色不存在');
+        if (sendVoiceUploadFailure(res, err, uploadService)) return;
         log.error('characters sd2-voice-upload', { error: err.message });
         response.internalError(res, err.message);
+      } finally {
+        if (req.file?.path) uploadService.removeFile(req.file.path, log);
       }
     },
     sd2VoiceRefresh: async (req, res) => {

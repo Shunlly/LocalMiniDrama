@@ -8,6 +8,7 @@ const Database = require('better-sqlite3');
 const { runMigrationsAndEnsure } = require('../src/db/migrate');
 const sourceIntakeService = require('../src/services/sourceIntakeService');
 const workflowService = require('../src/services/workflowService');
+const providerSdkService = require('../src/services/providerSdkService');
 const qaService = require('../src/services/qaService');
 const timelineService = require('../src/services/timelineService');
 const asyncAuditService = require('../src/services/asyncAuditService');
@@ -209,12 +210,12 @@ describe('sourceIntakeService', () => {
     assert.equal(Array.isArray(episode.continuity_notes.characters), true);
   });
 
-  it('accepts text upload metadata JSON but rejects deferred multimedia intake', () => {
+  it('accepts text upload metadata JSON but rejects malformed media intake', async () => {
     const db = createDb();
     const routes = storySourceRoutes(db, log);
 
     const okRes = mockResponse();
-    routes.uploadForDrama({
+    await routes.uploadForDrama({
       params: { id: 1 },
       body: { metadata: '{"source_language":"zh"}' },
       file: {
@@ -228,7 +229,7 @@ describe('sourceIntakeService', () => {
     assert.equal(okRes.body.data.source.metadata.source_language, 'zh');
 
     const badRes = mockResponse();
-    routes.uploadForDrama({
+    await routes.uploadForDrama({
       params: { id: 1 },
       body: {},
       file: {
@@ -239,7 +240,7 @@ describe('sourceIntakeService', () => {
       },
     }, badRes);
     assert.equal(badRes.statusCode, 400);
-    assert.match(badRes.body.error.message, /deferred/i);
+    assert.match(badRes.body.error.message, /unsupported|invalid/i);
   });
 });
 
@@ -287,6 +288,7 @@ describe('workflowService novel2anime', () => {
     assert.equal(db.prepare('SELECT COUNT(*) AS c FROM characters WHERE drama_id = 1 AND deleted_at IS NULL').get().c >= 1, true);
     assert.equal(db.prepare('SELECT COUNT(*) AS c FROM scenes WHERE drama_id = 1 AND deleted_at IS NULL').get().c >= 1, true);
     assert.equal(db.prepare('SELECT COUNT(*) AS c FROM storyboards WHERE deleted_at IS NULL').get().c >= 2, true);
+    assert.equal(db.prepare("SELECT COUNT(*) AS c FROM storyboards WHERE status = 'media_ready'").get().c, 0, 'draft mock media must not mark storyboards as delivery-ready');
     assert.equal(db.prepare("SELECT COUNT(*) AS c FROM image_generations WHERE status = 'completed'").get().c >= 2, true);
     assert.equal(db.prepare("SELECT COUNT(*) AS c FROM video_generations WHERE status = 'completed'").get().c >= 2, true);
     assert.equal(db.prepare("SELECT COUNT(*) AS c FROM video_merges WHERE status = 'completed'").get().c, 2);
@@ -541,17 +543,16 @@ describe('workflowService novel2anime', () => {
     assert.equal(report.passed, false);
     assert.equal(report.report_json.remediation_actions.some((action) => action.automated), true);
 
-    const remediation = qaService.remediateQaReport(db, log, report.id, { action_code: 'start_or_retry_workflow' });
-    assert.equal(remediation.skipped, false);
-    assert.equal(remediation.actions_taken[0].code, 'start_workflow_from_latest_source');
-    assert.ok(remediation.workflow_run.id);
-
-    const completed = await waitForTerminalRun(db, remediation.workflow_run.id);
-    assert.equal(completed.status, 'failed');
-    const reports = qaService.listQaReports(db, { drama_id: 1, run_id: remediation.workflow_run.id });
-    assert.equal(reports[0].passed, false);
-    assert.equal(reports[0].report_json.mode, 'production');
-    assert.equal(reports[0].report_json.issues.some((issue) => issue.code === 'media_timeline_incomplete'), true);
+    const runCountBefore = db.prepare('SELECT COUNT(*) AS count FROM workflow_runs').get().count;
+    assert.throws(
+      () => qaService.remediateQaReport(db, log, report.id, { action_code: 'start_or_retry_workflow' }),
+      (error) => error.code === 'WORKFLOW_NOT_READY' && error.status === 409
+    );
+    assert.equal(
+      db.prepare('SELECT COUNT(*) AS count FROM workflow_runs').get().count,
+      runCountBefore,
+      'provider readiness must fail before creating or scheduling a workflow run'
+    );
   });
 
   it('can run granular QA remediation workflows for asset bible and timeline repairs', async () => {
@@ -586,6 +587,47 @@ describe('workflowService novel2anime', () => {
     assert.equal(timelineRepair.actions_taken[0].code, 'repair_timeline');
     const timelineRepairDone = await waitForTerminalRun(db, timelineRepair.workflow_run.id);
     assert.equal(['completed', 'failed'].includes(timelineRepairDone.status), true);
+  });
+
+  it('inherits successful production provider evidence into a repair run once per provider type', () => {
+    const db = createDb();
+    const source = workflowService.createWorkflowRun(db, log, {
+      drama_id: 1,
+      qa_mode: 'production',
+      text: 'source',
+      steps: [{ key: 'qa_audit' }],
+    });
+    for (const providerType of ['image', 'video', 'tts', 'compositor']) {
+      providerSdkService.recordProviderInvocation(db, {
+        run_id: source.id,
+        provider_type: providerType,
+        provider_name: `fixture-${providerType}`,
+        model: `fixture-${providerType}-model`,
+        mode: 'production',
+        status: 'success',
+        output: { local_path: `${providerType}/fixture.bin` },
+      });
+    }
+    const repair = workflowService.createWorkflowRun(db, log, {
+      drama_id: 1,
+      qa_mode: 'production',
+      text: 'repair',
+      steps: [{ key: 'qa_audit' }],
+    });
+
+    assert.equal(
+      workflowService.inheritProductionProviderAudits(db, log, repair.id, 1, source.id),
+      4
+    );
+    assert.equal(
+      workflowService.inheritProductionProviderAudits(db, log, repair.id, 1, source.id),
+      0
+    );
+    const rows = db.prepare(
+      'SELECT provider_type, mode, status FROM provider_invocations WHERE run_id = ? ORDER BY provider_type'
+    ).all(repair.id);
+    assert.deepEqual(rows.map((row) => row.provider_type), ['compositor', 'image', 'tts', 'video']);
+    assert.equal(rows.every((row) => row.mode === 'production' && row.status === 'success'), true);
   });
 
   it('audits legacy async entrypoints and skill templates', () => {

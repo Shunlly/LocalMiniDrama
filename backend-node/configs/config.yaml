@@ -1,6 +1,6 @@
 app:
   name: LocalMiniDrama API
-  version: 1.0.0
+  version: 1.3.0
   debug: true
   language: zh
 server:
@@ -12,7 +12,6 @@ server:
     - http://127.0.0.1:3013
   read_timeout: 600
   write_timeout: 600
-  insecure_tls: true
 database:
   type: sqlite
   path: ./data/drama_generator.db

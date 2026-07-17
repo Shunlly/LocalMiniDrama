@@ -51,6 +51,11 @@ function list(db, query) {
 }
 
 function rowToItem(r) {
+  let referenceImageUrls = [];
+  try {
+    const parsed = JSON.parse(r.reference_image_urls || '[]');
+    if (Array.isArray(parsed)) referenceImageUrls = parsed;
+  } catch (_) {}
   return {
     id: r.id,
     storyboard_id: r.storyboard_id,
@@ -60,10 +65,15 @@ function rowToItem(r) {
     model: r.model,
     image_gen_id: r.image_gen_id,
     image_url: r.image_url,
+    first_frame_url: r.first_frame_url ?? null,
+    last_frame_url: r.last_frame_url ?? null,
+    reference_image_urls: referenceImageUrls,
     video_url: r.video_url,
     local_path: r.local_path,
     status: r.status,
     task_id: r.task_id,
+    provider_task_id: r.provider_task_id,
+    idempotency_key: r.idempotency_key,
     error_msg: r.error_msg,
     created_at: r.created_at,
     updated_at: r.updated_at,
@@ -76,6 +86,283 @@ function getById(db, id) {
   return r ? rowToItem(r) : null;
 }
 
+function badRequest(message) {
+  const error = new Error(message);
+  error.code = 'BAD_REQUEST';
+  return error;
+}
+
+function parseConfigSettings(config) {
+  const value = config?.settings;
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function configuredVideoModel(config, preferredModel) {
+  const preferred = String(preferredModel || '').trim();
+  if (preferred) return preferred;
+  const direct = String(config?.default_model || '').trim();
+  if (direct) return direct;
+  const models = Array.isArray(config?.model) ? config.model : [config?.model];
+  return String(models.find((item) => String(item || '').trim()) || '').trim();
+}
+
+function videoConfigSupportsGridReference(config, preferredModel) {
+  if (!config) return false;
+  const settings = parseConfigSettings(config);
+  if (settings.supports_grid_reference === true) return true;
+  if (settings.supports_grid_reference === false) return false;
+
+  const model = configuredVideoModel(config, preferredModel).toLowerCase();
+  const protocol = videoClient.resolveVideoProtocol(config, model);
+  if (protocol === 'kling_omni' || protocol === 'agnes') return true;
+  if (protocol === 'volcengine_omni') {
+    return model.includes('seedance') && (/2[-_]0/.test(model) || /seedance[-_]?2|seedance2/.test(model));
+  }
+  return String(config.provider || '').trim().toLowerCase() === 'agnes' || /agnes-video/.test(model);
+}
+
+function normalizedLocalReferencePath(value) {
+  const text = String(value || '').trim().replace(/\\/g, '/');
+  if (!text) return '';
+  let pathname = text;
+  try {
+    const parsed = new URL(text, 'http://localminidrama.invalid');
+    pathname = decodeURIComponent(parsed.pathname || '');
+  } catch (_) {}
+  pathname = pathname.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (pathname.toLowerCase().startsWith('static/')) pathname = pathname.slice('static/'.length);
+  if (!pathname || pathname.split('/').some((part) => part === '..' || part === '.')) return '';
+  return pathname;
+}
+
+function referenceIdentity(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const localPath = normalizedLocalReferencePath(text);
+  const looksLocal = !/^[a-z][a-z0-9+.-]*:/i.test(text) || /\/static\//i.test(text);
+  if (looksLocal && localPath) return `local:${localPath}`;
+  try {
+    const parsed = new URL(text);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return `raw:${text}`;
+    parsed.hash = '';
+    return `url:${parsed.toString()}`;
+  } catch (_) {
+    return `raw:${text}`;
+  }
+}
+
+function normalizeSubmittedMediaReference(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  if (text.startsWith('/static/')) {
+    return `/static/${uploadService.normalizeStorageRelativeReference(text.slice('/static/'.length))}`;
+  }
+  if (/^https?:\/\//i.test(text)) {
+    let parsed;
+    try { parsed = new URL(text); } catch (_) { throw badRequest('参考媒体 URL 无效'); }
+    const host = String(parsed.hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+    if ((host === 'localhost' || host === '127.0.0.1' || host === '::1') && parsed.pathname.startsWith('/static/')) {
+      return `/static/${uploadService.normalizeStorageRelativeReference(parsed.pathname.slice('/static/'.length))}`;
+    }
+    try { return uploadService.assertPublicHttpUrlSyntax(text).toString(); }
+    catch (_) { throw badRequest('参考媒体 URL 必须是无凭据的公网 HTTP(S) 地址'); }
+  }
+  try { return `/static/${uploadService.normalizeStorageRelativeReference(text)}`; }
+  catch (_) { throw badRequest('参考媒体本地路径必须位于 storage 内'); }
+}
+
+function loadVideoReferenceImage(db, storyboardId, dramaId, value) {
+  if (value == null || value === '') return null;
+  const imageId = Number(value);
+  if (!Number.isInteger(imageId) || imageId <= 0) throw badRequest('宫格视频参考图 ID 无效');
+  if (!Number.isInteger(storyboardId) || storyboardId <= 0) {
+    throw badRequest('选择宫格视频参考图时必须提供有效的 storyboard_id');
+  }
+  const row = db.prepare(
+    `SELECT ig.id, ig.storyboard_id, ig.image_url, ig.local_path, e.drama_id
+       FROM image_generations ig
+       JOIN storyboards s ON s.id = ig.storyboard_id AND s.deleted_at IS NULL
+       JOIN episodes e ON e.id = s.episode_id AND e.deleted_at IS NULL
+      WHERE ig.id = ? AND ig.storyboard_id = ? AND ig.status = 'completed'
+        AND ig.deleted_at IS NULL AND ig.frame_type IN ('quad_grid', 'nine_grid')`
+  ).get(imageId, storyboardId);
+  if (!row || (dramaId > 0 && Number(row.drama_id) !== dramaId)) {
+    throw badRequest('宫格视频参考图不存在或不属于当前分镜');
+  }
+  const canonical = row.local_path
+    ? `/static/${String(row.local_path).replace(/^\/+/, '').replace(/\\/g, '/')}`
+    : String(row.image_url || '').trim();
+  if (!canonical) throw badRequest('宫格视频参考图缺少可用地址');
+  return { ...row, canonical, identity: referenceIdentity(canonical) };
+}
+
+function normalizeReferenceUrls(value) {
+  if (value == null || value === '') return [];
+  if (!Array.isArray(value)) throw badRequest('reference_image_urls 必须是数组');
+  const urls = [];
+  const seen = new Set();
+  for (const item of value) {
+    const url = normalizeSubmittedMediaReference(item);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    urls.push(url);
+    if (urls.length >= 10) break;
+  }
+  return urls;
+}
+
+function createVideoGeneration(db, log, body, options = {}) {
+  const now = new Date().toISOString();
+  let dramaId = Number(body.drama_id) || 0;
+  const storyboardId = body.storyboard_id != null ? Number(body.storyboard_id) : null;
+  if (storyboardId != null) {
+    if (!Number.isInteger(storyboardId) || storyboardId <= 0) throw badRequest('storyboard_id 无效');
+    const scope = db.prepare(
+      `SELECT e.drama_id
+         FROM storyboards s
+         JOIN episodes e ON e.id = s.episode_id AND e.deleted_at IS NULL
+        WHERE s.id = ? AND s.deleted_at IS NULL`
+    ).get(storyboardId);
+    if (!scope || (dramaId > 0 && Number(scope.drama_id) !== dramaId)) {
+      throw badRequest('分镜不存在或不属于当前剧集');
+    }
+    dramaId = Number(scope.drama_id);
+  }
+  const provider = String(body.provider || '').trim() || null;
+  let prompt = body.prompt || '';
+  const style = String(body.style || '').trim();
+  if (style && !String(prompt).toLowerCase().includes(style.toLowerCase())) {
+    prompt = prompt ? `${prompt}. Style: ${style}` : `Style: ${style}`;
+  }
+  let aspectRatio = null;
+  if (body.aspect_ratio != null && String(body.aspect_ratio).trim() !== '') {
+    aspectRatio = videoClient.normalizeAspectRatioForApi(body.aspect_ratio);
+  }
+  if (!aspectRatio && dramaId) {
+    try {
+      const dramaRow = db.prepare('SELECT metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(dramaId);
+      const metadata = dramaRow?.metadata
+        ? (typeof dramaRow.metadata === 'string' ? JSON.parse(dramaRow.metadata) : dramaRow.metadata)
+        : null;
+      if (metadata?.aspect_ratio) aspectRatio = videoClient.normalizeAspectRatioForApi(metadata.aspect_ratio);
+    } catch (_) {}
+  }
+  let imageUrl = normalizeSubmittedMediaReference(body.image_url);
+  let firstFrameUrl = normalizeSubmittedMediaReference(body.first_frame_url ?? body.first_frame_local_path);
+  const lastFrameUrl = normalizeSubmittedMediaReference(body.last_frame_url ?? body.last_frame_local_path);
+  let referenceUrls = normalizeReferenceUrls(body.reference_image_urls);
+  const gridReference = loadVideoReferenceImage(
+    db,
+    storyboardId,
+    dramaId,
+    body.video_reference_image_id
+  );
+  if (gridReference) {
+    const selectedConfig = videoClient.getDefaultVideoConfig(db, body.model, provider);
+    if (!selectedConfig) throw badRequest('未配置可用于宫格参考的视频模型');
+    if (!videoConfigSupportsGridReference(selectedConfig, body.model)) {
+      throw badRequest('当前视频模型未声明支持宫格整图参考');
+    }
+
+    const suppliedPrimary = [body.image_url, body.first_frame_url, body.first_frame_local_path]
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+    if (suppliedPrimary.some((item) => referenceIdentity(item) !== gridReference.identity)) {
+      throw badRequest('宫格视频参考图 ID 与提交的主图地址不一致');
+    }
+    const hasCanonicalReference = referenceUrls.some(
+      (item) => referenceIdentity(item) === gridReference.identity
+    );
+    if (referenceUrls.length > 0 && suppliedPrimary.length === 0 && !hasCanonicalReference) {
+      throw badRequest('宫格视频参考图 ID 与提交的参考图地址不一致');
+    }
+
+    imageUrl = gridReference.canonical;
+    firstFrameUrl = gridReference.canonical;
+    referenceUrls = [
+      gridReference.canonical,
+      ...referenceUrls.filter((item) => referenceIdentity(item) !== gridReference.identity),
+    ].slice(0, 10);
+  }
+  const refImagesJson = referenceUrls.length ? JSON.stringify(referenceUrls) : null;
+  const idempotencyKey = String(body.idempotency_key || '').trim() || null;
+  if (idempotencyKey) {
+    const existing = db.prepare(
+      `SELECT id FROM video_generations
+        WHERE idempotency_key = ? AND drama_id = ? AND deleted_at IS NULL`
+    ).get(idempotencyKey, dramaId);
+    if (existing) return { ...getById(db, existing.id), idempotent_reuse: true };
+  }
+  const providerConfig = videoClient.getDefaultVideoConfig(db, body.model, provider);
+  if (!providerConfig) throw badRequest('缺少已启用的视频生成配置');
+  if (!configuredVideoModel(providerConfig, body.model)) {
+    throw badRequest('视频生成配置尚未选择可用模型');
+  }
+  const task = taskService.createTask(db, log, 'video_generation', String(body.drama_id || ''));
+  const info = db.prepare(
+    `INSERT INTO video_generations
+     (drama_id, storyboard_id, provider, prompt, model, duration, aspect_ratio, resolution, seed,
+      camera_fixed, watermark, image_url, first_frame_url, last_frame_url, reference_image_urls,
+       status, task_id, idempotency_key, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing', ?, ?, ?, ?)`
+  ).run(
+    dramaId,
+    storyboardId,
+    provider,
+    prompt,
+    body.model ?? null,
+    body.duration ?? null,
+    aspectRatio,
+    body.resolution ?? null,
+    body.seed != null ? Number(body.seed) : null,
+    body.camera_fixed != null ? (body.camera_fixed ? 1 : 0) : null,
+    body.watermark != null ? (body.watermark ? 1 : 0) : 0,
+    imageUrl,
+    firstFrameUrl,
+    lastFrameUrl,
+    refImagesJson,
+    task.id,
+    idempotencyKey,
+    now,
+    now
+  );
+  const videoGenId = Number(info.lastInsertRowid);
+  if (options.defer_processing !== true) {
+    scheduleLegacyAsync(log, 'video_generation_route', () => {
+      processVideoGeneration(db, log, videoGenId);
+    }, { video_generation_id: videoGenId, task_id: task.id, drama_id: dramaId });
+  }
+  return getById(db, videoGenId) || { id: videoGenId, task_id: task.id, status: 'processing' };
+}
+
+async function createAndProcessVideo(db, log, body) {
+  const created = createVideoGeneration(db, log, body, { defer_processing: true });
+  if (created.status === 'completed') return created;
+  if (created.idempotent_reuse && created.status === 'failed') {
+    db.prepare("UPDATE video_generations SET status = 'processing', error_msg = NULL, updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), created.id);
+  }
+  await processVideoGeneration(db, log, created.id);
+  const completed = getById(db, created.id);
+  if (!completed || completed.status !== 'completed') {
+    throw new Error(completed?.error_msg || 'Video generation did not complete');
+  }
+  if (body.require_local !== false && !String(completed.local_path || '').trim()) {
+    const message = 'Video generation completed without a durable local file';
+    const now = new Date().toISOString();
+    setVideoGenFailed(db, created.id, message, now);
+    if (created.task_id) taskService.updateTaskError(db, created.task_id, message);
+    throw new Error(message);
+  }
+  return completed;
+}
+
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -83,6 +370,7 @@ const { randomUUID } = require('crypto');
 const videoClient = require('./videoClient');
 const taskService = require('./taskService');
 const storageLayout = require('./storageLayout');
+const uploadService = require('./uploadService');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { getFfmpegPath, hasLocalFfmpeg } = require('../utils/ffmpegPath');
 
@@ -100,7 +388,7 @@ function resolveVideosDir(storagePath, projectSubdir) {
  * 将远程 video_url 下载到本地
  * @returns {string|null} 相对 storage 根的路径，如 projects/.../videos/vg_1_xxx.mp4；无工程时为 videos/...
  */
-async function downloadVideoToLocal(storagePath, videoUrl, videoGenId, log, projectSubdir = null) {
+async function downloadVideoToLocal(storagePath, videoUrl, videoGenId, log, projectSubdir = null, networkOptions = {}) {
   if (!videoUrl || typeof videoUrl !== 'string') return null;
   const { dir, relPrefix } = resolveVideosDir(storagePath, projectSubdir);
   try {
@@ -108,13 +396,13 @@ async function downloadVideoToLocal(storagePath, videoUrl, videoGenId, log, proj
     const ext = (videoUrl.split('?')[0].match(/\.(mp4|webm|mov)$/i) || [])[1] || 'mp4';
     const name = `vg_${videoGenId}_${randomUUID().slice(0, 8)}.${ext}`;
     const filePath = path.join(dir, name);
-    const res = await fetch(videoUrl, { method: 'GET' });
-    if (!res.ok) {
-      log.warn('Download video failed', { status: res.status, videoGenId });
-      return null;
-    }
-    const buf = Buffer.from(await res.arrayBuffer());
-    fs.writeFileSync(filePath, buf);
+    const result = await uploadService.downloadBufferViaNodeHttp(videoUrl, 120000, 0, {
+      maxBytes: 512 * 1024 * 1024,
+      accept: 'video/*,application/octet-stream',
+      trustedOrigins: networkOptions.trustedOrigins,
+    });
+    uploadService.assertUploadDiskCapacity(storagePath, result.buffer.length);
+    fs.writeFileSync(filePath, result.buffer, { flag: 'wx' });
     const relativePath = `${relPrefix}/${name}`.replace(/\\/g, '/');
     log.info('Video saved to local', { videoGenId, local_path: relativePath, projectSubdir: projectSubdir || '(root)' });
     return relativePath;
@@ -125,8 +413,27 @@ async function downloadVideoToLocal(storagePath, videoUrl, videoGenId, log, proj
 }
 
 /** 与图生 aspectRatioToSize 对齐的归一化分辨率（偶数像素，便于 H.264） */
-function targetVideoPixelsForAspect(aspectRatio) {
+function targetVideoPixelsForAspect(aspectRatio, resolution) {
   const r = String(aspectRatio || '16:9').trim();
+  const resolutionMatch = String(resolution || '').trim().match(/^(\d{3,4})p$/i);
+  if (resolutionMatch) {
+    const shortEdge = Math.min(2160, Math.max(144, Number(resolutionMatch[1])));
+    const ratioMatch = r.match(/^(\d+)\s*:\s*(\d+)$/);
+    const widthRatio = ratioMatch ? Number(ratioMatch[1]) : 16;
+    const heightRatio = ratioMatch ? Number(ratioMatch[2]) : 9;
+    if (widthRatio > 0 && heightRatio > 0) {
+      if (widthRatio >= heightRatio) {
+        return {
+          w: Math.max(2, Math.round((shortEdge * widthRatio) / heightRatio / 2) * 2),
+          h: Math.max(2, Math.round(shortEdge / 2) * 2),
+        };
+      }
+      return {
+        w: Math.max(2, Math.round(shortEdge / 2) * 2),
+        h: Math.max(2, Math.round((shortEdge * heightRatio) / widthRatio / 2) * 2),
+      };
+    }
+  }
   const map = {
     '16:9': { w: 2560, h: 1440 },
     '9:16': { w: 1440, h: 2560 },
@@ -200,7 +507,7 @@ function normalizeVideoFileToTargetPixels(absPath, tw, th, log, videoGenId) {
 function maybeNormalizeVideoAfterDownload(storagePath, localPath, row, videoGenId, log) {
   if (!localPath) return;
   const abs = path.join(storagePath, localPath);
-  const dim = targetVideoPixelsForAspect(row.aspect_ratio);
+  const dim = targetVideoPixelsForAspect(row.aspect_ratio, row.resolution);
   normalizeVideoFileToTargetPixels(abs, dim.w, dim.h, log, videoGenId);
 }
 
@@ -213,37 +520,51 @@ function resolveStoragePath(cfg) {
     : path.join(process.cwd(), cfg.storage?.local_path || './data/storage');
 }
 
-async function finalizeSuccessfulVideo(db, log, videoGenId, row, rowForAspect, videoUrl, logLabel) {
+function persistCompletedVideo(db, videoGenId, row, videoUrl, localPath, now) {
+  const persist = db.transaction(() => {
+    try {
+      db.prepare(
+        'UPDATE video_generations SET status = ?, video_url = ?, local_path = ?, completed_at = ?, updated_at = ? WHERE id = ?'
+      ).run('completed', videoUrl, localPath, now, now, videoGenId);
+    } catch (e) {
+      if ((e.message || '').includes('completed_at')) {
+        db.prepare(
+          'UPDATE video_generations SET status = ?, video_url = ?, local_path = ?, updated_at = ? WHERE id = ?'
+        ).run('completed', videoUrl, localPath, now, videoGenId);
+      } else throw e;
+    }
+    if (row.storyboard_id) {
+      db.prepare(
+        'UPDATE storyboards SET video_url = ?, video_local_path = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
+      ).run(videoUrl, localPath, now, row.storyboard_id);
+    }
+  });
+  persist();
+}
+
+async function finalizeSuccessfulVideo(db, log, videoGenId, row, rowForAspect, videoUrl, logLabel, providerConfig) {
   const now = new Date().toISOString();
+  const providerEnabled = providerConfig?.is_active === true
+    || providerConfig?.is_active === 1
+    || providerConfig?.is_active === '1';
+  const trustedOrigins = providerEnabled ? [providerConfig?.base_url].filter(Boolean) : [];
+  const validatedVideo = await uploadService.validatePublicHttpUrl(videoUrl, { trustedOrigins });
+  videoUrl = validatedVideo.url;
   let localPath = null;
   try {
     const cfg = require('../config').loadConfig();
     const storagePath = resolveStoragePath(cfg);
     const projectSubdir = storageLayout.getProjectStorageSubdir(db, row.drama_id);
-    localPath = await downloadVideoToLocal(storagePath, videoUrl, videoGenId, log, projectSubdir);
+    localPath = await downloadVideoToLocal(storagePath, videoUrl, videoGenId, log, projectSubdir, { trustedOrigins });
     maybeNormalizeVideoAfterDownload(storagePath, localPath, rowForAspect, videoGenId, log);
   } catch (_) {}
-  try {
-    db.prepare(
-      'UPDATE video_generations SET status = ?, video_url = ?, local_path = ?, completed_at = ?, updated_at = ? WHERE id = ?'
-    ).run('completed', videoUrl, localPath, now, now, videoGenId);
-  } catch (e) {
-    if ((e.message || '').includes('completed_at')) {
-      db.prepare(
-        'UPDATE video_generations SET status = ?, video_url = ?, local_path = ?, updated_at = ? WHERE id = ?'
-      ).run('completed', videoUrl, localPath, now, videoGenId);
-    } else throw e;
-  }
+  persistCompletedVideo(db, videoGenId, row, videoUrl, localPath, now);
   if (row.storyboard_id) {
-    try {
-      db.prepare('UPDATE storyboards SET video_url = ?, local_path = ?, updated_at = ? WHERE id = ?').run(
-        videoUrl, localPath, now, row.storyboard_id
-      );
-      log.info('Updated storyboard video' + (logLabel ? ` (${logLabel})` : ''), {
-        storyboard_id: row.storyboard_id,
-        video_url: videoUrl,
-      });
-    } catch (_) {}
+    log.info('Updated storyboard video' + (logLabel ? ` (${logLabel})` : ''), {
+      storyboard_id: row.storyboard_id,
+      video_url: videoUrl,
+      video_local_path: localPath,
+    });
   }
   if (row.task_id) {
     taskService.updateTaskResult(db, row.task_id, {
@@ -280,7 +601,7 @@ async function pollProviderTaskAndFinalize(db, log, videoGenId, row, rowForAspec
   const now = new Date().toISOString();
   const polledVideo = resolveRemoteVideoUrl(pollResult.video_url, pollResult.error);
   if (polledVideo.ok) {
-    await finalizeSuccessfulVideo(db, log, videoGenId, row, rowForAspect, polledVideo.video_url, 'after poll');
+    await finalizeSuccessfulVideo(db, log, videoGenId, row, rowForAspect, polledVideo.video_url, 'after poll', config);
   } else {
     setVideoGenFailed(db, videoGenId, polledVideo.error, now);
     if (row.task_id) taskService.updateTaskError(db, row.task_id, polledVideo.error);
@@ -301,7 +622,7 @@ async function resumePollForVideoGeneration(db, log, videoGenId) {
   const providerTaskId = row.provider_task_id && String(row.provider_task_id).trim();
   if (!providerTaskId) return;
 
-  const config = videoClient.getDefaultVideoConfig(db, row.model);
+  const config = videoClient.getDefaultVideoConfig(db, row.model, row.provider);
   if (!config) {
     const now = new Date().toISOString();
     setVideoGenFailed(db, videoGenId, '未配置视频模型', now);
@@ -390,7 +711,7 @@ async function processVideoGeneration(db, log, videoGenId) {
     const storageLocalPath = path.isAbsolute(cfg.storage?.local_path)
       ? cfg.storage.local_path
       : path.join(process.cwd(), cfg.storage?.local_path || './data/storage');
-    const config = videoClient.getDefaultVideoConfig(db, row.model);
+    const config = videoClient.getDefaultVideoConfig(db, row.model, row.provider);
     if (!config) {
       setVideoGenFailed(db, videoGenId, '未配置视频模型', now);
       if (row.task_id) taskService.updateTaskError(db, row.task_id, '未配置视频模型');
@@ -452,13 +773,14 @@ async function processVideoGeneration(db, log, videoGenId) {
       provider: row.provider,
       drama_id: row.drama_id,
       storyboard_id: row.storyboard_id || undefined,
-      image_url: hasOmniRefs ? undefined : row.image_url,
-      first_frame_url: hasOmniRefs ? undefined : row.first_frame_url,
-      last_frame_url: hasOmniRefs ? undefined : row.last_frame_url,
+      image_url: row.image_url,
+      first_frame_url: row.first_frame_url,
+      last_frame_url: row.last_frame_url,
       reference_urls,
       files_base_url: filesBaseUrl,
       storage_local_path: storageLocalPath,
       video_gen_id: videoGenId,
+      idempotency_key: row.idempotency_key || undefined,
     });
     const now2 = new Date().toISOString();
     if (result.error) {
@@ -469,7 +791,7 @@ async function processVideoGeneration(db, log, videoGenId) {
     }
     const directVideo = resolveRemoteVideoUrl(result.video_url, result.error);
     if (directVideo.ok) {
-      await finalizeSuccessfulVideo(db, log, videoGenId, row, rowForAspect, directVideo.video_url, '');
+      await finalizeSuccessfulVideo(db, log, videoGenId, row, rowForAspect, directVideo.video_url, '', config);
       return;
     }
     if (result.video_url) {
@@ -506,6 +828,11 @@ function deleteById(db, log, id) {
 module.exports = {
   list,
   getById,
+  createVideoGeneration,
+  createAndProcessVideo,
+  persistCompletedVideo,
+  targetVideoPixelsForAspect,
+  videoConfigSupportsGridReference,
   deleteById,
   processVideoGeneration,
   resumeProcessingVideoGenerations,

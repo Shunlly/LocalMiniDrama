@@ -26,9 +26,10 @@ test('disabled action gates expose the action name and reason to keyboard users'
 })
 
 test('AI configuration uses a real page heading and keyboard-operable help control', () => {
-  assert.match(aiConfigViewSource, /<button type="button" class="logo" aria-label="返回项目列表"/)
+  assert.match(aiConfigViewSource, /<button type="button" class="logo" :aria-label="backButtonLabel" @click="goBack">/)
+  assert.match(aiConfigViewSource, /router\.replace\(returnTo\.value \|\| \{ name: 'list' \}\)/)
   assert.match(aiConfigViewSource, /<h1 class="page-title">AI 配置<\/h1>/)
-  assert.match(aiConfigContentSource, /<h2 id="ai-service-coverage-title">AI 服务就绪度<\/h2>/)
+  assert.match(aiConfigContentSource, /<h2 id="ai-service-coverage-title">AI 服务配置与验证<\/h2>/)
   assert.match(aiConfigContentSource, /class="tip-button" aria-label="查看接口规范说明"/)
   assert.match(aiConfigContentSource, /\.tip-button:focus-visible/)
 })

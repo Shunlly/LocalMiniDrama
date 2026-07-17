@@ -1,8 +1,8 @@
 <template>
-  <div class="canvas-drama-header">
+  <div class="canvas-drama-header" role="group" :aria-label="accessibleLabel">
     <div class="title">{{ data.drama?.title || '未命名项目' }}</div>
     <div class="meta">
-      <span v-if="data.drama?.style">风格 {{ data.drama.style }}</span>
+      <span v-if="styleLabel">风格 {{ styleLabel }}</span>
       <span>{{ (data.drama?.episodes || []).length }} 集</span>
       <span>{{ assetCount }} 素材</span>
       <span>{{ storyboardCount }} 分镜</span>
@@ -12,6 +12,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { findStyleOption } from '@/constants/styleOptions.js'
 
 const props = defineProps({
   data: { type: Object, required: true },
@@ -25,6 +26,15 @@ const assetCount = computed(() => {
 const storyboardCount = computed(() =>
   (props.data.drama?.episodes || []).reduce((n, ep) => n + (ep.storyboards?.length || 0), 0)
 )
+
+const styleLabel = computed(() => {
+  const value = String(props.data.drama?.style || '').trim()
+  return findStyleOption(value)?.label || value
+})
+
+const accessibleLabel = computed(() => (
+  `项目 ${props.data.drama?.title || '未命名'}，${(props.data.drama?.episodes || []).length} 集，${assetCount.value} 个素材，${storyboardCount.value} 个分镜`
+))
 </script>
 
 <style scoped>

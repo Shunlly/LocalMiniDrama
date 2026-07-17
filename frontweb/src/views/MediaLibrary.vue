@@ -8,15 +8,15 @@
         </el-button>
         <div class="title-wrap">
           <h1 class="page-title">素材中心</h1>
-          <p class="page-subtitle">上传后的图片和视频会在所有项目里复用；网页 URL 导入和分类素材入库仍在项目内完成。</p>
+          <p class="page-subtitle">上传后的图片和视频会在所有项目里复用；单文件最大 100MB。</p>
         </div>
       </div>
       <div class="header-actions">
-        <el-button @click="goNewProject">
+        <el-button :disabled="mediaWriteLocked" @click="goNewProject">
           <el-icon><Plus /></el-icon>
           新建项目
         </el-button>
-        <el-button type="primary" @click="triggerUpload">
+        <el-button type="primary" :loading="uploading" :disabled="mediaWriteLocked" @click="triggerUpload">
           <el-icon><Upload /></el-icon>
           上传素材
         </el-button>
@@ -24,16 +24,35 @@
       </div>
     </div>
 
+    <section
+      v-if="loadError"
+      class="data-load-state"
+      role="alert"
+      aria-live="assertive"
+      aria-atomic="true"
+    >
+      <div class="data-load-state__content">
+        <h2>{{ mediaIsStale ? '素材列表刷新失败' : '素材数据加载失败' }}</h2>
+        <p>暂时无法确认服务器中的最新素材。您的素材数据没有被删除。</p>
+        <p v-if="mediaIsStale" class="data-load-state__stale">下方显示上次成功加载的数据，当前内容已过期；成功重试前不能上传、选择或删除素材。</p>
+        <p v-else>素材空态不会在连接恢复前显示，也不会执行任何素材写操作。</p>
+        <p class="data-load-state__detail">错误详情：{{ loadError }}</p>
+      </div>
+      <el-button type="primary" plain :loading="loading" @click="loadMedia">
+        <el-icon><Refresh /></el-icon>重试加载
+      </el-button>
+    </section>
+
     <section v-if="loading || mediaItems.length > 0" class="entry-strip" aria-label="素材入口说明">
       <div class="entry-item">
         <span class="entry-label">上传到素材中心</span>
-        <p class="entry-description">把图片和视频放进全局素材，后续项目可以直接复用。</p>
-        <el-button text class="entry-action" @click="triggerUpload">立即上传</el-button>
+        <p class="entry-description">把不超过 100MB 的图片和视频放进全局素材，后续项目可以直接复用。</p>
+        <el-button text class="entry-action" :disabled="mediaWriteLocked" @click="triggerUpload">立即上传</el-button>
       </div>
       <div class="entry-item">
         <span class="entry-label">网页 URL 导入</span>
         <p class="entry-description">网页正文导入仍在项目里完成，用于建立故事素材。</p>
-        <el-button text class="entry-action" @click="goNewProject">新建项目后导入网页 URL</el-button>
+        <el-button text class="entry-action" :disabled="mediaWriteLocked" @click="goNewProject">新建项目后导入网页 URL</el-button>
       </div>
       <div class="entry-item">
         <span class="entry-label">角色 / 场景 / 道具入库</span>
@@ -67,7 +86,7 @@
     </div>
 
     <!-- 媒体网格 -->
-    <div v-loading="loading" class="media-grid">
+    <div v-loading="loading" class="media-grid" :aria-busy="loading">
       <article
         v-for="item in mediaItems"
         :key="item.id"
@@ -96,6 +115,7 @@
               type="checkbox"
               class="selection-input"
               :checked="selectedIds.has(item.id)"
+              :disabled="mediaWriteLocked"
               :aria-label="selectionLabel(item)"
               @change="setItemSelected(item, $event.target.checked)"
             />
@@ -122,6 +142,7 @@
                 plain
                 :title="actionLabel('删除', item)"
                 :aria-label="actionLabel('删除', item)"
+                :disabled="mediaWriteLocked"
                 :tabindex="isActionLayerVisible(item.id) ? 0 : -1"
                 @click="deleteItem(item)"
               >
@@ -133,25 +154,26 @@
         <div class="media-info">
           <span :id="`media-name-${item.id}`" class="media-name" :title="item.name">{{ item.name || '未命名' }}</span>
           <span class="media-meta">{{ formatSize(item.size) }}</span>
+          <span class="media-origin">{{ item.source_drama_title || '全局上传，可跨项目复用' }}</span>
         </div>
       </article>
 
-      <div v-if="!loading && mediaItems.length === 0" class="empty-media">
+      <div v-if="!loading && hasSuccessfulMediaLoad && !loadError && mediaItems.length === 0" class="empty-media">
         <el-icon class="empty-icon"><Files /></el-icon>
         <h2 class="empty-title">{{ hasActiveFilters ? '没有匹配的素材' : '素材中心还是空的' }}</h2>
         <p class="empty-description">{{ hasActiveFilters ? '调整关键词或素材类型后再试。' : '上传图片或视频，后续项目可以直接复用。' }}</p>
         <div class="empty-actions">
           <template v-if="hasActiveFilters">
             <el-button @click="clearFilters">清除筛选</el-button>
-            <el-button type="primary" @click="triggerUpload">
+            <el-button type="primary" :disabled="mediaWriteLocked" @click="triggerUpload">
               <el-icon><Upload /></el-icon>上传素材
             </el-button>
           </template>
           <template v-else>
-            <el-button type="primary" @click="triggerUpload">
+            <el-button type="primary" :disabled="mediaWriteLocked" @click="triggerUpload">
               <el-icon><Upload /></el-icon>上传素材
             </el-button>
-            <el-button @click="goNewProject">新建项目后导入网页 URL</el-button>
+            <el-button :disabled="mediaWriteLocked" @click="goNewProject">新建项目后导入网页 URL</el-button>
             <el-button text @click="goHome">返回项目首页</el-button>
           </template>
         </div>
@@ -174,7 +196,7 @@
     <div v-if="selectedIds.size > 0" class="batch-bar">
       <span>已选 {{ selectedIds.size }} 项</span>
       <el-button size="small" @click="selectedIds.clear()">取消选择</el-button>
-      <el-button size="small" type="danger" plain @click="batchDelete">批量删除</el-button>
+      <el-button size="small" type="danger" plain :disabled="mediaWriteLocked" @click="batchDelete">批量删除</el-button>
     </div>
 
     <!-- 预览弹窗 -->
@@ -210,8 +232,9 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Upload, Search, Loading, CircleCheck,
-  ZoomIn, Delete, Files, Plus
+  ZoomIn, Delete, Files, Plus, Refresh
 } from '@element-plus/icons-vue'
+import { assetsAPI } from '@/api/assets'
 import { uploadAPI } from '@/api/upload'
 import request from '@/utils/request'
 import {
@@ -220,6 +243,10 @@ import {
   hasActiveMediaFilters,
   normalizeMediaItem as normalizeItem,
 } from '@/utils/mediaLibrary'
+import {
+  MEDIA_LIBRARY_MAX_FILE_SIZE_LABEL,
+  partitionMediaLibraryUploads,
+} from '@/utils/mediaUploadValidation'
 
 const router = useRouter()
 const loading = ref(false)
@@ -231,6 +258,8 @@ const keyword = ref('')
 const page = ref(1)
 const pageSize = ref(30)
 const total = ref(0)
+const loadError = ref('')
+const hasSuccessfulMediaLoad = ref(false)
 const selectedIds = reactive(new Set())
 const showPreview = ref(false)
 const previewItem = ref(null)
@@ -238,6 +267,8 @@ const uploadInput = ref(null)
 const hoveredCardId = ref(null)
 const focusedCardId = ref(null)
 const hasActiveFilters = computed(() => hasActiveMediaFilters(mediaType.value, keyword.value))
+const mediaIsStale = computed(() => Boolean(loadError.value) && hasSuccessfulMediaLoad.value)
+const mediaWriteLocked = computed(() => loading.value || !hasSuccessfulMediaLoad.value || Boolean(loadError.value))
 const mediaRequestGuard = createLatestMediaRequestGuard()
 let keywordTimer = null
 
@@ -246,16 +277,32 @@ function goHome() {
 }
 
 function goNewProject() {
+  if (mediaWriteLocked.value) return
   router.push({ path: '/', query: { new: '1' } })
 }
 
 function triggerUpload() {
+  if (mediaWriteLocked.value) return
   uploadInput.value?.click()
 }
 
 async function onUpload(e) {
-  const files = Array.from(e.target.files || [])
-  if (!files.length) return
+  if (mediaWriteLocked.value) {
+    if (e.target) e.target.value = ''
+    return
+  }
+  const selectedFiles = Array.from(e.target.files || [])
+  if (!selectedFiles.length) return
+  const { accepted: files, oversized } = partitionMediaLibraryUploads(selectedFiles)
+  if (oversized.length) {
+    const names = oversized.slice(0, 3).map((file) => file.name).join('、')
+    const suffix = oversized.length > 3 ? ` 等 ${oversized.length} 个文件` : ''
+    ElMessage.warning(`${names}${suffix} 超过单文件 ${MEDIA_LIBRARY_MAX_FILE_SIZE_LABEL} 限制，未开始上传`)
+  }
+  if (!files.length) {
+    e.target.value = ''
+    return
+  }
   uploading.value = true
   uploadProgress.value = { current: 0, total: files.length }
   let succeeded = 0
@@ -271,8 +318,11 @@ async function onUpload(e) {
   }
   uploading.value = false
   e.target.value = ''
-  if (succeeded === files.length) ElMessage.success(`${succeeded} 个素材上传完成`)
-  else if (succeeded > 0) ElMessage.warning(`已上传 ${succeeded}/${files.length} 个素材`)
+  if (succeeded === files.length && oversized.length === 0) ElMessage.success(`${succeeded} 个素材上传完成`)
+  else if (succeeded > 0) {
+    const skipped = oversized.length ? `，跳过 ${oversized.length} 个超限文件` : ''
+    ElMessage.warning(`已上传 ${succeeded}/${files.length} 个可上传素材${skipped}`)
+  }
   loadMedia()
 }
 
@@ -292,6 +342,15 @@ function clearFilters() {
   applyFilters()
 }
 
+function describeMediaLoadError(error) {
+  const backendMessage = error?.response?.data?.error?.message
+  if (backendMessage) return backendMessage
+  const status = Number(error?.response?.status)
+  if (Number.isInteger(status) && status > 0) return `素材服务暂时不可用（HTTP ${status}）`
+  if (error?.code === 'ECONNABORTED') return '连接素材服务超时，请稍后重试'
+  return '无法连接素材服务，请检查服务是否已启动'
+}
+
 async function loadMedia() {
   const requestId = mediaRequestGuard.begin()
   loading.value = true
@@ -302,14 +361,16 @@ async function loadMedia() {
     }
     if (mediaType.value !== 'all') params.type = mediaType.value
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
-    const res = await request.get('/assets', { params })
+    const res = await assetsAPI.list(params)
     mediaRequestGuard.commit(requestId, () => {
       mediaItems.value = (res?.items || []).map(normalizeItem)
       total.value = res?.pagination?.total ?? res?.total ?? 0
+      hasSuccessfulMediaLoad.value = true
+      loadError.value = ''
     })
   } catch (err) {
     mediaRequestGuard.commit(requestId, () => {
-      mediaItems.value = []
+      loadError.value = describeMediaLoadError(err)
     })
   } finally {
     mediaRequestGuard.commit(requestId, () => {
@@ -351,6 +412,7 @@ function actionLabel(action, item) {
 }
 
 function setItemSelected(item, selected) {
+  if (mediaWriteLocked.value) return
   if (selected) selectedIds.add(item.id)
   else selectedIds.delete(item.id)
 }
@@ -382,7 +444,12 @@ function openPreview(item) {
 }
 
 async function deleteItem(item) {
-  await ElMessageBox.confirm('确定删除该素材？', '删除确认', { type: 'warning' })
+  if (mediaWriteLocked.value) return
+  try {
+    await ElMessageBox.confirm('确定删除该素材？', '删除确认', { type: 'warning' })
+  } catch (_) {
+    return
+  }
   try {
     await request.delete(`/assets/${item.id}`)
     ElMessage.success('已删除')
@@ -393,8 +460,14 @@ async function deleteItem(item) {
 }
 
 async function batchDelete() {
+  if (mediaWriteLocked.value) return
   const count = selectedIds.size
-  await ElMessageBox.confirm(`确定删除选中的 ${count} 个素材？`, '批量删除', { type: 'warning' })
+  if (count <= 0) return
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${count} 个素材？`, '批量删除', { type: 'warning' })
+  } catch (_) {
+    return
+  }
   let failed = 0
   for (const id of selectedIds) {
     try {
@@ -463,6 +536,48 @@ onMounted(loadMedia)
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.data-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--el-color-danger-light-5);
+  border-left: 4px solid var(--el-color-danger);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow);
+}
+
+.data-load-state__content {
+  min-width: 0;
+}
+
+.data-load-state h2 {
+  margin: 0 0 5px;
+  color: var(--text-bright);
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.data-load-state p {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.data-load-state .data-load-state__stale {
+  color: #d97706;
+}
+
+.data-load-state .data-load-state__detail {
+  color: var(--el-color-danger);
+  overflow-wrap: anywhere;
 }
 
 .entry-strip {
@@ -627,6 +742,11 @@ onMounted(loadMedia)
   outline-offset: 2px;
 }
 
+.selection-input:disabled + .selection-indicator {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .overlay-actions {
   display: flex;
   gap: 6px;
@@ -648,6 +768,16 @@ onMounted(loadMedia)
 .media-meta {
   font-size: 11px;
   color: var(--text-subtle);
+}
+
+.media-origin {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .empty-media {

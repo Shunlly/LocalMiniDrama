@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LocalMiniDrama 产品验收报告 - 2026-07-17</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18181b;
+      --muted: #5f6470;
+      --line: #dfe3e8;
+      --surface: #ffffff;
+      --canvas: #f4f6f8;
+      --accent: #6d28d9;
+      --good: #087f5b;
+      --good-bg: #eafaf4;
+      --warn: #9a6700;
+      --warn-bg: #fff8db;
+      --info: #155e75;
+      --info-bg: #e8f7fb;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--canvas);
+      color: var(--ink);
+      font: 14px/1.65 Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+
+    a { color: var(--accent); }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.98);
+    }
+    .topbar-inner,
+    main,
+    .footer-inner {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+    .topbar-inner {
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .brand { font-weight: 750; }
+    .topbar nav { display: flex; gap: 18px; flex-wrap: wrap; }
+    .topbar nav a { color: #3f3f46; text-decoration: none; font-weight: 600; }
+
+    main { padding: 42px 0 64px; }
+    .intro {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      gap: 44px;
+      align-items: end;
+      padding-bottom: 34px;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 0;
+      font-size: 36px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+    .lede { max-width: 760px; margin: 14px 0 0; color: var(--muted); font-size: 16px; }
+    .verdict {
+      border-left: 4px solid var(--good);
+      background: var(--good-bg);
+      padding: 16px 18px;
+    }
+    .verdict strong { display: block; color: var(--good); font-size: 18px; }
+    .verdict span { color: #36574d; }
+
+    section { padding: 40px 0; border-bottom: 1px solid var(--line); }
+    section:last-child { border-bottom: 0; }
+    .section-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    h2 { margin: 0; font-size: 24px; line-height: 1.25; }
+    h3 { margin: 0; font-size: 17px; line-height: 1.35; }
+    p { margin: 0; }
+    .muted { color: var(--muted); }
+
+    .score-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .score {
+      min-height: 112px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+    .score b { display: block; margin-top: 10px; font-size: 24px; line-height: 1; }
+    .score small { color: var(--muted); }
+
+    .gate {
+      display: grid;
+      grid-template-columns: 132px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+      padding: 14px 0;
+      border-top: 1px solid var(--line);
+    }
+    .gate:first-child { border-top: 0; }
+    .status {
+      display: inline-flex;
+      width: fit-content;
+      align-items: center;
+      min-height: 26px;
+      padding: 2px 9px;
+      border-radius: 4px;
+      font-weight: 750;
+    }
+    .status.good { color: var(--good); background: var(--good-bg); }
+    .status.warn { color: var(--warn); background: var(--warn-bg); }
+    .status.info { color: var(--info); background: var(--info-bg); }
+
+    .flow { display: grid; gap: 32px; }
+    figure {
+      margin: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+    figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-bottom: 1px solid var(--line);
+    }
+    figcaption { padding: 18px 20px 20px; }
+    .step-title { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+    .step-number {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      flex: 0 0 28px;
+      border-radius: 50%;
+      background: #27272a;
+      color: #fff;
+      font-weight: 750;
+    }
+    .step-health { margin-left: auto; color: var(--good); font-weight: 700; }
+    .step-notes { color: var(--muted); }
+
+    .two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+    .plain-panel { padding: 20px 0; border-top: 3px solid #27272a; }
+    .plain-panel ul { margin: 12px 0 0; padding-left: 20px; }
+    .plain-panel li + li { margin-top: 8px; }
+
+    table { width: 100%; border-collapse: collapse; background: var(--surface); }
+    th, td { padding: 12px 14px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #f7f8fa; font-size: 12px; text-transform: uppercase; }
+    code { font-family: "Cascadia Code", Consolas, monospace; font-size: 0.92em; }
+
+    footer { border-top: 1px solid var(--line); background: #202124; color: #f4f4f5; }
+    .footer-inner { padding: 22px 0; display: flex; justify-content: space-between; gap: 20px; }
+    footer span { color: #c4c7ce; }
+
+    @media (max-width: 900px) {
+      .intro, .two-col { grid-template-columns: 1fr; }
+      .score-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .topbar nav { display: none; }
+    }
+    @media (max-width: 560px) {
+      .topbar-inner, main, .footer-inner { width: min(100% - 24px, 1180px); }
+      h1 { font-size: 30px; }
+      .score-grid { grid-template-columns: 1fr; }
+      .gate { grid-template-columns: 1fr; }
+      .step-title { align-items: flex-start; flex-wrap: wrap; }
+      .step-health { margin-left: 38px; width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">LocalMiniDrama / 产品验收</div>
+      <nav aria-label="报告导航">
+        <a href="#summary">结论</a>
+        <a href="#acceptance">联合验收</a>
+        <a href="#flow">流程证据</a>
+        <a href="#quality">质量门禁</a>
+        <a href="#risk">边界与风险</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="intro" id="summary">
+      <div>
+        <p class="eyebrow">Desktop product acceptance / 2026-07-17</p>
+        <h1>LocalMiniDrama 产品体验与发布验收</h1>
+        <p class="lede">以实际桌面工作流为准，覆盖项目入口、AI 服务、素材、剧集就绪度、制作台、画布和自由创作。移动端、代码签名和外部真实 Provider 深度接入按已确认范围后置。</p>
+      </div>
+      <div class="verdict">
+        <strong>产品与本地发布门禁通过</strong>
+        <span>无 P0/P1 桌面体验缺陷。源码、生产 E2E、Windows 制品与安全证据已在同一干净提交上重建并封存。</span>
+      </div>
+    </div>
+
+    <section aria-labelledby="score-title">
+      <div class="section-head">
+        <h2 id="score-title">验收摘要</h2>
+        <p class="muted">验收视口：1440×900、1366×768</p>
+      </div>
+      <div class="score-grid">
+        <div class="score"><small>核心页面</small><b>8 / 8</b><span>均可访问且无横向溢出</span></div>
+        <div class="score"><small>生产 E2E</small><b>100</b><span>QA 评分与媒体闭环通过</span></div>
+        <div class="score"><small>回滚演练</small><b>PASS</b><span>数据库、媒体、原文均恢复</span></div>
+        <div class="score"><small>生产依赖</small><b>0</b><span>High / Critical 漏洞</span></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="scope-title">
+      <div class="section-head"><h2 id="scope-title">范围判断</h2></div>
+      <div class="gate">
+        <span class="status good">本轮完成</span>
+        <p>桌面 Web、Docker、Electron、工作流、备份恢复、发布链路、安全边界、测试与验收报告。</p>
+      </div>
+      <div class="gate">
+        <span class="status info">按约后置</span>
+        <p>移动端重排、Authenticode 签名、外部真实 Provider 深度联调。未配置的视频与语音服务会在产品中明确阻断正式制作，并提供返回上下文完整的配置入口。</p>
+      </div>
+      <div class="gate">
+        <span class="status good">最终门禁已封存</span>
+        <p>1.3.0 源码、生产 E2E、Setup / Portable / Unpacked、四份 SBOM、Gitleaks、Trivy、Defender、Electron Fuse 与离线校验已绑定同一干净提交。GitHub CI 作为推送后的独立复验，不得绕过。</p>
+      </div>
+    </section>
+
+    <section id="acceptance" aria-labelledby="acceptance-title">
+      <div class="section-head">
+        <h2 id="acceptance-title">产品与项目联合验收</h2>
+        <p class="muted">发现问题先回开发修复，再重新进入测试与审计</p>
+      </div>
+      <div class="two-col">
+        <div class="plain-panel">
+          <h3>产品经理：发布 GO</h3>
+          <ul>
+            <li>项目首页、就绪度、制作台、画布、素材中心和 AI 配置均有明确的主任务与下一步。</li>
+            <li>缺少视频或 TTS 能力时，正式命令失败关闭，同时保留可带上下文返回的配置入口。</li>
+            <li>跨项目图片可以从素材中心挂载为分镜自由参考图或视频主参考图。</li>
+            <li>未发现 P0/P1 桌面体验缺陷；移动端按已确认范围后置。</li>
+          </ul>
+        </div>
+        <div class="plain-panel">
+          <h3>项目经理：本地发布门禁 GO</h3>
+          <ul>
+            <li>1.3.0 桌面范围、后置边界、发布失败条件和回滚责任已写入文档与自动化门禁。</li>
+            <li>源码、生产 E2E、Windows 三类制品、SBOM、秘密扫描和 CI 必须绑定同一提交。</li>
+            <li>最终提交已在干净工作树上完成源码、Docker、制品、安全扫描和离线清单验证。</li>
+            <li>任何同 SHA 门禁失败都回到开发阶段，不允许用人工说明替代通过记录。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="flow" aria-labelledby="flow-title">
+      <div class="section-head">
+        <h2 id="flow-title">流程证据</h2>
+        <p class="muted">截图均来自本轮实际运行页面</p>
+      </div>
+      <div class="flow">
+        <figure>
+          <img src="assets/01-project-list-20260717.png" alt="项目首页，显示项目卡片和全局操作">
+          <figcaption>
+            <div class="step-title"><span class="step-number">1</span><h3>项目首页</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">素材中心、分类素材、自由创作、回收站、AI 配置、导入和新建项目都在首屏；项目卡片使用键盘可达链接，操作菜单与进入项目分离。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="assets/02-ai-config-20260717.png" alt="AI 配置页，显示五类服务的配置和测试状态">
+          <figcaption>
+            <div class="step-title"><span class="step-number">2</span><h3>AI 服务配置与模型</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">五类服务状态、默认模型、连接测试和缺口集中展示；支持多厂商预设与 OpenAI 兼容协议。当前视频和语音未配置属于已确认的外部接入后置范围。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="assets/03-free-create-20260717.png" alt="自由创作页面，显示图片模式和服务就绪状态">
+          <figcaption>
+            <div class="step-title"><span class="step-number">3</span><h3>自由创作</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">图片与视频模式分离，生成前显示服务和模型；不可用能力会禁用命令，并可带模式上下文返回 AI 配置。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="assets/06-project-readiness-1366x768-20260717.png" alt="1366 乘 768 视口下的项目就绪度页面">
+          <figcaption>
+            <div class="step-title"><span class="step-number">4</span><h3>项目就绪度</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">在 1366×768 下仍能看到下一步、就绪进度和分类状态；缺失的视频模型被明确定位，没有让用户进入无法完成的正式制作。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="assets/05-source-workflow-20260717.png" alt="故事素材流程、QA 和时间线状态">
+          <figcaption>
+            <div class="step-title"><span class="step-number">5</span><h3>素材、QA 与时间线</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">导入、处理、QA、修复和剧集时间线形成连续状态链；本轮修复了吸顶栏半透明导致滚动内容透出的视觉重叠。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="assets/07-film-workbench-1366x768-20260717.png" alt="制作工作台的剧本和左侧制作导航">
+          <figcaption>
+            <div class="step-title"><span class="step-number">6</span><h3>制作工作台</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">七步生产导航固定在左侧，当前任务与资源数量可扫描；剧本、资产、分镜和合成命令保持在同一项目上下文。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="assets/08-canvas-1366x768-20260717.png" alt="画布模式，显示素材节点、分镜节点和小地图">
+          <figcaption>
+            <div class="step-title"><span class="step-number">7</span><h3>画布模式</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">节点在最低可读缩放下保持清晰；批量命令按服务能力禁用，列表模式、小地图、对齐和聚焦操作可用于大型剧集。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="assets/09-media-library-1366x768-20260717.png" alt="素材中心空状态和上传、网页 URL 入口">
+          <figcaption>
+            <div class="step-title"><span class="step-number">8</span><h3>素材中心与网络来源</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">空状态提供本地上传和“新建项目后导入网页 URL”两条路径；图片与视频可跨项目复用，角色、场景和道具继续通过分类素材库管理。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260717/06-storyboard-media.png" alt="制作工作台的分镜图片、视频和生成门禁">
+          <figcaption>
+            <div class="step-title"><span class="step-number">9</span><h3>分镜媒体与合成前置</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">草稿占位不会伪装成完成媒体；图片、视频、尾帧衔接和批量命令保持在同一分镜上下文，合成前明确显示完成覆盖率。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260717/07-cross-project-media-picker.png" alt="从全局素材中心选择跨项目分镜参考图">
+          <figcaption>
+            <div class="step-title"><span class="step-number">10</span><h3>跨项目参考图复用</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">选择器展示挂载目标、来源项目、类型兼容性和确认状态；嵌套弹窗支持 Esc 逐级关闭并将焦点还给触发按钮。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260717/12-not-found.png" alt="未知地址的 404 页面和恢复操作">
+          <figcaption>
+            <div class="step-title"><span class="step-number">11</span><h3>导航失败恢复</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">未知路由不再留下空白或损坏工作台，用户可以返回上一页或直接回到项目列表。</p>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="quality" aria-labelledby="quality-title">
+      <div class="section-head"><h2 id="quality-title">质量与运行证据</h2></div>
+      <table>
+        <thead><tr><th>门禁</th><th>结果</th><th>证据</th></tr></thead>
+        <tbody>
+          <tr><td>后端</td><td><span class="status good">通过</span></td><td>179 个 JavaScript 文件检查、全量 Node 测试、流程审计、ZIP/凭据/备份边界；最终提交已重跑。</td></tr>
+          <tr><td>前端</td><td><span class="status good">通过</span></td><td>224/224 测试、组件契约、桌面无障碍、关键流程、生产构建和包体预算。</td></tr>
+          <tr><td>桌面</td><td><span class="status good">通过</span></td><td>51/51 测试、Electron 生命周期、原生 ABI、URL 安全、媒体工具信任；Setup、Portable、Unpacked 均完成真实启动 smoke。</td></tr>
+          <tr><td>Docker</td><td><span class="status good">通过</span></td><td>Node 20 容器内验证；backend、frontend、E2E Provider 均通过健康检查，生产后端进程以 UID 1000 运行。</td></tr>
+          <tr><td>生产 E2E</td><td><span class="status good">通过</span></td><td>文本 1、图片 12、视频 8、语音 8 次成功调用；双视口媒体播放、下载、导出、故障恢复和清理通过。</td></tr>
+          <tr><td>备份与回滚</td><td><span class="status good">通过</span></td><td>当前数据备份 145 个文件；隔离恢复 37/37 通过，覆盖 SQLite、媒体、原文、凭据排除和故障回滚。</td></tr>
+          <tr><td>依赖安全</td><td><span class="status good">通过</span></td><td>后端、前端和桌面使用 npm 官方审计端点，生产依赖均为 0 vulnerabilities。</td></tr>
+          <tr><td>发布制品</td><td><span class="status good">通过</span></td><td>Setup、Portable、Unpacked ZIP、四份 CycloneDX SBOM、媒体工具元数据与 10 项制品清单均通过 SHA-256 离线复核。</td></tr>
+          <tr><td>制品安全</td><td><span class="status good">通过</span></td><td>Gitleaks 8.28.0 扫描约 369.92 MB 为 0；Trivy 0.64.1 的四份 SBOM 和三份 Dockerfile 为 0 High/Critical；Defender 为 0 威胁；9 项 Electron Fuse 匹配。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section aria-labelledby="changes-title">
+      <div class="section-head"><h2 id="changes-title">本轮关键收口</h2></div>
+      <div class="two-col">
+        <div class="plain-panel">
+          <h3>用户体验</h3>
+          <ul>
+            <li>移除“微信我”，减少无关入口。</li>
+            <li>扩展 AI 厂商、协议和模型配置。</li>
+            <li>自由创作与项目工作流按服务就绪度阻断。</li>
+            <li>画布最低可读缩放、聚焦、返回上下文和列表模式收口。</li>
+            <li>核心界面统一为中文生产术语。</li>
+          </ul>
+        </div>
+        <div class="plain-panel">
+          <h3>安全与发布</h3>
+          <ul>
+            <li>Provider URL、endpoint、settings 和导出凭据脱敏。</li>
+            <li>ZIP 条目数在完整 materialize 前限制，覆盖 ZIP64。</li>
+            <li>AI 默认配置由唯一索引和写事务保证。</li>
+            <li>Release 构建禁止自动发布，制品复验后才创建草稿。</li>
+            <li>FFmpeg 使用固定可信摘要，备份默认排除 Provider 凭据。</li>
+            <li>Trivy 读取四份 SBOM 并扫描三份真实 Dockerfile；后端绑定目录启动降权例外有明确范围并于 2027-07-17 到期复审。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="risk" aria-labelledby="risk-title">
+      <div class="section-head"><h2 id="risk-title">无障碍与证据边界</h2></div>
+      <div class="two-col">
+        <div class="plain-panel">
+          <h3>已验证</h3>
+          <ul>
+            <li>项目卡片键盘入口、弹窗焦点和画布面板聚焦。</li>
+            <li>模式控件、状态提示、错误提示和关键按钮的可访问名称。</li>
+            <li>双桌面视口无横向溢出，媒体可实际播放。</li>
+          </ul>
+        </div>
+        <div class="plain-panel">
+          <h3>证据限制</h3>
+          <ul>
+            <li>截图不能单独证明完整屏幕阅读器兼容；结论结合自动化语义契约。</li>
+            <li>真实云 Provider 的计费、限流和长耗时行为按范围后置。</li>
+            <li>恢复后不会携带密钥，管理员必须重新录入并执行连接测试。</li>
+            <li>GitHub CI 是推送后的远端独立复验；机器发布结论以制品目录中的安全证据、清单和 SHA256SUMS 为准。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <strong>LocalMiniDrama 1.3.0 本地发布验收</strong>
+      <span>报告封存：2026-07-17 · 机器证据：artifact-security.json / release-manifest.json / SHA256SUMS</span>
+    </div>
+  </footer>
+</body>
+</html>

@@ -4,9 +4,9 @@ import assert from 'node:assert/strict'
 import { buildSourceIntakePayload, inferSourceTypeFromFilename, normalizeSourceType } from '../src/utils/sourceIntakeAdapter.js'
 import { createWorkflowGroup, normalizePipeline } from '../src/utils/canvasWorkflow.js'
 import { normalizeWorkflowRun, workflowStepLabel } from '../src/utils/workflowRunStatus.js'
-import { normalizeQaReport } from '../src/utils/qaReport.js'
+import { buildQaPresentation, normalizeQaReport } from '../src/utils/qaReport.js'
 import { formatDuration, normalizeTimelineSummary } from '../src/utils/timelineSummary.js'
-import { assetImageUrl, audioUrl } from '../src/utils/mediaUrl.js'
+import { assetImageUrl, audioUrl, isSafeImagePreviewUrl, probeImageSource, storyboardImageUrl } from '../src/utils/mediaUrl.js'
 import { hasStoryboardImage, hasStoryboardVideo, resolveSbVideoRecord, videoRecordUrl } from '../src/utils/storyboardMedia.js'
 import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '../src/utils/aiConfigExport.js'
 
@@ -69,10 +69,10 @@ test('normalizeWorkflowRun exposes retry, pause, resume and cancel states', () =
   assert.equal(failed.canResume, false)
   assert.equal(failed.failedStep.step_key, 'qa_audit')
   assert.equal(workflowStepLabel('timeline_plan'), '时间线')
-  assert.equal(workflowStepLabel('image_generation'), '生图（占位）')
-  assert.equal(workflowStepLabel('video_generation'), '视频（占位）')
-  assert.equal(workflowStepLabel('audio_generation'), '配音（占位）')
-  assert.equal(workflowStepLabel('post_composite'), '合成（占位）')
+  assert.equal(workflowStepLabel('image_generation'), '分镜生图')
+  assert.equal(workflowStepLabel('video_generation'), '分镜视频')
+  assert.equal(workflowStepLabel('audio_generation'), '对白与旁白配音')
+  assert.equal(workflowStepLabel('post_composite'), '成片合成')
 
   const active = normalizeWorkflowRun({
     id: 'run-2',
@@ -94,7 +94,7 @@ test('normalizeWorkflowRun exposes retry, pause, resume and cancel states', () =
     steps: [{ step_key: 'video_generation', status: 'pending' }],
   })
   assert.equal(paused.active, false)
-  assert.equal(paused.canCancel, false)
+  assert.equal(paused.canCancel, true)
   assert.equal(paused.canPause, false)
   assert.equal(paused.canResume, true)
 
@@ -104,8 +104,46 @@ test('normalizeWorkflowRun exposes retry, pause, resume and cancel states', () =
     status: 'completed',
     steps: [{ step_key: 'post_composite', status: 'completed' }],
   })
-  assert.equal(placeholder.label, '占位流程完成')
+  assert.equal(placeholder.label, '草稿预演 · 已完成')
   assert.equal(placeholder.novel2animePlaceholder, true)
+  assert.equal(
+    workflowStepLabel(
+      { step_key: 'post_composite', status: 'completed' },
+      { input_json: { qa_mode: 'draft' } },
+    ),
+    '成片合成（草稿占位）',
+  )
+
+  const productionStep = {
+    step_key: 'video_generation',
+    status: 'completed',
+    output_json: { mode: 'production', video_created: 1, video_reused: 0 },
+    provider_invocations: [{ provider_name: 'seedance', mode: 'production', status: 'success' }],
+  }
+  const productionRun = {
+    id: 'run-5',
+    type: 'novel2anime',
+    status: 'completed',
+    input_json: { qa_mode: 'production' },
+    steps: [productionStep],
+  }
+  const production = normalizeWorkflowRun(productionRun)
+  assert.equal(production.label, '正式制作 · 已完成')
+  assert.equal(production.novel2animePlaceholder, false)
+  assert.equal(production.productionPlaceholder, false)
+  assert.equal(workflowStepLabel(productionStep, productionRun), '分镜视频（正式产出）')
+
+  const productionWithMock = normalizeWorkflowRun({
+    ...productionRun,
+    id: 'run-6',
+    steps: [{
+      step_key: 'image_generation',
+      status: 'completed',
+      output_json: { image_url: 'mock://storyboard/1/image' },
+    }],
+  })
+  assert.equal(productionWithMock.label, '正式制作 · 检测到占位产物')
+  assert.equal(productionWithMock.productionPlaceholder, true)
 })
 
 test('normalizeQaReport counts severities and remediation actions', () => {
@@ -136,6 +174,22 @@ test('normalizeQaReport counts severities and remediation actions', () => {
   assert.equal(normalized.recommendations[0], 'retry failed steps')
   assert.equal(normalized.remediationActions.length, 1)
   assert.equal(normalized.canRemediate, true)
+})
+
+test('draft QA presentation cannot be mistaken for production delivery approval', () => {
+  const draft = buildQaPresentation({
+    score: 100,
+    passed: true,
+    report_json: { mode: 'draft' },
+  })
+  assert.equal(draft.scoreLabel, '草稿结构检查 100 分')
+  assert.equal(draft.statusLabel, '草稿结构检查已通过')
+  assert.match(draft.notice, /不计为可交付成片/)
+
+  const production = buildQaPresentation({ score: 92, passed: true }, 'production')
+  assert.equal(production.scoreLabel, '正式交付检查 92 分')
+  assert.equal(production.statusLabel, '正式交付检查已通过')
+  assert.equal(production.notice, '')
 })
 
 test('normalizeTimelineSummary summarizes timeline tracks and duration', () => {
@@ -207,6 +261,16 @@ test('canvas workflow keeps explicit empty pipeline invalid instead of defaultin
 test('media helpers do not treat mock placeholders as usable assets', () => {
   assert.equal(assetImageUrl({ local_path: 'mock://storyboard/1/image', image_url: 'placeholder://storyboard/1/image' }), '')
   assert.equal(assetImageUrl({ local_path: 'mock://storyboard/1/image', image_url: 'https://example.com/real.png' }), 'https://example.com/real.png')
+  assert.equal(storyboardImageUrl({
+    local_path: 'mock://storyboard/1/local',
+    composed_image: 'placeholder://storyboard/1/composed',
+    image_url: 'mock://storyboard/1/image',
+  }), '')
+  assert.equal(storyboardImageUrl({
+    local_path: 'mock://storyboard/1/local',
+    composed_image: 'https://example.com/composed.png',
+    image_url: 'https://example.com/fallback.png',
+  }), 'https://example.com/composed.png')
   assert.equal(audioUrl('placeholder://storyboard/1/audio'), '')
 
   const sb = {
@@ -223,6 +287,44 @@ test('media helpers do not treat mock placeholders as usable assets', () => {
   const realVideo = { id: 1, video_url: 'https://example.com/real.mp4', status: 'completed' }
   assert.equal(hasStoryboardVideo({ id: 1 }, { 1: [realVideo] }), true)
   assert.equal(videoRecordUrl(realVideo), 'https://example.com/real.mp4')
+
+  const separatedMedia = {
+    id: 2,
+    local_path: 'images/storyboard.png',
+    video_local_path: 'videos/storyboard.mp4',
+  }
+  const selectedVideo = resolveSbVideoRecord(separatedMedia, {})
+  assert.equal(selectedVideo.local_path, 'videos/storyboard.mp4')
+  assert.equal(videoRecordUrl(selectedVideo), '/static/videos/storyboard.mp4')
+})
+
+test('image preview probes reject placeholders and require positive decoded dimensions', async () => {
+  let placeholderProbeCreated = false
+  assert.equal(await probeImageSource('mock://storyboard/1/image', {
+    createImage() {
+      placeholderProbeCreated = true
+      return {}
+    },
+  }), false)
+  assert.equal(placeholderProbeCreated, false)
+  assert.equal(isSafeImagePreviewUrl('data:text/html;base64,PGgxPk5PPC9oMT4='), false)
+  assert.equal(isSafeImagePreviewUrl('javascript:alert(1)'), false)
+
+  const createImage = (naturalWidth, naturalHeight) => {
+    const image = { naturalWidth, naturalHeight, onload: null, onerror: null }
+    Object.defineProperty(image, 'src', {
+      set() { queueMicrotask(() => image.onload?.()) },
+    })
+    return image
+  }
+  assert.equal(await probeImageSource('https://example.com/real.png', {
+    createImage: () => createImage(640, 360),
+    timeoutMs: 500,
+  }), true)
+  assert.equal(await probeImageSource('/static/images/broken.png', {
+    createImage: () => createImage(0, 0),
+    timeoutMs: 500,
+  }), false)
 })
 
 test('AI config export and import helpers strip masked settings secrets', () => {

@@ -3,12 +3,27 @@
 所有版本的重要改动记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
 **官方仓库：**
-[![GitHub](https://img.shields.io/badge/GitHub-xuanyustudio%2FLocalMiniDrama-181717?logo=github)](https://github.com/xuanyustudio/LocalMiniDrama)
+[![GitHub](https://img.shields.io/badge/GitHub-Shunlly%2FLocalMiniDrama-181717?logo=github)](https://github.com/Shunlly/LocalMiniDrama)
 [![Gitee](https://img.shields.io/badge/Gitee-bi__shang__a%2Flocalminidrama-C71D23?logo=gitee)](https://gitee.com/bi_shang_a/localminidrama)
 
 ---
 
 ## [Unreleased]
+
+暂无。
+
+---
+
+## [1.3.0] - 2026-07-17
+
+### 新增
+
+- **Novel2Anime 完整生产链路**：把多源素材导入、结构化处理、QA、修复、剧集/分镜、图片、视频、TTS 与 FFmpeg 合成串成可恢复工作流。
+- **多模态素材解析**：支持文本、PDF、图片 OCR，以及音频/视频转写；保留原始素材并提供安全的项目导入导出。
+- **多厂商与多模型配置**：文本、素材图片、分镜图片、视频和 TTS 独立选择 Provider/模型，支持 OpenAI 兼容服务、Ollama、ComfyUI、云厂商预设、连接测试和默认配置约束。
+- **画布与时间线增强**：增加全景图、统一参考图入口、自由参考图、宫格图视频、首尾帧、分镜顺序持久化、画布流式润色与时间线复合输出。
+- **数据备份恢复**：新增带清单、大小门禁、SQLite 完整性校验、凭据排除和恢复前回滚副本的全量备份/恢复命令。
+- **生产 Docker**：前端改为 Nginx 静态服务，后端与前端提供健康/就绪检查，默认只绑定宿主机 `127.0.0.1`，并增加 Node.js 20 容器级验证。
 
 ### 优化
 
@@ -26,11 +41,30 @@
 - **本机监听边界**：开发配置和 Docker 宿主端口默认仅监听 `127.0.0.1`；容器内部监听地址通过 `HOST` 显式覆盖。
 - **E2E 清理**：测试夹具从创建开始全部纳入 `try/finally`，并在结束时硬清理关联 SQLite 数据与源文件、验证零残留；单项清理失败不会阻断后续清理。
 - **外部图床改为显式启用**：未配置 `image_proxy.upload_url` 时不再使用内置公网回退地址，视频图床默认关闭；自定义未知厂商也不再自动带入第三方 Base URL。
+- **Provider 与网络边界**：统一安全 HTTP 请求、DNS/IP/重定向校验、超时与响应大小门禁，阻断本机/内网 SSRF、凭据化 URL 和非预期协议。
+- **配置和备份脱敏**：AI 配置导出、全量数据备份、日志和 Provider 错误响应会清除 API Key、URL 凭据、签名参数及嵌套敏感字段；备份数据库执行压缩以移除旧页残留。
+- **导入导出与媒体路径**：ZIP、语音、分镜音视频、模型资产代理和存储导出统一使用受控路径、条目/解压大小限制与实际媒体校验。
+- **桌面边界**：Electron 启用单实例与受控外链策略，拒绝任意协议/导航；发布固定可信 FFmpeg/FFprobe 包及载荷哈希，macOS 非验收脚本主动失败。
+- **制品供应链**：Setup、Portable 与 Unpacked 先解包核验 Electron Fuse，再由 Gitleaks、四份 SBOM 的 Trivy 漏洞扫描、真实 Dockerfile 配置扫描和 Microsoft Defender 独立放行；后端启动降权例外有路径限制与到期复审。
+
+### 稳定性
+
+- **统一失败处理**：后端响应、Provider 错误、前端空态和关键动作门禁给出可执行反馈；生成链路统一超时、取消、有限重试和幂等键。
+- **任务与工作流恢复**：服务关闭时排空工作流，启动后恢复可重试步骤；遗留异步任务、工作流步骤副作用和 Provider 成本语义写入审计状态。
+- **数据完整性**：新增分镜视频本地路径、全景图、参考媒体、时间线轨道、工作流副作用、幂等键、成本语义和唯一默认 AI 配置迁移及约束。
+
+### 发布与运维
+
+- **发布门禁**：PR/分支 CI 统一 Node.js 20；发布工作流分离验证与上传权限，构建命令禁用隐式发布，并校验版本、依赖树、原生 ABI、媒体工具和制品清单。
+- **可追溯制品**：为源码、Windows Setup/Portable/unpacked、媒体工具生成 SBOM、发布清单和 `SHA256SUMS`，支持离线复核。
+- **回滚演练**：维护窗口内完成真实数据备份、隔离恢复和 SQLite/媒体/凭据排除验证，恢复前自动保留回滚副本。
 
 ### 验证
 
-- 增加项目就绪度、素材步骤流、AI 服务覆盖、画布动作状态、首页素材入口和制作页门禁的前端自动化测试。
+- 增加项目就绪度、素材步骤流、AI 服务覆盖、画布动作状态、首页素材入口、制作页门禁、无障碍、导航 404 和桌面产品验收测试。
+- 增加 Provider 路由/可靠性、备份恢复、数据完整性、SSRF、导入导出、日志隐私、生命周期、QA 门禁和桌面打包合同测试。
 - Novel2Anime 源素材测试改用独立临时目录，容器门禁不再向共享 `data/story_sources` 写入测试文件。
+- 新增生产 E2E，覆盖文本、图片、视频、TTS、最终合成/下载、项目导出、故障注入恢复和测试数据清理。
 
 ---
 

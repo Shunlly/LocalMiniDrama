@@ -87,7 +87,16 @@ function parsePurgeResult(stdout) {
   const jsonLine = [...lines].reverse().find((line) => line.startsWith('{'))
   if (!jsonLine) throw new Error('E2E hard purge did not return a JSON verification result')
   const result = JSON.parse(jsonLine)
-  if (result.verified !== true || Object.keys(result.residual || {}).length > 0) {
+  const media = result.media_cleanup
+  const mediaCounts = ['candidates', 'deleted', 'missing', 'shared']
+    .map((key) => Number(media?.[key]))
+  const mediaVerified = mediaCounts.every((value) => Number.isSafeInteger(value) && value >= 0)
+    && mediaCounts[0] === mediaCounts.slice(1).reduce((sum, value) => sum + value, 0)
+  if (
+    result.verified !== true ||
+    Object.keys(result.residual || {}).length > 0 ||
+    !mediaVerified
+  ) {
     throw new Error(`E2E hard purge verification failed: ${jsonLine}`)
   }
   return result
@@ -102,6 +111,10 @@ async function runDockerFixturePurge({ dramaId, expectedTitle }, execFileRunner 
     'compose',
     'exec',
     '-T',
+    '--user',
+    'node',
+    '-e',
+    'NODE_ENV=test',
     '-e',
     'LOCALMINIDRAMA_E2E_PURGE=1',
     'backend',
@@ -192,7 +205,7 @@ async function main({
       await stepper.getByText(label, { exact: true }).waitFor({ timeout: 15000 })
     }
     await stepper.getByText('1 份素材已导入', { exact: true }).waitFor({ timeout: 15000 })
-    await page.getByRole('button', { name: '启动处理', exact: true }).waitFor({ timeout: 15000 })
+    await page.getByRole('button', { name: '以 草稿预演 启动', exact: true }).waitFor({ timeout: 15000 })
     logger.log(`E2E smoke passed for drama ${drama.id}`)
   } catch (error) {
     primaryError = error

@@ -13,6 +13,11 @@ const log = {
 function createDb() {
   const db = new Database(':memory:');
   db.exec(`
+    CREATE TABLE dramas (
+      id INTEGER PRIMARY KEY,
+      title TEXT,
+      deleted_at TEXT
+    );
     CREATE TABLE assets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       drama_id INTEGER,
@@ -33,6 +38,8 @@ function createDb() {
       deleted_at TEXT
     );
   `);
+  db.prepare('INSERT INTO dramas (id, title, deleted_at) VALUES (1, ?, NULL), (2, ?, NULL)')
+    .run('Sword Project', 'Other Project');
   return db;
 }
 
@@ -114,6 +121,29 @@ test('GET /api/v1/assets filters by the trimmed keyword', async () => {
     });
   } finally {
     if (server.listening) await closeServer(server);
+    db.close();
+  }
+});
+
+test('asset list includes the source project title for cross-project selection context', () => {
+  const db = createDb();
+  try {
+    insertAsset(db, { dramaId: 1, name: 'Shared Alley Plate', createdAt: '2026-01-03T00:00:00.000Z' });
+    insertAsset(db, { dramaId: null, name: 'Global Upload', createdAt: '2026-01-02T00:00:00.000Z' });
+
+    const result = assetService.list(db, { page: '1', page_size: '10' });
+
+    assert.deepEqual(
+      result.items.map((item) => ({
+        name: item.name,
+        source_drama_title: item.source_drama_title,
+      })),
+      [
+        { name: 'Shared Alley Plate', source_drama_title: 'Sword Project' },
+        { name: 'Global Upload', source_drama_title: null },
+      ],
+    );
+  } finally {
     db.close();
   }
 });

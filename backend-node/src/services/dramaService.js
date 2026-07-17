@@ -1,6 +1,7 @@
 // 对应 Go application/services/drama_service.go
 
 const storageLayout = require('./storageLayout');
+const uploadService = require('./uploadService');
 const { resolveStylePreset } = require('../constants/generationStylePresets');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
@@ -224,6 +225,33 @@ function listDramas(db, query) {
   return { dramas, total, page, pageSize };
 }
 
+function listTrashedDramas(db, query = {}) {
+  let sql = 'FROM dramas WHERE deleted_at IS NOT NULL';
+  const params = [];
+  const keyword = String(query.keyword || '').trim();
+  if (keyword) {
+    sql += ' AND (title LIKE ? OR description LIKE ?)';
+    const pattern = `%${keyword}%`;
+    params.push(pattern, pattern);
+  }
+
+  const countRow = db.prepare('SELECT COUNT(*) as total ' + sql).get(...params);
+  const total = countRow.total || 0;
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20));
+  const offset = (page - 1) * pageSize;
+  const rows = db.prepare(
+    'SELECT * ' + sql + ' ORDER BY deleted_at DESC, id DESC LIMIT ? OFFSET ?'
+  ).all(...params, pageSize, offset);
+  const retention = getTrashRetentionPolicy();
+  const dramas = rows.map((row) => ({
+    ...rowToDrama(row),
+    removal_policy: retention,
+  }));
+
+  return { dramas, total, page, pageSize };
+}
+
 function updateDrama(db, log, dramaId, req) {
   const drama = getDramaById(db, Number(dramaId));
   if (!drama) return null;
@@ -274,14 +302,46 @@ function generateStoryboard(db, log, episodeId, options) {
   );
 }
 
-function deleteDrama(db, log, dramaId) {
-  const result = db.prepare('UPDATE dramas SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL').run(
-    new Date().toISOString(),
-    Number(dramaId)
-  );
-  if (result.changes === 0) return false;
-  log.info('Drama deleted', { drama_id: dramaId });
-  return true;
+function getTrashRetentionPolicy() {
+  return {
+    recoverable: true,
+    associated_data: 'preserved',
+    hard_delete_supported: false,
+  };
+}
+
+function moveDramaToTrash(db, log, dramaId) {
+  const id = Number(dramaId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const removedAt = new Date().toISOString();
+  const result = db.prepare(
+    'UPDATE dramas SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL'
+  ).run(removedAt, id);
+  if (result.changes === 0) return null;
+
+  const row = db.prepare('SELECT * FROM dramas WHERE id = ? AND deleted_at IS NOT NULL').get(id);
+  log.info('Drama moved to trash', {
+    drama_id: id,
+    associated_data: 'preserved',
+    recoverable: true,
+  });
+  return row ? rowToDrama(row) : null;
+}
+
+function restoreDrama(db, log, dramaId) {
+  const id = Number(dramaId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const restoredAt = new Date().toISOString();
+  const result = db.prepare(
+    'UPDATE dramas SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL'
+  ).run(restoredAt, id);
+  if (result.changes === 0) return null;
+
+  log.info('Drama restored from trash', {
+    drama_id: id,
+    associated_data: 'preserved',
+  });
+  return getDramaById(db, id);
 }
 
 function getDramaStats(db) {
@@ -315,6 +375,8 @@ function rowToDrama(r) {
     metadata: metadata || {},
     created_at: r.created_at,
     updated_at: r.updated_at,
+    removed_at: r.deleted_at || null,
+    is_removed: Boolean(r.deleted_at),
   };
 }
 
@@ -378,6 +440,7 @@ function rowToStoryboard(r) {
       segment_title: r.segment_title ?? null,
       creation_mode: r.creation_mode === 'universal' ? 'universal' : 'classic',
       universal_segment_text: r.universal_segment_text ?? null,
+      layout_description: r.layout_description ?? null,
       first_frame_image_id: r.first_frame_image_id ?? null,
       last_frame_image_id: r.last_frame_image_id ?? null,
       last_frame_image_url: sanitizeImageUrl(r.last_frame_image_url),
@@ -388,6 +451,9 @@ function rowToStoryboard(r) {
       local_path: r.local_path ?? null,
       main_panel_idx: r.main_panel_idx != null ? Number(r.main_panel_idx) : null,
       video_url: r.video_url,
+      video_local_path: r.video_local_path ?? null,
+      reference_images: parseJsonColumn(r.reference_images) || [],
+      video_reference_image_id: r.video_reference_image_id ?? null,
       audio_local_path: r.audio_local_path ?? null,
       narration_audio_local_path: r.narration_audio_local_path ?? null,
       status: r.status || 'pending',
@@ -748,7 +814,7 @@ function saveCanvasLayout(db, log, dramaId, req) {
  */
 function getVideoUrlForStoryboard(db, storyboardId, baseUrl) {
   // 1. 获取 storyboard 表中的视频信息（代表用户选定或上次同步的结果）
-  const sb = db.prepare('SELECT video_url, local_path, updated_at FROM storyboards WHERE id = ? AND deleted_at IS NULL').get(storyboardId);
+  const sb = db.prepare('SELECT video_url, video_local_path, updated_at FROM storyboards WHERE id = ? AND deleted_at IS NULL').get(storyboardId);
   
   // 2. 获取 video_generations 表中最新完成的记录
   const vg = db.prepare(
@@ -757,16 +823,27 @@ function getVideoUrlForStoryboard(db, storyboardId, baseUrl) {
 
   // 辅助函数：构造完整 URL，优先使用本地路径（避免远程URL过期导致无法合并）
   const buildUrl = (videoUrl, localPath) => {
-    if (localPath && String(localPath).trim() && baseUrl) {
-      const base = (baseUrl || '').replace(/\/$/, '');
-      const p = String(localPath).replace(/^\//, '');
-      return p ? base + '/' + p : null;
+    const cfg = require('../config').loadConfig();
+    const rawStorage = cfg?.storage?.local_path || './data/storage';
+    const path = require('path');
+    const storageRoot = path.isAbsolute(rawStorage) ? rawStorage : path.join(process.cwd(), rawStorage);
+    for (const candidate of [localPath, videoUrl]) {
+      const value = String(candidate || '').trim();
+      if (!value) continue;
+      try {
+        const local = uploadService.resolveStorageReference(storageRoot, value);
+        if (local) return local.relativePath;
+      } catch (error) {
+        if (!/^https?:\/\//i.test(value) || value.startsWith('/static/')) continue;
+      }
+      if (/^https?:\/\//i.test(value)) {
+        try { return uploadService.assertPublicHttpUrlSyntax(value).toString(); } catch (_) { continue; }
+      }
     }
-    if (videoUrl && String(videoUrl).trim()) return videoUrl;
     return null;
   };
 
-  const sbUrl = sb ? buildUrl(sb.video_url, sb.local_path) : null;
+  const sbUrl = sb ? buildUrl(sb.video_url, sb.video_local_path) : null;
   const vgUrl = vg ? buildUrl(vg.video_url, vg.local_path) : null;
 
   // 策略：比较时间，取最新的
@@ -859,8 +936,11 @@ module.exports = {
   getDrama,
   getDramaById,
   listDramas,
+  listTrashedDramas,
   updateDrama,
-  deleteDrama,
+  moveDramaToTrash,
+  restoreDrama,
+  getTrashRetentionPolicy,
   getDramaStats,
   saveOutline,
   getCharacters,

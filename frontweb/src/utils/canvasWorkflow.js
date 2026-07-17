@@ -48,6 +48,39 @@ export function deleteWorkflowGroup(existingGroups, groupId) {
   return (existingGroups || []).filter((g) => g.id !== groupId)
 }
 
+export function reorderWorkflowGroupStoryboards(existingGroups, groupId, fromIndex, toIndex) {
+  const groups = Array.isArray(existingGroups) ? existingGroups : []
+  const groupIndex = groups.findIndex((group) => String(group.id) === String(groupId))
+  if (groupIndex < 0) return groups
+
+  const storyboardIds = groups[groupIndex]?.storyboard_ids
+  const sourceIndex = Number(fromIndex)
+  const destinationIndex = Number(toIndex)
+  if (
+    !Array.isArray(storyboardIds)
+    || !Number.isInteger(sourceIndex)
+    || !Number.isInteger(destinationIndex)
+    || sourceIndex < 0
+    || destinationIndex < 0
+    || sourceIndex >= storyboardIds.length
+    || destinationIndex >= storyboardIds.length
+    || sourceIndex === destinationIndex
+  ) {
+    return groups
+  }
+
+  const reorderedIds = [...storyboardIds]
+  const [movedId] = reorderedIds.splice(sourceIndex, 1)
+  reorderedIds.splice(destinationIndex, 0, movedId)
+
+  const reorderedGroups = [...groups]
+  reorderedGroups[groupIndex] = {
+    ...groups[groupIndex],
+    storyboard_ids: reorderedIds,
+  }
+  return reorderedGroups
+}
+
 export function normalizePipeline(pipeline, options = {}) {
   const allowed = ['image', 'video', 'audio']
   const list = Array.isArray(pipeline) ? pipeline.filter((s) => allowed.includes(s)) : []

@@ -33,6 +33,29 @@ function isMockProviderName(value) {
   return text === 'mock' || text === 'mock-compositor' || text.startsWith('mock-');
 }
 
+function containsMockReference(value) {
+  const parsed = parseJson(value, value);
+  const stack = [parsed];
+  while (stack.length) {
+    const item = stack.pop();
+    if (item == null) continue;
+    if (Array.isArray(item)) {
+      stack.push(...item);
+      continue;
+    }
+    if (typeof item === 'object') {
+      stack.push(...Object.values(item));
+      continue;
+    }
+    if (typeof item === 'string' && /^(?:mock|placeholder):\/\//i.test(item.trim())) return true;
+  }
+  return false;
+}
+
+function firstRealAsset(row, fields) {
+  return fields.map((field) => row?.[field]).find(isRealMediaPath) || null;
+}
+
 function hasRealMediaFieldKey(key) {
   const text = String(key || '').toLowerCase();
   return text === 'url' ||
@@ -70,6 +93,11 @@ function isNonMockProviderRow(row) {
   const providerName = String(row.provider_name || '').trim().toLowerCase();
   const mode = String(row.mode || '').trim().toLowerCase();
   const status = String(row.status || '').trim().toLowerCase();
+  if (status !== 'success' || mode === 'mock' || isMockProviderName(providerName)) return false;
+  if (String(row.provider_type || '').trim().toLowerCase() === 'text') {
+    const output = parseJson(row.output_json, {});
+    return hasText(output?.response_text) && hasText(output?.response_sha256);
+  }
   return status === 'success' &&
     mode !== 'mock' &&
     !isMockProviderName(providerName) &&
@@ -112,24 +140,68 @@ function getStoryboardsForEpisodes(db, episodeIds) {
   ).all(...episodeIds);
 }
 
-function hasTimelineForEpisodes(db, episodeIds) {
-  if (!episodeIds.length) return { ok: false, trackCount: 0, itemCount: 0, trackTypes: [] };
+function hasTimelineForEpisodes(db, episodeIds, options = {}) {
+  if (!episodeIds.length) return { ok: false, trackCount: 0, itemCount: 0, trackTypes: [], episodes: [] };
   const placeholders = episodeIds.map(() => '?').join(',');
   const tracks = db.prepare(
-    `SELECT id, type FROM timeline_tracks WHERE episode_id IN (${placeholders}) ORDER BY sort_order ASC`
+    `SELECT id, episode_id, type, status, metadata
+       FROM timeline_tracks WHERE episode_id IN (${placeholders}) ORDER BY episode_id ASC, sort_order ASC`
   ).all(...episodeIds);
   const trackIds = tracks.map((track) => track.id);
-  if (!trackIds.length) return { ok: false, trackCount: 0, itemCount: 0, trackTypes: [] };
-  const itemPlaceholders = trackIds.map(() => '?').join(',');
-  const itemCount = count(db, `SELECT COUNT(*) AS count FROM timeline_items WHERE track_id IN (${itemPlaceholders})`, ...trackIds);
+  const items = trackIds.length
+    ? db.prepare(
+      `SELECT id, track_id, storyboard_id, start_sec, end_sec, source_path, metadata
+         FROM timeline_items WHERE track_id IN (${trackIds.map(() => '?').join(',')})`
+    ).all(...trackIds)
+    : [];
   const trackTypes = Array.from(new Set(tracks.map((track) => track.type)));
   const requiredTrackTypes = ['video', 'subtitle', 'voice', 'dialogue', 'effect', 'bgm', 'transition'];
+  const optionalTrackTypes = ['effect', 'bgm', 'transition'];
+  const validItemsForTrack = (track) => items.filter((item) => {
+    if (Number(item.track_id) !== Number(track.id)) return false;
+    const metadata = parseJson(item.metadata, {});
+    if (metadata?.placeholder === true) return false;
+    if (!(Number(item.end_sec) > Number(item.start_sec))) return false;
+    if (track.type === 'subtitle') return hasText(item.source_path);
+    if (options.production) return isRealMediaPath(item.source_path);
+    return hasText(item.source_path);
+  });
+  const episodeResults = episodeIds.map((episodeId) => {
+    const episodeTracks = tracks.filter((track) => Number(track.episode_id) === Number(episodeId));
+    const byType = new Map(episodeTracks.map((track) => [track.type, track]));
+    const explicitTracks = requiredTrackTypes.every((type) => byType.has(type));
+    const videoItems = byType.has('video') ? validItemsForTrack(byType.get('video')) : [];
+    const subtitleItems = byType.has('subtitle') ? validItemsForTrack(byType.get('subtitle')) : [];
+    const voiceItems = byType.has('voice') ? validItemsForTrack(byType.get('voice')) : [];
+    const dialogueItems = byType.has('dialogue') ? validItemsForTrack(byType.get('dialogue')) : [];
+    const optionalTracksExplicitlyUnused = !options.production || optionalTrackTypes.every((type) => {
+      const track = byType.get(type);
+      if (!track) return false;
+      const metadata = parseJson(track.metadata, {});
+      const validCount = validItemsForTrack(track).length;
+      return validCount > 0 || (track.status === 'unused' && metadata.optional === true && metadata.usage === 'unused');
+    });
+    return {
+      episode_id: Number(episodeId),
+      passed: explicitTracks && videoItems.length > 0 && subtitleItems.length > 0 &&
+        (voiceItems.length > 0 || dialogueItems.length > 0) && optionalTracksExplicitlyUnused,
+      explicit_tracks: explicitTracks,
+      video_item_count: videoItems.length,
+      subtitle_item_count: subtitleItems.length,
+      voice_item_count: voiceItems.length,
+      dialogue_item_count: dialogueItems.length,
+      optional_tracks_explicit: optionalTracksExplicitlyUnused,
+      track_types: episodeTracks.map((track) => track.type),
+    };
+  });
   return {
-    ok: requiredTrackTypes.every((type) => trackTypes.includes(type)) && itemCount > 0,
+    ok: episodeResults.length === episodeIds.length && episodeResults.every((episode) => episode.passed),
     trackCount: tracks.length,
-    itemCount,
+    itemCount: items.length,
     trackTypes,
     requiredTrackTypes,
+    optionalTrackTypes,
+    episodes: episodeResults,
   };
 }
 
@@ -190,34 +262,125 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
   const charactersWithContinuity = characterRows.filter((row) => (
     hasText(row.name) &&
     (hasText(row.appearance) || hasText(row.description) || hasText(row.identity_anchors)) &&
-    (hasText(row.image_url) || hasText(row.local_path) || hasText(row.four_view_image_url) || hasText(row.seedance2_asset))
+    (draftMode
+      ? hasText(row.image_url) || hasText(row.local_path) || hasText(row.four_view_image_url) || hasText(row.seedance2_asset)
+      : !!firstRealAsset(row, ['local_path', 'image_url', 'four_view_image_url', 'seedance2_asset'])) &&
+    (draftMode || (!containsMockReference(row.identity_anchors) && !containsMockReference(row.stages)))
   ));
   const characterOk = characterRows.length > 0 && charactersWithContinuity.length === characterRows.length;
   if (characterOk) score += 10;
   else addIssue(issues, 'character_continuity_incomplete', 'warning', 'Characters need names, visual anchors, and at least one image/reference asset', { drama_id: dramaId });
   checks.push({ key: 'character_continuity', passed: characterOk, weight: 10, character_count: characterRows.length, complete_count: charactersWithContinuity.length });
 
-  const sceneCount = count(db, 'SELECT COUNT(*) AS count FROM scenes WHERE drama_id = ? AND deleted_at IS NULL', dramaId);
-  const propCount = count(db, 'SELECT COUNT(*) AS count FROM props WHERE drama_id = ? AND deleted_at IS NULL', dramaId);
-  const assetLibraryOk = sceneCount > 0 || propCount > 0;
+  const sceneRows = db.prepare('SELECT * FROM scenes WHERE drama_id = ? AND deleted_at IS NULL ORDER BY id ASC').all(dramaId);
+  const propRows = db.prepare('SELECT * FROM props WHERE drama_id = ? AND deleted_at IS NULL ORDER BY id ASC').all(dramaId);
+  const sceneCount = sceneRows.length;
+  const propCount = propRows.length;
+  const assetLibraryOk = draftMode
+    ? sceneCount > 0 || propCount > 0
+    : sceneRows.some((row) => firstRealAsset(row, ['local_path', 'image_url', 'ref_image'])) ||
+      propRows.some((row) => firstRealAsset(row, ['local_path', 'image_url', 'ref_image']));
   if (assetLibraryOk) score += 10;
   else addIssue(issues, 'asset_library_empty', 'warning', 'Scene or prop assets are missing', { drama_id: dramaId });
   checks.push({ key: 'asset_library', passed: assetLibraryOk, weight: 10, scene_count: sceneCount, prop_count: propCount });
 
   const episodeIds = episodes.map((ep) => ep.id);
   const storyboards = getStoryboardsForEpisodes(db, episodeIds);
-  const completeStoryboards = storyboards.filter((sb) => (
-    hasText(sb.description || sb.action || sb.dialogue || sb.narration) &&
-    hasText(sb.image_prompt) &&
-    hasText(sb.video_prompt) &&
-    Number(sb.duration) > 0
-  ));
+  const missingStoryboardFields = [];
+  const completeStoryboards = storyboards.filter((sb) => {
+    const missing = [];
+    if (!hasText(sb.layout_description || sb.description || sb.action)) missing.push('visual');
+    if (!hasText(sb.image_prompt)) missing.push('image_prompt');
+    if (!hasText(sb.video_prompt)) missing.push('video_prompt');
+    if (!(Number(sb.duration) > 0)) missing.push('duration');
+    if (!draftMode && !hasText(sb.movement)) missing.push('movement');
+    if (!draftMode && !hasText(sb.dialogue || sb.narration)) missing.push('subtitle_or_narration');
+    if (missing.length) missingStoryboardFields.push({ storyboard_id: sb.id, fields: missing });
+    return missing.length === 0;
+  });
   const storyboardsOk = storyboards.length > 0 && completeStoryboards.length === storyboards.length;
   if (storyboardsOk) score += 20;
-  else addIssue(issues, 'storyboards_incomplete', 'error', 'Each storyboard needs visual action, duration, image prompt, and video prompt', { drama_id: dramaId, episode_id: episodeId });
-  checks.push({ key: 'storyboards', passed: storyboardsOk, weight: 20, storyboard_count: storyboards.length, complete_count: completeStoryboards.length });
+  else addIssue(
+    issues,
+    'storyboards_incomplete',
+    'error',
+    draftMode
+      ? 'Each storyboard needs visual action, duration, image prompt, and video prompt'
+      : 'Production storyboards require visual composition, movement, duration, subtitle or narration, image prompt, and video prompt',
+    { drama_id: dramaId, episode_id: episodeId, missing: missingStoryboardFields }
+  );
+  checks.push({
+    key: 'storyboards',
+    passed: storyboardsOk,
+    weight: 20,
+    storyboard_count: storyboards.length,
+    complete_count: completeStoryboards.length,
+    missing: missingStoryboardFields,
+  });
+
+  const characterById = new Map(characterRows.map((row) => [Number(row.id), row]));
+  const characterByName = new Map(characterRows.map((row) => [String(row.name || '').trim().toLowerCase(), row]));
+  const sceneById = new Map(sceneRows.map((row) => [Number(row.id), row]));
+  const assetReferenceFailures = [];
+  if (!draftMode) {
+    for (const storyboard of storyboards) {
+      const references = parseJson(storyboard.characters, []);
+      if (storyboard.characters && !Array.isArray(references)) {
+        assetReferenceFailures.push({ storyboard_id: storyboard.id, type: 'character', reason: 'invalid_reference_list' });
+      }
+      for (const reference of Array.isArray(references) ? references : []) {
+        const id = Number(typeof reference === 'object' && reference ? reference.id : reference);
+        const name = String(typeof reference === 'object' && reference ? reference.name || '' : reference || '').trim().toLowerCase();
+        const character = (Number.isSafeInteger(id) && id > 0 ? characterById.get(id) : null) || characterByName.get(name);
+        if (!character || !firstRealAsset(character, ['local_path', 'image_url', 'four_view_image_url', 'seedance2_asset']) ||
+          containsMockReference(character.identity_anchors) || containsMockReference(character.stages)) {
+          assetReferenceFailures.push({ storyboard_id: storyboard.id, type: 'character', reference });
+        }
+      }
+      if (storyboard.scene_id != null) {
+        const scene = sceneById.get(Number(storyboard.scene_id));
+        if (!scene || !firstRealAsset(scene, ['local_path', 'image_url', 'ref_image'])) {
+          assetReferenceFailures.push({ storyboard_id: storyboard.id, type: 'scene', reference: storyboard.scene_id });
+        }
+      }
+      const propReferences = db.prepare(
+        `SELECT sp.prop_id, p.id, p.image_url, p.local_path, p.ref_image
+           FROM storyboard_props sp
+           LEFT JOIN props p ON p.id = sp.prop_id AND p.deleted_at IS NULL
+          WHERE sp.storyboard_id = ?`
+      ).all(storyboard.id);
+      for (const prop of propReferences) {
+        if (!prop.id || !firstRealAsset(prop, ['local_path', 'image_url', 'ref_image'])) {
+          assetReferenceFailures.push({ storyboard_id: storyboard.id, type: 'prop', reference: prop.prop_id });
+        }
+      }
+      for (const field of ['reference_images', 'continuity_snapshot']) {
+        if (containsMockReference(storyboard[field])) {
+          assetReferenceFailures.push({ storyboard_id: storyboard.id, type: field, reason: 'mock_reference' });
+        }
+      }
+    }
+  }
+  const assetReferencesOk = draftMode || assetReferenceFailures.length === 0;
+  if (!assetReferencesOk) {
+    addIssue(
+      issues,
+      'production_asset_references_invalid',
+      'error',
+      'Production storyboard references must resolve to existing non-mock character, scene, and prop assets',
+      { drama_id: dramaId, failures: assetReferenceFailures }
+    );
+  }
+  checks.push({
+    key: 'production_asset_references',
+    passed: assetReferencesOk,
+    weight: 0,
+    failure_count: assetReferenceFailures.length,
+  });
 
   const realMediaStoryboardIds = new Set();
+  const realImageStoryboardIds = new Set();
+  const realVideoStoryboardIds = new Set();
   for (const sb of storyboards) {
     if (
       isRealMediaPath(sb.video_url) ||
@@ -233,7 +396,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
   if (storyboards.length) {
     const sbIds = storyboards.map((sb) => sb.id);
     const placeholders = sbIds.map(() => '?').join(',');
-    generatedMediaRows = db.prepare(
+    const generatedImageRows = db.prepare(
        `SELECT storyboard_id, provider, image_url, NULL AS video_url, local_path
           FROM image_generations
          WHERE storyboard_id IN (${placeholders})
@@ -242,6 +405,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     ).all(
       ...sbIds
     ).filter(isNonMockGenerationRow);
+    generatedMediaRows = generatedImageRows;
     const generatedVideoRows = db.prepare(
        `SELECT storyboard_id, provider, NULL AS image_url, video_url, local_path
           FROM video_generations
@@ -252,14 +416,16 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
       ...sbIds
     ).filter(isNonMockGenerationRow);
     generatedMediaRows.push(...generatedVideoRows);
-    for (const row of generatedMediaRows) {
-      realMediaStoryboardIds.add(Number(row.storyboard_id));
-    }
+    generatedImageRows.forEach((row) => realImageStoryboardIds.add(Number(row.storyboard_id)));
+    generatedVideoRows.forEach((row) => realVideoStoryboardIds.add(Number(row.storyboard_id)));
+    generatedMediaRows.forEach((row) => realMediaStoryboardIds.add(Number(row.storyboard_id)));
   }
-  const timeline = hasTimelineForEpisodes(db, episodeIds);
+  const timeline = hasTimelineForEpisodes(db, episodeIds, { production: !draftMode });
   const realMediaCoverageCount = realMediaStoryboardIds.size;
   const realMediaOk = storyboards.length > 0 && realMediaCoverageCount > 0;
-  const fullRealMediaCoverageOk = storyboards.length > 0 && realMediaCoverageCount === storyboards.length;
+  const fullRealMediaCoverageOk = storyboards.length > 0 &&
+    realImageStoryboardIds.size === storyboards.length &&
+    realVideoStoryboardIds.size === storyboards.length;
   const mediaOk = draftMode
     ? storyboards.length > 0 && timeline.ok && (realMediaOk || timeline.itemCount >= storyboards.length)
     : storyboards.length > 0 && timeline.ok && fullRealMediaCoverageOk;
@@ -269,10 +435,19 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     track_types: timeline.trackTypes,
     storyboard_count: storyboards.length,
     real_media_storyboard_count: realMediaCoverageCount,
+    episode_timeline: timeline.episodes,
   };
   if (!draftMode && storyboards.length > realMediaCoverageCount) {
     mediaIssueTarget.missing_real_media_storyboard_ids = storyboards
       .filter((sb) => !realMediaStoryboardIds.has(Number(sb.id)))
+      .map((sb) => sb.id);
+  }
+  if (!draftMode) {
+    mediaIssueTarget.missing_real_image_storyboard_ids = storyboards
+      .filter((sb) => !realImageStoryboardIds.has(Number(sb.id)))
+      .map((sb) => sb.id);
+    mediaIssueTarget.missing_real_video_storyboard_ids = storyboards
+      .filter((sb) => !realVideoStoryboardIds.has(Number(sb.id)))
       .map((sb) => sb.id);
   }
   if (mediaOk) score += 15;
@@ -291,6 +466,8 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     weight: 15,
     mode: auditMode,
     media_storyboard_count: realMediaCoverageCount,
+    image_storyboard_count: realImageStoryboardIds.size,
+    video_storyboard_count: realVideoStoryboardIds.size,
     generated_media_count: generatedMediaRows.length,
     storyboard_count: storyboards.length,
     full_real_media_coverage: fullRealMediaCoverageOk,
@@ -298,6 +475,8 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     timeline_item_count: timeline.itemCount,
     track_types: timeline.trackTypes,
     required_track_types: timeline.requiredTrackTypes,
+    optional_track_types: timeline.optionalTrackTypes,
+    episode_timeline: timeline.episodes,
   });
 
   let workflowOk = true;
@@ -312,7 +491,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
   if (workflowOk) score += 10;
   checks.push({ key: 'workflow_integrity', passed: workflowOk, weight: 10, step_count: stepRows.length });
 
-  const requiredProviderTypes = ['image', 'video', 'tts', 'compositor'];
+  const requiredProviderTypes = ['text', 'asset_image', 'image', 'video', 'tts', 'compositor'];
   let providerCount = 0;
   let skillCount = 0;
   let providerRows = [];
@@ -341,7 +520,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     draftMode ? 'warning' : 'error',
     draftMode
       ? 'Provider generation audit records are missing or incomplete'
-      : 'Production QA requires successful non-mock provider audit records for image, video, tts, and compositor outputs',
+      : 'Production QA requires successful non-mock provider audit records for text, asset image, storyboard image, video, TTS, and compositor outputs',
     {
       run_id: run_id || null,
       provider_count: providerCount,
@@ -399,6 +578,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     checks.push({ key: 'legacy_async_audit', passed: false, weight: 0, error: err.message });
   }
 
+  if (!draftMode && issues.some((issue) => issue.severity === 'error')) score = Math.min(score, 79);
   const passed = score >= 80 && !issues.some((issue) => issue.severity === 'error');
   const recommendations = issues.map((issue) => {
     if (issue.code === 'source_missing') return 'Import source material through Source Intake before production.';
@@ -407,6 +587,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     if (issue.code === 'character_continuity_incomplete') return 'Add character anchors and reference images before image/video generation.';
     if (issue.code === 'asset_library_empty') return 'Extract or add scenes and props for visual continuity.';
     if (issue.code === 'storyboards_incomplete') return 'Generate storyboard draft fields before media generation.';
+    if (issue.code === 'production_asset_references_invalid') return 'Replace missing or mock storyboard asset references with existing production assets.';
     if (issue.code === 'media_timeline_incomplete') return 'Generate media and timeline tracks before final acceptance.';
     if (issue.code === 'workflow_steps_incomplete') return 'Retry failed workflow steps before final QA.';
     if (issue.code === 'provider_audit_missing') return 'Run provider generation through the workflow provider SDK so image/video/audio/compositor calls are auditable.';

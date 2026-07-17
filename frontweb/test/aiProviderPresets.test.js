@@ -2,9 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  CUSTOM_PROVIDER_SENTINEL,
   getBaseUrlForProvider,
   getProviderEndpointDefaults,
   getProviderProtocol,
+  isApiKeyOptionalProvider,
   providerConfigs,
 } from '../src/utils/aiProviderPresets.js'
 
@@ -33,6 +35,8 @@ test('media presets include newer image, video and tts models', () => {
   assert.ok(modelsFor('storyboard_image', 'siliconflow').includes('black-forest-labs/FLUX.1-dev'))
   assert.ok(modelsFor('video', 'openai').includes('sora'))
   assert.ok(modelsFor('tts', 'openai').includes('gpt-4o-mini-tts'))
+  assert.ok(providerIds('image').includes('comfyui'))
+  assert.ok(providerIds('storyboard_image').includes('comfyui'))
 })
 
 test('provider defaults are service-type aware', () => {
@@ -46,6 +50,11 @@ test('provider defaults are service-type aware', () => {
   assert.equal(getBaseUrlForProvider('xai', 'text'), 'https://api.x.ai/v1')
   assert.equal(getBaseUrlForProvider('xai', 'video'), 'https://api.x.ai')
   assert.equal(getBaseUrlForProvider('custom-provider', 'text'), '')
+
+  assert.equal(getProviderProtocol('ollama', 'text'), 'openai')
+  assert.equal(getBaseUrlForProvider('ollama', 'text'), 'http://127.0.0.1:11434/v1')
+  assert.equal(getProviderProtocol('comfyui', 'image'), 'comfyui')
+  assert.equal(getBaseUrlForProvider('comfyui', 'image'), 'http://127.0.0.1:8188')
 })
 
 test('endpoint defaults prevent provider switching residue', () => {
@@ -61,6 +70,23 @@ test('endpoint defaults prevent provider switching residue', () => {
     endpoint: '',
     query_endpoint: '',
   })
+  assert.deepEqual(getProviderEndpointDefaults('ollama', 'text'), {
+    endpoint: '/chat/completions',
+    query_endpoint: '',
+  })
+  assert.deepEqual(getProviderEndpointDefaults('comfyui', 'storyboard_image'), {
+    endpoint: '/prompt',
+    query_endpoint: '/history/{promptId}',
+  })
+})
+
+test('local presets allow keyless use while provider and model fields remain customizable', () => {
+  assert.equal(isApiKeyOptionalProvider('ollama', 'openai'), true)
+  assert.equal(isApiKeyOptionalProvider('comfyui', 'comfyui'), true)
+  assert.equal(isApiKeyOptionalProvider('openai', 'openai'), false)
+  assert.equal(CUSTOM_PROVIDER_SENTINEL, '__custom__')
+  assert.equal(getBaseUrlForProvider('my-private-provider', 'text'), '')
+  assert.deepEqual(modelsFor('image', 'comfyui'), ['custom-workflow'])
 })
 
 test('preset provider ids are unique within each service type', () => {

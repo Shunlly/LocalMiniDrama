@@ -9,6 +9,7 @@
  */
 const path = require('path');
 const fs = require('fs');
+const { spawnSync } = require('child_process');
 
 const isWin = process.platform === 'win32';
 const ffmpegName = isWin ? 'ffmpeg.exe' : 'ffmpeg';
@@ -61,27 +62,89 @@ function getFfprobePath() {
   return resolveFfmpegBin(ffprobeName);
 }
 
+function checkMediaBinary(bin, expectedName) {
+  const result = spawnSync(bin, ['-version'], {
+    encoding: 'utf8',
+    maxBuffer: 2 * 1024 * 1024,
+    timeout: 5000,
+    windowsHide: true,
+  });
+  if (result.error) {
+    return { ok: false, path: bin, error: result.error.message };
+  }
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || '').trim().slice(-500);
+    return { ok: false, path: bin, error: detail || `${expectedName} exited with status ${result.status}` };
+  }
+  const output = String(result.stdout || result.stderr || '').trim();
+  if (!new RegExp(`^${expectedName} version\\b`, 'i').test(output)) {
+    return { ok: false, path: bin, error: `${bin} is not a valid ${expectedName} executable` };
+  }
+  return { ok: true, path: bin, version: output.split(/\r?\n/, 1)[0] };
+}
+
+/** 实际执行 ffmpeg 与 ffprobe，避免仅凭路径存在误判可用性。 */
+function validateFfmpegTools() {
+  const ffmpeg = checkMediaBinary(getFfmpegPath(), 'ffmpeg');
+  const ffprobe = checkMediaBinary(getFfprobePath(), 'ffprobe');
+  const errors = [];
+  if (!ffmpeg.ok) errors.push(`ffmpeg unavailable: ${ffmpeg.error}`);
+  if (!ffprobe.ok) errors.push(`ffprobe unavailable: ${ffprobe.error}`);
+  return {
+    ok: ffmpeg.ok && ffprobe.ok,
+    ffmpeg,
+    ffprobe,
+    error: errors.length ? errors.join('; ') : null,
+  };
+}
+
+/** 返回当前 ffmpeg 构建中可用的编码器名称。 */
+function getAvailableFfmpegEncoders() {
+  const bin = getFfmpegPath();
+  const check = checkMediaBinary(bin, 'ffmpeg');
+  if (!check.ok) return { ok: false, encoders: [], error: check.error };
+
+  const result = spawnSync(bin, ['-hide_banner', '-encoders'], {
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+    timeout: 10000,
+    windowsHide: true,
+  });
+  if (result.error) return { ok: false, encoders: [], error: result.error.message };
+  if (result.status !== 0) {
+    return {
+      ok: false,
+      encoders: [],
+      error: String(result.stderr || result.stdout || '').trim().slice(-500) || `ffmpeg exited with status ${result.status}`,
+    };
+  }
+
+  const encoders = [];
+  const output = String(result.stdout || result.stderr || '');
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.match(/^\s*[VAS][A-Z.]{5}\s+(\S+)/);
+    if (match) encoders.push(match[1]);
+  }
+  return { ok: true, encoders, error: null };
+}
+
 /**
  * 是否能找到本地 ffmpeg（找到任意候选路径、环境变量或系统 PATH 中存在即为 true）。
  */
 function hasLocalFfmpeg() {
-  const fromEnv = process.env.FFMPEG_PATH;
-  if (fromEnv && fs.existsSync(fromEnv)) return true;
-  if (getCandidatePaths(ffmpegName).some((p) => fs.existsSync(p))) return true;
-  
-  // 检查系统 PATH 中是否有 ffmpeg
-  try {
-    const { spawnSync } = require('child_process');
-    const res = spawnSync(ffmpegName, ['-version']);
-    if (res.status === 0) return true;
-  } catch (_) {}
-  
-  return false;
+  return checkMediaBinary(getFfmpegPath(), 'ffmpeg').ok;
+}
+
+function hasLocalFfprobe() {
+  return checkMediaBinary(getFfprobePath(), 'ffprobe').ok;
 }
 
 module.exports = {
   getFfmpegPath,
   getFfprobePath,
   hasLocalFfmpeg,
+  hasLocalFfprobe,
+  validateFfmpegTools,
+  getAvailableFfmpegEncoders,
   toolsFfmpegDir,
 };

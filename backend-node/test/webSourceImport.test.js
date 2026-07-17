@@ -35,11 +35,11 @@ test('web source import blocks local and private targets', async () => {
 
   await assert.rejects(
     () => assertPublicHttpUrl('http://localhost:3013/story'),
-    /localhost/
+    /not public|localhost/
   );
   await assert.rejects(
     () => assertPublicHttpUrl('https://example.test/story', resolver(['10.0.0.8'])),
-    /内网/
+    /non-public|内网/
   );
 });
 
@@ -57,20 +57,30 @@ test('web source import extracts article text and title from html', () => {
 });
 
 test('web source import fetches public text and validates redirects', async () => {
+  let receivedOptions = null;
   const fetched = await fetchWebSource('https://example.com/source.txt', {
     resolver: resolver(['93.184.216.34']),
-    fetchImpl: async () => response(200, 'Characters: Aria\nLocation: Gate\nAria finds a clue and starts the story.', {
-      'content-type': 'text/plain',
-    }),
+    downloadImpl: async (_url, _timeout, _redirectCount, options) => {
+      receivedOptions = options;
+      return {
+        buffer: Buffer.from('Characters: Aria\nLocation: Gate\nAria finds a clue and starts the story.'),
+        contentType: 'text/plain',
+        finalUrl: 'https://example.com/source.txt',
+      };
+    },
   });
   assert.equal(fetched.url, 'https://example.com/source.txt');
   assert.match(fetched.text, /Aria finds/);
+  assert.equal(receivedOptions.maxRedirects, 3);
+  assert.equal(typeof receivedOptions.lookup, 'function');
 
   await assert.rejects(
     () => fetchWebSource('https://example.com/redirect', {
       resolver: async (host) => [{ address: host === 'example.com' ? '93.184.216.34' : '127.0.0.1' }],
-      fetchImpl: async () => response(302, '', { location: 'http://127.0.0.1/private' }),
+      downloadImpl: async () => {
+        throw new Error('Media URL resolves to a non-public address.');
+      },
     }),
-    /内网|回环|链路本地/
+    /non-public|内网|回环|链路本地/
   );
 });

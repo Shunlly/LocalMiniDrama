@@ -27,15 +27,15 @@ By participating, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md
 
 ## 报告 Bug / Reporting Bugs
 
-1. 先在 [Issues](https://github.com/xuanyustudio/LocalMiniDrama/issues) 搜索确认是否已有相同问题
-2. 如果没有，点击 [新建 Issue](https://github.com/xuanyustudio/LocalMiniDrama/issues/new/choose) 并选择 **Bug 报告** 模板
+1. 先在 [Issues](https://github.com/Shunlly/LocalMiniDrama/issues) 搜索确认是否已有相同问题
+2. 如果没有，点击 [新建 Issue](https://github.com/Shunlly/LocalMiniDrama/issues/new/choose) 并选择 **Bug 报告** 模板
 3. 尽量填写完整的复现步骤、环境信息和截图
 
 ---
 
 ## 功能建议 / Feature Requests
 
-1. 在 [Issues](https://github.com/xuanyustudio/LocalMiniDrama/issues) 中搜索是否已有相似建议
+1. 在 [Issues](https://github.com/Shunlly/LocalMiniDrama/issues) 中搜索是否已有相似建议
 2. 选择 **功能建议** 模板新建 Issue
 3. 描述清楚使用场景，有助于我们评估优先级
 
@@ -75,7 +75,7 @@ git push origin feature/your-feature-name
 
 ## 开发环境搭建 / Development Setup
 
-> 需要 Node.js >= 18 / Requires Node.js >= 18
+> 需要 Node.js >= 20 / Requires Node.js >= 20
 
 ### 启动后端
 

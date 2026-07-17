@@ -1,6 +1,7 @@
 <template>
   <div
     class="canvas-node-panel script-panel nodrag nopan nowheel"
+    tabindex="-1"
     @pointerdown.stop
     @mousedown.stop
     @click.stop

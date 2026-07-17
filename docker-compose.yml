@@ -2,24 +2,28 @@ name: localminidrama
 
 services:
   backend:
+    image: localminidrama-backend:${LOCALMINIDRAMA_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: backend-node/Dockerfile
     container_name: localminidrama-backend
+    restart: "on-failure:10"
+    stop_grace_period: 60s
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       PORT: "5679"
       HOST: "0.0.0.0"
+      LOCALMINIDRAMA_MAINTENANCE_SCOPE: localminidrama-docker-backend
     ports:
       - "127.0.0.1:5679:5679"
     volumes:
       - ./backend-node/data:/app/data
-      - ./backend-node/configs:/app/configs
+      - ./backend-node/configs:/app/configs:ro
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "node -e \"fetch('http://127.0.0.1:5679/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+          "node -e \"fetch('http://127.0.0.1:5679/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
         ]
       interval: 10s
       timeout: 5s
@@ -27,15 +31,67 @@ services:
       start_period: 20s
 
   frontend:
+    image: localminidrama-frontend:${LOCALMINIDRAMA_IMAGE_TAG:-latest}
     build:
       context: .
-      dockerfile: frontweb/Dockerfile
+      dockerfile: frontweb/Dockerfile.prod
     container_name: localminidrama-frontend
-    environment:
-      VITE_BACKEND_PROXY_TARGET: http://backend:5679
-      CHOKIDAR_USEPOLLING: "true"
     ports:
       - "127.0.0.1:3013:3013"
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O - http://127.0.0.1:3013/healthz >/dev/null 2>&1 || exit 1"
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  frontend-verify:
+    profiles: ["verify"]
+    build:
+      context: .
+      dockerfile: frontweb/Dockerfile
+    environment:
+      NODE_ENV: production
+      VITE_BACKEND_PROXY_TARGET: http://backend:5679
+
+  backend-verify:
+    profiles: ["verify"]
+    build:
+      context: .
+      dockerfile: backend-node/Dockerfile
+      target: verification
+    environment:
+      NODE_ENV: test
+
+  e2e-provider:
+    profiles: ["e2e"]
+    image: localminidrama-e2e-provider:${LOCALMINIDRAMA_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: backend-node/Dockerfile
+    environment:
+      NODE_ENV: test
+      LOCALMINIDRAMA_E2E_PROVIDER: "1"
+      E2E_PROVIDER_PORT: "5688"
+      E2E_PROVIDER_TOKEN: local-e2e-token
+      E2E_PROVIDER_PUBLIC_BASE_URL: http://e2e-provider:5688
+    ports:
+      - "127.0.0.1:5688:5688"
+    command: ["node", "scripts/e2e-provider.js"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:5688/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s

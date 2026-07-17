@@ -7,6 +7,12 @@
         empty: !hasScript,
         processing: isNodeBusy,
       }"
+      role="button"
+      tabindex="0"
+      :aria-label="accessibleLabel"
+      :aria-expanded="showPanel"
+      @keydown.enter.stop.prevent="openPanel"
+      @keydown.space.stop.prevent="openPanel"
     >
       <Handle type="source" :position="Position.Right" />
       <CanvasNodeStatusOverlay :node-id="id" />
@@ -59,6 +65,16 @@ const isNodeBusy = computed(() => {
   const map = ctx?.nodeStatus?.map
   return map ? !!map[props.id] : false
 })
+
+const accessibleLabel = computed(() => {
+  const episodeNumber = props.data.episode?.episode_number ?? '?'
+  const state = isNodeBusy.value ? '处理中' : hasScript.value ? '已有剧本' : '暂无剧本'
+  return `第 ${episodeNumber} 集剧本，${state}，按 Enter 或空格展开`
+})
+
+function openPanel() {
+  ctx?.setFocusedNode?.(props.id)
+}
 </script>
 
 <style scoped>
@@ -88,6 +104,10 @@ const isNodeBusy = computed(() => {
 .canvas-script-node.processing {
   border-color: var(--canvas-info-text, #60a5fa);
   animation: script-pulse 1.4s ease-in-out infinite;
+}
+.canvas-script-node:focus-visible {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 3px;
 }
 .head {
   display: flex;

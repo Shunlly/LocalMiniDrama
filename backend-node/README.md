@@ -5,12 +5,12 @@
 → [项目主页](../README.md) | [快速开始](../docs/quickstart.md) | [AI 配置](../docs/configuration.md) | [版本历史](../docs/changelog.md) | [作者故事](../docs/story.md) | [English](../docs/en.md)
 
 **官方仓库：**
-[![GitHub](https://img.shields.io/badge/GitHub-xuanyustudio%2FLocalMiniDrama-181717?logo=github)](https://github.com/xuanyustudio/LocalMiniDrama)
+[![GitHub](https://img.shields.io/badge/GitHub-Shunlly%2FLocalMiniDrama-181717?logo=github)](https://github.com/Shunlly/LocalMiniDrama)
 [![Gitee](https://img.shields.io/badge/Gitee-bi__shang__a%2Flocalminidrama-C71D23?logo=gitee)](https://gitee.com/bi_shang_a/localminidrama)
 
-> 遇到问题或有功能建议，欢迎在 [GitHub Issues](https://github.com/xuanyustudio/LocalMiniDrama/issues) 或 [Gitee Issues](https://gitee.com/bi_shang_a/localminidrama/issues) 提交反馈。
+> 遇到问题或有功能建议，欢迎在 [GitHub Issues](https://github.com/Shunlly/LocalMiniDrama/issues) 或 [Gitee Issues](https://gitee.com/bi_shang_a/localminidrama/issues) 提交反馈。
 
-> **本包版本：** `1.2.8`（与仓库根目录 [CHANGELOG](../CHANGELOG.md)、前端与桌面 `package.json` 对齐）
+> **本包版本：** `1.3.0`（与仓库根目录 [CHANGELOG](../CHANGELOG.md)、前端与桌面 `package.json` 对齐）
 
 ---
 
@@ -32,7 +32,7 @@
 
 | 依赖 | 版本 |
 |------|------|
-| Node.js | 推荐 20.x；代码 engine 下限为 >= 18 |
+| Node.js | >= 20；发布与 Docker 验证使用 20.x |
 | npm | 随 Node.js 附带 |
 
 ---
@@ -54,6 +54,13 @@ npm start
 
 # 开发模式（Node.js --watch 热重载）
 npm run dev
+
+# 静态检查、全部测试与流程审计
+npm run verify
+
+# 全量数据备份；恢复前必须停止后端
+npm run backup:data -- --output D:\backup\localminidrama.zip
+npm run restore:data -- --input D:\backup\localminidrama.zip --yes
 ```
 
 启动成功后终端输出：
@@ -71,6 +78,8 @@ backend-node/
 │   └── config.yaml             # 仓库内默认配置；AI Key 存储在数据库 ai_service_configs
 ├── data/
 │   ├── drama_generator.db      # SQLite 数据库
+│   ├── story_sources/          # 原始故事素材
+│   ├── backups/                # 默认备份归档
 │   └── storage/                # 生成的图片/视频本地文件
 │       ├── images/             # 分镜生成图
 │       ├── characters/         # 角色图
@@ -79,11 +88,11 @@ backend-node/
 │       └── merged/             # 合成后的完整视频
 ├── migrations/
 │   ├── 01_init.sql             # 初始建表
-│   └── 02_add_default_model.sql ... 24_provider_skill_pipeline.sql
+│   └── 02_add_default_model.sql ... 34_ai_config_single_default.sql
 ├── src/
 │   ├── app.js                  # Express 应用（路由注册、中间件）
 │   ├── server.js               # HTTP 服务入口
-│   ├── logger.js               # 日志（pino）
+│   ├── logger.js               # 结构化日志与敏感信息清理
 │   ├── response.js             # 统一响应格式工具
 │   ├── config/
 │   │   └── index.js            # YAML 配置加载
@@ -156,7 +165,7 @@ style:
 
 ## 各大平台中转站示例配置
 
-仓库根目录（与 `backend-node` 同级）下的 [`各大平台中转站配置/`](https://github.com/xuanyustudio/LocalMiniDrama/tree/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE) 提供多家常见中转站的 **完整 JSON 示例**，可直接对照导入前端「AI 配置」，再改为自己的 Key 与地址。
+仓库根目录（与 `backend-node` 同级）下的 [`各大平台中转站配置/`](https://github.com/Shunlly/LocalMiniDrama/tree/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE) 提供多家常见中转站的 **完整 JSON 示例**，可直接对照导入前端「AI 配置」，再改为自己的 Key 与地址。
 
 | 文件 | 说明 |
 |------|------|
@@ -168,8 +177,8 @@ style:
 
 **示意图（与 JSON 互补）：**
 
-- [官方即梦 2.0 配置](https://github.com/xuanyustudio/LocalMiniDrama/blob/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE/%E5%AE%98%E6%96%B9%E5%8D%B3%E6%A2%A62.0%E9%85%8D%E7%BD%AE.png)
-- [本地反向代理即梦 Free API 配置](https://github.com/xuanyustudio/LocalMiniDrama/blob/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE/%E8%B0%83%E7%94%A8%E6%9C%AC%E5%9C%B0%E5%8F%8D%E5%90%91%E4%BB%A3%E7%90%86%E5%8D%B3%E6%A2%A6freeapi%E7%9A%84%E9%85%8D%E7%BD%AE.png)
+- [官方即梦 2.0 配置](https://github.com/Shunlly/LocalMiniDrama/blob/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE/%E5%AE%98%E6%96%B9%E5%8D%B3%E6%A2%A62.0%E9%85%8D%E7%BD%AE.png)
+- [本地反向代理即梦 Free API 配置](https://github.com/Shunlly/LocalMiniDrama/blob/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE/%E8%B0%83%E7%94%A8%E6%9C%AC%E5%9C%B0%E5%8F%8D%E5%90%91%E4%BB%A3%E7%90%86%E5%8D%B3%E6%A2%A6freeapi%E7%9A%84%E9%85%8D%E7%BD%AE.png)
 
 若中转商控制台中的商品名（如「即梦 2.0」）与示例里的 **模型 ID**（如 `doubao-seedream-4-0-250828`）表述不一致，以对方实际开放的模型 ID 为准，并在本系统中与 JSON 保持一致。更多面向最终用户的说明见仓库根目录 [项目主页 `index.html`](../index.html) 中的「AI 与各大平台中转站」区块（发布页展示用）。
 
@@ -394,7 +403,7 @@ style:
 2. 在本系统 AI 配置中填写 **Base URL**（如 `http://127.0.0.1:8000`）、**API Key** 填即梦 **Session**（多个用英文逗号分隔）。
 3. 后端会请求对方 `POST /v1/videos/generations`（可用配置项 **Endpoint** 覆盖路径），Seedance 多图场景需分镜带参考图；返回为同步 `data[0].url`，无需轮询。
 
-字段级对照可参考仓库 [`各大平台中转站配置/调用本地反向代理即梦freeapi的配置.png`](https://github.com/xuanyustudio/LocalMiniDrama/blob/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE/%E8%B0%83%E7%94%A8%E6%9C%AC%E5%9C%B0%E5%8F%8D%E5%90%91%E4%BB%A3%E7%90%86%E5%8D%B3%E6%A2%A6freeapi%E7%9A%84%E9%85%8D%E7%BD%AE.png)。该路径为 **OpenAI 兼容的本地即梦代理（视频为主）**，与上文「即梦（Seedream）Volcengine 图生图与文生图」所描述的 **`volcengine` 直连中转图 API** 不是同一套协议，请按实际接入分别配置、勿混用字段。
+字段级对照可参考仓库 [`各大平台中转站配置/调用本地反向代理即梦freeapi的配置.png`](https://github.com/Shunlly/LocalMiniDrama/blob/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE/%E8%B0%83%E7%94%A8%E6%9C%AC%E5%9C%B0%E5%8F%8D%E5%90%91%E4%BB%A3%E7%90%86%E5%8D%B3%E6%A2%A6freeapi%E7%9A%84%E9%85%8D%E7%BD%AE.png)。该路径为 **OpenAI 兼容的本地即梦代理（视频为主）**，与上文「即梦（Seedream）Volcengine 图生图与文生图」所描述的 **`volcengine` 直连中转图 API** 不是同一套协议，请按实际接入分别配置、勿混用字段。
 
 ### 添加新的数据库字段
 

@@ -20,6 +20,13 @@ function createTestDb() {
       completed_at TEXT,
       deleted_at TEXT
     );
+    CREATE TABLE video_generations (
+      id INTEGER PRIMARY KEY,
+      task_id TEXT,
+      status TEXT,
+      provider_task_id TEXT,
+      deleted_at TEXT
+    );
   `);
   return db;
 }
@@ -67,5 +74,59 @@ describe('taskService.failOrphanedAsyncTasksOnStartup', () => {
     const task = taskService.getTask(db, 'task-active');
     assert.equal(task.status, 'failed');
     assert.equal(task.error, taskService.USER_CANCEL_TASK_MSG);
+  });
+
+  it('keeps resumable provider video tasks active on startup', () => {
+    const db = createTestDb();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO async_tasks (id, type, status, progress, message, resource_id, created_at, updated_at)
+       VALUES (?, 'video_generation', 'processing', 20, '', '42', ?, ?)`
+    ).run('task-resumable-video', now, now);
+    db.prepare(
+      `INSERT INTO video_generations (task_id, status, provider_task_id)
+       VALUES (?, 'processing', ?)`
+    ).run('task-resumable-video', 'provider-task-42');
+
+    const count = taskService.failOrphanedAsyncTasksOnStartup(db, { warn() {}, info() {} });
+
+    assert.equal(count, 0);
+    assert.equal(taskService.getTask(db, 'task-resumable-video').status, 'processing');
+  });
+
+  it('keeps cancellation terminal when a worker reports late progress or success', () => {
+    const db = createTestDb();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO async_tasks (id, type, status, progress, message, resource_id, created_at, updated_at)
+       VALUES (?, ?, ?, 0, '', ?, ?, ?)`
+    ).run('task-cancel-race', 'video_generation', 'processing', '42', now, now);
+
+    taskService.cancelTask(db, { info() {} }, 'task-cancel-race');
+
+    assert.equal(taskService.updateTaskStatus(db, 'task-cancel-race', 'processing', 80, 'late'), false);
+    assert.equal(taskService.updateTaskResult(db, 'task-cancel-race', { video_url: 'late.mp4' }), false);
+    assert.equal(taskService.updateTaskError(db, 'task-cancel-race', 'late failure'), false);
+
+    const task = taskService.getTask(db, 'task-cancel-race');
+    assert.equal(task.status, 'failed');
+    assert.equal(task.progress, 0);
+    assert.equal(task.error, taskService.USER_CANCEL_TASK_MSG);
+    assert.equal(task.result, null);
+  });
+
+  it('does not cancel a task that completed first', () => {
+    const db = createTestDb();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO async_tasks (id, type, status, progress, message, resource_id, created_at, updated_at)
+       VALUES (?, ?, ?, 0, '', ?, ?, ?)`
+    ).run('task-complete-race', 'video_generation', 'processing', '42', now, now);
+
+    assert.equal(taskService.updateTaskResult(db, 'task-complete-race', { video_url: 'done.mp4' }), true);
+    const result = taskService.cancelTask(db, { info() {} }, 'task-complete-race');
+
+    assert.equal(result.already_done, true);
+    assert.equal(taskService.getTask(db, 'task-complete-race').status, 'completed');
   });
 });

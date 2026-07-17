@@ -45,6 +45,7 @@ function create(db, log, cfg) {
       response.created(res, aiConfigService.configForResponse(config));
     } catch (err) {
       log.errorw('Create AI config failed', { error: err.message });
+      if (err.status === 400) return response.badRequest(res, err.message);
       response.internalError(res, '创建失败');
     }
   };
@@ -65,9 +66,15 @@ function update(db, log, cfg) {
       body = allowed;
     }
 
-    const config = aiConfigService.updateConfig(db, log, id, body);
-    if (!config) return response.notFound(res, '配置不存在');
-    response.success(res, aiConfigService.configForResponse(config));
+    try {
+      const config = aiConfigService.updateConfig(db, log, id, body);
+      if (!config) return response.notFound(res, '配置不存在');
+      response.success(res, aiConfigService.configForResponse(config));
+    } catch (err) {
+      log.errorw('Update AI config failed', { error: err.message, config_id: id });
+      if (err.status === 400) return response.badRequest(res, err.message);
+      response.internalError(res, '更新失败');
+    }
   };
 }
 
@@ -173,8 +180,10 @@ function testConnection(db, log) {
       if (err.status === 404) return response.notFound(res, err.message);
       return response.badRequest(res, err.message);
     }
-    if (!opts.base_url || !opts.api_key || aiConfigService.isMaskedSecret(opts.api_key)) {
-      return response.badRequest(res, '缺少 base_url 或 api_key');
+    const apiKeyOptional = aiConfigService.isApiKeyOptionalConnection(opts);
+    const missingRequiredKey = !apiKeyOptional && (!opts.api_key || aiConfigService.isMaskedSecret(opts.api_key));
+    if (!opts.base_url || missingRequiredKey) {
+      return response.badRequest(res, apiKeyOptional ? '缺少 base_url' : '缺少 base_url 或 api_key');
     }
     try {
       await aiConfigService.testConnection({
@@ -182,9 +191,11 @@ function testConnection(db, log) {
         api_key: opts.api_key,
         model: opts.model,
         provider: opts.provider,
+        api_protocol: opts.api_protocol,
         endpoint: opts.endpoint,
         service_type: opts.service_type,
         settings: opts.settings,
+        trusted_origins: req.providerNetworkTrustedOrigins,
       });
       response.success(res, { message: '连接测试成功' });
     } catch (err) {
@@ -218,14 +229,17 @@ function modelArkAsset(db, log) {
           sign_service: opts.sign_service,
           session_token: opts.session_token,
           project_name: opts.project_name,
+          trusted_origins: req.providerNetworkTrustedOrigins,
         },
         log
       );
       response.success(res, data);
     } catch (err) {
-      log.error('model-ark-asset proxy failed', { error: err.message, action });
+      const { toSafeProviderErrorMessage } = require('../services/providerErrorSanitizer');
+      const safeMessage = toSafeProviderErrorMessage(err, { provider: 'ModelArk', operation: action || 'request' });
+      log.error('model-ark-asset proxy failed', { error: safeMessage, action });
       const status = err.status >= 400 && err.status < 600 ? err.status : 400;
-      return response.error(res, status, 'MODEL_ARK_ASSET', err.message || '请求失败', err.payload);
+      return response.error(res, status, 'MODEL_ARK_ASSET', safeMessage || '请求失败');
     }
   };
 }

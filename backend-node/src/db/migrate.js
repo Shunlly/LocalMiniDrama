@@ -1,7 +1,324 @@
 const fs = require('fs');
 const path = require('path');
-const { getDb } = require('./index.js');
+const { getDb, enableForeignKeys } = require('./index.js');
 const { loadConfig } = require('../config/index.js');
+
+const DOMAIN_INTEGRITY_MIGRATION = '32_novel2anime_domain_integrity.sql';
+const DOMAIN_INTEGRITY_ERROR_CODE = 'NOVEL2ANIME_DOMAIN_INTEGRITY_VIOLATION';
+
+const DOMAIN_INTEGRITY_CHECKS = [
+  {
+    code: 'story_sources_missing_drama',
+    sql: `SELECT CAST(ss.id AS TEXT) AS row_key
+            FROM story_sources ss
+            LEFT JOIN dramas d ON d.id = ss.drama_id
+           WHERE d.id IS NULL`,
+  },
+  {
+    code: 'source_items_missing_source',
+    sql: `SELECT CAST(si.id AS TEXT) AS row_key
+            FROM source_items si
+            LEFT JOIN story_sources ss ON ss.id = si.source_id
+           WHERE ss.id IS NULL`,
+  },
+  {
+    code: 'source_items_duplicate_key',
+    sql: `SELECT CAST(source_id AS TEXT) || ':' || item_type || ':' ||
+                 COALESCE(CAST(item_no AS TEXT), 'null') AS row_key
+            FROM source_items
+           GROUP BY source_id, item_type, COALESCE(item_no, -1)
+          HAVING COUNT(*) > 1`,
+  },
+  {
+    code: 'story_events_missing_drama',
+    sql: `SELECT CAST(se.id AS TEXT) AS row_key
+            FROM story_events se
+            LEFT JOIN dramas d ON d.id = se.drama_id
+           WHERE d.id IS NULL`,
+  },
+  {
+    code: 'story_events_missing_source_item',
+    sql: `SELECT CAST(se.id AS TEXT) AS row_key
+            FROM story_events se
+            LEFT JOIN source_items si ON si.id = se.source_item_id
+           WHERE se.source_item_id IS NOT NULL AND si.id IS NULL`,
+  },
+  {
+    code: 'story_events_cross_drama',
+    sql: `SELECT CAST(se.id AS TEXT) AS row_key
+            FROM story_events se
+            JOIN source_items si ON si.id = se.source_item_id
+            JOIN story_sources ss ON ss.id = si.source_id
+           WHERE se.drama_id <> ss.drama_id`,
+  },
+  {
+    code: 'adaptation_plans_missing_drama',
+    sql: `SELECT CAST(ap.id AS TEXT) AS row_key
+            FROM adaptation_plans ap
+            LEFT JOIN dramas d ON d.id = ap.drama_id
+           WHERE d.id IS NULL`,
+  },
+  {
+    code: 'adaptation_plans_missing_source',
+    sql: `SELECT CAST(ap.id AS TEXT) AS row_key
+            FROM adaptation_plans ap
+            LEFT JOIN story_sources ss ON ss.id = ap.source_id
+           WHERE ss.id IS NULL`,
+  },
+  {
+    code: 'adaptation_plans_cross_drama',
+    sql: `SELECT CAST(ap.id AS TEXT) AS row_key
+            FROM adaptation_plans ap
+            JOIN story_sources ss ON ss.id = ap.source_id
+           WHERE ap.drama_id <> ss.drama_id`,
+  },
+  {
+    code: 'workflow_runs_missing_drama',
+    sql: `SELECT wr.id AS row_key
+            FROM workflow_runs wr
+            LEFT JOIN dramas d ON d.id = wr.drama_id
+           WHERE d.id IS NULL`,
+  },
+  {
+    code: 'workflow_runs_missing_episode',
+    sql: `SELECT wr.id AS row_key
+            FROM workflow_runs wr
+            LEFT JOIN episodes ep ON ep.id = wr.episode_id
+           WHERE wr.episode_id IS NOT NULL AND ep.id IS NULL`,
+  },
+  {
+    code: 'workflow_runs_cross_drama',
+    sql: `SELECT wr.id AS row_key
+            FROM workflow_runs wr
+            JOIN episodes ep ON ep.id = wr.episode_id
+           WHERE wr.drama_id <> ep.drama_id`,
+  },
+  {
+    code: 'workflow_steps_missing_run',
+    sql: `SELECT ws.id AS row_key
+            FROM workflow_steps ws
+            LEFT JOIN workflow_runs wr ON wr.id = ws.run_id
+           WHERE wr.id IS NULL`,
+  },
+  {
+    code: 'workflow_steps_duplicate_key',
+    sql: `SELECT run_id || ':' || step_key AS row_key
+            FROM workflow_steps
+           GROUP BY run_id, step_key
+          HAVING COUNT(*) > 1`,
+  },
+  {
+    code: 'timeline_tracks_missing_episode',
+    sql: `SELECT CAST(tt.id AS TEXT) AS row_key
+            FROM timeline_tracks tt
+            LEFT JOIN episodes ep ON ep.id = tt.episode_id
+           WHERE ep.id IS NULL`,
+  },
+  {
+    code: 'timeline_tracks_duplicate_type',
+    sql: `SELECT CAST(episode_id AS TEXT) || ':' || type AS row_key
+            FROM timeline_tracks
+           GROUP BY episode_id, type
+          HAVING COUNT(*) > 1`,
+  },
+  {
+    code: 'timeline_items_missing_track',
+    sql: `SELECT CAST(ti.id AS TEXT) AS row_key
+            FROM timeline_items ti
+            LEFT JOIN timeline_tracks tt ON tt.id = ti.track_id
+           WHERE tt.id IS NULL`,
+  },
+  {
+    code: 'timeline_items_missing_storyboard',
+    sql: `SELECT CAST(ti.id AS TEXT) AS row_key
+            FROM timeline_items ti
+            LEFT JOIN storyboards sb ON sb.id = ti.storyboard_id
+           WHERE ti.storyboard_id IS NOT NULL AND sb.id IS NULL`,
+  },
+  {
+    code: 'timeline_items_cross_episode',
+    sql: `SELECT CAST(ti.id AS TEXT) AS row_key
+            FROM timeline_items ti
+            JOIN timeline_tracks tt ON tt.id = ti.track_id
+            JOIN storyboards sb ON sb.id = ti.storyboard_id
+           WHERE tt.episode_id <> sb.episode_id`,
+  },
+  {
+    code: 'qa_reports_missing_drama',
+    sql: `SELECT CAST(qr.id AS TEXT) AS row_key
+            FROM qa_reports qr
+            LEFT JOIN dramas d ON d.id = qr.drama_id
+           WHERE d.id IS NULL`,
+  },
+  {
+    code: 'qa_reports_missing_episode',
+    sql: `SELECT CAST(qr.id AS TEXT) AS row_key
+            FROM qa_reports qr
+            LEFT JOIN episodes ep ON ep.id = qr.episode_id
+           WHERE qr.episode_id IS NOT NULL AND ep.id IS NULL`,
+  },
+  {
+    code: 'qa_reports_missing_run',
+    sql: `SELECT CAST(qr.id AS TEXT) AS row_key
+            FROM qa_reports qr
+            LEFT JOIN workflow_runs wr ON wr.id = qr.run_id
+           WHERE qr.run_id IS NOT NULL AND wr.id IS NULL`,
+  },
+  {
+    code: 'qa_reports_cross_drama',
+    sql: `SELECT CAST(qr.id AS TEXT) AS row_key
+            FROM qa_reports qr
+            LEFT JOIN episodes ep ON ep.id = qr.episode_id
+            LEFT JOIN workflow_runs wr ON wr.id = qr.run_id
+           WHERE (ep.id IS NOT NULL AND ep.drama_id <> qr.drama_id)
+              OR (wr.id IS NOT NULL AND wr.drama_id <> qr.drama_id)`,
+  },
+  {
+    code: 'qa_reports_cross_episode',
+    sql: `SELECT CAST(qr.id AS TEXT) AS row_key
+            FROM qa_reports qr
+            JOIN workflow_runs wr ON wr.id = qr.run_id
+           WHERE qr.episode_id IS NOT NULL
+             AND wr.episode_id IS NOT NULL
+             AND qr.episode_id <> wr.episode_id`,
+  },
+  {
+    code: 'provider_invocations_missing_run',
+    sql: `SELECT CAST(pi.id AS TEXT) AS row_key
+            FROM provider_invocations pi
+            LEFT JOIN workflow_runs wr ON wr.id = pi.run_id
+           WHERE pi.run_id IS NOT NULL AND wr.id IS NULL`,
+  },
+  {
+    code: 'provider_invocations_missing_step',
+    sql: `SELECT CAST(pi.id AS TEXT) AS row_key
+            FROM provider_invocations pi
+            LEFT JOIN workflow_steps ws ON ws.id = pi.workflow_step_id
+           WHERE pi.workflow_step_id IS NOT NULL AND ws.id IS NULL`,
+  },
+  {
+    code: 'provider_invocations_cross_run',
+    sql: `SELECT CAST(pi.id AS TEXT) AS row_key
+            FROM provider_invocations pi
+            JOIN workflow_steps ws ON ws.id = pi.workflow_step_id
+           WHERE pi.run_id IS NOT NULL AND pi.run_id <> ws.run_id`,
+  },
+  {
+    code: 'skill_invocations_missing_run',
+    sql: `SELECT CAST(si.id AS TEXT) AS row_key
+            FROM skill_invocations si
+            LEFT JOIN workflow_runs wr ON wr.id = si.run_id
+           WHERE si.run_id IS NOT NULL AND wr.id IS NULL`,
+  },
+  {
+    code: 'skill_invocations_missing_step',
+    sql: `SELECT CAST(si.id AS TEXT) AS row_key
+            FROM skill_invocations si
+            LEFT JOIN workflow_steps ws ON ws.id = si.workflow_step_id
+           WHERE si.workflow_step_id IS NOT NULL AND ws.id IS NULL`,
+  },
+  {
+    code: 'skill_invocations_cross_run',
+    sql: `SELECT CAST(si.id AS TEXT) AS row_key
+            FROM skill_invocations si
+            JOIN workflow_steps ws ON ws.id = si.workflow_step_id
+           WHERE si.run_id IS NOT NULL AND si.run_id <> ws.run_id`,
+  },
+  {
+    code: 'story_event_edges_missing_drama',
+    sql: `SELECT CAST(see.id AS TEXT) AS row_key
+            FROM story_event_edges see
+            LEFT JOIN dramas d ON d.id = see.drama_id
+           WHERE d.id IS NULL`,
+  },
+  {
+    code: 'story_event_edges_missing_source',
+    sql: `SELECT CAST(see.id AS TEXT) AS row_key
+            FROM story_event_edges see
+            LEFT JOIN story_sources ss ON ss.id = see.source_id
+           WHERE see.source_id IS NOT NULL AND ss.id IS NULL`,
+  },
+  {
+    code: 'story_event_edges_missing_from_event',
+    sql: `SELECT CAST(see.id AS TEXT) AS row_key
+            FROM story_event_edges see
+            LEFT JOIN story_events se ON se.id = see.from_event_id
+           WHERE se.id IS NULL`,
+  },
+  {
+    code: 'story_event_edges_missing_to_event',
+    sql: `SELECT CAST(see.id AS TEXT) AS row_key
+            FROM story_event_edges see
+            LEFT JOIN story_events se ON se.id = see.to_event_id
+           WHERE se.id IS NULL`,
+  },
+  {
+    code: 'story_event_edges_cross_drama',
+    sql: `SELECT CAST(see.id AS TEXT) AS row_key
+            FROM story_event_edges see
+            JOIN story_events from_event ON from_event.id = see.from_event_id
+            JOIN story_events to_event ON to_event.id = see.to_event_id
+            LEFT JOIN story_sources ss ON ss.id = see.source_id
+           WHERE see.drama_id <> from_event.drama_id
+              OR see.drama_id <> to_event.drama_id
+              OR (ss.id IS NOT NULL AND see.drama_id <> ss.drama_id)`,
+  },
+  {
+    code: 'story_event_edges_cross_source',
+    sql: `SELECT CAST(see.id AS TEXT) AS row_key
+            FROM story_event_edges see
+            JOIN story_events se
+              ON se.id IN (see.from_event_id, see.to_event_id)
+            JOIN source_items si ON si.id = se.source_item_id
+           WHERE see.source_id IS NOT NULL AND see.source_id <> si.source_id`,
+  },
+  {
+    code: 'story_event_edges_duplicate_key',
+    sql: `SELECT COALESCE(CAST(source_id AS TEXT), 'null') || ':' ||
+                 CAST(from_event_id AS TEXT) || ':' || CAST(to_event_id AS TEXT) || ':' ||
+                 relation_type AS row_key
+            FROM story_event_edges
+           GROUP BY COALESCE(source_id, -1), from_event_id, to_event_id, relation_type
+          HAVING COUNT(*) > 1`,
+  },
+];
+
+function auditNovel2AnimeDomainIntegrity(database, options = {}) {
+  const sampleLimit = Math.max(1, Math.min(20, Number(options.sample_limit) || 5));
+  const violations = [];
+  for (const check of DOMAIN_INTEGRITY_CHECKS) {
+    const count = Number(database.prepare(`SELECT COUNT(*) AS count FROM (${check.sql})`).get().count);
+    if (count === 0) continue;
+    const samples = database.prepare(`SELECT row_key FROM (${check.sql}) LIMIT ?`)
+      .all(sampleLimit)
+      .map((row) => String(row.row_key));
+    violations.push({ code: check.code, count, samples });
+  }
+  return violations;
+}
+
+function domainIntegrityError(violations) {
+  const details = violations
+    .map((item) => `${item.code}=${item.count} [${item.samples.join(', ')}]`)
+    .join('; ');
+  const error = new Error(
+    `Novel2Anime domain integrity audit failed; existing violations were not deleted or auto-repaired. ` +
+    `Repair the reported legacy data before restart: ${details}`
+  );
+  error.code = DOMAIN_INTEGRITY_ERROR_CODE;
+  error.violations = violations;
+  return error;
+}
+
+function applyDomainIntegrityMigration(database, sql, file) {
+  const apply = database.transaction(() => {
+    const violations = auditNovel2AnimeDomainIntegrity(database);
+    if (violations.length > 0) throw domainIntegrityError(violations);
+    database.exec(sql);
+  });
+  apply.immediate();
+  console.log('Ran migration:', file);
+}
 
 function stripLeadingComments(sql) {
   return sql
@@ -36,13 +353,19 @@ function runOne(database, sql, file, index) {
 function runMigrations(database) {
   const migrationsDir = path.join(__dirname, '..', '..', 'migrations');
   if (!fs.existsSync(migrationsDir)) {
-    console.log('Migrations dir missing, skipping:', migrationsDir);
-    return;
+    throw new Error(`Migrations dir missing: ${migrationsDir}`);
   }
   const files = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
+  let domainIntegrityMigrationFound = false;
   for (const file of files) {
     const fullPath = path.join(migrationsDir, file);
     const sql = fs.readFileSync(fullPath, 'utf8');
+    if (file === DOMAIN_INTEGRITY_MIGRATION) {
+      ensureAllColumns(database);
+      applyDomainIntegrityMigration(database, sql, file);
+      domainIntegrityMigrationFound = true;
+      continue;
+    }
     const statements = sql
       .split(';')
       .map((s) => s.trim())
@@ -52,6 +375,9 @@ function runMigrations(database) {
     } else {
       statements.forEach((stmt, i) => runOne(database, stmt + ';', file, i));
     }
+  }
+  if (!domainIntegrityMigrationFound) {
+    throw new Error(`Required migration is missing: ${DOMAIN_INTEGRITY_MIGRATION}`);
   }
 }
 
@@ -155,6 +481,9 @@ function ensureAllColumns(database) {
     { name: 'local_path',        type: 'TEXT' },
     { name: 'main_panel_idx',    type: 'INTEGER' },
     { name: 'video_url',         type: 'TEXT' },
+    { name: 'video_local_path',  type: 'TEXT' },
+    { name: 'reference_images',  type: 'TEXT' },
+    { name: 'video_reference_image_id', type: 'INTEGER' },
     { name: 'composed_image',    type: 'TEXT' },
     { name: 'result',            type: 'TEXT' },
     { name: 'emotion',           type: 'TEXT' },               // 当前情绪（兴奋/悲伤/紧张等）
@@ -222,6 +551,9 @@ function ensureAllColumns(database) {
     { name: 'polished_prompt',  type: 'TEXT' },  // 文字AI润色后的完整四视图图片提示词，生图时直接使用
     { name: 'image_url',        type: 'TEXT' },
     { name: 'local_path',       type: 'TEXT' },
+    { name: 'panorama_image_url', type: 'TEXT' },
+    { name: 'panorama_local_path', type: 'TEXT' },
+    { name: 'panorama_image_id', type: 'INTEGER' },
     { name: 'extra_images',     type: 'TEXT' },
     { name: 'ref_image',        type: 'TEXT' },  // 用户上传的参考图（本地相对路径或 URL）
     { name: 'negative_prompt',  type: 'TEXT' },
@@ -330,6 +662,7 @@ function ensureAllColumns(database) {
     { name: 'height',           type: 'INTEGER' },
     { name: 'status',           type: 'TEXT' },
     { name: 'task_id',          type: 'TEXT' },
+    { name: 'idempotency_key',  type: 'TEXT' },
     { name: 'completed_at',     type: 'TEXT' },
     { name: 'error_msg',        type: 'TEXT' },
     { name: 'created_at',       type: 'TEXT' },
@@ -358,6 +691,7 @@ function ensureAllColumns(database) {
     { name: 'local_path',           type: 'TEXT' },
     { name: 'status',               type: 'TEXT' },
     { name: 'task_id',              type: 'TEXT' },
+    { name: 'idempotency_key',      type: 'TEXT' },
     { name: 'provider_task_id',     type: 'TEXT' },
     { name: 'scene_id',             type: 'INTEGER' },
     { name: 'completed_at',         type: 'TEXT' },
@@ -682,6 +1016,28 @@ function ensureAllColumns(database) {
   ]);
 
   try {
+    database.exec(`CREATE TABLE IF NOT EXISTS workflow_step_effects (
+      call_key TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL DEFAULT '',
+      workflow_step_id TEXT NOT NULL DEFAULT '',
+      step_key TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'succeeded',
+      output_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT ''
+    )`);
+  } catch (_) {}
+  ensureColumns(database, 'workflow_step_effects', [
+    { name: 'run_id', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'workflow_step_id', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'step_key', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'status', type: 'TEXT NOT NULL DEFAULT \'succeeded\'' },
+    { name: 'output_json', type: 'TEXT NOT NULL DEFAULT \'{}\'' },
+    { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'updated_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
+  ]);
+
+  try {
     database.exec(`CREATE TABLE IF NOT EXISTS qa_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       drama_id INTEGER NOT NULL DEFAULT 0,
@@ -747,6 +1103,8 @@ function ensureAllColumns(database) {
     { name: 'type', type: 'TEXT NOT NULL DEFAULT \'\'' },
     { name: 'name', type: 'TEXT' },
     { name: 'sort_order', type: 'INTEGER DEFAULT 0' },
+    { name: 'status', type: 'TEXT DEFAULT \'pending\'' },
+    { name: 'metadata', type: 'TEXT' },
     { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
     { name: 'updated_at', type: 'TEXT' },
   ]);
@@ -788,6 +1146,7 @@ function ensureAllColumns(database) {
       output_json TEXT,
       status TEXT NOT NULL DEFAULT 'success',
       cost_estimate REAL DEFAULT 0,
+      cost_kind TEXT,
       error_message TEXT,
       created_at TEXT NOT NULL DEFAULT ''
     )`);
@@ -803,6 +1162,7 @@ function ensureAllColumns(database) {
     { name: 'output_json', type: 'TEXT' },
     { name: 'status', type: 'TEXT NOT NULL DEFAULT \'success\'' },
     { name: 'cost_estimate', type: 'REAL DEFAULT 0' },
+    { name: 'cost_kind', type: 'TEXT' },
     { name: 'error_message', type: 'TEXT' },
     { name: 'created_at', type: 'TEXT NOT NULL DEFAULT \'\'' },
   ]);
@@ -853,6 +1213,8 @@ function ensureAllColumns(database) {
     { name: 'workflow_step_id', type: 'TEXT' },
     { name: 'run_id', type: 'TEXT' },
     { name: 'skill_name', type: 'TEXT NOT NULL DEFAULT \'\'' },
+    { name: 'skill_version', type: 'TEXT' },
+    { name: 'template_sha256', type: 'TEXT' },
     { name: 'input_hash', type: 'TEXT' },
     { name: 'output_hash', type: 'TEXT' },
     { name: 'status', type: 'TEXT NOT NULL DEFAULT \'success\'' },
@@ -895,6 +1257,7 @@ function ensureAllColumns(database) {
 
 /** 对已打开的 database 执行迁移与兜底补列（供 app 启动时调用） */
 function runMigrationsAndEnsure(database) {
+  enableForeignKeys(database);
   runMigrations(database);
   ensureAllColumns(database);
 }
@@ -910,4 +1273,9 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { runMigrationsAndEnsure, ensureColumns };
+module.exports = {
+  DOMAIN_INTEGRITY_ERROR_CODE,
+  auditNovel2AnimeDomainIntegrity,
+  ensureColumns,
+  runMigrationsAndEnsure,
+};

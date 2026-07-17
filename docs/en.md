@@ -4,11 +4,11 @@
 
 **A local-first AI short drama & comic generator — bring your own local or hosted providers, fully open source**
 
-[![version](https://img.shields.io/badge/version-1.2.8-blue?style=flat-square)](https://github.com/xuanyustudio/LocalMiniDrama/releases)
+[![version](https://img.shields.io/badge/version-1.3.0-blue?style=flat-square)](https://github.com/Shunlly/LocalMiniDrama/releases)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](../LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](#)
 [![stack](https://img.shields.io/badge/Vue3%20%2B%20Node.js%20%2B%20Electron-informational?style=flat-square)](#)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/xuanyustudio/LocalMiniDrama/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/Shunlly/LocalMiniDrama/pulls)
 
 **[中文](../README.md) | English | [Author's Story](story.md)**
 
@@ -93,9 +93,9 @@ This project is built entirely in JavaScript from scratch. Review each provider'
 
 ### Option A — Download exe (recommended)
 
-Go to **[Releases](https://github.com/xuanyustudio/LocalMiniDrama/releases)** and download the latest:
-- `LocalMiniDrama Setup x.x.x.exe` — NSIS installer
-- `LocalMiniDrama x.x.x.exe` — portable, no install needed
+Go to **[Releases](https://github.com/Shunlly/LocalMiniDrama/releases)** and download the latest:
+- `LocalMiniDrama-Setup-x.x.x-x64.exe` — Windows x64 NSIS installer
+- `LocalMiniDrama-Portable-x.x.x-x64.exe` — Windows x64 portable build
 
 Double-click → open **AI Config** → enter your API key → start creating.
 
@@ -104,11 +104,11 @@ Double-click → open **AI Config** → enter your API key → start creating.
 
 ### Option B — Development Mode
 
-> Requires Node.js >= 18
+> Requires Node.js >= 20. Release and Docker verification use Node.js 20.
 
 ```bash
 # 1. Clone
-git clone https://github.com/xuanyustudio/LocalMiniDrama.git
+git clone https://github.com/Shunlly/LocalMiniDrama.git
 cd LocalMiniDrama
 
 # 2. Backend (port 5679)
@@ -176,7 +176,7 @@ LocalMiniDrama/
 |-------|-----------|
 | Frontend | Vue 3 + Vite + Element Plus + Pinia + Axios |
 | Backend | Node.js + Express + SQLite (better-sqlite3) |
-| Desktop | Electron 28 + electron-builder |
+| Desktop | Electron 43.1.1 + electron-builder 26 |
 | Language | Plain JavaScript (no TypeScript) |
 
 ---
@@ -185,12 +185,12 @@ LocalMiniDrama/
 
 Full version history → **[CHANGELOG](changelog.md)**
 
-**Latest v1.2.8 highlights:**
-- 🆕 **Agnes AI** — one-click setup for text (`agnes-2.0-flash`), image (`agnes-image-2.1-flash`), and video (`agnes-video-v2.0`) with a single API key
-- 🆕 **Canvas mode enhancements** — script node on canvas, context menu, floating toolbar, in-canvas create/delete, batch episode generation
-- 🆕 **ModelArk private asset library** — configure BytePlus / Volcengine Ark asset groups for Seedance 2.0 character certification (AK/SK or Bearer auth)
-- 🔧 **Opt-in image proxy** — set `upload_url` explicitly in `config.yaml`; without it, LocalMiniDrama does not upload local images to a public proxy
-- 🔧 **Prompt improvements** · **Storyboard image count limit fix**
+**Latest v1.3.0 highlights:**
+- 🆕 **Closed-loop desktop workflow** — project readiness exposes one next action, while source intake, processing, QA, repair, episodes, and timeline remain recoverable
+- 🆕 **Multi-provider AI configuration** — configure and test text, source-image, storyboard-image, video, and TTS models across local and hosted providers
+- 🆕 **Novel2Anime production path** — PDF/image OCR, audio/video transcription, image/video/TTS generation, and FFmpeg composition in one auditable workflow
+- 🔧 **Film and canvas ergonomics** — consistent action gates, failure feedback, draft protection, panorama/reference media, timeline composition, and batch workflows
+- 🔒 **Release and operations hardening** — localhost-only defaults, SSRF/import/export boundaries, secret-safe exports and backups, trusted media tools, production Docker, and restore drills
 
 **v1.2.7 highlights:**
 - 🆕 **Tail-frame link** — one-click extract the last frame of the current shot’s video (server-side ffmpeg) and set it as the **next shot’s first frame**
@@ -233,7 +233,7 @@ Full version history → **[CHANGELOG](changelog.md)**
 | **oiioii** | Open source, lightweight AI visual creation, flexible deployment |
 | **ChatFire** | AI dialogue-based short drama; inspired this project's backend design |
 
-This project focuses on **local-first project storage, a friendly UI, and easy customisation**. Feel free to open an [Issue](https://github.com/xuanyustudio/LocalMiniDrama/issues) to recommend other tools.
+This project focuses on **local-first project storage, a friendly UI, and easy customisation**. Feel free to open an [Issue](https://github.com/Shunlly/LocalMiniDrama/issues) to recommend other tools.
 
 ---
 
@@ -241,8 +241,8 @@ This project focuses on **local-first project storage, a friendly UI, and easy c
 
 All contributions are welcome!
 
-- 🐛 **Report a bug** → [New Issue](https://github.com/xuanyustudio/LocalMiniDrama/issues/new)
-- 💡 **Suggest a feature** → [New Issue](https://github.com/xuanyustudio/LocalMiniDrama/issues/new)
+- 🐛 **Report a bug** → [New Issue](https://github.com/Shunlly/LocalMiniDrama/issues/new)
+- 💡 **Suggest a feature** → [New Issue](https://github.com/Shunlly/LocalMiniDrama/issues/new)
 - 🔧 **Submit code** → Fork → Edit → Pull Request
 - ⭐ **Star the project** → Help others discover it
 

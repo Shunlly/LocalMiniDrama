@@ -1,7 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { buildSourceWorkflowState, getSourceWorkflowActionReasons } from '../src/utils/sourceWorkflowState.js'
+import {
+  buildSourceWorkflowState,
+  getNewWorkflowRunReason,
+  getSourceWorkflowActionReasons,
+} from '../src/utils/sourceWorkflowState.js'
 
 test('workflow state marks intake as active draft and exposes source empty-state CTAs', () => {
   const actionReasons = getSourceWorkflowActionReasons({
@@ -57,14 +61,15 @@ test('workflow state promotes process, qa, remediation and delivery in sequence'
   const delivered = buildSourceWorkflowState({
     sourceCount: 1,
     hasSourceInput: false,
-    run: { id: 'run-3', status: 'completed' },
-    qa: { id: 4, passed: true, score: 92, remediationActions: [] },
+    run: { id: 'run-3', status: 'completed', mode: 'draft' },
+    qa: { id: 4, passed: true, score: 92, mode: 'draft', remediationActions: [] },
     timeline: { episodeCount: 2, trackCount: 8 },
     episodeCount: 2,
     actionReasons: {},
   })
   assert.equal(delivered.activeStepId, 'delivery')
   assert.equal(delivered.complete, true)
+  assert.equal(delivered.steps.find((step) => step.id === 'qa').summary, '草稿结构检查 通过，评分 92')
 })
 
 test('workflow action reasons explain disabled controls', () => {
@@ -88,4 +93,12 @@ test('workflow action reasons explain disabled controls', () => {
     qa: { id: 9, passed: true, canRemediate: false },
   })
   assert.match(qaPassed.remediate, /无需自动修复/)
+
+  const activeRun = getSourceWorkflowActionReasons({
+    hasSourceInput: true,
+    runState: { id: 'run-6', status: 'processing', active: true },
+    qa: {},
+  })
+  assert.match(activeRun.start, /已有处理流程运行中/)
+  assert.match(getNewWorkflowRunReason({ status: 'paused' }), /恢复或取消/)
 })

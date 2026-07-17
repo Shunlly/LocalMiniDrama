@@ -1,8 +1,12 @@
 const response = require('../response');
 const workflowService = require('../services/workflowService');
+const readinessService = require('../services/readinessService');
 
 function badRequestOrInternal(res, err) {
   if (err && err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
+  if (err && err.code === 'WORKFLOW_NOT_READY') {
+    return response.error(res, 409, err.code, err.message, err.details);
+  }
   return response.internalError(res, err.message || 'Workflow operation failed');
 }
 
@@ -29,9 +33,23 @@ module.exports = function workflowRoutes(db, log) {
       }
     },
 
+    novel2AnimeReadiness(req, res) {
+      try {
+        const readiness = readinessService.checkNovel2AnimeReadiness(db, req.body || {});
+        response.success(res, readiness);
+      } catch (err) {
+        log.error('workflows novel2anime readiness', { error: err.message });
+        badRequestOrInternal(res, err);
+      }
+    },
+
     startNovel2Anime(req, res) {
       try {
-        const run = workflowService.startNovel2AnimeWorkflow(db, log, req.body || {});
+        const params = req.body || {};
+        if (params.qa_mode === 'production' || params.mode === 'production') {
+          readinessService.assertNovel2AnimeReadiness(db, params);
+        }
+        const run = workflowService.startNovel2AnimeWorkflow(db, log, params);
         response.created(res, run);
       } catch (err) {
         log.error('workflows novel2anime start', { error: err.message });

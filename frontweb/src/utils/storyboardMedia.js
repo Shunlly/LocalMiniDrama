@@ -12,7 +12,7 @@ function isHttpVideoUrl(url) {
   return t.startsWith('http://') || t.startsWith('https://')
 }
 
-function hasRealMediaValue(value) {
+export function hasRealMediaValue(value) {
   return !!String(value || '').trim() && !isPlaceholderMediaUrl(value)
 }
 
@@ -80,6 +80,10 @@ export function resolveSbLastImageRecord(sb, imagesBySbId) {
 export function resolveSbMainImageRecord(sb, imagesBySbId) {
   if (!sb) return null
   const images = getSbImagesList(imagesBySbId, sb.id)
+  if (sb.first_frame_image_id != null) {
+    const bound = images.find((image) => Number(image.id) === Number(sb.first_frame_image_id))
+    if (bound) return bound
+  }
   if (images.length) return images[0]
   if (hasRealMediaValue(sb.local_path) || hasRealMediaValue(sb.image_url)) {
     return { image_url: sb.image_url, local_path: sb.local_path }
@@ -105,8 +109,8 @@ export function resolveSbVideoRecord(sb, videosBySbId) {
     }
     return list[0]
   }
-  if (hasRealMediaValue(sb.video_url) || hasRealMediaValue(sb.local_path)) {
-    return { video_url: sb.video_url, local_path: sb.local_path }
+  if (hasRealMediaValue(sb.video_url) || hasRealMediaValue(sb.video_local_path)) {
+    return { video_url: sb.video_url, local_path: sb.video_local_path }
   }
   return null
 }
@@ -157,4 +161,14 @@ export function hasStoryboardVideo(sb, videosBySbId) {
   if (!sb) return false
   const rec = resolveSbVideoRecord(sb, videosBySbId)
   return !!(hasRealMediaValue(rec?.video_url) || hasRealMediaValue(rec?.local_path) || hasRealMediaValue(sb.video_url))
+}
+
+export function getStoryboardMediaAvailability(sb, imagesBySbId, videosBySbId, drama) {
+  const imageReady = hasStoryboardImage(sb, imagesBySbId, drama)
+  const videoReady = hasStoryboardVideo(sb, videosBySbId)
+  return {
+    imageReady,
+    videoReady,
+    ready: imageReady && videoReady,
+  }
 }

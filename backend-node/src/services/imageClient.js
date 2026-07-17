@@ -2,17 +2,63 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { AsyncLocalStorage } = require('async_hooks');
 const aiConfigService = require('./aiConfigService');
 const uploadService = require('./uploadService');
 const storageLayout = require('./storageLayout');
 const taskService = require('./taskService');
 const { loadConfig } = require('../config');
-const { postJSONWithTimeout } = require('./aiClient');
+const { postJSONWithTimeout: postJSONWithTimeoutBase } = require('./aiClient');
+const { generateComfyUiImage } = require('./comfyUiClient');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
+const {
+  createSafeProviderLogger,
+  providerFailure,
+  sanitizeProviderException,
+  sanitizeProviderResult,
+  summarizeProviderResponse,
+  toSafeProviderErrorMessage,
+} = require('./providerErrorSanitizer');
 
 /** 图生 POST 使用 Node http(s)，默认 10 分钟，避免 undici fetch 大包体/慢链路下模糊失败 */
 const IMAGE_HTTP_TIMEOUT_MS = 600000;
+const IMAGE_REFERENCE_TIMEOUT_MS = 30000;
+const IMAGE_REFERENCE_MAX_BYTES = 10 * 1024 * 1024;
+const IMAGE_REFERENCE_TOTAL_MAX_BYTES = 40 * 1024 * 1024;
+const IMAGE_REFERENCE_MAX_REDIRECTS = 3;
+const IMAGE_POLL_RESPONSE_MAX_BYTES = 2 * 1024 * 1024;
+const imageRequestContext = new AsyncLocalStorage();
+
+function normalizeIdempotencyKey(value) {
+  return String(value || '').trim().slice(0, 200);
+}
+
+function postJSONWithTimeout(url, headers, body, timeoutMs, networkOptions = {}) {
+  const context = imageRequestContext.getStore() || {};
+  const idempotencyKey = normalizeIdempotencyKey(context.idempotencyKey);
+  return postJSONWithTimeoutBase(
+    url,
+    idempotencyKey ? { ...(headers || {}), 'Idempotency-Key': idempotencyKey } : headers,
+    body,
+    timeoutMs,
+    { ...(context.networkOptions || {}), ...networkOptions }
+  );
+}
+
+function trustedProviderOrigins(config) {
+  const baseUrl = String(config?.base_url || '').trim();
+  const enabled = config?.is_active === true || config?.is_active === 1 || config?.is_active === '1';
+  return baseUrl && enabled ? [baseUrl] : [];
+}
+
+function imageProviderFailure(provider, operation, status, responseBody, code) {
+  return providerFailure({ provider, operation, status, responseBody, code });
+}
+
+function imageProviderException(error, provider, operation) {
+  return sanitizeProviderException(error, { provider, operation });
+}
 
 // 多参考图时注入到所有支持 negative_prompt 的模型，防止生成分割/拼贴布局；同时加入安全词以减少敏感拦截
 const ANTI_SPLIT_NEGATIVE_PROMPT = 'nsfw, nudity, naked, violence, blood, gore, sensitive content, split panels, side-by-side layout, collage, diptych, triptych, grid layout, multiple panels, comparison view, composite image, two images in one frame';
@@ -91,6 +137,7 @@ function getProxyExpireHours() {
  */
 function inferProtocol(provider, model) {
   const p = String(provider || '').toLowerCase();
+  if (p === 'comfyui' || p === 'comfy_ui') return 'comfyui';
   if (p === 'dashscope' || p === 'qwen_image') return 'dashscope';
   if (p === 'nano_banana') return 'nano_banana';
   if (p === 'gemini' || p === 'google') return 'gemini';
@@ -121,12 +168,21 @@ function getDefaultImageConfig(db, preferredModel, preferredProvider, imageServi
   if (preferredProvider && String(preferredProvider).trim()) {
     const want = String(preferredProvider).trim().toLowerCase();
     const byProvider = active.filter((c) => (c.provider || '').toLowerCase() === want);
-    if (byProvider.length > 0) active = byProvider;
+    if (byProvider.length === 0) return null;
+    active = byProvider;
   }
   if (preferredModel) {
-    for (const c of active) {
+    const matches = active.filter((c) => {
       const models = Array.isArray(c.model) ? c.model : (c.model != null ? [c.model] : []);
-      if (models.includes(preferredModel)) return c;
+      return models.includes(preferredModel);
+    });
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) {
+      const defaultMatch = matches.find((c) => c.is_default);
+      if (defaultMatch) return defaultMatch;
+      const providers = new Set(matches.map((c) => String(c.provider || '').toLowerCase()));
+      if (providers.size === 1) return matches[0];
+      return null;
     }
   }
   // 显式使用前端设置的「默认」：优先 is_default，再按 priority 降序（listConfigs 已按 is_default DESC, priority DESC 排序，取第一个即可）
@@ -417,17 +473,12 @@ async function callKlingImageApi(config, log, opts) {
     body.image_fidelity = 0.5;
   }
 
-  const bodyForLog = { ...body };
-  if (Array.isArray(bodyForLog.image_reference)) {
-    bodyForLog.image_reference = bodyForLog.image_reference.map((r) =>
-      r.url && r.url.startsWith('data:') ? { ...r, url: '(base64)' } : r
-    );
-  }
   log.info('[Kling图生] 发送请求', {
     url: submitUrl, model: m, image_gen_id,
     has_ref: resolvedRefs.length > 0,
     aspect_ratio: aspectRatio,
-    body_preview: JSON.stringify(bodyForLog).slice(0, 300),
+    prompt_length: String(prompt || '').length,
+    body_keys: Object.keys(body),
   });
 
   let submitRaw;
@@ -437,32 +488,30 @@ async function callKlingImageApi(config, log, opts) {
     submitStatus = out.statusCode;
     submitRaw = out.raw;
   } catch (e) {
-    log.error('[Kling图生] 网络错误', { image_gen_id, error: e.message });
-    return { error: 'Kling 图片生成网络请求失败: ' + e.message };
+    const safeError = imageProviderException(e, 'Kling', 'image request');
+    log.error('[Kling图生] 网络错误', { image_gen_id, error: safeError });
+    return { error: safeError.message };
   }
 
   if (submitStatus < 200 || submitStatus >= 300) {
-    let errMsg = 'Kling 图片生成请求失败: ' + submitStatus;
-    try {
-      const errJson = JSON.parse(submitRaw);
-      const msg = errJson.message || errJson.msg || (errJson.error && (errJson.error.message || errJson.error));
-      if (msg) errMsg += ' - ' + String(msg).slice(0, 200);
-    } catch (_) {
-      if (submitRaw) errMsg += ' - ' + submitRaw.slice(0, 200);
-    }
-    log.error('[Kling图生] 请求失败', { status: submitStatus, body: submitRaw.slice(0, 500), image_gen_id });
-    return { error: errMsg };
+    log.error('[Kling图生] 请求失败', {
+      status: submitStatus,
+      image_gen_id,
+      ...summarizeProviderResponse(submitRaw),
+    });
+    return imageProviderFailure('Kling', 'image request', submitStatus, submitRaw);
   }
 
   let submitData;
   try {
     submitData = JSON.parse(submitRaw);
   } catch (e) {
-    return { error: 'Kling 返回格式异常: ' + submitRaw.slice(0, 200) };
+    log.warn('[Kling图生] 返回格式异常', { image_gen_id, ...summarizeProviderResponse(submitRaw) });
+    return imageProviderFailure('Kling', 'image response', submitStatus, submitRaw);
   }
 
   if (submitData.code !== undefined && submitData.code !== 0) {
-    return { error: `Kling 错误(${submitData.code}): ${submitData.message || '未知错误'}` };
+    return imageProviderFailure('Kling', 'image request', submitStatus, submitData, submitData.code);
   }
 
   // 部分场景可能同步返回图片（兜底）
@@ -474,8 +523,8 @@ async function callKlingImageApi(config, log, opts) {
 
   const taskId = submitData?.data?.task_id;
   if (!taskId) {
-    log.warn('[Kling图生] 未返回 task_id', { image_gen_id, raw_preview: submitRaw.slice(0, 300) });
-    return { error: 'Kling 未返回 task_id: ' + submitRaw.slice(0, 200) };
+    log.warn('[Kling图生] 未返回 task_id', { image_gen_id, ...summarizeProviderResponse(submitData) });
+    return imageProviderFailure('Kling', 'image response', submitStatus, submitData);
   }
 
   // 构建轮询 URL
@@ -493,9 +542,19 @@ async function callKlingImageApi(config, log, opts) {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await new Promise((r) => setTimeout(r, intervalMs));
     try {
-      const queryRes = await fetch(buildKlingQueryUrl(taskId), { method: 'GET', headers });
-      if (!queryRes.ok) continue;
-      const queryData = JSON.parse(await queryRes.text());
+      const queryRes = await uploadService.downloadBufferViaNodeHttp(
+        buildKlingQueryUrl(taskId),
+        30000,
+        0,
+        {
+          headers,
+          accept: 'application/json',
+          maxBytes: IMAGE_POLL_RESPONSE_MAX_BYTES,
+          maxRedirects: 2,
+          trustedOrigins: trustedProviderOrigins(config),
+        }
+      );
+      const queryData = JSON.parse(queryRes.buffer.toString('utf8'));
       const status = queryData?.data?.task_status;
       log.info('[Kling图生] 轮询状态', { image_gen_id, task_id: taskId, attempt, status });
       if (status === 'succeed') {
@@ -507,9 +566,12 @@ async function callKlingImageApi(config, log, opts) {
         return { error: '可灵未返回图片地址' };
       }
       if (status === 'failed') {
-        const errMsg = queryData?.data?.task_status_msg || '任务失败';
-        log.warn('[Kling图生] 任务失败', { image_gen_id, task_id: taskId, error: errMsg });
-        return { error: '可灵生成失败: ' + errMsg };
+        log.warn('[Kling图生] 任务失败', {
+          image_gen_id,
+          task_id: taskId,
+          ...summarizeProviderResponse(queryData),
+        });
+        return imageProviderFailure('Kling', 'image task', null, queryData, queryData?.code);
       }
     } catch (e) {
       log.warn('[Kling图生] 轮询请求失败', { attempt, error: e.message, image_gen_id });
@@ -602,18 +664,14 @@ async function callNanoBananaImageApi(config, log, opts) {
     };
   }
 
-  const bodyForLog = { ...body };
-  if (Array.isArray(bodyForLog.imageUrls)) {
-    bodyForLog.imageUrls = bodyForLog.imageUrls.map((u) => (u && u.startsWith('data:') ? '(base64)' : u));
-  }
   log.info('NanoBanana Image API request', {
     url: submitUrl,
     model: m,
     image_gen_id,
     proxy_mode: isProxyMode,
-    auth_header_prefix: (headers.Authorization || '').slice(0, 20) + '…',
     body_keys: Object.keys(body),
-    body_preview: JSON.stringify(bodyForLog).slice(0, 300),
+    prompt_length: String(prompt || '').length,
+    reference_count: refs.length,
   });
   let submitRaw;
   let submitStatus;
@@ -622,26 +680,18 @@ async function callNanoBananaImageApi(config, log, opts) {
     submitStatus = out.statusCode;
     submitRaw = out.raw;
   } catch (e) {
-    log.error('NanoBanana submit network error', { image_gen_id, error: e.message });
-    return { error: 'NanoBanana 图片生成网络请求失败: ' + e.message };
+    const safeError = imageProviderException(e, 'NanoBanana', 'image request');
+    log.error('NanoBanana submit network error', { image_gen_id, error: safeError });
+    return { error: safeError.message };
   }
   if (submitStatus < 200 || submitStatus >= 300) {
-    let errMsg = 'NanoBanana 图片生成请求失败: ' + submitStatus;
-    try {
-      const errJson = JSON.parse(submitRaw);
-      const msg = errJson.msg || errJson.message || (errJson.error && (errJson.error.message || errJson.error));
-      if (msg) errMsg += ' - ' + String(msg).slice(0, 200);
-    } catch (_) {
-      if (submitRaw) errMsg += ' - ' + submitRaw.slice(0, 200);
-    }
     log.error('NanoBanana submit failed', {
       status: submitStatus,
-      body: submitRaw.slice(0, 500),
       image_gen_id,
       submit_url: submitUrl,
-      auth_header_prefix: (headers.Authorization || '').slice(0, 20) + '…',
+      ...summarizeProviderResponse(submitRaw),
     });
-    return { error: errMsg };
+    return imageProviderFailure('NanoBanana', 'image request', submitStatus, submitRaw);
   }
   let submitData;
   try {
@@ -672,9 +722,8 @@ async function callNanoBananaImageApi(config, log, opts) {
   // task_id 兼容驼峰（taskId）和下划线（task_id）两种格式
   const taskId = submitData?.data?.taskId || submitData?.data?.task_id || submitData?.request_id || submitData?.taskId;
   if (!taskId) {
-    const msg = submitData?.msg || submitData?.message || '未返回任务ID';
-    log.warn('NanoBanana no taskId in response', { image_gen_id, raw_preview: submitRaw.slice(0, 300) });
-    return { error: 'NanoBanana 提交失败: ' + String(msg).slice(0, 200) };
+    log.warn('NanoBanana no taskId in response', { image_gen_id, ...summarizeProviderResponse(submitData) });
+    return imageProviderFailure('NanoBanana', 'image response', submitStatus, submitData);
   }
 
   // 构建轮询 URL：优先用配置的 query_endpoint，否则用默认
@@ -708,20 +757,14 @@ async function callNanoBananaImageApi(config, log, opts) {
     await new Promise((r) => setTimeout(r, intervalMs));
     const pollUrl = buildQueryUrl(taskId);
     try {
-      const queryRes = await fetch(pollUrl, {
-        method: 'GET',
+      const queryRes = await uploadService.downloadBufferViaNodeHttp(pollUrl, 30000, 0, {
         headers,
+        accept: 'application/json',
+        maxBytes: IMAGE_POLL_RESPONSE_MAX_BYTES,
+        maxRedirects: 2,
+        trustedOrigins: trustedProviderOrigins(config),
       });
-      const queryRaw = await queryRes.text();
-      if (!queryRes.ok) {
-        log.warn('NanoBanana poll HTTP error', {
-          image_gen_id, task_id: taskId, attempt,
-          poll_url: pollUrl,
-          status: queryRes.status,
-          body_preview: queryRaw.slice(0, 300),
-        });
-        continue;
-      }
+      const queryRaw = queryRes.buffer.toString('utf8');
       let queryData;
       try {
         queryData = JSON.parse(queryRaw);
@@ -729,7 +772,7 @@ async function callNanoBananaImageApi(config, log, opts) {
         log.warn('NanoBanana poll JSON parse error', {
           image_gen_id, task_id: taskId, attempt,
           poll_url: pollUrl,
-          raw_preview: queryRaw.slice(0, 300),
+          ...summarizeProviderResponse(queryRaw),
         });
         continue;
       }
@@ -758,14 +801,19 @@ async function callNanoBananaImageApi(config, log, opts) {
           data_keys: queryData?.data ? Object.keys(queryData.data) : [],
           nested_data_keys: queryData?.data?.data ? Object.keys(queryData.data.data) : [],
           response_keys: queryData?.data?.response ? Object.keys(queryData.data.response) : [],
-          raw_preview: queryRaw.slice(0, 500),
+          ...summarizeProviderResponse(queryData),
         });
         return { error: '未返回图片地址' };
       }
       if (successFlag === 2 || successFlag === 3 || state === 'failed') {
-        const errMsg = queryData?.data?.errorMessage || queryData?.data?.msg || '任务失败';
-        log.warn('NanoBanana task failed', { image_gen_id, task_id: taskId, successFlag, state, error_message: errMsg });
-        return { error: 'NanoBanana 生成失败: ' + errMsg };
+        log.warn('NanoBanana task failed', {
+          image_gen_id,
+          task_id: taskId,
+          successFlag,
+          state,
+          ...summarizeProviderResponse(queryData),
+        });
+        return imageProviderFailure('NanoBanana', 'image task', null, queryData, queryData?.code);
       }
     } catch (e) {
       log.warn('NanoBanana poll request failed', { attempt, error: e.message, image_gen_id, poll_url: pollUrl });
@@ -799,55 +847,81 @@ function qwenImageSize(size) {
   return '928*1664';                      // 9:16
 }
 
-/**
- * 将参考图值解析为适合传给外部 API 的形式：
- * - 本地相对路径（如 "characters/ig_xxx.jpg"）→ 读文件转 base64 data URL
- * - localhost URL → 从 storageLocalPath 读文件转 base64 data URL
- * - 公网 URL（非 localhost）→ 直接原样返回
- *
- * 调用方应优先传 local_path 而非 image_url，
- * 以避免外部存储链接过期或第三方 API 无法访问的问题。
- */
-function resolveImageRef(value, filesBaseUrl, storageLocalPath) {
-  if (!value || !String(value).trim()) return null;
-  const s = String(value).trim();
-  const baseUrl = (filesBaseUrl || '').replace(/\/$/, '');
-  // isLocalhost: 只要 URL 本身或配置的 base_url 含 localhost/127，都视为本地
-  const isLocalhostUrl = /localhost|127\.0\.0\.1/i.test(s);
-  const isLocalhostBase = baseUrl && /localhost|127\.0\.0\.1/i.test(baseUrl);
-  const isLocalhost = isLocalhostUrl || isLocalhostBase;
+function resolveImageRef(value) {
+  const text = String(value || '').trim();
+  return /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i.test(text) ? text : null;
+}
 
-  function toPublicUrl(v) {
-    if (!v || !String(v).trim()) return null;
-    const sv = String(v).trim();
-    if (sv.startsWith('http://') || sv.startsWith('https://')) return sv;
-    if (baseUrl) return baseUrl + '/' + sv.replace(/^\//, '');
-    return sv;
+async function validateImageReferenceBuffer(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > IMAGE_REFERENCE_MAX_BYTES) {
+    throw new uploadService.UnsafeMediaReferenceError('Image reference exceeds the size limit.');
+  }
+  const detected = await uploadService.validateAllowedUpload(buffer, 'image');
+  return {
+    buffer,
+    mimeType: detected.mimeType || 'image/jpeg',
+  };
+}
+
+async function loadImageReference(value, opts, config) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+
+  if (text.startsWith('data:')) {
+    const match = text.match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i);
+    const encodedLimit = Math.ceil(IMAGE_REFERENCE_MAX_BYTES * 4 / 3) + 16;
+    if (!match || match[2].length > encodedLimit) {
+      throw new uploadService.UnsafeMediaReferenceError('Image reference data URL is invalid or too large.');
+    }
+    return validateImageReferenceBuffer(Buffer.from(match[2].replace(/\s/g, ''), 'base64'));
   }
 
-  let relPath = null;
-  if (s.startsWith('http://') || s.startsWith('https://')) {
-    if (!isLocalhost || !storageLocalPath) return s;
-    // 从 URL 中提取 /static/ 之后的相对路径；或去掉 baseUrl 前缀
-    const afterStatic = s.split('/static/')[1]
-      || (baseUrl ? s.replace(baseUrl + '/', '').replace(baseUrl, '') : null)
-      || s.replace(/^https?:\/\/[^/]+\//, '');
-    if (afterStatic) relPath = afterStatic.replace(/^\//, '');
-    else return s;
-  } else if (storageLocalPath) {
-    relPath = s.replace(/^\//, '');
+  if (opts.storage_local_path) {
+    let local = null;
+    try {
+      local = uploadService.resolveStorageReference(opts.storage_local_path, text);
+    } catch (error) {
+      if (!/^https?:\/\//i.test(text) || text.startsWith('/static/')) throw error;
+    }
+    if (local) {
+      const opened = uploadService.openStorageFile(opts.storage_local_path, local.relativePath);
+      try {
+        if (opened.stat.size > IMAGE_REFERENCE_MAX_BYTES) {
+          throw new uploadService.UnsafeMediaReferenceError('Image reference exceeds the size limit.');
+        }
+        return validateImageReferenceBuffer(fs.readFileSync(opened.fd));
+      } finally {
+        fs.closeSync(opened.fd);
+      }
+    }
   }
-  if (!relPath) return toPublicUrl(s);
-  const filePath = path.join(storageLocalPath, relPath);
-  try {
-    if (!fs.existsSync(filePath)) return toPublicUrl(s);
-    const buf = fs.readFileSync(filePath);
-    const ext = path.extname(filePath).toLowerCase();
-    const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.bmp': 'image/bmp' }[ext] || 'image/png';
-    return 'data:' + mime + ';base64,' + buf.toString('base64');
-  } catch (e) {
-    return toPublicUrl(s);
+
+  if (!/^https?:\/\//i.test(text)) {
+    throw new uploadService.UnsafeMediaReferenceError('Image reference must be inside storage or use HTTP(S).');
   }
+  const downloaded = await uploadService.downloadBufferViaNodeHttp(text, IMAGE_REFERENCE_TIMEOUT_MS, 0, {
+    maxBytes: IMAGE_REFERENCE_MAX_BYTES,
+    maxRedirects: IMAGE_REFERENCE_MAX_REDIRECTS,
+    accept: 'image/*',
+    trustedOrigins: trustedProviderOrigins(config),
+    lookup: opts.media_dns_lookup,
+  });
+  return validateImageReferenceBuffer(downloaded.buffer);
+}
+
+async function prepareImageReferences(values, opts, config) {
+  const prepared = [];
+  let totalBytes = 0;
+  for (const value of (Array.isArray(values) ? values : []).filter(Boolean).slice(0, 10)) {
+    const loaded = await loadImageReference(value, opts, config);
+    if (!loaded) continue;
+    totalBytes += loaded.buffer.length;
+    if (totalBytes > IMAGE_REFERENCE_TOTAL_MAX_BYTES) {
+      throw new uploadService.UnsafeMediaReferenceError('Combined image references exceed the size limit.');
+    }
+    prepared.push(`data:${loaded.mimeType};base64,${loaded.buffer.toString('base64')}`);
+  }
+  return prepared;
 }
 
 // 通义万象：支持参考图（角色/场景），content 为 [text, image, image, ...]；本地调试时参考图可转 base64
@@ -890,26 +964,23 @@ async function callDashScopeImageApi(config, log, opts) {
       httpStatus = out.statusCode;
       raw = out.raw;
     } catch (e) {
-      log.error('Qwen-Image network error', { image_gen_id, error: e.message });
-      return { error: '图片生成网络请求失败: ' + e.message };
+      const safeError = imageProviderException(e, 'Qwen-Image', 'image request');
+      log.error('Qwen-Image network error', { image_gen_id, error: safeError });
+      return { error: safeError.message };
     }
     if (httpStatus < 200 || httpStatus >= 300) {
-      let errMsg = '图片生成请求失败: ' + httpStatus;
-      try {
-        const errJson = JSON.parse(raw);
-        if (errJson.message) errMsg += ' - ' + errJson.message;
-        else if (errJson.code) errMsg += ' - ' + errJson.code;
-      } catch (_) {
-        if (raw && raw.length) errMsg += ' - ' + raw.slice(0, 200);
-      }
-      log.error('Qwen-Image create failed', { status: httpStatus, body: raw.slice(0, 300), image_gen_id });
-      return { error: errMsg };
+      log.error('Qwen-Image create failed', {
+        status: httpStatus,
+        image_gen_id,
+        ...summarizeProviderResponse(raw),
+      });
+      return imageProviderFailure('Qwen-Image', 'image request', httpStatus, raw);
     }
     try {
       const data = JSON.parse(raw);
       if (data.code) {
-        log.warn('Qwen-Image response error', { code: data.code, message: data.message, image_gen_id });
-        return { error: data.message || data.code || '通义千问接口错误' };
+        log.warn('Qwen-Image response error', { code: data.code, image_gen_id });
+        return imageProviderFailure('Qwen-Image', 'image request', httpStatus, data, data.code);
       }
       const imageUrl = parseDashScopeImageUrl(data);
       if (imageUrl) {
@@ -918,7 +989,7 @@ async function callDashScopeImageApi(config, log, opts) {
       }
       return { error: '未返回图片地址' };
     } catch (e) {
-      log.warn('Qwen-Image parse error', { image_gen_id, error: e.message, raw_preview: raw.slice(0, 300) });
+      log.warn('Qwen-Image parse error', { image_gen_id, ...summarizeProviderResponse(raw) });
       return { error: '通义千问返回格式异常' };
     }
   }
@@ -933,10 +1004,11 @@ async function callDashScopeImageApi(config, log, opts) {
       resolvedRefs.push(img.startsWith('data:') ? '(base64)' : img);
     }
   }
-  log.info('reference_image_urls 完整路径（imageClient 入参及解析后）', {
+  log.info('reference_image_urls 解析摘要', {
     image_gen_id,
-    raw_reference_image_urls: reference_image_urls || [],
-    resolved_for_api: resolvedRefs,
+    reference_count: refs.length,
+    resolved_count: resolvedRefs.length,
+    resolved_types: resolvedRefs.map((value) => value.startsWith('data:') ? 'data' : 'url'),
   });
 
   const hasRefs = content.length > 1;
@@ -979,20 +1051,17 @@ async function callDashScopeImageApi(config, log, opts) {
     httpStatus = out.statusCode;
     raw = out.raw;
   } catch (e) {
-    log.error('DashScope network error', { image_gen_id, error: e.message });
-    return { error: '图片生成网络请求失败: ' + e.message };
+    const safeError = imageProviderException(e, 'DashScope', 'image request');
+    log.error('DashScope network error', { image_gen_id, error: safeError });
+    return { error: safeError.message };
   }
   if (httpStatus < 200 || httpStatus >= 300) {
-    let errMsg = '图片生成请求失败: ' + httpStatus;
-    try {
-      const errJson = JSON.parse(raw);
-      if (errJson.message) errMsg += ' - ' + errJson.message;
-      else if (errJson.code) errMsg += ' - ' + errJson.code;
-    } catch (_) {
-      if (raw && raw.length) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    log.error('DashScope create failed', { status: httpStatus, body: raw.slice(0, 300), image_gen_id });
-    return { error: errMsg };
+    log.error('DashScope create failed', {
+      status: httpStatus,
+      image_gen_id,
+      ...summarizeProviderResponse(raw),
+    });
+    return imageProviderFailure('DashScope', 'image request', httpStatus, raw);
   }
 
   if (!stream) {
@@ -1000,8 +1069,8 @@ async function callDashScopeImageApi(config, log, opts) {
     try {
       const data = JSON.parse(raw);
       if (data.code) {
-        log.warn('DashScope response error', { code: data.code, message: data.message, image_gen_id });
-        return { error: data.message || data.code || '通义万象接口错误' };
+        log.warn('DashScope response error', { code: data.code, image_gen_id });
+        return imageProviderFailure('DashScope', 'image request', httpStatus, data, data.code);
       }
       const imageUrl = parseDashScopeImageUrl(data);
       if (imageUrl) {
@@ -1011,11 +1080,11 @@ async function callDashScopeImageApi(config, log, opts) {
       log.warn('DashScope sync no image in response', {
         image_gen_id,
         output_keys: data.output ? Object.keys(data.output) : [],
-        raw_preview: raw.slice(0, 500),
+        ...summarizeProviderResponse(data),
       });
       return { error: '未返回图片地址' };
     } catch (e) {
-      log.warn('DashScope sync parse error', { image_gen_id, error: e.message, raw_preview: raw.slice(0, 300) });
+      log.warn('DashScope sync parse error', { image_gen_id, ...summarizeProviderResponse(raw) });
       return { error: '通义万象返回格式异常' };
     }
   }
@@ -1033,8 +1102,8 @@ async function callDashScopeImageApi(config, log, opts) {
     try {
       const data = JSON.parse(jsonStr);
       if (data.code) {
-        log.warn('DashScope stream chunk error', { code: data.code, message: data.message, image_gen_id });
-        return { error: data.message || data.code || '通义万象接口错误' };
+        log.warn('DashScope stream chunk error', { code: data.code, image_gen_id });
+        return imageProviderFailure('DashScope', 'image stream', httpStatus, data, data.code);
       }
       if (firstChunkKeys == null && data.output) {
         const oc = data.output.choices?.[0];
@@ -1058,14 +1127,14 @@ async function callDashScopeImageApi(config, log, opts) {
     try {
       const firstLine = lines[0].startsWith('data:') ? lines[0].slice(5).trim() : lines[0];
       const first = JSON.parse(firstLine);
-      if (first.code) return { error: first.message || first.code || '通义万象接口错误' };
+      if (first.code) return imageProviderFailure('DashScope', 'image stream', httpStatus, first, first.code);
     } catch (_) {}
   }
   log.warn('DashScope stream no image in response', {
     image_gen_id,
     line_count: lines.length,
     first_chunk: firstChunkKeys,
-    raw_preview: raw.slice(0, 400),
+    ...summarizeProviderResponse(raw),
   });
   return { error: '未返回图片地址' };
 }
@@ -1102,19 +1171,14 @@ function deleteProxyCache(db, cacheKey) {
 /** 探测图床 URL 是否仍可访问（远端拉取失败时视为失效） */
 async function isProxyUrlAlive(url, timeoutMs = 8000) {
   if (!url || !/^https?:\/\//i.test(url)) return false;
-  const opts = { method: 'HEAD', signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' };
   try {
-    let res = await fetch(url, opts);
-    if (res.ok) return true;
-    if (res.status === 405 || res.status === 501) {
-      res = await fetch(url, {
-        method: 'GET',
-        headers: { Range: 'bytes=0-0' },
-        signal: AbortSignal.timeout(timeoutMs),
-        redirect: 'follow',
-      });
-    }
-    return res.ok || res.status === 206;
+    await uploadService.downloadBufferViaNodeHttp(url, timeoutMs, 0, {
+      headers: { Range: 'bytes=0-0' },
+      maxBytes: 1024 * 1024,
+      maxRedirects: 2,
+      accept: 'image/*',
+    });
+    return true;
   } catch (_) {
     return false;
   }
@@ -1216,18 +1280,7 @@ async function callGeminiImageApi(db, config, log, opts) {
       mimeType = m[1];
       imageBuffer = Buffer.from(m[2], 'base64');
     } else {
-      try {
-        const imgRes = await fetch(resolved, { method: 'GET' });
-        if (!imgRes.ok) {
-          log.warn('[Gemini图生] 参考图 HTTP 读取失败，跳过', { image_gen_id, ref_index: i, status: imgRes.status, url: resolved.slice(0, 80) });
-          continue;
-        }
-        imageBuffer = Buffer.from(await imgRes.arrayBuffer());
-        mimeType = (imgRes.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
-      } catch (fetchErr) {
-        log.warn('[Gemini图生] 参考图 读取异常，跳过', { image_gen_id, ref_index: i, err: fetchErr.message });
-        continue;
-      }
+      throw new uploadService.UnsafeMediaReferenceError('Gemini reference image was not prevalidated.');
     }
 
     log.info('[Gemini图生] 参考图 读取完成', {
@@ -1345,29 +1398,31 @@ async function callGeminiImageApi(db, config, log, opts) {
     geminiStatus = out.statusCode;
     raw = out.raw;
   } catch (e) {
-    log.error('[Gemini图生] ✗ 网络错误', { image_gen_id, error: e.message, total_elapsed: elapsed() });
-    return { error: 'Gemini 图片生成网络请求失败: ' + e.message };
+    const safeError = imageProviderException(e, 'Gemini', 'image request');
+    log.error('[Gemini图生] ✗ 网络错误', { image_gen_id, error: safeError, total_elapsed: elapsed() });
+    return { error: safeError.message };
   }
   log.info('[Gemini图生] ← 收到响应', { image_gen_id, status: geminiStatus, req_ms: Date.now() - tReq, elapsed: elapsed() });
 
   if (geminiStatus < 200 || geminiStatus >= 300) {
-    let errMsg = 'Gemini 图片生成请求失败: ' + geminiStatus;
-    try {
-      const errJson = JSON.parse(raw);
-      const msg = errJson.error?.message || errJson.message;
-      if (msg) errMsg += ' - ' + String(msg).slice(0, 200);
-    } catch (_) {
-      if (raw) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    log.error('[Gemini图生] ✗ API错误', { image_gen_id, status: geminiStatus, body: raw.slice(0, 400), total_elapsed: elapsed() });
-    return { error: errMsg };
+    log.error('[Gemini图生] ✗ API错误', {
+      image_gen_id,
+      status: geminiStatus,
+      total_elapsed: elapsed(),
+      ...summarizeProviderResponse(raw),
+    });
+    return imageProviderFailure('Gemini', 'image request', geminiStatus, raw);
   }
 
   let data;
   try {
     data = JSON.parse(raw);
   } catch (e) {
-    log.error('[Gemini图生] ✗ 响应 JSON 解析失败', { image_gen_id, raw_preview: raw.slice(0, 300), total_elapsed: elapsed() });
+    log.error('[Gemini图生] ✗ 响应 JSON 解析失败', {
+      image_gen_id,
+      total_elapsed: elapsed(),
+      ...summarizeProviderResponse(raw),
+    });
     return { error: 'Gemini 图片生成返回格式异常' };
   }
 
@@ -1384,7 +1439,12 @@ async function callGeminiImageApi(db, config, log, opts) {
     }
   }
 
-  log.warn('[Gemini图生] ✗ 响应中无图片内容', { image_gen_id, candidates_count: candidates.length, raw_preview: raw.slice(0, 500), total_elapsed: elapsed() });
+  log.warn('[Gemini图生] ✗ 响应中无图片内容', {
+    image_gen_id,
+    candidates_count: candidates.length,
+    total_elapsed: elapsed(),
+    ...summarizeProviderResponse(data),
+  });
   return { error: 'Gemini 未返回图片内容，请检查模型名称或 API Key 权限' };
 }
 
@@ -1395,7 +1455,8 @@ async function callGeminiImageApi(db, config, log, opts) {
  * @param {object} opts - { prompt, model?, size?, quality?, drama_id, preferred_provider?, character_id?, image_type?, image_gen_id, user_negative_prompt? }
  * @returns {Promise<{ image_url?: string, error?: string }>}
  */
-async function callImageApi(db, log, opts) {
+async function callImageApiInternal(db, log, opts) {
+  log = createSafeProviderLogger(log);
   const {
     prompt,
     model: preferredModel,
@@ -1422,6 +1483,14 @@ async function callImageApi(db, log, opts) {
   const provider = (config.provider || '').toLowerCase();
   // api_protocol 显式指定接口规范，优先级高于 provider 推断；未设置时按 provider 自动判断
   const protocol = (config.api_protocol || '').toLowerCase() || inferProtocol(provider, model);
+  const requestContext = imageRequestContext.getStore();
+  if (requestContext) {
+    requestContext.networkOptions = {
+      trustedOrigins: trustedProviderOrigins(config),
+      lookup: opts.provider_dns_lookup,
+    };
+  }
+  const safeReferenceImageUrls = await prepareImageReferences(reference_image_urls, opts, config);
 
   // ── 参考图标签注入：为所有非 Gemini 模型将标签注入 prompt 文本 ─────────────────────────────
   // Gemini 通过 parts 结构处理（interleaved text+image），不需要文字注入。
@@ -1430,7 +1499,7 @@ async function callImageApi(db, log, opts) {
   let effectivePrompt = prompt || '';
   if (
     protocol !== 'gemini' &&
-    Array.isArray(reference_image_urls) && reference_image_urls.length > 0 &&
+    safeReferenceImageUrls.length > 0 &&
     system_prompt
   ) {
     const refLines = String(system_prompt).split('\n').filter(l => /^Image\s+\d+:/i.test(l));
@@ -1450,13 +1519,13 @@ async function callImageApi(db, log, opts) {
     model,
     size,
     imageServiceType,
-    ref_count: Array.isArray(opts.reference_image_urls) ? opts.reference_image_urls.length : 0,
+    ref_count: safeReferenceImageUrls.length,
     ref_label_injected: effectivePrompt !== (prompt || ''),
-    effectivePrompt
+    prompt_length: String(effectivePrompt).length,
   });
 
   // 多参考图时统一生成 negative_prompt（供各子函数使用）
-  const refCountForNeg = Array.isArray(opts.reference_image_urls) ? opts.reference_image_urls.filter(Boolean).length : 0;
+  const refCountForNeg = safeReferenceImageUrls.length;
   // Seedream/Volcengine 模型强制启用安全词负面提示，其他模型仅在多参考图时启用
   const isVolcOrSeedream = (protocol === 'volcengine' || /seedream|doubao/i.test(model));
   const autoNegativePrompt = (refCountForNeg > 1 || isVolcOrSeedream) ? ANTI_SPLIT_NEGATIVE_PROMPT : '';
@@ -1466,7 +1535,7 @@ async function callImageApi(db, log, opts) {
   if (protocol === 'dashscope') {
     return callDashScopeImageApi(config, log, {
       prompt: effectivePrompt, model, size, image_gen_id,
-      reference_image_urls: opts.reference_image_urls,
+      reference_image_urls: safeReferenceImageUrls,
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
       negative_prompt: mergedNegativePrompt,
@@ -1476,7 +1545,7 @@ async function callImageApi(db, log, opts) {
   if (protocol === 'nano_banana') {
     return callNanoBananaImageApi(config, log, {
       prompt: effectivePrompt, model, size, image_gen_id,
-      reference_image_urls: opts.reference_image_urls,
+      reference_image_urls: safeReferenceImageUrls,
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
     });
@@ -1485,7 +1554,7 @@ async function callImageApi(db, log, opts) {
   if (protocol === 'kling') {
     return callKlingImageApi(config, log, {
       prompt: effectivePrompt, model, size, image_gen_id,
-      reference_image_urls: opts.reference_image_urls,
+      reference_image_urls: safeReferenceImageUrls,
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
     });
@@ -1494,11 +1563,34 @@ async function callImageApi(db, log, opts) {
   if (protocol === 'gemini') {
     return callGeminiImageApi(db, config, log, {
       prompt, model, size, image_gen_id,          // Gemini 用原始 prompt，不注入文字标签
-      reference_image_urls: opts.reference_image_urls,
+      reference_image_urls: safeReferenceImageUrls,
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
       system_prompt: opts.system_prompt,
     });
+  }
+
+  if (protocol === 'comfyui') {
+    try {
+      return await generateComfyUiImage(config, log, {
+        prompt: effectivePrompt,
+        negative_prompt: mergedNegativePrompt,
+        model,
+        size,
+        quality,
+        image_gen_id,
+        reference_image_urls: safeReferenceImageUrls,
+        storage_local_path,
+        signal: opts.signal,
+        timeout_ms: opts.timeout_ms,
+        poll_interval_ms: opts.poll_interval_ms,
+        workflow_variables: opts.workflow_variables,
+        idempotency_key: opts.idempotency_key,
+      });
+    } catch (error) {
+      const safeError = imageProviderException(error, 'ComfyUI', 'image request');
+      return { error: safeError.message };
+    }
   }
 
   const url = buildImageUrl(config);
@@ -1507,7 +1599,7 @@ async function callImageApi(db, log, opts) {
   // doubao-seedream 系列模型（含通过自定义代理使用的场景）：使用 volcengine 图片 API 规范
   const isSeedream = isVolc || /seedream|doubao/i.test(model);
   // 解析参考图：本地路径/localhost URL → base64，公网 URL → 直接传
-  const rawRefs = Array.isArray(reference_image_urls) ? reference_image_urls.filter(Boolean) : [];
+  const rawRefs = safeReferenceImageUrls;
   const resolvedRefs = rawRefs.map((r) => resolveImageRef(r, files_base_url, storage_local_path)).filter(Boolean);
   if (resolvedRefs.length > 0) {
     log.info('Image API request with reference images', {
@@ -1559,28 +1651,19 @@ async function callImageApi(db, log, opts) {
     httpStatus = out.statusCode;
     raw = out.raw;
   } catch (e) {
-    log.error('Image API network error', { image_gen_id, error: e.message, url: url.slice(0, 80) });
-    return { error: e.message && e.message.includes('timeout')
-      ? e.message
-      : ('图片生成网络请求失败: ' + e.message) };
+    const safeError = imageProviderException(e, 'Image provider', 'image request');
+    log.error('Image API network error', { image_gen_id, error: safeError, url });
+    return { error: safeError.message };
   }
   if (httpStatus < 200 || httpStatus >= 300) {
-    log.error('Image API failed', { status: httpStatus, body: raw.slice(0, 300) });
-    let errMsg = '图片生成请求失败: ' + httpStatus;
-    try {
-      const errJson = JSON.parse(raw);
-      const msg = errJson.error?.message || errJson.message || errJson.error;
-      if (msg) errMsg += ' - ' + (typeof msg === 'string' ? msg : JSON.stringify(msg).slice(0, 200));
-    } catch (_) {
-      if (raw && raw.length) errMsg += ' - ' + raw.slice(0, 200);
-    }
-    return { error: errMsg };
+    log.error('Image API failed', { status: httpStatus, ...summarizeProviderResponse(raw) });
+    return imageProviderFailure('Image provider', 'image request', httpStatus, raw);
   }
   let data;
   try {
     data = JSON.parse(raw);
   } catch (e) {
-    log.warn('Image API response parse error', { image_gen_id, raw_preview: raw.slice(0, 200) });
+    log.warn('Image API response parse error', { image_gen_id, ...summarizeProviderResponse(raw) });
     return { error: '图片生成返回格式异常' };
   }
   // 兼容多种返回格式：OpenAI 风格 data[].url / b64_json，部分厂商 data[].image_url 或 data.output 等
@@ -1601,13 +1684,26 @@ async function callImageApi(db, log, opts) {
       image_gen_id,
       model,
       response_keys: data ? Object.keys(data) : [],
-      data_preview: data ? JSON.stringify(data).slice(0, 500) : '',
       has_data_array: !!(data.data && Array.isArray(data.data)),
       first_item_keys: (data.data && data.data[0]) ? Object.keys(data.data[0]) : [],
+      ...summarizeProviderResponse(data),
     });
     return { error: '未返回图片地址' };
   }
   return { image_url: imageUrl };
+}
+
+async function callImageApi(db, log, opts = {}) {
+  const idempotencyKey = normalizeIdempotencyKey(opts.idempotency_key);
+  return imageRequestContext.run({ idempotencyKey }, async () => {
+    const provider = opts.preferred_provider || opts.preferredProvider || 'Image provider';
+    try {
+      const result = await callImageApiInternal(db, log, opts);
+      return sanitizeProviderResult(result, { provider, operation: 'image generation' });
+    } catch (error) {
+      throw sanitizeProviderException(error, { provider, operation: 'image generation' });
+    }
+  });
 }
 
 /**
@@ -1615,6 +1711,7 @@ async function callImageApi(db, log, opts) {
  * 与场景图一致：创建 task 并写入 task_id，便于前端轮询 /tasks/:task_id 获知完成或报错。
  */
 function createAndGenerateImage(db, log, opts) {
+  log = createSafeProviderLogger(log);
   const {
     drama_id,
     character_id,
@@ -1688,21 +1785,25 @@ function createAndGenerateImage(db, log, opts) {
       });
       const now2 = new Date().toISOString();
       if (result.error) {
+        const persistedError = toSafeProviderErrorMessage(result.error, {
+          provider: provider || 'Image provider',
+          operation: 'image generation',
+        });
         db.prepare(
           'UPDATE image_generations SET status = ?, error_msg = ?, updated_at = ? WHERE id = ?'
-        ).run('failed', result.error, now2, imageGenId);
-        taskService.updateTaskError(db, taskId, result.error);
+        ).run('failed', persistedError, now2, imageGenId);
+        taskService.updateTaskError(db, taskId, persistedError);
         if (charIdNum != null) {
           try {
-            db.prepare('UPDATE characters SET error_msg = ?, updated_at = ? WHERE id = ?').run(result.error, now2, charIdNum);
+            db.prepare('UPDATE characters SET error_msg = ?, updated_at = ? WHERE id = ?').run(persistedError, now2, charIdNum);
           } catch (_) {}
         }
         if (sceneIdNum != null) {
           try {
-            db.prepare('UPDATE scenes SET error_msg = ?, updated_at = ? WHERE id = ?').run(result.error, now2, sceneIdNum);
+            db.prepare('UPDATE scenes SET error_msg = ?, updated_at = ? WHERE id = ?').run(persistedError, now2, sceneIdNum);
           } catch (_) {}
         }
-        log.error('Image generation failed', { image_gen_id: imageGenId, error: result.error });
+        log.error('Image generation failed', { image_gen_id: imageGenId, error: persistedError });
         return;
       }
       let localPath = null;
@@ -1799,7 +1900,10 @@ function createAndGenerateImage(db, log, opts) {
       log.info('Image generation completed', { image_gen_id: imageGenId, local_path: localPath });
     } catch (err) {
       const now2 = new Date().toISOString();
-      const errMsg = (err && err.message) ? String(err.message).slice(0, 500) : 'Unknown error';
+      const errMsg = toSafeProviderErrorMessage(err, {
+        provider: provider || 'Image provider',
+        operation: 'image generation',
+      });
       try {
         db.prepare(
           'UPDATE image_generations SET status = ?, error_msg = ?, updated_at = ? WHERE id = ?'
@@ -1822,7 +1926,7 @@ function createAndGenerateImage(db, log, opts) {
           db.prepare('UPDATE scenes SET error_msg = ?, updated_at = ? WHERE id = ?').run(errMsg, now2, sceneIdNum);
         } catch (_) {}
       }
-      log.error('Image generation error', { image_gen_id: imageGenId, task_id: taskId, error: err.message });
+      log.error('Image generation error', { image_gen_id: imageGenId, task_id: taskId, error: errMsg });
     }
   }, { image_generation_id: imageGenId, task_id: taskId, drama_id: dramaIdNum });
 

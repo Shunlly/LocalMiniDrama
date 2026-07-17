@@ -33,29 +33,8 @@ function createMediaDiskStorage(tempDir = TEMP_UPLOAD_DIR) {
   });
 }
 
-// Seedance 2.0 音色参考音频上传（支持常见音频格式）
-const allowedAudioTypes = [
-  'audio/mpeg',
-  'audio/mp3',
-  'audio/wav',
-  'audio/x-wav',
-  'audio/mp4',
-  'audio/m4a',
-  'audio/ogg',
-  'audio/webm',
-];
 const audioMaxSize = 10 * 1024 * 1024; // 10MB
-const audioUpload = multer({
-  storage: memoryStorage,
-  limits: { fileSize: audioMaxSize },
-  fileFilter: (req, file, cb) => {
-    const ct = file.mimetype || 'application/octet-stream';
-    if (!allowedAudioTypes.includes(ct)) {
-      return cb(new Error('只支持音频格式 (mp3, wav, m4a, ogg)'));
-    }
-    cb(null, true);
-  },
-});
+const AUDIO_MAX_SIZE_MB = 10;
 
 function cleanupTemporaryUpload(file, log = null) {
   if (file?.path) uploadService.removeFile(file.path, log);
@@ -234,6 +213,25 @@ function createMediaUploadMiddleware(options = {}) {
 
 const multerMediaSingle = createMediaUploadMiddleware();
 
+function createAudioUploadMiddleware(options = {}) {
+  const maxBytes = options.maxBytes ?? audioMaxSize;
+  const maxSizeMb = options.maxSizeMb ?? AUDIO_MAX_SIZE_MB;
+  const tempDir = options.tempDir || TEMP_UPLOAD_DIR;
+  const gate = createUploadAdmissionGate({
+    maxConcurrent: options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT_MEDIA_UPLOADS,
+    diskReserveBytes: options.diskReserveBytes,
+    getAvailableBytes: options.getAvailableBytes,
+    tempDir,
+  });
+  const parser = multer({
+    storage: createMediaDiskStorage(tempDir),
+    limits: { fileSize: maxBytes, files: 1 },
+  }).single('file');
+  return validatedUploadMiddleware(parser, 'audio', maxSizeMb, maxBytes, gate);
+}
+
+const multerAudioSingle = createAudioUploadMiddleware();
+
 function mediaTypeFromMime(mimeType) {
   return String(mimeType || '').toLowerCase().startsWith('video/') ? 'video' : 'image';
 }
@@ -336,11 +334,13 @@ function routes(cfg, log, db) {
 module.exports = {
   routes,
   upload,
+  createAudioUploadMiddleware,
   createMediaUploadMiddleware,
   multerSingle,
   multerMediaSingle,
-  multerAudioSingle: audioUpload.single('file'),
+  multerAudioSingle,
   MAX_IMAGE_SIZE_MB: MAX_SIZE_MB,
+  AUDIO_MAX_SIZE_MB,
   MEDIA_MAX_SIZE_MB,
   DEFAULT_MAX_CONCURRENT_MEDIA_UPLOADS,
   TEMP_UPLOAD_DIR,

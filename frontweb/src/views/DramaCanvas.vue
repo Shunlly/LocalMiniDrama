@@ -2,10 +2,10 @@
   <div class="drama-canvas-page">
     <header class="header">
       <div class="header-inner">
-        <h1 class="logo" @click="router.push('/')">
+        <button type="button" class="logo" aria-label="返回项目列表" @click="router.push('/')">
           <span class="logo-main">本地短剧助手</span>
           <span class="logo-sub">画布模式</span>
-        </h1>
+        </button>
         <span class="breadcrumb-sep">›</span>
         <span class="page-title">{{ drama?.title || '加载中…' }}</span>
 
@@ -40,6 +40,7 @@
         :episode-generating="episodeGenerating"
         :episode-gen-progress="episodeGenProgress"
         :action-reasons="actionReasons"
+        :action-config-services="actionConfigServices"
         :aligning-nodes="aligningNodes"
         :is-dark="isDark"
         @edit-script="focusScriptNode"
@@ -56,9 +57,48 @@
         @batch-images="batchGenerateImages"
         @batch-videos="batchGenerateVideos"
       />
+      <div
+        v-if="scopedMediaWarning"
+        class="canvas-warning-bar"
+        role="alert"
+      >
+        <span>{{ scopedMediaWarning }}</span>
+        <div class="canvas-warning-actions">
+          <el-button
+            link
+            size="small"
+            :loading="mediaLoading"
+            @click="retryUnknownStoryboardMedia"
+          >
+            重试媒体查询
+          </el-button>
+        </div>
+      </div>
     </header>
 
-    <div v-loading="loading" class="canvas-shell">
+    <main
+      v-if="canvasLoadState === 'error'"
+      ref="canvasLoadFailureRef"
+      class="canvas-load-failure"
+      tabindex="-1"
+      role="alert"
+      aria-live="assertive"
+    >
+      <div class="canvas-load-failure-card">
+        <p class="canvas-load-eyebrow">项目加载失败</p>
+        <h1 class="canvas-load-title">当前画布暂时无法打开</h1>
+        <p class="canvas-load-message">{{ canvasLoadError }}</p>
+        <p class="canvas-load-detail">
+          {{ canvasLoadNotFound ? '项目可能已移入回收站或已删除。' : '请确认本地服务可用后，在当前页面直接重试。' }}
+        </p>
+        <div class="canvas-load-actions">
+          <el-button type="primary" :loading="loading" @click="retryCanvasProjectLoad">重试加载</el-button>
+          <el-button @click="goListMode">返回项目列表</el-button>
+        </div>
+      </div>
+    </main>
+
+    <div v-else v-loading="loading" class="canvas-shell">
       <aside v-if="drama" class="canvas-sidebar">
         <div class="sidebar-section sidebar-script">
           <div class="sec-label sec-label-row">
@@ -76,7 +116,8 @@
             <span>角色 {{ (drama.characters || []).length }}</span>
             <el-button link size="small" type="primary" @click="openCreateDialog('character')">+</el-button>
           </div>
-          <div
+          <button
+            type="button"
             v-for="c in (drama.characters || [])"
             :key="'c-' + c.id"
             class="sidebar-item"
@@ -84,14 +125,15 @@
             @click="selectSidebarAsset('char:' + c.id)"
           >
             {{ c.name || '未命名' }}
-          </div>
+          </button>
         </div>
         <div class="sidebar-section">
           <div class="sec-label sec-label-row">
             <span>场景 {{ (drama.scenes || []).length }}</span>
             <el-button link size="small" type="primary" @click="openCreateDialog('scene')">+</el-button>
           </div>
-          <div
+          <button
+            type="button"
             v-for="s in (drama.scenes || [])"
             :key="'s-' + s.id"
             class="sidebar-item"
@@ -99,14 +141,15 @@
             @click="selectSidebarAsset('scene:' + s.id)"
           >
             {{ s.location || '未命名' }}
-          </div>
+          </button>
         </div>
         <div class="sidebar-section">
           <div class="sec-label sec-label-row">
             <span>道具 {{ (drama.props || []).length }}</span>
             <el-button link size="small" type="primary" @click="openCreateDialog('prop')">+</el-button>
           </div>
-          <div
+          <button
+            type="button"
             v-for="p in (drama.props || [])"
             :key="'p-' + p.id"
             class="sidebar-item"
@@ -114,13 +157,17 @@
             @click="selectSidebarAsset('prop:' + p.id)"
           >
             {{ p.name || '未命名' }}
-          </div>
+          </button>
         </div>
 
         <CanvasWorkflowSidebarList
           :workflow-groups="workflowGroups"
           :active-group-id="activeGroupId"
+          :storyboard-details="workflowStoryboardDetails"
+          :reorder-disabled="workflowOrderSaving || workflowRunning"
+          :reorder-pending="workflowOrderSaving"
           @select-group="setActiveGroupId"
+          @reorder-storyboards="reorderWorkflowStoryboards"
         />
 
         <p class="sidebar-tip">经典模式流水线：分镜 → 脚本摘要 → 分镜图 → 视频。摘要节点是画布可视化，列表里合并在分镜编辑区。顶栏「本集生成」可 AI 批量操作；单击分镜可单镜生图/生视频。</p>
@@ -128,19 +175,20 @@
 
       <div ref="canvasMainRef" class="canvas-main">
         <VueFlow
-          v-if="nodes.length"
+          v-if="nodes.length && canvasViewportReady"
           v-model:nodes="nodes"
           v-model:edges="edges"
           :node-types="nodeTypes"
           :default-viewport="initialViewport"
-          :min-zoom="0.08"
+          :min-zoom="0.25"
           :max-zoom="2"
           :nodes-connectable="false"
           :elements-selectable="true"
           :selection-key-code="true"
           :pan-on-drag="[1, 2]"
           :pan-on-scroll="true"
-          :fit-view-on-init="!hasSavedViewport"
+          :fit-view-on-init="false"
+          :only-render-visible-elements="true"
           class="vue-flow-canvas"
           @node-double-click="onNodeDoubleClick"
           @node-click="onNodeClick"
@@ -150,10 +198,39 @@
           @viewport-change="onViewportChange"
           @move-end="scheduleLayoutSave"
           @selection-change="onSelectionChange"
+          @nodes-initialized="onCanvasNodesInitialized"
         >
           <CanvasFlowAligner />
           <Background pattern-color="#3f3f46" :gap="20" />
-          <Controls />
+          <Controls :show-zoom="true" :show-fit-view="true" :show-interactive="true">
+            <template #control-zoom-in>
+              <button type="button" class="vue-flow__controls-button" aria-label="放大画布" title="放大画布" @click="zoomCanvasIn">
+                <el-icon><ZoomIn /></el-icon>
+              </button>
+            </template>
+            <template #control-zoom-out>
+              <button type="button" class="vue-flow__controls-button" aria-label="缩小画布" title="缩小画布" @click="zoomCanvasOut">
+                <el-icon><ZoomOut /></el-icon>
+              </button>
+            </template>
+            <template #control-fit-view>
+              <button type="button" class="vue-flow__controls-button" aria-label="适配可读视图" title="适配可读视图" @click="fitCanvasView">
+                <el-icon><FullScreen /></el-icon>
+              </button>
+            </template>
+            <template #control-interactive>
+              <button
+                type="button"
+                class="vue-flow__controls-button"
+                :aria-label="canvasInteractive ? '锁定画布' : '解锁画布'"
+                :title="canvasInteractive ? '锁定画布' : '解锁画布'"
+                :aria-pressed="!canvasInteractive"
+                @click="toggleCanvasInteractive"
+              >
+                <el-icon><Unlock v-if="canvasInteractive" /><Lock v-else /></el-icon>
+              </button>
+            </template>
+          </Controls>
           <MiniMap pannable zoomable />
         </VueFlow>
         <CanvasEmptyState
@@ -184,13 +261,14 @@
 </template>
 
 <script setup>
-import { computed, markRaw, nextTick, onBeforeUnmount, provide, ref, watch } from 'vue'
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { VueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { FullScreen, Lock, Unlock, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
@@ -198,6 +276,7 @@ import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 
 import { dramaAPI } from '@/api/drama'
+import { workflowRunsAPI } from '@/api/workflowRuns'
 import { useTheme } from '@/composables/useTheme'
 import { runWorkflowGroup } from '@/composables/useCanvasWorkflowRunner'
 import { CANVAS_CONTEXT_KEY } from '@/composables/useCanvasContext'
@@ -206,6 +285,7 @@ import { useCanvasCrud } from '@/composables/useCanvasCrud'
 import { useCanvasEpisodeGenerate } from '@/composables/useCanvasEpisodeGenerate'
 import { useCanvasScript, scriptNodeId } from '@/composables/useCanvasScript'
 import { createCanvasNodeStatusStore } from '@/composables/useCanvasNodeStatus'
+import { useCanvasWorkflowOrder } from '@/composables/useCanvasWorkflowOrder'
 import {
   applyCanvasHighlight,
   buildDramaCanvasGraph,
@@ -228,8 +308,16 @@ import {
   storyboardIdFromNodeId,
   getDramaGenerationOptions,
 } from '@/utils/canvasWorkflow'
-import { getCanvasActionDisabledReasons, getCanvasStartMode } from '@/utils/canvasActionState'
+import {
+  getCanvasActionDisabledReasons,
+  getCanvasPipelineProductionGate,
+  getCanvasProductionActionState,
+  getCanvasProductionStepGate,
+  getCanvasStartMode,
+  normalizeCanvasProductionReadiness,
+} from '@/utils/canvasActionState'
 import { resolveCanvasEpisodeId } from '@/utils/canvasUiState'
+import { buildAiConfigLocation } from '@/utils/sourceWorkflowLaunch'
 
 import CanvasLabelNode from '@/components/dramaCanvas/CanvasLabelNode.vue'
 import CanvasDramaHeaderNode from '@/components/dramaCanvas/CanvasDramaHeaderNode.vue'
@@ -249,10 +337,21 @@ import CanvasWorkflowSidebarList from '@/components/dramaCanvas/CanvasWorkflowSi
 const route = useRoute()
 const router = useRouter()
 const { isDark, toggle: toggleTheme } = useTheme()
-const { imagesBySbId, videosBySbId, loadForDrama } = useCanvasStoryboardMedia()
+const {
+  imagesBySbId,
+  videosBySbId,
+  mediaStatusBySbId,
+  mediaLoading,
+  loadForDrama,
+  loadForStoryboards,
+} = useCanvasStoryboardMedia()
 
 const loading = ref(false)
 const drama = ref(null)
+const canvasLoadState = ref('loading')
+const canvasLoadError = ref('')
+const canvasLoadNotFound = ref(false)
+const canvasLoadFailureRef = ref(null)
 const nodes = ref([])
 const edges = ref([])
 const filterEpisodeId = ref(null)
@@ -266,9 +365,10 @@ const workflowRunning = ref(false)
 const workflowProgress = ref('')
 const layoutSaveState = ref('idle')
 const layoutDirty = ref(false)
-const currentViewport = ref({ x: 0, y: 0, zoom: 0.75 })
+const currentViewport = ref({ x: 0, y: 0, zoom: 0.9 })
 const focusedNodeId = ref(null)
 const canvasMainRef = ref(null)
+const canvasViewportReady = ref(false)
 const contextMenuVisible = ref(false)
 const contextMenuX = ref(0)
 const contextMenuY = ref(0)
@@ -277,6 +377,10 @@ const paneClickSuppressed = ref(false)
 const nodeStatus = createCanvasNodeStatusStore()
 const aligningNodes = ref(false)
 const canvasFlowApi = ref(null)
+const canvasInteractive = ref(true)
+const initialFitDone = ref(false)
+const mediaValidity = reactive({})
+const productionReadinessState = ref({ status: 'loading', data: null })
 
 const PANEL_NODE_TYPES = new Set(['canvasStoryboard', 'canvasMedia', 'canvasAsset', 'canvasScript'])
 
@@ -284,6 +388,10 @@ let saveTimer = null
 let savedHintTimer = null
 let pollTimer = null
 let paneClickSuppressTimer = null
+let canvasResizeObserver = null
+let canvasReadyFrame = null
+let readinessRequestId = 0
+let canvasLoadRequestId = 0
 
 const nodeTypes = {
   canvasLabel: markRaw(CanvasLabelNode),
@@ -297,29 +405,323 @@ const nodeTypes = {
 }
 
 const dramaId = computed(() => Number(route.params.id))
+const isCanvasReady = computed(() => canvasLoadState.value === 'ready' && Boolean(drama.value))
 const savedLayout = computed(() => layoutCache.value || parseCanvasLayout(drama.value?.metadata))
+const workflowStoryboardDetails = computed(() => {
+  const details = {}
+  for (const [episodeIndex, episode] of (drama.value?.episodes || []).entries()) {
+    const episodeTitle = episode.title || `第 ${episode.episode_number ?? episodeIndex + 1} 集`
+    for (const [storyboardIndex, storyboard] of (episode.storyboards || []).entries()) {
+      const title = [
+        storyboard.title,
+        storyboard.segment_title,
+        storyboard.action,
+        storyboard.description,
+      ].find((value) => String(value || '').trim())
+      details[String(storyboard.id)] = {
+        title: String(title || '').trim(),
+        episodeTitle,
+        storyboardNumber: storyboard.storyboard_number ?? storyboardIndex + 1,
+      }
+    }
+  }
+  return details
+})
 const currentEpisode = computed(() => (
   (drama.value?.episodes || []).find((episode) => String(episode.id) === String(filterEpisodeId.value)) || null
 ))
-const actionReasons = computed(() => getCanvasActionDisabledReasons({
-  selectedStoryboardCount: selectedStoryboardIds.value.length,
-  pipelineSteps: pipelineSteps.value,
-  activeGroupId: activeGroupId.value,
-  episodeCount: drama.value?.episodes?.length || 0,
-  episodeId: filterEpisodeId.value,
-  episodeHasScript: Boolean(String(currentEpisode.value?.script_content || '').trim()),
-  storyboardCount: currentEpisode.value?.storyboards?.length || 0,
-  workflowRunning: workflowRunning.value,
-  episodeGenerating: episodeGenerating.value,
+const scopedStoryboards = computed(() => {
+  if (!drama.value) return []
+  const episodes = filterEpisodeId.value
+    ? (drama.value.episodes || []).filter((episode) => episode.id === filterEpisodeId.value)
+    : (drama.value.episodes || [])
+  return episodes.flatMap((episode) => episode.storyboards || [])
+})
+const unknownMediaStoryboards = computed(() => (
+  scopedStoryboards.value.filter((storyboard) => mediaStatusBySbId.value?.[storyboard.id]?.state === 'unknown')
+))
+const scopedMediaWarning = computed(() => {
+  const count = unknownMediaStoryboards.value.length
+  if (!count) return ''
+  return count === 1
+    ? '1 个分镜的媒体查询失败，已保留旧结果并标记为未知。为避免重复计费，重新生成图片或视频前请先重试媒体查询。'
+    : `${count} 个分镜的媒体查询失败，已保留旧结果并标记为未知。为避免重复计费，重新生成图片或视频前请先重试媒体查询。`
+})
+const activeWorkflowGroup = computed(() => (
+  workflowGroups.value.find((group) => group.id === activeGroupId.value) || null
+))
+const activeWorkflowSteps = computed(() => {
+  if (!activeWorkflowGroup.value) return []
+  const configured = Array.isArray(activeWorkflowGroup.value.pipeline)
+    ? activeWorkflowGroup.value.pipeline
+    : pipelineSteps.value
+  return normalizePipeline(configured)
+})
+const productionActions = computed(() => getCanvasProductionActionState(productionReadinessState.value))
+const createWorkflowProductionGate = computed(() => (
+  getCanvasPipelineProductionGate(pipelineSteps.value, productionActions.value)
+))
+const runWorkflowProductionGate = computed(() => (
+  getCanvasPipelineProductionGate(activeWorkflowSteps.value, productionActions.value)
+))
+const actionReasons = computed(() => {
+  const reasons = getCanvasActionDisabledReasons({
+    selectedStoryboardCount: selectedStoryboardIds.value.length,
+    pipelineSteps: pipelineSteps.value,
+    activeGroupId: activeGroupId.value,
+    activeWorkflowSteps: activeWorkflowSteps.value,
+    productionActions: productionActions.value,
+    episodeCount: drama.value?.episodes?.length || 0,
+    episodeId: filterEpisodeId.value,
+    episodeHasScript: Boolean(String(currentEpisode.value?.script_content || '').trim()),
+    storyboardCount: currentEpisode.value?.storyboards?.length || 0,
+    workflowRunning: workflowRunning.value,
+    episodeGenerating: episodeGenerating.value,
+  })
+  return {
+    ...reasons,
+    runWorkflow: reasons.runWorkflow || getBillableMediaUnknownReason(
+      pipelineTouchesBillableMedia(activeWorkflowSteps.value)
+        ? (activeWorkflowGroup.value?.storyboard_ids || [])
+        : [],
+    ),
+    batchImages: reasons.batchImages || getBillableMediaUnknownReason(
+      (currentEpisode.value?.storyboards || []).map((storyboard) => storyboard.id),
+    ),
+    batchVideos: reasons.batchVideos || getBillableMediaUnknownReason(
+      (currentEpisode.value?.storyboards || []).map((storyboard) => storyboard.id),
+    ),
+  }
+})
+const actionConfigServices = computed(() => ({
+  createWorkflow: actionReasons.value.createWorkflow === createWorkflowProductionGate.value.reason
+    ? createWorkflowProductionGate.value.serviceType
+    : '',
+  runWorkflow: actionReasons.value.runWorkflow === runWorkflowProductionGate.value.reason
+    ? runWorkflowProductionGate.value.serviceType
+    : '',
+  batchVideos: actionReasons.value.batchVideos === productionActions.value.video.reason
+    ? productionActions.value.video.serviceType
+    : '',
 }))
 const canvasStartMode = computed(() => getCanvasStartMode(drama.value, filterEpisodeId.value))
 
+const MIN_READABLE_CANVAS_ZOOM = 0.9
+const FOCUSED_NODE_MIN_ZOOM = 0.9
 const initialViewport = computed(() => {
   const v = resolveViewport(savedLayout.value)
-  return { x: v.x, y: v.y, zoom: v.zoom }
+  if (savedLayout.value?.viewport && Number(v.zoom) >= MIN_READABLE_CANVAS_ZOOM) {
+    return { x: v.x, y: v.y, zoom: v.zoom }
+  }
+  return { x: 0, y: 0, zoom: MIN_READABLE_CANVAS_ZOOM }
 })
 
-const hasSavedViewport = computed(() => Boolean(savedLayout.value?.viewport))
+const hasSavedViewport = computed(() => (
+  Boolean(savedLayout.value?.viewport)
+  && Number(resolveViewport(savedLayout.value).zoom) >= MIN_READABLE_CANVAS_ZOOM
+))
+
+function coreCanvasRequestError(status) {
+  const error = new Error('PROJECT_LOAD_FAILED')
+  error.status = Number(status) || 0
+  return error
+}
+
+async function requestCanvasProject(path, { method = 'GET', body, fetchImpl = globalThis.fetch } = {}) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15000)
+  let response
+  try {
+    response = await fetchImpl(`/api/v1${path}`, {
+      method,
+      credentials: 'same-origin',
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    })
+  } catch (_) {
+    throw coreCanvasRequestError(0)
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  let payload = null
+  try {
+    payload = response.status === 204 ? null : await response.json()
+  } catch (_) {
+    throw coreCanvasRequestError(response.status)
+  }
+  if (!response.ok || payload?.success === false) throw coreCanvasRequestError(response.status)
+  return payload?.data !== undefined ? payload.data : payload
+}
+
+const coreCanvasDramaAPI = {
+  get(id) {
+    return requestCanvasProject(`/dramas/${encodeURIComponent(id)}`)
+  },
+}
+
+function friendlyCanvasProjectLoadError(error) {
+  const status = Number(error?.status || error?.response?.status)
+  if (status === 404) return '该项目不存在，或已移入回收站。'
+  if (status >= 500) return '本地服务暂时不可用，请稍后重试。'
+  return '无法连接本地服务，请确认服务已经启动后重试。'
+}
+
+function getStoryboardMediaQueryStatus(storyboardId) {
+  return mediaStatusBySbId.value?.[storyboardId] || { state: 'idle', error: '', retryable: false, preservedData: false }
+}
+
+function findUnknownMediaStoryboards(storyboardIds = []) {
+  const ids = new Set((Array.isArray(storyboardIds) ? storyboardIds : []).map((storyboardId) => Number(storyboardId)))
+  if (!ids.size || !drama.value) return []
+  return (drama.value.episodes || [])
+    .flatMap((episode) => episode.storyboards || [])
+    .filter((storyboard) => ids.has(Number(storyboard.id)) && getStoryboardMediaQueryStatus(storyboard.id).state === 'unknown')
+}
+
+function getBillableMediaUnknownReason(storyboardIds = []) {
+  const unknownBoards = findUnknownMediaStoryboards(storyboardIds)
+  if (!unknownBoards.length) return ''
+  return unknownBoards.length === 1
+    ? '1 个分镜的媒体状态仍然未知。为避免重复计费，请先重试媒体查询，再继续重新生成图片或视频。'
+    : `${unknownBoards.length} 个分镜的媒体状态仍然未知。为避免重复计费，请先重试媒体查询，再继续重新生成图片或视频。`
+}
+
+function pipelineTouchesBillableMedia(steps = []) {
+  return (Array.isArray(steps) ? steps : []).some((step) => step === 'image' || step === 'video')
+}
+
+function ensureKnownStoryboardMedia(storyboardIds = []) {
+  const reason = getBillableMediaUnknownReason(storyboardIds)
+  if (!reason) return true
+  ElMessage.warning(reason)
+  return false
+}
+
+async function loadCanvasProject({ blocking = !isCanvasReady.value, preserveOnError = !blocking } = {}) {
+  const requestedDramaId = dramaId.value
+  if (!Number.isFinite(requestedDramaId) || requestedDramaId <= 0) return false
+  const requestId = ++canvasLoadRequestId
+  loading.value = true
+  if (blocking) canvasLoadState.value = 'loading'
+  canvasLoadError.value = ''
+  canvasLoadNotFound.value = false
+  try {
+    drama.value = await coreCanvasDramaAPI.get(requestedDramaId)
+    if (requestId !== canvasLoadRequestId || requestedDramaId !== dramaId.value) return false
+    layoutCache.value = parseCanvasLayout(drama.value.metadata)
+    syncWorkflowFromDrama()
+    const vp = resolveViewport(layoutCache.value)
+    currentViewport.value = vp
+    if (route.query.episode) filterEpisodeId.value = Number(route.query.episode)
+    await loadForDrama(drama.value, filterEpisodeId.value)
+    if (requestId !== canvasLoadRequestId || requestedDramaId !== dramaId.value) return false
+    rebuildGraph()
+    canvasLoadState.value = 'ready'
+    canvasLoadNotFound.value = false
+    return true
+  } catch (error) {
+    if (requestId !== canvasLoadRequestId || requestedDramaId !== dramaId.value) return false
+    if (!preserveOnError) {
+      drama.value = null
+      nodes.value = []
+      edges.value = []
+      layoutCache.value = null
+    }
+    canvasLoadNotFound.value = Number(error?.status || error?.response?.status) === 404
+    canvasLoadError.value = friendlyCanvasProjectLoadError(error)
+    if (!preserveOnError) {
+      canvasLoadState.value = 'error'
+      await nextTick()
+      canvasLoadFailureRef.value?.focus()
+    }
+    return false
+  } finally {
+    if (requestId === canvasLoadRequestId) loading.value = false
+  }
+}
+
+async function retryCanvasProjectLoad() {
+  await loadCanvasProject({ blocking: true, preserveOnError: false })
+}
+
+async function fitCanvasView() {
+  const flowApi = canvasFlowApi.value
+  if (!flowApi?.fitView) return
+  await flowApi.fitView({
+    padding: 0.12,
+    minZoom: MIN_READABLE_CANVAS_ZOOM,
+    maxZoom: 1,
+    duration: 250,
+    includeHiddenNodes: false,
+  })
+  const viewport = flowApi.getViewport?.()
+  if (viewport) currentViewport.value = { x: viewport.x, y: viewport.y, zoom: viewport.zoom }
+}
+
+async function focusCanvasNode(nodeId) {
+  if (!nodeId) return
+  await nextTick()
+  await new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve))
+  })
+  const flowApi = canvasFlowApi.value
+  if (!flowApi?.fitView) return
+  await flowApi.fitView({
+    nodes: [nodeId],
+    padding: 0.18,
+    minZoom: FOCUSED_NODE_MIN_ZOOM,
+    maxZoom: 1.1,
+    duration: 250,
+    includeHiddenNodes: false,
+  })
+  const viewport = flowApi.getViewport?.()
+  if (viewport) currentViewport.value = { x: viewport.x, y: viewport.y, zoom: viewport.zoom }
+  const nodeElement = [...document.querySelectorAll('.vue-flow__node')]
+    .find((element) => element.dataset.id === String(nodeId))
+  nodeElement?.querySelector('.canvas-node-panel')?.focus({ preventScroll: true })
+}
+
+async function setFocusedCanvasNode(nodeId) {
+  focusedNodeId.value = nodeId || null
+  if (nodeId) await focusCanvasNode(nodeId)
+}
+
+function routeFocusNodeId() {
+  const raw = Array.isArray(route.query.focus) ? route.query.focus[0] : route.query.focus
+  const value = String(raw || '').trim()
+  return /^[A-Za-z0-9:_-]{1,128}$/.test(value) ? value : ''
+}
+
+function zoomCanvasIn() {
+  canvasFlowApi.value?.zoomIn?.({ duration: 150 })
+}
+
+function zoomCanvasOut() {
+  canvasFlowApi.value?.zoomOut?.({ duration: 150 })
+}
+
+function toggleCanvasInteractive() {
+  canvasInteractive.value = !canvasInteractive.value
+  canvasFlowApi.value?.setInteractive?.(canvasInteractive.value)
+}
+
+async function onCanvasNodesInitialized() {
+  const requestedFocus = routeFocusNodeId()
+  if (requestedFocus && nodes.value.some((node) => node.id === requestedFocus)) {
+    initialFitDone.value = true
+    await setFocusedCanvasNode(requestedFocus)
+    return
+  }
+  if (hasSavedViewport.value || initialFitDone.value) return
+  initialFitDone.value = true
+  await nextTick()
+  await fitCanvasView()
+}
 
 function syncWorkflowFromDrama() {
   workflowGroups.value = parseWorkflowGroups(drama.value?.metadata)
@@ -341,7 +743,17 @@ function rebuildGraph() {
     imagesBySbId: imagesBySbId.value,
     videosBySbId: videosBySbId.value,
   })
-  let nextNodes = graph.nodes
+  let nextNodes = graph.nodes.map((node) => {
+    if (node.type !== 'canvasStoryboard') return node
+    const storyboardId = node.data?.storyboard?.id
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        mediaQueryStatus: storyboardId != null ? getStoryboardMediaQueryStatus(storyboardId) : null,
+      },
+    }
+  })
   let nextEdges = stampEdgeBaseStyles(graph.edges)
   if (highlightAssetId.value) {
     const highlighted = applyCanvasHighlight(nextNodes, nextEdges, highlightAssetId.value, drama.value)
@@ -376,14 +788,29 @@ function setHighlightAsset(assetNodeId) {
 
 async function refreshDrama(preserveFocus = true) {
   const keepId = preserveFocus ? focusedNodeId.value : null
-  await loadDrama(true)
-  await loadForDrama(drama.value, filterEpisodeId.value)
-  rebuildGraph()
+  const loaded = await loadCanvasProject({ blocking: false, preserveOnError: true })
+  if (!loaded) return false
   if (keepId) focusedNodeId.value = keepId
+  return true
 }
 
 async function refreshCanvas(preserveFocus = true) {
   await refreshDrama(preserveFocus)
+}
+
+async function retryStoryboardMedia(storyboardId) {
+  const found = findStoryboardInDrama(drama.value, storyboardId)
+  const storyboard = found?.storyboard
+  if (!storyboard) return false
+  const result = await loadForStoryboards([storyboard], { prune: false })
+  rebuildGraph()
+  return result.failedCount === 0
+}
+
+async function retryUnknownStoryboardMedia() {
+  if (!unknownMediaStoryboards.value.length) return
+  await loadForStoryboards(unknownMediaStoryboards.value, { prune: false })
+  rebuildGraph()
 }
 
 function suppressPaneClick(ms = 350) {
@@ -442,17 +869,77 @@ function getCanvasGenerationOptions() {
   }
 }
 
+function openAiConfig(serviceType) {
+  const returnQuery = { ...route.query }
+  if (filterEpisodeId.value != null) returnQuery.episode = String(filterEpisodeId.value)
+  else delete returnQuery.episode
+  if (focusedNodeId.value) returnQuery.focus = focusedNodeId.value
+  else delete returnQuery.focus
+  const returnTo = router.resolve({
+    name: 'film-canvas',
+    params: { id: String(dramaId.value) },
+    query: returnQuery,
+  }).fullPath
+  router.push(buildAiConfigLocation({
+    dramaId: dramaId.value,
+    serviceType,
+    returnTo,
+  }))
+}
+
+function ensureProductionStepReady(step) {
+  const gate = getCanvasProductionStepGate(step, productionActions.value)
+  if (gate.ready) return true
+  ElMessage.warning(gate.reason)
+  return false
+}
+
+function ensureProductionPipelineReady(steps) {
+  const gate = getCanvasPipelineProductionGate(steps, productionActions.value)
+  if (gate.ready) return true
+  ElMessage.warning(gate.reason)
+  return false
+}
+
+async function refreshProductionReadiness() {
+  const requestedDramaId = dramaId.value
+  const requestId = ++readinessRequestId
+  productionReadinessState.value = { status: 'loading', data: null }
+  try {
+    const response = await workflowRunsAPI.getNovel2AnimeReadiness({
+      drama_id: requestedDramaId,
+      qa_mode: 'production',
+    })
+    const normalized = normalizeCanvasProductionReadiness(response)
+    if (requestId !== readinessRequestId || requestedDramaId !== dramaId.value) return
+    productionReadinessState.value = { status: 'loaded', data: normalized }
+  } catch (error) {
+    if (requestId !== readinessRequestId || requestedDramaId !== dramaId.value) return
+    productionReadinessState.value = {
+      status: 'error',
+      data: null,
+      error: error?.message || '正式制作能力加载失败',
+    }
+  }
+}
+
 const scriptActionsHolder = {}
 
+provide('localMiniDrama.canvas.openAiConfig', openAiConfig)
 provide(CANVAS_CONTEXT_KEY, {
   focusedNodeId,
   drama,
   imagesBySbId,
   videosBySbId,
+  mediaStatusBySbId,
+  mediaValidity,
+  productionActions,
   getGenerationOptions: getCanvasGenerationOptions,
-  setFocusedNode: (nodeId) => {
-    focusedNodeId.value = nodeId
-  },
+  ensureProductionStepReady,
+  getStoryboardMediaQueryStatus,
+  retryStoryboardMedia,
+  openAiConfig,
+  setFocusedNode: setFocusedCanvasNode,
   clearFocusedNode: () => {
     focusedNodeId.value = null
   },
@@ -509,8 +996,10 @@ function scheduleLayoutSave() {
   }, 700)
 }
 
-async function persistCanvasState({ layoutOnly = false, groupsOnly = false } = {}) {
-  if (!dramaId.value) return
+async function persistCanvasState({ layoutOnly = false, groupsOnly = false, reportError = true } = {}) {
+  if (!dramaId.value) {
+    return { ok: false, error: new Error('项目尚未加载') }
+  }
 
   let layoutPayload = null
   if (!groupsOnly) {
@@ -552,16 +1041,35 @@ async function persistCanvasState({ layoutOnly = false, groupsOnly = false } = {
       drama.value = updated
     }
     layoutSaveState.value = 'saved'
-    layoutDirty.value = false
+    if (!groupsOnly) layoutDirty.value = false
     if (savedHintTimer) clearTimeout(savedHintTimer)
     savedHintTimer = setTimeout(() => {
       if (layoutSaveState.value === 'saved') layoutSaveState.value = 'idle'
     }, 2000)
+    return { ok: true, updated }
   } catch (e) {
     layoutSaveState.value = 'error'
-    ElMessage.error(e?.message || '保存失败')
+    if (reportError) ElMessage.error(e?.message || '保存失败')
+    return { ok: false, error: e }
   }
 }
+
+const {
+  workflowOrderSaving,
+  reorderWorkflowStoryboards,
+} = useCanvasWorkflowOrder({
+  workflowGroups,
+  persist: () => persistCanvasState({ groupsOnly: true, reportError: false }),
+  onSaveFailed: (error) => {
+    ElMessage.error(`分镜排序保存失败，已恢复原顺序：${error?.message || '保存失败'}`)
+  },
+  setMediaValidity: (nodeId, state) => {
+    if (nodeId) mediaValidity[nodeId] = state
+  },
+  clearMediaValidity: (nodeId) => {
+    if (nodeId) delete mediaValidity[nodeId]
+  },
+})
 
 const {
   createDialogVisible,
@@ -581,9 +1089,9 @@ const {
 const {
   episodeGenerating,
   episodeGenProgress,
-  aiGenerateStoryboards,
-  batchGenerateImages,
-  batchGenerateVideos,
+  aiGenerateStoryboards: runAiGenerateStoryboards,
+  batchGenerateImages: runBatchGenerateImages,
+  batchGenerateVideos: runBatchGenerateVideos,
 } = useCanvasEpisodeGenerate({
   drama,
   filterEpisodeId,
@@ -592,6 +1100,21 @@ const {
   refreshCanvas,
   nodeStatus,
 })
+
+async function aiGenerateStoryboards() {
+  await runAiGenerateStoryboards()
+}
+
+async function batchGenerateImages() {
+  if (!ensureKnownStoryboardMedia((currentEpisode.value?.storyboards || []).map((storyboard) => storyboard.id))) return
+  await runBatchGenerateImages()
+}
+
+async function batchGenerateVideos() {
+  if (!ensureProductionStepReady('video')) return
+  if (!ensureKnownStoryboardMedia((currentEpisode.value?.storyboards || []).map((storyboard) => storyboard.id))) return
+  await runBatchGenerateVideos()
+}
 
 Object.assign(
   scriptActionsHolder,
@@ -614,7 +1137,7 @@ function focusScriptNode() {
     return
   }
   if (!filterEpisodeId.value) filterEpisodeId.value = epId
-  focusedNodeId.value = scriptNodeId(epId)
+  void setFocusedCanvasNode(scriptNodeId(epId))
 }
 
 async function onAlignNodes() {
@@ -642,6 +1165,8 @@ async function onAlignNodes() {
     if (flowApi?.fitView) {
       await flowApi.fitView({
         padding: 0.14,
+        minZoom: MIN_READABLE_CANVAS_ZOOM,
+        maxZoom: 1,
         duration: 380,
         includeHiddenNodes: false,
       })
@@ -684,6 +1209,7 @@ async function onCreateWorkflowGroup() {
     ElMessage.warning('请先框选或 Ctrl 点击选择分镜节点')
     return
   }
+  if (!ensureProductionPipelineReady(pipelineSteps.value)) return
   try {
     const { value } = await ElMessageBox.prompt('工作流名称', '创建工作流', {
       confirmButtonText: '创建',
@@ -720,9 +1246,12 @@ async function onRunActiveGroup() {
     ElMessage.warning('请先选择工作流')
     return
   }
+  const workflowSteps = activeWorkflowSteps.value
+  if (!ensureProductionPipelineReady(workflowSteps)) return
+  if (pipelineTouchesBillableMedia(workflowSteps) && !ensureKnownStoryboardMedia(group.storyboard_ids || [])) return
   try {
     await ElMessageBox.confirm(
-      `将对 ${(group.storyboard_ids || []).length} 个分镜依次执行：${(group.pipeline || pipelineSteps.value).join(' → ')}\n耗时可能较长，是否继续？`,
+      `将对 ${(group.storyboard_ids || []).length} 个分镜依次执行：${workflowSteps.join(' → ')}\n耗时可能较长，是否继续？`,
       '整组重跑',
       { type: 'warning', confirmButtonText: '开始执行' }
     )
@@ -735,12 +1264,12 @@ async function onRunActiveGroup() {
   try {
     const summary = await runWorkflowGroup(drama.value, {
       ...group,
-      pipeline: normalizePipeline(Array.isArray(group.pipeline) ? group.pipeline : pipelineSteps.value, { allowEmpty: true }),
+      pipeline: workflowSteps,
     }, {
       stopOnError: true,
       generationOptions: getCanvasGenerationOptions(),
       reloadStoryboard: async (storyboardId) => {
-        await loadDrama(true)
+        await loadCanvasProject({ blocking: false, preserveOnError: true })
         return findStoryboardInDrama(drama.value, storyboardId)?.storyboard
       },
       onStepStart: ({ storyboardId, step }) => {
@@ -750,9 +1279,7 @@ async function onRunActiveGroup() {
         ElMessage.error(`分镜 #${storyboardId} 失败：${error?.message || error}`)
       },
     })
-    await loadDrama(true)
-    await loadForDrama(drama.value, filterEpisodeId.value)
-    rebuildGraph()
+    await loadCanvasProject({ blocking: false, preserveOnError: true })
     if (summary.failed.length) {
       ElMessage.warning(`完成 ${summary.ok.length} 镜，失败 ${summary.failed.length} 镜`)
     } else {
@@ -779,7 +1306,7 @@ function startStatusPoll() {
   stopStatusPoll()
   if (!hasProcessingStoryboards()) return
   pollTimer = setInterval(() => {
-    if (hasProcessingStoryboards()) loadDrama(true)
+    if (hasProcessingStoryboards()) loadCanvasProject({ blocking: false, preserveOnError: true })
     else stopStatusPoll()
   }, 8000)
 }
@@ -831,7 +1358,7 @@ function onNodeClick({ node, event }) {
   }
 
   if (PANEL_NODE_TYPES.has(node.type)) {
-    focusedNodeId.value = node.id
+    void setFocusedCanvasNode(node.id)
   }
 
   if (node.type === 'canvasAsset') {
@@ -858,15 +1385,38 @@ watch(() => route.params.id, () => {
   activeGroupId.value = null
   selectedStoryboardIds.value = []
   focusedNodeId.value = null
-  loadDrama()
+  initialFitDone.value = false
+  canvasInteractive.value = true
+  for (const key of Object.keys(mediaValidity)) delete mediaValidity[key]
+  productionReadinessState.value = { status: 'loading', data: null }
+  refreshProductionReadiness()
+  loadCanvasProject({ blocking: true, preserveOnError: false })
 }, { immediate: true })
 
 watch(drama, () => startStatusPoll())
 
+function updateCanvasViewportReady() {
+  const rect = canvasMainRef.value?.getBoundingClientRect?.()
+  canvasViewportReady.value = Boolean(rect && rect.width > 0 && rect.height > 0)
+}
+
+onMounted(() => {
+  canvasReadyFrame = window.requestAnimationFrame(() => {
+    updateCanvasViewportReady()
+    if (typeof ResizeObserver === 'function' && canvasMainRef.value) {
+      canvasResizeObserver = new ResizeObserver(updateCanvasViewportReady)
+      canvasResizeObserver.observe(canvasMainRef.value)
+    }
+  })
+})
+
 onBeforeUnmount(() => {
+  readinessRequestId++
   if (saveTimer) clearTimeout(saveTimer)
   if (savedHintTimer) clearTimeout(savedHintTimer)
   if (paneClickSuppressTimer) clearTimeout(paneClickSuppressTimer)
+  if (canvasReadyFrame != null) window.cancelAnimationFrame(canvasReadyFrame)
+  canvasResizeObserver?.disconnect()
   stopStatusPoll()
   if (layoutDirty.value) persistCanvasState({ layoutOnly: true })
 })
@@ -950,6 +1500,25 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
+.canvas-warning-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 20px 12px;
+  border-top: 1px solid rgba(251, 191, 36, 0.18);
+  color: var(--canvas-amber-text, #fcd34d);
+  font-size: 12px;
+  background: rgba(251, 191, 36, 0.06);
+}
+
+.canvas-warning-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .workflow-bar {
   display: flex;
   align-items: center;
@@ -1005,6 +1574,12 @@ onBeforeUnmount(() => {
 
 .logo {
   margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -1048,6 +1623,56 @@ onBeforeUnmount(() => {
   flex: 1;
   display: flex;
   min-height: 0;
+}
+
+.canvas-load-failure {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.canvas-load-failure-card {
+  width: min(520px, 100%);
+  padding: 24px;
+  border-radius: 8px;
+  border: 1px solid var(--canvas-danger-text, #f87171);
+  background: var(--canvas-card-surface, #18181b);
+  box-shadow: var(--canvas-raised-shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
+}
+
+.canvas-load-eyebrow {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--canvas-danger-text, #f87171);
+}
+
+.canvas-load-title {
+  margin: 0 0 10px;
+  font-size: 22px;
+  line-height: 1.2;
+  color: var(--text-bright, #fafafa);
+}
+
+.canvas-load-message,
+.canvas-load-detail {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--canvas-text-secondary, #d4d4d8);
+}
+
+.canvas-load-detail {
+  margin-top: 8px;
+  color: var(--canvas-text-muted, #a1a1aa);
+}
+
+.canvas-load-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
 }
 
 .canvas-sidebar {
@@ -1095,6 +1720,11 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
   font-size: 12px;
   padding: 6px 8px;
   border-radius: 6px;
@@ -1106,6 +1736,7 @@ onBeforeUnmount(() => {
   transition: background 0.15s;
 }
 .sidebar-item:hover { background: rgba(129, 140, 248, 0.12); }
+.sidebar-item:focus-visible { outline: 2px solid var(--canvas-indigo-strong); outline-offset: 1px; }
 .sidebar-item.active { background: rgba(52, 211, 153, 0.16); color: var(--canvas-emerald-text); }
 
 .workflow-item { white-space: normal; }
@@ -1123,8 +1754,11 @@ onBeforeUnmount(() => {
 .canvas-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
   position: relative;
 }
+.logo:focus-visible { outline: 2px solid var(--canvas-indigo-strong); outline-offset: 4px; }
 
 .vue-flow-canvas {
   width: 100%;
@@ -1146,6 +1780,12 @@ onBeforeUnmount(() => {
   background: #18181b;
   border-color: #3f3f46;
   color: var(--canvas-text-primary);
+}
+:deep(.vue-flow__controls button:focus-visible) {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid var(--canvas-focus-ring);
+  outline-offset: 2px;
 }
 
 :deep(.vue-flow__node.selected) {

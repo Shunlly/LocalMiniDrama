@@ -61,7 +61,7 @@ async function processPropExtraction(db, log, taskId, episodeId) {
 
   let extractedProps = [];
   try {
-    const parsed = safeParseAIJSON(response, log);
+    const parsed = safeParseAIJSON(response, null, log);
     extractedProps = extractFirstArray(parsed) || [];
   } catch (_) {
     taskService.updateTaskError(db, taskId, '解析 AI 返回的 JSON 失败');

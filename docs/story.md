@@ -58,7 +58,7 @@
 
 - 其它如 **AIGC 剧本工厂**、**画冰 AI 剧本**、**追更短剧 AI** 等平台/工具，部分主打面向短视频自媒体/创作者群体，或提供 API 作为 SaaS 接口。
 
-如果你有更好的同类工具推荐，欢迎到 [Issue](https://github.com/xuanyustudio/LocalMiniDrama/issues) 补充交流。
+如果你有更好的同类工具推荐，欢迎到 [Issue](https://github.com/Shunlly/LocalMiniDrama/issues) 补充交流。
 
 ---
 

@@ -3,6 +3,9 @@ const qaService = require('../services/qaService');
 
 function badRequestOrInternal(res, err) {
   if (err && err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
+  if (err && err.code === 'WORKFLOW_NOT_READY') {
+    return response.error(res, 409, err.code, err.message, err.details);
+  }
   return response.internalError(res, err.message || 'QA operation failed');
 }
 

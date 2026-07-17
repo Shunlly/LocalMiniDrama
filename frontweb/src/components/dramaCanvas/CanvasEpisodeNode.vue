@@ -1,5 +1,5 @@
 <template>
-  <div class="canvas-episode-node">
+  <div class="canvas-episode-node" role="group" :aria-label="accessibleLabel">
     <Handle type="target" :position="Position.Left" />
     <span class="badge">第 {{ data.episode?.episode_number ?? '?' }} 集</span>
     <span class="title">{{ data.episode?.title || '未命名集' }}</span>
@@ -8,10 +8,16 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 
-defineProps({
+const props = defineProps({
   data: { type: Object, required: true },
+})
+
+const accessibleLabel = computed(() => {
+  const episode = props.data.episode || {}
+  return `第 ${episode.episode_number ?? '?'} 集，${episode.title || '未命名集'}，${(episode.storyboards || []).length} 个分镜`
 })
 </script>
 

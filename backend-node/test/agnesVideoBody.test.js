@@ -3,19 +3,22 @@ const assert = require('node:assert/strict');
 const { buildAgnesVideoImagePayload, formatVideoPostBodyForLog } = require('../src/services/videoClient');
 
 describe('formatVideoPostBodyForLog', () => {
-  it('keeps full http URLs and labels extra_body images with index', () => {
+  it('redacts prompts and signed URL queries while preserving image indexes', () => {
     const formatted = formatVideoPostBodyForLog({
       model: 'agnes-video-v2.0',
-      prompt: 'test prompt',
+      prompt: 'private story prompt',
       extra_body: {
-        image: ['https://cdn/a.jpg', 'https://cdn/b.png'],
+        image: [
+          'https://cdn/a.jpg?X-Amz-Signature=secret-a',
+          'https://cdn/b.png?token=secret-b',
+        ],
       },
     });
-    assert.deepEqual(formatted.extra_body.image, [
-      '[0] https://cdn/a.jpg',
-      '[1] https://cdn/b.png',
-    ]);
-    assert.equal(formatted.prompt, 'test prompt');
+    const serialized = JSON.stringify(formatted);
+    assert.match(formatted.prompt, /^\[REDACTED_PROMPT length=\d+\]$/);
+    assert.match(formatted.extra_body.image[0], /^\[0\] https:\/\/cdn\/a\.jpg\?\[REDACTED\]$/);
+    assert.match(formatted.extra_body.image[1], /^\[1\] https:\/\/cdn\/b\.png\?\[REDACTED\]$/);
+    assert.doesNotMatch(serialized, /private story prompt|secret-a|secret-b/);
   });
 
   it('summarizes base64 image fields', () => {

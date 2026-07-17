@@ -734,8 +734,6 @@ function formatSd2HubError(errMsg, hubCtx) {
     '保存前可用「列出素材」验证；若列出成功而 SD2 仍失败，说明未保存或存在多条配置未设为默认。',
   ];
   if (diag.db_config_id != null) parts.push(`当前读取的配置：id=${diag.db_config_id}${diag.db_config_name ? `「${diag.db_config_name}」` : ''}。`);
-  const fp = diag.token_fingerprint || hubCtx?.tokenFingerprint;
-  if (fp) parts.push(`Token 指纹：${fp}（请与 curl 测试通过时 Bearer 密钥的首尾字符对照是否一致）。`);
   return parts.join('');
 }
 
@@ -854,7 +852,7 @@ async function registerCharacterViaJimengHub(db, log, cfg, characterId, hubCtx, 
     character_id: Number(characterId),
     character_name: charRow.name,
     drama_id: charRow.drama_id,
-    resolved_register_image_url: String(registerImageUrl).slice(0, 500),
+    register_image_present: Boolean(registerImageUrl),
     hub_gateway: hubCtx.baseUrl,
     hub_auth_diag: hubCtx.hubAuthDiag || null,
     asset_name: assetName,

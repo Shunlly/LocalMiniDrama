@@ -5,6 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { getFfmpegPath, getFfprobePath } = require('../utils/ffmpegPath');
+const uploadService = require('./uploadService');
+
+const MAX_STORED_AUDIO_BYTES = 256 * 1024 * 1024;
 
 function ffprobeDurationSec(filePath) {
   const probe = getFfprobePath();
@@ -63,6 +66,51 @@ function runFfmpeg(args, log, tag) {
     return false;
   }
   return true;
+}
+
+function copyStoredAudioToTemp(storageRoot, storedPath, targetPath) {
+  const raw = storedPath && String(storedPath).trim();
+  if (!raw) return false;
+  let opened;
+  try {
+    opened = uploadService.openStorageFile(storageRoot, raw);
+  } catch (error) {
+    if (error?.code === 'UNSAFE_MEDIA_REFERENCE' && error?.reason === 'NOT_FOUND') return false;
+    throw error;
+  }
+  let targetFd;
+  let completed = false;
+  try {
+    if (!opened.stat.isFile() || opened.stat.size <= 0 || opened.stat.size > MAX_STORED_AUDIO_BYTES) {
+      throw new Error('Stored audio file is empty or exceeds the size limit.');
+    }
+    targetFd = fs.openSync(targetPath, 'wx');
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    let bytesRead;
+    do {
+      bytesRead = fs.readSync(opened.fd, buffer, 0, buffer.length, null);
+      let offset = 0;
+      while (offset < bytesRead) {
+        offset += fs.writeSync(targetFd, buffer, offset, bytesRead - offset);
+      }
+    } while (bytesRead > 0);
+    completed = true;
+    return true;
+  } finally {
+    if (targetFd !== undefined) fs.closeSync(targetFd);
+    fs.closeSync(opened.fd);
+    if (!completed) {
+      try { fs.unlinkSync(targetPath); } catch (_) {}
+    }
+  }
+}
+
+function appendVideoEncoderArgs(args, videoEncoder) {
+  if (videoEncoder && Array.isArray(videoEncoder.outputArgs) && videoEncoder.outputArgs.length > 0) {
+    args.push(...videoEncoder.outputArgs, '-pix_fmt', 'yuv420p');
+    return;
+  }
+  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23');
 }
 
 function writeSilenceMp3(slotSec, outPath, log) {
@@ -202,7 +250,7 @@ function getDrawtextFontOption() {
  * @param {object} mergeOpts — burn_dialogue_audio, burn_narration_subtitles, watermark_text
  */
 async function runMergedEpisodePostProcess(db, log, opts) {
-  const { mergedAbsPath, storageRoot, scenes, episodeId, mergeOpts = {} } = opts;
+  const { mergedAbsPath, storageRoot, scenes, episodeId, mergeOpts = {}, videoEncoder = null } = opts;
   const wantDial = !!mergeOpts.burn_dialogue_audio;
   const wantNarr = !!mergeOpts.burn_narration_subtitles;
   const watermarkText = (mergeOpts.watermark_text && String(mergeOpts.watermark_text).trim())
@@ -225,7 +273,6 @@ async function runMergedEpisodePostProcess(db, log, opts) {
 
   const tempRoot = path.join(require('os').tmpdir(), 'drama-merged-post', String(episodeId || 0), String(Date.now()));
   fs.mkdirSync(tempRoot, { recursive: true });
-  const ttsService = require('./ttsService');
 
   try {
     let alignedAudioPath = null;
@@ -257,10 +304,9 @@ async function runMergedEpisodePostProcess(db, log, opts) {
         const segOut = path.join(tempRoot, `seg_mix_${i}.mp3`);
 
         if (wantDial) {
-          const rel = row?.audio_local_path && String(row.audio_local_path).trim();
-          const srcAbs = rel ? path.join(storageRoot, rel.replace(/\//g, path.sep)) : null;
-          if (srcAbs && fs.existsSync(srcAbs)) {
-            if (!fitAudioToSlot(srcAbs, slotSec, diaFit, log)) {
+          const diaRaw = path.join(tempRoot, `dia_raw_${i}.audio`);
+          if (copyStoredAudioToTemp(storageRoot, row?.audio_local_path, diaRaw)) {
+            if (!fitAudioToSlot(diaRaw, slotSec, diaFit, log)) {
               return { ok: false, error: `对白配音时长对齐失败 #${i}` };
             }
           } else if (!writeSilenceMp3(slotSec, diaFit, log)) {
@@ -275,25 +321,33 @@ async function runMergedEpisodePostProcess(db, log, opts) {
             }
           } else {
             const segRaw = path.join(tempRoot, `narr_raw_${i}.mp3`);
-            let synth;
-            try {
-              synth = await ttsService.synthesize(db, log, {
-                text: narrText,
-                storyboard_id: null,
-                storage_base: storageRoot,
-              });
-            } catch (e) {
-              log.warn('merged post: narration TTS failed', { segment: i, error: e.message });
-              return { ok: false, error: `解说旁白 TTS 失败：${e.message}` };
-            }
-            const narrAbs = path.join(storageRoot, synth.local_path.replace(/\//g, path.sep));
-            if (!fs.existsSync(narrAbs)) {
-              return { ok: false, error: `旁白 TTS 文件不存在` };
-            }
-            try {
-              fs.copyFileSync(narrAbs, segRaw);
-            } catch (_) {
-              return { ok: false, error: '复制旁白 TTS 失败' };
+            const reusedNarration = copyStoredAudioToTemp(
+              storageRoot,
+              row?.narration_audio_local_path,
+              segRaw
+            );
+            if (reusedNarration) {
+              log.info('merged post: reusing storyboard narration audio', { segment: i, storyboard_id: sbId });
+            } else {
+              let synth;
+              try {
+                synth = await require('./ttsService').synthesize(db, log, {
+                  text: narrText,
+                  storyboard_id: sbId || null,
+                  storage_base: storageRoot,
+                });
+              } catch (e) {
+                log.warn('merged post: narration TTS failed', { segment: i, error: e.message });
+                return { ok: false, error: `解说旁白 TTS 失败：${e.message}` };
+              }
+              if (!copyStoredAudioToTemp(storageRoot, synth?.local_path, segRaw)) {
+                return { ok: false, error: '旁白 TTS 文件不存在' };
+              }
+              if (sbId && synth?.local_path) {
+                db.prepare(
+                  'UPDATE storyboards SET narration_audio_local_path = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
+                ).run(String(synth.local_path), new Date().toISOString(), sbId);
+              }
             }
             if (!fitAudioToSlot(segRaw, slotSec, narrFit, log)) {
               return { ok: false, error: `旁白时长对齐失败 #${i}` };
@@ -376,12 +430,10 @@ async function runMergedEpisodePostProcess(db, log, opts) {
       } else {
         args.push('-map', '0:v', '-map', '1:a');
       }
-      args.push(
-        '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-        '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-shortest', outAbs
-      );
+      appendVideoEncoderArgs(args, videoEncoder);
+      args.push('-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-shortest', outAbs);
       if (!runFfmpeg(args, log, 'mux_av')) {
-        return { ok: false, error: '烧录字幕/水印或混音失败（请确认 ffmpeg 含 libx264）' };
+        return { ok: false, error: '烧录字幕/水印或混音失败' };
       }
     } else {
       if (!filterComplex) {
@@ -393,7 +445,8 @@ async function runMergedEpisodePostProcess(db, log, opts) {
       } else {
         args.push('-an');
       }
-      args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-movflags', '+faststart', outAbs);
+      appendVideoEncoderArgs(args, videoEncoder);
+      args.push('-movflags', '+faststart', outAbs);
       if (!runFfmpeg(args, log, 'watermark_only')) {
         return { ok: false, error: '水印烧录失败' };
       }
@@ -441,6 +494,7 @@ function ffprobeHasAudio(filePath) {
 }
 
 module.exports = {
+  copyStoredAudioToTemp,
   runMergedEpisodePostProcess,
   ffprobeDurationSec,
 };

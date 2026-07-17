@@ -31,6 +31,8 @@ async function loadDramaCanvasAdapter() {
   for (const dependency of ['canvasLayout', 'canvasWorkflow', 'mediaUrl', 'storyboardMedia']) {
     const resolved = new URL(`../src/utils/${dependency}.js`, import.meta.url).href
     executableSource = executableSource
+      .replaceAll(`from './${dependency}.js'`, `from '${resolved}'`)
+      .replaceAll(`from "./${dependency}.js"`, `from "${resolved}"`)
       .replaceAll(`from './${dependency}'`, `from '${resolved}'`)
       .replaceAll(`from "./${dependency}"`, `from "${resolved}"`)
   }

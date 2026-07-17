@@ -42,7 +42,7 @@ async function generateStory(db, log, body) {
   // 解析 JSON，支持多种 AI 返回格式
   let parsed = null;
   try {
-    parsed = safeParseAIJSON(rawText, log);
+    parsed = safeParseAIJSON(rawText, null, log);
   } catch (e) {
     log && log.warn && log.warn('Story JSON parse failed', { error: e.message });
   }

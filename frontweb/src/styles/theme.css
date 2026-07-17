@@ -273,7 +273,7 @@ html.light .card,
 html.light .el-card {
   box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04) !important;
   border-color: #e8e8ef !important;
-  border-radius: 14px !important;
+  border-radius: 8px !important;
 }
 
 /* 页面标题区美化 */
@@ -300,26 +300,25 @@ html.light .project-card {
 }
 html.light .project-card:hover {
   transform: translateY(-2px) !important;
-  box-shadow: 0 4px 12px rgba(124,58,237,.12), 0 12px 32px rgba(124,58,237,.06) !important;
-  border-color: #a78bfa !important;
+  box-shadow: 0 10px 26px rgba(15,23,42,.08) !important;
+  border-color: #aeb6c2 !important;
 }
 
-/* 操作卡片（快速开始）美化 */
+/* 空工作区保持无框，避免被误解为未完成占位。 */
 html.light .action-card {
-  background: #faf5ff !important;
-  border: 2px dashed #c4b5fd !important;
+  background: transparent !important;
+  border: 0 !important;
 }
 html.light .action-card:hover {
-  border-color: #a78bfa !important;
-  background: #f5f3ff !important;
+  background: transparent !important;
 }
 html.light .action-card-title {
-  color: #7c3aed !important;
+  color: #20242c !important;
 }
 
 /* Section card 美化 */
 html.light .section.card {
-  border-radius: 14px !important;
+  border-radius: 8px !important;
   box-shadow: 0 1px 4px rgba(0,0,0,.05), 0 6px 20px rgba(0,0,0,.03) !important;
 }
 
@@ -327,7 +326,7 @@ html.light .section.card {
 html.light .library-item {
   background: #fafafa !important;
   border: 1px solid #ebebf0 !important;
-  border-radius: 10px !important;
+  border-radius: 8px !important;
   transition: box-shadow 0.15s, border-color 0.15s !important;
 }
 html.light .library-item:hover {
@@ -338,13 +337,13 @@ html.light .library-item:hover {
 /* Storyboard 卡片 */
 html.light .sb-card,
 html.light .storyboard-row {
-  border-radius: 12px !important;
+  border-radius: 8px !important;
   box-shadow: 0 1px 4px rgba(0,0,0,.05) !important;
 }
 
 /* 表格美化 */
 html.light .el-table {
-  border-radius: 10px !important;
+  border-radius: 8px !important;
   overflow: hidden !important;
 }
 html.light .el-table th.el-table__cell {

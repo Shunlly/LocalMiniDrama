@@ -21,7 +21,7 @@ async function enrichIdentityAnchors(db, log, characterId, appearance) {
       max_tokens: 800,
       temperature: 0.1,
     });
-    const anchors = safeParseAIJSON(raw, log);
+    const anchors = safeParseAIJSON(raw, null, log);
     if (!anchors || typeof anchors !== 'object') return;
     const colorPalette = anchors.color_anchors ? JSON.stringify(Object.values(anchors.color_anchors)) : null;
     db.prepare(
@@ -86,15 +86,15 @@ async function processCharacterGeneration(db, cfg, log, taskID, req) {
     return;
   }
 
-  console.log('[角色生成] AI 原始返回：\n' + text);
+  log.info('[角色生成] AI 返回已接收', { response_length: String(text || '').length });
 
   let result;
   try {
-    const parsed = safeParseAIJSON(text, log);
+    const parsed = safeParseAIJSON(text, null, log);
     result = extractFirstArray(parsed) || [];
   } catch (err) {
     log.error('Character generation parse failed', { error: err.message, task_id: taskID });
-    console.error('[角色生成] JSON解析失败，原始内容：\n' + text);
+    log.error('[角色生成] JSON 解析失败', { response_length: String(text || '').length });
     taskService.updateTaskStatus(db, taskID, 'failed', 0, '解析AI返回结果失败');
     return;
   }

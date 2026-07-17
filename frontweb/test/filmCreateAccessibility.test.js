@@ -32,6 +32,19 @@ test('film create keeps the episode selector only in the page header', () => {
   assert.equal((filmCreateSource.match(/class="header-episode-select"/g) || []).length, 1)
 })
 
+test('film create navigation names and reports the final composite step accurately', () => {
+  assert.match(
+    filmCreateSource,
+    /label: '合成视频',\s+anchor: 'anchor-video',\s+status: compositeStatus/,
+  )
+  assert.match(filmCreateSource, /if \(isPlaceholderMediaUrl\(s\)\) return ''/)
+  assert.match(filmCreateSource, /currentEpisodeVideoUrl\.value\s*\? 'done'/)
+  assert.doesNotMatch(
+    filmCreateSource,
+    /label: '分镜视频',\s+anchor: 'anchor-video'/,
+  )
+})
+
 test('storyboard video controls expose a focusable missing-prompt reason', () => {
   assert.match(
     filmCreateSource,

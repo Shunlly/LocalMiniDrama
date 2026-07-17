@@ -1,12 +1,14 @@
 <template>
-  <div
+  <button
+    type="button"
     class="canvas-add-node"
     :class="'kind-' + data.assetType"
+    :aria-label="data.label || defaultLabel"
     @click.stop="onClick"
   >
     <span class="add-icon">+</span>
     <span class="add-label">{{ data.label || defaultLabel }}</span>
-  </div>
+  </button>
 </template>
 
 <script setup>
@@ -31,6 +33,7 @@ function onClick() {
 
 <style scoped>
 .canvas-add-node {
+  appearance: none;
   width: 176px;
   padding: 14px 12px;
   border-radius: 10px;
@@ -41,6 +44,9 @@ function onClick() {
   align-items: center;
   gap: 8px;
   transition: border-color 0.15s, background 0.15s;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 .canvas-add-node:hover {
   border-color: var(--canvas-indigo-strong, #818cf8);
@@ -62,6 +68,10 @@ function onClick() {
 .add-label {
   font-size: 12px;
   color: var(--canvas-text-muted, #a1a1aa);
+}
+.canvas-add-node:focus-visible {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 3px;
 }
 .kind-character {
   border-color: var(--canvas-emerald-border, rgba(52, 211, 153, 0.4));

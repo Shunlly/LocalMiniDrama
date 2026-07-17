@@ -204,9 +204,21 @@ test('cleanup failure fails an otherwise successful smoke run while preserving U
     '修复',
     '剧集 / 时间线',
     '1 份素材已导入',
+    '以 草稿预演 启动',
   ]) {
     assert.ok(seenLabels.includes(label), `missing successful-path assertion for ${label}`)
   }
+})
+
+test('quick smoke targets the default draft-preview source launch command', () => {
+  assert.match(
+    scriptSource,
+    /getByRole\('button', \{ name: '以 草稿预演 启动', exact: true \}\)/,
+  )
+  assert.doesNotMatch(
+    scriptSource,
+    /getByRole\('button', \{ name: '启动处理', exact: true \}\)/,
+  )
 })
 
 test('fixture creation calls stay inside the guarded try and register cleanup before assertions', () => {
@@ -247,7 +259,12 @@ test('Docker purge invocation carries an exact fixture identity and explicit con
     async (executable, args, options) => {
       calls.push({ executable, args, options })
       return {
-        stdout: `${JSON.stringify({ drama_id: 91, residual: {}, verified: true })}\n`,
+        stdout: `${JSON.stringify({
+          drama_id: 91,
+          media_cleanup: { candidates: 0, deleted: 0, missing: 0, shared: 0 },
+          residual: {},
+          verified: true,
+        })}\n`,
         stderr: '',
       }
     },
@@ -255,10 +272,14 @@ test('Docker purge invocation carries an exact fixture identity and explicit con
 
   assert.equal(result.verified, true)
   assert.equal(calls[0].executable, 'docker')
-  assert.deepEqual(calls[0].args.slice(0, 8), [
+  assert.deepEqual(calls[0].args.slice(0, 12), [
     'compose',
     'exec',
     '-T',
+    '--user',
+    'node',
+    '-e',
+    'NODE_ENV=test',
     '-e',
     'LOCALMINIDRAMA_E2E_PURGE=1',
     'backend',
@@ -271,10 +292,18 @@ test('Docker purge invocation carries an exact fixture identity and explicit con
 })
 
 test('hard purge output must explicitly verify zero residual rows', () => {
+  const media_cleanup = { candidates: 1, deleted: 1, missing: 0, shared: 0 }
   assert.throws(() => parsePurgeResult('not json'), /did not return a JSON/)
   assert.throws(
-    () => parsePurgeResult(JSON.stringify({ verified: true, residual: { dramas: 1 } })),
+    () => parsePurgeResult(JSON.stringify({ verified: true, residual: { dramas: 1 }, media_cleanup })),
     /verification failed/,
   )
-  assert.equal(parsePurgeResult(JSON.stringify({ verified: true, residual: {} })).verified, true)
+  assert.throws(
+    () => parsePurgeResult(JSON.stringify({ verified: true, residual: {}, media_cleanup: null })),
+    /verification failed/,
+  )
+  assert.equal(
+    parsePurgeResult(JSON.stringify({ verified: true, residual: {}, media_cleanup })).verified,
+    true,
+  )
 })

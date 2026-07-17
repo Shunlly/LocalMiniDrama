@@ -1,6 +1,6 @@
 # FFmpeg 本地目录
 
-可以通过环境变量或此目录提供 ffmpeg 可执行文件。
+可以通过环境变量、系统 PATH 或此目录提供 ffmpeg 可执行文件。仓库不提交媒体二进制；Windows 桌面发布固定使用并校验 `8.1.2`。
 
 ## 需要拷贝的文件（Windows）
 
@@ -18,7 +18,7 @@ $env:FFMPEG_PATH = "D:\Program Files\ffmpeg\bin\ffmpeg.exe"
 $env:FFPROBE_PATH = "D:\Program Files\ffmpeg\bin\ffprobe.exe"
 ```
 
-也可以手动把 `ffmpeg.exe` 和 `ffprobe.exe` 从 FFmpeg 构建目录的 `bin` 文件夹复制到本目录。仓库没有自动复制脚本。
+也可以手动把 `ffmpeg.exe` 和 `ffprobe.exe` 从同一 FFmpeg 构建目录的 `bin` 文件夹复制到本目录。两者必须版本一致；发布构建还会校验仓库策略中固定的 SHA-256。
 
 ## 路径优先级
 

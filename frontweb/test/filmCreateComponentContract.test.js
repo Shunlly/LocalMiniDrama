@@ -7,7 +7,21 @@ import { createRenderer, defineComponent, h, nextTick, ref } from 'vue'
 
 const vueUrl = import.meta.resolve('vue')
 const actionGateUrl = new URL('../src/components/filmCreate/ActionGate.vue', import.meta.url)
+const canvasActionGateUrl = new URL('../src/components/dramaCanvas/CanvasActionGate.vue', import.meta.url)
 const pipelinePanelUrl = new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url)
+const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+
+test('FilmCreate script compiles without duplicate bindings', () => {
+  const parsed = parse(filmCreateSource, { filename: 'FilmCreate.vue' })
+  assert.deepEqual(parsed.errors, [])
+  assert.doesNotThrow(() => compileScript(parsed.descriptor, { id: 'film-create-contract' }))
+})
+
+test('storyboard insertion command names the object it creates', () => {
+  assert.doesNotMatch(filmCreateSource, />\s*＋ 新增\s*<\/el-button>/)
+  assert.match(filmCreateSource, /:aria-label="`在分镜\$\{i \+ 1\}前插入新分镜`"/)
+  assert.match(filmCreateSource, /<span>插入分镜<\/span>/)
+})
 
 function dataModule(source) {
   return `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
@@ -62,6 +76,10 @@ const compiledActionGateUrl = compileSfc(actionGateUrl, 'film-action-gate-contra
   ['vue', vueUrl],
 ]))
 
+const compiledCanvasActionGateUrl = compileSfc(canvasActionGateUrl, 'canvas-action-gate-contract', new Map([
+  ['vue', vueUrl],
+]))
+
 const compiledPipelinePanelUrl = compileSfc(
   pipelinePanelUrl,
   'film-pipeline-panel-contract',
@@ -74,7 +92,20 @@ const compiledPipelinePanelUrl = compileSfc(
 )
 
 const ActionGate = (await import(compiledActionGateUrl)).default
+const CanvasActionGate = (await import(compiledCanvasActionGateUrl)).default
 const FilmCreatePipelinePanel = (await import(compiledPipelinePanelUrl)).default
+
+test('FilmCreate never renders or forwards raw storyboard placeholder URLs', () => {
+  assert.match(filmCreateSource, /v-else-if="storyboardImageUrl\(sb\)"/)
+  assert.match(filmCreateSource, /return storyboardImageUrl\(sb\)/)
+  assert.doesNotMatch(filmCreateSource, /v-else-if="sb\.(?:image_url|composed_image)/)
+  assert.doesNotMatch(filmCreateSource, /imageUrl\(sb\.composed_image \|\| sb\.image_url\)/)
+})
+
+test('FilmCreate localizes legacy workflow camera movement values', () => {
+  assert.match(filmCreateSource, /'slow push in': '缓慢推镜'/)
+  assert.match(filmCreateSource, /'static hold': '固定镜头'/)
+})
 
 function createHostNode(type, text = '') {
   return { type, text, props: {}, children: [], parent: null }
@@ -250,6 +281,25 @@ function mountActionGate(initialReason = 'Select an episode') {
   return { app, reason, root }
 }
 
+function mountCanvasActionGate(initialReason = 'Select an episode') {
+  const Harness = defineComponent({
+    setup() {
+      return () => h(CanvasActionGate, {
+        reason: initialReason,
+        label: 'Generate video',
+        descriptionId: 'canvas-test-disabled-reason',
+      }, {
+        default: () => h('button', { type: 'button', disabled: true }, 'Generate'),
+      })
+    },
+  })
+  const root = createHostNode('root')
+  const app = renderer.createApp(Harness)
+  registerElementStubs(app)
+  app.mount(root)
+  return { app, root }
+}
+
 const pipelineEventListeners = {
   'onUpdate:aspectRatio': (value, events) => events.push(['update:aspectRatio', value]),
   'onUpdate:clipDuration': (value, events) => events.push(['update:clipDuration', value]),
@@ -323,6 +373,20 @@ test('ActionGate mounts a keyboard-focusable accessible reason and removes it wh
   }
 })
 
+test('CanvasActionGate renders a runtime aria-describedby relationship', () => {
+  const harness = mountCanvasActionGate()
+  try {
+    const [gate] = findAll(harness.root, (node) => node.props.role === 'group')
+    assert.ok(gate)
+    assert.equal(gate.props['aria-describedby'], 'canvas-test-disabled-reason')
+    const [reason] = findAll(harness.root, (node) => node.props.id === 'canvas-test-disabled-reason')
+    assert.ok(reason)
+    assert.equal(textContent(reason), 'Select an episode')
+  } finally {
+    harness.app.unmount()
+  }
+})
+
 test('pipeline disabledReason produces accessible gates and disables both start buttons', () => {
   const harness = mountPipeline({ disabledReason: 'Select an episode first' })
   try {
@@ -341,6 +405,20 @@ test('pipeline disabledReason produces accessible gates and disables both start 
       findByType(harness.root, 'tooltip').map((node) => node.props['data-content']),
       ['Select an episode first', 'Select an episode first'],
     )
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('production video gate does not disable the Draft text framework', () => {
+  const harness = mountPipeline({
+    productionDisabledReason: '缺少视频模型',
+    draftDisabledReason: '',
+  })
+  try {
+    assert.equal(buttonByText(harness.root, '一键生成成片').props.disabled, true)
+    assert.notEqual(buttonByText(harness.root, '仅生成文本框架').props.disabled, true)
+    assert.equal(findAll(harness.root, (node) => node.props.role === 'group').length, 1)
   } finally {
     harness.app.unmount()
   }

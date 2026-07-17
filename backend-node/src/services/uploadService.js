@@ -2,23 +2,28 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const https = require('https');
-const http = require('http');
+const dns = require('dns');
+const net = require('net');
 const { execFile } = require('child_process');
-const { randomUUID } = require('crypto');
+const { createHash, randomUUID } = require('crypto');
 const sharp = require('sharp');
 const { getFfprobePath } = require('../utils/ffmpegPath');
 
 const UPLOAD_SIGNATURE_BYTES = 64 * 1024;
 const DEFAULT_UPLOAD_DISK_RESERVE_BYTES = 512 * 1024 * 1024;
+const DEFAULT_STORY_SOURCE_ORIGINAL_QUOTA_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_STORY_SOURCE_ORIGINAL_BYTES = 20 * 1024 * 1024;
 const MAX_DECODED_IMAGE_PIXELS = 64 * 1024 * 1024;
 const FFPROBE_TIMEOUT_MS = 15 * 1000;
+const DEFAULT_REMOTE_MEDIA_MAX_BYTES = 64 * 1024 * 1024;
+const DEFAULT_REMOTE_MEDIA_REDIRECTS = 5;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const EBML_SIGNATURE = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
 const MP4_BRANDS = new Set([
   'isom', 'iso2', 'iso3', 'iso4', 'iso5', 'iso6', 'iso7', 'iso8', 'iso9',
   'mp41', 'mp42', 'avc1', 'M4V ', 'F4V ', 'MSNV', 'dash', 'cmfc', 'cmfs',
 ]);
+const M4A_BRANDS = new Set(['M4A ', 'M4B ', 'M4P ', 'M4A\0']);
 const FILE_TYPES = Object.freeze({
   jpeg: Object.freeze({ mimeType: 'image/jpeg', extension: '.jpg', mediaType: 'image' }),
   png: Object.freeze({ mimeType: 'image/png', extension: '.png', mediaType: 'image' }),
@@ -29,12 +34,18 @@ const FILE_TYPES = Object.freeze({
   webm: Object.freeze({ mimeType: 'video/webm', extension: '.webm', mediaType: 'video' }),
   mkv: Object.freeze({ mimeType: 'video/x-matroska', extension: '.mkv', mediaType: 'video' }),
   avi: Object.freeze({ mimeType: 'video/x-msvideo', extension: '.avi', mediaType: 'video' }),
+  mp3: Object.freeze({ mimeType: 'audio/mpeg', extension: '.mp3', mediaType: 'audio' }),
+  wav: Object.freeze({ mimeType: 'audio/wav', extension: '.wav', mediaType: 'audio' }),
+  m4a: Object.freeze({ mimeType: 'audio/mp4', extension: '.m4a', mediaType: 'audio' }),
+  ogg: Object.freeze({ mimeType: 'audio/ogg', extension: '.ogg', mediaType: 'audio' }),
 });
 
 class UnsupportedUploadTypeError extends Error {
   constructor(expectedMediaType = null) {
     const message = expectedMediaType === 'image'
       ? '只支持图片格式 (jpg, png, gif, webp)'
+      : expectedMediaType === 'audio'
+        ? '只支持音频格式 (mp3, wav, m4a, ogg)'
       : '只支持图片或视频格式 (jpg, png, gif, webp, mp4, webm, mov, avi, mkv)';
     super(message);
     this.name = 'UnsupportedUploadTypeError';
@@ -44,7 +55,11 @@ class UnsupportedUploadTypeError extends Error {
 
 class InvalidMediaContentError extends Error {
   constructor(expectedMediaType = null) {
-    const target = expectedMediaType === 'image' ? '图片' : '媒体文件';
+    const target = expectedMediaType === 'image'
+      ? '图片'
+      : expectedMediaType === 'audio'
+        ? '音频文件'
+        : '媒体文件';
     super(`${target}内容无效、已截断或无法解码`);
     this.name = 'InvalidMediaContentError';
     this.code = 'INVALID_MEDIA_CONTENT';
@@ -52,7 +67,7 @@ class InvalidMediaContentError extends Error {
 }
 
 class MediaValidationUnavailableError extends Error {
-  constructor(message = '视频校验服务暂不可用') {
+  constructor(message = '音视频校验服务暂不可用') {
     super(message);
     this.name = 'MediaValidationUnavailableError';
     this.code = 'MEDIA_VALIDATION_UNAVAILABLE';
@@ -68,6 +83,480 @@ class InsufficientUploadStorageError extends Error {
     this.availableBytes = availableBytes;
     this.reserveBytes = reserveBytes;
   }
+}
+
+class UnsafeMediaReferenceError extends Error {
+  constructor(
+    message = 'Media reference is not a safe storage resource or public HTTP(S) URL.',
+    reason = 'UNSAFE_PATH'
+  ) {
+    super(message);
+    this.name = 'UnsafeMediaReferenceError';
+    this.code = 'UNSAFE_MEDIA_REFERENCE';
+    this.reason = reason;
+  }
+}
+
+class StorySourceStorageError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'StorySourceStorageError';
+    this.code = code;
+  }
+}
+
+function decodeReferencePath(value) {
+  let decoded = String(value || '');
+  for (let count = 0; count < 3; count += 1) {
+    let next;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch (_) {
+      throw new UnsafeMediaReferenceError('Media reference contains invalid percent encoding.');
+    }
+    if (next === decoded) return decoded;
+    decoded = next;
+  }
+  if (/%[0-9a-f]{2}/i.test(decoded)) {
+    throw new UnsafeMediaReferenceError('Media reference contains nested percent encoding.');
+  }
+  return decoded;
+}
+
+function ipv4Number(address) {
+  const parts = String(address).split('.');
+  if (parts.length !== 4) return null;
+  let result = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const value = Number(part);
+    if (value < 0 || value > 255) return null;
+    result = (result * 256) + value;
+  }
+  return result >>> 0;
+}
+
+function ipv4InCidr(address, base, prefix) {
+  const value = ipv4Number(address);
+  const network = ipv4Number(base);
+  if (value == null || network == null) return false;
+  const shift = 32 - prefix;
+  return shift === 32 ? true : (value >>> shift) === (network >>> shift);
+}
+
+function parseIpv6(address) {
+  let input = String(address || '').toLowerCase();
+  if (!input || input.includes('%')) return null;
+  if (input.includes('.')) {
+    const splitAt = input.lastIndexOf(':');
+    if (splitAt < 0) return null;
+    const ipv4 = ipv4Number(input.slice(splitAt + 1));
+    if (ipv4 == null) return null;
+    input = `${input.slice(0, splitAt)}:${((ipv4 >>> 16) & 0xffff).toString(16)}:${(ipv4 & 0xffff).toString(16)}`;
+  }
+  if ((input.match(/::/g) || []).length > 1) return null;
+  const halves = input.split('::');
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  if (halves.length === 1 && left.length !== 8) return null;
+  const missing = 8 - left.length - right.length;
+  if (missing < 0 || (halves.length === 2 && missing < 1)) return null;
+  const parts = [...left, ...Array(missing).fill('0'), ...right];
+  if (parts.length !== 8 || parts.some((part) => !/^[0-9a-f]{1,4}$/.test(part))) return null;
+  let value = 0n;
+  for (const part of parts) value = (value << 16n) | BigInt(parseInt(part, 16));
+  return value;
+}
+
+function ipv6InCidr(value, base, prefix) {
+  const baseValue = parseIpv6(base);
+  if (value == null || baseValue == null) return false;
+  const shift = 128n - BigInt(prefix);
+  return (value >> shift) === (baseValue >> shift);
+}
+
+function isGloballyRoutableIp(address) {
+  const family = net.isIP(String(address || ''));
+  if (family === 4) {
+    return ![
+      ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
+      ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
+      ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24],
+      ['224.0.0.0', 4], ['240.0.0.0', 4],
+    ].some(([base, prefix]) => ipv4InCidr(address, base, prefix));
+  }
+  if (family !== 6) return false;
+  const value = parseIpv6(address);
+  if (value == null) return false;
+  if (ipv6InCidr(value, '::ffff:0:0', 96)) {
+    const mapped = Number(value & 0xffffffffn);
+    return isGloballyRoutableIp([
+      (mapped >>> 24) & 255,
+      (mapped >>> 16) & 255,
+      (mapped >>> 8) & 255,
+      mapped & 255,
+    ].join('.'));
+  }
+  return ![
+    ['::', 128], ['::1', 128], ['::', 96], ['64:ff9b::', 96], ['64:ff9b:1::', 48],
+    ['100::', 64], ['2001::', 23], ['2001:db8::', 32], ['2002::', 16],
+    ['3fff::', 20], ['5f00::', 16], ['fc00::', 7], ['fec0::', 10],
+    ['fe80::', 10], ['ff00::', 8],
+  ].some(([base, prefix]) => ipv6InCidr(value, base, prefix));
+}
+
+function isMetadataIp(address) {
+  const family = net.isIP(String(address || ''));
+  if (family === 4) {
+    return address === '169.254.169.254' ||
+      address === '169.254.170.2' ||
+      address === '100.100.100.200' ||
+      address === '168.63.129.16';
+  }
+  if (family !== 6) return false;
+  const value = parseIpv6(address);
+  return value != null && value === parseIpv6('fd00:ec2::254');
+}
+
+function isAllowedPrivateProviderIp(address) {
+  const family = net.isIP(String(address || ''));
+  if (family === 4) {
+    return [
+      ['10.0.0.0', 8], ['127.0.0.0', 8], ['172.16.0.0', 12], ['192.168.0.0', 16],
+    ].some(([base, prefix]) => ipv4InCidr(address, base, prefix));
+  }
+  if (family !== 6) return false;
+  const value = parseIpv6(address);
+  return value != null && (
+    ipv6InCidr(value, '::1', 128) ||
+    ipv6InCidr(value, 'fc00::', 7)
+  );
+}
+
+function normalizedHostname(hostname) {
+  return String(hostname || '').trim().replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase();
+}
+
+function isBlockedHostname(hostname) {
+  const host = normalizedHostname(hostname);
+  return !host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') ||
+    host.endsWith('.internal') || host.endsWith('.home.arpa') || host === 'metadata' ||
+    host === 'instance-data' || host === 'metadata.google.internal';
+}
+
+function isMetadataHostname(hostname) {
+  const host = normalizedHostname(hostname);
+  return host === 'metadata' || host === 'instance-data' ||
+    host === 'metadata.google.internal' || host === 'metadata.azure.internal' ||
+    host.endsWith('.metadata.google.internal');
+}
+
+function parseHttpUrlSyntax(value) {
+  const text = String(value || '').trim();
+  if (!text || text.length > 4096 || /[\u0000-\u001f\u007f]/.test(text)) {
+    throw new UnsafeMediaReferenceError('Media URL is empty, too long, or contains control characters.');
+  }
+  let parsed;
+  try {
+    parsed = new URL(text);
+  } catch (_) {
+    throw new UnsafeMediaReferenceError('Media URL is invalid.');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+    throw new UnsafeMediaReferenceError('Media URL must be credential-free HTTP(S).');
+  }
+  return parsed;
+}
+
+function trustedOriginMatch(parsed, trustedOrigins) {
+  if (!Array.isArray(trustedOrigins) || trustedOrigins.length === 0) return false;
+  return trustedOrigins.some((value) => {
+    try {
+      const trusted = parseHttpUrlSyntax(value);
+      return trusted.origin === parsed.origin;
+    } catch (_) {
+      return false;
+    }
+  });
+}
+
+function isExplicitLocalProviderHostname(hostname) {
+  const host = normalizedHostname(hostname);
+  if (!host) return false;
+  if (net.isIP(host)) return isAllowedPrivateProviderIp(host);
+  return !host.includes('.') || host === 'localhost' || host.endsWith('.localhost') ||
+    host.endsWith('.local') || host.endsWith('.internal') ||
+    host.endsWith('.home.arpa') || host.endsWith('.docker.internal');
+}
+
+function assertPublicHttpUrlSyntax(value) {
+  const parsed = parseHttpUrlSyntax(value);
+  const host = normalizedHostname(parsed.hostname);
+  if (isBlockedHostname(host)) throw new UnsafeMediaReferenceError('Media URL host is not public.');
+  if (net.isIP(host) && !isGloballyRoutableIp(host)) {
+    throw new UnsafeMediaReferenceError('Media URL resolves to a non-public address.');
+  }
+  return parsed;
+}
+
+async function validatePublicHttpUrl(value, options = {}) {
+  const basic = parseHttpUrlSyntax(value);
+  const basicHost = normalizedHostname(basic.hostname);
+  if (isMetadataHostname(basicHost)) {
+    throw new UnsafeMediaReferenceError('Media URL targets a metadata service.');
+  }
+  const trustedOrigin = trustedOriginMatch(basic, options.trustedOrigins);
+  const explicitPrivateOrigin = trustedOriginMatch(basic, options.allowPrivateOrigins);
+  const privateAddressAllowed = explicitPrivateOrigin || (
+    trustedOrigin && isExplicitLocalProviderHostname(basicHost)
+  );
+  const parsed = trustedOrigin ? basic : assertPublicHttpUrlSyntax(value);
+  const host = normalizedHostname(parsed.hostname);
+  let records;
+  if (net.isIP(host)) {
+    records = [{ address: host, family: net.isIP(host) }];
+  } else {
+    const lookup = options.lookup || dns.promises.lookup;
+    try {
+      records = await lookup(host, { all: true, verbatim: true });
+    } catch (error) {
+      throw new UnsafeMediaReferenceError(`Media URL DNS lookup failed: ${error?.code || 'DNS_ERROR'}.`);
+    }
+  }
+  if (!Array.isArray(records)) records = records ? [records] : [];
+  const invalidDnsAnswer = records.some((record) => !net.isIP(String(record?.address || '')));
+  const metadataAnswer = records.some((record) => isMetadataIp(record?.address));
+  const unsafeAnswer = records.some((record) => {
+    if (isGloballyRoutableIp(record?.address)) return false;
+    return !privateAddressAllowed || !isAllowedPrivateProviderIp(record?.address);
+  });
+  if (records.length === 0 || invalidDnsAnswer || metadataAnswer || unsafeAnswer) {
+    throw new UnsafeMediaReferenceError('Media URL resolves to a non-public address.');
+  }
+  return {
+    url: parsed.toString(),
+    parsed,
+    trustedOrigin,
+    privateAddressAllowed,
+    addresses: records.map((record) => ({ address: record.address, family: Number(record.family) || net.isIP(record.address) })),
+  };
+}
+
+function createPinnedDnsLookup(selected) {
+  const address = String(selected?.address || '');
+  const family = Number(selected?.family) || net.isIP(address);
+  if (!family) throw new UnsafeMediaReferenceError('Pinned DNS address is invalid.');
+  return (_hostname, lookupOptions, callback) => {
+    if (typeof lookupOptions === 'function') {
+      callback = lookupOptions;
+      lookupOptions = {};
+    }
+    if (lookupOptions?.all === true) {
+      callback(null, [{ address, family }]);
+      return;
+    }
+    callback(null, address, family);
+  };
+}
+
+function normalizeStorageRelativeReference(value) {
+  const text = String(value || '').trim();
+  if (!text || text.length > 2048 || /[\u0000-\u001f\u007f?#]/.test(text)) {
+    throw new UnsafeMediaReferenceError('Local media reference is invalid.');
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(text) || path.isAbsolute(text) || /^[\\/]{2}/.test(text)) {
+    throw new UnsafeMediaReferenceError('Absolute local media paths are not allowed.');
+  }
+  let relative = decodeReferencePath(text).replace(/\\/g, '/');
+  relative = relative.replace(/^\/+/, '');
+  if (relative.toLowerCase().startsWith('static/')) relative = relative.slice('static/'.length);
+  const segments = relative.split('/');
+  if (!relative || segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+    throw new UnsafeMediaReferenceError('Local media reference would escape storage.');
+  }
+  const normalized = path.posix.normalize(relative);
+  if (normalized !== relative || path.posix.isAbsolute(normalized) || /^[a-z]:/i.test(normalized)) {
+    throw new UnsafeMediaReferenceError('Local media reference would escape storage.');
+  }
+  return normalized;
+}
+
+function localReferenceFromValue(value) {
+  const text = String(value || '').trim();
+  if (!text) throw new UnsafeMediaReferenceError('Media reference is empty.');
+  if (text.startsWith('/static/')) return normalizeStorageRelativeReference(text.slice('/static/'.length));
+  if (/^https?:\/\//i.test(text)) {
+    let parsed;
+    try {
+      parsed = new URL(text);
+    } catch (_) {
+      throw new UnsafeMediaReferenceError('Media URL is invalid.');
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+      throw new UnsafeMediaReferenceError('Media URL must be credential-free HTTP(S).');
+    }
+    const host = normalizedHostname(parsed.hostname);
+    const isKnownLocal = host === 'localhost' || host.endsWith('.localhost') || host === '::1' ||
+      (net.isIP(host) === 4 && ipv4InCidr(host, '127.0.0.0', 8));
+    if (isKnownLocal && parsed.pathname.startsWith('/static/')) {
+      return normalizeStorageRelativeReference(parsed.pathname.slice('/static/'.length));
+    }
+    return null;
+  }
+  return normalizeStorageRelativeReference(text);
+}
+
+function inspectStorageRoot(storagePath, options = {}) {
+  if (!storagePath) throw new UnsafeMediaReferenceError('Storage root is required for local media.');
+  const root = path.resolve(storagePath);
+  const parsed = path.parse(root);
+  const segments = root.slice(parsed.root.length).split(path.sep).filter(Boolean);
+  let current = parsed.root;
+  const pathsToInspect = [current];
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    pathsToInspect.push(current);
+  }
+
+  for (const candidate of pathsToInspect) {
+    let stat;
+    try {
+      stat = fs.lstatSync(candidate);
+    } catch (error) {
+      if (error?.code !== 'ENOENT' || !options.create) {
+        throw new UnsafeMediaReferenceError('Storage root is unavailable.', 'NOT_FOUND');
+      }
+      try {
+        fs.mkdirSync(candidate);
+        stat = fs.lstatSync(candidate);
+      } catch (mkdirError) {
+        throw new UnsafeMediaReferenceError('Storage root could not be created safely.', 'CREATE_FAILED');
+      }
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new UnsafeMediaReferenceError(
+        'Storage root path cannot contain symbolic links or non-directory entries.',
+        stat.isSymbolicLink() ? 'SYMLINK' : 'NOT_DIRECTORY'
+      );
+    }
+  }
+  return { root, rootReal: fs.realpathSync(root) };
+}
+
+function ensureStorageDirectory(storagePath, relativeDirectory) {
+  const relative = normalizeStorageRelativeReference(relativeDirectory);
+  const { root, rootReal } = inspectStorageRoot(storagePath, { create: true });
+  let current = root;
+  for (const segment of relative.split('/')) {
+    current = path.join(current, segment);
+    try {
+      fs.mkdirSync(current);
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+    const stat = fs.lstatSync(current);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new UnsafeMediaReferenceError(
+        'Storage directories cannot contain symbolic links or non-directory entries.',
+        stat.isSymbolicLink() ? 'SYMLINK' : 'NOT_DIRECTORY'
+      );
+    }
+    const currentReal = fs.realpathSync(current);
+    const relation = path.relative(rootReal, currentReal);
+    if (relation === '..' || relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation)) {
+      throw new UnsafeMediaReferenceError('Storage directory would escape its root.');
+    }
+  }
+  return { root, rootReal, directory: current, relativePath: relative };
+}
+
+function resolveStorageReference(storagePath, value, options = {}) {
+  const relativePath = localReferenceFromValue(value);
+  if (!relativePath) return null;
+  const { root, rootReal } = inspectStorageRoot(storagePath);
+  const candidate = path.resolve(root, ...relativePath.split('/'));
+  const relation = path.relative(root, candidate);
+  if (!relation || relation === '..' || relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation)) {
+    throw new UnsafeMediaReferenceError('Local media reference would escape storage.');
+  }
+  if (options.mustExist === false) {
+    return { relativePath, absolutePath: candidate, canonical: `/static/${relativePath}` };
+  }
+  let current = root;
+  const segments = relativePath.split('/');
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    current = path.join(current, segment);
+    let stat;
+    try {
+      stat = fs.lstatSync(current);
+    } catch (error) {
+      if (error?.code === 'ENOENT' && options.allowMissing) return null;
+      throw new UnsafeMediaReferenceError('Local media file does not exist.', 'NOT_FOUND');
+    }
+    if (stat.isSymbolicLink()) {
+      throw new UnsafeMediaReferenceError('Symbolic links are not allowed for local media.', 'SYMLINK');
+    }
+    if (index < segments.length - 1 && !stat.isDirectory()) {
+      throw new UnsafeMediaReferenceError('Local media path contains a non-directory entry.', 'NOT_DIRECTORY');
+    }
+  }
+  const candidateReal = fs.realpathSync(candidate);
+  const realRelation = path.relative(rootReal, candidateReal);
+  const stat = fs.statSync(candidateReal);
+  if (!realRelation || realRelation === '..' || realRelation.startsWith(`..${path.sep}`) || path.isAbsolute(realRelation) || !stat.isFile()) {
+    throw new UnsafeMediaReferenceError('Local media file is outside storage or is not a regular file.');
+  }
+  return { relativePath, absolutePath: candidateReal, canonical: `/static/${relativePath}` };
+}
+
+function sameFileIdentity(left, right) {
+  if (!left || !right || !left.isFile() || !right.isFile()) return false;
+  if (Number(left.ino) !== 0 || Number(right.ino) !== 0) {
+    return left.dev === right.dev && left.ino === right.ino;
+  }
+  return left.size === right.size
+    && left.mtimeMs === right.mtimeMs
+    && left.birthtimeMs === right.birthtimeMs;
+}
+
+function openStorageFile(storagePath, value) {
+  const resolved = resolveStorageReference(storagePath, value);
+  if (!resolved) throw new UnsafeMediaReferenceError('Local storage file is required.');
+  const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+  let fd;
+  try {
+    fd = fs.openSync(resolved.absolutePath, fs.constants.O_RDONLY | noFollow);
+    const openedStat = fs.fstatSync(fd);
+    const verified = resolveStorageReference(storagePath, resolved.relativePath);
+    const verifiedStat = fs.statSync(verified.absolutePath);
+    if (
+      verified.absolutePath !== resolved.absolutePath ||
+      !sameFileIdentity(openedStat, verifiedStat)
+    ) {
+      throw new UnsafeMediaReferenceError('Local media file changed during secure open.', 'CHANGED');
+    }
+    return { ...verified, fd, stat: openedStat };
+  } catch (error) {
+    if (fd !== undefined) fs.closeSync(fd);
+    throw error;
+  }
+}
+
+async function validateMediaReference(value, options = {}) {
+  const text = String(value || '').trim();
+  if (!text || text.startsWith('data:') || text.startsWith('file:')) {
+    throw new UnsafeMediaReferenceError('Reference media must come from storage or a public HTTP(S) URL.');
+  }
+  let local = null;
+  try {
+    local = resolveStorageReference(options.storagePath, text, { mustExist: options.mustExist !== false });
+  } catch (error) {
+    if (!/^https?:\/\//i.test(text) || text.startsWith('/static/')) throw error;
+  }
+  if (local) return { kind: 'local', ...local };
+  const remote = await validatePublicHttpUrl(text, options);
+  return { kind: 'remote', canonical: remote.url, ...remote };
 }
 
 function readUploadHead(source) {
@@ -145,7 +634,7 @@ function detectEbmlType(buffer) {
   return null;
 }
 
-function detectIsoBmffType(buffer, totalSize) {
+function readIsoBmffBrands(buffer, totalSize) {
   if (buffer.length < 16 || buffer.toString('ascii', 4, 8) !== 'ftyp') return null;
 
   const compactSize = buffer.readUInt32BE(0);
@@ -165,8 +654,58 @@ function detectIsoBmffType(buffer, totalSize) {
   for (let offset = brandOffset + 8; offset + 4 <= availableEnd; offset += 4) {
     brands.push(buffer.toString('ascii', offset, offset + 4));
   }
+  return brands;
+}
+
+function detectIsoBmffType(buffer, totalSize) {
+  const brands = readIsoBmffBrands(buffer, totalSize);
+  if (!brands) return null;
   if (brands.includes('qt  ')) return FILE_TYPES.mov;
   if (brands.some((brand) => MP4_BRANDS.has(brand))) return FILE_TYPES.mp4;
+  return null;
+}
+
+function hasMpegAudioFrameSync(buffer) {
+  const end = Math.min(buffer.length - 3, 4096);
+  for (let offset = 0; offset <= end; offset += 1) {
+    if (buffer[offset] !== 0xff || (buffer[offset + 1] & 0xe0) !== 0xe0) continue;
+    const version = (buffer[offset + 1] >> 3) & 0x03;
+    const layer = (buffer[offset + 1] >> 1) & 0x03;
+    const bitrate = (buffer[offset + 2] >> 4) & 0x0f;
+    const sampleRate = (buffer[offset + 2] >> 2) & 0x03;
+    if (version !== 1 && layer !== 0 && bitrate !== 0 && bitrate !== 15 && sampleRate !== 3) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasId3Signature(buffer) {
+  return buffer.length >= 10
+    && buffer.toString('ascii', 0, 3) === 'ID3'
+    && buffer[3] !== 0xff
+    && buffer[4] !== 0xff
+    && (buffer[6] & 0x80) === 0
+    && (buffer[7] & 0x80) === 0
+    && (buffer[8] & 0x80) === 0
+    && (buffer[9] & 0x80) === 0;
+}
+
+function detectAllowedAudioUpload(source) {
+  const { head, size } = readUploadHead(source);
+  if (head.length >= 12 && head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WAVE') {
+    return { ...FILE_TYPES.wav };
+  }
+  if (head.length >= 4 && head.toString('ascii', 0, 4) === 'OggS') {
+    return { ...FILE_TYPES.ogg };
+  }
+  if (hasId3Signature(head) || hasMpegAudioFrameSync(head)) {
+    return { ...FILE_TYPES.mp3 };
+  }
+  const brands = readIsoBmffBrands(head, size);
+  if (brands && brands.some((brand) => M4A_BRANDS.has(brand) || MP4_BRANDS.has(brand))) {
+    return { ...FILE_TYPES.m4a };
+  }
   return null;
 }
 
@@ -205,6 +744,7 @@ function isUploadValidationError(err) {
     'UNSUPPORTED_UPLOAD_TYPE',
     'INVALID_MEDIA_CONTENT',
     'MEDIA_VALIDATION_UNAVAILABLE',
+    'UNSAFE_MEDIA_REFERENCE',
   ].includes(err.code));
 }
 
@@ -250,7 +790,246 @@ function assertUploadDiskCapacity(
 }
 
 function isUploadStorageError(err) {
-  return Boolean(err && (err.code === 'INSUFFICIENT_STORAGE' || err.code === 'ENOSPC'));
+  return Boolean(err && [
+    'INSUFFICIENT_STORAGE',
+    'SOURCE_ORIGINAL_QUOTA_EXCEEDED',
+    'ENOSPC',
+  ].includes(err.code));
+}
+
+function storySourceStorageId(value, label) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', `${label} must be a positive integer.`);
+  }
+  return parsed;
+}
+
+function sourceOriginalExtension(source) {
+  const allowed = new Set([
+    '.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json',
+    '.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif',
+    '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga',
+    '.mp4', '.mov', '.mkv', '.avi', '.webm', '.ogv',
+  ]);
+  const supplied = String(source?.extension || '').trim().toLowerCase();
+  if (allowed.has(supplied)) return supplied === '.jpeg' ? '.jpg' : supplied;
+  const format = String(source?.format || '').trim().toLowerCase();
+  const byFormat = {
+    jpeg: '.jpg',
+    ogg_audio: '.ogg',
+    ogg_video: '.ogv',
+  };
+  const inferred = byFormat[format] || `.${format || 'txt'}`;
+  if (!allowed.has(inferred)) {
+    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', 'The detected source extension is not allowed.');
+  }
+  return inferred;
+}
+
+function sourceOriginalMime(value) {
+  const mime = String(value || '').trim().toLowerCase();
+  if (
+    mime.length > 200 ||
+    !/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(mime)
+  ) {
+    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', 'The detected source MIME type is invalid.');
+  }
+  return mime;
+}
+
+function ensureSecureStorageDirectory(storagePath, relativeDirectory) {
+  try {
+    const secured = ensureStorageDirectory(storagePath, relativeDirectory);
+    return {
+      root: secured.root,
+      rootReal: secured.rootReal,
+      directory: secured.directory,
+      relativeDirectory: secured.relativePath,
+    };
+  } catch (error) {
+    if (error?.code === 'UNSAFE_MEDIA_REFERENCE') {
+      throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', error.message);
+    }
+    throw error;
+  }
+}
+
+function directoryFileBytes(directory, stopAfter = Number.MAX_SAFE_INTEGER) {
+  if (!fs.existsSync(directory)) return 0;
+  const pending = [directory];
+  let total = 0;
+  while (pending.length) {
+    const current = pending.pop();
+    const currentStat = fs.lstatSync(current);
+    if (currentStat.isSymbolicLink()) {
+      throw new StorySourceStorageError(
+        'UNSAFE_SOURCE_STORAGE',
+        'Story source storage cannot contain symbolic links.'
+      );
+    }
+    if (currentStat.isFile()) {
+      total += currentStat.size;
+      if (total > stopAfter) return total;
+      continue;
+    }
+    if (!currentStat.isDirectory()) {
+      throw new StorySourceStorageError(
+        'UNSAFE_SOURCE_STORAGE',
+        'Story source storage can contain only regular files and directories.'
+      );
+    }
+    for (const entry of fs.readdirSync(current)) {
+      pending.push(path.join(current, entry));
+    }
+  }
+  return total;
+}
+
+function persistStorySourceOriginal(storagePath, dramaIdValue, sourceIdValue, source, options = {}) {
+  const dramaId = storySourceStorageId(dramaIdValue, 'drama_id');
+  const sourceId = storySourceStorageId(sourceIdValue, 'source_id');
+  if (!Buffer.isBuffer(source?.buffer) || source.buffer.length === 0) {
+    throw new StorySourceStorageError('INVALID_SOURCE_ORIGINAL', 'The source original is empty or unavailable.');
+  }
+  const maxBytes = Math.max(1, Number(options.maxBytes) || MAX_STORY_SOURCE_ORIGINAL_BYTES);
+  if (source.buffer.length > maxBytes) {
+    throw new StorySourceStorageError('SOURCE_ORIGINAL_TOO_LARGE', 'The source original exceeds the upload limit.');
+  }
+
+  const quotaBytes = Math.max(1, Number(options.quotaBytes) || DEFAULT_STORY_SOURCE_ORIGINAL_QUOTA_BYTES);
+  const dramaRelativeDirectory = `story_sources/${dramaId}`;
+  const dramaDirectory = ensureSecureStorageDirectory(storagePath, dramaRelativeDirectory);
+  const existingBytes = directoryFileBytes(dramaDirectory.directory, quotaBytes);
+  if (existingBytes + source.buffer.length > quotaBytes) {
+    throw new StorySourceStorageError(
+      'SOURCE_ORIGINAL_QUOTA_EXCEEDED',
+      'The story source original quota for this drama has been exceeded.'
+    );
+  }
+  assertUploadDiskCapacity(
+    dramaDirectory.root,
+    source.buffer.length,
+    options.reserveBytes ?? DEFAULT_UPLOAD_DISK_RESERVE_BYTES,
+    options.getAvailableBytes ?? getAvailableDiskBytes
+  );
+
+  const sourceRelativeDirectory = `${dramaRelativeDirectory}/${sourceId}`;
+  const sourceDirectory = ensureSecureStorageDirectory(storagePath, sourceRelativeDirectory);
+  const originalRelativeDirectory = `${sourceRelativeDirectory}/original`;
+  const originalDirectory = ensureSecureStorageDirectory(storagePath, originalRelativeDirectory);
+  const extension = sourceOriginalExtension(source);
+  const mime = sourceOriginalMime(source.mime);
+  const serverFilename = `${randomUUID()}${extension}`;
+  const relativePath = `${originalRelativeDirectory}/${serverFilename}`;
+  const absolutePath = path.join(originalDirectory.directory, serverFilename);
+  const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+  const flags = fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | noFollow;
+  let fd;
+  try {
+    fd = fs.openSync(absolutePath, flags, 0o600);
+    fs.writeFileSync(fd, source.buffer);
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    const written = fs.lstatSync(absolutePath);
+    if (written.isSymbolicLink() || !written.isFile() || written.size !== source.buffer.length) {
+      throw new StorySourceStorageError('SOURCE_ORIGINAL_WRITE_FAILED', 'The source original was not written safely.');
+    }
+  } catch (error) {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch (_) {}
+    }
+    try { fs.unlinkSync(absolutePath); } catch (cleanupError) {
+      if (cleanupError.code !== 'ENOENT') throw cleanupError;
+    }
+    throw error;
+  }
+
+  const sha256 = createHash('sha256').update(source.buffer).digest('hex');
+  return {
+    absolutePath,
+    cleanupDirectories: [originalDirectory.directory, sourceDirectory.directory],
+    metadata: {
+      storage_path: relativePath,
+      server_filename: serverFilename,
+      sha256,
+      size: source.buffer.length,
+      mime,
+      download_url: `/api/v1/story-sources/${sourceId}/original`,
+    },
+  };
+}
+
+function removeStorySourceOriginal(artifact, log = null) {
+  if (!artifact) return;
+  removeFile(artifact.absolutePath, log);
+  for (const directory of artifact.cleanupDirectories || []) {
+    try {
+      fs.rmdirSync(directory);
+    } catch (error) {
+      if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code) && log?.warn) {
+        log.warn('Failed to remove empty story source directory', { error: error.message });
+      }
+    }
+  }
+}
+
+function readStorySourceOriginal(storagePath, source) {
+  const dramaId = storySourceStorageId(source?.drama_id, 'drama_id');
+  const sourceId = storySourceStorageId(source?.id, 'source_id');
+  const metadata = source?.metadata?.original_file;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new StorySourceStorageError('SOURCE_ORIGINAL_NOT_FOUND', 'This story source has no retained original.');
+  }
+  const expectedDirectory = `story_sources/${dramaId}/${sourceId}/original`;
+  const relativePath = normalizeStorageRelativeReference(metadata.storage_path);
+  const serverFilename = String(metadata.server_filename || '');
+  if (
+    path.posix.dirname(relativePath) !== expectedDirectory ||
+    path.posix.basename(relativePath) !== serverFilename ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]{1,8}$/.test(serverFilename)
+  ) {
+    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', 'Story source original metadata is not bound to this source.');
+  }
+  const expectedSize = Number(metadata.size);
+  const expectedHash = String(metadata.sha256 || '').toLowerCase();
+  const mime = sourceOriginalMime(metadata.mime);
+  if (
+    !Number.isSafeInteger(expectedSize) ||
+    expectedSize <= 0 ||
+    expectedSize > MAX_STORY_SOURCE_ORIGINAL_BYTES ||
+    !/^[0-9a-f]{64}$/.test(expectedHash)
+  ) {
+    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', 'Story source original integrity metadata is invalid.');
+  }
+
+  const opened = openStorageFile(storagePath, relativePath);
+  let fd = opened.fd;
+  try {
+    const before = opened.stat;
+    if (!before.isFile() || before.size !== expectedSize) {
+      throw new StorySourceStorageError('SOURCE_ORIGINAL_INTEGRITY_FAILED', 'The retained source original size no longer matches its metadata.');
+    }
+    const buffer = fs.readFileSync(fd);
+    const after = fs.fstatSync(fd);
+    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+      throw new StorySourceStorageError('SOURCE_ORIGINAL_INTEGRITY_FAILED', 'The retained source original changed while it was being read.');
+    }
+    const actualHash = createHash('sha256').update(buffer).digest('hex');
+    if (actualHash !== expectedHash) {
+      throw new StorySourceStorageError('SOURCE_ORIGINAL_INTEGRITY_FAILED', 'The retained source original hash no longer matches its metadata.');
+    }
+    return {
+      buffer,
+      mime,
+      serverFilename,
+      sha256: expectedHash,
+      size: expectedSize,
+    };
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
 }
 
 function imageTypeFromSharpFormat(format) {
@@ -279,11 +1058,11 @@ async function validateImageUpload(source, expectedMediaType = null) {
   }
 }
 
-function probeVideoFile(filePath) {
+function probeMediaFile(filePath) {
   const args = [
     '-v', 'error',
-    '-show_entries', 'format=format_name:format_tags=major_brand',
-    '-show_entries', 'stream=codec_type,codec_name,width,height',
+    '-show_entries', 'format=format_name,duration:format_tags=major_brand',
+    '-show_entries', 'stream=codec_type,codec_name,width,height,duration,channels,sample_rate',
     '-of', 'json',
     filePath,
   ];
@@ -291,7 +1070,12 @@ function probeVideoFile(filePath) {
     execFile(
       getFfprobePath(),
       args,
-      { encoding: 'utf8', maxBuffer: 1024 * 1024, timeout: FFPROBE_TIMEOUT_MS },
+      {
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024,
+        timeout: FFPROBE_TIMEOUT_MS,
+        windowsHide: true,
+      },
       (err, stdout) => {
         if (err) return reject(err);
         try {
@@ -333,7 +1117,7 @@ async function validateVideoUpload(source, expectedMediaType = null) {
   }
 
   try {
-    const probe = await probeVideoFile(probePath);
+    const probe = await probeMediaFile(probePath);
     const videoStream = Array.isArray(probe?.streams)
       ? probe.streams.find((stream) => stream.codec_type === 'video')
       : null;
@@ -351,7 +1135,63 @@ async function validateVideoUpload(source, expectedMediaType = null) {
   }
 }
 
+function audioTypeFromProbe(probe, candidate) {
+  const formatNames = String(probe?.format?.format_name || '')
+    .toLowerCase()
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
+  const expectedFormats = {
+    '.mp3': new Set(['mp3']),
+    '.wav': new Set(['wav']),
+    '.m4a': new Set(['mov', 'mp4', 'm4a', '3gp', '3g2', 'mj2']),
+    '.ogg': new Set(['ogg']),
+  };
+  const allowedFormats = expectedFormats[candidate?.extension];
+  if (!allowedFormats || !formatNames.some((name) => allowedFormats.has(name))) return null;
+  return FILE_TYPES[candidate.extension.slice(1)] || null;
+}
+
+async function validateAudioUpload(source, expectedMediaType = 'audio') {
+  const candidate = detectAllowedAudioUpload(source);
+  if (!candidate) throw new UnsupportedUploadTypeError(expectedMediaType);
+
+  let probePath = source;
+  let temporaryDir = null;
+  if (Buffer.isBuffer(source)) {
+    temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-audio-probe-'));
+    probePath = path.join(temporaryDir, 'candidate.media');
+    fs.writeFileSync(probePath, source, { flag: 'wx' });
+  }
+
+  try {
+    const probe = await probeMediaFile(probePath);
+    const streams = Array.isArray(probe?.streams) ? probe.streams : [];
+    const audioStream = streams.find((stream) => stream.codec_type === 'audio');
+    const hasVideoStream = streams.some((stream) => stream.codec_type === 'video');
+    const detected = audioTypeFromProbe(probe, candidate);
+    const duration = Number(probe?.format?.duration ?? audioStream?.duration);
+    if (
+      !audioStream?.codec_name
+      || hasVideoStream
+      || !detected
+      || !Number.isFinite(duration)
+      || duration <= 0
+    ) {
+      throw new InvalidMediaContentError(expectedMediaType);
+    }
+    return { ...detected, duration };
+  } catch (err) {
+    if (err?.code === 'ENOENT') throw new MediaValidationUnavailableError();
+    if (err?.code === 'INVALID_MEDIA_CONTENT' || err?.code === 'UNSUPPORTED_UPLOAD_TYPE') throw err;
+    throw new InvalidMediaContentError(expectedMediaType);
+  } finally {
+    if (temporaryDir) fs.rmSync(temporaryDir, { recursive: true, force: true });
+  }
+}
+
 async function validateAllowedUpload(source, expectedMediaType = null) {
+  if (expectedMediaType === 'audio') return validateAudioUpload(source, expectedMediaType);
   const candidate = detectAllowedUpload(source);
   if (candidate?.mediaType === 'image' || expectedMediaType === 'image') {
     const detected = await validateImageUpload(source, expectedMediaType);
@@ -367,7 +1207,6 @@ async function validateAllowedUpload(source, expectedMediaType = null) {
     }
     return detected;
   }
-
   if (!expectedMediaType) {
     try {
       return await validateImageUpload(source);
@@ -382,59 +1221,49 @@ async function validateAllowedUpload(source, expectedMediaType = null) {
  * 用 Node.js 原生 http/https 模块下载 URL 到 Buffer。
  * 比 native fetch 在 Electron 打包环境中更可靠，支持自动跟随 301/302 重定向（最多 5 次）。
  */
-function downloadBufferViaNodeHttp(url, timeoutMs = 30000, redirectCount = 0) {
-  return new Promise((resolve, reject) => {
-    if (redirectCount > 5) return reject(new Error('Too many redirects'));
-    const parsed = new URL(url);
-    const mod = parsed.protocol === 'https:' ? https : http;
-    const options = {
-      hostname: parsed.hostname,
-      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
-      path: parsed.pathname + parsed.search,
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; LocalMiniDrama/1.0)',
-        'Accept': 'image/*,*/*',
-      },
-      timeout: timeoutMs,
-    };
-    const req = mod.request(options, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        const location = res.headers.location.startsWith('http')
-          ? res.headers.location
-          : `${parsed.protocol}//${parsed.host}${res.headers.location}`;
-        res.resume();
-        return resolve(downloadBufferViaNodeHttp(location, timeoutMs, redirectCount + 1));
-      }
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        res.resume();
-        return reject(new Error(`HTTP ${res.statusCode}`));
-      }
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => resolve({ buffer: Buffer.concat(chunks), contentType: res.headers['content-type'] || '' }));
-      res.on('error', reject);
-    });
-    req.on('timeout', () => { req.destroy(); reject(new Error(`Download timeout after ${timeoutMs}ms`)); });
-    req.on('error', reject);
-    req.end();
+async function downloadBufferViaNodeHttp(url, timeoutMs = 30000, redirectCount = 0, options = {}) {
+  const configuredMaxRedirects = Number(options.maxRedirects ?? DEFAULT_REMOTE_MEDIA_REDIRECTS);
+  const maxRedirects = Number.isInteger(configuredMaxRedirects) && configuredMaxRedirects >= 0
+    ? configuredMaxRedirects
+    : DEFAULT_REMOTE_MEDIA_REDIRECTS;
+  if (redirectCount > maxRedirects) throw new UnsafeMediaReferenceError('Media URL has too many redirects.');
+  const maxBytes = options.maxBytes ?? DEFAULT_REMOTE_MEDIA_MAX_BYTES;
+  const requestHeaders = {
+    'User-Agent': 'Mozilla/5.0 (compatible; LocalMiniDrama/1.0)',
+    Accept: options.accept || 'image/*,*/*',
+    ...(options.headers || {}),
+  };
+  const { secureHttpFetch } = require('./secureHttpFetch');
+  const response = await secureHttpFetch(url, {
+    method: options.method || 'GET',
+    headers: requestHeaders,
+    body: options.body,
+    redirect: options.followRedirects === false ? 'error' : 'follow',
+    signal: options.signal,
+  }, {
+    trustedOrigins: options.trustedOrigins,
+    allowPrivateOrigins: options.allowPrivateOrigins,
+    lookup: options.lookup,
+    timeoutMs,
+    maxBytes,
+    maxRedirects: Math.max(0, maxRedirects - redirectCount),
   });
-}
-
-function ensureDir(dir) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return {
+    buffer: Buffer.from(await response.arrayBuffer()),
+    contentType: response.headers.get('content-type') || '',
+    finalUrl: response.url,
+  };
 }
 
 /** @returns {{ dir: string, relPrefix: string }} */
 function resolveCategoryPaths(storagePath, category, projectSubdir) {
   const sub = projectSubdir && String(projectSubdir).trim();
-  if (sub) {
-    const relPrefix = `${sub.replace(/\\/g, '/')}/${category}`;
-    return { dir: path.join(storagePath, sub, category), relPrefix };
-  }
-  return { dir: path.join(storagePath, category), relPrefix: category };
+  const relPrefix = sub
+    ? `${sub.replace(/\\/g, '/')}/${category}`
+    : String(category || '');
+  const secured = ensureStorageDirectory(storagePath, relPrefix);
+  return { dir: secured.directory, relPrefix: secured.relativePath };
 }
 
 function removeFile(filePath, log = null) {
@@ -450,17 +1279,18 @@ function removeFile(filePath, log = null) {
 
 function persistDetectedUpload(storagePath, baseUrl, log, category, projectSubdir, detected, writeFile) {
   const { dir: categoryPath, relPrefix } = resolveCategoryPaths(storagePath, category, projectSubdir);
-  ensureDir(categoryPath);
   const timestamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
   const name = `${timestamp}_${randomUUID()}${detected.extension}`;
   const filePath = path.join(categoryPath, name);
+  const relativePath = `${relPrefix}/${name}`.replace(/\\/g, '/');
   try {
     writeFile(filePath);
+    const opened = openStorageFile(storagePath, relativePath);
+    fs.closeSync(opened.fd);
   } catch (err) {
     removeFile(filePath, log);
     throw err;
   }
-  const relativePath = `${relPrefix}/${name}`.replace(/\\/g, '/');
   const url = baseUrl ? `${baseUrl.replace(/\/$/, '')}/${relativePath}` : `/static/${relativePath}`;
   log.info('File uploaded', { path: filePath, url, mime_type: detected.mimeType });
   return {
@@ -470,6 +1300,7 @@ function persistDetectedUpload(storagePath, baseUrl, log, category, projectSubdi
     mime_type: detected.mimeType,
     extension: detected.extension,
     media_type: detected.mediaType,
+    ...(Number.isFinite(detected.duration) ? { duration: detected.duration } : {}),
   };
 }
 
@@ -488,6 +1319,9 @@ function uploadFile(
 ) {
   void originalName;
   void mimeType;
+  if (expectedMediaType === 'audio' && !validatedType) {
+    throw new InvalidMediaContentError('audio');
+  }
   const detected = validatedType || assertAllowedUpload(fileBuffer, expectedMediaType);
   if (expectedMediaType && detected.mediaType !== expectedMediaType) {
     throw new UnsupportedUploadTypeError(expectedMediaType);
@@ -524,6 +1358,9 @@ function uploadFileFromPath(
 ) {
   void originalName;
   void mimeType;
+  if (expectedMediaType === 'audio' && !validatedType) {
+    throw new InvalidMediaContentError('audio');
+  }
   const detected = validatedType || assertAllowedUpload(sourcePath, expectedMediaType);
   if (expectedMediaType && detected.mediaType !== expectedMediaType) {
     throw new UnsupportedUploadTypeError(expectedMediaType);
@@ -558,18 +1395,21 @@ function uploadFileFromPath(
  */
 async function downloadImageToLocal(storagePath, imageUrl, category, log, prefix = '', projectSubdir = null) {
   if (!imageUrl || typeof imageUrl !== 'string') return null;
-  const { dir: categoryPath, relPrefix } = resolveCategoryPaths(storagePath, category, projectSubdir);
+  let writtenFilePath = null;
   try {
-    ensureDir(categoryPath);
+    const { dir: categoryPath, relPrefix } = resolveCategoryPaths(storagePath, category, projectSubdir);
     let buffer;
     let ext = 'png';
     if (imageUrl.startsWith('data:')) {
-      const match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+      const match = imageUrl.match(/^data:image\/([a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i);
       if (!match) {
         log.warn('downloadImageToLocal: invalid data URL');
         return null;
       }
-      buffer = Buffer.from(match[2], 'base64');
+      buffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+      if (buffer.length === 0 || buffer.length > DEFAULT_REMOTE_MEDIA_MAX_BYTES) {
+        throw new UnsafeMediaReferenceError('Inline image exceeds the size limit.');
+      }
       ext = match[1] === 'jpeg' ? 'jpg' : match[1];
     } else {
       // 使用 Node.js 原生 http/https 模块下载，比 native fetch 在 Electron 打包环境更可靠
@@ -578,7 +1418,10 @@ async function downloadImageToLocal(storagePath, imageUrl, category, log, prefix
       let contentType = '';
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          const result = await downloadBufferViaNodeHttp(imageUrl, 30000);
+          const result = await downloadBufferViaNodeHttp(imageUrl, 30000, 0, {
+            maxBytes: DEFAULT_REMOTE_MEDIA_MAX_BYTES,
+            accept: 'image/*',
+          });
           buffer = result.buffer;
           contentType = result.contentType;
           break;
@@ -594,13 +1437,20 @@ async function downloadImageToLocal(storagePath, imageUrl, category, log, prefix
       }
       ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
     }
+    const detected = await validateAllowedUpload(buffer, 'image');
+    ext = detected.extension.replace(/^\./, '');
+    assertUploadDiskCapacity(storagePath, buffer.length);
     const name = `${prefix}${prefix ? '_' : ''}${randomUUID().slice(0, 8)}.${ext}`;
     const filePath = path.join(categoryPath, name);
-    fs.writeFileSync(filePath, buffer);
+    fs.writeFileSync(filePath, buffer, { flag: 'wx' });
+    writtenFilePath = filePath;
     const relativePath = `${relPrefix}/${name}`.replace(/\\/g, '/');
+    const opened = openStorageFile(storagePath, relativePath);
+    fs.closeSync(opened.fd);
     log.info('Image saved to local', { category, local_path: relativePath, projectSubdir: projectSubdir || '(root)' });
     return relativePath;
   } catch (e) {
+    removeFile(writtenFilePath, log);
     log.warn('downloadImageToLocal error', { category, error: e.message });
     return null;
   }
@@ -654,22 +1504,24 @@ async function uploadToImageProxy(imageBuffer, mimeType, log, tag) {
       const headerLine = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`;
       const footerLine = `\r\n--${boundary}--\r\n`;
       const body = Buffer.concat([Buffer.from(headerLine, 'utf-8'), imageBuffer, Buffer.from(footerLine, 'utf-8')]);
-      const res = await fetch(uploadUrl, {
+      const res = await downloadBufferViaNodeHttp(uploadUrl, timeoutMs, 0, {
         method: 'POST',
         headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
         body,
-        signal: AbortSignal.timeout(timeoutMs),
+        accept: 'application/json',
+        maxBytes: 1024 * 1024,
+        maxRedirects: 0,
+        followRedirects: false,
       });
-      const raw = await res.text();
+      const raw = res.buffer.toString('utf8');
       const ms = Date.now() - t0;
-      if (!res.ok) {
-        log.warn('[图床上传] 失败', { tag, attempt, status: res.status, ms, body: raw.slice(0, 200) });
-        if (attempt < maxAttempts) continue;
-        return null;
-      }
       const data = JSON.parse(raw);
       const url = data?.url || null;
-      if (url) { log.info('[图床上传] ✓ 成功', { tag, attempt, url, ms }); return url; }
+      if (url) {
+        const validated = await validatePublicHttpUrl(url);
+        log.info('[图床上传] 上传成功', { tag, attempt, url: validated.url, ms });
+        return validated.url;
+      }
       log.warn('[图床上传] 响应无 url 字段', { tag, attempt, ms, raw: raw.slice(0, 200) });
       if (attempt < maxAttempts) continue;
       return null;
@@ -693,27 +1545,21 @@ async function uploadToImageProxy(imageBuffer, mimeType, log, tag) {
  */
 async function uploadLocalImageToProxy(storagePath, localPathOrUrl, log, tag) {
   try {
-    let filePath = null;
-    let mimeType = 'image/jpeg';
-    if (localPathOrUrl && localPathOrUrl.startsWith('http')) {
-      // localhost URL → 提取 /static/ 后的相对路径
-      const afterStatic = localPathOrUrl.split('/static/')[1];
-      if (afterStatic && storagePath) {
-        filePath = path.join(storagePath, afterStatic.replace(/^\//, ''));
-      }
-    } else if (localPathOrUrl && storagePath) {
-      filePath = path.isAbsolute(localPathOrUrl)
-        ? localPathOrUrl
-        : path.join(storagePath, localPathOrUrl.replace(/^\//, ''));
-    }
-    if (!filePath || !fs.existsSync(filePath)) {
-      log.warn('[图床上传] 本地文件不存在', { tag, filePath });
+    const resolved = resolveStorageReference(storagePath, localPathOrUrl);
+    if (!resolved) {
+      log.warn('[图床上传] 引用不是本地 storage 文件', { tag });
       return null;
     }
+    const filePath = resolved.absolutePath;
     const ext = path.extname(filePath).toLowerCase();
     const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
-    mimeType = mimeMap[ext] || 'image/jpeg';
+    const mimeType = mimeMap[ext] || 'image/jpeg';
+    const stat = fs.statSync(filePath);
+    if (stat.size > DEFAULT_REMOTE_MEDIA_MAX_BYTES) {
+      throw new UnsafeMediaReferenceError('Local image exceeds the proxy upload size limit.');
+    }
     const buf = fs.readFileSync(filePath);
+    await validateAllowedUpload(buf, 'image');
     return await uploadToImageProxy(buf, mimeType, log, tag);
   } catch (e) {
     log.warn('[图床上传] uploadLocalImageToProxy 异常', { tag, err: e.message });
@@ -722,17 +1568,35 @@ async function uploadLocalImageToProxy(storagePath, localPathOrUrl, log, tag) {
 }
 
 module.exports = {
+  DEFAULT_STORY_SOURCE_ORIGINAL_QUOTA_BYTES,
   DEFAULT_UPLOAD_DISK_RESERVE_BYTES,
+  DEFAULT_REMOTE_MEDIA_MAX_BYTES,
+  UnsafeMediaReferenceError,
   assertUploadDiskCapacity,
   assertAllowedUpload,
+  detectAllowedAudioUpload,
   detectAllowedUpload,
   getAvailableDiskBytes,
   isUploadStorageError,
   isUploadValidationError,
+  persistStorySourceOriginal,
+  readStorySourceOriginal,
   removeFile,
+  removeStorySourceOriginal,
   uploadFile,
   uploadFileFromPath,
   validateAllowedUpload,
+  validateAudioUpload,
+  assertPublicHttpUrlSyntax,
+  validatePublicHttpUrl,
+  createPinnedDnsLookup,
+  isGloballyRoutableIp,
+  ensureStorageDirectory,
+  normalizeStorageRelativeReference,
+  openStorageFile,
+  resolveStorageReference,
+  validateMediaReference,
+  downloadBufferViaNodeHttp,
   downloadImageToLocal,
   uploadToImageProxy,
   uploadLocalImageToProxy,

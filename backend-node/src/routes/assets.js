@@ -48,6 +48,9 @@ function routes(db, log) {
         if (!ok) return response.notFound(res, '资源不存在');
         response.success(res, { message: '删除成功' });
       } catch (err) {
+        if (err.code === 'ASSET_IN_USE') {
+          return response.error(res, 409, err.code, err.message, err.details);
+        }
         log.error('assets delete', { error: err.message });
         response.internalError(res, err.message);
       }

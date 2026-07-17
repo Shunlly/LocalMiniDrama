@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const dramaService = require('./dramaService');
+const uploadService = require('./uploadService');
 const { detectChaptersByRules } = require('./novelImportService');
 
 const SOURCE_TYPES = new Set(['novel', 'outline', 'script', 'storyboard', 'comic', 'transcript']);
@@ -46,8 +47,38 @@ function persistRawSourceText(dramaId, hash, text) {
   const dir = path.join(resolveStorySourceRoot(), String(dramaId));
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, `${hash}.txt`);
-  if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, String(text || ''), 'utf8');
-  return path.relative(process.cwd(), filePath).replace(/\\/g, '/');
+  let created = false;
+  try {
+    fs.writeFileSync(filePath, String(text || ''), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    created = true;
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    const existing = fs.lstatSync(filePath);
+    if (existing.isSymbolicLink() || !existing.isFile()) {
+      const unsafe = new Error('The source text path is not a regular file.');
+      unsafe.code = 'UNSAFE_SOURCE_STORAGE';
+      throw unsafe;
+    }
+  }
+  return {
+    absolutePath: filePath,
+    created,
+    relativePath: path.relative(process.cwd(), filePath).replace(/\\/g, '/'),
+  };
+}
+
+function removeRawSourceText(artifact) {
+  if (!artifact?.created) return;
+  try {
+    fs.unlinkSync(artifact.absolutePath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  try {
+    fs.rmdirSync(path.dirname(artifact.absolutePath));
+  } catch (error) {
+    if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw error;
+  }
 }
 
 function trimText(value, max = 500) {
@@ -417,14 +448,34 @@ function createStorySource(db, log, params) {
     raw_text_length: text.length,
     item_count: items.length,
   };
+  delete metadata.original_file;
+  delete metadata.original_path;
+  delete metadata.original_url;
+
+  let originalArtifact = null;
+  let rawTextArtifact = null;
 
   const tx = db.transaction(() => {
-    const rawTextPath = params.raw_text_path || persistRawSourceText(dramaId, hash, text);
+    rawTextArtifact = persistRawSourceText(dramaId, hash, text);
     const sourceInfo = db.prepare(
       `INSERT INTO story_sources (drama_id, source_type, title, raw_text_path, content_hash, metadata, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(dramaId, sourceType, title, rawTextPath, hash, toJson(metadata), createdAt);
+    ).run(dramaId, sourceType, title, rawTextArtifact.relativePath, hash, toJson(metadata), createdAt);
     const sourceId = Number(sourceInfo.lastInsertRowid);
+
+    if (params.original_file) {
+      const storageOptions = params.original_storage || {};
+      originalArtifact = uploadService.persistStorySourceOriginal(
+        storageOptions.storagePath,
+        dramaId,
+        sourceId,
+        params.original_file,
+        storageOptions
+      );
+      metadata.original_file = originalArtifact.metadata;
+      db.prepare('UPDATE story_sources SET metadata = ? WHERE id = ?')
+        .run(toJson(metadata), sourceId);
+    }
 
     const insertItem = db.prepare(
       `INSERT INTO source_items (source_id, item_type, item_no, title, raw_text, summary, status, created_at, updated_at)
@@ -507,7 +558,18 @@ function createStorySource(db, log, params) {
     };
   });
 
-  const result = tx();
+  let result;
+  try {
+    result = tx();
+  } catch (error) {
+    uploadService.removeStorySourceOriginal(originalArtifact, log);
+    try {
+      removeRawSourceText(rawTextArtifact);
+    } catch (cleanupError) {
+      log?.warn?.('Failed to clean rolled-back source text', { error: cleanupError.message });
+    }
+    throw error;
+  }
   log?.info?.('Story source imported', {
     drama_id: dramaId,
     source_id: result.source.id,

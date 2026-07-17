@@ -2,28 +2,41 @@ const fs = require('fs');
 const path = require('path');
 const { loadConfig } = require('../config');
 
+const ASSET_SELECT = `
+  SELECT
+    a.*,
+    d.title AS source_drama_title
+`;
+
+const ASSET_FROM = `
+  FROM assets a
+  LEFT JOIN dramas d ON d.id = a.drama_id AND d.deleted_at IS NULL
+`;
+
 function list(db, query) {
-  let sql = 'FROM assets WHERE deleted_at IS NULL';
+  let sql = 'WHERE a.deleted_at IS NULL';
   const params = [];
   if (query.drama_id) {
-    sql += ' AND drama_id = ?';
+    sql += ' AND a.drama_id = ?';
     params.push(query.drama_id);
   }
   if (query.type) {
-    sql += ' AND type = ?';
+    sql += ' AND a.type = ?';
     params.push(query.type);
   }
   const keyword = String(query.keyword ?? '').trim();
   if (keyword) {
-    sql += ' AND name LIKE ?';
+    sql += ' AND a.name LIKE ?';
     params.push(`%${keyword}%`);
   }
-  const countRow = db.prepare('SELECT COUNT(*) as total ' + sql).get(...params);
+  const countRow = db.prepare('SELECT COUNT(*) as total ' + ASSET_FROM + ' ' + sql).get(...params);
   const total = countRow.total || 0;
   const page = Math.max(1, parseInt(query.page, 10) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20));
   const offset = (page - 1) * pageSize;
-  const rows = db.prepare('SELECT * ' + sql + ' ORDER BY created_at DESC LIMIT ? OFFSET ?').all(...params, pageSize, offset);
+  const rows = db.prepare(
+    ASSET_SELECT + ' ' + ASSET_FROM + ' ' + sql + ' ORDER BY a.created_at DESC LIMIT ? OFFSET ?'
+  ).all(...params, pageSize, offset);
   return { items: rows.map(rowToItem), total, page, pageSize };
 }
 
@@ -43,13 +56,16 @@ function rowToItem(r) {
     duration: r.duration,
     image_gen_id: r.image_gen_id,
     video_gen_id: r.video_gen_id,
+    source_drama_title: r.source_drama_title || null,
     created_at: r.created_at,
     updated_at: r.updated_at,
   };
 }
 
 function getById(db, id) {
-  const r = db.prepare('SELECT * FROM assets WHERE id = ? AND deleted_at IS NULL').get(Number(id));
+  const r = db.prepare(
+    ASSET_SELECT + ' ' + ASSET_FROM + ' WHERE a.id = ? AND a.deleted_at IS NULL'
+  ).get(Number(id));
   return r ? rowToItem(r) : null;
 }
 
@@ -145,6 +161,46 @@ function resolveControlledUploadPath(storageRoot, localPath) {
   return { absolutePath: candidate, normalizedPath: normalized };
 }
 
+function storyboardReferencesForAsset(db, asset) {
+  const assetId = Number(asset?.id);
+  const assetPathKey = localPathReferenceKey(asset?.local_path);
+  const rows = db.prepare(
+    `SELECT id, reference_images
+       FROM storyboards
+      WHERE deleted_at IS NULL
+        AND reference_images IS NOT NULL
+        AND TRIM(reference_images) <> ''`
+  ).all();
+  const storyboardIds = [];
+  for (const row of rows) {
+    let references;
+    try { references = JSON.parse(row.reference_images); } catch (_) { continue; }
+    if (!Array.isArray(references)) continue;
+    const matched = references.some((reference) => {
+      if (typeof reference === 'string') {
+        return assetPathKey && localPathReferenceKey(reference) === assetPathKey;
+      }
+      if (!reference || typeof reference !== 'object' || Array.isArray(reference)) return false;
+      if (Number(reference.asset_id) === assetId) return true;
+      return assetPathKey
+        && localPathReferenceKey(reference.local_path || reference.image_url || reference.url) === assetPathKey;
+    });
+    if (matched) storyboardIds.push(Number(row.id));
+  }
+  return storyboardIds;
+}
+
+function assetInUseError(storyboardIds) {
+  const error = new Error(`素材正在被 ${storyboardIds.length} 个分镜引用，请先从分镜中移除后再删除`);
+  error.code = 'ASSET_IN_USE';
+  error.statusCode = 409;
+  error.details = {
+    reference_count: storyboardIds.length,
+    storyboard_ids: storyboardIds.slice(0, 20),
+  };
+  return error;
+}
+
 function deleteById(db, log, id, options = {}) {
   const assetId = Number(id);
   let removedPath = null;
@@ -154,6 +210,9 @@ function deleteById(db, log, id, options = {}) {
       'SELECT id, local_path FROM assets WHERE id = ? AND deleted_at IS NULL'
     ).get(assetId);
     if (!row) return false;
+
+    const storyboardIds = storyboardReferencesForAsset(db, row);
+    if (storyboardIds.length) throw assetInUseError(storyboardIds);
 
     const result = db.prepare(
       'UPDATE assets SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL'
@@ -231,4 +290,5 @@ module.exports = {
   deleteById,
   importFromImage,
   importFromVideo,
+  storyboardReferencesForAsset,
 };

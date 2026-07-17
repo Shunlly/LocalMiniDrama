@@ -24,14 +24,33 @@ desktop/release-icon-test
 desktop/release-icon-test-7
 desktop/backend-app-secure
 build
+!desktop/build/
+!desktop/build/icon.svg
+!desktop/build/icon.png
 frontweb-edu
 .codex-audit/
 coverage/
 playwright-report/
 test-results/
+artifacts/
 *.log
 *.db-wal
 *.db-shm
 .env.local
 .env.*.local
 desktop/dist/
+
+# Only the checked-in non-sensitive runtime default may live under configs.
+/backend-node/configs/**
+!/backend-node/configs/config.yaml
+/backend-node/ai-configs/
+
+# Generated release staging must never be committed.
+/desktop/backend-app/
+/desktop/backend-app-secure/
+/desktop/frontweb-dist/
+/desktop/release/
+/desktop/release-*/
+
+# Media binaries are acquired from the pinned, hash-verified release policy.
+/backend-node/tools/ffmpeg/*.exe

@@ -32,6 +32,11 @@ function createDb() {
       updated_at TEXT,
       deleted_at TEXT
     );
+    CREATE TABLE storyboards (
+      id INTEGER PRIMARY KEY,
+      reference_images TEXT,
+      deleted_at TEXT
+    );
   `);
   return db;
 }
@@ -82,6 +87,39 @@ test('shared upload remains until the final active asset reference is deleted', 
     assert.equal(assetService.deleteById(db, log, firstId, { storageRoot }), true);
     assert.equal(fs.existsSync(absolutePath), true);
     assert.equal(assetService.deleteById(db, log, secondId, { storageRoot }), true);
+    assert.equal(fs.existsSync(absolutePath), false);
+  } finally {
+    db.close();
+    fs.rmSync(storageRoot, { recursive: true, force: true });
+  }
+});
+
+test('referenced cross-project assets cannot be deleted or unlinked', () => {
+  const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-referenced-'));
+  const db = createDb();
+  const localPath = 'projects/source/uploads/referenced.png';
+  const absolutePath = createStoredFile(storageRoot, localPath);
+  const id = insertAsset(db, localPath);
+  db.prepare('INSERT INTO storyboards (id, reference_images) VALUES (?, ?)').run(101, JSON.stringify([{
+    name: 'Cross-project reference',
+    local_path: localPath,
+    asset_id: id,
+    source_drama_id: 7,
+  }]));
+
+  try {
+    assert.throws(
+      () => assetService.deleteById(db, log, id, { storageRoot }),
+      (error) => error.code === 'ASSET_IN_USE'
+        && error.statusCode === 409
+        && error.details.reference_count === 1
+        && error.details.storyboard_ids[0] === 101
+    );
+    assert.equal(db.prepare('SELECT deleted_at FROM assets WHERE id = ?').get(id).deleted_at, null);
+    assert.equal(fs.existsSync(absolutePath), true);
+
+    db.prepare("UPDATE storyboards SET reference_images = '[]' WHERE id = 101").run();
+    assert.equal(assetService.deleteById(db, log, id, { storageRoot }), true);
     assert.equal(fs.existsSync(absolutePath), false);
   } finally {
     db.close();

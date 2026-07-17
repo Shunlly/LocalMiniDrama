@@ -66,30 +66,41 @@
           </div>
         </el-popover>
 
-        <ActionGate label="一键生成成片" :reason="disabledReason">
-          <el-button
-            type="primary"
-            :loading="running && !paused"
-            :disabled="Boolean(disabledReason)"
-            @click="$emit('start-one-click')"
-          >
-            一键生成成片
-          </el-button>
-        </ActionGate>
-        <ActionGate label="仅生成文本框架" :reason="disabledReason">
-          <el-button
-            :loading="running && !paused"
-            :disabled="Boolean(disabledReason)"
-            @click="$emit('start-text-framework')"
-          >
-            仅生成文本框架
-          </el-button>
-        </ActionGate>
+        <div class="pipeline-mode-action">
+          <span class="pipeline-mode-label is-production">完整成片</span>
+          <ActionGate label="一键生成成片" :reason="productionReason">
+            <el-button
+              type="primary"
+              :loading="running && !paused"
+              :disabled="Boolean(productionReason)"
+              @click="$emit('start-one-click')"
+            >
+              一键生成成片
+            </el-button>
+          </ActionGate>
+        </div>
+        <div class="pipeline-mode-action">
+          <span class="pipeline-mode-label is-draft">草稿预演</span>
+          <ActionGate label="仅生成文本框架" :reason="draftReason">
+            <el-button
+              :loading="running && !paused"
+              :disabled="Boolean(draftReason)"
+              @click="$emit('start-text-framework')"
+            >
+              仅生成文本框架
+            </el-button>
+          </ActionGate>
+        </div>
         <template v-if="running">
           <el-button v-if="!paused" type="warning" @click="$emit('pause')">暂停</el-button>
           <el-button v-else type="success" @click="$emit('resume')">继续</el-button>
         </template>
       </div>
+    </div>
+
+    <div v-if="productionReadinessReason" class="production-readiness-alert" role="alert">
+      <span>{{ productionReadinessReason }}</span>
+      <el-button link type="primary" @click="$emit('open-ai-config', productionReadinessServiceType)">前往 AI 配置</el-button>
     </div>
 
     <div v-if="running || errorLog.length > 0" class="pipeline-status" aria-live="polite">
@@ -139,6 +150,10 @@ const props = defineProps({
   generationStyle: { type: String, default: '' },
   generationStyleOptions: { type: Array, default: () => [] },
   disabledReason: { type: String, default: '' },
+  productionDisabledReason: { type: String, default: '' },
+  draftDisabledReason: { type: String, default: '' },
+  productionReadinessReason: { type: String, default: '' },
+  productionReadinessServiceType: { type: String, default: '' },
   running: { type: Boolean, default: false },
   paused: { type: Boolean, default: false },
   errorLog: { type: Array, default: () => [] },
@@ -158,6 +173,7 @@ const emit = defineEmits([
   'save-settings',
   'start-one-click',
   'start-text-framework',
+  'open-ai-config',
   'pause',
   'resume',
   'skip-countdown',
@@ -165,6 +181,8 @@ const emit = defineEmits([
 
 const activeTaskLabels = computed(() => Array.from(props.activeTasks || []))
 const cleanCurrentStep = computed(() => props.currentStep.replace(/^\[步骤 \d+\/\d+\] /, ''))
+const productionReason = computed(() => props.productionDisabledReason || props.disabledReason)
+const draftReason = computed(() => props.draftDisabledReason || props.disabledReason)
 
 function updateSetting(name, value) {
   emit(`update:${name}`, value)
@@ -201,6 +219,40 @@ function updateSetting(name, value) {
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.pipeline-mode-action {
+  display: inline-grid;
+  gap: 4px;
+  justify-items: stretch;
+}
+
+.pipeline-mode-label {
+  color: var(--el-text-color-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+}
+
+.pipeline-mode-label.is-production {
+  color: var(--el-color-danger);
+}
+
+.pipeline-mode-label.is-draft {
+  color: var(--el-color-info);
+}
+
+.production-readiness-alert {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--el-color-warning);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: right;
 }
 
 .pipeline-settings {

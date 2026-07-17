@@ -48,8 +48,9 @@ function buildStepSummary(stepId, context) {
 
   if (stepId === 'qa') {
     if (!qa?.id) return run?.status === 'completed' ? '流程已完成，可执行 QA' : '等待流程完成'
-    if (qa.passed) return `QA 通过，评分 ${qa.score}`
-    return `QA 未通过，${qa.issueCount} 个问题待处理`
+    const qaScope = (qa.mode || run?.mode) === 'production' ? '正式交付检查' : '草稿结构检查'
+    if (qa.passed) return `${qaScope} 通过，评分 ${qa.score}`
+    return `${qaScope} 未通过，${qa.issueCount} 个问题待处理`
   }
 
   if (stepId === 'remediation') {
@@ -134,6 +135,12 @@ export function buildSourceWorkflowState({ sourceCount, hasSourceInput, run, qa,
   }
 }
 
+export function getNewWorkflowRunReason(runState = {}) {
+  if (runState.active) return '当前已有处理流程运行中，请等待完成或先取消。'
+  if (runState.status === 'paused') return '当前处理已暂停，请先恢复或取消后再启动新流程。'
+  return ''
+}
+
 export function getSourceWorkflowActionReasons({ hasSourceInput, runState, qa } = {}) {
   const state = runState || {}
   const report = qa || {}
@@ -156,7 +163,7 @@ export function getSourceWorkflowActionReasons({ hasSourceInput, runState, qa } 
 
   return {
     import: sourceInputReason,
-    start: sourceInputReason,
+    start: getNewWorkflowRunReason(state) || sourceInputReason,
     qa: qaReason,
     remediate: remediationReason,
     retry: state.canRetry ? '' : !state.id ? '暂无可重试的处理记录。' : '仅失败的处理可以重试。',

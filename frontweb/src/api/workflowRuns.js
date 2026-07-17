@@ -7,6 +7,9 @@ export const workflowRunsAPI = {
   get(runId) {
     return request.get(`/workflows/${runId}`)
   },
+  getNovel2AnimeReadiness(data) {
+    return request.post('/workflows/novel2anime/readiness', data)
+  },
   startNovel2Anime(data) {
     return request.post('/workflows/novel2anime', data)
   },

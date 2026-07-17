@@ -152,6 +152,30 @@ function routes(db, log, cfg) {
         response.internalError(res, err.message);
       }
     },
+    generatePanorama: (req, res) => {
+      try {
+        const body = req.body || {};
+        const modelName = body.model_name || body.model || undefined;
+        const out = sceneService.generateScenePanoramaImage(
+          db, log, req.params.scene_id, modelName, body.style || undefined
+        );
+        if (!out.ok) {
+          if (out.error === 'scene not found') return response.notFound(res, '场景不存在');
+          if (out.error === 'unauthorized') return response.notFound(res, '剧集不存在或无权限');
+          if (out.error === 'scene source image required') {
+            return response.badRequest(res, '请先为场景准备可用的主图，再生成全景图');
+          }
+          return response.badRequest(res, out.error);
+        }
+        response.success(res, {
+          message: '场景全景图生成任务已提交',
+          image_generation: out.image_generation,
+        });
+      } catch (err) {
+        log.error('scenes generate-panorama', { error: err.message });
+        response.internalError(res, err.message);
+      }
+    },
   };
 }
 

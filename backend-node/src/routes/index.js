@@ -1,4 +1,8 @@
 const express = require('express');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { randomUUID } = require('crypto');
 const response = require('../response');
 const dramaRoutes = require('./drama');
 const taskRoutes = require('./task');
@@ -26,17 +30,67 @@ const storySourceRoutes = require('./storySources');
 const qaReportRoutes = require('./qaReports');
 const timelineRoutes = require('./timelines');
 
+function createProviderNetworkBoundary(db) {
+  return async (req, res, next) => {
+    const body = req.body || {};
+    const rawId = body.id ?? body.config_id;
+    let saved = null;
+    let trustedOrigins = [];
+    if (rawId != null && /^\d+$/.test(String(rawId))) {
+      saved = db.prepare(
+        'SELECT base_url, is_active FROM ai_service_configs WHERE id = ? AND deleted_at IS NULL'
+      ).get(Number(rawId));
+      if (saved?.is_active) trustedOrigins = [saved.base_url].filter(Boolean);
+    }
+    const requestedBaseUrl = String(body.base_url || saved?.base_url || '').trim();
+    if (!requestedBaseUrl) return next();
+
+    let exactEnabledOrigin = false;
+    if (saved?.is_active && saved.base_url) {
+      try {
+        exactEnabledOrigin = new URL(requestedBaseUrl).origin === new URL(saved.base_url).origin;
+      } catch (_) {}
+    }
+    if (!exactEnabledOrigin) {
+      return response.error(
+        res,
+        400,
+        'UNSAVED_PROVIDER_URL',
+        'Save and enable the provider configuration before making provider network requests.'
+      );
+    }
+
+    try {
+      const uploadService = require('../services/uploadService');
+      await uploadService.validatePublicHttpUrl(requestedBaseUrl, { trustedOrigins });
+      req.providerNetworkTrustedOrigins = trustedOrigins;
+      return next();
+    } catch (error) {
+      return response.error(
+        res,
+        400,
+        error?.code || 'UNSAFE_PROVIDER_URL',
+        'Provider URL must match an enabled saved provider configuration.'
+      );
+    }
+  };
+}
+
 function setupRouter(cfg, db, log) {
   const r = express.Router();
-  const drama = dramaRoutes(db, cfg, log);
+  const uploadService = require('../services/uploadService');
+  const sourceOriginalQuotaBytes = cfg?.storage?.story_source_original_quota_bytes
+    ?? process.env.LOCALMINIDRAMA_SOURCE_ORIGINAL_QUOTA_BYTES
+    ?? uploadService.DEFAULT_STORY_SOURCE_ORIGINAL_QUOTA_BYTES;
+  const drama = dramaRoutes(db, cfg, log, { sourceOriginalQuotaBytes });
   const task = taskRoutes(db, log);
   const settings = settingsRoutes(db, cfg, log);
   const aiConfig = aiConfigRoutes(db, log, cfg);
   const prop = propRoutes(db, log, cfg);
   const stub = stubRoutes(db, cfg, log);
   const sceneModelMap = sceneModelMapRoutes(db, log);
+  const providerNetworkBoundary = createProviderNetworkBoundary(db);
   
-  const uploadService = require('../services/uploadService');
   const charLibrary = characterLibraryRoutes(db, cfg, log);
   const sceneLibrary = sceneLibraryRoutes(db, cfg, log);
   const propLibrary = propLibraryRoutes(db, cfg, log);
@@ -52,7 +106,16 @@ function setupRouter(cfg, db, log) {
   const audio = audioRoutes(db, log, cfg);
   const promptOverrides = promptOverridesRoutes.routes(db, log);
   const workflows = workflowRoutes(db, log);
-  const storySources = storySourceRoutes(db, log);
+  const rawStorySourceStoragePath = cfg?.storage?.local_path || './data/storage';
+  const storySourceStoragePath = path.isAbsolute(rawStorySourceStoragePath)
+    ? rawStorySourceStoragePath
+    : path.join(process.cwd(), rawStorySourceStoragePath);
+  const storySources = storySourceRoutes(db, log, {
+    storagePath: storySourceStoragePath,
+    originalQuotaBytes: sourceOriginalQuotaBytes,
+    originalReserveBytes: cfg?.storage?.upload_disk_reserve_bytes
+      ?? process.env.LOCALMINIDRAMA_UPLOAD_DISK_RESERVE_BYTES,
+  });
   const qaReports = qaReportRoutes(db, log);
   const timelines = timelineRoutes(db, log);
 
@@ -60,20 +123,121 @@ function setupRouter(cfg, db, log) {
   r.get('/dramas', drama.listDramas);
   r.post('/dramas', drama.createDrama);
   r.get('/dramas/stats', drama.getDramaStats);
+  r.get('/dramas/trash', drama.listTrashedDramas);
   // 导出/导入（放在 :id 路由前，避免被 :id 捕获）
   r.get('/dramas/:id/export', drama.exportDrama);
   const multer = require('multer');
-  const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } });
-  const sourceUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1 } });
+  const { DEFAULT_IMPORT_LIMITS } = require('../services/dramaImportService');
+  const importTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-import-upload-'));
+  const importUpload = multer({
+    storage: multer.diskStorage({
+      destination(_req, _file, callback) { callback(null, importTempRoot); },
+      filename(_req, _file, callback) { callback(null, `${randomUUID()}.zip`); },
+    }),
+    limits: { fileSize: DEFAULT_IMPORT_LIMITS.maxArchiveBytes, files: 1, fields: 20 },
+  });
+  const novelUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1 } });
+  const sourceUploadMaxBytes = 20 * 1024 * 1024;
+  const sourceUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: sourceUploadMaxBytes,
+      fieldSize: 64 * 1024,
+      fields: 20,
+      files: 1,
+      parts: 24,
+    },
+  });
+  const importUploadSingle = (req, res, next) => {
+    const contentLength = Number(req.headers?.['content-length']);
+    const maxRequestBytes = DEFAULT_IMPORT_LIMITS.maxArchiveBytes + (2 * 1024 * 1024);
+    if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
+      return response.error(res, 413, 'IMPORT_ARCHIVE_TOO_LARGE', 'ZIP upload exceeds 256MB');
+    }
+    try {
+      uploadService.assertUploadDiskCapacity(
+        importTempRoot,
+        Number.isFinite(contentLength) && contentLength > 0 ? contentLength : maxRequestBytes
+      );
+    } catch (error) {
+      if (uploadService.isUploadStorageError(error)) {
+        return response.error(
+          res,
+          507,
+          'INSUFFICIENT_STORAGE',
+          'Insufficient temporary disk space for ZIP upload'
+        );
+      }
+      return next(error);
+    }
+    importUpload.single('file')(req, res, (err) => {
+      if (err) {
+        if (req.file?.path) fs.rmSync(req.file.path, { force: true });
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return response.error(res, 413, 'IMPORT_ARCHIVE_TOO_LARGE', 'ZIP upload exceeds 256MB');
+        }
+        return response.badRequest(res, err.message || 'ZIP upload failed');
+      }
+      if (req.file?.path) {
+        const uploadedPath = req.file.path;
+        req.file.buffer = uploadedPath;
+        let cleaned = false;
+        const cleanup = () => {
+          if (cleaned) return;
+          cleaned = true;
+          fs.rmSync(uploadedPath, { force: true });
+        };
+        res.once('finish', cleanup);
+        res.once('close', cleanup);
+      }
+      return next();
+    });
+  };
   const sourceUploadSingle = (req, res, next) => {
+    const contentLength = Number(req.headers?.['content-length']);
+    const maxRequestBytes = sourceUploadMaxBytes + (2 * 1024 * 1024);
+    if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
+      return response.error(
+        res,
+        413,
+        'SOURCE_UPLOAD_TOO_LARGE',
+        'Source Intake uploads are limited to 20MB.'
+      );
+    }
+    try {
+      uploadService.assertUploadDiskCapacity(
+        storySourceStoragePath,
+        Number.isFinite(contentLength) && contentLength > 0 ? contentLength : sourceUploadMaxBytes,
+        cfg?.storage?.upload_disk_reserve_bytes
+          ?? process.env.LOCALMINIDRAMA_UPLOAD_DISK_RESERVE_BYTES
+          ?? uploadService.DEFAULT_UPLOAD_DISK_RESERVE_BYTES
+      );
+    } catch (error) {
+      if (uploadService.isUploadStorageError(error)) {
+        return response.error(
+          res,
+          507,
+          'INSUFFICIENT_STORAGE',
+          'Insufficient storage capacity for the source original.'
+        );
+      }
+      return next(error);
+    }
     sourceUpload.single('file')(req, res, (err) => {
       if (!err) return next();
-      if (err.code === 'LIMIT_FILE_SIZE') return response.badRequest(res, 'Source Intake text uploads are limited to 20MB');
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return response.error(
+          res,
+          413,
+          'SOURCE_UPLOAD_TOO_LARGE',
+          'Source Intake uploads are limited to 20MB.'
+        );
+      }
       return response.badRequest(res, err.message || 'Source Intake upload failed');
     });
   };
-  r.post('/dramas/import', importUpload.single('file'), drama.importDrama);
-  r.post('/dramas/import-novel', importUpload.single('file'), async (req, res) => {
+  r.post('/dramas/import', importUploadSingle, drama.importDrama);
+  r.post('/dramas/import-novel', novelUpload.single('file'), async (req, res) => {
     try {
       const novelImportService = require('../services/novelImportService');
       let text = '';
@@ -142,13 +306,16 @@ function setupRouter(cfg, db, log) {
   r.get('/dramas/:id/props', drama.listProps);
   r.get('/dramas/:id', drama.getDrama);
   r.put('/dramas/:id', drama.updateDrama);
-  r.delete('/dramas/:id', drama.deleteDrama);
+  r.post('/dramas/:id/restore', drama.restoreDrama);
+  r.delete('/dramas/:id', drama.moveDramaToTrash);
 
   // ---------- source intake / workflows / qa ----------
   r.get('/story-sources/:source_id', storySources.get);
+  r.get('/story-sources/:source_id/original', storySources.downloadOriginal);
   r.post('/story-sources/:source_id/adaptation-plans', storySources.createPlan);
   r.post('/adaptation-plans/:plan_id/apply', storySources.applyPlan);
   r.get('/workflows', workflows.list);
+  r.post('/workflows/novel2anime/readiness', workflows.novel2AnimeReadiness);
   r.post('/workflows/novel2anime', workflows.startNovel2Anime);
   r.get('/workflows/:run_id', workflows.get);
   r.post('/workflows/:run_id/retry', workflows.retry);
@@ -163,9 +330,9 @@ function setupRouter(cfg, db, log) {
   // ---------- ai-configs ----------
   r.get('/ai-configs', aiConfig.list);
   r.post('/ai-configs', aiConfig.create);
-  r.post('/ai-configs/test', aiConfig.testConnection);
-  r.post('/ai-configs/jimeng2-list-assets', aiConfig.listJimeng2MaterialAssets);
-  r.post('/ai-configs/model-ark-asset', aiConfig.modelArkAsset);
+  r.post('/ai-configs/test', providerNetworkBoundary, aiConfig.testConnection);
+  r.post('/ai-configs/jimeng2-list-assets', providerNetworkBoundary, aiConfig.listJimeng2MaterialAssets);
+  r.post('/ai-configs/model-ark-asset', providerNetworkBoundary, aiConfig.modelArkAsset);
   r.get('/ai-configs/vendor-lock', aiConfig.vendorLock);  // 必须在 /:id 之前
   r.put('/ai-configs/bulk-update-key', aiConfig.bulkUpdateKey);  // 必须在 /:id 之前
   r.get('/ai-configs/:id', aiConfig.get);
@@ -303,6 +470,7 @@ function setupRouter(cfg, db, log) {
   r.post('/scenes/generate-image', scenes.generateImage);
   r.post('/scenes', scenes.create);
   r.post('/scenes/:scene_id/generate-four-view-image', scenes.generateFourViewImage);
+  r.post('/scenes/:scene_id/generate-panorama', scenes.generatePanorama);
   r.post('/scenes/:scene_id/add-to-library', scenes.addToLibrary);
   r.post('/scenes/:scene_id/add-to-material-library', scenes.addToMaterialLibrary);
   r.post('/scenes/:scene_id/extract-from-image', scenes.extractFromImage);
@@ -343,7 +511,7 @@ function setupRouter(cfg, db, log) {
   r.delete('/assets/:id', assets.delete);
 
   // ---------- storyboards ----------
-  r.get('/storyboards/episode/:episode_id/generate', storyboards.episodeStoryboardsGenerate);
+  r.post('/storyboards/episode/:episode_id/generate', storyboards.episodeStoryboardsGenerate);
   r.post('/storyboards', storyboards.create);
   r.post('/storyboards/:id/insert-before', storyboards.insertBefore);
   r.get('/storyboards/:id', storyboards.getOne);
@@ -404,4 +572,4 @@ function setupRouter(cfg, db, log) {
   return r;
 }
 
-module.exports = { setupRouter };
+module.exports = { createProviderNetworkBoundary, setupRouter };

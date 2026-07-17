@@ -12,6 +12,7 @@ const sharp = require('sharp');
 const uploadRoutes = require('../src/routes/upload');
 const uploadService = require('../src/services/uploadService');
 const { getFfmpegPath } = require('../src/utils/ffmpegPath');
+const { selectFixtureVideoEncoder } = require('./mediaFixture');
 
 const PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -34,7 +35,7 @@ function createVideoFixture(directory, filename = 'sample.mp4', audioOnly = fals
     ? ['-f', 'lavfi', '-i', 'sine=frequency=1000:duration=0.2', '-c:a', 'aac']
     : [
         '-f', 'lavfi', '-i', 'color=c=black:s=32x32:d=0.2',
-        '-frames:v', '2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+        '-frames:v', '2', '-c:v', selectFixtureVideoEncoder(getFfmpegPath()), '-pix_fmt', 'yuv420p',
       ];
   const result = spawnSync(
     getFfmpegPath(),
@@ -49,6 +50,11 @@ function createDb(withSchema = true) {
   const db = new Database(':memory:');
   if (withSchema) {
     db.exec(`
+      CREATE TABLE dramas (
+        id INTEGER PRIMARY KEY,
+        title TEXT,
+        deleted_at TEXT
+      );
       CREATE TABLE assets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         drama_id INTEGER,

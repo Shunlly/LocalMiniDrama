@@ -2,12 +2,12 @@
   <section class="readiness-panel" aria-labelledby="project-readiness-title">
     <div class="readiness-head">
       <div>
-        <h2 id="project-readiness-title" class="readiness-title">项目就绪度</h2>
-        <p class="readiness-subtitle">按桌面端制作流程梳理当前阻塞点，只保留一个下一步动作。</p>
+        <h2 id="project-readiness-title" class="readiness-title">成片交付就绪度</h2>
+        <p class="readiness-subtitle">从素材、五类 AI 服务到语音、逐集合成逐项核对，只保留一个下一步动作。</p>
       </div>
       <div class="readiness-score" :class="{ complete: readiness.complete }">
         <strong>{{ readiness.readyCount }}</strong>
-        <span>/ {{ readiness.totalCount }} 已就绪</span>
+        <span>/ {{ readiness.totalCount }} 项就绪</span>
       </div>
     </div>
 
@@ -51,7 +51,7 @@
           :type="service.ready ? undefined : 'button'"
           class="service-chip"
           :class="{ ready: service.ready }"
-          :title="service.ready ? `${service.label}已就绪：${service.detail}` : `前往配置${service.label}`"
+          :title="service.ready ? `${service.label}${service.verified ? '已验证' : '已配置'}：${service.detail}` : `前往配置${service.label}`"
           @click="!service.ready && emit('action', serviceAction(service))"
         >
           <span class="service-chip-dot" aria-hidden="true" />

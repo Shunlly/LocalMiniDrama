@@ -104,6 +104,8 @@ function getEpisodeTimeline(db, episodeId) {
       type: track.type,
       name: track.name,
       sort_order: track.sort_order,
+      status: track.status || 'pending',
+      metadata: parseJson(track.metadata, {}),
       duration_sec: items.reduce((max, item) => Math.max(max, item.end_sec), 0),
       item_count: items.length,
       items,
@@ -191,6 +193,8 @@ function exportDramaManifest(db, dramaId) {
         id: track.id,
         type: track.type,
         name: track.name,
+        status: track.status,
+        metadata: track.metadata,
         item_count: track.item_count,
         duration_sec: track.duration_sec,
         items: track.items.map((item) => ({

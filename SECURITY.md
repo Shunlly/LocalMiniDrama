@@ -20,7 +20,7 @@ Security fixes are only provided for the latest release.
 如果你发现了安全漏洞，请通过以下方式私下联系我们：  
 If you discover a security vulnerability, please contact us privately:
 
-- **GitHub Security Advisory**：打开 [Report a vulnerability](https://github.com/xuanyustudio/LocalMiniDrama/security/advisories/new)
+- **GitHub Security Advisory**：打开 [Report a vulnerability](https://github.com/Shunlly/LocalMiniDrama/security/advisories/new)
 - **微信 / WeChat**：通过 README 中的二维码添加作者微信私信
 
 ### 响应流程 / Response Process

@@ -58,6 +58,8 @@ function createDb() {
       character_id INTEGER NOT NULL,
       created_at TEXT
     );
+    ALTER TABLE storyboards ADD COLUMN audio_local_path TEXT;
+    ALTER TABLE storyboards ADD COLUMN narration_audio_local_path TEXT;
   `);
   return db;
 }
@@ -250,6 +252,18 @@ test('purges one complete E2E graph and its source directory while retaining unr
   await fsp.mkdir(path.join(retainedStorageDirectory, 'images'), { recursive: true });
   await fsp.writeFile(path.join(fixtureStorageDirectory, 'images', 'e2e.png'), 'fixture');
   await fsp.writeFile(path.join(retainedStorageDirectory, 'images', 'keep.png'), 'keep');
+  const fixtureDialogue = `audio/tts_sb${fixture.ids.storyboard}_dialogue.mp3`;
+  const fixtureNarration = `audio/tts_sb${fixture.ids.storyboard}_narration.mp3`;
+  const retainedDialogue = `audio/tts_sb${retained.ids.storyboard}_dialogue.mp3`;
+  await fsp.mkdir(path.join(storageRoot, 'audio'), { recursive: true });
+  for (const relativePath of [fixtureDialogue, fixtureNarration, retainedDialogue]) {
+    await fsp.writeFile(path.join(storageRoot, ...relativePath.split('/')), relativePath);
+  }
+  db.prepare(
+    'UPDATE storyboards SET audio_local_path = ?, narration_audio_local_path = ? WHERE id = ?'
+  ).run(fixtureDialogue, fixtureNarration, fixture.ids.storyboard);
+  db.prepare('UPDATE storyboards SET audio_local_path = ? WHERE id = ?')
+    .run(retainedDialogue, retained.ids.storyboard);
 
   const before = rowCounts(db, FIXTURE_TABLES);
   const registryCount = db.prepare('SELECT COUNT(*) AS count FROM skill_registry').get().count;
@@ -263,6 +277,7 @@ test('purges one complete E2E graph and its source directory while retaining unr
 
   assert.equal(result.verified, true);
   assert.deepEqual(result.residual, {});
+  assert.deepEqual(result.media_cleanup, { candidates: 2, deleted: 2, missing: 0, shared: 0 });
   for (const table of FIXTURE_TABLES) {
     assert.equal(
       db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count,
@@ -277,6 +292,44 @@ test('purges one complete E2E graph and its source directory while retaining unr
   assert.equal((await fsp.readFile(path.join(sourceRoot, '2', 'keep.txt'), 'utf8')), 'keep');
   await assert.rejects(fsp.lstat(fixtureStorageDirectory), { code: 'ENOENT' });
   assert.equal((await fsp.readFile(path.join(retainedStorageDirectory, 'images', 'keep.png'), 'utf8')), 'keep');
+  await assert.rejects(fsp.lstat(path.join(storageRoot, ...fixtureDialogue.split('/'))), { code: 'ENOENT' });
+  await assert.rejects(fsp.lstat(path.join(storageRoot, ...fixtureNarration.split('/'))), { code: 'ENOENT' });
+  assert.equal(
+    await fsp.readFile(path.join(storageRoot, ...retainedDialogue.split('/')), 'utf8'),
+    retainedDialogue
+  );
+});
+
+test('retains fixture audio that is still referenced by unrelated project data', async (t) => {
+  const db = createDb();
+  const sourceRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-e2e-shared-'));
+  const storageRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-e2e-shared-storage-'));
+  t.after(async () => {
+    db.close();
+    await fsp.rm(sourceRoot, { recursive: true, force: true });
+    await fsp.rm(storageRoot, { recursive: true, force: true });
+  });
+
+  const fixture = seedFixtureGraph(db, { dramaId: 7, e2e: true });
+  const retained = seedFixtureGraph(db, { dramaId: 8, e2e: false });
+  const sharedAudio = `audio/tts_sb${fixture.ids.storyboard}_shared.mp3`;
+  await fsp.mkdir(path.join(storageRoot, 'audio'), { recursive: true });
+  await fsp.writeFile(path.join(storageRoot, ...sharedAudio.split('/')), 'shared');
+  db.prepare('UPDATE storyboards SET audio_local_path = ? WHERE id IN (?, ?)')
+    .run(sharedAudio, fixture.ids.storyboard, retained.ids.storyboard);
+
+  const result = await purgeE2EFixture({
+    db,
+    dramaId: fixture.ids.drama,
+    expectedTitle: fixture.title,
+    storySourceRoot: sourceRoot,
+    storageRoot,
+  });
+
+  assert.deepEqual(result.media_cleanup, { candidates: 1, deleted: 0, missing: 0, shared: 1 });
+  assert.equal(await fsp.readFile(path.join(storageRoot, ...sharedAudio.split('/')), 'utf8'), 'shared');
+  assert.equal(db.prepare('SELECT audio_local_path FROM storyboards WHERE id = ?')
+    .get(retained.ids.storyboard).audio_local_path, sharedAudio);
 });
 
 test('refuses non-E2E or mismatched fixture identities without touching rows or files', async (t) => {

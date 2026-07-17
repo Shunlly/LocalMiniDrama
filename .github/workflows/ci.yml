@@ -1,0 +1,184 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-contract:
+    name: Release contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+      - name: Verify package and API versions
+        run: |
+          npm run check
+          npm run verify:version
+      - name: Validate Docker Compose
+        run: docker compose --profile e2e --profile verify config --quiet
+
+  backend:
+    name: Backend verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend-node/package-lock.json
+      - name: Install media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version
+          ffprobe -version
+      - name: Install dependencies
+        working-directory: backend-node
+        run: npm ci
+      - name: Verify
+        working-directory: backend-node
+        run: npm run verify
+
+  frontend:
+    name: Frontend verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontweb/package-lock.json
+      - name: Install dependencies
+        working-directory: frontweb
+        run: npm ci
+      - name: Verify
+        working-directory: frontweb
+        run: npm run verify
+
+  desktop:
+    name: Windows release candidate
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            frontweb/package-lock.json
+            desktop/package-lock.json
+      - name: Install pinned media tools
+        shell: pwsh
+        run: |
+          $mediaToolsVersion = (Get-Content desktop/package.json | ConvertFrom-Json).mediaToolsVersion
+          if ($mediaToolsVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid desktop mediaToolsVersion' }
+          choco install ffmpeg --version=$mediaToolsVersion -y --no-progress --allow-downgrade
+          $ffmpegPath = (Get-Command ffmpeg.exe).Source
+          $ffprobePath = (Get-Command ffprobe.exe).Source
+          & $ffmpegPath -version
+          & $ffprobePath -version
+          "FFMPEG_PATH=$ffmpegPath" >> $env:GITHUB_ENV
+          "FFPROBE_PATH=$ffprobePath" >> $env:GITHUB_ENV
+      - name: Install frontend dependencies
+        working-directory: frontweb
+        run: npm ci
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Verify Electron runtime and packaging contract
+        working-directory: desktop
+        run: npm run verify
+      - name: Build, smoke and verify Windows release candidate
+        run: npm run verify:release:windows
+      - name: Upload Windows release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-release-candidate-${{ github.sha }}
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.exe.blockmap
+            desktop/release/*.zip
+            desktop/release/*.cdx.json
+            desktop/release/media-tools.json
+          if-no-files-found: error
+          retention-days: 7
+
+  dependency-audit:
+    name: Dependency audit (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [backend-node, frontweb, desktop]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+      - name: Block high and critical advisories
+        working-directory: ${{ matrix.package }}
+        run: npm audit --audit-level=high --registry=https://registry.npmjs.org
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker-production-e2e:
+    name: Docker production E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontweb/package-lock.json
+      - name: Install browser test dependencies
+        working-directory: frontweb
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Start production containers and local E2E provider
+        run: docker compose --profile e2e up -d --build --wait
+      - name: Verify code inside containers
+        run: npm run verify:docker
+      - name: Run full production workflow, QA, timeline, export and browser checks
+        if: always()
+        run: npm run verify:e2e
+      - name: Capture container logs on failure
+        if: failure()
+        run: |
+          mkdir -p artifacts/e2e-production
+          docker compose --profile e2e logs --no-color 2>&1 | node frontweb/scripts/e2e-production.cjs --sanitize-log > artifacts/e2e-production/docker-e2e.log
+      - name: Upload production E2E evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-e2e-${{ github.sha }}
+          path: artifacts/e2e-production/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Stop containers
+        if: always()
+        run: docker compose --profile e2e down --volumes --remove-orphans

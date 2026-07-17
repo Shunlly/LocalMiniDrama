@@ -38,7 +38,7 @@ export const providerConfigs = {
     { id: 'groq', name: 'Groq', models: ['llama-3.3-70b-versatile', 'deepseek-r1-distill-llama-70b', 'moonshotai/kimi-k2-instruct', 'openai/gpt-oss-120b'] },
     { id: 'together', name: 'Together AI', models: ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'deepseek-ai/DeepSeek-V3', 'Qwen/Qwen2.5-72B-Instruct-Turbo'] },
     { id: 'perplexity', name: 'Perplexity', models: ['sonar-pro', 'sonar', 'sonar-reasoning-pro', 'sonar-deep-research'] },
-    { id: 'ollama', name: 'Ollama 本地模型', models: ['qwen3:32b', 'llama3.3:70b', 'deepseek-r1:32b', 'gemma3:27b'] },
+    { id: 'ollama', name: 'Ollama 本地模型', models: ['qwen3:8b', 'qwen3:32b', 'llama3.3:70b', 'deepseek-r1:32b', 'gemma3:27b'] },
     { id: 'lmstudio', name: 'LM Studio 本地模型', models: ['local-model', 'qwen3-32b', 'llama-3.3-70b-instruct'] },
     { id: 'agnes', name: 'Agnes AI', models: ['agnes-2.0-flash'] },
   ],
@@ -51,6 +51,7 @@ export const providerConfigs = {
     { id: 'openai_compatible', name: 'OpenAI 兼容图像网关', models: openAiCompatibleImageModels },
     { id: 'siliconflow', name: 'SiliconFlow 图像', models: ['black-forest-labs/FLUX.1-dev', 'black-forest-labs/FLUX.1-schnell', 'stabilityai/stable-diffusion-3-5-large', 'Qwen/Qwen-Image'] },
     { id: 'local_sd', name: '本地 SD/Flux 网关', models: ['flux.1-dev', 'flux.1-schnell', 'stable-diffusion-xl', 'stable-diffusion-3.5-large'] },
+    { id: 'comfyui', name: 'ComfyUI 本地工作流', models: ['custom-workflow'] },
     { id: 'dashscope', name: '通义万象', models: ['wan2.6-image', 'wanx2.1-t2i-plus', 'wanx2.1-t2i-turbo', 'qwen-image-edit-plus-2026-01-09', 'qwen-image-edit-plus', 'qwen-image-edit-max'] },
     { id: 'qwen_image', name: '通义千问', models: ['qwen-image-max', 'qwen-image-plus', 'qwen-image'] },
     { id: 'agnes', name: 'Agnes AI', models: ['agnes-image-2.1-flash', 'agnes-image-2.0-flash'] },
@@ -65,6 +66,7 @@ export const providerConfigs = {
     { id: 'openai_compatible', name: 'OpenAI 兼容图像网关', models: openAiCompatibleImageModels },
     { id: 'siliconflow', name: 'SiliconFlow 图像', models: ['black-forest-labs/FLUX.1-dev', 'black-forest-labs/FLUX.1-schnell', 'stabilityai/stable-diffusion-3-5-large', 'Qwen/Qwen-Image'] },
     { id: 'local_sd', name: '本地 SD/Flux 网关', models: ['flux.1-dev', 'flux.1-schnell', 'stable-diffusion-xl', 'stable-diffusion-3.5-large'] },
+    { id: 'comfyui', name: 'ComfyUI 本地工作流', models: ['custom-workflow'] },
     { id: 'qwen_image', name: '通义千问', models: ['qwen-image-max', 'qwen-image-plus', 'qwen-image'] },
     { id: 'agnes', name: 'Agnes AI', models: ['agnes-image-2.1-flash', 'agnes-image-2.0-flash'] },
   ],
@@ -120,6 +122,7 @@ export const providerProtocolMap = {
   grok: 'xai',
   jimeng_ai_api: 'jimeng_ai_api',
   jimeng_material_api: '',
+  comfyui: 'comfyui',
 }
 
 const openAiCompatibleProviders = new Set([
@@ -181,6 +184,7 @@ export function getBaseUrlForProvider(provider, serviceType = '') {
   if (p === 'qwen_image') return 'https://dashscope.aliyuncs.com'
   if (p === 'qwen') return 'https://dashscope.aliyuncs.com/compatible-mode/v1'
   if (p === 'local_sd') return 'http://127.0.0.1:7860/v1'
+  if (p === 'comfyui') return 'http://127.0.0.1:8188'
   if (p === 'nano_banana') return 'https://api.nanobananaapi.ai'
   if (p === 'vidu') return 'https://api.vidu.cn'
   if (p === 'kling') return 'https://api.klingai.com'
@@ -197,6 +201,9 @@ export function getProviderEndpointDefaults(provider, serviceType = '', protocol
   const st = String(serviceType || '').toLowerCase()
   const proto = String(protocol || getProviderProtocol(p, st) || '').toLowerCase()
   if (st === 'text') return { endpoint: '/chat/completions', query_endpoint: '' }
+  if ((st === 'image' || st === 'storyboard_image') && (p === 'comfyui' || proto === 'comfyui')) {
+    return { endpoint: '/prompt', query_endpoint: '/history/{promptId}' }
+  }
   if (st === 'video' && p === 'jimeng_ai_api') return { endpoint: '', query_endpoint: '' }
   if (st === 'video' && p === 'ffir') {
     return { endpoint: '/kling/v1/videos/omni-video', query_endpoint: '/kling/v1/images/omni-image/{taskId}' }
@@ -211,4 +218,10 @@ export function getProviderEndpointDefaults(provider, serviceType = '', protocol
     return { endpoint: '/v1/videos', query_endpoint: '/v1/videos/{taskId}' }
   }
   return { endpoint: '', query_endpoint: '' }
+}
+
+export function isApiKeyOptionalProvider(provider, protocol = '') {
+  const p = String(provider || '').trim().toLowerCase()
+  const proto = String(protocol || '').trim().toLowerCase()
+  return p === 'ollama' || p === 'comfyui' || proto === 'comfyui'
 }

@@ -39,7 +39,7 @@ test('project cards use a stable action menu and the no-project state has direct
   assert.match(filmListSource, /class="project-menu-button"/)
   assert.match(filmListSource, /command="export"/)
   assert.match(filmListSource, /command="edit"/)
-  assert.match(filmListSource, /command="delete"/)
+  assert.match(filmListSource, /command="trash"[\s\S]*移入回收站/)
   assert.doesNotMatch(filmListSource, /class="project-card-actions"/)
   assert.match(filmListSource, /还没有短剧项目/)
   assert.match(filmListSource, /新建项目/)

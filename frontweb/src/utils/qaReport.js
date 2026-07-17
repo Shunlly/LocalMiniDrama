@@ -22,5 +22,21 @@ export function normalizeQaReport(report) {
     remediationActions,
     canRemediate: remediationActions.some((action) => action.automated),
     created_at: report?.created_at || body.evaluated_at || '',
+    mode: report?.mode || body.mode || '',
+  }
+}
+
+export function buildQaPresentation(report, fallbackMode = 'production') {
+  const qa = normalizeQaReport(report)
+  const mode = qa.mode || fallbackMode
+  const draft = mode === 'draft'
+  const scopeLabel = draft ? '草稿结构检查' : '正式交付检查'
+  return {
+    scopeLabel,
+    scoreLabel: `${scopeLabel} ${qa.score} 分`,
+    statusLabel: `${draft ? '草稿结构检查' : '正式交付检查'}${qa.passed ? '已通过' : '未通过'}`,
+    notice: draft
+      ? '该评分仅评估脚本与流程结构；草稿占位媒体不计为可交付成片。'
+      : '',
   }
 }

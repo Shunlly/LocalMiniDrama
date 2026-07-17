@@ -1,4 +1,10 @@
-import { isPlaceholderMediaUrl } from './mediaUrl.js'
+import {
+  hasRealMediaValue,
+  hasStoryboardImage as storyboardHasImage,
+  hasStoryboardVideo as storyboardHasVideo,
+} from './storyboardMedia.js'
+import { getServiceConfigReadiness } from './aiServiceReadiness.js'
+import { getConfigTestStatus } from './aiConfigCoverage.js'
 
 export const REQUIRED_AI_SERVICES = [
   { type: 'text', label: '文本模型' },
@@ -14,36 +20,12 @@ function asArray(value) {
   return Array.isArray(value) ? value : []
 }
 
-function hasRealMedia(value) {
-  const normalized = String(value || '').trim()
-  return Boolean(normalized) && !isPlaceholderMediaUrl(normalized)
-}
-
-function hasStoryboardImage(storyboard) {
-  return [storyboard?.image_url, storyboard?.local_path, storyboard?.composed_image]
-    .some(hasRealMedia)
-}
-
-function hasStoryboardVideo(storyboard) {
-  return hasRealMedia(storyboard?.video_url)
-}
-
 function isActiveDefault(config) {
   return Boolean(config)
     && config.is_active !== false
+    && config.is_active !== 0
+    && config.is_active !== '0'
     && (config.is_default === true || Number(config.is_default) === 1)
-}
-
-function configModel(config) {
-  if (!config) return ''
-  if (String(config.default_model || '').trim()) return String(config.default_model).trim()
-  if (Array.isArray(config.model)) return String(config.model[0] || '').trim()
-  try {
-    const parsed = JSON.parse(config.model || '[]')
-    return Array.isArray(parsed) ? String(parsed[0] || '').trim() : ''
-  } catch (_) {
-    return String(config.model || '').trim()
-  }
 }
 
 function buildAiAction(serviceType, label) {
@@ -121,6 +103,7 @@ export function buildProjectReadiness({ drama, sources, sourceCount, aiConfigs }
   const episodes = asArray(drama?.episodes)
   const configs = asArray(aiConfigs)
   const storyboards = episodes.flatMap((episode) => asArray(episode?.storyboards))
+  const storyboardEpisodeCount = episodes.filter((episode) => asArray(episode?.storyboards).length > 0).length
   const resolvedSourceCount = Number.isFinite(Number(sourceCount))
     ? Math.max(0, Number(sourceCount))
     : asArray(sources).length
@@ -131,20 +114,47 @@ export function buildProjectReadiness({ drama, sources, sourceCount, aiConfigs }
   const props = asArray(drama?.props).length
   const assetCount = characters + scenes + props
   const assetCategoryCount = [characters, scenes, props].filter((count) => count > 0).length
-  const imageCount = storyboards.filter(hasStoryboardImage).length
-  const videoCount = storyboards.filter(hasStoryboardVideo).length
+  const imageCount = storyboards.filter((storyboard) => storyboardHasImage(storyboard, {}, drama)).length
+  const videoCount = storyboards.filter((storyboard) => storyboardHasVideo(storyboard, {})).length
+  const speechStoryboards = storyboards.filter((storyboard) => (
+    String(storyboard?.dialogue || '').trim() || String(storyboard?.narration || '').trim()
+  ))
+  const audioReadyCount = speechStoryboards.filter((storyboard) => (
+    (!String(storyboard?.dialogue || '').trim() || hasRealMediaValue(storyboard?.audio_local_path))
+      && (!String(storyboard?.narration || '').trim() || hasRealMediaValue(storyboard?.narration_audio_local_path))
+  )).length
+  const productionEpisodes = episodes.filter((episode) => asArray(episode?.storyboards).length > 0)
+  const composedEpisodeCount = productionEpisodes.filter((episode) => (
+    hasRealMediaValue(episode?.video_local_path) || hasRealMediaValue(episode?.video_url)
+  )).length
 
   const services = REQUIRED_AI_SERVICES.map((definition) => {
     const config = configs.find((item) => item?.service_type === definition.type && isActiveDefault(item)) || null
-    const model = configModel(config)
+    const configReadiness = getServiceConfigReadiness(config)
+    const model = configReadiness.model
+    const test = getConfigTestStatus(config)
+    const configured = configReadiness.ready
+    const verified = configured && test.status === 'passed'
+    const connectionFailed = configured && test.status === 'failed'
+    const selected = [config?.name || config?.provider, model].filter(Boolean).join(' / ') || '默认配置'
+    let detail = '缺少启用的默认配置'
+    if (config && configReadiness.issue === 'missing_workflow') detail = '默认配置缺少 ComfyUI 工作流模板，请补充后再启动正式制作'
+    else if (config && configReadiness.issue === 'missing_credentials') detail = '默认配置缺少生产凭据，请补充 API Key 或有效的厂商认证'
+    else if (config && !configured) detail = '默认配置存在，但未选择可用模型'
+    else if (connectionFailed) detail = '最近一次连接测试失败，请检查配置后重试'
+    else if (verified) detail = `连接已验证：${selected}`
+    else if (configured && configReadiness.modelOptional) detail = '协议工作流已配置，连接尚未验证'
+    else if (configured) detail = `已配置，连接尚未验证：${selected}`
     return {
       ...definition,
-      ready: Boolean(config),
+      ready: configured && !connectionFailed,
+      configured,
+      verified,
+      test,
       name: config?.name || config?.provider || '',
       model,
-      detail: config
-        ? [config.name || config.provider, model].filter(Boolean).join(' / ') || '默认配置可用'
-        : '缺少启用的默认配置',
+      issue: connectionFailed ? 'connection_failed' : configReadiness.issue,
+      detail,
     }
   })
 
@@ -152,17 +162,19 @@ export function buildProjectReadiness({ drama, sources, sourceCount, aiConfigs }
   const coreServices = services.filter((service) => CORE_AI_SERVICE_TYPES.includes(service.type))
   const coreAiReadyCount = coreServices.filter((service) => service.ready).length
   const missingCoreService = coreServices.find((service) => !service.ready) || null
-  const missingCoreLabels = coreServices.filter((service) => !service.ready).map((service) => service.label)
+  const productionAiReadyCount = services.filter((service) => service.ready).length
+  const verifiedServiceCount = services.filter((service) => service.verified).length
+  const missingProductionLabels = services.filter((service) => !service.ready).map((service) => service.label)
 
   const summaryItems = [
     {
       id: 'ai',
       label: 'AI 配置',
-      ready: coreAiReadyCount === coreServices.length,
-      status: buildStatus(coreAiReadyCount === coreServices.length, coreAiReadyCount > 0),
-      detail: coreAiReadyCount === coreServices.length
-        ? `${coreAiReadyCount}/${coreServices.length} 项核心服务已就绪`
-        : `${coreAiReadyCount}/${coreServices.length} 项核心服务已就绪，缺少 ${missingCoreLabels.join(' / ')}`,
+      ready: productionAiReadyCount === services.length,
+      status: buildStatus(productionAiReadyCount === services.length, productionAiReadyCount > 0),
+      detail: productionAiReadyCount === services.length
+        ? `${productionAiReadyCount}/${services.length} 项生产服务已配置，${verifiedServiceCount}/${services.length} 项连接已验证`
+        : `${productionAiReadyCount}/${services.length} 项生产服务可用，缺少或失败 ${missingProductionLabels.join(' / ')}；${verifiedServiceCount}/${services.length} 项连接已验证`,
     },
     {
       id: 'source',
@@ -190,9 +202,14 @@ export function buildProjectReadiness({ drama, sources, sourceCount, aiConfigs }
     {
       id: 'storyboards',
       label: '分镜',
-      ready: storyboards.length > 0,
-      status: buildStatus(storyboards.length > 0),
-      detail: storyboards.length > 0 ? `${storyboards.length} 个分镜已生成` : '尚未生成分镜',
+      ready: episodes.length > 0 && storyboardEpisodeCount === episodes.length,
+      status: buildStatus(
+        episodes.length > 0 && storyboardEpisodeCount === episodes.length,
+        storyboardEpisodeCount > 0,
+      ),
+      detail: episodes.length > 0
+        ? `${storyboardEpisodeCount}/${episodes.length} 集已有分镜，共 ${storyboards.length} 个镜头`
+        : '尚未生成分镜',
     },
     {
       id: 'media',
@@ -208,12 +225,36 @@ export function buildProjectReadiness({ drama, sources, sourceCount, aiConfigs }
       ),
       detail: buildMediaSummary(storyboards.length, imageCount, videoCount),
     },
+    {
+      id: 'audio',
+      label: '对白 / 旁白音频',
+      ready: storyboards.length > 0 && audioReadyCount === speechStoryboards.length,
+      status: buildStatus(
+        storyboards.length > 0 && audioReadyCount === speechStoryboards.length,
+        audioReadyCount > 0,
+      ),
+      detail: speechStoryboards.length > 0
+        ? `${audioReadyCount}/${speechStoryboards.length} 个有台词镜头音频齐备`
+        : storyboards.length > 0 ? '当前分镜无需语音合成' : '等待分镜与台词',
+    },
+    {
+      id: 'delivery',
+      label: '合成 / 成片交付',
+      ready: productionEpisodes.length > 0 && composedEpisodeCount === productionEpisodes.length,
+      status: buildStatus(
+        productionEpisodes.length > 0 && composedEpisodeCount === productionEpisodes.length,
+        composedEpisodeCount > 0,
+      ),
+      detail: productionEpisodes.length > 0
+        ? `${composedEpisodeCount}/${productionEpisodes.length} 集已有可下载成片`
+        : '等待剧集进入合成流程',
+    },
   ]
 
   const summaryById = Object.fromEntries(summaryItems.map((item) => [item.id, item]))
   let nextAction = null
 
-  if (!summaryById.ai.ready) {
+  if (missingCoreService) {
     nextAction = buildAiAction(missingCoreService.type, missingCoreService.label)
   } else if (!summaryById.source.ready) {
     nextAction = buildFlowAction(
@@ -265,7 +306,7 @@ export function buildProjectReadiness({ drama, sources, sourceCount, aiConfigs }
     nextAction = buildAiAction('storyboard_image', serviceByType.storyboard_image.label)
   } else if (imageCount < storyboards.length) {
     const episode = findEpisode(episodes, (item) => (
-      asArray(item?.storyboards).some((storyboard) => !hasStoryboardImage(storyboard))
+      asArray(item?.storyboards).some((storyboard) => !storyboardHasImage(storyboard, {}, drama))
     ))
     nextAction = buildFlowAction(
       'generate_images',
@@ -278,7 +319,7 @@ export function buildProjectReadiness({ drama, sources, sourceCount, aiConfigs }
     nextAction = buildAiAction('video', serviceByType.video.label)
   } else if (videoCount < storyboards.length) {
     const episode = findEpisode(episodes, (item) => (
-      asArray(item?.storyboards).some((storyboard) => !hasStoryboardVideo(storyboard))
+      asArray(item?.storyboards).some((storyboard) => !storyboardHasVideo(storyboard, {}))
     ))
     nextAction = buildFlowAction(
       'generate_videos',
@@ -287,12 +328,39 @@ export function buildProjectReadiness({ drama, sources, sourceCount, aiConfigs }
       `还有 ${storyboards.length - videoCount} 个分镜没有可用视频。`,
       { target: 'film', episodeId: episode?.id },
     )
+  } else if (!serviceByType.tts.ready) {
+    nextAction = buildAiAction('tts', serviceByType.tts.label)
+  } else if (audioReadyCount < speechStoryboards.length) {
+    const episode = findEpisode(episodes, (item) => (
+      asArray(item?.storyboards).some((storyboard) => (
+        (String(storyboard?.dialogue || '').trim() && !hasRealMediaValue(storyboard?.audio_local_path))
+          || (String(storyboard?.narration || '').trim() && !hasRealMediaValue(storyboard?.narration_audio_local_path))
+      ))
+    ))
+    nextAction = buildFlowAction(
+      'generate_audio',
+      '生成对白与旁白音频',
+      '补齐语音素材',
+      `还有 ${speechStoryboards.length - audioReadyCount} 个有台词镜头缺少可用音频。`,
+      { target: 'film', episodeId: episode?.id },
+    )
+  } else if (composedEpisodeCount < productionEpisodes.length) {
+    const episode = findEpisode(productionEpisodes, (item) => (
+      !hasRealMediaValue(item?.video_local_path) && !hasRealMediaValue(item?.video_url)
+    ))
+    nextAction = buildFlowAction(
+      'compose_episode',
+      '合成整集成片',
+      '完成时间线合成',
+      `还有 ${productionEpisodes.length - composedEpisodeCount} 集没有可交付的合成视频。`,
+      { target: 'film', episodeId: episode?.id },
+    )
   } else {
     nextAction = buildFlowAction(
-      'continue_production',
-      '进入制作页',
-      '项目已具备完整制作条件',
-      '核心 AI 配置和关键制作产物均已就绪，可以继续精修或导出。',
+      'review_delivery',
+      '检查并下载成片',
+      '项目已达到成片交付条件',
+      '五类 AI 服务、分镜媒体、语音和逐集合成视频均已就绪，请进入制作页复核并下载成片。',
       { target: 'film', episodeId: episodes[0]?.id },
     )
   }
@@ -328,10 +396,17 @@ export function buildProjectReadiness({ drama, sources, sourceCount, aiConfigs }
       props,
       assets: assetCount,
       storyboards: storyboards.length,
+      storyboardEpisodes: storyboardEpisodeCount,
       images: imageCount,
       videos: videoCount,
+      speechStoryboards: speechStoryboards.length,
+      audioReady: audioReadyCount,
+      productionEpisodes: productionEpisodes.length,
+      composedEpisodes: composedEpisodeCount,
       coreAiReadyCount,
       coreAiTotalCount: coreServices.length,
+      productionAiReadyCount,
+      productionAiTotalCount: services.length,
     },
   }
 
