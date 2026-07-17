@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { stripVTControlCharacters } = require('node:util');
@@ -18,6 +19,7 @@ const scanRoot = path.join(releaseRoot, '.artifact-scan');
 const scanEvidenceRoot = path.join(scanRoot, '.evidence');
 const fuseCli = path.join(path.dirname(require.resolve('@electron/fuses')), 'bin.js');
 const REQUIRED_SCANNERS = Object.freeze(['gitleaks', 'trivy', 'defender']);
+const EXPECTED_PACKAGED_APPLICATION_ROOTS = Object.freeze(['portable', 'setup', 'unpacked']);
 
 function artifactNames(version = packageJson.version) {
   return {
@@ -78,6 +80,110 @@ function assertFusePolicy(executable) {
     assert.equal(states[name], enabled ? 'Enabled' : 'Disabled', `${name} does not match the release fuse policy`);
   }
   return states;
+}
+
+function expectedFuseStates() {
+  return Object.fromEntries(
+    Object.entries(FUSE_POLICY).map(([name, enabled]) => [name, enabled ? 'Enabled' : 'Disabled'])
+  );
+}
+
+function sha256(filePath) {
+  const descriptor = fs.openSync(filePath, 'r');
+  const hash = crypto.createHash('sha256');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    let bytesRead;
+    do {
+      bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, null);
+      if (bytesRead) hash.update(buffer.subarray(0, bytesRead));
+    } while (bytesRead);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  return hash.digest('hex');
+}
+
+function sourceArtifactHashes(version, sourceDirectory) {
+  return Object.fromEntries(Object.values(artifactNames(version)).map((name) => {
+    const filePath = path.join(sourceDirectory, name);
+    assert.ok(fs.statSync(filePath, { throwIfNoEntry: false })?.isFile(), `${name} is missing`);
+    return [name, sha256(filePath)];
+  }));
+}
+
+function assertRelativeInventoryPath(value, label) {
+  assert.equal(typeof value, 'string', `${label} must be a string`);
+  assert.ok(value.length > 0 && !value.includes('\0'), `${label} is invalid`);
+  const normalized = value.replace(/\\/g, '/');
+  assert.equal(path.posix.isAbsolute(normalized), false, `${label} must be relative`);
+  assert.doesNotMatch(normalized, /^[A-Za-z]:\//, `${label} must not contain a drive prefix`);
+  assert.equal(normalized.split('/').includes('..'), false, `${label} must not escape the scan root`);
+  assert.equal(path.posix.normalize(normalized), normalized, `${label} must be normalized`);
+  return normalized;
+}
+
+function validatePackagedApplications(applications) {
+  assert.ok(Array.isArray(applications), 'Packaged application inventory is invalid');
+  assert.equal(
+    applications.length,
+    EXPECTED_PACKAGED_APPLICATION_ROOTS.length,
+    'Artifact scan inventory must contain exactly one application from Setup, Portable, and Unpacked'
+  );
+
+  const executables = new Set();
+  const asars = new Set();
+  const roots = [];
+  const requiredFuses = expectedFuseStates();
+  for (const [index, application] of applications.entries()) {
+    const executable = assertRelativeInventoryPath(application?.executable, `packaged application ${index} executable`);
+    const asarPath = assertRelativeInventoryPath(application?.asar, `packaged application ${index} asar`);
+    assert.equal(executables.has(executable), false, `Duplicate packaged executable: ${executable}`);
+    assert.equal(asars.has(asarPath), false, `Duplicate packaged ASAR: ${asarPath}`);
+    executables.add(executable);
+    asars.add(asarPath);
+
+    const executableRoot = executable.split('/')[0];
+    const asarRoot = asarPath.split('/')[0];
+    assert.equal(asarRoot, executableRoot, `${executable} and ${asarPath} belong to different release artifacts`);
+    assert.ok(
+      EXPECTED_PACKAGED_APPLICATION_ROOTS.includes(executableRoot),
+      `${executable} does not belong to Setup, Portable, or Unpacked`
+    );
+    roots.push(executableRoot);
+    assert.deepEqual(application.fuses, requiredFuses, `${executable} fuse evidence is invalid`);
+  }
+
+  assert.deepEqual(
+    roots.sort((a, b) => a.localeCompare(b, 'en')),
+    [...EXPECTED_PACKAGED_APPLICATION_ROOTS],
+    'Artifact scan inventory must cover Setup, Portable, and Unpacked exactly once'
+  );
+  return applications;
+}
+
+function validateArtifactScanInventory(inventory, version = packageJson.version, options = {}) {
+  assert.equal(inventory?.schema, 'localminidrama.artifact-scan-inventory.v1', 'Artifact scan inventory schema is invalid');
+  assert.equal(inventory.version, version, 'Artifact scan inventory version is invalid');
+  const expectedArtifacts = Object.values(artifactNames(version));
+  assert.deepEqual(inventory.source_artifacts, expectedArtifacts, 'Artifact scan source inventory is invalid');
+  assert.deepEqual(
+    Object.keys(inventory.source_artifact_sha256 || {}),
+    expectedArtifacts,
+    'Artifact scan source hash inventory is invalid'
+  );
+  for (const [name, digest] of Object.entries(inventory.source_artifact_sha256 || {})) {
+    assert.match(String(digest), /^[a-f0-9]{64}$/, `${name} source artifact SHA-256 is invalid`);
+  }
+  if (options.sourceDirectory) {
+    assert.deepEqual(
+      inventory.source_artifact_sha256,
+      sourceArtifactHashes(version, options.sourceDirectory),
+      'Artifact scan source bytes do not match the Windows scan inventory'
+    );
+  }
+  validatePackagedApplications(inventory.packaged_applications);
+  return inventory;
 }
 
 function findPackagedApplications(root) {
@@ -170,17 +276,20 @@ async function prepareArtifactScan() {
     expandAsars(destination);
   }
   const applications = findPackagedApplications(scanRoot);
-  assert.ok(applications.length >= 3, `Expected packaged applications from Setup, Portable, and Unpacked; found ${applications.length}`);
-  for (const application of applications) assertFusePolicy(application.executable);
+  assert.equal(applications.length, EXPECTED_PACKAGED_APPLICATION_ROOTS.length,
+    `Expected exactly one packaged application from Setup, Portable, and Unpacked; found ${applications.length}`);
   const inventory = {
     schema: 'localminidrama.artifact-scan-inventory.v1',
     version: packageJson.version,
     source_artifacts: Object.values(names),
+    source_artifact_sha256: sourceArtifactHashes(packageJson.version, releaseRoot),
     packaged_applications: applications.map((entry) => ({
       executable: path.relative(scanRoot, entry.executable).replace(/\\/g, '/'),
       asar: path.relative(scanRoot, entry.asarPath).replace(/\\/g, '/'),
+      fuses: assertFusePolicy(entry.executable),
     })),
   };
+  validateArtifactScanInventory(inventory, packageJson.version, { sourceDirectory: releaseRoot });
   fs.writeFileSync(path.join(scanRoot, 'inventory.json'), `${JSON.stringify(inventory, null, 2)}\n`, 'utf8');
   return inventory;
 }
@@ -189,7 +298,51 @@ function currentCommit() {
   return run('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, timeout: 30000 }).trim();
 }
 
-function recordScanPass(scanner, version) {
+function parseJsonArgument(value, label) {
+  try {
+    return JSON.parse(String(value || ''));
+  } catch (error) {
+    throw new Error(`${label} is not valid JSON: ${error.message}`);
+  }
+}
+
+function validateTrivyScanDetails(details, expectedVersion) {
+  assert.equal(details?.version, expectedVersion, 'Trivy metadata version is invalid');
+  assert.ok(Number.isInteger(details?.vulnerability_database?.schema_version), 'Trivy DB schema version is invalid');
+  assert.ok(details.vulnerability_database.schema_version > 0, 'Trivy DB schema version is invalid');
+  assert.ok(Number.isFinite(Date.parse(details.vulnerability_database.updated_at)), 'Trivy DB updated_at is invalid');
+  assert.ok(Number.isFinite(Date.parse(details.vulnerability_database.next_update)), 'Trivy DB next_update is invalid');
+  assert.match(
+    String(details?.checks_bundle?.digest || ''),
+    /^sha256:[a-f0-9]{64}$/,
+    'Trivy checks bundle digest is invalid'
+  );
+  assert.ok(Number.isFinite(Date.parse(details.checks_bundle.downloaded_at)), 'Trivy checks bundle downloaded_at is invalid');
+  return details;
+}
+
+function normalizeTrivyScanDetails(versionMetadata, policyMetadata, expectedVersion) {
+  const versionInfo = typeof versionMetadata === 'string'
+    ? parseJsonArgument(versionMetadata, 'Trivy version metadata')
+    : versionMetadata;
+  const policyInfo = typeof policyMetadata === 'string'
+    ? parseJsonArgument(policyMetadata, 'Trivy policy metadata')
+    : policyMetadata;
+  return validateTrivyScanDetails({
+    version: versionInfo?.Version,
+    vulnerability_database: {
+      schema_version: versionInfo?.VulnerabilityDB?.Version,
+      updated_at: versionInfo?.VulnerabilityDB?.UpdatedAt,
+      next_update: versionInfo?.VulnerabilityDB?.NextUpdate,
+    },
+    checks_bundle: {
+      digest: policyInfo?.Digest,
+      downloaded_at: policyInfo?.DownloadedAt,
+    },
+  }, expectedVersion);
+}
+
+function recordScanPass(scanner, version, versionMetadata, policyMetadata) {
   assert.ok(REQUIRED_SCANNERS.includes(scanner), `Unsupported artifact scanner: ${scanner}`);
   const normalizedVersion = String(version || '').trim();
   assert.match(normalizedVersion, /^[A-Za-z0-9][A-Za-z0-9._+() /:-]{0,127}$/, `${scanner} version is invalid`);
@@ -202,6 +355,12 @@ function recordScanPass(scanner, version) {
     commit: currentCommit(),
     generated_at: new Date().toISOString(),
   };
+  if (scanner === 'trivy') {
+    marker.details = normalizeTrivyScanDetails(versionMetadata, policyMetadata, normalizedVersion);
+  } else {
+    assert.equal(versionMetadata, undefined, `${scanner} scan metadata is not supported`);
+    assert.equal(policyMetadata, undefined, `${scanner} policy metadata is not supported`);
+  }
   fs.writeFileSync(path.join(scanEvidenceRoot, `${scanner}.json`), `${JSON.stringify(marker, null, 2)}\n`, 'utf8');
   return marker;
 }
@@ -216,13 +375,17 @@ function readScanPass(scanner, commit) {
   assert.equal(marker.commit, commit, `${scanner} scan was not run against the current commit`);
   assert.match(String(marker.version || ''), /^[A-Za-z0-9][A-Za-z0-9._+() /:-]{0,127}$/, `${scanner} version is invalid`);
   assert.ok(Number.isFinite(Date.parse(marker.generated_at)), `${scanner} marker timestamp is invalid`);
+  if (scanner === 'trivy') validateTrivyScanDetails(marker.details, marker.version);
+  else assert.equal(marker.details, undefined, `${scanner} marker contains unsupported metadata`);
   return marker;
 }
 
 function recordArtifactSecurity() {
-  const inventory = JSON.parse(fs.readFileSync(path.join(scanRoot, 'inventory.json'), 'utf8'));
-  const applications = findPackagedApplications(scanRoot);
-  for (const application of applications) assertFusePolicy(application.executable);
+  const inventory = validateArtifactScanInventory(
+    JSON.parse(fs.readFileSync(path.join(scanRoot, 'inventory.json'), 'utf8')),
+    packageJson.version,
+    { sourceDirectory: releaseRoot }
+  );
   const commit = currentCommit();
   const scanPasses = Object.fromEntries(REQUIRED_SCANNERS.map((scanner) => [scanner, readScanPass(scanner, commit)]));
   const evidence = {
@@ -231,7 +394,9 @@ function recordArtifactSecurity() {
     commit,
     generated_at: new Date().toISOString(),
     source_artifacts: inventory.source_artifacts,
-    extracted_applications: applications.length,
+    source_artifact_sha256: inventory.source_artifact_sha256,
+    extracted_applications: inventory.packaged_applications.length,
+    packaged_applications: inventory.packaged_applications,
     fuses: FUSE_POLICY,
     scans: {
       gitleaks: { version: scanPasses.gitleaks.version, status: 'passed', generated_at: scanPasses.gitleaks.generated_at },
@@ -253,6 +418,8 @@ function recordArtifactSecurity() {
           review_by: '2027-07-17',
           rationale: 'The entrypoint repairs bind-mounted data ownership before immediately executing as node via setpriv.',
         }],
+        vulnerability_database: scanPasses.trivy.details.vulnerability_database,
+        checks_bundle: scanPasses.trivy.details.checks_bundle,
       },
       defender: {
         version: scanPasses.defender.version,
@@ -271,7 +438,7 @@ async function main(args = process.argv.slice(2)) {
   const mode = args[0];
   if (mode === 'package') return packageUnpacked();
   if (mode === 'prepare') return prepareArtifactScan();
-  if (mode === 'mark') return recordScanPass(args[1], args[2]);
+  if (mode === 'mark') return recordScanPass(args[1], args[2], args[3], args[4]);
   if (mode === 'record') return recordArtifactSecurity();
   if (mode === 'fuses') {
     const executable = require('./electron-fuses').findWindowsExecutable(path.join(releaseRoot, 'win-unpacked'));
@@ -295,6 +462,9 @@ module.exports = {
   createVerifiedZip,
   parseFuseReport,
   prepareArtifactScan,
+  validatePackagedApplications,
   recordArtifactSecurity,
   recordScanPass,
+  normalizeTrivyScanDetails,
+  validateArtifactScanInventory,
 };

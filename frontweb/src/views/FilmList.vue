@@ -93,6 +93,34 @@
           </el-button>
         </section>
 
+        <section
+          v-if="importFailure"
+          class="export-failure-state import-failure-state"
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+        >
+          <div>
+            <strong>项目包导入失败</strong>
+            <p class="import-failure-filename">文件：{{ importFailure.fileName }}</p>
+            <p>{{ importFailure.message }}</p>
+          </div>
+          <div class="import-failure-actions">
+            <el-button
+              type="primary"
+              plain
+              :loading="importing"
+              :disabled="listWriteLocked"
+              @click="triggerImport"
+            >
+              <el-icon><RefreshLeft /></el-icon>重新选择项目包
+            </el-button>
+            <el-button plain :disabled="importing" @click="clearImportFailure">
+              关闭
+            </el-button>
+          </div>
+        </section>
+
         <div class="project-grid">
           <!-- 空项目时提供完整起步路径；已有项目时使用顶部主操作，避免重复入口。 -->
           <section v-if="!loading && hasSuccessfulListLoad && !listError && dramas.length === 0" class="action-card action-card--empty">
@@ -817,6 +845,7 @@ const newSaving = ref(false)
 const exportingId = ref(null)
 const exportFailure = ref(null)
 const importing = ref(false)
+const importFailure = ref(null)
 const importFileInput = ref(null)
 
 const showTrashDialog = ref(false)
@@ -1158,6 +1187,63 @@ async function onExport(d) {
   }
 }
 
+function clearImportFailure() {
+  importFailure.value = null
+}
+
+function normalizeImportFailureFilename(name) {
+  let fileName = String(name || '')
+    .split(/[\\/]/)
+    .pop()
+    ?.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+    .replace(/^[. ]+/, '')
+    .replace(/[. ]+$/g, '')
+    .trim()
+    .slice(0, 120)
+  if (!fileName) fileName = '未命名项目包'
+  return fileName
+}
+
+function sanitizeImportFailureReason(message) {
+  const collapsed = String(message || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!collapsed) return '项目包导入失败，请重新选择项目包后重试'
+
+  const redacted = collapsed
+    .replace(/file:\/\/\/\S+/gi, '本地文件')
+    .replace(/[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]*/g, '本地文件')
+    .replace(/\/(?:[^/\s]+\/)+[^/\s]*/g, '服务器文件')
+    .trim()
+
+  if (/(traceback|stack|sqlite|sqlstate|sql\b|errno|exception|node_modules|backend-node|frontweb| at [A-Za-z_$][\w$]*\s*\()/i.test(redacted)) {
+    return '项目包解析失败，请确认文件完整且与当前版本兼容'
+  }
+
+  return redacted.slice(0, 160) || '项目包导入失败，请重新选择项目包后重试'
+}
+
+function resolveImportFailureMessage(error) {
+  const responseBody = error?.response?.data
+  if (typeof responseBody === 'string' && responseBody.trim()) {
+    return sanitizeImportFailureReason(responseBody)
+  }
+  if (responseBody && typeof responseBody === 'object') {
+    const responseMessage = responseBody?.error?.message
+      || responseBody?.message
+      || (typeof responseBody?.error === 'string' ? responseBody.error : '')
+    if (responseMessage) return sanitizeImportFailureReason(responseMessage)
+  }
+  return sanitizeImportFailureReason(error?.message)
+}
+
+function setImportFailure(fileName, error) {
+  importFailure.value = {
+    fileName: normalizeImportFailureFilename(fileName),
+    message: resolveImportFailureMessage(error),
+  }
+}
+
 function triggerImport() {
   if (listWriteLocked.value) return
   importFileInput.value?.click()
@@ -1171,18 +1257,19 @@ async function onImportFile(e) {
   const file = e.target.files?.[0]
   if (!file) return
   e.target.value = ''
-  if (!file.name.endsWith('.zip')) {
-    ElMessage.error('请选择 .zip 格式的文件')
+  clearImportFailure()
+  if (!/\.zip$/i.test(file.name || '')) {
+    setImportFailure(file.name, new Error('请选择 .zip 格式的项目包'))
     return
   }
   importing.value = true
   try {
     const data = await dramaAPI.importDrama(file)
+    importFailure.value = null
     ElMessage.success(`导入成功：${data?.title || '项目'}`) 
     loadList()
-  } catch (e) {
-    const msg = e.response?.data?.message || e.message || '导入失败'
-    ElMessage.error(msg)
+  } catch (error) {
+    setImportFailure(file.name, error)
   } finally {
     importing.value = false
   }
@@ -1412,6 +1499,16 @@ html.light .btn-import {
 .data-load-state__content,
 .export-failure-state > div {
   min-width: 0;
+}
+.import-failure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.import-failure-filename {
+  color: inherit;
+  overflow-wrap: anywhere;
 }
 .data-load-state h2,
 .export-failure-state strong {

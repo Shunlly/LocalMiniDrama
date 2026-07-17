@@ -186,10 +186,6 @@ jobs:
           node-version: '20'
           cache: npm
           cache-dependency-path: desktop/package-lock.json
-      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.2.4
-        with:
-          version: v0.64.1
-          cache: true
 
       - name: Install artifact verification dependencies without lifecycle scripts
         run: npm --prefix desktop ci --ignore-scripts
@@ -221,35 +217,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Gitleaks found a secret or failed to scan the extracted release' }
           node desktop/scripts/verify-windows-artifacts.js mark gitleaks $version
 
-      - name: Block high and critical vulnerabilities and source container misconfigurations with Trivy
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $desktopVersion = (Get-Content desktop/package.json | ConvertFrom-Json).version
-          $sboms = @(
-            "desktop/release/LocalMiniDrama-$desktopVersion.cdx.json",
-            'desktop/release/sbom-backend.cdx.json',
-            'desktop/release/sbom-frontend.cdx.json',
-            'desktop/release/sbom-desktop.cdx.json'
-          )
-          foreach ($sbom in $sboms) {
-            if (-not (Test-Path -LiteralPath $sbom)) { throw "Required SBOM is missing: $sbom" }
-            trivy sbom --skip-version-check --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed $sbom
-            if ($LASTEXITCODE -ne 0) { throw "Trivy found a blocking SBOM vulnerability or failed to scan: $sbom" }
-          }
-          trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL --ignorefile backend-node/.trivyignore.yaml backend-node/Dockerfile
-          if ($LASTEXITCODE -ne 0) { throw 'Trivy found a blocking container misconfiguration or failed to scan: backend-node/Dockerfile' }
-          $dockerfiles = @(
-            'frontweb/Dockerfile',
-            'frontweb/Dockerfile.prod'
-          )
-          foreach ($dockerfile in $dockerfiles) {
-            trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL $dockerfile
-            if ($LASTEXITCODE -ne 0) { throw "Trivy found a blocking container misconfiguration or failed to scan: $dockerfile" }
-          }
-          $version = ((trivy --version | Select-Object -First 1) -replace '^Version:\s*', '').Trim()
-          node desktop/scripts/verify-windows-artifacts.js mark trivy $version
-
       - name: Scan release bundle and extracted payloads with Microsoft Defender
         shell: pwsh
         run: |
@@ -268,7 +235,95 @@ jobs:
           $version = "$($status.AMEngineVersion)-$($status.AntivirusSignatureVersion)"
           node desktop/scripts/verify-windows-artifacts.js mark defender $version
 
-      - name: Record scan evidence and generate the verified release manifest
+      - name: Upload independently verified Windows scan evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-release-security-evidence-${{ github.ref_name }}-${{ github.sha }}
+          path: |
+            desktop/release/.artifact-scan/inventory.json
+            desktop/release/.artifact-scan/.evidence/gitleaks.json
+            desktop/release/.artifact-scan/.evidence/defender.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  scan-trivy-artifacts:
+    name: Scan release SBOMs and Dockerfiles with pinned Trivy
+    needs: [build-windows, scan-windows-artifacts]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      TRIVY_IMAGE: ghcr.io/aquasecurity/trivy@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install artifact verification dependencies without lifecycle scripts
+        run: npm --prefix desktop ci --ignore-scripts
+
+      - name: Download unverified Windows build output
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-release-unverified-${{ github.ref_name }}-${{ github.sha }}
+          path: desktop/release
+
+      - name: Download Windows scan evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-release-security-evidence-${{ github.ref_name }}-${{ github.sha }}
+          path: desktop/release/.artifact-scan
+
+      - name: Block high and critical vulnerabilities and source container misconfigurations with Trivy
+        shell: bash
+        run: |
+          set -euo pipefail
+          readonly expected_version='0.64.1'
+          readonly cache_dir="$RUNNER_TEMP/trivy-cache"
+          mkdir -p "$cache_dir"
+
+          run_trivy() {
+            docker run --rm \
+              --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+              --volume "$cache_dir:/root/.cache/trivy" \
+              --workdir /workspace \
+              "$TRIVY_IMAGE" "$@"
+          }
+
+          version="$(run_trivy --version | awk -F': ' '/^Version:/{print $2; exit}')"
+          test "$version" = "$expected_version"
+
+          desktop_version="$(node -p "require('./desktop/package.json').version")"
+          sboms=(
+            "desktop/release/LocalMiniDrama-$desktop_version.cdx.json"
+            'desktop/release/sbom-backend.cdx.json'
+            'desktop/release/sbom-frontend.cdx.json'
+            'desktop/release/sbom-desktop.cdx.json'
+          )
+          for sbom in "${sboms[@]}"; do
+            test -f "$sbom"
+            run_trivy sbom --skip-version-check --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "$sbom"
+          done
+
+          run_trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL \
+            --ignorefile backend-node/.trivyignore.yaml backend-node/Dockerfile
+          run_trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL frontweb/Dockerfile
+          run_trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL frontweb/Dockerfile.prod
+
+          version_metadata="$(run_trivy --version --format json)"
+          policy_metadata="$(docker run --rm \
+            --volume "$cache_dir:/root/.cache/trivy:ro" \
+            --entrypoint sh \
+            "$TRIVY_IMAGE" \
+            -c 'cat /root/.cache/trivy/policy/metadata.json')"
+          node desktop/scripts/verify-windows-artifacts.js mark trivy "$version" "$version_metadata" "$policy_metadata"
+
+      - name: Record complete security evidence and generate the verified release manifest
         run: |
           npm --prefix desktop run record:artifact-security
           npm run release:manifest
@@ -281,7 +336,7 @@ jobs:
           path: |
             desktop/release/*.exe
             desktop/release/*.exe.blockmap
-            desktop/release/*.zip
+            desktop/release/LocalMiniDrama-Unpacked-*-x64.zip
             desktop/release/*.cdx.json
             desktop/release/artifact-security.json
             desktop/release/media-tools.json
@@ -292,7 +347,7 @@ jobs:
 
   verify-artifacts:
     name: Independently verify and attest release artifacts
-    needs: scan-windows-artifacts
+    needs: scan-trivy-artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -318,13 +373,13 @@ jobs:
         with:
           subject-path: |
             desktop/release/*.exe
-            desktop/release/*.zip
+            desktop/release/LocalMiniDrama-Unpacked-*-x64.zip
             desktop/release/artifact-security.json
             desktop/release/release-manifest.json
 
   publish-release:
     name: Create draft GitHub release
-    needs: [production-e2e, scan-windows-artifacts, verify-artifacts]
+    needs: [production-e2e, scan-trivy-artifacts, verify-artifacts]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -341,7 +396,7 @@ jobs:
           files: |
             desktop/release/*.exe
             desktop/release/*.exe.blockmap
-            desktop/release/*.zip
+            desktop/release/LocalMiniDrama-Unpacked-*-x64.zip
             desktop/release/*.cdx.json
             desktop/release/artifact-security.json
             desktop/release/media-tools.json

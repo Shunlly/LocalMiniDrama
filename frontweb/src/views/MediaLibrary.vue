@@ -361,7 +361,7 @@ async function loadMedia() {
     }
     if (mediaType.value !== 'all') params.type = mediaType.value
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
-    const res = await assetsAPI.list(params)
+    const res = await assetsAPI.list(params, { suppressErrorToast: true })
     mediaRequestGuard.commit(requestId, () => {
       mediaItems.value = (res?.items || []).map(normalizeItem)
       total.value = res?.pagination?.total ?? res?.total ?? 0

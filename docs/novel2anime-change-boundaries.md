@@ -1,7 +1,7 @@
 # Novel2Anime Change Boundaries
 
-Date: 2026-07-17
-Release scope: LocalMiniDrama 1.3.2 desktop
+Date: 2026-07-18
+Release scope: LocalMiniDrama 1.3.3 desktop
 
 ## Implemented Boundary
 
@@ -11,7 +11,7 @@ Release scope: LocalMiniDrama 1.3.2 desktop
 - Source extraction: text, PDF, image OCR, audio transcription, and video-to-audio transcription with explicit size/duration/resource limits.
 - Desktop Web: project readiness, five-step source workflow, list production, Canvas workflows, Material Center, AI service coverage, progressive configuration, failure recovery, and desktop accessibility.
 - Operations: production Docker, health/readiness checks, full-data backup/restore, rollback evidence, structured privacy-safe logs, release manifests, SBOMs, and checksum verification.
-- Verification: backend/frontend/desktop suites, Docker/Node.js 20 verification, browser acceptance, production E2E, release contract tests, dependency audit, four-SBOM vulnerability scanning, Dockerfile configuration scanning, artifact secret scanning, Defender, and Electron Fuse checks.
+- Verification: backend/frontend/desktop suites, Docker/Node.js 20 verification, browser acceptance, production E2E, release contract tests, dependency audit, four-SBOM vulnerability scanning, Dockerfile configuration scanning, artifact secret scanning, Defender, exact release-attachment checks, per-package Electron Fuse evidence, and cross-run SHA-256 binding of scanned Windows artifacts.
 
 ## Deferred Boundary
 

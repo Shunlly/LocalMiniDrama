@@ -7,6 +7,7 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { validateMediaToolMetadata } = require('../desktop/scripts/media-tool-policy')
 const { FUSE_POLICY } = require('../desktop/scripts/electron-fuses')
+const { validatePackagedApplications } = require('../desktop/scripts/verify-windows-artifacts')
 const { assertReleaseVersion } = require('./verify-release-version.cjs')
 
 const root = path.resolve(__dirname, '..')
@@ -55,8 +56,7 @@ function assertCleanSourceTree(environment = process.env) {
 }
 
 function isReleaseArtifact(name) {
-  return /(?:\.exe(?:\.blockmap)?|\.cdx\.json)$/i.test(name)
-    || /^LocalMiniDrama-Unpacked-[0-9]+\.[0-9]+\.[0-9]+-x64\.zip$/i.test(name)
+  return /(?:\.exe(?:\.blockmap)?|\.cdx\.json|\.zip)$/i.test(name)
     || name === 'artifact-security.json'
     || name === 'media-tools.json'
 }
@@ -138,13 +138,28 @@ function validateArtifactSecurity(output, names, version) {
   assert.equal(evidence.version, version, 'artifact security version does not match the release version')
   assert.match(String(evidence.commit || ''), /^[a-f0-9]{40,64}$/, 'artifact security commit is invalid')
   assert.ok(Number.isFinite(Date.parse(evidence.generated_at)), 'artifact security generated_at is invalid')
-  assert.ok(Number.isInteger(evidence.extracted_applications) && evidence.extracted_applications >= 3,
-    'artifact security must verify Setup, Portable, and Unpacked applications')
+  validatePackagedApplications(evidence.packaged_applications)
+  assert.equal(evidence.extracted_applications, evidence.packaged_applications.length,
+    'artifact security extracted application count is invalid')
   assert.deepEqual(evidence.source_artifacts, [
     `LocalMiniDrama-Portable-${version}-x64.exe`,
     `LocalMiniDrama-Setup-${version}-x64.exe`,
     `LocalMiniDrama-Unpacked-${version}-x64.zip`,
   ], 'artifact security source inventory is invalid')
+  assert.deepEqual(
+    Object.keys(evidence.source_artifact_sha256 || {}),
+    evidence.source_artifacts,
+    'artifact security source hash inventory is invalid'
+  )
+  for (const name of evidence.source_artifacts) {
+    const digest = String(evidence.source_artifact_sha256[name] || '')
+    assert.match(digest, /^[a-f0-9]{64}$/, `${name} artifact security SHA-256 is invalid`)
+    assert.equal(
+      sha256(path.join(output, name)),
+      digest,
+      `${name} SHA-256 does not match the Windows artifact scan evidence`
+    )
+  }
   assert.deepEqual(evidence.fuses, FUSE_POLICY, 'artifact security Electron fuse policy is invalid')
   assert.deepEqual(Object.keys(evidence.scans || {}).sort(), ['defender', 'gitleaks', 'trivy'])
   for (const scanner of ['gitleaks', 'trivy', 'defender']) {
@@ -168,6 +183,28 @@ function validateArtifactSecurity(output, names, version) {
     review_by: '2027-07-17',
     rationale: 'The entrypoint repairs bind-mounted data ownership before immediately executing as node via setpriv.',
   }], 'Trivy configuration exceptions are invalid')
+  assert.ok(
+    Number.isInteger(evidence.scans.trivy.vulnerability_database?.schema_version)
+      && evidence.scans.trivy.vulnerability_database.schema_version > 0,
+    'Trivy vulnerability DB schema version is invalid',
+  )
+  assert.ok(
+    Number.isFinite(Date.parse(evidence.scans.trivy.vulnerability_database?.updated_at)),
+    'Trivy vulnerability DB updated_at is invalid',
+  )
+  assert.ok(
+    Number.isFinite(Date.parse(evidence.scans.trivy.vulnerability_database?.next_update)),
+    'Trivy vulnerability DB next_update is invalid',
+  )
+  assert.match(
+    String(evidence.scans.trivy.checks_bundle?.digest || ''),
+    /^sha256:[a-f0-9]{64}$/,
+    'Trivy checks bundle digest is invalid',
+  )
+  assert.ok(
+    Number.isFinite(Date.parse(evidence.scans.trivy.checks_bundle?.downloaded_at)),
+    'Trivy checks bundle downloaded_at is invalid',
+  )
   assert.equal(evidence.scans.defender.scope, 'release bundle and extracted payloads', 'Defender release scope is invalid')
   return evidence
 }

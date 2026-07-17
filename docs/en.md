@@ -4,7 +4,7 @@
 
 **A local-first AI short drama & comic generator — bring your own local or hosted providers, fully open source**
 
-[![version](https://img.shields.io/badge/version-1.3.2-blue?style=flat-square)](https://github.com/Shunlly/LocalMiniDrama/releases)
+[![version](https://img.shields.io/badge/version-1.3.3-blue?style=flat-square)](https://github.com/Shunlly/LocalMiniDrama/releases)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](../LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](#)
 [![stack](https://img.shields.io/badge/Vue3%20%2B%20Node.js%20%2B%20Electron-informational?style=flat-square)](#)
@@ -185,9 +185,10 @@ LocalMiniDrama/
 
 Full version history → **[CHANGELOG](changelog.md)**
 
-**Latest v1.3.2 highlights:**
+**Latest v1.3.3 highlights:**
 
-- Windows Docker entrypoints are LF-safe, product acceptance tests are CRLF-safe, and package tests use Node.js native discovery instead of shell-expanded globs.
+- The release gate runs Trivy 0.64.1 from an official digest-pinned OCI image on Ubuntu, rejects unlisted ZIP attachments, binds Windows scan evidence to the final Setup, Portable, and Unpacked bytes with SHA-256, and proves Fuse coverage for each package separately.
+- Media search now cancels stale requests and guarantees latest-request-wins behavior without stale error toasts, while project import failures remain visible with a safe filename, reason, retry action, and dismiss action.
 - 🆕 **Closed-loop desktop workflow** — project readiness exposes one next action, while source intake, processing, QA, repair, episodes, and timeline remain recoverable
 - 🆕 **Multi-provider AI configuration** — configure and test text, source-image, storyboard-image, video, and TTS models across local and hosted providers
 - 🆕 **Novel2Anime production path** — PDF/image OCR, audio/video transcription, image/video/TTS generation, and FFmpeg composition in one auditable workflow

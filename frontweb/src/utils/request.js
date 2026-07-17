@@ -7,6 +7,12 @@ const request = axios.create({
   headers: { 'Content-Type': 'application/json' }
 })
 
+export function shouldShowRequestErrorToast(error) {
+  return error?.config?.suppressErrorToast !== true
+    && error?.code !== 'ERR_CANCELED'
+    && !axios.isCancel(error)
+}
+
 request.interceptors.response.use(
   (response) => {
     // blob 类型直接返回原始数据，不做 JSON 解包
@@ -23,7 +29,7 @@ request.interceptors.response.use(
     // 提取后端实际错误信息（优先 API 返回的 message，而非 axios 通用 "status code 500"）
     const backendMsg = error.response?.data?.error?.message
     const msg = backendMsg || error.message || '网络错误'
-    ElMessage.error(msg)
+    if (shouldShowRequestErrorToast(error)) ElMessage.error(msg)
     // 将真实错误信息写回 message，使组件 catch 块可直接用 e.message 获取可读内容
     if (backendMsg) error.message = backendMsg
     return Promise.reject(error)

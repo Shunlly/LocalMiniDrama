@@ -3,11 +3,13 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { parse } from '@vue/compiler-sfc'
+import { shouldShowRequestErrorToast } from '../src/utils/request.js'
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
 const pickerSource = readFileSync(new URL('../src/components/GlobalMediaPickerDialog.vue', import.meta.url), 'utf8')
 const assetsApiSource = readFileSync(new URL('../src/api/assets.js', import.meta.url), 'utf8')
+const requestSource = readFileSync(new URL('../src/utils/request.js', import.meta.url), 'utf8')
 
 function assertValidVueSfc(name, source) {
   const { errors } = parse(source, { filename: name })
@@ -23,11 +25,21 @@ test('media center SFCs stay parseable after cross-project reuse wiring', () => 
 test('assets API normalizes list items before the views consume them', () => {
   assert.match(assetsApiSource, /import \{ normalizeMediaItem \} from '@\/utils\/mediaLibrary'/)
   assert.match(assetsApiSource, /items: items\.map\(\(item\) => normalizeMediaItem\(item\)\)/)
-  assert.match(assetsApiSource, /const response = await request\.get\('\/assets', \{ params \}\)/)
+  assert.match(assetsApiSource, /async list\(params = \{\}, requestOptions = \{\}\)/)
+  assert.match(assetsApiSource, /request\.get\('\/assets', \{ \.\.\.requestOptions, params \}\)/)
+})
+
+test('persistent media loaders suppress duplicate global errors while ordinary request failures still toast', () => {
+  assert.match(mediaLibrarySource, /assetsAPI\.list\(params, \{ suppressErrorToast: true \}\)/)
+  assert.match(pickerSource, /assetsAPI\.list\(params, \{[\s\S]*signal: controller\.signal,[\s\S]*suppressErrorToast: true,/)
+  assert.match(requestSource, /if \(shouldShowRequestErrorToast\(error\)\) ElMessage\.error\(msg\)/)
+  assert.equal(shouldShowRequestErrorToast({ config: {} }), true)
+  assert.equal(shouldShowRequestErrorToast({ config: { suppressErrorToast: true } }), false)
+  assert.equal(shouldShowRequestErrorToast({ code: 'ERR_CANCELED', config: {} }), false)
 })
 
 test('media library cards surface source project context for cross-project reuse', () => {
-  assert.match(mediaLibrarySource, /const res = await assetsAPI\.list\(params\)/)
+  assert.match(mediaLibrarySource, /const res = await assetsAPI\.list\(params, \{ suppressErrorToast: true \}\)/)
   assert.match(mediaLibrarySource, /class="media-origin">\{\{ item\.source_drama_title \|\| '全局上传/)
 })
 
@@ -39,7 +51,13 @@ test('global media picker shows mount context, media compatibility state, retry 
   assert.match(pickerSource, /class="picker-error" role="alert"/)
   assert.match(pickerSource, /aria-label="素材类型"/)
   assert.match(pickerSource, /:class="\{\s*'picker-card--selected': selectedId === item\.id,\s*'picker-card--incompatible': !isCompatible\(item\),/s)
-  assert.match(pickerSource, /:disabled="!selectedItem \|\| !isCompatible\(selectedItem\)"/)
+  assert.match(pickerSource, /:disabled="confirmDisabled"/)
+  assert.match(pickerSource, /const confirmDisabled = computed\(\(\) => \(\s*loading\.value\s*\|\|\s*Boolean\(loadError\.value\)\s*\|\|\s*!selectedItem\.value\s*\|\|\s*!isCompatible\(selectedItem\.value\)\s*\)\)/s)
+  assert.match(pickerSource, /<div v-if="!loading && !loadError && !items.length" class="picker-empty">/)
+  assert.match(pickerSource, /createLatestMediaRequestGuard/)
+  assert.match(pickerSource, /function abortActiveLoad\(\)[\s\S]*activeLoadController\?\.abort\(\)/)
+  assert.match(pickerSource, /function handleClosed\(\)[\s\S]*resetPickerState\(\)/)
+  assert.match(pickerSource, /function confirmSelection\(\) \{\s*if \(confirmDisabled\.value\) return/)
   assert.match(pickerSource, /@keydown\.enter\.prevent="onCardEnter\(item\)"/)
   assert.match(pickerSource, /@keydown\.space\.prevent="selectItem\(item\)"/)
   assert.match(pickerSource, /Number\(selectedId\.value\) === Number\(item\.id\)[\s\S]*confirmSelection\(\)[\s\S]*selectItem\(item\)/)

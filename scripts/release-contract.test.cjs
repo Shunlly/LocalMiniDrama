@@ -9,6 +9,7 @@ const {
   artifactInventory,
   expectedChecksumText,
   expectedReleaseArtifactNames,
+  isReleaseArtifact,
   verify,
 } = require('./generate-release-metadata.cjs')
 const {
@@ -33,6 +34,10 @@ const backendEntrypoint = fs.readFileSync(path.join(root, 'backend-node', 'docke
 const ciWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'ci.yml'), 'utf8')
 const dockerArtifactVerifierSource = fs.readFileSync(path.join(root, 'scripts', 'verify-docker-artifact.cjs'), 'utf8')
 const releaseVerifierSource = fs.readFileSync(path.join(root, 'scripts', 'verify-release.cjs'), 'utf8')
+const windowsArtifactVerifierSource = fs.readFileSync(
+  path.join(root, 'desktop', 'scripts', 'verify-windows-artifacts.js'),
+  'utf8',
+)
 const artifactGitleaksConfig = fs.readFileSync(path.join(root, '.gitleaks-artifacts.toml'), 'utf8')
 const rootPackage = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const backendPackage = JSON.parse(fs.readFileSync(path.join(root, 'backend-node', 'package.json'), 'utf8'))
@@ -76,18 +81,29 @@ function trustedMediaMetadata() {
   }
 }
 
-function passedArtifactSecurity(version) {
+function passedArtifactSecurity(version, output) {
+  const sourceArtifacts = [
+    `LocalMiniDrama-Portable-${version}-x64.exe`,
+    `LocalMiniDrama-Setup-${version}-x64.exe`,
+    `LocalMiniDrama-Unpacked-${version}-x64.zip`,
+  ]
   return {
     schema: 'localminidrama.artifact-security.v1',
     version,
     commit: 'a'.repeat(40),
     generated_at: '2026-07-17T00:00:00.000Z',
-    source_artifacts: [
-      `LocalMiniDrama-Portable-${version}-x64.exe`,
-      `LocalMiniDrama-Setup-${version}-x64.exe`,
-      `LocalMiniDrama-Unpacked-${version}-x64.zip`,
-    ],
+    source_artifacts: sourceArtifacts,
+    source_artifact_sha256: Object.fromEntries(
+      artifactInventory(output, sourceArtifacts).map((artifact) => [artifact.name, artifact.sha256])
+    ),
     extracted_applications: 3,
+    packaged_applications: ['setup', 'portable', 'unpacked'].map((kind) => ({
+      executable: `${kind}/LocalMiniDrama.exe`,
+      asar: `${kind}/resources/app.asar`,
+      fuses: Object.fromEntries(
+        Object.entries(FUSE_POLICY).map(([name, enabled]) => [name, enabled ? 'Enabled' : 'Disabled'])
+      ),
+    })),
     fuses: FUSE_POLICY,
     scans: {
       gitleaks: { version: '8.28.0', status: 'passed', generated_at: '2026-07-17T00:00:00.000Z' },
@@ -109,6 +125,15 @@ function passedArtifactSecurity(version) {
           review_by: '2027-07-17',
           rationale: 'The entrypoint repairs bind-mounted data ownership before immediately executing as node via setpriv.',
         }],
+        vulnerability_database: {
+          schema_version: 2,
+          updated_at: '2026-07-17T13:09:25.875519042Z',
+          next_update: '2026-07-18T13:09:25.87551825Z',
+        },
+        checks_bundle: {
+          digest: `sha256:${'b'.repeat(64)}`,
+          downloaded_at: '2026-07-17T17:36:34.087206269Z',
+        },
       },
       defender: {
         version: '1.1.25060.6-1.437.42.0',
@@ -130,13 +155,17 @@ function createReleaseFixture(t) {
     if (name === 'media-tools.json') {
       fs.writeFileSync(filePath, `${JSON.stringify(trustedMediaMetadata(), null, 2)}\n`)
     } else if (name === 'artifact-security.json') {
-      fs.writeFileSync(filePath, `${JSON.stringify(passedArtifactSecurity(version), null, 2)}\n`)
+      continue
     } else if (name.endsWith('.cdx.json')) {
       fs.writeFileSync(filePath, `${JSON.stringify({ bomFormat: 'CycloneDX', components: [] })}\n`)
     } else {
       fs.writeFileSync(filePath, `fixture:${name}\n`)
     }
   }
+  fs.writeFileSync(
+    path.join(output, 'artifact-security.json'),
+    `${JSON.stringify(passedArtifactSecurity(version, output), null, 2)}\n`,
+  )
 
   const artifacts = artifactInventory(output, names)
   const manifest = {
@@ -176,6 +205,7 @@ test('release workflow separates read-only build, artifact verification and publ
   assert.match(workflow, /^permissions:\r?\n  contents: read$/m)
   const build = jobBlock('build-windows')
   const artifactScan = jobBlock('scan-windows-artifacts')
+  const trivyScan = jobBlock('scan-trivy-artifacts')
   const artifactVerification = jobBlock('verify-artifacts')
   const publish = jobBlock('publish-release')
 
@@ -192,37 +222,80 @@ test('release workflow separates read-only build, artifact verification and publ
 
   assert.match(artifactScan, /needs: build-windows/)
   assert.match(artifactScan, /permissions:\r?\n      contents: read/)
-  assert.match(artifactScan, /aquasecurity\/setup-trivy@[a-f0-9]{40}/)
   assert.match(artifactScan, /DA6458E8864AF553807DE1C46A7A8EAC0880BD6B99BA56288E87E86A45AF884F/)
   assert.match(artifactScan, /gitleaks dir desktop\/release --config \.gitleaks-artifacts\.toml/)
   assert.doesNotMatch(artifactScan, /gitleaks dir desktop\/release --config \.gitleaks\.toml/)
-  assert.match(artifactScan, /LocalMiniDrama-\$desktopVersion\.cdx\.json/)
+  assert.match(artifactScan, /prepare:artifact-scan[\s\S]*mark gitleaks \$version[\s\S]*MpCmdRun\.exe[\s\S]*mark defender \$version/)
+  assert.match(artifactScan, /name: windows-release-security-evidence-/)
+  for (const name of [
+    'desktop/release/.artifact-scan/inventory.json',
+    'desktop/release/.artifact-scan/.evidence/gitleaks.json',
+    'desktop/release/.artifact-scan/.evidence/defender.json',
+  ]) {
+    assert.match(artifactScan, new RegExp(name.replaceAll('.', '\\.')))
+  }
+  assert.match(artifactScan, /include-hidden-files: true/)
+  assert.doesNotMatch(artifactScan, /setup-trivy|trivy (?:sbom|config)|mark trivy|\.evidence\/trivy\.json/)
+  assert.doesNotMatch(artifactScan, /artifact-security\.json|release-manifest\.json|SHA256SUMS/)
+  assert.doesNotMatch(artifactScan, /contents: write|attest-build-provenance|action-gh-release/)
+
+  assert.match(trivyScan, /needs: \[build-windows, scan-windows-artifacts\]/)
+  assert.match(trivyScan, /runs-on: ubuntu-latest/)
+  assert.match(trivyScan, /permissions:\r?\n      contents: read/)
+  assert.match(
+    trivyScan,
+    /^      TRIVY_IMAGE: ghcr\.io\/aquasecurity\/trivy@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e\r?$/m,
+  )
+  assert.match(trivyScan, /docker run --rm[\s\S]*"\$TRIVY_IMAGE" "\$@"/)
+  assert.match(trivyScan, /readonly expected_version='0\.64\.1'[\s\S]*test "\$version" = "\$expected_version"/)
+  assert.match(trivyScan, /LocalMiniDrama-\$desktop_version\.cdx\.json/)
   for (const name of ['sbom-backend.cdx.json', 'sbom-frontend.cdx.json', 'sbom-desktop.cdx.json']) {
-    assert.match(artifactScan, new RegExp(name.replaceAll('.', '\\.')))
+    assert.match(trivyScan, new RegExp(name.replaceAll('.', '\\.')))
   }
-  assert.match(artifactScan, /trivy sbom[\s\S]*trivy config/)
-  for (const name of ['backend-node/Dockerfile', 'frontweb/Dockerfile', 'frontweb/Dockerfile.prod']) {
-    assert.match(artifactScan, new RegExp(name.replaceAll('.', '\\.')))
+  assert.match(trivyScan, /for sbom in "\$\{sboms\[@\]\}"; do[\s\S]*run_trivy sbom/)
+  assert.match(trivyScan, /--ignorefile backend-node\/\.trivyignore\.yaml backend-node\/Dockerfile/)
+  for (const name of ['frontweb/Dockerfile', 'frontweb/Dockerfile.prod']) {
+    assert.match(trivyScan, new RegExp(`run_trivy config[^\r\n]*${name.replaceAll('.', '\\.')}`))
   }
-  assert.doesNotMatch(artifactScan, /--scanners misconfig desktop\/release\/\.artifact-scan/)
-  assert.doesNotMatch(artifactScan, /--scanners vuln,misconfig desktop\/release\/\.artifact-scan/)
-  assert.match(artifactScan, /--ignorefile backend-node\/\.trivyignore\.yaml backend-node\/Dockerfile/)
+  assert.doesNotMatch(trivyScan, /--scanners misconfig desktop\/release\/\.artifact-scan/)
+  assert.doesNotMatch(trivyScan, /--scanners vuln,misconfig desktop\/release\/\.artifact-scan/)
   assert.match(backendTrivyIgnore, /id:\s*AVD-DS-0002/)
   assert.match(backendTrivyIgnore, /paths:\s*\r?\n\s*- Dockerfile/)
   assert.match(backendTrivyIgnore, /expired_at:\s*2027-07-17/)
   assert.match(backendTrivyIgnore, /setpriv/)
-  assert.match(artifactScan, /gitleaks[\s\S]*trivy sbom[\s\S]*MpCmdRun\.exe[\s\S]*record:artifact-security[\s\S]*release:manifest/)
-  assert.match(artifactScan, /prepare:artifact-scan/)
-  assert.doesNotMatch(artifactScan, /contents: write|attest-build-provenance|action-gh-release/)
+  assert.match(trivyScan, /windows-release-unverified-[\s\S]*path: desktop\/release/)
+  assert.match(
+    trivyScan,
+    /windows-release-security-evidence-[\s\S]*path: desktop\/release\/\.artifact-scan[\s\S]*mark trivy "\$version"/,
+  )
+  assert.match(trivyScan, /run_trivy --version --format json/)
+  assert.match(trivyScan, /cat \/root\/\.cache\/trivy\/policy\/metadata\.json/)
+  assert.match(trivyScan, /mark trivy "\$version" "\$version_metadata" "\$policy_metadata"/)
+  assert.match(trivyScan, /mark trivy "\$version"[\s\S]*record:artifact-security[\s\S]*release:manifest[\s\S]*verify:release:artifacts/)
+  assert.match(trivyScan, /desktop\/release\/release-manifest\.json/)
+  assert.match(trivyScan, /desktop\/release\/SHA256SUMS/)
+  assert.doesNotMatch(trivyScan, /contents: write|attest-build-provenance|action-gh-release/)
+  assert.match(
+    windowsArtifactVerifierSource,
+    /source_artifact_sha256: sourceArtifactHashes\(packageJson\.version, releaseRoot\)/,
+  )
+  assert.match(
+    windowsArtifactVerifierSource,
+    /function recordArtifactSecurity\(\)[\s\S]*sourceDirectory: releaseRoot[\s\S]*source_artifact_sha256: inventory\.source_artifact_sha256/,
+  )
 
-  assert.match(artifactVerification, /needs: scan-windows-artifacts/)
+  assert.match(artifactVerification, /needs: scan-trivy-artifacts/)
   assert.match(artifactVerification, /npm run verify:release:artifacts/)
   assert.match(artifactVerification, /attestations: write/)
   assert.match(artifactVerification, /id-token: write/)
 
-  assert.match(publish, /needs: \[production-e2e, scan-windows-artifacts, verify-artifacts\]/)
+  assert.match(publish, /needs: \[production-e2e, scan-trivy-artifacts, verify-artifacts\]/)
   assert.match(publish, /permissions:\r?\n      contents: write/)
   assert.match(publish, /softprops\/action-gh-release@[a-f0-9]{40}/)
+  for (const block of [trivyScan, artifactVerification, publish]) {
+    assert.doesNotMatch(block, /desktop\/release\/\*\.zip/)
+    assert.match(block, /desktop\/release\/LocalMiniDrama-Unpacked-\*-x64\.zip/)
+  }
   assert.doesNotMatch(publish, /electron-builder|npm run dist/)
 })
 
@@ -354,6 +427,15 @@ test('release verification rejects missing or failed artifact security evidence'
 
 test('offline artifact verification detects changed bytes and checksum rows', (t) => {
   const fixture = createReleaseFixture(t)
+  assert.equal(verify(fixture.output, { environment: {} }).verified, true)
+
+  assert.equal(isReleaseArtifact('rogue.zip'), true)
+  fs.writeFileSync(path.join(fixture.output, 'rogue.zip'), 'not in the verified artifact set')
+  assert.throws(
+    () => verify(fixture.output, { environment: {} }),
+    /missing, stale, or unexpected release artifacts/
+  )
+  fs.rmSync(path.join(fixture.output, 'rogue.zip'))
   assert.equal(verify(fixture.output, { environment: {} }).verified, true)
 
   const executable = path.join(fixture.output, `LocalMiniDrama-Portable-${fixture.version}-x64.exe`)

@@ -77,6 +77,62 @@ async function loadOnExportHarness() {
   return import(`data:text/javascript;charset=utf-8,${encodeURIComponent(harnessSource)}`)
 }
 
+async function loadOnImportHarness() {
+  const importImplementation = sourceBetween(
+    filmListSource,
+    'function clearImportFailure',
+    'async function moveToTrash',
+  )
+  const harnessSource = `
+    const importing = { value: false }
+    const importFailure = { value: null }
+    const listWriteLocked = { value: false }
+    const calls = []
+    let importResult = null
+    const importFileInput = {
+      value: {
+        click() { calls.push('open-picker') },
+      },
+    }
+    const dramaAPI = {
+      async importDrama(file) {
+        calls.push('api:' + file.name)
+        if (importResult instanceof Error) throw importResult
+        return await importResult
+      },
+    }
+    const ElMessage = {
+      success(message) { calls.push('success:' + message) },
+      error(message) { calls.push('error:' + message) },
+    }
+    function loadList() { calls.push('load-list') }
+    ${importImplementation}
+    function setImportResult(value) { importResult = value }
+    function resetHarness() {
+      calls.length = 0
+      importResult = null
+      importing.value = false
+      importFailure.value = null
+      listWriteLocked.value = false
+    }
+    export {
+      calls,
+      clearImportFailure,
+      importFailure,
+      importing,
+      listWriteLocked,
+      normalizeImportFailureFilename,
+      onImportFile,
+      resolveImportFailureMessage,
+      resetHarness,
+      sanitizeImportFailureReason,
+      setImportResult,
+      triggerImport,
+    }
+  `
+  return import(`data:text/javascript;charset=utf-8,${encodeURIComponent(harnessSource)}`)
+}
+
 test('project list uses a persistent failure state without replacing it with an empty state', () => {
   assert.match(filmListSource, /v-if="listError"[\s\S]*role="alert"[\s\S]*您的项目数据没有被删除/)
   assert.match(filmListSource, /下方显示上次成功加载的数据，当前内容已过期/)
@@ -130,6 +186,110 @@ test('material center preserves stale data and blocks upload and deletion on loa
   assert.match(mediaLibrarySource, /:aria-label="actionLabel\('删除', item\)"[\s\S]*:disabled="mediaWriteLocked"/)
   assert.match(mediaLibrarySource, /async function deleteItem\(item\) \{\s*if \(mediaWriteLocked\.value\) return/)
   assert.match(mediaLibrarySource, /async function batchDelete\(\) \{\s*if \(mediaWriteLocked\.value\) return/)
+})
+
+test('project import failures stay persistent with retry and dismiss actions', () => {
+  assert.match(
+    filmListSource,
+    /v-if="importFailure"[\s\S]*role="alert"[\s\S]*importFailure\.fileName[\s\S]*importFailure\.message/,
+  )
+  assert.match(
+    filmListSource,
+    /class="export-failure-state import-failure-state"[\s\S]*:loading="importing"[\s\S]*@click="triggerImport"/,
+  )
+  assert.match(filmListSource, /@click="clearImportFailure"[\s\S]*关闭/)
+
+  const importSource = sourceBetween(filmListSource, 'function clearImportFailure', 'async function moveToTrash')
+  assert.match(importSource, /clearImportFailure\(\)/)
+  assert.ok(importSource.includes("if (!/\\.zip$/i.test(file.name || '')) {"))
+  assert.ok(importSource.includes("setImportFailure(file.name, new Error('请选择 .zip 格式的项目包'))"))
+  assert.match(importSource, /const data = await dramaAPI\.importDrama\(file\)[\s\S]*importFailure\.value = null/)
+  assert.match(importSource, /catch \(error\) \{[\s\S]*setImportFailure\(file\.name, error\)/)
+})
+
+test('project import failure helpers sanitize filenames and sensitive backend details', async () => {
+  const {
+    normalizeImportFailureFilename,
+    resolveImportFailureMessage,
+    sanitizeImportFailureReason,
+  } = await loadOnImportHarness()
+
+  assert.equal(normalizeImportFailureFilename('D:\\Users\\33028\\Desktop\\bad?<name>.zip'), 'bad__name_.zip')
+  assert.equal(normalizeImportFailureFilename('   ...   '), '未命名项目包')
+  assert.equal(
+    sanitizeImportFailureReason('SQLITE_BUSY while opening D:\\secret\\demo.zip at /srv/app/backend-node/data/dramas.db'),
+    '项目包解析失败，请确认文件完整且与当前版本兼容',
+  )
+  const sanitizedPathMessage = resolveImportFailureMessage({
+    response: { data: { message: '导入失败：/srv/uploads/demo.zip' } },
+  })
+  assert.equal(sanitizedPathMessage, '导入失败：服务器文件')
+  assert.doesNotMatch(sanitizedPathMessage, /\/srv\/|demo\.zip/)
+})
+
+test('project import behavior clears stale errors on reselection and persists invalid extension and API failures', async () => {
+  const harness = await loadOnImportHarness()
+
+  harness.triggerImport()
+  assert.deepEqual(harness.calls, ['open-picker'])
+
+  harness.resetHarness()
+  const invalidTarget = {
+    files: [{ name: 'D:\\Users\\33028\\Desktop\\unsafe.txt' }],
+    value: 'selected',
+  }
+  await harness.onImportFile({ target: invalidTarget })
+  assert.equal(invalidTarget.value, '')
+  assert.equal(harness.importing.value, false)
+  assert.deepEqual(harness.importFailure.value, {
+    fileName: 'unsafe.txt',
+    message: '请选择 .zip 格式的项目包',
+  })
+  assert.deepEqual(harness.calls, [])
+
+  harness.resetHarness()
+  harness.importFailure.value = { fileName: 'old.zip', message: '旧错误' }
+  let resolveImport
+  harness.setImportResult(new Promise((resolve) => { resolveImport = resolve }))
+  const pendingTarget = {
+    files: [{ name: 'retry.zip' }],
+    value: 'picked',
+  }
+  const pendingImport = harness.onImportFile({ target: pendingTarget })
+  assert.equal(pendingTarget.value, '')
+  assert.equal(harness.importFailure.value, null)
+  assert.equal(harness.importing.value, true)
+  resolveImport({ title: '重试项目' })
+  await pendingImport
+  assert.equal(harness.importing.value, false)
+  assert.equal(harness.importFailure.value, null)
+  assert.deepEqual(harness.calls, [
+    'api:retry.zip',
+    'success:导入成功：重试项目',
+    'load-list',
+  ])
+
+  harness.resetHarness()
+  const backendError = new Error('SQLITE_BUSY while opening D:\\secret\\draft.zip')
+  backendError.response = {
+    data: {
+      message: 'SQLITE_BUSY at /srv/app/backend-node/data/dramas.db',
+    },
+  }
+  harness.setImportResult(backendError)
+  await harness.onImportFile({
+    target: {
+      files: [{ name: 'C:\\Users\\33028\\Desktop\\draft.zip' }],
+      value: 'picked',
+    },
+  })
+  assert.deepEqual(harness.importFailure.value, {
+    fileName: 'draft.zip',
+    message: '项目包解析失败，请确认文件完整且与当前版本兼容',
+  })
+  assert.equal(harness.importing.value, false)
+  assert.doesNotMatch(JSON.stringify(harness.importFailure.value), /backend-node|SQLITE|D:\\\\|\/srv\//)
+  assert.doesNotMatch(harness.calls.join('|'), /error:/)
 })
 
 test('export filename and payload validation reject unsafe or false-success responses', async () => {

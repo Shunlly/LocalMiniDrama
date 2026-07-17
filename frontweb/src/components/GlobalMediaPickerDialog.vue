@@ -4,7 +4,7 @@
     :title="title"
     width="980px"
     destroy-on-close
-    @closed="resetTransientState"
+    @closed="handleClosed"
   >
     <div class="global-media-picker">
       <div class="picker-context" role="status" aria-live="polite">
@@ -87,7 +87,7 @@
           </div>
         </button>
 
-        <div v-if="!loading && !items.length" class="picker-empty">
+        <div v-if="!loading && !loadError && !items.length" class="picker-empty">
           <p>当前筛选下没有素材。</p>
         </div>
       </div>
@@ -110,7 +110,7 @@
           <el-button @click="innerVisible = false">取消</el-button>
           <el-button
             type="primary"
-            :disabled="!selectedItem || !isCompatible(selectedItem)"
+            :disabled="confirmDisabled"
             @click="confirmSelection"
           >
             选择素材
@@ -124,7 +124,10 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { assetsAPI } from '@/api/assets'
-import { formatMediaSize as formatSize } from '@/utils/mediaLibrary'
+import {
+  createLatestMediaRequestGuard,
+  formatMediaSize as formatSize,
+} from '@/utils/mediaLibrary'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -152,9 +155,17 @@ const mediaType = ref('all')
 const page = ref(1)
 const pageSize = ref(24)
 const total = ref(0)
+const mediaRequestGuard = createLatestMediaRequestGuard()
 let keywordTimer = null
+let activeLoadController = null
 
 const selectedItem = computed(() => items.value.find((item) => Number(item.id) === Number(selectedId.value)) || null)
+const confirmDisabled = computed(() => (
+  loading.value
+  || Boolean(loadError.value)
+  || !selectedItem.value
+  || !isCompatible(selectedItem.value)
+))
 const incompatibleMessage = computed(() => props.accept === 'video' ? '当前用途只接受视频素材' : '当前用途只接受图片素材')
 const acceptHint = computed(() => {
   if (props.accept === 'video') return '可浏览全部素材，当前用途仅可确认视频素材。'
@@ -162,6 +173,8 @@ const acceptHint = computed(() => {
   return '可浏览并选择素材中心中的全部素材。'
 })
 const footerStatus = computed(() => {
+  if (loading.value) return '正在加载素材'
+  if (loadError.value) return '素材加载失败，请重试'
   if (!selectedItem.value) return '未选择素材'
   if (!isCompatible(selectedItem.value)) return incompatibleMessage.value
   return `${selectedItem.value.name || '未命名素材'} 已就绪`
@@ -185,9 +198,36 @@ function cardLabel(item) {
   return `${item.name || '未命名素材'}，${item.type === 'video' ? '视频' : '图片'}，来源 ${source}，${state}`
 }
 
-function resetTransientState() {
+function clearKeywordTimer() {
+  clearTimeout(keywordTimer)
+  keywordTimer = null
+}
+
+function abortActiveLoad() {
+  activeLoadController?.abort()
+  activeLoadController = null
+}
+
+function invalidatePendingLoads() {
+  mediaRequestGuard.begin()
+  abortActiveLoad()
+}
+
+function resetPickerState() {
+  clearKeywordTimer()
+  loading.value = false
   selectedId.value = null
   loadError.value = ''
+  items.value = []
+  keyword.value = ''
+  mediaType.value = 'all'
+  page.value = 1
+  total.value = 0
+}
+
+function handleClosed() {
+  if (props.modelValue) return
+  resetPickerState()
 }
 
 function selectItem(item) {
@@ -203,8 +243,13 @@ function onCardEnter(item) {
 }
 
 async function loadAssets() {
+  const requestId = mediaRequestGuard.begin()
+  abortActiveLoad()
+  const controller = new AbortController()
+  activeLoadController = controller
   loading.value = true
   loadError.value = ''
+  selectedId.value = null
   try {
     const params = {
       page: page.value,
@@ -212,15 +257,27 @@ async function loadAssets() {
     }
     if (mediaType.value !== 'all') params.type = mediaType.value
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
-    const response = await assetsAPI.list(params)
-    items.value = Array.isArray(response?.items) ? response.items : []
-    total.value = response?.pagination?.total ?? response?.total ?? 0
+    const response = await assetsAPI.list(params, {
+      signal: controller.signal,
+      suppressErrorToast: true,
+    })
+    mediaRequestGuard.commit(requestId, () => {
+      items.value = Array.isArray(response?.items) ? response.items : []
+      total.value = response?.pagination?.total ?? response?.total ?? 0
+      loadError.value = ''
+    })
   } catch (error) {
-    items.value = []
-    total.value = 0
-    loadError.value = error?.message || '素材列表加载失败'
+    if (controller.signal.aborted) return
+    mediaRequestGuard.commit(requestId, () => {
+      items.value = []
+      total.value = 0
+      loadError.value = error?.message || '素材列表加载失败'
+    })
   } finally {
-    loading.value = false
+    if (activeLoadController === controller) activeLoadController = null
+    mediaRequestGuard.commit(requestId, () => {
+      loading.value = false
+    })
   }
 }
 
@@ -230,21 +287,26 @@ function applyFilters() {
 }
 
 function debouncedLoad() {
-  clearTimeout(keywordTimer)
+  clearKeywordTimer()
   keywordTimer = setTimeout(() => {
     applyFilters()
   }, 300)
 }
 
 function confirmSelection() {
-  if (!selectedItem.value || !isCompatible(selectedItem.value)) return
+  if (confirmDisabled.value) return
   emit('select', selectedItem.value)
 }
 
 watch(
   () => props.modelValue,
   (visible) => {
-    if (!visible) return
+    if (!visible) {
+      invalidatePendingLoads()
+      clearKeywordTimer()
+      return
+    }
+    resetPickerState()
     loadAssets()
   },
 )

@@ -10,8 +10,8 @@ function normalizeAssetListResponse(response) {
 }
 
 export const assetsAPI = {
-  async list(params = {}) {
-    const response = await request.get('/assets', { params })
+  async list(params = {}, requestOptions = {}) {
+    const response = await request.get('/assets', { ...requestOptions, params })
     return normalizeAssetListResponse(response)
   },
 

@@ -1,10 +1,10 @@
 # LocalMiniDrama 桌面客户端
 
-基于 Electron 的本地桌面应用，内嵌 `backend-node` 与 `frontweb`。本轮正式发布目标为 Windows x64 Setup 与 Portable；macOS 构建会主动拒绝执行，不在当前验收矩阵。当前版本：**v1.3.2**
+基于 Electron 的本地桌面应用，内嵌 `backend-node` 与 `frontweb`。本轮正式发布目标为 Windows x64 Setup 与 Portable；macOS 构建会主动拒绝执行，不在当前验收矩阵。当前版本：**v1.3.3**
 
 ---
 
-## 主要功能（v1.3.2）
+## 主要功能（v1.3.3）
 
 | 模块 | 功能 |
 |------|------|
@@ -79,8 +79,9 @@ npm run dist:cn
 |------|------|
 | `LocalMiniDrama-Setup-x.x.x-x64.exe` | NSIS 安装包（有安装引导，可选安装目录） |
 | `LocalMiniDrama-Portable-x.x.x-x64.exe` | 便携版（单文件，无需安装，双击即用） |
+| `LocalMiniDrama-Unpacked-x.x.x-x64.zip` | 已校验的未压缩目录归档，用于离线检查和恢复 |
 | `win-unpacked/` | 未压缩桌面目录，用于发布前检查和冒烟 |
-| `media-tools.json` / `release-manifest.json` / `SHA256SUMS` | 媒体工具来源、制品清单和 SHA-256 校验 |
+| `artifact-security.json` / `media-tools.json` / `release-manifest.json` / `SHA256SUMS` | 逐制品扫描与 Fuse 证据、媒体工具来源、制品清单和 SHA-256 校验 |
 | `*.cdx.json` | 源码与桌面依赖的 CycloneDX SBOM |
 
 首次运行时，会在用户数据目录 `%APPDATA%/localminidrama-desktop` 下生成 `backend/`，包含 `configs/config.yaml`（从打包配置复制）、`data/`（数据库与文件存储）及 `tools/ffmpeg/`。启动程序会分别补齐缺失的 `ffmpeg.exe` 与 `ffprobe.exe`，不会覆盖用户已替换的任一工具。
@@ -121,7 +122,7 @@ npm run dist:cn
 ### 2. 从命令行运行（实时日志）
 
 ```powershell
-& "D:\path\to\release\LocalMiniDrama-Portable-1.3.2-x64.exe"
+& "D:\path\to\release\LocalMiniDrama-Portable-1.3.3-x64.exe"
 ```
 
 日志会直接打印在终端，操作软件时可实时看到所有输出。
@@ -130,7 +131,7 @@ npm run dist:cn
 
 ```powershell
 $env:LOCALMINIDRAMA_DEVTOOLS=1
-& "D:\path\to\release\LocalMiniDrama-Portable-1.3.2-x64.exe"
+& "D:\path\to\release\LocalMiniDrama-Portable-1.3.3-x64.exe"
 ```
 
 在 Network 面板查看各 API 请求（如 `POST /api/v1/generation/characters`）是否正常发出和返回。
