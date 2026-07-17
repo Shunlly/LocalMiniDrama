@@ -102,8 +102,7 @@ jobs:
           }
 
           for (const job of [
-            { id: 87855977763, title: 'Windows release candidate failure' },
-            { id: 87855977753, title: 'Docker production E2E failure' },
+            { id: 87865024120, title: 'Windows release candidate failure after CI fixes' },
           ]) {
             try {
               const response = await request(`/actions/jobs/${job.id}/logs`)
