@@ -6,7 +6,7 @@
 
 *LocalMiniDrama · AI-powered short drama creator*
 
-[![version](https://img.shields.io/badge/version-1.3.0-blue?style=flat-square)](https://github.com/Shunlly/LocalMiniDrama/releases)
+[![version](https://img.shields.io/badge/version-1.3.1-blue?style=flat-square)](https://github.com/Shunlly/LocalMiniDrama/releases)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](#-快速开始)
 [![stack](https://img.shields.io/badge/Vue3%20%2B%20Node.js%20%2B%20Electron-informational?style=flat-square)](#-项目架构)
@@ -39,8 +39,8 @@
 
 ---
 
-## 📌 v1.3.0 动态
-
+## 📌 v1.3.1 动态
+- 🛠️ **Windows 发布修复**：前后端测试改用 Node.js 原生发现，正式发布不再依赖 shell 通配符展开
 - 🆕 **桌面创作流程收口**：项目就绪度给出唯一下一步，素材导入、处理、QA、修复、剧集与时间线形成可恢复的五步流程
 - 🆕 **多厂商 AI 配置**：按文本、素材图片、分镜图片、视频和 TTS 管理模型，支持连接测试、默认配置和本地/云端路由
 - 🆕 **Novel2Anime 生产链路**：PDF/图片 OCR、音视频转写、图片/视频/TTS 生成与 FFmpeg 合成串成可验收工作流

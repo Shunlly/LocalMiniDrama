@@ -27,7 +27,7 @@ function findWindowsExecutable(appOutDir) {
 
 async function applyElectronFusePolicy(context) {
   if (context?.electronPlatformName !== 'win32') {
-    throw new Error('The verified 1.3.0 desktop release policy currently supports Windows only');
+    throw new Error('The verified desktop release policy currently supports Windows only');
   }
   const {
     flipFuses,

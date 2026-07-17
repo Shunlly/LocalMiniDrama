@@ -1,7 +1,7 @@
 # Novel2Anime Change Boundaries
 
 Date: 2026-07-17
-Release scope: LocalMiniDrama 1.3.0 desktop
+Release scope: LocalMiniDrama 1.3.1 desktop
 
 ## Implemented Boundary
 
