@@ -4,7 +4,7 @@
 
 **A local-first AI short drama & comic generator — bring your own local or hosted providers, fully open source**
 
-[![version](https://img.shields.io/badge/version-1.3.1-blue?style=flat-square)](https://github.com/Shunlly/LocalMiniDrama/releases)
+[![version](https://img.shields.io/badge/version-1.3.2-blue?style=flat-square)](https://github.com/Shunlly/LocalMiniDrama/releases)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](../LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](#)
 [![stack](https://img.shields.io/badge/Vue3%20%2B%20Node.js%20%2B%20Electron-informational?style=flat-square)](#)
@@ -185,9 +185,9 @@ LocalMiniDrama/
 
 Full version history → **[CHANGELOG](changelog.md)**
 
-**Latest v1.3.1 highlights:**
+**Latest v1.3.2 highlights:**
 
-- Windows release verification now uses Node.js native test discovery instead of shell-expanded globs.
+- Windows Docker entrypoints are LF-safe, product acceptance tests are CRLF-safe, and package tests use Node.js native discovery instead of shell-expanded globs.
 - 🆕 **Closed-loop desktop workflow** — project readiness exposes one next action, while source intake, processing, QA, repair, episodes, and timeline remain recoverable
 - 🆕 **Multi-provider AI configuration** — configure and test text, source-image, storyboard-image, video, and TTS models across local and hosted providers
 - 🆕 **Novel2Anime production path** — PDF/image OCR, audio/video transcription, image/video/TTS generation, and FFmpeg composition in one auditable workflow

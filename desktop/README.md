@@ -1,10 +1,10 @@
 # LocalMiniDrama 桌面客户端
 
-基于 Electron 的本地桌面应用，内嵌 `backend-node` 与 `frontweb`。本轮正式发布目标为 Windows x64 Setup 与 Portable；macOS 构建会主动拒绝执行，不在当前验收矩阵。当前版本：**v1.3.1**
+基于 Electron 的本地桌面应用，内嵌 `backend-node` 与 `frontweb`。本轮正式发布目标为 Windows x64 Setup 与 Portable；macOS 构建会主动拒绝执行，不在当前验收矩阵。当前版本：**v1.3.2**
 
 ---
 
-## 主要功能（v1.3.1）
+## 主要功能（v1.3.2）
 
 | 模块 | 功能 |
 |------|------|
@@ -121,7 +121,7 @@ npm run dist:cn
 ### 2. 从命令行运行（实时日志）
 
 ```powershell
-& "D:\path\to\release\LocalMiniDrama-Portable-1.3.1-x64.exe"
+& "D:\path\to\release\LocalMiniDrama-Portable-1.3.2-x64.exe"
 ```
 
 日志会直接打印在终端，操作软件时可实时看到所有输出。
@@ -130,7 +130,7 @@ npm run dist:cn
 
 ```powershell
 $env:LOCALMINIDRAMA_DEVTOOLS=1
-& "D:\path\to\release\LocalMiniDrama-Portable-1.3.1-x64.exe"
+& "D:\path\to\release\LocalMiniDrama-Portable-1.3.2-x64.exe"
 ```
 
 在 Network 面板查看各 API 请求（如 `POST /api/v1/generation/characters`）是否正常发出和返回。
