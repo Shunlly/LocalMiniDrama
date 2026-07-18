@@ -48,6 +48,26 @@ test('project cards use a stable action menu and the no-project state has direct
   assert.match(filmListSource, /route\.query\.new/)
 })
 
+test('project workspace list has server-backed filtering, sorting, quiet utility controls and stronger card hierarchy', () => {
+  assert.match(filmListSource, /class="workspace-overview"[\s\S]*class="workspace-title"[\s\S]*>项目列表<\/h2>/)
+  assert.match(filmListSource, /class="workspace-count"[\s\S]*\{\{ projectListCountLabel \}\}/)
+  assert.match(filmListSource, /v-model="projectSearch"[\s\S]*placeholder="搜索项目标题、描述、风格或类型"/)
+  assert.match(filmListSource, /v-model="projectSort"[\s\S]*更新时间优先[\s\S]*创建时间优先[\s\S]*标题 A-Z/)
+  assert.match(filmListSource, /v-if="!loading && hasSuccessfulListLoad && !listError && hasProjectFilters && filteredDramas\.length === 0"/)
+  assert.match(filmListSource, /没有匹配的项目/)
+  assert.match(filmListSource, /function clearProjectFilters\(\)/)
+  assert.match(filmListSource, /v-model="projectStatusFilter"/)
+  assert.match(filmListSource, /class="project-card-cover"/)
+  assert.match(filmListSource, /继续制作/)
+  assert.match(filmListSource, /v-for="d in filteredDramas"/)
+  assert.match(filmListSource, /<el-pagination[\s\S]*:total="total"/)
+  assert.match(filmListSource, /class="project-card-topline"[\s\S]*class="project-updated"/)
+  assert.match(filmListSource, /class="project-card-stats"[\s\S]*class="project-stat"/)
+  assert.match(filmListSource, /class="visually-hidden">\{\{ isDark \? '切换到浅色模式' : '切换到暗色模式' \}\}/)
+  assert.match(filmListSource, /class="visually-hidden">打开项目回收站<\/span>/)
+  assert.match(filmListSource, /\.project-card-link:focus-visible[\s\S]*box-shadow:/)
+})
+
 test('material center frames upload and project-only flows with direct CTAs', () => {
   assert.match(mediaLibrarySource, /<h1 class="page-title">素材中心<\/h1>/)
   assert.match(mediaLibrarySource, /项目首页/)

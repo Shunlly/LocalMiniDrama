@@ -12,6 +12,7 @@ const filmListSource = read('../src/views/FilmList.vue')
 const freeCreateSource = read('../src/views/FreeCreate.vue')
 const canvasSource = read('../src/views/DramaCanvas.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
+const filmCreatePipelineSource = read('../src/components/filmCreate/FilmCreatePipelinePanel.vue')
 const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
 
 async function loadReturnToNormalizer() {
@@ -27,6 +28,7 @@ test('AI config returnTo accepts only valid first-party workspaces', async () =>
 
   assert.equal(normalizeAiConfigReturnTo('/drama/12'), '/drama/12')
   assert.equal(normalizeAiConfigReturnTo('  /drama/12?tab=sources#intake  '), '/drama/12?tab=sources#intake')
+  assert.equal(normalizeAiConfigReturnTo('/film/12?episode=4&focus=sb%3A42'), '/film/12?episode=4&focus=sb%3A42')
   assert.equal(normalizeAiConfigReturnTo(['/drama/7', 'https://evil.test']), '/drama/7')
   assert.equal(
     normalizeAiConfigReturnTo('/film/12/canvas?episode=4&focus=sb%3A99&ignored=1#drop'),
@@ -41,7 +43,6 @@ test('AI config returnTo accepts only valid first-party workspaces', async () =>
     '/drama/0',
     '/drama/-1',
     '/drama/1/../2',
-    '/film/12',
     '/ai-config',
     'https://evil.test/drama/12',
     '//evil.test/drama/12',
@@ -74,7 +75,10 @@ test('media library returnTo safely preserves the current film workspace', async
   assert.match(routerSource, /name: 'media-library'[\s\S]*normalizeReturnTo: normalizeMediaLibraryReturnTo/)
   assert.match(mediaLibrarySource, /router\.push\(returnTo\.value \|\| '\/'\)/)
   assert.match(filmCreateSource, /returnTo: route\.fullPath/)
-  assert.match(filmListSource, /router\.push\(\{ path: `\/drama\/\$\{drama\.id\}`, hash: '#source-intake-workflow' \}\)/)
+  assert.match(
+    filmListSource,
+    /path: `\/drama\/\$\{drama\.id\}`,[\s\S]{0,100}query: \{ returnTo: projectListReturnTo\.value \},[\s\S]{0,100}hash: '#source-intake-workflow'/,
+  )
 })
 
 test('source intake advertises and validates every backend-supported upload extension', () => {
@@ -118,9 +122,9 @@ test('source intake protects drafts, validates URLs early, and keeps mode recove
 })
 
 test('project cards use a keyboard link while keeping the action menu outside it', () => {
-  assert.match(filmListSource, /<article\s+v-for="d in dramas"[\s\S]*class="project-card"/)
-  assert.match(filmListSource, /<RouterLink[\s\S]*class="project-card-link"[\s\S]*name: 'drama-detail'/)
-  assert.match(filmListSource, /<\/RouterLink>\s*<el-dropdown[\s\S]*class="project-card-menu"/)
+  assert.match(filmListSource, /<article\s+v-for="d in filteredDramas"[\s\S]*class="project-card"/)
+  assert.match(filmListSource, /<RouterLink[\s\S]*class="project-card-link"[\s\S]*name: 'film'/)
+  assert.match(filmListSource, /<\/RouterLink>\s*<RouterLink[\s\S]*class="project-card-assets"[\s\S]*<\/RouterLink>\s*<el-dropdown[\s\S]*class="project-card-menu"/)
   assert.match(filmListSource, /@click\.stop/)
   assert.match(filmListSource, /<el-dropdown-item command="trash"[\s\S]*移入回收站/)
   assert.match(filmListSource, /\.project-card-link:focus-visible/)
@@ -156,4 +160,22 @@ test('desktop creation surfaces keep focused tasks readable and user-facing', ()
   assert.match(filmCreateSource, /可直接用于长提示词的分段描述/)
   assert.match(filmCreateSource, /草稿占位/)
   assert.doesNotMatch(filmCreateSource, /正在检查 Production|Draft 占位|FFmpeg 能力|TTS 配音失败|解说 TTS 失败/)
+})
+
+test('film creation desktop keeps the pipeline focus above long content and anchors below the sticky header', () => {
+  const pipelineIndex = filmCreateSource.indexOf('<FilmCreatePipelinePanel')
+  const scriptWorkbenchIndex = filmCreateSource.indexOf('class="section card script-workbench-unified"')
+
+  assert.ok(pipelineIndex >= 0, 'pipeline panel must remain in the film creation workspace')
+  assert.ok(scriptWorkbenchIndex >= 0, 'script workbench must remain in the film creation workspace')
+  assert.ok(pipelineIndex < scriptWorkbenchIndex, 'pipeline focus must be visible before the long script workbench')
+  assert.match(filmCreateSource, /--film-create-sticky-offset:\s*84px/)
+  assert.match(
+    filmCreateSource,
+    /\.main :is\(\[id\^="anchor-"\], \[id\^="sb-"\]\)\s*\{[\s\S]*?scroll-margin-top:\s*var\(--film-create-sticky-offset\)/,
+  )
+  assert.match(filmCreatePipelineSource, /class="pipeline-focus"/)
+  assert.match(filmCreatePipelineSource, /当前阻断/)
+  assert.match(filmCreatePipelineSource, /下一步/)
+  assert.match(filmCreatePipelineSource, /<details\s+v-if="longFocusReason"/)
 })

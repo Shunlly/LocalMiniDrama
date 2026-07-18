@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { requireValidDramaId } from '@/utils/routeValidation'
+import { normalizeProjectListReturnTo } from '@/utils/projectListRoute'
 
 export function normalizeAiConfigReturnTo(value) {
   const rawValue = Array.isArray(value) ? value[0] : value
@@ -15,6 +16,15 @@ export function normalizeAiConfigReturnTo(value) {
     if (parsed.origin !== appOrigin) return ''
     if (/^\/drama\/[1-9]\d*$/.test(parsed.pathname)) {
       return `${parsed.pathname}${parsed.search}${parsed.hash}`
+    }
+    if (/^\/film\/[1-9]\d*$/.test(parsed.pathname)) {
+      const query = new URLSearchParams()
+      const episode = parsed.searchParams.get('episode')
+      const focus = parsed.searchParams.get('focus')
+      if (/^[1-9]\d*$/.test(episode || '')) query.set('episode', episode)
+      if (/^[A-Za-z0-9:_-]{1,128}$/.test(focus || '')) query.set('focus', focus)
+      const search = query.toString()
+      return `${parsed.pathname}${search ? `?${search}` : ''}${parsed.hash}`
     }
     if (/^\/film\/[1-9]\d*\/canvas$/.test(parsed.pathname)) {
       const query = new URLSearchParams()
@@ -122,6 +132,16 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
+  if (['drama-detail', 'film'].includes(to.name) && Object.prototype.hasOwnProperty.call(to.query, 'returnTo')) {
+    const rawReturnTo = Array.isArray(to.query.returnTo) ? to.query.returnTo[0] : to.query.returnTo
+    const returnTo = normalizeProjectListReturnTo(to.query.returnTo)
+    if (Array.isArray(to.query.returnTo) || returnTo !== rawReturnTo) {
+      const query = { ...to.query }
+      if (returnTo) query.returnTo = returnTo
+      else delete query.returnTo
+      return { name: to.name, params: to.params, query, hash: to.hash, replace: true }
+    }
+  }
   if (to.name === 'ai-config' && Object.prototype.hasOwnProperty.call(to.query, 'returnTo')) {
     const rawReturnTo = Array.isArray(to.query.returnTo) ? to.query.returnTo[0] : to.query.returnTo
     const returnTo = normalizeAiConfigReturnTo(to.query.returnTo)

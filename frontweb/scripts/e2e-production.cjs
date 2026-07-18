@@ -1030,7 +1030,37 @@ async function createDramaFromUi(page, { title, description }) {
   assert.equal(payload.data?.metadata?.e2e, true, 'created E2E fixture must retain its cleanup marker')
   await navigationPromise
   assert.match(page.url(), new RegExp(`/drama/${payload.data.id}(?:[?#]|$)`))
+  assert.equal(
+    new URL(page.url()).hash,
+    '#source-intake-workflow',
+    'new projects must land on the source intake workflow rather than an unscoped detail page',
+  )
+  const workflow = page.locator('#source-intake-workflow')
+  await workflow.waitFor({ state: 'visible', timeout: 30000 })
+  const workflowBox = await workflow.boundingBox()
+  assert.ok(workflowBox && workflowBox.y >= 0, 'new project source workflow must be visible in the viewport')
   return payload.data
+}
+
+async function verifyAiConfigReturnUi(page, dramaId) {
+  const returnTo = `/drama/${dramaId}#source-intake-workflow`
+  await page.goto(
+    `${FRONTEND_URL}/ai-config?service_type=text&returnTo=${encodeURIComponent(returnTo)}`,
+    { waitUntil: 'domcontentloaded' },
+  )
+  await page.getByRole('heading', { name: '\u0041\u0049 \u670d\u52a1\u914d\u7f6e\u4e0e\u9a8c\u8bc1', exact: true })
+    .waitFor({ timeout: 30000 })
+  const backButton = page.getByRole('button', { name: '\u8fd4\u56de\u539f\u9879\u76ee', exact: true })
+  await backButton.waitFor({ state: 'visible', timeout: 10000 })
+  const navigationPromise = page.waitForURL(new RegExp(`/drama/${dramaId}#source-intake-workflow$`), { timeout: 30000 })
+  await backButton.click()
+  await navigationPromise
+  const workflow = page.locator('#source-intake-workflow')
+  await workflow.waitFor({ state: 'visible', timeout: 30000 })
+  return {
+    return_to_preserved: new URL(page.url()).hash === '#source-intake-workflow',
+    workflow_visible: await workflow.isVisible(),
+  }
 }
 
 async function importSourceFromUi(page, dramaId, { title, text }) {
@@ -1450,6 +1480,10 @@ async function main({
       })
     }
     assert.ok(drama?.id, 'created drama id is required')
+    const aiConfigReturnEvidence = await verifyAiConfigReturnUi(startPage, drama.id)
+    assert.equal(aiConfigReturnEvidence.return_to_preserved, true)
+    assert.equal(aiConfigReturnEvidence.workflow_visible, true)
+    await evidenceRecorder.set({ browser: { ai_config_return: aiConfigReturnEvidence } })
 
     const sourceResult = await importSourceFromUi(startPage, drama.id, {
       title: `E2E production source ${stamp}`,

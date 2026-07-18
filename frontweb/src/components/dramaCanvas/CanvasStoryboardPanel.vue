@@ -263,7 +263,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, MagicStick, Refresh, Upload } from '@element-plus/icons-vue'
@@ -280,6 +280,7 @@ import {
 import { runImageStep, runVideoStep, runAudioStep } from '@/composables/useCanvasWorkflowRunner'
 import { findStoryboardInDrama, getDramaGenerationOptions } from '@/utils/canvasWorkflow'
 import { collectStoryboardReferenceSlots } from '@/utils/storyboardVideoRequest'
+import { createStoryboardDraftFingerprint, hasStoryboardDraftChanges } from '@/utils/storyboardDraft'
 import CanvasActionGate from './CanvasActionGate.vue'
 
 const props = defineProps({
@@ -297,6 +298,9 @@ const referenceFileInput = ref(null)
 const characterIds = ref([])
 const sceneId = ref(null)
 const propIds = ref([])
+const savedDraftFingerprint = ref('')
+const savedDraftValue = ref(null)
+let leaveConfirmationOpen = false
 const form = reactive({
   title: '',
   action: '',
@@ -365,6 +369,46 @@ const busyLabel = computed(() => {
   return st?.message || (busyStep.value ? CANVAS_NODE_STATUS_LABELS[busyStep.value] : '')
 })
 
+function currentDraftValue() {
+  return {
+    ...form,
+    characterIds: [...characterIds.value],
+    sceneId: sceneId.value,
+    propIds: [...propIds.value],
+    reference_images: form.reference_images.map((item) => ({ ...item })),
+  }
+}
+
+const hasUnsavedDraft = computed(() => hasStoryboardDraftChanges(
+  savedDraftFingerprint.value,
+  currentDraftValue(),
+))
+const hasPendingStoryboardWork = computed(() => (
+  hasUnsavedDraft.value || saving.value || Boolean(busyStep.value) || uploadingReference.value
+))
+
+function cloneDraftValue(value) {
+  return {
+    ...value,
+    characterIds: [...(value?.characterIds || [])],
+    propIds: [...(value?.propIds || [])],
+    reference_images: (value?.reference_images || []).map((item) => ({ ...item })),
+  }
+}
+
+function markDraftSaved(draft = currentDraftValue()) {
+  const snapshot = cloneDraftValue(draft)
+  savedDraftValue.value = snapshot
+  savedDraftFingerprint.value = createStoryboardDraftFingerprint(snapshot)
+}
+
+function markDraftFieldsSaved(fields, source = currentDraftValue()) {
+  const next = cloneDraftValue(savedDraftValue.value || currentDraftValue())
+  const snapshot = cloneDraftValue(source)
+  for (const field of fields) next[field] = snapshot[field]
+  markDraftSaved(next)
+}
+
 function syncForm(sb) {
   form.title = sb?.title || ''
   form.action = sb?.action || ''
@@ -379,24 +423,67 @@ function syncForm(sb) {
   characterIds.value = parseStoryboardCharacterIds(sb)
   sceneId.value = parseStoryboardSceneId(sb)
   propIds.value = parseStoryboardPropIds(sb)
+  markDraftSaved()
 }
 
-watch(() => props.storyboard, (sb) => syncForm(sb), { immediate: true, deep: true })
+watch(() => props.storyboard, (sb) => {
+  // A refresh can arrive while the user is editing. Keep the local draft until
+  // it is explicitly saved or discarded instead of replacing it silently.
+  if (savedDraftFingerprint.value && hasUnsavedDraft.value && String(sb?.id) === String(props.storyboard?.id)) return
+  syncForm(sb)
+}, { immediate: true, deep: true })
+
+let unregisterFocusGuard = null
+onMounted(() => {
+  unregisterFocusGuard = ctx?.registerFocusGuard?.(confirmStoryboardLeave, hasPendingStoryboardWork) || null
+})
+onBeforeUnmount(() => {
+  unregisterFocusGuard?.()
+  unregisterFocusGuard = null
+})
 
 function onSelectVisibleChange(open) {
   if (open) ctx?.suppressPaneClick?.()
   else ctx?.suppressPaneClick?.(400)
 }
 
-function closePanel() {
-  ctx?.clearFocusedNode?.()
+async function confirmStoryboardLeave() {
+  if (!hasPendingStoryboardWork.value) return true
+  if (saving.value || busyStep.value || uploadingReference.value) {
+    ElMessage.warning('分镜正在保存或生成，请完成后再离开。')
+    return false
+  }
+  if (!hasUnsavedDraft.value) return true
+  if (leaveConfirmationOpen) return false
+  leaveConfirmationOpen = true
+  try {
+    await ElMessageBox.confirm(
+      '当前分镜有未保存修改，离开后这些修改会丢失。',
+      '离开分镜编辑？',
+      {
+        confirmButtonText: '放弃修改并离开',
+        cancelButtonText: '继续编辑',
+        type: 'warning',
+        distinguishCancelAndClose: true,
+      },
+    )
+    return true
+  } catch (_) {
+    return false
+  } finally {
+    leaveConfirmationOpen = false
+  }
+}
+
+async function closePanel() {
+  await ctx?.clearFocusedNode?.({ restoreFocus: true })
 }
 
 function createAsset(type) {
   ctx?.openCreateDialog?.(type)
 }
 
-function openListMode() {
+async function openListMode() {
   const dramaId = ctx?.drama?.value?.id
   if (!dramaId) return
   router.push({
@@ -408,12 +495,14 @@ function openListMode() {
 
 async function onRelationChange() {
   if (!props.storyboard?.id) return
+  const draftSnapshot = currentDraftValue()
   try {
     await storyboardsAPI.update(props.storyboard.id, {
-      character_ids: characterIds.value,
-      scene_id: sceneId.value,
-      prop_ids: propIds.value,
+      character_ids: draftSnapshot.characterIds,
+      scene_id: draftSnapshot.sceneId,
+      prop_ids: draftSnapshot.propIds,
     })
+    markDraftFieldsSaved(['characterIds', 'sceneId', 'propIds'], draftSnapshot)
     await ctx?.refreshDrama?.(true)
   } catch (e) {
     ElMessage.error(e?.message || '关联保存失败')
@@ -422,40 +511,49 @@ async function onRelationChange() {
 
 async function saveMeta() {
   if (!props.storyboard?.id) return
+  const draftSnapshot = currentDraftValue()
   try {
     await storyboardsAPI.update(props.storyboard.id, {
-      title: form.title.trim() || null,
-      shot_type: form.shot_type.trim() || null,
-      duration: form.duration ?? 5,
+      title: draftSnapshot.title.trim() || null,
+      shot_type: draftSnapshot.shot_type.trim() || null,
+      duration: draftSnapshot.duration ?? 5,
     })
+    markDraftFieldsSaved(['title', 'shot_type', 'duration'], draftSnapshot)
     await ctx?.refreshDrama?.(true)
   } catch (e) {
     ElMessage.error(e?.message || '保存失败')
   }
 }
 
-async function persistForm(silent = false) {
+async function persistForm(silent = false, draftValue = currentDraftValue()) {
   if (!props.storyboard?.id) return
+  const draft = draftValue || currentDraftValue()
   const payload = isUniversal.value
     ? {
-        title: form.title.trim() || null,
-        universal_segment_text: form.universal_segment_text.trim() || null,
-        video_prompt: form.video_prompt.trim() || null,
-        shot_type: form.shot_type.trim() || null,
-        duration: form.duration ?? 5,
-        reference_images: JSON.stringify(form.reference_images),
-        video_reference_image_id: form.video_reference_image_id || null,
+        title: draft.title.trim() || null,
+        universal_segment_text: draft.universal_segment_text.trim() || null,
+        video_prompt: draft.video_prompt.trim() || null,
+        shot_type: draft.shot_type.trim() || null,
+        duration: draft.duration ?? 5,
+        reference_images: JSON.stringify(draft.reference_images),
+        video_reference_image_id: draft.video_reference_image_id || null,
+        character_ids: draft.characterIds,
+        scene_id: draft.sceneId,
+        prop_ids: draft.propIds,
       }
     : {
-        title: form.title.trim() || null,
-        action: form.action.trim() || null,
-        dialogue: form.dialogue.trim() || null,
-        image_prompt: form.image_prompt.trim() || null,
-        video_prompt: form.video_prompt.trim() || null,
-        shot_type: form.shot_type.trim() || null,
-        duration: form.duration ?? 5,
-        reference_images: JSON.stringify(form.reference_images),
-        video_reference_image_id: form.video_reference_image_id || null,
+        title: draft.title.trim() || null,
+        action: draft.action.trim() || null,
+        dialogue: draft.dialogue.trim() || null,
+        image_prompt: draft.image_prompt.trim() || null,
+        video_prompt: draft.video_prompt.trim() || null,
+        shot_type: draft.shot_type.trim() || null,
+        duration: draft.duration ?? 5,
+        reference_images: JSON.stringify(draft.reference_images),
+        video_reference_image_id: draft.video_reference_image_id || null,
+        character_ids: draft.characterIds,
+        scene_id: draft.sceneId,
+        prop_ids: draft.propIds,
       }
   await storyboardsAPI.update(props.storyboard.id, payload)
   if (!silent) ElMessage.success('已保存')
@@ -463,10 +561,12 @@ async function persistForm(silent = false) {
 
 async function saveFields() {
   if (!props.storyboard?.id) return
+  const draftSnapshot = currentDraftValue()
   saving.value = true
   ctx?.nodeStatus?.set(sbNodeId.value, { step: 'save', message: CANVAS_NODE_STATUS_LABELS.save })
   try {
-    await persistForm(false)
+    await persistForm(false, draftSnapshot)
+    markDraftSaved(draftSnapshot)
     await ctx?.refreshDrama?.(true)
   } catch (e) {
     ElMessage.error(e?.message || '保存失败')
@@ -485,7 +585,7 @@ async function deleteStoryboard() {
       cancelButtonText: '取消',
     })
     await storyboardsAPI.delete(props.storyboard.id)
-    ctx?.clearFocusedNode?.()
+    await ctx?.clearFocusedNode?.({ force: true })
     ElMessage.success('分镜已删除')
     await ctx?.refresh?.()
   } catch (e) {
@@ -501,6 +601,7 @@ async function polishPrompt() {
   try {
     const res = await storyboardsAPI.polishPrompt(props.storyboard.id)
     if (res?.polished_prompt) form.image_prompt = res.polished_prompt
+    markDraftFieldsSaved(['image_prompt'])
     ElMessage.success('提示词已润色')
     await ctx?.refreshDrama?.(true)
   } catch (e) {
@@ -524,9 +625,11 @@ function openReferenceUpload() {
 }
 
 async function persistReferences() {
+  const draftSnapshot = currentDraftValue()
   await storyboardsAPI.update(props.storyboard.id, {
-    reference_images: JSON.stringify(form.reference_images),
+    reference_images: JSON.stringify(draftSnapshot.reference_images),
   })
+  markDraftFieldsSaved(['reference_images'], draftSnapshot)
   await ctx?.refreshDrama?.(true)
 }
 
@@ -588,7 +691,9 @@ async function runUniversalPrompt(mode) {
   ctx?.nodeStatus?.set(sbNodeId.value, { step: busyStep.value, message })
   let live = ''
   try {
-    await persistForm(true)
+    const draftSnapshot = currentDraftValue()
+    await persistForm(true, draftSnapshot)
+    markDraftSaved(draftSnapshot)
     const body = {
       duration: form.duration ?? 5,
       field_overrides: universalFieldOverrides(),
@@ -606,6 +711,7 @@ async function runUniversalPrompt(mode) {
     if (!finalText) throw new Error('未收到完整的全能词')
     form.universal_segment_text = finalText
     await storyboardsAPI.update(props.storyboard.id, { universal_segment_text: finalText })
+    markDraftFieldsSaved(['universal_segment_text'])
     await ctx?.refreshDrama?.(true)
     ElMessage.success(polishing ? '全能词已润色并保存' : '全能词已生成并保存')
   } catch (e) {
@@ -629,13 +735,9 @@ async function runStep(step) {
     }
   }
 
-  if (step !== 'audio') {
-    try {
-      await persistForm(true)
-    } catch (e) {
-      ElMessage.error(e?.message || '保存失败')
-      return
-    }
+  if (step === 'audio' && hasUnsavedDraft.value) {
+    ElMessage.warning('请先保存当前分镜修改，再生成配音。')
+    return
   }
 
   busyStep.value = step
@@ -644,6 +746,16 @@ async function runStep(step) {
   if (step === 'image') ctx?.nodeStatus?.set(`sbimg:${sbId}`, { step, message: statusMsg })
   if (step === 'video') ctx?.nodeStatus?.set(`sbvid:${sbId}`, { step, message: statusMsg })
   try {
+    if (step !== 'audio') {
+      const draftSnapshot = currentDraftValue()
+      const snapshotFingerprint = createStoryboardDraftFingerprint(draftSnapshot)
+      await persistForm(true, draftSnapshot)
+      if (hasStoryboardDraftChanges(snapshotFingerprint, currentDraftValue())) {
+        ElMessage.warning('保存期间检测到新的修改，请先保存后再生成。')
+        return
+      }
+      markDraftSaved(draftSnapshot)
+    }
     const found = findStoryboardInDrama(drama, sbId)
     const sb = found?.storyboard || props.storyboard
     const genOpts = ctx?.getGenerationOptions?.() || getDramaGenerationOptions(drama)

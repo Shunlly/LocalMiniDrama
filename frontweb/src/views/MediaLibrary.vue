@@ -16,7 +16,12 @@
           <el-icon><Plus /></el-icon>
           新建项目
         </el-button>
-        <el-button type="primary" :loading="uploading" :disabled="mediaWriteLocked" @click="triggerUpload">
+        <el-button
+          :type="mediaItems.length === 0 && !loading ? 'default' : 'primary'"
+          :loading="uploading"
+          :disabled="mediaWriteLocked"
+          @click="triggerUpload"
+        >
           <el-icon><Upload /></el-icon>
           上传素材
         </el-button>
@@ -51,8 +56,14 @@
       </div>
       <div class="entry-item">
         <span class="entry-label">网页 URL 导入</span>
-        <p class="entry-description">网页正文导入仍在项目里完成，用于建立故事素材。</p>
-        <el-button text class="entry-action" :disabled="mediaWriteLocked" @click="goNewProject">新建项目后导入网页 URL</el-button>
+        <p class="entry-description">网页 URL 导入会在项目内完成，本页不直接粘贴 URL；请新建项目后导入网页 URL。</p>
+        <el-button
+          text
+          class="entry-action"
+          :disabled="mediaWriteLocked"
+          aria-label="新建项目并进入项目级网络 URL 素材导入流程"
+          @click="goNewProject"
+        >进入项目级素材导入流程</el-button>
       </div>
       <div class="entry-item">
         <span class="entry-label">角色 / 场景 / 道具入库</span>
@@ -170,14 +181,26 @@
             </el-button>
           </template>
           <template v-else>
-            <el-button type="primary" :disabled="mediaWriteLocked" @click="triggerUpload">
+            <el-button
+              type="primary"
+              :disabled="mediaWriteLocked"
+              aria-label="上传图片或视频到素材中心"
+              @click="triggerUpload"
+            >
               <el-icon><Upload /></el-icon>上传素材
             </el-button>
-            <el-button :disabled="mediaWriteLocked" @click="goNewProject">新建项目后导入网页 URL</el-button>
-            <el-button text @click="goHome">返回项目首页</el-button>
           </template>
         </div>
-        <p v-if="!hasActiveFilters" class="empty-note">需要把角色、场景或道具沉淀到分类素材时，请先在项目内点“加入素材库”。</p>
+        <template v-if="!hasActiveFilters">
+          <p class="empty-note">需要把角色、场景或道具沉淀到分类素材时，请先在项目内点“加入素材库”。</p>
+          <el-button
+            text
+            class="empty-secondary-action"
+            :disabled="mediaWriteLocked"
+            aria-label="新建项目并进入项目级网络 URL 素材导入流程"
+            @click="goNewProject"
+          >进入项目级素材导入流程</el-button>
+        </template>
       </div>
     </div>
 
@@ -829,6 +852,12 @@ onMounted(loadMedia)
   line-height: 1.6;
   color: var(--text-subtle);
   text-align: center;
+}
+
+.empty-secondary-action {
+  min-height: 28px;
+  margin-top: -2px;
+  padding: 0 4px;
 }
 
 .pagination {

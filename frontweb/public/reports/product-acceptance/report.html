@@ -227,7 +227,7 @@
     <section aria-labelledby="score-title">
       <div class="section-head">
         <h2 id="score-title">验收摘要</h2>
-        <p class="muted">验收视口：1440×900、1366×768</p>
+        <p class="muted">验收视口：1440×900、1366×768、1280×720</p>
       </div>
       <div class="score-grid">
         <div class="score"><small>核心页面</small><b>8 / 8</b><span>均可访问且无横向溢出</span></div>
@@ -262,12 +262,13 @@
         <div class="plain-panel">
           <h3>产品经理：体验验收待最终 E2E</h3>
           <ul>
-            <li>项目首页、就绪度、制作台、画布、素材中心和 AI 配置均有明确的主任务与下一步。</li>
+            <li>项目首页、就绪度、制作台、画布、素材中心和 AI 配置均有明确的主任务与下一步；项目卡片的“继续制作”直达制作工作台。</li>
             <li>缺少视频或 TTS 能力时，正式命令失败关闭，同时保留可带上下文返回的配置入口。</li>
             <li>跨项目图片可以从素材中心挂载为分镜自由参考图或视频主参考图。</li>
             <li>素材选择器已阻止旧请求覆盖新请求，加载、错误、空态和确认操作保持一致。</li>
             <li>项目包导入失败改为持久页内反馈，提供安全文件名、可操作原因、重新选择和关闭入口。</li>
             <li>素材选择器空态可直接清除筛选或前往素材中心上传，并通过受限返回地址回到原制作台。</li>
+            <li>AI 配置弹窗在 1366×768 下固定标题与 Tab，只保留一个内容滚动区；立即测试/重新测试为可感知的次级按钮。</li>
             <li>1366×768 素材选择器已重拍并验证焦点返回；长名称键盘提示、重试恢复和中文路径视频的解码/时间轴证据已补齐，完整发布仍须随最终容器复验。</li>
           </ul>
         </div>
@@ -276,7 +277,7 @@
           <ul>
             <li>1.3.3 桌面范围、后置边界、发布失败条件和回滚责任已写入文档与自动化门禁。</li>
             <li>源码、生产 E2E、Windows 三类制品、SBOM、秘密扫描和 CI 必须绑定同一提交。</li>
-            <li>当前 E2E 证据为失败且工作树非干净，Docker 报告仍需重建；在最终提交复验前不批准发布。</li>
+            <li>当前工作树仍在集成改动，生产 E2E、Docker 和回滚证据必须在最终提交后重新绑定；在最终提交复验前不批准发布。</li>
             <li>任何同 SHA 门禁失败都回到开发阶段，不允许用人工说明替代通过记录。</li>
           </ul>
         </div>
@@ -456,6 +457,94 @@
             <p class="step-notes">点击返回制作台后恢复原项目、原集数和分镜页面，没有落到首页或丢失上下文；弹窗与长文本在当前桌面视口内无重叠。</p>
           </figcaption>
         </figure>
+
+        <figure>
+          <img src="final-20260718/22-project-list-ui-refresh-1440.png" alt="1440 宽度项目列表，卡片显示视觉封面、状态和继续制作入口">
+          <figcaption>
+            <div class="step-title"><span class="step-number">22</span><h3>项目视觉入口</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">项目卡片优先使用真实分镜画面，缺失时显示明确占位；状态、集数、分镜数和“继续制作”按固定层级排列，减少扫描成本。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/23-project-list-search-empty-1440.png" alt="项目列表搜索无结果时的清除筛选恢复入口">
+          <figcaption>
+            <div class="step-title"><span class="step-number">23</span><h3>项目筛选恢复</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">关键词或状态没有匹配项时保留当前上下文，并提供单一清除筛选动作；不会把“没有项目”和“筛选无结果”混为一谈。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/24-project-list-ui-refresh-1366.png" alt="1366×768 项目列表，筛选控件和项目卡片无横向溢出">
+          <figcaption>
+            <div class="step-title"><span class="step-number">24</span><h3>紧凑桌面项目列表</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">1366×768 下项目标题、搜索、状态、排序和卡片操作均保持可见；DOM 尺寸检查确认页面宽度不超过视口。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/25-project-list-ui-refresh-dark.png" alt="暗色主题项目列表，视觉封面和状态标签保持对比度">
+          <figcaption>
+            <div class="step-title"><span class="step-number">25</span><h3>暗色主题层级</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">暗色主题下封面占位、状态标签、统计信息和键盘焦点仍有清晰层级；主题切换不会改变筛选或路由状态。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/26-canvas-inspector-dock-light-1280.png" alt="浅色主题画布的分镜检查器停靠在右侧，面板不再撑开相邻节点">
+          <figcaption>
+            <div class="step-title"><span class="step-number">26</span><h3>画布检查器浅色主题</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">分镜编辑器通过 Teleport 固定在右侧检查器区域，限高并独立滚动；脱离画布节点 CSS 作用域后仍继承浅色主题 token，下一节点保持可见可操作。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/27-canvas-inspector-dock-dark-1280.png" alt="深色主题画布的分镜检查器，面板和节点保持暗色层级与焦点对比">
+          <figcaption>
+            <div class="step-title"><span class="step-number">27</span><h3>画布检查器深色主题</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">深色主题下检查器、输入控件、操作按钮和画布节点保持一致的表面层级、文本对比和焦点状态；面板内容超出视口时仅检查器内部滚动。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/28-project-list-final-1440.png" alt="最终项目列表保持紧凑的筛选区、项目封面和继续制作入口">
+          <figcaption>
+            <div class="step-title"><span class="step-number">28</span><h3>项目列表最终层级</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">筛选、状态、排序和分页由服务端统一处理，URL 保留当前查询；项目卡片继续使用稳定尺寸，不因封面缺失或状态变化产生布局跳动。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/29-ai-config-providers-final-1440.png" alt="AI 配置添加弹窗展示更多文本厂商和可编辑模型列表">
+          <figcaption>
+            <div class="step-title"><span class="step-number">29</span><h3>更多厂商与模型</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">文本、素材图、分镜图、视频和 TTS 分类型提供厂商预设、模型预设与自定义兼容入口；高级接口设置默认收起，首屏先完成服务类型、名称和厂商选择。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/30-project-list-material-entry-1280.png" alt="项目卡片封面底部提供独立素材入口">
+          <figcaption>
+            <div class="step-title"><span class="step-number">30</span><h3>项目级素材入口</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">素材入口与继续制作、项目菜单互不嵌套，鼠标和键盘均可直接进入该项目的素材来源流程，并保留安全的项目列表返回上下文。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/31-canvas-inspector-navigation-1280.png" alt="画布右侧检查器显示镜头进度、媒体摘要和前后镜头导航">
+          <figcaption>
+            <div class="step-title"><span class="step-number">31</span><h3>画布镜头检查</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">检查器显示当前镜头序号、真实可用的图片/视频/配音摘要和前后镜头按钮；切换镜头沿用未保存草稿保护，检查器与小地图在 1280 宽度下不重叠。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/32-film-delivery-workspace-1280.png" alt="制作台交付与导出区域统一展示合成和三种文件操作">
+          <figcaption>
+            <div class="step-title"><span class="step-number">32</span><h3>交付与导出</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">最终步骤统一显示分镜视频覆盖、整集合成和可交付文件数量；成片、字幕和项目 ZIP 均在文件内容通过验证后才报告成功。</p>
+          </figcaption>
+        </figure>
       </div>
     </section>
 
@@ -464,12 +553,12 @@
       <table>
         <thead><tr><th>门禁</th><th>结果</th><th>证据</th></tr></thead>
         <tbody>
-          <tr><td>后端</td><td><span class="status good">通过</span></td><td>391/391 测试、JavaScript 文件检查、流程审计、ZIP/凭据/备份边界；中文项目静态媒体的 MIME、Range、206 响应与浏览器解码/时间轴推进已回归。</td></tr>
-          <tr><td>前端</td><td><span class="status good">通过</span></td><td>234/234 测试、真实 Vue 请求竞态与错误提示策略回归、组件契约、桌面无障碍、关键流程、生产构建和包体预算。</td></tr>
+          <tr><td>后端</td><td><span class="status good">通过</span></td><td>397/397 测试、JavaScript 文件检查、流程审计、ZIP/凭据/备份边界；中文项目静态媒体的 MIME、Range、206 响应与浏览器解码/时间轴推进已回归。</td></tr>
+          <tr><td>前端</td><td><span class="status good">通过</span></td><td>281/281 测试、真实 Vue 请求竞态与错误提示策略回归、项目视觉封面/筛选、AI 配置弹窗、异步批量导入、画布草稿离开保护、Teleport 检查器主题与布局、桌面无障碍、生产构建和包体预算。</td></tr>
           <tr><td>桌面</td><td><span class="status good">通过</span></td><td>59/59 测试、Electron 生命周期、原生 ABI、URL 安全、媒体工具信任；正式 Setup、Portable、Unpacked 启动 smoke 待 Release 工作流复验。</td></tr>
-          <tr><td>Docker</td><td><span class="status info">开发容器通过，待最终 SHA</span></td><td>Node 20 镜像边界、后端 391/391、前端 234/234、只读根文件系统和运行时配置净化均已复验；提交后必须再次构建并绑定最终 SHA 与镜像 ID。</td></tr>
+          <tr><td>Docker</td><td><span class="status info">开发容器通过，待最终 SHA</span></td><td>Node 20 镜像边界、后端 397/397、前端 281/281、只读根文件系统和运行时配置净化均已复验；提交后必须再次构建并绑定最终 SHA 与镜像 ID。</td></tr>
           <tr><td>生产 E2E</td><td><span class="status info">待最终 SHA 复验</span></td><td>现有执行完成了媒体闭环，但证据因工作树非干净而标记失败；不得将旧调用次数作为当前候选提交的 PASS。</td></tr>
-          <tr><td>备份与回滚</td><td><span class="status info">待最终 SHA 复验</span></td><td>备份恢复专项测试为 38 项；<code>verify:rollback</code> 将在干净 1.3.3 提交上执行脱敏备份、隔离恢复和中断清理。正式检查点会捕获实际配置 bind mount 与镜像 revision，归档 Compose / 配置 / <code>images.tar</code> / 哈希；恢复前加载并核对旧镜像，失败会自动还原升级后数据与服务。</td></tr>
+          <tr><td>备份与回滚</td><td><span class="status info">待最终 SHA 复验</span></td><td>备份恢复专项测试为 38 项，发布契约为 26/26；<code>verify:rollback</code> 将在干净 1.3.3 提交上执行脱敏备份、隔离恢复和中断清理。正式检查点会捕获实际配置 bind mount、容器 ID 与镜像 revision，归档 Compose / 脱敏配置 / <code>images.tar</code> / 哈希；恢复前加载并核对旧镜像，失败会自动还原升级后数据与服务。</td></tr>
           <tr><td>依赖安全</td><td><span class="status good">通过</span></td><td>后端、前端和桌面使用 npm 官方审计端点，生产依赖均为 0 vulnerabilities。</td></tr>
           <tr><td>发布制品</td><td><span class="status info">待正式发布</span></td><td>正式 Setup、Portable、Unpacked ZIP、四份 CycloneDX SBOM、媒体工具元数据与发布清单将在 v1.3.3 Release 工作流生成后执行 SHA-256 离线复核。</td></tr>
           <tr><td>制品安全</td><td><span class="status info">本地通过，远端待验</span></td><td>固定 Trivy 0.64.1 对四份 1.3.3 SBOM 和三份 Dockerfile 的本地扫描为 0 High/Critical；正式附件仍须通过 Gitleaks、Trivy、Defender 与 9 项 Electron Fuse 门禁。</td></tr>
@@ -487,6 +576,10 @@
             <li>扩展 AI 厂商、协议和模型配置。</li>
             <li>自由创作与项目工作流按服务就绪度阻断。</li>
             <li>画布最低可读缩放、聚焦、返回上下文和列表模式收口。</li>
+            <li>项目列表增加真实视觉封面、状态筛选、稳定统计层级和直达制作工作台的继续入口。</li>
+            <li>画布分镜编辑增加未保存草稿指纹、关闭/列表/切换节点确认；批量导入等待父层异步保存完成。</li>
+            <li>素材上传、解析和工作流启动期间保留浏览器离开保护，完成后自动解除。</li>
+            <li>AI 配置弹窗固定标题与 Tab，内容唯一滚动；测试操作具备 loading、禁用和可访问名称。</li>
             <li>核心界面统一为中文生产术语。</li>
           </ul>
         </div>
@@ -498,6 +591,7 @@
             <li>AI 默认配置由唯一索引和写事务保证。</li>
             <li>Release 构建禁止自动发布，制品复验后才创建草稿。</li>
             <li>FFmpeg 使用固定可信摘要，备份默认排除 Provider 凭据。</li>
+            <li>回滚检查点改为白名单配置脱敏归档，恢复前严格校验凭据排除声明，恢复后要求重新配置并测试。</li>
             <li>Trivy 读取四份 SBOM 并扫描三份真实 Dockerfile；后端绑定目录启动降权例外有明确范围并于 2027-07-17 到期复审。</li>
           </ul>
         </div>
@@ -512,6 +606,7 @@
           <ul>
             <li>项目卡片键盘入口、弹窗焦点和画布面板聚焦。</li>
             <li>模式控件、状态提示、错误提示和关键按钮的可访问名称。</li>
+            <li>项目视觉封面失败时降级到带语义的占位，不显示破损图片图标；筛选无结果提供可恢复空态。</li>
             <li>双桌面视口无横向溢出，媒体可加载、解码并推进时间轴；完整播放仍以最终容器复验为准。</li>
           </ul>
         </div>

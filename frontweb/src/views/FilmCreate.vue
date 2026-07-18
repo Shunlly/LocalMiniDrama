@@ -246,6 +246,37 @@
         style="display: none"
         @change="onSbImageFileChange"
       />
+
+      <FilmCreatePipelinePanel
+        v-model:aspect-ratio="projectAspectRatio"
+        v-model:clip-duration="videoClipDuration"
+        v-model:script-language="scriptLanguage"
+        v-model:generation-style="generationStyle"
+        :generation-style-options="generationStyleOptions"
+        :production-disabled-reason="productionPipelineActionDisabledReason"
+        :draft-disabled-reason="pipelineActionDisabledReason"
+        :production-readiness-reason="productionReadinessReason"
+        :production-readiness-state="productionReadinessState"
+        :production-readiness-service-type="productionReadinessServiceType"
+        :running="pipelineRunning"
+        :paused="pipelinePaused"
+        :error-log="pipelineErrorLog"
+        :current-step="pipelineCurrentStep"
+        :step-index="pipelineStepIndex"
+        :step-total="pipelineStepTotal"
+        :countdown="pipelineCountdown"
+        :countdown-message="pipelineCountdownMsg"
+        :active-tasks="pipelineActiveTasks"
+        @save-settings="saveProjectSettings"
+        @start-one-click="startOneClickPipeline"
+        @start-text-framework="startTextFrameworkPipeline"
+        @open-ai-config="openAiConfig"
+        @retry-readiness="refreshProductionReadiness"
+        @pause="pipelinePaused = true"
+        @resume="onPipelineResume"
+        @skip-countdown="skipPipelineCountdown"
+      />
+
       <!-- 剧本工作台：单卡片 + 选项卡（创作 / 选择） -->
       <section class="section card script-workbench-unified">
         <el-tabs v-model="scriptWorkbenchMode" class="script-workbench-tabs">
@@ -412,34 +443,6 @@
           </div>
         </div>
       </el-dialog>
-
-      <FilmCreatePipelinePanel
-        v-model:aspect-ratio="projectAspectRatio"
-        v-model:clip-duration="videoClipDuration"
-        v-model:script-language="scriptLanguage"
-        v-model:generation-style="generationStyle"
-        :generation-style-options="generationStyleOptions"
-        :production-disabled-reason="productionPipelineActionDisabledReason"
-        :draft-disabled-reason="pipelineActionDisabledReason"
-        :production-readiness-reason="productionReadinessReason"
-        :production-readiness-service-type="productionReadinessServiceType"
-        :running="pipelineRunning"
-        :paused="pipelinePaused"
-        :error-log="pipelineErrorLog"
-        :current-step="pipelineCurrentStep"
-        :step-index="pipelineStepIndex"
-        :step-total="pipelineStepTotal"
-        :countdown="pipelineCountdown"
-        :countdown-message="pipelineCountdownMsg"
-        :active-tasks="pipelineActiveTasks"
-        @save-settings="saveProjectSettings"
-        @start-one-click="startOneClickPipeline"
-        @start-text-framework="startTextFrameworkPipeline"
-        @open-ai-config="openAiConfig"
-        @pause="pipelinePaused = true"
-        @resume="onPipelineResume"
-        @skip-countdown="skipPipelineCountdown"
-      />
 
       <!-- 资源管理：角色 / 道具 / 场景 -->
       <section class="section card resource-panel">
@@ -1716,20 +1719,64 @@
         <p class="config-tip">文本/图片/视频使用的模型以「<el-link type="primary" underline="never" @click="showAiConfigDialog = true">AI 配置</el-link>」中设为默认的为准。</p>
       </section>
 
-      <!-- 8. 合成视频 -->
-      <section id="anchor-video" class="section card">
-        <h2 class="section-title">合成视频</h2>
-        <ActionGate :reason="composeActionDisabledReason" label="合成视频">
+      <!-- 8. 交付与导出 -->
+      <section id="anchor-video" class="section card delivery-section">
+        <h2 class="section-title">交付与导出</h2>
+        <div class="delivery-overview" role="status" aria-live="polite">
+          <div class="delivery-stat">
+            <span>分镜视频</span>
+            <strong>{{ playableStoryboardVideoCount }} / {{ storyboards.length }}</strong>
+          </div>
+          <div class="delivery-stat">
+            <span>整集合成</span>
+            <strong>{{ deliveryCompositeStatusLabel }}</strong>
+          </div>
+          <div class="delivery-stat">
+            <span>可交付文件</span>
+            <strong>{{ deliveryFileCount }} 项</strong>
+          </div>
+        </div>
+        <div class="delivery-actions">
+          <ActionGate :reason="composeActionDisabledReason" label="合成成片">
+            <el-button
+              type="primary"
+              :loading="videoStatus === 'generating'"
+              :disabled="Boolean(composeActionDisabledReason)"
+              @click="onGenerateVideo"
+            >
+              <el-icon><VideoPlay /></el-icon>
+              {{ currentEpisodeVideoUrl ? '重新合成' : '合成成片' }}
+            </el-button>
+          </ActionGate>
           <el-button
             type="primary"
-            size="large"
-            :loading="videoStatus === 'generating'"
-            :disabled="Boolean(composeActionDisabledReason)"
-            @click="onGenerateVideo"
+            plain
+            :loading="videoDownloadStatus === 'downloading'"
+            :disabled="!currentEpisodeVideoUrl"
+            @click="downloadCurrentEpisodeVideo"
           >
-            合成视频
+            <el-icon><Download /></el-icon>
+            {{ videoDownloadStatus === 'error' ? '重试下载' : '下载成片' }}
           </el-button>
-        </ActionGate>
+          <el-button
+            plain
+            :loading="deliveryExportStatus.subtitle === 'downloading'"
+            :disabled="!currentEpisodeId || !deliverySubtitleAvailable"
+            @click="downloadCurrentEpisodeSubtitle"
+          >
+            <el-icon><Document /></el-icon>
+            {{ deliveryExportStatus.subtitle === 'error' ? '重试字幕' : '下载字幕' }}
+          </el-button>
+          <el-button
+            plain
+            :loading="deliveryExportStatus.project === 'downloading'"
+            :disabled="!dramaId"
+            @click="exportCurrentProjectPackage"
+          >
+            <el-icon><Box /></el-icon>
+            {{ deliveryExportStatus.project === 'error' ? '重试项目包' : '导出项目包' }}
+          </el-button>
+        </div>
         <div v-if="videoStatus === 'generating'" class="video-progress">
           <el-progress :percentage="videoProgress" :status="videoProgress >= 100 ? 'success' : undefined" />
           <p>视频生成中...</p>
@@ -1743,15 +1790,6 @@
         <div v-if="currentEpisodeVideoUrl" class="video-preview-wrap">
           <div class="video-preview-header">
             <p class="video-preview-label">本集合成视频预览</p>
-            <el-button
-              type="primary"
-              plain
-              :loading="videoDownloadStatus === 'downloading'"
-              @click="downloadCurrentEpisodeVideo"
-            >
-              <el-icon><Download /></el-icon>
-              {{ videoDownloadStatus === 'error' ? '重试下载' : '下载成片' }}
-            </el-button>
           </div>
           <video
             :src="currentEpisodeVideoUrl"
@@ -1774,6 +1812,15 @@
                 : videoDownloadError }}
           </p>
         </div>
+        <p
+          v-if="deliveryExportFeedback"
+          class="delivery-export-feedback"
+          :class="{ 'is-error': deliveryExportHasError }"
+          :role="deliveryExportHasError ? 'alert' : 'status'"
+          aria-live="polite"
+        >
+          {{ deliveryExportFeedback }}
+        </p>
       </section>
     </main>
 
@@ -2804,7 +2851,14 @@
     </el-dialog>
 
     <!-- AI 配置弹窗（不跳转，避免本页内容丢失） -->
-    <el-dialog v-model="showAiConfigDialog" title="AI 配置" width="90%" destroy-on-close class="ai-config-dialog">
+    <el-dialog
+      v-model="showAiConfigDialog"
+      title="AI 配置"
+      width="90%"
+      top="5vh"
+      destroy-on-close
+      class="ai-config-workspace-dialog ai-config-overlay"
+    >
       <AIConfigContent v-if="showAiConfigDialog" :initial-service-type="aiConfigInitialServiceType" />
     </el-dialog>
 
@@ -2837,6 +2891,7 @@ import { useFilmStore } from '@/stores/film'
 import { useGenerationTaskStore, GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { syncGeneratingSetsFromStore, buildEpisodeContext, buildExtractTaskMeta, isEpisodeExtractRunning } from '@/composables/useGenerationTaskSync'
 import { dramaAPI } from '@/api/drama'
+import { timelinesAPI } from '@/api/timelines'
 import { generationAPI } from '@/api/generation'
 import { characterAPI } from '@/api/characters'
 import { propAPI } from '@/api/props'
@@ -2881,6 +2936,7 @@ import {
   userFacingVideoGenerationError,
 } from '@/utils/filmCreateActionState'
 import { normalizeProductionReadiness } from '@/utils/sourceWorkflowLaunch'
+import { normalizeProjectListReturnTo } from '@/utils/projectListRoute'
 import {
   generationStyleOptions,
   getStylePromptEn,
@@ -2896,6 +2952,7 @@ import { useScenes } from '@/composables/filmCreate/useScenes'
 
 const route = useRoute()
 const router = useRouter()
+const projectListReturnTo = computed(() => normalizeProjectListReturnTo(route.query.returnTo))
 const store = useFilmStore()
 const genStore = useGenerationTaskStore()
 const { isDark, toggle: toggleTheme } = useTheme()
@@ -2920,12 +2977,13 @@ const projectPageTitle = computed(() => {
 const { navCollapsed, storyboardMenuExpanded, toggleNav, scrollToTop, scrollToAnchor } = useNavigation()
 
 function goList() {
-  router.push('/')
+  router.push(projectListReturnTo.value || { name: 'list' })
 }
 
 function goCanvasMode() {
   if (!dramaId.value) return
   const query = selectedEpisodeId.value ? { episode: String(selectedEpisodeId.value) } : {}
+  if (projectListReturnTo.value) query.returnTo = projectListReturnTo.value
   router.push({ path: `/film/${dramaId.value}/canvas`, query })
 }
 
@@ -2951,6 +3009,11 @@ const videoCapabilityReason = computed(() => videoGenerationCapability.value.rea
 const productionCapabilityGaps = computed(() => (
   authoritativeProductionReadiness.value?.missing_capabilities || []
 ))
+const productionReadinessState = computed(() => {
+  if (productionReadinessLoading.value) return 'checking'
+  if (productionReadinessFailed.value) return 'error'
+  return productionCapabilityGaps.value.length ? 'missing' : 'ready'
+})
 const productionReadinessReason = computed(() => {
   if (productionReadinessLoading.value) return '正在检查完整成片所需的 AI 服务与本地合成能力。'
   if (productionReadinessFailed.value) return '无法确认完整成片制作能力，请刷新后重试。'
@@ -3180,6 +3243,19 @@ const currentEpisodeVideoUrl = computed(() => {
   if (s.startsWith('/static/')) return s
   return '/static/' + s.replace(/^\//, '')
 })
+const deliveryCompositeStatusLabel = computed(() => {
+  if (videoStatus.value === 'generating') return `${videoProgress.value}%`
+  if (currentEpisodeVideoUrl.value) return '已就绪'
+  if (videoStatus.value === 'error') return '合成失败'
+  return '待合成'
+})
+const deliverySubtitleAvailable = computed(() => storyboards.value.some((storyboard) => (
+  [storyboard?.dialogue, storyboard?.narration, storyboard?.action]
+    .some((value) => Boolean(String(value || '').trim()))
+)))
+const deliveryFileCount = computed(() => (
+  1 + (deliverySubtitleAvailable.value ? 1 : 0) + (currentEpisodeVideoUrl.value ? 1 : 0)
+))
 
 function normalizeVideoDownloadFilenamePart(value, fallback) {
   const normalized = String(value ?? '')
@@ -3326,9 +3402,90 @@ async function downloadCurrentEpisodeVideo() {
   }
 }
 
+async function validateDeliveryBlob(blob, { label = '文件', kind = 'file' } = {}) {
+  if (typeof Blob === 'undefined' || !(blob instanceof Blob)) throw new Error(`${label}未返回文件`)
+  if (!Number.isFinite(blob.size) || blob.size <= 0) throw new Error(`${label}为空`)
+  const contentType = String(blob.type || '').toLowerCase()
+  if (contentType.includes('json') || await blobContainsJsonPayload(blob)) {
+    throw new Error(`${label}接口返回了错误信息`)
+  }
+  if (kind === 'zip') {
+    const signature = new Uint8Array(await blob.slice(0, 4).arrayBuffer())
+    const isZip = signature[0] === 0x50 && signature[1] === 0x4b && (
+      (signature[2] === 0x03 && signature[3] === 0x04)
+      || (signature[2] === 0x05 && signature[3] === 0x06)
+      || (signature[2] === 0x07 && signature[3] === 0x08)
+    )
+    if (!isZip) throw new Error(`${label}格式无效`)
+  }
+  return blob
+}
+
+const deliveryExportStatus = reactive({ subtitle: 'idle', project: 'idle' })
+const deliveryExportError = ref('')
+const deliveryExportHasError = computed(() => (
+  deliveryExportStatus.subtitle === 'error' || deliveryExportStatus.project === 'error'
+))
+const deliveryExportFeedback = computed(() => {
+  if (deliveryExportHasError.value) return deliveryExportError.value
+  if (deliveryExportStatus.subtitle === 'success') return '字幕下载已完成。'
+  if (deliveryExportStatus.project === 'success') return '项目包导出已完成。'
+  return ''
+})
+
+function buildDeliveryFilename(suffix, extension) {
+  const title = normalizeVideoDownloadFilenamePart(store.drama?.title, 'LocalMiniDrama')
+  const episodeNumber = Number(currentEpisode.value?.episode_number)
+  const episode = Number.isFinite(episodeNumber) && episodeNumber > 0 ? `-第${Math.trunc(episodeNumber)}集` : ''
+  return `${title}${episode}-${suffix}.${extension}`
+}
+
+async function downloadCurrentEpisodeSubtitle() {
+  if (!currentEpisodeId.value || deliveryExportStatus.subtitle === 'downloading') return
+  deliveryExportStatus.subtitle = 'downloading'
+  deliveryExportStatus.project = 'idle'
+  deliveryExportError.value = ''
+  try {
+    const blob = await validateDeliveryBlob(
+      await timelinesAPI.getEpisodeSrt(currentEpisodeId.value),
+      { label: '字幕文件' },
+    )
+    const filename = buildDeliveryFilename('字幕', 'srt')
+    triggerBlobDownload(blob, filename)
+    deliveryExportStatus.subtitle = 'success'
+    ElMessage.success('字幕下载已完成')
+  } catch (_) {
+    deliveryExportError.value = '字幕下载失败，可能是本集还没有可导出的字幕。'
+    deliveryExportStatus.subtitle = 'error'
+    ElMessage.error(deliveryExportError.value)
+  }
+}
+
+async function exportCurrentProjectPackage() {
+  if (!dramaId.value || deliveryExportStatus.project === 'downloading') return
+  deliveryExportStatus.project = 'downloading'
+  deliveryExportStatus.subtitle = 'idle'
+  deliveryExportError.value = ''
+  try {
+    const blob = await validateDeliveryBlob(await dramaAPI.exportDrama(dramaId.value), { label: '项目包', kind: 'zip' })
+    const title = normalizeVideoDownloadFilenamePart(store.drama?.title, 'LocalMiniDrama')
+    const filename = `${title}-项目包.zip`
+    triggerBlobDownload(blob, filename)
+    deliveryExportStatus.project = 'success'
+    ElMessage.success('项目包导出已完成')
+  } catch (_) {
+    deliveryExportError.value = '项目包导出失败，请检查本地服务后重试。'
+    deliveryExportStatus.project = 'error'
+    ElMessage.error(deliveryExportError.value)
+  }
+}
+
 watch([currentEpisodeId, currentEpisodeVideoUrl], () => {
   videoDownloadStatus.value = 'idle'
   videoDownloadError.value = ''
+  deliveryExportStatus.subtitle = 'idle'
+  deliveryExportStatus.project = 'idle'
+  deliveryExportError.value = ''
 })
 
 const storyboardGenerating = computed(() =>
@@ -3598,7 +3755,7 @@ const navSteps = computed(() => {
     { key: 'scenes',   label: '场景',        anchor: 'anchor-scenes',     status: sceneStatus,     count: sceneList.length },
     { key: 'sb',       label: '分镜脚本',   anchor: 'anchor-storyboard', status: sbScriptStatus,  count: sbList.length },
     { key: 'sbimg',    label: '分镜图',      anchor: 'anchor-storyboard', status: sbImgStatus,     count: sbList.length },
-    { key: 'video',    label: '合成视频',   anchor: 'anchor-video',      status: compositeStatus, count: 0 },
+    { key: 'video',    label: '交付与导出', anchor: 'anchor-video',      status: compositeStatus, count: 0 },
   ]
 })
 
@@ -5242,7 +5399,7 @@ async function refreshProjectDependencies(episodeId, { includeProjectCapabilitie
       refreshProductionReadiness(),
     )
   }
-  const [mediaResult, taskResult, settingsResult, videoCapabilityResult, readinessResult] = await Promise.allSettled(dependencyJobs)
+  const [mediaResult, taskResult] = await Promise.allSettled(dependencyJobs)
   if (dependencyRequestId !== projectDependencyRequestId) return false
 
   const warnings = []
@@ -5252,11 +5409,6 @@ async function refreshProjectDependencies(episodeId, { includeProjectCapabilitie
     warnings.push(`${mediaResult.value.failedCount} 个分镜的媒体暂时无法加载`)
   }
   if (taskResult.status === 'rejected') warnings.push('生成任务状态暂时无法同步')
-  if (includeProjectCapabilities) {
-    if (settingsResult.status === 'rejected' || settingsResult.value !== true) warnings.push('生成并发设置暂时无法加载')
-    if (videoCapabilityResult.status === 'rejected' || videoCapabilityFailed.value) warnings.push('视频模型能力暂时无法确认')
-    if (readinessResult.status === 'rejected' || productionReadinessFailed.value) warnings.push('完整成片就绪状态暂时无法确认')
-  }
   projectDependencyWarning.value = warnings.length
     ? `${warnings.join('；')}。项目已正常打开，可重试加载素材。`
     : ''
@@ -9934,6 +10086,17 @@ html.light .nav-sub-item:hover { color: #1e1b4b; background: rgba(99,102,241,0.0
   padding: 24px 32px 48px;
   transition: margin-left 0.25s cubic-bezier(.4,0,.2,1);
 }
+
+@media (min-width: 769px) {
+  .film-create {
+    --film-create-sticky-offset: 84px;
+  }
+
+  .main :is([id^="anchor-"], [id^="sb-"]) {
+    scroll-margin-top: var(--film-create-sticky-offset);
+  }
+}
+
 .project-state-active .header,
 .project-state-active .main {
   margin-left: 0;
@@ -11769,6 +11932,44 @@ html.light .sb-narration-input :deep(.el-textarea__inner::placeholder) {
 .video-progress, .video-done, .video-error {
   margin-top: 16px;
 }
+.delivery-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin-bottom: 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.delivery-stat {
+  display: grid;
+  gap: 4px;
+  min-height: 58px;
+  padding: 9px 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.delivery-stat + .delivery-stat {
+  border-left: 1px solid var(--el-border-color-lighter);
+}
+.delivery-stat strong {
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+}
+.delivery-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.delivery-export-feedback {
+  margin: 12px 0 0;
+  color: var(--el-color-success);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.delivery-export-feedback.is-error {
+  color: var(--el-color-danger);
+}
 .video-preview-wrap {
   margin-top: 20px;
   padding-top: 16px;
@@ -11800,6 +12001,16 @@ html.light .sb-narration-input :deep(.el-textarea__inner::placeholder) {
   line-height: 1.5;
 }
 .video-download-status.is-error { color: #f87171; }
+
+@media (max-width: 760px) {
+  .delivery-overview {
+    grid-template-columns: 1fr;
+  }
+  .delivery-stat + .delivery-stat {
+    border-top: 1px solid var(--el-border-color-lighter);
+    border-left: 0;
+  }
+}
 
 /* 公共库弹窗 */
 .library-dialog .el-dialog__body { padding-top: 8px; }

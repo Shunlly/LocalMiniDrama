@@ -1,8 +1,8 @@
 <template>
-  <div class="drama-canvas-page">
+  <div class="drama-canvas-page" :class="{ 'inspector-open': focusedNodeId }">
     <header class="header">
       <div class="header-inner">
-        <button type="button" class="logo" aria-label="返回项目列表" @click="router.push('/')">
+        <button type="button" class="logo" aria-label="返回项目列表" @click="goProjectList">
           <span class="logo-main">本地短剧助手</span>
           <span class="logo-sub">画布模式</span>
         </button>
@@ -10,7 +10,8 @@
         <span class="page-title">{{ drama?.title || '加载中…' }}</span>
 
         <el-select
-          v-model="filterEpisodeId"
+          :model-value="filterEpisodeId"
+          @update:model-value="requestEpisodeFilterChange"
           class="episode-select"
           placeholder="全部集数"
           clearable
@@ -105,7 +106,6 @@
             <span>📜 剧本</span>
             <el-button link size="small" type="warning" @click="focusScriptNode">编辑</el-button>
           </div>
-          <p class="sidebar-script-tip">从头创作：先写剧本，再提取左侧素材</p>
         </div>
         <div class="sidebar-title">
           素材库
@@ -170,7 +170,6 @@
           @reorder-storyboards="reorderWorkflowStoryboards"
         />
 
-        <p class="sidebar-tip">经典模式流水线：分镜 → 脚本摘要 → 分镜图 → 视频。摘要节点是画布可视化，列表里合并在分镜编辑区。顶栏「本集生成」可 AI 批量操作；单击分镜可单镜生图/生视频。</p>
       </aside>
 
       <div ref="canvasMainRef" class="canvas-main">
@@ -188,7 +187,7 @@
           :pan-on-drag="[1, 2]"
           :pan-on-scroll="true"
           :fit-view-on-init="false"
-          :only-render-visible-elements="true"
+          :only-render-visible-elements="!focusedNodeId"
           class="vue-flow-canvas"
           @node-double-click="onNodeDoubleClick"
           @node-click="onNodeClick"
@@ -262,7 +261,7 @@
 
 <script setup>
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { VueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
@@ -318,6 +317,7 @@ import {
 } from '@/utils/canvasActionState'
 import { resolveCanvasEpisodeId } from '@/utils/canvasUiState'
 import { buildAiConfigLocation } from '@/utils/sourceWorkflowLaunch'
+import { normalizeProjectListReturnTo } from '@/utils/projectListRoute'
 
 import CanvasLabelNode from '@/components/dramaCanvas/CanvasLabelNode.vue'
 import CanvasDramaHeaderNode from '@/components/dramaCanvas/CanvasDramaHeaderNode.vue'
@@ -374,6 +374,8 @@ const contextMenuX = ref(0)
 const contextMenuY = ref(0)
 const contextMenuFlowPos = ref(null)
 const paneClickSuppressed = ref(false)
+let focusedNodeGuard = null
+let focusedNodeDirtyCheck = null
 const nodeStatus = createCanvasNodeStatusStore()
 const aligningNodes = ref(false)
 const canvasFlowApi = ref(null)
@@ -684,11 +686,100 @@ async function focusCanvasNode(nodeId) {
   const nodeElement = [...document.querySelectorAll('.vue-flow__node')]
     .find((element) => element.dataset.id === String(nodeId))
   nodeElement?.querySelector('.canvas-node-panel')?.focus({ preventScroll: true })
+  document.querySelector('.canvas-inspector-dock .canvas-node-panel')?.focus({ preventScroll: true })
 }
 
-async function setFocusedCanvasNode(nodeId) {
-  focusedNodeId.value = nodeId || null
-  if (nodeId) await focusCanvasNode(nodeId)
+async function focusCanvasNodeTrigger(nodeId) {
+  if (!nodeId) return
+  await nextTick()
+  const nodeElement = [...document.querySelectorAll('.vue-flow__node')]
+    .find((element) => element.dataset.id === String(nodeId))
+  nodeElement
+    ?.querySelector('.canvas-sb-node, .canvas-asset-node, .canvas-media-node, .canvas-script-node, [role="button"]')
+    ?.focus({ preventScroll: true })
+}
+
+function restoreFocusedNodeSelection() {
+  const currentId = focusedNodeId.value ? String(focusedNodeId.value) : ''
+  nodes.value = nodes.value.map((node) => ({
+    ...node,
+    selected: Boolean(currentId && String(node.id) === currentId),
+  }))
+  const storyboardId = storyboardIdFromNodeId(currentId)
+  selectedStoryboardIds.value = storyboardId ? [storyboardId] : []
+}
+
+function hasFocusedNodePendingWork() {
+  try {
+    if (typeof focusedNodeDirtyCheck === 'function') return Boolean(focusedNodeDirtyCheck())
+    return Boolean(focusedNodeDirtyCheck?.value)
+  } catch (_) {
+    return true
+  }
+}
+
+async function confirmFocusedNodeLeave() {
+  if (!focusedNodeId.value || !focusedNodeGuard) return true
+  const canLeave = await focusedNodeGuard()
+  if (!canLeave) restoreFocusedNodeSelection()
+  return canLeave
+}
+
+function handleCanvasBeforeUnload(event) {
+  if (!hasFocusedNodePendingWork()) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onBeforeRouteLeave(() => confirmFocusedNodeLeave())
+onBeforeRouteUpdate(async (to) => {
+  if (String(to.params.id) !== String(route.params.id)) return confirmFocusedNodeLeave()
+  return true
+})
+
+async function setFocusedCanvasNode(nodeId, { force = false, restoreFocus = false } = {}) {
+  const currentId = focusedNodeId.value || null
+  const nextId = nodeId || null
+  const isChanging = String(currentId || '') !== String(nextId || '')
+  if (!isChanging) {
+    if (nextId) await focusCanvasNode(nextId)
+    return true
+  }
+  if (currentId && !force && focusedNodeGuard) {
+    const canLeave = await focusedNodeGuard()
+    if (!canLeave) {
+      restoreFocusedNodeSelection()
+      document.querySelector('.canvas-inspector-dock .canvas-node-panel')?.focus({ preventScroll: true })
+      return false
+    }
+  }
+  focusedNodeId.value = nextId
+  if (nextId) await focusCanvasNode(nextId)
+  else if (restoreFocus && currentId) await focusCanvasNodeTrigger(currentId)
+  return true
+}
+
+function registerFocusGuard(guard, isDirty = null) {
+  focusedNodeGuard = typeof guard === 'function' ? guard : null
+  focusedNodeDirtyCheck = isDirty
+  return () => {
+    if (focusedNodeGuard === guard) {
+      focusedNodeGuard = null
+      focusedNodeDirtyCheck = null
+    }
+  }
+}
+
+async function requestEpisodeFilterChange(value) {
+  const episodeId = value == null || value === '' ? null : Number(value)
+  if (String(filterEpisodeId.value ?? '') === String(episodeId ?? '')) return true
+  const changed = await setFocusedCanvasNode(null, { restoreFocus: false })
+  if (!changed) {
+    restoreFocusedNodeSelection()
+    return false
+  }
+  filterEpisodeId.value = episodeId
+  return true
 }
 
 function routeFocusNodeId() {
@@ -940,9 +1031,8 @@ provide(CANVAS_CONTEXT_KEY, {
   retryStoryboardMedia,
   openAiConfig,
   setFocusedNode: setFocusedCanvasNode,
-  clearFocusedNode: () => {
-    focusedNodeId.value = null
-  },
+  registerFocusGuard,
+  clearFocusedNode: (options) => setFocusedCanvasNode(null, options),
   setHighlightAsset,
   refresh: refreshCanvas,
   refreshDrama,
@@ -968,13 +1058,13 @@ function setActiveGroupId(value) {
   activeGroupId.value = value || null
 }
 
-function confirmEpisodeSelection(value) {
+async function confirmEpisodeSelection(value) {
   const episodeId = resolveCanvasEpisodeId(drama.value?.episodes, value)
   if (episodeId === null) {
     ElMessage.warning('该剧集已不可用，请重新选择')
     return
   }
-  filterEpisodeId.value = episodeId
+  await requestEpisodeFilterChange(episodeId)
 }
 
 function onSelectionChange({ nodes: selectedNodes }) {
@@ -1082,6 +1172,8 @@ const {
   filterEpisodeId,
   layoutCache,
   focusedNodeId,
+  setFocusedNode: setFocusedCanvasNode,
+  setEpisodeFilter: requestEpisodeFilterChange,
   refreshCanvas,
   persistCanvasState,
 })
@@ -1126,7 +1218,7 @@ Object.assign(
   })
 )
 
-function focusScriptNode() {
+async function focusScriptNode() {
   let epId = filterEpisodeId.value
   if (!epId) {
     const eps = drama.value?.episodes || []
@@ -1136,14 +1228,14 @@ function focusScriptNode() {
     ElMessage.warning('请先选择或新建集数')
     return
   }
-  if (!filterEpisodeId.value) filterEpisodeId.value = epId
-  void setFocusedCanvasNode(scriptNodeId(epId))
+  if (!filterEpisodeId.value && !await requestEpisodeFilterChange(epId)) return
+  await setFocusedCanvasNode(scriptNodeId(epId))
 }
 
 async function onAlignNodes() {
   if (!drama.value || !nodes.value.length || aligningNodes.value) return
+  if (!await setFocusedCanvasNode(null)) return
   aligningNodes.value = true
-  focusedNodeId.value = null
   try {
     const { positions } = computeAutoLayoutPositions(drama.value, {
       episodeId: filterEpisodeId.value,
@@ -1318,15 +1410,24 @@ function stopStatusPoll() {
   }
 }
 
+const projectListReturnTo = computed(() => normalizeProjectListReturnTo(route.query.returnTo))
+
+function goProjectList() {
+  router.push(projectListReturnTo.value || '/')
+}
+
 function goListMode() {
   const query = filterEpisodeId.value ? { episode: String(filterEpisodeId.value) } : {}
+  if (projectListReturnTo.value) query.returnTo = projectListReturnTo.value
   router.push({ path: `/film/${dramaId.value}`, query })
 }
 
 function navigateToStoryboard(episodeId, storyboardId) {
+  const query = episodeId ? { episode: String(episodeId) } : {}
+  if (projectListReturnTo.value) query.returnTo = projectListReturnTo.value
   router.push({
     path: `/film/${dramaId.value}`,
-    query: episodeId ? { episode: String(episodeId) } : {},
+    query,
     hash: storyboardId ? `#sb-${storyboardId}` : undefined,
   })
 }
@@ -1340,17 +1441,17 @@ function onNodeDoubleClick({ node }) {
   if (ref?.storyboardId) navigateToStoryboard(ref.episodeId, ref.storyboardId)
 }
 
-function onPaneClick(event) {
+async function onPaneClick(event) {
   if (paneClickSuppressed.value) return
   const target = event?.event?.target || event?.target
-  if (target?.closest?.('.canvas-node-panel') || target?.closest?.('.el-popper') || target?.closest?.('.canvas-context-menu')) {
+  if (target?.closest?.('.canvas-node-panel') || target?.closest?.('.canvas-inspector-dock') || target?.closest?.('.el-popper') || target?.closest?.('.canvas-context-menu')) {
     return
   }
-  focusedNodeId.value = null
+  await setFocusedCanvasNode(null, { restoreFocus: true })
   closeContextMenu()
 }
 
-function onNodeClick({ node, event }) {
+async function onNodeClick({ node, event }) {
   if (node.type === 'canvasAddButton') {
     event?.stopPropagation?.()
     openCreateDialog(node.data?.assetType || 'storyboard')
@@ -1358,7 +1459,11 @@ function onNodeClick({ node, event }) {
   }
 
   if (PANEL_NODE_TYPES.has(node.type)) {
-    void setFocusedCanvasNode(node.id)
+    const changed = await setFocusedCanvasNode(node.id)
+    if (!changed) {
+      restoreFocusedNodeSelection()
+      return
+    }
   }
 
   if (node.type === 'canvasAsset') {
@@ -1384,7 +1489,7 @@ watch(() => route.params.id, () => {
   layoutCache.value = null
   activeGroupId.value = null
   selectedStoryboardIds.value = []
-  focusedNodeId.value = null
+  void setFocusedCanvasNode(null, { force: true })
   initialFitDone.value = false
   canvasInteractive.value = true
   for (const key of Object.keys(mediaValidity)) delete mediaValidity[key]
@@ -1401,6 +1506,7 @@ function updateCanvasViewportReady() {
 }
 
 onMounted(() => {
+  window.addEventListener('beforeunload', handleCanvasBeforeUnload)
   canvasReadyFrame = window.requestAnimationFrame(() => {
     updateCanvasViewportReady()
     if (typeof ResizeObserver === 'function' && canvasMainRef.value) {
@@ -1411,6 +1517,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleCanvasBeforeUnload)
   readinessRequestId++
   if (saveTimer) clearTimeout(saveTimer)
   if (savedHintTimer) clearTimeout(savedHintTimer)
@@ -1700,12 +1807,6 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
   border-bottom: 1px solid var(--border-color, #27272a);
 }
-.sidebar-script-tip {
-  margin: 0;
-  font-size: 10px;
-  line-height: 1.45;
-  color: var(--text-subtle, #71717a);
-}
 
 .sec-label {
   font-size: 11px;
@@ -1744,12 +1845,6 @@ onBeforeUnmount(() => {
 .wf-item-meta { font-size: 10px; color: var(--text-faint, #52525b); margin-top: 2px; }
 .sidebar-empty { font-size: 11px; color: var(--text-faint, #52525b); padding: 4px 0; }
 
-.sidebar-tip {
-  font-size: 10px;
-  line-height: 1.45;
-  color: var(--text-faint, #52525b);
-  margin-top: 16px;
-}
 
 .canvas-main {
   flex: 1;
@@ -1757,6 +1852,10 @@ onBeforeUnmount(() => {
   min-height: 0;
   height: 100%;
   position: relative;
+  transition: margin-right 0.2s ease;
+}
+.drama-canvas-page.inspector-open .canvas-main {
+  margin-right: 480px;
 }
 .logo:focus-visible { outline: 2px solid var(--canvas-indigo-strong); outline-offset: 4px; }
 
@@ -1790,6 +1889,12 @@ onBeforeUnmount(() => {
 
 :deep(.vue-flow__node.selected) {
   box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.8);
+}
+
+@media (max-width: 1100px) {
+  .drama-canvas-page.inspector-open .canvas-main {
+    margin-right: 0;
+  }
 }
 </style>
 
@@ -1854,8 +1959,6 @@ html.light .drama-canvas-page .sidebar-item.active {
   background: rgba(4, 120, 87, 0.12);
   color: var(--canvas-emerald-text);
 }
-html.light .drama-canvas-page .sidebar-script-tip,
-html.light .drama-canvas-page .sidebar-tip,
 html.light .drama-canvas-page .wf-item-meta,
 html.light .drama-canvas-page .sidebar-workflow-empty p {
   color: var(--canvas-text-subtle);

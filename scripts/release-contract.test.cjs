@@ -32,6 +32,7 @@ const {
   assertReleaseBuilderNeverPublishes,
   npmInvocation,
 } = require('./verify-release.cjs')
+const { sanitizeRuntimeConfig, sanitizeRuntimeConfigFile } = require('./runtime-config-policy.cjs')
 const { getTrustedMediaToolRelease } = require('../desktop/scripts/media-tool-policy')
 const { FUSE_POLICY } = require('../desktop/scripts/electron-fuses')
 
@@ -40,6 +41,7 @@ const gitAttributes = fs.readFileSync(path.join(root, '.gitattributes'), 'utf8')
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8')
 const checkpointScript = fs.readFileSync(path.join(root, 'scripts', 'create-release-rollback-checkpoint.ps1'), 'utf8')
 const rollbackRestoreScript = fs.readFileSync(path.join(root, 'scripts', 'restore-release-rollback-checkpoint.ps1'), 'utf8')
+const rollbackDrillScript = fs.readFileSync(path.join(root, 'scripts', 'run-rollback-drill.cjs'), 'utf8')
 const dockerComposeRevisionScript = fs.readFileSync(path.join(root, 'scripts', 'docker-compose-with-revision.cjs'), 'utf8')
 const backendTrivyIgnore = fs.readFileSync(path.join(root, 'backend-node', '.trivyignore.yaml'), 'utf8')
 const backendDockerfile = fs.readFileSync(path.join(root, 'backend-node', 'Dockerfile'), 'utf8')
@@ -221,6 +223,24 @@ test('verified Docker startup binds images to a clean full Git revision', () => 
   assert.throws(() => require('./docker-compose-with-revision.cjs').parseArguments(['--profile', '../bad']))
 })
 
+test('source release verification uses the clean revision-bound Docker launcher', () => {
+  assert.match(releaseVerifierSource, /runNpm\(\['run', 'docker:e2e:up'\]\)/)
+  assert.doesNotMatch(
+    releaseVerifierSource,
+    /run\(dockerCommand, \['compose', '--profile', 'e2e', 'up', '-d', '--build', '--wait'\]\)/,
+  )
+})
+
+test('release contract jobs install the runtime YAML parser before root checks', () => {
+  const ciContract = jobBlock('release-contract', ciWorkflow)
+  const windowsRelease = jobBlock('build-windows', workflow)
+  for (const [label, source] of [['CI release contract', ciContract], ['Windows release', windowsRelease]]) {
+    const install = source.indexOf('working-directory: backend-node')
+    const rootCheck = source.indexOf('npm run check')
+    assert.ok(install >= 0 && install < rootCheck, `${label} must install backend dependencies before npm run check`)
+  }
+})
+
 test('production containers and tag releases bind, harden, and scan final images', () => {
   for (const dockerfile of [backendDockerfile, frontendDockerfile]) {
     assert.match(dockerfile, /ARG LOCALMINIDRAMA_BUILD_REVISION=unknown/)
@@ -384,11 +404,25 @@ test('release rollback scripts fail closed and verify the retained backup before
   assert.match(checkpointScript, /backup:data[\s\S]*Get-FileHash[\s\S]*verify:rollback/)
   assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v3/)
   assert.match(checkpointScript, /Get-ContainerBindSource[\s\S]*\/app\/config-source/)
+  assert.match(checkpointScript, /LOCALMINIDRAMA_CONFIG_PATH/)
+  assert.match(checkpointScript, /runtime_config_source_file/)
+  assert.doesNotMatch(checkpointScript, /database_path\s*=/)
+  assert.match(checkpointScript, /function Start-CapturedDeployment[\s\S]*ConfigDirectory[\s\S]*ConfigPath[\s\S]*Set-RuntimeConfigEnvironment/)
+  assert.match(checkpointScript, /function Set-RuntimeConfigEnvironment[\s\S]*LOCALMINIDRAMA_CONFIG_DIR[\s\S]*LOCALMINIDRAMA_CONFIG_PATH/)
+  assert.match(checkpointScript, /Set-RuntimeConfigEnvironment[\s\S]*Data backup[\s\S]*Rollback drill/)
   assert.match(checkpointScript, /docker[\s\S]*image[\s\S]*save[\s\S]*images\.tar/)
   assert.match(checkpointScript, /image_archive_sha256/)
   assert.match(rollbackRestoreScript, /image[\s\S]*load[\s\S]*imageArchivePath/)
   assert.match(rollbackRestoreScript, /Loaded rollback image IDs do not match/)
   assert.match(checkpointScript, /Start-CapturedDeployment[\s\S]*checkpoint failed/)
+  assert.match(rollbackRestoreScript, /Get-ContainerBindSource[\s\S]*\/app\/config-source/)
+  assert.match(rollbackRestoreScript, /forwardConfigDirectory[\s\S]*forwardConfigPath/)
+  assert.match(rollbackRestoreScript, /Set-RuntimeConfigEnvironment[\s\S]*Pre-rollback compensation backup/)
+  assert.match(rollbackRestoreScript, /Set-RuntimeConfigEnvironment[\s\S]*Rollback data restore/)
+  assert.match(rollbackRestoreScript, /Compensation data restore[\s\S]*Forward deployment recovery/)
+  assert.match(rollbackRestoreScript, /preRollbackError[\s\S]*Preparation compensation data restore[\s\S]*Preparation forward deployment recovery/)
+  assert.match(rollbackRestoreScript, /Rollback preparation failed[\s\S]*service may remain stopped/i)
+  assert.match(rollbackRestoreScript, /compensation also failed[\s\S]*service may remain stopped/i)
 
   const checkpointMain = checkpointScript.slice(checkpointScript.indexOf('$repoRoot ='))
   const commitCapture = checkpointMain.indexOf("@('rev-parse', 'HEAD')")
@@ -403,6 +437,8 @@ test('release rollback scripts fail closed and verify the retained backup before
   assert.match(rollbackRestoreScript, /rollbackStartError[\s\S]*Compensation data restore[\s\S]*Forward deployment recovery/)
   assert.match(rollbackRestoreScript, /--no-build/)
   assert.match(rollbackRestoreScript, /\/health[\s\S]*\/ready/)
+  assert.match(rollbackDrillScript, /database:\s*\{[\s\S]*relative_path: safeEvidencePath\(root, databasePath/)
+  assert.doesNotMatch(rollbackDrillScript, /database:\s*\{[\s\S]*path: databasePath/)
 
   const restoreMain = rollbackRestoreScript.slice(rollbackRestoreScript.indexOf('Push-Location $repoRoot'))
   const imageVerification = restoreMain.indexOf('Backend rollback image verification')
@@ -419,6 +455,93 @@ test('release rollback scripts fail closed and verify the retained backup before
       && currentCapture < currentShutdown
       && currentShutdown < compensationBackup
       && compensationBackup < rollbackRestore,
+  )
+})
+
+test('rollback restore captures the running container ID needed for compensation', () => {
+  const evidenceFunction = rollbackRestoreScript.slice(
+    rollbackRestoreScript.indexOf('function Get-RunningServiceEvidence'),
+    rollbackRestoreScript.indexOf('function Test-ApplicationHealth'),
+  )
+
+  assert.match(evidenceFunction, /container_id\s*=\s*\$containerId/)
+  assert.match(rollbackRestoreScript, /Get-ContainerBindSource -ContainerId \$currentBackend\.container_id/)
+})
+
+test('rollback checkpoints archive only sanitized runtime config and require credential reconfiguration', (t) => {
+  assert.match(
+    checkpointScript,
+    /runtime-config-policy\.cjs[\s\S]*\$runtimeConfigSource[\s\S]*\$configArchive/,
+  )
+  assert.doesNotMatch(
+    checkpointScript,
+    /Copy-Item -LiteralPath \$runtimeConfigSource -Destination \$configArchive/,
+  )
+  for (const field of [
+    'runtime_config_sanitized',
+    'runtime_config_credentials_excluded',
+    'credential_reconfiguration_required',
+  ]) {
+    assert.match(checkpointScript, new RegExp(`${field}\\s*=\\s*\\$true`))
+    assert.match(rollbackRestoreScript, new RegExp(`\\$metadata\\.${field}`))
+    assert.match(
+      rollbackRestoreScript,
+      new RegExp(`\\$metadata\\.${field}\\s+-isnot\\s+\\[bool\\]`),
+    )
+  }
+  assert.match(rollbackRestoreScript, /configure[\s\S]*credentials[\s\S]*test again/i)
+  const sanitization = checkpointScript.indexOf('Runtime config sanitization')
+  const sanitizedConfigHash = checkpointScript.indexOf('$configHash =')
+  const restorePolicyValidation = rollbackRestoreScript.indexOf("Properties['runtime_config_sanitized']")
+  const rollbackImageLoad = rollbackRestoreScript.indexOf('Rollback image archive load')
+  assert.ok(sanitization >= 0 && sanitization < sanitizedConfigHash)
+  assert.ok(restorePolicyValidation >= 0 && restorePolicyValidation < rollbackImageLoad)
+
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-checkpoint-config-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const sourcePath = path.join(fixtureRoot, 'source.yaml')
+  const archivePath = path.join(fixtureRoot, 'checkpoint', 'configs', 'config.yaml')
+  const secretMarkers = [
+    'fixture-api-key-secret',
+    'fixture-token-secret',
+    'fixture-password-secret',
+    'fixture-authorization-secret',
+    'fixture-header-secret',
+  ]
+  fs.writeFileSync(sourcePath, [
+    'app:',
+    '  name: Sanitized checkpoint fixture',
+    'server:',
+    '  port: 5679',
+    'storage:',
+    '  base_url: "https://user:fixture-password-secret@example.invalid/static?token=fixture-token-secret"',
+    'ai:',
+    '  default_text_provider: openai',
+    '  api_key: fixture-api-key-secret',
+    '  token: fixture-token-secret',
+    '  password: fixture-password-secret',
+    '  authorization: fixture-authorization-secret',
+    '  headers:',
+    '    X-Provider-Key: fixture-header-secret',
+    'providers:',
+    '  custom:',
+    '    API-Key: fixture-api-key-secret',
+    '    Authorization: fixture-authorization-secret',
+    '    custom_headers:',
+    '      X-Token: fixture-header-secret',
+    '',
+  ].join('\n'), 'utf8')
+
+  sanitizeRuntimeConfigFile(sourcePath, archivePath)
+  const archivedConfig = fs.readFileSync(archivePath, 'utf8')
+  assert.match(archivedConfig, /name: Sanitized checkpoint fixture/)
+  assert.match(archivedConfig, /default_text_provider: openai/)
+  assert.doesNotMatch(archivedConfig, /api[-_]?key|token|password|authorization|headers?/i)
+  for (const marker of secretMarkers) assert.equal(archivedConfig.includes(marker), false)
+
+  assert.throws(
+    () => sanitizeRuntimeConfig({ style: { default_style: 'cinematic sk-EXAMPLESECRET123456' } }),
+    /credential-like data/,
   )
 })
 
@@ -613,7 +736,7 @@ test('Docker artifact boundaries are checked before production bind mounts chang
   const sourceVerificationEnd = releaseVerifierSource.indexOf('\nfunction writeSbom(', sourceVerificationStart)
   const sourceVerification = releaseVerifierSource.slice(sourceVerificationStart, sourceVerificationEnd)
   const artifactVerification = sourceVerification.indexOf("['run', 'verify:docker:artifact']")
-  const productionStartup = sourceVerification.indexOf("['compose', '--profile', 'e2e', 'up'")
+  const productionStartup = sourceVerification.indexOf("['run', 'docker:e2e:up']")
   const containerVerification = sourceVerification.indexOf("['run', 'verify:docker:containers']")
   assert.ok(artifactVerification >= 0, 'release verification is missing the Docker artifact boundary check')
   assert.ok(productionStartup >= 0, 'release verification is missing production container startup')

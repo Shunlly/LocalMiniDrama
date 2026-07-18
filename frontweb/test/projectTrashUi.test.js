@@ -23,7 +23,7 @@ test('project removal copy consistently describes a recoverable operation', () =
 })
 
 test('trash is discoverable and restoration is keyboard and screen-reader operable', () => {
-  assert.match(filmListSource, /class="header-actions"[\s\S]*class="btn-trash"[\s\S]*打开项目回收站/)
+  assert.match(filmListSource, /class="header-actions"[\s\S]*class="btn-trash[^"]*"[\s\S]*aria-label="打开项目回收站"/)
   assert.match(filmListSource, /title="项目回收站"/)
   assert.match(filmListSource, /role="note"[\s\S]*项目内容、剧集、分镜和关联素材会完整保留/)
   assert.match(filmListSource, /class="trash-list" aria-label="已移除项目"/)

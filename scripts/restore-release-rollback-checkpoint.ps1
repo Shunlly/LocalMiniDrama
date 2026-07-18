@@ -47,6 +47,20 @@ function Write-Utf8File {
   [System.IO.File]::WriteAllText($Path, $Value, [System.Text.UTF8Encoding]::new($false))
 }
 
+function Set-RuntimeConfigEnvironment {
+  param(
+    [Parameter(Mandatory = $true)][string]$ConfigDirectory,
+    [Parameter(Mandatory = $true)][string]$ConfigPath
+  )
+  $env:LOCALMINIDRAMA_CONFIG_DIR = $ConfigDirectory
+  $env:LOCALMINIDRAMA_CONFIG_PATH = $ConfigPath
+}
+
+function Clear-RuntimeConfigEnvironment {
+  Remove-Item Env:LOCALMINIDRAMA_CONFIG_DIR -ErrorAction SilentlyContinue
+  Remove-Item Env:LOCALMINIDRAMA_CONFIG_PATH -ErrorAction SilentlyContinue
+}
+
 function Assert-RegularFile {
   param([string]$Path)
   $item = Get-Item -LiteralPath $Path
@@ -60,6 +74,24 @@ function Assert-FileHash {
   if ($Expected -notmatch '^[a-f0-9]{64}$') { throw "$Label SHA-256 is invalid." }
   $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -ne $Expected) { throw "$Label SHA-256 verification failed." }
+}
+
+function Get-ContainerBindSource {
+  param(
+    [Parameter(Mandatory = $true)][string]$ContainerId,
+    [Parameter(Mandatory = $true)][string]$Destination
+  )
+  $mountJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $ContainerId, '--format', '{{json .Mounts}}') -Label "${Destination} mount capture"
+  try {
+    $mounts = @((ConvertFrom-Json -InputObject $mountJson) | ForEach-Object { $_ })
+  } catch {
+    throw "${Destination} mount capture returned invalid Docker JSON."
+  }
+  $mount = $mounts | Where-Object { $_.Type -eq 'bind' -and $_.Destination -eq $Destination } | Select-Object -First 1
+  if ($null -eq $mount -or [string]::IsNullOrWhiteSpace($mount.Source)) {
+    throw "The running backend has no regular bind mount at $Destination."
+  }
+  return [System.IO.Path]::GetFullPath([string]$mount.Source)
 }
 
 function Get-ImageRevision {
@@ -96,7 +128,12 @@ function Get-RunningServiceEvidence {
   if ($imageId -notmatch '^sha256:[a-f0-9]{64}$' -or $revision -notmatch '^[a-f0-9]{40}$') {
     throw "The current $Service image lacks immutable ID or revision evidence."
   }
-  return [ordered]@{ image_id = $imageId; revision = $revision }
+  return [ordered]@{
+    container_id = $containerId
+    image_id = $imageId
+    revision = $revision
+    health = $health
+  }
 }
 
 function Test-ApplicationHealth {
@@ -128,6 +165,21 @@ foreach ($requiredPath in @($metadataPath, $backupPath, $hashPath, $composePath,
 
 $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
 if ($metadata.schema -ne 'localminidrama.release-rollback-checkpoint.v3') { throw 'Rollback checkpoint schema is invalid.' }
+if ($null -eq $metadata.PSObject.Properties['runtime_config_sanitized'] -or
+    $metadata.runtime_config_sanitized -isnot [bool] -or
+    $metadata.runtime_config_sanitized -ne $true) {
+  throw 'Rollback checkpoint runtime config is not declared sanitized.'
+}
+if ($null -eq $metadata.PSObject.Properties['runtime_config_credentials_excluded'] -or
+    $metadata.runtime_config_credentials_excluded -isnot [bool] -or
+    $metadata.runtime_config_credentials_excluded -ne $true) {
+  throw 'Rollback checkpoint does not prove that runtime config credentials were excluded.'
+}
+if ($null -eq $metadata.PSObject.Properties['credential_reconfiguration_required'] -or
+    $metadata.credential_reconfiguration_required -isnot [bool] -or
+    $metadata.credential_reconfiguration_required -ne $true) {
+  throw 'Rollback checkpoint does not require Provider credential reconfiguration.'
+}
 if ($metadata.previous_commit -notmatch '^[a-f0-9]{40}$') { throw 'Rollback checkpoint commit is invalid.' }
 if ($metadata.backend.image_id -notmatch '^sha256:[a-f0-9]{64}$' -or $metadata.frontend.image_id -notmatch '^sha256:[a-f0-9]{64}$') {
   throw 'Rollback checkpoint image IDs are invalid.'
@@ -161,6 +213,7 @@ if ($summary.schema -ne 'localminidrama.rollback-drill.v2' -or
 
 Push-Location $repoRoot
 try {
+  Write-Warning 'Archived runtime config excludes Provider credentials. After rollback, configure credentials and test again before using AI generation.'
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'load', '--input', $imageArchivePath) -Label 'Rollback image archive load' | Out-Null
   $loadedBackendId = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $expectedBackendRef, '--format', '{{.Id}}') -Label 'Backend rollback image load verification').ToLowerInvariant()
   $loadedFrontendId = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $expectedFrontendRef, '--format', '{{.Id}}') -Label 'Frontend rollback image load verification').ToLowerInvariant()
@@ -173,18 +226,19 @@ try {
     throw 'Rollback image labels do not match the checkpoint commit.'
   }
 
-  Remove-Item Env:LOCALMINIDRAMA_CONFIG_DIR -ErrorAction SilentlyContinue
   $currentBackend = Get-RunningServiceEvidence -Service 'backend'
   $currentFrontend = Get-RunningServiceEvidence -Service 'frontend'
   if ($currentBackend.revision -ne $currentFrontend.revision) {
     throw 'Current backend and frontend image revisions do not match; rollback compensation would be ambiguous.'
   }
+  $forwardConfigDirectory = Get-ContainerBindSource -ContainerId $currentBackend.container_id -Destination '/app/config-source'
+  $forwardConfigPath = Join-Path $forwardConfigDirectory 'config.yaml'
+  Assert-RegularFile -Path $forwardConfigPath
   $configDirectory = Split-Path -Parent $configPath
+  Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
   $env:LOCALMINIDRAMA_IMAGE_TAG = $rollbackTag
   $env:LOCALMINIDRAMA_BUILD_REVISION = $metadata.previous_commit
-  $env:LOCALMINIDRAMA_CONFIG_DIR = $configDirectory
   Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', '--project-directory', $repoRoot, '-f', $composePath, 'config', '--quiet') -Label 'Archived Docker Compose validation' | Out-Null
-  Remove-Item Env:LOCALMINIDRAMA_CONFIG_DIR -ErrorAction SilentlyContinue
 
   $forwardTag = "rollback-forward-$($currentBackend.revision.Substring(0, 12))"
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'tag', $currentBackend.image_id, "localminidrama-backend:$forwardTag") -Label 'Current backend compensation tag' | Out-Null
@@ -196,19 +250,62 @@ try {
   Write-Utf8File -Path $probePath -Value "probe`n"
   Remove-Item -LiteralPath $probePath
 
-  Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Current Docker shutdown' | Out-Null
   $compensationBackup = Join-Path $compensationRoot 'data.zip'
-  Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'backup:data', '--', '--output', $compensationBackup) -Label 'Pre-rollback compensation backup' | Out-Null
-  $compensationHash = (Get-FileHash -LiteralPath $compensationBackup -Algorithm SHA256).Hash.ToLowerInvariant()
-  Write-Utf8File -Path (Join-Path $compensationRoot 'data.sha256.txt') -Value "$compensationHash`n"
+  $compensationHash = $null
+  $preRollbackError = $null
+  try {
+    Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+    Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Current Docker shutdown' | Out-Null
+    Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+    Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'backup:data', '--', '--output', $compensationBackup) -Label 'Pre-rollback compensation backup' | Out-Null
+    $compensationHash = (Get-FileHash -LiteralPath $compensationBackup -Algorithm SHA256).Hash.ToLowerInvariant()
+    Write-Utf8File -Path (Join-Path $compensationRoot 'data.sha256.txt') -Value "$compensationHash`n"
 
-  Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $backupPath, '--yes') -Label 'Rollback data restore' | Out-Null
+    Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
+    Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $backupPath, '--yes') -Label 'Rollback data restore' | Out-Null
+  } catch {
+    $preRollbackError = $_
+  }
+
+  if ($preRollbackError) {
+    $preRollbackCompensationError = $null
+    $preRollbackCompensationShutdownError = $null
+    try {
+      # A failed shutdown can leave only part of the stack stopped. Normalize it
+      # before restoring the forward data and starting the captured deployment.
+      Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+      Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Failed rollback preparation shutdown' | Out-Null
+      if ($compensationHash -and (Test-Path -LiteralPath $compensationBackup -PathType Leaf)) {
+        Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+        Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $compensationBackup, '--yes') -Label 'Preparation compensation data restore' | Out-Null
+      }
+      $env:LOCALMINIDRAMA_IMAGE_TAG = $forwardTag
+      $env:LOCALMINIDRAMA_BUILD_REVISION = $currentBackend.revision
+      Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+      Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'up', '-d', '--no-build', '--wait') -Label 'Preparation forward deployment recovery' | Out-Null
+      Test-ApplicationHealth
+    } catch {
+      $preRollbackCompensationError = $_
+    }
+    if ($preRollbackCompensationError) {
+      try {
+        Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+        Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Preparation compensation failure shutdown' | Out-Null
+      } catch {
+        $preRollbackCompensationShutdownError = $_
+      }
+      $preRollbackShutdownDetails = @($preRollbackCompensationShutdownError) | Where-Object { $null -ne $_ } | ForEach-Object { $_.ToString() }
+      $preRollbackShutdownMessage = if ($preRollbackShutdownDetails.Count -gt 0) { " Shutdown attempt: $($preRollbackShutdownDetails -join ' | ')" } else { '' }
+      throw "Rollback preparation failed and automatic forward recovery also failed; service may remain stopped. Preparation error: $preRollbackError Compensation error: $preRollbackCompensationError.$preRollbackShutdownMessage"
+    }
+    throw "Rollback preparation failed; the forward deployment and data were restored automatically. Error: $preRollbackError"
+  }
 
   $rollbackStartError = $null
   try {
     $env:LOCALMINIDRAMA_IMAGE_TAG = $rollbackTag
     $env:LOCALMINIDRAMA_BUILD_REVISION = $metadata.previous_commit
-    $env:LOCALMINIDRAMA_CONFIG_DIR = $configDirectory
+    Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
     Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', '--project-directory', $repoRoot, '-f', $composePath, 'up', '-d', '--no-build', '--wait') -Label 'Rollback container startup' | Out-Null
     Test-ApplicationHealth
   } catch {
@@ -216,16 +313,36 @@ try {
   }
 
   if ($rollbackStartError) {
+    $rollbackShutdownError = $null
+    $compensationError = $null
+    $compensationShutdownError = $null
     try {
+      Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
       Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', '--project-directory', $repoRoot, '-f', $composePath, 'down') -Label 'Failed rollback shutdown' | Out-Null
-      Remove-Item Env:LOCALMINIDRAMA_CONFIG_DIR -ErrorAction SilentlyContinue
+    } catch {
+      $rollbackShutdownError = $_
+    }
+    try {
+      Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
       Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $compensationBackup, '--yes') -Label 'Compensation data restore' | Out-Null
       $env:LOCALMINIDRAMA_IMAGE_TAG = $forwardTag
       $env:LOCALMINIDRAMA_BUILD_REVISION = $currentBackend.revision
+      Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
       Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'up', '-d', '--no-build', '--wait') -Label 'Forward deployment recovery' | Out-Null
       Test-ApplicationHealth
     } catch {
-      throw "Rollback startup failed and automatic compensation also failed. Rollback error: $rollbackStartError Compensation error: $_"
+      $compensationError = $_
+    }
+    if ($compensationError) {
+      try {
+        Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+        Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Compensation failure shutdown' | Out-Null
+      } catch {
+        $compensationShutdownError = $_
+      }
+      $shutdownDetails = @($rollbackShutdownError, $compensationShutdownError) | Where-Object { $null -ne $_ } | ForEach-Object { $_.ToString() }
+      $shutdownMessage = if ($shutdownDetails.Count -gt 0) { " Shutdown attempts: $($shutdownDetails -join ' | ')" } else { '' }
+      throw "Rollback startup failed and automatic compensation also failed; service may remain stopped. Rollback error: $rollbackStartError Compensation error: $compensationError.$shutdownMessage"
     }
     throw "Rollback startup failed; the pre-rollback data and forward deployment were restored automatically. Error: $rollbackStartError"
   }
@@ -241,7 +358,8 @@ try {
   Write-Utf8File -Path (Join-Path $compensationRoot 'metadata.json') -Value "$(ConvertTo-Json $compensationMetadata -Depth 4)`n"
   Write-Output "Rollback started from commit $($metadata.previous_commit) with tag $rollbackTag."
   Write-Output "Pre-rollback compensation backup retained at $compensationRoot."
-  Write-Output 'Provider credentials are excluded from data backups and must be configured and tested again.'
+  Write-Output 'Provider credentials are excluded from the checkpoint and data backups; configure credentials and test again before using AI generation.'
 } finally {
+  Clear-RuntimeConfigEnvironment
   Pop-Location
 }

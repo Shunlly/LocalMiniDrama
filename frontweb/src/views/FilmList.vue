@@ -30,13 +30,18 @@
           <el-button class="btn-library" title="打开自由创作" @click="router.push({ name: 'free-create' })">
             <el-icon><MagicStick /></el-icon>自由创作
           </el-button>
-          <el-button class="btn-trash" title="打开项目回收站" @click="openTrash">
-            <el-icon><Delete /></el-icon>回收站
-          </el-button>
-          <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
-            <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
-            {{ isDark ? '浅色' : '暗色' }}
-          </el-button>
+          <el-tooltip content="项目回收站" placement="bottom">
+            <el-button class="btn-trash utility-icon-button" title="项目回收站" aria-label="打开项目回收站" @click="openTrash">
+              <el-icon><Delete /></el-icon>
+              <span class="visually-hidden">打开项目回收站</span>
+            </el-button>
+          </el-tooltip>
+          <el-tooltip :content="isDark ? '切换到浅色模式' : '切换到暗色模式'" placement="bottom">
+            <el-button class="btn-theme utility-icon-button" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
+              <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
+              <span class="visually-hidden">{{ isDark ? '切换到浅色模式' : '切换到暗色模式' }}</span>
+            </el-button>
+          </el-tooltip>
           <el-button class="btn-settings" :disabled="listWriteLocked" @click="showAiConfigDialog = true">
             <el-icon><Setting /></el-icon>AI配置
           </el-button>
@@ -121,9 +126,52 @@
           </div>
         </section>
 
+        <section
+          v-if="hasSuccessfulListLoad && !listError && (dramas.length > 0 || hasProjectFilters)"
+          class="workspace-overview"
+          aria-labelledby="project-list-title"
+        >
+            <div class="workspace-copy">
+              <h2 id="project-list-title" class="workspace-title">项目列表</h2>
+              <p class="workspace-count">
+              {{ projectListCountLabel }}
+              </p>
+            </div>
+          <div class="workspace-controls" role="search" aria-label="项目列表筛选">
+            <el-input
+              v-model="projectSearch"
+              class="workspace-search"
+              clearable
+              placeholder="搜索项目标题、描述、风格或类型"
+              aria-label="搜索项目"
+            >
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+            <el-select
+              v-model="projectStatusFilter"
+              class="workspace-status"
+              aria-label="按项目状态筛选"
+            >
+              <el-option label="全部状态" value="all" />
+              <el-option label="草稿" value="draft" />
+              <el-option label="生成中" value="generating" />
+              <el-option label="已发布" value="published" />
+            </el-select>
+            <el-select
+              v-model="projectSort"
+              class="workspace-sort"
+              aria-label="项目排序"
+            >
+              <el-option label="更新时间优先" value="updated-desc" />
+              <el-option label="创建时间优先" value="created-desc" />
+              <el-option label="标题 A-Z" value="title-asc" />
+            </el-select>
+          </div>
+        </section>
+
         <div class="project-grid">
           <!-- 空项目时提供完整起步路径；已有项目时使用顶部主操作，避免重复入口。 -->
-          <section v-if="!loading && hasSuccessfulListLoad && !listError && dramas.length === 0" class="action-card action-card--empty">
+          <section v-if="!loading && hasSuccessfulListLoad && !listError && dramas.length === 0 && !hasProjectFilters" class="action-card action-card--empty">
             <div class="action-card-inner">
               <h2 class="action-card-title">还没有短剧项目</h2>
               <p class="action-card-desc">新建空白项目，或继续已有项目包。</p>
@@ -164,31 +212,83 @@
               </div>
             </div>
           </section>
+          <section
+            v-if="!loading && hasSuccessfulListLoad && !listError && hasProjectFilters && filteredDramas.length === 0"
+            class="action-card action-card--empty action-card--search-empty"
+            role="status"
+          >
+            <div class="action-card-inner">
+              <h2 class="action-card-title">没有匹配的项目</h2>
+              <p class="action-card-desc">换一个关键词或状态，或清除筛选后查看全部项目。</p>
+              <el-button class="action-btn" @click="clearProjectFilters">
+                清除筛选
+              </el-button>
+            </div>
+          </section>
           <article
-            v-for="d in dramas"
+            v-for="d in filteredDramas"
             :key="d.id"
             class="project-card"
           >
             <RouterLink
               class="project-card-link"
-              :to="{ name: 'drama-detail', params: { id: d.id } }"
+              :to="{ name: 'film', params: { id: d.id }, query: { returnTo: projectListReturnTo } }"
               :aria-label="`打开项目「${d.title || '未命名项目'}」`"
             >
               <div class="project-card-body">
-                <div class="project-card-header">
-                  <h3 class="project-title" :title="d.title || '未命名项目'">{{ d.title || '未命名项目' }}</h3>
+                <div class="project-card-layout">
+                  <div class="project-card-cover" :class="{ 'project-card-cover--empty': !projectCoverUrl(d) }">
+                    <img
+                      v-if="projectCoverUrl(d)"
+                      :src="projectCoverUrl(d)"
+                      :alt="projectCoverAlt(d)"
+                      loading="lazy"
+                      @error="markProjectCoverError(d)"
+                    />
+                    <div v-else class="project-card-cover-placeholder" aria-hidden="true">
+                      <el-icon><PictureFilled /></el-icon>
+                      <span>{{ totalStoryboards(d) > 0 ? '待生成画面' : '尚无画面' }}</span>
+                    </div>
+                  </div>
+                  <div class="project-card-content">
+                    <div class="project-card-topline">
+                      <span class="badge badge-status" :class="'badge-status--' + (d.status || 'draft')">{{ formatStatus(d.status) }}</span>
+                      <span class="project-updated">更新于 {{ formatDate(d.updated_at || d.created_at) }}</span>
+                    </div>
+                    <div class="project-card-header">
+                      <h3 class="project-title" :title="d.title || '未命名项目'">{{ d.title || '未命名项目' }}</h3>
+                    </div>
+                    <p class="project-desc">{{ d.description || '暂无描述' }}</p>
+                    <div class="project-card-stats" aria-label="项目概览">
+                      <span class="project-stat">
+                        <strong>{{ d.episodes?.length || 0 }}</strong>
+                        <span>集</span>
+                      </span>
+                      <span class="project-stat">
+                        <strong>{{ totalStoryboards(d) }}</strong>
+                        <span>分镜</span>
+                      </span>
+                      <span v-if="d.metadata?.aspect_ratio" class="project-stat project-stat--compact">{{ d.metadata.aspect_ratio }}</span>
+                    </div>
+                    <div class="project-badges">
+                      <span v-if="d.style" class="badge badge-style">{{ formatStyle(d.style) }}</span>
+                      <span v-if="d.genre" class="badge badge-genre">{{ formatGenre(d.genre) }}</span>
+                    </div>
+                    <div class="project-card-footer">
+                      <p class="project-meta">创建于 {{ formatDate(d.created_at) || '未知时间' }}</p>
+                      <span class="project-card-continue">继续制作 <el-icon aria-hidden="true"><ArrowRight /></el-icon></span>
+                    </div>
+                  </div>
                 </div>
-                <p class="project-desc">{{ d.description || '暂无描述' }}</p>
-                <div class="project-badges">
-                  <span class="badge badge-status" :class="'badge-status--' + (d.status || 'draft')">{{ formatStatus(d.status) }}</span>
-                  <span v-if="d.episodes?.length" class="badge badge-episodes">{{ d.episodes.length }} 集</span>
-                  <span v-if="totalStoryboards(d) > 0" class="badge badge-storyboards">{{ totalStoryboards(d) }} 分镜</span>
-                  <span v-if="d.metadata?.aspect_ratio" class="badge badge-ratio">{{ d.metadata.aspect_ratio }}</span>
-                  <span v-if="d.style" class="badge badge-style">{{ formatStyle(d.style) }}</span>
-                  <span v-if="d.genre" class="badge badge-genre">{{ formatGenre(d.genre) }}</span>
-                </div>
-                <p class="project-meta">{{ formatDate(d.updated_at) }}</p>
               </div>
+            </RouterLink>
+            <RouterLink
+              class="project-card-assets"
+              :to="{ name: 'drama-detail', params: { id: d.id }, query: { returnTo: projectListReturnTo }, hash: '#source-intake-workflow' }"
+              :aria-label="`打开项目「${d.title || '未命名项目'}」的素材流程`"
+              @click.stop
+            >
+              <el-icon><Files /></el-icon>素材
             </RouterLink>
             <el-dropdown
               class="project-card-menu"
@@ -221,6 +321,21 @@
               </template>
             </el-dropdown>
           </article>
+        </div>
+        <div
+          v-if="!loading && hasSuccessfulListLoad && !listError && total > projectPageSize"
+          class="project-pagination"
+          aria-label="项目列表分页"
+        >
+          <el-pagination
+            v-model:current-page="projectPage"
+            v-model:page-size="projectPageSize"
+            :total="total"
+            :page-sizes="[12, 24, 48]"
+            layout="total, sizes, prev, pager, next"
+            @current-change="loadProjectPage"
+            @size-change="handleProjectPageSizeChange"
+          />
         </div>
       </div>
     </main>
@@ -571,10 +686,10 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, nextTick } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files, Collection, ArrowDown, MoreFilled, RefreshLeft } from '@element-plus/icons-vue'
+import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files, Collection, ArrowDown, MoreFilled, RefreshLeft, Search, ArrowRight } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import { dramaAPI } from '@/api/drama'
 import { characterLibraryAPI } from '@/api/characterLibrary'
@@ -586,6 +701,8 @@ import { uploadAPI } from '@/api/upload'
 import { aiAPI } from '@/api/ai'
 import { imagesAPI } from '@/api/images'
 import { taskAPI } from '@/api/task'
+import { filterProjectList, getProjectCover } from '@/utils/projectList'
+import { mergeProjectListFilters, normalizeProjectListFilters, normalizeProjectListReturnTo } from '@/utils/projectListRoute'
 
 const router = useRouter()
 const route = useRoute()
@@ -662,11 +779,92 @@ async function doGenerateLibImg(form, prompt, api, reloadFn) {
 const loading = ref(false)
 const dramas = ref([])
 const total = ref(0)
+const projectPage = ref(1)
+const projectPageSize = ref(24)
 const listError = ref('')
 const hasSuccessfulListLoad = ref(false)
 const listIsStale = computed(() => Boolean(listError.value) && hasSuccessfulListLoad.value)
 const listWriteLocked = computed(() => loading.value || !hasSuccessfulListLoad.value || Boolean(listError.value))
 let listRequestSequence = 0
+let projectReloadTimer = null
+let projectListMounted = false
+const initialProjectListFilters = normalizeProjectListFilters(route.query)
+const projectSearch = ref(initialProjectListFilters.q)
+const projectSort = ref(initialProjectListFilters.sort)
+const projectStatusFilter = ref(initialProjectListFilters.status)
+const projectCoverErrors = ref(new Set())
+const projectListReturnTo = computed(() => normalizeProjectListReturnTo(route.fullPath) || '/')
+const normalizedProjectSearch = computed(() => projectSearch.value.trim().toLowerCase())
+const hasProjectFilters = computed(() => Boolean(normalizedProjectSearch.value) || projectStatusFilter.value !== 'all')
+const filteredDramas = computed(() => {
+  return filterProjectList(dramas.value, {
+    keyword: normalizedProjectSearch.value,
+    status: projectStatusFilter.value,
+    sort: 'server',
+    getSearchText: projectSearchText,
+  })
+})
+const projectListCountLabel = computed(() => {
+  const projectTotal = Number(total.value) || 0
+  if (projectTotal === 0) return hasProjectFilters.value ? '0 个项目' : '暂无项目'
+  if (projectTotal <= projectPageSize.value) return `${filteredDramas.value.length} / ${projectTotal} 个项目`
+  const start = (projectPage.value - 1) * projectPageSize.value + 1
+  const end = Math.min(projectTotal, start + projectPageSize.value - 1)
+  return `${start}-${end} / ${projectTotal} 个项目`
+})
+
+let applyingProjectListRoute = false
+
+function scheduleProjectListReload() {
+  projectPage.value = 1
+  listRequestSequence += 1
+  if (projectReloadTimer) clearTimeout(projectReloadTimer)
+  projectReloadTimer = setTimeout(() => {
+    projectReloadTimer = null
+    loadList({ page: 1 })
+  }, 240)
+}
+
+function resolvedProjectListPath(query) {
+  return router.resolve({ path: route.path, query, hash: route.hash }).fullPath
+}
+
+watch(
+  () => route.query,
+  (query) => {
+    const filters = normalizeProjectListFilters(query)
+    applyingProjectListRoute = true
+    projectSearch.value = filters.q
+    projectStatusFilter.value = filters.status
+    projectSort.value = filters.sort
+
+    const nextQuery = mergeProjectListFilters(query, filters)
+    if (resolvedProjectListPath(nextQuery) !== route.fullPath) {
+      router.replace({ path: route.path, query: nextQuery, hash: route.hash }).catch(() => {})
+    } else if (projectListMounted) {
+      scheduleProjectListReload()
+    }
+    nextTick(() => {
+      applyingProjectListRoute = false
+    })
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  [projectSearch, projectStatusFilter, projectSort],
+  () => {
+    if (applyingProjectListRoute) return
+    const nextQuery = mergeProjectListFilters(route.query, {
+      q: projectSearch.value,
+      status: projectStatusFilter.value,
+      sort: projectSort.value,
+    })
+    if (resolvedProjectListPath(nextQuery) === route.fullPath) return
+    router.replace({ path: route.path, query: nextQuery, hash: route.hash }).catch(() => {})
+  },
+  { flush: 'post' },
+)
 
 const showAiConfigDialog = ref(false)
 const vendorLockEnabled = ref(false)
@@ -896,15 +1094,34 @@ function describeProjectLoadError(error) {
   return '无法连接项目服务，请检查服务是否已启动'
 }
 
-async function loadList() {
+async function loadList(options = {}) {
+  const requestedPage = Math.max(1, Number(options.page ?? projectPage.value) || 1)
+  const requestedPageSize = Math.max(1, Number(options.pageSize ?? projectPageSize.value) || 24)
   const requestId = ++listRequestSequence
   loading.value = true
   let loaded = false
   try {
-    const res = await dramaAPI.list({ page: 1, page_size: 50 })
+    const res = await dramaAPI.list({
+      page: requestedPage,
+      page_size: requestedPageSize,
+      keyword: normalizedProjectSearch.value || undefined,
+      status: projectStatusFilter.value !== 'all' ? projectStatusFilter.value : undefined,
+      sort: projectSort.value,
+    })
     if (requestId !== listRequestSequence) return false
+    const pagination = res?.pagination ?? {}
+    const nextTotal = Number(pagination.total ?? 0) || 0
+    const nextPageSize = Number(pagination.page_size ?? requestedPageSize) || requestedPageSize
+    const lastPage = Math.max(1, Math.ceil(nextTotal / nextPageSize))
+    if (nextTotal > 0 && requestedPage > lastPage) {
+      projectPage.value = lastPage
+      return await loadList({ page: lastPage, pageSize: nextPageSize })
+    }
     dramas.value = res?.items ?? []
-    total.value = res?.pagination?.total ?? 0
+    total.value = nextTotal
+    projectPage.value = Math.min(Math.max(1, Number(pagination.page ?? requestedPage) || requestedPage), lastPage)
+    projectPageSize.value = nextPageSize
+    projectCoverErrors.value = new Set()
     hasSuccessfulListLoad.value = true
     listError.value = ''
     loaded = true
@@ -917,6 +1134,50 @@ async function loadList() {
   }
   if (loaded) maybeOpenNewDialogFromRoute()
   return loaded
+}
+
+function loadProjectPage(page) {
+  return loadList({ page })
+}
+
+function handleProjectPageSizeChange(pageSize) {
+  projectPage.value = 1
+  return loadList({ page: 1, pageSize })
+}
+
+function projectSearchText(drama) {
+  return [
+    drama?.title,
+    drama?.description,
+    formatStatus(drama?.status),
+    formatStyle(drama?.style),
+    formatGenre(drama?.genre),
+    drama?.metadata?.aspect_ratio,
+  ].filter(Boolean).join(' ').toLowerCase()
+}
+
+function projectCoverUrl(drama) {
+  const id = String(drama?.id ?? '')
+  if (projectCoverErrors.value.has(id)) return ''
+  return getProjectCover(drama)?.url || ''
+}
+
+function projectCoverAlt(drama) {
+  const title = drama?.title || '未命名项目'
+  return `项目「${title}」画面预览`
+}
+
+function markProjectCoverError(drama) {
+  const id = String(drama?.id ?? '')
+  if (!id) return
+  const next = new Set(projectCoverErrors.value)
+  next.add(id)
+  projectCoverErrors.value = next
+}
+
+function clearProjectFilters() {
+  projectSearch.value = ''
+  projectStatusFilter.value = 'all'
 }
 
 function formatDate(val) {
@@ -1061,7 +1322,11 @@ async function submitNew() {
     showNewDialog.value = false
     ElMessage.success('项目已创建')
     loadList()
-    router.push({ path: `/drama/${drama.id}`, hash: '#source-intake-workflow' })
+    router.push({
+      path: `/drama/${drama.id}`,
+      query: { returnTo: projectListReturnTo.value },
+      hash: '#source-intake-workflow',
+    })
   } catch (e) {
     ElMessage.error(e.message || '创建失败')
   } finally {
@@ -1305,12 +1570,18 @@ async function moveToTrash(d) {
 }
 
 onMounted(async () => {
+  projectListMounted = true
   loadList()
   loadExamples()
   try {
     const lock = await aiAPI.getVendorLock()
     vendorLockEnabled.value = !!lock?.enabled
   } catch (_) {}
+})
+
+onBeforeUnmount(() => {
+  projectListMounted = false
+  if (projectReloadTimer) clearTimeout(projectReloadTimer)
 })
 </script>
 
@@ -1386,6 +1657,22 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.utility-icon-button {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .btn-trash {
@@ -1484,6 +1771,66 @@ html.light .btn-import {
 .projects-wrap {
   min-height: 200px;
 }
+.project-pagination {
+  display: flex;
+  justify-content: center;
+  min-height: 56px;
+  margin-top: 18px;
+  padding: 10px 0 2px;
+}
+.workspace-overview {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+  padding: 4px 0 2px;
+}
+.workspace-copy {
+  min-width: 0;
+}
+.workspace-title {
+  margin: 0;
+  color: #f4f4f5;
+  font-size: 1.2rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+.workspace-count {
+  margin: 5px 0 0;
+  color: #8b8b97;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.workspace-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: min(520px, 100%);
+}
+.workspace-search {
+  width: 320px;
+}
+.workspace-status {
+  width: 124px;
+}
+.workspace-sort {
+  width: 150px;
+}
+html.dark .workspace-search :deep(.el-input__wrapper),
+html.dark .workspace-sort :deep(.el-select__wrapper) {
+  background: #18181b;
+  box-shadow: 0 0 0 1px #3f3f46;
+}
+html.dark .workspace-search :deep(.el-input__inner),
+html.dark .workspace-sort :deep(.el-select__selected-item),
+html.dark .workspace-sort :deep(.el-select__placeholder) {
+  color: #e4e4e7;
+}
+html.dark .workspace-search :deep(.el-input__inner::placeholder) {
+  color: #71717a;
+}
 .data-load-state,
 .export-failure-state {
   display: flex;
@@ -1572,7 +1919,7 @@ html.light .btn-import {
 .project-card-link {
   display: block;
   height: 100%;
-  padding: 20px;
+  padding: 14px 16px;
   border-radius: inherit;
   color: inherit;
   text-decoration: none;
@@ -1580,7 +1927,8 @@ html.light .btn-import {
 }
 .project-card-link:focus-visible {
   outline: 2px solid #a5b4fc;
-  outline-offset: -3px;
+  outline-offset: -4px;
+  box-shadow: inset 0 0 0 1px rgba(165, 180, 252, 0.35), 0 0 0 4px rgba(99, 102, 241, 0.22);
 }
 .project-card:focus-within {
   border-color: rgba(129, 140, 248, 0.75);
@@ -1625,6 +1973,17 @@ html.light .btn-import {
   grid-column: 1 / -1;
   min-height: 260px;
   padding: 44px 12px;
+}
+.action-card--search-empty {
+  min-height: 210px;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(148, 163, 184, 0.34);
+  background: rgba(24, 24, 30, 0.42);
+}
+.action-card--search-empty .action-card-inner {
+  align-items: center;
+  text-align: center;
 }
 .action-card-title {
   font-size: 1.35rem;
@@ -1723,6 +2082,70 @@ html.light .btn-import {
 .project-card-body {
   min-width: 0;
 }
+.project-card-layout {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 182px;
+}
+.project-card-cover {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 182px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 7px;
+  background: #202028;
+  color: #71717a;
+}
+.project-card-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.project-card-cover-placeholder {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 12px 8px;
+  color: #8b8b97;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  text-align: center;
+}
+.project-card-cover-placeholder .el-icon {
+  color: #a5b4fc;
+  font-size: 22px;
+}
+.project-card-cover--empty {
+  border-style: dashed;
+  background: rgba(99, 102, 241, 0.06);
+}
+.project-card-content {
+  display: flex;
+  min-width: 0;
+  min-height: 100%;
+  flex-direction: column;
+}
+.project-card-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-right: 36px;
+}
+.project-updated {
+  overflow: hidden;
+  color: #8b8b97;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .project-card-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1745,12 +2168,46 @@ html.light .btn-import {
 .project-desc {
   font-size: 0.875rem;
   color: #a1a1aa;
-  margin: 0 0 12px;
+  margin: 0 0 14px;
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.project-card-stats {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.project-stat {
+  display: inline-flex;
+  min-width: 64px;
+  min-height: 42px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 7px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #a1a1aa;
+  font-size: 0.72rem;
+  line-height: 1.1;
+}
+.project-stat strong {
+  color: #f4f4f5;
+  font-size: 1rem;
+  font-weight: 680;
+  line-height: 1;
+}
+.project-stat--compact {
+  min-width: 58px;
+  align-items: center;
+  color: #fbbf24;
+  font-family: monospace;
+  font-size: 0.86rem;
 }
 .project-badges {
   display: flex;
@@ -1818,6 +2275,63 @@ html.light .btn-import {
   font-size: 0.75rem;
   color: #71717a;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+}
+.project-card-continue {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  color: #a5b4fc;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.project-card-assets {
+  position: absolute;
+  left: 28px;
+  bottom: 24px;
+  z-index: 3;
+  display: inline-flex;
+  width: 88px;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(199, 210, 254, 0.45);
+  border-radius: 6px;
+  background: rgba(9, 9, 14, 0.82);
+  color: #e0e7ff;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  backdrop-filter: blur(8px);
+}
+.project-card-assets:hover,
+.project-card-assets:focus-visible {
+  border-color: #a5b4fc;
+  background: rgba(49, 46, 129, 0.92);
+  color: #ffffff;
+}
+.project-card-assets:focus-visible {
+  outline: 2px solid #c7d2fe;
+  outline-offset: 2px;
+}
+.project-card-link:hover .project-card-continue,
+.project-card-link:focus-visible .project-card-continue {
+  color: #c7d2fe;
 }
 .project-menu-button {
   --el-button-size: 30px;
@@ -2047,6 +2561,36 @@ html.light .project-card:hover {
   background: #ffffff;
   box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
 }
+html.light .project-card-cover {
+  border-color: #e1e5eb;
+  background: #f3f4f6;
+  color: #6b7280;
+}
+html.light .project-card-cover--empty {
+  background: #f8f7ff;
+  border-color: #cfd3e1;
+}
+html.light .project-card-cover-placeholder .el-icon {
+  color: #6366f1;
+}
+html.light .project-card-continue {
+  color: #4f46e5;
+}
+html.light .project-card-assets {
+  border-color: rgba(79, 70, 229, 0.4);
+  background: rgba(255, 255, 255, 0.9);
+  color: #4338ca;
+}
+html.light .project-card-assets:hover,
+html.light .project-card-assets:focus-visible {
+  border-color: #4f46e5;
+  background: #eef2ff;
+  color: #312e81;
+}
+html.light .project-card-link:hover .project-card-continue,
+html.light .project-card-link:focus-visible .project-card-continue {
+  color: #3730a3;
+}
 html.light .action-card {
   background: transparent;
 }
@@ -2054,10 +2598,24 @@ html.light .action-card:hover {
   background: transparent;
 }
 html.light .action-card-title { color: #20242c; }
+html.light .workspace-title { color: #20242c; }
+html.light .workspace-count,
+html.light .project-updated { color: #6b7280; }
 html.light .project-title { color: #20242c; }
 html.light .project-desc { color: #4b5563; }
 html.light .project-meta { color: #6b7280; }
+html.light .action-card--search-empty {
+  background: #ffffff;
+  border-color: #d6dbe3;
+}
 html.light .action-card-desc { color: #6b7280; }
+html.light .project-stat {
+  background: #f8fafc;
+  border-color: #e1e5eb;
+  color: #6b7280;
+}
+html.light .project-stat strong { color: #20242c; }
+html.light .project-stat--compact { color: #92400e; }
 html.light .action-btn-import {
   --el-button-bg-color: #ffffff;
   --el-button-border-color: #b8c0cc;
@@ -2124,6 +2682,51 @@ html.light .badge-status--draft {
   background: rgba(107, 114, 128, 0.1);
   color: #4b5563;
   border-color: rgba(107, 114, 128, 0.25);
+}
+
+@media (max-width: 860px) {
+  .workspace-overview {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .workspace-controls {
+    justify-content: stretch;
+    min-width: 0;
+  }
+  .workspace-search {
+    flex: 1 1 auto;
+    width: auto;
+  }
+  .workspace-status,
+  .workspace-sort {
+    flex: 0 1 150px;
+  }
+}
+
+@media (max-width: 620px) {
+  .workspace-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .workspace-search,
+  .workspace-status,
+  .workspace-sort {
+    width: 100%;
+  }
+  .project-card-topline {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .project-card-layout {
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 12px;
+    min-height: 168px;
+  }
+  .project-card-cover {
+    min-height: 168px;
+  }
 }
 
 </style>

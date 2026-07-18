@@ -583,6 +583,9 @@ const hasWebSourceUrl = computed(() => Boolean(rawSourceUrl.value) && !sourceUrl
 const hasSourceInput = computed(() => Boolean(sourceFile.value || hasWebSourceUrl.value || form.text.trim()))
 const hasUnsavedSourceInput = computed(() => Boolean(sourceFile.value || rawSourceUrl.value || form.text.trim()))
 const isWorkflowLaunchBusy = computed(() => workflowStarting.value || readinessChecking.value)
+const sourceOperationActive = computed(() => Boolean(
+  sourceFileReading.value || sourceSaving.value || workflowStarting.value || readinessChecking.value,
+))
 const workflowActionBusy = computed(() => retrying.value || pausing.value || resuming.value || cancelling.value)
 const sourceUploadBusy = computed(() => sourceFileReading.value || sourceSaving.value || isWorkflowLaunchBusy.value)
 const workflowModeShortLabel = computed(() => workflowMode.value === 'production' ? '正式制作' : '草稿预演')
@@ -954,7 +957,7 @@ async function confirmSourceInputLeave() {
 }
 
 function handleBeforeUnload(event) {
-  if (!hasUnsavedSourceInput.value || sourceSaving.value || workflowStarting.value) return
+  if (!hasUnsavedSourceInput.value && !sourceOperationActive.value) return
   event.preventDefault()
   event.returnValue = ''
 }

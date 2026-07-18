@@ -223,7 +223,7 @@ Docker 默认只把 `5679` 和 `3013` 绑定到宿主机 `127.0.0.1`，不会向
 npm run verify:docker
 ```
 
-生产工作流 E2E 不会自动启动本地协议兼容 Provider。必须在干净工作树按顺序执行：
+单独运行 `npm run verify:e2e` 不会自动启动 Provider；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容 Provider。必须在干净工作树按顺序执行：
 
 ```bash
 npm run docker:e2e:up
@@ -336,7 +336,7 @@ npm run checkpoint:rollback -- -CheckpointDirectory $checkpoint
 
 `checkpoint:rollback` 要求当前服务由 `npm run docker:up` 构建且健康。脚本会在停机前从实际运行容器捕获不可变镜像 ID 和真实配置 bind mount，核对两份镜像 revision 与当前 Git SHA 一致，把两份镜像打上提交专属标签并保存到 `images.tar`，同时归档 Compose、运行配置及所有 SHA-256；随后才停止 Docker、创建真实数据备份并执行同提交隔离演练。中途失败会尝试用已捕获镜像自动恢复原服务。检查点必须位于仓库之外且至少保留到新版本完成业务验收，不能只保留 metadata 而删除 `images.tar`。
 
-需要回退时，先停止容器并恢复数据，再把已记录的旧镜像 ID 重新标记为专用回退标签；不要覆盖或移动正式发布标签：
+需要回退时，保持当前部署运行且健康，直接执行恢复命令。脚本会先捕获升级后容器、镜像和配置作为自动补偿目标，通过预检查后才停止容器、备份升级后数据并恢复旧数据与旧镜像；不要预先停机，也不要覆盖或移动正式发布标签：
 
 ```powershell
 $checkpoint = 'D:\backup\localminidrama-YYYYMMDD-HHMMSS'

@@ -139,7 +139,11 @@ test('project list uses a persistent failure state without replacing it with an 
   assert.match(filmListSource, /@click="loadList"[\s\S]*重试加载/)
   assert.match(
     filmListSource,
-    /v-if="!loading && hasSuccessfulListLoad && !listError && dramas\.length === 0"/,
+    /v-if="!loading && hasSuccessfulListLoad && !listError && dramas\.length === 0 && !hasProjectFilters"/,
+  )
+  assert.match(
+    filmListSource,
+    /v-if="!loading && hasSuccessfulListLoad && !listError && hasProjectFilters && filteredDramas\.length === 0"/,
   )
 
   const loadListSource = sourceBetween(filmListSource, 'async function loadList', 'function formatDate')
@@ -182,7 +186,10 @@ test('material center preserves stale data and blocks upload and deletion on loa
     mediaLibrarySource,
     /const mediaWriteLocked = computed\(\(\) => loading\.value \|\| !hasSuccessfulMediaLoad\.value \|\| Boolean\(loadError\.value\)\)/,
   )
-  assert.match(mediaLibrarySource, /type="primary" :loading="uploading" :disabled="mediaWriteLocked"/)
+  assert.match(
+    mediaLibrarySource,
+    /:type="mediaItems\.length === 0 && !loading \? 'default' : 'primary'"[\s\S]*:loading="uploading"[\s\S]*:disabled="mediaWriteLocked"/,
+  )
   assert.match(mediaLibrarySource, /:aria-label="actionLabel\('删除', item\)"[\s\S]*:disabled="mediaWriteLocked"/)
   assert.match(mediaLibrarySource, /async function deleteItem\(item\) \{\s*if \(mediaWriteLocked\.value\) return/)
   assert.match(mediaLibrarySource, /async function batchDelete\(\) \{\s*if \(mediaWriteLocked\.value\) return/)

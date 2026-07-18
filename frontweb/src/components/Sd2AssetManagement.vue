@@ -98,7 +98,7 @@
       </el-form-item>
       <el-form-item label=" ">
         <div class="sd2-save-row">
-          <el-button type="primary" :loading="savingConfig" @click="saveToAiConfig">
+          <el-button type="primary" :loading="savingConfig" :disabled="mutationLocked" @click="saveToAiConfig">
             保存到 AI 配置
           </el-button>
           <span v-if="savedConfigId" class="sd2-saved-hint">
@@ -113,7 +113,7 @@
         <div class="panel-title">资产组</div>
         <div class="panel-actions">
           <el-button type="primary" size="small" :loading="loadingGroups" @click="refreshGroups">刷新列表</el-button>
-          <el-button type="success" size="small" @click="openCreateGroup">新建组</el-button>
+          <el-button type="success" size="small" :disabled="mutationLocked" @click="openCreateGroup">新建组</el-button>
         </div>
         <el-table
           :data="groupRows"
@@ -128,8 +128,8 @@
           <el-table-column label="操作" width="168" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="getGroupDetail(row)">详情</el-button>
-              <el-button link type="primary" size="small" @click="openEditGroup(row)">编辑</el-button>
-              <el-button link type="danger" size="small" @click="deleteGroup(row)">删除</el-button>
+              <el-button link type="primary" size="small" :disabled="mutationLocked" @click="openEditGroup(row)">编辑</el-button>
+              <el-button link type="danger" size="small" :disabled="mutationLocked" @click="deleteGroup(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -139,7 +139,7 @@
         <div class="panel-actions row-gap">
           <el-input v-model="assetGroupIdInput" placeholder="组 Id，或左侧点选一行" clearable style="flex: 1; min-width: 140px" />
           <el-button type="primary" size="small" :loading="loadingAssets" @click="refreshAssets">刷新</el-button>
-          <el-button type="success" size="small" @click="openCreateAsset">新建资产</el-button>
+          <el-button type="success" size="small" :disabled="mutationLocked" @click="openCreateAsset">新建资产</el-button>
         </div>
         <el-table :data="assetRows" size="small" stripe max-height="320">
           <el-table-column prop="Id" label="Id" min-width="120" show-overflow-tooltip />
@@ -148,8 +148,8 @@
           <el-table-column label="操作" width="168" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="getAssetDetail(row)">详情</el-button>
-              <el-button link type="primary" size="small" @click="openEditAsset(row)">编辑</el-button>
-              <el-button link type="danger" size="small" @click="deleteAsset(row)">删除</el-button>
+              <el-button link type="primary" size="small" :disabled="mutationLocked" @click="openEditAsset(row)">编辑</el-button>
+              <el-button link type="danger" size="small" :disabled="mutationLocked" @click="deleteAsset(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -171,7 +171,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dlgGroupCreate = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" @click="submitCreateGroup">提交</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitCreateGroup">提交</el-button>
       </template>
     </el-dialog>
 
@@ -191,7 +191,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dlgGroupEdit = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" @click="submitUpdateGroup">提交</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitUpdateGroup">提交</el-button>
       </template>
     </el-dialog>
 
@@ -220,7 +220,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dlgAssetCreate = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" @click="submitCreateAsset">提交</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitCreateAsset">提交</el-button>
       </template>
     </el-dialog>
 
@@ -239,7 +239,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dlgAssetEdit = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" @click="submitUpdateAsset">提交</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitUpdateAsset">提交</el-button>
       </template>
     </el-dialog>
 
@@ -261,6 +261,7 @@ import { aiAPI } from '@/api/ai'
 const props = defineProps({
   /** AI 配置列表（与 AI 配置页同源），用于一键填入 Base / Key */
   configs: { type: Array, default: () => [] },
+  writeLocked: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['saved'])
@@ -339,6 +340,16 @@ const videoLikeConfigs = computed(() => {
 const savedModelArkConfigs = computed(() => {
   return (props.configs || []).filter((c) => c.service_type === 'model_ark_asset')
 })
+const mutationLocked = computed(() => props.writeLocked)
+
+const MUTATING_ACTIONS = new Set([
+  'CreateAssetGroup',
+  'UpdateAssetGroup',
+  'DeleteAssetGroup',
+  'CreateAsset',
+  'UpdateAsset',
+  'DeleteAsset',
+])
 
 function parseSettingsJson(raw) {
   if (!raw) return {}
@@ -394,6 +405,7 @@ onMounted(() => {
 })
 
 async function saveToAiConfig() {
+  if (mutationLocked.value) return
   const w = connWarn()
   if (!connReady() || w) {
     ElMessage.warning(w || '请先完成连接信息')
@@ -537,6 +549,9 @@ function connWarn() {
 }
 
 async function call(action, payload, opts = {}) {
+  if (mutationLocked.value && MUTATING_ACTIONS.has(action)) {
+    throw new Error('当前 AI 配置依赖未就绪或处于厂商锁定模式，资产写操作已暂停。')
+  }
   const { withBillingModel = false } = opts
   const body = {
     config_id: savedConfigId.value || sourceConfigId.value || undefined,
@@ -618,12 +633,14 @@ async function refreshAssets() {
 }
 
 function openCreateGroup() {
+  if (mutationLocked.value) return
   formGroupName.value = ''
   formGroupExtraJson.value = ''
   dlgGroupCreate.value = true
 }
 
 async function submitCreateGroup() {
+  if (mutationLocked.value) return
   if (!formGroupName.value.trim()) {
     ElMessage.warning('请填写 Name')
     return
@@ -663,6 +680,7 @@ async function getGroupDetail(row) {
 }
 
 function openEditGroup(row) {
+  if (mutationLocked.value) return
   editGroupId.value = row.Id
   editGroupName.value = row.Name || ''
   editGroupFullJson.value = ''
@@ -670,6 +688,7 @@ function openEditGroup(row) {
 }
 
 async function submitUpdateGroup() {
+  if (mutationLocked.value) return
   dlgLoading.value = true
   try {
     let payload
@@ -694,6 +713,7 @@ async function submitUpdateGroup() {
 }
 
 async function deleteGroup(row) {
+  if (mutationLocked.value) return
   try {
     await ElMessageBox.confirm(`确定删除资产组「${row.Name || row.Id}」？`, 'DeleteAssetGroup', {
       type: 'warning',
@@ -714,6 +734,7 @@ async function deleteGroup(row) {
 }
 
 function openCreateAsset() {
+  if (mutationLocked.value) return
   formAssetGroupId.value = assetGroupIdInput.value.trim()
   formAssetName.value = ''
   formAssetType.value = 'Image'
@@ -723,6 +744,7 @@ function openCreateAsset() {
 }
 
 async function submitCreateAsset() {
+  if (mutationLocked.value) return
   if (!formAssetGroupId.value.trim() || !formAssetName.value.trim()) {
     ElMessage.warning('请填写 GroupId 与 Name')
     return
@@ -759,6 +781,7 @@ async function getAssetDetail(row) {
 }
 
 function openEditAsset(row) {
+  if (mutationLocked.value) return
   editAssetId.value = row.Id
   editAssetName.value = row.Name || ''
   editAssetFullJson.value = ''
@@ -766,6 +789,7 @@ function openEditAsset(row) {
 }
 
 async function submitUpdateAsset() {
+  if (mutationLocked.value) return
   dlgLoading.value = true
   try {
     let payload
@@ -790,6 +814,7 @@ async function submitUpdateAsset() {
 }
 
 async function deleteAsset(row) {
+  if (mutationLocked.value) return
   try {
     await ElMessageBox.confirm(`确定删除资产「${row.Name || row.Id}」？`, 'DeleteAsset', { type: 'warning' })
   } catch (_) {

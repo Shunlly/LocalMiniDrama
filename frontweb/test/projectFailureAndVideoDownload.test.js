@@ -223,3 +223,19 @@ test('FilmCreate exposes an accessible retryable download command beside the fin
   assert.match(filmCreateSource, /videoDownloadStatus === 'error' \? '重试下载' : '下载成片'/)
   assert.match(filmCreateSource, /:role="videoDownloadStatus === 'error' \? 'alert' : 'status'"/)
 })
+
+test('FilmCreate delivery exports validate files before reporting success', () => {
+  const deliveryHandlers = sourceBetween(
+    filmCreateSource,
+    'async function validateDeliveryBlob',
+    'watch([currentEpisodeId, currentEpisodeVideoUrl]',
+  )
+  assert.match(deliveryHandlers, /await timelinesAPI\.getEpisodeSrt\(currentEpisodeId\.value\)/)
+  assert.match(deliveryHandlers, /await dramaAPI\.exportDrama\(dramaId\.value\)/)
+  assert.match(deliveryHandlers, /validateDeliveryBlob\([\s\S]*kind: 'zip'/)
+  assert.match(deliveryHandlers, /triggerBlobDownload\(blob, filename\)/)
+  assert.match(deliveryHandlers, /deliveryExportStatus\.project = 'success'/)
+  assert.match(deliveryHandlers, /deliveryExportStatus\.subtitle = 'success'/)
+  assert.match(deliveryHandlers, /deliveryExportStatus\.project = 'idle'[\s\S]*timelinesAPI\.getEpisodeSrt/)
+  assert.match(deliveryHandlers, /deliveryExportStatus\.subtitle = 'idle'[\s\S]*dramaAPI\.exportDrama/)
+})

@@ -6,6 +6,7 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const canvasSource = read('../src/views/DramaCanvas.vue')
 const toolbarSource = read('../src/components/dramaCanvas/CanvasDesktopToolbar.vue')
+const toolbarGroupSource = read('../src/components/dramaCanvas/CanvasToolbarGroup.vue')
 const adapterSource = read('../src/utils/dramaCanvasAdapter.js')
 
 const componentSources = {
@@ -193,6 +194,16 @@ test('desktop canvas toolbar exposes focus rings and width containment', () => {
   assert.match(toolbarSource, /--canvas-focus-ring/)
   assert.match(canvasSource, /html\.light \.drama-canvas-page \.vue-flow__controls button/)
   assert.match(canvasSource, /html\.light \.drama-canvas-page \.vue-flow__minimap/)
+})
+
+test('desktop canvas toolbar is a compact continuous command band', () => {
+  assert.match(toolbarSource, /\.toolbar-main-row \{[\s\S]*?flex-wrap: nowrap;[\s\S]*?border: 1px solid/)
+  assert.match(toolbarSource, /\.toolbar-main-row > \* \{[\s\S]*?border-right:/)
+  assert.match(toolbarSource, /@media \(max-width: 1120px\)[\s\S]*?flex-wrap: wrap;/)
+  assert.match(toolbarGroupSource, /min-height: 68px;/)
+  assert.match(toolbarGroupSource, /border: 0;/)
+  assert.match(toolbarGroupSource, /text-overflow: ellipsis;[\s\S]*?white-space: nowrap;/)
+  assert.doesNotMatch(canvasSource, /sidebar-script-tip|sidebar-tip/)
 })
 
 test('executed auto-layout preserves CSS-derived asset, script, and episode column gutters', async () => {

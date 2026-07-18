@@ -95,8 +95,8 @@ const accessibleLabel = computed(() => (
   `${kindLabel.value}${displayName.value}，${statusChip.value?.label || '暂无图片'}，按 Enter 或空格展开`
 ))
 
-function openPanel() {
-  ctx?.setFocusedNode?.(props.id)
+async function openPanel() {
+  await ctx?.setFocusedNode?.(props.id)
 }
 </script>
 

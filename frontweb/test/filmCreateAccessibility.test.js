@@ -32,10 +32,10 @@ test('film create keeps the episode selector only in the page header', () => {
   assert.equal((filmCreateSource.match(/class="header-episode-select"/g) || []).length, 1)
 })
 
-test('film create navigation names and reports the final composite step accurately', () => {
+test('film create navigation names and reports the final delivery step accurately', () => {
   assert.match(
     filmCreateSource,
-    /label: '合成视频',\s+anchor: 'anchor-video',\s+status: compositeStatus/,
+    /label: '交付与导出',\s+anchor: 'anchor-video',\s+status: compositeStatus/,
   )
   assert.match(filmCreateSource, /if \(isPlaceholderMediaUrl\(s\)\) return ''/)
   assert.match(filmCreateSource, /currentEpisodeVideoUrl\.value\s*\? 'done'/)
@@ -43,6 +43,18 @@ test('film create navigation names and reports the final composite step accurate
     filmCreateSource,
     /label: '分镜视频',\s+anchor: 'anchor-video'/,
   )
+})
+
+test('delivery stage consolidates composite readiness and user-facing export actions', () => {
+  assert.match(filmCreateSource, /<section id="anchor-video" class="section card delivery-section">/)
+  assert.match(filmCreateSource, /<h2 class="section-title">交付与导出<\/h2>/)
+  assert.match(filmCreateSource, /分镜视频[\s\S]*playableStoryboardVideoCount[\s\S]*整集合成[\s\S]*可交付文件/)
+  assert.match(filmCreateSource, /@click="downloadCurrentEpisodeVideo"/)
+  assert.match(filmCreateSource, /@click="downloadCurrentEpisodeSubtitle"/)
+  assert.match(filmCreateSource, /@click="exportCurrentProjectPackage"/)
+  assert.match(filmCreateSource, /const deliverySubtitleAvailable = computed\(\(\) => storyboards\.value\.some/)
+  assert.match(filmCreateSource, /:disabled="!currentEpisodeId \|\| !deliverySubtitleAvailable"/)
+  assert.match(filmCreateSource, /import \{ timelinesAPI \} from '@\/api\/timelines'/)
 })
 
 test('storyboard video controls expose a focusable missing-prompt reason', () => {

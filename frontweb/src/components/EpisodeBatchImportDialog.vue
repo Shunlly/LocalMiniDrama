@@ -103,6 +103,12 @@ const props = defineProps({
     type: Number,
     default: 1,
   },
+  // Event listeners are fire-and-forget in Vue; this callback lets the dialog
+  // wait for the parent's async persistence before closing or showing success.
+  importHandler: {
+    type: Function,
+    default: null,
+  },
 })
 
 const emit = defineEmits(['import'])
@@ -246,13 +252,18 @@ async function confirmImport() {
   }
   importing.value = true
   try {
-    await emit('import', previewEpisodes.value.map((episode) => ({
+    const payload = previewEpisodes.value.map((episode) => ({
       episode_number: episode.episode_number,
       title: episode.title,
       script_content: episode.script_content,
       description: null,
       duration: 0,
-    })))
+    }))
+    if (props.importHandler) {
+      await props.importHandler(payload)
+    } else {
+      await emit('import', payload)
+    }
     ElMessage.success(`已导入 ${previewEpisodes.value.length} 集`)
     resetState()
   } catch (e) {

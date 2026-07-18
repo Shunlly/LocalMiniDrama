@@ -72,10 +72,15 @@
                   <el-button
                     v-for="action in coverageActions(item)"
                     :key="`${item.type}-${action.key}`"
-                    link
+                    :link="action.action !== 'test'"
+                    :plain="action.action === 'test'"
                     size="small"
-                    :type="action.emphasis === 'primary' ? 'primary' : 'info'"
-                    class="coverage-action-link"
+                    :type="action.action === 'test' ? 'primary' : (action.emphasis === 'primary' ? 'primary' : 'info')"
+                    :class="['coverage-action-link', { 'coverage-action-test': action.action === 'test' }]"
+                    :aria-label="action.label"
+                    :aria-busy="isCoverageActionTesting(item, action)"
+                    :loading="isCoverageActionTesting(item, action)"
+                    :disabled="isCoverageActionDisabled(item, action)"
                     @click.stop="onCoverageAction(item, action)"
                   >
                     {{ action.label }}
@@ -86,19 +91,19 @@
           </section>
 
           <div
-            v-if="configLoadError"
+            v-if="configDependencyError"
             class="config-load-state config-load-state--error"
             role="alert"
             aria-live="assertive"
           >
             <div class="config-load-copy">
-              <strong>AI 配置加载失败</strong>
+              <strong>AI 配置依赖加载失败</strong>
               <span>
-                {{ configLoadError }}
-                <template v-if="list.length">当前显示的是上次成功加载的数据。</template>
+                {{ configDependencyError }}
+                <template v-if="configLoadError && list.length">当前显示的是上次成功加载的数据，写操作已暂停。</template>
               </span>
             </div>
-            <el-button size="small" type="primary" plain :loading="loading" @click="loadList">
+            <el-button size="small" type="primary" plain :loading="loading || vendorLockLoading" @click="retryConfigDependencies">
               重试
             </el-button>
           </div>
@@ -106,7 +111,7 @@
           <!-- 普通模式操作栏 -->
           <div v-if="!vendorLock.enabled" class="content-actions">
             <div class="actions-left">
-              <el-button type="primary" @click="openAdd">
+              <el-button type="primary" :disabled="configWriteLocked" @click="openAdd">
                 <el-icon><Plus /></el-icon>
                 添加配置
               </el-button>
@@ -114,20 +119,20 @@
                 <el-icon><Download /></el-icon>
                 导出配置
               </el-button>
-              <el-button plain @click="triggerImport">
+              <el-button plain :disabled="configWriteLocked" @click="triggerImport">
                 <el-icon><Upload /></el-icon>
                 导入配置
               </el-button>
-              <input ref="importFileRef" type="file" accept=".json" style="display:none" @change="importConfigs" />
-              <el-button type="success" plain @click="openOneKeyVolc">
+              <input ref="importFileRef" type="file" accept=".json" style="display:none" :disabled="configWriteLocked" @change="importConfigs" />
+              <el-button type="success" plain :disabled="configWriteLocked" @click="openOneKeyVolc">
                 <el-icon><MagicStick /></el-icon>
                 一键配置火山
               </el-button>
-              <el-button type="success" plain @click="openOneKeyAgnes">
+              <el-button type="success" plain :disabled="configWriteLocked" @click="openOneKeyAgnes">
                 <el-icon><MagicStick /></el-icon>
                 一键配置 Agnes
               </el-button>
-              <el-button type="info" plain @click="openOneKeyTongyi">
+              <el-button type="info" plain :disabled="configWriteLocked" @click="openOneKeyTongyi">
                 <el-icon><MagicStick /></el-icon>
                 一键配置通义
                 <span class="one-key-not-recommended">不推荐</span>
@@ -139,6 +144,7 @@
                   v-if="selectedRows.length > 0"
                   type="danger"
                   :loading="batchDeleting"
+                  :disabled="configWriteLocked"
                   @click="onBatchDelete"
                 >
                   <el-icon><Delete /></el-icon>
@@ -158,7 +164,11 @@
                 <span>🔒 当前为厂商锁定模式，AI 服务由管理员统一配置。你只能修改 <b>API Key</b> 和 <b>默认模型</b>。</span>
               </template>
             </el-alert>
-            <el-button type="primary" size="small" class="vendor-bulk-key-btn" @click="openBulkKey">
+            <el-button plain size="small" @click="exportConfigs">
+              <el-icon><Download /></el-icon>
+              导出配置
+            </el-button>
+            <el-button type="primary" size="small" class="vendor-bulk-key-btn" :disabled="configWriteLocked" @click="openBulkKey">
               <el-icon><Key /></el-icon>
               一键换Key
             </el-button>
@@ -179,7 +189,7 @@
             style="width: 100%"
             @selection-change="onSelectionChange"
           >
-            <el-table-column v-if="!vendorLock.enabled" type="selection" width="46" />
+            <el-table-column v-if="!vendorLock.enabled" type="selection" width="46" :selectable="isConfigRowSelectable" />
             <el-table-column prop="name" label="名称" min-width="130" />
             <el-table-column prop="provider" label="提供商" width="96" />
             <el-table-column prop="base_url" label="Base URL" min-width="170" show-overflow-tooltip />
@@ -213,8 +223,8 @@
             <el-table-column label="操作" width="180" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="openTest(row)">测试</el-button>
-                <el-button link type="primary" size="small" @click="onRowEdit(row)">{{ vendorLock.enabled ? '修改Key' : '编辑' }}</el-button>
-                <el-button v-if="!vendorLock.enabled" link type="danger" size="small" @click="onDelete(row)">删除</el-button>
+                <el-button link type="primary" size="small" :disabled="configWriteLocked" @click="onRowEdit(row)">{{ vendorLock.enabled ? '修改Key' : '编辑' }}</el-button>
+                <el-button v-if="!vendorLock.enabled" link type="danger" size="small" :disabled="configWriteLocked" @click="onDelete(row)">删除</el-button>
               </template>
             </el-table-column>
             <template #empty>
@@ -229,6 +239,7 @@
                     v-if="!vendorLock.enabled"
                     type="primary"
                     size="small"
+                    :disabled="configWriteLocked"
                     @click="openAddForService(activeServiceFilter || 'text')"
                   >
                     <el-icon><Plus /></el-icon>
@@ -326,7 +337,7 @@
       </el-tab-pane>
       <el-tab-pane label="SD2 资产管理" name="sd2_assets">
         <div class="tab-content">
-          <Sd2AssetManagement :configs="list" @saved="loadList" />
+        <Sd2AssetManagement :configs="list" :write-locked="configWriteLocked || vendorLock.enabled" @saved="loadList" />
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -337,7 +348,7 @@
       :title="vendorLock.enabled ? '修改 API Key / 默认模型' : (editingId ? '编辑配置' : '添加配置')"
       width="720px"
       top="4vh"
-      class="ai-config-dialog"
+      class="ai-config-dialog ai-config-overlay"
       :close-on-click-modal="false"
       :before-close="confirmConfigDialogClose"
       @closed="handleConfigDialogClosed"
@@ -380,7 +391,7 @@
                 </el-tooltip>
               </span>
             </template>
-            <el-switch v-model="form.is_default" />
+            <el-switch v-model="form.is_default" :disabled="configWriteLocked" />
           </el-form-item>
         </el-form>
       </template>
@@ -478,7 +489,7 @@
         </el-form-item>
 
         <!-- 接口规范帮助 Dialog -->
-        <el-dialog v-model="showProtocolHelp" title="接口规范说明" width="700px" top="5vh">
+        <el-dialog v-model="showProtocolHelp" title="接口规范说明" width="700px" top="5vh" class="ai-config-overlay">
           <div class="protocol-help">
             <div class="ph-section-title">🖼 图片 / 分镜图 协议</div>
             <el-collapse accordion>
@@ -1080,13 +1091,13 @@ input_reference = (图片文件，可选)</pre>
               </el-tooltip>
             </span>
           </template>
-          <el-switch v-model="form.is_default" />
+          <el-switch v-model="form.is_default" :disabled="configWriteLocked" />
         </el-form-item>
         </section>
       </el-form>
       <template #footer>
         <el-button @click="requestConfigDialogClose">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submit">确定</el-button>
+        <el-button type="primary" :loading="saving" :disabled="configWriteLocked" @click="submit">确定</el-button>
       </template>
     </el-dialog>
 
@@ -1095,6 +1106,7 @@ input_reference = (图片文件，可选)</pre>
       v-model="oneKeyTongyiVisible"
       title="一键配置通义千问 / 万象（不推荐）"
       width="520px"
+      class="ai-config-dialog ai-config-overlay"
       :close-on-click-modal="false"
       @closed="oneKeyTongyiKey = ''"
     >
@@ -1112,7 +1124,7 @@ input_reference = (图片文件，可选)</pre>
         <div class="one-key-section">
           <div class="one-key-section-title">🔑 如何申请 API Key</div>
           <ol class="one-key-list">
-            <li>前往阿里云百炼控制台：<a href="https://bailian.console.aliyun.com/" target="_blank" class="one-key-link">bailian.console.aliyun.com</a></li>
+            <li>前往阿里云百炼控制台：<a href="https://bailian.console.aliyun.com/" target="_blank" rel="noopener noreferrer" class="one-key-link">bailian.console.aliyun.com</a></li>
             <li>注册/登录阿里云账号，开通「百炼」服务（新用户有免费额度）</li>
             <li>左侧菜单点击「API Key」→「创建 API Key」</li>
             <li>复制生成的 Key（格式：<code>sk-xxxxxxxx</code>）填入下方</li>
@@ -1133,7 +1145,7 @@ input_reference = (图片文件，可选)</pre>
       </el-form>
       <template #footer>
         <el-button @click="oneKeyTongyiVisible = false">取消</el-button>
-        <el-button type="success" :loading="oneKeyTongyiSaving" :disabled="!oneKeyTongyiKey.trim()" @click="submitOneKeyTongyi">
+        <el-button type="success" :loading="oneKeyTongyiSaving" :disabled="configWriteLocked || !oneKeyTongyiKey.trim()" @click="submitOneKeyTongyi">
           确定，一键创建配置
         </el-button>
       </template>
@@ -1144,6 +1156,7 @@ input_reference = (图片文件，可选)</pre>
       v-model="oneKeyVolcVisible"
       title="一键配置火山引擎（方舟）"
       width="520px"
+      class="ai-config-dialog ai-config-overlay"
       :close-on-click-modal="false"
       @closed="oneKeyVolcKey = ''"
     >
@@ -1160,7 +1173,7 @@ input_reference = (图片文件，可选)</pre>
         <div class="one-key-section">
           <div class="one-key-section-title">🔑 如何申请 API Key</div>
           <ol class="one-key-list">
-            <li>前往火山引擎方舟控制台：<a href="https://console.volcengine.com/ark" target="_blank" class="one-key-link">console.volcengine.com/ark</a></li>
+            <li>前往火山引擎方舟控制台：<a href="https://console.volcengine.com/ark" target="_blank" rel="noopener noreferrer" class="one-key-link">console.volcengine.com/ark</a></li>
             <li>注册/登录字节跳动火山引擎账号（新用户有免费 token 额度）</li>
             <li>左侧菜单点击「API Key 管理」→「创建 API Key」</li>
             <li>复制生成的 Key 填入下方</li>
@@ -1182,7 +1195,7 @@ input_reference = (图片文件，可选)</pre>
       </el-form>
       <template #footer>
         <el-button @click="oneKeyVolcVisible = false">取消</el-button>
-        <el-button type="success" :loading="oneKeyVolcSaving" :disabled="!oneKeyVolcKey.trim()" @click="submitOneKeyVolc">
+        <el-button type="success" :loading="oneKeyVolcSaving" :disabled="configWriteLocked || !oneKeyVolcKey.trim()" @click="submitOneKeyVolc">
           确定，一键创建配置
         </el-button>
       </template>
@@ -1193,6 +1206,7 @@ input_reference = (图片文件，可选)</pre>
       v-model="oneKeyAgnesVisible"
       title="一键配置 Agnes AI"
       width="520px"
+      class="ai-config-dialog ai-config-overlay"
       :close-on-click-modal="false"
       @closed="oneKeyAgnesKey = ''"
     >
@@ -1209,12 +1223,12 @@ input_reference = (图片文件，可选)</pre>
         <div class="one-key-section">
           <div class="one-key-section-title">🔑 如何申请 API Key</div>
           <ol class="one-key-list">
-            <li>前往 Agnes 平台：<a href="https://platform.agnes-ai.com/settings/apiKeys" target="_blank" class="one-key-link">platform.agnes-ai.com/settings/apiKeys</a></li>
+            <li>前往 Agnes 平台：<a href="https://platform.agnes-ai.com/settings/apiKeys" target="_blank" rel="noopener noreferrer" class="one-key-link">platform.agnes-ai.com/settings/apiKeys</a></li>
             <li>注册/登录账号，进入 Settings → API Keys</li>
             <li>点击「Create new secret key」创建密钥</li>
             <li>复制 Key 填入下方</li>
           </ol>
-          <p class="one-key-note">💡 一个 Key 同时支持文本、图片、视频；接口文档见 <a href="https://agnes-ai.com/doc/agnes-20-flash" target="_blank" class="one-key-link">agnes-ai.com/doc</a></p>
+          <p class="one-key-note">💡 一个 Key 同时支持文本、图片、视频；接口文档见 <a href="https://agnes-ai.com/doc/agnes-20-flash" target="_blank" rel="noopener noreferrer" class="one-key-link">agnes-ai.com/doc</a></p>
         </div>
       </div>
       <el-form label-width="0" style="margin-top: 8px">
@@ -1230,7 +1244,7 @@ input_reference = (图片文件，可选)</pre>
       </el-form>
       <template #footer>
         <el-button @click="oneKeyAgnesVisible = false">取消</el-button>
-        <el-button type="success" :loading="oneKeyAgnesSaving" :disabled="!oneKeyAgnesKey.trim()" @click="submitOneKeyAgnes">
+        <el-button type="success" :loading="oneKeyAgnesSaving" :disabled="configWriteLocked || !oneKeyAgnesKey.trim()" @click="submitOneKeyAgnes">
           确定，一键创建配置
         </el-button>
       </template>
@@ -1241,7 +1255,7 @@ input_reference = (图片文件，可选)</pre>
       v-model="jimeng2AssetsDialogVisible"
       title="素材库列表（GET /api/business/v1/assets）"
       width="720px"
-      class="jimeng2-assets-dialog"
+      class="jimeng2-assets-dialog ai-config-overlay"
       destroy-on-close
       @closed="onJimeng2AssetsDialogClosed"
     >
@@ -1274,7 +1288,7 @@ input_reference = (图片文件，可选)</pre>
     </el-dialog>
 
     <!-- 测试连接 -->
-    <el-dialog v-model="testVisible" title="测试连接" width="420px">
+    <el-dialog v-model="testVisible" title="测试连接" width="420px" class="ai-config-overlay">
       <p v-if="testResult === null">正在测试…</p>
       <template v-else-if="testResult">
         <el-alert
@@ -1301,7 +1315,7 @@ input_reference = (图片文件，可选)</pre>
     </el-dialog>
 
     <!-- 一键换Key（锁定模式） -->
-    <el-dialog v-model="bulkKeyVisible" title="一键换Key" width="440px" :close-on-click-modal="false">
+    <el-dialog v-model="bulkKeyVisible" title="一键换Key" width="440px" class="ai-config-overlay" :close-on-click-modal="false">
       <el-alert
         type="warning"
         :closable="false"
@@ -1322,7 +1336,7 @@ input_reference = (图片文件，可选)</pre>
       </el-form>
       <template #footer>
         <el-button @click="bulkKeyVisible = false">取消</el-button>
-        <el-button type="primary" :loading="bulkKeySaving" :disabled="!bulkKeyInput.trim()" @click="submitBulkKey">确认替换</el-button>
+        <el-button type="primary" :loading="bulkKeySaving" :disabled="configWriteLocked || !bulkKeyInput.trim()" @click="submitBulkKey">确认替换</el-button>
       </template>
     </el-dialog>
   </div>
@@ -1429,6 +1443,8 @@ function isMaskedSecret(value) {
 }
 const vendorLock = ref({ enabled: false, config_file: '' })
 const vendorLockResolved = ref(false)
+const vendorLockLoading = ref(false)
+const vendorLockError = ref('')
 const dialogVisible = ref(false)
 const editingId = ref(null)
 const saving = ref(false)
@@ -1575,6 +1591,7 @@ const testVisible = ref(false)
 const testResult = ref(null)
 const testServiceType = ref('')
 const testError = ref('')
+const testingConfigId = ref(null)
 const oneKeyTongyiVisible = ref(false)
 const oneKeyTongyiKey = ref('')
 const oneKeyTongyiSaving = ref(false)
@@ -1619,6 +1636,19 @@ const coverageSummaryCards = computed(() => ([
 const filteredList = computed(() => {
   if (!activeServiceFilter.value) return list.value
   return list.value.filter((row) => row.service_type === activeServiceFilter.value)
+})
+
+const configWriteLocked = computed(() => (
+  configLoadState.value !== 'ready'
+  || !vendorLockResolved.value
+))
+
+const configDependencyError = computed(() => (
+  [configLoadError.value, vendorLockError.value].filter(Boolean).join('；')
+))
+
+watch(configWriteLocked, (locked) => {
+  if (locked) selectedRows.value = []
 })
 
 const canAutoOpenMissingService = computed(() => (
@@ -1668,6 +1698,21 @@ function coverageActions(item) {
   return getAiServiceCoverageActions(item, { vendorLocked: vendorLock.value.enabled })
 }
 
+function isCoverageActionTesting(item, action) {
+  if (action.action !== 'test' || testingConfigId.value === null) return false
+  return String(testingConfigId.value) === String(item.targetConfig?.id)
+}
+
+function isCoverageActionDisabled(item, action) {
+  if (['add', 'edit'].includes(action.action)) return configWriteLocked.value
+  if (action.action !== 'test') return false
+  return isCoverageActionTesting(item, action) || testingConfigId.value !== null
+}
+
+function isConfigRowSelectable() {
+  return !configWriteLocked.value
+}
+
 async function focusServiceConfigs(serviceType) {
   activeServiceFilter.value = serviceType
   await nextTick()
@@ -1703,6 +1748,7 @@ function shouldAutoOpenRequestedService(coverageItem) {
 }
 
 async function onCoverageAction(item, action) {
+  if (configWriteLocked.value && ['add', 'edit'].includes(action.action)) return
   if (action.action === 'add') {
     openAddForService(item.type)
     return
@@ -2035,6 +2081,7 @@ function serviceTypeLabel(t) {
 }
 
 function onRowEdit(row) {
+  if (configWriteLocked.value) return
   if (row.service_type === 'model_ark_asset') {
     activeTab.value = 'sd2_assets'
     ElMessage.info('请在「SD2 资产管理」标签页编辑此配置')
@@ -2147,11 +2194,13 @@ function handleConfigDialogClosed() {
 }
 
 function openAdd() {
+  if (configWriteLocked.value) return
   resetForm()
   openConfigDialog()
 }
 
 function openAddForService(serviceType) {
+  if (configWriteLocked.value) return
   resetForm()
   form.value.service_type = serviceType || 'text'
   activeServiceFilter.value = form.value.service_type
@@ -2160,6 +2209,7 @@ function openAddForService(serviceType) {
 }
 
 function openEdit(row) {
+  if (configWriteLocked.value) return
   editingId.value = row.id
   advancedFormSections.value = []
   const model = Array.isArray(row.model) ? row.model : (row.model ? [row.model] : [])
@@ -2219,6 +2269,7 @@ function openEdit(row) {
 }
 
 async function submit() {
+  if (configWriteLocked.value) return
   const valid = await formRef.value?.validate?.().catch(() => false)
   if (valid === false) return
   saving.value = true
@@ -2297,11 +2348,13 @@ async function submit() {
 }
 
 function openBulkKey() {
+  if (configWriteLocked.value) return
   bulkKeyInput.value = ''
   bulkKeyVisible.value = true
 }
 
 async function submitBulkKey() {
+  if (configWriteLocked.value) return
   const key = bulkKeyInput.value.trim()
   if (!key) return
   bulkKeySaving.value = true
@@ -2375,6 +2428,8 @@ async function openTest(row) {
     ElMessage.info('SD2 资产库请在「SD2 资产管理」标签页使用「刷新列表」验证连接。')
     return
   }
+  if (testingConfigId.value !== null) return
+  testingConfigId.value = row.id
   testVisible.value = true
   testResult.value = null
   testError.value = ''
@@ -2403,10 +2458,13 @@ async function openTest(row) {
       ...sessionTestStatusById.value,
       [row.id]: { status: 'failed', testedAt: new Date().toISOString() },
     }
+  } finally {
+    testingConfigId.value = null
   }
 }
 
 async function onDelete(row) {
+  if (configWriteLocked.value) return
   await ElMessageBox.confirm(`确定删除配置「${row.name}」？`, '删除确认', {
     type: 'warning'
   })
@@ -2422,6 +2480,7 @@ function onSelectionChange(rows) {
 }
 
 async function onBatchDelete() {
+  if (configWriteLocked.value) return
   if (!selectedRows.value.length) return
   await ElMessageBox.confirm(
     `确定删除选中的 ${selectedRows.value.length} 条配置？此操作不可恢复。`,
@@ -2443,11 +2502,13 @@ async function onBatchDelete() {
 }
 
 function openOneKeyTongyi() {
+  if (configWriteLocked.value) return
   oneKeyTongyiKey.value = ''
   oneKeyTongyiVisible.value = true
 }
 
 async function submitOneKeyTongyi() {
+  if (configWriteLocked.value) return
   const apiKey = oneKeyTongyiKey.value.trim()
   if (!apiKey) return
   oneKeyTongyiSaving.value = true
@@ -2477,11 +2538,13 @@ async function submitOneKeyTongyi() {
 }
 
 function openOneKeyVolc() {
+  if (configWriteLocked.value) return
   oneKeyVolcKey.value = ''
   oneKeyVolcVisible.value = true
 }
 
 async function submitOneKeyVolc() {
+  if (configWriteLocked.value) return
   const apiKey = oneKeyVolcKey.value.trim()
   if (!apiKey) return
   oneKeyVolcSaving.value = true
@@ -2511,11 +2574,13 @@ async function submitOneKeyVolc() {
 }
 
 function openOneKeyAgnes() {
+  if (configWriteLocked.value) return
   oneKeyAgnesKey.value = ''
   oneKeyAgnesVisible.value = true
 }
 
 async function submitOneKeyAgnes() {
+  if (configWriteLocked.value) return
   const apiKey = oneKeyAgnesKey.value.trim()
   if (!apiKey) return
   oneKeyAgnesSaving.value = true
@@ -2565,10 +2630,15 @@ async function exportConfigs() {
 }
 
 function triggerImport() {
+  if (configWriteLocked.value) return
   importFileRef.value?.click()
 }
 
 async function importConfigs(event) {
+  if (configWriteLocked.value) {
+    event.target.value = ''
+    return
+  }
   const file = event.target.files?.[0]
   if (!file) return
   try {
@@ -2613,13 +2683,22 @@ async function importConfigs(event) {
 }
 
 async function loadVendorLock() {
+  vendorLockLoading.value = true
+  vendorLockResolved.value = false
   try {
     vendorLock.value = await aiAPI.getVendorLock()
+    vendorLockError.value = ''
     vendorLockResolved.value = true
-  } catch (_) {
-    vendorLock.value = { enabled: false, config_file: '' }
+  } catch (error) {
+    vendorLockError.value = error?.message || '暂时无法确认厂商锁定状态，请稍后重试。'
     vendorLockResolved.value = false
+  } finally {
+    vendorLockLoading.value = false
   }
+}
+
+async function retryConfigDependencies() {
+  await Promise.all([loadVendorLock(), loadList()])
 }
 
 onMounted(async () => {
@@ -2636,6 +2715,138 @@ onMounted(async () => {
   color: var(--el-color-primary, #409eff) !important;
   font-style: italic;
 }
+
+.ai-config-content,
+.ai-config-overlay {
+  --ai-config-success-surface: #ecfdf5;
+  --ai-config-success-border: rgba(16, 185, 129, 0.24);
+  --ai-config-success-text: #047857;
+  --ai-config-warning-surface: #fffbeb;
+  --ai-config-warning-border: rgba(245, 158, 11, 0.24);
+  --ai-config-warning-text: #a16207;
+  --ai-config-danger-surface: #fef2f2;
+  --ai-config-danger-border: rgba(239, 68, 68, 0.24);
+  --ai-config-danger-text: #b91c1c;
+  --ai-config-info-surface: #eff6ff;
+  --ai-config-info-border: rgba(59, 130, 246, 0.24);
+  --ai-config-info-text: #0369a1;
+  --ai-config-code-surface: var(--el-fill-color, #f0f2f5);
+}
+
+html.dark .ai-config-content,
+html.dark .ai-config-overlay {
+  color-scheme: dark;
+  --el-bg-color: var(--bg-card);
+  --el-bg-color-page: var(--bg-page);
+  --el-bg-color-overlay: var(--bg-card);
+  --el-fill-color: var(--bg-hover);
+  --el-fill-color-light: var(--bg-inner);
+  --el-fill-color-lighter: var(--bg-hover);
+  --el-fill-color-extra-light: var(--bg-inner);
+  --el-fill-color-blank: var(--bg-card);
+  --el-text-color-primary: var(--text-bright);
+  --el-text-color-regular: var(--text-primary);
+  --el-text-color-secondary: var(--text-muted);
+  --el-text-color-placeholder: var(--text-subtle);
+  --el-text-color-disabled: var(--text-faint);
+  --el-border-color: var(--border-muted);
+  --el-border-color-light: var(--border-color);
+  --el-border-color-lighter: var(--border-color);
+  --el-border-color-extra-light: var(--border-color);
+  --el-disabled-bg-color: var(--bg-hover);
+  --el-disabled-text-color: var(--text-subtle);
+  --el-mask-color: rgba(0, 0, 0, 0.72);
+  --el-table-bg-color: var(--bg-card);
+  --el-table-tr-bg-color: var(--bg-card);
+  --el-table-header-bg-color: var(--bg-inner);
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  --el-table-current-row-bg-color: var(--bg-hover);
+  --el-table-border-color: var(--border-color);
+  --el-table-text-color: var(--text-primary);
+  --el-table-header-text-color: var(--text-muted);
+  --el-color-primary-light-9: rgba(64, 158, 255, 0.14);
+  --el-color-primary-light-8: rgba(64, 158, 255, 0.22);
+  --el-color-primary-light-7: rgba(64, 158, 255, 0.34);
+  --el-color-success-light-9: rgba(16, 185, 129, 0.14);
+  --el-color-warning-light-9: rgba(245, 158, 11, 0.14);
+  --el-color-danger-light-9: rgba(239, 68, 68, 0.14);
+  --el-color-info-light-9: rgba(148, 163, 184, 0.14);
+  --ai-config-success-surface: rgba(16, 185, 129, 0.14);
+  --ai-config-success-border: rgba(52, 211, 153, 0.4);
+  --ai-config-success-text: #6ee7b7;
+  --ai-config-warning-surface: rgba(245, 158, 11, 0.14);
+  --ai-config-warning-border: rgba(251, 191, 36, 0.4);
+  --ai-config-warning-text: #fcd34d;
+  --ai-config-danger-surface: rgba(239, 68, 68, 0.14);
+  --ai-config-danger-border: rgba(248, 113, 113, 0.4);
+  --ai-config-danger-text: #fca5a5;
+  --ai-config-info-surface: rgba(59, 130, 246, 0.14);
+  --ai-config-info-border: rgba(96, 165, 250, 0.4);
+  --ai-config-info-text: #93c5fd;
+  --ai-config-code-surface: var(--bg-hover);
+}
+
+html.dark .ai-config-overlay {
+  --el-dialog-bg-color: var(--bg-card);
+  background: var(--bg-card);
+  border: 1px solid var(--border-muted);
+  color: var(--text-primary);
+}
+
+html.dark .el-dialog:has(.ai-config-content) {
+  --el-dialog-bg-color: var(--bg-card);
+  background: var(--bg-card);
+  border: 1px solid var(--border-muted);
+  color: var(--text-primary);
+}
+
+html.dark .ai-config-overlay :is(.el-dialog__title, .el-dialog__body) {
+  color: var(--text-primary);
+}
+
+html.dark .el-dialog:has(.ai-config-content) :is(.el-dialog__title, .el-dialog__body) {
+  color: var(--text-primary);
+}
+
+html.dark :is(.ai-config-content, .ai-config-overlay) :is(
+  .el-input__wrapper,
+  .el-select__wrapper,
+  .el-textarea__inner,
+  .el-input-number
+) {
+  background: var(--bg-inner);
+  color: var(--text-primary);
+}
+
+html.dark :is(.ai-config-content, .ai-config-overlay) .el-table {
+  background: var(--el-table-bg-color);
+  color: var(--el-table-text-color);
+}
+
+html.dark :is(.ai-config-content, .ai-config-overlay) .el-table__inner-wrapper::before {
+  background-color: var(--el-table-border-color);
+}
+
+html.dark :is(.ai-config-content, .ai-config-overlay) :is(
+  .tab-content,
+  .el-dialog__body,
+  .el-scrollbar__wrap,
+  .el-table__body-wrapper
+) {
+  scrollbar-color: var(--border-muted) transparent;
+  scrollbar-width: thin;
+}
+
+html.dark :is(.ai-config-content, .ai-config-overlay) :is(
+  .tab-content,
+  .el-dialog__body,
+  .el-scrollbar__wrap,
+  .el-table__body-wrapper
+)::-webkit-scrollbar-thumb {
+  background: var(--border-muted);
+  border: 2px solid var(--bg-card);
+  border-radius: 8px;
+}
 </style>
 
 <style scoped>
@@ -2647,8 +2858,7 @@ onMounted(async () => {
 }
 .tab-content {
   padding-top: 16px;
-  max-height: calc(100vh - 320px);
-  overflow-y: auto;
+  min-width: 0;
 }
 .coverage-panel {
   margin-bottom: 16px;
@@ -2719,21 +2929,25 @@ onMounted(async () => {
   font-weight: 600;
 }
 .coverage-summary-card.summary-success {
-  border-color: rgba(16, 185, 129, 0.24);
-  background: #ecfdf5;
+  border-color: var(--ai-config-success-border, rgba(16, 185, 129, 0.24));
+  background: var(--ai-config-success-surface, #ecfdf5);
 }
 .coverage-summary-card.summary-warning {
-  border-color: rgba(245, 158, 11, 0.24);
-  background: #fffbeb;
+  border-color: var(--ai-config-warning-border, rgba(245, 158, 11, 0.24));
+  background: var(--ai-config-warning-surface, #fffbeb);
 }
 .coverage-summary-card.summary-danger {
-  border-color: rgba(239, 68, 68, 0.24);
-  background: #fef2f2;
+  border-color: var(--ai-config-danger-border, rgba(239, 68, 68, 0.24));
+  background: var(--ai-config-danger-surface, #fef2f2);
 }
 .coverage-summary-card.summary-info {
-  border-color: rgba(59, 130, 246, 0.24);
-  background: #eff6ff;
+  border-color: var(--ai-config-info-border, rgba(59, 130, 246, 0.24));
+  background: var(--ai-config-info-surface, #eff6ff);
 }
+.coverage-summary-card.summary-success strong { color: var(--ai-config-success-text, #047857); }
+.coverage-summary-card.summary-warning strong { color: var(--ai-config-warning-text, #a16207); }
+.coverage-summary-card.summary-danger strong { color: var(--ai-config-danger-text, #b91c1c); }
+.coverage-summary-card.summary-info strong { color: var(--ai-config-info-text, #0369a1); }
 .coverage-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -2787,10 +3001,10 @@ onMounted(async () => {
   border-radius: 6px;
   font-size: 16px;
 }
-.coverage-icon-text { color: #2563eb; background: #eff6ff; }
-.coverage-icon-image { color: #047857; background: #ecfdf5; }
+.coverage-icon-text { color: var(--ai-config-info-text, #2563eb); background: var(--ai-config-info-surface, #eff6ff); }
+.coverage-icon-image { color: var(--ai-config-success-text, #047857); background: var(--ai-config-success-surface, #ecfdf5); }
 .coverage-icon-storyboard_image { color: #7c3aed; background: #f5f3ff; }
-.coverage-icon-video { color: #c2410c; background: #fff7ed; }
+.coverage-icon-video { color: var(--ai-config-warning-text, #c2410c); background: var(--ai-config-warning-surface, #fff7ed); }
 .coverage-icon-tts { color: #0f766e; background: #f0fdfa; }
 .coverage-item-main {
   min-width: 0;
@@ -2845,9 +3059,9 @@ onMounted(async () => {
   border-radius: 50%;
   background: #9ca3af;
 }
-.coverage-test-status.test-passed { color: #047857; }
+.coverage-test-status.test-passed { color: var(--ai-config-success-text, #047857); }
 .coverage-test-status.test-passed .coverage-status-dot { background: #10b981; }
-.coverage-test-status.test-failed { color: #b91c1c; }
+.coverage-test-status.test-failed { color: var(--ai-config-danger-text, #b91c1c); }
 .coverage-test-status.test-failed .coverage-status-dot { background: #ef4444; }
 .coverage-actions {
   display: flex;
@@ -2859,6 +3073,11 @@ onMounted(async () => {
 .coverage-action-link {
   min-height: 20px;
   padding: 0;
+}
+.coverage-action-test {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-weight: 600;
 }
 .config-filter-bar {
   min-height: 36px;
@@ -2996,15 +3215,15 @@ onMounted(async () => {
   gap: 12px;
   margin-bottom: 16px;
   padding: 10px 12px;
-  border: 1px solid var(--el-color-primary-light-7, #c6e2ff);
+  border: 1px solid var(--ai-config-info-border, #c6e2ff);
   border-radius: 8px;
-  background: var(--el-color-primary-light-9, #ecf5ff);
-  color: var(--el-color-primary-dark-2, #1d4ed8);
+  background: var(--ai-config-info-surface, #ecf5ff);
+  color: var(--ai-config-info-text, #1d4ed8);
 }
 .config-load-state--error {
-  border-color: var(--el-color-danger-light-7, #fbc4c4);
-  background: var(--el-color-danger-light-9, #fef0f0);
-  color: var(--el-color-danger-dark-2, #b42318);
+  border-color: var(--ai-config-danger-border, #fbc4c4);
+  background: var(--ai-config-danger-surface, #fef0f0);
+  color: var(--ai-config-danger-text, #b42318);
 }
 .config-load-copy {
   min-width: 0;
@@ -3112,12 +3331,12 @@ onMounted(async () => {
 }
 
 .no-default {
-  color: #9ca3af;
+  color: var(--el-text-color-secondary, #9ca3af);
   font-size: 13px;
 }
 .one-key-tip {
   margin: 0 0 12px;
-  color: #606266;
+  color: var(--el-text-color-regular, #606266);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -3175,7 +3394,7 @@ onMounted(async () => {
   margin-top: 4px;
 }
 code {
-  background: var(--el-fill-color, #f0f2f5);
+  background: var(--ai-config-code-surface, #f0f2f5);
   padding: 1px 5px;
   border-radius: 3px;
   font-size: 12px;
@@ -3191,10 +3410,11 @@ code {
 .default-tip {
   margin: 0 0 16px;
   padding: 10px 12px;
-  background: #f0f9ff;
+  border: 1px solid var(--ai-config-info-border, #bae6fd);
+  background: var(--ai-config-info-surface, #f0f9ff);
   border-radius: 6px;
   font-size: 13px;
-  color: #0369a1;
+  color: var(--ai-config-info-text, #0369a1);
   line-height: 1.5;
 }
 .vendor-lock-bar {
@@ -3225,7 +3445,7 @@ code {
 .field-tip {
   margin: 6px 0 0;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary, #909399);
   line-height: 1.4;
 }
 .form-label-tip {
@@ -3237,9 +3457,9 @@ code {
 .ph-section-title {
   font-size: 13px;
   font-weight: 600;
-  color: #606266;
+  color: var(--el-text-color-regular, #606266);
   padding: 4px 0 6px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--el-border-color-light, #ebeef5);
   margin-bottom: 4px;
 }
 .ph-tag {
@@ -3264,10 +3484,11 @@ code {
 .protocol-help .ph-body {
   font-size: 13px;
   line-height: 1.7;
-  color: #303133;
+  color: var(--el-text-color-primary, #303133);
 }
 .protocol-help .ph-body pre {
-  background: #f5f7fa;
+  background: var(--el-fill-color-light, #f5f7fa);
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
   border-radius: 4px;
   padding: 8px 12px;
   font-size: 12px;
@@ -3278,20 +3499,20 @@ code {
   word-break: break-all;
 }
 .protocol-help .ph-body code {
-  background: #f0f2f5;
+  background: var(--ai-config-code-surface, #f0f2f5);
   padding: 1px 5px;
   border-radius: 3px;
   font-size: 12px;
 }
 .tip-icon {
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary, #909399);
   cursor: pointer;
   flex-shrink: 0;
   transition: color 0.15s;
 }
 .tip-icon:hover {
-  color: #409eff;
+  color: var(--el-color-primary, #409eff);
 }
 .pricing-field-row {
   display: flex;
@@ -3328,8 +3549,8 @@ code {
   outline-offset: 1px;
 }
 .endpoint-preview-box {
-  background: #f0f7ff;
-  border: 1px solid #c6e0ff;
+  background: var(--ai-config-info-surface, #f0f7ff);
+  border: 1px solid var(--ai-config-info-border, #c6e0ff);
   border-radius: 6px;
   padding: 10px 14px;
   margin: -4px 0 14px;
@@ -3340,14 +3561,14 @@ code {
   align-items: center;
   gap: 8px;
   font-weight: 600;
-  color: #409eff;
+  color: var(--ai-config-info-text, #409eff);
   margin-bottom: 8px;
   font-size: 12px;
 }
 .ep-auto-badge {
-  background: #e6f1ff;
-  color: #409eff;
-  border: 1px solid #b3d8ff;
+  background: var(--ai-config-info-surface, #e6f1ff);
+  color: var(--ai-config-info-text, #409eff);
+  border: 1px solid var(--ai-config-info-border, #b3d8ff);
   border-radius: 3px;
   padding: 0 5px;
   font-size: 11px;
@@ -3365,14 +3586,14 @@ code {
 }
 .ep-label {
   flex-shrink: 0;
-  color: #606266;
+  color: var(--el-text-color-regular, #606266);
   min-width: 68px;
 }
 .ep-url {
   word-break: break-all;
-  color: #303133;
-  background: rgba(255,255,255,0.7);
-  border: 1px solid #dce8fa;
+  color: var(--el-text-color-primary, #303133);
+  background: var(--el-fill-color-blank, rgba(255,255,255,0.7));
+  border: 1px solid var(--ai-config-info-border, #dce8fa);
   border-radius: 3px;
   padding: 1px 6px;
   font-family: 'Menlo', 'Consolas', monospace;
@@ -3382,23 +3603,23 @@ code {
 .ep-tip {
   margin: 8px 0 0;
   font-size: 11px;
-  color: #909399;
+  color: var(--el-text-color-secondary, #909399);
   line-height: 1.4;
 }
 .ep-tip-warn {
-  color: #e6a23c;
+  color: var(--ai-config-warning-text, #e6a23c);
 }
 .ep-box-gemini {
-  background: #fffbf0;
-  border-color: #f5dfa0;
+  background: var(--ai-config-warning-surface, #fffbf0);
+  border-color: var(--ai-config-warning-border, #f5dfa0);
 }
 .ep-box-gemini .ep-preview-header {
-  color: #b8860b;
+  color: var(--ai-config-warning-text, #b8860b);
 }
 .ep-badge-gemini {
-  background: #fef6e0;
-  color: #b8860b;
-  border-color: #f0d080;
+  background: var(--ai-config-warning-surface, #fef6e0);
+  color: var(--ai-config-warning-text, #b8860b);
+  border-color: var(--ai-config-warning-border, #f0d080);
 }
 .generation-settings {
   max-width: 600px;
@@ -3406,12 +3627,12 @@ code {
 .gs-section-title {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary, #303133);
   margin-bottom: 8px;
 }
 .gs-desc {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular, #606266);
   line-height: 1.6;
   margin-bottom: 20px;
 }
@@ -3423,35 +3644,36 @@ code {
 }
 .gs-label {
   font-size: 13px;
-  color: #303133;
+  color: var(--el-text-color-primary, #303133);
   font-weight: 500;
   white-space: nowrap;
 }
 .gs-unit {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular, #606266);
   white-space: nowrap;
 }
 .gs-tip-box {
   margin-top: 20px;
-  background: #f5f7fa;
+  background: var(--el-fill-color-light, #f5f7fa);
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
   border-radius: 8px;
   padding: 14px 16px;
   font-size: 13px;
 }
 .gs-tip-title {
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary, #303133);
   margin-bottom: 8px;
 }
 .gs-tip-list {
   margin: 0 0 8px 16px;
   padding: 0;
-  color: #606266;
+  color: var(--el-text-color-regular, #606266);
   line-height: 1.8;
 }
 .gs-tip-note {
-  color: #909399;
+  color: var(--el-text-color-secondary, #909399);
   font-size: 12px;
 }
 @media (max-width: 1440px) {

@@ -137,6 +137,10 @@ jobs:
             frontweb/package-lock.json
             desktop/package-lock.json
 
+      - name: Install backend dependencies required by release contracts
+        working-directory: backend-node
+        run: npm ci
+
       - name: Verify tag, package versions and release contracts
         run: |
           npm run check
@@ -186,9 +190,7 @@ jobs:
 
       - name: Install and verify backend
         working-directory: backend-node
-        run: |
-          npm ci
-          npm run verify
+        run: npm run verify
 
       - name: Install and verify Electron runtime
         working-directory: desktop

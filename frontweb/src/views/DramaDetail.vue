@@ -2,13 +2,13 @@
   <div class="drama-detail">
     <header class="header">
       <div class="header-inner">
-        <button type="button" class="logo" aria-label="返回项目列表" @click="router.push('/')">
+        <button type="button" class="logo" aria-label="返回项目列表" @click="goList">
           <span class="logo-main">本地短剧助手</span>
           <span class="logo-sub">LocalMiniDrama</span>
         </button>
         <span class="breadcrumb-sep">›</span>
         <span class="page-title">{{ dramaLoadState === 'error' ? '项目加载失败' : drama?.title || '剧集管理' }}</span>
-        <el-button class="btn-back-list" @click="router.push('/')">
+        <el-button class="btn-back-list" @click="goList">
           <el-icon><ArrowLeft /></el-icon>返回列表
         </el-button>
         <div class="header-actions">
@@ -55,7 +55,7 @@
           <el-button v-if="!dramaLoadNotFound" type="primary" :loading="loading" @click="retryDramaLoad">
             <el-icon><Refresh /></el-icon>重试加载
           </el-button>
-          <el-button @click="router.push('/')">
+          <el-button @click="goList">
             <el-icon><ArrowLeft /></el-icon>返回项目列表
           </el-button>
         </div>
@@ -195,7 +195,13 @@
         <div class="section-header">
           <div class="section-title">分集列表</div>
           <span class="section-count">共 {{ episodes.length }} 集</span>
-          <EpisodeBatchImportDialog ref="episodeBatchImportDialogRef" :start-episode-number="nextEpisodeNumber" style="margin-left: auto" @import="onBatchImportEpisodes" />
+          <EpisodeBatchImportDialog
+            ref="episodeBatchImportDialogRef"
+            :start-episode-number="nextEpisodeNumber"
+            :import-handler="onBatchImportEpisodes"
+            style="margin-left: auto"
+            @import="onBatchImportEpisodes"
+          />
           <el-button size="small" type="primary" :loading="addingEpisode" @click="onAddEpisode">
             <el-icon><Plus /></el-icon>新增一集
           </el-button>
@@ -720,10 +726,12 @@ import { sceneAPI } from '@/api/scenes'
 import { propAPI } from '@/api/props'
 import { stylePromptMetadataForSave, backfillDramaStylePromptMetadataIfNeeded } from '@/constants/styleOptions'
 import { buildProjectReadiness } from '@/utils/projectReadiness'
+import { normalizeProjectListReturnTo, resolveProjectEpisodeId } from '@/utils/projectListRoute'
 
 const route = useRoute()
 const { isDark, toggle: toggleTheme } = useTheme()
 const router = useRouter()
+const projectListReturnTo = computed(() => normalizeProjectListReturnTo(route.query.returnTo))
 const dramaId = Number(route.params.id)
 
 // 图片编辑 – 文件输入 refs（各资源类型独立）
@@ -1019,6 +1027,7 @@ async function generateDramaPropImg() {
 const loading = ref(false)
 const drama = ref(null)
 const episodes = ref([])
+const canvasEpisodeId = computed(() => resolveProjectEpisodeId(episodes.value, route.query.episode))
 const aiConfigs = ref(null)
 const sourceCount = ref(null)
 const dramaLoadState = ref('loading')
@@ -1483,23 +1492,34 @@ function handleReadinessAction(action) {
   const query = {}
   if (action.episodeId) query.episode = action.episodeId
   if (action.id) query.focus = action.id
-  router.push({ path: `/film/${dramaId}`, query })
+  router.push({ path: `/film/${dramaId}`, query: withProjectListReturnTo(query) })
 }
 
 function saveInfo() {
   scheduleInfoSave({ immediate: true })
 }
 
+function goList() {
+  router.push(projectListReturnTo.value || { name: 'list' })
+}
+
+function withProjectListReturnTo(query = {}) {
+  const nextQuery = { ...query }
+  if (projectListReturnTo.value) nextQuery.returnTo = projectListReturnTo.value
+  return nextQuery
+}
+
 function goCreate() {
-  router.push(`/film/${dramaId}`)
+  router.push({ path: `/film/${dramaId}`, query: withProjectListReturnTo() })
 }
 
 function goCanvasMode() {
-  router.push(`/film/${dramaId}/canvas`)
+  const query = canvasEpisodeId.value ? { episode: String(canvasEpisodeId.value) } : {}
+  router.push({ path: `/film/${dramaId}/canvas`, query: withProjectListReturnTo(query) })
 }
 
 function goEpisode(epId) {
-  router.push(`/film/${dramaId}?episode=${epId}`)
+  router.push({ path: `/film/${dramaId}`, query: withProjectListReturnTo({ episode: epId }) })
 }
 
 function epStatusLabel(status) {

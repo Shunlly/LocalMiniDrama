@@ -198,7 +198,7 @@ const batchHelper = computed(() => (
 
 <style scoped>
 .canvas-desktop-toolbar {
-  padding: 0 20px 12px;
+  padding: 0 20px 8px;
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
@@ -206,18 +206,27 @@ const batchHelper = computed(() => (
 
 .toolbar-main-row {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0;
+  flex-wrap: nowrap;
   min-width: 0;
+  border: 1px solid var(--border-color, #3f3f46);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-card, #18181b) 92%, transparent);
 }
 
 .toolbar-main-row > * {
   max-width: 100%;
+  border-right: 1px solid var(--border-color, #3f3f46);
+}
+
+.toolbar-main-row > :last-child {
+  border-right: 0;
 }
 
 .workflow-group {
-  flex: 1 1 340px;
+  min-width: 240px;
+  flex: 1 1 260px;
 }
 
 .dropdown-arrow {
@@ -226,12 +235,15 @@ const batchHelper = computed(() => (
 }
 
 .toolbar-utilities {
-  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  min-height: 0;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--bg-page, #0f0f12) 48%, transparent);
 }
 
 .theme-button {
@@ -250,6 +262,25 @@ const batchHelper = computed(() => (
 
 .episode-progress {
   color: var(--canvas-success-text, #34d399);
+}
+
+@media (max-width: 1120px) {
+  .toolbar-main-row {
+    flex-wrap: wrap;
+  }
+
+  .toolbar-main-row > * {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color, #3f3f46);
+  }
+
+  .toolbar-main-row > :last-child {
+    border-bottom: 0;
+  }
+
+  .toolbar-utilities {
+    margin-left: auto;
+  }
 }
 
 .canvas-desktop-toolbar :deep(.el-button:focus-visible) {

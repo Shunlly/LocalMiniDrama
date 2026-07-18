@@ -2,7 +2,7 @@
 
 const storageLayout = require('./storageLayout');
 const uploadService = require('./uploadService');
-const { resolveStylePreset } = require('../constants/generationStylePresets');
+const { PRESET_VALUES, resolveStylePreset } = require('../constants/generationStylePresets');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 
@@ -24,6 +24,72 @@ function parseJsonColumn(value) {
   } catch (_) {
     return null;
   }
+}
+
+const DRAMA_GENRE_LABELS = {
+  drama: '剧情',
+  comedy: '喜剧',
+  adventure: '冒险',
+  romance: '爱情',
+  thriller: '悬疑',
+  action: '动作',
+  horror: '恐怖',
+};
+
+function localizedDramaSearchAliases(keyword) {
+  const normalized = String(keyword || '').trim().toLowerCase();
+  if (!normalized) return { styles: [], genres: [] };
+  const matches = (value) => String(value || '').toLowerCase().includes(normalized);
+  return {
+    styles: PRESET_VALUES.filter((value) => {
+      const preset = resolveStylePreset(value);
+      return matches(value) || matches(preset?.zh) || matches(preset?.en);
+    }),
+    genres: Object.entries(DRAMA_GENRE_LABELS)
+      .filter(([value, label]) => matches(value) || matches(label))
+      .map(([value]) => value),
+  };
+}
+
+function attachDramaListFallbackCover(db, drama) {
+  let candidates = [];
+  try {
+    candidates = db.prepare(`
+      SELECT image_url, local_path, source
+      FROM (
+        SELECT image_url, local_path, 'character' AS source, 1 AS source_order, id
+        FROM characters WHERE drama_id = ? AND deleted_at IS NULL
+        UNION ALL
+        SELECT image_url, local_path, 'scene' AS source, 2 AS source_order, id
+        FROM scenes WHERE drama_id = ? AND deleted_at IS NULL
+        UNION ALL
+        SELECT image_url, local_path, 'prop' AS source, 3 AS source_order, id
+        FROM props WHERE drama_id = ? AND deleted_at IS NULL
+      )
+      WHERE (
+        TRIM(COALESCE(local_path, '')) <> ''
+        AND LOWER(local_path) NOT LIKE 'placeholder://%'
+        AND LOWER(local_path) NOT LIKE 'mock://%'
+        AND LOWER(local_path) NOT LIKE 'data:%'
+      ) OR (
+        TRIM(COALESCE(image_url, '')) <> ''
+        AND LOWER(image_url) NOT LIKE 'placeholder://%'
+        AND LOWER(image_url) NOT LIKE 'mock://%'
+        AND LOWER(image_url) NOT LIKE 'data:%'
+      )
+      ORDER BY source_order ASC, id ASC
+      LIMIT 1
+    `).all(drama.id, drama.id, drama.id);
+  } catch (_) {
+    return;
+  }
+
+  const candidate = candidates[0];
+  if (!candidate) return;
+
+  drama.fallback_cover_local_path = String(candidate.local_path || '').trim() || null;
+  drama.fallback_cover_image_url = sanitizeImageUrl(candidate.image_url);
+  drama.fallback_cover_source = candidate.source;
 }
 
 function createDrama(db, log, req) {
@@ -166,7 +232,7 @@ function getDrama(db, dramaId, baseUrl) {
   return drama;
 }
 
-function listDramas(db, query) {
+function listDramas(db, query = {}) {
   let sql = 'FROM dramas WHERE deleted_at IS NULL';
   const params = [];
   if (query.status) {
@@ -177,18 +243,42 @@ function listDramas(db, query) {
     sql += ' AND genre = ?';
     params.push(query.genre);
   }
-  if (query.keyword) {
-    sql += ' AND (title LIKE ? OR description LIKE ?)';
-    const k = '%' + query.keyword + '%';
-    params.push(k, k);
+  const keyword = String(query.keyword || '').trim().slice(0, 200);
+  if (keyword) {
+    const conditions = [
+      'title LIKE ?',
+      'description LIKE ?',
+      'genre LIKE ?',
+      'style LIKE ?',
+      'tags LIKE ?',
+      'metadata LIKE ?',
+    ];
+    const k = '%' + keyword + '%';
+    const searchParams = [k, k, k, k, k, k];
+    const aliases = localizedDramaSearchAliases(keyword);
+    if (aliases.styles.length) {
+      conditions.push(`style IN (${aliases.styles.map(() => '?').join(', ')})`);
+      searchParams.push(...aliases.styles);
+    }
+    if (aliases.genres.length) {
+      conditions.push(`genre IN (${aliases.genres.map(() => '?').join(', ')})`);
+      searchParams.push(...aliases.genres);
+    }
+    sql += ` AND (${conditions.join(' OR ')})`;
+    params.push(...searchParams);
   }
   const countRow = db.prepare('SELECT COUNT(*) as total ' + sql).get(...params);
   const total = countRow.total || 0;
   const page = Math.max(1, parseInt(query.page, 10) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20));
   const offset = (page - 1) * pageSize;
+  const orderBy = {
+    'created-desc': 'created_at DESC, id DESC',
+    'title-asc': "LOWER(COALESCE(title, '')) ASC, id ASC",
+    'updated-desc': 'updated_at DESC, id DESC',
+  }[String(query.sort || '')] || 'updated_at DESC, id DESC';
   const list = db.prepare(
-    'SELECT * ' + sql + ' ORDER BY updated_at DESC LIMIT ? OFFSET ?'
+    'SELECT * ' + sql + ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`
   ).all(...params, pageSize, offset);
   const dramas = list.map((r) => rowToDrama(r));
   for (const d of dramas) {
@@ -221,6 +311,7 @@ function listDramas(db, query) {
       if (ep.duration > 0) ep.duration = Math.ceil(ep.duration / 60);
       return ep;
     });
+    attachDramaListFallbackCover(db, d);
   }
   return { dramas, total, page, pageSize };
 }

@@ -6,7 +6,7 @@
         <span id="pipeline-title">全流程生成</span>
       </div>
 
-      <div class="pipeline-actions">
+      <div class="pipeline-utility-actions">
         <el-popover placement="bottom-start" :width="390" trigger="click">
           <template #reference>
             <el-button plain>
@@ -65,7 +65,35 @@
             </label>
           </div>
         </el-popover>
+      </div>
+    </div>
 
+    <div class="pipeline-focus" :data-state="focusState">
+      <div class="pipeline-focus-copy">
+        <span class="pipeline-focus-kicker">{{ focusKicker }}</span>
+        <strong class="pipeline-focus-title">{{ focusTitle }}</strong>
+
+        <template v-if="focusReason">
+          <p v-if="!longFocusReason" class="pipeline-focus-reason" role="alert">{{ focusReason }}</p>
+          <details v-if="longFocusReason" class="pipeline-reason-details" role="alert">
+            <summary>
+              <span class="pipeline-reason-preview">{{ focusReason }}</span>
+              <span class="pipeline-reason-toggle">
+                <span class="when-closed">查看完整原因</span>
+                <span class="when-open">收起原因</span>
+              </span>
+            </summary>
+            <p class="pipeline-reason-full">{{ focusReason }}</p>
+          </details>
+        </template>
+
+        <div class="pipeline-next-step">
+          <span class="pipeline-next-label">下一步</span>
+          <span>{{ focusNextStep }}</span>
+        </div>
+      </div>
+
+      <div class="pipeline-actions">
         <div class="pipeline-mode-action">
           <span class="pipeline-mode-label is-production">完整成片</span>
           <ActionGate label="一键生成成片" :reason="productionReason">
@@ -91,16 +119,25 @@
             </el-button>
           </ActionGate>
         </div>
+        <el-button
+          v-if="showReadinessAction"
+          link
+          type="primary"
+          class="pipeline-config-action"
+          @click="$emit('open-ai-config', productionReadinessServiceType)"
+        >前往 AI 配置</el-button>
+        <el-button
+          v-if="showReadinessRetry"
+          plain
+          type="primary"
+          class="pipeline-config-action"
+          @click="$emit('retry-readiness')"
+        >重试检查</el-button>
         <template v-if="running">
           <el-button v-if="!paused" type="warning" @click="$emit('pause')">暂停</el-button>
           <el-button v-else type="success" @click="$emit('resume')">继续</el-button>
         </template>
       </div>
-    </div>
-
-    <div v-if="productionReadinessReason" class="production-readiness-alert" role="alert">
-      <span>{{ productionReadinessReason }}</span>
-      <el-button link type="primary" @click="$emit('open-ai-config', productionReadinessServiceType)">前往 AI 配置</el-button>
     </div>
 
     <div v-if="running || errorLog.length > 0" class="pipeline-status" aria-live="polite">
@@ -153,6 +190,7 @@ const props = defineProps({
   productionDisabledReason: { type: String, default: '' },
   draftDisabledReason: { type: String, default: '' },
   productionReadinessReason: { type: String, default: '' },
+  productionReadinessState: { type: String, default: 'ready' },
   productionReadinessServiceType: { type: String, default: '' },
   running: { type: Boolean, default: false },
   paused: { type: Boolean, default: false },
@@ -174,6 +212,7 @@ const emit = defineEmits([
   'start-one-click',
   'start-text-framework',
   'open-ai-config',
+  'retry-readiness',
   'pause',
   'resume',
   'skip-countdown',
@@ -183,6 +222,45 @@ const activeTaskLabels = computed(() => Array.from(props.activeTasks || []))
 const cleanCurrentStep = computed(() => props.currentStep.replace(/^\[步骤 \d+\/\d+\] /, ''))
 const productionReason = computed(() => props.productionDisabledReason || props.disabledReason)
 const draftReason = computed(() => props.draftDisabledReason || props.disabledReason)
+const focusReason = computed(() => props.running ? '' : productionReason.value)
+const longFocusReason = computed(() => focusReason.value.length > 56)
+const focusState = computed(() => {
+  if (props.running) return props.paused ? 'paused' : 'running'
+  if (!draftReason.value && props.productionReadinessState === 'checking') return 'checking'
+  if (!draftReason.value && props.productionReadinessState === 'error') return 'error'
+  return focusReason.value ? 'blocked' : 'ready'
+})
+const focusKicker = computed(() => {
+  if (!draftReason.value && props.productionReadinessState === 'checking') return '能力检查'
+  if (!draftReason.value && props.productionReadinessState === 'error') return '检查失败'
+  return focusReason.value ? '当前阻断' : '当前任务'
+})
+const focusTitle = computed(() => {
+  if (props.running) {
+    return cleanCurrentStep.value || (props.paused ? '全流程生成已暂停' : '正在执行全流程生成')
+  }
+  if (!draftReason.value && props.productionReadinessState === 'checking') return '正在检查完整成片能力'
+  if (!draftReason.value && props.productionReadinessState === 'error') return '完整成片能力检查失败'
+  return focusReason.value ? '完整成片暂不可生成' : '完整成片已可生成'
+})
+const focusNextStep = computed(() => {
+  if (props.running) return props.paused ? '继续当前生成流程' : '等待当前阶段完成'
+  if (draftReason.value) return '处理当前阻断后再启动生成'
+  if (props.productionReadinessState === 'checking') return '等待检查完成'
+  if (props.productionReadinessState === 'error') return '重试检查，确认本地服务与配置状态'
+  if (props.productionReadinessState === 'missing') return '前往 AI 配置补齐完整成片能力'
+  return '一键生成完整成片'
+})
+const showReadinessAction = computed(() => (
+  !props.running
+  && !draftReason.value
+  && props.productionReadinessState === 'missing'
+))
+const showReadinessRetry = computed(() => (
+  !props.running
+  && !draftReason.value
+  && props.productionReadinessState === 'error'
+))
 
 function updateSetting(name, value) {
   emit(`update:${name}`, value)
@@ -197,6 +275,7 @@ function updateSetting(name, value) {
 
 .pipeline-toolbar,
 .pipeline-actions,
+.pipeline-utility-actions,
 .pipeline-heading {
   display: flex;
   align-items: center;
@@ -205,6 +284,7 @@ function updateSetting(name, value) {
 .pipeline-toolbar {
   justify-content: space-between;
   gap: 16px;
+  margin-bottom: 10px;
 }
 
 .pipeline-heading {
@@ -219,6 +299,140 @@ function updateSetting(name, value) {
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.pipeline-utility-actions {
+  justify-content: flex-end;
+}
+
+.pipeline-focus {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  align-items: center;
+  gap: 16px 20px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--el-color-primary);
+  background: var(--el-fill-color-light);
+}
+
+.pipeline-focus[data-state="blocked"] {
+  border-left-color: var(--el-color-warning);
+  background: var(--el-color-warning-light-9);
+}
+
+.pipeline-focus[data-state="checking"] {
+  border-left-color: var(--el-color-info);
+}
+
+.pipeline-focus[data-state="error"] {
+  border-left-color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+}
+
+.pipeline-focus[data-state="running"],
+.pipeline-focus[data-state="paused"] {
+  border-left-color: var(--el-color-success);
+}
+
+.pipeline-focus-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.pipeline-focus-kicker,
+.pipeline-next-label {
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.pipeline-focus-title {
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.pipeline-focus-reason,
+.pipeline-reason-full {
+  margin: 0;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-reason-details {
+  min-width: 0;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+}
+
+.pipeline-reason-details summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.pipeline-reason-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.pipeline-reason-preview {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.pipeline-reason-toggle {
+  color: var(--el-color-primary);
+  white-space: nowrap;
+}
+
+.pipeline-reason-details .when-open,
+.pipeline-reason-details[open] .when-closed,
+.pipeline-reason-details[open] .pipeline-reason-preview {
+  display: none;
+}
+
+.pipeline-reason-details[open] .when-open {
+  display: inline;
+}
+
+.pipeline-reason-details[open] summary {
+  grid-template-columns: 1fr auto;
+}
+
+.pipeline-reason-full {
+  max-height: 120px;
+  margin-top: 6px;
+  padding-right: 4px;
+  overflow-y: auto;
+}
+
+.pipeline-next-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--el-text-color-primary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.pipeline-next-label {
+  color: var(--el-color-primary);
+  white-space: nowrap;
+}
+
+.pipeline-config-action {
+  align-self: center;
 }
 
 .pipeline-mode-action {
@@ -241,18 +455,6 @@ function updateSetting(name, value) {
 
 .pipeline-mode-label.is-draft {
   color: var(--el-color-info);
-}
-
-.production-readiness-alert {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
-  color: var(--el-color-warning);
-  font-size: 12px;
-  line-height: 1.45;
-  text-align: right;
 }
 
 .pipeline-settings {

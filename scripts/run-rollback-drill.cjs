@@ -87,6 +87,14 @@ function restoredRowCounts(database) {
   return counts
 }
 
+function safeEvidencePath(basePath, candidatePath, fallback = '[external]') {
+  const relative = path.relative(basePath, candidatePath).replace(/\\/g, '/')
+  if (!relative || relative === '.' || relative.startsWith('../') || path.posix.isAbsolute(relative)) {
+    return fallback
+  }
+  return relative
+}
+
 function verifyRestoredDatabase(databasePath) {
   const database = new Database(databasePath, { fileMustExist: true, readonly: true })
   try {
@@ -238,7 +246,9 @@ async function main() {
         version: packageJson.version,
         commit,
         working_tree_dirty: false,
-        database: 'backend-node/data/drama_generator.db',
+        database: {
+          relative_path: safeEvidencePath(root, databasePath, '[external-database]'),
+        },
       },
       focused_tests: {
         file: 'backend-node/test/dataBackupService.test.js',

@@ -87,6 +87,20 @@ function Write-Utf8File {
   [System.IO.File]::WriteAllText($Path, $Value, [System.Text.UTF8Encoding]::new($false))
 }
 
+function Set-RuntimeConfigEnvironment {
+  param(
+    [Parameter(Mandatory = $true)][string]$ConfigDirectory,
+    [Parameter(Mandatory = $true)][string]$ConfigPath
+  )
+  $env:LOCALMINIDRAMA_CONFIG_DIR = $ConfigDirectory
+  $env:LOCALMINIDRAMA_CONFIG_PATH = $ConfigPath
+}
+
+function Clear-RuntimeConfigEnvironment {
+  Remove-Item Env:LOCALMINIDRAMA_CONFIG_DIR -ErrorAction SilentlyContinue
+  Remove-Item Env:LOCALMINIDRAMA_CONFIG_PATH -ErrorAction SilentlyContinue
+}
+
 function Assert-OutsideRepository {
   param([string]$RepositoryRoot, [string]$Candidate)
   $separator = [System.IO.Path]::DirectorySeparatorChar
@@ -134,13 +148,16 @@ function Start-CapturedDeployment {
   param(
     [Parameter(Mandatory = $true)]$Backend,
     [Parameter(Mandatory = $true)]$Frontend,
-    [Parameter(Mandatory = $true)][string]$Revision
+    [Parameter(Mandatory = $true)][string]$Revision,
+    [Parameter(Mandatory = $true)][string]$ConfigDirectory,
+    [Parameter(Mandatory = $true)][string]$ConfigPath
   )
   $recoveryTag = "checkpoint-recovery-$($Revision.Substring(0, 12))"
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'tag', $Backend.image_id, "localminidrama-backend:$recoveryTag") -Label 'Backend recovery image tag' | Out-Null
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'tag', $Frontend.image_id, "localminidrama-frontend:$recoveryTag") -Label 'Frontend recovery image tag' | Out-Null
   $env:LOCALMINIDRAMA_IMAGE_TAG = $recoveryTag
   $env:LOCALMINIDRAMA_BUILD_REVISION = $Revision
+  Set-RuntimeConfigEnvironment -ConfigDirectory $ConfigDirectory -ConfigPath $ConfigPath
   Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'up', '-d', '--no-build', '--wait') -Label 'Captured deployment recovery' | Out-Null
 }
 
@@ -167,6 +184,7 @@ try {
   $runtimeConfigDirectory = Get-ContainerBindSource -ContainerId $backend.container_id -Destination '/app/config-source'
   $runtimeConfigSource = Join-Path $runtimeConfigDirectory 'config.yaml'
   Assert-RegularFile -Path $runtimeConfigSource
+  Set-RuntimeConfigEnvironment -ConfigDirectory $runtimeConfigDirectory -ConfigPath $runtimeConfigSource
 
   New-Item -ItemType Directory -Path $checkpoint | Out-Null
   $configArchiveRoot = Join-Path $checkpoint 'configs'
@@ -174,7 +192,8 @@ try {
   $composeArchive = Join-Path $checkpoint 'docker-compose.yml'
   $configArchive = Join-Path $configArchiveRoot 'config.yaml'
   Copy-Item -LiteralPath (Join-Path $repoRoot 'docker-compose.yml') -Destination $composeArchive
-  Copy-Item -LiteralPath $runtimeConfigSource -Destination $configArchive
+  Invoke-Checked -FilePath 'node' -ArgumentList @((Join-Path $repoRoot 'scripts\runtime-config-policy.cjs'), $runtimeConfigSource, $configArchive) -Label 'Runtime config sanitization' | Out-Null
+  Assert-RegularFile -Path $configArchive
   $composeHash = (Get-FileHash -LiteralPath $composeArchive -Algorithm SHA256).Hash.ToLowerInvariant()
   $configHash = (Get-FileHash -LiteralPath $configArchive -Algorithm SHA256).Hash.ToLowerInvariant()
   $imageArchive = Join-Path $checkpoint 'images.tar'
@@ -190,10 +209,13 @@ try {
 
   $dockerStopped = $false
   try {
-    Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Docker shutdown' | Out-Null
+    # A failed `down` may have stopped one service before reporting an error;
+    # recovery must therefore be attempted for any shutdown attempt.
     $dockerStopped = $true
+    Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Docker shutdown' | Out-Null
 
     $backupPath = Join-Path $checkpoint 'data.zip'
+    Set-RuntimeConfigEnvironment -ConfigDirectory $runtimeConfigDirectory -ConfigPath $runtimeConfigSource
     Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'backup:data', '--', '--output', $backupPath) -Label 'Data backup' | Out-Null
     $backupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant()
     Write-Utf8File -Path (Join-Path $checkpoint 'data.sha256.txt') -Value "$backupHash`n"
@@ -224,7 +246,11 @@ try {
       compose_file = 'docker-compose.yml'
       compose_sha256 = $composeHash
       runtime_config_file = 'configs/config.yaml'
+      runtime_config_source_file = 'configs/config.yaml'
       runtime_config_sha256 = $configHash
+      runtime_config_sanitized = $true
+      runtime_config_credentials_excluded = $true
+      credential_reconfiguration_required = $true
       image_archive_file = 'images.tar'
       image_archive_sha256 = $imageArchiveHash
       rollback_evidence_file = 'rollback-drill-summary.json'
@@ -232,11 +258,12 @@ try {
     }
     Write-Utf8File -Path (Join-Path $checkpoint 'metadata.json') -Value "$(ConvertTo-Json $metadata -Depth 6)`n"
     Write-Output "Rollback checkpoint ready: $checkpoint"
+    Write-Output 'Provider credentials were excluded from the archived runtime config and must be configured and tested again after restore.'
   } catch {
     $checkpointError = $_
     if ($dockerStopped) {
       try {
-        Start-CapturedDeployment -Backend $backend -Frontend $frontend -Revision $commit
+        Start-CapturedDeployment -Backend $backend -Frontend $frontend -Revision $commit -ConfigDirectory $runtimeConfigDirectory -ConfigPath $runtimeConfigSource
       } catch {
         throw "Rollback checkpoint failed and the captured deployment could not be restarted. Original error: $checkpointError Recovery error: $_"
       }
@@ -244,5 +271,6 @@ try {
     throw $checkpointError
   }
 } finally {
+  Clear-RuntimeConfigEnvironment
   Pop-Location
 }

@@ -311,6 +311,7 @@ const pipelineEventListeners = {
   onPause: (_value, events) => events.push(['pause']),
   onResume: (_value, events) => events.push(['resume']),
   onSkipCountdown: (_value, events) => events.push(['skip-countdown']),
+  onRetryReadiness: (_value, events) => events.push(['retry-readiness']),
 }
 
 function mountPipeline(initialProps = {}) {
@@ -419,6 +420,60 @@ test('production video gate does not disable the Draft text framework', () => {
     assert.equal(buttonByText(harness.root, '一键生成成片').props.disabled, true)
     assert.notEqual(buttonByText(harness.root, '仅生成文本框架').props.disabled, true)
     assert.equal(findAll(harness.root, (node) => node.props.role === 'group').length, 1)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('pipeline keeps the blocker, next step, and primary CTA in one focus region', () => {
+  const reason = '文本模型、素材图片、分镜图片、视频模型和语音合成配置均缺少生产凭据，需要逐项补齐并验证连接后才能开始完整成片生成。'
+  const harness = mountPipeline({
+    productionDisabledReason: reason,
+    productionReadinessReason: reason,
+    productionReadinessState: 'missing',
+  })
+  try {
+    const [focus] = findAll(harness.root, (node) => node.props.class === 'pipeline-focus')
+    assert.ok(focus)
+    assert.match(textContent(focus), /当前阻断/)
+    assert.match(textContent(focus), /下一步/)
+    assert.match(textContent(focus), /前往 AI 配置补齐完整成片能力/)
+    assert.ok(findByType(focus, 'button').some((node) => textContent(node).trim() === '一键生成成片'))
+
+    const [details] = findByType(focus, 'details')
+    assert.ok(details)
+    assert.match(textContent(details), /查看完整原因/)
+    assert.match(textContent(details), new RegExp(reason))
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('pipeline distinguishes readiness failures from missing AI configuration', () => {
+  const harness = mountPipeline({
+    productionDisabledReason: '无法确认完整成片制作能力，请刷新后重试。',
+    productionReadinessReason: '无法确认完整成片制作能力，请刷新后重试。',
+    productionReadinessState: 'error',
+  })
+  try {
+    assert.match(textContent(harness.root), /重试检查/)
+    assert.doesNotMatch(textContent(harness.root), /前往 AI 配置/)
+    buttonByText(harness.root, '重试检查').props.onClick()
+    assert.deepEqual(harness.events, [['retry-readiness']])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('pipeline keeps readiness checking non-actionable until the check finishes', () => {
+  const harness = mountPipeline({
+    productionDisabledReason: '正在检查完整成片所需的 AI 服务与本地合成能力。',
+    productionReadinessReason: '正在检查完整成片所需的 AI 服务与本地合成能力。',
+    productionReadinessState: 'checking',
+  })
+  try {
+    assert.match(textContent(harness.root), /等待检查完成/)
+    assert.doesNotMatch(textContent(harness.root), /前往 AI 配置|重试检查/)
   } finally {
     harness.app.unmount()
   }

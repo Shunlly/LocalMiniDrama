@@ -135,8 +135,8 @@ function onVideoError() {
   reportVideoState('invalid')
 }
 
-function openPanel() {
-  ctx?.setFocusedNode?.(props.id)
+async function openPanel() {
+  await ctx?.setFocusedNode?.(props.id)
 }
 
 watch(

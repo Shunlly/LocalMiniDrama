@@ -40,6 +40,8 @@ export function useCanvasCrud(deps) {
     filterEpisodeId,
     layoutCache,
     focusedNodeId,
+    setFocusedNode,
+    setEpisodeFilter,
     refreshCanvas,
     persistCanvasState,
   } = deps
@@ -82,7 +84,8 @@ export function useCanvasCrud(deps) {
 
   async function focusAfterCreate(nodeId) {
     await refreshCanvas()
-    if (nodeId) focusedNodeId.value = nodeId
+    if (nodeId && setFocusedNode) await setFocusedNode(nodeId)
+    else if (nodeId) focusedNodeId.value = nodeId
     pendingFlowPosition.value = null
   }
 
@@ -141,7 +144,8 @@ export function useCanvasCrud(deps) {
 
     const newEp = (drama.value?.episodes || []).find((ep) => Number(ep.episode_number) === nextNum)
     if (newEp?.id) {
-      filterEpisodeId.value = newEp.id
+      if (setEpisodeFilter) await setEpisodeFilter(newEp.id)
+      else filterEpisodeId.value = newEp.id
       const pos = pendingFlowPosition.value
       if (pos) await saveNodePosition(`episode:${newEp.id}`, pos)
       await refreshCanvas()

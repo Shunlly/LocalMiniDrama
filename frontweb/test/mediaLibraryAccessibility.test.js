@@ -10,6 +10,19 @@ function mediaCardTemplate() {
   return match[0]
 }
 
+function initialEmptyActionsTemplate() {
+  const match = source.match(/<div class="empty-actions">[\s\S]*?<template v-else>([\s\S]*?)<\/template>/)
+  assert.ok(match, 'the initial empty state should have a dedicated action branch')
+  return match[1]
+}
+
+function urlImportEntryTemplate() {
+  const entries = [...source.matchAll(/<div class="entry-item">[\s\S]*?<\/div>/g)]
+  const entry = entries.find((match) => match[0].includes('URL'))
+  assert.ok(entry, 'the media library should keep a URL import entry')
+  return entry[0]
+}
+
 test('media cards use an explicit keyboard-accessible selection control', () => {
   const card = mediaCardTemplate()
   const openingTag = card.match(/^<article[\s\S]*?>/)?.[0]
@@ -45,4 +58,30 @@ test('thumbnail and preview media expose item-specific accessible text', () => {
   assert.match(source, /:aria-label="videoPreviewLabel\(previewItem\)"/)
   assert.match(source, /return `素材缩略图：\$\{accessibleItemName\(item\)\}`/)
   assert.match(source, /return `素材预览图：\$\{accessibleItemName\(item\)\}`/)
+})
+
+test('the initial empty state has one clearly named primary upload action', () => {
+  const actions = initialEmptyActionsTemplate()
+  const buttons = actions.match(/<el-button\b/g) || []
+
+  assert.equal(buttons.length, 1)
+  assert.match(actions, /<el-button[\s\S]*?type="primary"/)
+  assert.match(actions, /aria-label="上传图片或视频到素材中心"/)
+  assert.match(actions, /@click="triggerUpload"/)
+  assert.doesNotMatch(actions, /goNewProject|goHome/)
+  assert.match(source, /:type="mediaItems\.length === 0 && !loading \? 'default' : 'primary'"/)
+  assert.match(source, /class="empty-secondary-action"[\s\S]*aria-label="新建项目并进入项目级网络 URL 素材导入流程"[\s\S]*@click="goNewProject"/)
+})
+
+test('URL import is named as a project-level flow and keeps its existing navigation', () => {
+  const entry = urlImportEntryTemplate()
+
+  assert.match(entry, /网页 URL 导入会在项目内完成/)
+  assert.match(entry, /本页不直接粘贴 URL/)
+  assert.match(entry, /aria-label="新建项目并进入项目级网络 URL 素材导入流程"/)
+  assert.match(entry, /@click="goNewProject"\s*>进入项目级素材导入流程<\/el-button>/)
+  assert.match(
+    source,
+    /function goNewProject\(\) \{[\s\S]*?router\.push\(\{ path: '\/', query: \{ new: '1' \} \}\)[\s\S]*?\n\}/,
+  )
 })
