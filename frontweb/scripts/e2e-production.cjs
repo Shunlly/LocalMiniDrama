@@ -965,9 +965,59 @@ async function verifyProjectListRecoveryUi(page) {
   return { injectedStatus: 502, recovered: true }
 }
 
+async function verifyProjectReadinessDisclosureUi(page) {
+  const toggle = page.getByTestId('project-readiness-toggle')
+  const details = page.getByTestId('project-readiness-details')
+  await toggle.waitFor({ state: 'visible', timeout: 30000 })
+  assert.equal(await details.count(), 1, 'project readiness details must remain mounted while collapsed')
+  await details.waitFor({ state: 'hidden' })
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'project readiness must start collapsed')
+  await toggle.click()
+  await details.waitFor({ state: 'visible' })
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'true', 'project readiness toggle must expose details')
+}
+
 async function verifyAiConfigurationUi(page) {
   await page.goto(`${FRONTEND_URL}/ai-config`, { waitUntil: 'domcontentloaded' })
   await page.getByRole('heading', { name: '\u0041\u0049 \u670d\u52a1\u914d\u7f6e\u4e0e\u9a8c\u8bc1', exact: true }).waitFor({ timeout: 30000 })
+  const coverageMode = page.getByTestId('ai-config-mode-coverage')
+  const configsMode = page.getByTestId('ai-config-mode-configs')
+  const coveragePanel = page.locator('#ai-config-coverage-panel')
+  const configsPanel = page.locator('#ai-config-configs-panel')
+  await coverageMode.waitFor({ state: 'visible', timeout: 30000 })
+  assert.equal(await coverageMode.getAttribute('aria-selected'), 'true', 'service status mode must be selected by default')
+  assert.equal(await configsMode.getAttribute('aria-selected'), 'false', 'AI config must open on service status')
+  await coveragePanel.waitFor({ state: 'visible', timeout: 30000 })
+  assert.equal(await coveragePanel.isVisible(), true, 'service status panel must be visible by default')
+  assert.equal(await configsPanel.count(), 1, 'configuration management panel must remain mounted')
+  await configsPanel.waitFor({ state: 'hidden' })
+  assert.equal(await configsPanel.isVisible(), false, 'configuration management panel must start hidden')
+  await coverageMode.press('ArrowRight')
+  await coveragePanel.waitFor({ state: 'hidden' })
+  await configsPanel.waitFor({ state: 'visible', timeout: 30000 })
+  assert.equal(
+    await configsMode.evaluate((element) => element.ownerDocument.activeElement === element),
+    true,
+    'keyboard navigation must move focus to configuration management',
+  )
+  assert.equal(await coverageMode.getAttribute('aria-selected'), 'false', 'keyboard navigation must deselect service status')
+  assert.equal(await configsMode.getAttribute('aria-selected'), 'true', 'keyboard navigation must select configuration management')
+  await configsMode.press('ArrowLeft')
+  await coveragePanel.waitFor({ state: 'visible', timeout: 30000 })
+  await configsPanel.waitFor({ state: 'hidden' })
+  assert.equal(
+    await coverageMode.evaluate((element) => element.ownerDocument.activeElement === element),
+    true,
+    'reverse keyboard navigation must restore focus to service status',
+  )
+  assert.equal(await coverageMode.getAttribute('aria-selected'), 'true', 'reverse keyboard navigation must select service status')
+  assert.equal(await configsMode.getAttribute('aria-selected'), 'false', 'reverse keyboard navigation must deselect configuration management')
+  await configsMode.click()
+  await coveragePanel.waitFor({ state: 'hidden' })
+  await configsPanel.waitFor({ state: 'visible', timeout: 30000 })
+  await page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 30000 })
+  assert.equal(await coverageMode.getAttribute('aria-selected'), 'false', 'service status mode must be deselected')
+  assert.equal(await configsMode.getAttribute('aria-selected'), 'true', 'configuration management mode must be selected')
   for (const serviceType of ['text', 'image', 'storyboard_image', 'video', 'tts']) {
     await page.locator('.el-table__row')
       .filter({ hasText: `${CONFIG_PREFIX}${serviceType}` })
@@ -1368,9 +1418,19 @@ async function assertDraftPlaceholderState(dramaId) {
   return { storyboardCount: storyboards.length, imagePlaceholders, videoPlaceholders }
 }
 
+async function verifyFilmPipelineDisclosureUi(page) {
+  const toggle = page.getByTestId('film-pipeline-toggle')
+  const details = page.getByTestId('film-pipeline-details')
+  await toggle.waitFor({ state: 'visible', timeout: 30000 })
+  assert.equal(await details.count(), 1, 'film pipeline details must remain mounted while collapsed')
+  await details.waitFor({ state: 'hidden' })
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'idle film pipeline must start collapsed')
+}
+
 async function verifyDraftUpgradeUi(page, dramaId) {
   await page.goto(`${FRONTEND_URL}/film/${dramaId}`, { waitUntil: 'domcontentloaded' })
   await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
+  await verifyFilmPipelineDisclosureUi(page)
   await page.locator('#film-create-quick-nav button.nav-step').filter({ hasText: '\u5206\u955c\u56fe' }).click()
   await page.getByText('\u8349\u7a3f\u5360\u4f4d\u89c6\u9891\uff0c\u5c1a\u672a\u751f\u6210\u53ef\u64ad\u653e\u7247\u6bb5\u3002', { exact: true }).first().waitFor({ timeout: 30000 })
   assert.equal(await page.locator('img[src^="mock://"], video[src^="mock://"]').count(), 0, 'Draft placeholders must not render as media elements')
@@ -1480,6 +1540,7 @@ async function main({
       })
     }
     assert.ok(drama?.id, 'created drama id is required')
+    await verifyProjectReadinessDisclosureUi(startPage)
     const aiConfigReturnEvidence = await verifyAiConfigReturnUi(startPage, drama.id)
     assert.equal(aiConfigReturnEvidence.return_to_preserved, true)
     assert.equal(aiConfigReturnEvidence.workflow_visible, true)

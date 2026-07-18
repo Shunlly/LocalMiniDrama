@@ -25,7 +25,7 @@ const {
   main: runProductionE2e,
   sanitizeEvidenceText,
 } = require('../scripts/e2e-production.cjs')
-const productionSource = readFileSync(new URL('../scripts/e2e-production.cjs', import.meta.url), 'utf8')
+const productionSource = readFileSync(new URL('../scripts/e2e-production.cjs', import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
 const verificationDockerfile = readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8')
 const productionDockerfile = readFileSync(new URL('../Dockerfile.prod', import.meta.url), 'utf8')
 const productionNginxConfig = readFileSync(new URL('../nginx.conf', import.meta.url), 'utf8')
@@ -35,6 +35,22 @@ const composeSource = readFileSync(new URL('../../docker-compose.yml', import.me
 const ciWorkflow = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8')
 const releaseWorkflow = readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8')
 const gitignoreSource = readFileSync(new URL('../../.gitignore', import.meta.url), 'utf8')
+
+function sourceFunction(name, nextName) {
+  const start = productionSource.indexOf(`async function ${name}`)
+  const end = productionSource.indexOf(`async function ${nextName}`, start + 1)
+  assert.ok(start >= 0 && end > start, `missing production E2E function: ${name}`)
+  return productionSource.slice(start, end)
+}
+
+function assertSourceOrder(source, snippets) {
+  let cursor = -1
+  for (const snippet of snippets) {
+    const index = source.indexOf(snippet, cursor + 1)
+    assert.ok(index > cursor, `missing or out-of-order E2E assertion: ${snippet}`)
+    cursor = index
+  }
+}
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -520,6 +536,63 @@ test('production E2E entrypoint seals evidence when browser startup fails', asyn
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true })
   }
+})
+
+test('production E2E verifies workflow-first disclosures and AI config modes', () => {
+  const readinessDisclosure = sourceFunction('verifyProjectReadinessDisclosureUi', 'verifyAiConfigurationUi')
+  assertSourceOrder(readinessDisclosure, [
+    "page.getByTestId('project-readiness-toggle')",
+    "page.getByTestId('project-readiness-details')",
+    'assert.equal(await details.count(), 1',
+    "await details.waitFor({ state: 'hidden' })",
+    "assert.equal(await toggle.getAttribute('aria-expanded'), 'false'",
+    'await toggle.click()',
+    "await details.waitFor({ state: 'visible' })",
+    "assert.equal(await toggle.getAttribute('aria-expanded'), 'true'",
+  ])
+  assert.match(productionSource, /await verifyProjectReadinessDisclosureUi\(startPage\)/)
+
+  const pipelineDisclosure = sourceFunction('verifyFilmPipelineDisclosureUi', 'verifyDraftUpgradeUi')
+  assertSourceOrder(pipelineDisclosure, [
+    "page.getByTestId('film-pipeline-toggle')",
+    "page.getByTestId('film-pipeline-details')",
+    'assert.equal(await details.count(), 1',
+    "await details.waitFor({ state: 'hidden' })",
+    "assert.equal(await toggle.getAttribute('aria-expanded'), 'false'",
+  ])
+  assert.match(productionSource, /await verifyFilmPipelineDisclosureUi\(page\)/)
+
+  const aiConfiguration = sourceFunction('verifyAiConfigurationUi', 'createDramaFromUi')
+  assertSourceOrder(aiConfiguration, [
+    "page.getByTestId('ai-config-mode-coverage')",
+    "page.getByTestId('ai-config-mode-configs')",
+    "page.locator('#ai-config-coverage-panel')",
+    "page.locator('#ai-config-configs-panel')",
+    "assert.equal(await coverageMode.getAttribute('aria-selected'), 'true'",
+    "assert.equal(await configsMode.getAttribute('aria-selected'), 'false'",
+    "await coveragePanel.waitFor({ state: 'visible', timeout: 30000 })",
+    "await configsPanel.waitFor({ state: 'hidden' })",
+    "await coverageMode.press('ArrowRight')",
+    "await coveragePanel.waitFor({ state: 'hidden' })",
+    "await configsPanel.waitFor({ state: 'visible', timeout: 30000 })",
+    'await configsMode.evaluate((element) => element.ownerDocument.activeElement === element)',
+    "true,\n    'keyboard navigation must move focus to configuration management'",
+    "assert.equal(await coverageMode.getAttribute('aria-selected'), 'false'",
+    "assert.equal(await configsMode.getAttribute('aria-selected'), 'true'",
+    "await configsMode.press('ArrowLeft')",
+    "await coveragePanel.waitFor({ state: 'visible', timeout: 30000 })",
+    "await configsPanel.waitFor({ state: 'hidden' })",
+    'await coverageMode.evaluate((element) => element.ownerDocument.activeElement === element)',
+    "true,\n    'reverse keyboard navigation must restore focus to service status'",
+    "assert.equal(await coverageMode.getAttribute('aria-selected'), 'true'",
+    "assert.equal(await configsMode.getAttribute('aria-selected'), 'false'",
+    'await configsMode.click()',
+    "await coveragePanel.waitFor({ state: 'hidden' })",
+    "await configsPanel.waitFor({ state: 'visible', timeout: 30000 })",
+    "page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 30000 })",
+    "assert.equal(await coverageMode.getAttribute('aria-selected'), 'false'",
+    "assert.equal(await configsMode.getAttribute('aria-selected'), 'true'",
+  ])
 })
 
 test('browser acceptance contract covers the full UI journey, recovery, downloads, viewports, and playback', () => {
