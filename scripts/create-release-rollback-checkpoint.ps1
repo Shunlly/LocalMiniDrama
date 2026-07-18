@@ -44,7 +44,7 @@ function Get-ContainerBindSource {
     [Parameter(Mandatory = $true)][string]$Destination
   )
   $mountJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $ContainerId, '--format', '{{json .Mounts}}') -Label "${Destination} mount capture"
-  $mounts = @($mountJson | ConvertFrom-Json)
+  $mounts = @((ConvertFrom-Json -InputObject $mountJson) | ForEach-Object { $_ })
   $mount = $mounts | Where-Object { $_.Type -eq 'bind' -and $_.Destination -eq $Destination } | Select-Object -First 1
   if ($null -eq $mount -or [string]::IsNullOrWhiteSpace($mount.Source)) {
     throw "The running backend has no regular bind mount at $Destination."
