@@ -459,8 +459,8 @@ git commit -m "feat: separate AI service status and config management"
 - Modify: `frontweb/test/e2eProductionContract.test.js`
 - Modify: `docs/ui-refresh-20260718.md`
 - Modify: `frontweb/public/reports/product-acceptance/report.html`
-- Create: `frontweb/public/reports/product-acceptance/final-20260718/33-project-readiness-compact-1280.png`
-- Create: `frontweb/public/reports/product-acceptance/final-20260718/34-film-pipeline-compact-1280.png`
+- Create: `frontweb/public/reports/product-acceptance/final-20260718/33-project-readiness-compact-1280.jpg`
+- Create: `frontweb/public/reports/product-acceptance/final-20260718/34-film-pipeline-compact-1280.jpg`
 - Create: `frontweb/public/reports/product-acceptance/final-20260718/35-ai-config-management-1280.png`
 
 **Interfaces:**
@@ -545,7 +545,7 @@ Run npm audits for backend, frontend, and desktop; Gitleaks against history/work
 - [ ] **Step 9: Commit and push final evidence**
 
 ```bash
-git add frontweb/scripts/e2e-production.cjs frontweb/test/e2eProductionContract.test.js docs/ui-refresh-20260718.md frontweb/public/reports/product-acceptance/report.html frontweb/public/reports/product-acceptance/final-20260718/33-project-readiness-compact-1280.png frontweb/public/reports/product-acceptance/final-20260718/34-film-pipeline-compact-1280.png frontweb/public/reports/product-acceptance/final-20260718/35-ai-config-management-1280.png
+git add frontweb/scripts/e2e-production.cjs frontweb/test/e2eProductionContract.test.js docs/ui-refresh-20260718.md frontweb/public/reports/product-acceptance/report.html frontweb/public/reports/product-acceptance/final-20260718/33-project-readiness-compact-1280.jpg frontweb/public/reports/product-acceptance/final-20260718/34-film-pipeline-compact-1280.jpg frontweb/public/reports/product-acceptance/final-20260718/35-ai-config-management-1280.png
 git commit -m "test: close workflow hierarchy release gates"
 git push origin codex/release-trivy-source-build-fix
 ```

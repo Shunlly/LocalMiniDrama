@@ -57,10 +57,24 @@ function lineAndColumn(text, index) {
   return { line: lines.length, column: lines.at(-1).length + 1 }
 }
 
+function decodePercentEncoding(value) {
+  return String(value).replace(/(?:%[0-9a-f]{2})+/gi, (encoded) => {
+    try {
+      return decodeURIComponent(encoded)
+    } catch {
+      return encoded
+    }
+  })
+}
+
 function redactFailureText(value) {
-  return String(value)
-    .replace(/(authorization["']?\s*[:=]\s*["']?\s*bearer)\s+[^\s"',;<>}]+/gi, '$1 <redacted>')
-    .replace(/((?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*["']?)[^\s"',;<>}\]]+/gi, '$1<redacted>')
+  return decodePercentEncoding(value)
+    .replace(/(authorization["']?\s*[:=]\s*["']?\s*bearer\s*)"(?:\\.|[^"\\\r\n])*"/gi, '$1"<redacted>"')
+    .replace(/(authorization["']?\s*[:=]\s*["']?\s*bearer\s*)'(?:\\.|[^'\\\r\n])*'/gi, "$1'<redacted>'")
+    .replace(/(authorization["']?\s*[:=]\s*["']?\s*bearer\s+)(?!["'])[^\s"',;<>}]+/gi, '$1<redacted>')
+    .replace(/((?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*)"(?:\\.|[^"\\\r\n])*"/gi, '$1"<redacted>"')
+    .replace(/((?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*)'(?:\\.|[^'\\\r\n])*'/gi, "$1'<redacted>'")
+    .replace(/((?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*)(?!["'])[^\s"',;<>}\]]+/gi, '$1<redacted>')
     .replace(/-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----/gi, '<private-key-header-redacted>')
     .replace(/\b(?:ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{12,}|xox[baprs]-[A-Za-z0-9-]{12,}|AKIA[A-Z0-9]{16})\b/g, '<credential-redacted>')
     .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1<userinfo-redacted>@')
@@ -418,6 +432,7 @@ function inspectPng(buffer, label = '<png>') {
     const typeBuffer = buffer.subarray(offset + 4, offset + 8)
     const type = typeBuffer.toString('ascii')
     if (!/^[A-Za-z]{4}$/.test(type)) throw pngFailure(label, 'PNG chunk type is invalid')
+    if (type[2] !== type[2].toUpperCase()) throw pngFailure(label, `${type} chunk sets the reserved bit`)
     const data = buffer.subarray(offset + 8, offset + 8 + length)
     const expectedCrc = buffer.readUInt32BE(offset + 8 + length)
     const actualCrc = crc32(Buffer.concat([typeBuffer, data]))
@@ -478,16 +493,98 @@ function inspectPng(buffer, label = '<png>') {
   return { width, height, colorType, bitDepth, text }
 }
 
-function hasPngSignature(buffer) {
-  return buffer.length >= PNG_SIGNATURE.length && buffer.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
+function jpegFailure(label, detail) {
+  return makeFailure('ARV_JPEG_DECODE', label, detail)
 }
 
-function hasJpegSignature(buffer) {
-  return buffer.length >= 4
-    && buffer[0] === 0xff
-    && buffer[1] === 0xd8
-    && buffer.at(-2) === 0xff
-    && buffer.at(-1) === 0xd9
+function isJpegFrameMarker(marker) {
+  return [
+    0xc0, 0xc1, 0xc2, 0xc3,
+    0xc5, 0xc6, 0xc7,
+    0xc9, 0xca, 0xcb,
+    0xcd, 0xce, 0xcf,
+  ].includes(marker)
+}
+
+function inspectJpeg(buffer, label = '<jpeg>') {
+  if (!Buffer.isBuffer(buffer)) throw jpegFailure(label, 'input is not a Buffer')
+  if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
+    throw jpegFailure(label, 'JPEG SOI marker is invalid')
+  }
+
+  let cursor = 2
+  let width = 0
+  let height = 0
+  let precision = 0
+  let sawFrame = false
+  let sawScan = false
+  let sawEnd = false
+
+  while (cursor < buffer.length) {
+    if (buffer[cursor] !== 0xff) throw jpegFailure(label, 'JPEG marker boundary is invalid')
+    while (buffer[cursor] === 0xff) cursor += 1
+    if (cursor >= buffer.length) throw jpegFailure(label, 'JPEG marker is truncated')
+    const marker = buffer[cursor]
+    cursor += 1
+
+    if (marker === 0xd9) {
+      sawEnd = true
+      if (cursor !== buffer.length) throw jpegFailure(label, 'JPEG has trailing data after EOI')
+      break
+    }
+    if (marker === 0x00 || marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      throw jpegFailure(label, 'JPEG contains an out-of-place standalone marker')
+    }
+    if (cursor + 2 > buffer.length) throw jpegFailure(label, 'JPEG segment length is truncated')
+    const segmentLength = buffer.readUInt16BE(cursor)
+    if (segmentLength < 2 || cursor + segmentLength > buffer.length) {
+      throw jpegFailure(label, 'JPEG segment length is invalid')
+    }
+    const dataStart = cursor + 2
+    const segmentEnd = cursor + segmentLength
+
+    if (isJpegFrameMarker(marker)) {
+      if (sawFrame || segmentLength < 11) throw jpegFailure(label, 'JPEG frame header is invalid')
+      precision = buffer[dataStart]
+      height = buffer.readUInt16BE(dataStart + 1)
+      width = buffer.readUInt16BE(dataStart + 3)
+      const components = buffer[dataStart + 5]
+      if (!precision || !width || !height || !components || segmentLength !== 8 + (3 * components)) {
+        throw jpegFailure(label, 'JPEG frame dimensions or components are invalid')
+      }
+      sawFrame = true
+    }
+
+    cursor = segmentEnd
+    if (marker !== 0xda) continue
+    if (!sawFrame || segmentLength < 8) throw jpegFailure(label, 'JPEG scan appears before a valid frame')
+    const scanComponents = buffer[dataStart]
+    if (!scanComponents || segmentLength !== 6 + (2 * scanComponents)) {
+      throw jpegFailure(label, 'JPEG scan header is invalid')
+    }
+    sawScan = true
+
+    while (cursor < buffer.length) {
+      if (buffer[cursor] !== 0xff) {
+        cursor += 1
+        continue
+      }
+      if (cursor + 1 >= buffer.length) throw jpegFailure(label, 'JPEG entropy data is truncated')
+      const next = buffer[cursor + 1]
+      if (next === 0x00 || (next >= 0xd0 && next <= 0xd7)) {
+        cursor += 2
+        continue
+      }
+      if (next === 0xff) {
+        cursor += 1
+        continue
+      }
+      break
+    }
+  }
+
+  if (!sawFrame || !sawScan || !sawEnd) throw jpegFailure(label, 'JPEG is missing frame, scan, or EOI markers')
+  return { width, height, precision }
 }
 
 const CREDENTIAL_PATTERNS = [
@@ -498,12 +595,32 @@ const CREDENTIAL_PATTERNS = [
   },
   {
     name: 'bearer-token',
-    regex: /authorization["']?\s*[:=]\s*["']?\s*bearer\s+([^\s"',;<>}]+)/gi,
+    regex: /authorization["']?\s*[:=]\s*["']?\s*bearer\s+"((?:\\.|[^"\\\r\n])*)"/gi,
+    value: (match) => match[1],
+  },
+  {
+    name: 'bearer-token',
+    regex: /authorization["']?\s*[:=]\s*["']?\s*bearer\s+'((?:\\.|[^'\\\r\n])*)'/gi,
+    value: (match) => match[1],
+  },
+  {
+    name: 'bearer-token',
+    regex: /authorization["']?\s*[:=]\s*["']?\s*bearer\s+(?!["'])([^\s"',;<>}]+)/gi,
     value: (match) => match[1],
   },
   {
     name: 'credential-assignment',
-    regex: /(?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*["']?([^\s"',;<>}\]]*)/gi,
+    regex: /(?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*"((?:\\.|[^"\\\r\n])*)"/gi,
+    value: (match) => match[1],
+  },
+  {
+    name: 'credential-assignment',
+    regex: /(?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*'((?:\\.|[^'\\\r\n])*)'/gi,
+    value: (match) => match[1],
+  },
+  {
+    name: 'credential-assignment',
+    regex: /(?:api[_-]?key|secret|token|password)["']?\s*[:=]\s*(?!["'])([^\s"',;<>}\]]*)/gi,
     value: (match) => match[1],
   },
   {
@@ -524,7 +641,7 @@ function isEmptyCredential(value) {
 }
 
 function scanCredentials(text, file, failures) {
-  const source = String(text)
+  const source = decodePercentEncoding(text)
   for (const pattern of CREDENTIAL_PATTERNS) {
     pattern.regex.lastIndex = 0
     for (const match of source.matchAll(pattern.regex)) {
@@ -657,7 +774,6 @@ function verifyTrackedReport(options = {}) {
     if (id && count > 1) failures.push(makeFailure('ARV_ANCHOR_DUPLICATE', reportFile, `id ${id} occurs ${count} times`))
   }
 
-  const externalScans = new Map()
   const inspectedPngs = new Set()
   let referenceCount = 0
   for (const reference of scan.attributes) {
@@ -691,6 +807,10 @@ function verifyTrackedReport(options = {}) {
     const hashIndex = value.indexOf('#')
     const encodedPath = hashIndex < 0 ? value : value.slice(0, hashIndex)
     const encodedFragment = hashIndex < 0 ? '' : value.slice(hashIndex + 1)
+    if (hashIndex >= 0 && encodedPath) {
+      failures.push(makeFailure('ARV_EXTERNAL_ANCHOR', reportFile, `${attribute} must not target an anchor in another file`, line, column))
+      continue
+    }
     const decodedPath = decodeReferencePath(encodedPath)
     const fragment = decodeReferencePath(encodedFragment)
     if (decodedPath === null || fragment === null || !decodedPath) {
@@ -714,31 +834,21 @@ function verifyTrackedReport(options = {}) {
     }
 
     scanCredentials(path.basename(decodedPath), targetFile, failures)
-    if (fragment) {
-      let targetScan = externalScans.get(target)
-      if (!targetScan) {
-        const targetHtml = fs.readFileSync(target, 'utf8')
-        targetScan = scanHtml(targetHtml, targetFile)
-        externalScans.set(target, targetScan)
-        failures.push(...targetScan.failures)
-        for (const [id, count] of idCounts(targetScan)) {
-          if (id && count > 1) failures.push(makeFailure('ARV_ANCHOR_DUPLICATE', targetFile, `id ${id} occurs ${count} times`))
-        }
-      }
-      if (idCounts(targetScan).get(fragment) !== 1) {
-        failures.push(makeFailure('ARV_ANCHOR_MISSING', reportFile, `${attribute} ${value} has no matching id`, line, column))
-      }
-    }
-
-    if (path.extname(target).toLowerCase() === '.png' && !inspectedPngs.has(target)) {
+    const extension = path.extname(target).toLowerCase()
+    if (extension === '.png' && !inspectedPngs.has(target)) {
       const buffer = fs.readFileSync(target)
-      if (!hasPngSignature(buffer) && hasJpegSignature(buffer)) continue
       inspectedPngs.add(target)
       try {
         const png = inspectPng(buffer, targetFile)
         for (const text of png.text) scanCredentials(text, targetFile, failures)
       } catch (error) {
         failures.push(error.code ? error : pngFailure(targetFile, 'PNG inspection failed'))
+      }
+    } else if (extension === '.jpg' || extension === '.jpeg') {
+      try {
+        inspectJpeg(fs.readFileSync(target), targetFile)
+      } catch (error) {
+        failures.push(error.code ? error : jpegFailure(targetFile, 'JPEG inspection failed'))
       }
     }
   }
@@ -822,15 +932,55 @@ function verifyGitArtifactState(repoRoot, files, failures) {
   }
 }
 
-function enumerateFiles(root) {
-  const files = []
-  if (!fs.existsSync(root)) return files
+function fileSystemPathKey(target) {
+  const resolved = normalizePath(path.resolve(target))
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+function enumerateTree(root) {
+  const entries = []
+  if (!fs.existsSync(root)) return entries
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     const target = path.join(root, entry.name)
-    if (entry.isDirectory()) files.push(...enumerateFiles(target))
-    else if (entry.isFile()) files.push(target)
+    let type = 'nonregular'
+    if (entry.isSymbolicLink()) type = 'symlink'
+    else if (entry.isDirectory()) type = 'directory'
+    else if (entry.isFile()) type = 'file'
+    entries.push({ target, type })
+    if (type === 'directory') entries.push(...enumerateTree(target))
   }
-  return files
+  return entries
+}
+
+function verifyAcceptanceTree(evidenceRoot, repoRoot, failures) {
+  const acceptanceRoot = path.join(evidenceRoot, 'acceptance-report')
+  const screenshotRoot = path.join(acceptanceRoot, 'screenshots')
+  const allowed = new Map([
+    [fileSystemPathKey(path.join(acceptanceRoot, 'manifest.json')), 'file'],
+    [fileSystemPathKey(screenshotRoot), 'directory'],
+    ...REQUIRED_FINAL_CAPTURES.map((capture) => [
+      fileSystemPathKey(path.join(screenshotRoot, `${capture.id}.png`)),
+      'file',
+    ]),
+  ])
+  const seen = new Set()
+
+  for (const entry of enumerateTree(acceptanceRoot)) {
+    const key = fileSystemPathKey(entry.target)
+    const expectedType = allowed.get(key)
+    if (!expectedType) {
+      failures.push(makeFailure('ARV_REQUIRED_CAPTURE', relativePath(repoRoot, entry.target), 'extra acceptance-report entry is not allowed'))
+      continue
+    }
+    seen.add(key)
+    if (entry.type !== expectedType) {
+      failures.push(makeFailure('ARV_REQUIRED_CAPTURE', relativePath(repoRoot, entry.target), `must be a regular ${expectedType}`))
+    }
+  }
+
+  for (const [key, type] of allowed) {
+    if (!seen.has(key)) failures.push(makeFailure('ARV_REQUIRED_CAPTURE', relativePath(repoRoot, key), `required ${type} is missing`))
+  }
 }
 
 function verifyFinalEvidence(options = {}) {
@@ -856,9 +1006,9 @@ function verifyFinalEvidence(options = {}) {
   if (!actualHead || actualHead !== expectedCommit) {
     failures.push(makeFailure('ARV_EVIDENCE_COMMIT', evidenceRootFile, 'repository HEAD differs from expected commit'))
   }
-  const statusResult = gitResult(repoRoot, ['status', '--porcelain', '--untracked-files=no'])
+  const statusResult = gitResult(repoRoot, ['status', '--porcelain=v1', '--untracked-files=all'])
   if (statusResult.status !== 0 || String(statusResult.stdout).trim()) {
-    failures.push(makeFailure('ARV_REPOSITORY_STATE', evidenceRootFile, 'tracked source worktree must be clean'))
+    failures.push(makeFailure('ARV_REPOSITORY_STATE', evidenceRootFile, 'source worktree must be clean except for ignored artifacts'))
   }
 
   const manifestPath = path.join(evidenceRoot, 'acceptance-report', 'manifest.json')
@@ -983,13 +1133,7 @@ function verifyFinalEvidence(options = {}) {
     }
   }
 
-  const screenshotRoot = path.join(evidenceRoot, 'acceptance-report', 'screenshots')
-  const manifestFileSet = new Set(manifestScreenshotFiles.map((file) => path.resolve(file).toLowerCase()))
-  for (const file of enumerateFiles(screenshotRoot)) {
-    if (!manifestFileSet.has(path.resolve(file).toLowerCase())) {
-      failures.push(makeFailure('ARV_REQUIRED_CAPTURE', relativePath(repoRoot, file), 'extra final screenshot file is not declared by the manifest'))
-    }
-  }
+  verifyAcceptanceTree(evidenceRoot, repoRoot, failures)
 
   const artifactFiles = [manifestPath, evidencePath, ...manifestScreenshotFiles]
     .filter((file, index, all) => all.indexOf(file) === index && regularFileWithin(repoRoot, file))

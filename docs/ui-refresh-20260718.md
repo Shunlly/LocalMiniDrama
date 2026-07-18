@@ -171,8 +171,8 @@ change invalidates that evidence and requires the machine gates to run again.
 The following tracked screenshots remain useful for reviewing the workflow
 hierarchy, but they are not final same-revision machine evidence:
 
-- `33-project-readiness-compact-1280.png` is 1265x712.
-- `34-film-pipeline-compact-1280.png` is 1265x712.
+- `33-project-readiness-compact-1280.jpg` is 1265x712.
+- `34-film-pipeline-compact-1280.jpg` is 1265x712.
 - `35-ai-config-management-1280.png` is 1280x376 and intentionally stops above
   configuration rows.
 

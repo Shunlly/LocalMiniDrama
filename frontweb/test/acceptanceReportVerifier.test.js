@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -29,6 +30,7 @@ const {
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 const REPORT_RELATIVE_PATH = 'frontweb/public/reports/product-acceptance/report.html'
 const NOTES_RELATIVE_PATH = 'docs/ui-refresh-20260718.md'
+const acceptanceReportSource = readFileSync(new URL('../public/reports/product-acceptance/report.html', import.meta.url), 'utf8')
 
 function crc32(buffer) {
   let crc = 0xffffffff
@@ -57,6 +59,7 @@ function createPng(width, height, options = {}) {
     filters = [0],
     idat,
     interlace = 0,
+    chunksBeforeIdat = [],
     textChunks = [],
   } = options
   const ihdr = Buffer.alloc(13)
@@ -80,17 +83,38 @@ function createPng(width, height, options = {}) {
     PNG_SIGNATURE,
     pngChunk('IHDR', ihdr),
     ...textChunks.map(([keyword, value]) => pngChunk('tEXt', Buffer.from(`${keyword}\0${value}`, 'latin1'))),
+    ...chunksBeforeIdat.map(([type, data]) => pngChunk(type, data)),
     pngChunk('IDAT', compressed),
     pngChunk('IEND', Buffer.alloc(0)),
   ])
 }
 
-function createJpeg() {
-  return Buffer.from([
-    0xff, 0xd8,
-    0xff, 0xe0, 0x00, 0x10,
+function jpegSegment(marker, data) {
+  const length = Buffer.alloc(2)
+  length.writeUInt16BE(data.length + 2)
+  return Buffer.concat([Buffer.from([0xff, marker]), length, data])
+}
+
+function createJpeg(width = 8, height = 5, options = {}) {
+  const app0 = Buffer.from([
     0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
-    0xff, 0xd9,
+  ])
+  const sof = Buffer.alloc(9)
+  sof[0] = 8
+  sof.writeUInt16BE(height, 1)
+  sof.writeUInt16BE(width, 3)
+  sof[5] = 1
+  sof[6] = 1
+  sof[7] = 0x11
+  sof[8] = 0
+  const sos = Buffer.from([1, 1, 0, 0, 63, 0])
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    jpegSegment(0xe0, app0),
+    ...(options.omitDimensions ? [] : [jpegSegment(0xc0, sof)]),
+    jpegSegment(0xda, sos),
+    Buffer.from([0x11, 0x22, 0x33]),
+    Buffer.from([0xff, 0xd9]),
   ])
 }
 
@@ -322,6 +346,9 @@ test('PNG inspection validates CRC, deflate data, filters, and dimensions', () =
 
   const badFilter = createPng(7, 1, { bitDepth: 8, filters: [5] })
   assert.equal(thrownCode(() => inspectPng(badFilter, 'bad-filter.png')), 'ARV_PNG_DECODE')
+
+  const reservedBit = createPng(7, 1, { bitDepth: 8, chunksBeforeIdat: [['abcd', Buffer.alloc(0)]] })
+  assert.equal(thrownCode(() => inspectPng(reservedBit, 'reserved-bit.png')), 'ARV_PNG_DECODE')
 })
 
 test('tracked verification accepts illustrative PNGs without imposing final viewport dimensions', () => {
@@ -331,13 +358,26 @@ test('tracked verification accepts illustrative PNGs without imposing final view
   })
 })
 
-test('tracked verification preserves legacy illustrative JPEG bytes under historical PNG paths', () => {
-  withTempDir('arv-tracked-legacy-jpeg-', (root) => {
+test('tracked verification validates JPEG structure and dimensions for illustrative JPG references', () => {
+  withTempDir('arv-tracked-jpeg-', (root) => {
     createTrackedFixture(root, {
-      imageName: 'final-20260717/06-historical-screen.png',
+      imageName: 'final-20260717/06-historical-screen.jpg',
       png: createJpeg(),
     })
     assert.deepEqual(verifyTrackedReport({ repoRoot: root }), { references: 2, pngs: 0 })
+  })
+})
+
+test('tracked verification rejects JPEG bytes under PNG names and malformed JPG structures', () => {
+  withTempDir('arv-tracked-format-', (root) => {
+    createTrackedFixture(root, { imageName: 'unknown.png', png: createJpeg() })
+    assert.ok(aggregateCodes(() => verifyTrackedReport({ repoRoot: root })).includes('ARV_PNG_DECODE'))
+  })
+
+  withTempDir('arv-tracked-bad-jpeg-', (root) => {
+    const malformed = createJpeg(8, 5, { omitDimensions: true })
+    createTrackedFixture(root, { imageName: 'malformed.jpg', png: malformed })
+    assert.ok(aggregateCodes(() => verifyTrackedReport({ repoRoot: root })).includes('ARV_JPEG_DECODE'))
   })
 })
 
@@ -367,6 +407,14 @@ test('tracked verification reports missing and escaping refs, schemes, anchors, 
       html: validTrackedHtml().replace('href="#evidence"', 'href="javascript:alert(1)"'),
     })
     assert.ok(aggregateCodes(() => verifyTrackedReport({ repoRoot: root })).includes('ARV_REF_SCHEME'))
+  })
+
+  withTempDir('arv-tracked-external-anchor-', (root) => {
+    const fixture = createTrackedFixture(root, {
+      html: validTrackedHtml().replace('href="#evidence"', 'href="other.html#target"'),
+    })
+    write(path.dirname(fixture.report), 'other.html', '<!doctype html><html><body><div id="target"></div></body></html>')
+    assert.ok(aggregateCodes(() => verifyTrackedReport({ repoRoot: root })).includes('ARV_EXTERNAL_ANCHOR'))
   })
 })
 
@@ -419,6 +467,27 @@ test('failure formatting is stable and redacts bearer and assignment values', ()
   assert.doesNotMatch(output, /fixture-bearer-secret|fixture-password-secret/)
 })
 
+test('failure formatting fully redacts quoted, spaced, unquoted, encoded, path, and detail credentials', () => {
+  const output = formatFailures([
+    {
+      code: 'ARV_CREDENTIAL_PATTERN',
+      file: 'reports/password%3D%22EncodedPiece%20EncodedTail%22/result.html',
+      detail: 'password="DoublePiece DoubleTail" token=\'SinglePiece SingleTail\' secret=UnquotedPiece',
+    },
+  ])
+  assert.doesNotMatch(
+    output,
+    /DoublePiece|DoubleTail|SinglePiece|SingleTail|UnquotedPiece|EncodedPiece|EncodedTail|%3D|%22|%20/i,
+  )
+})
+
+test('tracked report labels every screenshot and historical run statement as illustrative context', () => {
+  const labels = [...acceptanceReportSource.matchAll(/class="step-health">([^<]+)</g)].map((match) => match[1])
+  assert.ok(labels.length >= 35)
+  assert.ok(labels.every((label) => label === '说明性'), labels.join(', '))
+  assert.doesNotMatch(acceptanceReportSource, /截图证明|均无横向溢出|播放到 ended|干净提交生产 E2E 已|本轮实际运行/)
+})
+
 test('final verification accepts exactly 20 ignored and untracked captures from a clean full commit', () => {
   withTempDir('arv-final-pass-', (root) => {
     const fixture = writeFinalFixture(root)
@@ -431,6 +500,56 @@ test('final verification accepts exactly 20 ignored and untracked captures from 
       evidenceRoot: fixture.evidenceRoot,
       expectedCommit: fixture.commit,
     }), { commit: fixture.commit, screenshots: 20 })
+  })
+})
+
+test('final verification rejects untracked and non-ignored source or config files', () => {
+  withTempDir('arv-final-untracked-source-', (root) => {
+    const fixture = writeFinalFixture(root)
+    write(root, 'local-review.js', 'export const dirty = true\n')
+    write(root, 'config/local-review.json', '{}\n')
+    const codes = aggregateCodes(() => verifyFinalEvidence({
+      repoRoot: root,
+      evidenceRoot: fixture.evidenceRoot,
+      expectedCommit: fixture.commit,
+    }))
+    assert.ok(codes.includes('ARV_REPOSITORY_STATE'))
+  })
+})
+
+test('final verification rejects every bypass entry under the acceptance-report root', () => {
+  withTempDir('arv-final-bypass-', (root) => {
+    const fixture = writeFinalFixture(root)
+    const acceptanceRoot = path.dirname(fixture.manifestPath)
+    write(acceptanceRoot, 'notes.txt', 'not allowed\n')
+    mkdirSync(path.join(acceptanceRoot, 'extra-directory'))
+
+    let symlinkCreated = false
+    try {
+      symlinkSync(fixture.manifestPath, path.join(acceptanceRoot, 'manifest-link.json'), 'file')
+      symlinkCreated = true
+    } catch (error) {
+      if (!['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) throw error
+    }
+
+    let caseVariant = ''
+    if (process.platform !== 'win32') {
+      const capture = REQUIRED_FINAL_CAPTURES[0]
+      const canonical = path.join(fixture.screenshotRoot, `${capture.id}.png`)
+      caseVariant = `${capture.id.toUpperCase()}.png`
+      writeFileSync(path.join(fixture.screenshotRoot, caseVariant), readFileSync(canonical))
+    }
+
+    const error = aggregateFailure(() => verifyFinalEvidence({
+      repoRoot: root,
+      evidenceRoot: fixture.evidenceRoot,
+      expectedCommit: fixture.commit,
+    }))
+    const output = formatFailures(error.errors)
+    assert.match(output, /notes\.txt/)
+    assert.match(output, /extra-directory/)
+    if (symlinkCreated) assert.match(output, /manifest-link\.json/)
+    if (caseVariant) assert.match(output, new RegExp(caseVariant, 'i'))
   })
 })
 
