@@ -8,24 +8,29 @@
           <span class="logo-sub">LocalMiniDrama</span>
         </button>
         <span class="breadcrumb-sep">›</span>
-        <span class="page-title">{{ projectPageTitle }}</span>
-        <el-select
-          v-if="projectLoadState === 'ready' && dramaId"
-          v-model="selectedEpisodeId"
-          class="header-episode-select"
-          placeholder="选择集数"
-          clearable
-          size="small"
-          style="width: 130px"
-          @change="onEpisodeSelect"
-        >
-          <el-option
-            v-for="ep in (store.drama?.episodes || [])"
-            :key="ep.id"
-            :label="ep.title || '第' + (ep.episode_number || 0) + '集'"
-            :value="ep.id"
-          />
-        </el-select>
+        <div class="header-context">
+          <span class="header-context-label">项目</span>
+          <span class="page-title" :title="projectPageTitle">{{ projectPageTitle }}</span>
+        </div>
+        <div v-if="projectLoadState === 'ready' && dramaId" class="header-context">
+          <span class="header-context-label">当前集</span>
+          <el-select
+            v-model="selectedEpisodeId"
+            class="header-episode-select"
+            aria-label="当前集"
+            :title="selectedEpisodeContextLabel"
+            placeholder="选择集数"
+            size="small"
+            @change="onEpisodeSelect"
+          >
+            <el-option
+              v-for="(ep, index) in (store.drama?.episodes || [])"
+              :key="ep.id"
+              :label="formatEpisodeContextLabel(ep, index)"
+              :value="ep.id"
+            />
+          </el-select>
+        </div>
         <el-button v-if="projectLoadState === 'ready' && dramaId" class="btn-back-drama" @click="router.push('/drama/' + dramaId)">
           <el-icon><ArrowLeft /></el-icon>
           返回剧集
@@ -2905,6 +2910,7 @@ import { characterLibraryAPI } from '@/api/characterLibrary'
 import { sceneLibraryAPI } from '@/api/sceneLibrary'
 import { propLibraryAPI } from '@/api/propLibrary'
 import { parseScriptIntoEpisodes, episodesListToPlainScript } from '@/utils/scriptEpisodes'
+import { formatEpisodeContextLabel } from '@/utils/filmCreateContext'
 import { buildEpisodeDraftPayload, createScriptDraftController } from '@/utils/scriptDraft'
 import { isPlaceholderMediaUrl, probeImageSource, storyboardImageUrl } from '@/utils/mediaUrl'
 import { getSbImagesList, hasRealMediaValue } from '@/utils/storyboardMedia'
@@ -3076,6 +3082,14 @@ const novelAiSummarize = ref(false)
 const novelImporting = ref(false)
 const scriptTitle = ref('')
 const selectedEpisodeId = ref(null)
+const selectedEpisodeContextLabel = computed(() => {
+  const episodes = store.drama?.episodes || []
+  const index = episodes.findIndex((episode) => (
+    Number(episode?.id) === Number(selectedEpisodeId.value)
+  ))
+  if (index < 0) return '未选择剧集'
+  return formatEpisodeContextLabel(episodes[index], index)
+})
 /** 保存剧本后用于恢复选中集（后端重插后 id 会变，用 episode_number 匹配） */
 const savedCurrentEpisodeNumber = ref(1)
 const scriptLanguage = ref('zh')
@@ -9627,8 +9641,29 @@ html.light .page-title {
   background: rgba(99, 102, 241, 0.04);
   border-color: rgba(99, 102, 241, 0.1);
 }
-.header-episode-select {
+.header-context {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+.header-context-label {
   flex-shrink: 0;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+.header-episode-select {
+  width: min(240px, 20vw);
+  min-width: 170px;
+  flex-shrink: 0;
+}
+.header-episode-select :deep(.el-select__selected-item) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .btn-back-drama {
   flex-shrink: 0;

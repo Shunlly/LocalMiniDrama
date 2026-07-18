@@ -34,6 +34,18 @@ test('film create navigation and resource disclosure controls use native buttons
 test('film create keeps the episode selector only in the page header', () => {
   assert.equal((filmCreateSource.match(/v-model="selectedEpisodeId"/g) || []).length, 1)
   assert.equal((filmCreateSource.match(/class="header-episode-select"/g) || []).length, 1)
+
+  const selectStart = filmCreateSource.indexOf('class="header-episode-select"')
+  const selectEnd = filmCreateSource.indexOf('</el-select>', selectStart)
+  const episodeSelectSource = filmCreateSource.slice(selectStart, selectEnd)
+
+  assert.match(filmCreateSource, /class="header-context-label">项目<\/span>/)
+  assert.match(filmCreateSource, /class="header-context-label">当前集<\/span>/)
+  assert.match(filmCreateSource, /class="page-title"\s+:title="projectPageTitle"/)
+  assert.match(episodeSelectSource, /aria-label="当前集"/)
+  assert.match(episodeSelectSource, /v-for="\(ep, index\) in \(store\.drama\?\.episodes \|\| \[\]\)"/)
+  assert.match(episodeSelectSource, /:label="formatEpisodeContextLabel\(ep, index\)"/)
+  assert.doesNotMatch(episodeSelectSource, /\bclearable\b/)
 })
 
 test('film create navigation names and reports the final delivery step accurately', () => {
