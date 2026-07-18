@@ -595,6 +595,22 @@ test('production E2E verifies workflow-first disclosures and AI config modes', (
   ])
 })
 
+test('production E2E verifies service-specific AI config return routes in config management', () => {
+  const aiConfigReturn = sourceFunction('verifyAiConfigReturnUi', 'importSourceFromUi')
+  assertSourceOrder(aiConfigReturn, [
+    'service_type=text',
+    "page.getByTestId('ai-config-mode-configs')",
+    "await configsMode.waitFor({ state: 'visible', timeout: 30000 })",
+    "assert.equal(await configsMode.getAttribute('aria-selected'), 'true'",
+    "page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 30000 })",
+    "page.getByRole('button', { name: '\\u8fd4\\u56de\\u539f\\u9879\\u76ee', exact: true })",
+  ])
+  assert.doesNotMatch(
+    aiConfigReturn,
+    /getByRole\('heading', \{ name: '\\u0041\\u0049 \\u670d\\u52a1\\u914d\\u7f6e\\u4e0e\\u9a8c\\u8bc1'/,
+  )
+})
+
 test('browser acceptance contract covers the full UI journey, recovery, downloads, viewports, and playback', () => {
   assert.deepEqual(DESKTOP_VIEWPORTS, [
     { width: 1440, height: 900 },

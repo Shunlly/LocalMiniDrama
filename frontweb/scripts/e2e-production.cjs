@@ -1098,8 +1098,10 @@ async function verifyAiConfigReturnUi(page, dramaId) {
     `${FRONTEND_URL}/ai-config?service_type=text&returnTo=${encodeURIComponent(returnTo)}`,
     { waitUntil: 'domcontentloaded' },
   )
-  await page.getByRole('heading', { name: '\u0041\u0049 \u670d\u52a1\u914d\u7f6e\u4e0e\u9a8c\u8bc1', exact: true })
-    .waitFor({ timeout: 30000 })
+  const configsMode = page.getByTestId('ai-config-mode-configs')
+  await configsMode.waitFor({ state: 'visible', timeout: 30000 })
+  assert.equal(await configsMode.getAttribute('aria-selected'), 'true', 'service-specific AI config must open in config management')
+  await page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 30000 })
   const backButton = page.getByRole('button', { name: '\u8fd4\u56de\u539f\u9879\u76ee', exact: true })
   await backButton.waitFor({ state: 'visible', timeout: 10000 })
   const navigationPromise = page.waitForURL(new RegExp(`/drama/${dramaId}#source-intake-workflow$`), { timeout: 30000 })
