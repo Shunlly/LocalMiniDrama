@@ -12,6 +12,38 @@
       </div>
     </div>
 
+    <div v-if="compactCompletionVisible" data-testid="source-workflow-complete" class="source-workflow-complete">
+      <div class="workflow-complete-heading">
+        <strong>{{ completionTitle }}</strong>
+        <span>{{ qaPresentation.scoreLabel }}</span>
+      </div>
+      <div class="workflow-complete-metrics" aria-label="完成摘要">
+        <span><small>QA</small><strong>{{ qaPresentation.statusLabel }}</strong></span>
+        <span><small>分集</small><strong>{{ completionEpisodeCount }} 集</strong></span>
+        <span><small>轨道</small><strong>{{ timelineSummary.trackCount }} 轨</strong></span>
+        <span><small>时长</small><strong>{{ formatDuration(timelineSummary.durationSec) }}</strong></span>
+        <span><small>占位</small><strong>{{ completionPlaceholderCount }} 项</strong></span>
+      </div>
+      <div class="workflow-complete-actions">
+        <el-button type="primary" @click="$emit('enter-production')">进入制作</el-button>
+        <el-button plain @click="$emit('focus-episode-list')">查看分集</el-button>
+        <el-button
+          class="workflow-history-toggle"
+          text
+          :aria-controls="'source-workflow-history'"
+          :aria-expanded="workflowHistoryExpanded"
+          @click="workflowHistoryExpanded = !workflowHistoryExpanded"
+        >
+          <el-icon><ArrowUp v-if="workflowHistoryExpanded" /><ArrowDown v-else /></el-icon>
+          流程记录
+        </el-button>
+      </div>
+    </div>
+
+    <div
+      id="source-workflow-history"
+      v-show="!compactCompletionVisible || workflowHistoryExpanded"
+    >
     <nav class="flow-stepper" aria-label="素材处理步骤">
       <button
         v-for="step in flowState.steps"
@@ -438,11 +470,12 @@
             </div>
             <div v-else class="stage-empty">完成素材处理后，这里会显示剧集与时间线摘要。</div>
             <div class="stage-action-row delivery-actions">
-              <el-button type="primary" plain @click="selectFlowStep('intake')">继续导入素材</el-button>
+              <el-button type="primary" plain @click="selectFlowStep('intake')">继续导入故事素材</el-button>
             </div>
           </div>
         </template>
       </div>
+    </div>
     </div>
 
     <el-drawer v-model="sourceDetailVisible" title="素材详情" size="46%">
@@ -486,7 +519,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Setting } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, Setting } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import { sourceIntakeAPI } from '@/api/sourceIntake'
 import { workflowRunsAPI } from '@/api/workflowRuns'
@@ -532,7 +565,7 @@ const props = defineProps({
   drama: { type: Object, default: null },
 })
 
-const emit = defineEmits(['refresh'])
+const emit = defineEmits(['refresh', 'enter-production', 'focus-episode-list'])
 const router = useRouter()
 
 const sourceTypeOptions = SOURCE_TYPE_OPTIONS
@@ -551,6 +584,7 @@ const sourceFileReading = ref(false)
 const sourceOperationMessage = ref('')
 const sourceOperationError = ref('')
 const workflowDataError = ref('')
+const workflowHistoryExpanded = ref(false)
 const workflowMode = ref(DEFAULT_WORKFLOW_MODE)
 const productionReadiness = ref(null)
 const readinessChecking = ref(false)
@@ -652,6 +686,19 @@ const flowState = computed(() => buildSourceWorkflowState({
   episodeCount: props.drama?.episodes?.length || 0,
   actionReasons: actionReasons.value,
 }))
+const compactCompletionVisible = computed(() => (
+  flowState.value.complete && !loading.value && !workflowDataError.value
+))
+const completionTitle = computed(() => {
+  if (runState.value.mode !== 'production') return '草稿预演已完成'
+  return runState.value.productionPlaceholder ? '正式制作已完成（含占位产物）' : '正式制作已完成'
+})
+const completionEpisodeCount = computed(() => (
+  timelineSummary.value.episodeCount || props.drama?.episodes?.length || 0
+))
+const completionPlaceholderCount = computed(() => (
+  timelineSummary.value.placeholderItemCount || (runState.value.hasPlaceholderOutputs ? 1 : 0)
+))
 const actualFlowStep = computed(() => (
   flowState.value.activeStep
   || flowState.value.steps[0]
@@ -674,6 +721,12 @@ watch(
     selectedFlowStepId.value = activeStepId || flowState.value.steps[0]?.id || ''
   },
   { immediate: true },
+)
+watch(
+  () => flowState.value.complete,
+  (complete, previousComplete) => {
+    if (complete && !previousComplete) workflowHistoryExpanded.value = false
+  },
 )
 const runTagType = computed(() => {
   if (runState.value.productionPlaceholder) return 'danger'
@@ -1342,6 +1395,7 @@ onBeforeUnmount(() => {
   outline: 1px solid var(--el-text-color-secondary);
   outline-offset: -2px;
 }
+
 .flow-step.is-selected:focus-visible {
   outline: 2px solid var(--el-color-primary);
   outline-offset: 2px;
@@ -1868,6 +1922,81 @@ html.light .detail-row {
   .readiness-gap-list li {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+}
+
+.source-workflow-complete {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(360px, 1.5fr) auto;
+  align-items: center;
+  gap: 14px;
+  max-height: 180px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(161, 161, 170, 0.22);
+}
+
+.workflow-complete-heading,
+.workflow-complete-metrics,
+.workflow-complete-actions {
+  min-width: 0;
+}
+
+.workflow-complete-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.workflow-complete-heading strong {
+  font-size: 15px;
+  color: var(--source-text-primary);
+}
+
+.workflow-complete-heading span,
+.workflow-complete-metrics small {
+  color: var(--source-text-muted);
+  font-size: 12px;
+}
+
+.workflow-complete-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.workflow-complete-metrics span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workflow-complete-metrics strong {
+  overflow: hidden;
+  color: var(--source-text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-complete-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.workflow-history-toggle:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .source-workflow-complete {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+
+  .workflow-complete-actions {
+    justify-content: flex-start;
   }
 }
 </style>

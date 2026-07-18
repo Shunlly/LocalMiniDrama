@@ -56,3 +56,20 @@ test('source workflow current and selected stages have distinct visual markers',
   assert.match(source, /\.flow-step\.is-selected\s*\{[\s\S]*?outline:/)
   assert.match(source, /\.flow-step\.is-selected:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--el-color-primary\)/)
 })
+
+test('completed source workflow is compact, scoped, and keeps full history disclosed', () => {
+  assert.match(source, /data-testid="source-workflow-complete"/)
+  assert.match(source, /草稿预演已完成/)
+  assert.match(source, /正式制作已完成/)
+  assert.match(source, /含占位产物/)
+  assert.match(source, />进入制作<\/el-button>/)
+  assert.match(source, />查看分集<\/el-button>/)
+  assert.match(source, /class="workflow-history-toggle"[\s\S]*?:aria-expanded="workflowHistoryExpanded"/)
+  assert.match(source, /id="source-workflow-history"[\s\S]*?v-show="!compactCompletionVisible \|\| workflowHistoryExpanded"/)
+
+  const summaryIndex = source.indexOf('data-testid="source-workflow-complete"')
+  const historyIndex = source.indexOf('id="source-workflow-history"')
+  const continueImportIndex = source.indexOf('继续导入故事素材')
+  assert.ok(summaryIndex >= 0 && historyIndex > summaryIndex)
+  assert.ok(continueImportIndex > historyIndex)
+})

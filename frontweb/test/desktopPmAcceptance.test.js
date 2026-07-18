@@ -170,6 +170,20 @@ test('desktop creation surfaces keep focused tasks readable and user-facing', ()
   assert.doesNotMatch(filmCreateSource, /正在检查 Production|Draft 占位|FFmpeg 能力|TTS 配音失败|解说 TTS 失败/)
 })
 
+test('completed source workflows hand off to production without obscuring the episode list', () => {
+  assert.match(sourceIntakeSource, /data-testid="source-workflow-complete"/)
+  assert.match(sourceIntakeSource, /@click="\$emit\('enter-production'\)"/)
+  assert.match(sourceIntakeSource, /@click="\$emit\('focus-episode-list'\)"/)
+  assert.match(sourceIntakeSource, /\.source-workflow-complete\s*\{[\s\S]*?max-height:\s*180px/)
+  assert.doesNotMatch(sourceIntakeSource, /source-workflow-complete[^>]*card/)
+  assert.match(dramaDetailSource, /@enter-production="enterSourceWorkflowProduction"/)
+  assert.match(dramaDetailSource, /@focus-episode-list="scrollToSection\('episode-list'\)"/)
+  assert.match(
+    dramaDetailSource,
+    /function enterSourceWorkflowProduction\(\)[\s\S]*?episodes\.value\.find\(\(item\) => Number\(item\?\.id\) > 0\)[\s\S]*?goEpisode\(episode\.id\)/,
+  )
+})
+
 test('film creation desktop keeps the pipeline focus above long content and anchors below the sticky header', () => {
   const pipelineIndex = filmCreateSource.indexOf('<FilmCreatePipelinePanel')
   const scriptWorkbenchIndex = filmCreateSource.indexOf('class="section card script-workbench-unified"')

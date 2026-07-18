@@ -188,6 +188,8 @@
         :drama-id="dramaId"
         :drama="drama"
         @refresh="handleSourceWorkflowRefresh"
+        @enter-production="enterSourceWorkflowProduction"
+        @focus-episode-list="scrollToSection('episode-list')"
       />
 
       <!-- 分集列表 -->
@@ -1443,6 +1445,15 @@ function scrollToSection(id) {
 
 function scrollToSourceIntake() {
   scrollToSection('source-intake-workflow')
+}
+
+function enterSourceWorkflowProduction() {
+  const episode = episodes.value.find((item) => Number(item?.id) > 0)
+  if (!episode) {
+    scrollToSection('episode-list')
+    return
+  }
+  goEpisode(episode.id)
 }
 
 let handledRouteAnchor = ''

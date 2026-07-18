@@ -53,7 +53,8 @@ const UI = Object.freeze({
   startProduction: '\u4ee5 \u6b63\u5f0f\u5236\u4f5c \u542f\u52a8',
   refresh: '\u5237\u65b0',
   timelineStep: '\u5267\u96c6 / \u65f6\u95f4\u7ebf',
-  continueImport: '\u7ee7\u7eed\u5bfc\u5165\u7d20\u6750',
+  continueImport: '\u7ee7\u7eed\u5bfc\u5165\u6545\u4e8b\u7d20\u6750',
+  workflowHistory: '\u6d41\u7a0b\u8bb0\u5f55',
   enterProduction: '\u8fdb\u5165\u5236\u4f5c',
   returnToDrama: '\u8fd4\u56de\u5267\u96c6',
   deliveryExport: '\u4ea4\u4ed8\u4e0e\u5bfc\u51fa',
@@ -1454,6 +1455,9 @@ async function verifyCompletedUi(browser, dramaId, viewport, {
   const workflow = page.locator('#source-intake-workflow')
   await workflow.waitFor({ state: 'visible', timeout: 30000 })
   await workflow.getByRole('button', { name: UI.refresh, exact: true }).click()
+  const completion = workflow.getByTestId('source-workflow-complete')
+  await completion.waitFor({ state: 'visible', timeout: 30000 })
+  await completion.getByRole('button', { name: UI.workflowHistory, exact: true }).click()
   await flowStepButton(workflow, UI.timelineStep).click()
   const timeline = workflow.locator('.timeline-block')
   assert.ok(Number.isInteger(expectedTrackCount) && expectedTrackCount > 0, 'expected timeline track count is required')
@@ -1464,7 +1468,7 @@ async function verifyCompletedUi(browser, dramaId, viewport, {
   await timeline.getByRole('button', { name: UI.continueImport, exact: true }).click()
   await workflow.getByPlaceholder(UI.sourcePlaceholder, { exact: true }).waitFor({ state: 'visible', timeout: 15000 })
   const navigationPromise = page.waitForURL(new RegExp(`/film/${dramaId}(?:[?#]|$)`), { timeout: 30000 })
-  await page.getByRole('button', { name: UI.enterProduction, exact: true }).click()
+  await completion.getByRole('button', { name: UI.enterProduction, exact: true }).click()
   await navigationPromise
   await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
   await page.locator('#film-create-quick-nav button.nav-step').filter({ hasText: UI.deliveryExport }).click()
