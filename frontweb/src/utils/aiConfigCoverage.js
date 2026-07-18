@@ -68,6 +68,25 @@ function buildCoverageSummary(services) {
   }
 }
 
+function getCoveragePriority(service) {
+  if (service?.test?.status === 'failed') return 0
+  if (service?.state === 'configured' || ['no_default', 'inactive'].includes(service?.issue)) return 1
+  if (service?.state === 'missing') return 2
+  if (service?.test?.status === 'unknown') return 3
+  return 4
+}
+
+export function sortAiServiceCoverage(services = []) {
+  const source = Array.isArray(services) ? services : []
+  return source
+    .map((service, index) => ({ service, index }))
+    .sort((left, right) => (
+      getCoveragePriority(left.service) - getCoveragePriority(right.service)
+      || left.index - right.index
+    ))
+    .map(({ service }) => service)
+}
+
 export function getConfigTestStatus(config, sessionTestStatusById = {}) {
   if (!config) {
     return { status: 'unknown', source: 'none', testedAt: null }
@@ -100,59 +119,43 @@ export function getConfigTestStatus(config, sessionTestStatusById = {}) {
 
 export function getAiServiceCoverageActions(service, options = {}) {
   const vendorLocked = !!options.vendorLocked
-  const actions = []
 
   if (service.state === 'missing') {
-    if (!vendorLocked) {
-      actions.push({
-        key: 'add',
-        label: `添加${service.label}配置`,
-        action: 'add',
-        emphasis: 'primary',
-      })
-    }
-    actions.push({
-      key: 'view',
-      label: '查看配置',
-      action: 'view',
-      emphasis: 'secondary',
-    })
-    return actions
+    return []
   }
 
-  if (!vendorLocked && service.issue === 'no_default') {
-    actions.push({
+  if (vendorLocked && ['no_default', 'inactive'].includes(service.issue)) {
+    return []
+  }
+
+  if (service.issue === 'no_default') {
+    return [{
       key: 'fix-default',
       label: service.targetConfig ? '补齐默认' : '添加默认',
       action: service.targetConfig ? 'edit' : 'add',
       emphasis: 'primary',
-    })
-  } else if (!vendorLocked && service.issue === 'inactive') {
-    actions.push({
+    }]
+  }
+
+  if (service.issue === 'inactive') {
+    return [{
       key: 'activate',
       label: service.targetConfig ? '启用默认' : '添加配置',
       action: service.targetConfig ? 'edit' : 'add',
       emphasis: 'primary',
-    })
+    }]
   }
 
-  actions.push({
-    key: 'view',
-    label: '查看配置',
-    action: 'view',
-    emphasis: actions.length ? 'secondary' : 'primary',
-  })
-
-  if (service.targetConfig) {
-    actions.push({
+  if (service.targetConfig && ['unknown', 'failed'].includes(service.test?.status)) {
+    return [{
       key: 'test',
-      label: service.test.status === 'passed' ? '重新测试' : '立即测试',
+      label: service.test.status === 'failed' ? '重新测试' : '立即测试',
       action: 'test',
-      emphasis: 'secondary',
-    })
+      emphasis: 'primary',
+    }]
   }
 
-  return actions
+  return []
 }
 
 export function buildAiServiceCoverage(configs = [], sessionTestStatusById = {}) {

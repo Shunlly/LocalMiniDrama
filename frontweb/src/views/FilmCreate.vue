@@ -2861,10 +2861,24 @@
       title="AI 配置"
       width="90%"
       top="5vh"
+      :show-close="true"
       destroy-on-close
       class="ai-config-workspace-dialog ai-config-overlay"
     >
-      <AIConfigContent v-if="showAiConfigDialog" :initial-service-type="aiConfigInitialServiceType" />
+      <template #header="{ titleId, titleClass }">
+        <div class="ai-config-dialog-header">
+          <el-button class="ai-config-dialog-back" text @click="returnToProductionFromAiConfig">
+            <el-icon><ArrowLeft /></el-icon>
+            <span>返回制作</span>
+          </el-button>
+          <strong :id="titleId" :class="[titleClass, 'ai-config-dialog-title']">AI 配置</strong>
+        </div>
+      </template>
+      <AIConfigContent
+        v-if="showAiConfigDialog"
+        :initial-service-type="aiConfigInitialServiceType"
+        @configuration-changed="onAiConfigurationChanged"
+      />
     </el-dialog>
 
     <ImagePreviewDialog
@@ -3003,6 +3017,7 @@ function openMediaLibraryFromPicker() {
 
 const showAiConfigDialog = ref(false)
 const aiConfigInitialServiceType = ref('')
+const aiConfigChanged = ref(false)
 const videoCapabilityConfigs = ref([])
 const videoCapabilityLoading = ref(true)
 const videoCapabilityFailed = ref(false)
@@ -3046,10 +3061,25 @@ function openAiConfig(serviceType = '') {
     : ''
   showAiConfigDialog.value = true
 }
-watch(showAiConfigDialog, (open) => {
-  if (open) return
+
+function onAiConfigurationChanged() {
+  aiConfigChanged.value = true
+}
+
+function returnToProductionFromAiConfig() {
+  showAiConfigDialog.value = false
+}
+
+watch(showAiConfigDialog, async (open) => {
+  if (open) {
+    aiConfigChanged.value = false
+    return
+  }
+  const changed = aiConfigChanged.value
+  aiConfigChanged.value = false
   invalidateActiveVideoAiConfigCache()
-  Promise.allSettled([
+  if (changed) ElMessage.info('配置已更新，正在重新检查')
+  await Promise.allSettled([
     refreshVideoGenerationCapability(),
     refreshProductionReadiness(),
   ])
@@ -9412,6 +9442,22 @@ watch(
 </script>
 
 <style scoped>
+.ai-config-dialog-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 32px;
+}
+.ai-config-dialog-back {
+  min-height: 32px;
+  padding: 4px 8px;
+}
+.ai-config-dialog-title {
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 24px;
+}
 .script-workbench-unified {
   margin-bottom: 0;
 }

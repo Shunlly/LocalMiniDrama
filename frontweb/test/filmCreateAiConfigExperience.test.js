@@ -97,6 +97,35 @@ test('FilmCreate generic AI config entry resets a prior service-specific filter'
   assert.match(filmCreateSource, /aiConfigInitialServiceType\.value = \['text', 'image', 'storyboard_image', 'video', 'tts'\]\.includes\(serviceType\)/)
 })
 
+test('FilmCreate AI config returns to production and refreshes changed readiness through the close watcher', () => {
+  const dialogModelIndex = filmCreateSource.indexOf('v-model="showAiConfigDialog"')
+  assert.ok(dialogModelIndex >= 0, 'missing AI config dialog')
+  const dialogStart = filmCreateSource.lastIndexOf('<el-dialog', dialogModelIndex)
+  const dialogEnd = filmCreateSource.indexOf('</el-dialog>', dialogModelIndex)
+  const dialog = filmCreateSource.slice(dialogStart, dialogEnd)
+  assert.match(dialog, /:show-close="true"/)
+  assert.match(dialog, /<template #header="\{ titleId, titleClass \}">[\s\S]*<ArrowLeft \/>[\s\S]*返回制作[\s\S]*<\/template>/)
+  assert.match(dialog, /<strong :id="titleId" :class="\[titleClass, 'ai-config-dialog-title'\]">AI 配置<\/strong>/)
+  assert.match(dialog, /@click="returnToProductionFromAiConfig"/)
+  assert.match(dialog, /@configuration-changed="onAiConfigurationChanged"/)
+
+  assert.match(filmCreateSource, /const aiConfigChanged = ref\(false\)/)
+  assert.match(filmCreateSource, /function onAiConfigurationChanged\(\) \{\s*aiConfigChanged\.value = true\s*\}/)
+  assert.match(filmCreateSource, /function returnToProductionFromAiConfig\(\) \{\s*showAiConfigDialog\.value = false\s*\}/)
+
+  const closeWatcher = sourceBetween(
+    filmCreateSource,
+    'watch(showAiConfigDialog',
+    'const storyInput',
+  )
+  assert.match(closeWatcher, /if \(open\) \{[\s\S]*aiConfigChanged\.value = false[\s\S]*return/)
+  assert.match(closeWatcher, /invalidateActiveVideoAiConfigCache\(\)/)
+  assert.match(closeWatcher, /await Promise\.allSettled\(\[[\s\S]*refreshVideoGenerationCapability\(\)[\s\S]*refreshProductionReadiness\(\)/)
+  const feedbackIndex = closeWatcher.indexOf("ElMessage.info('配置已更新，正在重新检查')")
+  const refreshIndex = closeWatcher.indexOf('await Promise.allSettled')
+  assert.ok(feedbackIndex >= 0 && feedbackIndex < refreshIndex)
+})
+
 test('AI coverage test actions are accessible secondary buttons with pending state', () => {
   const coverageAction = aiConfigSource.match(
     /<el-button\s+v-for="action in coverageActions\(item\)"[\s\S]*?<\/el-button>/,

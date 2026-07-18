@@ -6,6 +6,7 @@ import {
   buildAiServiceCoverage,
   getAiServiceCoverageActions,
   getConfigTestStatus,
+  sortAiServiceCoverage,
 } from '../src/utils/aiConfigCoverage.js'
 
 test('empty configs report all required services as missing', () => {
@@ -110,77 +111,91 @@ test('coverage summary counts passed, failed, and unknown tests separately', () 
   assert.equal(coverage.untestedCount, 3)
 })
 
-test('coverage actions expose add, view, edit, and test CTAs for the UI', () => {
-  const missingService = {
-    state: 'missing',
-    label: '视频生成',
-    targetConfig: null,
-    test: { status: 'unknown' },
-  }
-  assert.deepEqual(getAiServiceCoverageActions(missingService, { vendorLocked: false }), [
-    {
-      key: 'add',
-      label: '添加视频生成配置',
-      action: 'add',
-      emphasis: 'primary',
-    },
-    {
-      key: 'view',
-      label: '查看配置',
-      action: 'view',
-      emphasis: 'secondary',
-    },
-  ])
+test('coverage sorts exceptions first without mutating services or tie order', () => {
+  const services = [
+    { type: 'healthy', state: 'default', issue: null, test: { status: 'passed' } },
+    { type: 'untested-a', state: 'default', issue: null, test: { status: 'unknown' } },
+    { type: 'missing', state: 'missing', issue: 'missing', test: { status: 'unknown' } },
+    { type: 'inactive', state: 'configured', issue: 'inactive', test: { status: 'unknown' } },
+    { type: 'failed', state: 'default', issue: null, test: { status: 'failed' } },
+    { type: 'no-default', state: 'configured', issue: 'no_default', test: { status: 'unknown' } },
+    { type: 'untested-b', state: 'default', issue: null, test: { status: 'unknown' } },
+  ]
+  const before = structuredClone(services)
 
-  const noDefaultService = {
-    state: 'configured',
-    issue: 'no_default',
-    label: '素材图片',
-    targetConfig: { id: 2 },
-    test: { status: 'failed' },
-  }
-  assert.deepEqual(getAiServiceCoverageActions(noDefaultService), [
-    {
-      key: 'fix-default',
-      label: '补齐默认',
-      action: 'edit',
-      emphasis: 'primary',
-    },
-    {
-      key: 'view',
-      label: '查看配置',
-      action: 'view',
-      emphasis: 'secondary',
-    },
-    {
-      key: 'test',
-      label: '立即测试',
-      action: 'test',
-      emphasis: 'secondary',
-    },
-  ])
+  const ordered = sortAiServiceCoverage(services)
 
-  const readyService = {
-    state: 'default',
-    issue: null,
-    label: '文本生成',
-    targetConfig: { id: 1 },
-    test: { status: 'passed' },
-  }
-  assert.deepEqual(getAiServiceCoverageActions(readyService, { vendorLocked: true }), [
-    {
-      key: 'view',
-      label: '查看配置',
-      action: 'view',
-      emphasis: 'primary',
-    },
-    {
-      key: 'test',
-      label: '重新测试',
-      action: 'test',
-      emphasis: 'secondary',
-    },
+  assert.notStrictEqual(ordered, services)
+  assert.deepEqual(ordered.map((service) => service.type), [
+    'failed',
+    'inactive',
+    'no-default',
+    'missing',
+    'untested-a',
+    'untested-b',
+    'healthy',
   ])
+  assert.deepEqual(services, before)
+})
+
+test('coverage exposes at most one context action for the recovery matrix', () => {
+  const targetConfig = { id: 9 }
+  const cases = [
+    {
+      name: 'missing unlocked',
+      service: { state: 'missing', issue: 'missing', targetConfig: null, test: { status: 'unknown' } },
+      options: { vendorLocked: false },
+      expected: [],
+    },
+    {
+      name: 'missing vendor locked',
+      service: { state: 'missing', issue: 'missing', targetConfig: null, test: { status: 'unknown' } },
+      options: { vendorLocked: true },
+      expected: [],
+    },
+    {
+      name: 'no default unlocked',
+      service: { state: 'configured', issue: 'no_default', targetConfig, test: { status: 'unknown' } },
+      options: { vendorLocked: false },
+      expected: [{ key: 'fix-default', label: '补齐默认', action: 'edit', emphasis: 'primary' }],
+    },
+    {
+      name: 'inactive unlocked',
+      service: { state: 'configured', issue: 'inactive', targetConfig, test: { status: 'unknown' } },
+      options: { vendorLocked: false },
+      expected: [{ key: 'activate', label: '启用默认', action: 'edit', emphasis: 'primary' }],
+    },
+    {
+      name: 'broken vendor locked',
+      service: { state: 'configured', issue: 'no_default', targetConfig, test: { status: 'unknown' } },
+      options: { vendorLocked: true },
+      expected: [],
+    },
+    {
+      name: 'untested default',
+      service: { state: 'default', issue: null, targetConfig, test: { status: 'unknown' } },
+      options: { vendorLocked: false },
+      expected: [{ key: 'test', label: '立即测试', action: 'test', emphasis: 'primary' }],
+    },
+    {
+      name: 'failed default while vendor locked',
+      service: { state: 'default', issue: null, targetConfig, test: { status: 'failed' } },
+      options: { vendorLocked: true },
+      expected: [{ key: 'test', label: '重新测试', action: 'test', emphasis: 'primary' }],
+    },
+    {
+      name: 'tested healthy',
+      service: { state: 'default', issue: null, targetConfig, test: { status: 'passed' } },
+      options: { vendorLocked: false },
+      expected: [],
+    },
+  ]
+
+  for (const scenario of cases) {
+    const actions = getAiServiceCoverageActions(scenario.service, scenario.options)
+    assert.ok(actions.length <= 1, `${scenario.name} must not expose competing actions`)
+    assert.deepEqual(actions, scenario.expected, scenario.name)
+  }
 })
 
 test('unknown status remains explicit when the API exposes no test fields', () => {

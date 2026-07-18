@@ -89,9 +89,12 @@
             </div>
             <div class="coverage-grid">
               <article
-                v-for="item in serviceCoverage.services"
+                v-for="item in orderedCoverageServices"
                 :key="item.type"
+                :ref="(element) => setCoverageCardRef(item.type, element)"
                 class="coverage-item"
+                tabindex="-1"
+                :aria-label="`${item.label}，${coverageStateLabel(item)}，${coverageTestLabel(item.test)}`"
                 :class="[
                   `coverage-${item.state}`,
                   { 'is-selected': activeServiceFilter === item.type },
@@ -1339,7 +1342,8 @@ input_reference = (图片文件，可选)</pre>
     </el-dialog>
 
     <!-- 测试连接 -->
-    <el-dialog v-model="testVisible" title="测试连接" width="420px" class="ai-config-overlay">
+    <el-dialog v-model="testVisible" title="测试连接" width="420px" class="ai-config-overlay" @closed="restoreTestedCoverageCardFocus">
+      <p class="test-result-announcement" role="status" aria-live="polite">{{ testResultAnnouncement }}</p>
       <p v-if="testResult === null">正在测试…</p>
       <template v-else-if="testResult">
         <el-alert
@@ -1400,7 +1404,8 @@ import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRoun
 import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
 import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '@/utils/aiConfigExport.js'
-import { buildAiServiceCoverage, getAiServiceCoverageActions } from '@/utils/aiConfigCoverage.js'
+import { buildAiServiceCoverage, getAiServiceCoverageActions, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
+import { runAiConfigCreateBatch } from '@/utils/aiConfigMutations.js'
 import { CUSTOM_PROVIDER_SENTINEL, getBaseUrlForProvider, getProviderEndpointDefaults, getProviderProtocol, isApiKeyOptionalProvider, providerConfigs } from '@/utils/aiProviderPresets.js'
 import { buildProviderPricing, parseSettingsObject, readProviderPricingForm } from '@/utils/providerPricing.js'
 import { getConfigWorkspaceKeyTarget, shouldApplyConfigWorkspaceRequest } from '@/utils/aiConfigWorkspace.js'
@@ -1415,6 +1420,12 @@ const props = defineProps({
   },
 })
 
+const emit = defineEmits(['configuration-changed'])
+
+function notifyConfigurationChanged() {
+  emit('configuration-changed')
+}
+
 const filterableServiceTypes = new Set(['text', 'image', 'storyboard_image', 'video', 'tts'])
 
 function normalizeInitialServiceType(value) {
@@ -1428,6 +1439,8 @@ const configWorkspaceView = ref(
 )
 const coverageWorkspaceModeRef = ref(null)
 const configsWorkspaceModeRef = ref(null)
+const coverageCardRefs = new Map()
+const lastTestedCoverageServiceType = ref('')
 
 function selectConfigWorkspaceView(view, { focus = false } = {}) {
   configWorkspaceView.value = view
@@ -1668,6 +1681,7 @@ const testVisible = ref(false)
 const testResult = ref(null)
 const testServiceType = ref('')
 const testError = ref('')
+const testResultAnnouncement = ref('')
 const testingConfigId = ref(null)
 const oneKeyTongyiVisible = ref(false)
 const oneKeyTongyiKey = ref('')
@@ -1682,6 +1696,7 @@ const oneKeyAgnesSaving = ref(false)
 const serviceCoverage = computed(() => (
   buildAiServiceCoverage(list.value, sessionTestStatusById.value)
 ))
+const orderedCoverageServices = computed(() => sortAiServiceCoverage(serviceCoverage.value.services))
 
 const coverageSummaryCards = computed(() => ([
   {
@@ -1775,6 +1790,21 @@ function coverageActions(item) {
   return getAiServiceCoverageActions(item, { vendorLocked: vendorLock.value.enabled })
 }
 
+function setCoverageCardRef(serviceType, element) {
+  if (element) coverageCardRefs.set(serviceType, element)
+  else coverageCardRefs.delete(serviceType)
+}
+
+async function restoreTestedCoverageCardFocus() {
+  const serviceType = lastTestedCoverageServiceType.value
+  lastTestedCoverageServiceType.value = ''
+  if (!serviceType) return
+  await nextTick()
+  const target = coverageCardRefs.get(serviceType)
+  if (target) target.focus()
+  else coverageWorkspaceModeRef.value?.focus?.()
+}
+
 function isCoverageActionTesting(item, action) {
   if (action.action !== 'test' || testingConfigId.value === null) return false
   return String(testingConfigId.value) === String(item.targetConfig?.id)
@@ -1842,6 +1872,7 @@ async function onCoverageAction(item, action) {
   }
   if (action.action === 'test') {
     if (item.targetConfig) {
+      lastTestedCoverageServiceType.value = item.type
       await openTest(item.targetConfig)
     }
     return
@@ -2415,6 +2446,7 @@ async function submit() {
       await aiAPI.create(payload)
       ElMessage.success('添加成功')
     }
+    notifyConfigurationChanged()
     configDialogSaved.value = true
     configFormBaseline.value = configFormFingerprint()
     dialogVisible.value = false
@@ -2440,6 +2472,7 @@ async function submitBulkKey() {
   try {
     const res = await aiAPI.bulkUpdateKey(key)
     ElMessage.success(res?.message || '所有配置的 API Key 已更新')
+    if (Number(res?.updated) > 0) notifyConfigurationChanged()
     bulkKeyVisible.value = false
     await loadList()
   } catch (_) {
@@ -2512,6 +2545,7 @@ async function openTest(row) {
   testVisible.value = true
   testResult.value = null
   testError.value = ''
+  testResultAnnouncement.value = '正在测试连接'
   testServiceType.value = row.service_type || 'text'
   const testModel = row.default_model || (Array.isArray(row.model) ? row.model[0] : row.model)
   try {
@@ -2530,6 +2564,7 @@ async function openTest(row) {
       ...sessionTestStatusById.value,
       [row.id]: { status: 'passed', testedAt: new Date().toISOString() },
     }
+    testResultAnnouncement.value = '连接测试通过'
   } catch (e) {
     testResult.value = false
     testError.value = e?.message || '请求失败'
@@ -2537,6 +2572,7 @@ async function openTest(row) {
       ...sessionTestStatusById.value,
       [row.id]: { status: 'failed', testedAt: new Date().toISOString() },
     }
+    testResultAnnouncement.value = `连接测试失败：${testError.value}`
   } finally {
     testingConfigId.value = null
   }
@@ -2550,6 +2586,7 @@ async function onDelete(row) {
   try {
     await aiAPI.delete(row.id)
     ElMessage.success('已删除')
+    notifyConfigurationChanged()
     await loadList()
   } catch (_) {}
 }
@@ -2576,6 +2613,7 @@ async function onBatchDelete() {
   }
   batchDeleting.value = false
   selectedRows.value = []
+  if (success > 0) notifyConfigurationChanged()
   ElMessage.success(`已删除 ${success} 条${failed ? `，${failed} 条失败` : ''}`)
   await loadList()
 }
@@ -2586,31 +2624,46 @@ function openOneKeyTongyi() {
   oneKeyTongyiVisible.value = true
 }
 
+async function submitPresetConfigs(configs, apiKey, closeDialog) {
+  const createOne = (cfg) => {
+    const models = cfg.model || []
+    return aiAPI.create({
+      service_type: cfg.service_type,
+      name: cfg.name,
+      provider: cfg.provider,
+      api_protocol: cfg.api_protocol || '',
+      base_url: cfg.base_url,
+      api_key: apiKey,
+      model: models,
+      default_model: models[0] || null,
+      endpoint: cfg.endpoint || '',
+      query_endpoint: cfg.query_endpoint || '',
+      priority: 10,
+      is_default: true,
+    })
+  }
+  const result = await runAiConfigCreateBatch(configs, createOne)
+  if (result.success > 0) notifyConfigurationChanged()
+  const message = `预设配置完成：${result.success} 条成功，${result.failed} 条失败`
+  if (result.success > 0) {
+    closeDialog()
+    ElMessage.success(message)
+  } else {
+    ElMessage.error(message)
+  }
+  await loadList()
+  return result
+}
+
 async function submitOneKeyTongyi() {
   if (configWriteLocked.value) return
   const apiKey = oneKeyTongyiKey.value.trim()
   if (!apiKey) return
   oneKeyTongyiSaving.value = true
   try {
-    for (const cfg of TONGYI_CONFIGS) {
-      const models = cfg.model || []
-      await aiAPI.create({
-        service_type: cfg.service_type,
-        name: cfg.name,
-        provider: cfg.provider,
-        base_url: cfg.base_url,
-        api_key: apiKey,
-        model: models,
-        default_model: models[0] || null,
-        priority: 10,
-        is_default: true
-      })
-    }
-    ElMessage.success('已创建通义文本、文本生图、分镜图、视频配置')
-    oneKeyTongyiVisible.value = false
-    await loadList()
-  } catch (_) {
-    // 错误已由 request 统一提示
+    await submitPresetConfigs(TONGYI_CONFIGS, apiKey, () => {
+      oneKeyTongyiVisible.value = false
+    })
   } finally {
     oneKeyTongyiSaving.value = false
   }
@@ -2628,25 +2681,9 @@ async function submitOneKeyVolc() {
   if (!apiKey) return
   oneKeyVolcSaving.value = true
   try {
-    for (const cfg of VOLCENGINE_CONFIGS) {
-      const models = cfg.model || []
-      await aiAPI.create({
-        service_type: cfg.service_type,
-        name: cfg.name,
-        provider: cfg.provider,
-        base_url: cfg.base_url,
-        api_key: apiKey,
-        model: models,
-        default_model: models[0] || null,
-        priority: 10,
-        is_default: true
-      })
-    }
-    ElMessage.success('已创建火山引擎文本、文本生图、分镜图、视频配置')
-    oneKeyVolcVisible.value = false
-    await loadList()
-  } catch (_) {
-    // 错误已由 request 统一提示
+    await submitPresetConfigs(VOLCENGINE_CONFIGS, apiKey, () => {
+      oneKeyVolcVisible.value = false
+    })
   } finally {
     oneKeyVolcSaving.value = false
   }
@@ -2664,28 +2701,9 @@ async function submitOneKeyAgnes() {
   if (!apiKey) return
   oneKeyAgnesSaving.value = true
   try {
-    for (const cfg of AGNES_CONFIGS) {
-      const models = cfg.model || []
-      await aiAPI.create({
-        service_type: cfg.service_type,
-        name: cfg.name,
-        provider: cfg.provider,
-        api_protocol: cfg.api_protocol || '',
-        base_url: cfg.base_url,
-        api_key: apiKey,
-        model: models,
-        default_model: models[0] || null,
-        endpoint: cfg.endpoint || '',
-        query_endpoint: cfg.query_endpoint || '',
-        priority: 10,
-        is_default: true
-      })
-    }
-    ElMessage.success('已创建 Agnes 文本、文本生图、分镜图、视频配置')
-    oneKeyAgnesVisible.value = false
-    await loadList()
-  } catch (_) {
-    // 错误已由 request 统一提示
+    await submitPresetConfigs(AGNES_CONFIGS, apiKey, () => {
+      oneKeyAgnesVisible.value = false
+    })
   } finally {
     oneKeyAgnesSaving.value = false
   }
@@ -2727,32 +2745,28 @@ async function importConfigs(event) {
       ElMessage.error('文件格式不正确，需要 JSON 数组')
       return
     }
-    let success = 0
-    let failed = 0
-    for (const cfg of configs) {
-      try {
-        const models = Array.isArray(cfg.model) ? cfg.model : (cfg.model ? [cfg.model] : [])
-        await aiAPI.create({
-          service_type: cfg.service_type,
-          name: cfg.name,
-          provider: cfg.provider,
-          api_protocol: cfg.api_protocol || null,
-          base_url: cfg.base_url,
-          api_key: isMaskedSecret(cfg.api_key) ? '' : (cfg.api_key || ''),
-          endpoint: cfg.endpoint || null,
-          query_endpoint: cfg.query_endpoint || null,
-          model: models,
-          default_model: cfg.default_model || null,
-          priority: cfg.priority ?? 0,
-          is_default: !!cfg.is_default,
-          settings: stripMaskedSecretsFromSettings(cfg.settings) || null
-        })
-        success++
-      } catch (_) {
-        failed++
-      }
-    }
-    ElMessage.success(`导入完成：${success} 条成功${failed ? `，${failed} 条失败` : ''}`)
+    const result = await runAiConfigCreateBatch(configs, (cfg) => {
+      const models = Array.isArray(cfg.model) ? cfg.model : (cfg.model ? [cfg.model] : [])
+      return aiAPI.create({
+        service_type: cfg.service_type,
+        name: cfg.name,
+        provider: cfg.provider,
+        api_protocol: cfg.api_protocol || null,
+        base_url: cfg.base_url,
+        api_key: isMaskedSecret(cfg.api_key) ? '' : (cfg.api_key || ''),
+        endpoint: cfg.endpoint || null,
+        query_endpoint: cfg.query_endpoint || null,
+        model: models,
+        default_model: cfg.default_model || null,
+        priority: cfg.priority ?? 0,
+        is_default: !!cfg.is_default,
+        settings: stripMaskedSecretsFromSettings(cfg.settings) || null,
+      })
+    })
+    if (result.success > 0) notifyConfigurationChanged()
+    const message = `导入完成：${result.success} 条成功，${result.failed} 条失败`
+    if (result.success > 0) ElMessage.success(message)
+    else ElMessage.error(message)
     await loadList()
   } catch (e) {
     ElMessage.error('导入失败：' + (e.message || '文件解析错误'))
@@ -3019,6 +3033,17 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
   line-height: 1.5;
   text-align: right;
 }
+.test-result-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .coverage-summary-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3074,12 +3099,12 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
 }
 .coverage-item {
   min-width: 0;
-  min-height: 142px;
+  min-height: 132px;
   display: grid;
   grid-template-rows: 1fr auto;
   align-items: start;
   gap: 8px 10px;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid var(--el-border-color-light, #e4e7ed);
   border-radius: 6px;
   background: var(--el-fill-color-blank, #fff);
@@ -3093,6 +3118,10 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
   outline: 2px solid var(--el-color-primary, #409eff);
   outline-offset: 2px;
 }
+.coverage-item:focus-visible {
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: 2px;
+}
 .coverage-item.is-selected {
   border-color: var(--el-color-primary, #409eff);
   background: var(--el-color-primary-light-9, #ecf5ff);
@@ -3103,6 +3132,7 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
   align-items: start;
   gap: 10px;
   min-width: 0;
+  min-height: 32px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -3160,10 +3190,8 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
 }
 .coverage-config-detail {
   min-width: 0;
-  overflow: hidden;
   color: var(--el-text-color-primary, #303133);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .coverage-test-status {
   display: inline-flex;
@@ -3190,11 +3218,11 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
   margin-top: 2px;
 }
 .coverage-action-link {
-  min-height: 20px;
-  padding: 0;
+  min-height: 32px;
+  padding: 4px 8px;
 }
 .coverage-action-test {
-  min-height: 30px;
+  min-height: 32px;
   padding: 4px 10px;
   font-weight: 600;
 }
@@ -3798,9 +3826,6 @@ code {
 @media (max-width: 1440px) {
   .coverage-summary-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .coverage-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 @media (max-width: 1120px) {
