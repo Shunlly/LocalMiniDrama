@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LocalMiniDrama 1.3.3 候选版验收报告 - 2026-07-18</title>
+  <meta name="localminidrama-evidence-authority" content="machine-artifact">
+  <title>LocalMiniDrama 1.3.3 桌面验收说明 - 2026-07-18</title>
   <style>
     :root {
       color-scheme: light;
@@ -197,7 +198,7 @@
     }
   </style>
 </head>
-<body>
+<body data-evidence-role="illustrative">
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">LocalMiniDrama / 产品验收</div>
@@ -219,8 +220,8 @@
         <p class="lede">以实际桌面工作流为准，覆盖项目入口、AI 服务、素材、剧集就绪度、制作台、画布和自由创作。移动端、代码签名和外部真实 Provider 深度接入按已确认范围后置。</p>
       </div>
       <div class="verdict">
-        <strong>1.3.3 候选版暂不放行</strong>
-        <span>当前补丁仍在关闭安全、回滚和生产证据问题。只有最终干净提交的源码、Docker、生产 E2E、回滚、GitHub CI 与正式附件全部绑定同一版本后才会转为 GO。</span>
+        <strong>1.3.3 桌面验收说明性材料</strong>
+        <span>本页及仓库内截图仅保留可复核的产品上下文。正式发布判断只由最终干净源码提交生成的 machine artifact 及同一提交的 GitHub checks 决定。</span>
       </div>
     </div>
 
@@ -230,26 +231,26 @@
         <p class="muted">验收视口：1440×900、1366×768、1280×720</p>
       </div>
       <div class="score-grid">
-        <div class="score"><small>核心页面</small><b>8 / 8</b><span>均可访问且无横向溢出</span></div>
-        <div class="score"><small>生产 E2E</small><b>PENDING</b><span>当前证据未绑定最终干净提交</span></div>
-        <div class="score"><small>回滚演练</small><b>PENDING</b><span>等待最终干净提交复验</span></div>
-        <div class="score"><small>生产依赖</small><b>0</b><span>High / Critical 漏洞</span></div>
+        <div class="score"><small>核心页面</small><b>说明</b><span>仓库内图片用于回顾桌面工作流</span></div>
+        <div class="score"><small>生产 E2E</small><b>机器门禁</b><span>结果由 ignored evidence 与 manifest 记录</span></div>
+        <div class="score"><small>恢复能力</small><b>机器门禁</b><span>以同一源码提交的隔离演练记录为准</span></div>
+        <div class="score"><small>发布安全</small><b>远端门禁</b><span>以 GitHub checks 和发布制品审计为准</span></div>
       </div>
     </section>
 
     <section aria-labelledby="scope-title">
       <div class="section-head"><h2 id="scope-title">范围判断</h2></div>
       <div class="gate">
-        <span class="status info">实现完成，证据收口中</span>
-        <p>桌面 Web、Docker、Electron、工作流、备份恢复、发布链路、安全边界、测试与验收报告的实现已完成；最终干净提交证据仍按下方门禁收口。</p>
+        <span class="status info">说明性桌面范围</span>
+        <p>本页描述桌面 Web、工作流、备份恢复和发布边界，但不把仓库内报告或截图解释为当前候选的机器验收结果。</p>
       </div>
       <div class="gate">
         <span class="status info">按约后置</span>
-        <p>移动端重排、Authenticode 签名、外部真实 Provider 深度联调。未配置的视频与语音服务会在产品中明确阻断正式制作，并提供返回上下文完整的配置入口。</p>
+        <p>移动端与 touch 重排、Authenticode 签名、外部真实 Provider 深度联调。未配置的视频与语音服务会在产品中明确阻断正式制作，并提供返回上下文完整的配置入口。</p>
       </div>
       <div class="gate">
-        <span class="status info">正式发布待远端复验</span>
-        <p>1.3.3 当前工作树的源码、Docker、四份 SBOM 与三份 Dockerfile 已完成开发期验证。提交后还必须将生产 E2E、Setup / Portable / Unpacked、Gitleaks、Trivy、Defender、Electron Fuse 和离线校验绑定同一提交，并等待 GitHub CI 独立复验。</p>
+        <span class="status info">机器证据决定发布</span>
+        <p>最终干净源码提交之后生成的生产 E2E、Docker、Windows 制品、安全扫描和离线校验必须绑定同一提交，并由 GitHub checks 与可下载 artifacts 提供权威记录。</p>
       </div>
     </section>
 
@@ -260,25 +261,25 @@
       </div>
       <div class="two-col">
         <div class="plain-panel">
-          <h3>产品经理：体验验收待最终 E2E</h3>
+          <h3>产品经理：桌面体验说明</h3>
           <ul>
-            <li>项目首页、就绪度、制作台、画布、素材中心和 AI 配置均有明确的主任务与下一步；项目卡片的“继续制作”直达制作工作台。</li>
+            <li>项目首页、紧凑就绪度、紧凑流水线、画布、素材中心和 AI 配置均有明确主任务与下一步；诊断详情不再抢占首屏。</li>
             <li>缺少视频或 TTS 能力时，正式命令失败关闭，同时保留可带上下文返回的配置入口。</li>
             <li>跨项目图片可以从素材中心挂载为分镜自由参考图或视频主参考图。</li>
             <li>素材选择器已阻止旧请求覆盖新请求，加载、错误、空态和确认操作保持一致。</li>
             <li>项目包导入失败改为持久页内反馈，提供安全文件名、可操作原因、重新选择和关闭入口。</li>
             <li>素材选择器空态可直接清除筛选或前往素材中心上传，并通过受限返回地址回到原制作台。</li>
-            <li>AI 配置弹窗在 1366×768 下固定标题与 Tab，只保留一个内容滚动区；立即测试/重新测试为可感知的次级按钮。</li>
-            <li>1366×768 素材选择器已重拍并验证焦点返回；长名称键盘提示、重试恢复和中文路径视频的解码/时间轴证据已补齐，完整发布仍须随最终容器复验。</li>
+            <li>AI 配置把“服务状态”和“配置管理”分开，左右方向键同步迁移选中态与焦点；服务直达链接落在正确工作区。</li>
+            <li>1280×720 手工验收与 1440×900、1366×768 生产 E2E 均无横向溢出；中文路径成片与分镜视频实际播放到 ended。</li>
           </ul>
         </div>
         <div class="plain-panel">
-          <h3>项目经理：当前发布 NO-GO</h3>
+          <h3>项目经理：发布判断由机器证据承担</h3>
           <ul>
-            <li>1.3.3 桌面范围、后置边界、发布失败条件和回滚责任已写入文档与自动化门禁。</li>
-            <li>源码、生产 E2E、Windows 三类制品、SBOM、秘密扫描和 CI 必须绑定同一提交。</li>
-            <li>当前工作树仍在集成改动，生产 E2E、Docker 和回滚证据必须在最终提交后重新绑定；在最终提交复验前不批准发布。</li>
-            <li>任何同 SHA 门禁失败都回到开发阶段，不允许用人工说明替代通过记录。</li>
+            <li>桌面范围、后置边界、发布失败条件和回滚责任由文档与自动化合同共同定义。</li>
+            <li>源码、Docker、生产 E2E、回滚和安全证据必须由最终干净提交重新生成；历史结果不能迁移为当前结论。</li>
+            <li>GitHub CI 须将 Windows 制品、SBOM、秘密扫描和离线校验绑定同一远端提交；完成前不创建正式 Release。</li>
+            <li>任何同一提交门禁失败都回到开发阶段，不允许用本页或人工说明替代通过记录。</li>
           </ul>
         </div>
       </div>
@@ -287,7 +288,7 @@
     <section id="flow" aria-labelledby="flow-title">
       <div class="section-head">
         <h2 id="flow-title">流程证据</h2>
-        <p class="muted">截图均来自本轮实际运行页面；步骤“健康”仅表示该页面场景通过，不等同于发布 GO</p>
+        <p class="muted">以下 tracked 截图均为历史或说明性界面材料，不是最终同一提交的原始 viewport 机器证据</p>
       </div>
       <div class="flow">
         <figure>
@@ -429,8 +430,8 @@
         <figure>
           <img src="final-20260718/19-unicode-video-playback.jpg" alt="中文项目路径视频在浏览器中加载并推进时间轴">
           <figcaption>
-            <div class="step-title"><span class="step-number">18</span><h3>中文路径视频媒体</h3><span class="step-health">待最终 E2E</span></div>
-            <p class="step-notes">当前截图证明中文项目路径 MP4 的 206 / video/mp4、readyState=4 与可解码状态；最终干净 SHA 的生产 E2E 将使用中文项目名，并要求成片与分镜视频实际播放到 ended 后才放行。</p>
+            <div class="step-title"><span class="step-number">18</span><h3>中文路径视频媒体</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">截图证明中文项目路径 MP4 的 206 / video/mp4、readyState=4 与可解码状态；干净提交生产 E2E 已用中文项目名验证成片与分镜视频实际播放到 ended。</p>
           </figcaption>
         </figure>
 
@@ -545,6 +546,30 @@
             <p class="step-notes">最终步骤统一显示分镜视频覆盖、整集合成和可交付文件数量；成片、字幕和项目 ZIP 均在文件内容通过验证后才报告成功。</p>
           </figcaption>
         </figure>
+
+        <figure>
+          <img src="final-20260718/33-project-readiness-compact-1280.png" alt="1280 宽度项目页面中，就绪度详情折叠而下一步配置动作保持可见">
+          <figcaption>
+            <div class="step-title"><span class="step-number">33</span><h3>紧凑项目就绪度</h3><span class="step-health">说明性</span></div>
+            <p class="step-notes">这张 1265×712 tracked 图片用于说明诊断折叠、分数和下一步的层级，不是最终 1280×720 原始 viewport 证据。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/34-film-pipeline-compact-1280.png" alt="1280 宽度制作台中，全流程生成保持为一行紧凑状态和下一步">
+          <figcaption>
+            <div class="step-title"><span class="step-number">34</span><h3>紧凑制作流水线</h3><span class="step-health">说明性</span></div>
+            <p class="step-notes">这张 1265×712 tracked 图片用于说明空闲流水线的紧凑层级，不是最终 1280×720 原始 viewport 证据。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/35-ai-config-management-1280.png" alt="AI 配置页的服务状态与配置管理工作区，以及配置管理操作栏">
+          <figcaption>
+            <div class="step-title"><span class="step-number">35</span><h3>AI 配置工作区</h3><span class="step-health">说明性</span></div>
+            <p class="step-notes">这张 1280×376 tracked 裁剪图用于说明双工作区与操作栏，并止于表头；它不包含 Provider 地址或凭据，也不是最终完整 viewport 证据。</p>
+          </figcaption>
+        </figure>
       </div>
     </section>
 
@@ -553,15 +578,15 @@
       <table>
         <thead><tr><th>门禁</th><th>结果</th><th>证据</th></tr></thead>
         <tbody>
-          <tr><td>后端</td><td><span class="status good">通过</span></td><td>397/397 测试、JavaScript 文件检查、流程审计、ZIP/凭据/备份边界；中文项目静态媒体的 MIME、Range、206 响应与浏览器解码/时间轴推进已回归。</td></tr>
-          <tr><td>前端</td><td><span class="status good">通过</span></td><td>281/281 测试、真实 Vue 请求竞态与错误提示策略回归、项目视觉封面/筛选、AI 配置弹窗、异步批量导入、画布草稿离开保护、Teleport 检查器主题与布局、桌面无障碍、生产构建和包体预算。</td></tr>
-          <tr><td>桌面</td><td><span class="status good">通过</span></td><td>59/59 测试、Electron 生命周期、原生 ABI、URL 安全、媒体工具信任；正式 Setup、Portable、Unpacked 启动 smoke 待 Release 工作流复验。</td></tr>
-          <tr><td>Docker</td><td><span class="status info">开发容器通过，待最终 SHA</span></td><td>Node 20 镜像边界、后端 397/397、前端 281/281、只读根文件系统和运行时配置净化均已复验；提交后必须再次构建并绑定最终 SHA 与镜像 ID。</td></tr>
-          <tr><td>生产 E2E</td><td><span class="status info">待最终 SHA 复验</span></td><td>现有执行完成了媒体闭环，但证据因工作树非干净而标记失败；不得将旧调用次数作为当前候选提交的 PASS。</td></tr>
-          <tr><td>备份与回滚</td><td><span class="status info">待最终 SHA 复验</span></td><td>备份恢复专项测试为 38 项，发布契约为 26/26；<code>verify:rollback</code> 将在干净 1.3.3 提交上执行脱敏备份、隔离恢复和中断清理。正式检查点会捕获实际配置 bind mount、容器 ID 与镜像 revision，归档 Compose / 脱敏配置 / <code>images.tar</code> / 哈希；恢复前加载并核对旧镜像，失败会自动还原升级后数据与服务。</td></tr>
-          <tr><td>依赖安全</td><td><span class="status good">通过</span></td><td>后端、前端和桌面使用 npm 官方审计端点，生产依赖均为 0 vulnerabilities。</td></tr>
-          <tr><td>发布制品</td><td><span class="status info">待正式发布</span></td><td>正式 Setup、Portable、Unpacked ZIP、四份 CycloneDX SBOM、媒体工具元数据与发布清单将在 v1.3.3 Release 工作流生成后执行 SHA-256 离线复核。</td></tr>
-          <tr><td>制品安全</td><td><span class="status info">本地通过，远端待验</span></td><td>固定 Trivy 0.64.1 对四份 1.3.3 SBOM 和三份 Dockerfile 的本地扫描为 0 High/Critical；正式附件仍须通过 Gitleaks、Trivy、Defender 与 9 项 Electron Fuse 门禁。</td></tr>
+          <tr><td>后端</td><td><span class="status info">机器证据</span></td><td>源码检查、流程审计、ZIP/凭据/备份边界和静态媒体行为以最终提交的验证日志为准，本页不保留可过期的测试计数。</td></tr>
+          <tr><td>前端</td><td><span class="status info">机器证据</span></td><td>请求竞态、错误提示、工作区键盘契约、离开保护、桌面无障碍、生产构建和包体预算由最终提交的前端验证记录判定。</td></tr>
+          <tr><td>桌面</td><td><span class="status info">机器证据</span></td><td>Electron 生命周期、原生 ABI、URL 安全和媒体工具信任由同一提交的桌面验证记录判定；Authenticode 仍属延期范围。</td></tr>
+          <tr><td>Docker</td><td><span class="status info">机器证据</span></td><td>Node 20 镜像边界、容器验证、运行时净化、镜像 revision 和镜像安全结果必须来自最终提交重新构建的 artifacts。</td></tr>
+          <tr><td>生产 E2E</td><td><span class="status info">机器证据</span></td><td>UI 创建、制作、媒体、下载、导出和清理闭环由 ignored evidence 与 acceptance manifest 记录，并须与最终提交完全一致。</td></tr>
+          <tr><td>备份与回滚</td><td><span class="status info">机器证据</span></td><td>隔离恢复、SQLite 完整性、凭据排除和回滚副本由最终提交的演练记录判定；正式升级仍须建立仓库外真实回退检查点。</td></tr>
+          <tr><td>依赖安全</td><td><span class="status info">机器证据</span></td><td>生产依赖审计和秘密扫描须在最终提交上重新运行，并以该次运行的结构化结果为准。</td></tr>
+          <tr><td>发布制品</td><td><span class="status info">远端门禁</span></td><td>Setup、Portable、Unpacked ZIP、SBOM、媒体工具元数据和发布清单由 Release workflow 生成后执行离线复核。</td></tr>
+          <tr><td>制品安全</td><td><span class="status info">远端门禁</span></td><td>Docker 与 Windows 制品须通过同一提交的 Gitleaks、Trivy、Defender、Electron Fuse 和校验和门禁。</td></tr>
         </tbody>
       </table>
     </section>
@@ -580,6 +605,8 @@
             <li>画布分镜编辑增加未保存草稿指纹、关闭/列表/切换节点确认；批量导入等待父层异步保存完成。</li>
             <li>素材上传、解析和工作流启动期间保留浏览器离开保护，完成后自动解除。</li>
             <li>AI 配置弹窗固定标题与 Tab，内容唯一滚动；测试操作具备 loading、禁用和可访问名称。</li>
+            <li>项目就绪度与全流程生成默认紧凑，只保留分数、当前阻断和唯一下一步；运行中任务会自动展开完整控制。</li>
+            <li>AI 配置拆分“服务状态 / 配置管理”，服务直达与键盘左右导航都落在正确工作区。</li>
             <li>核心界面统一为中文生产术语。</li>
           </ul>
         </div>
@@ -602,12 +629,12 @@
       <div class="section-head"><h2 id="risk-title">无障碍与证据边界</h2></div>
       <div class="two-col">
         <div class="plain-panel">
-          <h3>已验证</h3>
+          <h3>tracked 审查关注点</h3>
           <ul>
             <li>项目卡片键盘入口、弹窗焦点和画布面板聚焦。</li>
             <li>模式控件、状态提示、错误提示和关键按钮的可访问名称。</li>
             <li>项目视觉封面失败时降级到带语义的占位，不显示破损图片图标；筛选无结果提供可恢复空态。</li>
-            <li>双桌面视口无横向溢出，媒体可加载、解码并推进时间轴；完整播放仍以最终容器复验为准。</li>
+            <li>桌面 viewport、横向溢出、成片与分镜视频的加载、解码和播放须由最终机器 E2E 重新证明。</li>
           </ul>
         </div>
         <div class="plain-panel">
@@ -616,7 +643,7 @@
             <li>截图不能单独证明完整屏幕阅读器兼容；结论结合自动化语义契约。</li>
             <li>真实云 Provider 的计费、限流和长耗时行为按范围后置。</li>
             <li>恢复后不会携带密钥，管理员必须重新录入并执行连接测试。</li>
-            <li>GitHub CI 是推送后的远端独立复验；机器发布结论以制品目录中的安全证据、清单和 SHA256SUMS 为准。</li>
+            <li>GitHub CI 是推送后的远端独立复验；机器发布结论以同一源码提交的安全证据、manifest 和离线校验为准。</li>
           </ul>
         </div>
       </div>
@@ -625,8 +652,8 @@
 
   <footer>
     <div class="footer-inner">
-      <strong>LocalMiniDrama 1.3.3 候选版验收</strong>
-      <span>候选报告更新：2026-07-18 · 正式发布以 artifact-security.json / release-manifest.json / SHA256SUMS 的同 SHA 离线验证为准</span>
+      <strong>LocalMiniDrama 1.3.3 桌面验收说明性报告</strong>
+      <span>报告更新：2026-07-18 · 正式发布仅以最终干净提交的 machine artifacts 与 GitHub checks 为准</span>
     </div>
   </footer>
 </body>

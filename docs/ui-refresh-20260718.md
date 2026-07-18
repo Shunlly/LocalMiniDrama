@@ -131,3 +131,58 @@ Evidence for these paths is stored in
 `frontweb/public/reports/product-acceptance/final-20260718/` and linked from the
 HTML acceptance report. Mobile-specific reflow and live third-party Provider
 deep integration remain separately deferred.
+
+## Round Five: Workflow-First Hierarchy
+
+The final workflow pass reduces diagnostic detail without hiding the next
+decision:
+
+1. Project readiness keeps its score and one next action visible while the
+   eight-item diagnostic list starts collapsed. Expanding it does not move or
+   replace the next action.
+2. The full-production pipeline starts as one compact status row while idle,
+   auto-opens for running work, and exposes the full reasons and controls only
+   when needed. The expanded state has one heading and one status source.
+3. AI configuration separates `服务状态` from `配置管理`. Direct service links
+   open configuration management, while a generic visit opens service status.
+   The horizontal tabs implement roving focus and Left/Right keyboard movement.
+4. The final navigation label is `交付与导出`; production E2E follows that
+   user-facing label instead of the obsolete `合成视频` text.
+
+## Evidence Authority
+
+Evidence authority: machine-artifact
+Tracked evidence role: illustrative
+
+This tracked document and the HTML report describe the desktop workflow and
+retain historical visual context. They do not record a current release result,
+source revision, image digest, or mutable test count. Formal release approval is
+determined only by machine artifacts generated from the final clean source
+revision and by GitHub checks for that same revision.
+
+Final full-viewport captures are generated outside the tracked report under
+`artifacts/e2e-production/acceptance-report/`. The ignored manifest records the
+source revision, viewport, theme, byte size, and SHA-256 for each capture and is
+validated together with `artifacts/e2e-production/evidence.json`. A source
+change invalidates that evidence and requires the machine gates to run again.
+
+## Illustrative Screenshots
+
+The following tracked screenshots remain useful for reviewing the workflow
+hierarchy, but they are not final same-revision machine evidence:
+
+- `33-project-readiness-compact-1280.png` is 1265x712.
+- `34-film-pipeline-compact-1280.png` is 1265x712.
+- `35-ai-config-management-1280.png` is 1280x376 and intentionally stops above
+  configuration rows.
+
+Their dimensions do not satisfy the final full-viewport matrix. The production
+E2E path must generate new ignored captures for the contract-defined viewport
+and theme matrix after the final source revision is clean.
+
+## Deferred External Gates
+
+Real external Provider integration, mobile/touch reflow, and Authenticode remain
+explicitly deferred. The tracked report does not include a Provider URL, API
+credential, or substitute screenshot claim for those gates. They require their
+own runtime evidence before their respective scopes can be approved.

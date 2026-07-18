@@ -11,7 +11,9 @@
     "e2e:smoke": "node scripts/e2e-smoke.cjs",
     "e2e:production": "node scripts/e2e-production.cjs",
     "test": "node --test",
-    "verify": "npm run check && npm run test && npm run build"
+    "verify:acceptance-report": "node scripts/verify-acceptance-report.cjs --mode=tracked",
+    "verify:acceptance-report:final": "node scripts/verify-acceptance-report.cjs --mode=final --evidence-root ../artifacts/e2e-production",
+    "verify": "npm run check && npm run test && npm run verify:acceptance-report && npm run build"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.0",
