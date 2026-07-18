@@ -18,9 +18,13 @@
         :key="step.id"
         type="button"
         class="flow-step"
-        :class="[`is-${step.status}`, { 'is-current': activeFlowStep.id === step.id }]"
-        :aria-current="activeFlowStep.id === step.id ? 'step' : undefined"
-        :aria-pressed="activeFlowStep.id === step.id"
+        :class="[
+          `is-${step.status}`,
+          { 'is-current': flowState.activeStepId === step.id },
+          { 'is-selected': inspectedFlowStep.id === step.id },
+        ]"
+        :aria-current="flowState.activeStepId === step.id ? 'step' : undefined"
+        :aria-pressed="inspectedFlowStep.id === step.id"
         @click="selectFlowStep(step.id)"
       >
         <span class="flow-step-number">{{ step.status === 'done' ? '✓' : step.number }}</span>
@@ -47,17 +51,17 @@
     <div class="workflow-focus">
       <div class="workflow-focus-head">
         <div class="stage-heading">
-          <span class="stage-number">{{ activeFlowStep.number }}</span>
+          <span class="stage-number">{{ inspectedFlowStep.number }}</span>
           <div>
-            <strong>{{ activeFlowStep.label }}</strong>
-            <span>{{ activeFlowStep.summary }}</span>
+            <strong>{{ inspectedFlowStep.label }}</strong>
+            <span>{{ inspectedFlowStep.summary }}</span>
           </div>
-          <el-tag size="small" :type="stageStatusTagType(activeFlowStep.status)">{{ activeFlowStep.statusLabel }}</el-tag>
+          <el-tag size="small" :type="stageStatusTagType(inspectedFlowStep.status)">{{ inspectedFlowStep.statusLabel }}</el-tag>
         </div>
       </div>
 
       <div class="workflow-stage-card">
-        <div v-if="activeFlowStep.id === 'intake' || activeFlowStep.id === 'process'" class="workflow-mode-band">
+        <div v-if="inspectedFlowStep.id === 'intake' || inspectedFlowStep.id === 'process'" class="workflow-mode-band">
           <div class="workflow-mode-head">
             <strong>启动模式</strong>
             <el-tag size="small" :type="workflowMode === 'production' ? 'danger' : 'info'">
@@ -109,7 +113,7 @@
           </div>
         </div>
 
-        <template v-if="activeFlowStep.id === 'intake'">
+        <template v-if="inspectedFlowStep.id === 'intake'">
           <div class="intake-stage-layout">
             <el-form label-position="top" class="intake-form">
               <div class="form-row">
@@ -224,7 +228,7 @@
           </div>
         </template>
 
-        <template v-else-if="activeFlowStep.id === 'process'">
+        <template v-else-if="inspectedFlowStep.id === 'process'">
           <div class="status-block">
             <div class="stage-heading stage-heading--compact">
               <div>
@@ -326,7 +330,7 @@
           </div>
         </template>
 
-        <template v-else-if="activeFlowStep.id === 'qa'">
+        <template v-else-if="inspectedFlowStep.id === 'qa'">
           <div class="status-block">
             <div class="stage-heading stage-heading--compact">
               <div>
@@ -376,7 +380,7 @@
           </div>
         </template>
 
-        <template v-else-if="activeFlowStep.id === 'remediation'">
+        <template v-else-if="inspectedFlowStep.id === 'remediation'">
           <div class="status-block">
             <div class="stage-heading stage-heading--compact">
               <div>
@@ -647,9 +651,8 @@ const flowState = computed(() => buildSourceWorkflowState({
   episodeCount: props.drama?.episodes?.length || 0,
   actionReasons: actionReasons.value,
 }))
-const activeFlowStep = computed(() => (
-  flowState.value.steps.find((step) => step.id === selectedFlowStepId.value)
-  || flowState.value.activeStep
+const actualFlowStep = computed(() => (
+  flowState.value.activeStep
   || flowState.value.steps[0]
   || {
     id: 'intake',
@@ -660,6 +663,17 @@ const activeFlowStep = computed(() => (
     statusLabel: '可开始',
   }
 ))
+const inspectedFlowStep = computed(() => (
+  flowState.value.steps.find((step) => step.id === selectedFlowStepId.value)
+  || actualFlowStep.value
+))
+watch(
+  () => flowState.value.activeStepId,
+  (activeStepId) => {
+    selectedFlowStepId.value = activeStepId || flowState.value.steps[0]?.id || ''
+  },
+  { immediate: true },
+)
 const runTagType = computed(() => {
   if (runState.value.productionPlaceholder) return 'danger'
   if (selectedRun.value?.status === 'completed') return 'success'
@@ -1319,10 +1333,18 @@ onBeforeUnmount(() => {
   outline: 2px solid var(--el-color-primary);
   outline-offset: 2px;
 }
+.flow-step.is-selected {
+  border-color: var(--el-text-color-secondary);
+  outline: 1px solid var(--el-text-color-secondary);
+  outline-offset: -2px;
+}
+.flow-step.is-selected:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
 .flow-step.is-current {
-  border-color: rgba(139, 92, 246, 0.6);
   background: rgba(139, 92, 246, 0.12);
-  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.12);
+  box-shadow: inset 3px 0 0 var(--el-color-primary);
 }
 .flow-step-number {
   width: 24px;
@@ -1787,6 +1809,10 @@ html.light .poll-status-banner.is-error {
 html.light .flow-step {
   background: #f8fafc;
   border-color: #e5e7eb;
+}
+html.light .flow-step.is-selected {
+  border-color: #94a3b8;
+  outline-color: #94a3b8;
 }
 html.light .flow-step.is-current {
   background: rgba(99, 102, 241, 0.08);

@@ -70,6 +70,10 @@ test('workflow state promotes process, qa, remediation and delivery in sequence'
   assert.equal(delivered.activeStepId, 'delivery')
   assert.equal(delivered.complete, true)
   assert.equal(delivered.steps.find((step) => step.id === 'qa').summary, '草稿结构检查 通过，评分 92')
+  const selectedFlowStepId = 'intake'
+  const inspectedStep = delivered.steps.find((step) => step.id === selectedFlowStepId)
+  assert.equal(inspectedStep.id, 'intake')
+  assert.equal(delivered.activeStepId, 'delivery')
 })
 
 test('workflow action reasons explain disabled controls', () => {
