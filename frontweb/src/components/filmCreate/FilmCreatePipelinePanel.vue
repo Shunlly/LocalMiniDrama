@@ -1,11 +1,39 @@
 <template>
   <section class="section card pipeline-section" aria-labelledby="pipeline-title">
-    <div class="pipeline-toolbar">
+    <div class="pipeline-disclosure-head">
       <div class="pipeline-heading">
         <el-icon><VideoPlay /></el-icon>
-        <span id="pipeline-title">全流程生成</span>
+        <h2 id="pipeline-title" class="pipeline-title">全流程生成</h2>
       </div>
+      <div
+        class="pipeline-compact-copy"
+        data-testid="film-pipeline-summary"
+        :data-state="focusState"
+      >
+        <span>{{ focusKicker }}</span>
+        <strong>{{ focusTitle }}</strong>
+        <span class="pipeline-compact-next"><span>下一步</span>{{ focusNextStep }}</span>
+      </div>
+      <button
+        type="button"
+        class="pipeline-toggle"
+        data-testid="film-pipeline-toggle"
+        :aria-expanded="expanded"
+        aria-controls="film-pipeline-details"
+        @click="toggle"
+      >
+        {{ expanded ? '收起' : '展开' }}
+        <el-icon><ArrowUp v-if="expanded" /><ArrowDown v-else /></el-icon>
+      </button>
+    </div>
 
+    <div
+      id="film-pipeline-details"
+      v-show="expanded"
+      class="pipeline-details"
+      data-testid="film-pipeline-details"
+    >
+    <div class="pipeline-toolbar">
       <div class="pipeline-utility-actions">
         <el-popover placement="bottom-start" :width="390" trigger="click">
           <template #reference>
@@ -69,28 +97,18 @@
     </div>
 
     <div class="pipeline-focus" :data-state="focusState">
-      <div class="pipeline-focus-copy">
-        <span class="pipeline-focus-kicker">{{ focusKicker }}</span>
-        <strong class="pipeline-focus-title">{{ focusTitle }}</strong>
-
-        <template v-if="focusReason">
-          <p v-if="!longFocusReason" class="pipeline-focus-reason" role="alert">{{ focusReason }}</p>
-          <details v-if="longFocusReason" class="pipeline-reason-details" role="alert">
-            <summary>
-              <span class="pipeline-reason-preview">{{ focusReason }}</span>
-              <span class="pipeline-reason-toggle">
-                <span class="when-closed">查看完整原因</span>
-                <span class="when-open">收起原因</span>
-              </span>
-            </summary>
-            <p class="pipeline-reason-full">{{ focusReason }}</p>
-          </details>
-        </template>
-
-        <div class="pipeline-next-step">
-          <span class="pipeline-next-label">下一步</span>
-          <span>{{ focusNextStep }}</span>
-        </div>
+      <div v-if="focusReason" class="pipeline-focus-copy">
+        <p v-if="!longFocusReason" class="pipeline-focus-reason" role="alert">{{ focusReason }}</p>
+        <details v-if="longFocusReason" class="pipeline-reason-details" role="alert">
+          <summary>
+            <span class="pipeline-reason-preview">{{ focusReason }}</span>
+            <span class="pipeline-reason-toggle">
+              <span class="when-closed">查看完整原因</span>
+              <span class="when-open">收起原因</span>
+            </span>
+          </summary>
+          <p class="pipeline-reason-full">{{ focusReason }}</p>
+        </details>
       </div>
 
       <div class="pipeline-actions">
@@ -171,14 +189,16 @@
         </div>
       </div>
     </div>
+    </div>
   </section>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import { Setting, VideoPlay } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, Setting, VideoPlay } from '@element-plus/icons-vue'
 import StylePickerButton from '@/components/StylePickerButton.vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import { useDisclosureState } from '@/composables/useDisclosureState'
 
 const props = defineProps({
   aspectRatio: { type: String, default: '16:9' },
@@ -201,6 +221,10 @@ const props = defineProps({
   countdown: { type: Number, default: 0 },
   countdownMessage: { type: String, default: '' },
   activeTasks: { type: [Array, Set], default: () => [] },
+})
+
+const { expanded, toggle } = useDisclosureState({
+  forceExpanded: computed(() => props.running),
 })
 
 const emit = defineEmits([
@@ -273,6 +297,76 @@ function updateSetting(name, value) {
   padding: 14px 16px;
 }
 
+.pipeline-disclosure-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.pipeline-compact-copy {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(180px, auto);
+  align-items: baseline;
+  min-width: 0;
+  gap: 6px 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.pipeline-compact-copy strong,
+.pipeline-compact-copy > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pipeline-compact-copy strong {
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+}
+
+.pipeline-compact-next {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.pipeline-compact-next > span {
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+
+.pipeline-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-regular);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pipeline-toggle:hover {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+}
+
+.pipeline-toggle:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+
+.pipeline-details {
+  margin-top: 12px;
+}
+
 .pipeline-toolbar,
 .pipeline-actions,
 .pipeline-utility-actions,
@@ -282,7 +376,7 @@ function updateSetting(name, value) {
 }
 
 .pipeline-toolbar {
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   margin-bottom: 10px;
 }
@@ -295,10 +389,19 @@ function updateSetting(name, value) {
   white-space: nowrap;
 }
 
+.pipeline-title {
+  margin: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: 0;
+}
+
 .pipeline-actions {
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+  margin-left: auto;
 }
 
 .pipeline-utility-actions {
@@ -306,8 +409,9 @@ function updateSetting(name, value) {
 }
 
 .pipeline-focus {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
   align-items: center;
   gap: 16px 20px;
   padding: 12px 14px;
@@ -336,21 +440,9 @@ function updateSetting(name, value) {
 
 .pipeline-focus-copy {
   display: grid;
+  flex: 1 1 360px;
   min-width: 0;
   gap: 4px;
-}
-
-.pipeline-focus-kicker,
-.pipeline-next-label {
-  color: var(--el-text-color-secondary);
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.pipeline-focus-title {
-  color: var(--el-text-color-primary);
-  font-size: 14px;
-  line-height: 1.35;
 }
 
 .pipeline-focus-reason,
@@ -415,20 +507,6 @@ function updateSetting(name, value) {
   margin-top: 6px;
   padding-right: 4px;
   overflow-y: auto;
-}
-
-.pipeline-next-step {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  color: var(--el-text-color-primary);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.pipeline-next-label {
-  color: var(--el-color-primary);
-  white-space: nowrap;
 }
 
 .pipeline-config-action {

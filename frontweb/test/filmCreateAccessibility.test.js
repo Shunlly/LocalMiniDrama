@@ -10,6 +10,10 @@ const stylePickerSource = readFileSync(
   new URL('../src/components/StylePickerButton.vue', import.meta.url),
   'utf8',
 )
+const pipelinePanelSource = readFileSync(
+  new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
+  'utf8',
+)
 
 test('film create navigation and resource disclosure controls use native buttons', () => {
   assert.match(filmCreateSource, /<button[\s\S]*?class="nav-toggle"[\s\S]*?:aria-expanded="!navCollapsed"/)
@@ -86,4 +90,24 @@ test('style picker toolbar and options are keyboard-operable buttons', () => {
   assert.match(stylePickerSource, /<button[\s\S]*?class="spt-clear"[\s\S]*?aria-label="清除生成风格"/)
   assert.match(stylePickerSource, /<button[\s\S]*?class="spd-item"[\s\S]*?:aria-pressed=/)
   assert.doesNotMatch(stylePickerSource, /<div\b[^>]*class="(?:style-picker-trigger|spd-item)"/)
+})
+
+test('full pipeline is an accessible idle disclosure that opens for running work', () => {
+  assert.match(pipelinePanelSource, /<button[\s\S]*?data-testid="film-pipeline-toggle"/)
+  assert.match(pipelinePanelSource, /:aria-expanded="expanded"/)
+  assert.match(pipelinePanelSource, /aria-controls="film-pipeline-details"/)
+  assert.match(pipelinePanelSource, /id="film-pipeline-details"/)
+  assert.match(pipelinePanelSource, /v-show="expanded"/)
+  assert.match(pipelinePanelSource, /forceExpanded:\s*computed\(\(\) => props\.running\)/)
+  assert.match(pipelinePanelSource, /\.pipeline-toggle:focus-visible\s*\{/)
+  assert.match(pipelinePanelSource, /<h2 id="pipeline-title" class="pipeline-title">全流程生成<\/h2>/)
+  assert.equal(pipelinePanelSource.match(/>全流程生成<\//g)?.length, 1)
+
+  const summaryStart = pipelinePanelSource.indexOf('class="pipeline-disclosure-head"')
+  const detailsStart = pipelinePanelSource.indexOf('id="film-pipeline-details"')
+  assert.ok(summaryStart >= 0 && summaryStart < detailsStart)
+  const compactSummary = pipelinePanelSource.slice(summaryStart, detailsStart)
+  assert.match(compactSummary, /\{\{ focusKicker \}\}/)
+  assert.match(compactSummary, /\{\{ focusTitle \}\}/)
+  assert.match(compactSummary, /\{\{ focusNextStep \}\}/)
 })

@@ -9,6 +9,7 @@ const vueUrl = import.meta.resolve('vue')
 const actionGateUrl = new URL('../src/components/filmCreate/ActionGate.vue', import.meta.url)
 const canvasActionGateUrl = new URL('../src/components/dramaCanvas/CanvasActionGate.vue', import.meta.url)
 const pipelinePanelUrl = new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url)
+const disclosureStateUrl = new URL('../src/composables/useDisclosureState.js', import.meta.url)
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 
 test('FilmCreate script compiles without duplicate bindings', () => {
@@ -46,9 +47,16 @@ const iconStubUrl = dataModule(`
     name,
     setup() { return () => h('span', { 'data-icon': name }) },
   })
+  export const ArrowDown = icon('ArrowDown')
+  export const ArrowUp = icon('ArrowUp')
   export const Setting = icon('Setting')
   export const VideoPlay = icon('VideoPlay')
 `)
+
+const disclosureStateModuleUrl = dataModule(
+  readFileSync(disclosureStateUrl, 'utf8')
+    .replace("from 'vue'", `from ${JSON.stringify(vueUrl)}`),
+)
 
 const stylePickerStubUrl = dataModule(`
   import { defineComponent, h } from ${JSON.stringify(vueUrl)}
@@ -88,6 +96,7 @@ const compiledPipelinePanelUrl = compileSfc(
     ['@element-plus/icons-vue', iconStubUrl],
     ['@/components/StylePickerButton.vue', stylePickerStubUrl],
     ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
+    ['@/composables/useDisclosureState', disclosureStateModuleUrl],
   ]),
 )
 
@@ -108,7 +117,7 @@ test('FilmCreate localizes legacy workflow camera movement values', () => {
 })
 
 function createHostNode(type, text = '') {
-  return { type, text, props: {}, children: [], parent: null }
+  return { type, text, props: {}, style: {}, children: [], parent: null }
 }
 
 function insertHostNode(child, parent, anchor = null) {
@@ -352,6 +361,65 @@ function mountPipeline(initialProps = {}) {
   return { app, events, props, root }
 }
 
+test('pipeline disclosure starts compact, toggles, and auto-opens for running work', async () => {
+  const harness = mountPipeline({
+    productionDisabledReason: '缺少视频模型',
+    productionReadinessReason: '缺少视频模型',
+    productionReadinessState: 'missing',
+  })
+  try {
+    const [toggle] = findAll(
+      harness.root,
+      (node) => node.props['data-testid'] === 'film-pipeline-toggle',
+    )
+    const [details] = findAll(
+      harness.root,
+      (node) => node.props['data-testid'] === 'film-pipeline-details',
+    )
+    const [summary] = findAll(
+      harness.root,
+      (node) => node.props['data-testid'] === 'film-pipeline-summary',
+    )
+
+    assert.ok(toggle)
+    assert.ok(details)
+    assert.ok(summary)
+    assert.notEqual(summary.style.display, 'none')
+    assert.equal(findAll(harness.root, (node) => node.props.id === 'pipeline-title').length, 1)
+    assert.equal(findAll(harness.root, (node) => node.props.class === 'pipeline-heading').length, 1)
+    assert.match(textContent(summary), /当前阻断/)
+    assert.match(textContent(summary), /前往 AI 配置补齐完整成片能力/)
+    assert.equal(toggle.type, 'button')
+    assert.equal(toggle.props['aria-controls'], 'film-pipeline-details')
+    assert.equal(toggle.props['aria-expanded'], false)
+    assert.equal(details.style.display, 'none')
+
+    toggle.props.onClick()
+    await nextTick()
+    assert.equal(toggle.props['aria-expanded'], true)
+    assert.notEqual(details.style.display, 'none')
+    assert.equal(findAll(details, (node) => node.props.class === 'pipeline-heading').length, 0)
+    assert.equal(findAll(details, (node) => node.props.class === 'pipeline-focus-kicker').length, 0)
+    assert.equal(findAll(details, (node) => node.props.class === 'pipeline-focus-title').length, 0)
+    assert.equal(findAll(details, (node) => node.props.class === 'pipeline-next-step').length, 0)
+
+    toggle.props.onClick()
+    await nextTick()
+    assert.equal(toggle.props['aria-expanded'], false)
+
+    harness.props.value = { ...harness.props.value, running: true }
+    await nextTick()
+    assert.equal(toggle.props['aria-expanded'], true)
+    assert.notEqual(details.style.display, 'none')
+
+    harness.props.value = { ...harness.props.value, running: false }
+    await nextTick()
+    assert.equal(toggle.props['aria-expanded'], true)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
 test('ActionGate mounts a keyboard-focusable accessible reason and removes it when enabled', async () => {
   const harness = mountActionGate()
   try {
@@ -425,7 +493,7 @@ test('production video gate does not disable the Draft text framework', () => {
   }
 })
 
-test('pipeline keeps the blocker, next step, and primary CTA in one focus region', () => {
+test('pipeline keeps compact guidance visible and full reasons beside the primary CTA', () => {
   const reason = '文本模型、素材图片、分镜图片、视频模型和语音合成配置均缺少生产凭据，需要逐项补齐并验证连接后才能开始完整成片生成。'
   const harness = mountPipeline({
     productionDisabledReason: reason,
@@ -433,11 +501,13 @@ test('pipeline keeps the blocker, next step, and primary CTA in one focus region
     productionReadinessState: 'missing',
   })
   try {
+    const [summary] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-summary')
     const [focus] = findAll(harness.root, (node) => node.props.class === 'pipeline-focus')
+    assert.ok(summary)
     assert.ok(focus)
-    assert.match(textContent(focus), /当前阻断/)
-    assert.match(textContent(focus), /下一步/)
-    assert.match(textContent(focus), /前往 AI 配置补齐完整成片能力/)
+    assert.match(textContent(summary), /当前阻断/)
+    assert.match(textContent(summary), /前往 AI 配置补齐完整成片能力/)
+    assert.doesNotMatch(textContent(focus), /当前阻断|下一步|前往 AI 配置补齐完整成片能力/)
     assert.ok(findByType(focus, 'button').some((node) => textContent(node).trim() === '一键生成成片'))
 
     const [details] = findByType(focus, 'details')
@@ -508,8 +578,13 @@ test('pipeline settings emit update events and persistence intent', () => {
 test('pipeline forwards start, pause, resume, and countdown skip commands', async () => {
   const harness = mountPipeline()
   try {
-    buttonByText(harness.root, '一键生成成片').props.onClick()
-    buttonByText(harness.root, '仅生成文本框架').props.onClick()
+    const [toggle] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-toggle')
+    const [details] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-details')
+    toggle.props.onClick()
+    await nextTick()
+    assert.notEqual(details.style.display, 'none')
+    buttonByText(details, '一键生成成片').props.onClick()
+    buttonByText(details, '仅生成文本框架').props.onClick()
 
     harness.props.value = {
       ...harness.props.value,
