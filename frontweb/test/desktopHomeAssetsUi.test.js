@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { formatMediaSize, hasActiveMediaFilters, normalizeMediaItem } from '../src/utils/mediaLibrary.js'
 
 const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
+const sourceIntakeWorkflowSource = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
 const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
 const routerSource = readFileSync(new URL('../src/router/index.js', import.meta.url), 'utf8')
 const themeSource = readFileSync(new URL('../src/styles/theme.css', import.meta.url), 'utf8')
@@ -32,6 +33,12 @@ test('desktop home exposes one material center entry and keeps semantic librarie
   assert.match(filmListSource, /command="scene"[\s\S]*场景素材库/)
   assert.match(filmListSource, /command="prop"[\s\S]*道具素材库/)
   assert.match(routerSource, /path: '\/media-library'[\s\S]*?meta: \{ title: '素材中心'[^}]*\}/)
+})
+
+test('story-source actions use the scoped story-material terminology', () => {
+  assert.match(sourceIntakeWorkflowSource, /<ActionGate label="导入故事素材"[\s\S]*>\s*<el-button[\s\S]*>\s*导入故事素材/)
+  assert.match(sourceIntakeWorkflowSource, /继续导入故事素材/)
+  assert.doesNotMatch(sourceIntakeWorkflowSource, /仅导入素材/)
 })
 
 test('project cards use a stable action menu and the no-project state has direct actions', () => {

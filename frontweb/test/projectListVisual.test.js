@@ -93,6 +93,17 @@ test('continue action enters the production workspace while edit remains a manag
   )
 })
 
+test('project cards distinguish their story-material workflow from global materials', () => {
+  assert.match(
+    filmListSource,
+    /class="project-card-assets"[\s\S]*:aria-label="`打开项目「\$\{d\.title \|\| '未命名项目'\}」的故事素材流程`"[\s\S]*>故事素材/,
+  )
+  assert.doesNotMatch(
+    filmListSource,
+    /class="project-card-assets"[\s\S]*>素材\s*<\/RouterLink>/,
+  )
+})
+
 test('project list uses server-backed pagination instead of truncating the first 50 projects', () => {
   assert.match(filmListSource, /const projectPage = ref\(1\)/)
   assert.match(filmListSource, /const projectPageSize = ref\(24\)/)

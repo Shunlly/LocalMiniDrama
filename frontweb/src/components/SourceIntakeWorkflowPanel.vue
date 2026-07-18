@@ -211,9 +211,9 @@
               </el-form-item>
 
               <div class="action-row">
-                <ActionGate label="仅导入素材" :reason="actionReasons.import">
+                <ActionGate label="导入故事素材" :reason="actionReasons.import">
                     <el-button :loading="sourceSaving" :disabled="Boolean(actionReasons.import) || sourceFileReading || isWorkflowLaunchBusy" @click="importSourceOnly">
-                      仅导入素材
+                      导入故事素材
                     </el-button>
                 </ActionGate>
                 <ActionGate :label="`导入并启动 ${workflowModeShortLabel}`" :reason="actionReasons.start">

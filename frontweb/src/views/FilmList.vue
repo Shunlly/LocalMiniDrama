@@ -285,10 +285,10 @@
             <RouterLink
               class="project-card-assets"
               :to="{ name: 'drama-detail', params: { id: d.id }, query: { returnTo: projectListReturnTo }, hash: '#source-intake-workflow' }"
-              :aria-label="`打开项目「${d.title || '未命名项目'}」的素材流程`"
+              :aria-label="`打开项目「${d.title || '未命名项目'}」的故事素材流程`"
               @click.stop
             >
-              <el-icon><Files /></el-icon>素材
+              <el-icon><Files /></el-icon>故事素材
             </RouterLink>
             <el-dropdown
               class="project-card-menu"

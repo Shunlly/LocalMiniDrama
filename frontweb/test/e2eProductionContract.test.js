@@ -654,6 +654,8 @@ test('browser acceptance contract covers the full UI journey, recovery, download
   assert.match(productionSource, /verifyAiConfigReturnUi\(startPage, drama\.id\)/)
   assert.match(productionSource, /return_to_preserved: new URL\(page\.url\(\)\)\.hash === '#source-intake-workflow'/)
   assert.match(productionSource, /importSourceFromUi\(startPage, drama\.id/)
+  assert.match(productionSource, /importOnly:\s*'\\u5bfc\\u5165\\u6545\\u4e8b\\u7d20\\u6750'/)
+  assert.match(productionSource, /getByRole\('button', \{ name: UI\.importOnly, exact: true \}\)\.click\(\)/)
   assert.match(productionSource, /verifyFinalVideoDownloadUi\(page, evidenceRecorder\)/)
   assert.match(productionSource, /verifyProjectExportUi\(startPage, fixtureTitle, evidenceRecorder\)/)
   assert.ok(
