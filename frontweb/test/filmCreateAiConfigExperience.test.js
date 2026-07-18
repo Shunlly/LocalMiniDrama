@@ -90,6 +90,13 @@ test('FilmCreate AI config dialog fixes its header and tabs around one content s
   assert.equal(workspaceScrollRules.length, 1)
 })
 
+test('FilmCreate generic AI config entry resets a prior service-specific filter', () => {
+  assert.doesNotMatch(filmCreateSource, /@click="showAiConfigDialog = true"/)
+  assert.match(filmCreateSource, /<el-link[^>]*@click="openAiConfig\(\)"[^>]*>AI 配置<\/el-link>/)
+  assert.match(filmCreateSource, /function openAiConfig\(serviceType = ''\)/)
+  assert.match(filmCreateSource, /aiConfigInitialServiceType\.value = \['text', 'image', 'storyboard_image', 'video', 'tts'\]\.includes\(serviceType\)/)
+})
+
 test('AI coverage test actions are accessible secondary buttons with pending state', () => {
   const coverageAction = aiConfigSource.match(
     /<el-button\s+v-for="action in coverageActions\(item\)"[\s\S]*?<\/el-button>/,

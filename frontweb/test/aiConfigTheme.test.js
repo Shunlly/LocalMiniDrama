@@ -60,3 +60,11 @@ test('AI config external links isolate the opener window', () => {
     'every target=_blank link must prevent reverse-tabnabbing',
   )
 })
+
+test('AI config selected workspace mode uses existing theme tokens', () => {
+  const selectedMode = source.match(/\.config-workspace-mode\.active\s*\{([\s\S]*?)\n\}/)?.[1]
+  assert.ok(selectedMode, 'missing selected AI configuration workspace mode')
+  assert.match(selectedMode, /color:\s*var\(--accent-text\);/)
+  assert.match(selectedMode, /border-color:\s*var\(--border-muted\);/)
+  assert.match(selectedMode, /background:\s*var\(--bg-hover\);/)
+})

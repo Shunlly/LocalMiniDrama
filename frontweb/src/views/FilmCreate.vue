@@ -1716,7 +1716,7 @@
             </div>
           </el-form-item>
         </div>
-        <p class="config-tip">文本/图片/视频使用的模型以「<el-link type="primary" underline="never" @click="showAiConfigDialog = true">AI 配置</el-link>」中设为默认的为准。</p>
+        <p class="config-tip">文本/图片/视频使用的模型以「<el-link type="primary" underline="never" @click="openAiConfig()">AI 配置</el-link>」中设为默认的为准。</p>
       </section>
 
       <!-- 8. 交付与导出 -->

@@ -32,6 +32,8 @@ test('AI configuration uses a real page heading and keyboard-operable help contr
   assert.match(aiConfigContentSource, /<h2 id="ai-service-coverage-title">AI 服务配置与验证<\/h2>/)
   assert.match(aiConfigContentSource, /class="tip-button" aria-label="查看接口规范说明"/)
   assert.match(aiConfigContentSource, /\.tip-button:focus-visible/)
+  assert.match(aiConfigContentSource, /role="tablist" aria-label="AI 配置工作区"/)
+  assert.match(aiConfigContentSource, /\.config-workspace-mode:focus-visible/)
 })
 
 test('project readiness and detail controls avoid dead or mouse-only interactions', () => {

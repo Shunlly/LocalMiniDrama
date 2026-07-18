@@ -67,3 +67,34 @@ test('AI config list preserves prior data on load failure and blocks auto-open w
   assert.match(source, /if \(shouldAutoOpenRequestedService\(item\)\)/)
   assert.doesNotMatch(source, /async function loadList\(\)[\s\S]*catch \([^)]+\) \{\s*list\.value = \[\]/)
 })
+
+test('AI configuration separates service status from provider management', () => {
+  assert.match(source, /role="tablist" aria-label="AI 配置工作区"/)
+  assert.match(source, /data-testid="ai-config-mode-coverage"/)
+  assert.match(source, /data-testid="ai-config-mode-configs"/)
+  assert.match(source, /:aria-selected="configWorkspaceView === 'coverage'"/)
+  assert.match(source, /:aria-selected="configWorkspaceView === 'configs'"/)
+  assert.match(source, /v-show="configWorkspaceView === 'coverage'"/)
+  assert.match(source, /v-show="configWorkspaceView === 'configs'"/)
+  assert.match(
+    source,
+    /const configWorkspaceView = ref\(\s*normalizeInitialServiceType\(props\.initialServiceType\) \? 'configs' : 'coverage',?\s*\)/,
+  )
+  assert.match(source, /selectConfigWorkspaceView\('configs', \{ focus: focusMode \}\)[\s\S]*activeServiceFilter\.value = serviceType/)
+})
+
+test('AI configuration workspace modes expose a visible keyboard focus state', () => {
+  assert.match(source, /:tabindex="configWorkspaceView === 'coverage' \? 0 : -1"/)
+  assert.match(source, /:tabindex="configWorkspaceView === 'configs' \? 0 : -1"/)
+  assert.match(source, /@keydown="onConfigWorkspaceKeydown\('coverage', \$event\)"/)
+  assert.match(source, /@keydown="onConfigWorkspaceKeydown\('configs', \$event\)"/)
+  assert.match(source, /getConfigWorkspaceKeyTarget/)
+  assert.match(source, /shouldApplyConfigWorkspaceRequest/)
+  assert.match(source, /async function focusServiceConfigs\(serviceType, \{ focusMode = false \} = \{\}\)/)
+  assert.match(source, /selectConfigWorkspaceView\('configs', \{ focus: focusMode \}\)/)
+  assert.match(source, /focusServiceConfigs\(item\.type, \{ focusMode: true \}\)/)
+  assert.match(
+    source,
+    /\.config-workspace-mode:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--accent-text\);[\s\S]*?outline-offset:\s*2px;/,
+  )
+})

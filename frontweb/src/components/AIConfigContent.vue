@@ -3,6 +3,66 @@
     <el-tabs v-model="activeTab" class="config-tabs">
       <el-tab-pane label="AI 配置" name="configs">
         <div class="tab-content">
+          <div
+            v-if="configDependencyError"
+            class="config-load-state config-load-state--error"
+            role="alert"
+            aria-live="assertive"
+          >
+            <div class="config-load-copy">
+              <strong>AI 配置依赖加载失败</strong>
+              <span>
+                {{ configDependencyError }}
+                <template v-if="configLoadError && list.length">当前显示的是上次成功加载的数据，写操作已暂停。</template>
+              </span>
+            </div>
+            <el-button size="small" type="primary" plain :loading="loading || vendorLockLoading" @click="retryConfigDependencies">
+              重试
+            </el-button>
+          </div>
+
+          <div class="config-workspace-switch" role="tablist" aria-label="AI 配置工作区">
+            <button
+              ref="coverageWorkspaceModeRef"
+              id="ai-config-mode-coverage"
+              type="button"
+              role="tab"
+              class="config-workspace-mode"
+              data-testid="ai-config-mode-coverage"
+              :class="{ active: configWorkspaceView === 'coverage' }"
+              :aria-selected="configWorkspaceView === 'coverage'"
+              :tabindex="configWorkspaceView === 'coverage' ? 0 : -1"
+              aria-controls="ai-config-coverage-panel"
+              @click="selectConfigWorkspaceView('coverage')"
+              @keydown="onConfigWorkspaceKeydown('coverage', $event)"
+            >
+              服务状态
+            </button>
+            <button
+              ref="configsWorkspaceModeRef"
+              id="ai-config-mode-configs"
+              type="button"
+              role="tab"
+              class="config-workspace-mode"
+              data-testid="ai-config-mode-configs"
+              :class="{ active: configWorkspaceView === 'configs' }"
+              :aria-selected="configWorkspaceView === 'configs'"
+              :tabindex="configWorkspaceView === 'configs' ? 0 : -1"
+              aria-controls="ai-config-configs-panel"
+              @click="selectConfigWorkspaceView('configs')"
+              @keydown="onConfigWorkspaceKeydown('configs', $event)"
+            >
+              配置管理
+            </button>
+          </div>
+
+          <div
+            id="ai-config-coverage-panel"
+            v-show="configWorkspaceView === 'coverage'"
+            class="config-workspace-panel"
+            role="tabpanel"
+            aria-labelledby="ai-config-mode-coverage"
+          >
           <section class="coverage-panel" aria-labelledby="ai-service-coverage-title">
             <div class="coverage-header">
               <div>
@@ -89,25 +149,15 @@
               </article>
             </div>
           </section>
-
-          <div
-            v-if="configDependencyError"
-            class="config-load-state config-load-state--error"
-            role="alert"
-            aria-live="assertive"
-          >
-            <div class="config-load-copy">
-              <strong>AI 配置依赖加载失败</strong>
-              <span>
-                {{ configDependencyError }}
-                <template v-if="configLoadError && list.length">当前显示的是上次成功加载的数据，写操作已暂停。</template>
-              </span>
-            </div>
-            <el-button size="small" type="primary" plain :loading="loading || vendorLockLoading" @click="retryConfigDependencies">
-              重试
-            </el-button>
           </div>
 
+          <div
+            id="ai-config-configs-panel"
+            v-show="configWorkspaceView === 'configs'"
+            class="config-workspace-panel config-management-panel"
+            role="tabpanel"
+            aria-labelledby="ai-config-mode-configs"
+          >
           <!-- 普通模式操作栏 -->
           <div v-if="!vendorLock.enabled" class="content-actions">
             <div class="actions-left">
@@ -250,6 +300,7 @@
               </div>
             </template>
           </el-table>
+          </div>
           </div>
         </div>
       </el-tab-pane>
@@ -1352,6 +1403,7 @@ import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '@/utils
 import { buildAiServiceCoverage, getAiServiceCoverageActions } from '@/utils/aiConfigCoverage.js'
 import { CUSTOM_PROVIDER_SENTINEL, getBaseUrlForProvider, getProviderEndpointDefaults, getProviderProtocol, isApiKeyOptionalProvider, providerConfigs } from '@/utils/aiProviderPresets.js'
 import { buildProviderPricing, parseSettingsObject, readProviderPricingForm } from '@/utils/providerPricing.js'
+import { getConfigWorkspaceKeyTarget, shouldApplyConfigWorkspaceRequest } from '@/utils/aiConfigWorkspace.js'
 import PromptEditor from '@/components/PromptEditor.vue'
 import SceneModelMap from '@/components/SceneModelMap.vue'
 import Sd2AssetManagement from '@/components/Sd2AssetManagement.vue'
@@ -1371,6 +1423,27 @@ function normalizeInitialServiceType(value) {
 }
 
 const activeTab = ref('configs')
+const configWorkspaceView = ref(
+  normalizeInitialServiceType(props.initialServiceType) ? 'configs' : 'coverage',
+)
+const coverageWorkspaceModeRef = ref(null)
+const configsWorkspaceModeRef = ref(null)
+
+function selectConfigWorkspaceView(view, { focus = false } = {}) {
+  configWorkspaceView.value = view
+  if (!focus) return
+  nextTick(() => {
+    const target = view === 'coverage' ? coverageWorkspaceModeRef.value : configsWorkspaceModeRef.value
+    target?.focus?.()
+  })
+}
+
+function onConfigWorkspaceKeydown(currentView, event) {
+  const target = getConfigWorkspaceKeyTarget(currentView, event.key)
+  if (!target) return
+  event.preventDefault()
+  selectConfigWorkspaceView(target, { focus: true })
+}
 const importFileRef = ref(null)
 
 // ---- 生成设置 ----
@@ -1430,7 +1503,11 @@ watch(
   () => props.initialServiceType,
   async (value) => {
     const normalized = normalizeInitialServiceType(value)
-    if (normalized === activeServiceFilter.value) return
+    if (!shouldApplyConfigWorkspaceRequest({
+      requestedServiceType: normalized,
+      activeServiceType: activeServiceFilter.value,
+      workspaceView: configWorkspaceView.value,
+    })) return
     await applyRequestedService(normalized)
   },
 )
@@ -1713,7 +1790,8 @@ function isConfigRowSelectable() {
   return !configWriteLocked.value
 }
 
-async function focusServiceConfigs(serviceType) {
+async function focusServiceConfigs(serviceType, { focusMode = false } = {}) {
+  selectConfigWorkspaceView('configs', { focus: focusMode })
   activeServiceFilter.value = serviceType
   await nextTick()
   configListSectionRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
@@ -1721,6 +1799,7 @@ async function focusServiceConfigs(serviceType) {
 
 async function applyRequestedService(serviceType) {
   const normalized = normalizeInitialServiceType(serviceType)
+  if (normalized) configWorkspaceView.value = 'configs'
   activeServiceFilter.value = normalized
   if (!normalized) return
   const coverageItem = serviceCoverage.value.services.find((item) => item.type === normalized)
@@ -1736,7 +1815,7 @@ async function onCoverageSelect(item) {
     openAddForService(item.type)
     return
   }
-  await focusServiceConfigs(item.type)
+  await focusServiceConfigs(item.type, { focusMode: true })
 }
 
 function shouldAutoOpenRequestedService(coverageItem) {
@@ -1767,7 +1846,7 @@ async function onCoverageAction(item, action) {
     }
     return
   }
-  await focusServiceConfigs(item.type)
+  await focusServiceConfigs(item.type, { focusMode: true })
 }
 
 function parseSettings(settings) {
@@ -2858,6 +2937,46 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
 }
 .tab-content {
   padding-top: 16px;
+  min-width: 0;
+}
+.config-workspace-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 16px;
+  padding: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-inner);
+}
+.config-workspace-mode {
+  min-width: 112px;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+}
+.config-workspace-mode:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.config-workspace-mode.active {
+  color: var(--accent-text);
+  border-color: var(--border-muted);
+  background: var(--bg-hover);
+}
+.config-workspace-mode:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+.config-workspace-panel {
   min-width: 0;
 }
 .coverage-panel {
