@@ -686,8 +686,22 @@ const flowState = computed(() => buildSourceWorkflowState({
   episodeCount: props.drama?.episodes?.length || 0,
   actionReasons: actionReasons.value,
 }))
+const completionVisibilityBlocked = computed(() => Boolean(
+  loading.value
+  || sourceFileReading.value
+  || sourceSaving.value
+  || workflowStarting.value
+  || readinessChecking.value
+  || qaRunning.value
+  || remediating.value
+  || workflowActionBusy.value
+  || pollState.value === 'recovering'
+  || sourceOperationError.value
+  || workflowDataError.value
+  || pollError.value
+))
 const compactCompletionVisible = computed(() => (
-  flowState.value.complete && !loading.value && !workflowDataError.value
+  flowState.value.complete && !completionVisibilityBlocked.value
 ))
 const completionTitle = computed(() => {
   if (runState.value.mode !== 'production') return '草稿预演已完成'
@@ -1932,7 +1946,7 @@ html.light .detail-row {
   gap: 14px;
   max-height: 180px;
   padding: 12px 0;
-  border-bottom: 1px solid rgba(161, 161, 170, 0.22);
+  border-bottom: 1px solid var(--el-border-color);
 }
 
 .workflow-complete-heading,
@@ -1989,14 +2003,4 @@ html.light .detail-row {
   outline-offset: 2px;
 }
 
-@media (max-width: 900px) {
-  .source-workflow-complete {
-    grid-template-columns: 1fr;
-    max-height: none;
-  }
-
-  .workflow-complete-actions {
-    justify-content: flex-start;
-  }
-}
 </style>

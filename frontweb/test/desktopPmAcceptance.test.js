@@ -175,6 +175,11 @@ test('completed source workflows hand off to production without obscuring the ep
   assert.match(sourceIntakeSource, /@click="\$emit\('enter-production'\)"/)
   assert.match(sourceIntakeSource, /@click="\$emit\('focus-episode-list'\)"/)
   assert.match(sourceIntakeSource, /\.source-workflow-complete\s*\{[\s\S]*?max-height:\s*180px/)
+  assert.match(sourceIntakeSource, /\.source-workflow-complete\s*\{[\s\S]*?border-bottom:\s*1px solid var\(--el-border-color\)/)
+  assert.doesNotMatch(
+    sourceIntakeSource,
+    /@media \(max-width:\s*900px\)\s*\{[\s\S]*?\.source-workflow-complete\s*\{[\s\S]*?(?:grid-template-columns:\s*1fr|max-height:\s*none)/,
+  )
   assert.doesNotMatch(sourceIntakeSource, /source-workflow-complete[^>]*card/)
   assert.match(dramaDetailSource, /@enter-production="enterSourceWorkflowProduction"/)
   assert.match(dramaDetailSource, /@focus-episode-list="scrollToSection\('episode-list'\)"/)
