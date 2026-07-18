@@ -50,6 +50,24 @@ function Assert-FileHash {
   if ($actual -ne $Expected) { throw "$Label SHA-256 verification failed." }
 }
 
+function Get-ImageRevision {
+  param(
+    [Parameter(Mandatory = $true)][string]$ImageReference,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $labelsJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $ImageReference, '--format', '{{json .Config.Labels}}') -Label $Label
+  try {
+    $labels = $labelsJson | ConvertFrom-Json
+  } catch {
+    throw "$Label returned invalid Docker labels JSON."
+  }
+  $property = $labels.PSObject.Properties['org.opencontainers.image.revision']
+  if ($null -eq $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+    throw "$Label did not contain org.opencontainers.image.revision."
+  }
+  return ([string]$property.Value).ToLowerInvariant()
+}
+
 function Get-RunningServiceEvidence {
   param([string]$Service)
   $containerId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('compose', 'ps', '-q', $Service) -Label "$Service container lookup"
@@ -62,7 +80,7 @@ function Get-RunningServiceEvidence {
     throw "The current $Service service must be running and healthy before rollback."
   }
   $imageId = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.Image}}') -Label "$Service image capture").ToLowerInvariant()
-  $revision = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $imageId, '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}') -Label "$Service image revision").ToLowerInvariant()
+  $revision = Get-ImageRevision -ImageReference $imageId -Label "$Service image revision"
   if ($imageId -notmatch '^sha256:[a-f0-9]{64}$' -or $revision -notmatch '^[a-f0-9]{40}$') {
     throw "The current $Service image lacks immutable ID or revision evidence."
   }
@@ -137,8 +155,8 @@ try {
   if ($loadedBackendId -ne $metadata.backend.image_id -or $loadedFrontendId -ne $metadata.frontend.image_id) {
     throw 'Loaded rollback image IDs do not match the checkpoint.'
   }
-  $backendRevision = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $expectedBackendRef, '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}') -Label 'Backend rollback image verification').ToLowerInvariant()
-  $frontendRevision = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $expectedFrontendRef, '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}') -Label 'Frontend rollback image verification').ToLowerInvariant()
+  $backendRevision = Get-ImageRevision -ImageReference $expectedBackendRef -Label 'Backend rollback image verification'
+  $frontendRevision = Get-ImageRevision -ImageReference $expectedFrontendRef -Label 'Frontend rollback image verification'
   if ($backendRevision -ne $metadata.previous_commit -or $frontendRevision -ne $metadata.previous_commit) {
     throw 'Rollback image labels do not match the checkpoint commit.'
   }

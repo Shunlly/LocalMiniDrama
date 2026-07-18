@@ -52,6 +52,24 @@ function Get-ContainerBindSource {
   return [System.IO.Path]::GetFullPath([string]$mount.Source)
 }
 
+function Get-ImageRevision {
+  param(
+    [Parameter(Mandatory = $true)][string]$ImageReference,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $labelsJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $ImageReference, '--format', '{{json .Config.Labels}}') -Label $Label
+  try {
+    $labels = $labelsJson | ConvertFrom-Json
+  } catch {
+    throw "$Label returned invalid Docker labels JSON."
+  }
+  $property = $labels.PSObject.Properties['org.opencontainers.image.revision']
+  if ($null -eq $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+    throw "$Label did not contain org.opencontainers.image.revision."
+  }
+  return ([string]$property.Value).ToLowerInvariant()
+}
+
 function Write-Utf8File {
   param([string]$Path, [string]$Value)
   [System.IO.File]::WriteAllText($Path, $Value, [System.Text.UTF8Encoding]::new($false))
@@ -87,7 +105,7 @@ function Get-RunningServiceEvidence {
   if ($imageId -notmatch '^sha256:[a-f0-9]{64}$') {
     throw "Docker did not return an immutable image ID for $Service."
   }
-  $revision = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $imageId, '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}') -Label "$Service image revision capture").ToLowerInvariant()
+  $revision = Get-ImageRevision -ImageReference $imageId -Label "$Service image revision capture"
   if ($revision -ne $ExpectedRevision) {
     throw "The running $Service image revision $revision does not match Git commit $ExpectedRevision. Rebuild with npm run docker:up before creating a checkpoint."
   }
