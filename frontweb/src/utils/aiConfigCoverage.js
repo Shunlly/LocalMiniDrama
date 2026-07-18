@@ -119,12 +119,13 @@ export function getConfigTestStatus(config, sessionTestStatusById = {}) {
 
 export function getAiServiceCoverageActions(service, options = {}) {
   const vendorLocked = !!options.vendorLocked
+  const writesLocked = !!options.writesLocked
 
   if (service.state === 'missing') {
     return []
   }
 
-  if (vendorLocked && ['no_default', 'inactive'].includes(service.issue)) {
+  if ((vendorLocked || writesLocked) && ['no_default', 'inactive'].includes(service.issue)) {
     return []
   }
 

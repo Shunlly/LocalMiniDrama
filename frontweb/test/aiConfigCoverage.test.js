@@ -172,15 +172,39 @@ test('coverage exposes at most one context action for the recovery matrix', () =
       expected: [],
     },
     {
+      name: 'no default while writes locked',
+      service: { state: 'configured', issue: 'no_default', targetConfig, test: { status: 'unknown' } },
+      options: { vendorLocked: false, writesLocked: true },
+      expected: [],
+    },
+    {
+      name: 'inactive while writes locked',
+      service: { state: 'configured', issue: 'inactive', targetConfig, test: { status: 'unknown' } },
+      options: { vendorLocked: false, writesLocked: true },
+      expected: [],
+    },
+    {
       name: 'untested default',
       service: { state: 'default', issue: null, targetConfig, test: { status: 'unknown' } },
       options: { vendorLocked: false },
       expected: [{ key: 'test', label: '立即测试', action: 'test', emphasis: 'primary' }],
     },
     {
+      name: 'untested default while writes locked',
+      service: { state: 'default', issue: null, targetConfig, test: { status: 'unknown' } },
+      options: { vendorLocked: false, writesLocked: true },
+      expected: [{ key: 'test', label: '立即测试', action: 'test', emphasis: 'primary' }],
+    },
+    {
       name: 'failed default while vendor locked',
       service: { state: 'default', issue: null, targetConfig, test: { status: 'failed' } },
       options: { vendorLocked: true },
+      expected: [{ key: 'test', label: '重新测试', action: 'test', emphasis: 'primary' }],
+    },
+    {
+      name: 'failed default while writes locked',
+      service: { state: 'default', issue: null, targetConfig, test: { status: 'failed' } },
+      options: { vendorLocked: false, writesLocked: true },
       expected: [{ key: 'test', label: '重新测试', action: 'test', emphasis: 'primary' }],
     },
     {

@@ -6,6 +6,22 @@ const source = readFileSync(new URL('../src/components/AIConfigContent.vue', imp
 const pageSource = readFileSync(new URL('../src/views/AiConfig.vue', import.meta.url), 'utf8')
 const detailSource = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
 
+function sourceBetween(sourceText, start, end) {
+  const startIndex = sourceText.indexOf(start)
+  const endIndex = sourceText.indexOf(end, startIndex + start.length)
+  assert.ok(startIndex >= 0, `missing source boundary: ${start}`)
+  assert.ok(endIndex > startIndex, `missing source boundary: ${end}`)
+  return sourceText.slice(startIndex, endIndex)
+}
+
+function sourceTag(sourceText, start) {
+  const startIndex = sourceText.indexOf(start)
+  const endIndex = sourceText.indexOf('/>', startIndex + start.length)
+  assert.ok(startIndex >= 0, `missing tag boundary: ${start}`)
+  assert.ok(endIndex > startIndex, `missing tag end: ${start}`)
+  return sourceText.slice(startIndex, endIndex + 2)
+}
+
 test('AI config dialog keeps advanced API settings collapsed by default', () => {
   assert.match(source, /const advancedFormSections = ref\(\[\]\)/)
   assert.match(source, /<el-collapse v-model="advancedFormSections" class="advanced-config-collapse">/)
@@ -37,40 +53,65 @@ test('AI config mutations emit one reliable change notification only after real 
   assert.equal((source.match(/emit\('configuration-changed'\)/g) || []).length, 1)
   assert.match(source, /function notifyConfigurationChanged\(\) \{\s*emit\('configuration-changed'\)\s*\}/)
 
-  const submit = source.slice(source.indexOf('async function submit()'), source.indexOf('function openBulkKey'))
+  const submit = sourceBetween(source, 'async function submit()', 'function openBulkKey')
   assert.equal((submit.match(/notifyConfigurationChanged\(\)/g) || []).length, 1)
   assert.match(submit, /await aiAPI\.update[\s\S]*await aiAPI\.create[\s\S]*notifyConfigurationChanged\(\)/)
 
-  const bulkKey = source.slice(source.indexOf('async function submitBulkKey'), source.indexOf('function onJimeng2AssetsDialogClosed'))
+  const bulkKey = sourceBetween(source, 'async function submitBulkKey', 'function onJimeng2AssetsDialogClosed')
   assert.equal((bulkKey.match(/notifyConfigurationChanged\(\)/g) || []).length, 1)
   assert.match(bulkKey, /if \(Number\(res\?\.updated\) > 0\) notifyConfigurationChanged\(\)/)
 
-  const singleDelete = source.slice(source.indexOf('async function onDelete'), source.indexOf('function onSelectionChange'))
+  const singleDelete = sourceBetween(source, 'async function onDelete', 'function onSelectionChange')
   assert.equal((singleDelete.match(/notifyConfigurationChanged\(\)/g) || []).length, 1)
   assert.match(singleDelete, /await aiAPI\.delete\(row\.id\)[\s\S]*notifyConfigurationChanged\(\)/)
 
-  const batchDelete = source.slice(source.indexOf('async function onBatchDelete'), source.indexOf('function openOneKeyTongyi'))
+  const batchDelete = sourceBetween(source, 'async function onBatchDelete', 'function openOneKeyTongyi')
   assert.equal((batchDelete.match(/notifyConfigurationChanged\(\)/g) || []).length, 1)
   assert.match(batchDelete, /if \(success > 0\) notifyConfigurationChanged\(\)/)
 
-  const presets = source.slice(source.indexOf('async function submitPresetConfigs'), source.indexOf('async function exportConfigs'))
-  assert.equal((presets.match(/notifyConfigurationChanged\(\)/g) || []).length, 1)
-  assert.match(presets, /runAiConfigCreateBatch\(configs, createOne\)/)
-  assert.match(presets, /if \(result\.success > 0\) notifyConfigurationChanged\(\)/)
-  assert.match(presets, /预设配置完成：\$\{result\.success\} 条成功，\$\{result\.failed\} 条失败/)
-  assert.match(presets, /await loadList\(\)/)
-  for (const handler of ['submitOneKeyTongyi', 'submitOneKeyVolc', 'submitOneKeyAgnes']) {
-    assert.match(presets, new RegExp(`async function ${handler}\\([\\s\\S]*submitPresetConfigs\\(`))
+  const presetHandler = sourceBetween(source, 'async function submitPresetConfigs', 'async function submitOneKeyTongyi')
+  assert.equal((presetHandler.match(/notifyConfigurationChanged\(\)/g) || []).length, 1)
+  assert.match(presetHandler, /runAiConfigCreateBatch\(configs, createOne\)/)
+  assert.match(presetHandler, /if \(result\.success > 0\) notifyConfigurationChanged\(\)/)
+  assert.match(presetHandler, /预设配置完成：\$\{result\.success\} 条成功，\$\{result\.failed\} 条失败/)
+  assert.match(presetHandler, /if \(result\.success > 0\) \{[\s\S]*?\n  \} else \{[\s\S]*?\n  \}\n  await loadList\(\)/)
+
+  const presetBoundaries = [
+    ['submitOneKeyTongyi', 'function openOneKeyVolc'],
+    ['submitOneKeyVolc', 'function openOneKeyAgnes'],
+    ['submitOneKeyAgnes', 'async function exportConfigs'],
+  ]
+  for (const [handler, nextBoundary] of presetBoundaries) {
+    const handlerSource = sourceBetween(source, `async function ${handler}`, nextBoundary)
+    assert.match(handlerSource, /await submitPresetConfigs\(/)
   }
 
-  const importHandler = source.slice(source.indexOf('async function importConfigs'), source.indexOf('async function loadVendorLock'))
+  const importHandler = sourceBetween(source, 'async function importConfigs', 'async function loadVendorLock')
   assert.equal((importHandler.match(/notifyConfigurationChanged\(\)/g) || []).length, 1)
   assert.match(importHandler, /if \(result\.success > 0\) notifyConfigurationChanged\(\)/)
+  assert.match(importHandler, /if \(result\.success > 0\) ElMessage\.success\(message\)\n    else ElMessage\.error\(message\)\n    await loadList\(\)/)
 
-  const connectionTest = source.slice(source.indexOf('async function openTest'), source.indexOf('async function onDelete'))
-  const exportHandler = source.slice(source.indexOf('async function exportConfigs'), source.indexOf('function triggerImport'))
+  const connectionTest = sourceBetween(source, 'async function openTest', 'async function onDelete')
+  const exportHandler = sourceBetween(source, 'async function exportConfigs', 'function triggerImport')
   assert.doesNotMatch(connectionTest, /notifyConfigurationChanged|emit\(/)
   assert.doesNotMatch(exportHandler, /notifyConfigurationChanged|emit\(/)
+})
+
+test('SD2 saved notifies once and refreshes through a bounded parent handler', () => {
+  const sd2Tag = sourceTag(source, '<Sd2AssetManagement')
+  assert.match(sd2Tag, /@saved="handleSd2AssetSaved"/)
+  assert.doesNotMatch(sd2Tag, /@saved="loadList"/)
+
+  const handler = sourceBetween(source, 'async function handleSd2AssetSaved', 'async function loadList')
+  assert.equal((handler.match(/notifyConfigurationChanged\(\)/g) || []).length, 1)
+  assert.equal((handler.match(/await loadList\(\)/g) || []).length, 1)
+  assert.ok(handler.indexOf('notifyConfigurationChanged()') < handler.indexOf('await loadList()'))
+})
+
+test('coverage actions receive both vendor and dependency write locks', () => {
+  const handler = sourceBetween(source, 'function coverageActions', 'function setCoverageCardRef')
+  assert.match(handler, /vendorLocked: vendorLock\.value\.enabled/)
+  assert.match(handler, /writesLocked: configWriteLocked\.value/)
 })
 
 test('coverage testing restores the keyed service card and keeps results perceivable after sorting', () => {

@@ -39,6 +39,37 @@ test('FilmCreate keeps AI readiness in the pipeline instead of the page-level de
   assert.doesNotMatch(dependencyRefresh, /readinessResult/)
 })
 
+test('FilmCreate readiness refreshes use independent latest-request generation guards', () => {
+  assert.match(filmCreateSource, /import \{ createLatestRequestGuard \} from '@\/utils\/latestRequest\.js'/)
+  assert.match(filmCreateSource, /const productionReadinessRequestGuard = createLatestRequestGuard\(\)/)
+  assert.match(filmCreateSource, /const videoCapabilityRequestGuard = createLatestRequestGuard\(\)/)
+
+  const productionRefresh = sourceBetween(
+    filmCreateSource,
+    'async function refreshProductionReadiness',
+    'async function refreshVideoGenerationCapability',
+  )
+  assert.equal((productionRefresh.match(/productionReadinessRequestGuard\.begin\(\)/g) || []).length, 1)
+  assert.equal((productionRefresh.match(/productionReadinessRequestGuard\.commit\(/g) || []).length, 4)
+  assert.match(productionRefresh, /productionReadinessRequestGuard\.commit\(requestGeneration, \(\) => \{\s*productionReadinessLoading\.value = true\s*productionReadinessFailed\.value = false\s*authoritativeProductionReadiness\.value = null\s*\}\)/)
+  assert.match(productionRefresh, /productionReadinessRequestGuard\.commit\(requestGeneration, \(\) => \{\s*authoritativeProductionReadiness\.value = normalizeProductionReadiness\(readiness\)\s*\}\)/)
+  assert.match(productionRefresh, /catch \(_\) \{\s*productionReadinessRequestGuard\.commit\(requestGeneration, \(\) => \{\s*productionReadinessFailed\.value = true/)
+  assert.match(productionRefresh, /finally \{\s*productionReadinessRequestGuard\.commit\(requestGeneration, \(\) => \{\s*productionReadinessLoading\.value = false/)
+
+  const videoRefresh = sourceBetween(
+    filmCreateSource,
+    'async function refreshVideoGenerationCapability',
+    'async function getActiveVideoAiConfig',
+  )
+  assert.equal((videoRefresh.match(/videoCapabilityRequestGuard\.begin\(\)/g) || []).length, 1)
+  assert.equal((videoRefresh.match(/videoCapabilityRequestGuard\.commit\(/g) || []).length, 4)
+  assert.match(videoRefresh, /videoCapabilityRequestGuard\.commit\(requestGeneration, \(\) => \{\s*videoCapabilityLoading\.value = true\s*videoCapabilityFailed\.value = false/)
+  assert.match(videoRefresh, /videoCapabilityRequestGuard\.commit\(requestGeneration, \(\) => \{\s*videoCapabilityConfigs\.value = normalizedRows\s*activeVideoAiConfigCache = capability\.config/)
+  assert.match(videoRefresh, /catch \(_\) \{\s*capability = getVideoGenerationCapability\(\[\], \{ failed: true \}\)\s*videoCapabilityRequestGuard\.commit\(requestGeneration, \(\) => \{\s*videoCapabilityConfigs\.value = \[\]\s*videoCapabilityFailed\.value = true\s*activeVideoAiConfigCache = null/)
+  assert.match(videoRefresh, /finally \{\s*videoCapabilityRequestGuard\.commit\(requestGeneration, \(\) => \{\s*activeVideoAiConfigCacheAt = Date\.now\(\)\s*videoCapabilityLoading\.value = false/)
+  assert.match(videoRefresh, /return videoCapabilityRequestGuard\.isLatest\(requestGeneration\)\s*\? capability\s*: videoGenerationCapability\.value/)
+})
+
 test('FilmCreate AI config dialog fixes its header and tabs around one content scroller', () => {
   assert.match(
     filmCreateSource,

@@ -391,7 +391,7 @@
       </el-tab-pane>
       <el-tab-pane label="SD2 资产管理" name="sd2_assets">
         <div class="tab-content">
-        <Sd2AssetManagement :configs="list" :write-locked="configWriteLocked || vendorLock.enabled" @saved="loadList" />
+        <Sd2AssetManagement :configs="list" :write-locked="configWriteLocked || vendorLock.enabled" @saved="handleSd2AssetSaved" />
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -1787,7 +1787,10 @@ function clearServiceFilter() {
 }
 
 function coverageActions(item) {
-  return getAiServiceCoverageActions(item, { vendorLocked: vendorLock.value.enabled })
+  return getAiServiceCoverageActions(item, {
+    vendorLocked: vendorLock.value.enabled,
+    writesLocked: configWriteLocked.value,
+  })
 }
 
 function setCoverageCardRef(serviceType, element) {
@@ -2198,6 +2201,11 @@ function onRowEdit(row) {
     return
   }
   openEdit(row)
+}
+
+async function handleSd2AssetSaved() {
+  notifyConfigurationChanged()
+  await loadList()
 }
 
 async function loadList() {

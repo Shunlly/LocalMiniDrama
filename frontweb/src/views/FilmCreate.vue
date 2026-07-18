@@ -2926,6 +2926,7 @@ import { propLibraryAPI } from '@/api/propLibrary'
 import { parseScriptIntoEpisodes, episodesListToPlainScript } from '@/utils/scriptEpisodes'
 import { formatEpisodeContextLabel } from '@/utils/filmCreateContext'
 import { buildEpisodeDraftPayload, createScriptDraftController } from '@/utils/scriptDraft'
+import { createLatestRequestGuard } from '@/utils/latestRequest.js'
 import { isPlaceholderMediaUrl, probeImageSource, storyboardImageUrl } from '@/utils/mediaUrl'
 import { getSbImagesList, hasRealMediaValue } from '@/utils/storyboardMedia'
 import {
@@ -7328,6 +7329,8 @@ async function buildStoryboardVideoReferencePayload(sb, options = {}) {
 let activeVideoAiConfigCache = null
 let activeVideoAiConfigCacheAt = 0
 const ACTIVE_VIDEO_AI_CONFIG_TTL_MS = 15000
+const productionReadinessRequestGuard = createLatestRequestGuard()
+const videoCapabilityRequestGuard = createLatestRequestGuard()
 
 function invalidateActiveVideoAiConfigCache() {
   activeVideoAiConfigCache = null
@@ -7339,19 +7342,28 @@ function getNovel2AnimeReadiness(data) {
 }
 
 async function refreshProductionReadiness() {
-  productionReadinessLoading.value = true
-  productionReadinessFailed.value = false
-  authoritativeProductionReadiness.value = null
+  const requestGeneration = productionReadinessRequestGuard.begin()
+  productionReadinessRequestGuard.commit(requestGeneration, () => {
+    productionReadinessLoading.value = true
+    productionReadinessFailed.value = false
+    authoritativeProductionReadiness.value = null
+  })
   try {
     const readiness = await getNovel2AnimeReadiness({
       drama_id: dramaId.value,
       qa_mode: 'production',
     })
-    authoritativeProductionReadiness.value = normalizeProductionReadiness(readiness)
+    productionReadinessRequestGuard.commit(requestGeneration, () => {
+      authoritativeProductionReadiness.value = normalizeProductionReadiness(readiness)
+    })
   } catch (_) {
-    productionReadinessFailed.value = true
+    productionReadinessRequestGuard.commit(requestGeneration, () => {
+      productionReadinessFailed.value = true
+    })
   } finally {
-    productionReadinessLoading.value = false
+    productionReadinessRequestGuard.commit(requestGeneration, () => {
+      productionReadinessLoading.value = false
+    })
   }
   return {
     ready: !productionReadinessFailed.value
@@ -7361,24 +7373,36 @@ async function refreshProductionReadiness() {
 }
 
 async function refreshVideoGenerationCapability() {
-  videoCapabilityLoading.value = true
-  videoCapabilityFailed.value = false
+  const requestGeneration = videoCapabilityRequestGuard.begin()
+  videoCapabilityRequestGuard.commit(requestGeneration, () => {
+    videoCapabilityLoading.value = true
+    videoCapabilityFailed.value = false
+  })
   let capability
   try {
     const rows = await requestCoreJson('/ai-configs?service_type=video')
-    videoCapabilityConfigs.value = Array.isArray(rows) ? rows : []
-    capability = getVideoGenerationCapability(videoCapabilityConfigs.value)
-    activeVideoAiConfigCache = capability.config
+    const normalizedRows = Array.isArray(rows) ? rows : []
+    capability = getVideoGenerationCapability(normalizedRows)
+    videoCapabilityRequestGuard.commit(requestGeneration, () => {
+      videoCapabilityConfigs.value = normalizedRows
+      activeVideoAiConfigCache = capability.config
+    })
   } catch (_) {
-    videoCapabilityConfigs.value = []
-    videoCapabilityFailed.value = true
     capability = getVideoGenerationCapability([], { failed: true })
-    activeVideoAiConfigCache = null
+    videoCapabilityRequestGuard.commit(requestGeneration, () => {
+      videoCapabilityConfigs.value = []
+      videoCapabilityFailed.value = true
+      activeVideoAiConfigCache = null
+    })
   } finally {
-    activeVideoAiConfigCacheAt = Date.now()
-    videoCapabilityLoading.value = false
+    videoCapabilityRequestGuard.commit(requestGeneration, () => {
+      activeVideoAiConfigCacheAt = Date.now()
+      videoCapabilityLoading.value = false
+    })
   }
-  return capability
+  return videoCapabilityRequestGuard.isLatest(requestGeneration)
+    ? capability
+    : videoGenerationCapability.value
 }
 
 async function getActiveVideoAiConfig() {
