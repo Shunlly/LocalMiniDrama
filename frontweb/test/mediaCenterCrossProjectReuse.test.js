@@ -45,6 +45,12 @@ test('media library cards surface source project context for cross-project reuse
 
 test('global media picker shows mount context, media compatibility state, retry UI, and keyboard actions', () => {
   assert.match(pickerSource, /role="status" aria-live="polite"/)
+  assert.match(pickerSource, /<el-tooltip[\s\S]*:content="item\.name \|\| '未命名素材'"[\s\S]*:show-after="250"/)
+  assert.match(pickerSource, /:visible="focusedItemId === item\.id \|\| hoveredItemId === item\.id"/)
+  assert.match(pickerSource, /@focus="focusedItemId = item\.id"[\s\S]*@mouseenter="hoveredItemId = item\.id"/)
+  assert.match(pickerSource, /:global\(\.media-name-tooltip\)[\s\S]*overflow-wrap: anywhere/)
+  assert.match(pickerSource, /:aria-label="cardLabel\(item\)"/)
+  assert.match(pickerSource, /:aria-describedby="`media-card-name-\$\{item\.id\}`"/)
   assert.match(pickerSource, /context\.projectTitle/)
   assert.match(pickerSource, /context\.episodeLabel/)
   assert.match(pickerSource, /context\.storyboardLabel/)
@@ -54,6 +60,9 @@ test('global media picker shows mount context, media compatibility state, retry 
   assert.match(pickerSource, /:disabled="confirmDisabled"/)
   assert.match(pickerSource, /const confirmDisabled = computed\(\(\) => \(\s*loading\.value\s*\|\|\s*Boolean\(loadError\.value\)\s*\|\|\s*!selectedItem\.value\s*\|\|\s*!isCompatible\(selectedItem\.value\)\s*\)\)/s)
   assert.match(pickerSource, /<div v-if="!loading && !loadError && !items.length" class="picker-empty">/)
+  assert.match(pickerSource, /前往素材中心上传/)
+  assert.match(pickerSource, /function clearFilters\(\)/)
+  assert.match(pickerSource, /emit\('open-library'\)/)
   assert.match(pickerSource, /createLatestMediaRequestGuard/)
   assert.match(pickerSource, /function abortActiveLoad\(\)[\s\S]*activeLoadController\?\.abort\(\)/)
   assert.match(pickerSource, /function handleClosed\(\)[\s\S]*resetPickerState\(\)/)
@@ -65,7 +74,10 @@ test('global media picker shows mount context, media compatibility state, retry 
 })
 
 test('FilmCreate wires the picker into storyboard free references with duplicate, promote, and remove flows', () => {
-  assert.match(filmCreateSource, /<GlobalMediaPickerDialog[\s\S]*@select="onGlobalMediaAssetSelected"/)
+  assert.match(filmCreateSource, /<GlobalMediaPickerDialog[\s\S]*@select="onGlobalMediaAssetSelected"[\s\S]*@open-library="openMediaLibraryFromPicker"/)
+  assert.match(filmCreateSource, /router\.push\(\{ name: 'media-library', query: \{ returnTo: route\.fullPath \} \}\)/)
+  assert.match(filmCreateSource, /:aria-label="`分镜 \$\{sb\.storyboard_number\} 视频预览`"/)
+  assert.match(filmCreateSource, /aria-label="本集合成视频预览"/)
   assert.match(filmCreateSource, /<el-form-item label="素材中心参考图">/)
   assert.match(filmCreateSource, /openGlobalMediaPicker\(videoParamsTarget, 'reference-primary'\)/)
   assert.match(filmCreateSource, /openGlobalMediaPicker\(videoParamsTarget, 'reference'\)/)

@@ -12,6 +12,7 @@ const filmListSource = read('../src/views/FilmList.vue')
 const freeCreateSource = read('../src/views/FreeCreate.vue')
 const canvasSource = read('../src/views/DramaCanvas.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
+const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
 
 async function loadReturnToNormalizer() {
   const start = routerSource.indexOf('export function normalizeAiConfigReturnTo')
@@ -56,6 +57,24 @@ test('AI config returnTo accepts only valid first-party workspaces', async () =>
   assert.match(dramaDetailSource, /returnTo:\s*route\.fullPath/)
   assert.match(aiConfigSource, /router\.replace\(returnTo\.value \|\| \{ name: 'list' \}\)/)
   assert.match(aiConfigSource, /return '返回自由创作'/)
+})
+
+test('media library returnTo safely preserves the current film workspace', async () => {
+  const { normalizeMediaLibraryReturnTo } = await loadReturnToNormalizer()
+  assert.equal(normalizeMediaLibraryReturnTo('/film/12?episode=4&ignored=1#drop'), '/film/12?episode=4')
+  assert.equal(
+    normalizeMediaLibraryReturnTo('/film/12/canvas?episode=4&focus=sb%3A42&ignored=1'),
+    '/film/12/canvas?episode=4&focus=sb%3A42',
+  )
+  assert.equal(normalizeMediaLibraryReturnTo('/film/12/canvas'), '/film/12/canvas')
+  assert.equal(normalizeMediaLibraryReturnTo(['/film/7', 'https://evil.test']), '/film/7')
+  for (const value of ['', '/', '/film/0', '/film/12/../13', '//evil.test/film/12', null]) {
+    assert.equal(normalizeMediaLibraryReturnTo(value), '', String(value))
+  }
+  assert.match(routerSource, /name: 'media-library'[\s\S]*normalizeReturnTo: normalizeMediaLibraryReturnTo/)
+  assert.match(mediaLibrarySource, /router\.push\(returnTo\.value \|\| '\/'\)/)
+  assert.match(filmCreateSource, /returnTo: route\.fullPath/)
+  assert.match(filmListSource, /router\.push\(\{ path: `\/drama\/\$\{drama\.id\}`, hash: '#source-intake-workflow' \}\)/)
 })
 
 test('source intake advertises and validates every backend-supported upload extension', () => {

@@ -11,6 +11,10 @@ const { getPath7za } = require('app-builder-lib/out/toolsets/7zip');
 const { archive } = require('app-builder-lib/out/targets/archive');
 const packageJson = require('../package.json');
 const { FUSE_POLICY } = require('./electron-fuses');
+const {
+  EXPECTED_PACKAGED_APPLICATION_ROOTS,
+  validatePackagedApplications,
+} = require('../../scripts/packaged-applications-contract.cjs');
 
 const desktopRoot = path.join(__dirname, '..');
 const repoRoot = path.join(desktopRoot, '..');
@@ -19,7 +23,6 @@ const scanRoot = path.join(releaseRoot, '.artifact-scan');
 const scanEvidenceRoot = path.join(scanRoot, '.evidence');
 const fuseCli = path.join(path.dirname(require.resolve('@electron/fuses')), 'bin.js');
 const REQUIRED_SCANNERS = Object.freeze(['gitleaks', 'trivy', 'defender']);
-const EXPECTED_PACKAGED_APPLICATION_ROOTS = Object.freeze(['portable', 'setup', 'unpacked']);
 
 function artifactNames(version = packageJson.version) {
   return {
@@ -82,12 +85,6 @@ function assertFusePolicy(executable) {
   return states;
 }
 
-function expectedFuseStates() {
-  return Object.fromEntries(
-    Object.entries(FUSE_POLICY).map(([name, enabled]) => [name, enabled ? 'Enabled' : 'Disabled'])
-  );
-}
-
 function sha256(filePath) {
   const descriptor = fs.openSync(filePath, 'r');
   const hash = crypto.createHash('sha256');
@@ -110,56 +107,6 @@ function sourceArtifactHashes(version, sourceDirectory) {
     assert.ok(fs.statSync(filePath, { throwIfNoEntry: false })?.isFile(), `${name} is missing`);
     return [name, sha256(filePath)];
   }));
-}
-
-function assertRelativeInventoryPath(value, label) {
-  assert.equal(typeof value, 'string', `${label} must be a string`);
-  assert.ok(value.length > 0 && !value.includes('\0'), `${label} is invalid`);
-  const normalized = value.replace(/\\/g, '/');
-  assert.equal(path.posix.isAbsolute(normalized), false, `${label} must be relative`);
-  assert.doesNotMatch(normalized, /^[A-Za-z]:\//, `${label} must not contain a drive prefix`);
-  assert.equal(normalized.split('/').includes('..'), false, `${label} must not escape the scan root`);
-  assert.equal(path.posix.normalize(normalized), normalized, `${label} must be normalized`);
-  return normalized;
-}
-
-function validatePackagedApplications(applications) {
-  assert.ok(Array.isArray(applications), 'Packaged application inventory is invalid');
-  assert.equal(
-    applications.length,
-    EXPECTED_PACKAGED_APPLICATION_ROOTS.length,
-    'Artifact scan inventory must contain exactly one application from Setup, Portable, and Unpacked'
-  );
-
-  const executables = new Set();
-  const asars = new Set();
-  const roots = [];
-  const requiredFuses = expectedFuseStates();
-  for (const [index, application] of applications.entries()) {
-    const executable = assertRelativeInventoryPath(application?.executable, `packaged application ${index} executable`);
-    const asarPath = assertRelativeInventoryPath(application?.asar, `packaged application ${index} asar`);
-    assert.equal(executables.has(executable), false, `Duplicate packaged executable: ${executable}`);
-    assert.equal(asars.has(asarPath), false, `Duplicate packaged ASAR: ${asarPath}`);
-    executables.add(executable);
-    asars.add(asarPath);
-
-    const executableRoot = executable.split('/')[0];
-    const asarRoot = asarPath.split('/')[0];
-    assert.equal(asarRoot, executableRoot, `${executable} and ${asarPath} belong to different release artifacts`);
-    assert.ok(
-      EXPECTED_PACKAGED_APPLICATION_ROOTS.includes(executableRoot),
-      `${executable} does not belong to Setup, Portable, or Unpacked`
-    );
-    roots.push(executableRoot);
-    assert.deepEqual(application.fuses, requiredFuses, `${executable} fuse evidence is invalid`);
-  }
-
-  assert.deepEqual(
-    roots.sort((a, b) => a.localeCompare(b, 'en')),
-    [...EXPECTED_PACKAGED_APPLICATION_ROOTS],
-    'Artifact scan inventory must cover Setup, Portable, and Unpacked exactly once'
-  );
-  return applications;
 }
 
 function validateArtifactScanInventory(inventory, version = packageJson.version, options = {}) {

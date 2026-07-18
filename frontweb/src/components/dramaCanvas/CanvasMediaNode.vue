@@ -42,6 +42,7 @@
             muted
             playsinline
             preload="metadata"
+            aria-hidden="true"
             @loadedmetadata="onVideoMetadata"
             @error="onVideoError"
           />

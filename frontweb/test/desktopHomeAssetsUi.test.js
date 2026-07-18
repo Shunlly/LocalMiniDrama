@@ -31,7 +31,7 @@ test('desktop home exposes one material center entry and keeps semantic librarie
   assert.match(filmListSource, /command="character"[\s\S]*角色素材库/)
   assert.match(filmListSource, /command="scene"[\s\S]*场景素材库/)
   assert.match(filmListSource, /command="prop"[\s\S]*道具素材库/)
-  assert.match(routerSource, /path: '\/media-library'[\s\S]*meta: \{ title: '素材中心' \}/)
+  assert.match(routerSource, /path: '\/media-library'[\s\S]*?meta: \{ title: '素材中心'[^}]*\}/)
 })
 
 test('project cards use a stable action menu and the no-project state has direct actions', () => {

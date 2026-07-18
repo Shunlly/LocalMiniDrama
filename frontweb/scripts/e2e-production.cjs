@@ -265,7 +265,11 @@ function assertCompleteEvidence(evidence) {
   assert.ok(evidence.browser.playback.length >= 2, 'browser playback evidence must cover both desktop viewports')
   for (const viewport of evidence.browser.playback) {
     assert.equal(viewport.composed.played, true, 'composed video must play in the browser')
+    assert.equal(viewport.composed.ended, true, 'composed video must reach its ended state in the browser')
+    assert.equal(viewport.composed.unicode_path, true, 'composed video must exercise a Unicode storage path')
     assert.equal(viewport.storyboard.played, true, 'storyboard video must play in the browser')
+    assert.equal(viewport.storyboard.ended, true, 'storyboard video must reach its ended state in the browser')
+    assert.equal(viewport.storyboard.unicode_path, true, 'storyboard video must exercise a Unicode storage path')
   }
   assert.equal(evidence.cleanup.status, 'passed', 'E2E cleanup evidence must pass')
   const mediaCleanup = evidence.cleanup.media_cleanup
@@ -1172,20 +1176,37 @@ async function verifyPlayableVideo(locator, label) {
       video.load()
     })
     await waitForMetadata()
-    if (video.seekable?.length) video.currentTime = 0
     video.muted = true
+    if (video.seekable?.length && video.duration > 0.8) {
+      const seeked = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('media seek timeout')), 5000)
+        video.addEventListener('seeked', () => {
+          clearTimeout(timer)
+          resolve()
+        }, { once: true })
+      })
+      video.currentTime = Math.max(0, video.duration - 0.75)
+      await seeked
+    }
     const before = video.currentTime
+    const ended = new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(false), 5000)
+      video.addEventListener('ended', () => {
+        clearTimeout(timer)
+        resolve(true)
+      }, { once: true })
+    })
     await video.play()
-    await new Promise((resolve) => setTimeout(resolve, 350))
+    const endedObserved = await ended
     const after = video.currentTime
-    const played = after > before || video.ended
-    video.pause()
+    const played = after > before
     return {
       duration: video.duration,
       videoWidth: video.videoWidth,
       videoHeight: video.videoHeight,
       readyState: video.readyState,
       played,
+      ended: endedObserved && video.ended,
       currentTime: after,
       source: video.currentSrc || video.src,
     }
@@ -1193,16 +1214,26 @@ async function verifyPlayableVideo(locator, label) {
   assert.ok(Number.isFinite(result.duration) && result.duration > 0, `${label} duration must be positive`)
   assert.ok(result.videoWidth > 0 && result.videoHeight > 0, `${label} must decode video frames`)
   assert.equal(result.played, true, `${label} did not play`)
+  assert.equal(result.ended, true, `${label} did not reach its ended state`)
   return result
 }
 
 function summarizePlayback(result) {
+  let unicodePath = false
+  try {
+    unicodePath = /[^\x00-\x7f]/.test(decodeURIComponent(new URL(result.source).pathname))
+  } catch (_) {
+    unicodePath = false
+  }
   return {
     duration: result.duration,
     width: result.videoWidth,
     height: result.videoHeight,
     ready_state: result.readyState,
     played: result.played,
+    ended: result.ended,
+    current_time: result.currentTime,
+    unicode_path: unicodePath,
   }
 }
 
@@ -1393,7 +1424,7 @@ async function main({
     await evidenceRecorder.stage('browser_recovery')
     const browser = await launchBrowser(browserLaunchOptions())
     registerCleanup(cleanupActions, 'browser', () => browser.close())
-    const fixtureTitle = `${getSmokeHelpers().E2E_TITLE_PREFIX}${stamp}`
+    const fixtureTitle = `${getSmokeHelpers().E2E_TITLE_PREFIX}${stamp} 中文路径`
     const startViewport = DESKTOP_VIEWPORTS[0]
     const recoveryPage = await browser.newPage({ viewport: startViewport })
     const recoveryAudit = attachPageAudit(recoveryPage, startViewport)

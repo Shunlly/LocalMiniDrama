@@ -1267,6 +1267,37 @@ test('backup output commit never overwrites a path created during backup', async
   db.close();
 });
 
+test('aborted backup removes its internal snapshot, output, and maintenance lock', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'aborted-backup');
+  await seedStorage(workspace.storagePath, 'aborted-backup');
+  const before = new Set(
+    (await fsp.readdir(os.tmpdir())).filter((name) => name.startsWith('localminidrama-backup-'))
+  );
+  const controller = new AbortController();
+
+  await assert.rejects(
+    createDataBackup({
+      ...workspace,
+      outputPath: workspace.archivePath,
+      skipServiceCheck: true,
+      signal: controller.signal,
+      faultInjector(step) {
+        if (step === 'after-backup-database-snapshot') controller.abort();
+      },
+    }),
+    expectCode('OPERATION_ABORTED')
+  );
+
+  const after = (await fsp.readdir(os.tmpdir())).filter(
+    (name) => name.startsWith('localminidrama-backup-') && !before.has(name)
+  );
+  assert.deepEqual(after, []);
+  assert.equal(await fsp.stat(workspace.archivePath).catch(() => null), null);
+  assert.equal(await fsp.stat(maintenancePaths(workspace.databasePath).lockPath).catch(() => null), null);
+  db.close();
+});
+
 test('startup recovery rolls back an interrupted database and storage switch', async (t) => {
   const workspace = await makeWorkspace(t);
   const original = createDatabase(workspace.databasePath, 'original-before-crash');

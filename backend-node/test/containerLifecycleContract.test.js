@@ -28,20 +28,40 @@ test('backend Compose outwaits synchronous startup and the maintenance lock TTL 
 
   assert.equal(backend.restart, 'on-failure:10');
   assert.equal(backend.stop_grace_period, '60s');
-  assert.ok(backend.volumes.includes('./backend-node/data:/app/data'));
-  assert.ok(backend.volumes.includes('./backend-node/configs:/app/configs:ro'));
+  assert.deepEqual(
+    backend.volumes.find((volume) => volume.target === '/app/data'),
+    {
+      type: 'bind',
+      source: './backend-node/data',
+      target: '/app/data',
+    },
+  );
+  assert.deepEqual(
+    backend.volumes.find((volume) => volume.target === '/app/config-source'),
+    {
+      type: 'bind',
+      source: '${LOCALMINIDRAMA_CONFIG_DIR:-./backend-node/configs}',
+      target: '/app/config-source',
+      read_only: true,
+    },
+  );
+  assert.equal(backend.environment.LOCALMINIDRAMA_CONFIG_SOURCE, '/app/config-source/config.yaml');
+  assert.equal(backend.environment.LOCALMINIDRAMA_CONFIG_PATH, '/tmp/localminidrama-config/config.yaml');
 });
 
 test('entrypoint makes persistent data writable before dropping privileges and keeps Node as PID 1', repositoryOnly, () => {
   const entrypoint = fs.readFileSync(entrypointPath, 'utf8');
   const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
   const ownershipChange = 'chown -R node:node /app/data';
+  const configSanitization = 'node /usr/local/lib/localminidrama/runtime-config-policy.cjs "$config_source" "$config_target"';
   const dropPrivileges = 'exec setpriv --reuid=node --regid=node --init-groups -- "$@"';
 
   assert.match(entrypoint, /mkdir -p \/app\/data/);
-  assert.doesNotMatch(entrypoint, /chown[^\n]*\/app\/configs/);
+  assert.doesNotMatch(entrypoint, /chown[^\n]*\/app\/config-source/);
   assert.ok(entrypoint.includes(ownershipChange));
+  assert.ok(entrypoint.includes(configSanitization));
   assert.ok(entrypoint.includes(dropPrivileges));
+  assert.ok(entrypoint.indexOf(configSanitization) < entrypoint.indexOf(dropPrivileges));
   assert.ok(entrypoint.indexOf(ownershipChange) < entrypoint.indexOf(dropPrivileges));
   assert.match(entrypoint, /\nexec "\$@"\s*$/);
   assert.match(dockerfile, /ENTRYPOINT \["\/usr\/local\/bin\/localminidrama-entrypoint"\]/);
@@ -64,6 +84,7 @@ test('production image copies only the checked-in default config and verifies ma
   assert.match(dockerfile, /COPY scripts\/runtime-config-policy\.cjs \/policy\/runtime-config-policy\.cjs/);
   assert.match(dockerfile, /RUN node \/policy\/runtime-config-policy\.cjs \/policy\/config\.yaml \/app\/config\.runtime\.yaml/);
   assert.match(dockerfile, /COPY --from=dependencies --chown=node:node \/app\/config\.runtime\.yaml \.\/configs\/config\.yaml/);
+  assert.match(dockerfile, /COPY --from=dependencies --chown=root:root \/policy\/runtime-config-policy\.cjs \/usr\/local\/lib\/localminidrama\/runtime-config-policy\.cjs/);
   assert.doesNotMatch(dockerfile, /COPY[^\n]*backend-node\/configs(?:\s|\/\s)/);
   assert.match(dockerignore, /\*\*\/configs\/\*\*/);
   assert.match(dockerignore, /!backend-node\/configs\/config\.yaml/);

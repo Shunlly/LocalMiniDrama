@@ -41,7 +41,7 @@
 
 ## 📌 v1.3.3 动态
 - 🛠️ **发布扫描修复**：Trivy 改由固定 digest 的官方 OCI 镜像在 Ubuntu 执行，Windows 扫描证据以 SHA-256 绑定最终发布字节，并逐一验证三类制品的 Electron Fuse
-- 🔧 **失败恢复与并发状态**：素材选择器保证最新请求生效，项目包导入失败保留可重试的页内告警
+- 🔧 **失败恢复与并发状态**：素材选择器保证最新请求生效、显示安全中文错误与长名称提示，项目包导入失败保留可重试的页内告警
 - 🆕 **桌面创作流程收口**：项目就绪度给出唯一下一步，素材导入、处理、QA、修复、剧集与时间线形成可恢复的五步流程
 - 🆕 **多厂商 AI 配置**：按文本、素材图片、分镜图片、视频和 TTS 管理模型，支持连接测试、默认配置和本地/云端路由
 - 🆕 **Novel2Anime 生产链路**：PDF/图片 OCR、音视频转写、图片/视频/TTS 生成与 FFmpeg 合成串成可验收工作流
@@ -210,11 +210,13 @@ cd frontweb && npm install && npm run dev
 也可以直接从仓库根目录使用 Docker：
 
 ```bash
-docker compose up -d --build --wait
+npm run docker:up
 docker compose ps
 ```
 
-前端仍访问 `http://localhost:3013`，后端健康/就绪检查为 `http://localhost:5679/health` 和 `http://localhost:5679/ready`。Compose 默认仅绑定宿主机 `127.0.0.1`，不会把无认证接口直接暴露到局域网。改动前后端源码后需重新执行 `docker compose up -d --build --wait`；完整容器验证可运行 `npm run verify:docker`。桌面产品验收报告可在 `http://localhost:3013/reports/product-acceptance/report.html` 查看。
+前端仍访问 `http://localhost:3013`，后端健康/就绪检查为 `http://localhost:5679/health` 和 `http://localhost:5679/ready`。Compose 默认仅绑定宿主机 `127.0.0.1`，并使用只读根文件系统、`no-new-privileges` 与能力裁剪。`npm run docker:up` 要求干净工作树，并把当前 Git SHA 写入镜像 revision；开发中的未提交源码可直接运行 `docker compose up -d --build --wait`，但这类镜像不能创建正式回滚检查点。完整容器验证可运行 `npm run verify:docker`。生产 E2E 必须先执行 `npm run docker:e2e:up`，再运行 `npm run verify:e2e`。发布前停止后端和 Docker，并在干净工作树运行 `npm run verify:rollback`；正式上线还必须按 [快速开始](docs/quickstart.md) 保留真实数据备份、旧提交、运行镜像 ID、Compose / 配置与 SHA-256。桌面产品验收报告可在 `http://localhost:3013/reports/product-acceptance/report.html` 查看。
+
+生产后端不会直接使用宿主机原始 YAML：Compose 将可选的 `LOCALMINIDRAMA_CONFIG_DIR` 挂载到 `/app/config-source`，入口脚本启动时用 `runtime-config-policy.cjs` 净化到 `/tmp/localminidrama-config/config.yaml`，再以 `node` 用户启动服务。这样即使外部配置包含调试开关或敏感字段，运行配置仍按发布策略收敛；自定义配置目录中的 `config.yaml` 会在启动时重新校验。
 
 📖 [详细开发/打包/Docker 指南](docs/quickstart.md) · [AI 配置指南](docs/configuration.md)
 

@@ -8,10 +8,12 @@ let configCache = null;
 
 function setConfigPath(cfg) {
   configPath = null;
+  const explicitPath = String(process.env.LOCALMINIDRAMA_CONFIG_PATH || '').trim();
   const paths = [
+    explicitPath ? path.resolve(explicitPath) : null,
     path.join(process.cwd(), 'configs', 'config.yaml'),
     path.join(process.cwd(), 'config.yaml'),
-  ];
+  ].filter(Boolean);
   for (const p of paths) {
     if (fs.existsSync(p)) {
       configPath = p;

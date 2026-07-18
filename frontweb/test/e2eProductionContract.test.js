@@ -28,6 +28,7 @@ const {
 const productionSource = readFileSync(new URL('../scripts/e2e-production.cjs', import.meta.url), 'utf8')
 const verificationDockerfile = readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8')
 const productionDockerfile = readFileSync(new URL('../Dockerfile.prod', import.meta.url), 'utf8')
+const productionNginxConfig = readFileSync(new URL('../nginx.conf', import.meta.url), 'utf8')
 const backendDockerfile = readFileSync(new URL('../../backend-node/Dockerfile', import.meta.url), 'utf8')
 const backendEntrypoint = readFileSync(new URL('../../backend-node/docker-entrypoint.sh', import.meta.url), 'utf8')
 const composeSource = readFileSync(new URL('../../docker-compose.yml', import.meta.url), 'utf8')
@@ -453,8 +454,8 @@ test('production evidence can seal a complete successful acceptance package', as
         status: 'passed',
         playback: DESKTOP_VIEWPORTS.map((viewport) => ({
           viewport,
-          composed: { played: true },
-          storyboard: { played: true },
+          composed: { played: true, ended: true, unicode_path: true },
+          storyboard: { played: true, ended: true, unicode_path: true },
         })),
         final_download: { status: 'passed', validated: true, artifact: artifacts.final_video },
         project_export: { status: 'passed', validated: true, artifact: artifacts.project_zip },
@@ -568,6 +569,9 @@ test('browser acceptance contract covers the full UI journey, recovery, download
   assert.match(productionSource, /message\.type\(\) === 'error'/)
   assert.match(productionSource, /rootScrollWidth <= result\.rootClientWidth \+ 1/)
   assert.match(productionSource, /await video\.play\(\)/)
+  assert.match(productionSource, /video\.addEventListener\('ended'/)
+  assert.match(productionSource, /unicode_path: unicodePath/)
+  assert.match(productionSource, /E2E_TITLE_PREFIX\}\$\{stamp\} 中文路径/)
   assert.match(productionSource, /verifyPlayableVideo\(page\.locator\('\.sb-video-player'\)\.first\(\)/)
   assert.doesNotMatch(productionSource, /verifyPlayableVideo\(page\.locator\('\.sb-video-thumb-player'\)/)
   assert.match(productionSource, /persistBrowserPlayback\(evidenceRecorder, viewport, composedVideo, storyboardVideo\)/)
@@ -610,6 +614,12 @@ test('production frontend image installs build tooling but compiles the producti
   assert.match(productionDockerfile, /npm ci --include=dev --no-audit/)
   assert.match(productionDockerfile, /ENV NODE_ENV=production\s+RUN npm run build/)
   assert.doesNotMatch(productionDockerfile, /ENV NODE_ENV=development/)
+})
+
+test('production proxy fails unavailable upstream connections quickly without shortening generation reads', () => {
+  assert.equal((productionNginxConfig.match(/proxy_connect_timeout 5s;/g) || []).length, 2)
+  assert.equal((productionNginxConfig.match(/proxy_read_timeout 600s;/g) || []).length, 2)
+  assert.match(productionNginxConfig, /location \/api\/[\s\S]*proxy_send_timeout 600s;/)
 })
 
 test('production images pin reviewed bases and the frontend runs without root', () => {

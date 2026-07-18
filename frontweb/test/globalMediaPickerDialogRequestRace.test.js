@@ -218,6 +218,13 @@ const ElPaginationStub = defineComponent({
   },
 })
 
+const ElTooltipStub = defineComponent({
+  props: ['content', 'visible'],
+  setup(props, { slots }) {
+    return () => h('tooltip', { content: props.content, visible: props.visible }, slots.default?.())
+  },
+})
+
 function registerElementStubs(app) {
   app.component('el-dialog', ElDialogStub)
   app.component('el-button', ElButtonStub)
@@ -225,6 +232,7 @@ function registerElementStubs(app) {
   app.component('el-radio-group', ElRadioGroupStub)
   app.component('el-radio-button', ElRadioButtonStub)
   app.component('el-pagination', ElPaginationStub)
+  app.component('el-tooltip', ElTooltipStub)
   app.directive('loading', {})
 }
 
@@ -407,7 +415,7 @@ test('older successes cannot replace the latest error state, empty state stays h
 
     const errorNode = pickerError(harness.root)
     assert.ok(errorNode)
-    assert.match(textContent(errorNode), /latest failed/)
+    assert.match(textContent(errorNode), /暂时无法加载素材，请检查服务状态后重试/)
     assert.equal(footerStatus(harness.root), '素材加载失败，请重试')
     assert.equal(cardButtons(harness.root).length, 0)
     assert.equal(pickerEmpty(harness.root), null)
@@ -419,7 +427,7 @@ test('older successes cannot replace the latest error state, empty state stays h
     })
     await flushUi()
 
-    assert.match(textContent(pickerError(harness.root)), /latest failed/)
+    assert.match(textContent(pickerError(harness.root)), /暂时无法加载素材，请检查服务状态后重试/)
     assert.equal(cardButtons(harness.root).length, 0)
     assert.equal(pickerEmpty(harness.root), null)
     assert.equal(confirmButton(harness.root).props.disabled, true)

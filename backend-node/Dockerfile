@@ -37,12 +37,16 @@ COPY --chown=node:node backend-node/migrations ./migrations
 COPY --from=dependencies --chown=node:node /app/config.runtime.yaml ./configs/config.yaml
 COPY --chown=node:node backend-node/prompts ./prompts
 COPY --chown=node:node backend-node/scripts ./scripts
+COPY --from=dependencies --chown=root:root /policy/runtime-config-policy.cjs /usr/local/lib/localminidrama/runtime-config-policy.cjs
 COPY --chown=root:root backend-node/docker-entrypoint.sh /usr/local/bin/localminidrama-entrypoint
 
 RUN sed -i 's/\r$//' /usr/local/bin/localminidrama-entrypoint \
   && mkdir -p /app/data \
   && chown node:node /app/data \
   && chmod 0755 /usr/local/bin/localminidrama-entrypoint
+
+ARG LOCALMINIDRAMA_BUILD_REVISION=unknown
+LABEL org.opencontainers.image.revision="${LOCALMINIDRAMA_BUILD_REVISION}"
 
 ENTRYPOINT ["/usr/local/bin/localminidrama-entrypoint"]
 

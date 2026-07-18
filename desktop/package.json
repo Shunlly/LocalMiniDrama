@@ -38,7 +38,7 @@
   "dependencies": {
     "@napi-rs/canvas": "0.1.80",
     "@volcengine/openapi": "^1.36.2",
-    "adm-zip": "^0.5.16",
+    "adm-zip": "0.6.0",
     "better-sqlite3": "12.11.1",
     "buffer": "6.0.3",
     "cors": "^2.8.5",

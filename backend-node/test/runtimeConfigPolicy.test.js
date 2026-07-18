@@ -1,7 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const { sanitizeRuntimeConfig } = require('../../scripts/runtime-config-policy.cjs');
+const { loadConfig } = require('../src/config');
 
 test('runtime config policy strips local credentials and unsafe packaging overrides', () => {
   const result = sanitizeRuntimeConfig({
@@ -27,4 +31,19 @@ test('runtime config policy strips local credentials and unsafe packaging overri
   assert.equal(Object.hasOwn(result.ai, 'api_key'), false);
   assert.equal(Object.hasOwn(result, 'provider_credentials'), false);
   assert.equal(JSON.stringify(result).includes('synthetic-secret-marker'), false);
+});
+
+test('config loader prioritizes the explicit sanitized runtime path', (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-runtime-config-'));
+  const runtimeConfig = path.join(tempRoot, 'config.yaml');
+  fs.writeFileSync(runtimeConfig, 'app:\n  name: Runtime Override\n  version: 1.3.3\n', 'utf8');
+  const previousPath = process.env.LOCALMINIDRAMA_CONFIG_PATH;
+  process.env.LOCALMINIDRAMA_CONFIG_PATH = runtimeConfig;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.LOCALMINIDRAMA_CONFIG_PATH;
+    else process.env.LOCALMINIDRAMA_CONFIG_PATH = previousPath;
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  assert.equal(loadConfig().app.name, 'Runtime Override');
 });

@@ -409,15 +409,47 @@ function collectExternalAudioReferences(db, context, cache) {
 }
 
 function normalizeStorageReference(storageRoot, value) {
-  const resolved = uploadService.resolveStorageReference(storageRoot, value, { mustExist: false });
-  return resolved?.relativePath || null;
+  const text = String(value || '').trim();
+  try {
+    const resolved = uploadService.resolveStorageReference(storageRoot, text, { mustExist: false });
+    return resolved?.relativePath || null;
+  } catch (error) {
+    // Draft workflows intentionally persist mock/placeholder URLs. They are not
+    // filesystem candidates and must not make a guarded fixture purge fail.
+    if (/^(?:mock|placeholder):/i.test(text) && error?.code === 'UNSAFE_MEDIA_REFERENCE') {
+      return null;
+    }
+
+    // Older runs could persist an absolute path. Accept it only when it maps
+    // inside the controlled storage root, then run the normal resolver again.
+    if (path.isAbsolute(text) && !/^\/static\//i.test(text)) {
+      const root = path.resolve(storageRoot);
+      const candidate = path.resolve(text);
+      const relative = path.relative(root, candidate);
+      if (
+        relative &&
+        relative !== '..' &&
+        !relative.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relative)
+      ) {
+        const normalized = uploadService.resolveStorageReference(
+          storageRoot,
+          relative,
+          { mustExist: false },
+        );
+        return normalized?.relativePath || null;
+      }
+    }
+
+    throw error;
+  }
 }
 
 async function removeFixtureAudioFiles(db, storageRoot, context, cache) {
   const candidates = new Map();
   for (const value of collectFixtureAudioReferences(db, context, cache)) {
     const relativePath = normalizeStorageReference(storageRoot, value);
-    if (relativePath) candidates.set(relativePath, value);
+    if (relativePath) candidates.set(relativePath, relativePath);
   }
 
   const externalReferences = new Set();
@@ -431,12 +463,12 @@ async function removeFixtureAudioFiles(db, storageRoot, context, cache) {
   }
 
   const result = { candidates: candidates.size, deleted: 0, missing: 0, shared: 0 };
-  for (const [relativePath, originalValue] of candidates) {
+  for (const [relativePath] of candidates) {
     if (externalReferences.has(relativePath)) {
       result.shared += 1;
       continue;
     }
-    const resolved = uploadService.resolveStorageReference(storageRoot, originalValue, { allowMissing: true });
+    const resolved = uploadService.resolveStorageReference(storageRoot, relativePath, { allowMissing: true });
     if (!resolved) {
       result.missing += 1;
       continue;

@@ -42,53 +42,74 @@
       </div>
 
       <div v-loading="loading" class="picker-grid" :aria-busy="loading">
-        <button
+        <el-tooltip
           v-for="item in items"
           :key="item.id"
-          type="button"
-          class="picker-card"
-          :class="{
-            'picker-card--selected': selectedId === item.id,
-            'picker-card--incompatible': !isCompatible(item),
-          }"
-          :aria-pressed="selectedId === item.id"
-          :aria-label="cardLabel(item)"
-          @click="selectItem(item)"
-          @keydown.enter.prevent="onCardEnter(item)"
-          @keydown.space.prevent="selectItem(item)"
+          :content="item.name || '未命名素材'"
+          placement="top"
+          popper-class="media-name-tooltip"
+          :show-after="250"
+          :visible="focusedItemId === item.id || hoveredItemId === item.id"
         >
-          <div class="picker-card__thumb">
-            <video
-              v-if="item.type === 'video'"
-              :src="itemUrl(item)"
-              muted
-              preload="metadata"
-              class="picker-card__video"
-            />
-            <img
-              v-else
-              :src="itemUrl(item)"
-              :alt="`${item.name || '未命名素材'} 预览图`"
-              class="picker-card__image"
-            />
-          </div>
-          <div class="picker-card__body">
-            <div class="picker-card__title-row">
-              <span class="picker-card__title">{{ item.name || '未命名素材' }}</span>
-              <span class="picker-card__type">{{ item.type === 'video' ? '视频' : '图片' }}</span>
+          <button
+            type="button"
+            class="picker-card"
+            :class="{
+              'picker-card--selected': selectedId === item.id,
+              'picker-card--incompatible': !isCompatible(item),
+            }"
+            :aria-pressed="selectedId === item.id"
+            :aria-label="cardLabel(item)"
+            :aria-describedby="`media-card-name-${item.id}`"
+            @click="selectItem(item)"
+            @focus="focusedItemId = item.id"
+            @blur="focusedItemId = null"
+            @mouseenter="hoveredItemId = item.id"
+            @mouseleave="hoveredItemId = null"
+            @keydown.enter.prevent="onCardEnter(item)"
+            @keydown.space.prevent="selectItem(item)"
+          >
+            <span :id="`media-card-name-${item.id}`" class="visually-hidden">
+              完整素材名称：{{ item.name || '未命名素材' }}
+            </span>
+            <div class="picker-card__thumb">
+              <video
+                v-if="item.type === 'video'"
+                :src="itemUrl(item)"
+                muted
+                preload="metadata"
+                aria-hidden="true"
+                class="picker-card__video"
+              />
+              <img
+                v-else
+                :src="itemUrl(item)"
+                :alt="`${item.name || '未命名素材'} 预览图`"
+                class="picker-card__image"
+              />
             </div>
-            <div class="picker-card__meta">
-              <span>{{ item.source_drama_title || '全局上传' }}</span>
-              <span v-if="item.file_size">{{ formatSize(item.file_size) }}</span>
+            <div class="picker-card__body">
+              <div class="picker-card__title-row">
+                <span class="picker-card__title">{{ item.name || '未命名素材' }}</span>
+                <span class="picker-card__type">{{ item.type === 'video' ? '视频' : '图片' }}</span>
+              </div>
+              <div class="picker-card__meta">
+                <span>{{ item.source_drama_title || '全局上传' }}</span>
+                <span v-if="item.file_size">{{ formatSize(item.file_size) }}</span>
+              </div>
+              <div v-if="selectedId === item.id" class="picker-card__selection">
+                {{ isCompatible(item) ? '已选中' : incompatibleMessage }}
+              </div>
             </div>
-            <div v-if="selectedId === item.id" class="picker-card__selection">
-              {{ isCompatible(item) ? '已选中' : incompatibleMessage }}
-            </div>
-          </div>
-        </button>
+          </button>
+        </el-tooltip>
 
         <div v-if="!loading && !loadError && !items.length" class="picker-empty">
-          <p>当前筛选下没有素材。</p>
+          <p>{{ hasActiveFilters ? '当前筛选下没有素材。' : '素材中心还是空的。' }}</p>
+          <div class="picker-empty__actions">
+            <el-button v-if="hasActiveFilters" size="small" @click="clearFilters">清除筛选</el-button>
+            <el-button size="small" type="primary" @click="openMediaLibrary">前往素材中心上传</el-button>
+          </div>
         </div>
       </div>
 
@@ -139,7 +160,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update:modelValue', 'select'])
+const emit = defineEmits(['update:modelValue', 'select', 'open-library'])
 
 const innerVisible = computed({
   get: () => props.modelValue,
@@ -150,6 +171,8 @@ const loading = ref(false)
 const loadError = ref('')
 const items = ref([])
 const selectedId = ref(null)
+const focusedItemId = ref(null)
+const hoveredItemId = ref(null)
 const keyword = ref('')
 const mediaType = ref('all')
 const page = ref(1)
@@ -160,6 +183,7 @@ let keywordTimer = null
 let activeLoadController = null
 
 const selectedItem = computed(() => items.value.find((item) => Number(item.id) === Number(selectedId.value)) || null)
+const hasActiveFilters = computed(() => mediaType.value !== 'all' || Boolean(keyword.value.trim()))
 const confirmDisabled = computed(() => (
   loading.value
   || Boolean(loadError.value)
@@ -217,6 +241,8 @@ function resetPickerState() {
   clearKeywordTimer()
   loading.value = false
   selectedId.value = null
+  focusedItemId.value = null
+  hoveredItemId.value = null
   loadError.value = ''
   items.value = []
   keyword.value = ''
@@ -266,12 +292,12 @@ async function loadAssets() {
       total.value = response?.pagination?.total ?? response?.total ?? 0
       loadError.value = ''
     })
-  } catch (error) {
+  } catch {
     if (controller.signal.aborted) return
     mediaRequestGuard.commit(requestId, () => {
       items.value = []
       total.value = 0
-      loadError.value = error?.message || '素材列表加载失败'
+      loadError.value = '暂时无法加载素材，请检查服务状态后重试'
     })
   } finally {
     if (activeLoadController === controller) activeLoadController = null
@@ -284,6 +310,18 @@ async function loadAssets() {
 function applyFilters() {
   page.value = 1
   loadAssets()
+}
+
+function clearFilters() {
+  keyword.value = ''
+  mediaType.value = 'all'
+  applyFilters()
+}
+
+function openMediaLibrary() {
+  invalidatePendingLoads()
+  innerVisible.value = false
+  emit('open-library')
 }
 
 function debouncedLoad() {
@@ -457,6 +495,11 @@ watch(
   color: var(--text-muted);
 }
 
+:global(.media-name-tooltip) {
+  max-width: min(560px, calc(100vw - 32px));
+  overflow-wrap: anywhere;
+}
+
 .picker-card__selection {
   color: var(--el-color-primary);
 }
@@ -470,6 +513,27 @@ watch(
   border: 1px dashed var(--border-color);
   border-radius: 8px;
   color: var(--text-muted);
+  flex-direction: column;
+  gap: 10px;
+}
+
+.picker-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .picker-pagination {

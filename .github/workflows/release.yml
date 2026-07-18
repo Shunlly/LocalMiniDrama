@@ -15,10 +15,21 @@ jobs:
     timeout-minutes: 35
     permissions:
       contents: read
+    env:
+      LOCALMINIDRAMA_BUILD_REVISION: ${{ github.sha }}
+      LOCALMINIDRAMA_IMAGE_TAG: ${{ github.sha }}
+      TRIVY_IMAGE: ghcr.io/aquasecurity/trivy@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+      - name: Verify release commit belongs to origin/main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
       - name: Scan repository history for secrets
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
@@ -40,8 +51,52 @@ jobs:
           npm --prefix desktop audit --audit-level=high --registry=https://registry.npmjs.org
       - name: Verify Docker build context boundaries
         run: npm run verify:docker:artifact
+      - name: Verify clean Docker build revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          test "$(git rev-parse HEAD)" = "$LOCALMINIDRAMA_BUILD_REVISION"
       - name: Start production containers and local protocol-compatible provider
         run: docker compose --profile e2e up -d --build --wait
+      - name: Record and scan final production images with Trivy
+        shell: bash
+        run: |
+          set -euo pipefail
+          readonly evidence_dir="$GITHUB_WORKSPACE/artifacts/e2e-production"
+          readonly cache_dir="$RUNNER_TEMP/trivy-cache"
+          readonly backend_image="localminidrama-backend:$LOCALMINIDRAMA_IMAGE_TAG"
+          readonly frontend_image="localminidrama-frontend:$LOCALMINIDRAMA_IMAGE_TAG"
+          mkdir -p "$evidence_dir" "$cache_dir"
+
+          : > "$evidence_dir/docker-image-ids.txt"
+          for image in "$backend_image" "$frontend_image"; do
+            image_id="$(docker image inspect --format '{{.Id}}' "$image")"
+            revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")"
+            test "$revision" = "$LOCALMINIDRAMA_BUILD_REVISION"
+            printf '%s\t%s\t%s\n' "$image" "$image_id" "$revision" >> "$evidence_dir/docker-image-ids.txt"
+          done
+          docker image inspect "$backend_image" "$frontend_image" > "$evidence_dir/docker-images.json"
+
+          run_trivy() {
+            docker run --rm \
+              --volume /var/run/docker.sock:/var/run/docker.sock \
+              --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+              --volume "$evidence_dir:/evidence" \
+              --volume "$cache_dir:/root/.cache/trivy" \
+              "$TRIVY_IMAGE" "$@"
+          }
+
+          version="$(run_trivy --version | awk -F': ' '/^Version:/{print $2; exit}')"
+          test "$version" = '0.64.1'
+          printf '%s\n' "$version" > "$evidence_dir/trivy-version.txt"
+
+          status=0
+          run_trivy image --skip-version-check --scanners vuln --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed \
+            --format json --output /evidence/trivy-backend.json "$backend_image" || status=$?
+          run_trivy image --skip-version-check --scanners vuln --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed \
+            --format json --output /evidence/trivy-frontend.json "$frontend_image" || status=$?
+          exit "$status"
       - name: Verify application code inside containers
         run: npm run verify:docker:containers
       - name: Run production workflow, QA, timeline, export and browser checks

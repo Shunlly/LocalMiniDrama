@@ -37,6 +37,33 @@ export function normalizeAiConfigReturnTo(value) {
   }
 }
 
+export function normalizeMediaLibraryReturnTo(value) {
+  const rawValue = Array.isArray(value) ? value[0] : value
+  if (typeof rawValue !== 'string') return ''
+  const candidate = rawValue.trim()
+  if (!candidate || candidate.length > 2048 || !candidate.startsWith('/') || /[\u0000-\u001f\u007f]/.test(candidate)) return ''
+
+  try {
+    const decodedPath = decodeURIComponent(candidate.split(/[?#]/, 1)[0])
+    if (decodedPath.includes('\\') || decodedPath.split('/').some((segment) => segment === '.' || segment === '..')) return ''
+    const appOrigin = 'https://localminidrama.invalid'
+    const parsed = new URL(candidate, appOrigin)
+    const filmMatch = parsed.pathname.match(/^\/film\/[1-9]\d*(\/canvas)?$/)
+    if (parsed.origin !== appOrigin || !filmMatch) return ''
+    const episode = parsed.searchParams.get('episode')
+    const query = new URLSearchParams()
+    if (/^[1-9]\d*$/.test(episode || '')) query.set('episode', episode)
+    if (filmMatch[1]) {
+      const focus = parsed.searchParams.get('focus')
+      if (/^[A-Za-z0-9:_-]{1,128}$/.test(focus || '')) query.set('focus', focus)
+    }
+    const search = query.toString()
+    return `${parsed.pathname}${search ? `?${search}` : ''}`
+  } catch (_) {
+    return ''
+  }
+}
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -83,7 +110,7 @@ const router = createRouter({
       path: '/media-library',
       name: 'media-library',
       component: () => import('@/views/MediaLibrary.vue'),
-      meta: { title: '素材中心' }
+      meta: { title: '素材中心', normalizeReturnTo: normalizeMediaLibraryReturnTo }
     },
     {
       path: '/:pathMatch(.*)*',
@@ -103,6 +130,16 @@ router.beforeEach((to) => {
       if (returnTo) query.returnTo = returnTo
       else delete query.returnTo
       return { name: 'ai-config', query, hash: to.hash, replace: true }
+    }
+  }
+  if (to.name === 'media-library' && Object.prototype.hasOwnProperty.call(to.query, 'returnTo')) {
+    const rawReturnTo = Array.isArray(to.query.returnTo) ? to.query.returnTo[0] : to.query.returnTo
+    const returnTo = normalizeMediaLibraryReturnTo(to.query.returnTo)
+    if (returnTo !== rawReturnTo) {
+      const query = { ...to.query }
+      if (returnTo) query.returnTo = returnTo
+      else delete query.returnTo
+      return { name: 'media-library', query, hash: to.hash, replace: true }
     }
   }
   if (to.meta.title) {

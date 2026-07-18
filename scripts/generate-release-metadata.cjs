@@ -7,7 +7,7 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { validateMediaToolMetadata } = require('../desktop/scripts/media-tool-policy')
 const { FUSE_POLICY } = require('../desktop/scripts/electron-fuses')
-const { validatePackagedApplications } = require('../desktop/scripts/verify-windows-artifacts')
+const { validatePackagedApplications } = require('./packaged-applications-contract.cjs')
 const { assertReleaseVersion } = require('./verify-release-version.cjs')
 
 const root = path.resolve(__dirname, '..')

@@ -219,8 +219,8 @@
         <p class="lede">以实际桌面工作流为准，覆盖项目入口、AI 服务、素材、剧集就绪度、制作台、画布和自由创作。移动端、代码签名和外部真实 Provider 深度接入按已确认范围后置。</p>
       </div>
       <div class="verdict">
-        <strong>1.3.3 候选版本地门禁通过</strong>
-        <span>产品退回项已完成浏览器复测，源码、Docker 与本地安全门禁通过。正式上线仍须完成 GitHub CI、正式附件和同 SHA 离线校验。</span>
+        <strong>1.3.3 候选版暂不放行</strong>
+        <span>当前补丁仍在关闭安全、回滚和生产证据问题。只有最终干净提交的源码、Docker、生产 E2E、回滚、GitHub CI 与正式附件全部绑定同一版本后才会转为 GO。</span>
       </div>
     </div>
 
@@ -231,8 +231,8 @@
       </div>
       <div class="score-grid">
         <div class="score"><small>核心页面</small><b>8 / 8</b><span>均可访问且无横向溢出</span></div>
-        <div class="score"><small>生产 E2E</small><b>100</b><span>干净候选提交的 QA 与媒体闭环通过</span></div>
-        <div class="score"><small>回滚演练</small><b>PASS</b><span>数据库、媒体、原文均恢复</span></div>
+        <div class="score"><small>生产 E2E</small><b>PENDING</b><span>当前证据未绑定最终干净提交</span></div>
+        <div class="score"><small>回滚演练</small><b>PENDING</b><span>等待最终干净提交复验</span></div>
         <div class="score"><small>生产依赖</small><b>0</b><span>High / Critical 漏洞</span></div>
       </div>
     </section>
@@ -240,8 +240,8 @@
     <section aria-labelledby="scope-title">
       <div class="section-head"><h2 id="scope-title">范围判断</h2></div>
       <div class="gate">
-        <span class="status good">本轮完成</span>
-        <p>桌面 Web、Docker、Electron、工作流、备份恢复、发布链路、安全边界、测试与验收报告。</p>
+        <span class="status info">实现完成，证据收口中</span>
+        <p>桌面 Web、Docker、Electron、工作流、备份恢复、发布链路、安全边界、测试与验收报告的实现已完成；最终干净提交证据仍按下方门禁收口。</p>
       </div>
       <div class="gate">
         <span class="status info">按约后置</span>
@@ -249,7 +249,7 @@
       </div>
       <div class="gate">
         <span class="status info">正式发布待远端复验</span>
-        <p>1.3.3 候选版已完成源码、Docker、四份 SBOM 与三份 Dockerfile 的本地门禁。提交后还必须将生产 E2E、Setup / Portable / Unpacked、Gitleaks、Trivy、Defender、Electron Fuse 和离线校验绑定同一提交，并等待 GitHub CI 独立复验。</p>
+        <p>1.3.3 当前工作树的源码、Docker、四份 SBOM 与三份 Dockerfile 已完成开发期验证。提交后还必须将生产 E2E、Setup / Portable / Unpacked、Gitleaks、Trivy、Defender、Electron Fuse 和离线校验绑定同一提交，并等待 GitHub CI 独立复验。</p>
       </div>
     </section>
 
@@ -260,22 +260,23 @@
       </div>
       <div class="two-col">
         <div class="plain-panel">
-          <h3>产品经理：候选版体验 GO</h3>
+          <h3>产品经理：体验验收待最终 E2E</h3>
           <ul>
             <li>项目首页、就绪度、制作台、画布、素材中心和 AI 配置均有明确的主任务与下一步。</li>
             <li>缺少视频或 TTS 能力时，正式命令失败关闭，同时保留可带上下文返回的配置入口。</li>
             <li>跨项目图片可以从素材中心挂载为分镜自由参考图或视频主参考图。</li>
             <li>素材选择器已阻止旧请求覆盖新请求，加载、错误、空态和确认操作保持一致。</li>
             <li>项目包导入失败改为持久页内反馈，提供安全文件名、可操作原因、重新选择和关闭入口。</li>
-            <li>上述退回项已通过浏览器重放，未发现残留 Toast 或状态覆盖；移动端按已确认范围后置。</li>
+            <li>素材选择器空态可直接清除筛选或前往素材中心上传，并通过受限返回地址回到原制作台。</li>
+            <li>1366×768 素材选择器已重拍并验证焦点返回；长名称键盘提示、重试恢复和中文路径视频的解码/时间轴证据已补齐，完整发布仍须随最终容器复验。</li>
           </ul>
         </div>
         <div class="plain-panel">
-          <h3>项目经理：候选版本地门禁 GO</h3>
+          <h3>项目经理：当前发布 NO-GO</h3>
           <ul>
             <li>1.3.3 桌面范围、后置边界、发布失败条件和回滚责任已写入文档与自动化门禁。</li>
             <li>源码、生产 E2E、Windows 三类制品、SBOM、秘密扫描和 CI 必须绑定同一提交。</li>
-            <li>本地候选源码、Docker 和安全扫描通过；最终提交、正式制品与离线清单仍须按发布流程复验。</li>
+            <li>当前 E2E 证据为失败且工作树非干净，Docker 报告仍需重建；在最终提交复验前不批准发布。</li>
             <li>任何同 SHA 门禁失败都回到开发阶段，不允许用人工说明替代通过记录。</li>
           </ul>
         </div>
@@ -285,7 +286,7 @@
     <section id="flow" aria-labelledby="flow-title">
       <div class="section-head">
         <h2 id="flow-title">流程证据</h2>
-        <p class="muted">截图均来自本轮实际运行页面</p>
+        <p class="muted">截图均来自本轮实际运行页面；步骤“健康”仅表示该页面场景通过，不等同于发布 GO</p>
       </div>
       <div class="flow">
         <figure>
@@ -364,7 +365,7 @@
           <img src="final-20260717/07-cross-project-media-picker.png" alt="从全局素材中心选择跨项目分镜参考图">
           <figcaption>
             <div class="step-title"><span class="step-number">10</span><h3>跨项目参考图复用</h3><span class="step-health">健康</span></div>
-            <p class="step-notes">选择器展示挂载目标、来源项目、类型兼容性和确认状态；嵌套弹窗支持 Esc 逐级关闭并将焦点还给触发按钮。</p>
+            <p class="step-notes">选择器展示挂载目标、来源项目、类型兼容性和确认状态；长文件名可悬停查看全文，嵌套弹窗支持 Esc 逐级关闭并将焦点还给触发按钮。</p>
           </figcaption>
         </figure>
 
@@ -375,6 +376,86 @@
             <p class="step-notes">未知路由不再留下空白或损坏工作台，用户可以返回上一页或直接回到项目列表。</p>
           </figcaption>
         </figure>
+
+        <figure>
+          <img src="final-20260718/13-media-picker-loading.jpg" alt="素材选择器加载中，确认动作禁用">
+          <figcaption>
+            <div class="step-title"><span class="step-number">12</span><h3>素材加载反馈</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">加载期间明确显示进度、设置忙碌状态并禁用确认，旧请求不会覆盖当前查询。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/14-media-picker-error-retry.jpg" alt="素材选择器显示安全的页内失败提示和重试按钮">
+          <figcaption>
+            <div class="step-title"><span class="step-number">13</span><h3>素材失败恢复</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">网络故障只显示安全、可执行的页内中文提示，不泄漏底层错误或重复 Toast；服务恢复后可原位重试。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/15-media-picker-1366x768.jpg" alt="1366×768 视口中的素材选择器完整显示">
+          <figcaption>
+            <div class="step-title"><span class="step-number">14</span><h3>紧凑桌面视口</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">1366×768 下弹窗、筛选、空态和底部动作完整位于视口内，页面无横向溢出；中文项目视频范围请求无 4xx/5xx。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/16-project-import-error-recovery.png" alt="项目包导入失败后的持久提示、重新选择和关闭操作">
+          <figcaption>
+            <div class="step-title"><span class="step-number">15</span><h3>项目导入失败恢复</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">无效项目包保留安全文件名与明确原因，用户可以重新选择或关闭提示；测试文件只存在于内存，未接触用户文件。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/17-media-picker-long-name-keyboard.jpg" alt="素材选择器长文件名在键盘聚焦后显示完整提示">
+          <figcaption>
+            <div class="step-title"><span class="step-number">16</span><h3>长名称键盘提示</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">键盘聚焦素材项时显示完整文件名提示，提示框限制在视口内；焦点环与操作目标清晰分离，没有用截断文本代替可访问名称。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/18-media-picker-retry-recovered.jpg" alt="素材服务恢复后重试显示素材且无重复错误提示">
+          <figcaption>
+            <div class="step-title"><span class="step-number">17</span><h3>重试恢复成功</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">服务恢复后原位重试重新显示素材，搜索框已清空，错误计数与重复 Toast 均为零，确认动作按选择状态保持禁用。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/19-unicode-video-playback.jpg" alt="中文项目路径视频在浏览器中加载并推进时间轴">
+          <figcaption>
+            <div class="step-title"><span class="step-number">18</span><h3>中文路径视频媒体</h3><span class="step-health">待最终 E2E</span></div>
+            <p class="step-notes">当前截图证明中文项目路径 MP4 的 206 / video/mp4、readyState=4 与可解码状态；最终干净 SHA 的生产 E2E 将使用中文项目名，并要求成片与分镜视频实际播放到 ended 后才放行。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/browser-01-media-filter-empty.png" alt="素材选择器筛选无结果时显示清除筛选和前往素材中心上传">
+          <figcaption>
+            <div class="step-title"><span class="step-number">19</span><h3>素材筛选空态</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">输入不会命中的素材名称后，页面明确显示当前筛选下没有素材，同时提供清除筛选和前往素材中心上传两个可执行动作；截图来自本轮浏览器验收。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/browser-02-media-center-return.png" alt="素材中心空态和返回制作台入口">
+          <figcaption>
+            <div class="step-title"><span class="step-number">20</span><h3>素材中心承接</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">空素材中心同时提供上传素材、新建项目后导入网页 URL 和返回项目首页；从制作台进入时保留安全 returnTo 参数，职责边界对用户可见。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260718/browser-03-returned-studio.png" alt="从素材中心返回原制作台并保留中文项目和剧集状态">
+          <figcaption>
+            <div class="step-title"><span class="step-number">21</span><h3>安全返回制作台</h3><span class="step-health">健康</span></div>
+            <p class="step-notes">点击返回制作台后恢复原项目、原集数和分镜页面，没有落到首页或丢失上下文；弹窗与长文本在当前桌面视口内无重叠。</p>
+          </figcaption>
+        </figure>
       </div>
     </section>
 
@@ -383,12 +464,12 @@
       <table>
         <thead><tr><th>门禁</th><th>结果</th><th>证据</th></tr></thead>
         <tbody>
-          <tr><td>后端</td><td><span class="status good">通过</span></td><td>179 个 JavaScript 文件检查、全量 Node 测试、流程审计、ZIP/凭据/备份边界；干净候选提交已重跑。</td></tr>
-          <tr><td>前端</td><td><span class="status good">通过</span></td><td>232/232 测试、真实 Vue 请求竞态与错误提示策略回归、组件契约、桌面无障碍、关键流程、生产构建和包体预算。</td></tr>
+          <tr><td>后端</td><td><span class="status good">通过</span></td><td>391/391 测试、JavaScript 文件检查、流程审计、ZIP/凭据/备份边界；中文项目静态媒体的 MIME、Range、206 响应与浏览器解码/时间轴推进已回归。</td></tr>
+          <tr><td>前端</td><td><span class="status good">通过</span></td><td>234/234 测试、真实 Vue 请求竞态与错误提示策略回归、组件契约、桌面无障碍、关键流程、生产构建和包体预算。</td></tr>
           <tr><td>桌面</td><td><span class="status good">通过</span></td><td>59/59 测试、Electron 生命周期、原生 ABI、URL 安全、媒体工具信任；正式 Setup、Portable、Unpacked 启动 smoke 待 Release 工作流复验。</td></tr>
-          <tr><td>Docker</td><td><span class="status good">通过</span></td><td>Node 20 容器内验证；backend、frontend、E2E Provider 均通过健康检查，生产后端进程以 UID 1000 运行。</td></tr>
-          <tr><td>生产 E2E</td><td><span class="status good">通过</span></td><td>干净候选提交完成文本 1、图片 12、视频 8、语音 8 次成功调用；双视口媒体播放、下载、导出、故障恢复和零残留清理通过。</td></tr>
-          <tr><td>备份与回滚</td><td><span class="status good">通过</span></td><td>当前数据备份 145 个文件；隔离恢复 37/37 通过，覆盖 SQLite、媒体、原文、凭据排除和故障回滚。</td></tr>
+          <tr><td>Docker</td><td><span class="status info">开发容器通过，待最终 SHA</span></td><td>Node 20 镜像边界、后端 391/391、前端 234/234、只读根文件系统和运行时配置净化均已复验；提交后必须再次构建并绑定最终 SHA 与镜像 ID。</td></tr>
+          <tr><td>生产 E2E</td><td><span class="status info">待最终 SHA 复验</span></td><td>现有执行完成了媒体闭环，但证据因工作树非干净而标记失败；不得将旧调用次数作为当前候选提交的 PASS。</td></tr>
+          <tr><td>备份与回滚</td><td><span class="status info">待最终 SHA 复验</span></td><td>备份恢复专项测试为 38 项；<code>verify:rollback</code> 将在干净 1.3.3 提交上执行脱敏备份、隔离恢复和中断清理。正式检查点会捕获实际配置 bind mount 与镜像 revision，归档 Compose / 配置 / <code>images.tar</code> / 哈希；恢复前加载并核对旧镜像，失败会自动还原升级后数据与服务。</td></tr>
           <tr><td>依赖安全</td><td><span class="status good">通过</span></td><td>后端、前端和桌面使用 npm 官方审计端点，生产依赖均为 0 vulnerabilities。</td></tr>
           <tr><td>发布制品</td><td><span class="status info">待正式发布</span></td><td>正式 Setup、Portable、Unpacked ZIP、四份 CycloneDX SBOM、媒体工具元数据与发布清单将在 v1.3.3 Release 工作流生成后执行 SHA-256 离线复核。</td></tr>
           <tr><td>制品安全</td><td><span class="status info">本地通过，远端待验</span></td><td>固定 Trivy 0.64.1 对四份 1.3.3 SBOM 和三份 Dockerfile 的本地扫描为 0 High/Critical；正式附件仍须通过 Gitleaks、Trivy、Defender 与 9 项 Electron Fuse 门禁。</td></tr>
@@ -431,7 +512,7 @@
           <ul>
             <li>项目卡片键盘入口、弹窗焦点和画布面板聚焦。</li>
             <li>模式控件、状态提示、错误提示和关键按钮的可访问名称。</li>
-            <li>双桌面视口无横向溢出，媒体可实际播放。</li>
+            <li>双桌面视口无横向溢出，媒体可加载、解码并推进时间轴；完整播放仍以最终容器复验为准。</li>
           </ul>
         </div>
         <div class="plain-panel">

@@ -197,7 +197,9 @@ test('project import failures stay persistent with retry and dismiss actions', (
     filmListSource,
     /class="export-failure-state import-failure-state"[\s\S]*:loading="importing"[\s\S]*@click="triggerImport"/,
   )
-  assert.match(filmListSource, /@click="clearImportFailure"[\s\S]*关闭/)
+  assert.match(filmListSource, /@click="dismissImportFailure"[\s\S]*关闭/)
+  assert.match(filmListSource, /ref="importTriggerButton"[\s\S]*导入项目包/)
+  assert.match(filmListSource, /function dismissImportFailure\(\)[\s\S]*await nextTick\(\)[\s\S]*trigger\?\.focus\?\.\(\)/)
 
   const importSource = sourceBetween(filmListSource, 'function clearImportFailure', 'async function moveToTrash')
   assert.match(importSource, /clearImportFailure\(\)/)

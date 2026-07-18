@@ -14,6 +14,30 @@ const { backgroundTasks } = require('./services/legacyAsyncSchedulerService.js')
 
 const READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+const STORAGE_MEDIA_MIME_TYPES = new Map([
+  ['.aac', 'audio/aac'],
+  ['.avi', 'video/x-msvideo'],
+  ['.bmp', 'image/bmp'],
+  ['.flac', 'audio/flac'],
+  ['.gif', 'image/gif'],
+  ['.jpeg', 'image/jpeg'],
+  ['.jpg', 'image/jpeg'],
+  ['.m4a', 'audio/mp4'],
+  ['.m4v', 'video/mp4'],
+  ['.mkv', 'video/x-matroska'],
+  ['.mov', 'video/quicktime'],
+  ['.mp3', 'audio/mpeg'],
+  ['.mp4', 'video/mp4'],
+  ['.ogg', 'audio/ogg'],
+  ['.png', 'image/png'],
+  ['.srt', 'text/plain; charset=utf-8'],
+  ['.txt', 'text/plain; charset=utf-8'],
+  ['.vtt', 'text/vtt; charset=utf-8'],
+  ['.wav', 'audio/wav'],
+  ['.webm', 'video/webm'],
+  ['.webp', 'image/webp'],
+]);
+
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -290,7 +314,11 @@ function createStorageStaticMiddleware(storageRoot, log = logger) {
     const start = range?.start ?? 0;
     const end = range?.end ?? Math.max(0, size - 1);
     const responseBytes = size === 0 ? 0 : end - start + 1;
-    res.type(opened.absolutePath);
+    const extension = path.extname(opened.absolutePath).toLowerCase();
+    const mediaMimeType = STORAGE_MEDIA_MIME_TYPES.get(extension);
+    res.setHeader('Content-Type', mediaMimeType || 'application/octet-stream');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (!mediaMimeType) res.setHeader('Content-Disposition', 'attachment');
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Length', responseBytes);
     res.setHeader('Last-Modified', opened.stat.mtime.toUTCString());

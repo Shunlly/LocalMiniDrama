@@ -196,7 +196,7 @@ AI 服务配置通过软件内「AI 配置」页面管理，无需手动编辑 Y
 项目根目录已提供 `docker-compose.yml`，会同时启动后端和前端：
 
 ```bash
-docker compose up -d --build --wait
+npm run docker:up
 docker compose ps
 ```
 
@@ -209,7 +209,11 @@ docker compose ps
 | 后端就绪检查 | `http://localhost:5679/ready` |
 | API 根路径 | `http://localhost:5679/api/v1` |
 
-Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`、`python3`、`make`、`g++`，用于 `better-sqlite3` 等原生依赖和视频处理。容器会把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器使用 Nginx 提供 Vite 的生产构建产物，源码没有 bind mount；修改前端或后端代码后需要重新执行 `docker compose up -d --build --wait`。
+Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器会把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器使用 Nginx 提供 Vite 的生产构建产物，源码没有 bind mount。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
+
+后端 Compose 不会让宿主机配置直接覆盖运行配置。`LOCALMINIDRAMA_CONFIG_DIR`（默认 `./backend-node/configs`）只读挂载到容器的 `/app/config-source`；入口脚本会在降权前通过 `runtime-config-policy.cjs` 将其净化到 `/tmp/localminidrama-config/config.yaml`，应用通过 `LOCALMINIDRAMA_CONFIG_PATH` 读取净化结果。自定义配置必须提供 `config.yaml`，每次启动都会重新净化。
+
+`npm run docker:up` 要求 Git 工作树干净，并把当前完整提交 SHA 写入后端和前端镜像的 OCI revision 标签。修改源码尚未提交时可直接执行 `docker compose up -d --build --wait` 做开发检查，但 revision 会是 `unknown`，不能用于发布证据或正式回滚检查点；提交后必须重新运行 `npm run docker:up`。
 
 Docker 默认只把 `5679` 和 `3013` 绑定到宿主机 `127.0.0.1`，不会向局域网公开无认证接口。确需远程访问时，请先增加反向代理、认证和 TLS，再显式调整端口绑定。
 
@@ -218,6 +222,16 @@ Docker 默认只把 `5679` 和 `3013` 绑定到宿主机 `127.0.0.1`，不会向
 ```bash
 npm run verify:docker
 ```
+
+生产工作流 E2E 不会自动启动本地协议兼容 Provider。必须在干净工作树按顺序执行：
+
+```bash
+npm run docker:e2e:up
+npm run verify:e2e
+docker compose --profile e2e down --volumes --remove-orphans
+```
+
+`docker:e2e:up` 等价于带可信 Git revision 的 `docker compose --profile e2e up -d --build --wait`。E2E 会真实调用本地文本、图片、视频和 TTS 协议端点，生成成片、验证两个桌面视口播放到结束、下载与项目导出，然后清理测试项目；它不等同于外部云 Provider 深度联调。
 
 该命令依次执行后端静态检查、测试与流程审计，以及前端静态检查、测试和生产构建。宿主机若使用 Node.js 24 等缺少 `better-sqlite3` 预编译产物的版本，可直接以 Docker/Node 20 作为权威验证路径。
 
@@ -303,6 +317,33 @@ npm --prefix backend-node run restore:data -- --input D:\backup\localminidrama.z
 ```
 
 恢复会先校验归档清单、大小、路径和 SQLite 完整性，并为目标数据保留恢复前回滚副本。安全备份不会携带 Provider 凭据，恢复后需要在「AI 配置」重新填写 Key 并执行连接测试。
+
+发布或升级验收时，先停止后端与 Docker，确认 Git 工作树干净，再从仓库根目录运行：
+
+```bash
+npm run verify:rollback
+```
+
+该门禁先运行 38 项备份恢复专项测试，再把当前数据做脱敏备份并恢复到临时隔离目录，校验 SQLite、媒体、原文、凭据排除、中断清理和恢复前回滚副本。临时归档在结束后删除，摘要写入被 Git 忽略的 `artifacts/rollback-drill/summary.json`；已识别的旧版本摘要会原子迁入 `artifacts/rollback-drill/archive/`，不会冒充当前结果或阻断新演练。
+
+`verify:rollback` 只证明备份与恢复链路可用，不会保留上线回退所需的真实备份。正式升级前必须建立可追溯的回退检查点：
+
+```powershell
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$checkpoint = "D:\backup\localminidrama-$stamp"
+npm run checkpoint:rollback -- -CheckpointDirectory $checkpoint
+```
+
+`checkpoint:rollback` 要求当前服务由 `npm run docker:up` 构建且健康。脚本会在停机前从实际运行容器捕获不可变镜像 ID 和真实配置 bind mount，核对两份镜像 revision 与当前 Git SHA 一致，把两份镜像打上提交专属标签并保存到 `images.tar`，同时归档 Compose、运行配置及所有 SHA-256；随后才停止 Docker、创建真实数据备份并执行同提交隔离演练。中途失败会尝试用已捕获镜像自动恢复原服务。检查点必须位于仓库之外且至少保留到新版本完成业务验收，不能只保留 metadata 而删除 `images.tar`。
+
+需要回退时，先停止容器并恢复数据，再把已记录的旧镜像 ID 重新标记为专用回退标签；不要覆盖或移动正式发布标签：
+
+```powershell
+$checkpoint = 'D:\backup\localminidrama-YYYYMMDD-HHMMSS'
+npm run restore:rollback -- -CheckpointDirectory $checkpoint
+```
+
+`restore:rollback` 在接触数据前核对 metadata、数据 ZIP、Compose、运行配置、镜像归档、演练摘要的 SHA-256，并从 `images.tar` 加载后逐一核对旧镜像 ID 与 revision；同时捕获当前健康部署作为自动补偿目标。停机后先保留升级后数据补偿备份，再恢复旧数据并用归档 Compose / 配置及专用回退标签启动。旧版本启动失败时，脚本会自动恢复补偿数据和升级后镜像；补偿也失败才会报告双重故障。成功后仍需复验一条已有媒体播放链路，并在「AI 配置」重新填写所有备份策略排除的 Provider 凭据。不可移动或重写 `v1.3.3` 等正式标签。
 
 **离线目录副本**：只有在后端和 Docker 均已停止时，才可复制整个 `backend-node/data/`；不要在 SQLite 正在写入时直接拷贝。
 

@@ -119,6 +119,12 @@ test('static storage serves regular files but never follows a directory symlink'
   });
   fs.mkdirSync(path.join(storagePath, 'safe'));
   fs.writeFileSync(path.join(storagePath, 'safe', 'public.txt'), 'public-data');
+  for (const filename of ['active.html', 'active.js', 'active.svg', 'active.xml', 'unknown.bin']) {
+    fs.writeFileSync(path.join(storagePath, 'safe', filename), '<script>top.location="https://example.invalid"</script>');
+  }
+  const unicodeDirectory = path.join(storagePath, '项目 素材');
+  fs.mkdirSync(unicodeDirectory);
+  fs.writeFileSync(path.join(unicodeDirectory, '成片.mp4'), Buffer.from('video-data'));
   fs.writeFileSync(path.join(outsidePath, 'secret.txt'), 'outside-secret');
   try {
     createDirectoryLink(outsidePath, path.join(storagePath, 'linked'));
@@ -136,7 +142,24 @@ test('static storage serves regular files but never follows a directory symlink'
 
   const safe = await fetch(`${origin}/static/safe/public.txt`);
   assert.equal(safe.status, 200);
+  assert.match(safe.headers.get('content-type'), /^text\/plain/);
   assert.equal(await safe.text(), 'public-data');
+
+  for (const filename of ['active.html', 'active.js', 'active.svg', 'active.xml', 'unknown.bin']) {
+    const activeContent = await fetch(`${origin}/static/safe/${filename}`);
+    assert.equal(activeContent.status, 200);
+    assert.equal(activeContent.headers.get('content-type'), 'application/octet-stream');
+    assert.equal(activeContent.headers.get('content-disposition'), 'attachment');
+    assert.equal(activeContent.headers.get('x-content-type-options'), 'nosniff');
+  }
+
+  const unicodeVideo = await fetch(`${origin}/static/${encodeURIComponent('项目 素材')}/${encodeURIComponent('成片.mp4')}`, {
+    headers: { Range: 'bytes=0-3' },
+  });
+  assert.equal(unicodeVideo.status, 206);
+  assert.equal(unicodeVideo.headers.get('content-type'), 'video/mp4');
+  assert.equal(unicodeVideo.headers.get('content-range'), 'bytes 0-3/10');
+  assert.deepEqual(Buffer.from(await unicodeVideo.arrayBuffer()), Buffer.from('vide'));
 
   const rejected = await fetch(`${origin}/static/linked/secret.txt`);
   const rejectedBody = await rejected.text();

@@ -8,6 +8,13 @@ const yaml = require('js-yaml');
 const settingsService = require('../src/services/settingsService');
 const settingsRoutes = require('../src/routes/settings');
 
+const inheritedRuntimeConfigPath = process.env.LOCALMINIDRAMA_CONFIG_PATH;
+delete process.env.LOCALMINIDRAMA_CONFIG_PATH;
+test.after(() => {
+  if (inheritedRuntimeConfigPath === undefined) delete process.env.LOCALMINIDRAMA_CONFIG_PATH;
+  else process.env.LOCALMINIDRAMA_CONFIG_PATH = inheritedRuntimeConfigPath;
+});
+
 function withFsOverrides(overrides, action) {
   const originals = {};
   for (const [name, implementation] of Object.entries(overrides)) {
@@ -50,6 +57,23 @@ function createSettingsDb() {
   )`);
   return db;
 }
+
+test('language persistence honors the explicit runtime config path', (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'localminidrama-settings-config-'));
+  const runtimeConfig = path.join(tempRoot, 'config.yaml');
+  fs.writeFileSync(runtimeConfig, 'app:\n  language: zh\n', 'utf8');
+  const previousPath = process.env.LOCALMINIDRAMA_CONFIG_PATH;
+  process.env.LOCALMINIDRAMA_CONFIG_PATH = runtimeConfig;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.LOCALMINIDRAMA_CONFIG_PATH;
+    else process.env.LOCALMINIDRAMA_CONFIG_PATH = previousPath;
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  const cfg = { app: { language: 'zh' } };
+  assert.deepEqual(settingsService.updateLanguage(cfg, createLoggerStub(), 'en'), { ok: true, language: 'en' });
+  assert.equal(yaml.load(fs.readFileSync(runtimeConfig, 'utf8')).app.language, 'en');
+});
 
 test('updates in-memory language only after the YAML file is persisted', () => {
   const cfg = { app: { language: 'zh' } };

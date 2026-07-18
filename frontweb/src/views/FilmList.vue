@@ -40,7 +40,7 @@
           <el-button class="btn-settings" :disabled="listWriteLocked" @click="showAiConfigDialog = true">
             <el-icon><Setting /></el-icon>AI配置
           </el-button>
-          <el-button class="btn-import" :loading="importing" :disabled="listWriteLocked" @click="triggerImport">
+          <el-button ref="importTriggerButton" class="btn-import" :loading="importing" :disabled="listWriteLocked" @click="triggerImport">
             <el-icon><Upload /></el-icon>导入项目包
           </el-button>
           <input ref="importFileInput" type="file" accept=".zip" style="display:none" @change="onImportFile" />
@@ -115,7 +115,7 @@
             >
               <el-icon><RefreshLeft /></el-icon>重新选择项目包
             </el-button>
-            <el-button plain :disabled="importing" @click="clearImportFailure">
+            <el-button plain :disabled="importing" @click="dismissImportFailure">
               关闭
             </el-button>
           </div>
@@ -571,7 +571,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files, Collection, ArrowDown, MoreFilled, RefreshLeft } from '@element-plus/icons-vue'
@@ -847,6 +847,7 @@ const exportFailure = ref(null)
 const importing = ref(false)
 const importFailure = ref(null)
 const importFileInput = ref(null)
+const importTriggerButton = ref(null)
 
 const showTrashDialog = ref(false)
 const trashItems = ref([])
@@ -1060,7 +1061,7 @@ async function submitNew() {
     showNewDialog.value = false
     ElMessage.success('项目已创建')
     loadList()
-    router.push('/drama/' + drama.id)
+    router.push({ path: `/drama/${drama.id}`, hash: '#source-intake-workflow' })
   } catch (e) {
     ElMessage.error(e.message || '创建失败')
   } finally {
@@ -1189,6 +1190,13 @@ async function onExport(d) {
 
 function clearImportFailure() {
   importFailure.value = null
+}
+
+async function dismissImportFailure() {
+  clearImportFailure()
+  await nextTick()
+  const trigger = importTriggerButton.value?.$el || importTriggerButton.value
+  trigger?.focus?.()
 }
 
 function normalizeImportFailureFilename(name) {

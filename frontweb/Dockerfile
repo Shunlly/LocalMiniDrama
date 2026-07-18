@@ -11,6 +11,7 @@ RUN npm ci
 COPY frontweb/Dockerfile ./Dockerfile
 COPY frontweb/index.html ./index.html
 COPY frontweb/Dockerfile.prod ./Dockerfile.prod
+COPY frontweb/nginx.conf ./nginx.conf
 COPY frontweb/vite.config.js ./vite.config.js
 COPY frontweb/public ./public
 COPY frontweb/src ./src

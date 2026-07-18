@@ -1545,6 +1545,7 @@
                   :key="sbMainVideoPlayerKey(sb.id)"
                   :src="assetVideoUrl(getSbVideo(sb.id))"
                   controls
+                  :aria-label="`分镜 ${sb.storyboard_number} 视频预览`"
                   class="sb-video-player"
                   preload="metadata"
                 />
@@ -1596,7 +1597,7 @@
                   :title="`${item.label}（点击切换）`"
                   @click="onSelectSbMainVideo(sb, item.video)"
                 >
-                  <video :src="item.src" preload="metadata" class="sb-video-thumb-player" />
+                  <video :src="item.src" preload="metadata" aria-hidden="true" class="sb-video-thumb-player" />
                   <span class="sb-video-thumb-label">{{ item.label }}</span>
                 </button>
               </div>
@@ -1755,6 +1756,7 @@
           <video
             :src="currentEpisodeVideoUrl"
             controls
+            aria-label="本集合成视频预览"
             class="video-preview-player"
             preload="metadata"
           />
@@ -2818,6 +2820,7 @@
       :accept="globalMediaPickerAccept"
       :context="globalMediaPickerContext"
       @select="onGlobalMediaAssetSelected"
+      @open-library="openMediaLibraryFromPicker"
     />
     </template>
   </div>
@@ -2924,6 +2927,11 @@ function goCanvasMode() {
   if (!dramaId.value) return
   const query = selectedEpisodeId.value ? { episode: String(selectedEpisodeId.value) } : {}
   router.push({ path: `/film/${dramaId.value}/canvas`, query })
+}
+
+function openMediaLibraryFromPicker() {
+  showGlobalMediaPicker.value = false
+  router.push({ name: 'media-library', query: { returnTo: route.fullPath } })
 }
 
 

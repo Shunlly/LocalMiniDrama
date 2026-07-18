@@ -89,6 +89,12 @@ function backupError(code, message, cause) {
   return new DataBackupError(code, message, cause);
 }
 
+function assertOperationNotAborted(signal) {
+  if (signal?.aborted) {
+    throw backupError('OPERATION_ABORTED', 'The data maintenance operation was interrupted.');
+  }
+}
+
 function normalizeLimits(overrides = {}) {
   const limits = { ...DEFAULT_LIMITS };
   for (const key of LIMIT_KEYS) {
@@ -1415,20 +1421,25 @@ async function captureBackupView(databasePath, storagePath, storySourcesPath, sn
   let freeze;
   let transactionStarted = false;
   try {
+    assertOperationNotAborted(options?.signal);
     freeze = new Database(databasePath, { fileMustExist: true });
     freeze.pragma('busy_timeout = 0');
     const journalMode = String(freeze.pragma('journal_mode', { simple: true }) || '').toLowerCase();
     freeze.exec('BEGIN EXCLUSIVE');
     transactionStarted = true;
     await runFaultInjector(options, 'after-backup-freeze-acquired');
+    assertOperationNotAborted(options?.signal);
     if (journalMode === 'wal') {
       await createOnlineDatabaseSnapshot(databasePath, snapshotPath);
     } else {
       await createLockedDatabaseSnapshot(databasePath, snapshotPath);
     }
     await runFaultInjector(options, 'after-backup-database-snapshot');
+    assertOperationNotAborted(options?.signal);
     const storage = await hashStorageFiles(await collectStorageFiles(storagePath, limits));
+    assertOperationNotAborted(options?.signal);
     const storySources = await hashStorySourceFiles(await collectStorySourceFiles(storySourcesPath, limits));
+    assertOperationNotAborted(options?.signal);
     storySources.referenceCount = validateStorySourceReferences(
       snapshotPath,
       storySourcesPath,
@@ -1436,6 +1447,7 @@ async function captureBackupView(databasePath, storagePath, storySourcesPath, sn
       limits
     );
     await runFaultInjector(options, 'after-backup-storage-captured');
+    assertOperationNotAborted(options?.signal);
     return { storage, storySources };
   } catch (error) {
     if (isSqliteBusy(error)) {
@@ -1533,7 +1545,8 @@ function createCentralZip64Extra(size, offset) {
   return extra;
 }
 
-async function writeStoredZipEntry(archiveHandle, position, source) {
+async function writeStoredZipEntry(archiveHandle, position, source, signal) {
+  assertOperationNotAborted(signal);
   const nameBuffer = Buffer.from(source.name, 'utf8');
   if (nameBuffer.length > ZIP64_UINT16) {
     throw backupError('UNSAFE_ARCHIVE_PATH', 'A storage path is too long for a ZIP archive.');
@@ -1576,6 +1589,7 @@ async function writeStoredZipEntry(archiveHandle, position, source) {
       const buffer = Buffer.allocUnsafe(1024 * 1024);
       let sourcePosition = 0;
       while (sourcePosition < source.identity.size) {
+        assertOperationNotAborted(signal);
         const length = Math.min(buffer.length, source.identity.size - sourcePosition);
         const result = await sourceHandle.read(buffer, 0, length, sourcePosition);
         if (result.bytesRead <= 0) {
@@ -1601,6 +1615,8 @@ async function writeStoredZipEntry(archiveHandle, position, source) {
     throw backupError('BACKUP_DATA_CHANGED', 'A backup data file changed while the backup was being created.');
   }
 
+  assertOperationNotAborted(signal);
+
   const finalCrc = finishCrc32(crc);
   const crcPatch = Buffer.alloc(4);
   crcPatch.writeUInt32LE(finalCrc, 0);
@@ -1615,20 +1631,23 @@ async function writeStoredZipEntry(archiveHandle, position, source) {
   };
 }
 
-async function writeZip64Archive(tempPath, sources) {
+async function writeZip64Archive(tempPath, sources, signal) {
   let handle;
   try {
+    assertOperationNotAborted(signal);
     handle = await fsp.open(tempPath, 'wx', 0o600);
     let position = 0;
     const centralEntries = [];
     for (const source of sources) {
-      const result = await writeStoredZipEntry(handle, position, source);
+      assertOperationNotAborted(signal);
+      const result = await writeStoredZipEntry(handle, position, source, signal);
       position = result.position;
       centralEntries.push(result.central);
     }
 
     const centralOffset = position;
     for (const entry of centralEntries) {
+      assertOperationNotAborted(signal);
       const extra = createCentralZip64Extra(entry.size, entry.localOffset);
       const header = Buffer.alloc(46);
       header.writeUInt32LE(ZIP_CENTRAL_SIGNATURE, 0);
@@ -1654,6 +1673,7 @@ async function writeZip64Archive(tempPath, sources) {
     }
 
     const centralSize = position - centralOffset;
+    assertOperationNotAborted(signal);
     const zip64EndOffset = position;
     const zip64End = Buffer.alloc(56);
     zip64End.writeUInt32LE(ZIP64_END_SIGNATURE, 0);
@@ -1695,6 +1715,7 @@ async function writeZip64Archive(tempPath, sources) {
 }
 
 async function createDataBackup(options) {
+  assertOperationNotAborted(options?.signal);
   const databasePath = path.resolve(options?.databasePath || '');
   const storagePath = path.resolve(options?.storagePath || '');
   const storySourcesPath = resolveStorySourcesPath(options);
@@ -1740,6 +1761,7 @@ async function createDataBackup(options) {
 
   try {
     workDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-backup-'));
+    assertOperationNotAborted(options?.signal);
     snapshotPath = path.join(workDir, 'database.sqlite');
     await assertServiceStopped(options);
     const sourceDatabaseStat = await fsp.stat(databasePath);
@@ -1759,10 +1781,12 @@ async function createDataBackup(options) {
       limits,
       options
     );
+    assertOperationNotAborted(options?.signal);
     const { storage, storySources } = captured;
     const security = options?.includeSecrets === true
       ? { policy: 'included-by-explicit-request', excludedValues: 0 }
       : excludeSecretsFromSnapshot(snapshotPath);
+    assertOperationNotAborted(options?.signal);
     const databaseStat = await fsp.stat(snapshotPath);
     if (databaseStat.size > limits.maxFileBytes) {
       throw backupError('FILE_LIMIT_EXCEEDED', 'The SQLite snapshot exceeds the configured file size limit.');
@@ -1780,6 +1804,7 @@ async function createDataBackup(options) {
       limits.diskReserveBytes
     );
     const databaseSha256 = await sha256File(snapshotPath);
+    assertOperationNotAborted(options?.signal);
     const createdAt = new Date().toISOString();
     const manifest = {
       formatVersion: FORMAT_VERSION,
@@ -1831,12 +1856,14 @@ async function createDataBackup(options) {
         mtimeMs: file.identity.mtimeMs,
       })),
     ];
-    await writeZip64Archive(tempArchivePath, sources);
+    await writeZip64Archive(tempArchivePath, sources, options?.signal);
+    assertOperationNotAborted(options?.signal);
     const archiveStat = await fsp.stat(tempArchivePath);
     if (archiveStat.size > limits.maxArchiveBytes) {
       throw backupError('ARCHIVE_LIMIT_EXCEEDED', 'The resulting backup exceeds the configured archive size limit.');
     }
     await chmodPrivate(tempArchivePath);
+    assertOperationNotAborted(options?.signal);
     try {
       await fsp.link(tempArchivePath, outputPath);
       await syncParentDirectories(outputPath);

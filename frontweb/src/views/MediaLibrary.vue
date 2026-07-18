@@ -2,9 +2,9 @@
   <div class="media-library-page">
     <div class="page-header">
       <div class="header-left">
-        <el-button text class="back-link" @click="goHome">
+        <el-button text class="back-link" @click="goBack">
           <el-icon><ArrowLeft /></el-icon>
-          项目首页
+          {{ returnTo ? '返回制作台' : '项目首页' }}
         </el-button>
         <div class="title-wrap">
           <h1 class="page-title">素材中心</h1>
@@ -228,7 +228,7 @@
 
 <script setup>
 import { computed, ref, onMounted, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Upload, Search, Loading, CircleCheck,
@@ -237,6 +237,7 @@ import {
 import { assetsAPI } from '@/api/assets'
 import { uploadAPI } from '@/api/upload'
 import request from '@/utils/request'
+import { normalizeMediaLibraryReturnTo } from '@/router'
 import {
   createLatestMediaRequestGuard,
   formatMediaSize as formatSize,
@@ -248,6 +249,7 @@ import {
   partitionMediaLibraryUploads,
 } from '@/utils/mediaUploadValidation'
 
+const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const uploading = ref(false)
@@ -267,6 +269,7 @@ const uploadInput = ref(null)
 const hoveredCardId = ref(null)
 const focusedCardId = ref(null)
 const hasActiveFilters = computed(() => hasActiveMediaFilters(mediaType.value, keyword.value))
+const returnTo = computed(() => normalizeMediaLibraryReturnTo(route.query.returnTo))
 const mediaIsStale = computed(() => Boolean(loadError.value) && hasSuccessfulMediaLoad.value)
 const mediaWriteLocked = computed(() => loading.value || !hasSuccessfulMediaLoad.value || Boolean(loadError.value))
 const mediaRequestGuard = createLatestMediaRequestGuard()
@@ -274,6 +277,10 @@ let keywordTimer = null
 
 function goHome() {
   router.push('/')
+}
+
+function goBack() {
+  router.push(returnTo.value || '/')
 }
 
 function goNewProject() {

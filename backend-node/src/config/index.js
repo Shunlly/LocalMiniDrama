@@ -2,15 +2,19 @@ const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
 
-const configPaths = [
-  path.join(process.cwd(), 'configs', 'config.yaml'),
-  path.join(process.cwd(), 'config.yaml'),
-  path.join(__dirname, '..', '..', 'configs', 'config.yaml'),
-];
+function getConfigPaths() {
+  const explicitPath = String(process.env.LOCALMINIDRAMA_CONFIG_PATH || '').trim();
+  return [
+    explicitPath ? path.resolve(explicitPath) : null,
+    path.join(process.cwd(), 'configs', 'config.yaml'),
+    path.join(process.cwd(), 'config.yaml'),
+    path.join(__dirname, '..', '..', 'configs', 'config.yaml'),
+  ].filter(Boolean);
+}
 
 function loadConfig() {
   let raw = null;
-  for (const p of configPaths) {
+  for (const p of getConfigPaths()) {
     if (fs.existsSync(p)) {
       raw = fs.readFileSync(p, 'utf8');
       break;
