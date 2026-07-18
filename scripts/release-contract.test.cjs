@@ -55,6 +55,8 @@ const windowsArtifactVerifierSource = fs.readFileSync(
   path.join(root, 'desktop', 'scripts', 'verify-windows-artifacts.js'),
   'utf8',
 )
+const sourceGitleaksConfig = fs.readFileSync(path.join(root, '.gitleaks.toml'), 'utf8')
+const sourceGitleaksIgnore = fs.readFileSync(path.join(root, '.gitleaksignore'), 'utf8')
 const artifactGitleaksConfig = fs.readFileSync(path.join(root, '.gitleaks-artifacts.toml'), 'utf8')
 const rootPackage = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const backendPackage = JSON.parse(fs.readFileSync(path.join(root, 'backend-node', 'package.json'), 'utf8'))
@@ -755,6 +757,18 @@ test('artifact secret scanning excludes only pass markers and raw ASAR container
   assert.match(artifactGitleaksConfig, /\.artifact-scan\/\\\.evidence/)
   assert.match(artifactGitleaksConfig, /\\\.asar\$/)
   assert.doesNotMatch(artifactGitleaksConfig, /desktop\/release|node_modules|\(\?:\[\^\/\]\+\)\?/)
+})
+
+test('source secret scanning confines generated review diffs and synthetic fixture history exceptions', () => {
+  const configuredPaths = [...sourceGitleaksConfig.matchAll(/'''([^']+)'''/g)].map((match) => match[1])
+  assert.ok(configuredPaths.includes('(^|/)\\.superpowers/sdd/review-[^/]+\\.diff$'))
+  assert.ok(!configuredPaths.includes('(^|/)\\.superpowers/'))
+
+  assert.match(sourceGitleaksIgnore, /Synthetic acceptance-report credential fixture/)
+  assert.match(
+    sourceGitleaksIgnore,
+    /^6b216ed727772ab794d5c0bfd6c717b3425d164a:frontweb\/test\/acceptanceReportVerifier\.test\.js:generic-api-key:396$/m,
+  )
 })
 
 test('release tag parsing fails closed in tag context', () => {

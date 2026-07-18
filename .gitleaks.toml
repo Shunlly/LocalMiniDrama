@@ -6,6 +6,7 @@ description = "Generated outputs and local runtime data are scanned by separate 
 paths = [
   '''(^|/)\.codex-audit/''',
   '''(^|/)artifacts/''',
+  '''(^|/)\.superpowers/sdd/review-[^/]+\.diff$''',
   '''(^|/)node_modules/''',
   '''(^|/)backend-node/data/''',
   '''(^|/)desktop/backend-app/''',

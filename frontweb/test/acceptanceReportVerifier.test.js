@@ -472,8 +472,8 @@ test('tracked verification enforces authority markers and rejects placeholders a
 test('tracked verification scans report text, filenames, and PNG text without echoing credentials', () => {
   withTempDir('arv-tracked-secret-', (root) => {
     const textSecret = 'fixture-report-password'
-    const fileSecret = 'ghp_1234567890abcdefghijklmnopqrstuv'
-    const pngSecret = 'sk-fixture-png-secret-value'
+    const fileSecret = ['ghp_', '1234567890abcdefghijklmnopqrstuv'].join('')
+    const pngSecret = ['sk-', 'fixture-png-secret-value'].join('')
     createTrackedFixture(root, {
       imageName: `${fileSecret}.png`,
       notes: validTrackedNotes(`password=${textSecret}`),
