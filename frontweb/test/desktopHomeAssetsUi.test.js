@@ -50,6 +50,12 @@ const mediaLibraryRouteSource = sourceBetween(
   '    },',
   'media-library route',
 )
+const goMaterialCenterSource = sourceBetween(
+  filmListSource,
+  'function goMaterialCenter() {',
+  'function maybeOpenNewDialogFromRoute()',
+  'material center navigation',
+)
 
 test('media library helpers normalize media metadata and active filters', () => {
   assert.deepEqual(
@@ -80,6 +86,7 @@ test('desktop home exposes one material center entry and keeps semantic librarie
   assert.match(headerLibrarySource, /<el-dropdown-item command="scene"><el-icon><PictureFilled \/><\/el-icon>场景素材库<\/el-dropdown-item>/)
   assert.match(headerLibrarySource, /<el-dropdown-item command="prop"><el-icon><Box \/><\/el-icon>道具素材库<\/el-dropdown-item>/)
   assert.match(mediaLibraryRouteSource, /meta: \{ title: '素材中心',/)
+  assert.match(goMaterialCenterSource, /function goMaterialCenter\(\) \{\s*router\.push\('\/media-library'\)\s*\}/)
 })
 
 test('story-source actions use the scoped story-material terminology', () => {
