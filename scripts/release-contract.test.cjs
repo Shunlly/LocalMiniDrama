@@ -371,7 +371,9 @@ test('release rollback scripts fail closed and verify the retained backup before
   for (const source of [checkpointScript, rollbackRestoreScript]) {
     assert.match(source, /\$ErrorActionPreference = 'Stop'/)
     assert.match(source, /function Invoke-Checked/)
-    assert.match(source, /\$LASTEXITCODE -ne 0/)
+    assert.match(source, /Docker Compose writes normal progress to stderr on Windows/)
+    assert.match(source, /\$ErrorActionPreference = 'Continue'[\s\S]*\$exitCode = \[int\]\$LASTEXITCODE/)
+    assert.match(source, /\$exitCode -ne 0/)
     assert.match(source, /docker[\s\S]*compose[\s\S]*down/)
   }
   assert.match(checkpointScript, /function Get-RunningServiceEvidence[\s\S]*Get-ImageRevision/)

@@ -14,9 +14,21 @@ function Invoke-Checked {
     [Parameter(Mandatory = $true)][string[]]$ArgumentList,
     [Parameter(Mandatory = $true)][string]$Label
   )
-  $output = & $FilePath @ArgumentList 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    throw "$Label failed with exit code $LASTEXITCODE.`n$($output -join "`n")"
+  $previousErrorActionPreference = $ErrorActionPreference
+  $output = @()
+  $exitCode = 0
+  try {
+    # Docker Compose writes normal progress to stderr on Windows; the native exit code is authoritative.
+    $ErrorActionPreference = 'Continue'
+    $output = @(& $FilePath @ArgumentList 2>&1)
+    $exitCode = [int]$LASTEXITCODE
+  } catch {
+    throw "$Label could not execute: $($_.Exception.Message)"
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  if ($exitCode -ne 0) {
+    throw "$Label failed with exit code $exitCode.`n$($output -join "`n")"
   }
   return $output
 }
