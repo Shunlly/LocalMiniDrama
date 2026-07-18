@@ -774,6 +774,7 @@ function verifyTrackedReport(options = {}) {
     if (id && count > 1) failures.push(makeFailure('ARV_ANCHOR_DUPLICATE', reportFile, `id ${id} occurs ${count} times`))
   }
 
+  const externalScans = new Map()
   const inspectedPngs = new Set()
   let referenceCount = 0
   for (const reference of scan.attributes) {
@@ -807,10 +808,6 @@ function verifyTrackedReport(options = {}) {
     const hashIndex = value.indexOf('#')
     const encodedPath = hashIndex < 0 ? value : value.slice(0, hashIndex)
     const encodedFragment = hashIndex < 0 ? '' : value.slice(hashIndex + 1)
-    if (hashIndex >= 0 && encodedPath) {
-      failures.push(makeFailure('ARV_EXTERNAL_ANCHOR', reportFile, `${attribute} must not target an anchor in another file`, line, column))
-      continue
-    }
     const decodedPath = decodeReferencePath(encodedPath)
     const fragment = decodeReferencePath(encodedFragment)
     if (decodedPath === null || fragment === null || !decodedPath) {
@@ -835,6 +832,33 @@ function verifyTrackedReport(options = {}) {
 
     scanCredentials(path.basename(decodedPath), targetFile, failures)
     const extension = path.extname(target).toLowerCase()
+    if (hashIndex >= 0) {
+      if (attribute !== 'href' || extension !== '.html') {
+        failures.push(makeFailure('ARV_LOCAL_REF_MISSING', reportFile, `${attribute} ${value} must target a regular HTML file`, line, column))
+        continue
+      }
+      if (!fragment) {
+        failures.push(makeFailure('ARV_ANCHOR_MISSING', reportFile, `${attribute} ${value} has an empty fragment`, line, column))
+        continue
+      }
+
+      let targetData = externalScans.get(target)
+      if (!targetData) {
+        const targetScan = scanHtml(fs.readFileSync(target, 'utf8'), targetFile)
+        const targetIds = idCounts(targetScan)
+        targetData = { scan: targetScan, ids: targetIds }
+        externalScans.set(target, targetData)
+        failures.push(...targetScan.failures)
+        for (const [id, count] of targetIds) {
+          if (id && count > 1) failures.push(makeFailure('ARV_ANCHOR_DUPLICATE', targetFile, `id ${id} occurs ${count} times`))
+        }
+      }
+      if (targetData.ids.get(fragment) !== 1) {
+        failures.push(makeFailure('ARV_ANCHOR_MISSING', reportFile, `${attribute} ${value} has no unique matching id`, line, column))
+      }
+      continue
+    }
+
     if (extension === '.png' && !inspectedPngs.has(target)) {
       const buffer = fs.readFileSync(target)
       inspectedPngs.add(target)
@@ -983,12 +1007,50 @@ function verifyAcceptanceTree(evidenceRoot, repoRoot, failures) {
   }
 }
 
+function verifyFinalDirectoryRoot(target, parentPhysicalRoot, repoRoot, label, failures) {
+  const displayFile = relativePath(repoRoot, target)
+  let valid = true
+  let physicalRoot = null
+  try {
+    const stat = fs.lstatSync(target)
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      failures.push(makeFailure('ARV_FINAL_LOCATION', displayFile, `${label} must be a real directory, not a symbolic link`))
+      valid = false
+    }
+  } catch {
+    failures.push(makeFailure('ARV_FINAL_LOCATION', displayFile, `${label} must exist as a real directory`))
+    valid = false
+  }
+
+  try {
+    physicalRoot = fs.realpathSync(target)
+  } catch {
+    failures.push(makeFailure('ARV_FINAL_LOCATION', displayFile, `${label} physical path cannot be resolved`))
+    valid = false
+  }
+  if (!parentPhysicalRoot || !physicalRoot || !isInside(parentPhysicalRoot, physicalRoot)) {
+    failures.push(makeFailure('ARV_FINAL_LOCATION', displayFile, `${label} physical path must remain within its parent evidence directory`))
+    valid = false
+  }
+  return { physicalRoot, valid }
+}
+
 function verifyFinalEvidence(options = {}) {
   const repoRoot = path.resolve(options.repoRoot || path.resolve(__dirname, '..', '..'))
   const evidenceRoot = path.resolve(options.evidenceRoot || path.join(repoRoot, 'artifacts', 'e2e-production'))
+  const acceptanceRoot = path.join(evidenceRoot, 'acceptance-report')
+  const screenshotRoot = path.join(acceptanceRoot, 'screenshots')
+  const manifestPath = path.join(acceptanceRoot, 'manifest.json')
+  const evidencePath = path.join(evidenceRoot, 'evidence.json')
+  const canonicalArtifactFiles = [
+    manifestPath,
+    evidencePath,
+    ...REQUIRED_FINAL_CAPTURES.map((capture) => path.join(screenshotRoot, `${capture.id}.png`)),
+  ]
   const expectedCommit = String(options.expectedCommit || '').trim().toLowerCase()
   const failures = []
   const evidenceRootFile = relativePath(repoRoot, evidenceRoot)
+  let rootsValid = true
 
   if (
     !isInside(repoRoot, evidenceRoot)
@@ -996,7 +1058,20 @@ function verifyFinalEvidence(options = {}) {
     || evidenceRootFile.toLowerCase().includes('frontweb/public/reports')
   ) {
     failures.push(makeFailure('ARV_FINAL_LOCATION', evidenceRootFile, 'final evidence root must be confined to the ignored artifact tree'))
+    rootsValid = false
   }
+  let physicalRepoRoot = null
+  try {
+    physicalRepoRoot = fs.realpathSync(repoRoot)
+  } catch {
+    failures.push(makeFailure('ARV_FINAL_LOCATION', relativePath(repoRoot, repoRoot), 'repository physical path cannot be resolved'))
+    rootsValid = false
+  }
+  const evidenceLocation = verifyFinalDirectoryRoot(evidenceRoot, physicalRepoRoot, repoRoot, 'final evidence root', failures)
+  const acceptanceLocation = verifyFinalDirectoryRoot(acceptanceRoot, evidenceLocation.physicalRoot, repoRoot, 'acceptance-report root', failures)
+  const screenshotLocation = verifyFinalDirectoryRoot(screenshotRoot, acceptanceLocation.physicalRoot, repoRoot, 'screenshots root', failures)
+  rootsValid = rootsValid && evidenceLocation.valid && acceptanceLocation.valid && screenshotLocation.valid
+
   if (!fullCommit(expectedCommit)) {
     failures.push(makeFailure('ARV_EVIDENCE_COMMIT', evidenceRootFile, 'expected commit must be a full 40- or 64-hex revision'))
   }
@@ -1011,8 +1086,11 @@ function verifyFinalEvidence(options = {}) {
     failures.push(makeFailure('ARV_REPOSITORY_STATE', evidenceRootFile, 'source worktree must be clean except for ignored artifacts'))
   }
 
-  const manifestPath = path.join(evidenceRoot, 'acceptance-report', 'manifest.json')
-  const evidencePath = path.join(evidenceRoot, 'evidence.json')
+  if (!rootsValid) {
+    verifyGitArtifactState(repoRoot, canonicalArtifactFiles, failures)
+    throwFailures(failures)
+  }
+
   const manifestFile = relativePath(repoRoot, manifestPath)
   const evidenceFile = relativePath(repoRoot, evidencePath)
   const manifestRead = readJson(manifestPath, manifestFile, failures)
@@ -1053,7 +1131,6 @@ function verifyFinalEvidence(options = {}) {
   const required = new Map(REQUIRED_FINAL_CAPTURES.map((capture) => [capture.id, capture]))
   const seenIds = new Set()
   const seenPaths = new Set()
-  const manifestScreenshotFiles = []
   const entries = Array.isArray(manifest?.screenshots) ? manifest.screenshots : []
   for (const entry of entries) {
     const id = typeof entry?.id === 'string' ? entry.id : '<invalid>'
@@ -1101,7 +1178,6 @@ function verifyFinalEvidence(options = {}) {
       failures.push(makeFailure('ARV_LOCAL_REF_MISSING', targetFile, 'does not name a regular final PNG'))
       continue
     }
-    manifestScreenshotFiles.push(target)
     scanCredentials(entry.path, targetFile, failures)
     const buffer = fs.readFileSync(target)
     if (entry.bytes !== buffer.length) failures.push(makeFailure('ARV_BYTE_COUNT', targetFile, 'byte count does not match manifest'))
@@ -1135,9 +1211,7 @@ function verifyFinalEvidence(options = {}) {
 
   verifyAcceptanceTree(evidenceRoot, repoRoot, failures)
 
-  const artifactFiles = [manifestPath, evidencePath, ...manifestScreenshotFiles]
-    .filter((file, index, all) => all.indexOf(file) === index && regularFileWithin(repoRoot, file))
-  verifyGitArtifactState(repoRoot, artifactFiles, failures)
+  verifyGitArtifactState(repoRoot, canonicalArtifactFiles, failures)
 
   throwFailures(failures)
   return { commit: expectedCommit, screenshots: entries.length }

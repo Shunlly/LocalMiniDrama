@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -129,6 +130,12 @@ function withTempDir(prefix, callback) {
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+}
+
+function replaceDirectoryWithLink(directory, externalRoot) {
+  const target = path.join(externalRoot, path.basename(directory))
+  renameSync(directory, target)
+  symlinkSync(target, directory, process.platform === 'win32' ? 'junction' : 'dir')
 }
 
 function write(root, relativePath, value) {
@@ -414,7 +421,25 @@ test('tracked verification reports missing and escaping refs, schemes, anchors, 
       html: validTrackedHtml().replace('href="#evidence"', 'href="other.html#target"'),
     })
     write(path.dirname(fixture.report), 'other.html', '<!doctype html><html><body><div id="target"></div></body></html>')
-    assert.ok(aggregateCodes(() => verifyTrackedReport({ repoRoot: root })).includes('ARV_EXTERNAL_ANCHOR'))
+    assert.deepEqual(verifyTrackedReport({ repoRoot: root }), { references: 2, pngs: 1 })
+  })
+
+  withTempDir('arv-tracked-external-anchor-errors-', (root) => {
+    const fixture = createTrackedFixture(root, {
+      html: validTrackedHtml().replace(
+        '<a href="#evidence">Evidence</a>',
+        '<a href="empty.html#">Empty</a><a href="missing.html#absent">Missing</a><a href="duplicate.html#target">Duplicate</a><a href="not-html.txt#target">Not HTML</a><a href="malformed.html#target">Malformed</a>',
+      ),
+    })
+    write(path.dirname(fixture.report), 'empty.html', '<!doctype html><html><body><div id="target"></div></body></html>')
+    write(path.dirname(fixture.report), 'missing.html', '<!doctype html><html><body><div id="other"></div></body></html>')
+    write(path.dirname(fixture.report), 'duplicate.html', '<!doctype html><html><body><i id="target"></i><b id="target"></b></body></html>')
+    write(path.dirname(fixture.report), 'not-html.txt', '<div id="target"></div>')
+    write(path.dirname(fixture.report), 'malformed.html', '<div id="target"><a href=missing.html>Malformed</a></div>')
+    const codes = aggregateCodes(() => verifyTrackedReport({ repoRoot: root }))
+    assert.ok(codes.includes('ARV_ANCHOR_MISSING'))
+    assert.ok(codes.includes('ARV_ANCHOR_DUPLICATE'))
+    assert.ok(codes.includes('ARV_HTML_ATTRIBUTE'))
   })
 })
 
@@ -501,6 +526,70 @@ test('final verification accepts exactly 20 ignored and untracked captures from 
       expectedCommit: fixture.commit,
     }), { commit: fixture.commit, screenshots: 20 })
   })
+})
+
+test('final verification rejects a symlinked evidence root outside the repository', (t) => {
+  withTempDir('arv-final-evidence-link-repo-', (root) => withTempDir('arv-final-evidence-link-outside-', (outside) => {
+    const fixture = writeFinalFixture(root)
+    try {
+      replaceDirectoryWithLink(fixture.evidenceRoot, outside)
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) {
+        t.skip(`directory links unavailable: ${error.code}`)
+        return
+      }
+      throw error
+    }
+    const codes = aggregateCodes(() => verifyFinalEvidence({
+      repoRoot: root,
+      evidenceRoot: fixture.evidenceRoot,
+      expectedCommit: fixture.commit,
+    }))
+    assert.ok(codes.includes('ARV_FINAL_LOCATION'))
+  }))
+})
+
+test('final verification rejects a symlinked acceptance-report root outside the repository', (t) => {
+  withTempDir('arv-final-acceptance-link-repo-', (root) => withTempDir('arv-final-acceptance-link-outside-', (outside) => {
+    const fixture = writeFinalFixture(root)
+    const acceptanceRoot = path.dirname(fixture.manifestPath)
+    try {
+      replaceDirectoryWithLink(acceptanceRoot, outside)
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) {
+        t.skip(`directory links unavailable: ${error.code}`)
+        return
+      }
+      throw error
+    }
+    const codes = aggregateCodes(() => verifyFinalEvidence({
+      repoRoot: root,
+      evidenceRoot: fixture.evidenceRoot,
+      expectedCommit: fixture.commit,
+    }))
+    assert.ok(codes.includes('ARV_FINAL_LOCATION'))
+  }))
+})
+
+test('final verification rejects a symlinked screenshots root outside the repository', (t) => {
+  withTempDir('arv-final-screenshots-link-repo-', (root) => withTempDir('arv-final-screenshots-link-outside-', (outside) => {
+    const fixture = writeFinalFixture(root)
+    try {
+      replaceDirectoryWithLink(fixture.screenshotRoot, outside)
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) {
+        t.skip(`directory links unavailable: ${error.code}`)
+        return
+      }
+      throw error
+    }
+    const codes = aggregateCodes(() => verifyFinalEvidence({
+      repoRoot: root,
+      evidenceRoot: fixture.evidenceRoot,
+      expectedCommit: fixture.commit,
+    }))
+    assert.ok(codes.includes('ARV_FINAL_LOCATION'))
+  }))
 })
 
 test('final verification rejects untracked and non-ignored source or config files', () => {
