@@ -571,7 +571,7 @@ test('browser acceptance contract covers the full UI journey, recovery, download
   assert.match(productionSource, /await video\.play\(\)/)
   assert.match(productionSource, /video\.addEventListener\('ended'/)
   assert.match(productionSource, /unicode_path: unicodePath/)
-  assert.match(productionSource, /E2E_TITLE_PREFIX\}\$\{stamp\} 中文路径/)
+  assert.match(productionSource, /中文路径 \$\{getSmokeHelpers\(\)\.E2E_TITLE_PREFIX\}\$\{stamp\}/)
   assert.match(productionSource, /verifyPlayableVideo\(page\.locator\('\.sb-video-player'\)\.first\(\)/)
   assert.doesNotMatch(productionSource, /verifyPlayableVideo\(page\.locator\('\.sb-video-thumb-player'\)/)
   assert.match(productionSource, /persistBrowserPlayback\(evidenceRecorder, viewport, composedVideo, storyboardVideo\)/)
