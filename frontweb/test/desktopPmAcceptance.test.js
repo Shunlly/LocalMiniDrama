@@ -16,6 +16,23 @@ const filmCreateSource = read('../src/views/FilmCreate.vue')
 const filmCreatePipelineSource = read('../src/components/filmCreate/FilmCreatePipelinePanel.vue')
 const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
 
+function extractUniqueCompletionSummaryRule(sourceText) {
+  const styleStart = sourceText.indexOf('<style')
+  const styleEnd = sourceText.lastIndexOf('</style>')
+  assert.ok(styleStart >= 0 && styleEnd > styleStart, 'source workflow must retain a style block')
+  const styleSource = sourceText.slice(styleStart, styleEnd)
+  const selector = '.source-workflow-complete'
+  const selectorOccurrences = styleSource.match(/\.source-workflow-complete\b/g) || []
+  assert.equal(selectorOccurrences.length, 1, 'completion summary must have one CSS selector in the SFC')
+
+  const ruleStart = styleSource.indexOf(`${selector} {`)
+  assert.ok(ruleStart >= 0, 'completion summary must retain its primary CSS rule')
+  const bodyStart = ruleStart + `${selector} {`.length
+  const bodyEnd = styleSource.indexOf('\n}', bodyStart)
+  assert.ok(bodyEnd > bodyStart, 'completion summary CSS rule must close')
+  return styleSource.slice(bodyStart, bodyEnd)
+}
+
 test('project readiness defaults to a compact local-task-first surface', () => {
   assert.match(readinessSource, /data-testid="project-readiness-toggle"/)
   assert.match(readinessSource, /data-testid="project-readiness-details"/)
@@ -174,12 +191,12 @@ test('completed source workflows hand off to production without obscuring the ep
   assert.match(sourceIntakeSource, /data-testid="source-workflow-complete"/)
   assert.match(sourceIntakeSource, /@click="\$emit\('enter-production'\)"/)
   assert.match(sourceIntakeSource, /@click="\$emit\('focus-episode-list'\)"/)
-  assert.match(sourceIntakeSource, /\.source-workflow-complete\s*\{[\s\S]*?max-height:\s*180px/)
-  assert.match(sourceIntakeSource, /\.source-workflow-complete\s*\{[\s\S]*?border-bottom:\s*1px solid var\(--el-border-color\)/)
-  assert.doesNotMatch(
-    sourceIntakeSource,
-    /@media \(max-width:\s*900px\)\s*\{[\s\S]*?\.source-workflow-complete\s*\{[\s\S]*?(?:grid-template-columns:\s*1fr|max-height:\s*none)/,
-  )
+  const completionSummaryRule = extractUniqueCompletionSummaryRule(sourceIntakeSource)
+  assert.equal((completionSummaryRule.match(/\bmax-height\s*:/g) || []).length, 1)
+  assert.match(completionSummaryRule, /\bmax-height:\s*180px/)
+  assert.doesNotMatch(completionSummaryRule, /^\s*height\s*:/m)
+  assert.doesNotMatch(completionSummaryRule, /\bmax-block-size\s*:/)
+  assert.match(completionSummaryRule, /border-bottom:\s*1px solid var\(--el-border-color\)/)
   assert.doesNotMatch(sourceIntakeSource, /source-workflow-complete[^>]*card/)
   assert.match(dramaDetailSource, /@enter-production="enterSourceWorkflowProduction"/)
   assert.match(dramaDetailSource, /@focus-episode-list="scrollToSection\('episode-list'\)"/)

@@ -12,6 +12,45 @@ const source = readFileSync(
   'utf8',
 )
 
+const completionVisibilityGateTokens = [
+  ['loading', /\bloading\.value\b/],
+  ['sourceFileReading', /\bsourceFileReading\.value\b/],
+  ['sourceSaving', /\bsourceSaving\.value\b/],
+  ['workflowStarting', /\bworkflowStarting\.value\b/],
+  ['readinessChecking', /\breadinessChecking\.value\b/],
+  ['qaRunning', /\bqaRunning\.value\b/],
+  ['qaRemediating', /\bremediating\.value\b/],
+  ['pollRecovering', /\bpollState\.value === 'recovering'/],
+  ['workflowActionBusy', /\bworkflowActionBusy\.value\b/],
+  ['sourceOperationError', /\bsourceOperationError\.value\b/],
+  ['workflowDataError', /\bworkflowDataError\.value\b/],
+  ['pollError', /\bpollError\.value\b/],
+]
+
+function extractComputedBooleanBody(sourceText, identifier) {
+  const declaration = `const ${identifier} = computed(() => Boolean(`
+  const start = sourceText.indexOf(declaration)
+  assert.ok(start >= 0, `${identifier} must remain a Boolean computed gate`)
+  const bodyStart = start + declaration.length
+  const bodyEnd = sourceText.indexOf('\n))', bodyStart)
+  assert.ok(bodyEnd > bodyStart, `${identifier} must close before the next computed value`)
+  return sourceText.slice(bodyStart, bodyEnd)
+}
+
+function missingCompletionVisibilityGates(gateBody) {
+  return completionVisibilityGateTokens
+    .filter(([, pattern]) => !pattern.test(gateBody))
+    .map(([name]) => name)
+}
+
+function assertCompletionVisibilityGates(gateBody) {
+  assert.deepEqual(
+    missingCompletionVisibilityGates(gateBody),
+    [],
+    'completion visibility gate must include every busy and error token',
+  )
+}
+
 test('source workflow separates actual progress from inspected history', () => {
   assert.match(source, /\{ 'is-current': flowState\.activeStepId === step\.id \}/)
   assert.match(source, /\{ 'is-selected': inspectedFlowStep\.id === step\.id \}/)
@@ -75,17 +114,15 @@ test('completed source workflow is compact, scoped, and keeps full history discl
 })
 
 test('completed source workflow keeps its history visible while operations or errors need attention', () => {
-  assert.match(source, /const completionVisibilityBlocked = computed\(\(\) => Boolean\(/)
-  assert.match(source, /sourceOperationError\.value/)
-  assert.match(source, /pollError\.value/)
-  assert.match(source, /sourceSaving\.value/)
-  assert.match(source, /workflowStarting\.value/)
-  assert.match(source, /qaRunning\.value/)
-  assert.match(source, /sourceFileReading\.value/)
-  assert.match(source, /readinessChecking\.value/)
-  assert.match(source, /remediating\.value/)
-  assert.match(source, /workflowActionBusy\.value/)
-  assert.match(source, /pollState\.value === 'recovering'/)
+  const gateBody = extractComputedBooleanBody(source, 'completionVisibilityBlocked')
+  assertCompletionVisibilityGates(gateBody)
+
+  for (const [name, token] of completionVisibilityGateTokens) {
+    const mutatedGateBody = gateBody.replace(token, '')
+    assert.deepEqual(missingCompletionVisibilityGates(mutatedGateBody), [name])
+    assert.throws(() => assertCompletionVisibilityGates(mutatedGateBody))
+  }
+
   assert.match(source, /flowState\.value\.complete && !completionVisibilityBlocked\.value/)
   assert.doesNotMatch(source, /flowState\.value\.complete && !loading\.value && !workflowDataError\.value/)
 })
