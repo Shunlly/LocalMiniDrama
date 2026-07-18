@@ -40,5 +40,8 @@
       "protobufjs": "7.6.5",
       "uuid": "^11.1.1"
     }
+  },
+  "devDependencies": {
+    "smol-toml": "1.7.0"
   }
 }

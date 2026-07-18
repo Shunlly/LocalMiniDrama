@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict')
 const { spawnSync } = require('node:child_process')
 const fs = require('node:fs')
+const { createRequire } = require('node:module')
 const os = require('node:os')
 const path = require('node:path')
 const test = require('node:test')
@@ -37,6 +38,8 @@ const { getTrustedMediaToolRelease } = require('../desktop/scripts/media-tool-po
 const { FUSE_POLICY } = require('../desktop/scripts/electron-fuses')
 
 const root = path.resolve(__dirname, '..')
+const backendRequire = createRequire(path.join(root, 'backend-node', 'package.json'))
+const { parse: parseToml } = backendRequire('smol-toml')
 const gitAttributes = fs.readFileSync(path.join(root, '.gitattributes'), 'utf8')
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8')
 const checkpointScript = fs.readFileSync(path.join(root, 'scripts', 'create-release-rollback-checkpoint.ps1'), 'utf8')
@@ -759,16 +762,32 @@ test('artifact secret scanning excludes only pass markers and raw ASAR container
   assert.doesNotMatch(artifactGitleaksConfig, /desktop\/release|node_modules|\(\?:\[\^\/\]\+\)\?/)
 })
 
-test('source secret scanning confines generated review diffs and synthetic fixture history exceptions', () => {
-  const configuredPaths = [...sourceGitleaksConfig.matchAll(/'''([^']+)'''/g)].map((match) => match[1])
-  assert.ok(configuredPaths.includes('(^|/)\\.superpowers/sdd/review-[^/]+\\.diff$'))
-  assert.ok(!configuredPaths.includes('(^|/)\\.superpowers/'))
+test('source secret scanning uses exact generated-output paths and historical fingerprints', () => {
+  assert.deepEqual(parseToml(sourceGitleaksConfig), {
+    extend: { useDefault: true },
+    allowlist: {
+      description: 'Generated outputs and local runtime data are scanned by separate artifact gates',
+      paths: [
+        '(^|/)\\.codex-audit/',
+        '(^|/)artifacts/',
+        '(^|/)node_modules/',
+        '(^|/)backend-node/data/',
+        '(^|/)desktop/backend-app/',
+        '(^|/)desktop/frontweb-dist/',
+        '(^|/)desktop/release(?:-[^/]+)?/',
+        '(^|/)frontweb/dist/',
+      ],
+    },
+  })
 
-  assert.match(sourceGitleaksIgnore, /Synthetic acceptance-report credential fixture/)
-  assert.match(
-    sourceGitleaksIgnore,
-    /^6b216ed727772ab794d5c0bfd6c717b3425d164a:frontweb\/test\/acceptanceReportVerifier\.test\.js:generic-api-key:396$/m,
-  )
+  const ignoredFingerprints = sourceGitleaksIgnore
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+  assert.deepEqual(ignoredFingerprints, [
+    'ececcdcb6b14f40b8d3fec42a38a2633593b4613:desktop/backend-app-secure/src/app.js:generic-api-key:1',
+    '6b216ed727772ab794d5c0bfd6c717b3425d164a:frontweb/test/acceptanceReportVerifier.test.js:generic-api-key:396',
+  ])
 })
 
 test('release tag parsing fails closed in tag context', () => {

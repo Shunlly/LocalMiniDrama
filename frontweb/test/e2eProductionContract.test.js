@@ -1097,6 +1097,18 @@ test('production frontend image installs build tooling but compiles the producti
   assert.doesNotMatch(productionDockerfile, /ENV NODE_ENV=development/)
 })
 
+test('frontend verification image provides Git for acceptance verifier repositories', () => {
+  assert.match(
+    verificationDockerfile,
+    /apt-get update[\s\S]*apt-get install -y --no-install-recommends git[\s\S]*rm -rf \/var\/lib\/apt\/lists\/\*/,
+  )
+})
+
+test('frontend verification image preserves tracked report repository paths', () => {
+  assert.match(verificationDockerfile, /COPY docs \/docs/)
+  assert.match(verificationDockerfile, /COPY frontweb\/public \/frontweb\/public/)
+})
+
 test('production proxy fails unavailable upstream connections quickly without shortening generation reads', () => {
   assert.equal((productionNginxConfig.match(/proxy_connect_timeout 5s;/g) || []).length, 2)
   assert.equal((productionNginxConfig.match(/proxy_read_timeout 600s;/g) || []).length, 2)

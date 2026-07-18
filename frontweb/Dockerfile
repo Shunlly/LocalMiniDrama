@@ -5,6 +5,10 @@ WORKDIR /app
 ENV NODE_ENV=development
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY frontweb/package*.json ./
 RUN npm ci
 
@@ -14,6 +18,8 @@ COPY frontweb/Dockerfile.prod ./Dockerfile.prod
 COPY frontweb/nginx.conf ./nginx.conf
 COPY frontweb/vite.config.js ./vite.config.js
 COPY frontweb/public ./public
+COPY docs /docs
+COPY frontweb/public /frontweb/public
 COPY frontweb/src ./src
 COPY frontweb/scripts ./scripts
 COPY frontweb/test ./test
