@@ -43,6 +43,7 @@ const composeSource = readFileSync(new URL('../../docker-compose.yml', import.me
 const ciWorkflow = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8')
 const releaseWorkflow = readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8')
 const gitignoreSource = readFileSync(new URL('../../.gitignore', import.meta.url), 'utf8')
+const pipelinePanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url), 'utf8')
 
 function sourceFunction(name) {
   const value = productionE2e[name]
@@ -731,16 +732,17 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
   const providerSetup = sourceFunction('installProviderConfigs')
   assert.doesNotMatch(providerSetup, /startsWith\(CONFIG_PREFIX\)/)
 
-  assert.equal(focusedAiRouteAction({
-    method: 'GET',
-    pathname: '/api/v1/ai-configs',
-    serviceType: '',
-  }), 'decorate-list')
-  assert.equal(focusedAiRouteAction({
-    method: 'GET',
-    pathname: '/api/v1/ai-configs',
-    serviceType: 'video',
-  }), 'passthrough')
+  const getRouteMatrix = [
+    { pathname: '/api/v1/ai-configs', query: '', expected: 'decorate-list' },
+    { pathname: '/api/v1/ai-configs', query: '?cache=1', expected: 'decorate-list' },
+    { pathname: '/api/v1/ai-configs', query: '?service_type=video', expected: 'passthrough' },
+    { pathname: '/api/v1/ai-configs', query: '?service_type=', expected: 'passthrough' },
+    { pathname: '/api/v1/ai-configs', query: '?cache=1&service_type=', expected: 'passthrough' },
+    { pathname: '/api/v1/ai-configs/1', query: '', expected: 'passthrough' },
+  ]
+  for (const entry of getRouteMatrix) {
+    assert.equal(focusedAiRouteAction({ method: 'GET', ...entry }), entry.expected)
+  }
   assert.equal(focusedAiRouteAction({
     method: 'POST',
     pathname: '/api/v1/ai-configs',
@@ -753,6 +755,10 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
     requestName: 'user config',
     fixtureName: 'exact fixture',
   }), 'passthrough')
+
+  const routePolicy = sourceFunction('focusedAiRouteAction')
+  assert.match(routePolicy, /new URLSearchParams\(query\)\.has\('service_type'\)/)
+  assert.doesNotMatch(routePolicy, /serviceType/)
 
   const routes = sourceFunction('installFocusedAiRoutes')
   assert.match(routes, /focusedAiRouteAction/)
@@ -775,6 +781,13 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
   assert.doesNotMatch(createConfig, /ai-configs\/test/)
 
   const focused = sourceFunction('verifyFocusedDesktopAcceptance')
+  assert.match(pipelinePanelSource, /data-testid="film-pipeline-summary"/)
+  assert.equal(
+    (focused.match(/fallback: page\.getByTestId\('film-pipeline-summary'\)/g) || []).length,
+    3,
+    'all focus drivers must target the product-exposed pipeline summary',
+  )
+  assert.doesNotMatch(focused, /fallback:\s*page\.locator/)
   assertSourceOrder(focused, [
     'assertCoverageLayout',
     'columns: 5',

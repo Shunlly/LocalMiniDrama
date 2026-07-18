@@ -1783,7 +1783,6 @@ function focusedAiRouteAction({
   method,
   pathname,
   query = '',
-  serviceType = '',
   requestName = '',
   fixtureName = '',
 } = {}) {
@@ -1791,7 +1790,7 @@ function focusedAiRouteAction({
   if (method === 'POST') {
     return fixtureName && requestName === fixtureName ? 'decorate-create' : 'passthrough'
   }
-  if (method === 'GET' && !query && !serviceType) return 'decorate-list'
+  if (method === 'GET' && !new URLSearchParams(query).has('service_type')) return 'decorate-list'
   return 'passthrough'
 }
 
@@ -1818,7 +1817,6 @@ async function installFocusedAiRoutes(page, fixture) {
       method: request.method(),
       pathname: url.pathname,
       query: url.search,
-      serviceType: url.searchParams.get('service_type') || '',
       requestName: requestBody.name || '',
       fixtureName: fixture.uiConfigName,
     })
@@ -2308,7 +2306,7 @@ async function verifyFocusedDesktopAcceptance(browser, {
     await workspaceDialog.waitFor({ state: 'hidden', timeout: 10000 })
     const nativeFocus1280 = await assertWorkbenchFocus(page, {
       preferred: genericOpener,
-      fallback: page.locator('#pipeline-title, [data-testid="film-pipeline-summary"]').first(),
+      fallback: page.getByTestId('film-pipeline-summary'),
       label: '1280 native AI close',
     })
     assert.equal(await page.getByText(UI.configurationRechecking, { exact: true }).count(), 0)
@@ -2337,7 +2335,7 @@ async function verifyFocusedDesktopAcceptance(browser, {
     )
     const customFocus = await assertWorkbenchFocus(page, {
       preferred: pipelineAction,
-      fallback: page.locator('#pipeline-title, [data-testid="film-pipeline-summary"]').first(),
+      fallback: page.getByTestId('film-pipeline-summary'),
       label: 'custom return to production',
     })
     routes.readinessGate.release(503)
@@ -2388,7 +2386,7 @@ async function verifyFocusedDesktopAcceptance(browser, {
     await workspaceDialog.waitFor({ state: 'hidden', timeout: 10000 })
     const nativeFocus1024 = await assertWorkbenchFocus(page, {
       preferred: genericOpener,
-      fallback: page.locator('#pipeline-title, [data-testid="film-pipeline-summary"]').first(),
+      fallback: page.getByTestId('film-pipeline-summary'),
       label: '1024 native AI close',
     })
 
