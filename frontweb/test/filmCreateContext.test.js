@@ -1,7 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { formatEpisodeContextLabel } from '../src/utils/filmCreateContext.js'
+
+const filmCreateSource = readFileSync(
+  new URL('../src/views/FilmCreate.vue', import.meta.url),
+  'utf8',
+)
 
 test('episode context always identifies the episode number before its title', () => {
   assert.equal(
@@ -21,4 +27,13 @@ test('episode context does not duplicate a default episode title', () => {
     formatEpisodeContextLabel({ episode_number: 1, title: '第 1 集' }),
     '第 1 集',
   )
+})
+
+test('episode context selector keeps the desktop interaction height', () => {
+  const selectStart = filmCreateSource.indexOf('class="header-episode-select"')
+  const selectEnd = filmCreateSource.indexOf('</el-select>', selectStart)
+  const episodeSelectSource = filmCreateSource.slice(selectStart, selectEnd)
+
+  assert.ok(selectStart >= 0)
+  assert.doesNotMatch(episodeSelectSource, /\bsize="small"/)
 })

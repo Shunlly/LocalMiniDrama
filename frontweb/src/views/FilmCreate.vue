@@ -20,7 +20,6 @@
             aria-label="当前集"
             :title="selectedEpisodeContextLabel"
             placeholder="选择集数"
-            size="small"
             @change="onEpisodeSelect"
           >
             <el-option
