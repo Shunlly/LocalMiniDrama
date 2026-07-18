@@ -74,9 +74,10 @@
           :key="step.key"
           type="button"
           class="nav-step"
-          :class="['status-' + step.status]"
+          :class="['status-' + step.status, { 'is-current': activeNavAnchor === step.anchor }]"
+          :aria-current="activeNavAnchor === step.anchor ? 'step' : undefined"
           :title="`跳转到${step.label}`"
-          @click="scrollToAnchor(step.anchor)"
+          @click="scrollToAnchor(step.anchor, step.anchor)"
         >
           <!-- 左侧连接线 -->
           <span class="step-connector-wrap">
@@ -132,7 +133,7 @@
               type="button"
               class="nav-sub-item"
               :title="sb.title || '分镜 ' + (i + 1)"
-              @click="scrollToAnchor('sb-' + sb.id)"
+              @click="scrollToAnchor('sb-' + sb.id, 'anchor-storyboard-images')"
             >
               {{ i + 1 }}. {{ sb.title || '分镜' }}
             </button>
@@ -928,7 +929,7 @@
             导出解说 SRT
           </el-button>
         </div>
-        <div class="asset-actions sb-batch-actions">
+        <div id="anchor-storyboard-images" class="asset-actions sb-batch-actions">
           <div class="flex">
             <ActionGate
               :reason="storyboardActionDisabledReason"
@@ -2979,7 +2980,9 @@ const projectPageTitle = computed(() => {
 })
 
 // ── Composable: Navigation ─────────────────────────────
-const { navCollapsed, storyboardMenuExpanded, toggleNav, scrollToTop, scrollToAnchor } = useNavigation()
+const { navCollapsed, storyboardMenuExpanded, activeNavAnchor, toggleNav, scrollToTop, scrollToAnchor } = useNavigation({
+  getAnchorIds: () => navSteps.value.map((step) => step.anchor),
+})
 
 function goList() {
   router.push(projectListReturnTo.value || { name: 'list' })
@@ -3767,7 +3770,7 @@ const navSteps = computed(() => {
     { key: 'props',    label: '道具',        anchor: 'anchor-props',      status: propStatus,      count: propList.length },
     { key: 'scenes',   label: '场景',        anchor: 'anchor-scenes',     status: sceneStatus,     count: sceneList.length },
     { key: 'sb',       label: '分镜脚本',   anchor: 'anchor-storyboard', status: sbScriptStatus,  count: sbList.length },
-    { key: 'sbimg',    label: '分镜图',      anchor: 'anchor-storyboard', status: sbImgStatus,     count: sbList.length },
+    { key: 'sbimg',    label: '分镜图',      anchor: 'anchor-storyboard-images', status: sbImgStatus, count: sbList.length },
     { key: 'video',    label: '交付与导出', anchor: 'anchor-video',      status: compositeStatus, count: 0 },
   ]
 })
@@ -9934,6 +9937,12 @@ html.light .nav-toggle:hover { color: #374151; background: rgba(0,0,0,0.05); }
   user-select: none;
 }
 .nav-step:hover { background: rgba(255,255,255,0.04); }
+.nav-step.is-current {
+  background: rgba(99, 102, 241, 0.11);
+  box-shadow: inset 3px 0 0 var(--el-color-primary);
+}
+html.light .nav-step.is-current { background: rgba(99, 102, 241, 0.09); }
+.nav-step.is-current .step-label { font-weight: 700; }
 html.light .nav-step:hover { background: rgba(99,102,241,0.05); }
 
 /* connector column */

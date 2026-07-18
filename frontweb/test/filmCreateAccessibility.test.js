@@ -17,9 +17,21 @@ const pipelinePanelSource = readFileSync(
 
 test('film create navigation and resource disclosure controls use native buttons', () => {
   assert.match(filmCreateSource, /<button[\s\S]*?class="nav-toggle"[\s\S]*?:aria-expanded="!navCollapsed"/)
-  assert.match(filmCreateSource, /<button[\s\S]*?class="nav-step"[\s\S]*?@click="scrollToAnchor\(step\.anchor\)"/)
+  assert.match(filmCreateSource, /<button[\s\S]*?class="nav-step"[\s\S]*?:aria-current="activeNavAnchor === step\.anchor \? 'step' : undefined"/)
+  assert.match(filmCreateSource, /<button[\s\S]*?class="nav-step"[\s\S]*?@click="scrollToAnchor\(step\.anchor, step\.anchor\)"/)
   assert.match(filmCreateSource, /<button[\s\S]*?class="nav-sub-toggle"[\s\S]*?:aria-expanded="storyboardMenuExpanded"/)
-  assert.match(filmCreateSource, /<button[\s\S]*?class="nav-sub-item"[\s\S]*?@click="scrollToAnchor\('sb-' \+ sb\.id\)"/)
+  assert.match(filmCreateSource, /<button[\s\S]*?class="nav-sub-item"[\s\S]*?@click="scrollToAnchor\('sb-' \+ sb\.id, 'anchor-storyboard-images'\)"/)
+  assert.equal((filmCreateSource.match(/:aria-current=/g) || []).length, 1)
+  assert.match(filmCreateSource, /\{ 'is-current': activeNavAnchor === step\.anchor \}/)
+
+  const storyboardScriptAnchors = filmCreateSource.match(/id="anchor-storyboard"/g) || []
+  const storyboardImageAnchors = filmCreateSource.match(/id="anchor-storyboard-images"/g) || []
+  assert.equal(storyboardScriptAnchors.length, 1)
+  assert.equal(storyboardImageAnchors.length, 1)
+  assert.ok(
+    filmCreateSource.indexOf('id="anchor-storyboard-images"')
+      < filmCreateSource.indexOf('label="批量生成分镜图"'),
+  )
 
   const disclosureButtons = filmCreateSource.match(
     /<button\b[^>]*class="collapse-header(?: resource-block-header)?"[^>]*>/g,
