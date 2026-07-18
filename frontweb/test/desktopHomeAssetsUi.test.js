@@ -7,6 +7,7 @@ import { formatMediaSize, hasActiveMediaFilters, normalizeMediaItem } from '../s
 const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
 const sourceIntakeWorkflowSource = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
 const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
+const routerSource = readFileSync(new URL('../src/router/index.js', import.meta.url), 'utf8')
 const themeSource = readFileSync(new URL('../src/styles/theme.css', import.meta.url), 'utf8')
 
 function sourceBetween(source, start, end, label) {
@@ -18,10 +19,17 @@ function sourceBetween(source, start, end, label) {
   return source.slice(startIndex, endIndex + end.length)
 }
 
-const headerLibrarySource = sourceBetween(
+function sourceThroughFirstClosingDiv(source, start, label) {
+  const startIndex = source.indexOf(start)
+  assert.notEqual(startIndex, -1, `${label} start boundary is missing`)
+  const endIndex = source.indexOf('</div>', startIndex + start.length)
+  assert.notEqual(endIndex, -1, `${label} first closing div is missing`)
+  return source.slice(startIndex, endIndex + '</div>'.length)
+}
+
+const headerLibrarySource = sourceThroughFirstClosingDiv(
   filmListSource,
   '<div class="header-library">',
-  '<!-- 右侧操作区 -->',
   'header material library',
 )
 const sourceImportActionSource = sourceBetween(
@@ -35,6 +43,12 @@ const deliveryActionsSource = sourceBetween(
   '<div class="stage-action-row delivery-actions">',
   '            </div>',
   'story-material delivery actions',
+)
+const mediaLibraryRouteSource = sourceBetween(
+  routerSource,
+  "path: '/media-library'",
+  '    },',
+  'media-library route',
 )
 
 test('media library helpers normalize media metadata and active filters', () => {
@@ -53,6 +67,7 @@ test('media library helpers normalize media metadata and active filters', () => 
 })
 
 test('desktop home exposes one material center entry and keeps semantic libraries grouped', () => {
+  assert.doesNotMatch(headerLibrarySource, /<!-- 右侧操作区 -->/)
   assert.match(
     headerLibrarySource,
     /<el-button class="btn-library btn-material-center" title="打开素材中心" @click="goMaterialCenter">\s*<el-icon><Files \/><\/el-icon>素材中心\s*<\/el-button>/,
@@ -61,6 +76,10 @@ test('desktop home exposes one material center entry and keeps semantic librarie
     headerLibrarySource,
     /<el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked">\s*<el-icon><Collection \/><\/el-icon>分类素材\s*<el-icon class="dropdown-caret"><ArrowDown \/><\/el-icon>\s*<\/el-button>/,
   )
+  assert.match(headerLibrarySource, /<el-dropdown-item command="character"><el-icon><User \/><\/el-icon>角色素材库<\/el-dropdown-item>/)
+  assert.match(headerLibrarySource, /<el-dropdown-item command="scene"><el-icon><PictureFilled \/><\/el-icon>场景素材库<\/el-dropdown-item>/)
+  assert.match(headerLibrarySource, /<el-dropdown-item command="prop"><el-icon><Box \/><\/el-icon>道具素材库<\/el-dropdown-item>/)
+  assert.match(mediaLibraryRouteSource, /meta: \{ title: '素材中心',/)
 })
 
 test('story-source actions use the scoped story-material terminology', () => {
