@@ -135,6 +135,11 @@ export function buildSourceWorkflowState({ sourceCount, hasSourceInput, run, qa,
   }
 }
 
+export function selectInspectedWorkflowStep(flowState, currentStepId, requestedStepId) {
+  const steps = Array.isArray(flowState?.steps) ? flowState.steps : []
+  return steps.some((step) => step.id === requestedStepId) ? requestedStepId : currentStepId
+}
+
 export function getNewWorkflowRunReason(runState = {}) {
   if (runState.active) return '当前已有处理流程运行中，请等待完成或先取消。'
   if (runState.status === 'paused') return '当前处理已暂停，请先恢复或取消后再启动新流程。'

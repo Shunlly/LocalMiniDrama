@@ -505,6 +505,7 @@ import {
   buildSourceWorkflowState,
   getNewWorkflowRunReason,
   getSourceWorkflowActionReasons,
+  selectInspectedWorkflowStep,
 } from '@/utils/sourceWorkflowState'
 import {
   DEFAULT_WORKFLOW_MODE,
@@ -713,8 +714,11 @@ function stageStatusTagType(status) {
 }
 
 function selectFlowStep(stepId) {
-  if (!flowState.value.steps.some((step) => step.id === stepId)) return
-  selectedFlowStepId.value = stepId
+  selectedFlowStepId.value = selectInspectedWorkflowStep(
+    flowState.value,
+    selectedFlowStepId.value,
+    stepId,
+  )
 }
 
 async function handleWorkflowModeChange() {

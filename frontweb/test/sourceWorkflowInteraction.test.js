@@ -2,6 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import {
+  buildSourceWorkflowState,
+  selectInspectedWorkflowStep,
+} from '../src/utils/sourceWorkflowState.js'
+
 const source = readFileSync(
   new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url),
   'utf8',
@@ -23,6 +28,27 @@ test('source workflow details follow the inspected stage only', () => {
   assert.match(source, /inspectedFlowStep\.id === 'process'/)
   assert.match(source, /inspectedFlowStep\.id === 'qa'/)
   assert.match(source, /inspectedFlowStep\.id === 'remediation'/)
+})
+
+test('selecting workflow history does not mutate the actual delivered stage', () => {
+  assert.match(
+    source,
+    /selectedFlowStepId\.value = selectInspectedWorkflowStep\(\s*flowState\.value,\s*selectedFlowStepId\.value,\s*stepId,\s*\)/,
+  )
+  const delivered = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: { id: 'run-complete', status: 'completed', mode: 'draft' },
+    qa: { id: 8, passed: true, score: 95, mode: 'draft', remediationActions: [] },
+    timeline: { episodeCount: 2, trackCount: 8 },
+    episodeCount: 2,
+    actionReasons: {},
+  })
+  const inspectedStepId = selectInspectedWorkflowStep(delivered, 'delivery', 'intake')
+  assert.equal(inspectedStepId, 'intake')
+  assert.equal(delivered.activeStepId, 'delivery')
+  assert.equal(selectInspectedWorkflowStep(delivered, inspectedStepId, 'unknown'), 'intake')
+  assert.equal(delivered.activeStepId, 'delivery')
 })
 
 test('source workflow current and selected stages have distinct visual markers', () => {
