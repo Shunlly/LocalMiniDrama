@@ -1424,7 +1424,7 @@ async function main({
     await evidenceRecorder.stage('browser_recovery')
     const browser = await launchBrowser(browserLaunchOptions())
     registerCleanup(cleanupActions, 'browser', () => browser.close())
-    const fixtureTitle = `中文路径 ${getSmokeHelpers().E2E_TITLE_PREFIX}${stamp}`
+    const fixtureTitle = `${getSmokeHelpers().E2E_TITLE_PREFIX}中文路径 ${stamp}`
     const startViewport = DESKTOP_VIEWPORTS[0]
     const recoveryPage = await browser.newPage({ viewport: startViewport })
     const recoveryAudit = attachPageAudit(recoveryPage, startViewport)
