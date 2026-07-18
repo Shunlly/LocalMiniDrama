@@ -10,6 +10,7 @@ const actionGateUrl = new URL('../src/components/filmCreate/ActionGate.vue', imp
 const canvasActionGateUrl = new URL('../src/components/dramaCanvas/CanvasActionGate.vue', import.meta.url)
 const pipelinePanelUrl = new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url)
 const disclosureStateUrl = new URL('../src/composables/useDisclosureState.js', import.meta.url)
+const filmPipelineActionUrl = new URL('../src/utils/filmPipelineAction.js', import.meta.url)
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 
 test('FilmCreate script compiles without duplicate bindings', () => {
@@ -48,6 +49,7 @@ const iconStubUrl = dataModule(`
     setup() { return () => h('span', { 'data-icon': name }) },
   })
   export const ArrowDown = icon('ArrowDown')
+  export const ArrowRight = icon('ArrowRight')
   export const ArrowUp = icon('ArrowUp')
   export const Setting = icon('Setting')
   export const VideoPlay = icon('VideoPlay')
@@ -57,6 +59,8 @@ const disclosureStateModuleUrl = dataModule(
   readFileSync(disclosureStateUrl, 'utf8')
     .replace("from 'vue'", `from ${JSON.stringify(vueUrl)}`),
 )
+
+const filmPipelineActionModuleUrl = dataModule(readFileSync(filmPipelineActionUrl, 'utf8'))
 
 const stylePickerStubUrl = dataModule(`
   import { defineComponent, h } from ${JSON.stringify(vueUrl)}
@@ -97,6 +101,7 @@ const compiledPipelinePanelUrl = compileSfc(
     ['@/components/StylePickerButton.vue', stylePickerStubUrl],
     ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
     ['@/composables/useDisclosureState', disclosureStateModuleUrl],
+    ['@/utils/filmPipelineAction', filmPipelineActionModuleUrl],
   ]),
 )
 
@@ -317,6 +322,7 @@ const pipelineEventListeners = {
   onSaveSettings: (value, events) => events.push(['save-settings', value]),
   onStartOneClick: (_value, events) => events.push(['start-one-click']),
   onStartTextFramework: (_value, events) => events.push(['start-text-framework']),
+  onOpenAiConfig: (value, events) => events.push(['open-ai-config', value]),
   onPause: (_value, events) => events.push(['pause']),
   onResume: (_value, events) => events.push(['resume']),
   onSkipCountdown: (_value, events) => events.push(['skip-countdown']),
@@ -415,6 +421,38 @@ test('pipeline disclosure starts compact, toggles, and auto-opens for running wo
     harness.props.value = { ...harness.props.value, running: false }
     await nextTick()
     assert.equal(toggle.props['aria-expanded'], true)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('pipeline compact status exposes the next executable command', async () => {
+  const harness = mountPipeline({
+    productionDisabledReason: '缺少视频模型',
+    productionReadinessState: 'missing',
+    productionReadinessServiceType: 'video',
+  })
+  try {
+    const getAction = () => findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-action')[0]
+    let action = getAction()
+
+    assert.ok(action)
+    assert.equal(action.type, 'button')
+    assert.match(textContent(action), /配置缺失服务/)
+    action.props.onClick()
+    assert.deepEqual(harness.events, [['open-ai-config', 'video']])
+
+    harness.props.value = {
+      ...harness.props.value,
+      productionDisabledReason: '',
+      productionReadinessState: 'ready',
+    }
+    await nextTick()
+
+    action = getAction()
+    assert.match(textContent(action), /一键生成成片/)
+    action.props.onClick()
+    assert.deepEqual(harness.events, [['open-ai-config', 'video'], ['start-one-click']])
   } finally {
     harness.app.unmount()
   }

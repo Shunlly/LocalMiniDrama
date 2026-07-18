@@ -14,17 +14,29 @@
         <strong>{{ focusTitle }}</strong>
         <span class="pipeline-compact-next"><span>下一步</span>{{ focusNextStep }}</span>
       </div>
-      <button
-        type="button"
-        class="pipeline-toggle"
-        data-testid="film-pipeline-toggle"
-        :aria-expanded="expanded"
-        aria-controls="film-pipeline-details"
-        @click="toggle"
-      >
-        {{ expanded ? '收起' : '展开' }}
-        <el-icon><ArrowUp v-if="expanded" /><ArrowDown v-else /></el-icon>
-      </button>
+      <div class="pipeline-compact-actions">
+        <button
+          v-if="compactAction"
+          type="button"
+          class="pipeline-compact-action"
+          data-testid="film-pipeline-action"
+          @click="runCompactAction"
+        >
+          <span>{{ compactAction.label }}</span>
+          <el-icon><ArrowRight /></el-icon>
+        </button>
+        <button
+          type="button"
+          class="pipeline-toggle"
+          data-testid="film-pipeline-toggle"
+          :aria-expanded="expanded"
+          aria-controls="film-pipeline-details"
+          @click="toggle"
+        >
+          {{ expanded ? '收起' : '展开' }}
+          <el-icon><ArrowUp v-if="expanded" /><ArrowDown v-else /></el-icon>
+        </button>
+      </div>
     </div>
 
     <div
@@ -195,10 +207,11 @@
 
 <script setup>
 import { computed } from 'vue'
-import { ArrowDown, ArrowUp, Setting, VideoPlay } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, ArrowUp, Setting, VideoPlay } from '@element-plus/icons-vue'
 import StylePickerButton from '@/components/StylePickerButton.vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import { useDisclosureState } from '@/composables/useDisclosureState'
+import { getPipelineCompactAction } from '@/utils/filmPipelineAction'
 
 const props = defineProps({
   aspectRatio: { type: String, default: '16:9' },
@@ -285,6 +298,21 @@ const showReadinessRetry = computed(() => (
   && !draftReason.value
   && props.productionReadinessState === 'error'
 ))
+const compactAction = computed(() => getPipelineCompactAction({
+  readinessState: props.productionReadinessState,
+  serviceType: props.productionReadinessServiceType,
+  running: props.running,
+  paused: props.paused,
+  draftReason: draftReason.value,
+  productionReason: productionReason.value,
+}))
+
+function runCompactAction() {
+  const action = compactAction.value
+  if (!action) return
+  if (action.event === 'open-ai-config') emit(action.event, action.payload)
+  else emit(action.event)
+}
 
 function updateSetting(name, value) {
   emit(`update:${name}`, value)
@@ -337,6 +365,14 @@ function updateSetting(name, value) {
   font-weight: 600;
 }
 
+.pipeline-compact-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.pipeline-compact-action,
 .pipeline-toggle {
   display: inline-flex;
   align-items: center;
@@ -353,11 +389,25 @@ function updateSetting(name, value) {
   cursor: pointer;
 }
 
+.pipeline-compact-action {
+  max-width: 160px;
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary);
+  color: var(--el-color-white);
+  white-space: nowrap;
+}
+
+.pipeline-compact-action:hover {
+  border-color: var(--el-color-primary-dark-2);
+  background: var(--el-color-primary-dark-2);
+}
+
 .pipeline-toggle:hover {
   border-color: var(--el-color-primary);
   color: var(--el-color-primary);
 }
 
+.pipeline-compact-action:focus-visible,
 .pipeline-toggle:focus-visible {
   outline: 2px solid var(--el-color-primary);
   outline-offset: 2px;
