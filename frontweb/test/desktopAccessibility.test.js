@@ -43,6 +43,18 @@ test('project readiness and detail controls avoid dead or mouse-only interaction
   assert.match(dramaDetailSource, /前往制作页新增并入库/)
 })
 
+test('project readiness keeps the next action visible while diagnostics are collapsible', () => {
+  assert.match(readinessSource, /data-testid="project-readiness-toggle"/)
+  assert.match(readinessSource, /:aria-expanded="expanded"/)
+  assert.match(readinessSource, /aria-controls="project-readiness-details"/)
+  assert.match(readinessSource, /id="project-readiness-details"/)
+  assert.match(readinessSource, /v-show="expanded"/)
+
+  const nextActionStart = readinessSource.indexOf('class="next-action"')
+  const detailsStart = readinessSource.indexOf('id="project-readiness-details"')
+  assert.ok(nextActionStart > 0 && nextActionStart < detailsStart)
+})
+
 test('theme status colors remain readable in both desktop themes', () => {
   assert.match(themeSource, /--status-success: #4ade80;/)
   assert.match(themeSource, /--status-warning: #fbbf24;/)

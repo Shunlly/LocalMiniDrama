@@ -8,12 +8,20 @@ const routerSource = read('../src/router/index.js').replace(/\r\n?/g, '\n')
 const aiConfigSource = read('../src/views/AiConfig.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const sourceIntakeSource = read('../src/components/SourceIntakeWorkflowPanel.vue')
+const readinessSource = read('../src/components/ProjectReadinessPanel.vue')
 const filmListSource = read('../src/views/FilmList.vue')
 const freeCreateSource = read('../src/views/FreeCreate.vue')
 const canvasSource = read('../src/views/DramaCanvas.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const filmCreatePipelineSource = read('../src/components/filmCreate/FilmCreatePipelinePanel.vue')
 const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
+
+test('project readiness defaults to a compact local-task-first surface', () => {
+  assert.match(readinessSource, /data-testid="project-readiness-toggle"/)
+  assert.match(readinessSource, /data-testid="project-readiness-details"/)
+  assert.match(readinessSource, /defaultExpanded: \{ type: Boolean, default: false \}/)
+  assert.match(readinessSource, /v-show="expanded"/)
+})
 
 async function loadReturnToNormalizer() {
   const start = routerSource.indexOf('export function normalizeAiConfigReturnTo')
