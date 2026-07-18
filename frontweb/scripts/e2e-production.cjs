@@ -5,6 +5,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const zlib = require('node:zlib')
 const { version: PACKAGE_VERSION } = require('../package.json')
+const { REQUIRED_FINAL_CAPTURES, inspectPng } = require('./acceptance-report-contract.cjs')
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..')
 const DEFAULT_EVIDENCE_ROOT = path.join(PROJECT_ROOT, 'artifacts', 'e2e-production')
@@ -44,6 +45,8 @@ const DESKTOP_VIEWPORTS = Object.freeze([
   { width: 1440, height: 900 },
   { width: 1366, height: 768 },
 ])
+const FOCUSED_DESKTOP_VIEWPORT = Object.freeze({ width: 1280, height: 720 })
+const AI_TWO_COLUMN_VIEWPORT = Object.freeze({ width: 1024, height: 768 })
 const UI = Object.freeze({
   workflowTitle: '\u6545\u4e8b\u7d20\u6750\u6d41\u7a0b',
   intakeStep: '\u5bfc\u5165\u7d20\u6750',
@@ -67,6 +70,15 @@ const UI = Object.freeze({
   retryLoad: '\u91cd\u8bd5\u52a0\u8f7d',
   downloadFinal: '\u4e0b\u8f7d\u6210\u7247',
   exportProject: '\u5bfc\u51fa\u9879\u76ee',
+  currentEpisode: '\u5f53\u524d\u96c6',
+  openStoryMaterials: (title) => `\u6253\u5f00\u9879\u76ee\u300c${title}\u300d\u7684\u6545\u4e8b\u7d20\u6750\u6d41\u7a0b`,
+  aiConfiguration: '\u0041\u0049\u914d\u7f6e',
+  addConfiguration: '\u6dfb\u52a0\u914d\u7f6e',
+  configureMissingService: '\u914d\u7f6e\u7f3a\u5931\u670d\u52a1',
+  returnToProduction: '\u8fd4\u56de\u5236\u4f5c',
+  configurationRechecking: '\u914d\u7f6e\u5df2\u66f4\u65b0\uff0c\u6b63\u5728\u91cd\u65b0\u68c0\u67e5',
+  retryCapability: '\u91cd\u8bd5\u80fd\u529b\u68c0\u67e5',
+  generateFinal: '\u4e00\u952e\u751f\u6210\u6210\u7247',
 })
 
 const SENSITIVE_KEY_PATTERN = /^(?:authorization|proxy_authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|credential|credentials|cookie|set_cookie|base[_-]?url|provider[_-]?config)$/i
@@ -263,6 +275,59 @@ function assertCompleteEvidence(evidence) {
   assert.equal(evidence.browser.final_download.validated, true, 'browser final-video download must be validated')
   assert.equal(evidence.browser.project_export.status, 'passed', 'browser project export status must pass')
   assert.equal(evidence.browser.project_export.validated, true, 'browser project export must be validated')
+  const focused = evidence.browser.focused_acceptance
+  assert.equal(focused.status, 'passed', 'focused desktop acceptance evidence must pass')
+  assert.deepEqual(focused.primary_viewport, FOCUSED_DESKTOP_VIEWPORT)
+  assert.deepEqual(focused.ai_two_column_viewport, AI_TWO_COLUMN_VIEWPORT)
+  assert.equal(focused.source_handoff.project_card_entry, true)
+  assert.equal(focused.source_handoff.return_hash, '#source-intake-workflow')
+  assert.equal(focused.source_handoff.compact_complete, true)
+  assert.equal(focused.source_handoff.entered_production, true)
+  assert.equal(focused.navigation.current_count, 1)
+  assert.ok(focused.navigation.completed_distinct_count > 0)
+  assert.deepEqual(focused.ai.service_order, ['video', 'image', 'text', 'tts', 'storyboard_image'])
+  assert.deepEqual(focused.ai.action_counts, [1, 1, 0, 1, 0])
+  assert.equal(focused.ai.mutation.method, 'POST')
+  assert.equal(focused.ai.mutation.service_type, 'text')
+  assert.equal(focused.ai.mutation.is_default, false)
+  assert.equal(focused.ai.native_close_focus_restored, true)
+  assert.equal(focused.ai.custom_return_focus_restored, true)
+  assert.equal(focused.ai.columns_1280, 5)
+  assert.equal(focused.ai.columns_1024, 2)
+  assert.ok(focused.ai.minimum_target_size >= 32)
+  assert.equal(focused.pipeline.initial_state, 'blocked')
+  assert.equal(focused.pipeline.post_mutation_state, 'checking')
+  assert.equal(focused.pipeline.injected_failure_state, 'error')
+  assert.equal(focused.pipeline.final_state, 'ready')
+  assert.equal(focused.readiness.injected_failure_status, 503)
+  assert.equal(focused.readiness.retry_status, 200)
+  assert.equal(focused.readiness.final_missing_capabilities, 0)
+  assert.equal(focused.provider_calls_unchanged, true)
+  assert.equal(focused.document_overflow['1280x720'].passed, true)
+  assert.equal(focused.document_overflow['1024x768'].passed, true)
+  for (const records of [
+    focused.component_overflow['1280x720'],
+    focused.component_overflow['1024x768'],
+  ]) {
+    assert.ok(Array.isArray(records) && records.length > 0, 'focused component overflow evidence is required')
+    for (const record of records) {
+      assert.ok(record.scroll_width <= record.client_width + 1, `${record.selector} has horizontal overflow`)
+    }
+  }
+  assert.equal(focused.cleanup.exact_name_registered, true)
+  assert.equal(focused.cleanup.created_id_registered, true)
+  assert.equal(focused.cleanup.visible_config_removed, true)
+  assert.equal(focused.cleanup.fixture_restored, true)
+  assert.equal(focused.cleanup.routes_disposed, true)
+  assert.equal(focused.cleanup.listeners_disposed, true)
+  assert.equal(focused.cleanup.gate_disposed, true)
+  assert.equal(focused.cleanup.page_closed, true)
+  assert.equal(focused.screenshots.length, REQUIRED_FINAL_CAPTURES.length)
+  assert.deepEqual(
+    focused.screenshots.map((item) => `${item.surface}:${item.viewport.width}x${item.viewport.height}:${item.theme}`),
+    REQUIRED_FINAL_CAPTURES.map((item) => `${item.surface}:${item.width}x${item.height}:${item.theme}`),
+  )
+  for (const screenshot of focused.screenshots) assertArtifactDescriptor(screenshot, 'focused screenshot')
   assert.ok(evidence.browser.playback.length >= 2, 'browser playback evidence must cover both desktop viewports')
   for (const viewport of evidence.browser.playback) {
     assert.equal(viewport.composed.played, true, 'composed video must play in the browser')
@@ -492,11 +557,6 @@ async function deleteConfig(id) {
 }
 
 async function installProviderConfigs(stamp) {
-  const existing = await apiRequest('/ai-configs')
-  for (const config of existing) {
-    if (String(config.name || '').startsWith(CONFIG_PREFIX)) await deleteConfig(config.id)
-  }
-
   const definitions = [
     ['text', 'local-e2e-text', '/chat/completions'],
     ['image', 'local-e2e-image', '/images/generations'],
@@ -1441,6 +1501,907 @@ async function verifyDraftUpgradeUi(page, dramaId) {
   return { placeholderMessageVisible: true }
 }
 
+function attachFocusedPageAudit(page, viewport) {
+  const errors = []
+  const onConsole = (message) => {
+    if (message.type() === 'error') errors.push(`console: ${message.text()}`)
+  }
+  const onPageError = (error) => errors.push(`pageerror: ${error.message}`)
+  page.on('console', onConsole)
+  page.on('pageerror', onPageError)
+  return {
+    errors,
+    viewport,
+    dispose() {
+      page.off('console', onConsole)
+      page.off('pageerror', onPageError)
+    },
+  }
+}
+
+async function assertComponentHorizontalOverflow(page, label, selectors) {
+  const records = []
+  for (const selector of selectors) {
+    const locator = page.locator(selector)
+    const count = await locator.count()
+    let visibleCount = 0
+    for (let index = 0; index < count; index += 1) {
+      const element = locator.nth(index)
+      if (!await element.isVisible()) continue
+      visibleCount += 1
+      const dimensions = await element.evaluate((node) => ({
+        client_width: node.clientWidth,
+        scroll_width: node.scrollWidth,
+        client_height: node.clientHeight,
+        scroll_height: node.scrollHeight,
+      }))
+      assert.ok(
+        dimensions.scroll_width <= dimensions.client_width + 1,
+        `${label} ${selector}[${index}] has horizontal overflow: ${JSON.stringify(dimensions)}`,
+      )
+      records.push({ selector, index, ...dimensions })
+    }
+    assert.ok(visibleCount > 0, `${label} requires at least one visible ${selector}`)
+  }
+  return records
+}
+
+async function assertCoverageLayout(page, {
+  viewport,
+  columns,
+  requireSingleRow = false,
+  serviceOrder = ['video', 'image', 'text', 'tts', 'storyboard_image'],
+  actionCounts = [1, 1, 0, 1, 0],
+} = {}) {
+  const cards = page.locator('#ai-config-coverage-panel .coverage-item')
+  assert.equal(await cards.count(), serviceOrder.length, 'AI coverage must contain exactly five service cards')
+  const records = []
+  for (let index = 0; index < serviceOrder.length; index += 1) {
+    const card = cards.nth(index)
+    await card.scrollIntoViewIfNeeded()
+    assert.equal(await card.isVisible(), true, `${serviceOrder[index]} coverage card must be displayed`)
+    const box = await card.boundingBox()
+    assert.ok(box && box.width > 0 && box.height > 0, `${serviceOrder[index]} coverage card has no layout box`)
+    const action_count = await card.locator('.coverage-actions button').count()
+    assert.ok(action_count <= 1, `${serviceOrder[index]} must expose at most one context action`)
+    assert.equal(action_count, actionCounts[index], `${serviceOrder[index]} context action count is incorrect`)
+    records.push({
+      service: serviceOrder[index],
+      label: String(await card.locator('.coverage-item-heading strong').textContent() || '').trim(),
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      action_count,
+    })
+  }
+
+  for (let left = 0; left < records.length; left += 1) {
+    for (let right = left + 1; right < records.length; right += 1) {
+      const a = records[left]
+      const b = records[right]
+      const separated = (
+        a.x + a.width <= b.x + 1
+        || b.x + b.width <= a.x + 1
+        || a.y + a.height <= b.y + 1
+        || b.y + b.height <= a.y + 1
+      )
+      assert.equal(separated, true, `${a.service} and ${b.service} coverage cards overlap`)
+    }
+  }
+
+  const gridColumns = await page.locator('#ai-config-coverage-panel .coverage-grid').evaluate((element) => (
+    getComputedStyle(element).gridTemplateColumns.split(/\s+/).filter(Boolean).length
+  ))
+  assert.equal(gridColumns, columns, `${viewport.width} coverage grid column count is incorrect`)
+  const xTracks = [...new Set(records.map((record) => Math.round(record.x)))]
+  assert.equal(xTracks.length, columns, `${viewport.width} coverage cards do not occupy ${columns} tracks`)
+  const rowCounts = new Map()
+  for (const record of records) {
+    const row = Math.round(record.y)
+    rowCounts.set(row, (rowCounts.get(row) || 0) + 1)
+  }
+  assert.equal([...rowCounts.values()].every((count) => count <= columns), true, 'coverage row exceeds its grid tracks')
+  if (requireSingleRow) {
+    assert.equal(rowCounts.size, 1, `${viewport.width} coverage cards must share one row`)
+    const dialogBox = await page.locator('.ai-config-workspace-dialog .el-dialog').boundingBox()
+    assert.ok(dialogBox, 'AI coverage dialog must have a layout box')
+    for (const record of records) {
+      assert.ok(record.x >= dialogBox.x - 1 && record.x + record.width <= dialogBox.x + dialogBox.width + 1)
+      assert.ok(record.y >= 0 && record.y + record.height <= viewport.height + 1)
+    }
+  }
+  return { columns: gridColumns, cards: records }
+}
+
+async function assertMinimumTargetSize(page, label, selectors, minimumTargetSize = 32) {
+  const records = []
+  for (const selector of selectors) {
+    const locator = page.locator(selector)
+    const count = await locator.count()
+    let visibleCount = 0
+    for (let index = 0; index < count; index += 1) {
+      const target = locator.nth(index)
+      if (!await target.isVisible()) continue
+      visibleCount += 1
+      const box = await target.boundingBox()
+      assert.ok(box, `${label} ${selector}[${index}] has no target box`)
+      assert.ok(box.width >= minimumTargetSize, `${label} ${selector}[${index}] is narrower than ${minimumTargetSize}px`)
+      assert.ok(box.height >= minimumTargetSize, `${label} ${selector}[${index}] is shorter than ${minimumTargetSize}px`)
+      records.push({ selector, index, width: box.width, height: box.height })
+    }
+    assert.ok(visibleCount > 0, `${label} requires at least one visible ${selector}`)
+  }
+  return records
+}
+
+async function assertWorkbenchFocus(page, { preferred, fallback, label }) {
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    const documentFocus = await page.evaluate(() => {
+      const active = document.activeElement
+      const hiddenDialog = active?.closest?.('.ai-config-workspace-dialog')
+      return {
+        tag: active?.tagName || '',
+        in_hidden_dialog: Boolean(hiddenDialog && getComputedStyle(hiddenDialog).display === 'none'),
+      }
+    })
+    const preferredFocused = await preferred.evaluate((element) => element.contains(element.ownerDocument.activeElement)).catch(() => false)
+    const fallbackFocused = await fallback.evaluate((element) => element.contains(element.ownerDocument.activeElement)).catch(() => false)
+    if (
+      !['BODY', 'HTML', ''].includes(documentFocus.tag)
+      && !documentFocus.in_hidden_dialog
+      && (preferredFocused || fallbackFocused)
+    ) {
+      return { restored: true, target: preferredFocused ? 'preferred' : 'fallback' }
+    }
+    await page.waitForTimeout(50)
+  }
+  const active = await page.evaluate(() => ({
+    tag: document.activeElement?.tagName || '',
+    class_name: String(document.activeElement?.className || '').slice(0, 120),
+  }))
+  assert.fail(`${label} did not restore focus to the workbench: ${JSON.stringify(active)}`)
+}
+
+function createReadinessGate() {
+  let armed = false
+  let interceptedResolve = null
+  let releaseResolve = null
+  let intercepted = Promise.resolve()
+  let release = Promise.resolve(503)
+  return {
+    arm() {
+      assert.equal(armed, false, 'readiness gate is already armed')
+      armed = true
+      intercepted = new Promise((resolve) => { interceptedResolve = resolve })
+      release = new Promise((resolve) => { releaseResolve = resolve })
+    },
+    isArmed: () => armed,
+    async intercept() {
+      assert.equal(armed, true, 'readiness gate was not armed')
+      interceptedResolve?.()
+      const status = await release
+      armed = false
+      return status
+    },
+    waitUntilIntercepted: () => intercepted,
+    release(status = 503) {
+      releaseResolve?.(status)
+    },
+    dispose() {
+      if (armed) releaseResolve?.(503)
+      armed = false
+    },
+  }
+}
+
+async function installFocusedAiRoutes(page, fixture) {
+  const aiListPattern = '**/api/v1/ai-configs*'
+  const readinessPattern = '**/api/v1/workflows/novel2anime/readiness'
+  const readinessGate = createReadinessGate()
+  const state = {
+    inactiveTextId: fixture.inactiveTextId,
+    uiCreatedIds: new Set(),
+    includeUiCreated: false,
+    mutationComplete: false,
+    recoveryComplete: false,
+    readinessStatuses: [],
+  }
+  const requestCounts = { readiness_after_mutation: 0, ui_config_posts: 0 }
+  const fixtureIds = new Set(fixture.providerState.created.map((config) => Number(config.id)))
+
+  const aiListHandler = async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (request.method() === 'POST' && url.pathname === '/api/v1/ai-configs') {
+      const requestBody = request.postDataJSON() || {}
+      if (requestBody.name !== fixture.uiConfigName) {
+        await route.continue()
+        return
+      }
+      requestCounts.ui_config_posts += 1
+      const existingSettings = (() => {
+        try {
+          return requestBody.settings ? JSON.parse(requestBody.settings) : {}
+        } catch {
+          return {}
+        }
+      })()
+      const response = await route.fetch({
+        postData: JSON.stringify({
+          ...requestBody,
+          settings: JSON.stringify({ ...existingSettings, allow_local_http: true }),
+        }),
+      })
+      await route.fulfill({ response })
+      return
+    }
+    const decoratesFixtureList = (
+      request.method() === 'GET'
+      && url.pathname === '/api/v1/ai-configs'
+      && !url.searchParams.has('service_type')
+    )
+    if (!decoratesFixtureList) {
+      if (url.searchParams.get('service_type') === 'video') await route.continue() // service_type=video is never decorated.
+      else await route.continue()
+      return
+    }
+    const response = await route.fetch()
+    const payload = await response.json()
+    const rows = Array.isArray(payload?.data) ? payload.data : []
+    const allowedIds = new Set([...fixtureIds, ...(state.includeUiCreated ? state.uiCreatedIds : [])])
+    const decorated = rows
+      .filter((row) => allowedIds.has(Number(row.id)))
+      .filter((row) => Number(row.id) !== Number(state.inactiveTextId))
+      .map((row) => {
+        const display = { ...row, base_url: '', api_key: '', settings: null }
+        if (row.service_type === 'video') return { ...display, is_default: true, is_active: true, last_test_status: 'failed' }
+        if (row.service_type === 'image') return { ...display, is_default: false, is_active: true, last_test_status: 'unknown' }
+        if (row.service_type === 'tts') return { ...display, is_default: true, is_active: true, last_test_status: 'unknown' }
+        if (row.service_type === 'storyboard_image') return { ...display, is_default: true, is_active: true, last_test_status: 'passed' }
+        return { ...display, is_default: false, is_active: true, last_test_status: 'unknown' }
+      })
+    await route.fulfill({ response, body: JSON.stringify({ ...payload, data: decorated }) })
+  }
+
+  const readinessHandler = async (route) => {
+    const request = route.request()
+    const requestBody = request.postDataJSON() || {}
+    const postData = JSON.stringify({
+      ...requestBody,
+      options: { ...(requestBody.options || {}), ...PROVIDER_SELECTION_OPTIONS },
+    })
+    if (state.mutationComplete && !state.recoveryComplete) requestCounts.readiness_after_mutation += 1
+    if (readinessGate.isArmed()) {
+      const status = await readinessGate.intercept()
+      state.readinessStatuses.push(status)
+      await route.fulfill({
+        status,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: false, error: { code: 'E2E_READINESS_FAILURE', message: 'Controlled readiness failure' } }),
+      })
+      return
+    }
+    const response = await route.fetch({ postData })
+    state.readinessStatuses.push(response.status())
+    await route.fulfill({ response })
+  }
+
+  await page.route(aiListPattern, aiListHandler)
+  await page.route(readinessPattern, readinessHandler)
+  return {
+    state,
+    requestCounts,
+    readinessGate,
+    async dispose() {
+      readinessGate.dispose()
+      await page.unroute(readinessPattern, readinessHandler)
+      await page.unroute(aiListPattern, aiListHandler)
+    },
+  }
+}
+
+async function cleanupFocusedAiState(state) {
+  const failures = []
+  for (const id of [...state.createdIds]) {
+    try {
+      await deleteConfig(id)
+    } catch (error) {
+      failures.push(error)
+    }
+  }
+  try {
+    const visible = await apiRequest('/ai-configs')
+    for (const config of visible.filter((item) => item.name === state.exactName)) await deleteConfig(config.id)
+  } catch (error) {
+    failures.push(error)
+  }
+  if (!state.fixtureRestored) {
+    try {
+      await apiRequest(`/ai-configs/${state.fixtureTextId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ is_active: state.fixtureWasActive }),
+      })
+      state.fixtureRestored = true
+    } catch (error) {
+      failures.push(error)
+    }
+  }
+  try {
+    const remaining = await apiRequest('/ai-configs')
+    state.visibleConfigRemoved = !remaining.some((item) => item.name === state.exactName)
+    assert.equal(state.visibleConfigRemoved, true, 'focused UI configuration remains visible after exact cleanup')
+  } catch (error) {
+    failures.push(error)
+  }
+  if (failures.length) throw new AggregateError(failures, 'Focused AI configuration cleanup failed')
+}
+
+async function readStableProviderCalls() {
+  let previous = null
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const current = summarizeProviderCalls(await providerControlRequest('/__e2e/stats'))
+    if (previous && JSON.stringify(previous) === JSON.stringify(current)) return current
+    previous = current
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error('Provider call counters did not stabilize before focused acceptance')
+}
+
+function configFormItem(dialog, label) {
+  return dialog.locator('.el-form-item').filter({ hasText: label }).first()
+}
+
+async function createMissingServiceFromUi(page, fixture) {
+  const configDialog = page.locator('.ai-config-dialog:visible').last()
+  await page.waitForFunction((addLabel) => {
+    const dialog = [...document.querySelectorAll('.ai-config-dialog')].find((element) => (
+      getComputedStyle(element).display !== 'none' && getComputedStyle(element).visibility !== 'hidden'
+    ))
+    const addButton = [...document.querySelectorAll('button')].find((element) => (
+      element.textContent?.trim() === addLabel && !element.disabled
+    ))
+    return Boolean(dialog || addButton)
+  }, UI.addConfiguration, { timeout: 30000 })
+  if (!await configDialog.isVisible().catch(() => false)) {
+    await page.getByRole('button', { name: UI.addConfiguration, exact: true }).click()
+  }
+  await configDialog.waitFor({ state: 'visible', timeout: 30000 })
+
+  const expectedMutation = {
+    provider: 'openai_compatible',
+    service_type: 'text',
+    default_model: 'local-e2e-text',
+  }
+  await configFormItem(configDialog, '\u540d\u79f0').locator('input').fill(fixture.exactName)
+  await configFormItem(configDialog, '\u5382\u5546').locator('.el-select').click()
+  await page.getByRole('option', { name: '\u004f\u0070\u0065\u006e\u0041\u0049 \u517c\u5bb9\u7f51\u5173', exact: true }).click()
+  await configFormItem(configDialog, '\u0041\u0050\u0049 \u004b\u0065\u0079').locator('input').fill(PROVIDER_TOKEN)
+  await configFormItem(configDialog, '\u6a21\u578b\u5217\u8868').locator('textarea').fill(expectedMutation.default_model)
+  await configFormItem(configDialog, '\u9ed8\u8ba4\u6a21\u578b').locator('.el-select').click()
+  await page.getByRole('option', { name: expectedMutation.default_model, exact: true }).click()
+  await configDialog.locator('.advanced-config-collapse .el-collapse-item__header').click()
+  await configFormItem(configDialog, '\u0042\u0061\u0073\u0065 \u0055\u0052\u004c').locator('input').fill(PROVIDER_BASE_URL)
+
+  const defaultSwitch = configFormItem(configDialog, '\u8bbe\u4e3a\u9ed8\u8ba4').locator('[role="switch"]')
+  if (await defaultSwitch.getAttribute('aria-checked') === 'true') await defaultSwitch.click()
+  assert.equal(await defaultSwitch.getAttribute('aria-checked'), 'false', 'focused UI config must not replace a user default')
+
+  const responsePromise = page.waitForResponse((response) => {
+    const request = response.request()
+    const url = new URL(request.url())
+    return request.method() === 'POST' && url.pathname === '/api/v1/ai-configs'
+  }, { timeout: 30000 })
+  await configDialog.getByRole('button', { name: UI.confirm, exact: true }).click()
+  const response = await responsePromise
+  assert.equal(response.ok(), true, `focused UI config create failed with HTTP ${response.status()}`)
+  const requestBody = response.request().postDataJSON()
+  assert.equal(requestBody.provider, expectedMutation.provider)
+  assert.equal(requestBody.service_type, expectedMutation.service_type)
+  assert.equal(requestBody.default_model, expectedMutation.default_model)
+  assert.equal(requestBody.is_default, false)
+  const responseBody = await response.json()
+  const createdId = Number(responseBody?.data?.id)
+  assert.ok(Number.isSafeInteger(createdId) && createdId > 0, 'focused UI config response must contain an id')
+  fixture.createdIds.add(createdId)
+  fixture.routes.state.uiCreatedIds.add(createdId)
+  fixture.routes.state.includeUiCreated = true
+  fixture.routes.state.mutationComplete = true
+
+  assert.equal(fixture.routes.requestCounts.ui_config_posts, 1, 'focused acceptance must create exactly one UI config')
+  assert.equal(responseBody.data.is_active, true)
+  await page.getByText('\u6dfb\u52a0\u6210\u529f', { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
+  await configDialog.waitFor({ state: 'hidden', timeout: 10000 })
+  return {
+    method: 'POST',
+    service_type: expectedMutation.service_type,
+    created_id: createdId,
+    is_default: false,
+  }
+}
+
+async function setEvidenceTheme(page, theme) {
+  const hasTheme = await page.locator('html').evaluate((element, value) => element.classList.contains(value), theme)
+  if (!hasTheme) {
+    const toggle = page.locator('.btn-theme:visible').first()
+    if (await toggle.count()) await toggle.click()
+    else {
+      await page.evaluate((nextTheme) => {
+        document.documentElement.classList.remove('light', 'dark')
+        document.documentElement.classList.add(nextTheme)
+        localStorage.setItem('lmd-theme', nextTheme)
+      }, theme)
+    }
+  }
+  assert.equal(await page.locator('html').evaluate((element, value) => element.classList.contains(value), theme), true)
+}
+
+async function assertScreenshotSurfaceSafe(page) {
+  assert.equal(await page.locator('.ai-config-dialog:visible').count(), 0, 'secret-bearing AI form must be closed before capture')
+  const exposure = await page.evaluate(({ protectedToken, protectedUrl }) => {
+    const visibleText = document.body?.innerText || ''
+    const inputValues = [...document.querySelectorAll('input, textarea')].map((element) => String(element.value || ''))
+    return {
+      token: visibleText.includes(protectedToken) || inputValues.includes(protectedToken),
+      url: visibleText.includes(protectedUrl) || inputValues.includes(protectedUrl),
+      text_length: visibleText.trim().length,
+      loading_masks: [...document.querySelectorAll('.el-loading-mask')].filter((element) => (
+        getComputedStyle(element).display !== 'none' && getComputedStyle(element).visibility !== 'hidden'
+      )).length,
+    }
+  }, { protectedToken: PROVIDER_TOKEN, protectedUrl: PROVIDER_BASE_URL })
+  assert.equal(exposure.token, false, 'capture surface exposes a protected credential value')
+  assert.equal(exposure.url, false, 'capture surface exposes a protected service URL')
+  assert.ok(exposure.text_length > 100, 'capture surface is blank')
+  assert.equal(exposure.loading_masks, 0, 'capture surface still contains a loading mask')
+}
+
+async function prepareAcceptanceCaptureSurface(page, capture, fixture) {
+  const episodeId = fixture.completedDrama.episodes[0].id
+  if (capture.surface === 'project-readiness') {
+    fixture.routes.state.includeUiCreated = false
+    await page.goto(`${FRONTEND_URL}/drama/${fixture.dramaId}#source-intake-workflow`, { waitUntil: 'domcontentloaded' })
+    const toggle = page.getByTestId('project-readiness-toggle')
+    await toggle.waitFor({ state: 'visible', timeout: 30000 })
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
+    await page.getByTestId('project-readiness-details').waitFor({ state: 'visible', timeout: 10000 })
+    return
+  }
+
+  await page.goto(`${FRONTEND_URL}/film/${fixture.dramaId}?episode=${episodeId}`, { waitUntil: 'domcontentloaded' })
+  await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
+  await page.locator('[data-testid="film-pipeline-summary"][data-state="ready"]').waitFor({ state: 'visible', timeout: 30000 })
+  if (capture.surface === 'film-pipeline') return
+
+  fixture.routes.state.includeUiCreated = capture.surface === 'ai-config-management'
+  await page.locator('.btn-ai-config').click()
+  const workspaceDialog = page.locator('.ai-config-workspace-dialog')
+  await workspaceDialog.waitFor({ state: 'visible', timeout: 30000 })
+  if (capture.surface === 'ai-config-management') {
+    await page.getByTestId('ai-config-mode-configs').click()
+    await page.locator('#ai-config-configs-panel').waitFor({ state: 'visible', timeout: 10000 })
+    await page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 10000 })
+  } else {
+    await page.getByTestId('ai-config-mode-coverage').click()
+    await page.locator('#ai-config-coverage-panel').waitFor({ state: 'visible', timeout: 10000 })
+  }
+}
+
+async function captureAcceptanceReportScreenshots(page, fixture) {
+  const screenshots = []
+  let preparedSurface = ''
+  for (const capture of REQUIRED_FINAL_CAPTURES) {
+    await page.setViewportSize({ width: capture.width, height: capture.height })
+    await setEvidenceTheme(page, capture.theme)
+    if (preparedSurface !== capture.surface) {
+      await prepareAcceptanceCaptureSurface(page, capture, fixture)
+      preparedSurface = capture.surface
+      await setEvidenceTheme(page, capture.theme)
+    }
+    await page.evaluate(() => document.fonts?.ready)
+    await assertScreenshotSurfaceSafe(page)
+    const buffer = await page.screenshot({ fullPage: false, animations: 'disabled', caret: 'hide', type: 'png' })
+    const inspected = inspectPng(buffer, capture.id)
+    assert.deepEqual(
+      { width: inspected.width, height: inspected.height },
+      { width: capture.width, height: capture.height },
+      `${capture.id} PNG dimensions do not match its original viewport`,
+    )
+    assert.ok(buffer.length > 10000, `${capture.id} PNG is unexpectedly small`)
+    const sha256 = crypto.createHash('sha256').update(buffer).digest('hex')
+    const descriptor = await fixture.evidenceRecorder.persistArtifact(
+      `acceptance-report/screenshots/${capture.id}.png`,
+      buffer,
+    )
+    assert.equal(descriptor.sha256, sha256)
+    screenshots.push({
+      id: capture.id,
+      path: descriptor.path,
+      bytes: descriptor.bytes,
+      sha256,
+      viewport: { width: capture.width, height: capture.height },
+      surface: capture.surface,
+      theme: capture.theme,
+    })
+  }
+  return screenshots
+}
+
+async function writeAcceptanceManifest({ evidence, evidencePath, evidenceRoot }) {
+  assert.equal(evidence.status, 'passed', 'acceptance manifest requires passed E2E evidence')
+  assert.match(evidence.source.commit, /^[0-9a-f]{40,64}$/)
+  assert.equal(evidence.source.working_tree_dirty, false)
+  const evidenceBytes = await fs.readFile(evidencePath)
+  const evidenceSha256 = crypto.createHash('sha256').update(evidenceBytes).digest('hex')
+  const descriptors = new Map(evidence.browser.focused_acceptance.screenshots.map((item) => [item.id, item]))
+  const screenshots = REQUIRED_FINAL_CAPTURES.map((capture) => {
+    const descriptor = descriptors.get(capture.id)
+    assert.ok(descriptor, `missing final screenshot descriptor ${capture.id}`)
+    return {
+      id: capture.id,
+      path: `screenshots/${capture.id}.png`,
+      sha256: descriptor.sha256,
+      bytes: descriptor.bytes,
+      mime: 'image/png',
+      originalViewport: true,
+      viewport: { width: capture.width, height: capture.height },
+      theme: capture.theme,
+      surface: capture.surface,
+    }
+  })
+  const manifest = {
+    schema: 'localminidrama.acceptance-screenshot-manifest.v1',
+    source: { commit: evidence.source.commit, repositoryClean: true },
+    e2eEvidence: { path: '../evidence.json', sha256: evidenceSha256 },
+    screenshots,
+  }
+  const acceptanceRoot = path.join(evidenceRoot, 'acceptance-report')
+  const temporaryPath = path.join(acceptanceRoot, 'manifest.json.tmp')
+  const manifestPath = path.join(acceptanceRoot, 'manifest.json')
+  await fs.mkdir(acceptanceRoot, { recursive: true })
+  await fs.writeFile(temporaryPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+  await fs.rename(temporaryPath, manifestPath)
+  return { path: manifestPath, screenshots: screenshots.length, sha256: evidenceSha256 }
+}
+
+async function verifyFocusedDesktopAcceptance(browser, {
+  dramaId,
+  fixtureTitle,
+  completedDrama,
+  providerState,
+  stamp,
+  cleanupActions,
+  evidenceRecorder,
+}) {
+  const serviceOrder = ['video', 'image', 'text', 'tts', 'storyboard_image']
+  const actionCounts = [1, 1, 0, 1, 0]
+  const firstEpisode = completedDrama?.episodes?.[0]
+  assert.ok(firstEpisode?.id, 'focused acceptance requires the completed first episode')
+  const textFixtures = providerState.created.filter((config) => (
+    config.service_type === 'text' && String(config.name || '').includes(String(stamp))
+  ))
+  assert.equal(textFixtures.length, 1, 'focused acceptance requires one exact E2E text fixture')
+  const textFixture = textFixtures[0]
+  const exactName = `E2E Focused Text ${stamp}`
+  const cleanupState = {
+    exactName,
+    exactNameRegistered: true,
+    createdIds: new Set(),
+    fixtureTextId: textFixture.id,
+    fixtureWasActive: Boolean(textFixture.is_active),
+    fixtureRestored: false,
+    visibleConfigRemoved: false,
+  }
+  registerCleanup(cleanupActions, `focused AI config ${exactName}`, () => cleanupFocusedAiState(cleanupState))
+  await apiRequest(`/ai-configs/${textFixture.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ is_active: false }),
+  })
+
+  const providerCallsBefore = await readStableProviderCalls()
+  const page = await browser.newPage({ viewport: FOCUSED_DESKTOP_VIEWPORT })
+  const audit = attachFocusedPageAudit(page, FOCUSED_DESKTOP_VIEWPORT)
+  const forbiddenRequests = []
+  const onRequest = (request) => {
+    const pathname = new URL(request.url()).pathname
+    if (
+      request.method() === 'POST'
+      && (pathname.endsWith('/ai-configs/test') || pathname.endsWith('/workflows/novel2anime'))
+    ) forbiddenRequests.push({ method: request.method(), pathname })
+  }
+  page.on('request', onRequest)
+  let routes = null
+  let result = null
+  let primaryError = null
+  const disposalState = {
+    routesDisposed: false,
+    listenersDisposed: false,
+    gateDisposed: false,
+    pageClosed: false,
+  }
+
+  try {
+    routes = await installFocusedAiRoutes(page, {
+      providerState,
+      inactiveTextId: textFixture.id,
+      uiConfigName: exactName,
+    })
+    await page.goto(`${FRONTEND_URL}/`, { waitUntil: 'domcontentloaded' })
+    const search = page.getByRole('textbox', { name: '\u641c\u7d22\u9879\u76ee', exact: true })
+    await search.waitFor({ state: 'visible', timeout: 30000 })
+    await search.fill(fixtureTitle)
+    const projectCard = page.locator('.project-card').filter({ hasText: fixtureTitle })
+    await projectCard.waitFor({ state: 'visible', timeout: 30000 })
+    assert.equal(await projectCard.count(), 1, 'focused project search must resolve one project card')
+    const storyEntry = projectCard.getByRole('link', { name: UI.openStoryMaterials(fixtureTitle), exact: true })
+    await storyEntry.focus()
+    const sourceNavigation = page.waitForURL((url) => (
+      url.pathname === `/drama/${dramaId}` && url.hash === '#source-intake-workflow'
+    ), { timeout: 30000 })
+    await storyEntry.press('Enter')
+    await sourceNavigation
+    const sourceUrl = new URL(page.url())
+    assert.equal(sourceUrl.hash, '#source-intake-workflow')
+    assert.equal(sourceUrl.searchParams.has('returnTo'), true, 'project-list return context must be preserved')
+    const workflow = page.locator('#source-intake-workflow')
+    await workflow.waitFor({ state: 'visible', timeout: 30000 })
+    await page.waitForFunction(() => document.querySelector('#source-intake-workflow')?.contains(document.activeElement))
+    const completion = workflow.getByTestId('source-workflow-complete')
+    await completion.waitFor({ state: 'visible', timeout: 30000 })
+    await completion.getByRole('button', { name: UI.workflowHistory, exact: true }).waitFor({ state: 'visible' })
+    await completion.getByRole('button', { name: UI.enterProduction, exact: true }).waitFor({ state: 'visible' })
+    const filmNavigation = page.waitForURL((url) => (
+      url.pathname === `/film/${dramaId}` && url.searchParams.get('episode') === String(firstEpisode.id)
+    ), { timeout: 30000 })
+    await completion.getByRole('button', { name: UI.enterProduction, exact: true }).click()
+    await filmNavigation
+    await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
+    assert.equal(String(await page.locator('.page-title').textContent() || '').trim(), fixtureTitle)
+    const episodeSelect = page.getByRole('combobox', { name: UI.currentEpisode, exact: true })
+    await episodeSelect.waitFor({ state: 'visible', timeout: 30000 })
+    const episodeLabel = String(await episodeSelect.getAttribute('title') || '')
+    assert.ok(episodeLabel.includes(firstEpisode.title || '\u7b2c 1 \u96c6'), 'current episode context is incorrect')
+
+    const currentSteps = page.locator('#film-create-quick-nav [aria-current="step"]')
+    const completedSteps = page.locator('#film-create-quick-nav .status-done:not(.is-current)')
+    assert.equal(await currentSteps.count(), 1, 'FilmCreate must expose exactly one current navigation step')
+    assert.ok(await completedSteps.count() > 0, 'FilmCreate must expose a distinct completed navigation step')
+    const currentLabel = String(await currentSteps.first().innerText()).trim()
+    assert.equal(await currentSteps.first().evaluate((element) => element.matches('.status-done:not(.is-current)')), false)
+
+    const pipelineDetails = page.getByTestId('film-pipeline-details')
+    await pipelineDetails.waitFor({ state: 'hidden', timeout: 10000 })
+    const blockedSummary = page.locator('[data-testid="film-pipeline-summary"][data-state="blocked"]')
+    await blockedSummary.waitFor({ state: 'visible', timeout: 30000 })
+    let pipelineAction = page.getByTestId('film-pipeline-action')
+    await pipelineAction.filter({ hasText: UI.configureMissingService }).waitFor({ state: 'visible', timeout: 30000 })
+
+    const genericOpener = page.locator('.btn-ai-config')
+    await genericOpener.focus()
+    await genericOpener.click()
+    const workspaceDialog = page.locator('.ai-config-workspace-dialog')
+    await workspaceDialog.waitFor({ state: 'visible', timeout: 30000 })
+    await page.locator('#ai-config-coverage-panel').waitFor({ state: 'visible', timeout: 30000 })
+    const layout1280 = await assertCoverageLayout(page, {
+      viewport: FOCUSED_DESKTOP_VIEWPORT,
+      columns: 5,
+      requireSingleRow: true,
+      serviceOrder,
+      actionCounts,
+    })
+    assert.equal(layout1280.cards.every((item) => item.action_count <= 1), true)
+    const componentSelectors = [
+      '.ai-config-workspace-dialog .el-dialog__body',
+      '.ai-config-workspace-dialog .tab-content',
+      '.ai-config-workspace-dialog .config-workspace-panel:visible',
+      '#ai-config-coverage-panel .coverage-panel',
+      '#ai-config-coverage-panel .coverage-grid',
+      '#ai-config-coverage-panel .coverage-item',
+      '#ai-config-coverage-panel .coverage-actions',
+    ]
+    const overflow1280 = await assertComponentHorizontalOverflow(page, 'focused 1280 coverage', componentSelectors)
+    const layoutContract = { minimumTargetSize: 32 }
+    await assertMinimumTargetSize(page, 'focused 1280 coverage', [
+      '#ai-config-coverage-panel .coverage-select',
+      '#ai-config-coverage-panel .coverage-actions button',
+      '.config-workspace-mode',
+      '.ai-config-dialog-back',
+      '.ai-config-workspace-dialog .el-dialog__headerbtn',
+    ], layoutContract.minimumTargetSize)
+    const document1280 = { ...(await assertNoHorizontalOverflow(page, 'focused 1280 coverage')), passed: true }
+    await workspaceDialog.locator('.el-dialog__headerbtn').click()
+    await workspaceDialog.waitFor({ state: 'hidden', timeout: 10000 })
+    const nativeFocus1280 = await assertWorkbenchFocus(page, {
+      preferred: genericOpener,
+      fallback: page.locator('#pipeline-title, [data-testid="film-pipeline-summary"]').first(),
+      label: '1280 native AI close',
+    })
+    assert.equal(await page.getByText(UI.configurationRechecking, { exact: true }).count(), 0)
+    pipelineAction = page.getByTestId('film-pipeline-action')
+    await pipelineAction.filter({ hasText: UI.configureMissingService }).waitFor({ state: 'visible', timeout: 30000 })
+
+    await pipelineAction.focus()
+    await pipelineAction.click()
+    await workspaceDialog.waitFor({ state: 'visible', timeout: 30000 })
+    await page.getByTestId('ai-config-mode-configs').waitFor({ state: 'visible', timeout: 30000 })
+    const mutation = await createMissingServiceFromUi(page, {
+      exactName,
+      createdIds: cleanupState.createdIds,
+      routes,
+    })
+    routes.readinessGate.arm()
+    const customReturn = workspaceDialog.getByRole('button', { name: UI.returnToProduction, exact: true })
+    await customReturn.click()
+    await routes.readinessGate.waitUntilIntercepted()
+    await workspaceDialog.waitFor({ state: 'hidden', timeout: 10000 })
+    await page.getByText(UI.configurationRechecking, { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
+    await page.locator('[data-testid="film-pipeline-summary"][data-state="checking"]').waitFor({ state: 'visible', timeout: 10000 })
+    assert.equal(
+      await page.locator('button:visible:not([disabled])').filter({ hasText: UI.generateFinal }).count(),
+      0,
+    )
+    const customFocus = await assertWorkbenchFocus(page, {
+      preferred: pipelineAction,
+      fallback: page.locator('#pipeline-title, [data-testid="film-pipeline-summary"]').first(),
+      label: 'custom return to production',
+    })
+    routes.readinessGate.release(503)
+    await page.locator('[data-testid="film-pipeline-summary"][data-state="error"]').waitFor({ state: 'visible', timeout: 10000 })
+    assert.equal(await page.locator('[data-testid="film-pipeline-summary"][data-state="ready"]').count(), 0)
+    const retryAction = page.getByTestId('film-pipeline-action').filter({ hasText: UI.retryCapability })
+    await retryAction.waitFor({ state: 'visible', timeout: 10000 })
+    await retryAction.focus()
+    const retryResponsePromise = page.waitForResponse((response) => (
+      response.request().method() === 'POST'
+      && new URL(response.url()).pathname === '/api/v1/workflows/novel2anime/readiness'
+      && response.status() === 200
+    ), { timeout: 30000 })
+    await retryAction.press('Enter')
+    const retryResponse = await retryResponsePromise
+    const retryBody = await retryResponse.json()
+    await page.locator('[data-testid="film-pipeline-summary"][data-state="ready"]').waitFor({ state: 'visible', timeout: 30000 })
+    const finalAction = page.getByTestId('film-pipeline-action').filter({ hasText: UI.generateFinal })
+    await finalAction.waitFor({ state: 'visible', timeout: 10000 })
+    routes.state.recoveryComplete = true
+    assert.equal(routes.requestCounts.readiness_after_mutation, 2)
+    assert.equal(routes.state.readinessStatuses.includes(503), true)
+    assert.equal(retryResponse.status(), 200)
+    assert.equal(retryBody?.data?.missing_capabilities?.length, 0)
+
+    await page.setViewportSize(AI_TWO_COLUMN_VIEWPORT)
+    routes.state.includeUiCreated = false
+    await genericOpener.focus()
+    await genericOpener.click()
+    await workspaceDialog.waitFor({ state: 'visible', timeout: 30000 })
+    await page.locator('#ai-config-coverage-panel').waitFor({ state: 'visible', timeout: 30000 })
+    const layout1024 = await assertCoverageLayout(page, {
+      viewport: AI_TWO_COLUMN_VIEWPORT,
+      columns: 2,
+      serviceOrder,
+      actionCounts,
+    })
+    const overflow1024 = await assertComponentHorizontalOverflow(page, 'focused 1024 coverage', componentSelectors)
+    await assertMinimumTargetSize(page, 'focused 1024 coverage', [
+      '#ai-config-coverage-panel .coverage-select',
+      '#ai-config-coverage-panel .coverage-actions button',
+      '.config-workspace-mode',
+      '.ai-config-dialog-back',
+      '.ai-config-workspace-dialog .el-dialog__headerbtn',
+    ], layoutContract.minimumTargetSize)
+    const document1024 = { ...(await assertNoHorizontalOverflow(page, 'focused 1024 coverage')), passed: true }
+    await workspaceDialog.locator('.el-dialog__headerbtn').click()
+    await workspaceDialog.waitFor({ state: 'hidden', timeout: 10000 })
+    const nativeFocus1024 = await assertWorkbenchFocus(page, {
+      preferred: genericOpener,
+      fallback: page.locator('#pipeline-title, [data-testid="film-pipeline-summary"]').first(),
+      label: '1024 native AI close',
+    })
+
+    const screenshots = await captureAcceptanceReportScreenshots(page, {
+      dramaId,
+      completedDrama,
+      routes,
+      evidenceRecorder,
+    })
+    const providerCallsAfter = await readStableProviderCalls()
+    assert.deepEqual(providerCallsAfter, providerCallsBefore, 'focused acceptance must not call the Provider')
+    assert.deepEqual(forbiddenRequests, [], 'focused acceptance attempted a forbidden Provider test or workflow start')
+    assert.deepEqual(audit.errors, [], `focused acceptance emitted browser errors:\n${audit.errors.join('\n')}`)
+
+    result = {
+      status: 'passed',
+      primary_viewport: FOCUSED_DESKTOP_VIEWPORT,
+      ai_two_column_viewport: AI_TWO_COLUMN_VIEWPORT,
+      project: { id: dramaId, title: fixtureTitle },
+      episode: { id: firstEpisode.id, label: episodeLabel },
+      source_handoff: {
+        project_card_entry: true,
+        return_hash: sourceUrl.hash,
+        compact_complete: true,
+        entered_production: true,
+      },
+      navigation: {
+        current_count: 1,
+        current_label: currentLabel,
+        completed_distinct_count: await completedSteps.count(),
+      },
+      pipeline: {
+        initial_state: 'blocked',
+        initial_action: UI.configureMissingService,
+        post_mutation_state: 'checking',
+        injected_failure_state: 'error',
+        retry_action: UI.retryCapability,
+        final_state: 'ready',
+        final_action: UI.generateFinal,
+      },
+      ai: {
+        service_order: serviceOrder,
+        action_counts: actionCounts,
+        mutation,
+        configuration_feedback_observed: true,
+        native_close_focus_restored: nativeFocus1280.restored && nativeFocus1024.restored,
+        custom_return_focus_restored: customFocus.restored,
+        columns_1280: layout1280.columns,
+        columns_1024: layout1024.columns,
+        minimum_target_size: layoutContract.minimumTargetSize,
+      },
+      readiness: {
+        requests_after_mutation: routes.requestCounts.readiness_after_mutation,
+        injected_failure_status: 503,
+        retry_status: retryResponse.status(),
+        final_missing_capabilities: retryBody.data.missing_capabilities.length,
+      },
+      provider_calls_unchanged: true,
+      document_overflow: { '1280x720': document1280, '1024x768': document1024 },
+      component_overflow: { '1280x720': overflow1280, '1024x768': overflow1024 },
+      cleanup: null,
+      screenshots,
+    }
+  } catch (error) {
+    primaryError = error
+  } finally {
+    const finalizationFailures = []
+    page.off('request', onRequest)
+    audit.dispose()
+    disposalState.listenersDisposed = true
+    if (routes) {
+      try {
+        await routes.dispose()
+        disposalState.routesDisposed = true
+        disposalState.gateDisposed = true
+      } catch (error) {
+        finalizationFailures.push(error)
+      }
+    }
+    await cleanupFocusedAiState(cleanupState).catch((error) => finalizationFailures.push(error))
+    try {
+      await page.close()
+      disposalState.pageClosed = true
+    } catch (error) {
+      finalizationFailures.push(error)
+    }
+    if (finalizationFailures.length) {
+      const cleanupError = new AggregateError(finalizationFailures, 'Focused acceptance disposal failed')
+      primaryError = primaryError
+        ? new AggregateError([primaryError, cleanupError], 'Focused acceptance and cleanup failed')
+        : cleanupError
+    }
+  }
+  if (primaryError) throw primaryError
+  result.cleanup = {
+    exact_name_registered: cleanupState.exactNameRegistered,
+    created_id_registered: cleanupState.createdIds.has(result.ai.mutation.created_id),
+    visible_config_removed: cleanupState.visibleConfigRemoved,
+    fixture_restored: cleanupState.fixtureRestored,
+    routes_disposed: disposalState.routesDisposed,
+    listeners_disposed: disposalState.listenersDisposed,
+    gate_disposed: disposalState.gateDisposed,
+    page_closed: disposalState.pageClosed,
+  }
+  return result
+}
+
 async function verifyCompletedUi(browser, dramaId, viewport, {
   reusePage = null,
   audit = null,
@@ -1667,6 +2628,20 @@ async function main({
     })
     await evidenceRecorder.stage('timeline_and_media', 'passed')
 
+    await evidenceRecorder.stage('focused_desktop_acceptance')
+    await evidenceRecorder.set({ browser: { focused_acceptance: { status: 'running' } } })
+    const focusedAcceptance = await verifyFocusedDesktopAcceptance(browser, {
+      dramaId: drama.id,
+      fixtureTitle,
+      completedDrama,
+      providerState,
+      stamp,
+      cleanupActions,
+      evidenceRecorder,
+    })
+    await evidenceRecorder.set({ browser: { focused_acceptance: focusedAcceptance } })
+    await evidenceRecorder.stage('focused_desktop_acceptance', 'passed')
+
     await evidenceRecorder.stage('browser_acceptance')
     await evidenceRecorder.set({ browser: { status: 'running' } })
     const browserEvidence = []
@@ -1757,6 +2732,9 @@ async function main({
     if (primaryFailureStage === 'browser_acceptance') {
       await evidenceRecorder.set({ browser: { status: 'failed' } }).catch(() => {})
     }
+    if (primaryFailureStage === 'focused_desktop_acceptance') {
+      await evidenceRecorder.set({ browser: { focused_acceptance: { status: 'failed' } } }).catch(() => {})
+    }
     if (providerStatsReset) {
       try {
         const providerStats = await providerControlRequest('/__e2e/stats')
@@ -1798,11 +2776,17 @@ async function main({
   try {
     await evidenceRecorder.stage('evidence_validation')
     const finalEvidence = await evidenceRecorder.pass()
+    const acceptanceManifest = await writeAcceptanceManifest({
+      evidence: finalEvidence,
+      evidencePath: evidenceRecorder.evidencePath,
+      evidenceRoot: evidenceRecorder.root,
+    })
     logger.log(JSON.stringify({
       status: finalEvidence.status,
       evidence: path.relative(PROJECT_ROOT, evidenceRecorder.evidencePath).replace(/\\/g, '/'),
       commit: finalEvidence.source.commit,
       version: finalEvidence.source.version,
+      acceptance_screenshots: acceptanceManifest.screenshots,
     }))
     return finalEvidence
   } catch (error) {
@@ -1812,10 +2796,12 @@ async function main({
 }
 
 module.exports = {
+  AI_TWO_COLUMN_VIEWPORT,
   CONFIG_PREFIX,
   DEFAULT_EVIDENCE_ROOT,
   DESKTOP_VIEWPORTS,
   EVIDENCE_SCHEMA,
+  FOCUSED_DESKTOP_VIEWPORT,
   REQUIRED_PROVIDER_ENDPOINTS,
   REQUIRED_PROVIDER_TYPES,
   REQUIRED_TRACK_TYPES,
@@ -1838,6 +2824,7 @@ module.exports = {
   summarizeProviderInvocations,
   restoreProviderConfigs,
   verifyExport,
+  verifyFocusedDesktopAcceptance,
   waitForWorkflow,
 }
 

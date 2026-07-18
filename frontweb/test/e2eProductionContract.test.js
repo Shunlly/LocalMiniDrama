@@ -9,9 +9,12 @@ import path from 'node:path'
 
 const require = createRequire(import.meta.url)
 const { createProviderServer } = require('../../backend-node/scripts/e2e-provider.js')
+const { REQUIRED_FINAL_CAPTURES } = require('../scripts/acceptance-report-contract.cjs')
 const {
+  AI_TWO_COLUMN_VIEWPORT,
   DESKTOP_VIEWPORTS,
   EVIDENCE_SCHEMA,
+  FOCUSED_DESKTOP_VIEWPORT,
   REQUIRED_PROVIDER_ENDPOINTS,
   REQUIRED_PROVIDER_TYPES,
   REQUIRED_TRACK_TYPES,
@@ -26,6 +29,7 @@ const {
   sanitizeEvidenceText,
 } = require('../scripts/e2e-production.cjs')
 const productionSource = readFileSync(new URL('../scripts/e2e-production.cjs', import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
+const frontendPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const verificationDockerfile = readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8')
 const productionDockerfile = readFileSync(new URL('../Dockerfile.prod', import.meta.url), 'utf8')
 const productionNginxConfig = readFileSync(new URL('../nginx.conf', import.meta.url), 'utf8')
@@ -36,11 +40,86 @@ const ciWorkflow = readFileSync(new URL('../../.github/workflows/ci.yml', import
 const releaseWorkflow = readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8')
 const gitignoreSource = readFileSync(new URL('../../.gitignore', import.meta.url), 'utf8')
 
-function sourceFunction(name, nextName) {
-  const start = productionSource.indexOf(`async function ${name}`)
-  const end = productionSource.indexOf(`async function ${nextName}`, start + 1)
-  assert.ok(start >= 0 && end > start, `missing production E2E function: ${name}`)
-  return productionSource.slice(start, end)
+function sourceFunction(name) {
+  const declaration = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(productionSource)
+  assert.ok(declaration, `missing production E2E function: ${name}`)
+  const start = declaration.index
+  const parametersStart = start + declaration[0].lastIndexOf('(')
+  let parametersEnd = -1
+  let parameterDepth = 0
+  let parameterQuote = ''
+  let parameterEscaped = false
+  for (let index = parametersStart; index < productionSource.length; index += 1) {
+    const character = productionSource[index]
+    if (parameterQuote) {
+      if (parameterEscaped) parameterEscaped = false
+      else if (character === '\\') parameterEscaped = true
+      else if (character === parameterQuote) parameterQuote = ''
+      continue
+    }
+    if (character === "'" || character === '"' || character === '`') {
+      parameterQuote = character
+      continue
+    }
+    if (character === '(') parameterDepth += 1
+    if (character === ')') {
+      parameterDepth -= 1
+      if (parameterDepth === 0) {
+        parametersEnd = index
+        break
+      }
+    }
+  }
+  assert.ok(parametersEnd > parametersStart, `unterminated production E2E function parameters: ${name}`)
+  const bodyStart = productionSource.indexOf('{', parametersEnd + 1)
+  assert.ok(bodyStart >= 0, `missing production E2E function body: ${name}`)
+
+  let depth = 0
+  let quote = ''
+  let escaped = false
+  let lineComment = false
+  let blockComment = false
+  for (let index = bodyStart; index < productionSource.length; index += 1) {
+    const character = productionSource[index]
+    const next = productionSource[index + 1]
+    if (lineComment) {
+      if (character === '\n') lineComment = false
+      continue
+    }
+    if (blockComment) {
+      if (character === '*' && next === '/') {
+        blockComment = false
+        index += 1
+      }
+      continue
+    }
+    if (quote) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === '/' && next === '/') {
+      lineComment = true
+      index += 1
+      continue
+    }
+    if (character === '/' && next === '*') {
+      blockComment = true
+      index += 1
+      continue
+    }
+    if (character === "'" || character === '"' || character === '`') {
+      quote = character
+      continue
+    }
+    if (character === '{') depth += 1
+    if (character === '}') {
+      depth -= 1
+      if (depth === 0) return productionSource.slice(start, index + 1)
+    }
+  }
+  assert.fail(`unterminated production E2E function: ${name}`)
 }
 
 function assertSourceOrder(source, snippets) {
@@ -98,6 +177,76 @@ function productionTimeline() {
       track_types: [...REQUIRED_TRACK_TYPES],
     },
     episodes: [{ episode: { id: 1 }, tracks }],
+  }
+}
+
+function focusedAcceptanceEvidence() {
+  return {
+    status: 'passed',
+    primary_viewport: { width: 1280, height: 720 },
+    ai_two_column_viewport: { width: 1024, height: 768 },
+    project: { id: 1, title: 'Focused fixture' },
+    episode: { id: 1, label: '\u7b2c 1 \u96c6' },
+    source_handoff: {
+      project_card_entry: true,
+      return_hash: '#source-intake-workflow',
+      compact_complete: true,
+      entered_production: true,
+    },
+    navigation: { current_count: 1, current_label: '\u6545\u4e8b\u677f', completed_distinct_count: 1 },
+    pipeline: {
+      initial_state: 'blocked',
+      initial_action: '\u914d\u7f6e\u7f3a\u5931\u670d\u52a1',
+      post_mutation_state: 'checking',
+      injected_failure_state: 'error',
+      retry_action: '\u91cd\u8bd5\u80fd\u529b\u68c0\u67e5',
+      final_state: 'ready',
+      final_action: '\u4e00\u952e\u751f\u6210\u6210\u7247',
+    },
+    ai: {
+      service_order: ['video', 'image', 'text', 'tts', 'storyboard_image'],
+      action_counts: [1, 1, 0, 1, 0],
+      mutation: { method: 'POST', service_type: 'text', created_id: 99, is_default: false },
+      configuration_feedback_observed: true,
+      native_close_focus_restored: true,
+      custom_return_focus_restored: true,
+      columns_1280: 5,
+      columns_1024: 2,
+      minimum_target_size: 32,
+    },
+    readiness: {
+      requests_after_mutation: 2,
+      injected_failure_status: 503,
+      retry_status: 200,
+      final_missing_capabilities: 0,
+    },
+    provider_calls_unchanged: true,
+    document_overflow: {
+      '1280x720': { passed: true },
+      '1024x768': { passed: true },
+    },
+    component_overflow: {
+      '1280x720': [{ selector: '.coverage-grid', index: 0, client_width: 100, scroll_width: 100 }],
+      '1024x768': [{ selector: '.coverage-grid', index: 0, client_width: 100, scroll_width: 100 }],
+    },
+    cleanup: {
+      exact_name_registered: true,
+      created_id_registered: true,
+      visible_config_removed: true,
+      fixture_restored: true,
+      routes_disposed: true,
+      listeners_disposed: true,
+      gate_disposed: true,
+      page_closed: true,
+    },
+    screenshots: REQUIRED_FINAL_CAPTURES.map((capture) => ({
+      path: `acceptance-report/screenshots/${capture.id}.png`,
+      bytes: 100,
+      sha256: 'a'.repeat(64),
+      viewport: { width: capture.width, height: capture.height },
+      surface: capture.surface,
+      theme: capture.theme,
+    })),
   }
 }
 
@@ -468,6 +617,7 @@ test('production evidence can seal a complete successful acceptance package', as
       artifacts,
       browser: {
         status: 'passed',
+        focused_acceptance: focusedAcceptanceEvidence(),
         playback: DESKTOP_VIEWPORTS.map((viewport) => ({
           viewport,
           composed: { played: true, ended: true, unicode_path: true },
@@ -616,6 +766,180 @@ test('production E2E verifies service-specific AI config return routes in config
   assert.doesNotMatch(
     aiConfigReturn,
     /getByRole\('heading', \{ name: '\\u0041\\u0049 \\u670d\\u52a1\\u914d\\u7f6e\\u4e0e\\u9a8c\\u8bc1'/,
+  )
+})
+
+test('focused desktop acceptance is isolated from expensive media workflows', () => {
+  assert.deepEqual(FOCUSED_DESKTOP_VIEWPORT, { width: 1280, height: 720 })
+  assert.deepEqual(AI_TWO_COLUMN_VIEWPORT, { width: 1024, height: 768 })
+  assert.deepEqual(DESKTOP_VIEWPORTS, [
+    { width: 1440, height: 900 },
+    { width: 1366, height: 768 },
+  ])
+  assert.equal(DESKTOP_VIEWPORTS.some(({ width }) => width === 1280 || width === 1024), false)
+
+  const focused = sourceFunction('verifyFocusedDesktopAcceptance')
+  assertSourceOrder(focused, [
+    'FOCUSED_DESKTOP_VIEWPORT',
+    "page.locator('.project-card')",
+    'UI.openStoryMaterials',
+    "storyEntry.press('Enter')",
+    "#source-intake-workflow",
+    "getByTestId('source-workflow-complete')",
+    'UI.enterProduction',
+    "page.locator('.page-title')",
+    "getByRole('combobox', { name: UI.currentEpisode",
+    "page.locator('#film-create-quick-nav [aria-current=\"step\"]')",
+    ".status-done:not(.is-current)",
+    "getByTestId('film-pipeline-action')",
+  ])
+  assert.doesNotMatch(
+    focused,
+    /verifyPlayableVideo|\.play\(|verifyFinalVideoDownloadUi|verifyProjectExportUi|startProductionFromUi|startDraftFromUi/,
+  )
+})
+
+test('focused AI recovery decorates only the fixture and proves fail-closed keyboard recovery', () => {
+  const providerSetup = sourceFunction('installProviderConfigs')
+  assert.doesNotMatch(providerSetup, /startsWith\(CONFIG_PREFIX\)/)
+
+  const routes = sourceFunction('installFocusedAiRoutes')
+  assertSourceOrder(routes, [
+    "request.method() === 'GET'",
+    "url.pathname === '/api/v1/ai-configs'",
+    "!url.searchParams.has('service_type')",
+    'await route.fetch()',
+    'page.unroute',
+  ])
+  assert.match(routes, /service_type=video/)
+  assert.match(routes, /providerState\.created/)
+  assert.match(routes, /last_test_status/)
+  assert.match(routes, /readinessGate/)
+
+  const createConfig = sourceFunction('createMissingServiceFromUi')
+  assertSourceOrder(createConfig, [
+    "page.getByRole('button', { name: UI.addConfiguration",
+    "provider: 'openai_compatible'",
+    "service_type: 'text'",
+    "default_model: 'local-e2e-text'",
+    'is_default, false',
+    'createdId',
+  ])
+  assert.match(createConfig, /request\.method\(\) === 'POST'/)
+  assert.match(createConfig, /url\.pathname === '\/api\/v1\/ai-configs'/)
+  assert.match(createConfig, /page\.waitForFunction/)
+  assert.doesNotMatch(createConfig, /ai-configs\/test/)
+
+  const focused = sourceFunction('verifyFocusedDesktopAcceptance')
+  assertSourceOrder(focused, [
+    "['video', 'image', 'text', 'tts', 'storyboard_image']",
+    'assertCoverageLayout',
+    'columns: 5',
+    'assertComponentHorizontalOverflow',
+    'minimumTargetSize: 32',
+    'assertWorkbenchFocus',
+    'UI.configureMissingService',
+    'createMissingServiceFromUi',
+    'UI.returnToProduction',
+    'UI.configurationRechecking',
+    "data-state=\"checking\"",
+    'readinessGate.release(503)',
+    "data-state=\"error\"",
+    "retryAction.press('Enter')",
+    "data-state=\"ready\"",
+    'AI_TWO_COLUMN_VIEWPORT',
+    'columns: 2',
+  ])
+  assert.match(focused, /assert\.deepEqual\(providerCallsAfter, providerCallsBefore/)
+  assert.match(focused, /action_count\s*<=\s*1/)
+  assert.match(focused, /\/ai-configs\/test/)
+  assert.match(focused, /\/workflows\/novel2anime/)
+  assert.match(focused, /finally\s*\{/)
+})
+
+test('focused acceptance is called once before playback and is mandatory evidence with exact cleanup', () => {
+  const mainSource = sourceFunction('main')
+  assert.equal((mainSource.match(/verifyFocusedDesktopAcceptance\(/g) || []).length, 1)
+  assert.ok(
+    mainSource.indexOf('verifyDurableMedia(completedDrama, evidenceRecorder)')
+      < mainSource.indexOf('verifyFocusedDesktopAcceptance(browser,'),
+    'focused acceptance must run after durable media completion',
+  )
+  assert.ok(
+    mainSource.indexOf('verifyFocusedDesktopAcceptance(browser,')
+      < mainSource.indexOf('verifyCompletedUi(browser,'),
+    'focused acceptance must run before expensive playback acceptance',
+  )
+  assert.doesNotMatch(mainSource, /verifyCompletedUi\([^\n]+FOCUSED_DESKTOP_VIEWPORT/)
+  assert.doesNotMatch(mainSource, /verifyCompletedUi\([^\n]+AI_TWO_COLUMN_VIEWPORT/)
+  assert.ok(
+    mainSource.indexOf("registerCleanup(cleanupActions, 'temporary AI provider configs'")
+      < mainSource.indexOf('verifyFocusedDesktopAcceptance(browser,'),
+    'focused cleanup must be registered after the broad provider cleanup for LIFO execution',
+  )
+
+  const completeness = sourceFunction('assertCompleteEvidence')
+  for (const required of [
+    "focused.status, 'passed'",
+    'FOCUSED_DESKTOP_VIEWPORT',
+    'AI_TWO_COLUMN_VIEWPORT',
+    'current_count, 1',
+    "['video', 'image', 'text', 'tts', 'storyboard_image']",
+    '[1, 1, 0, 1, 0]',
+    "injected_failure_state, 'error'",
+    "final_state, 'ready'",
+    'provider_calls_unchanged, true',
+    "component_overflow['1280x720']",
+    "component_overflow['1024x768']",
+    'REQUIRED_FINAL_CAPTURES.length',
+    'routes_disposed',
+    'listeners_disposed',
+    'gate_disposed',
+  ]) assert.match(completeness, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+
+  const focusedSource = sourceFunction('verifyFocusedDesktopAcceptance')
+  assert.match(focusedSource, /exact_name_registered/)
+  assert.match(focusedSource, /created_id_registered/)
+  assert.match(focusedSource, /visible_config_removed/)
+})
+
+test('same-SHA acceptance captures reuse the final matrix and raw E2E chains the final verifier', () => {
+  assert.equal(
+    frontendPackage.scripts['e2e:production:raw'],
+    'node scripts/e2e-production.cjs',
+  )
+  assert.equal(
+    frontendPackage.scripts['e2e:production'],
+    'npm run e2e:production:raw && npm run verify:acceptance-report:final',
+  )
+
+  const captures = sourceFunction('captureAcceptanceReportScreenshots')
+  assert.match(captures, /REQUIRED_FINAL_CAPTURES/)
+  assert.match(captures, /inspectPng\(buffer/)
+  assert.match(captures, /fullPage:\s*false/)
+  assert.match(captures, /capture\.theme/)
+  assert.match(captures, /capture\.surface/)
+  assert.match(captures, /crypto\.createHash\('sha256'\)/)
+  assert.doesNotMatch(captures, /\.play\(|verifyPlayableVideo|api[_-]?key|base[_-]?url/i)
+  const capturePreparation = sourceFunction('prepareAcceptanceCaptureSurface')
+  assert.match(capturePreparation, /data-state=\"ready\"/)
+
+  const manifest = sourceFunction('writeAcceptanceManifest')
+  assertSourceOrder(manifest, [
+    "evidence.status, 'passed'",
+    "evidence.source.commit",
+    "crypto.createHash('sha256').update(evidenceBytes)",
+    "schema: 'localminidrama.acceptance-screenshot-manifest.v1'",
+    "path: '../evidence.json'",
+    'manifest.json.tmp',
+    'fs.rename',
+  ])
+
+  const mainSource = sourceFunction('main')
+  assert.ok(
+    mainSource.indexOf('const finalEvidence = await evidenceRecorder.pass()')
+      < mainSource.indexOf('writeAcceptanceManifest('),
+    'manifest must be written only after final passed evidence is persisted',
   )
 })
 
