@@ -9,6 +9,22 @@ import {
 
 const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
 
+function sourceBetween(source, start, end, label) {
+  const startIndex = source.indexOf(start)
+  assert.notEqual(startIndex, -1, `${label} start boundary is missing`)
+  const endIndex = source.indexOf(end, startIndex + start.length)
+  assert.notEqual(endIndex, -1, `${label} end boundary is missing`)
+  assert.ok(endIndex > startIndex, `${label} boundaries are out of order`)
+  return source.slice(startIndex, endIndex + end.length)
+}
+
+const projectCardAssetsSource = sourceBetween(
+  filmListSource,
+  '<RouterLink\n              class="project-card-assets"',
+  '            </RouterLink>',
+  'project-card story-material action',
+)
+
 test('project cover prefers the first usable storyboard image', () => {
   const project = {
     episodes: [{ storyboards: [
@@ -78,7 +94,7 @@ test('project cards expose a visual cover, status filter, and explicit continue 
   assert.doesNotMatch(filmListSource, /value="archived"/)
   assert.match(filmListSource, /清除筛选/)
   assert.match(filmListSource, /继续制作/)
-  assert.match(filmListSource, /class="project-card-assets"[\s\S]*素材/)
+  assert.match(projectCardAssetsSource, /<el-icon><Files \/><\/el-icon>故事素材\s*<\/RouterLink>/)
 })
 
 test('continue action enters the production workspace while edit remains a management action', () => {
@@ -88,19 +104,20 @@ test('continue action enters the production workspace while edit remains a manag
   )
   assert.match(filmListSource, /if \(action === 'edit'\) return openEditDialog\(drama\)/)
   assert.match(
-    filmListSource,
-    /class="project-card-assets"[\s\S]*name: 'drama-detail'[\s\S]*returnTo: projectListReturnTo[\s\S]*hash: '#source-intake-workflow'/,
+    projectCardAssetsSource,
+    /:to="\{ name: 'drama-detail', params: \{ id: d\.id \}, query: \{ returnTo: projectListReturnTo \}, hash: '#source-intake-workflow' \}"/,
   )
+  assert.match(projectCardAssetsSource, /@click\.stop/)
 })
 
 test('project cards distinguish their story-material workflow from global materials', () => {
   assert.match(
-    filmListSource,
-    /class="project-card-assets"[\s\S]*:aria-label="`打开项目「\$\{d\.title \|\| '未命名项目'\}」的故事素材流程`"[\s\S]*>故事素材/,
+    projectCardAssetsSource,
+    /:aria-label="`打开项目「\$\{d\.title \|\| '未命名项目'\}」的故事素材流程`"/,
   )
   assert.doesNotMatch(
-    filmListSource,
-    /class="project-card-assets"[\s\S]*>素材\s*<\/RouterLink>/,
+    projectCardAssetsSource,
+    /<el-icon><Files \/><\/el-icon>素材\s*<\/RouterLink>/,
   )
 })
 

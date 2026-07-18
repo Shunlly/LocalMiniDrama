@@ -7,8 +7,35 @@ import { formatMediaSize, hasActiveMediaFilters, normalizeMediaItem } from '../s
 const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
 const sourceIntakeWorkflowSource = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
 const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
-const routerSource = readFileSync(new URL('../src/router/index.js', import.meta.url), 'utf8')
 const themeSource = readFileSync(new URL('../src/styles/theme.css', import.meta.url), 'utf8')
+
+function sourceBetween(source, start, end, label) {
+  const startIndex = source.indexOf(start)
+  assert.notEqual(startIndex, -1, `${label} start boundary is missing`)
+  const endIndex = source.indexOf(end, startIndex + start.length)
+  assert.notEqual(endIndex, -1, `${label} end boundary is missing`)
+  assert.ok(endIndex > startIndex, `${label} boundaries are out of order`)
+  return source.slice(startIndex, endIndex + end.length)
+}
+
+const headerLibrarySource = sourceBetween(
+  filmListSource,
+  '<div class="header-library">',
+  '<!-- 右侧操作区 -->',
+  'header material library',
+)
+const sourceImportActionSource = sourceBetween(
+  sourceIntakeWorkflowSource,
+  '<ActionGate label="导入故事素材" :reason="actionReasons.import">',
+  '                </ActionGate>',
+  'story-material import action',
+)
+const deliveryActionsSource = sourceBetween(
+  sourceIntakeWorkflowSource,
+  '<div class="stage-action-row delivery-actions">',
+  '            </div>',
+  'story-material delivery actions',
+)
 
 test('media library helpers normalize media metadata and active filters', () => {
   assert.deepEqual(
@@ -26,19 +53,20 @@ test('media library helpers normalize media metadata and active filters', () => 
 })
 
 test('desktop home exposes one material center entry and keeps semantic libraries grouped', () => {
-  assert.match(filmListSource, /router\.push\('\/media-library'\)/)
-  assert.match(filmListSource, /素材中心/)
-  assert.match(filmListSource, />分类素材/)
-  assert.match(filmListSource, /command="character"[\s\S]*角色素材库/)
-  assert.match(filmListSource, /command="scene"[\s\S]*场景素材库/)
-  assert.match(filmListSource, /command="prop"[\s\S]*道具素材库/)
-  assert.match(routerSource, /path: '\/media-library'[\s\S]*?meta: \{ title: '素材中心'[^}]*\}/)
+  assert.match(
+    headerLibrarySource,
+    /<el-button class="btn-library btn-material-center" title="打开素材中心" @click="goMaterialCenter">\s*<el-icon><Files \/><\/el-icon>素材中心\s*<\/el-button>/,
+  )
+  assert.match(
+    headerLibrarySource,
+    /<el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked">\s*<el-icon><Collection \/><\/el-icon>分类素材\s*<el-icon class="dropdown-caret"><ArrowDown \/><\/el-icon>\s*<\/el-button>/,
+  )
 })
 
 test('story-source actions use the scoped story-material terminology', () => {
-  assert.match(sourceIntakeWorkflowSource, /<ActionGate label="导入故事素材"[\s\S]*>\s*<el-button[\s\S]*>\s*导入故事素材/)
-  assert.match(sourceIntakeWorkflowSource, /继续导入故事素材/)
-  assert.doesNotMatch(sourceIntakeWorkflowSource, /仅导入素材/)
+  assert.match(sourceImportActionSource, /<el-button\b[^>]*>\s*导入故事素材\s*<\/el-button>/)
+  assert.doesNotMatch(sourceImportActionSource, /仅导入素材/)
+  assert.match(deliveryActionsSource, /<el-button\b[^>]*>\s*继续导入故事素材\s*<\/el-button>/)
 })
 
 test('project cards use a stable action menu and the no-project state has direct actions', () => {
