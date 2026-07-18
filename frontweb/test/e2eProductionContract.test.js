@@ -602,8 +602,16 @@ test('production E2E verifies service-specific AI config return routes in config
     "page.getByTestId('ai-config-mode-configs')",
     "await configsMode.waitFor({ state: 'visible', timeout: 30000 })",
     "assert.equal(await configsMode.getAttribute('aria-selected'), 'true'",
-    "page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 30000 })",
+    "await page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 30000 })",
     "page.getByRole('button', { name: '\\u8fd4\\u56de\\u539f\\u9879\\u76ee', exact: true })",
+    "await backButton.waitFor({ state: 'visible', timeout: 10000 })",
+    'const navigationPromise = page.waitForURL',
+    'await backButton.click()',
+    'await navigationPromise',
+    "page.locator('#source-intake-workflow')",
+    "await workflow.waitFor({ state: 'visible', timeout: 30000 })",
+    "return_to_preserved: new URL(page.url()).hash === '#source-intake-workflow'",
+    'workflow_visible: await workflow.isVisible()',
   ])
   assert.doesNotMatch(
     aiConfigReturn,
@@ -661,6 +669,9 @@ test('browser acceptance contract covers the full UI journey, recovery, download
   assert.doesNotMatch(productionSource, /apiRequest\('\/dramas', \{\s*method: 'POST'/)
   assert.match(productionSource, /message\.type\(\) === 'error'/)
   assert.match(productionSource, /rootScrollWidth <= result\.rootClientWidth \+ 1/)
+  assert.match(productionSource, /deliveryExport:\s*'\\u4ea4\\u4ed8\\u4e0e\\u5bfc\\u51fa'/)
+  assert.match(productionSource, /filter\(\{ hasText: UI\.deliveryExport \}\)\.click\(\)/)
+  assert.doesNotMatch(productionSource, /compositeVideo/)
   assert.match(productionSource, /await video\.play\(\)/)
   assert.match(productionSource, /video\.addEventListener\('ended'/)
   assert.match(productionSource, /unicode_path: unicodePath/)

@@ -56,7 +56,7 @@ const UI = Object.freeze({
   continueImport: '\u7ee7\u7eed\u5bfc\u5165\u7d20\u6750',
   enterProduction: '\u8fdb\u5165\u5236\u4f5c',
   returnToDrama: '\u8fd4\u56de\u5267\u96c6',
-  compositeVideo: '\u5408\u6210\u89c6\u9891',
+  deliveryExport: '\u4ea4\u4ed8\u4e0e\u5bfc\u51fa',
   collapseNavigation: '\u6536\u8d77\u5bfc\u822a',
   expandNavigation: '\u5c55\u5f00\u5bfc\u822a',
   sourcePlaceholder: '\u7c98\u8d34\u5c0f\u8bf4\u3001\u6897\u6982\u3001\u5267\u672c\u3001\u5206\u955c\u8868\u3001\u6f2b\u753b\u6587\u5b57\u8bf4\u660e\u6216\u8f6c\u5199\u6587\u672c',
@@ -1467,7 +1467,7 @@ async function verifyCompletedUi(browser, dramaId, viewport, {
   await page.getByRole('button', { name: UI.enterProduction, exact: true }).click()
   await navigationPromise
   await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
-  await page.locator('#film-create-quick-nav button.nav-step').filter({ hasText: UI.compositeVideo }).click()
+  await page.locator('#film-create-quick-nav button.nav-step').filter({ hasText: UI.deliveryExport }).click()
   const composedVideo = await verifyPlayableVideo(page.locator('.video-preview-player'), 'composed episode preview')
   const storyboardVideo = await verifyPlayableVideo(page.locator('.sb-video-player').first(), 'storyboard video preview')
   await persistBrowserPlayback(evidenceRecorder, viewport, composedVideo, storyboardVideo)
