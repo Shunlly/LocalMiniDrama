@@ -138,6 +138,12 @@ function replaceDirectoryWithLink(directory, externalRoot) {
   symlinkSync(target, directory, process.platform === 'win32' ? 'junction' : 'dir')
 }
 
+function replaceFileWithLink(file, externalRoot) {
+  const target = path.join(externalRoot, path.basename(file))
+  renameSync(file, target)
+  symlinkSync(target, file, 'file')
+}
+
 function write(root, relativePath, value) {
   const target = path.join(root, ...relativePath.split('/'))
   mkdirSync(path.dirname(target), { recursive: true })
@@ -526,6 +532,70 @@ test('final verification accepts exactly 20 ignored and untracked captures from 
       expectedCommit: fixture.commit,
     }), { commit: fixture.commit, screenshots: 20 })
   })
+})
+
+test('final verification rejects a symlinked evidence JSON outside the repository', (t) => {
+  withTempDir('arv-final-evidence-file-link-repo-', (root) => withTempDir('arv-final-evidence-file-link-outside-', (outside) => {
+    const fixture = writeFinalFixture(root)
+    try {
+      replaceFileWithLink(fixture.evidencePath, outside)
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) {
+        t.skip(`file links unavailable: ${error.code}`)
+        return
+      }
+      throw error
+    }
+    const codes = aggregateCodes(() => verifyFinalEvidence({
+      repoRoot: root,
+      evidenceRoot: fixture.evidenceRoot,
+      expectedCommit: fixture.commit,
+    }))
+    assert.ok(codes.includes('ARV_FINAL_LOCATION'))
+  }))
+})
+
+test('final verification rejects a symlinked manifest JSON outside the repository', (t) => {
+  withTempDir('arv-final-manifest-file-link-repo-', (root) => withTempDir('arv-final-manifest-file-link-outside-', (outside) => {
+    const fixture = writeFinalFixture(root)
+    try {
+      replaceFileWithLink(fixture.manifestPath, outside)
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) {
+        t.skip(`file links unavailable: ${error.code}`)
+        return
+      }
+      throw error
+    }
+    const codes = aggregateCodes(() => verifyFinalEvidence({
+      repoRoot: root,
+      evidenceRoot: fixture.evidenceRoot,
+      expectedCommit: fixture.commit,
+    }))
+    assert.ok(codes.includes('ARV_FINAL_LOCATION'))
+  }))
+})
+
+test('final verification rejects a symlinked canonical screenshot outside its root', (t) => {
+  withTempDir('arv-final-screenshot-file-link-repo-', (root) => withTempDir('arv-final-screenshot-file-link-outside-', (outside) => {
+    const fixture = writeFinalFixture(root)
+    const screenshotPath = path.join(fixture.screenshotRoot, `${REQUIRED_FINAL_CAPTURES[0].id}.png`)
+    try {
+      replaceFileWithLink(screenshotPath, outside)
+    } catch (error) {
+      if (['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) {
+        t.skip(`file links unavailable: ${error.code}`)
+        return
+      }
+      throw error
+    }
+    const codes = aggregateCodes(() => verifyFinalEvidence({
+      repoRoot: root,
+      evidenceRoot: fixture.evidenceRoot,
+      expectedCommit: fixture.commit,
+    }))
+    assert.ok(codes.includes('ARV_FINAL_LOCATION'))
+  }))
 })
 
 test('final verification rejects a symlinked evidence root outside the repository', (t) => {

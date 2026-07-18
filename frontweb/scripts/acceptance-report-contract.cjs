@@ -1035,6 +1035,31 @@ function verifyFinalDirectoryRoot(target, parentPhysicalRoot, repoRoot, label, f
   return { physicalRoot, valid }
 }
 
+function verifyCanonicalLeaf(target, physicalRoot, repoRoot, label, failures) {
+  const displayFile = relativePath(repoRoot, target)
+  try {
+    const stat = fs.lstatSync(target)
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      failures.push(makeFailure('ARV_FINAL_LOCATION', displayFile, `${label} must be a regular file, not a symbolic link`))
+      return false
+    }
+  } catch {
+    failures.push(makeFailure('ARV_FINAL_LOCATION', displayFile, `${label} must exist as a regular file`))
+    return false
+  }
+
+  try {
+    if (!physicalRoot || !isInside(physicalRoot, fs.realpathSync(target))) {
+      failures.push(makeFailure('ARV_FINAL_LOCATION', displayFile, `${label} physical path must remain within its evidence directory`))
+      return false
+    }
+  } catch {
+    failures.push(makeFailure('ARV_FINAL_LOCATION', displayFile, `${label} physical path cannot be resolved`))
+    return false
+  }
+  return true
+}
+
 function verifyFinalEvidence(options = {}) {
   const repoRoot = path.resolve(options.repoRoot || path.resolve(__dirname, '..', '..'))
   const evidenceRoot = path.resolve(options.evidenceRoot || path.join(repoRoot, 'artifacts', 'e2e-production'))
@@ -1042,10 +1067,11 @@ function verifyFinalEvidence(options = {}) {
   const screenshotRoot = path.join(acceptanceRoot, 'screenshots')
   const manifestPath = path.join(acceptanceRoot, 'manifest.json')
   const evidencePath = path.join(evidenceRoot, 'evidence.json')
+  const canonicalScreenshotFiles = REQUIRED_FINAL_CAPTURES.map((capture) => path.join(screenshotRoot, `${capture.id}.png`))
   const canonicalArtifactFiles = [
     manifestPath,
     evidencePath,
-    ...REQUIRED_FINAL_CAPTURES.map((capture) => path.join(screenshotRoot, `${capture.id}.png`)),
+    ...canonicalScreenshotFiles,
   ]
   const expectedCommit = String(options.expectedCommit || '').trim().toLowerCase()
   const failures = []
@@ -1093,6 +1119,17 @@ function verifyFinalEvidence(options = {}) {
 
   const manifestFile = relativePath(repoRoot, manifestPath)
   const evidenceFile = relativePath(repoRoot, evidencePath)
+  const manifestValid = verifyCanonicalLeaf(manifestPath, acceptanceLocation.physicalRoot, repoRoot, 'manifest.json', failures)
+  const evidenceValid = verifyCanonicalLeaf(evidencePath, evidenceLocation.physicalRoot, repoRoot, 'evidence.json', failures)
+  const canonicalLeafValidity = new Map(canonicalScreenshotFiles.map((file) => [
+    fileSystemPathKey(file),
+    verifyCanonicalLeaf(file, screenshotLocation.physicalRoot, repoRoot, 'canonical screenshot', failures),
+  ]))
+  if (!manifestValid || !evidenceValid) {
+    verifyGitArtifactState(repoRoot, canonicalArtifactFiles, failures)
+    throwFailures(failures)
+  }
+
   const manifestRead = readJson(manifestPath, manifestFile, failures)
   const evidenceRead = readJson(evidencePath, evidenceFile, failures)
   scanCredentials(manifestRead.text, manifestFile, failures)
@@ -1169,13 +1206,16 @@ function verifyFinalEvidence(options = {}) {
     if (typeof entry?.path !== 'string') continue
     const target = path.resolve(path.dirname(manifestPath), entry.path)
     const targetFile = relativePath(repoRoot, target)
-    const expectedScreenshotRoot = path.join(evidenceRoot, 'acceptance-report', 'screenshots')
-    if (!isInside(expectedScreenshotRoot, target) || targetFile.toLowerCase().includes('frontweb/public/reports')) {
+    if (!isInside(screenshotRoot, target) || targetFile.toLowerCase().includes('frontweb/public/reports')) {
       failures.push(makeFailure('ARV_FINAL_LOCATION', targetFile, 'illustrative public-report evidence cannot be final evidence'))
       continue
     }
-    if (!regularFileWithin(expectedScreenshotRoot, target)) {
-      failures.push(makeFailure('ARV_LOCAL_REF_MISSING', targetFile, 'does not name a regular final PNG'))
+    const targetKey = fileSystemPathKey(target)
+    if (!canonicalLeafValidity.has(targetKey)) {
+      failures.push(makeFailure('ARV_FINAL_LOCATION', targetFile, 'does not name a canonical final screenshot'))
+      continue
+    }
+    if (!canonicalLeafValidity.get(targetKey)) {
       continue
     }
     scanCredentials(entry.path, targetFile, failures)
