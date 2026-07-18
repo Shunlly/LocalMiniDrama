@@ -3,13 +3,14 @@ import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 const require = createRequire(import.meta.url)
 const { createProviderServer } = require('../../backend-node/scripts/e2e-provider.js')
 const { REQUIRED_FINAL_CAPTURES } = require('../scripts/acceptance-report-contract.cjs')
+const productionE2e = require('../scripts/e2e-production.cjs')
 const {
   AI_TWO_COLUMN_VIEWPORT,
   DESKTOP_VIEWPORTS,
@@ -18,6 +19,7 @@ const {
   REQUIRED_PROVIDER_ENDPOINTS,
   REQUIRED_PROVIDER_TYPES,
   REQUIRED_TRACK_TYPES,
+  assertCoverageCardMatrix,
   assertCompleteEvidence,
   createEvidenceRecorder,
   assertProductionTimeline,
@@ -25,9 +27,11 @@ const {
   assertProviderStats,
   extractZipEntries,
   fetchWithIdempotentRetry,
+  focusedAiRouteAction,
   main: runProductionE2e,
+  resetAcceptanceReportArtifacts,
   sanitizeEvidenceText,
-} = require('../scripts/e2e-production.cjs')
+} = productionE2e
 const productionSource = readFileSync(new URL('../scripts/e2e-production.cjs', import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
 const frontendPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const verificationDockerfile = readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8')
@@ -41,85 +45,9 @@ const releaseWorkflow = readFileSync(new URL('../../.github/workflows/release.ym
 const gitignoreSource = readFileSync(new URL('../../.gitignore', import.meta.url), 'utf8')
 
 function sourceFunction(name) {
-  const declaration = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(productionSource)
-  assert.ok(declaration, `missing production E2E function: ${name}`)
-  const start = declaration.index
-  const parametersStart = start + declaration[0].lastIndexOf('(')
-  let parametersEnd = -1
-  let parameterDepth = 0
-  let parameterQuote = ''
-  let parameterEscaped = false
-  for (let index = parametersStart; index < productionSource.length; index += 1) {
-    const character = productionSource[index]
-    if (parameterQuote) {
-      if (parameterEscaped) parameterEscaped = false
-      else if (character === '\\') parameterEscaped = true
-      else if (character === parameterQuote) parameterQuote = ''
-      continue
-    }
-    if (character === "'" || character === '"' || character === '`') {
-      parameterQuote = character
-      continue
-    }
-    if (character === '(') parameterDepth += 1
-    if (character === ')') {
-      parameterDepth -= 1
-      if (parameterDepth === 0) {
-        parametersEnd = index
-        break
-      }
-    }
-  }
-  assert.ok(parametersEnd > parametersStart, `unterminated production E2E function parameters: ${name}`)
-  const bodyStart = productionSource.indexOf('{', parametersEnd + 1)
-  assert.ok(bodyStart >= 0, `missing production E2E function body: ${name}`)
-
-  let depth = 0
-  let quote = ''
-  let escaped = false
-  let lineComment = false
-  let blockComment = false
-  for (let index = bodyStart; index < productionSource.length; index += 1) {
-    const character = productionSource[index]
-    const next = productionSource[index + 1]
-    if (lineComment) {
-      if (character === '\n') lineComment = false
-      continue
-    }
-    if (blockComment) {
-      if (character === '*' && next === '/') {
-        blockComment = false
-        index += 1
-      }
-      continue
-    }
-    if (quote) {
-      if (escaped) escaped = false
-      else if (character === '\\') escaped = true
-      else if (character === quote) quote = ''
-      continue
-    }
-    if (character === '/' && next === '/') {
-      lineComment = true
-      index += 1
-      continue
-    }
-    if (character === '/' && next === '*') {
-      blockComment = true
-      index += 1
-      continue
-    }
-    if (character === "'" || character === '"' || character === '`') {
-      quote = character
-      continue
-    }
-    if (character === '{') depth += 1
-    if (character === '}') {
-      depth -= 1
-      if (depth === 0) return productionSource.slice(start, index + 1)
-    }
-  }
-  assert.fail(`unterminated production E2E function: ${name}`)
+  const value = productionE2e[name]
+  assert.equal(typeof value, 'function', `missing exported production E2E function: ${name}`)
+  return Function.prototype.toString.call(value)
 }
 
 function assertSourceOrder(source, snippets) {
@@ -689,7 +617,7 @@ test('production E2E entrypoint seals evidence when browser startup fails', asyn
 })
 
 test('production E2E verifies workflow-first disclosures and AI config modes', () => {
-  const readinessDisclosure = sourceFunction('verifyProjectReadinessDisclosureUi', 'verifyAiConfigurationUi')
+  const readinessDisclosure = sourceFunction('verifyProjectReadinessDisclosureUi')
   assertSourceOrder(readinessDisclosure, [
     "page.getByTestId('project-readiness-toggle')",
     "page.getByTestId('project-readiness-details')",
@@ -702,7 +630,7 @@ test('production E2E verifies workflow-first disclosures and AI config modes', (
   ])
   assert.match(productionSource, /await verifyProjectReadinessDisclosureUi\(startPage\)/)
 
-  const pipelineDisclosure = sourceFunction('verifyFilmPipelineDisclosureUi', 'verifyDraftUpgradeUi')
+  const pipelineDisclosure = sourceFunction('verifyFilmPipelineDisclosureUi')
   assertSourceOrder(pipelineDisclosure, [
     "page.getByTestId('film-pipeline-toggle')",
     "page.getByTestId('film-pipeline-details')",
@@ -712,7 +640,7 @@ test('production E2E verifies workflow-first disclosures and AI config modes', (
   ])
   assert.match(productionSource, /await verifyFilmPipelineDisclosureUi\(page\)/)
 
-  const aiConfiguration = sourceFunction('verifyAiConfigurationUi', 'createDramaFromUi')
+  const aiConfiguration = sourceFunction('verifyAiConfigurationUi')
   assertSourceOrder(aiConfiguration, [
     "page.getByTestId('ai-config-mode-coverage')",
     "page.getByTestId('ai-config-mode-configs')",
@@ -746,7 +674,7 @@ test('production E2E verifies workflow-first disclosures and AI config modes', (
 })
 
 test('production E2E verifies service-specific AI config return routes in config management', () => {
-  const aiConfigReturn = sourceFunction('verifyAiConfigReturnUi', 'importSourceFromUi')
+  const aiConfigReturn = sourceFunction('verifyAiConfigReturnUi')
   assertSourceOrder(aiConfigReturn, [
     'service_type=text',
     "page.getByTestId('ai-config-mode-configs')",
@@ -803,15 +731,31 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
   const providerSetup = sourceFunction('installProviderConfigs')
   assert.doesNotMatch(providerSetup, /startsWith\(CONFIG_PREFIX\)/)
 
+  assert.equal(focusedAiRouteAction({
+    method: 'GET',
+    pathname: '/api/v1/ai-configs',
+    serviceType: '',
+  }), 'decorate-list')
+  assert.equal(focusedAiRouteAction({
+    method: 'GET',
+    pathname: '/api/v1/ai-configs',
+    serviceType: 'video',
+  }), 'passthrough')
+  assert.equal(focusedAiRouteAction({
+    method: 'POST',
+    pathname: '/api/v1/ai-configs',
+    requestName: 'exact fixture',
+    fixtureName: 'exact fixture',
+  }), 'decorate-create')
+  assert.equal(focusedAiRouteAction({
+    method: 'POST',
+    pathname: '/api/v1/ai-configs',
+    requestName: 'user config',
+    fixtureName: 'exact fixture',
+  }), 'passthrough')
+
   const routes = sourceFunction('installFocusedAiRoutes')
-  assertSourceOrder(routes, [
-    "request.method() === 'GET'",
-    "url.pathname === '/api/v1/ai-configs'",
-    "!url.searchParams.has('service_type')",
-    'await route.fetch()',
-    'page.unroute',
-  ])
-  assert.match(routes, /service_type=video/)
+  assert.match(routes, /focusedAiRouteAction/)
   assert.match(routes, /providerState\.created/)
   assert.match(routes, /last_test_status/)
   assert.match(routes, /readinessGate/)
@@ -832,9 +776,9 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
 
   const focused = sourceFunction('verifyFocusedDesktopAcceptance')
   assertSourceOrder(focused, [
-    "['video', 'image', 'text', 'tts', 'storyboard_image']",
     'assertCoverageLayout',
     'columns: 5',
+    'layout1280.cards.map',
     'assertComponentHorizontalOverflow',
     'minimumTargetSize: 32',
     'assertWorkbenchFocus',
@@ -851,10 +795,44 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
     'columns: 2',
   ])
   assert.match(focused, /assert\.deepEqual\(providerCallsAfter, providerCallsBefore/)
-  assert.match(focused, /action_count\s*<=\s*1/)
+  assert.match(focused, /layout1024\.cards\.map/)
   assert.match(focused, /\/ai-configs\/test/)
   assert.match(focused, /\/workflows\/novel2anime/)
   assert.match(focused, /finally\s*\{/)
+})
+
+test('focused coverage geometry uses one normalized DOM snapshot and validates service identity', () => {
+  const records = [
+    { service: 'video', label: '\u89c6\u9891\u751f\u6210', state: 'default', test_status: 'failed', action_count: 1, action_label: '\u91cd\u65b0\u6d4b\u8bd5' },
+    { service: 'image', label: '\u7d20\u6750\u56fe\u7247', state: 'configured', test_status: 'unknown', action_count: 1, action_label: '\u8865\u9f50\u9ed8\u8ba4' },
+    { service: 'text', label: '\u6587\u672c\u751f\u6210', state: 'missing', test_status: 'unknown', action_count: 0, action_label: '' },
+    { service: 'tts', label: '\u8bed\u97f3\u5408\u6210', state: 'default', test_status: 'unknown', action_count: 1, action_label: '\u7acb\u5373\u6d4b\u8bd5' },
+    { service: 'storyboard_image', label: '\u5206\u955c\u56fe\u7247', state: 'default', test_status: 'passed', action_count: 0, action_label: '' },
+  ].map((record, index) => ({ ...record, x: (index % 2) * 110, y: Math.floor(index / 2) * 90, width: 100, height: 80, display: 'grid' }))
+  assert.deepEqual(assertCoverageCardMatrix(records), records)
+  assert.throws(
+    () => assertCoverageCardMatrix(records.map((record, index) => (
+      index === 0 ? { ...record, service: 'text' } : record
+    ))),
+    /service identity/,
+  )
+  assert.throws(
+    () => assertCoverageCardMatrix(records.map((record, index) => (
+      index === 1 ? { ...record, action_label: '\u542f\u7528\u9ed8\u8ba4' } : record
+    ))),
+    /action label/,
+  )
+
+  const layout = sourceFunction('assertCoverageLayout')
+  assert.equal((layout.match(/evaluateAll\(/g) || []).length, 1)
+  assert.doesNotMatch(layout, /boundingBox\(/)
+  assert.match(layout, /grid\.scrollLeft/)
+  assert.match(layout, /grid\.scrollTop/)
+  assert.match(layout, /coverage-icon-/)
+  assert.match(layout, /coverage-(?:default|configured|missing)/)
+  assert.match(layout, /test-(?:failed|unknown|passed)/)
+  assert.match(layout, /assertCoverageCardMatrix\(records\)/)
+  assert.ok(layout.indexOf('evaluateAll(') < layout.indexOf('scrollIntoViewIfNeeded()'))
 })
 
 test('focused acceptance is called once before playback and is mandatory evidence with exact cleanup', () => {
@@ -921,7 +899,19 @@ test('same-SHA acceptance captures reuse the final matrix and raw E2E chains the
   assert.match(captures, /capture\.surface/)
   assert.match(captures, /crypto\.createHash\('sha256'\)/)
   assert.doesNotMatch(captures, /\.play\(|verifyPlayableVideo|api[_-]?key|base[_-]?url/i)
+  assert.doesNotMatch(captures, /preparedSurface/)
+  assertSourceOrder(captures, [
+    'prepareAcceptanceCaptureSurface(page, capture, fixture)',
+    'assertScreenshotSurfaceSafe(page)',
+    'page.screenshot',
+  ])
   const capturePreparation = sourceFunction('prepareAcceptanceCaptureSurface')
+  assertSourceOrder(capturePreparation, [
+    'page.goto',
+    "workspaceDialog.waitFor({ state: 'hidden'",
+    'setEvidenceTheme(page, capture.theme)',
+    "page.locator('.btn-ai-config').click()",
+  ])
   assert.match(capturePreparation, /data-state=\"ready\"/)
 
   const manifest = sourceFunction('writeAcceptanceManifest')
@@ -941,6 +931,51 @@ test('same-SHA acceptance captures reuse the final matrix and raw E2E chains the
       < mainSource.indexOf('writeAcceptanceManifest('),
     'manifest must be written only after final passed evidence is persisted',
   )
+})
+
+test('evidence reruns remove only the exact confined acceptance-report child', async (t) => {
+  const recorder = sourceFunction('createEvidenceRecorder')
+  assertSourceOrder(recorder, [
+    'fs.mkdir(root, { recursive: true })',
+    'resetAcceptanceReportArtifacts(root)',
+    "fs.writeFile(logPath, '', 'utf8')",
+  ])
+
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'localminidrama-e2e-rerun-'))
+  const evidenceRoot = path.join(fixtureRoot, 'artifacts', 'e2e-production')
+  const acceptanceRoot = path.join(evidenceRoot, 'acceptance-report')
+  const outsideRoot = path.join(fixtureRoot, 'outside')
+  try {
+    await mkdir(path.join(acceptanceRoot, 'screenshots'), { recursive: true })
+    await mkdir(outsideRoot, { recursive: true })
+    await Promise.all([
+      writeFile(path.join(acceptanceRoot, 'manifest.json'), 'stale'),
+      writeFile(path.join(evidenceRoot, 'evidence.json'), 'keep evidence'),
+      writeFile(path.join(evidenceRoot, 'run.log'), 'keep log'),
+      writeFile(path.join(evidenceRoot, 'sibling.txt'), 'keep sibling'),
+      writeFile(path.join(outsideRoot, 'outside.txt'), 'keep outside'),
+    ])
+    await resetAcceptanceReportArtifacts(evidenceRoot)
+    await assert.rejects(lstat(acceptanceRoot), { code: 'ENOENT' })
+    assert.equal(await readFile(path.join(evidenceRoot, 'evidence.json'), 'utf8'), 'keep evidence')
+    assert.equal(await readFile(path.join(evidenceRoot, 'run.log'), 'utf8'), 'keep log')
+    assert.equal(await readFile(path.join(evidenceRoot, 'sibling.txt'), 'utf8'), 'keep sibling')
+
+    try {
+      await symlink(outsideRoot, acceptanceRoot, process.platform === 'win32' ? 'junction' : 'dir')
+    } catch (error) {
+      if (error?.code === 'EPERM') {
+        t.diagnostic('directory link creation is not permitted on this host')
+        return
+      }
+      throw error
+    }
+    await resetAcceptanceReportArtifacts(evidenceRoot)
+    await assert.rejects(lstat(acceptanceRoot), { code: 'ENOENT' })
+    assert.equal(await readFile(path.join(outsideRoot, 'outside.txt'), 'utf8'), 'keep outside')
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true })
+  }
 })
 
 test('browser acceptance contract covers the full UI journey, recovery, downloads, viewports, and playback', () => {

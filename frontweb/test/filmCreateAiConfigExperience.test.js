@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
 const aiConfigSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const pipelinePanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url), 'utf8')
 const themeSource = readFileSync(new URL('../src/styles/theme.css', import.meta.url), 'utf8')
 const mainSource = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
 const aiDialogHostSelector = ':is(.el-dialog.ai-config-workspace-dialog, .el-dialog:has(> .el-dialog__body > .ai-config-content))'
@@ -151,10 +152,40 @@ test('FilmCreate AI config returns to production and refreshes changed readiness
   )
   assert.match(closeWatcher, /if \(open\) \{[\s\S]*aiConfigChanged\.value = false[\s\S]*return/)
   assert.match(closeWatcher, /invalidateActiveVideoAiConfigCache\(\)/)
-  assert.match(closeWatcher, /await Promise\.allSettled\(\[[\s\S]*refreshVideoGenerationCapability\(\)[\s\S]*refreshProductionReadiness\(\)/)
+  assert.match(closeWatcher, /const refreshPromise = Promise\.allSettled\(\[[\s\S]*refreshVideoGenerationCapability\(\)[\s\S]*refreshProductionReadiness\(\)/)
   const feedbackIndex = closeWatcher.indexOf("ElMessage.info('配置已更新，正在重新检查')")
-  const refreshIndex = closeWatcher.indexOf('await Promise.allSettled')
+  const refreshIndex = closeWatcher.indexOf('const refreshPromise = Promise.allSettled')
   assert.ok(feedbackIndex >= 0 && feedbackIndex < refreshIndex)
+  const nextTickIndex = closeWatcher.indexOf('await nextTick()')
+  const focusIndex = closeWatcher.indexOf('pipelinePanelRef.value?.focusSummary()')
+  const awaitRefreshIndex = closeWatcher.indexOf('await refreshPromise')
+  assert.ok(refreshIndex < nextTickIndex && nextTickIndex < focusIndex && focusIndex < awaitRefreshIndex)
+  assert.match(closeWatcher, /if \(restorePipelineSummaryFocus\)/)
+})
+
+test('pipeline-owned AI recovery restores focus to a stable exposed summary', () => {
+  assert.match(
+    pipelinePanelSource,
+    /<div\s+ref="summaryRef"[\s\S]*data-testid="film-pipeline-summary"[\s\S]*tabindex="-1"/,
+  )
+  assert.match(pipelinePanelSource, /import \{ computed, ref \} from 'vue'/)
+  assert.match(pipelinePanelSource, /const summaryRef = ref\(null\)/)
+  assert.match(pipelinePanelSource, /function focusSummary\(\) \{\s*summaryRef\.value\?\.focus\(\{ preventScroll: true \}\)\s*\}/)
+  assert.match(pipelinePanelSource, /defineExpose\(\{\s*focusSummary,?\s*\}\)/)
+  assert.match(
+    pipelinePanelSource,
+    /\.pipeline-compact-copy:focus-visible\s*\{[\s\S]*outline:\s*2px solid var\(--el-color-primary\)[\s\S]*outline-offset:\s*2px/,
+  )
+  assert.match(pipelinePanelSource, /emit\(action\.event, action\.payload, \{ source: 'compact-action' \}\)/)
+
+  assert.match(filmCreateSource, /<FilmCreatePipelinePanel\s+ref="pipelinePanelRef"/)
+  assert.match(filmCreateSource, /@open-ai-config="openAiConfigFromPipeline"/)
+  assert.match(filmCreateSource, /const pipelinePanelRef = ref\(null\)/)
+  assert.match(filmCreateSource, /const aiConfigOpenedFromPipelineAction = ref\(false\)/)
+  assert.match(filmCreateSource, /function openAiConfigFromPipeline\(serviceType = '', context = \{\}\)/)
+  assert.match(filmCreateSource, /aiConfigOpenedFromPipelineAction\.value = context\.source === 'compact-action'/)
+  assert.match(filmCreateSource, /const restorePipelineSummaryFocus = aiConfigOpenedFromPipelineAction\.value/)
+  assert.match(filmCreateSource, /aiConfigOpenedFromPipelineAction\.value = false/)
 })
 
 test('AI coverage test actions are accessible secondary buttons with pending state', () => {

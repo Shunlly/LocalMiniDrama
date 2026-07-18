@@ -253,6 +253,7 @@
       />
 
       <FilmCreatePipelinePanel
+        ref="pipelinePanelRef"
         v-model:aspect-ratio="projectAspectRatio"
         v-model:clip-duration="videoClipDuration"
         v-model:script-language="scriptLanguage"
@@ -275,7 +276,7 @@
         @save-settings="saveProjectSettings"
         @start-one-click="startOneClickPipeline"
         @start-text-framework="startTextFrameworkPipeline"
-        @open-ai-config="openAiConfig"
+        @open-ai-config="openAiConfigFromPipeline"
         @retry-readiness="refreshProductionReadiness"
         @pause="pipelinePaused = true"
         @resume="onPipelineResume"
@@ -3017,8 +3018,10 @@ function openMediaLibraryFromPicker() {
 
 
 const showAiConfigDialog = ref(false)
+const pipelinePanelRef = ref(null)
 const aiConfigInitialServiceType = ref('')
 const aiConfigChanged = ref(false)
+const aiConfigOpenedFromPipelineAction = ref(false)
 const videoCapabilityConfigs = ref([])
 const videoCapabilityLoading = ref(true)
 const videoCapabilityFailed = ref(false)
@@ -3057,6 +3060,15 @@ const ttsCapabilityReason = computed(() => {
 })
 
 function openAiConfig(serviceType = '') {
+  aiConfigOpenedFromPipelineAction.value = false
+  aiConfigInitialServiceType.value = ['text', 'image', 'storyboard_image', 'video', 'tts'].includes(serviceType)
+    ? serviceType
+    : ''
+  showAiConfigDialog.value = true
+}
+
+function openAiConfigFromPipeline(serviceType = '', context = {}) {
+  aiConfigOpenedFromPipelineAction.value = context.source === 'compact-action'
   aiConfigInitialServiceType.value = ['text', 'image', 'storyboard_image', 'video', 'tts'].includes(serviceType)
     ? serviceType
     : ''
@@ -3077,13 +3089,20 @@ watch(showAiConfigDialog, async (open) => {
     return
   }
   const changed = aiConfigChanged.value
+  const restorePipelineSummaryFocus = aiConfigOpenedFromPipelineAction.value
   aiConfigChanged.value = false
+  aiConfigOpenedFromPipelineAction.value = false
   invalidateActiveVideoAiConfigCache()
   if (changed) ElMessage.info('配置已更新，正在重新检查')
-  await Promise.allSettled([
+  const refreshPromise = Promise.allSettled([
     refreshVideoGenerationCapability(),
     refreshProductionReadiness(),
   ])
+  if (restorePipelineSummaryFocus) {
+    await nextTick()
+    pipelinePanelRef.value?.focusSummary()
+  }
+  await refreshPromise
 })
 const storyInput = ref('')
 const storyStyle = ref('')

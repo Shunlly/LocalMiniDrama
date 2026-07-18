@@ -6,9 +6,11 @@
         <h2 id="pipeline-title" class="pipeline-title">全流程生成</h2>
       </div>
       <div
+        ref="summaryRef"
         class="pipeline-compact-copy"
         data-testid="film-pipeline-summary"
         :data-state="focusState"
+        tabindex="-1"
       >
         <span>{{ focusKicker }}</span>
         <strong>{{ focusTitle }}</strong>
@@ -206,7 +208,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ArrowDown, ArrowRight, ArrowUp, Setting, VideoPlay } from '@element-plus/icons-vue'
 import StylePickerButton from '@/components/StylePickerButton.vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
@@ -239,6 +241,7 @@ const props = defineProps({
 const { expanded, toggle } = useDisclosureState({
   forceExpanded: computed(() => props.running),
 })
+const summaryRef = ref(null)
 
 const emit = defineEmits([
   'update:aspectRatio',
@@ -310,9 +313,17 @@ const compactAction = computed(() => getPipelineCompactAction({
 function runCompactAction() {
   const action = compactAction.value
   if (!action) return
-  if (action.event === 'open-ai-config') emit(action.event, action.payload)
+  if (action.event === 'open-ai-config') emit(action.event, action.payload, { source: 'compact-action' })
   else emit(action.event)
 }
+
+function focusSummary() {
+  summaryRef.value?.focus({ preventScroll: true })
+}
+
+defineExpose({
+  focusSummary,
+})
 
 function updateSetting(name, value) {
   emit(`update:${name}`, value)
@@ -353,6 +364,11 @@ function updateSetting(name, value) {
 .pipeline-compact-copy strong {
   color: var(--el-text-color-primary);
   font-size: 13px;
+}
+
+.pipeline-compact-copy:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 
 .pipeline-compact-next {

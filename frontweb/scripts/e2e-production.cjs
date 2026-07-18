@@ -415,6 +415,7 @@ async function createEvidenceRecorder({
   }
 
   await fs.mkdir(root, { recursive: true })
+  await resetAcceptanceReportArtifacts(root)
   await fs.writeFile(logPath, '', 'utf8')
   await write()
   await log('evidence_initialized', { commit: identity.commit, version: identity.version })
@@ -1026,6 +1027,40 @@ async function verifyProjectListRecoveryUi(page) {
   return { injectedStatus: 502, recovered: true }
 }
 
+async function resetAcceptanceReportArtifacts(evidenceRoot) {
+  const root = path.resolve(evidenceRoot)
+  await fs.mkdir(root, { recursive: true })
+  const rootRealPath = await fs.realpath(root)
+  const acceptanceRoot = path.join(root, 'acceptance-report')
+  assert.equal(path.dirname(acceptanceRoot), root, 'acceptance report must be an exact evidence-root child')
+  assert.equal(path.basename(acceptanceRoot), 'acceptance-report', 'acceptance report child name is incorrect')
+
+  let targetStat
+  try {
+    targetStat = await fs.lstat(acceptanceRoot)
+  } catch (error) {
+    if (error?.code === 'ENOENT') return
+    throw error
+  }
+
+  if (targetStat.isSymbolicLink()) {
+    await fs.unlink(acceptanceRoot)
+    return
+  }
+  if (!targetStat.isDirectory()) {
+    await fs.unlink(acceptanceRoot)
+    return
+  }
+
+  const targetRealPath = await fs.realpath(acceptanceRoot)
+  const relativeTarget = path.relative(rootRealPath, targetRealPath)
+  assert.ok(
+    relativeTarget && !relativeTarget.startsWith(`..${path.sep}`) && relativeTarget !== '..' && !path.isAbsolute(relativeTarget),
+    'acceptance report directory escapes the evidence root',
+  )
+  await fs.rm(acceptanceRoot, { recursive: true })
+}
+
 async function verifyProjectReadinessDisclosureUi(page) {
   const toggle = page.getByTestId('project-readiness-toggle')
   const details = page.getByTestId('project-readiness-details')
@@ -1546,34 +1581,79 @@ async function assertComponentHorizontalOverflow(page, label, selectors) {
   return records
 }
 
+const FOCUSED_COVERAGE_MATRIX = Object.freeze([
+  Object.freeze({ service: 'video', label: '\u89c6\u9891\u751f\u6210', state: 'default', test_status: 'failed', action_count: 1, action_label: '\u91cd\u65b0\u6d4b\u8bd5' }),
+  Object.freeze({ service: 'image', label: '\u7d20\u6750\u56fe\u7247', state: 'configured', test_status: 'unknown', action_count: 1, action_label: '\u8865\u9f50\u9ed8\u8ba4' }),
+  Object.freeze({ service: 'text', label: '\u6587\u672c\u751f\u6210', state: 'missing', test_status: 'unknown', action_count: 0, action_label: '' }),
+  Object.freeze({ service: 'tts', label: '\u8bed\u97f3\u5408\u6210', state: 'default', test_status: 'unknown', action_count: 1, action_label: '\u7acb\u5373\u6d4b\u8bd5' }),
+  Object.freeze({ service: 'storyboard_image', label: '\u5206\u955c\u56fe\u7247', state: 'default', test_status: 'passed', action_count: 0, action_label: '' }),
+])
+
+function assertCoverageCardMatrix(records) {
+  assert.equal(records.length, FOCUSED_COVERAGE_MATRIX.length, 'AI coverage must contain exactly five service cards')
+  for (let index = 0; index < FOCUSED_COVERAGE_MATRIX.length; index += 1) {
+    const actual = records[index]
+    const expected = FOCUSED_COVERAGE_MATRIX[index]
+    assert.equal(actual.service, expected.service, `coverage card ${index} service identity is incorrect`)
+    assert.equal(actual.label, expected.label, `${expected.service} label is incorrect`)
+    assert.equal(actual.state, expected.state, `${expected.service} coverage state is incorrect`)
+    assert.equal(actual.test_status, expected.test_status, `${expected.service} test status is incorrect`)
+    assert.equal(actual.action_count, expected.action_count, `${expected.service} action count is incorrect`)
+    assert.equal(actual.action_label, expected.action_label, `${expected.service} action label is incorrect`)
+  }
+  return records
+}
+
 async function assertCoverageLayout(page, {
   viewport,
   columns,
   requireSingleRow = false,
-  serviceOrder = ['video', 'image', 'text', 'tts', 'storyboard_image'],
-  actionCounts = [1, 1, 0, 1, 0],
 } = {}) {
   const cards = page.locator('#ai-config-coverage-panel .coverage-item')
-  assert.equal(await cards.count(), serviceOrder.length, 'AI coverage must contain exactly five service cards')
-  const records = []
-  for (let index = 0; index < serviceOrder.length; index += 1) {
-    const card = cards.nth(index)
-    await card.scrollIntoViewIfNeeded()
-    assert.equal(await card.isVisible(), true, `${serviceOrder[index]} coverage card must be displayed`)
-    const box = await card.boundingBox()
-    assert.ok(box && box.width > 0 && box.height > 0, `${serviceOrder[index]} coverage card has no layout box`)
-    const action_count = await card.locator('.coverage-actions button').count()
-    assert.ok(action_count <= 1, `${serviceOrder[index]} must expose at most one context action`)
-    assert.equal(action_count, actionCounts[index], `${serviceOrder[index]} context action count is incorrect`)
-    records.push({
-      service: serviceOrder[index],
-      label: String(await card.locator('.coverage-item-heading strong').textContent() || '').trim(),
-      x: box.x,
-      y: box.y,
-      width: box.width,
-      height: box.height,
-      action_count,
+  const snapshot = await cards.evaluateAll((elements) => {
+    const grid = elements[0]?.closest('.coverage-grid')
+    const dialog = document.querySelector('.ai-config-workspace-dialog .el-dialog')
+    if (!grid || !dialog) return null
+    const gridBox = grid.getBoundingClientRect()
+    const dialogBox = dialog.getBoundingClientRect()
+    const records = elements.map((element) => {
+      const box = element.getBoundingClientRect()
+      const icon = element.querySelector('.coverage-icon')
+      const serviceClass = [...(icon?.classList || [])].find((name) => /^coverage-icon-(?!$)/.test(name)) || ''
+      const stateClass = ['coverage-default', 'coverage-configured', 'coverage-missing']
+        .find((name) => element.classList.contains(name)) || ''
+      const testNode = element.querySelector('.coverage-test-status')
+      const testClass = ['test-failed', 'test-unknown', 'test-passed']
+        .find((name) => testNode?.classList.contains(name)) || ''
+      const actions = [...element.querySelectorAll('.coverage-actions button')]
+      return {
+        service: serviceClass.replace('coverage-icon-', ''),
+        label: String(element.querySelector('.coverage-item-heading strong')?.textContent || '').trim(),
+        state: stateClass.replace('coverage-', ''),
+        test_status: testClass.replace('test-', ''),
+        action_count: actions.length,
+        action_label: actions.length === 1 ? String(actions[0].textContent || '').trim() : '',
+        display: getComputedStyle(element).display,
+        x: box.left - gridBox.left + grid.scrollLeft,
+        y: box.top - gridBox.top + grid.scrollTop,
+        viewport_x: box.left,
+        viewport_y: box.top,
+        width: box.width,
+        height: box.height,
+      }
     })
+    return {
+      records,
+      grid_columns: getComputedStyle(grid).gridTemplateColumns.split(/\s+/).filter(Boolean).length,
+      dialog: { x: dialogBox.left, y: dialogBox.top, width: dialogBox.width, height: dialogBox.height },
+    }
+  })
+  assert.ok(snapshot, 'AI coverage grid and dialog must be present')
+  const records = snapshot.records
+  assertCoverageCardMatrix(records)
+  for (const record of records) {
+    assert.notEqual(record.display, 'none', `${record.service} coverage card must be displayed`)
+    assert.ok(record.width > 0 && record.height > 0, `${record.service} coverage card has no layout box`)
   }
 
   for (let left = 0; left < records.length; left += 1) {
@@ -1590,9 +1670,7 @@ async function assertCoverageLayout(page, {
     }
   }
 
-  const gridColumns = await page.locator('#ai-config-coverage-panel .coverage-grid').evaluate((element) => (
-    getComputedStyle(element).gridTemplateColumns.split(/\s+/).filter(Boolean).length
-  ))
+  const gridColumns = snapshot.grid_columns
   assert.equal(gridColumns, columns, `${viewport.width} coverage grid column count is incorrect`)
   const xTracks = [...new Set(records.map((record) => Math.round(record.x)))]
   assert.equal(xTracks.length, columns, `${viewport.width} coverage cards do not occupy ${columns} tracks`)
@@ -1604,11 +1682,16 @@ async function assertCoverageLayout(page, {
   assert.equal([...rowCounts.values()].every((count) => count <= columns), true, 'coverage row exceeds its grid tracks')
   if (requireSingleRow) {
     assert.equal(rowCounts.size, 1, `${viewport.width} coverage cards must share one row`)
-    const dialogBox = await page.locator('.ai-config-workspace-dialog .el-dialog').boundingBox()
-    assert.ok(dialogBox, 'AI coverage dialog must have a layout box')
+    const dialogBox = snapshot.dialog
     for (const record of records) {
-      assert.ok(record.x >= dialogBox.x - 1 && record.x + record.width <= dialogBox.x + dialogBox.width + 1)
-      assert.ok(record.y >= 0 && record.y + record.height <= viewport.height + 1)
+      assert.ok(record.viewport_x >= dialogBox.x - 1 && record.viewport_x + record.width <= dialogBox.x + dialogBox.width + 1)
+      assert.ok(record.viewport_y >= 0 && record.viewport_y + record.height <= viewport.height + 1)
+    }
+  } else {
+    for (let index = 0; index < await cards.count(); index += 1) {
+      const card = cards.nth(index)
+      await card.scrollIntoViewIfNeeded()
+      assert.equal(await card.evaluate((element) => getComputedStyle(element).display !== 'none'), true)
     }
   }
   return { columns: gridColumns, cards: records }
@@ -1696,6 +1779,22 @@ function createReadinessGate() {
   }
 }
 
+function focusedAiRouteAction({
+  method,
+  pathname,
+  query = '',
+  serviceType = '',
+  requestName = '',
+  fixtureName = '',
+} = {}) {
+  if (pathname !== '/api/v1/ai-configs') return 'passthrough'
+  if (method === 'POST') {
+    return fixtureName && requestName === fixtureName ? 'decorate-create' : 'passthrough'
+  }
+  if (method === 'GET' && !query && !serviceType) return 'decorate-list'
+  return 'passthrough'
+}
+
 async function installFocusedAiRoutes(page, fixture) {
   const aiListPattern = '**/api/v1/ai-configs*'
   const readinessPattern = '**/api/v1/workflows/novel2anime/readiness'
@@ -1714,12 +1813,16 @@ async function installFocusedAiRoutes(page, fixture) {
   const aiListHandler = async (route) => {
     const request = route.request()
     const url = new URL(request.url())
-    if (request.method() === 'POST' && url.pathname === '/api/v1/ai-configs') {
-      const requestBody = request.postDataJSON() || {}
-      if (requestBody.name !== fixture.uiConfigName) {
-        await route.continue()
-        return
-      }
+    const requestBody = request.method() === 'POST' ? (request.postDataJSON() || {}) : {}
+    const action = focusedAiRouteAction({
+      method: request.method(),
+      pathname: url.pathname,
+      query: url.search,
+      serviceType: url.searchParams.get('service_type') || '',
+      requestName: requestBody.name || '',
+      fixtureName: fixture.uiConfigName,
+    })
+    if (action === 'decorate-create') {
       requestCounts.ui_config_posts += 1
       const existingSettings = (() => {
         try {
@@ -1737,14 +1840,8 @@ async function installFocusedAiRoutes(page, fixture) {
       await route.fulfill({ response })
       return
     }
-    const decoratesFixtureList = (
-      request.method() === 'GET'
-      && url.pathname === '/api/v1/ai-configs'
-      && !url.searchParams.has('service_type')
-    )
-    if (!decoratesFixtureList) {
-      if (url.searchParams.get('service_type') === 'video') await route.continue() // service_type=video is never decorated.
-      else await route.continue()
+    if (action === 'passthrough') {
+      await route.continue()
       return
     }
     const response = await route.fetch()
@@ -1934,6 +2031,7 @@ async function setEvidenceTheme(page, theme) {
       }, theme)
     }
   }
+  await page.waitForFunction((value) => document.documentElement.classList.contains(value), theme)
   assert.equal(await page.locator('html').evaluate((element, value) => element.classList.contains(value), theme), true)
 }
 
@@ -1959,9 +2057,16 @@ async function assertScreenshotSurfaceSafe(page) {
 
 async function prepareAcceptanceCaptureSurface(page, capture, fixture) {
   const episodeId = fixture.completedDrama.episodes[0].id
+  fixture.routes.state.includeUiCreated = capture.surface === 'ai-config-management'
+  const targetUrl = capture.surface === 'project-readiness'
+    ? `${FRONTEND_URL}/drama/${fixture.dramaId}#source-intake-workflow`
+    : `${FRONTEND_URL}/film/${fixture.dramaId}?episode=${episodeId}`
+  await page.goto(targetUrl, { waitUntil: 'domcontentloaded' })
+  const workspaceDialog = page.locator('.ai-config-workspace-dialog')
+  await workspaceDialog.waitFor({ state: 'hidden', timeout: 30000 })
+  await setEvidenceTheme(page, capture.theme)
+
   if (capture.surface === 'project-readiness') {
-    fixture.routes.state.includeUiCreated = false
-    await page.goto(`${FRONTEND_URL}/drama/${fixture.dramaId}#source-intake-workflow`, { waitUntil: 'domcontentloaded' })
     const toggle = page.getByTestId('project-readiness-toggle')
     await toggle.waitFor({ state: 'visible', timeout: 30000 })
     if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
@@ -1969,14 +2074,11 @@ async function prepareAcceptanceCaptureSurface(page, capture, fixture) {
     return
   }
 
-  await page.goto(`${FRONTEND_URL}/film/${fixture.dramaId}?episode=${episodeId}`, { waitUntil: 'domcontentloaded' })
   await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
   await page.locator('[data-testid="film-pipeline-summary"][data-state="ready"]').waitFor({ state: 'visible', timeout: 30000 })
   if (capture.surface === 'film-pipeline') return
 
-  fixture.routes.state.includeUiCreated = capture.surface === 'ai-config-management'
   await page.locator('.btn-ai-config').click()
-  const workspaceDialog = page.locator('.ai-config-workspace-dialog')
   await workspaceDialog.waitFor({ state: 'visible', timeout: 30000 })
   if (capture.surface === 'ai-config-management') {
     await page.getByTestId('ai-config-mode-configs').click()
@@ -1990,15 +2092,9 @@ async function prepareAcceptanceCaptureSurface(page, capture, fixture) {
 
 async function captureAcceptanceReportScreenshots(page, fixture) {
   const screenshots = []
-  let preparedSurface = ''
   for (const capture of REQUIRED_FINAL_CAPTURES) {
     await page.setViewportSize({ width: capture.width, height: capture.height })
-    await setEvidenceTheme(page, capture.theme)
-    if (preparedSurface !== capture.surface) {
-      await prepareAcceptanceCaptureSurface(page, capture, fixture)
-      preparedSurface = capture.surface
-      await setEvidenceTheme(page, capture.theme)
-    }
+    await prepareAcceptanceCaptureSurface(page, capture, fixture)
     await page.evaluate(() => document.fonts?.ready)
     await assertScreenshotSurfaceSafe(page)
     const buffer = await page.screenshot({ fullPage: false, animations: 'disabled', caret: 'hide', type: 'png' })
@@ -2074,8 +2170,6 @@ async function verifyFocusedDesktopAcceptance(browser, {
   cleanupActions,
   evidenceRecorder,
 }) {
-  const serviceOrder = ['video', 'image', 'text', 'tts', 'storyboard_image']
-  const actionCounts = [1, 1, 0, 1, 0]
   const firstEpisode = completedDrama?.episodes?.[0]
   assert.ok(firstEpisode?.id, 'focused acceptance requires the completed first episode')
   const textFixtures = providerState.created.filter((config) => (
@@ -2187,9 +2281,9 @@ async function verifyFocusedDesktopAcceptance(browser, {
       viewport: FOCUSED_DESKTOP_VIEWPORT,
       columns: 5,
       requireSingleRow: true,
-      serviceOrder,
-      actionCounts,
     })
+    const serviceOrder = layout1280.cards.map(({ service }) => service)
+    const actionCounts = layout1280.cards.map(({ action_count }) => action_count)
     assert.equal(layout1280.cards.every((item) => item.action_count <= 1), true)
     const componentSelectors = [
       '.ai-config-workspace-dialog .el-dialog__body',
@@ -2278,9 +2372,9 @@ async function verifyFocusedDesktopAcceptance(browser, {
     const layout1024 = await assertCoverageLayout(page, {
       viewport: AI_TWO_COLUMN_VIEWPORT,
       columns: 2,
-      serviceOrder,
-      actionCounts,
     })
+    assert.deepEqual(layout1024.cards.map(({ service }) => service), serviceOrder)
+    assert.deepEqual(layout1024.cards.map(({ action_count }) => action_count), actionCounts)
     const overflow1024 = await assertComponentHorizontalOverflow(page, 'focused 1024 coverage', componentSelectors)
     await assertMinimumTargetSize(page, 'focused 1024 coverage', [
       '#ai-config-coverage-panel .coverage-select',
@@ -2805,6 +2899,8 @@ module.exports = {
   REQUIRED_PROVIDER_ENDPOINTS,
   REQUIRED_PROVIDER_TYPES,
   REQUIRED_TRACK_TYPES,
+  assertCoverageCardMatrix,
+  assertCoverageLayout,
   assertCompleteEvidence,
   assertEvidencePayloadSafe,
   assertEvidenceSerializationSafe,
@@ -2815,17 +2911,28 @@ module.exports = {
   assertProviderInvocations,
   assertProviderStats,
   createEvidenceRecorder,
+  createMissingServiceFromUi,
+  captureAcceptanceReportScreenshots,
   extractZipEntries,
   fetchWithIdempotentRetry,
+  focusedAiRouteAction,
   installProviderConfigs,
+  installFocusedAiRoutes,
   main,
+  prepareAcceptanceCaptureSurface,
   sanitizeEvidenceText,
   summarizeProviderCalls,
   summarizeProviderInvocations,
   restoreProviderConfigs,
+  resetAcceptanceReportArtifacts,
   verifyExport,
+  verifyAiConfigReturnUi,
+  verifyAiConfigurationUi,
+  verifyFilmPipelineDisclosureUi,
   verifyFocusedDesktopAcceptance,
+  verifyProjectReadinessDisclosureUi,
   waitForWorkflow,
+  writeAcceptanceManifest,
 }
 
 if (require.main === module) {
