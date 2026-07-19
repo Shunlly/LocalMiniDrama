@@ -926,6 +926,15 @@ test('focused AI setup clicks the visible switch control instead of its hidden i
   )
 })
 
+test('focused AI setup restores its exact name after applying the provider preset', () => {
+  const createConfig = sourceFunction('createMissingServiceFromUi')
+  assertSourceOrder(createConfig, [
+    "configFormItem(configDialog, '\\u5382\\u5546').locator('.el-select').click()",
+    "page.getByRole('option', { name: '\\u004f\\u0070\\u0065\\u006e\\u0041\\u0049 \\u517c\\u5bb9\\u7f51\\u5173'",
+    "configFormItem(configDialog, '\\u540d\\u79f0').locator('input').fill(fixture.exactName)",
+  ])
+})
+
 test('project title readiness waits for the exact project name and propagates timeouts', async () => {
   assert.equal(typeof waitForProjectTitle, 'function', 'missing exported project title readiness helper')
 

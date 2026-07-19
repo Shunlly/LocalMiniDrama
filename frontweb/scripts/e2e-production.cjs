@@ -2376,9 +2376,9 @@ async function createMissingServiceFromUi(page, fixture) {
     service_type: 'text',
     default_model: 'local-e2e-text',
   }
-  await configFormItem(configDialog, '\u540d\u79f0').locator('input').fill(fixture.exactName)
   await configFormItem(configDialog, '\u5382\u5546').locator('.el-select').click()
   await page.getByRole('option', { name: '\u004f\u0070\u0065\u006e\u0041\u0049 \u517c\u5bb9\u7f51\u5173', exact: true }).click()
+  await configFormItem(configDialog, '\u540d\u79f0').locator('input').fill(fixture.exactName)
   await configFormItem(configDialog, '\u0041\u0050\u0049 \u004b\u0065\u0079').locator('input').fill(PROVIDER_TOKEN)
   await configFormItem(configDialog, '\u6a21\u578b\u5217\u8868').locator('textarea').fill(expectedMutation.default_model)
   await configFormItem(configDialog, '\u9ed8\u8ba4\u6a21\u578b').locator('.el-select').click()
