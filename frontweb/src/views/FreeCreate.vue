@@ -201,7 +201,16 @@
       <div class="result-panel">
         <div class="result-header">
           <span class="result-title">生成结果</span>
-          <el-button v-if="results.length > 0" size="small" plain @click="clearResults">清空</el-button>
+          <el-button
+            v-if="results.length > 0"
+            size="small"
+            plain
+            :loading="cancelling"
+            :disabled="cancelling"
+            @click="clearResults"
+          >
+            {{ generating ? '取消并清空' : '清空' }}
+          </el-button>
         </div>
 
         <div v-if="results.length === 0 && !generating" class="empty-result">
@@ -214,7 +223,18 @@
 
         <div v-if="generating" class="generating-tip">
           <el-icon class="is-loading"><Loading /></el-icon>
-          <span>正在生成，请稍候...</span>
+          <span>{{ cancelling ? '正在取消生成...' : '正在生成，请稍候...' }}</span>
+          <el-button
+            type="danger"
+            size="small"
+            plain
+            :loading="cancelling"
+            :disabled="cancelling"
+            @click="cancelGeneration"
+          >
+            <el-icon v-if="!cancelling"><CircleClose /></el-icon>
+            <span>取消生成</span>
+          </el-button>
         </div>
 
         <div class="result-grid">
@@ -244,6 +264,10 @@
                 <el-icon><CircleClose /></el-icon>
                 <span>{{ item.error || '生成失败' }}</span>
               </div>
+              <div v-else-if="item.status === 'cancelled'" class="media-cancelled">
+                <el-icon><CircleClose /></el-icon>
+                <span>{{ item.error || '生成已取消' }}</span>
+              </div>
             </div>
             <div class="result-meta">
               <span class="result-prompt">{{ item.prompt }}</span>
@@ -265,12 +289,13 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, CircleCheck, Picture, Loading, CircleClose, VideoCamera, Warning } from '@element-plus/icons-vue'
 import { aiAPI } from '@/api/ai'
 import { imagesAPI } from '@/api/images'
+import { taskAPI } from '@/api/task'
 import { videosAPI } from '@/api/videos'
 import { uploadAPI } from '@/api/upload'
 import { generationSettingsAPI } from '@/api/prompts'
@@ -278,9 +303,11 @@ import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import { getServiceConfigReadiness } from '@/utils/aiServiceReadiness'
 import {
   buildFreeCreateGenerationPayload,
+  createFreeCreateTaskOwner,
   getFreeCreateAspectRatioOptions,
   getReferenceUploadBlockReason,
   normalizeFreeCreateAspectRatio,
+  parseFreeCreateTaskResult,
 } from '@/utils/freeCreate'
 
 const router = useRouter()
@@ -291,6 +318,8 @@ const style = ref('')
 const aspectRatio = ref('16:9')
 const duration = ref(5)
 const generating = ref(false)
+const cancelling = ref(false)
+const activeTaskId = ref('')
 const results = ref([])
 const showImagePreview = ref(false)
 const previewImage = ref({ src: '', alt: '生成图片预览' })
@@ -307,6 +336,9 @@ let refImageUploadAttempt = 0
 const videoPollMaxMs = ref(30 * 60 * 1000)
 const aiConfigs = ref([])
 const configLoadState = ref('loading')
+const freeCreateTaskOwner = createFreeCreateTaskOwner((taskId, body) => (
+  taskAPI.cancel(taskId, body, { suppressErrorToast: true })
+))
 
 const activeServiceType = computed(() => mode.value === 'video' ? 'video' : 'image')
 const activeServiceLabel = computed(() => mode.value === 'video' ? '视频' : '图片')
@@ -425,10 +457,26 @@ function openAiConfig() {
 }
 
 onMounted(async () => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
   const requestedMode = Array.isArray(route.query.mode) ? route.query.mode[0] : route.query.mode
   if (requestedMode === 'image' || requestedMode === 'video') mode.value = requestedMode
   await Promise.all([loadGenerationSettings(), loadServiceConfigs()])
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
+
+onBeforeRouteLeave(async () => {
+  if (!freeCreateTaskOwner.hasActive()) return true
+  return cancelActiveGeneration('用户离开自由创作页面')
+})
+
+function handleBeforeUnload(event) {
+  if (!freeCreateTaskOwner.hasActive()) return
+  event.preventDefault()
+  event.returnValue = ''
+}
 
 function triggerRefImageUpload() {
   if (refImageUploadStatus.value === 'uploading') return
@@ -527,8 +575,52 @@ async function retryRefImageUpload() {
   await processRefImageFile(refImageFile.value)
 }
 
-function clearResults() {
+async function clearResults() {
+  if (freeCreateTaskOwner.hasActive()) {
+    const cancelled = await cancelActiveGeneration('用户清空生成结果')
+    if (!cancelled) return false
+  }
   results.value = []
+  return true
+}
+
+function markRunCancelled(run, message = '生成已取消') {
+  if (!run?.item) return
+  run.item.status = 'cancelled'
+  run.item.error = message
+}
+
+async function cancelActiveGeneration(reason = '用户取消生成') {
+  const run = freeCreateTaskOwner.getActive()
+  if (!run) return true
+
+  cancelling.value = true
+  try {
+    await freeCreateTaskOwner.cancel(reason)
+    markRunCancelled(run)
+    activeTaskId.value = ''
+    generating.value = false
+    return true
+  } catch (error) {
+    generating.value = true
+    ElMessage.error(`取消失败：${error?.message || '请稍后重试'}`)
+    return false
+  } finally {
+    cancelling.value = false
+  }
+}
+
+async function cancelGeneration() {
+  await cancelActiveGeneration('用户取消生成')
+}
+
+async function waitForPendingCancellation(run) {
+  if (run?.cancelPromise) {
+    try {
+      await run.cancelPromise
+    } catch (_) {}
+  }
+  return !freeCreateTaskOwner.isActive(run)
 }
 
 function downloadItem(item) {
@@ -549,104 +641,185 @@ async function generate() {
     ElMessage.warning(generationCapability.value.message)
     return
   }
-  generating.value = true
+  if (freeCreateTaskOwner.hasActive()) return
+
+  const generationMode = mode.value
+  const generationPrompt = prompt.value
+  const generationStyle = style.value
   const newItem = {
-    type: mode.value,
-    prompt: prompt.value,
-    style: style.value,
+    type: generationMode,
+    prompt: generationPrompt,
+    style: generationStyle,
     status: 'processing',
     url: null,
     error: null,
   }
+  const run = freeCreateTaskOwner.begin({ item: newItem })
+  generating.value = true
   results.value.unshift(newItem)
   try {
     const body = buildFreeCreateGenerationPayload({
-      mode: mode.value,
-      prompt: prompt.value,
-      style: style.value,
+      mode: generationMode,
+      prompt: generationPrompt,
+      style: generationStyle,
       aspectRatio: aspectRatio.value,
       duration: duration.value,
       referenceUploadStatus: refImageUploadStatus.value,
       referenceUploadError: refImageUploadError.value,
       referenceImageLocalPath: refImageLocalPath.value,
     })
-    if (mode.value === 'image') {
-      const res = await imagesAPI.create(body)
+    if (generationMode === 'image') {
+      const res = await freeCreateTaskOwner.trackSubmission(run, imagesAPI.create(body))
+      if (freeCreateTaskOwner.isActive(run)) activeTaskId.value = run.taskId
+      if (await waitForPendingCancellation(run)) return
       if (res?.task_id) {
-        await pollImageTask(res.task_id, newItem)
+        await pollImageTask(res.task_id, newItem, run)
       } else if (res?.image_url || res?.local_path) {
-        newItem.url = res.image_url || ('/static/' + res.local_path)
+        const localPath = String(res.local_path || '').replace(/^\/+/, '')
+        newItem.url = res.image_url || (localPath ? `/static/${localPath}` : null)
         newItem.status = 'completed'
-      }
-    } else {
-      const res = await videosAPI.create(body)
-      if (res?.task_id) {
-        await pollVideoTask(res.task_id, newItem)
       } else {
         newItem.status = 'failed'
-        newItem.error = '提交失败'
+        newItem.error = '提交成功但未返回图片任务或结果'
+      }
+    } else {
+      const res = await freeCreateTaskOwner.trackSubmission(run, videosAPI.create(body))
+      if (freeCreateTaskOwner.isActive(run)) activeTaskId.value = run.taskId
+      if (await waitForPendingCancellation(run)) return
+      if (res?.task_id) {
+        await pollVideoTask(res.task_id, newItem, run)
+      } else if (res?.video_url || res?.local_path) {
+        newItem.url = res.local_path ? `/static/${String(res.local_path).replace(/^\/+/, '')}` : res.video_url
+        newItem.status = 'completed'
+      } else {
+        newItem.status = 'failed'
+        newItem.error = '提交成功但未返回视频任务或结果'
       }
     }
   } catch (e) {
-    newItem.status = 'failed'
-    newItem.error = e.message || '生成失败'
-    ElMessage.error(newItem.error)
+    if (run.cancelRequested || run.cancelConfirmed) {
+      markRunCancelled(run)
+    } else {
+      newItem.status = 'failed'
+      newItem.error = e.message || '生成失败'
+      ElMessage.error(newItem.error)
+    }
   } finally {
-    generating.value = false
+    freeCreateTaskOwner.complete(run)
+    if (!freeCreateTaskOwner.hasActive()) {
+      activeTaskId.value = ''
+      generating.value = false
+    }
   }
 }
 
-async function pollImageTask(taskId, item, maxMs = 180000) {
+function isCancelledTaskStatus(status) {
+  return ['cancelled', 'canceled'].includes(status)
+}
+
+function failResultItem(item, message) {
+  item.status = 'failed'
+  item.error = message || '生成失败'
+}
+
+async function pollImageTask(taskId, item, run, maxMs = 180000) {
   const start = Date.now()
+  let lastPollError = ''
   while (Date.now() - start < maxMs) {
     await new Promise((r) => setTimeout(r, 3000))
+    if (await waitForPendingCancellation(run)) return
+
+    let res
     try {
-      const res = await imagesAPI.getTask ? imagesAPI.getTask(taskId) : null
-      if (!res) break
-      if (res.status === 'completed' && res.result) {
-        const r = res.result
-        item.url = r.image_url ? r.image_url : (r.local_path ? '/static/' + r.local_path : null)
+      res = await taskAPI.get(taskId, { suppressErrorToast: true })
+      lastPollError = ''
+    } catch (error) {
+      lastPollError = error?.message || '任务状态读取失败'
+      continue
+    }
+    if (await waitForPendingCancellation(run)) return
+
+    const status = String(res?.status || '').toLowerCase()
+    if (status === 'completed') {
+      try {
+        const r = parseFreeCreateTaskResult(res.result)
+        const localPath = String(r.local_path || '').replace(/^\/+/, '')
+        item.url = r.image_url || (localPath ? `/static/${localPath}` : null)
+        if (!item.url) throw new Error('任务完成但未返回图片地址')
         item.status = 'completed'
         return
-      }
-      if (res.status === 'failed') {
-        item.status = 'failed'
-        item.error = res.error || '生成失败'
+      } catch (error) {
+        failResultItem(item, error?.message)
         return
       }
-    } catch (_) {}
+    }
+    if (isCancelledTaskStatus(status)) {
+      item.status = 'cancelled'
+      item.error = res?.error || res?.message || '生成已取消'
+      return
+    }
+    if (status === 'failed') {
+      failResultItem(item, res?.error || res?.message)
+      return
+    }
   }
-  item.status = 'failed'
-  item.error = '超时'
+  failResultItem(item, lastPollError ? `轮询超时：${lastPollError}` : '生成超时')
 }
 
-async function pollVideoTask(taskId, item) {
+async function pollVideoTask(taskId, item, run) {
   const maxMs = videoPollMaxMs.value
   const start = Date.now()
-  const { taskAPI } = await import('@/api/task')
+  let lastPollError = ''
   while (Date.now() - start < maxMs) {
     await new Promise((r) => setTimeout(r, 4000))
+    if (await waitForPendingCancellation(run)) return
+
+    let res
     try {
-      const res = await taskAPI.get(taskId)
-      if (res?.status === 'completed' && res?.result) {
-        const r = res.result
+      res = await taskAPI.get(taskId, { suppressErrorToast: true })
+      lastPollError = ''
+    } catch (error) {
+      lastPollError = error?.message || '任务状态读取失败'
+      continue
+    }
+    if (await waitForPendingCancellation(run)) return
+
+    const status = String(res?.status || '').toLowerCase()
+    if (status === 'completed') {
+      try {
+        const r = parseFreeCreateTaskResult(res.result)
+        const directLocalPath = String(r.local_path || '').replace(/^\/+/, '')
+        item.url = directLocalPath ? `/static/${directLocalPath}` : (r.video_url || null)
         const vgId = r.video_generation_id
         if (vgId) {
-          const vRes = await videosAPI.get(vgId)
-          item.url = vRes?.local_path ? '/static/' + vRes.local_path : vRes?.video_url
+          try {
+            const vRes = await videosAPI.get(vgId)
+            const localPath = String(vRes?.local_path || '').replace(/^\/+/, '')
+            item.url = localPath ? `/static/${localPath}` : (vRes?.video_url || item.url)
+          } catch (error) {
+            lastPollError = error?.message || '视频结果读取失败'
+            continue
+          }
         }
+        if (!item.url) throw new Error('任务完成但未返回视频地址')
         item.status = 'completed'
         return
-      }
-      if (res?.status === 'failed') {
-        item.status = 'failed'
-        item.error = res.error || '生成失败'
+      } catch (error) {
+        failResultItem(item, error?.message)
         return
       }
-    } catch (_) {}
+    }
+    if (isCancelledTaskStatus(status)) {
+      item.status = 'cancelled'
+      item.error = res?.error || res?.message || '生成已取消'
+      return
+    }
+    if (status === 'failed') {
+      failResultItem(item, res?.error || res?.message)
+      return
+    }
   }
-  item.status = 'failed'
-  item.error = '超时'
+  failResultItem(item, lastPollError ? `轮询超时：${lastPollError}` : '生成超时')
 }
 </script>
 
@@ -1017,7 +1190,8 @@ async function pollVideoTask(taskId, item) {
 }
 
 .media-loading,
-.media-error {
+.media-error,
+.media-cancelled {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1028,6 +1202,10 @@ async function pollVideoTask(taskId, item) {
 
 .media-error {
   color: #ef4444;
+}
+
+.media-cancelled {
+  color: #6b7280;
 }
 
 .result-meta {
