@@ -22,6 +22,7 @@
           type="button"
           class="pipeline-compact-action"
           data-testid="film-pipeline-action"
+          :disabled="starting || stopping"
           @click="runCompactAction"
         >
           <span>{{ compactAction.label }}</span>
@@ -131,8 +132,8 @@
           <ActionGate label="一键生成成片" :reason="productionReason">
             <el-button
               type="primary"
-              :loading="running && !paused"
-              :disabled="Boolean(productionReason)"
+              :loading="starting || (running && !paused && !stopping)"
+              :disabled="Boolean(productionReason) || starting"
               @click="$emit('start-one-click')"
             >
               一键生成成片
@@ -143,8 +144,8 @@
           <span class="pipeline-mode-label is-draft">草稿预演</span>
           <ActionGate label="仅生成文本框架" :reason="draftReason">
             <el-button
-              :loading="running && !paused"
-              :disabled="Boolean(draftReason)"
+              :loading="starting || (running && !paused && !stopping)"
+              :disabled="Boolean(draftReason) || starting"
               @click="$emit('start-text-framework')"
             >
               仅生成文本框架
@@ -166,8 +167,17 @@
           @click="$emit('retry-readiness')"
         >重试检查</el-button>
         <template v-if="running">
-          <el-button v-if="!paused" type="warning" @click="$emit('pause')">暂停</el-button>
-          <el-button v-else type="success" @click="$emit('resume')">继续</el-button>
+          <el-button v-if="!stopRequired && !paused" type="warning" :disabled="stopping" @click="$emit('pause')">暂停</el-button>
+          <el-button v-else-if="!stopRequired" type="success" :disabled="stopping" @click="$emit('resume')">继续</el-button>
+          <el-button
+            type="danger"
+            plain
+            :loading="stopping"
+            :disabled="stopping"
+            @click="$emit('cancel')"
+          >
+            {{ stopRequired ? '重试停止' : '停止' }}
+          </el-button>
         </template>
       </div>
     </div>
@@ -227,6 +237,9 @@ const props = defineProps({
   productionReadinessReason: { type: String, default: '' },
   productionReadinessState: { type: String, default: 'ready' },
   productionReadinessServiceType: { type: String, default: '' },
+  starting: { type: Boolean, default: false },
+  stopping: { type: Boolean, default: false },
+  stopRequired: { type: Boolean, default: false },
   running: { type: Boolean, default: false },
   paused: { type: Boolean, default: false },
   errorLog: { type: Array, default: () => [] },
@@ -255,6 +268,7 @@ const emit = defineEmits([
   'retry-readiness',
   'pause',
   'resume',
+  'cancel',
   'skip-countdown',
 ])
 
@@ -265,17 +279,22 @@ const draftReason = computed(() => props.draftDisabledReason || props.disabledRe
 const focusReason = computed(() => props.running ? '' : productionReason.value)
 const longFocusReason = computed(() => focusReason.value.length > 56)
 const focusState = computed(() => {
+  if (props.starting) return 'checking'
+  if (props.stopRequired) return 'error'
   if (props.running) return props.paused ? 'paused' : 'running'
   if (!draftReason.value && props.productionReadinessState === 'checking') return 'checking'
   if (!draftReason.value && props.productionReadinessState === 'error') return 'error'
   return focusReason.value ? 'blocked' : 'ready'
 })
 const focusKicker = computed(() => {
+  if (props.stopRequired) return '停止受阻'
   if (!draftReason.value && props.productionReadinessState === 'checking') return '能力检查'
   if (!draftReason.value && props.productionReadinessState === 'error') return '检查失败'
   return focusReason.value ? '当前阻断' : '当前任务'
 })
 const focusTitle = computed(() => {
+  if (props.starting) return '正在确认完整成片的运行条件'
+  if (props.stopRequired) return '全流程停止未完成'
   if (props.running) {
     return cleanCurrentStep.value || (props.paused ? '全流程生成已暂停' : '正在执行全流程生成')
   }
@@ -284,6 +303,8 @@ const focusTitle = computed(() => {
   return focusReason.value ? '完整成片暂不可生成' : '完整成片已可生成'
 })
 const focusNextStep = computed(() => {
+  if (props.starting) return '确认服务能力与本次调用范围'
+  if (props.stopRequired) return '重试停止剩余远端任务'
   if (props.running) return props.paused ? '继续当前生成流程' : '等待当前阶段完成'
   if (draftReason.value) return '处理当前阻断后再启动生成'
   if (props.productionReadinessState === 'checking') return '等待检查完成'
@@ -311,6 +332,7 @@ const compactAction = computed(() => getPipelineCompactAction({
 }))
 
 function runCompactAction() {
+  if (props.starting || props.stopping) return
   const action = compactAction.value
   if (!action) return
   if (action.event === 'open-ai-config') emit(action.event, action.payload, { source: 'compact-action' })

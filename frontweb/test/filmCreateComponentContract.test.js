@@ -325,6 +325,7 @@ const pipelineEventListeners = {
   onOpenAiConfig: (value, events) => events.push(['open-ai-config', value]),
   onPause: (_value, events) => events.push(['pause']),
   onResume: (_value, events) => events.push(['resume']),
+  onCancel: (_value, events) => events.push(['cancel']),
   onSkipCountdown: (_value, events) => events.push(['skip-countdown']),
   onRetryReadiness: (_value, events) => events.push(['retry-readiness']),
 }
@@ -613,7 +614,7 @@ test('pipeline settings emit update events and persistence intent', () => {
   }
 })
 
-test('pipeline forwards start, pause, resume, and countdown skip commands', async () => {
+test('pipeline forwards start, pause, resume, stop, and countdown skip commands', async () => {
   const harness = mountPipeline()
   try {
     const [toggle] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-toggle')
@@ -632,6 +633,7 @@ test('pipeline forwards start, pause, resume, and countdown skip commands', asyn
     }
     await nextTick()
     buttonByText(harness.root, '暂停').props.onClick()
+    buttonByText(harness.root, '停止').props.onClick()
     buttonByText(harness.root, '立即开始下一阶段').props.onClick()
 
     harness.props.value = { ...harness.props.value, paused: true }
@@ -642,9 +644,35 @@ test('pipeline forwards start, pause, resume, and countdown skip commands', asyn
       ['start-one-click'],
       ['start-text-framework'],
       ['pause'],
+      ['cancel'],
       ['skip-countdown'],
       ['resume'],
     ])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('pipeline disables both launch commands while start checks are pending', async () => {
+  const harness = mountPipeline({ starting: true })
+  try {
+    const [toggle] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-toggle')
+    toggle.props.onClick()
+    await nextTick()
+
+    assert.equal(buttonByText(harness.root, '一键生成成片').props.disabled, true)
+    assert.equal(buttonByText(harness.root, '仅生成文本框架').props.disabled, true)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('pipeline cancellation failure exposes retry without pause or resume commands', async () => {
+  const harness = mountPipeline({ running: true, stopRequired: true })
+  try {
+    assert.match(textContent(harness.root), /全流程停止未完成/)
+    assert.ok(buttonByText(harness.root, '重试停止'))
+    assert.doesNotMatch(textContent(harness.root), /暂停|继续/)
   } finally {
     harness.app.unmount()
   }
