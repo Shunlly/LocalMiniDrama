@@ -336,14 +336,14 @@ npm run checkpoint:rollback -- -CheckpointDirectory $checkpoint
 
 `checkpoint:rollback` 要求当前服务由 `npm run docker:up` 构建且健康。脚本会在停机前从实际运行容器捕获不可变镜像 ID 和真实配置 bind mount，核对两份镜像 revision 与当前 Git SHA 一致，把两份镜像打上提交专属标签并保存到 `images.tar`，同时归档 Compose、运行配置及所有 SHA-256；随后才停止 Docker、创建真实数据备份并执行同提交隔离演练。中途失败会尝试用已捕获镜像自动恢复原服务。检查点必须位于仓库之外且至少保留到新版本完成业务验收，不能只保留 metadata 而删除 `images.tar`。
 
-需要回退时，保持当前部署运行且健康，直接执行恢复命令。脚本会先捕获升级后容器、镜像和配置作为自动补偿目标，通过预检查后才停止容器、备份升级后数据并恢复旧数据与旧镜像；不要预先停机，也不要覆盖或移动正式发布标签：
+需要回退时，优先保持当前部署运行并直接执行恢复命令；若升级后容器已经 unhealthy 或 stopped，只要 Compose 容器尚未被删除，脚本仍会从容器捕获镜像、revision、状态和配置作为补偿证据后继续回退。不要先执行会删除容器的 `docker compose down`，也不要覆盖或移动正式发布标签：
 
 ```powershell
 $checkpoint = 'D:\backup\localminidrama-YYYYMMDD-HHMMSS'
 npm run restore:rollback -- -CheckpointDirectory $checkpoint
 ```
 
-`restore:rollback` 在接触数据前核对 metadata、数据 ZIP、Compose、运行配置、镜像归档、演练摘要的 SHA-256，并从 `images.tar` 加载后逐一核对旧镜像 ID 与 revision；同时捕获当前健康部署作为自动补偿目标。停机后先保留升级后数据补偿备份，再恢复旧数据并用归档 Compose / 配置及专用回退标签启动。旧版本启动失败时，脚本会自动恢复补偿数据和升级后镜像；补偿也失败才会报告双重故障。成功后仍需复验一条已有媒体播放链路，并在「AI 配置」重新填写所有备份策略排除的 Provider 凭据。不可移动或重写 `v1.3.3` 等正式标签。
+`restore:rollback` 在接触数据前核对 metadata、数据 ZIP、Compose、运行配置、镜像归档、演练摘要的 SHA-256，并从 `images.tar` 加载后逐一核对旧镜像 ID 与 revision；同时从当前 existing 容器捕获前向补偿目标，非健康状态会显式告警但不会阻断旧版本恢复。若当前容器已被删除，则因无法证明补偿镜像和配置而失败关闭。停机后先保留升级后数据补偿备份，再恢复旧数据并用归档 Compose / 配置及专用回退标签启动。旧版本启动失败时，脚本会尝试恢复补偿数据和升级后镜像；补偿也失败才会报告双重故障。成功后仍需复验一条已有媒体播放链路，并在「AI 配置」重新填写所有备份策略排除的 Provider 凭据。不可移动或重写 `v1.3.3` 等正式标签。
 
 **离线目录副本**：只有在后端和 Docker 均已停止时，才可复制整个 `backend-node/data/`；不要在 SQLite 正在写入时直接拷贝。
 

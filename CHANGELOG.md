@@ -31,6 +31,10 @@
 - **轻量发布契约**：发布元数据验证与 Electron 解包依赖隔离，未安装桌面依赖的 Linux CI 可独立加载；三类应用路径、扩展名、`resources/app.asar` 和 Fuse 证据继续精确校验。
 - **可重复回滚证据**：新增 `npm run verify:rollback`，在干净提交上运行 38 项备份恢复测试，并对当前数据执行凭据排除、临时归档、隔离恢复、SQLite 完整性、中断清理和恢复前副本校验；证据输出固定且独占，只有敏感临时工作区清理完成后才发布 PASS。
 - **失败关闭的正式回退**：新增 `checkpoint:rollback` 与 `restore:rollback`，逐步校验原生命令退出码、真实备份 SHA-256、旧提交、旧镜像 ID、同提交演练摘要和恢复后健康状态。
+- **CI 回滚硬门禁**：PR、`main` 与 tag Release 均在 Node 20 初始化隔离 SQLite/存储并运行 `verify:rollback`，校验证据 commit 与 `GITHUB_SHA` 一致；Windows 候选构建和 draft Release 显式依赖该门禁。
+- **故障态正式回退**：`restore:rollback` 可从 existing unhealthy/stopped Compose 容器捕获不可变镜像、revision、状态与配置后继续恢复；容器已被删除时仍失败关闭，避免伪造前向补偿能力。
+- **源码秘密扫描全历史/全路径覆盖**：Git 历史使用无路径豁免的 `.gitleaks.toml`；PR、`main` 与 tag workflow 通过固定 digest 的官方 Gitleaks 8.30.1 OCI 镜像显式扫描 `--all`，本地未跟踪依赖/运行/构建输出改用 `.gitleaks-worktree.toml`，强制提交到原运行目录或旧提交的秘密不再绕过门禁。
+- **剧集切换一致性**：制作台页头选择器改为受控提交，当前剧本落盘前保持旧集上下文并显示 busy/loading；保存成功后原子切换页头、正文和 URL，失败保持旧集。生产 E2E 会真实切到第二集、核对工作区标题并切回第一集。
 - **回滚部署身份绑定**：检查点在停机前捕获实际运行容器，要求 OCI revision 与 Git SHA 一致并归档 Compose / 配置；回退前保留升级后数据补偿备份，旧版本启动失败时自动恢复升级后数据与镜像。
 - **回滚镜像离线保留**：检查点同时捕获实际配置 bind mount，并把旧后端/前端镜像以提交专属标签保存到带 SHA-256 的 `images.tar`；恢复前先加载并核对镜像 ID 与 revision，避免本地镜像清理后回退失效。
 - **Docker 配置净化**：宿主机配置只读挂载到隔离的 source 路径，入口脚本在降权前重新执行 runtime policy，应用只读取 `/tmp` 中的净化配置，避免 Compose bind mount 绕过镜像策略。

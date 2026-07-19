@@ -10,15 +10,18 @@
         <span class="breadcrumb-sep">›</span>
         <div class="header-context">
           <span class="header-context-label">项目</span>
-          <span class="page-title" :title="projectPageTitle">{{ projectPageTitle }}</span>
+          <h1 class="page-title" :title="projectPageTitle">{{ projectPageTitle }}</h1>
         </div>
         <div v-if="projectLoadState === 'ready' && dramaId" class="header-context">
           <span class="header-context-label">当前集</span>
           <el-select
-            v-model="selectedEpisodeId"
             class="header-episode-select"
+            :model-value="selectedEpisodeId"
             aria-label="当前集"
+            :aria-busy="episodeSwitching"
             :title="selectedEpisodeContextLabel"
+            :loading="episodeSwitching"
+            :disabled="episodeSwitching"
             placeholder="选择集数"
             @change="onEpisodeSelect"
           >
@@ -2926,7 +2929,11 @@ import { sceneLibraryAPI } from '@/api/sceneLibrary'
 import { propLibraryAPI } from '@/api/propLibrary'
 import { parseScriptIntoEpisodes, episodesListToPlainScript } from '@/utils/scriptEpisodes'
 import { formatEpisodeContextLabel } from '@/utils/filmCreateContext'
-import { buildEpisodeDraftPayload, createScriptDraftController } from '@/utils/scriptDraft'
+import {
+  buildEpisodeDraftPayload,
+  createEpisodeSwitchController,
+  createScriptDraftController,
+} from '@/utils/scriptDraft'
 import { createLatestRequestGuard } from '@/utils/latestRequest.js'
 import { isPlaceholderMediaUrl, probeImageSource, storyboardImageUrl } from '@/utils/mediaUrl'
 import { getSbImagesList, hasRealMediaValue } from '@/utils/storyboardMedia'
@@ -3134,6 +3141,7 @@ const novelAiSummarize = ref(false)
 const novelImporting = ref(false)
 const scriptTitle = ref('')
 const selectedEpisodeId = ref(null)
+const episodeSwitching = ref(false)
 const selectedEpisodeContextLabel = computed(() => {
   const episodes = store.drama?.episodes || []
   const index = episodes.findIndex((episode) => (
@@ -3287,6 +3295,18 @@ async function persistScriptDraftSnapshot(snapshot) {
 async function flushScriptDraft() {
   await scriptDraftController.flush()
 }
+
+const episodeSwitchController = createEpisodeSwitchController({
+  flushDraft: flushScriptDraft,
+  resolveEpisode: (episodeId) => (store.drama?.episodes || []).find((episode) => (
+    Number(episode.id) === Number(episodeId)
+  )) || null,
+  commitEpisode: applySelectedEpisode,
+  refreshEpisode: refreshProjectDependencies,
+  onBusyChange: (busy) => {
+    episodeSwitching.value = busy
+  },
+})
 
 watch(
   [scriptTitle, () => scriptContent.value, currentEpisodeId],
@@ -5419,28 +5439,32 @@ function getSbVideoReferenceGrid(sb) {
 
 async function onEpisodeSelect(epId) {
   try {
-    await flushScriptDraft()
+    const result = await episodeSwitchController.select(epId)
+    if (!result.changed) syncEpisodeRouteQuery(selectedEpisodeId.value)
+    return result
   } catch (_) {
-    selectedEpisodeId.value = store.currentEpisode?.id ?? null
-    return
+    syncEpisodeRouteQuery(selectedEpisodeId.value)
+    ElMessage.error('当前剧本保存失败，未切换剧集，请重试。')
+    return { changed: false, episode: store.currentEpisode || null, reason: 'save_failed' }
   }
-  if (epId == null) {
+}
+
+function applySelectedEpisode(ep) {
+  if (!ep) {
     store.setCurrentEpisode(null)
     store.setScriptContent('')
     scriptTitle.value = ''
+    selectedEpisodeId.value = null
     syncStoryboardStateFromEpisode(null)
     markScriptDraftSaved()
     return
   }
-  const list = store.drama?.episodes || []
-  const ep = list.find((e) => Number(e.id) === Number(epId))
-  if (!ep) return
   store.setCurrentEpisode(ep)
   store.setScriptContent(ep.script_content || '')
   scriptTitle.value = ep.title || '第' + (ep.episode_number || 0) + '集'
+  selectedEpisodeId.value = ep.id
   syncStoryboardStateFromEpisode(ep)
   markScriptDraftSaved()
-  await refreshProjectDependencies(epId)
 }
 
 function friendlyFilmProjectLoadError(error) {
@@ -9452,22 +9476,20 @@ watch(() => route.params.id, () => {
 
 // 剧本分集切换时同步 URL query 参数（?episode=<episode_id>），使刷新/分享页面仍保持当前选中集
 // 同时监听 query 变化，支持浏览器前进/后退时自动切换对应集次
+function syncEpisodeRouteQuery(episodeId) {
+  if (!dramaId.value) return
+  const currentInQuery = route.query.episode != null ? Number(route.query.episode) : null
+  const desired = episodeId != null ? Number(episodeId) : null
+  if (currentInQuery === desired) return
+  const newQuery = { ...route.query }
+  if (desired != null) newQuery.episode = String(desired)
+  else delete newQuery.episode
+  router.replace({ query: newQuery }).catch(() => {})
+}
+
 watch(
   () => selectedEpisodeId.value,
-  (newId) => {
-    if (!dramaId.value) return
-    const currentInQuery = route.query.episode != null ? Number(route.query.episode) : null
-    const desired = newId != null ? Number(newId) : null
-    if (currentInQuery !== desired) {
-      const newQuery = { ...route.query }
-      if (desired != null) {
-        newQuery.episode = String(desired)
-      } else {
-        delete newQuery.episode
-      }
-      router.replace({ query: newQuery }).catch(() => {})
-    }
-  },
+  syncEpisodeRouteQuery,
   { flush: 'post' }
 )
 
@@ -9715,6 +9737,7 @@ html.light .logo-sub {
 }
 html.light .breadcrumb-sep { color: #d1d5db; }
 .page-title {
+  margin: 0;
   font-size: 0.82rem;
   font-weight: 500;
   color: #7a7a88;

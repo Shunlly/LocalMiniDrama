@@ -114,14 +114,14 @@ function Get-ImageRevision {
 
 function Get-RunningServiceEvidence {
   param([string]$Service)
-  $containerId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('compose', 'ps', '-q', $Service) -Label "$Service container lookup"
+  $containerId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('compose', 'ps', '-a', '-q', $Service) -Label "$Service container lookup"
   if ($containerId -notmatch '^[a-f0-9]{12,64}$') {
-    throw "The current $Service service must be running before rollback so automatic compensation remains possible."
+    throw "The current $Service container must still exist before rollback so immutable compensation evidence can be captured."
   }
   $status = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.State.Status}}') -Label "$Service container status"
   $health = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}') -Label "$Service container health"
   if ($status -ne 'running' -or $health -ne 'healthy') {
-    throw "The current $Service service must be running and healthy before rollback."
+    Write-Warning "The current $Service container is $status with health $health; rollback will continue using its immutable image and configuration evidence."
   }
   $imageId = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.Image}}') -Label "$Service image capture").ToLowerInvariant()
   $revision = Get-ImageRevision -ImageReference $imageId -Label "$Service image revision"
@@ -132,6 +132,7 @@ function Get-RunningServiceEvidence {
     container_id = $containerId
     image_id = $imageId
     revision = $revision
+    status = $status
     health = $health
   }
 }

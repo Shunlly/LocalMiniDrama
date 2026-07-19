@@ -126,3 +126,39 @@ export function createScriptDraftController({
     dispose: clearScheduledFlush,
   }
 }
+
+export function createEpisodeSwitchController({
+  flushDraft,
+  resolveEpisode,
+  commitEpisode,
+  refreshEpisode = async () => {},
+  onBusyChange = () => {},
+}) {
+  let queue = Promise.resolve()
+  let pendingOperations = 0
+
+  const completeOperation = () => {
+    pendingOperations = Math.max(0, pendingOperations - 1)
+    if (pendingOperations === 0) onBusyChange(false)
+  }
+
+  return {
+    select(episodeId) {
+      pendingOperations += 1
+      if (pendingOperations === 1) onBusyChange(true)
+
+      const operation = queue.then(async () => {
+        await flushDraft()
+        const episode = episodeId == null ? null : resolveEpisode(episodeId)
+        if (episodeId != null && !episode) {
+          return { changed: false, episode: null, reason: 'not_found' }
+        }
+        commitEpisode(episode)
+        if (episode) await refreshEpisode(episode.id)
+        return { changed: true, episode }
+      })
+      queue = operation.then(completeOperation, completeOperation)
+      return operation
+    },
+  }
+}

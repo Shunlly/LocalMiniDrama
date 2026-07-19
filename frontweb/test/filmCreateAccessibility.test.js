@@ -44,7 +44,7 @@ test('film create navigation and resource disclosure controls use native buttons
 })
 
 test('film create keeps the episode selector only in the page header', () => {
-  assert.equal((filmCreateSource.match(/v-model="selectedEpisodeId"/g) || []).length, 1)
+  assert.equal((filmCreateSource.match(/v-model="selectedEpisodeId"/g) || []).length, 0)
   assert.equal((filmCreateSource.match(/class="header-episode-select"/g) || []).length, 1)
 
   const selectStart = filmCreateSource.indexOf('class="header-episode-select"')
@@ -53,8 +53,14 @@ test('film create keeps the episode selector only in the page header', () => {
 
   assert.match(filmCreateSource, /class="header-context-label">项目<\/span>/)
   assert.match(filmCreateSource, /class="header-context-label">当前集<\/span>/)
-  assert.match(filmCreateSource, /class="page-title"\s+:title="projectPageTitle"/)
+  assert.match(filmCreateSource, /<h1 class="page-title"\s+:title="projectPageTitle">\{\{ projectPageTitle \}\}<\/h1>/)
+  assert.doesNotMatch(filmCreateSource, /<span class="page-title"/)
+  assert.match(filmCreateSource, /\.page-title\s*\{[\s\S]*?margin:\s*0;/)
   assert.match(episodeSelectSource, /aria-label="当前集"/)
+  assert.match(episodeSelectSource, /:model-value="selectedEpisodeId"/)
+  assert.match(episodeSelectSource, /:loading="episodeSwitching"/)
+  assert.match(episodeSelectSource, /:disabled="episodeSwitching"/)
+  assert.match(episodeSelectSource, /:aria-busy="episodeSwitching"/)
   assert.match(episodeSelectSource, /v-for="\(ep, index\) in \(store\.drama\?\.episodes \|\| \[\]\)"/)
   assert.match(episodeSelectSource, /:label="formatEpisodeContextLabel\(ep, index\)"/)
   assert.doesNotMatch(episodeSelectSource, /\bclearable\b/)

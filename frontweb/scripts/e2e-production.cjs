@@ -302,6 +302,35 @@ function assertCompleteEvidence(evidence) {
   assert.equal(focused.status, 'passed', 'focused desktop acceptance evidence must pass')
   assert.deepEqual(focused.primary_viewport, FOCUSED_DESKTOP_VIEWPORT)
   assert.deepEqual(focused.ai_two_column_viewport, AI_TWO_COLUMN_VIEWPORT)
+  assert.ok(Number(focused.episode.id) > 0, 'focused acceptance must identify the initial episode')
+  assert.equal(focused.episode.label, focused.episode.visible_label, 'focused episode title and visible label must match')
+  assert.equal(focused.episode.aria_label, UI.currentEpisode, 'focused episode selector must retain its accessible name')
+  assert.equal(Number(focused.episode.initial_route_id), Number(focused.episode.id), 'focused initial episode route is incorrect')
+  assert.ok(String(focused.episode.initial_script_title || '').trim(), 'focused initial script title is required')
+  assert.ok(Number(focused.episode.switched_id) > 0, 'focused acceptance must switch to another episode')
+  assert.notEqual(Number(focused.episode.switched_id), Number(focused.episode.id), 'focused episode switch must change ids')
+  assert.ok(String(focused.episode.switched_label || '').trim(), 'focused switched episode label is required')
+  assert.equal(
+    Number(focused.episode.switched_route_id),
+    Number(focused.episode.switched_id),
+    'focused switched episode route is incorrect',
+  )
+  assert.ok(String(focused.episode.switched_script_title || '').trim(), 'focused switched script title is required')
+  assert.ok(
+    focused.episode.switched_label.replace(/\s+/g, '').includes(
+      focused.episode.switched_script_title.replace(/\s+/g, ''),
+    ),
+    'focused switched episode label must identify its script title',
+  )
+  assert.equal(Number(focused.episode.restored_id), Number(focused.episode.id), 'focused acceptance must restore the original episode id')
+  assert.equal(Number(focused.episode.restored_route_id), Number(focused.episode.id), 'focused restored episode route is incorrect')
+  assert.equal(focused.episode.restored_label, focused.episode.label, 'focused acceptance must restore the original episode label')
+  assert.equal(
+    focused.episode.restored_script_title,
+    focused.episode.initial_script_title,
+    'focused acceptance must restore the original script title',
+  )
+  assert.equal(focused.episode.switch_restored, true, 'focused acceptance must restore the original episode')
   assert.equal(focused.source_handoff.project_card_entry, true)
   assert.equal(focused.source_handoff.return_hash, '#source-intake-workflow')
   assert.equal(focused.source_handoff.compact_complete, true)
@@ -809,6 +838,93 @@ async function waitForProjectTitle(page, expectedTitle) {
   await page.waitForFunction((expected) => (
     String(document.querySelector('.film-create .page-title')?.textContent || '').trim() === expected
   ), expectedTitle, { timeout: 30000 })
+}
+
+function formatExpectedEpisodeContextLabel(episode, fallbackIndex = 0) {
+  const number = Math.max(1, Number(episode?.episode_number) || Number(fallbackIndex) + 1)
+  const prefix = `\u7b2c ${number} \u96c6`
+  const title = String(episode?.title || '').trim()
+  if (!title || title.replace(/\s+/g, '') === `\u7b2c${number}\u96c6`) return prefix
+  return `${prefix} \u00b7 ${title}`
+}
+
+async function waitForEpisodeContext(page, expectedEpisodeLabel) {
+  const expectation = {
+    selector: '.film-create .header-episode-select',
+    ariaLabel: UI.currentEpisode,
+    episodeLabel: String(expectedEpisodeLabel || '').trim(),
+  }
+  assert.ok(expectation.episodeLabel, 'expected episode context label is required')
+  const snapshotHandle = await page.waitForFunction(({ selector, ariaLabel, episodeLabel }) => {
+    const root = document.querySelector(selector)
+    const combobox = root?.querySelector('input[role="combobox"]')
+    const selectedLabel = root?.querySelector(
+      '.el-select__selected-item.el-select__placeholder:not(.is-transparent)',
+    )
+    const title = String(root?.getAttribute('title') || '').replace(/\s+/g, ' ').trim()
+    const visibleLabel = String(selectedLabel?.textContent || '').replace(/\s+/g, ' ').trim()
+    const ariaBusy = String(root?.getAttribute('aria-busy') || 'false').trim()
+    const selectedStyle = selectedLabel ? getComputedStyle(selectedLabel) : null
+    const selectedLabelVisible = Boolean(
+      selectedLabel
+      && !selectedLabel.hidden
+      && selectedLabel.getClientRects().length > 0
+      && selectedStyle?.display !== 'none'
+      && selectedStyle?.visibility !== 'hidden',
+    )
+    const snapshot = {
+      title,
+      visibleLabel,
+      ariaLabel: String(combobox?.getAttribute('aria-label') || '').trim(),
+      ariaBusy,
+    }
+    return (
+      selectedLabelVisible
+      && combobox?.getAttribute('aria-label') === ariaLabel
+      && ariaBusy !== 'true'
+      && title === episodeLabel
+      && visibleLabel === episodeLabel
+    ) ? snapshot : false
+  }, expectation, { timeout: 30000 })
+  try {
+    return await snapshotHandle.jsonValue()
+  } finally {
+    await snapshotHandle.dispose()
+  }
+}
+
+async function waitForScriptEpisodeTitle(page, expectedTitle) {
+  const titleHandle = await page.waitForFunction((expected) => {
+    const value = String(document.querySelector('input[placeholder="\u96c6\u6807\u9898"]')?.value || '').trim()
+    return value === expected ? value : false
+  }, expectedTitle, { timeout: 30000 })
+  try {
+    return await titleHandle.jsonValue()
+  } finally {
+    await titleHandle.dispose()
+  }
+}
+
+async function selectEpisodeFromHeader(page, episode, fallbackIndex) {
+  assert.ok(episode?.id, 'header episode switch requires an episode id')
+  const expectedLabel = formatExpectedEpisodeContextLabel(episode, fallbackIndex)
+  const combobox = page.getByRole('combobox', { name: UI.currentEpisode, exact: true })
+  await combobox.click()
+  const option = page.getByRole('option', { name: expectedLabel, exact: true })
+  await option.waitFor({ state: 'visible', timeout: 30000 })
+  const navigation = page.waitForURL((url) => (
+    url.searchParams.get('episode') === String(episode.id)
+  ), { timeout: 30000 })
+  await option.click()
+  await navigation
+  const context = await waitForEpisodeContext(page, expectedLabel)
+  const routeEpisodeId = Number(new URL(page.url()).searchParams.get('episode'))
+  assert.equal(routeEpisodeId, Number(episode.id), 'header episode switch route is incorrect')
+  const expectedScriptTitle = String(
+    episode.title || `\u7b2c${Number(episode.episode_number) || fallbackIndex + 1}\u96c6`,
+  ).trim()
+  const scriptTitle = await waitForScriptEpisodeTitle(page, expectedScriptTitle)
+  return { ...context, routeEpisodeId, scriptTitle }
 }
 
 async function waitForEnabledAction(locator, label) {
@@ -2533,8 +2649,11 @@ async function verifyFocusedDesktopAcceptance(browser, {
   cleanupActions,
   evidenceRecorder,
 }) {
-  const firstEpisode = completedDrama?.episodes?.[0]
+  const completedEpisodes = completedDrama?.episodes || []
+  const firstEpisode = completedEpisodes[0]
+  const secondEpisode = completedEpisodes[1]
   assert.ok(firstEpisode?.id, 'focused acceptance requires the completed first episode')
+  assert.ok(secondEpisode?.id, 'focused acceptance requires a second episode for switch coverage')
   const textFixtures = providerState.created.filter((config) => (
     config.service_type === 'text' && String(config.name || '').includes(String(stamp))
   ))
@@ -2627,10 +2746,17 @@ async function verifyFocusedDesktopAcceptance(browser, {
     await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
     await waitForProjectTitle(page, fixtureTitle)
     assert.equal(String(await page.locator('.page-title').textContent() || '').trim(), fixtureTitle)
-    const episodeSelect = page.getByRole('combobox', { name: UI.currentEpisode, exact: true })
-    await episodeSelect.waitFor({ state: 'visible', timeout: 30000 })
-    const episodeLabel = String(await episodeSelect.getAttribute('title') || '')
-    assert.ok(episodeLabel.includes(firstEpisode.title || '\u7b2c 1 \u96c6'), 'current episode context is incorrect')
+    const expectedFirstEpisodeLabel = formatExpectedEpisodeContextLabel(firstEpisode, 0)
+    const episodeContext = await waitForEpisodeContext(page, expectedFirstEpisodeLabel)
+    const initialRouteEpisodeId = Number(new URL(page.url()).searchParams.get('episode'))
+    assert.equal(initialRouteEpisodeId, Number(firstEpisode.id), 'initial focused episode route is incorrect')
+    const expectedFirstScriptTitle = String(
+      firstEpisode.title || `\u7b2c${Number(firstEpisode.episode_number) || 1}\u96c6`,
+    ).trim()
+    const initialScriptTitle = await waitForScriptEpisodeTitle(page, expectedFirstScriptTitle)
+    const switchedEpisodeContext = await selectEpisodeFromHeader(page, secondEpisode, 1)
+    const restoredEpisodeContext = await selectEpisodeFromHeader(page, firstEpisode, 0)
+    const episodeLabel = episodeContext.title
 
     const currentSteps = page.locator('#film-create-quick-nav [aria-current="step"]')
     const completedSteps = page.locator('#film-create-quick-nav .status-done:not(.is-current)')
@@ -2787,7 +2913,23 @@ async function verifyFocusedDesktopAcceptance(browser, {
       primary_viewport: FOCUSED_DESKTOP_VIEWPORT,
       ai_two_column_viewport: AI_TWO_COLUMN_VIEWPORT,
       project: { id: dramaId, title: fixtureTitle },
-      episode: { id: firstEpisode.id, label: episodeLabel },
+      episode: {
+        id: firstEpisode.id,
+        label: episodeLabel,
+        visible_label: episodeContext.visibleLabel,
+        aria_label: episodeContext.ariaLabel,
+        initial_route_id: initialRouteEpisodeId,
+        initial_script_title: initialScriptTitle,
+        switched_id: secondEpisode.id,
+        switched_label: switchedEpisodeContext.title,
+        switched_route_id: switchedEpisodeContext.routeEpisodeId,
+        switched_script_title: switchedEpisodeContext.scriptTitle,
+        restored_id: firstEpisode.id,
+        restored_label: restoredEpisodeContext.title,
+        restored_route_id: restoredEpisodeContext.routeEpisodeId,
+        restored_script_title: restoredEpisodeContext.scriptTitle,
+        switch_restored: restoredEpisodeContext.title === episodeContext.title,
+      },
       source_handoff: {
         project_card_entry: true,
         return_hash: sourceUrl.hash,
@@ -3291,6 +3433,7 @@ module.exports = {
   captureAcceptanceReportScreenshots,
   extractZipEntries,
   fetchWithIdempotentRetry,
+  formatExpectedEpisodeContextLabel,
   focusedAiRouteAction,
   installProviderConfigs,
   installFocusedAiRoutes,
@@ -3312,9 +3455,11 @@ module.exports = {
   waitForEnabledAction,
   waitForAcceptanceCaptureReadiness,
   waitForCoverageCardMatrix,
+  waitForEpisodeContext,
   waitForWorkflow,
   waitForWorkflowWorkerDrain,
   waitForProjectTitle,
+  selectEpisodeFromHeader,
   writeAcceptanceManifest,
 }
 

@@ -234,6 +234,9 @@ npm run verify:release:source
 # Windows 桌面候选构建与 smoke 验证；仍需独立安全扫描
 npm run verify:release:windows
 
+# 当前干净提交的数据备份/隔离恢复演练；PR、main 与 tag Release 也会在 Node 20 运行隔离门禁
+npm run verify:rollback
+
 # 对已独立扫描且具备 artifact-security.json、release-manifest.json、SHA256SUMS 的候选做离线复核
 npm run verify:release:artifacts
 
@@ -242,6 +245,8 @@ npm run verify:release
 ```
 
 完整的安全扫描、回滚检查点和发布顺序见 [开发/打包/Docker 指南](docs/quickstart.md)。
+
+源码历史 secret scan 使用不含路径豁免的 `.gitleaks.toml`；PR、`main` 和 tag workflow 除事件范围检查外，还会用固定 digest 的官方 Gitleaks 8.30.1 OCI 镜像扫描 `--all`。本地未跟踪依赖、运行数据和构建输出的目录扫描使用 `.gitleaks-worktree.toml`。Windows 发布制品继续使用独立的 `.gitleaks-artifacts.toml`，三者不能互换。
 
 生产后端不会直接使用宿主机原始 YAML：Compose 将可选的 `LOCALMINIDRAMA_CONFIG_DIR` 挂载到 `/app/config-source`，入口脚本启动时用 `runtime-config-policy.cjs` 净化到 `/tmp/localminidrama-config/config.yaml`，再以 `node` 用户启动服务。这样即使外部配置包含调试开关或敏感字段，运行配置仍按发布策略收敛；自定义配置目录中的 `config.yaml` 会在启动时重新校验。
 

@@ -471,6 +471,9 @@ test('rollback restore captures the running container ID needed for compensation
 
   assert.match(evidenceFunction, /container_id\s*=\s*\$containerId/)
   assert.match(rollbackRestoreScript, /Get-ContainerBindSource -ContainerId \$currentBackend\.container_id/)
+  assert.match(evidenceFunction, /compose', 'ps', '-a', '-q'/)
+  assert.doesNotMatch(evidenceFunction, /must be running and healthy before rollback/)
+  assert.match(evidenceFunction, /status\s*=\s*\$status[\s\S]*health\s*=\s*\$health/)
 })
 
 test('rollback checkpoints archive only sanitized runtime config and require credential reconfiguration', (t) => {
@@ -563,13 +566,22 @@ test('dist:mac fails closed before any build or upload command can run', () => {
 
 test('release workflow separates read-only build, artifact verification and publishing', () => {
   assert.match(workflow, /^permissions:\r?\n  contents: read$/m)
+  const rollback = jobBlock('rollback-drill')
   const build = jobBlock('build-windows')
   const artifactScan = jobBlock('scan-windows-artifacts')
   const trivyScan = jobBlock('scan-trivy-artifacts')
   const artifactVerification = jobBlock('verify-artifacts')
   const publish = jobBlock('publish-release')
 
-  assert.match(build, /needs: production-e2e/)
+  assert.match(rollback, /runs-on: ubuntu-latest/)
+  assert.match(rollback, /node-version: '20'/)
+  assert.match(rollback, /npm --prefix backend-node ci/)
+  assert.match(rollback, /npm --prefix backend-node run migrate/)
+  assert.match(rollback, /npm run verify:rollback/)
+  assert.match(rollback, /summary\.source\.commit[\s\S]*GITHUB_SHA/)
+  assert.match(rollback, /name: release-rollback-drill-\$\{\{ github\.sha \}\}/)
+
+  assert.match(build, /needs: \[production-e2e, rollback-drill\]/)
   assert.match(build, /permissions:\r?\n      contents: read/)
   assert.doesNotMatch(build, /contents: write|GH_TOKEN|action-gh-release|attest-build-provenance/)
   assert.match(build, /npm run dist/)
@@ -649,7 +661,7 @@ test('release workflow separates read-only build, artifact verification and publ
   assert.match(artifactVerification, /attestations: write/)
   assert.match(artifactVerification, /id-token: write/)
 
-  assert.match(publish, /needs: \[production-e2e, scan-trivy-artifacts, verify-artifacts\]/)
+  assert.match(publish, /needs: \[production-e2e, rollback-drill, scan-trivy-artifacts, verify-artifacts\]/)
   assert.match(publish, /permissions:\r?\n      contents: write/)
   assert.match(publish, /softprops\/action-gh-release@[a-f0-9]{40}/)
   for (const block of [trivyScan, artifactVerification, publish]) {
@@ -657,6 +669,16 @@ test('release workflow separates read-only build, artifact verification and publ
     assert.match(block, /desktop\/release\/LocalMiniDrama-Unpacked-\*-x64\.zip/)
   }
   assert.doesNotMatch(publish, /electron-builder|npm run dist/)
+})
+
+test('CI runs the isolated rollback drill before a release tag is created', () => {
+  const rollback = jobBlock('rollback-drill', ciWorkflow)
+  assert.match(rollback, /runs-on: ubuntu-latest/)
+  assert.match(rollback, /node-version: '20'/)
+  assert.match(rollback, /npm --prefix backend-node ci/)
+  assert.match(rollback, /npm --prefix backend-node run migrate/)
+  assert.match(rollback, /npm run verify:rollback/)
+  assert.match(rollback, /summary\.source\.commit[\s\S]*GITHUB_SHA/)
 })
 
 test('third-party workflow actions are pinned to full commit digests', () => {
@@ -762,11 +784,15 @@ test('artifact secret scanning excludes only pass markers and raw ASAR container
   assert.doesNotMatch(artifactGitleaksConfig, /desktop\/release|node_modules|\(\?:\[\^\/\]\+\)\?/)
 })
 
-test('source secret scanning uses exact generated-output paths and historical fingerprints', () => {
-  assert.deepEqual(parseToml(sourceGitleaksConfig), {
+test('source secret scanning covers every tracked path and isolates worktree output exclusions', () => {
+  assert.deepEqual(parseToml(sourceGitleaksConfig), { extend: { useDefault: true } })
+
+  const worktreeConfigPath = path.join(root, '.gitleaks-worktree.toml')
+  assert.equal(fs.existsSync(worktreeConfigPath), true, 'worktree-only Gitleaks config is missing')
+  assert.deepEqual(parseToml(fs.readFileSync(worktreeConfigPath, 'utf8')), {
     extend: { useDefault: true },
     allowlist: {
-      description: 'Generated outputs and local runtime data are scanned by separate artifact gates',
+      description: 'Untracked runtime, dependency, evidence, and build outputs are scanned by their artifact-specific gates',
       paths: [
         '(^|/)\\.codex-audit/',
         '(^|/)artifacts/',
@@ -788,6 +814,20 @@ test('source secret scanning uses exact generated-output paths and historical fi
     'ececcdcb6b14f40b8d3fec42a38a2633593b4613:desktop/backend-app-secure/src/app.js:generic-api-key:1',
     '6b216ed727772ab794d5c0bfd6c717b3425d164a:frontweb/test/acceptanceReportVerifier.test.js:generic-api-key:396',
   ])
+
+  for (const secretScanJob of [
+    jobBlock('secret-scan', ciWorkflow),
+    jobBlock('production-e2e', workflow),
+  ]) {
+    assert.match(secretScanJob, /gitleaks\/gitleaks-action@[a-f0-9]{40}/)
+    assert.match(
+      secretScanJob,
+      /GITLEAKS_IMAGE:\s*ghcr\.io\/gitleaks\/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f/,
+    )
+    assert.match(secretScanJob, /docker run --rm "\$GITLEAKS_IMAGE" version[\s\S]*v8\.30\.1/)
+    assert.match(secretScanJob, /--volume "\$GITHUB_WORKSPACE:\/repo:ro"/)
+    assert.match(secretScanJob, /git --config \.gitleaks\.toml --redact --no-banner --log-opts=--all/)
+  }
 })
 
 test('release tag parsing fails closed in tag context', () => {

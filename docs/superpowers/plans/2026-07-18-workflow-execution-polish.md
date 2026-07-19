@@ -643,7 +643,7 @@ release evidence against history and the final worktree:
 
 ```powershell
 gitleaks git --config .gitleaks.toml --redact --no-banner --log-opts="--all"
-gitleaks dir . --config .gitleaks.toml --redact --no-banner
+gitleaks dir . --config .gitleaks-worktree.toml --redact --no-banner
 ```
 
 Run rollback verification from a clean commit:

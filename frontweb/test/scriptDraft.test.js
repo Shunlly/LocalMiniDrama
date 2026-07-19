@@ -1,10 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {
+import * as scriptDraft from '../src/utils/scriptDraft.js'
+
+const {
   buildEpisodeDraftPayload,
+  createEpisodeSwitchController,
   createScriptDraftController,
   scriptDraftFingerprint,
-} from '../src/utils/scriptDraft.js'
+} = scriptDraft
 
 test('draft payload updates only the selected episode and preserves all siblings', () => {
   const episodes = [
@@ -78,4 +81,86 @@ test('failed saves remain pending for a later flush', async () => {
   await controller.flush()
   assert.equal(attempts, 2)
   assert.equal(controller.hasPendingChanges(), false)
+})
+
+test('episode switch waits for the current draft before committing the next episode', async () => {
+  assert.equal(typeof createEpisodeSwitchController, 'function', 'missing draft-safe episode switch controller')
+  let releaseDraft
+  const draftGate = new Promise((resolve) => { releaseDraft = resolve })
+  const events = []
+  const busyStates = []
+  const episodes = [
+    { id: 11, title: 'One' },
+    { id: 12, title: 'Two' },
+  ]
+  const controller = createEpisodeSwitchController({
+    flushDraft: async () => {
+      events.push('flush:start')
+      await draftGate
+      events.push('flush:end')
+    },
+    resolveEpisode: (id) => episodes.find((episode) => episode.id === Number(id)) || null,
+    commitEpisode: (episode) => events.push(`commit:${episode?.id ?? 'none'}`),
+    refreshEpisode: async (id) => events.push(`refresh:${id}`),
+    onBusyChange: (busy) => busyStates.push(busy),
+  })
+
+  const switching = controller.select(12)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(events, ['flush:start'], 'the visible episode must remain committed while its draft is saving')
+  assert.deepEqual(busyStates, [true])
+
+  releaseDraft()
+  assert.deepEqual(await switching, { changed: true, episode: episodes[1] })
+  assert.deepEqual(events, ['flush:start', 'flush:end', 'commit:12', 'refresh:12'])
+  assert.deepEqual(busyStates, [true, false])
+})
+
+test('episode switch failure keeps the committed episode and clears its busy state', async () => {
+  const commits = []
+  const busyStates = []
+  const controller = createEpisodeSwitchController({
+    flushDraft: async () => { throw new Error('save failed') },
+    resolveEpisode: () => ({ id: 12 }),
+    commitEpisode: (episode) => commits.push(episode),
+    onBusyChange: (busy) => busyStates.push(busy),
+  })
+
+  await assert.rejects(controller.select(12), /save failed/)
+  assert.deepEqual(commits, [])
+  assert.deepEqual(busyStates, [true, false])
+})
+
+test('episode switch serializes requests without dropping a later route change', async () => {
+  const events = []
+  let releaseFirstRefresh
+  const firstRefresh = new Promise((resolve) => { releaseFirstRefresh = resolve })
+  const episodes = [{ id: 12 }, { id: 13 }]
+  const controller = createEpisodeSwitchController({
+    flushDraft: async () => events.push('flush'),
+    resolveEpisode: (id) => episodes.find((episode) => episode.id === Number(id)) || null,
+    commitEpisode: (episode) => events.push(`commit:${episode.id}`),
+    refreshEpisode: async (id) => {
+      events.push(`refresh:${id}`)
+      if (id === 12) await firstRefresh
+    },
+    onBusyChange: (busy) => events.push(`busy:${busy}`),
+  })
+
+  const first = controller.select(12)
+  await new Promise((resolve) => setImmediate(resolve))
+  const second = controller.select(13)
+  releaseFirstRefresh()
+  await Promise.all([first, second])
+
+  assert.deepEqual(events, [
+    'busy:true',
+    'flush',
+    'commit:12',
+    'refresh:12',
+    'flush',
+    'commit:13',
+    'refresh:13',
+    'busy:false',
+  ])
 })

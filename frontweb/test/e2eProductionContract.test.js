@@ -29,6 +29,7 @@ const {
   cancelAndWaitForWorkflowWorkerDrain,
   extractZipEntries,
   fetchWithIdempotentRetry,
+  formatExpectedEpisodeContextLabel,
   focusedAiRouteAction,
   installFocusedAiRoutes,
   main: runProductionE2e,
@@ -39,6 +40,7 @@ const {
   waitForEnabledAction,
   waitForAcceptanceCaptureReadiness,
   waitForCoverageCardMatrix,
+  waitForEpisodeContext,
   waitForProjectTitle,
   waitForWorkflowWorkerDrain,
 } = productionE2e
@@ -125,7 +127,23 @@ function focusedAcceptanceEvidence() {
     primary_viewport: { width: 1280, height: 720 },
     ai_two_column_viewport: { width: 1024, height: 768 },
     project: { id: 1, title: 'Focused fixture' },
-    episode: { id: 1, label: '\u7b2c 1 \u96c6' },
+    episode: {
+      id: 1,
+      label: '\u7b2c 1 \u96c6',
+      visible_label: '\u7b2c 1 \u96c6',
+      aria_label: '\u5f53\u524d\u96c6',
+      initial_route_id: 1,
+      initial_script_title: '\u7b2c1\u96c6',
+      switched_id: 2,
+      switched_label: '\u7b2c 2 \u96c6 \u00b7 \u7b2c\u4e8c\u5e55',
+      switched_route_id: 2,
+      switched_script_title: '\u7b2c\u4e8c\u5e55',
+      restored_id: 1,
+      restored_label: '\u7b2c 1 \u96c6',
+      restored_route_id: 1,
+      restored_script_title: '\u7b2c1\u96c6',
+      switch_restored: true,
+    },
     source_handoff: {
       project_card_entry: true,
       return_hash: '#source-intake-workflow',
@@ -584,6 +602,54 @@ test('production evidence can seal a complete successful acceptance package', as
       }),
       /clean Git working tree/,
     )
+    assert.throws(
+      () => assertCompleteEvidence({
+        ...persistedEvidence,
+        browser: {
+          ...persistedEvidence.browser,
+          focused_acceptance: {
+            ...persistedEvidence.browser.focused_acceptance,
+            episode: {
+              ...persistedEvidence.browser.focused_acceptance.episode,
+              switch_restored: false,
+            },
+          },
+        },
+      }),
+      /restore the original episode/,
+    )
+    assert.throws(
+      () => assertCompleteEvidence({
+        ...persistedEvidence,
+        browser: {
+          ...persistedEvidence.browser,
+          focused_acceptance: {
+            ...persistedEvidence.browser.focused_acceptance,
+            episode: {
+              ...persistedEvidence.browser.focused_acceptance.episode,
+              switched_route_id: 3,
+            },
+          },
+        },
+      }),
+      /switched episode route/,
+    )
+    assert.throws(
+      () => assertCompleteEvidence({
+        ...persistedEvidence,
+        browser: {
+          ...persistedEvidence.browser,
+          focused_acceptance: {
+            ...persistedEvidence.browser.focused_acceptance,
+            episode: {
+              ...persistedEvidence.browser.focused_acceptance.episode,
+              restored_script_title: '\u5176\u4ed6\u5267\u672c',
+            },
+          },
+        },
+      }),
+      /restore the original script title/,
+    )
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true })
   }
@@ -801,7 +867,9 @@ test('focused desktop acceptance is isolated from expensive media workflows', ()
     "getByTestId('source-workflow-complete')",
     'UI.enterProduction',
     "page.locator('.page-title')",
-    "getByRole('combobox', { name: UI.currentEpisode",
+    'waitForEpisodeContext(page,',
+    'selectEpisodeFromHeader(page, secondEpisode, 1)',
+    'selectEpisodeFromHeader(page, firstEpisode, 0)',
     "page.locator('#film-create-quick-nav [aria-current=\"step\"]')",
     ".status-done:not(.is-current)",
     "getByTestId('film-pipeline-action')",
@@ -809,6 +877,22 @@ test('focused desktop acceptance is isolated from expensive media workflows', ()
   assert.doesNotMatch(
     focused,
     /verifyPlayableVideo|\.play\(|verifyFinalVideoDownloadUi|verifyProjectExportUi|startProductionFromUi|startDraftFromUi/,
+  )
+})
+
+test('focused episode context formats the exact user-visible number and title', () => {
+  assert.equal(typeof formatExpectedEpisodeContextLabel, 'function')
+  assert.equal(
+    formatExpectedEpisodeContextLabel({ episode_number: 2, title: '\u7b2c\u4e8c\u5e55' }, 1),
+    '\u7b2c 2 \u96c6 \u00b7 \u7b2c\u4e8c\u5e55',
+  )
+  assert.equal(
+    formatExpectedEpisodeContextLabel({ episode_number: 1, title: '\u7b2c1\u96c6' }, 0),
+    '\u7b2c 1 \u96c6',
+  )
+  assert.equal(
+    formatExpectedEpisodeContextLabel({ episode_number: 1, title: '\u7b2c 1 \u96c6' }, 0),
+    '\u7b2c 1 \u96c6',
   )
 })
 
@@ -863,6 +947,128 @@ test('project title readiness waits for the exact project name and propagates ti
     'waitForProjectTitle(page, fixtureTitle)',
     "page.locator('#film-create-quick-nav [aria-current=\"step\"]')",
   ])
+})
+
+test('episode context readiness waits for the root title and visible selected label', async () => {
+  assert.equal(typeof waitForEpisodeContext, 'function', 'missing exported episode context readiness helper')
+
+  const expectedEpisodeTitle = '\u96e8\u591c\u6765\u7535'
+  const expectedEpisodeLabel = `\u7b2c 1 \u96c6 \u00b7 ${expectedEpisodeTitle}`
+  let title = '\u672a\u9009\u62e9\u5267\u96c6'
+  let visibleLabel = '\u9009\u62e9\u96c6\u6570'
+  let ariaLabel = '\u5176\u4ed6\u9009\u62e9\u5668'
+  let ariaBusy = 'false'
+  let selectedLabelVisible = true
+  let snapshotDisposed = false
+  const selector = '.film-create .header-episode-select'
+  const combobox = {
+    getAttribute(name) {
+      if (name === 'aria-label') return ariaLabel
+      if (name === 'title') assert.fail('episode title belongs to the select root, not the combobox input')
+      return null
+    },
+  }
+  const selectedLabel = {
+    get textContent() {
+      return visibleLabel
+    },
+    get hidden() {
+      return !selectedLabelVisible
+    },
+    getClientRects() {
+      return selectedLabelVisible ? [{ width: 120, height: 32 }] : []
+    },
+  }
+  const root = {
+    getAttribute(name) {
+      if (name === 'title') return title
+      if (name === 'aria-busy') return ariaBusy
+      return null
+    },
+    querySelector(actualSelector) {
+      if (actualSelector === 'input[role="combobox"]') return combobox
+      if (actualSelector === '.el-select__selected-item.el-select__placeholder:not(.is-transparent)') return selectedLabel
+      assert.fail(`unexpected episode context selector: ${actualSelector}`)
+    },
+  }
+  const page = {
+    async waitForFunction(predicate, expectation, options) {
+      assert.deepEqual(options, { timeout: 30000 }, 'episode readiness must use a bounded page wait')
+      assert.deepEqual(expectation, {
+        selector,
+        ariaLabel: '\u5f53\u524d\u96c6',
+        episodeLabel: expectedEpisodeLabel,
+      })
+      const hadOwnDocument = Object.prototype.hasOwnProperty.call(globalThis, 'document')
+      const originalDocument = globalThis.document
+      const hadOwnGetComputedStyle = Object.prototype.hasOwnProperty.call(globalThis, 'getComputedStyle')
+      const originalGetComputedStyle = globalThis.getComputedStyle
+      globalThis.document = {
+        querySelector(actualSelector) {
+          assert.equal(actualSelector, selector)
+          return root
+        },
+      }
+      globalThis.getComputedStyle = () => ({
+        display: selectedLabelVisible ? 'block' : 'none',
+        visibility: selectedLabelVisible ? 'visible' : 'hidden',
+      })
+      try {
+        assert.equal(predicate(expectation), false, 'placeholder context must not satisfy readiness')
+        title = expectedEpisodeLabel
+        assert.equal(predicate(expectation), false, 'title alone must not satisfy readiness')
+        visibleLabel = title
+        assert.equal(predicate(expectation), false, 'title and visible label must not bypass the combobox name')
+        ariaLabel = '\u5f53\u524d\u96c6'
+        selectedLabelVisible = false
+        assert.equal(predicate(expectation), false, 'a hidden selected label must not satisfy readiness')
+        selectedLabelVisible = true
+        title = `\u5907\u4efd \u00b7 ${expectedEpisodeTitle}`
+        visibleLabel = title
+        assert.equal(predicate(expectation), false, 'a partial title match must not satisfy exact episode context')
+        title = expectedEpisodeLabel
+        visibleLabel = title
+        ariaBusy = 'true'
+        assert.equal(predicate(expectation), false, 'a busy episode switch must not satisfy readiness')
+        ariaBusy = 'false'
+        const snapshot = predicate(expectation)
+        assert.deepEqual(snapshot, {
+          title,
+          visibleLabel,
+          ariaLabel,
+          ariaBusy,
+        })
+        return {
+          async jsonValue() {
+            return snapshot
+          },
+          async dispose() {
+            snapshotDisposed = true
+          },
+        }
+      } finally {
+        if (hadOwnDocument) globalThis.document = originalDocument
+        else delete globalThis.document
+        if (hadOwnGetComputedStyle) globalThis.getComputedStyle = originalGetComputedStyle
+        else delete globalThis.getComputedStyle
+      }
+    },
+  }
+
+  assert.deepEqual(await waitForEpisodeContext(page, expectedEpisodeLabel), {
+    title: expectedEpisodeLabel,
+    visibleLabel: expectedEpisodeLabel,
+    ariaLabel: '\u5f53\u524d\u96c6',
+    ariaBusy: 'false',
+  })
+  assert.equal(snapshotDisposed, true, 'episode readiness must dispose its browser handle')
+
+  const timeout = new Error('Timed out waiting for episode context')
+  await assert.rejects(
+    waitForEpisodeContext({ waitForFunction: async () => { throw timeout } }, expectedEpisodeLabel),
+    timeout,
+    'episode readiness must not swallow page wait failures',
+  )
 })
 
 test('enabled action readiness waits through a trial click and preserves failures', async () => {
