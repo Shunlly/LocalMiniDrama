@@ -31,6 +31,7 @@ const {
   main: runProductionE2e,
   resetAcceptanceReportArtifacts,
   sanitizeEvidenceText,
+  waitForProjectTitle,
 } = productionE2e
 const productionSource = readFileSync(new URL('../scripts/e2e-production.cjs', import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
 const frontendPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
@@ -800,6 +801,59 @@ test('focused desktop acceptance is isolated from expensive media workflows', ()
     focused,
     /verifyPlayableVideo|\.play\(|verifyFinalVideoDownloadUi|verifyProjectExportUi|startProductionFromUi|startDraftFromUi/,
   )
+})
+
+test('project title readiness waits for the exact project name and propagates timeouts', async () => {
+  assert.equal(typeof waitForProjectTitle, 'function', 'missing exported project title readiness helper')
+
+  let title = '\u6b63\u5728\u52a0\u8f7d\u9879\u76ee'
+  const expectedTitle = 'Focused fixture'
+  const observedTitles = []
+  const hadOwnDocument = Object.prototype.hasOwnProperty.call(globalThis, 'document')
+  const originalDocument = globalThis.document
+  const page = {
+    waitForFunction: async (predicate, expected, options) => {
+      assert.deepEqual(options, { timeout: 30000 }, 'title readiness must use a bounded page wait')
+      const replacedHadOwnDocument = Object.prototype.hasOwnProperty.call(globalThis, 'document')
+      const replacedDocument = globalThis.document
+      globalThis.document = {
+        querySelector: (selector) => {
+          assert.equal(selector, '.film-create .page-title', 'title readiness must stay within FilmCreate')
+          return { textContent: title }
+        },
+      }
+      try {
+        observedTitles.push(title)
+        assert.equal(predicate(expected), false, 'loading copy must not satisfy title readiness')
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        title = expectedTitle
+        observedTitles.push(title)
+        assert.equal(predicate(expected), true, 'expected project name must satisfy title readiness')
+      } finally {
+        if (replacedHadOwnDocument) globalThis.document = replacedDocument
+        else delete globalThis.document
+      }
+    },
+  }
+
+  await waitForProjectTitle(page, expectedTitle)
+  assert.deepEqual(observedTitles, ['\u6b63\u5728\u52a0\u8f7d\u9879\u76ee', expectedTitle])
+  assert.equal(Object.prototype.hasOwnProperty.call(globalThis, 'document'), hadOwnDocument)
+  if (hadOwnDocument) assert.equal(globalThis.document, originalDocument)
+
+  const timeout = new Error('Timed out waiting for function')
+  await assert.rejects(
+    waitForProjectTitle({ waitForFunction: async () => { throw timeout } }, expectedTitle),
+    timeout,
+    'title readiness must not swallow page wait failures',
+  )
+
+  const focused = sourceFunction('verifyFocusedDesktopAcceptance')
+  assertSourceOrder(focused, [
+    "page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })",
+    'waitForProjectTitle(page, fixtureTitle)',
+    "page.locator('#film-create-quick-nav [aria-current=\"step\"]')",
+  ])
 })
 
 test('focused AI recovery decorates only the fixture and proves fail-closed keyboard recovery', () => {

@@ -639,6 +639,12 @@ async function waitForWorkflow(runId, timeoutMs = Number(process.env.E2E_WORKFLO
   throw new Error(`Production workflow ${runId} timed out; last state=${JSON.stringify(latest)}`)
 }
 
+async function waitForProjectTitle(page, expectedTitle) {
+  await page.waitForFunction((expected) => (
+    String(document.querySelector('.film-create .page-title')?.textContent || '').trim() === expected
+  ), expectedTitle, { timeout: 30000 })
+}
+
 function browserLaunchOptions() {
   const options = {
     headless: process.env.HEADED !== '1',
@@ -2268,6 +2274,7 @@ async function verifyFocusedDesktopAcceptance(browser, {
     await completion.getByRole('button', { name: UI.enterProduction, exact: true }).click()
     await filmNavigation
     await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
+    await waitForProjectTitle(page, fixtureTitle)
     assert.equal(String(await page.locator('.page-title').textContent() || '').trim(), fixtureTitle)
     const episodeSelect = page.getByRole('combobox', { name: UI.currentEpisode, exact: true })
     await episodeSelect.waitFor({ state: 'visible', timeout: 30000 })
@@ -2950,6 +2957,7 @@ module.exports = {
   verifyFocusedDesktopAcceptance,
   verifyProjectReadinessDisclosureUi,
   waitForWorkflow,
+  waitForProjectTitle,
   writeAcceptanceManifest,
 }
 
