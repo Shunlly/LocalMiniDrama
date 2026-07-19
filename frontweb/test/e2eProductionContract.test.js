@@ -489,7 +489,9 @@ test('production evidence persists identity, media hashes, failure state, logs, 
       recorder.persistArtifact('media/leaked-config.json', Buffer.from('{"api_key":"unknown-value"}')),
       /sensitive configuration data/,
     )
-    await recorder.fail(new Error(`Authorization: Bearer ${protectedValue}; credential=${protectedValue}`))
+    const contractFailure = new Error(`Authorization: Bearer ${protectedValue}; credential=${protectedValue}`)
+    contractFailure.stack = `Error: Authorization: Bearer ${protectedValue}\n    at contractFailure (e2e-production.cjs:1:1)`
+    await recorder.fail(contractFailure)
 
     const evidenceText = await readFile(path.join(evidenceRoot, 'evidence.json'), 'utf8')
     const logText = await readFile(path.join(evidenceRoot, 'run.log'), 'utf8')
@@ -502,6 +504,7 @@ test('production evidence persists identity, media hashes, failure state, logs, 
     assert.equal(evidence.source.version, '1.2.8')
     assert.equal(evidence.source.working_tree_dirty, false)
     assert.equal(evidence.run.failed_stage, 'contract_failure')
+    assert.match(evidence.failure.stack, /at contractFailure \(e2e-production\.cjs:1:1\)/)
     assert.equal(evidence.qa.status, 'not_run')
     assert.deepEqual(Object.keys(evidence.provider.calls), REQUIRED_PROVIDER_ENDPOINTS)
     assert.deepEqual(evidence.provider.calls.text, { attempted: 0, succeeded: 0, failed: 0 })

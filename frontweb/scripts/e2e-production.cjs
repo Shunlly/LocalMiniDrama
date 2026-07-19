@@ -537,6 +537,7 @@ async function createEvidenceRecorder({
       evidence.failure = sanitizeEvidenceValue({
         name: failure.name || 'Error',
         message: failure.message || String(failure),
+        stack: failure.stack || `${failure.name || 'Error'}: ${failure.message || String(failure)}`,
       }, protectedValues)
       await log('run_finished', { status: 'failed', stage: failedStage, failure: evidence.failure })
       await write()
@@ -3475,8 +3476,10 @@ if (require.main === module) {
       })()
     : main()
   run.catch((error) => {
-    const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
-    console.error(sanitizeEvidenceText(message, collectForbiddenValues()))
+    const diagnostic = error instanceof Error
+      ? (error.stack || `${error.name}: ${error.message}`)
+      : String(error)
+    console.error(sanitizeEvidenceText(diagnostic, collectForbiddenValues()))
     process.exitCode = 1
   })
 }
