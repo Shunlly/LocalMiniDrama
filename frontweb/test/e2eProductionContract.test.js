@@ -27,6 +27,7 @@ const {
   assertProviderInvocations,
   assertProviderStats,
   cancelAndWaitForWorkflowWorkerDrain,
+  consumeExpectedBrowserError,
   extractZipEntries,
   fetchWithIdempotentRetry,
   formatExpectedEpisodeContextLabel,
@@ -120,6 +121,18 @@ function productionTimeline() {
     episodes: [{ episode: { id: 1 }, tracks }],
   }
 }
+
+test('controlled browser error consumption removes exactly one matching entry', () => {
+  const expected = 'console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)'
+  assert.deepEqual(
+    consumeExpectedBrowserError([expected, expected, 'pageerror: unrelated'], expected),
+    [expected, 'pageerror: unrelated'],
+  )
+  assert.throws(
+    () => consumeExpectedBrowserError(['pageerror: unrelated'], expected),
+    /expected controlled browser error was not observed/,
+  )
+})
 
 function focusedAcceptanceEvidence() {
   return {

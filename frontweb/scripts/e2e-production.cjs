@@ -17,6 +17,7 @@ const PROVIDER_BASE_URL = (process.env.E2E_PROVIDER_BASE_URL || 'http://e2e-prov
 const PROVIDER_CONTROL_URL = (process.env.E2E_PROVIDER_CONTROL_URL || 'http://127.0.0.1:5688').replace(/\/$/, '')
 const PROVIDER_TOKEN = process.env.E2E_PROVIDER_TOKEN || 'local-e2e-token'
 const CONFIG_PREFIX = 'E2E Production Provider '
+const CONTROLLED_READINESS_BROWSER_ERROR = 'console: Failed to load resource: the server responded with a status of 503 (Service Unavailable)'
 const WORKFLOW_COMPLETION_RECOVERY_TIMEOUT = 5000
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 const REQUIRED_PROVIDER_TYPES = Object.freeze(['text', 'asset_image', 'image', 'video', 'tts', 'compositor'])
@@ -1867,6 +1868,12 @@ function attachFocusedPageAudit(page, viewport) {
   }
 }
 
+function consumeExpectedBrowserError(errors, expectedError) {
+  const expectedIndex = errors.indexOf(expectedError)
+  assert.notEqual(expectedIndex, -1, `expected controlled browser error was not observed: ${expectedError}`)
+  return errors.filter((_, index) => index !== expectedIndex)
+}
+
 async function assertComponentHorizontalOverflow(page, label, selectors) {
   const records = []
   for (const selector of selectors) {
@@ -2915,7 +2922,8 @@ async function verifyFocusedDesktopAcceptance(browser, {
     const providerCallsAfter = await readStableProviderCalls()
     assert.deepEqual(providerCallsAfter, providerCallsBefore, 'focused acceptance must not call the Provider')
     assert.deepEqual(forbiddenRequests, [], 'focused acceptance attempted a forbidden Provider test or workflow start')
-    assert.deepEqual(audit.errors, [], `focused acceptance emitted browser errors:\n${audit.errors.join('\n')}`)
+    const unexpectedBrowserErrors = consumeExpectedBrowserError(audit.errors, CONTROLLED_READINESS_BROWSER_ERROR)
+    assert.deepEqual(unexpectedBrowserErrors, [], `focused acceptance emitted browser errors:\n${unexpectedBrowserErrors.join('\n')}`)
 
     result = {
       status: 'passed',
@@ -3435,6 +3443,7 @@ module.exports = {
   assertProviderInvocations,
   assertProviderStats,
   cancelAndWaitForWorkflowWorkerDrain,
+  consumeExpectedBrowserError,
   createEvidenceRecorder,
   createReadinessGate,
   createWorkflowDrainPrerequisite,
