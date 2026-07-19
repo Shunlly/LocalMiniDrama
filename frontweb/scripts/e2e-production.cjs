@@ -2386,9 +2386,11 @@ async function createMissingServiceFromUi(page, fixture) {
   await configDialog.locator('.advanced-config-collapse .el-collapse-item__header').click()
   await configFormItem(configDialog, '\u0042\u0061\u0073\u0065 \u0055\u0052\u004c').locator('input').fill(PROVIDER_BASE_URL)
 
-  const defaultSwitch = configFormItem(configDialog, '\u8bbe\u4e3a\u9ed8\u8ba4').locator('[role="switch"]')
-  if (await defaultSwitch.getAttribute('aria-checked') === 'true') await defaultSwitch.click()
-  assert.equal(await defaultSwitch.getAttribute('aria-checked'), 'false', 'focused UI config must not replace a user default')
+  const defaultSwitchItem = configFormItem(configDialog, '\u8bbe\u4e3a\u9ed8\u8ba4')
+  const defaultSwitchInput = defaultSwitchItem.locator('[role="switch"]')
+  const defaultSwitchControl = defaultSwitchItem.locator('.el-switch')
+  if (await defaultSwitchInput.getAttribute('aria-checked') === 'true') await defaultSwitchControl.click()
+  assert.equal(await defaultSwitchInput.getAttribute('aria-checked'), 'false', 'focused UI config must not replace a user default')
 
   const responsePromise = page.waitForResponse((response) => {
     const request = response.request()

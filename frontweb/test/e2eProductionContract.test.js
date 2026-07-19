@@ -910,6 +910,22 @@ test('header episode switching clicks the visible select root instead of its cov
   )
 })
 
+test('focused AI setup clicks the visible switch control instead of its hidden input', () => {
+  const createConfig = sourceFunction('createMissingServiceFromUi')
+  assertSourceOrder(createConfig, [
+    "const defaultSwitchItem = configFormItem(configDialog, '\\u8bbe\\u4e3a\\u9ed8\\u8ba4')",
+    "const defaultSwitchInput = defaultSwitchItem.locator('[role=\"switch\"]')",
+    "const defaultSwitchControl = defaultSwitchItem.locator('.el-switch')",
+    'await defaultSwitchControl.click()',
+    "await defaultSwitchInput.getAttribute('aria-checked')",
+  ])
+  assert.doesNotMatch(
+    createConfig,
+    /defaultSwitchInput\.click\(/,
+    'the visually hidden Element Plus switch input must not receive pointer clicks',
+  )
+})
+
 test('project title readiness waits for the exact project name and propagates timeouts', async () => {
   assert.equal(typeof waitForProjectTitle, 'function', 'missing exported project title readiness helper')
 
