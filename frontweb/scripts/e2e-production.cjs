@@ -1945,7 +1945,7 @@ async function assertCoverageLayout(page, {
   const cards = page.locator('#ai-config-coverage-panel .coverage-item')
   const snapshot = await cards.evaluateAll((elements) => {
     const grid = elements[0]?.closest('.coverage-grid')
-    const dialog = document.querySelector('.ai-config-workspace-dialog .el-dialog')
+    const dialog = document.querySelector('.el-dialog.ai-config-workspace-dialog')
     if (!grid || !dialog) return null
     const gridBox = grid.getBoundingClientRect()
     const dialogBox = dialog.getBoundingClientRect()

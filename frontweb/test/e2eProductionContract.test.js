@@ -1837,6 +1837,8 @@ test('focused coverage geometry uses one normalized DOM snapshot and validates s
   assert.match(layout, /coverage-icon-/)
   assert.match(layout, /coverage-(?:default|configured|missing)/)
   assert.match(layout, /test-(?:failed|unknown|passed)/)
+  assert.match(layout, /document\.querySelector\('\.el-dialog\.ai-config-workspace-dialog'\)/)
+  assert.doesNotMatch(layout, /\.ai-config-workspace-dialog \.el-dialog/)
   assert.match(layout, /assertCoverageCardMatrix\(records\)/)
   assert.ok(layout.indexOf('evaluateAll(') < layout.indexOf('scrollIntoViewIfNeeded()'))
 })
