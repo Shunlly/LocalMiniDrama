@@ -2830,6 +2830,11 @@ async function verifyFocusedDesktopAcceptance(browser, {
       routes,
     })
     routes.readinessGate.arm()
+    const injectedFailureResponsePromise = page.waitForResponse((response) => (
+      response.request().method() === 'POST'
+      && new URL(response.url()).pathname === '/api/v1/workflows/novel2anime/readiness'
+      && response.status() === 503
+    ), { timeout: 30000 })
     const customReturn = workspaceDialog.getByRole('button', { name: UI.returnToProduction, exact: true })
     await customReturn.click()
     await routes.readinessGate.waitUntilIntercepted()
@@ -2840,18 +2845,13 @@ async function verifyFocusedDesktopAcceptance(browser, {
       await page.locator('button:visible:not([disabled])').filter({ hasText: UI.generateFinal }).count(),
       0,
     )
+    routes.readinessGate.release(503)
+    const injectedFailureResponse = await injectedFailureResponsePromise
     const customFocus = await assertWorkbenchFocus(page, {
       preferred: pipelineAction,
       fallback: page.getByTestId('film-pipeline-summary'),
       label: 'custom return to production',
     })
-    const injectedFailureResponsePromise = page.waitForResponse((response) => (
-      response.request().method() === 'POST'
-      && new URL(response.url()).pathname === '/api/v1/workflows/novel2anime/readiness'
-      && response.status() === 503
-    ), { timeout: 30000 })
-    routes.readinessGate.release(503)
-    const injectedFailureResponse = await injectedFailureResponsePromise
     await page.locator('[data-testid="film-pipeline-summary"][data-state="error"]').waitFor({ state: 'visible', timeout: 10000 })
     assert.equal(await page.locator('[data-testid="film-pipeline-summary"][data-state="ready"]').count(), 0)
     const retryAction = page.getByTestId('film-pipeline-action').filter({ hasText: UI.retryCapability })

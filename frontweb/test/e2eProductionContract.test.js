@@ -1225,11 +1225,11 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
     'assertWorkbenchFocus',
     'UI.configureMissingService',
     'createMissingServiceFromUi',
+    'const injectedFailureResponsePromise = page.waitForResponse',
+    "response.status() === 503",
     'UI.returnToProduction',
     'UI.configurationRechecking',
     "data-state=\"checking\"",
-    'const injectedFailureResponsePromise = page.waitForResponse',
-    "response.status() === 503",
     'readinessGate.release(503)',
     'const injectedFailureResponse = await injectedFailureResponsePromise',
     "data-state=\"error\"",
@@ -1244,6 +1244,16 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
   assert.match(focused, /\/workflows\/novel2anime/)
   assert.match(focused, /assert\.equal\(injectedFailureResponse\.status\(\), 503/)
   assert.doesNotMatch(focused, /readinessStatuses\.includes\(503\)/)
+  assert.ok(
+    focused.indexOf('const injectedFailureResponsePromise = page.waitForResponse')
+      < focused.indexOf('await customReturn.click()'),
+    'the controlled failure listener must be registered before the readiness request starts',
+  )
+  assert.ok(
+    focused.indexOf('routes.readinessGate.release(503)')
+      < focused.indexOf('const customFocus = await assertWorkbenchFocus'),
+    'the intercepted readiness request must be released before focus polling can consume its timeout budget',
+  )
   assert.match(focused, /finally\s*\{/)
 })
 
