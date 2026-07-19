@@ -9,6 +9,7 @@ const { Readable, Transform, Writable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { Worker } = require('node:worker_threads');
 const Database = require('better-sqlite3');
+const { updateMaintenanceHeartbeatFd } = require('./maintenanceLockFile');
 
 const LEGACY_FORMAT_VERSION = 1;
 const FORMAT_VERSION = 2;
@@ -370,8 +371,11 @@ function startMaintenanceHeartbeat(lock, options = {}) {
   lock.heartbeatTimer = setInterval(() => {
     if (lock.released) return;
     try {
-      lock.payload.heartbeatAt = new Date().toISOString();
-      writeMaintenanceLockFd(lock.fd, lock.payload);
+      lock.payload = updateMaintenanceHeartbeatFd(lock.fd, {
+        contract: MAINTENANCE_LOCK_CONTRACT,
+        pid: process.pid,
+        token: lock.token,
+      });
     } catch (error) {
       lock.heartbeatError = error;
       options.log?.error?.('Maintenance lock heartbeat failed', { error: error.message });
@@ -771,7 +775,7 @@ function acquireServiceMaintenanceLockSync(options = {}) {
   const payload = maintenanceLockPayload('service', token, new Date(), options.ownerScope);
   try {
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-    fd = fs.openSync(lockPath, 'wx', 0o600);
+    fd = fs.openSync(lockPath, 'wx+', 0o600);
     writeMaintenanceLockFd(fd, payload);
   } catch (error) {
     if (fd != null) {

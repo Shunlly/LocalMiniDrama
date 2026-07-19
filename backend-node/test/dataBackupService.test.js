@@ -1225,16 +1225,20 @@ test('service lease heartbeat advances and stale same-scope dead locks recover',
   t.after(() => guard.release());
   const { lockPath } = maintenancePaths(workspace.databasePath);
   const first = JSON.parse(await fsp.readFile(lockPath, 'utf8'));
-  await new Promise((resolve) => setTimeout(resolve, 350));
+  await new Promise((resolve) => setTimeout(resolve, 175));
   const second = JSON.parse(await fsp.readFile(lockPath, 'utf8'));
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const third = JSON.parse(await fsp.readFile(lockPath, 'utf8'));
   assert.equal(second.ownerScope, first.ownerScope);
   assert.equal(second.token, first.token);
   assert.ok(Date.parse(second.heartbeatAt) > Date.parse(first.heartbeatAt));
+  assert.ok(Date.parse(third.heartbeatAt) > Date.parse(second.heartbeatAt));
+  assert.equal(guard.heartbeatError, undefined);
 
   guard.release();
   const stale = new Date(Date.now() - 120000);
   const deadOwner = {
-    ...second,
+    ...third,
     pid: 2147483647,
     heartbeatAt: stale.toISOString(),
   };
