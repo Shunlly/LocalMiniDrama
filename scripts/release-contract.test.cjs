@@ -52,6 +52,15 @@ const backendEntrypoint = fs.readFileSync(path.join(root, 'backend-node', 'docke
 const frontendDockerfile = fs.readFileSync(path.join(root, 'frontweb', 'Dockerfile.prod'), 'utf8')
 const dockerCompose = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8')
 const ciWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'ci.yml'), 'utf8')
+const windowsReleaseSecurityWorkflowPath = path.join(
+  root,
+  '.github',
+  'workflows',
+  'windows-release-security.yml',
+)
+const windowsReleaseSecurityWorkflow = fs.existsSync(windowsReleaseSecurityWorkflowPath)
+  ? fs.readFileSync(windowsReleaseSecurityWorkflowPath, 'utf8')
+  : ''
 const dockerArtifactVerifierSource = fs.readFileSync(path.join(root, 'scripts', 'verify-docker-artifact.cjs'), 'utf8')
 const releaseVerifierSource = fs.readFileSync(path.join(root, 'scripts', 'verify-release.cjs'), 'utf8')
 const windowsArtifactVerifierSource = fs.readFileSync(
@@ -564,12 +573,51 @@ test('dist:mac fails closed before any build or upload command can run', () => {
   )
 })
 
+test('CI scans source dependencies and configuration with pinned Trivy before release tagging', () => {
+  const sourceSecurity = jobBlock('source-security', ciWorkflow)
+  assert.match(sourceSecurity, /runs-on: ubuntu-latest/)
+  assert.match(
+    sourceSecurity,
+    /TRIVY_IMAGE: ghcr\.io\/aquasecurity\/trivy@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e/,
+  )
+  assert.match(sourceSecurity, /readonly expected_version='0\.64\.1'/)
+  assert.match(sourceSecurity, /test "\$version" = "\$expected_version"/)
+  assert.match(sourceSecurity, /run_trivy fs/)
+  assert.match(sourceSecurity, /--scanners vuln,misconfig/)
+  assert.match(sourceSecurity, /--severity HIGH,CRITICAL/)
+  assert.match(sourceSecurity, /--ignore-unfixed/)
+  assert.match(sourceSecurity, /--include-dev-deps/)
+  assert.match(sourceSecurity, /--ignorefile backend-node\/\.trivyignore\.yaml/)
+  assert.match(sourceSecurity, /trivy-source\.json/)
+})
+
+test('backend Trivy exception covers direct and repository-root scan targets', () => {
+  assert.match(backendTrivyIgnore, /paths:\s*\r?\n\s*- Dockerfile\r?\n\s*- backend-node\/Dockerfile/)
+})
+
+test('CI and release reuse one complete Windows artifact security workflow', () => {
+  assert.equal(fs.existsSync(windowsReleaseSecurityWorkflowPath), true)
+  assert.match(windowsReleaseSecurityWorkflow, /^on:\r?\n  workflow_call:/m)
+  assert.match(windowsReleaseSecurityWorkflow, /artifact-key:\r?\n\s+required: true\r?\n\s+type: string/)
+
+  const ciSecurity = jobBlock('windows-release-security', ciWorkflow)
+  assert.match(ciSecurity, /needs: desktop/)
+  assert.match(ciSecurity, /uses: \.\/\.github\/workflows\/windows-release-security\.yml/)
+  assert.match(ciSecurity, /artifact-key: ci-\$\{\{ github\.sha \}\}/)
+
+  const releaseSecurity = jobBlock('windows-release-security', workflow)
+  assert.match(releaseSecurity, /needs: build-windows/)
+  assert.match(releaseSecurity, /uses: \.\/\.github\/workflows\/windows-release-security\.yml/)
+  assert.match(releaseSecurity, /artifact-key: \$\{\{ github\.ref_name \}\}-\$\{\{ github\.sha \}\}/)
+})
+
 test('release workflow separates read-only build, artifact verification and publishing', () => {
   assert.match(workflow, /^permissions:\r?\n  contents: read$/m)
   const rollback = jobBlock('rollback-drill')
   const build = jobBlock('build-windows')
-  const artifactScan = jobBlock('scan-windows-artifacts')
-  const trivyScan = jobBlock('scan-trivy-artifacts')
+  const releaseSecurity = jobBlock('windows-release-security')
+  const artifactScan = jobBlock('scan-windows-artifacts', windowsReleaseSecurityWorkflow)
+  const trivyScan = jobBlock('scan-trivy-artifacts', windowsReleaseSecurityWorkflow)
   const artifactVerification = jobBlock('verify-artifacts')
   const publish = jobBlock('publish-release')
 
@@ -592,7 +640,10 @@ test('release workflow separates read-only build, artifact verification and publ
   assert.doesNotMatch(build, /release:manifest|record:artifact-security/)
   assert.doesNotMatch(build, /choco install|Get-FileHash/)
 
-  assert.match(artifactScan, /needs: build-windows/)
+  assert.match(releaseSecurity, /needs: build-windows/)
+  assert.match(releaseSecurity, /permissions:\r?\n      contents: read/)
+  assert.match(releaseSecurity, /uses: \.\/\.github\/workflows\/windows-release-security\.yml/)
+  assert.match(artifactScan, /runs-on: windows-latest/)
   assert.match(artifactScan, /permissions:\r?\n      contents: read/)
   assert.match(artifactScan, /DA6458E8864AF553807DE1C46A7A8EAC0880BD6B99BA56288E87E86A45AF884F/)
   assert.match(artifactScan, /gitleaks dir desktop\/release --config \.gitleaks-artifacts\.toml/)
@@ -611,7 +662,7 @@ test('release workflow separates read-only build, artifact verification and publ
   assert.doesNotMatch(artifactScan, /artifact-security\.json|release-manifest\.json|SHA256SUMS/)
   assert.doesNotMatch(artifactScan, /contents: write|attest-build-provenance|action-gh-release/)
 
-  assert.match(trivyScan, /needs: \[build-windows, scan-windows-artifacts\]/)
+  assert.match(trivyScan, /needs: scan-windows-artifacts/)
   assert.match(trivyScan, /runs-on: ubuntu-latest/)
   assert.match(trivyScan, /permissions:\r?\n      contents: read/)
   assert.match(
@@ -656,12 +707,12 @@ test('release workflow separates read-only build, artifact verification and publ
     /function recordArtifactSecurity\(\)[\s\S]*sourceDirectory: releaseRoot[\s\S]*source_artifact_sha256: inventory\.source_artifact_sha256/,
   )
 
-  assert.match(artifactVerification, /needs: scan-trivy-artifacts/)
+  assert.match(artifactVerification, /needs: windows-release-security/)
   assert.match(artifactVerification, /npm run verify:release:artifacts/)
   assert.match(artifactVerification, /attestations: write/)
   assert.match(artifactVerification, /id-token: write/)
 
-  assert.match(publish, /needs: \[production-e2e, rollback-drill, scan-trivy-artifacts, verify-artifacts\]/)
+  assert.match(publish, /needs: \[production-e2e, rollback-drill, windows-release-security, verify-artifacts\]/)
   assert.match(publish, /permissions:\r?\n      contents: write/)
   assert.match(publish, /softprops\/action-gh-release@[a-f0-9]{40}/)
   for (const block of [trivyScan, artifactVerification, publish]) {
@@ -682,19 +733,28 @@ test('CI runs the isolated rollback drill before a release tag is created', () =
 })
 
 test('third-party workflow actions are pinned to full commit digests', () => {
-  const uses = [...workflow.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)].map((match) => match[1])
+  const uses = [workflow, ciWorkflow, windowsReleaseSecurityWorkflow]
+    .flatMap((source) => [...source.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)].map((match) => match[1]))
   assert.ok(uses.length > 0)
-  for (const action of uses) assert.match(action, /^[^@\s]+@[a-f0-9]{40}$/, `${action} is not commit-pinned`)
+  for (const action of uses) {
+    if (action.startsWith('./')) {
+      assert.equal(action, './.github/workflows/windows-release-security.yml')
+    } else {
+      assert.match(action, /^[^@\s]+@[a-f0-9]{40}$/, `${action} is not commit-pinned`)
+    }
+  }
 })
 
 test('release workflow uses the Node 20 baseline from CI', () => {
-  const setupNodeActions = [...workflow.matchAll(/^\s*- uses: actions\/setup-node@[a-f0-9]{40}/gm)]
-  const nodeVersions = [...workflow.matchAll(/^\s+node-version:\s*['"]?(\d+)['"]?\s*$/gm)]
-    .map((match) => match[1])
+  for (const source of [ciWorkflow, workflow, windowsReleaseSecurityWorkflow]) {
+    const setupNodeActions = [...source.matchAll(/^\s*- uses: actions\/setup-node@[a-f0-9]{40}/gm)]
+    const nodeVersions = [...source.matchAll(/^\s+node-version:\s*['"]?(\d+)['"]?\s*$/gm)]
+      .map((match) => match[1])
 
-  assert.ok(setupNodeActions.length > 0)
-  assert.equal(nodeVersions.length, setupNodeActions.length, 'every setup-node action must declare a Node version')
-  assert.deepEqual([...new Set(nodeVersions)], ['20'])
+    assert.ok(setupNodeActions.length > 0)
+    assert.equal(nodeVersions.length, setupNodeActions.length, 'every setup-node action must declare a Node version')
+    assert.deepEqual([...new Set(nodeVersions)], ['20'])
+  }
 })
 
 test('package test scripts use Node discovery instead of shell-expanded globs', () => {
@@ -743,7 +803,12 @@ test('Windows CI builds the complete unverified candidate before independent sec
   assert.match(desktopJob, /ChocolateyInstall[\s\S]*media-tool-policy\.js verify-tools/)
   assert.doesNotMatch(desktopJob, /Get-Command ffmpeg\.exe/)
   assert.match(desktopJob, /desktop\/release\/\*\.zip/)
+  assert.match(desktopJob, /name: windows-release-unverified-ci-\$\{\{ github\.sha \}\}/)
   assert.doesNotMatch(desktopJob, /release-manifest\.json|SHA256SUMS/)
+
+  const securityJob = jobBlock('windows-release-security', ciWorkflow)
+  assert.match(securityJob, /needs: desktop/)
+  assert.match(securityJob, /uses: \.\/\.github\/workflows\/windows-release-security\.yml/)
 })
 
 test('Docker artifact boundaries are checked before production bind mounts change ownership', () => {

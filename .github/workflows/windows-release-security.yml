@@ -1,0 +1,184 @@
+name: Windows Release Security
+
+on:
+  workflow_call:
+    inputs:
+      artifact-key:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  scan-windows-artifacts:
+    name: Independently scan Windows release payloads
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install artifact verification dependencies without lifecycle scripts
+        run: npm --prefix desktop ci --ignore-scripts
+
+      - name: Download unverified Windows build output
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-release-unverified-${{ inputs['artifact-key'] }}
+          path: desktop/release
+
+      - name: Extract Setup, Portable, Unpacked and ASAR payloads and verify Electron fuses
+        working-directory: desktop
+        run: npm run prepare:artifact-scan
+
+      - name: Scan extracted artifacts with checksum-pinned Gitleaks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '8.28.0'
+          $expectedSha256 = 'DA6458E8864AF553807DE1C46A7A8EAC0880BD6B99BA56288E87E86A45AF884F'
+          $archive = Join-Path $env:RUNNER_TEMP "gitleaks-$version-windows-x64.zip"
+          $destination = Join-Path $env:RUNNER_TEMP "gitleaks-$version"
+          Invoke-WebRequest -Uri "https://github.com/gitleaks/gitleaks/releases/download/v$version/gitleaks_${version}_windows_x64.zip" -OutFile $archive
+          $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash
+          if ($actualSha256 -ne $expectedSha256) { throw "Gitleaks archive checksum mismatch: $actualSha256" }
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force
+          $gitleaks = Join-Path $destination 'gitleaks.exe'
+          & $gitleaks dir desktop/release --config .gitleaks-artifacts.toml --redact --no-banner
+          if ($LASTEXITCODE -ne 0) { throw 'Gitleaks found a secret or failed to scan the extracted release' }
+          node desktop/scripts/verify-windows-artifacts.js mark gitleaks $version
+
+      - name: Scan release bundle and extracted payloads with Microsoft Defender
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $platformBinary = Get-ChildItem -Path "$env:ProgramData\Microsoft\Windows Defender\Platform\*\MpCmdRun.exe" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          $fallbackBinary = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
+          $defender = if ($platformBinary) { $platformBinary } elseif (Test-Path -LiteralPath $fallbackBinary) { $fallbackBinary } else { $null }
+          if (-not $defender) { throw 'Microsoft Defender command-line scanner is unavailable' }
+          $scanPath = (Resolve-Path -LiteralPath 'desktop/release').Path
+          & $defender -Scan -ScanType 3 -File $scanPath -DisableRemediation
+          if ($LASTEXITCODE -ne 0) { throw "Microsoft Defender scan failed or detected a threat: $LASTEXITCODE" }
+          $status = Get-MpComputerStatus
+          if (-not $status.AMEngineVersion -or -not $status.AntivirusSignatureVersion) { throw 'Microsoft Defender version evidence is unavailable' }
+          $version = "$($status.AMEngineVersion)-$($status.AntivirusSignatureVersion)"
+          node desktop/scripts/verify-windows-artifacts.js mark defender $version
+
+      - name: Upload independently verified Windows scan evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-release-security-evidence-${{ inputs['artifact-key'] }}
+          path: |
+            desktop/release/.artifact-scan/inventory.json
+            desktop/release/.artifact-scan/.evidence/gitleaks.json
+            desktop/release/.artifact-scan/.evidence/defender.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  scan-trivy-artifacts:
+    name: Scan release SBOMs and Dockerfiles with pinned Trivy
+    needs: scan-windows-artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      TRIVY_IMAGE: ghcr.io/aquasecurity/trivy@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install artifact verification dependencies without lifecycle scripts
+        run: npm --prefix desktop ci --ignore-scripts
+
+      - name: Download unverified Windows build output
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-release-unverified-${{ inputs['artifact-key'] }}
+          path: desktop/release
+
+      - name: Download Windows scan evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-release-security-evidence-${{ inputs['artifact-key'] }}
+          path: desktop/release/.artifact-scan
+
+      - name: Block high and critical vulnerabilities and source container misconfigurations with Trivy
+        shell: bash
+        run: |
+          set -euo pipefail
+          readonly expected_version='0.64.1'
+          readonly cache_dir="$RUNNER_TEMP/trivy-cache"
+          mkdir -p "$cache_dir"
+
+          run_trivy() {
+            docker run --rm \
+              --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+              --volume "$cache_dir:/root/.cache/trivy" \
+              --workdir /workspace \
+              "$TRIVY_IMAGE" "$@"
+          }
+
+          version="$(run_trivy --version | awk -F': ' '/^Version:/{print $2; exit}')"
+          test "$version" = "$expected_version"
+
+          desktop_version="$(node -p "require('./desktop/package.json').version")"
+          sboms=(
+            "desktop/release/LocalMiniDrama-$desktop_version.cdx.json"
+            'desktop/release/sbom-backend.cdx.json'
+            'desktop/release/sbom-frontend.cdx.json'
+            'desktop/release/sbom-desktop.cdx.json'
+          )
+          for sbom in "${sboms[@]}"; do
+            test -f "$sbom"
+            run_trivy sbom --skip-version-check --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "$sbom"
+          done
+
+          run_trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL \
+            --ignorefile backend-node/.trivyignore.yaml backend-node/Dockerfile
+          run_trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL frontweb/Dockerfile
+          run_trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL frontweb/Dockerfile.prod
+
+          version_metadata="$(run_trivy --version --format json)"
+          policy_metadata="$(docker run --rm \
+            --volume "$cache_dir:/root/.cache/trivy:ro" \
+            --entrypoint sh \
+            "$TRIVY_IMAGE" \
+            -c 'cat /root/.cache/trivy/policy/metadata.json')"
+          node desktop/scripts/verify-windows-artifacts.js mark trivy "$version" "$version_metadata" "$policy_metadata"
+
+      - name: Record complete security evidence and generate the verified release manifest
+        run: |
+          npm --prefix desktop run record:artifact-security
+          npm run release:manifest
+          npm run verify:release:artifacts
+
+      - name: Upload independently scanned Windows release bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-release-${{ inputs['artifact-key'] }}
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.exe.blockmap
+            desktop/release/LocalMiniDrama-Unpacked-*-x64.zip
+            desktop/release/*.cdx.json
+            desktop/release/artifact-security.json
+            desktop/release/media-tools.json
+            desktop/release/release-manifest.json
+            desktop/release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
