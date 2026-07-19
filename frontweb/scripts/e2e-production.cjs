@@ -100,6 +100,28 @@ async function runCleanup(actions, logger) {
   return getSmokeHelpers().runCleanup(actions, logger)
 }
 
+function createWorkflowDrainPrerequisite() {
+  let failure = null
+  return {
+    async drain(runId, waitForDrain = waitForWorkflowWorkerDrain) {
+      try {
+        return await waitForDrain(runId)
+      } catch (error) {
+        failure ||= error
+        throw error
+      }
+    },
+    assertDrained() {
+      if (!failure) return
+      const error = new Error(
+        `E2E destructive cleanup blocked because workflow drain failed: ${failure.message || String(failure)}`,
+      )
+      error.cause = failure
+      throw error
+    },
+  }
+}
+
 function runDockerFixturePurge(options) {
   return getSmokeHelpers().runDockerFixturePurge(options)
 }
@@ -521,17 +543,44 @@ async function revealWorkflowHistoryIfCompleted(workflow) {
   return true
 }
 
-async function fetchWithIdempotentRetry(url, options = {}, fetchImpl = fetch) {
+function abortError(signal) {
+  if (signal?.reason instanceof Error) return signal.reason
+  const error = new Error('The operation was aborted')
+  error.name = 'AbortError'
+  return error
+}
+
+function waitForAbortableRetryDelay(milliseconds, signal) {
+  if (signal?.aborted) return Promise.reject(abortError(signal))
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (callback, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeoutId)
+      signal?.removeEventListener('abort', onAbort)
+      callback(value)
+    }
+    const onAbort = () => finish(reject, abortError(signal))
+    const timeoutId = setTimeout(() => finish(resolve), milliseconds)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+async function fetchWithIdempotentRetry(url, options = {}, fetchImpl = fetch, retryDelay = waitForAbortableRetryDelay) {
   const method = String(options.method || 'GET').toUpperCase()
   const attempts = method === 'GET' ? 3 : 1
+  const { signal } = options
   let lastError
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (signal?.aborted) throw abortError(signal)
     try {
       return await fetchImpl(url, options)
     } catch (error) {
+      if (signal?.aborted) throw abortError(signal)
       lastError = error
       if (attempt >= attempts) throw error
-      await new Promise((resolve) => setTimeout(resolve, attempt * 100))
+      await retryDelay(attempt * 100, signal)
     }
   }
   throw lastError
@@ -637,6 +686,123 @@ async function waitForWorkflow(runId, timeoutMs = Number(process.env.E2E_WORKFLO
     await new Promise((resolve) => setTimeout(resolve, 1000))
   }
   throw new Error(`Production workflow ${runId} timed out; last state=${JSON.stringify(latest)}`)
+}
+
+function workflowDrainRequestDeadlineError() {
+  const error = new Error('Workflow worker drain request deadline exceeded')
+  error.workflowDrainRequestTimedOut = true
+  return error
+}
+
+function workflowDrainTimeoutError(runId, timeoutMs, latest = null) {
+  return new Error(
+    `Workflow ${runId} worker drain timed out after ${timeoutMs}ms; `
+    + `last worker_active=${JSON.stringify(latest?.worker_active)}; last state=${JSON.stringify(latest)}`,
+  )
+}
+
+async function requestWithinDeadline(request, pathname, {
+  deadline,
+  clock = Date.now,
+  options = {},
+} = {}) {
+  const remainingMs = deadline - clock()
+  if (remainingMs <= 0) throw workflowDrainRequestDeadlineError()
+
+  const controller = new AbortController()
+  let timeoutId
+  let requestPromise
+  try {
+    requestPromise = Promise.resolve(request(pathname, { ...options, signal: controller.signal }))
+  } catch (error) {
+    requestPromise = Promise.reject(error)
+  }
+  const deadlinePromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(workflowDrainRequestDeadlineError()), remainingMs)
+  })
+  try {
+    return await Promise.race([requestPromise, deadlinePromise])
+  } finally {
+    clearTimeout(timeoutId)
+    controller.abort()
+  }
+}
+
+function resolveWorkflowDrainDeadline(timeoutMs, clock, deadline) {
+  const boundedTimeoutMs = Math.max(0, Number(timeoutMs) || 0)
+  return {
+    boundedTimeoutMs,
+    deadline: Number.isFinite(deadline) ? deadline : clock() + boundedTimeoutMs,
+  }
+}
+
+async function waitForWorkflowWorkerDrain(runId, {
+  timeoutMs = Number(process.env.E2E_WORKFLOW_DRAIN_TIMEOUT_MS) || 30000,
+  intervalMs = 1000,
+  request = apiRequest,
+  delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  clock = Date.now,
+  deadline,
+} = {}) {
+  const { boundedTimeoutMs, deadline: sharedDeadline } = resolveWorkflowDrainDeadline(timeoutMs, clock, deadline)
+  const boundedIntervalMs = Math.max(1, Number(intervalMs) || 1)
+  let latest = null
+
+  while (true) {
+    try {
+      latest = await requestWithinDeadline(request, `/workflows/${encodeURIComponent(runId)}`, {
+        deadline: sharedDeadline,
+        clock,
+      })
+    } catch (error) {
+      if (!error?.workflowDrainRequestTimedOut) throw error
+      break
+    }
+    if (latest?.worker_active === false) return latest
+
+    const delayRemainingMs = sharedDeadline - clock()
+    if (delayRemainingMs <= 0) break
+    await delay(Math.min(boundedIntervalMs, delayRemainingMs))
+  }
+
+  throw workflowDrainTimeoutError(runId, boundedTimeoutMs, latest)
+}
+
+async function cancelAndWaitForWorkflowWorkerDrain(runId, {
+  timeoutMs = Number(process.env.E2E_WORKFLOW_DRAIN_TIMEOUT_MS) || 30000,
+  intervalMs = 1000,
+  request = apiRequest,
+  delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  clock = Date.now,
+} = {}) {
+  const { boundedTimeoutMs, deadline } = resolveWorkflowDrainDeadline(timeoutMs, clock)
+  let latest = null
+  try {
+    latest = await requestWithinDeadline(request, `/workflows/${encodeURIComponent(runId)}`, { deadline, clock })
+    if (!TERMINAL_STATUSES.has(latest?.status)) {
+      await requestWithinDeadline(request, `/workflows/${encodeURIComponent(runId)}/cancel`, {
+        deadline,
+        clock,
+        options: {
+          method: 'POST',
+          body: JSON.stringify({ reason: 'E2E cleanup' }),
+        },
+      })
+    }
+    return await waitForWorkflowWorkerDrain(runId, {
+      timeoutMs: boundedTimeoutMs,
+      intervalMs,
+      request,
+      delay,
+      clock,
+      deadline,
+    })
+  } catch (error) {
+    if (error?.workflowDrainRequestTimedOut) {
+      throw workflowDrainTimeoutError(runId, boundedTimeoutMs, latest)
+    }
+    throw error
+  }
 }
 
 async function waitForProjectTitle(page, expectedTitle) {
@@ -2599,10 +2765,12 @@ async function main({
     forbiddenValues: evidenceForbiddenValues,
   })
   const cleanupActions = []
+  const workflowDrainPrerequisite = createWorkflowDrainPrerequisite()
   let primaryError = null
   let primaryFailureStage = null
   let draftWorkflowRun = null
   let workflowRun = null
+  let providerState = null
   let providerStatsReset = false
   let fixturePurgeResult = null
   const protectedValues = collectForbiddenValues(evidenceForbiddenValues)
@@ -2632,12 +2800,17 @@ async function main({
     })
     if (drama?.id) {
       registerCleanup(cleanupActions, `hard purge drama ${drama.id}`, async () => {
+        workflowDrainPrerequisite.assertDrained()
         fixturePurgeResult = await runDockerFixturePurge({
           dramaId: drama.id,
           expectedTitle: fixtureTitle,
         })
       })
     }
+    registerCleanup(cleanupActions, 'temporary AI provider configs', async () => {
+      workflowDrainPrerequisite.assertDrained()
+      if (providerState) await restoreProviderConfigs(providerState)
+    })
     assert.ok(drama?.id, 'created drama id is required')
     await verifyProjectReadinessDisclosureUi(startPage)
     const aiConfigReturnEvidence = await verifyAiConfigReturnUi(startPage, drama.id)
@@ -2660,13 +2833,7 @@ async function main({
     draftWorkflowRun = await startDraftFromUi(startPage, drama.id)
     await evidenceRecorder.set({ workflow: { draft_run_id: draftWorkflowRun.id } })
     registerCleanup(cleanupActions, `cancel draft workflow ${draftWorkflowRun.id}`, async () => {
-      const current = await apiRequest(`/workflows/${draftWorkflowRun.id}`)
-      if (!TERMINAL_STATUSES.has(current.status)) {
-        await apiRequest(`/workflows/${draftWorkflowRun.id}/cancel`, {
-          method: 'POST',
-          body: JSON.stringify({ reason: 'E2E cleanup' }),
-        })
-      }
+      await workflowDrainPrerequisite.drain(draftWorkflowRun.id, cancelAndWaitForWorkflowWorkerDrain)
     })
     const draftCompleted = await waitForWorkflow(draftWorkflowRun.id)
     assert.equal(draftCompleted.status, 'completed', `draft workflow failed: ${draftCompleted.error || 'unknown error'}`)
@@ -2676,8 +2843,7 @@ async function main({
     await evidenceRecorder.stage('draft_workflow', 'passed')
 
     await evidenceRecorder.stage('provider_setup')
-    const providerState = await installProviderConfigs(stamp)
-    registerCleanup(cleanupActions, 'temporary AI provider configs', () => restoreProviderConfigs(providerState))
+    providerState = await installProviderConfigs(stamp)
     const aiConfigUiEvidence = await verifyAiConfigurationUi(startPage)
     await providerControlRequest('/__e2e/reset', 'POST')
     providerStatsReset = true
@@ -2688,13 +2854,7 @@ async function main({
     workflowRun = await startProductionFromUi(startPage, drama.id)
     await evidenceRecorder.set({ workflow: { production_run_id: workflowRun.id } })
     registerCleanup(cleanupActions, `cancel workflow ${workflowRun.id}`, async () => {
-      const current = await apiRequest(`/workflows/${workflowRun.id}`)
-      if (!TERMINAL_STATUSES.has(current.status)) {
-        await apiRequest(`/workflows/${workflowRun.id}/cancel`, {
-          method: 'POST',
-          body: JSON.stringify({ reason: 'E2E cleanup' }),
-        })
-      }
+      await workflowDrainPrerequisite.drain(workflowRun.id, cancelAndWaitForWorkflowWorkerDrain)
     })
 
     const completed = await waitForWorkflow(workflowRun.id)
@@ -2948,7 +3108,9 @@ module.exports = {
   assertProductionTimeline,
   assertProviderInvocations,
   assertProviderStats,
+  cancelAndWaitForWorkflowWorkerDrain,
   createEvidenceRecorder,
+  createWorkflowDrainPrerequisite,
   createMissingServiceFromUi,
   captureAcceptanceReportScreenshots,
   extractZipEntries,
@@ -2963,6 +3125,7 @@ module.exports = {
   summarizeProviderCalls,
   summarizeProviderInvocations,
   restoreProviderConfigs,
+  runCleanup,
   resetAcceptanceReportArtifacts,
   verifyExport,
   verifyAiConfigReturnUi,
@@ -2972,6 +3135,7 @@ module.exports = {
   verifyProjectReadinessDisclosureUi,
   waitForEnabledAction,
   waitForWorkflow,
+  waitForWorkflowWorkerDrain,
   waitForProjectTitle,
   writeAcceptanceManifest,
 }

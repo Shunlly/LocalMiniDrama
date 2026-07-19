@@ -209,7 +209,12 @@ function getWorkflowRunDetail(db, runId) {
     ...step,
     provider_invocations: providersByStep.get(step.id) || [],
   }));
-  return { ...run, steps, provider_invocations: providerInvocations };
+  return {
+    ...run,
+    steps,
+    provider_invocations: providerInvocations,
+    worker_active: processingRunIds.has(String(run.id)),
+  };
 }
 
 function listWorkflowRuns(db, query = {}) {
@@ -1187,7 +1192,16 @@ async function executeStep(db, log, run, step, allSteps) {
 async function processWorkflowRun(db, log, runId, options = {}) {
   if (processingRunIds.has(String(runId))) return getWorkflowRunDetail(db, runId);
   processingRunIds.add(String(runId));
+  let result;
   try {
+    result = await processWorkflowRunInner(db, log, runId, options);
+  } finally {
+    processingRunIds.delete(String(runId));
+  }
+  return result ? getWorkflowRunDetail(db, runId) : result;
+}
+
+async function processWorkflowRunInner(db, log, runId, options = {}) {
   let run = getWorkflowRun(db, runId);
   if (!run) return null;
   if (RUN_TERMINAL_STATUSES.has(run.status)) return getWorkflowRunDetail(db, runId);
@@ -1319,9 +1333,6 @@ async function processWorkflowRun(db, log, runId, options = {}) {
       log?.error?.('Workflow run failed', { run_id: runId, step_key: step.step_key, error: err.message });
       return getWorkflowRunDetail(db, runId);
     }
-  }
-  } finally {
-    processingRunIds.delete(String(runId));
   }
 }
 

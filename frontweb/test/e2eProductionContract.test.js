@@ -25,6 +25,7 @@ const {
   assertProductionTimeline,
   assertProviderInvocations,
   assertProviderStats,
+  cancelAndWaitForWorkflowWorkerDrain,
   extractZipEntries,
   fetchWithIdempotentRetry,
   focusedAiRouteAction,
@@ -32,8 +33,11 @@ const {
   main: runProductionE2e,
   resetAcceptanceReportArtifacts,
   sanitizeEvidenceText,
+  createWorkflowDrainPrerequisite,
+  runCleanup,
   waitForEnabledAction,
   waitForProjectTitle,
+  waitForWorkflowWorkerDrain,
 } = productionE2e
 const productionSource = readFileSync(new URL('../scripts/e2e-production.cjs', import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
 const frontendPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
@@ -1216,6 +1220,329 @@ test('focused acceptance is called once before playback and is mandatory evidenc
   assert.match(focusedSource, /visible_config_removed/)
 })
 
+test('workflow worker drain waits until the backend explicitly reports false', async () => {
+  const details = [{ worker_active: true }, { worker_active: false, status: 'cancelled' }]
+  const requests = []
+  const delays = []
+  let now = 0
+
+  const result = await waitForWorkflowWorkerDrain('run-1', {
+    timeoutMs: 100,
+    intervalMs: 10,
+    request: async (pathname) => {
+      requests.push(pathname)
+      return details.shift()
+    },
+    delay: async (milliseconds) => {
+      delays.push(milliseconds)
+      now += milliseconds
+    },
+    clock: () => now,
+  })
+
+  assert.equal(result.worker_active, false)
+  assert.deepEqual(requests, ['/workflows/run-1', '/workflows/run-1'])
+  assert.deepEqual(delays, [10])
+})
+
+test('workflow worker drain fails closed when worker_active is absent', async () => {
+  let now = 0
+  await assert.rejects(
+    waitForWorkflowWorkerDrain('run-missing', {
+      timeoutMs: 20,
+      intervalMs: 10,
+      request: async () => ({ status: 'cancelled' }),
+      delay: async (milliseconds) => { now += milliseconds },
+      clock: () => now,
+    }),
+    /run-missing[\s\S]*worker_active[\s\S]*cancelled/,
+  )
+})
+
+test('workflow worker drain reports its last state when the timeout expires', async () => {
+  let now = 0
+  await assert.rejects(
+    waitForWorkflowWorkerDrain('run-stuck', {
+      timeoutMs: 20,
+      intervalMs: 10,
+      request: async () => ({ worker_active: true, status: 'cancelled' }),
+      delay: async (milliseconds) => { now += milliseconds },
+      clock: () => now,
+    }),
+    /run-stuck[\s\S]*timed out[\s\S]*worker_active[\s\S]*true/,
+  )
+})
+
+test('workflow worker drain aborts a hanging request within its total deadline', async () => {
+  let requestCount = 0
+  let aborted = false
+  const lateRejection = new Error('request rejected after abort')
+  const startedAt = Date.now()
+
+  await assert.rejects(
+    waitForWorkflowWorkerDrain('run-hanging', {
+      timeoutMs: 30,
+      request: (_pathname, { signal }) => new Promise((_resolve, reject) => {
+        requestCount += 1
+        signal.addEventListener('abort', () => {
+          aborted = true
+          reject(lateRejection)
+        }, { once: true })
+      }),
+    }),
+    /run-hanging[\s\S]*timed out/,
+  )
+
+  assert.equal(requestCount, 1)
+  assert.equal(aborted, true)
+  assert.ok(Date.now() - startedAt < 250, 'a hanging request must respect the total drain budget')
+})
+
+test('workflow worker drain does not request after its deadline', async () => {
+  let requestCount = 0
+
+  await assert.rejects(
+    waitForWorkflowWorkerDrain('run-expired', {
+      timeoutMs: 0,
+      request: async () => {
+        requestCount += 1
+        return { worker_active: false }
+      },
+    }),
+    /run-expired[\s\S]*timed out/,
+  )
+
+  assert.equal(requestCount, 0)
+})
+
+test('workflow worker drain propagates request failures before the deadline', async () => {
+  const requestFailure = new Error('workflow detail unavailable')
+
+  await assert.rejects(
+    waitForWorkflowWorkerDrain('run-request-failure', {
+      timeoutMs: 100,
+      request: async () => { throw requestFailure },
+    }),
+    requestFailure,
+  )
+})
+
+test('cancel-and-drain aborts a hanging current workflow GET within its total deadline', async () => {
+  let requestCount = 0
+  let aborted = false
+
+  await assert.rejects(
+    cancelAndWaitForWorkflowWorkerDrain('run-current-hanging', {
+      timeoutMs: 30,
+      request: (pathname, { signal }) => new Promise((_resolve, reject) => {
+        requestCount += 1
+        assert.equal(pathname, '/workflows/run-current-hanging')
+        signal.addEventListener('abort', () => {
+          aborted = true
+          reject(new Error('current GET rejected after abort'))
+        }, { once: true })
+      }),
+    }),
+    /run-current-hanging[\s\S]*timed out/,
+  )
+
+  assert.equal(requestCount, 1)
+  assert.equal(aborted, true)
+})
+
+test('cancel-and-drain aborts a hanging cancellation POST within its total deadline', async () => {
+  const paths = []
+  let cancelAborted = false
+
+  await assert.rejects(
+    cancelAndWaitForWorkflowWorkerDrain('run-cancel-hanging', {
+      timeoutMs: 30,
+      request: (pathname, { signal, ...options }) => {
+        paths.push({ pathname, options })
+        if (!pathname.endsWith('/cancel')) return Promise.resolve({ status: 'processing' })
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            cancelAborted = true
+            reject(new Error('cancel POST rejected after abort'))
+          }, { once: true })
+        })
+      },
+    }),
+    /run-cancel-hanging[\s\S]*timed out/,
+  )
+
+  assert.deepEqual(paths.map(({ pathname }) => pathname), [
+    '/workflows/run-cancel-hanging',
+    '/workflows/run-cancel-hanging/cancel',
+  ])
+  assert.equal(paths[1].options.method, 'POST')
+  assert.equal(cancelAborted, true)
+})
+
+test('cancel-and-drain gives the cancellation POST only the shared deadline remainder', async () => {
+  let now = 0
+  const paths = []
+  let cancelAborted = false
+  const startedAt = Date.now()
+
+  await assert.rejects(
+    cancelAndWaitForWorkflowWorkerDrain('run-shared-deadline', {
+      timeoutMs: 1000,
+      clock: () => now,
+      request: (pathname, { signal }) => {
+        paths.push(pathname)
+        if (paths.length === 1) {
+          now = 900
+          return Promise.resolve({ status: 'processing' })
+        }
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            cancelAborted = true
+            reject(new Error('cancel POST rejected after shared deadline'))
+          }, { once: true })
+        })
+      },
+    }),
+    /run-shared-deadline[\s\S]*timed out/,
+  )
+
+  assert.deepEqual(paths, [
+    '/workflows/run-shared-deadline',
+    '/workflows/run-shared-deadline/cancel',
+  ])
+  assert.equal(cancelAborted, true)
+  assert.ok(Date.now() - startedAt < 500, 'cancel POST must receive only the original deadline remainder')
+})
+
+test('cancel-and-drain does not call an API after its deadline', async () => {
+  let requestCount = 0
+
+  await assert.rejects(
+    cancelAndWaitForWorkflowWorkerDrain('run-cancel-expired', {
+      timeoutMs: 0,
+      request: async () => {
+        requestCount += 1
+        return { status: 'completed', worker_active: false }
+      },
+    }),
+    /run-cancel-expired[\s\S]*timed out/,
+  )
+
+  assert.equal(requestCount, 0)
+})
+
+test('E2E API retry aborts its backoff without another request', async () => {
+  const controller = new AbortController()
+  let calls = 0
+  const startedAt = Date.now()
+  const retry = fetchWithIdempotentRetry('http://example.test/abort', { signal: controller.signal }, async () => {
+    calls += 1
+    throw new TypeError('transient socket close')
+  })
+  setTimeout(() => controller.abort(), 10)
+
+  await assert.rejects(retry, (error) => error?.name === 'AbortError')
+  assert.equal(calls, 1)
+  assert.ok(Date.now() - startedAt < 80, 'abort must clear the pending retry timer')
+  await new Promise((resolve) => setTimeout(resolve, 120))
+  assert.equal(calls, 1)
+})
+
+test('workflow cleanup blocks provider restore and fixture purge after a drain failure', async () => {
+  const prerequisite = createWorkflowDrainPrerequisite()
+  let restoreCalls = 0
+  let purgeCalls = 0
+  const failures = await runCleanup([
+    {
+      label: 'hard purge fixture',
+      run: async () => {
+        prerequisite.assertDrained()
+        purgeCalls += 1
+      },
+    },
+    {
+      label: 'restore provider configs',
+      run: async () => {
+        prerequisite.assertDrained()
+        restoreCalls += 1
+      },
+    },
+    {
+      label: 'drain workflow',
+      run: () => prerequisite.drain('run-drain-failure', async () => {
+        throw new Error('worker drain failed')
+      }),
+    },
+  ], { warn() {} })
+
+  assert.equal(restoreCalls, 0)
+  assert.equal(purgeCalls, 0)
+  assert.equal(failures.length, 3)
+  assert.deepEqual(failures.map(({ label }) => label), [
+    'drain workflow',
+    'restore provider configs',
+    'hard purge fixture',
+  ])
+
+  const cancellationPrerequisite = createWorkflowDrainPrerequisite()
+  let cancellationRestoreCalls = 0
+  let cancellationPurgeCalls = 0
+  const cancellationFailures = await runCleanup([
+    {
+      label: 'hard purge after cancellation failure',
+      run: async () => {
+        cancellationPrerequisite.assertDrained()
+        cancellationPurgeCalls += 1
+      },
+    },
+    {
+      label: 'restore after cancellation failure',
+      run: async () => {
+        cancellationPrerequisite.assertDrained()
+        cancellationRestoreCalls += 1
+      },
+    },
+    {
+      label: 'cancel before drain',
+      run: () => cancellationPrerequisite.drain('run-cancel-failure', async () => {
+        throw new Error('cancel request failed')
+      }),
+    },
+  ], { warn() {} })
+
+  assert.equal(cancellationRestoreCalls, 0)
+  assert.equal(cancellationPurgeCalls, 0)
+  assert.equal(cancellationFailures.length, 3)
+})
+
+test('workflow cleanup drains both workers before provider restore and fixture purge', () => {
+  const mainSource = sourceFunction('main')
+  assertSourceOrder(mainSource, [
+    "registerCleanup(cleanupActions, 'temporary AI provider configs'",
+    'registerCleanup(cleanupActions, `cancel draft workflow ${draftWorkflowRun.id}`',
+    'await workflowDrainPrerequisite.drain(draftWorkflowRun.id, cancelAndWaitForWorkflowWorkerDrain)',
+    'registerCleanup(cleanupActions, `cancel workflow ${workflowRun.id}`',
+    'await workflowDrainPrerequisite.drain(workflowRun.id, cancelAndWaitForWorkflowWorkerDrain)',
+  ])
+  const providerRestore = mainSource.indexOf("registerCleanup(cleanupActions, 'temporary AI provider configs'")
+  const fixturePurge = mainSource.indexOf('registerCleanup(cleanupActions, `hard purge drama ${drama.id}`')
+  const draftCleanup = mainSource.indexOf('registerCleanup(cleanupActions, `cancel draft workflow ${draftWorkflowRun.id}`')
+  const productionCleanup = mainSource.indexOf('registerCleanup(cleanupActions, `cancel workflow ${workflowRun.id}`')
+  assert.ok(productionCleanup > draftCleanup, 'production cleanup must run before draft cleanup in reverse order')
+  assert.ok(draftCleanup > providerRestore, 'draft cleanup must drain before provider restoration in reverse order')
+  assert.ok(providerRestore > fixturePurge, 'provider restoration must precede fixture purge in reverse order')
+  assert.match(
+    mainSource.slice(fixturePurge, providerRestore),
+    /workflowDrainPrerequisite\.assertDrained\(\)/,
+    'hard-purge callback must carry its own drain guard',
+  )
+  assert.match(
+    mainSource.slice(providerRestore, draftCleanup),
+    /workflowDrainPrerequisite\.assertDrained\(\)/,
+    'Provider-restore callback must carry its own drain guard',
+  )
+})
+
 test('same-SHA acceptance captures reuse the final matrix and raw E2E chains the final verifier', () => {
   assert.equal(
     frontendPackage.scripts['e2e:production:raw'],
@@ -1323,7 +1650,7 @@ test('browser acceptance contract covers the full UI journey, recovery, download
   assert.match(productionSource, /verifyDraftUpgradeUi\(startPage, drama\.id\)/)
   assert.ok(
     productionSource.indexOf('startDraftFromUi(startPage, drama.id)')
-      < productionSource.indexOf('const providerState = await installProviderConfigs(stamp)'),
+      < productionSource.indexOf('providerState = await installProviderConfigs(stamp)'),
     'Draft must complete before temporary Production providers are installed',
   )
   assert.match(productionSource, /startProductionFromUi\(startPage, drama\.id\)/)
