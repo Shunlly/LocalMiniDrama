@@ -379,7 +379,7 @@ style:
 
 **可灵 Omni（`kling_omni`）** 同样支持分镜全能模式的多图参考与片段描述-only 提交逻辑，配置方式见前端 AI 配置页说明。
 
-> Novel2Anime 工作流与上述经典生图/生视频链路不同：当前媒体、配音和合成步骤仍使用本地 mock provider SDK 产物，production QA 会要求真实 image/video/tts/compositor provider audit 记录后才允许通过。真实 Novel2Anime 工作流 provider 路由、ComfyUI/Ollama/cloud model 编排和 FFmpeg-backed Novel2Anime compositor provider 集成仍属后续接入范围。
+> Novel2Anime 明确区分 Draft 与 Production：Draft 预演可以使用本地 mock provider SDK 产物；Production 工作流由 `workflowService.js` / `aiClient.js` 路由已配置的文本 Provider，由 `providerSdkService.js` 执行素材图、分镜图、视频、TTS 和本机 FFmpeg/FFprobe 合成与输出校验。production QA 会拒绝 mock/占位产物，并要求成功的非 mock text/asset_image/image/video/tts/compositor audit 记录。Ollama 兼容文本路由和 ComfyUI 工作流执行已接入公共适配层；但每个第三方厂商、账号、模型、区域和额度组合仍需在实际部署中单独配置并执行连接测试。
 
 ### 提示词国际化
 

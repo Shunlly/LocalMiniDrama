@@ -39,7 +39,10 @@
 
 ---
 
-## 📌 v1.3.3 动态
+## 📌 v1.3.3 候选动态
+
+> 当前源码与包版本为 `1.3.3` 发布候选。正式发布以 `v1.3.3` 标签指向 `main`、同提交 Release 工作流全绿、生成的 draft GitHub Release 经人工复核并正式发布后为准。
+
 - 🛠️ **发布扫描修复**：Trivy 改由固定 digest 的官方 OCI 镜像在 Ubuntu 执行，Windows 扫描证据以 SHA-256 绑定最终发布字节，并逐一验证三类制品的 Electron Fuse
 - 🔧 **失败恢复与并发状态**：素材选择器保证最新请求生效、显示安全中文错误与长名称提示，项目包导入失败保留可重试的页内告警
 - 🆕 **桌面创作流程收口**：项目就绪度给出唯一下一步，素材导入、处理、QA、修复、剧集与时间线形成可恢复的五步流程
@@ -217,6 +220,29 @@ docker compose ps
 
 前端仍访问 `http://localhost:3013`，后端健康/就绪检查为 `http://localhost:5679/health` 和 `http://localhost:5679/ready`。Compose 默认仅绑定宿主机 `127.0.0.1`，并使用只读根文件系统、`no-new-privileges` 与能力裁剪。`npm run docker:up` 要求干净工作树，并把当前 Git SHA 写入镜像 revision；开发中的未提交源码可直接运行 `docker compose up -d --build --wait`，但这类镜像不能创建正式回滚检查点。完整容器验证可运行 `npm run verify:docker`。生产 E2E 必须先执行 `npm run docker:e2e:up`，再运行 `npm run verify:e2e`。发布前停止后端和 Docker，并在干净工作树运行 `npm run verify:rollback`；正式上线还必须按 [快速开始](docs/quickstart.md) 保留真实数据备份、旧提交、运行镜像 ID、Compose / 配置与 SHA-256。桌面产品验收报告可在 `http://localhost:3013/reports/product-acceptance/report.html` 查看。
 
+### 发布候选验证
+
+以下命令从仓库根目录运行；正式证据必须来自同一个干净提交：
+
+```bash
+# 版本一致性
+npm run verify:version
+
+# 源码、Node 20 容器、revision-bound Docker 与生产 E2E
+npm run verify:release:source
+
+# Windows 桌面候选构建与 smoke 验证；仍需独立安全扫描
+npm run verify:release:windows
+
+# 对已独立扫描且具备 artifact-security.json、release-manifest.json、SHA256SUMS 的候选做离线复核
+npm run verify:release:artifacts
+
+# Windows 上依次执行源码/Docker/E2E 与桌面候选构建/smoke；不替代独立扫描、回滚和最终制品复核
+npm run verify:release
+```
+
+完整的安全扫描、回滚检查点和发布顺序见 [开发/打包/Docker 指南](docs/quickstart.md)。
+
 生产后端不会直接使用宿主机原始 YAML：Compose 将可选的 `LOCALMINIDRAMA_CONFIG_DIR` 挂载到 `/app/config-source`，入口脚本启动时用 `runtime-config-policy.cjs` 净化到 `/tmp/localminidrama-config/config.yaml`，再以 `node` 用户启动服务。这样即使外部配置包含调试开关或敏感字段，运行配置仍按发布策略收敛；自定义配置目录中的 `config.yaml` 会在启动时重新校验。
 
 📖 [详细开发/打包/Docker 指南](docs/quickstart.md) · [AI 配置指南](docs/configuration.md)
@@ -237,7 +263,7 @@ docker compose ps
 | 本地 Ollama 等 OpenAI 兼容 | ✅ | — | — |
 | 其他 OpenAI 兼容接口 | ✅ | ✅ | ✅ |
 
-> Novel2Anime 生产工作流会调用已启用并通过就绪检查的文本、素材图、分镜图、视频和 TTS 配置，再由本机 FFmpeg 合成。OpenAI 兼容表示公共协议可路由，不代表每个中转站或模型都支持全部媒体端点；真实账号仍需在「AI 配置」执行连接测试。production QA 会拒绝 mock/占位产物。
+> Novel2Anime 生产工作流会调用已启用并通过就绪检查的文本、素材图、分镜图、视频和 TTS 配置，再由本机 FFmpeg/FFprobe 合成与校验；Draft 预演仍可使用本地 mock 产物，production QA 会拒绝 mock/占位产物。仓库生产 E2E 使用本地协议兼容 Provider 验证完整非 mock 链路，不代表每个第三方厂商、账号、模型或额度组合都已深度联调，真实部署仍需在「AI 配置」执行连接测试。移动端 Web 重排、触控行为和移动画布/列表降级不在当前桌面发布范围内。
 
 ---
 
