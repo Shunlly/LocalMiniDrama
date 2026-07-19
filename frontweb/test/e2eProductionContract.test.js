@@ -698,6 +698,80 @@ test('production E2E verifies service-specific AI config return routes in config
   )
 })
 
+test('production upgrade waits briefly for and reopens compact workflow history before selecting intake', async () => {
+  const revealHistory = productionE2e.revealWorkflowHistoryIfCompleted
+  assert.equal(typeof revealHistory, 'function', 'missing compact workflow history recovery helper')
+
+  const fixture = ({ visible = false, expanded = 'false', revealAfterWait = false } = {}) => {
+    let clicks = 0
+    let waitForCalls = 0
+    let ariaExpandedCalls = 0
+    let ariaExpanded = expanded
+    const historyToggle = {
+      getAttribute: async () => {
+        ariaExpandedCalls += 1
+        return ariaExpanded
+      },
+      click: async () => {
+        clicks += 1
+        ariaExpanded = 'true'
+      },
+    }
+    const completion = {
+      isVisible: async () => visible,
+      waitFor: async ({ state, timeout }) => {
+        waitForCalls += 1
+        assert.equal(state, 'visible')
+        assert.ok(timeout > 0 && timeout < 30000, 'completion recovery wait must stay bounded below the normal UI timeout')
+        if (!revealAfterWait) {
+          const error = new Error('completion summary did not appear')
+          error.name = 'TimeoutError'
+          throw error
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        visible = true
+      },
+      getByRole: () => historyToggle,
+    }
+    return {
+      workflow: { getByTestId: () => completion },
+      clicks: () => clicks,
+      waitForCalls: () => waitForCalls,
+      ariaExpandedCalls: () => ariaExpandedCalls,
+    }
+  }
+
+  const hidden = fixture()
+  assert.equal(await revealHistory(hidden.workflow), false)
+  assert.equal(hidden.clicks(), 0)
+  assert.equal(hidden.waitForCalls(), 1)
+
+  const expanded = fixture({ visible: true, expanded: 'true' })
+  assert.equal(await revealHistory(expanded.workflow), false)
+  assert.equal(expanded.clicks(), 0)
+  assert.equal(expanded.waitForCalls(), 0)
+  assert.equal(expanded.ariaExpandedCalls(), 1)
+
+  const collapsed = fixture({ visible: true })
+  assert.equal(await revealHistory(collapsed.workflow), true)
+  assert.equal(collapsed.clicks(), 1)
+  assert.equal(collapsed.ariaExpandedCalls(), 2, 'history expansion must be confirmed after clicking')
+
+  const delayed = fixture({ revealAfterWait: true })
+  assert.equal(await revealHistory(delayed.workflow), true)
+  assert.equal(delayed.waitForCalls(), 1)
+  assert.equal(delayed.clicks(), 1)
+  assert.equal(delayed.ariaExpandedCalls(), 2)
+
+  const start = productionSource.indexOf('async function startWorkflowModeFromUi')
+  const end = productionSource.indexOf('\nasync function startDraftFromUi', start)
+  assert.ok(start >= 0 && end > start, 'production workflow mode function is missing')
+  assertSourceOrder(productionSource.slice(start, end), [
+    'await revealWorkflowHistoryIfCompleted(workflow)',
+    'await flowStepButton(workflow, UI.intakeStep).click()',
+  ])
+})
+
 test('focused desktop acceptance is isolated from expensive media workflows', () => {
   assert.deepEqual(FOCUSED_DESKTOP_VIEWPORT, { width: 1280, height: 720 })
   assert.deepEqual(AI_TWO_COLUMN_VIEWPORT, { width: 1024, height: 768 })

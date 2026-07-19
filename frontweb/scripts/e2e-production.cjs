@@ -17,6 +17,7 @@ const PROVIDER_BASE_URL = (process.env.E2E_PROVIDER_BASE_URL || 'http://e2e-prov
 const PROVIDER_CONTROL_URL = (process.env.E2E_PROVIDER_CONTROL_URL || 'http://127.0.0.1:5688').replace(/\/$/, '')
 const PROVIDER_TOKEN = process.env.E2E_PROVIDER_TOKEN || 'local-e2e-token'
 const CONFIG_PREFIX = 'E2E Production Provider '
+const WORKFLOW_COMPLETION_RECOVERY_TIMEOUT = 5000
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 const REQUIRED_PROVIDER_TYPES = Object.freeze(['text', 'asset_image', 'image', 'video', 'tts', 'compositor'])
 const REQUIRED_PROVIDER_ENDPOINTS = Object.freeze(['text', 'image', 'video', 'tts'])
@@ -501,6 +502,23 @@ function flowStepButton(workflow, label) {
   return workflow.getByRole('button', {
     name: new RegExp(`^(?:(?:\\d+|\u2713)\\s+)?${escapeRegExp(label)}(?:\\s|$)`),
   })
+}
+
+async function revealWorkflowHistoryIfCompleted(workflow) {
+  const completion = workflow.getByTestId('source-workflow-complete')
+  if (!await completion.isVisible()) {
+    try {
+      await completion.waitFor({ state: 'visible', timeout: WORKFLOW_COMPLETION_RECOVERY_TIMEOUT })
+    } catch (error) {
+      if (error?.name === 'TimeoutError') return false
+      throw error
+    }
+  }
+  const historyToggle = completion.getByRole('button', { name: UI.workflowHistory, exact: true })
+  if (await historyToggle.getAttribute('aria-expanded') === 'true') return false
+  await historyToggle.click()
+  assert.equal(await historyToggle.getAttribute('aria-expanded'), 'true', 'compact workflow history must expand before selecting a step')
+  return true
 }
 
 async function fetchWithIdempotentRetry(url, options = {}, fetchImpl = fetch) {
@@ -1459,6 +1477,7 @@ async function startWorkflowModeFromUi(page, dramaId, {
     const workflow = page.locator('#source-intake-workflow')
     await workflow.waitFor({ state: 'visible', timeout: 30000 })
     await workflow.getByText(UI.workflowTitle, { exact: true }).waitFor({ timeout: 30000 })
+    await revealWorkflowHistoryIfCompleted(workflow)
     await flowStepButton(workflow, UI.intakeStep).click()
     const modeGroup = workflow.getByRole('radiogroup', {
       name: '\u5de5\u4f5c\u6d41\u542f\u52a8\u6a21\u5f0f',
@@ -2918,6 +2937,7 @@ module.exports = {
   installFocusedAiRoutes,
   main,
   prepareAcceptanceCaptureSurface,
+  revealWorkflowHistoryIfCompleted,
   sanitizeEvidenceText,
   summarizeProviderCalls,
   summarizeProviderInvocations,
