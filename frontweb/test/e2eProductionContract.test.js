@@ -32,6 +32,7 @@ const {
   main: runProductionE2e,
   resetAcceptanceReportArtifacts,
   sanitizeEvidenceText,
+  waitForEnabledAction,
   waitForProjectTitle,
 } = productionE2e
 const productionSource = readFileSync(new URL('../scripts/e2e-production.cjs', import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
@@ -854,6 +855,49 @@ test('project title readiness waits for the exact project name and propagates ti
     "page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })",
     'waitForProjectTitle(page, fixtureTitle)',
     "page.locator('#film-create-quick-nav [aria-current=\"step\"]')",
+  ])
+})
+
+test('enabled action readiness waits through a trial click and preserves failures', async () => {
+  assert.equal(typeof waitForEnabledAction, 'function', 'missing exported enabled action readiness helper')
+
+  let enabled = false
+  let enabledChecks = 0
+  const trialCalls = []
+  const locator = {
+    async click(options) {
+      trialCalls.push(options)
+      assert.equal(enabled, false, 'trial click must begin while the action is disabled')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      enabled = true
+    },
+    async isEnabled() {
+      enabledChecks += 1
+      return enabled
+    },
+  }
+
+  await waitForEnabledAction(locator, 'new project command')
+  assert.deepEqual(trialCalls, [{ trial: true, timeout: 30000 }])
+  assert.equal(enabledChecks, 1, 'actionability must be explicitly confirmed after the trial click')
+
+  const clickFailure = new Error('trial click timed out')
+  await assert.rejects(
+    waitForEnabledAction({
+      click: async () => { throw clickFailure },
+      isEnabled: async () => assert.fail('enabled state must not be checked after trial failure'),
+    }, 'new project command'),
+    clickFailure,
+    'trial click failures must not be swallowed',
+  )
+
+  const createDramaStart = productionSource.indexOf('async function createDramaFromUi')
+  const createDramaEnd = productionSource.indexOf('\nasync function verifyAiConfigReturnUi', createDramaStart)
+  assert.ok(createDramaStart >= 0 && createDramaEnd > createDramaStart, 'createDramaFromUi is missing')
+  assertSourceOrder(productionSource.slice(createDramaStart, createDramaEnd), [
+    "newButton.waitFor({ state: 'visible', timeout: 30000 })",
+    "waitForEnabledAction(newButton, 'new project command')",
+    'await newButton.click()',
   ])
 })
 

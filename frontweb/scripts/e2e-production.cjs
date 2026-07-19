@@ -645,6 +645,11 @@ async function waitForProjectTitle(page, expectedTitle) {
   ), expectedTitle, { timeout: 30000 })
 }
 
+async function waitForEnabledAction(locator, label) {
+  await locator.click({ trial: true, timeout: 30000 })
+  assert.equal(await locator.isEnabled(), true, `${label} must be enabled`)
+}
+
 function browserLaunchOptions() {
   const options = {
     headless: process.env.HEADED !== '1',
@@ -1160,7 +1165,7 @@ async function createDramaFromUi(page, { title, description }) {
   await page.goto(`${FRONTEND_URL}/`, { waitUntil: 'domcontentloaded' })
   const newButton = page.getByRole('button', { name: UI.newProject, exact: true }).first()
   await newButton.waitFor({ state: 'visible', timeout: 30000 })
-  assert.equal(await newButton.isEnabled(), true, 'new project command must be enabled')
+  await waitForEnabledAction(newButton, 'new project command')
   await newButton.click()
   const dialog = page.getByRole('dialog', { name: UI.newProject, exact: true })
   await dialog.getByPlaceholder('\u8f93\u5165\u9879\u76ee\u6807\u9898').fill(title)
@@ -2965,6 +2970,7 @@ module.exports = {
   verifyFilmPipelineDisclosureUi,
   verifyFocusedDesktopAcceptance,
   verifyProjectReadinessDisclosureUi,
+  waitForEnabledAction,
   waitForWorkflow,
   waitForProjectTitle,
   writeAcceptanceManifest,
