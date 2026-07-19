@@ -18,9 +18,13 @@ const { requestBounded } = require('../src/services/sourceMediaExtractionService
 const TEST_TOKEN = 'unit-test-token-not-a-real-key';
 const previousStorySourceRoot = process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT;
 const storySourceRoot = path.join(os.tmpdir(), `localminidrama-source-media-test-${process.pid}-${Date.now()}`);
+const fakeExtractionServers = [];
 process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT = storySourceRoot;
 
 after(async () => {
+  await Promise.all(fakeExtractionServers.splice(0).map(
+    (server) => new Promise((resolve) => server.close(resolve))
+  ));
   if (previousStorySourceRoot == null) delete process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT;
   else process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT = previousStorySourceRoot;
   await fsp.rm(storySourceRoot, { recursive: true, force: true });
@@ -206,6 +210,7 @@ async function startFakeExtractionService(options = {}) {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
   });
+  fakeExtractionServers.push(server);
   const address = server.address();
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
