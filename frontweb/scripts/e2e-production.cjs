@@ -908,8 +908,8 @@ async function waitForScriptEpisodeTitle(page, expectedTitle) {
 async function selectEpisodeFromHeader(page, episode, fallbackIndex) {
   assert.ok(episode?.id, 'header episode switch requires an episode id')
   const expectedLabel = formatExpectedEpisodeContextLabel(episode, fallbackIndex)
-  const combobox = page.getByRole('combobox', { name: UI.currentEpisode, exact: true })
-  await combobox.click()
+  const selectRoot = page.locator('.film-create .header-episode-select')
+  await selectRoot.click()
   const option = page.getByRole('option', { name: expectedLabel, exact: true })
   await option.waitFor({ state: 'visible', timeout: 30000 })
   const navigation = page.waitForURL((url) => (

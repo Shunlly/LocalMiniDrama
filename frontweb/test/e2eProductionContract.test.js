@@ -896,6 +896,20 @@ test('focused episode context formats the exact user-visible number and title', 
   )
 })
 
+test('header episode switching clicks the visible select root instead of its covered input', () => {
+  const switchEpisode = sourceFunction('selectEpisodeFromHeader')
+  assertSourceOrder(switchEpisode, [
+    "page.locator('.film-create .header-episode-select')",
+    'await selectRoot.click()',
+    "page.getByRole('option', { name: expectedLabel, exact: true })",
+  ])
+  assert.doesNotMatch(
+    switchEpisode,
+    /getByRole\('combobox'[\s\S]*?\.click\(/,
+    'the covered Element Plus combobox input must not be used as the pointer target',
+  )
+})
+
 test('project title readiness waits for the exact project name and propagates timeouts', async () => {
   assert.equal(typeof waitForProjectTitle, 'function', 'missing exported project title readiness helper')
 
