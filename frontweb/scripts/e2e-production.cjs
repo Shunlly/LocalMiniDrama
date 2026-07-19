@@ -1895,7 +1895,6 @@ async function installFocusedAiRoutes(page, fixture) {
     if (state.mutationComplete && !state.recoveryComplete) requestCounts.readiness_after_mutation += 1
     if (readinessGate.isArmed()) {
       const status = await readinessGate.intercept()
-      state.readinessStatuses.push(status)
       await route.fulfill({
         status,
         contentType: 'application/json',
@@ -1903,21 +1902,31 @@ async function installFocusedAiRoutes(page, fixture) {
       })
       return
     }
-    const response = await route.fetch({ postData })
-    state.readinessStatuses.push(response.status())
-    await route.fulfill({ response })
+    await route.continue({ postData })
+  }
+
+  const readinessResponseListener = (response) => {
+    const request = response.request()
+    const url = new URL(response.url())
+    if (request.method() === 'POST' && url.pathname === '/api/v1/workflows/novel2anime/readiness') {
+      state.readinessStatuses.push(response.status())
+    }
   }
 
   await page.route(aiListPattern, aiListHandler)
   await page.route(readinessPattern, readinessHandler)
+  page.on('response', readinessResponseListener)
   return {
     state,
     requestCounts,
     readinessGate,
     async dispose() {
       readinessGate.dispose()
-      await page.unroute(readinessPattern, readinessHandler)
-      await page.unroute(aiListPattern, aiListHandler)
+      try {
+        await page.unrouteAll({ behavior: 'wait' })
+      } finally {
+        page.off('response', readinessResponseListener)
+      }
     },
   }
 }

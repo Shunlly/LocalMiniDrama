@@ -28,6 +28,7 @@ const {
   extractZipEntries,
   fetchWithIdempotentRetry,
   focusedAiRouteAction,
+  installFocusedAiRoutes,
   main: runProductionE2e,
   resetAcceptanceReportArtifacts,
   sanitizeEvidenceText,
@@ -940,6 +941,155 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
   assert.match(focused, /\/ai-configs\/test/)
   assert.match(focused, /\/workflows\/novel2anime/)
   assert.match(focused, /finally\s*\{/)
+})
+
+test('focused readiness routes continue normal requests and record only real target responses', async () => {
+  assert.equal(typeof installFocusedAiRoutes, 'function', 'missing exported focused AI route installer')
+
+  const routes = new Map()
+  const listeners = new Map()
+  const unrouteAllCalls = []
+  const removedListeners = []
+  let activeGateHandler = null
+  const page = {
+    async route(pattern, handler) {
+      routes.set(pattern, handler)
+    },
+    async unrouteAll(options) {
+      assert.deepEqual(options, { behavior: 'wait' }, 'focused route cleanup must wait for active handlers')
+      assert.ok(activeGateHandler, 'unrouteAll must wait for the active readiness handler')
+      unrouteAllCalls.push(options)
+      await activeGateHandler
+      routes.clear()
+    },
+    on(event, listener) {
+      listeners.set(event, listener)
+    },
+    off(event, listener) {
+      assert.equal(listeners.get(event), listener, `off must remove its registered ${event} listener`)
+      assert.equal(routes.size, 0, 'response listener must remain registered until all routes are removed')
+      listeners.delete(event)
+      removedListeners.push(event)
+    },
+  }
+  const fixture = {
+    inactiveTextId: 11,
+    providerState: { created: [] },
+    uiConfigName: 'Focused test fixture',
+  }
+  const installed = await installFocusedAiRoutes(page, fixture)
+  const readinessPattern = '**/api/v1/workflows/novel2anime/readiness'
+  const readinessHandler = routes.get(readinessPattern)
+  const readinessResponseListener = listeners.get('response')
+  assert.equal(typeof readinessHandler, 'function')
+  assert.equal(typeof readinessResponseListener, 'function', 'readiness responses must be observed after continue')
+
+  const continued = []
+  const fetched = []
+  const fulfilled = []
+  const normalRoute = {
+    request: () => ({ postDataJSON: () => ({ drama_id: 42, options: { caller_option: 'preserved' } }) }),
+    continue: async (options) => { continued.push(options) },
+    fetch: async (options) => { fetched.push(options) },
+    fulfill: async (options) => { fulfilled.push(options) },
+  }
+  await readinessHandler(normalRoute)
+  assert.equal(continued.length, 1, 'normal readiness POST must continue exactly once')
+  assert.equal(fetched.length, 0, 'normal readiness POST must not fetch through a route')
+  assert.equal(fulfilled.length, 0, 'normal readiness POST must not fulfill a route')
+  assert.deepEqual(JSON.parse(continued[0].postData), {
+    drama_id: 42,
+    options: {
+      caller_option: 'preserved',
+      text_model: 'local-e2e-text',
+      text_provider: 'openai_compatible',
+      asset_image_model: 'local-e2e-image',
+      asset_image_provider: 'openai_compatible',
+      image_model: 'local-e2e-image',
+      image_provider: 'openai_compatible',
+      video_model: 'local-e2e-video',
+      video_provider: 'openai_compatible',
+      tts_model: 'local-e2e-tts',
+      tts_provider: 'openai_compatible',
+    },
+  })
+
+  const response = ({ method, pathname, status }) => ({
+    request: () => ({ method: () => method }),
+    url: () => `http://localhost:5679${pathname}`,
+    status: () => status,
+  })
+  await readinessResponseListener(response({ method: 'GET', pathname: '/api/v1/workflows/novel2anime/readiness', status: 204 }))
+  await readinessResponseListener(response({ method: 'POST', pathname: '/api/v1/other', status: 202 }))
+  await readinessResponseListener(response({ method: 'POST', pathname: '/api/v1/workflows/novel2anime/readiness', status: 201 }))
+  assert.deepEqual(installed.state.readinessStatuses, [201], 'only target readiness POST responses must be recorded')
+
+  installed.readinessGate.arm()
+  const releasedGateFulfilled = []
+  const releasedGateContinued = []
+  const releasedGateHandler = readinessHandler({
+    request: () => ({ postDataJSON: () => ({ options: {} }) }),
+    continue: async (options) => { releasedGateContinued.push(options) },
+    fetch: async () => assert.fail('armed readiness gate must not fetch'),
+    fulfill: async (options) => {
+      releasedGateFulfilled.push(options)
+      const listener = listeners.get('response')
+      assert.equal(typeof listener, 'function', 'fulfilled readiness response must reach the active response listener')
+      await listener(response({
+        method: 'POST',
+        pathname: '/api/v1/workflows/novel2anime/readiness',
+        status: options.status,
+      }))
+    },
+  })
+  await installed.readinessGate.waitUntilIntercepted()
+  installed.readinessGate.release(503)
+  await releasedGateHandler
+  assert.equal(releasedGateContinued.length, 0, 'armed readiness gate must not continue')
+  assert.equal(releasedGateFulfilled.length, 1, 'armed readiness gate must fulfill exactly once')
+  assert.equal(releasedGateFulfilled[0].status, 503)
+  assert.deepEqual(installed.state.readinessStatuses, [201, 503], 'a fulfilled 503 must be recorded only by the response listener')
+
+  installed.readinessGate.arm()
+  const pendingGateFulfilled = []
+  const pendingGateContinued = []
+  activeGateHandler = readinessHandler({
+    request: () => ({ postDataJSON: () => ({ options: {} }) }),
+    continue: async (options) => { pendingGateContinued.push(options) },
+    fetch: async () => assert.fail('armed readiness gate must not fetch'),
+    fulfill: async (options) => { pendingGateFulfilled.push(options) },
+  })
+  await installed.readinessGate.waitUntilIntercepted()
+  await installed.dispose()
+  assert.equal(pendingGateContinued.length, 0, 'dispose-released readiness gate must not continue')
+  assert.equal(pendingGateFulfilled.length, 1, 'dispose must wait for the pending readiness gate to fulfill')
+  assert.equal(pendingGateFulfilled[0].status, 503)
+  assert.deepEqual(installed.state.readinessStatuses, [201, 503], 'dispose must not fabricate a readiness response status')
+
+  assert.deepEqual(unrouteAllCalls, [{ behavior: 'wait' }])
+  assert.deepEqual(removedListeners, ['response'])
+  assert.equal(routes.size, 0)
+  assert.equal(listeners.size, 0)
+
+  const unrouteFailure = new Error('unrouteAll failed')
+  const failingListeners = new Map()
+  const failingPage = {
+    route: async () => {},
+    unrouteAll: async (options) => {
+      assert.deepEqual(options, { behavior: 'wait' })
+      throw unrouteFailure
+    },
+    on(event, listener) {
+      failingListeners.set(event, listener)
+    },
+    off(event, listener) {
+      assert.equal(failingListeners.get(event), listener)
+      failingListeners.delete(event)
+    },
+  }
+  const failingInstall = await installFocusedAiRoutes(failingPage, fixture)
+  await assert.rejects(failingInstall.dispose(), unrouteFailure)
+  assert.equal(failingListeners.size, 0, 'dispose must remove the response listener when unrouteAll fails')
 })
 
 test('focused coverage geometry uses one normalized DOM snapshot and validates service identity', () => {
