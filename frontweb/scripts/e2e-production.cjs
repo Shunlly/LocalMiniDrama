@@ -1800,6 +1800,27 @@ function assertCoverageCardMatrix(records) {
   return records
 }
 
+async function waitForCoverageCardMatrix(page) {
+  const expected = FOCUSED_COVERAGE_MATRIX.map(({ service, state, test_status }) => ({ service, state, test_status }))
+  await page.waitForFunction((expectedMatrix) => {
+    const records = [...document.querySelectorAll('#ai-config-coverage-panel .coverage-item')].map((element) => {
+      const icon = element.querySelector('.coverage-icon')
+      const serviceClass = [...(icon?.classList || [])].find((name) => /^coverage-icon-(?!$)/.test(name)) || ''
+      const stateClass = ['coverage-default', 'coverage-configured', 'coverage-missing']
+        .find((name) => element.classList.contains(name)) || ''
+      const testNode = element.querySelector('.coverage-test-status')
+      const testClass = ['test-failed', 'test-unknown', 'test-passed']
+        .find((name) => testNode?.classList.contains(name)) || ''
+      return {
+        service: serviceClass.replace('coverage-icon-', ''),
+        state: stateClass.replace('coverage-', ''),
+        test_status: testClass.replace('test-', ''),
+      }
+    })
+    return JSON.stringify(records) === JSON.stringify(expectedMatrix)
+  }, expected, { timeout: 30000 })
+}
+
 async function assertCoverageLayout(page, {
   viewport,
   columns,
@@ -1943,34 +1964,61 @@ async function assertWorkbenchFocus(page, { preferred, fallback, label }) {
   assert.fail(`${label} did not restore focus to the workbench: ${JSON.stringify(active)}`)
 }
 
-function createReadinessGate() {
+function createReadinessGate({
+  timeoutMs = 10000,
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout,
+} = {}) {
   let armed = false
-  let interceptedResolve = null
+  let intercepted = false
   let releaseResolve = null
-  let intercepted = Promise.resolve()
   let release = Promise.resolve(503)
+  const waiters = new Set()
+  const expectedReadinessPost = 'POST /api/v1/workflows/novel2anime/readiness'
+  const settleWaiter = (waiter, error = null) => {
+    if (!waiters.delete(waiter)) return
+    if (waiter.timer !== null) clearTimeoutFn(waiter.timer)
+    if (error) waiter.reject(error)
+    else waiter.resolve()
+  }
   return {
     arm() {
       assert.equal(armed, false, 'readiness gate is already armed')
       armed = true
-      intercepted = new Promise((resolve) => { interceptedResolve = resolve })
+      intercepted = false
       release = new Promise((resolve) => { releaseResolve = resolve })
     },
     isArmed: () => armed,
     async intercept() {
       assert.equal(armed, true, 'readiness gate was not armed')
-      interceptedResolve?.()
+      intercepted = true
+      for (const waiter of [...waiters]) settleWaiter(waiter)
       const status = await release
       armed = false
       return status
     },
-    waitUntilIntercepted: () => intercepted,
+    waitUntilIntercepted() {
+      if (intercepted) return Promise.resolve()
+      if (!armed) return Promise.reject(new Error(`Cannot wait for ${expectedReadinessPost}: readiness gate is not armed`))
+      return new Promise((resolve, reject) => {
+        const waiter = { resolve, reject, timer: null }
+        waiter.timer = setTimeoutFn(() => {
+          if (!waiters.delete(waiter)) return
+          waiter.timer = null
+          reject(new Error(`${expectedReadinessPost} timed out after ${timeoutMs}ms`))
+        }, timeoutMs)
+        waiters.add(waiter)
+      })
+    },
     release(status = 503) {
       releaseResolve?.(status)
     },
     dispose() {
+      const error = new Error(`Readiness gate disposed before expected readiness POST ${expectedReadinessPost.slice(5)}`)
+      for (const waiter of [...waiters]) settleWaiter(waiter, error)
       if (armed) releaseResolve?.(503)
       armed = false
+      intercepted = false
     },
   }
 }
@@ -1997,6 +2045,7 @@ async function installFocusedAiRoutes(page, fixture) {
   const state = {
     inactiveTextId: fixture.inactiveTextId,
     uiCreatedIds: new Set(),
+    decoratedUiCreatedIds: new Set(),
     includeUiCreated: false,
     mutationComplete: false,
     recoveryComplete: false,
@@ -2004,6 +2053,27 @@ async function installFocusedAiRoutes(page, fixture) {
   }
   const requestCounts = { readiness_after_mutation: 0, ui_config_posts: 0 }
   const fixtureIds = new Set(fixture.providerState.created.map((config) => Number(config.id)))
+  const uiCreatedRowWaiters = new Map()
+
+  const resolveUiCreatedRowWaiter = (id) => {
+    const waiter = uiCreatedRowWaiters.get(id)
+    if (!waiter) return
+    uiCreatedRowWaiters.delete(id)
+    clearTimeout(waiter.timer)
+    waiter.resolve()
+  }
+
+  const waitForUiCreatedRow = (id, timeoutMs = 30000) => {
+    const numericId = Number(id)
+    if (state.decoratedUiCreatedIds.has(numericId)) return Promise.resolve()
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        uiCreatedRowWaiters.delete(numericId)
+        reject(new Error(`decorated AI config list did not include created id ${numericId}`))
+      }, timeoutMs)
+      uiCreatedRowWaiters.set(numericId, { resolve, timer })
+    })
+  }
 
   const aiListHandler = async (route) => {
     const request = route.request()
@@ -2031,7 +2101,15 @@ async function installFocusedAiRoutes(page, fixture) {
           settings: JSON.stringify({ ...existingSettings, allow_local_http: true }),
         }),
       })
-      await route.fulfill({ response })
+      const payload = await response.json()
+      const createdId = Number(payload?.data?.id)
+      assert.ok(Number.isSafeInteger(createdId) && createdId > 0, 'focused AI create route response must contain an id')
+      assert.ok(fixture.cleanupState?.createdIds instanceof Set, 'focused AI create route requires cleanup ownership')
+      fixture.cleanupState.createdIds.add(createdId)
+      state.uiCreatedIds.add(createdId)
+      state.includeUiCreated = true
+      state.mutationComplete = true
+      await route.fulfill({ response, body: JSON.stringify(payload) })
       return
     }
     if (action === 'passthrough') {
@@ -2053,6 +2131,8 @@ async function installFocusedAiRoutes(page, fixture) {
         if (row.service_type === 'storyboard_image') return { ...display, is_default: true, is_active: true, last_test_status: 'passed' }
         return { ...display, is_default: false, is_active: true, last_test_status: 'unknown' }
       })
+    state.decoratedUiCreatedIds = new Set(decorated.map((row) => Number(row.id)))
+    for (const id of state.decoratedUiCreatedIds) resolveUiCreatedRowWaiter(id)
     await route.fulfill({ response, body: JSON.stringify({ ...payload, data: decorated }) })
   }
 
@@ -2091,8 +2171,14 @@ async function installFocusedAiRoutes(page, fixture) {
     state,
     requestCounts,
     readinessGate,
+    waitForUiCreatedRow,
     async dispose() {
       readinessGate.dispose()
+      for (const [id, waiter] of uiCreatedRowWaiters) {
+        clearTimeout(waiter.timer)
+        waiter.reject(new Error(`decorated AI config list was disposed before including created id ${id}`))
+      }
+      uiCreatedRowWaiters.clear()
       try {
         await page.unrouteAll({ behavior: 'wait' })
       } finally {
@@ -2204,10 +2290,11 @@ async function createMissingServiceFromUi(page, fixture) {
   const responseBody = await response.json()
   const createdId = Number(responseBody?.data?.id)
   assert.ok(Number.isSafeInteger(createdId) && createdId > 0, 'focused UI config response must contain an id')
-  fixture.createdIds.add(createdId)
-  fixture.routes.state.uiCreatedIds.add(createdId)
-  fixture.routes.state.includeUiCreated = true
-  fixture.routes.state.mutationComplete = true
+  assert.equal(fixture.createdIds.has(createdId), true, 'focused create route must claim cleanup ownership before responding')
+  assert.equal(fixture.routes.state.uiCreatedIds.has(createdId), true, 'focused create route must register the created id before responding')
+  assert.equal(fixture.routes.state.includeUiCreated, true, 'focused create route must enable list decoration before responding')
+  assert.equal(fixture.routes.state.mutationComplete, true, 'focused create route must register mutation state before responding')
+  await fixture.routes.waitForUiCreatedRow(createdId)
 
   assert.equal(fixture.routes.requestCounts.ui_config_posts, 1, 'focused acceptance must create exactly one UI config')
   assert.equal(responseBody.data.is_active, true)
@@ -2258,6 +2345,79 @@ async function assertScreenshotSurfaceSafe(page) {
   assert.equal(exposure.loading_masks, 0, 'capture surface still contains a loading mask')
 }
 
+async function waitForAcceptanceCaptureReadiness(page, capture, fixture = {}) {
+  const uiConfigName = String(fixture.uiConfigName || '').trim()
+  const expectedConfigNames = Array.isArray(fixture.expectedConfigNames)
+    ? fixture.expectedConfigNames.map((name) => String(name || '').trim())
+    : []
+  if (capture.surface === 'ai-config-management') {
+    assert.ok(uiConfigName, 'AI config management capture readiness requires uiConfigName')
+    assert.equal(expectedConfigNames.length, 5, 'AI config management capture readiness requires exactly five config names')
+    assert.equal(expectedConfigNames.every(Boolean), true, 'AI config management capture readiness requires non-empty config names')
+    assert.equal(new Set(expectedConfigNames).size, 5, 'AI config management capture readiness requires five unique config names')
+    assert.equal(expectedConfigNames.includes(uiConfigName), true, 'AI config management capture readiness must include uiConfigName')
+  }
+  const expectedCoverage = FOCUSED_COVERAGE_MATRIX.map(({ service, state, test_status }) => ({ service, state, test_status }))
+  await page.waitForFunction(({ surface, expectedConfigNames: configNames, expectedCoverage: coverage }) => {
+    const isVisible = (element) => {
+      if (!element) return false
+      const style = getComputedStyle(element)
+      return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0
+    }
+    const hasLoadingMask = [...document.querySelectorAll('.el-loading-mask')].some(isVisible)
+    if (hasLoadingMask) return false
+    if (surface === 'project-readiness') {
+      const toggle = document.querySelector('[data-testid="project-readiness-toggle"]')
+      return toggle?.getAttribute('aria-expanded') === 'true'
+        && isVisible(document.querySelector('[data-testid="project-readiness-details"]'))
+        && [...document.querySelectorAll('[data-testid="project-readiness-details"] .summary-item')].filter(isVisible).length === 8
+        && [...document.querySelectorAll('[data-testid="project-readiness-details"] .service-chip')].filter(isVisible).length === 5
+    }
+    if (surface === 'film-pipeline') {
+      return isVisible(document.querySelector('.film-create'))
+        && isVisible(document.querySelector('[data-testid="film-pipeline-summary"][data-state="ready"]'))
+    }
+    if (surface === 'ai-config-management') {
+      const configPanel = document.querySelector('#ai-config-configs-panel')
+      const configSection = document.querySelector('.config-list-section')
+      const table = document.querySelector('#ai-config-configs-panel .config-list-section .el-table')
+      if (!isVisible(configPanel) || !isVisible(configSection) || !isVisible(table)) return false
+      const headers = [...table.querySelectorAll('.el-table__header-wrapper th.el-table__cell')]
+      const nameColumnIndex = headers.findIndex((header) => (
+        String(header.querySelector('.cell')?.textContent || '').trim() === '\u540d\u79f0'
+      ))
+      if (nameColumnIndex < 0) return false
+      const visibleRows = [...table.querySelectorAll('.el-table__body-wrapper tbody tr.el-table__row')].filter(isVisible)
+      if (visibleRows.length !== 5) return false
+      const visibleNames = visibleRows.map((row) => {
+        const cells = [...row.querySelectorAll('td.el-table__cell')]
+        return String(cells[nameColumnIndex]?.querySelector('.cell')?.textContent || '').trim()
+      })
+      return new Set(visibleNames).size === 5
+        && JSON.stringify([...visibleNames].sort()) === JSON.stringify([...configNames].sort())
+    }
+    if (surface === 'ai-config-coverage') {
+      const records = [...document.querySelectorAll('#ai-config-coverage-panel .coverage-item')].map((element) => {
+        const icon = element.querySelector('.coverage-icon')
+        const serviceClass = [...(icon?.classList || [])].find((name) => /^coverage-icon-(?!$)/.test(name)) || ''
+        const stateClass = ['coverage-default', 'coverage-configured', 'coverage-missing']
+          .find((name) => element.classList.contains(name)) || ''
+        const testNode = element.querySelector('.coverage-test-status')
+        const testClass = ['test-failed', 'test-unknown', 'test-passed']
+          .find((name) => testNode?.classList.contains(name)) || ''
+        return {
+          service: serviceClass.replace('coverage-icon-', ''),
+          state: stateClass.replace('coverage-', ''),
+          test_status: testClass.replace('test-', ''),
+        }
+      })
+      return JSON.stringify(records) === JSON.stringify(coverage)
+    }
+    return false
+  }, { surface: capture.surface, expectedConfigNames, expectedCoverage }, { timeout: 30000 })
+  if (capture.surface === 'ai-config-coverage') await waitForCoverageCardMatrix(page)
+}
+
 async function prepareAcceptanceCaptureSurface(page, capture, fixture) {
   const episodeId = fixture.completedDrama.episodes[0].id
   fixture.routes.state.includeUiCreated = capture.surface === 'ai-config-management'
@@ -2274,23 +2434,23 @@ async function prepareAcceptanceCaptureSurface(page, capture, fixture) {
     await toggle.waitFor({ state: 'visible', timeout: 30000 })
     if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
     await page.getByTestId('project-readiness-details').waitFor({ state: 'visible', timeout: 10000 })
-    return
-  }
-
-  await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
-  await page.locator('[data-testid="film-pipeline-summary"][data-state="ready"]').waitFor({ state: 'visible', timeout: 30000 })
-  if (capture.surface === 'film-pipeline') return
-
-  await page.locator('.btn-ai-config').click()
-  await workspaceDialog.waitFor({ state: 'visible', timeout: 30000 })
-  if (capture.surface === 'ai-config-management') {
-    await page.getByTestId('ai-config-mode-configs').click()
-    await page.locator('#ai-config-configs-panel').waitFor({ state: 'visible', timeout: 10000 })
-    await page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 10000 })
   } else {
-    await page.getByTestId('ai-config-mode-coverage').click()
-    await page.locator('#ai-config-coverage-panel').waitFor({ state: 'visible', timeout: 10000 })
+    await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
+    await page.locator('[data-testid="film-pipeline-summary"][data-state="ready"]').waitFor({ state: 'visible', timeout: 30000 })
+    if (capture.surface !== 'film-pipeline') {
+      await page.locator('.btn-ai-config').click()
+      await workspaceDialog.waitFor({ state: 'visible', timeout: 30000 })
+      if (capture.surface === 'ai-config-management') {
+        await page.getByTestId('ai-config-mode-configs').click()
+        await page.locator('#ai-config-configs-panel').waitFor({ state: 'visible', timeout: 10000 })
+        await page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 10000 })
+      } else {
+        await page.getByTestId('ai-config-mode-coverage').click()
+        await page.locator('#ai-config-coverage-panel').waitFor({ state: 'visible', timeout: 10000 })
+      }
+    }
   }
+  await waitForAcceptanceCaptureReadiness(page, capture, fixture)
 }
 
 async function captureAcceptanceReportScreenshots(page, fixture) {
@@ -2381,17 +2541,27 @@ async function verifyFocusedDesktopAcceptance(browser, {
   assert.equal(textFixtures.length, 1, 'focused acceptance requires one exact E2E text fixture')
   const textFixture = textFixtures[0]
   const exactName = `E2E Focused Text ${stamp}`
+  const inactiveTextId = Number(textFixture.id)
+  const expectedConfigNames = [
+    ...providerState.created
+      .filter((config) => Number(config.id) !== inactiveTextId)
+      .map((config) => String(config.name || '').trim()),
+    exactName,
+  ]
+  assert.equal(expectedConfigNames.length, 5, 'focused acceptance requires exactly five visible AI config names')
+  assert.equal(expectedConfigNames.every(Boolean), true, 'focused acceptance AI config names must be non-empty')
+  assert.equal(new Set(expectedConfigNames).size, 5, 'focused acceptance AI config names must be unique')
   const cleanupState = {
     exactName,
     exactNameRegistered: true,
     createdIds: new Set(),
-    fixtureTextId: textFixture.id,
+    fixtureTextId: inactiveTextId,
     fixtureWasActive: Boolean(textFixture.is_active),
     fixtureRestored: false,
     visibleConfigRemoved: false,
   }
   registerCleanup(cleanupActions, `focused AI config ${exactName}`, () => cleanupFocusedAiState(cleanupState))
-  await apiRequest(`/ai-configs/${textFixture.id}`, {
+  await apiRequest(`/ai-configs/${inactiveTextId}`, {
     method: 'PUT',
     body: JSON.stringify({ is_active: false }),
   })
@@ -2421,8 +2591,9 @@ async function verifyFocusedDesktopAcceptance(browser, {
   try {
     routes = await installFocusedAiRoutes(page, {
       providerState,
-      inactiveTextId: textFixture.id,
+      inactiveTextId,
       uiConfigName: exactName,
+      cleanupState,
     })
     await page.goto(`${FRONTEND_URL}/`, { waitUntil: 'domcontentloaded' })
     const search = page.getByRole('textbox', { name: '\u641c\u7d22\u9879\u76ee', exact: true })
@@ -2481,6 +2652,7 @@ async function verifyFocusedDesktopAcceptance(browser, {
     const workspaceDialog = page.locator('.ai-config-workspace-dialog')
     await workspaceDialog.waitFor({ state: 'visible', timeout: 30000 })
     await page.locator('#ai-config-coverage-panel').waitFor({ state: 'visible', timeout: 30000 })
+    await waitForCoverageCardMatrix(page)
     const layout1280 = await assertCoverageLayout(page, {
       viewport: FOCUSED_DESKTOP_VIEWPORT,
       columns: 5,
@@ -2573,6 +2745,7 @@ async function verifyFocusedDesktopAcceptance(browser, {
     await genericOpener.click()
     await workspaceDialog.waitFor({ state: 'visible', timeout: 30000 })
     await page.locator('#ai-config-coverage-panel').waitFor({ state: 'visible', timeout: 30000 })
+    await waitForCoverageCardMatrix(page)
     const layout1024 = await assertCoverageLayout(page, {
       viewport: AI_TWO_COLUMN_VIEWPORT,
       columns: 2,
@@ -2601,6 +2774,8 @@ async function verifyFocusedDesktopAcceptance(browser, {
       completedDrama,
       routes,
       evidenceRecorder,
+      uiConfigName: exactName,
+      expectedConfigNames,
     })
     const providerCallsAfter = await readStableProviderCalls()
     assert.deepEqual(providerCallsAfter, providerCallsBefore, 'focused acceptance must not call the Provider')
@@ -3110,6 +3285,7 @@ module.exports = {
   assertProviderStats,
   cancelAndWaitForWorkflowWorkerDrain,
   createEvidenceRecorder,
+  createReadinessGate,
   createWorkflowDrainPrerequisite,
   createMissingServiceFromUi,
   captureAcceptanceReportScreenshots,
@@ -3134,6 +3310,8 @@ module.exports = {
   verifyFocusedDesktopAcceptance,
   verifyProjectReadinessDisclosureUi,
   waitForEnabledAction,
+  waitForAcceptanceCaptureReadiness,
+  waitForCoverageCardMatrix,
   waitForWorkflow,
   waitForWorkflowWorkerDrain,
   waitForProjectTitle,

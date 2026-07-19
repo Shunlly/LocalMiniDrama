@@ -21,6 +21,7 @@ const {
   REQUIRED_TRACK_TYPES,
   assertCoverageCardMatrix,
   assertCompleteEvidence,
+  createReadinessGate,
   createEvidenceRecorder,
   assertProductionTimeline,
   assertProviderInvocations,
@@ -36,6 +37,8 @@ const {
   createWorkflowDrainPrerequisite,
   runCleanup,
   waitForEnabledAction,
+  waitForAcceptanceCaptureReadiness,
+  waitForCoverageCardMatrix,
   waitForProjectTitle,
   waitForWorkflowWorkerDrain,
 } = productionE2e
@@ -989,6 +992,450 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
   assert.match(focused, /\/ai-configs\/test/)
   assert.match(focused, /\/workflows\/novel2anime/)
   assert.match(focused, /finally\s*\{/)
+})
+
+test('focused coverage waits for the exact service-state matrix before each layout assertion', () => {
+  const focused = sourceFunction('verifyFocusedDesktopAcceptance')
+  const firstLayout = focused.indexOf('const layout1280 = await assertCoverageLayout')
+  const secondLayout = focused.indexOf('const layout1024 = await assertCoverageLayout')
+  assert.ok(firstLayout >= 0 && secondLayout > firstLayout, 'focused acceptance must retain both coverage layout assertions')
+
+  const firstWait = focused.lastIndexOf('await waitForCoverageCardMatrix(page)', firstLayout)
+  const secondWait = focused.lastIndexOf('await waitForCoverageCardMatrix(page)', secondLayout)
+  assert.ok(firstWait >= 0 && firstWait < firstLayout, '1280 layout must wait for the exact coverage matrix')
+  assert.ok(secondWait > firstLayout && secondWait < secondLayout, '1024 layout must wait for the exact coverage matrix again')
+
+  const coverageWait = sourceFunction('waitForCoverageCardMatrix')
+  assert.match(coverageWait, /FOCUSED_COVERAGE_MATRIX/)
+  assert.match(coverageWait, /service/)
+  assert.match(coverageWait, /state/)
+  assert.match(coverageWait, /test_status/)
+  assert.doesNotMatch(coverageWait, /assertCoverageLayout/)
+})
+
+test('acceptance capture preparation waits for mask-free expected surface state', () => {
+  const preparation = sourceFunction('prepareAcceptanceCaptureSurface')
+  assert.match(preparation, /waitForAcceptanceCaptureReadiness\(page, capture, fixture\)/)
+
+  const readiness = sourceFunction('waitForAcceptanceCaptureReadiness')
+  assert.match(readiness, /el-loading-mask/)
+  assert.match(readiness, /project-readiness/)
+  assert.match(readiness, /summary-item/)
+  assert.match(readiness, /service-chip/)
+  assert.match(readiness, /=== 8/)
+  assert.match(readiness, /=== 5/)
+  assert.match(readiness, /film-pipeline-summary/)
+  assert.match(readiness, /ai-config-configs-panel/)
+  assert.match(readiness, /fixture\.uiConfigName/)
+  assert.match(readiness, /fixture\.expectedConfigNames/)
+  assert.match(readiness, /waitForCoverageCardMatrix/)
+
+  const captures = sourceFunction('captureAcceptanceReportScreenshots')
+  assertSourceOrder(captures, [
+    'prepareAcceptanceCaptureSurface(page, capture, fixture)',
+    'assertScreenshotSurfaceSafe(page)',
+    'page.screenshot',
+  ])
+
+  const focused = sourceFunction('verifyFocusedDesktopAcceptance')
+  assertSourceOrder(focused, [
+    'const exactName = `E2E Focused Text ${stamp}`',
+    'const inactiveTextId = Number(textFixture.id)',
+    'providerState.created',
+    'Number(config.id) !== inactiveTextId',
+    'expectedConfigNames',
+    'captureAcceptanceReportScreenshots(page, {',
+    'uiConfigName: exactName',
+    'expectedConfigNames',
+  ])
+})
+
+const FOCUSED_COVERAGE_WAIT_MATRIX = [
+  { service: 'video', state: 'default', test_status: 'failed' },
+  { service: 'image', state: 'configured', test_status: 'unknown' },
+  { service: 'text', state: 'missing', test_status: 'unknown' },
+  { service: 'tts', state: 'default', test_status: 'unknown' },
+  { service: 'storyboard_image', state: 'default', test_status: 'passed' },
+]
+
+function createClassList(names) {
+  return {
+    contains: (name) => names.includes(name),
+    [Symbol.iterator]: function * iterate() {
+      yield * names
+    },
+  }
+}
+
+function createCoverageCard({ service, state, test_status: testStatus }) {
+  return {
+    classList: createClassList([`coverage-${state}`]),
+    querySelector(selector) {
+      if (selector === '.coverage-icon') return { classList: createClassList([`coverage-icon-${service}`]) }
+      if (selector === '.coverage-test-status') return { classList: createClassList([`test-${testStatus}`]) }
+      return null
+    },
+  }
+}
+
+function createCaptureReadinessPage({
+  configRows = [],
+  summaryItems = 8,
+  serviceChips = 5,
+  loadingMasks = 0,
+  filmReady = true,
+  coverageRecords = FOCUSED_COVERAGE_WAIT_MATRIX,
+} = {}) {
+  const visible = (textContent = '') => ({
+    textContent,
+    getClientRects: () => [{}],
+  })
+  const toggle = {
+    ...visible(),
+    getAttribute: (name) => (name === 'aria-expanded' ? 'true' : null),
+  }
+  const nodes = {
+    '#ai-config-configs-panel': visible(),
+    '.config-list-section': visible(),
+    '[data-testid="project-readiness-toggle"]': toggle,
+    '[data-testid="project-readiness-details"]': visible(),
+    '.film-create': visible(),
+    '[data-testid="film-pipeline-summary"][data-state="ready"]': filmReady ? visible() : null,
+  }
+  const cell = (textContent = '') => ({
+    ...visible(textContent),
+    querySelector: (selector) => (selector === '.cell' ? visible(textContent) : null),
+  })
+  const headers = [cell(''), cell('\u540d\u79f0')]
+  const tableRows = configRows.map((name) => ({
+    ...visible(name),
+    querySelectorAll: (selector) => (selector === 'td.el-table__cell' ? [cell(''), cell(name)] : []),
+  }))
+  nodes['#ai-config-configs-panel .config-list-section .el-table'] = {
+    ...visible(),
+    querySelectorAll(selector) {
+      if (selector === '.el-table__header-wrapper th.el-table__cell') return headers
+      if (selector === '.el-table__body-wrapper tbody tr.el-table__row') return tableRows
+      return []
+    },
+  }
+  const lists = {
+    '.el-loading-mask': Array.from({ length: loadingMasks }, () => visible()),
+    '.el-table__row': tableRows,
+    '[data-testid="project-readiness-details"] .summary-item': Array.from({ length: summaryItems }, () => visible()),
+    '[data-testid="project-readiness-details"] .service-chip': Array.from({ length: serviceChips }, () => visible()),
+    '#ai-config-coverage-panel .coverage-item': coverageRecords.map(createCoverageCard),
+  }
+  return {
+    async waitForFunction(predicate, argument, options) {
+      assert.deepEqual(options, { timeout: 30000 })
+      const hadDocument = Object.prototype.hasOwnProperty.call(globalThis, 'document')
+      const originalDocument = globalThis.document
+      const hadGetComputedStyle = Object.prototype.hasOwnProperty.call(globalThis, 'getComputedStyle')
+      const originalGetComputedStyle = globalThis.getComputedStyle
+      globalThis.document = {
+        querySelector: (selector) => nodes[selector] || null,
+        querySelectorAll: (selector) => lists[selector] || [],
+      }
+      globalThis.getComputedStyle = () => ({ display: 'block', visibility: 'visible' })
+      try {
+        if (!predicate(argument)) throw new Error('capture readiness predicate did not match')
+      } finally {
+        if (hadDocument) globalThis.document = originalDocument
+        else delete globalThis.document
+        if (hadGetComputedStyle) globalThis.getComputedStyle = originalGetComputedStyle
+        else delete globalThis.getComputedStyle
+      }
+    },
+  }
+}
+
+test('coverage matrix waiter executes the exact service, state, and test-status predicate', async () => {
+  assert.equal(typeof waitForCoverageCardMatrix, 'function', 'missing coverage matrix waiter')
+  await waitForCoverageCardMatrix(createCaptureReadinessPage())
+
+  const invalidMatrices = [
+    FOCUSED_COVERAGE_WAIT_MATRIX.slice(0, -1),
+    FOCUSED_COVERAGE_WAIT_MATRIX.map((record, index) => (index === 0 ? { ...record, service: 'text' } : record)),
+    FOCUSED_COVERAGE_WAIT_MATRIX.map((record, index) => (index === 1 ? { ...record, state: 'default' } : record)),
+    FOCUSED_COVERAGE_WAIT_MATRIX.map((record, index) => (index === 4 ? { ...record, test_status: 'failed' } : record)),
+  ]
+  for (const coverageRecords of invalidMatrices) {
+    await assert.rejects(
+      waitForCoverageCardMatrix(createCaptureReadinessPage({ coverageRecords })),
+      /capture readiness predicate did not match/,
+    )
+  }
+})
+
+test('film screenshot readiness rejects visible loading masks and waits for ready state', async () => {
+  await assert.rejects(
+    waitForAcceptanceCaptureReadiness(
+      createCaptureReadinessPage({ loadingMasks: 1 }),
+      { surface: 'film-pipeline' },
+      {},
+    ),
+    /capture readiness predicate did not match/,
+  )
+  await assert.rejects(
+    waitForAcceptanceCaptureReadiness(
+      createCaptureReadinessPage({ filmReady: false }),
+      { surface: 'film-pipeline' },
+      {},
+    ),
+    /capture readiness predicate did not match/,
+  )
+  await waitForAcceptanceCaptureReadiness(
+    createCaptureReadinessPage(),
+    { surface: 'film-pipeline' },
+    {},
+  )
+})
+
+test('coverage screenshot readiness executes the exact card predicate', async () => {
+  await waitForAcceptanceCaptureReadiness(
+    createCaptureReadinessPage(),
+    { surface: 'ai-config-coverage' },
+    {},
+  )
+  await assert.rejects(
+    waitForAcceptanceCaptureReadiness(
+      createCaptureReadinessPage({
+        coverageRecords: FOCUSED_COVERAGE_WAIT_MATRIX.map((record, index) => (
+          index === 2 ? { ...record, state: 'configured' } : record
+        )),
+      }),
+      { surface: 'ai-config-coverage' },
+      {},
+    ),
+    /capture readiness predicate did not match/,
+  )
+})
+
+test('acceptance management readiness requires the exact UI-created configuration name', async () => {
+  assert.equal(typeof waitForAcceptanceCaptureReadiness, 'function', 'missing acceptance capture readiness helper')
+  const page = createCaptureReadinessPage({
+    configRows: [
+      'E2E Production Provider text',
+      'E2E Production Provider image',
+      'E2E Production Provider storyboard_image',
+      'E2E Production Provider video',
+      'E2E Production Provider tts',
+    ],
+  })
+  await assert.rejects(
+    waitForAcceptanceCaptureReadiness(page, { surface: 'ai-config-management' }, {}),
+    /requires uiConfigName/,
+  )
+})
+
+test('acceptance management readiness accepts four fixture rows plus the exact UI-created configuration', async () => {
+  const uiConfigName = 'E2E Focused Text capture-fixture'
+  const expectedConfigNames = [
+    'E2E Production Provider image capture-fixture',
+    'E2E Production Provider storyboard_image capture-fixture',
+    'E2E Production Provider video capture-fixture',
+    'E2E Production Provider tts capture-fixture',
+    uiConfigName,
+  ]
+  const page = createCaptureReadinessPage({
+    configRows: expectedConfigNames,
+  })
+  await waitForAcceptanceCaptureReadiness(
+    page,
+    { surface: 'ai-config-management' },
+    { uiConfigName, expectedConfigNames },
+  )
+})
+
+test('acceptance management readiness rejects an extra inactive row and a near-match name', async () => {
+  const uiConfigName = 'E2E Focused Text exact'
+  const expectedConfigNames = [
+    'E2E Production Provider image exact',
+    'E2E Production Provider storyboard_image exact',
+    'E2E Production Provider video exact',
+    'E2E Production Provider tts exact',
+    uiConfigName,
+  ]
+  const fixture = { uiConfigName, expectedConfigNames }
+  await assert.rejects(
+    waitForAcceptanceCaptureReadiness(
+      createCaptureReadinessPage({ configRows: [...expectedConfigNames, 'E2E Production Provider text exact'] }),
+      { surface: 'ai-config-management' },
+      fixture,
+    ),
+    /capture readiness predicate did not match/,
+  )
+  await assert.rejects(
+    waitForAcceptanceCaptureReadiness(
+      createCaptureReadinessPage({
+        configRows: expectedConfigNames.map((name) => (name === uiConfigName ? `${name} backup` : name)),
+      }),
+      { surface: 'ai-config-management' },
+      fixture,
+    ),
+    /capture readiness predicate did not match/,
+  )
+})
+
+test('project readiness capture waits for all fixed summary and service items', async () => {
+  await assert.rejects(
+    waitForAcceptanceCaptureReadiness(
+      createCaptureReadinessPage({ summaryItems: 7, serviceChips: 5 }),
+      { surface: 'project-readiness' },
+      {},
+    ),
+    /capture readiness predicate did not match/,
+  )
+  await waitForAcceptanceCaptureReadiness(
+    createCaptureReadinessPage({ summaryItems: 8, serviceChips: 5 }),
+    { surface: 'project-readiness' },
+    {},
+  )
+})
+
+test('focused AI create route registers ownership and list visibility before fulfilling', async () => {
+  const routes = new Map()
+  const listeners = new Map()
+  const cleanupState = { createdIds: new Set() }
+  const fixture = {
+    inactiveTextId: 11,
+    providerState: { created: [] },
+    uiConfigName: 'Focused test fixture',
+    cleanupState,
+  }
+  const page = {
+    async route(pattern, handler) {
+      routes.set(pattern, handler)
+    },
+    async unrouteAll() {},
+    on(event, listener) {
+      listeners.set(event, listener)
+    },
+    off(event, listener) {
+      listeners.delete(event)
+    },
+  }
+  const installed = await installFocusedAiRoutes(page, fixture)
+  const aiConfigHandler = routes.get('**/api/v1/ai-configs*')
+  const created = {
+    id: 88,
+    name: fixture.uiConfigName,
+    service_type: 'text',
+    is_active: true,
+    is_default: false,
+  }
+  let createFulfilled = false
+
+  await aiConfigHandler({
+    request: () => ({
+      method: () => 'POST',
+      url: () => 'http://localhost:5679/api/v1/ai-configs',
+      postDataJSON: () => ({ name: fixture.uiConfigName, settings: '{}' }),
+    }),
+    fetch: async () => ({ json: async () => ({ success: true, data: created }) }),
+    continue: async () => assert.fail('focused create must not continue'),
+    fulfill: async () => {
+      assert.equal(cleanupState.createdIds.has(created.id), true, 'create route must claim cleanup ownership before fulfill')
+      assert.equal(installed.state.uiCreatedIds.has(created.id), true, 'create route must register the created id before fulfill')
+      assert.equal(installed.state.includeUiCreated, true, 'create route must enable decorated list visibility before fulfill')
+      assert.equal(installed.state.mutationComplete, true, 'create route must register mutation state before fulfill')
+      createFulfilled = true
+    },
+  })
+  assert.equal(createFulfilled, true)
+
+  let decoratedList
+  await aiConfigHandler({
+    request: () => ({
+      method: () => 'GET',
+      url: () => 'http://localhost:5679/api/v1/ai-configs',
+    }),
+    fetch: async () => ({ json: async () => ({ success: true, data: [created] }) }),
+    continue: async () => assert.fail('focused list must be decorated'),
+    fulfill: async ({ body }) => {
+      decoratedList = JSON.parse(body)
+    },
+  })
+  assert.deepEqual(decoratedList.data.map((row) => row.id), [created.id], 'immediate decorated GET must include the created config')
+  await installed.dispose()
+})
+
+function createReadinessTimerHarness() {
+  let nextId = 0
+  const scheduled = []
+  const cleared = []
+  return {
+    scheduled,
+    cleared,
+    setTimeoutFn(callback, delay) {
+      const timer = { id: `timer-${nextId += 1}`, callback, delay }
+      scheduled.push(timer)
+      return timer.id
+    },
+    clearTimeoutFn(id) {
+      cleared.push(id)
+    },
+    fire(index) {
+      scheduled[index].callback()
+    },
+  }
+}
+
+test('readiness gate gives each waiter the default timeout without disarming late interception', async () => {
+  assert.equal(typeof createReadinessGate, 'function', 'missing exported readiness gate')
+  const timers = createReadinessTimerHarness()
+  const gate = createReadinessGate(timers)
+  gate.arm()
+  assert.equal(timers.scheduled.length, 0, 'arming without a waiter must not schedule a timer')
+
+  const wait = gate.waitUntilIntercepted()
+  assert.equal(timers.scheduled.length, 1)
+  assert.equal(timers.scheduled[0].delay, 10000, 'waiter must own the bounded default timeout')
+  timers.fire(0)
+  await assert.rejects(
+    wait,
+    /POST \/api\/v1\/workflows\/novel2anime\/readiness.*timed out after 10000ms/,
+  )
+  assert.equal(gate.isArmed(), true, 'wait timeout must leave the gate armed for a late readiness request')
+
+  let lateSettled = false
+  const lateIntercept = gate.intercept().finally(() => { lateSettled = true })
+  await Promise.resolve()
+  assert.equal(lateSettled, false, 'late readiness request must remain intercepted until cleanup')
+  gate.dispose()
+  assert.equal(await lateIntercept, 503)
+})
+
+test('readiness gate clears a successful waiter timer', async () => {
+  const timers = createReadinessTimerHarness()
+  const gate = createReadinessGate(timers)
+  gate.arm()
+  const wait = gate.waitUntilIntercepted()
+  assert.equal(timers.scheduled.length, 1)
+  const intercept = gate.intercept()
+  await wait
+  assert.deepEqual(timers.cleared, [timers.scheduled[0].id])
+  gate.release(503)
+  assert.equal(await intercept, 503)
+})
+
+test('readiness gate disposal rejects every pre-interception waiter and clears timers', async () => {
+  const timers = createReadinessTimerHarness()
+  const gate = createReadinessGate(timers)
+  gate.arm()
+  const waits = [gate.waitUntilIntercepted(), gate.waitUntilIntercepted()]
+  assert.equal(timers.scheduled.length, 2, 'each wait call must own one timer')
+  gate.dispose()
+
+  const results = await Promise.race([
+    Promise.allSettled(waits),
+    new Promise((resolve) => setTimeout(() => resolve('pending'), 20)),
+  ])
+  assert.notEqual(results, 'pending', 'dispose must settle pending waits promptly')
+  assert.deepEqual(results.map(({ status }) => status), ['rejected', 'rejected'])
+  for (const result of results) assert.match(result.reason.message, /disposed before expected readiness POST/)
+  assert.deepEqual(timers.cleared, timers.scheduled.map(({ id }) => id))
 })
 
 test('focused readiness routes continue normal requests and record only real target responses', async () => {
