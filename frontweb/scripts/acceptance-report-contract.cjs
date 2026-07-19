@@ -914,6 +914,7 @@ function fullCommit(value) {
 function scanFinalMetadata(value, file, failures, expectedCommit, key = '') {
   if (typeof value === 'string') {
     scanPlaceholders(value, file, failures)
+    if (/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value)) return
     for (const candidate of gitShaCandidates(value)) {
       const allowedCommit = value === expectedCommit
       const allowedChecksum = key === 'sha256' && /^[0-9a-f]{64}$/i.test(value)

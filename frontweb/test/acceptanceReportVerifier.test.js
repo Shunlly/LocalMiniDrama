@@ -534,6 +534,25 @@ test('final verification accepts exactly 20 ignored and untracked captures from 
   })
 })
 
+test('final verification accepts canonical workflow UUIDs without treating their hex segments as Git SHAs', () => {
+  withTempDir('arv-final-workflow-uuid-', (root) => {
+    const fixture = writeFinalFixture(root)
+    fixture.evidence.workflow = {
+      draft_run_id: '56cab379-8b98-4157-b56f-83ee1b3daa2f',
+      production_run_id: '2b3b56ba-97cb-42ff-9ef4-ef434eaa42c7',
+    }
+    rewriteJson(fixture.evidencePath, fixture.evidence)
+    fixture.manifest.e2eEvidence.sha256 = sha256(readFileSync(fixture.evidencePath))
+    rewriteJson(fixture.manifestPath, fixture.manifest)
+
+    assert.deepEqual(verifyFinalEvidence({
+      repoRoot: root,
+      evidenceRoot: fixture.evidenceRoot,
+      expectedCommit: fixture.commit,
+    }), { commit: fixture.commit, screenshots: 20 })
+  })
+})
+
 test('final verification rejects a symlinked evidence JSON outside the repository', (t) => {
   withTempDir('arv-final-evidence-file-link-repo-', (root) => withTempDir('arv-final-evidence-file-link-outside-', (outside) => {
     const fixture = writeFinalFixture(root)
