@@ -2845,7 +2845,13 @@ async function verifyFocusedDesktopAcceptance(browser, {
       fallback: page.getByTestId('film-pipeline-summary'),
       label: 'custom return to production',
     })
+    const injectedFailureResponsePromise = page.waitForResponse((response) => (
+      response.request().method() === 'POST'
+      && new URL(response.url()).pathname === '/api/v1/workflows/novel2anime/readiness'
+      && response.status() === 503
+    ), { timeout: 30000 })
     routes.readinessGate.release(503)
+    const injectedFailureResponse = await injectedFailureResponsePromise
     await page.locator('[data-testid="film-pipeline-summary"][data-state="error"]').waitFor({ state: 'visible', timeout: 10000 })
     assert.equal(await page.locator('[data-testid="film-pipeline-summary"][data-state="ready"]').count(), 0)
     const retryAction = page.getByTestId('film-pipeline-action').filter({ hasText: UI.retryCapability })
@@ -2864,7 +2870,7 @@ async function verifyFocusedDesktopAcceptance(browser, {
     await finalAction.waitFor({ state: 'visible', timeout: 10000 })
     routes.state.recoveryComplete = true
     assert.equal(routes.requestCounts.readiness_after_mutation, 2)
-    assert.equal(routes.state.readinessStatuses.includes(503), true)
+    assert.equal(injectedFailureResponse.status(), 503, 'controlled readiness response must return HTTP 503')
     assert.equal(retryResponse.status(), 200)
     assert.equal(retryBody?.data?.missing_capabilities?.length, 0)
 
@@ -2966,7 +2972,7 @@ async function verifyFocusedDesktopAcceptance(browser, {
       },
       readiness: {
         requests_after_mutation: routes.requestCounts.readiness_after_mutation,
-        injected_failure_status: 503,
+        injected_failure_status: injectedFailureResponse.status(),
         retry_status: retryResponse.status(),
         final_missing_capabilities: retryBody.data.missing_capabilities.length,
       },

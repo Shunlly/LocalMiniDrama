@@ -1228,7 +1228,10 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
     'UI.returnToProduction',
     'UI.configurationRechecking',
     "data-state=\"checking\"",
+    'const injectedFailureResponsePromise = page.waitForResponse',
+    "response.status() === 503",
     'readinessGate.release(503)',
+    'const injectedFailureResponse = await injectedFailureResponsePromise',
     "data-state=\"error\"",
     "retryAction.press('Enter')",
     "data-state=\"ready\"",
@@ -1239,6 +1242,8 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
   assert.match(focused, /layout1024\.cards\.map/)
   assert.match(focused, /\/ai-configs\/test/)
   assert.match(focused, /\/workflows\/novel2anime/)
+  assert.match(focused, /assert\.equal\(injectedFailureResponse\.status\(\), 503/)
+  assert.doesNotMatch(focused, /readinessStatuses\.includes\(503\)/)
   assert.match(focused, /finally\s*\{/)
 })
 
