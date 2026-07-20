@@ -215,6 +215,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $evidenceRoot = 'desktop/release/.artifact-scan/.evidence'
+          New-Item -ItemType Directory -Path $evidenceRoot -Force
           Copy-Item -LiteralPath 'desktop/security-evidence/windows/.evidence/gitleaks.json' -Destination (Join-Path $evidenceRoot 'gitleaks.json')
           Copy-Item -LiteralPath 'desktop/security-evidence/windows/.evidence/defender.json' -Destination (Join-Path $evidenceRoot 'defender.json')
           Copy-Item -LiteralPath 'desktop/security-evidence/trivy/trivy.json' -Destination (Join-Path $evidenceRoot 'trivy.json')
