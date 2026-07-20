@@ -19,10 +19,11 @@ const { validatePackagedApplications } = require('./packaged-applications-contra
 const {
   EVIDENCE_RELATIVE_PATH,
   EVIDENCE_SCHEMA,
-  assertNoCliArguments,
   evidenceOutputPath,
+  parseDrillArguments,
   prepareEvidenceTarget,
   publishEvidence,
+  validateEvidenceV3,
 } = require('./rollback-drill-evidence.cjs')
 const {
   expectedVersion,
@@ -679,21 +680,49 @@ test('packaged application contract rejects ambiguous or spoofed evidence paths'
   }
 })
 
+test('strict rollback drill and data root fingerprint source contracts publish v3 evidence', () => {
+  assert.equal(EVIDENCE_SCHEMA, 'localminidrama.rollback-drill.v3')
+  assert.match(rollbackDrillScript, /input_mode/)
+  assert.match(rollbackDrillScript, /archive_retained/)
+  assert.match(rollbackDrillScript, /data_root_sha256/)
+  assert.match(rollbackDrillScript, /source_data_root_unchanged/)
+  assert.match(rollbackDrillScript, /require\.main\s*===\s*module/)
+  assert.match(rollbackDrillScript, /executeRollbackDrill/)
+  assert.match(rootPackage.scripts['test:rollback-contract'], /rollback-drill-contract\.test\.cjs/)
+  const syntaxCheck = rootPackage.scripts.check.indexOf('node --check scripts/rollback-drill-contract.test.cjs')
+  const contractRun = rootPackage.scripts.check.indexOf('npm run test:rollback-contract')
+  assert.ok(syntaxCheck >= 0 && syntaxCheck < contractRun)
+  assert.match(rootPackage.scripts.check, /npm run test:release/)
+  assert.match(rootPackage.scripts.check, /npm run test:local-contract/)
+  assert.match(rootPackage.scripts.check, /npm run test:openclaw-contract/)
+})
+
 test('rollback drill evidence is fixed, exclusive, and only replaces a same-version PASS record', async (t) => {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-evidence-'))
   t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
   const version = '1.3.3'
   const outputPath = evidenceOutputPath(fixtureRoot)
   assert.equal(path.relative(fixtureRoot, outputPath).replace(/\\/g, '/'), EVIDENCE_RELATIVE_PATH)
-  assert.throws(() => assertNoCliArguments(['outside.json']), /does not accept a custom output path/)
-  assertNoCliArguments([])
+  assert.deepEqual(parseDrillArguments([]), { inputMode: 'standalone', archivePath: null, dataRoot: null })
 
   await prepareEvidenceTarget(fixtureRoot, version)
   const evidence = {
     schema: EVIDENCE_SCHEMA,
     status: 'passed',
-    source: { version },
+    input_mode: 'standalone',
+    source: {
+      version,
+      working_tree_dirty: false,
+      data_root_sha256: 'a'.repeat(64),
+    },
+    backup: {
+      archive_sha256: 'b'.repeat(64),
+      archive_retained: false,
+      excluded_values: 0,
+    },
+    operations: { source_data_root_unchanged: true },
   }
+  assert.equal(validateEvidenceV3(evidence, version), evidence)
   assert.equal(await publishEvidence(fixtureRoot, version, evidence), outputPath)
   assert.deepEqual(JSON.parse(fs.readFileSync(outputPath, 'utf8')), evidence)
 
@@ -793,8 +822,11 @@ test('release rollback scripts fail closed and verify the retained backup before
   assert.match(rollbackRestoreScript, /rollbackStartError[\s\S]*Compensation data restore[\s\S]*Forward deployment recovery/)
   assert.match(rollbackRestoreScript, /--no-build/)
   assert.match(rollbackRestoreScript, /\/health[\s\S]*\/ready/)
-  assert.match(rollbackDrillScript, /database:\s*\{[\s\S]*relative_path: safeEvidencePath\(root, databasePath/)
-  assert.doesNotMatch(rollbackDrillScript, /database:\s*\{[\s\S]*path: databasePath/)
+  assert.match(
+    rollbackDrillScript,
+    /database:\s*\{[\s\S]*relative_path: safeEvidencePath\(repoRoot, sourcePaths\.databasePath/
+  )
+  assert.doesNotMatch(rollbackDrillScript, /database:\s*\{[\s\S]*path: sourcePaths\.databasePath/)
 
   const restoreMain = rollbackRestoreScript.slice(rollbackRestoreScript.indexOf('Push-Location $repoRoot'))
   const imageLoad = restoreMain.indexOf('Rollback image archive load')

@@ -16,8 +16,13 @@ const Database = backendRequire('better-sqlite3')
 const { loadConfig } = backendRequire('./src/config')
 const { createDataBackup, restoreDataBackup } = backendRequire('./src/services/dataBackupService')
 const {
+  EVIDENCE_RELATIVE_PATH,
   EVIDENCE_SCHEMA,
-  assertNoCliArguments,
+  assertCheckpointInputPaths,
+  assertSamePathIdentity,
+  capturePathIdentity,
+  fingerprintDataRoot,
+  parseDrillArguments,
   prepareEvidenceTarget,
   publishEvidence,
 } = require('./rollback-drill-evidence.cjs')
@@ -64,6 +69,20 @@ function sha256(filePath) {
     } while (bytesRead)
   } finally {
     fs.closeSync(descriptor)
+  }
+  return hash.digest('hex')
+}
+
+async function sha256FileHandle(handle) {
+  const hash = crypto.createHash('sha256')
+  const buffer = Buffer.allocUnsafe(1024 * 1024)
+  let position = 0
+  while (true) {
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
+    if (bytesRead === 0) break
+    hash.update(buffer.subarray(0, bytesRead))
+    position += bytesRead
+    assert.equal(Number.isSafeInteger(position), true, 'rollback archive is too large to hash safely')
   }
   return hash.digest('hex')
 }
@@ -158,113 +177,201 @@ function assertDrillNotAborted(signal) {
   assert.equal(signal.aborted, false, 'rollback drill was interrupted')
 }
 
-async function main() {
-  assertNoCliArguments(process.argv.slice(2))
-  const packageJson = backendRequire('./package.json')
-  assertCleanSourceTree()
-  const outputPath = await prepareEvidenceTarget(root, packageJson.version)
-  const commit = gitOutput(['rev-parse', 'HEAD']).toLowerCase()
-  assert.match(commit, /^[a-f0-9]{40}$/, 'rollback drill requires a full Git commit')
+async function prepareRestoreTargets({ databasePath, storagePath, storySourcesPath }) {
+  await fsp.mkdir(path.dirname(databasePath), { recursive: true })
+  await fsp.mkdir(storagePath, { recursive: true })
+  await fsp.mkdir(storySourcesPath, { recursive: true })
+  const markerDatabase = new Database(databasePath)
+  try {
+    markerDatabase.exec('CREATE TABLE rollback_marker (value TEXT NOT NULL); INSERT INTO rollback_marker VALUES (\'before-restore\')')
+  } finally {
+    markerDatabase.close()
+  }
+  await fsp.writeFile(path.join(storagePath, 'before-restore.txt'), 'rollback marker\n')
+  await fsp.writeFile(path.join(storySourcesPath, 'before-restore.txt'), 'rollback marker\n')
+}
 
-  const config = loadConfig()
-  const databasePath = configuredPath(config.database?.path, './data/drama_generator.db')
-  const storagePath = configuredPath(config.storage?.local_path, './data/storage')
-  const storySourcesPath = path.join(backendRoot, 'data', 'story_sources')
-  assert.ok(fs.statSync(databasePath, { throwIfNoEntry: false })?.isFile(), 'source SQLite database is missing')
-  assert.ok(fs.statSync(storagePath, { throwIfNoEntry: false })?.isDirectory(), 'source storage directory is missing')
+function assertParsedOptions(options) {
+  if (options?.inputMode === 'standalone') {
+    assert.equal(options.archivePath, null, 'standalone rollback archivePath must be null')
+    assert.equal(options.dataRoot, null, 'standalone rollback dataRoot must be null')
+    return
+  }
+  assert.equal(options?.inputMode, 'checkpoint-bound', 'rollback drill input mode is invalid')
+  assert.equal(path.isAbsolute(options.archivePath || ''), true, 'checkpoint archive path must be absolute')
+  assert.equal(path.isAbsolute(options.dataRoot || ''), true, 'checkpoint data root must be absolute')
+}
 
-  const focusedTestPath = path.join(backendRoot, 'test', 'dataBackupService.test.js')
-  const focusedTestCount = (fs.readFileSync(focusedTestPath, 'utf8').match(/^test\(/gm) || []).length
-  assert.ok(focusedTestCount > 0, 'backup and restore test inventory is empty')
-  run(process.execPath, ['--test', '--test-concurrency=1', 'test/dataBackupService.test.js'], {
-    cwd: backendRoot,
-    stdio: 'inherit',
-  })
+async function resolveSourceData(options, runtime) {
+  assertParsedOptions(options)
+  if (options.inputMode === 'checkpoint-bound') {
+    await assertCheckpointInputPaths(options)
+    const sourcePaths = {
+      databasePath: path.join(options.dataRoot, 'drama_generator.db'),
+      storagePath: path.join(options.dataRoot, 'storage'),
+      storySourcesPath: path.join(options.dataRoot, 'story_sources'),
+    }
+    await capturePathIdentity(sourcePaths.databasePath, 'file')
+    await capturePathIdentity(sourcePaths.storagePath, 'directory')
+    await capturePathIdentity(sourcePaths.storySourcesPath, 'directory')
+    return { dataRoot: options.dataRoot, sourcePaths }
+  }
 
-  const sourceDatabaseSha256 = sha256(databasePath)
-  const workspace = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-rollback-drill-'))
+  const sourcePaths = runtime?.sourcePaths || {}
+  const databasePath = path.resolve(sourcePaths.databasePath || '')
+  const storagePath = path.resolve(sourcePaths.storagePath || '')
+  const storySourcesPath = path.resolve(sourcePaths.storySourcesPath || '')
+  assert.equal(path.basename(databasePath), 'drama_generator.db', 'standalone database must be drama_generator.db')
+  assert.equal(path.basename(storagePath), 'storage', 'standalone storage path must end in storage')
+  assert.equal(path.basename(storySourcesPath), 'story_sources', 'standalone story source path must end in story_sources')
+  const dataRoot = path.dirname(databasePath)
+  assert.equal(path.dirname(storagePath), dataRoot, 'standalone source paths must use the same data root')
+  assert.equal(path.dirname(storySourcesPath), dataRoot, 'standalone source paths must use the same data root')
+  await capturePathIdentity(dataRoot, 'directory')
+  await capturePathIdentity(databasePath, 'file')
+  await capturePathIdentity(storagePath, 'directory')
+  await capturePathIdentity(storySourcesPath, 'directory')
+  return { dataRoot, sourcePaths: { databasePath, storagePath, storySourcesPath } }
+}
+
+async function executeRollbackDrill(options, runtime) {
+  assert.ok(runtime && typeof runtime === 'object', 'rollback drill runtime is required')
+  const repoRoot = path.resolve(runtime.repoRoot || root)
+  assert.match(runtime.version || '', /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/, 'rollback version is invalid')
+  assert.match(runtime.commit || '', /^[a-f0-9]{40}$/, 'rollback commit is invalid')
+  assert.ok(Number.isInteger(runtime.focusedTestCount) && runtime.focusedTestCount > 0, 'focused test count is invalid')
+  const { dataRoot, sourcePaths } = await resolveSourceData(options, runtime)
+  await runtime.runFocusedTests?.()
+  await (runtime.prepareEvidenceTarget || prepareEvidenceTarget)(repoRoot, runtime.version)
+
+  const fingerprint = runtime.fingerprintDataRoot || fingerprintDataRoot
+  const beforeRootIdentity = await capturePathIdentity(dataRoot, 'directory')
+  const beforeDataRootSha256 = await fingerprint(dataRoot, runtime.fingerprintHooks?.before)
+  const sourceDatabaseSha256 = options.inputMode === 'standalone' ? sha256(sourcePaths.databasePath) : null
+  const signal = runtime.signal || new AbortController().signal
+  const createWorkspace = runtime.createWorkspace || (() => fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-rollback-drill-')))
+  const removeWorkspace = runtime.cleanupWorkspace || cleanupWorkspace
+  const workspace = await createWorkspace()
   activeWorkspace = workspace
-  activeAbortController = new AbortController()
-  const { signal } = activeAbortController
-  installWorkspaceSignalCleanup()
-  const archivePath = path.join(workspace, 'current-data.zip')
-  const restoreRoot = path.join(workspace, 'isolated-restore')
-  const restoredDatabasePath = path.join(restoreRoot, 'data', 'drama_generator.db')
-  const restoredStoragePath = path.join(restoreRoot, 'data', 'storage')
-  const restoredStorySourcesPath = path.join(restoreRoot, 'data', 'story_sources')
-
-  let evidence
+  const workspaceArchivePath = path.join(workspace, 'current-data.zip')
+  const archivePath = options.inputMode === 'checkpoint-bound' ? options.archivePath : workspaceArchivePath
+  const restoreRoot = path.join(workspace, 'isolated-restore', 'data')
+  const restoredPaths = {
+    databasePath: path.join(restoreRoot, 'drama_generator.db'),
+    storagePath: path.join(restoreRoot, 'storage'),
+    storySourcesPath: path.join(restoreRoot, 'story_sources'),
+  }
+  let archiveHandle
+  let archiveIdentity
+  let archiveSha256
+  let archiveBytes
+  let backup
+  let restored
+  let restoredVerification
+  let rollbackCopies
   let operationError
   let cleanupError
   try {
-    const backup = await createDataBackup({
-      databasePath,
-      storagePath,
-      storySourcesPath,
-      outputPath: archivePath,
-      serviceHost: process.env.HOST || config.server?.host || '127.0.0.1',
-      servicePort: Number(process.env.PORT) || config.server?.port || 5679,
-      signal,
-    })
-    assertDrillNotAborted(signal)
-    assert.equal(backup.manifest.security.secretPolicy, 'excluded', 'rollback backup must exclude credentials')
-    assert.equal(sha256(databasePath), sourceDatabaseSha256, 'backup drill changed the source database')
+    if (options.inputMode === 'checkpoint-bound') {
+      archiveHandle = await fsp.open(archivePath, 'r')
+      archiveIdentity = await capturePathIdentity({ handle: archiveHandle, path: archivePath }, 'file')
+      runtime.hooks?.onArchiveHandleOpened?.({ handle: archiveHandle, path: archivePath, identity: archiveIdentity })
+      archiveSha256 = await sha256FileHandle(archiveHandle)
+      archiveBytes = Number(archiveIdentity.size)
+      assert.equal(Number.isSafeInteger(archiveBytes), true, 'rollback archive size is not a safe integer')
+    } else {
+      backup = await runtime.createDataBackup({
+        databasePath: sourcePaths.databasePath,
+        storagePath: sourcePaths.storagePath,
+        storySourcesPath: sourcePaths.storySourcesPath,
+        outputPath: archivePath,
+        serviceHost: runtime.serviceHost,
+        servicePort: runtime.servicePort,
+        signal,
+      })
+      assertDrillNotAborted(signal)
+      assert.equal(backup.manifest.security.secretPolicy, 'excluded', 'rollback backup must exclude credentials')
+      assert.equal(sha256(sourcePaths.databasePath), sourceDatabaseSha256, 'backup drill changed the source database')
+      archiveSha256 = sha256(archivePath)
+      archiveBytes = backup.archiveBytes
+    }
 
-    await fsp.mkdir(path.dirname(restoredDatabasePath), { recursive: true })
-    await fsp.mkdir(restoredStoragePath, { recursive: true })
-    await fsp.mkdir(restoredStorySourcesPath, { recursive: true })
-    const markerDatabase = new Database(restoredDatabasePath)
-    markerDatabase.exec('CREATE TABLE rollback_marker (value TEXT NOT NULL); INSERT INTO rollback_marker VALUES (\'before-restore\')')
-    markerDatabase.close()
-    await fsp.writeFile(path.join(restoredStoragePath, 'before-restore.txt'), 'rollback marker\n')
-    await fsp.writeFile(path.join(restoredStorySourcesPath, 'before-restore.txt'), 'rollback marker\n')
-
-    const restored = await restoreDataBackup({
+    await (runtime.prepareRestoreTargets || prepareRestoreTargets)(restoredPaths)
+    restored = await runtime.restoreDataBackup({
       archivePath,
-      databasePath: restoredDatabasePath,
-      storagePath: restoredStoragePath,
-      storySourcesPath: restoredStorySourcesPath,
+      ...restoredPaths,
       confirmed: true,
       skipServiceCheck: true,
       signal,
     })
     assertDrillNotAborted(signal)
-    assert.deepEqual(restored.manifest, backup.manifest, 'restored manifest differs from the backup manifest')
-    const rollbackCopies = {
+    if (backup) assert.deepEqual(restored.manifest, backup.manifest, 'restored manifest differs from the backup manifest')
+    assert.equal(restored.manifest.security.secretPolicy, 'excluded', 'restored rollback backup must exclude credentials')
+    rollbackCopies = {
       database: Boolean(restored.rollback.databasePath && fs.existsSync(restored.rollback.databasePath)),
       storage: Boolean(restored.rollback.storagePath && fs.existsSync(restored.rollback.storagePath)),
       story_sources: Boolean(restored.rollback.storySourcesPath && fs.existsSync(restored.rollback.storySourcesPath)),
     }
     assert.ok(Object.values(rollbackCopies).every(Boolean), 'restore did not retain every pre-restore rollback copy')
-    const restoredVerification = verifyRestoredDatabase(restoredDatabasePath)
+    restoredVerification = (runtime.verifyRestoredDatabase || verifyRestoredDatabase)(restoredPaths.databasePath)
+    await runtime.hooks?.afterRestore?.({ archivePath, dataRoot, workspace })
+  } catch (error) {
+    operationError = error
+  } finally {
+    try {
+      await removeWorkspace(workspace)
+    } catch (error) {
+      cleanupError = error
+    }
+  }
 
-    evidence = {
+  try {
+    if (cleanupError) throw cleanupError
+    if (operationError) throw operationError
+    assertDrillNotAborted(signal)
+    const afterDataRootSha256 = await fingerprint(dataRoot, runtime.fingerprintHooks?.after)
+    const afterRootIdentity = await capturePathIdentity(dataRoot, 'directory')
+    assertSamePathIdentity(beforeRootIdentity, afterRootIdentity, 'source data root')
+    assert.equal(afterDataRootSha256, beforeDataRootSha256, 'source data root fingerprint changed')
+
+    if (archiveHandle) {
+      const finalArchiveIdentity = await capturePathIdentity({ handle: archiveHandle, path: archivePath }, 'file')
+      assertSamePathIdentity(archiveIdentity, finalArchiveIdentity, 'rollback archive')
+      const finalArchiveSha256 = await sha256FileHandle(archiveHandle)
+      assert.equal(finalArchiveSha256, archiveSha256, 'rollback archive bytes changed')
+    }
+
+    const manifest = backup?.manifest || restored.manifest
+    const evidence = {
       schema: EVIDENCE_SCHEMA,
       status: 'passed',
-      executed_at: new Date().toISOString(),
+      input_mode: options.inputMode,
+      executed_at: (runtime.now ? runtime.now() : new Date()).toISOString(),
       source: {
-        version: packageJson.version,
-        commit,
+        version: runtime.version,
+        commit: runtime.commit,
         working_tree_dirty: false,
+        data_root_sha256: beforeDataRootSha256,
         database: {
-          relative_path: safeEvidencePath(root, databasePath, '[external-database]'),
+          relative_path: safeEvidencePath(repoRoot, sourcePaths.databasePath, '[external-database]'),
         },
       },
       focused_tests: {
         file: 'backend-node/test/dataBackupService.test.js',
-        passed: focusedTestCount,
-        total: focusedTestCount,
+        passed: runtime.focusedTestCount,
+        total: runtime.focusedTestCount,
       },
       backup: {
-        format_version: backup.manifest.formatVersion,
-        archive_bytes: backup.archiveBytes,
-        archive_sha256: sha256(archivePath),
-        file_count: backup.manifest.fileCount,
-        storage_files: backup.manifest.storage.fileCount,
-        story_source_files: backup.manifest.storySources.fileCount,
-        active_story_source_references: backup.manifest.storySources.referenceCount,
-        secret_policy: backup.manifest.security.secretPolicy,
-        excluded_values: backup.security.excludedValues,
+        format_version: manifest.formatVersion,
+        archive_bytes: archiveBytes,
+        archive_sha256: archiveSha256,
+        archive_retained: options.inputMode === 'checkpoint-bound',
+        file_count: manifest.fileCount,
+        storage_files: manifest.storage.fileCount,
+        story_source_files: manifest.storySources.fileCount,
+        active_story_source_references: manifest.storySources.referenceCount,
+        secret_policy: manifest.security.secretPolicy,
+        excluded_values: options.inputMode === 'checkpoint-bound' ? null : backup.security.excludedValues,
       },
       restore: {
         isolated: true,
@@ -272,37 +379,85 @@ async function main() {
         rollback_copies: rollbackCopies,
       },
       operations: {
-        source_database_unchanged: sha256(databasePath) === sourceDatabaseSha256,
+        source_database_unchanged: options.inputMode === 'checkpoint-bound'
+          ? true
+          : sha256(sourcePaths.databasePath) === sourceDatabaseSha256,
+        source_data_root_unchanged: afterDataRootSha256 === beforeDataRootSha256,
         credential_reconfiguration_required: true,
+        workspace_cleanup_verified: true,
       },
     }
-  } catch (error) {
-    operationError = error
+    await (runtime.publishEvidence || publishEvidence)(repoRoot, runtime.version, evidence)
+    return evidence
   } finally {
-    try {
-      await cleanupWorkspace(workspace)
-    } catch (error) {
-      cleanupError = error
-    } finally {
-      uninstallWorkspaceSignalCleanup()
-      activeAbortController = null
-    }
+    if (archiveHandle) await archiveHandle.close()
   }
-
-  if (cleanupError) throw cleanupError
-  if (interruptedSignal) {
-    process.exitCode = interruptedExitCode
-    throw new Error(`rollback drill interrupted by ${interruptedSignal}`)
-  }
-  if (operationError) throw operationError
-  evidence.backup.archive_retained = false
-  evidence.operations.workspace_cleanup_verified = true
-  const publishedPath = await publishEvidence(root, packageJson.version, evidence)
-  const relativeOutput = path.relative(root, publishedPath).replace(/\\/g, '/')
-  process.stdout.write(`${JSON.stringify({ output: relativeOutput, ...evidence }, null, 2)}\n`)
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error.stack || error}\n`)
-  if (!process.exitCode) process.exitCode = 1
-})
+async function main() {
+  const drillOptions = parseDrillArguments(process.argv.slice(2))
+  const packageJson = backendRequire('./package.json')
+  const config = loadConfig()
+  const focusedTestPath = path.join(backendRoot, 'test', 'dataBackupService.test.js')
+  const focusedTestCount = (fs.readFileSync(focusedTestPath, 'utf8').match(/^test\(/gm) || []).length
+  assert.ok(focusedTestCount > 0, 'backup and restore test inventory is empty')
+  assertCleanSourceTree()
+  const commit = gitOutput(['rev-parse', 'HEAD']).toLowerCase()
+  assert.match(commit, /^[a-f0-9]{40}$/, 'rollback drill requires a full Git commit')
+  const controller = new AbortController()
+  activeAbortController = controller
+  interruptedSignal = null
+  interruptedExitCode = null
+  const runtime = {
+    repoRoot: root,
+    version: packageJson.version,
+    commit,
+    sourcePaths: {
+      databasePath: configuredPath(config.database?.path, './data/drama_generator.db'),
+      storagePath: configuredPath(config.storage?.local_path, './data/storage'),
+      storySourcesPath: path.join(backendRoot, 'data', 'story_sources'),
+    },
+    focusedTestCount,
+    runFocusedTests: () => run(process.execPath, ['--test', '--test-concurrency=1', 'test/dataBackupService.test.js'], {
+      cwd: backendRoot,
+      stdio: 'inherit',
+    }),
+    createDataBackup,
+    restoreDataBackup,
+    prepareEvidenceTarget,
+    publishEvidence,
+    fingerprintDataRoot,
+    prepareRestoreTargets,
+    verifyRestoredDatabase,
+    serviceHost: process.env.HOST || config.server?.host || '127.0.0.1',
+    servicePort: Number(process.env.PORT) || config.server?.port || 5679,
+    signal: controller.signal,
+  }
+  installWorkspaceSignalCleanup()
+  try {
+    const evidence = await executeRollbackDrill(drillOptions, runtime)
+    if (interruptedSignal) {
+      process.exitCode = interruptedExitCode
+      throw new Error(`rollback drill interrupted by ${interruptedSignal}`)
+    }
+    process.stdout.write(`${JSON.stringify({ output: EVIDENCE_RELATIVE_PATH, ...evidence }, null, 2)}\n`)
+  } catch (error) {
+    if (interruptedSignal) {
+      process.exitCode = interruptedExitCode
+      throw new Error(`rollback drill interrupted by ${interruptedSignal}`, { cause: error })
+    }
+    throw error
+  } finally {
+    uninstallWorkspaceSignalCleanup()
+    activeAbortController = null
+  }
+}
+
+if (require.main === module) {
+  main().catch((error) => {
+    process.stderr.write(`${error.stack || error}\n`)
+    if (!process.exitCode) process.exitCode = 1
+  })
+}
+
+module.exports = { executeRollbackDrill, main }
