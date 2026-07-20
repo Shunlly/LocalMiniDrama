@@ -24,6 +24,7 @@ const legacyFixture = {
   assetRelativePath: 'legacy-smoke/visible.txt',
   assetContents: 'legacy media fixture is visible',
 };
+const bundledExampleFilename = '衣服设计天才302.zip';
 
 function log(message) {
   process.stdout.write(`[smoke] ${message}\n`);
@@ -146,7 +147,7 @@ function requestHttp(port, endpoint, options = {}) {
       path: endpoint,
       method: options.method || 'GET',
       headers,
-      timeout: 2000,
+      timeout: options.timeoutMs || 2000,
     }, (response) => {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
@@ -488,9 +489,75 @@ async function verifyLegacyMigrationFixture({ label, port, userData }) {
   log(`${label}: migrated database row and static media are visible`);
 }
 
+function assertExampleListResponse(response) {
+  const items = response && response.body && response.body.data;
+  if (
+    !response ||
+    response.statusCode !== 200 ||
+    response.body.success !== true ||
+    !Array.isArray(items) ||
+    !items.every((item) => item && typeof item.filename === 'string' && item.filename.trim())
+  ) {
+    throw new Error(`Example list response must be a successful 200 response with filenames: ${JSON.stringify(response)}`);
+  }
+  return items;
+}
+
+function assertExampleImportResponse(response) {
+  const data = response && response.body && response.body.data;
+  if (
+    !response ||
+    response.statusCode !== 201 ||
+    response.body.success !== true ||
+    !data ||
+    !Number.isInteger(data.drama_id) ||
+    data.drama_id <= 0 ||
+    typeof data.title !== 'string' ||
+    !data.title.trim()
+  ) {
+    throw new Error(`Example import response must be a successful 201 response with drama_id and title: ${JSON.stringify(response)}`);
+  }
+  return data;
+}
+
+async function verifyBundledExampleImport({ label, port }, runtime = {}) {
+  const request = runtime.requestJson || requestJson;
+  const importTimeoutMs = runtime.importTimeoutMs ?? timeoutMs;
+  const examples = assertExampleListResponse(await request(port, '/api/v1/dramas/examples'));
+  if (!examples.some((example) => example.filename === bundledExampleFilename)) {
+    throw new Error(`${label} did not list bundled example ${bundledExampleFilename}`);
+  }
+
+  const imported = assertExampleImportResponse(await request(port, '/api/v1/dramas/import-example', {
+    method: 'POST',
+    headers: sameOriginWriteHeaders(port),
+    body: { filename: bundledExampleFilename },
+    timeoutMs: importTimeoutMs,
+  }));
+  const readBack = await request(port, `/api/v1/dramas/${imported.drama_id}`);
+  const drama = readBack && readBack.body && readBack.body.data;
+  if (
+    !readBack ||
+    readBack.statusCode !== 200 ||
+    readBack.body.success !== true ||
+    !drama ||
+    Number(drama.id) !== imported.drama_id ||
+    drama.title !== imported.title
+  ) {
+    throw new Error(`${label} example import read-back did not match imported ID and title: ${JSON.stringify(readBack)}`);
+  }
+  log(`${label}: bundled example imported and read back (${imported.drama_id})`);
+}
+
 async function smokeUnpacked() {
   const executable = findApplicationExe(path.join(releaseRoot, 'win-unpacked'));
   const bundledTools = verifyBundledMediaTools('unpacked', executable);
+  await launchAndProbe(
+    'unpacked-example-import',
+    executable,
+    path.join(smokeRoot, 'unpacked-example-import'),
+    { onReady: verifyBundledExampleImport }
+  );
   const fresh = await launchAndProbe(
     'unpacked-fresh',
     executable,
@@ -587,8 +654,11 @@ if (require.main === module) {
 }
 
 module.exports = {
+  assertExampleImportResponse,
+  assertExampleListResponse,
   assertRendererLog,
   assertSuccessfulSpawnResult,
   expectedArtifactName,
   sameOriginWriteHeaders,
+  verifyBundledExampleImport,
 };

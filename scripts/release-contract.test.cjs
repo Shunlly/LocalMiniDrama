@@ -1506,6 +1506,13 @@ test('artifact secret scanning excludes only pass markers and raw ASAR container
   assert.doesNotMatch(artifactGitleaksConfig, /desktop\/release|node_modules|\(\?:\[\^\/\]\+\)\?/)
 })
 
+test('artifact secret scanning bounds archive traversal before redaction', () => {
+  assert.match(
+    windowsReleaseSecurityWorkflow,
+    /gitleaks dir desktop\/release --config \.gitleaks-artifacts\.toml --max-archive-depth 1 --max-target-megabytes 256 --redact --no-banner/
+  )
+})
+
 test('source secret scanning covers every tracked path and isolates worktree output exclusions', () => {
   assert.deepEqual(parseToml(sourceGitleaksConfig), { extend: { useDefault: true } })
 

@@ -51,7 +51,7 @@ jobs:
           if ($actualSha256 -ne $expectedSha256) { throw "Gitleaks archive checksum mismatch: $actualSha256" }
           Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force
           $gitleaks = Join-Path $destination 'gitleaks.exe'
-          & $gitleaks dir desktop/release --config .gitleaks-artifacts.toml --redact --no-banner
+          & $gitleaks dir desktop/release --config .gitleaks-artifacts.toml --max-archive-depth 1 --max-target-megabytes 256 --redact --no-banner
           if ($LASTEXITCODE -ne 0) { throw 'Gitleaks found a secret or failed to scan the extracted release' }
           node desktop/scripts/verify-windows-artifacts.js mark gitleaks $version
 
