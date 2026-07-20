@@ -537,6 +537,59 @@ test('v3 validation and publication reject malformed mode, hashes, booleans, ret
   await assert.rejects(publishEvidence(fixtureRoot, VERSION, boundWithoutRetention), /backup\.archive_retained/)
 })
 
+test('v3 accepts only backup formats supported by the restore service', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-v3-formats-')
+
+  for (const formatVersion of [1, 2]) {
+    await t.test(`accepts backup format ${formatVersion}`, async () => {
+      const repoRoot = path.join(fixtureRoot, `supported-${formatVersion}`)
+      await fsp.mkdir(repoRoot)
+      const evidence = validEvidence()
+      evidence.backup.format_version = formatVersion
+      assert.equal(validateEvidenceV3(evidence, VERSION), evidence)
+      assert.equal(await publishEvidence(repoRoot, VERSION, evidence), evidenceOutputPath(repoRoot))
+      assert.equal(fs.existsSync(evidenceOutputPath(repoRoot)), true)
+    })
+  }
+
+  for (const formatVersion of [3, 999]) {
+    await t.test(`rejects unsupported backup format ${formatVersion} without publishing`, async () => {
+      const repoRoot = path.join(fixtureRoot, `unsupported-${formatVersion}`)
+      await fsp.mkdir(repoRoot)
+      const evidence = validEvidence()
+      evidence.backup.format_version = formatVersion
+      await assert.rejects(publishEvidence(repoRoot, VERSION, evidence), /backup\.format_version/)
+      assert.equal(fs.existsSync(evidenceOutputPath(repoRoot)), false)
+      assert.throws(() => validateEvidenceV3(evidence, VERSION), /backup\.format_version/)
+    })
+  }
+})
+
+test('v3 requires a safe archive size at or above the ZIP minimum', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-v3-archive-size-')
+  const minimumRoot = path.join(fixtureRoot, 'minimum')
+  await fsp.mkdir(minimumRoot)
+  const minimumEvidence = validEvidence()
+  minimumEvidence.backup.archive_bytes = 22
+  assert.equal(validateEvidenceV3(minimumEvidence, VERSION), minimumEvidence)
+  assert.equal(
+    await publishEvidence(minimumRoot, VERSION, minimumEvidence),
+    evidenceOutputPath(minimumRoot)
+  )
+
+  for (const archiveBytes of [0, 1, 21, -1, Number.MAX_SAFE_INTEGER + 1]) {
+    await t.test(`rejects archive_bytes=${archiveBytes} without publishing`, async () => {
+      const repoRoot = path.join(fixtureRoot, `invalid-${archiveBytes}`)
+      await fsp.mkdir(repoRoot)
+      const evidence = validEvidence()
+      evidence.backup.archive_bytes = archiveBytes
+      await assert.rejects(publishEvidence(repoRoot, VERSION, evidence), /backup\.archive_bytes/)
+      assert.equal(fs.existsSync(evidenceOutputPath(repoRoot)), false)
+      assert.throws(() => validateEvidenceV3(evidence, VERSION), /backup\.archive_bytes/)
+    })
+  }
+})
+
 test('complete v3 PASS validation rejects missing fields, invalid types, and false proof flags', async (t) => {
   const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-v3-complete-')
   const requiredFields = [

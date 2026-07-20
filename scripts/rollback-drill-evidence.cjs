@@ -4,6 +4,10 @@ const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
 const fsp = require('node:fs/promises')
 const path = require('node:path')
+const {
+  MINIMUM_ZIP_ARCHIVE_BYTES,
+  SUPPORTED_FORMAT_VERSIONS,
+} = require('../backend-node/src/services/dataBackupFormatContract')
 
 const EVIDENCE_SCHEMA = 'localminidrama.rollback-drill.v3'
 const V2_EVIDENCE_SCHEMA = 'localminidrama.rollback-drill.v2'
@@ -471,8 +475,8 @@ function validateEvidenceV3(evidence, expectedVersion) {
 
   assertPlainObject(evidence.backup, 'rollback evidence backup')
   assert.ok(
-    Number.isSafeInteger(evidence.backup.format_version) && evidence.backup.format_version > 0,
-    'rollback evidence backup.format_version must be a positive safe integer'
+    SUPPORTED_FORMAT_VERSIONS.includes(evidence.backup.format_version),
+    'rollback evidence backup.format_version is not supported'
   )
   for (const field of [
     'archive_bytes',
@@ -483,6 +487,10 @@ function validateEvidenceV3(evidence, expectedVersion) {
   ]) {
     assertNonNegativeSafeInteger(evidence.backup[field], `rollback evidence backup.${field}`)
   }
+  assert.ok(
+    evidence.backup.archive_bytes >= MINIMUM_ZIP_ARCHIVE_BYTES,
+    `rollback evidence backup.archive_bytes must be at least ${MINIMUM_ZIP_ARCHIVE_BYTES}`
+  )
   assert.equal(
     evidence.backup.file_count,
     1 + evidence.backup.storage_files + evidence.backup.story_source_files,

@@ -9,10 +9,14 @@ const { Readable, Transform, Writable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { Worker } = require('node:worker_threads');
 const Database = require('better-sqlite3');
+const {
+  FORMAT_VERSION,
+  LEGACY_FORMAT_VERSION,
+  MINIMUM_ZIP_ARCHIVE_BYTES,
+  SUPPORTED_FORMAT_VERSIONS,
+} = require('./dataBackupFormatContract');
 const { updateMaintenanceHeartbeatFd } = require('./maintenanceLockFile');
 
-const LEGACY_FORMAT_VERSION = 1;
-const FORMAT_VERSION = 2;
 const MANIFEST_ENTRY = 'manifest.json';
 const DATABASE_ENTRY = 'database.sqlite';
 const STORAGE_PREFIX = 'storage/';
@@ -2017,7 +2021,9 @@ async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
     if (!openedStat.isFile() || openedStat.size !== archiveStat.size || openedStat.dev !== archiveStat.dev || openedStat.ino !== archiveStat.ino) {
       throw backupError('ARCHIVE_CHANGED', 'The backup archive changed while it was being opened.');
     }
-    if (openedStat.size < 22) throw backupError('INVALID_ARCHIVE', 'The file is not a complete ZIP archive.');
+    if (openedStat.size < MINIMUM_ZIP_ARCHIVE_BYTES) {
+      throw backupError('INVALID_ARCHIVE', 'The file is not a complete ZIP archive.');
+    }
 
     const tailLength = Math.min(openedStat.size, 22 + ZIP64_UINT16 + 20);
     const tailOffset = openedStat.size - tailLength;
@@ -2355,7 +2361,7 @@ function validateManifest(value) {
   ) {
     throw backupError('INVALID_MANIFEST', 'The backup manifest has an invalid structure.');
   }
-  if (![LEGACY_FORMAT_VERSION, FORMAT_VERSION].includes(value.formatVersion)) {
+  if (!SUPPORTED_FORMAT_VERSIONS.includes(value.formatVersion)) {
     throw backupError('UNSUPPORTED_FORMAT', 'The backup format version is not supported.');
   }
   if (
