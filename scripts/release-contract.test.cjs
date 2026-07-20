@@ -1434,6 +1434,7 @@ test('source secret scanning covers every tracked path and isolates worktree out
   assert.deepEqual(ignoredFingerprints, [
     'ececcdcb6b14f40b8d3fec42a38a2633593b4613:desktop/backend-app-secure/src/app.js:generic-api-key:1',
     '6b216ed727772ab794d5c0bfd6c717b3425d164a:frontweb/test/acceptanceReportVerifier.test.js:generic-api-key:396',
+    'dcf6cc47fe3b526cf57c294e3a0b72a7719d1a45:backend-node/test/maintenanceRecoveryCli.test.js:generic-api-key:50',
   ])
 
   for (const secretScanJob of [
