@@ -221,7 +221,7 @@ docker compose ps
 | 后端就绪检查 | `http://localhost:5679/ready` |
 | API 路径前缀 | `http://localhost:5679/api/v1`（该前缀本身不是可访问资源） |
 
-Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器会把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器使用 Nginx 提供 Vite 的生产构建产物，源码没有 bind mount。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
+Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器默认把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下；发布回滚脚本会把从实际 backend 容器捕获并验证的宿主 bind source 通过 `LOCALMINIDRAMA_DATA_DIR` 重新绑定到该目标。前端容器使用 Nginx 提供 Vite 的生产构建产物，源码没有 bind mount。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
 
 后端 Compose 不会让宿主机配置直接覆盖运行配置。`LOCALMINIDRAMA_CONFIG_DIR`（默认 `./backend-node/configs`）只读挂载到容器的 `/app/config-source`；入口脚本会在降权前通过 `runtime-config-policy.cjs` 将其净化到 `/tmp/localminidrama-config/config.yaml`，应用通过 `LOCALMINIDRAMA_CONFIG_PATH` 读取净化结果。自定义配置必须提供 `config.yaml`，每次启动都会重新净化。
 
@@ -364,7 +364,7 @@ $checkpoint = "D:\backup\localminidrama-$stamp"
 npm run checkpoint:rollback -- -CheckpointDirectory $checkpoint
 ```
 
-`checkpoint:rollback` 要求当前服务由 `npm run docker:up` 构建且健康。脚本会在停机前从实际运行容器捕获不可变镜像 ID 和真实配置 bind mount，核对两份镜像 revision 与当前 Git SHA 一致，把两份镜像打上提交专属标签并保存到 `images.tar`，同时归档 Compose、运行配置及所有 SHA-256；随后才停止 Docker、创建真实数据备份并执行同提交隔离演练。中途失败会尝试用已捕获镜像自动恢复原服务。检查点必须位于仓库之外且至少保留到新版本完成业务验收，不能只保留 metadata 而删除 `images.tar`。
+`checkpoint:rollback` 要求当前服务由 `npm run docker:up` 构建且健康。脚本会在停机前从实际运行的 backend 容器捕获 `/app/data` 和 `/app/config-source`：数据挂载必须恰好一个、类型为可写 bind，且宿主 source 必须是真实目录。脚本核对两份镜像 revision 与当前 Git SHA 一致，把镜像保存到 `images.tar`，把规范化数据 source 写入固定归档文件 `data-bind-source.txt`，并在 v4 metadata 中保存 source、目标、类型和 SHA-256；随后才停止 Docker，并用该 source 作为显式 `--data-root` 创建数据备份。中途失败时，恢复 Compose 在启动前和启动后都会验证仍绑定同一 source。检查点必须位于仓库和实时数据目录之外且至少保留到新版本完成业务验收，不能只保留 metadata 而删除 `images.tar`、`data.zip` 或 `data-bind-source.txt`。
 
 需要回退时，优先保持当前部署运行并直接执行恢复命令；若升级后容器已经 unhealthy 或 stopped，只要 Compose 容器尚未被删除，脚本仍会从容器捕获镜像、revision、状态和配置作为补偿证据后继续回退。不要先执行会删除容器的 `docker compose down`，也不要覆盖或移动正式发布标签：
 
@@ -373,7 +373,7 @@ $checkpoint = 'D:\backup\localminidrama-YYYYMMDD-HHMMSS'
 npm run restore:rollback -- -CheckpointDirectory $checkpoint
 ```
 
-`restore:rollback` 在接触数据前核对 metadata、数据 ZIP、Compose、运行配置、镜像归档、演练摘要的 SHA-256，并从 `images.tar` 加载后逐一核对旧镜像 ID 与 revision；同时从当前 existing 容器捕获前向补偿目标，非健康状态会显式告警但不会阻断旧版本恢复。若当前容器已被删除，则因无法证明补偿镜像和配置而失败关闭。停机后先保留升级后数据补偿备份，再恢复旧数据并用归档 Compose / 配置及专用回退标签启动。旧版本启动失败时，脚本会尝试恢复补偿数据和升级后镜像；补偿也失败才会报告双重故障。成功后仍需复验一条已有媒体播放链路，并在「AI 配置」重新填写所有备份策略排除的 Provider 凭据。不可移动或重写 `v1.3.3` 等正式标签。
+`restore:rollback` 只接受 v4 检查点；本修复前生成的 v3 检查点没有数据 bind 证据，必须在升级前重新创建。脚本在接触数据前核对固定位置的 metadata、`data-bind-source.txt`、数据 ZIP、Compose、运行配置、镜像归档和演练摘要及其 SHA-256，再从当前 existing backend 容器重新捕获 `/app/data`。当前挂载不是唯一可写 bind、宿主目录不真实、source 与检查点不一致，或当前容器已被删除时都会失败关闭。归档 metadata 中的路径只用于证据比对，不会被用来拼接归档文件或选择备份/恢复目标；检查点备份、旧数据恢复和所有前向补偿都显式使用重新 inspect 的同一 source。每次启动回滚或前向部署前会先解析 Compose 确认 `/app/data` 指向该 source，启动后再 inspect 容器复核。旧版本启动失败时，脚本会尝试恢复补偿数据和升级后镜像；补偿也失败才会报告双重故障。成功后仍需复验一条已有媒体播放链路，并在「AI 配置」重新填写所有备份策略排除的 Provider 凭据。不可移动或重写 `v1.3.3` 等正式标签。
 
 **源码离线目录副本**：只有在后端和 Docker 均已停止时，才可复制整个 `backend-node/data/`；不要在 SQLite 正在写入时直接拷贝。exe 数据必须使用上文 `%APPDATA%` 路径，不能用仓库目录替代。
 

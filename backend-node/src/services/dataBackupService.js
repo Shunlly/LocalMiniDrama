@@ -1138,6 +1138,8 @@ async function createLockedDatabaseSnapshot(databasePath, snapshotPath) {
   sqliteIntegrityCheck(snapshotPath);
 }
 
+const SENSITIVE_BACKUP_STRUCTURED_KEY_ALIASES = new Set(['key', 'keys', 'passwd', 'passphrase']);
+
 function isSensitiveBackupKey(key) {
   const text = String(key || '');
   const compact = text.toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -1172,6 +1174,11 @@ function backupKeyWords(key) {
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
+}
+
+function isSensitiveBackupStructuredKey(key) {
+  return isSensitiveBackupKey(key) ||
+    SENSITIVE_BACKUP_STRUCTURED_KEY_ALIASES.has(backupKeyWords(key).join(''));
 }
 
 function isBackupHeaderContainerKey(key) {
@@ -1265,7 +1272,7 @@ function redactBackupHeaders(value) {
       for (const [key, child] of Object.entries(entry)) {
         if (key === 'name' || key === 'key') out[key] = child;
         else if (key === 'value' || key === 'values') out[key] = safe ? redactSecretObject(child, key) : '';
-        else out[key] = isSensitiveBackupKey(key) ? '' : redactSecretObject(child, key);
+        else out[key] = isSensitiveBackupStructuredKey(key) ? '' : redactSecretObject(child, key);
       }
       return out;
     });
@@ -1286,7 +1293,7 @@ function redactSecretObject(value, parentKey = '') {
   for (const [key, child] of Object.entries(value)) {
     out[key] = isBackupHeaderContainerKey(key)
       ? redactBackupHeaders(child)
-      : isSensitiveBackupKey(key) ? '' : redactSecretObject(child, key);
+      : isSensitiveBackupStructuredKey(key) ? '' : redactSecretObject(child, key);
   }
   return out;
 }

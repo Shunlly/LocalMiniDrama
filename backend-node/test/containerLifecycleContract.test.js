@@ -32,7 +32,7 @@ test('backend Compose outwaits synchronous startup and the maintenance lock TTL 
     backend.volumes.find((volume) => volume.target === '/app/data'),
     {
       type: 'bind',
-      source: './backend-node/data',
+      source: '${LOCALMINIDRAMA_DATA_DIR:-./backend-node/data}',
       target: '/app/data',
     },
   );

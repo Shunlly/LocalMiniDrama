@@ -11,7 +11,7 @@ const PACKAGE_ROOT = path.resolve(__dirname, '..');
 
 function usage() {
   console.log([
-    'Usage: npm run backup:data -- [--output <archive.zip>] [limits]',
+    'Usage: npm run backup:data -- [--output <archive.zip>] [--data-root <directory>] [limits]',
     '',
     'Limits:',
     '  --max-files <count>',
@@ -39,6 +39,7 @@ function parseArguments(argv) {
     }
     const valueFlags = {
       '--output': 'outputPath',
+      '--data-root': 'dataRoot',
       '--max-files': 'maxFiles',
       '--max-bytes': 'maxTotalBytes',
       '--max-file-bytes': 'maxFileBytes',
@@ -48,7 +49,7 @@ function parseArguments(argv) {
     if (!key) throw new DataBackupError('INVALID_ARGUMENT', 'Unknown backup option.');
     const value = takeValue(argv, index, arg);
     index += 1;
-    if (key === 'outputPath') parsed.outputPath = value;
+    if (key === 'outputPath' || key === 'dataRoot') parsed[key] = value;
     else parsed.limits[key] = value;
   }
   return parsed;
@@ -57,6 +58,22 @@ function parseArguments(argv) {
 function resolveConfiguredPath(value, fallback) {
   const configured = value || fallback;
   return path.isAbsolute(configured) ? configured : path.resolve(PACKAGE_ROOT, configured);
+}
+
+function resolveDataPaths(config, dataRootValue) {
+  if (dataRootValue) {
+    const dataRoot = path.resolve(process.cwd(), dataRootValue);
+    return {
+      databasePath: path.join(dataRoot, 'drama_generator.db'),
+      storagePath: path.join(dataRoot, 'storage'),
+      storySourcesPath: path.join(dataRoot, 'story_sources'),
+    };
+  }
+  return {
+    databasePath: resolveConfiguredPath(config.database?.path, './data/drama_generator.db'),
+    storagePath: resolveConfiguredPath(config.storage?.local_path, './data/storage'),
+    storySourcesPath: path.join(PACKAGE_ROOT, 'data', 'story_sources'),
+  };
 }
 
 function defaultOutputPath() {
@@ -71,10 +88,9 @@ async function main() {
     return;
   }
   const config = loadConfig();
+  const dataPaths = resolveDataPaths(config, args.dataRoot);
   const result = await createDataBackup({
-    databasePath: resolveConfiguredPath(config.database?.path, './data/drama_generator.db'),
-    storagePath: resolveConfiguredPath(config.storage?.local_path, './data/storage'),
-    storySourcesPath: path.join(PACKAGE_ROOT, 'data', 'story_sources'),
+    ...dataPaths,
     outputPath: args.outputPath ? path.resolve(process.cwd(), args.outputPath) : defaultOutputPath(),
     limits: args.limits,
   });

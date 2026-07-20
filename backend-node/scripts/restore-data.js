@@ -11,7 +11,7 @@ const PACKAGE_ROOT = path.resolve(__dirname, '..');
 
 function usage() {
   console.log([
-    'Usage: npm run restore:data -- --input <archive.zip> --yes [limits]',
+    'Usage: npm run restore:data -- --input <archive.zip> --yes [--data-root <directory>] [limits]',
     '',
     'Restore refuses to run while the backend port or SQLite database is in use.',
     '',
@@ -45,6 +45,7 @@ function parseArguments(argv) {
     }
     const valueFlags = {
       '--input': 'archivePath',
+      '--data-root': 'dataRoot',
       '--max-files': 'maxFiles',
       '--max-bytes': 'maxTotalBytes',
       '--max-file-bytes': 'maxFileBytes',
@@ -54,7 +55,7 @@ function parseArguments(argv) {
     if (!key) throw new DataBackupError('INVALID_ARGUMENT', 'Unknown restore option.');
     const value = takeValue(argv, index, arg);
     index += 1;
-    if (key === 'archivePath') parsed.archivePath = value;
+    if (key === 'archivePath' || key === 'dataRoot') parsed[key] = value;
     else parsed.limits[key] = value;
   }
   return parsed;
@@ -63,6 +64,22 @@ function parseArguments(argv) {
 function resolveConfiguredPath(value, fallback) {
   const configured = value || fallback;
   return path.isAbsolute(configured) ? configured : path.resolve(PACKAGE_ROOT, configured);
+}
+
+function resolveDataPaths(config, dataRootValue) {
+  if (dataRootValue) {
+    const dataRoot = path.resolve(process.cwd(), dataRootValue);
+    return {
+      databasePath: path.join(dataRoot, 'drama_generator.db'),
+      storagePath: path.join(dataRoot, 'storage'),
+      storySourcesPath: path.join(dataRoot, 'story_sources'),
+    };
+  }
+  return {
+    databasePath: resolveConfiguredPath(config.database?.path, './data/drama_generator.db'),
+    storagePath: resolveConfiguredPath(config.storage?.local_path, './data/storage'),
+    storySourcesPath: path.join(PACKAGE_ROOT, 'data', 'story_sources'),
+  };
 }
 
 async function main() {
@@ -75,11 +92,10 @@ async function main() {
     throw new DataBackupError('INVALID_ARGUMENT', 'Restore requires --input <archive.zip>.');
   }
   const config = loadConfig();
+  const dataPaths = resolveDataPaths(config, args.dataRoot);
   const result = await restoreDataBackup({
     archivePath: path.resolve(process.cwd(), args.archivePath),
-    databasePath: resolveConfiguredPath(config.database?.path, './data/drama_generator.db'),
-    storagePath: resolveConfiguredPath(config.storage?.local_path, './data/storage'),
-    storySourcesPath: path.join(PACKAGE_ROOT, 'data', 'story_sources'),
+    ...dataPaths,
     confirmed: args.confirmed,
     serviceHost: process.env.HOST || config.server?.host || '127.0.0.1',
     servicePort: Number(process.env.PORT) || config.server?.port || 5679,

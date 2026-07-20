@@ -5,6 +5,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const net = require('node:net');
+const { spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
 const AdmZip = require('adm-zip');
 const { getGlobalSetting } = require('../src/services/settingsService');
@@ -862,6 +863,209 @@ test('excludes provider credentials from backups by default', async (t) => {
   assert.equal(providerInvocation.error_message.includes(syntheticTableMarker), false);
 });
 
+test('excludes nested custom-provider secret aliases from backups by default', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'nested-secret-alias-policy');
+  const secretMarker = `LMD_NESTED_PROVIDER_SECRET_ALIAS_${'Z'.repeat(96)}`;
+  db.exec(`CREATE TABLE ai_service_configs (
+    id INTEGER PRIMARY KEY,
+    settings TEXT
+  )`);
+  db.prepare('INSERT INTO ai_service_configs (settings) VALUES (?)').run(JSON.stringify({
+    provider_name: 'custom-safe-provider',
+    key: `${secretMarker}:key`,
+    nested: {
+      keys: [`${secretMarker}:keys-array`, { value: `${secretMarker}:keys-object` }],
+      region: 'cn-north-1',
+    },
+    transports: [
+      { passwd: `${secretMarker}:passwd`, timeout_ms: 1200 },
+      {
+        tls: { passphrase: `${secretMarker}:passphrase`, verify_peer: true },
+        retry_count: 3,
+      },
+    ],
+    models: ['safe-model-a'],
+  }));
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  assert.equal(fs.readFileSync(workspace.databasePath).includes(Buffer.from(secretMarker)), true);
+
+  const backup = await createDataBackup({
+    ...workspace,
+    outputPath: workspace.archivePath,
+    skipServiceCheck: true,
+  });
+  assert.equal(backup.security.policy, 'excluded');
+  db.close();
+
+  const snapshotBytes = new AdmZip(workspace.archivePath).readFile('database.sqlite');
+  assert.equal(snapshotBytes.includes(Buffer.from(secretMarker)), false);
+  const snapshotPath = path.join(workspace.root, 'snapshot-without-nested-secret-aliases.db');
+  await fsp.writeFile(snapshotPath, snapshotBytes);
+  const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+  let settings;
+  try {
+    settings = JSON.parse(snapshot.prepare('SELECT settings FROM ai_service_configs').get().settings);
+  } finally {
+    snapshot.close();
+  }
+
+  assert.equal(settings.key, '');
+  assert.equal(settings.nested.keys, '');
+  assert.equal(settings.transports[0].passwd, '');
+  assert.equal(settings.transports[1].tls.passphrase, '');
+  assert.equal(settings.provider_name, 'custom-safe-provider');
+  assert.equal(settings.nested.region, 'cn-north-1');
+  assert.equal(settings.transports[0].timeout_ms, 1200);
+  assert.equal(settings.transports[1].tls.verify_peer, true);
+  assert.equal(settings.transports[1].retry_count, 3);
+  assert.deepEqual(settings.models, ['safe-model-a']);
+});
+
+test('preserves non-sensitive business key fields in default backups', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'business-key-policy');
+  const shortcutKeys = JSON.stringify(['Ctrl+K', 'Ctrl+Shift+P']);
+  db.exec(`CREATE TABLE workflow_preferences (
+    id INTEGER PRIMARY KEY,
+    business_key TEXT,
+    shortcut_keys TEXT
+  );
+  CREATE TABLE global_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`);
+  db.prepare('INSERT INTO workflow_preferences (business_key, shortcut_keys) VALUES (?, ?)')
+    .run('episode-routing-v2', shortcutKeys);
+  const insertGlobalSetting = db.prepare('INSERT INTO global_settings (key, value) VALUES (?, ?)');
+  insertGlobalSetting.run('business_key', JSON.stringify('tenant-routing-v3'));
+  insertGlobalSetting.run('shortcut_keys', JSON.stringify(['Ctrl+B', 'Ctrl+Alt+M']));
+  db.pragma('wal_checkpoint(TRUNCATE)');
+
+  const backup = await createDataBackup({
+    ...workspace,
+    outputPath: workspace.archivePath,
+    skipServiceCheck: true,
+  });
+  assert.equal(backup.security.policy, 'excluded');
+  db.close();
+
+  const snapshotBytes = new AdmZip(workspace.archivePath).readFile('database.sqlite');
+  const snapshotPath = path.join(workspace.root, 'snapshot-with-business-keys.db');
+  await fsp.writeFile(snapshotPath, snapshotBytes);
+  const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+  let preference;
+  let globalSettings;
+  try {
+    preference = snapshot.prepare(
+      'SELECT business_key, shortcut_keys FROM workflow_preferences'
+    ).get();
+    globalSettings = Object.fromEntries(
+      snapshot.prepare('SELECT key, value FROM global_settings').all()
+        .map((row) => [row.key, JSON.parse(row.value)])
+    );
+  } finally {
+    snapshot.close();
+  }
+
+  assert.deepEqual(preference, {
+    business_key: 'episode-routing-v2',
+    shortcut_keys: shortcutKeys,
+  });
+  assert.deepEqual(globalSettings, {
+    business_key: 'tenant-routing-v3',
+    shortcut_keys: ['Ctrl+B', 'Ctrl+Alt+M'],
+  });
+});
+
+test('preserves provider secret markers when includeSecrets is true', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'explicit-secret-policy');
+  const secretMarker = `LMD_EXPLICIT_PROVIDER_SECRET_${'I'.repeat(96)}`;
+  const originalSettings = {
+    key: `${secretMarker}:key`,
+    nested: [
+      { passwd: `${secretMarker}:passwd` },
+      { tls: { passphrase: `${secretMarker}:passphrase` } },
+    ],
+  };
+  db.exec(`CREATE TABLE ai_service_configs (
+    id INTEGER PRIMARY KEY,
+    api_key TEXT,
+    settings TEXT
+  )`);
+  db.prepare('INSERT INTO ai_service_configs (api_key, settings) VALUES (?, ?)')
+    .run(`${secretMarker}:api-key`, JSON.stringify(originalSettings));
+  db.pragma('wal_checkpoint(TRUNCATE)');
+
+  const backup = await createDataBackup({
+    ...workspace,
+    outputPath: workspace.archivePath,
+    skipServiceCheck: true,
+    includeSecrets: true,
+  });
+  assert.equal(backup.security.policy, 'included-by-explicit-request');
+  db.close();
+
+  const snapshotBytes = new AdmZip(workspace.archivePath).readFile('database.sqlite');
+  assert.equal(snapshotBytes.includes(Buffer.from(secretMarker)), true);
+  const snapshotPath = path.join(workspace.root, 'snapshot-with-explicit-secrets.db');
+  await fsp.writeFile(snapshotPath, snapshotBytes);
+  const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+  let row;
+  try {
+    row = snapshot.prepare('SELECT api_key, settings FROM ai_service_configs').get();
+  } finally {
+    snapshot.close();
+  }
+
+  assert.equal(row.api_key, `${secretMarker}:api-key`);
+  assert.deepEqual(JSON.parse(row.settings), originalSettings);
+});
+
+test('redacts header array values while preserving name and key metadata', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'header-array-policy');
+  const secretMarker = `LMD_HEADER_ARRAY_SECRET_${'H'.repeat(96)}`;
+  db.exec(`CREATE TABLE ai_service_configs (
+    id INTEGER PRIMARY KEY,
+    settings TEXT
+  )`);
+  db.prepare('INSERT INTO ai_service_configs (settings) VALUES (?)').run(JSON.stringify({
+    header_list: [
+      { key: 'Authorization', value: `${secretMarker}:key-form`, enabled: true },
+      { name: 'X-Auth', value: `${secretMarker}:name-form`, enabled: false },
+      { key: 'Content-Type', value: 'application/json' },
+    ],
+  }));
+  db.pragma('wal_checkpoint(TRUNCATE)');
+
+  await createDataBackup({
+    ...workspace,
+    outputPath: workspace.archivePath,
+    skipServiceCheck: true,
+  });
+  db.close();
+
+  const snapshotBytes = new AdmZip(workspace.archivePath).readFile('database.sqlite');
+  assert.equal(snapshotBytes.includes(Buffer.from(secretMarker)), false);
+  const snapshotPath = path.join(workspace.root, 'snapshot-with-redacted-header-array.db');
+  await fsp.writeFile(snapshotPath, snapshotBytes);
+  const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+  let settings;
+  try {
+    settings = JSON.parse(snapshot.prepare('SELECT settings FROM ai_service_configs').get().settings);
+  } finally {
+    snapshot.close();
+  }
+
+  assert.deepEqual(settings.header_list, [
+    { key: 'Authorization', value: '', enabled: true },
+    { name: 'X-Auth', value: '', enabled: false },
+    { key: 'Content-Type', value: 'application/json' },
+  ]);
+});
+
 test('maintenance lock rejects a concurrent backup in the same host contract', async (t) => {
   const workspace = await makeWorkspace(t);
   const db = createDatabase(workspace.databasePath, 'locked-backup');
@@ -1447,4 +1651,84 @@ test('backup and restore CLIs pass the package-root story_sources directory', ()
       /storySourcesPath:\s*path\.join\(PACKAGE_ROOT, ['"]data['"], ['"]story_sources['"]\)/
     );
   }
+});
+
+test('backup and restore CLIs use the selected data root for every persistent target', async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-data-root-cli-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+
+  const dataRoot = path.join(root, 'selected-data');
+  const decoyRoot = path.join(root, 'decoy-data');
+  const archivePath = path.join(root, 'checkpoint.zip');
+  await fsp.mkdir(path.join(dataRoot, 'storage'), { recursive: true });
+  await fsp.mkdir(path.join(dataRoot, 'story_sources'), { recursive: true });
+  await fsp.mkdir(path.join(decoyRoot, 'storage'), { recursive: true });
+  await fsp.mkdir(path.join(decoyRoot, 'story_sources'), { recursive: true });
+
+  const selectedDatabase = path.join(dataRoot, 'drama_generator.db');
+  const decoyDatabase = path.join(decoyRoot, 'drama_generator.db');
+  createDatabase(selectedDatabase, 'selected-backup').close();
+  createDatabase(decoyDatabase, 'decoy-original').close();
+  await fsp.writeFile(path.join(dataRoot, 'storage', 'selected.txt'), 'selected-storage');
+  await fsp.writeFile(path.join(dataRoot, 'story_sources', 'selected.txt'), 'selected-source');
+  await fsp.writeFile(path.join(decoyRoot, 'storage', 'decoy.txt'), 'decoy-storage');
+  await fsp.writeFile(path.join(decoyRoot, 'story_sources', 'decoy.txt'), 'decoy-source');
+
+  const servicePort = await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close((error) => error ? reject(error) : resolve(port));
+    });
+  });
+  const cliEnvironment = {
+    ...process.env,
+    HOST: '127.0.0.1',
+    PORT: String(servicePort),
+  };
+
+  const scriptRoot = path.join(__dirname, '..', 'scripts');
+  const backupResult = spawnSync(process.execPath, [
+    path.join(scriptRoot, 'backup-data.js'),
+    '--output',
+    archivePath,
+    '--data-root',
+    dataRoot,
+  ], { cwd: root, encoding: 'utf8', windowsHide: true, env: cliEnvironment });
+  assert.equal(backupResult.status, 0, backupResult.stderr || backupResult.stdout);
+
+  replaceDatabaseValue(selectedDatabase, 'selected-mutated');
+  await fsp.rm(path.join(dataRoot, 'storage'), { recursive: true, force: true });
+  await fsp.rm(path.join(dataRoot, 'story_sources'), { recursive: true, force: true });
+  await fsp.mkdir(path.join(dataRoot, 'storage'), { recursive: true });
+  await fsp.mkdir(path.join(dataRoot, 'story_sources'), { recursive: true });
+  await fsp.writeFile(path.join(dataRoot, 'storage', 'mutated.txt'), 'mutated-storage');
+  await fsp.writeFile(path.join(dataRoot, 'story_sources', 'mutated.txt'), 'mutated-source');
+
+  const restoreResult = spawnSync(process.execPath, [
+    path.join(scriptRoot, 'restore-data.js'),
+    '--input',
+    archivePath,
+    '--yes',
+    '--data-root',
+    dataRoot,
+  ], {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true,
+    env: cliEnvironment,
+  });
+  assert.equal(restoreResult.status, 0, restoreResult.stderr || restoreResult.stdout);
+
+  assert.deepEqual(readDatabaseValues(selectedDatabase), ['selected-backup']);
+  assert.equal(await fsp.readFile(path.join(dataRoot, 'storage', 'selected.txt'), 'utf8'), 'selected-storage');
+  assert.equal(await fsp.readFile(path.join(dataRoot, 'story_sources', 'selected.txt'), 'utf8'), 'selected-source');
+  assert.equal(await fsp.stat(path.join(dataRoot, 'storage', 'mutated.txt')).catch(() => null), null);
+  assert.equal(await fsp.stat(path.join(dataRoot, 'story_sources', 'mutated.txt')).catch(() => null), null);
+  assert.deepEqual(readDatabaseValues(decoyDatabase), ['decoy-original']);
+  assert.equal(await fsp.readFile(path.join(decoyRoot, 'storage', 'decoy.txt'), 'utf8'), 'decoy-storage');
+  assert.equal(await fsp.readFile(path.join(decoyRoot, 'story_sources', 'decoy.txt'), 'utf8'), 'decoy-source');
 });

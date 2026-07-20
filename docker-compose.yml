@@ -34,7 +34,7 @@ services:
       - "127.0.0.1:5679:5679"
     volumes:
       - type: bind
-        source: ./backend-node/data
+        source: ${LOCALMINIDRAMA_DATA_DIR:-./backend-node/data}
         target: /app/data
       - type: bind
         source: ${LOCALMINIDRAMA_CONFIG_DIR:-./backend-node/configs}

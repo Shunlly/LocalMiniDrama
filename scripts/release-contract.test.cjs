@@ -50,6 +50,8 @@ const gitAttributes = fs.readFileSync(path.join(root, '.gitattributes'), 'utf8')
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8')
 const checkpointScript = fs.readFileSync(path.join(root, 'scripts', 'create-release-rollback-checkpoint.ps1'), 'utf8')
 const rollbackRestoreScript = fs.readFileSync(path.join(root, 'scripts', 'restore-release-rollback-checkpoint.ps1'), 'utf8')
+const backupDataScript = fs.readFileSync(path.join(root, 'backend-node', 'scripts', 'backup-data.js'), 'utf8')
+const restoreDataScript = fs.readFileSync(path.join(root, 'backend-node', 'scripts', 'restore-data.js'), 'utf8')
 const rollbackDrillScript = fs.readFileSync(path.join(root, 'scripts', 'run-rollback-drill.cjs'), 'utf8')
 const dockerComposeRevisionScript = fs.readFileSync(path.join(root, 'scripts', 'docker-compose-with-revision.cjs'), 'utf8')
 const backendTrivyIgnore = fs.readFileSync(path.join(root, 'backend-node', '.trivyignore.yaml'), 'utf8')
@@ -89,6 +91,41 @@ const gitHeadResult = spawnSync('git', ['rev-parse', 'HEAD'], {
 assert.equal(gitHeadResult.status, 0, gitHeadResult.stderr || 'unable to read fixture Git HEAD')
 const gitHead = String(gitHeadResult.stdout || '').trim().toLowerCase()
 assert.match(gitHead, /^[a-f0-9]{40,64}$/)
+
+function powerShellLiteral(value) {
+  return `'${String(value).replaceAll("'", "''")}'`
+}
+
+function runRollbackPathProbe(scriptSource, statements) {
+  const mainStart = scriptSource.indexOf('$repoRoot =')
+  assert.ok(mainStart > 0, 'rollback script main entrypoint is missing')
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-path-probe-'))
+  const probePath = path.join(fixtureRoot, 'probe.ps1')
+  fs.writeFileSync(probePath, `${scriptSource.slice(0, mainStart)}\n${statements}\n`, 'utf8')
+  try {
+    return spawnSync(process.platform === 'win32' ? 'powershell.exe' : 'pwsh', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      probePath,
+      '-CheckpointDirectory',
+      fixtureRoot,
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+      windowsHide: true,
+    })
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  }
+}
+
+function assertRollbackPathProbe(scriptSource, statements) {
+  const result = runRollbackPathProbe(scriptSource, statements)
+  assert.equal(result.status, 0, result.stderr || result.stdout || result.error?.message)
+}
 
 function jobBlock(name, source = workflow) {
   const marker = `  ${name}:`
@@ -620,7 +657,7 @@ test('release rollback scripts fail closed and verify the retained backup before
   assert.match(checkpointScript, /ConvertFrom-Json -InputObject \$mountJson[\s\S]*ForEach-Object/)
   assert.match(checkpointScript, /docker-compose\.yml[\s\S]*config\.yaml[\s\S]*composeHash[\s\S]*configHash/)
   assert.match(checkpointScript, /backup:data[\s\S]*Get-FileHash[\s\S]*verify:rollback/)
-  assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v3/)
+  assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v4/)
   assert.match(checkpointScript, /Get-ContainerBindSource[\s\S]*\/app\/config-source/)
   assert.match(checkpointScript, /LOCALMINIDRAMA_CONFIG_PATH/)
   assert.match(checkpointScript, /runtime_config_source_file/)
@@ -659,21 +696,276 @@ test('release rollback scripts fail closed and verify the retained backup before
   assert.doesNotMatch(rollbackDrillScript, /database:\s*\{[\s\S]*path: databasePath/)
 
   const restoreMain = rollbackRestoreScript.slice(rollbackRestoreScript.indexOf('Push-Location $repoRoot'))
+  const imageLoad = restoreMain.indexOf('Rollback image archive load')
   const imageVerification = restoreMain.indexOf('Backend rollback image verification')
   const composeValidation = restoreMain.indexOf('Archived Docker Compose validation')
   const currentCapture = restoreMain.indexOf("Get-RunningServiceEvidence -Service 'backend'")
+  const currentDataCapture = restoreMain.indexOf("-Destination '/app/data' -RequireReadWrite")
+  const physicalBoundary = restoreMain.indexOf(
+    'Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory',
+    currentDataCapture,
+  )
   const currentShutdown = restoreMain.indexOf('Current Docker shutdown')
   const compensationBackup = restoreMain.indexOf('Pre-rollback compensation backup')
   const rollbackRestore = restoreMain.indexOf('Rollback data restore')
   assert.ok(
-    imageVerification >= 0
-      && imageVerification < currentCapture
-      && currentCapture < composeValidation
-      && composeValidation < currentShutdown
-      && currentCapture < currentShutdown
+    currentCapture >= 0
+      && currentCapture < currentDataCapture
+      && currentDataCapture < physicalBoundary
+      && physicalBoundary < composeValidation
+      && composeValidation < imageLoad
+      && imageLoad < imageVerification
+      && imageVerification < currentShutdown
       && currentShutdown < compensationBackup
       && compensationBackup < rollbackRestore,
   )
+})
+
+test('release rollback data bind source is captured, archived, and used for checkpoint backup', () => {
+  assert.match(
+    checkpointScript,
+    /Get-ContainerBindSource -ContainerId \$backend\.container_id -Destination '\/app\/data' -RequireReadWrite/,
+  )
+  assert.match(
+    checkpointScript,
+    /Test-ContainerPathEqual -Expected \(\[string\]\$_.Destination\) -Actual \$Destination[\s\S]*\.Count -ne 1[\s\S]*\.Type -ne 'bind'/,
+  )
+  assert.match(checkpointScript, /RequireReadWrite[\s\S]*\.RW/)
+  assert.match(checkpointScript, /Assert-RealDirectory[\s\S]*\$runtimeDataDirectory/)
+  assert.match(checkpointScript, /Assert-OutsideDirectory[\s\S]*\$runtimeDataDirectory[\s\S]*\$checkpoint/)
+  assert.match(checkpointScript, /\$dataBindSourceArchive = Join-Path \$checkpoint 'data-bind-source\.txt'/)
+  assert.match(checkpointScript, /Write-Utf8File[\s\S]*\$dataBindSourceArchive[\s\S]*\$runtimeDataDirectory/)
+  assert.match(checkpointScript, /Get-FileHash[\s\S]*\$dataBindSourceArchive[\s\S]*dataBindSourceHash/)
+  assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v4/)
+  assert.match(checkpointScript, /data_bind_source\s*=\s*\$runtimeDataDirectory/)
+  assert.match(checkpointScript, /data_bind_source_file\s*=\s*'data-bind-source\.txt'/)
+  assert.match(checkpointScript, /data_bind_source_sha256\s*=\s*\$dataBindSourceHash/)
+  assert.match(
+    checkpointScript,
+    /backup:data[\s\S]*'--data-root', \$runtimeDataDirectory[\s\S]*Data backup/,
+  )
+  assert.match(
+    checkpointScript,
+    /function Set-DataSourceEnvironment[\s\S]*LOCALMINIDRAMA_DATA_DIR[\s\S]*Start-CapturedDeployment[\s\S]*DataDirectory/,
+  )
+
+  const checkpointMain = checkpointScript.slice(checkpointScript.indexOf('$repoRoot ='))
+  assert.ok(
+    checkpointMain.indexOf("-Destination '/app/data' -RequireReadWrite")
+      < checkpointMain.indexOf("@('compose', 'down')"),
+  )
+})
+
+test('release rollback restore binds every data operation to the inspected source and rejects path redirection', () => {
+  assert.match(rollbackRestoreScript, /localminidrama\.release-rollback-checkpoint\.v4/)
+  assert.match(rollbackRestoreScript, /\$dataBindSourcePath = Join-Path \$checkpoint 'data-bind-source\.txt'/)
+  assert.match(
+    rollbackRestoreScript,
+    /Assert-FileHash -Path \$dataBindSourcePath -Expected \$metadata\.data_bind_source_sha256/,
+  )
+  assert.match(
+    rollbackRestoreScript,
+    /Get-ContainerBindSource -ContainerId \$currentBackend\.container_id -Destination '\/app\/data' -RequireReadWrite/,
+  )
+  assert.match(
+    rollbackRestoreScript,
+    /Assert-SamePath[\s\S]*\$recordedDataBindSource[\s\S]*\$forwardDataDirectory/,
+  )
+  assert.doesNotMatch(rollbackRestoreScript, /Join-Path\s+\$checkpoint\s+\$metadata\./)
+  assert.doesNotMatch(rollbackRestoreScript, /Join-Path \$checkpoint \$metadata\.data_bind_source_file/)
+  assert.doesNotMatch(rollbackRestoreScript, /'--data-root', \$metadata\./)
+  assert.doesNotMatch(rollbackRestoreScript, /Set-DataSourceEnvironment[^\r\n]*\$metadata\./)
+  assert.equal(
+    [...rollbackRestoreScript.matchAll(/'--data-root', \$forwardDataDirectory/g)].length,
+    4,
+    'checkpoint restore and all compensation operations must use the inspected data bind source',
+  )
+  assert.equal(
+    [...rollbackRestoreScript.matchAll(/Assert-FileHash -Path \$compensationBackup -Expected \$compensationHash/g)].length,
+    2,
+    'both automatic compensation restores must verify the retained backup hash',
+  )
+  assert.match(
+    rollbackRestoreScript,
+    /function Set-DataSourceEnvironment[\s\S]*LOCALMINIDRAMA_DATA_DIR[\s\S]*Rollback container startup/,
+  )
+  assert.match(rollbackRestoreScript, /data_bind_source\s*=\s*\$forwardDataDirectory/)
+  assert.match(rollbackRestoreScript, /data_bind_source_sha256\s*=\s*\$metadata\.data_bind_source_sha256/)
+
+  const restoreMain = rollbackRestoreScript.slice(rollbackRestoreScript.indexOf('Push-Location $repoRoot'))
+  const compensationBackup = restoreMain.indexOf('Pre-rollback compensation backup')
+  const compensationMetadata = restoreMain.indexOf("schema = 'localminidrama.rollback-compensation.v2'")
+  const rollbackRestore = restoreMain.indexOf('Rollback data restore')
+  const currentDataCapture = restoreMain.indexOf("-Destination '/app/data' -RequireReadWrite")
+  const currentShutdown = restoreMain.indexOf('Current Docker shutdown')
+  assert.ok(
+    compensationBackup >= 0
+      && compensationBackup < compensationMetadata
+      && compensationMetadata < rollbackRestore,
+    'forward compensation evidence must be durable before the rollback mutates live data',
+  )
+  assert.ok(currentDataCapture >= 0 && currentDataCapture < currentShutdown)
+})
+
+test('rollback path contracts execute platform-aware host and case-sensitive container comparisons', () => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-case-contract-'))
+  try {
+    const upperPath = path.join(fixtureRoot, 'Data')
+    const lowerPath = path.join(fixtureRoot, 'data')
+    const statements = `
+Assert-SamePath -Expected ${powerShellLiteral(upperPath)} -Actual ${powerShellLiteral(lowerPath)} -Label 'Windows host' -Platform Windows
+$posixRejected = $false
+try {
+  Assert-SamePath -Expected ${powerShellLiteral(upperPath)} -Actual ${powerShellLiteral(lowerPath)} -Label 'POSIX host' -Platform Posix
+} catch {
+  $posixRejected = $true
+}
+if (-not $posixRejected) { throw 'POSIX host paths must be case-sensitive.' }
+if (-not (Test-ContainerPathEqual -Expected '/app/data' -Actual '/app/data')) { throw 'Exact container target did not match.' }
+if (Test-ContainerPathEqual -Expected '/app/data' -Actual '/app/Data') { throw 'Container targets must be case-sensitive.' }
+`
+    for (const source of [checkpointScript, rollbackRestoreScript]) {
+      assertRollbackPathProbe(source, statements)
+    }
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  }
+})
+
+test('rollback path contracts reject either direction of data and checkpoint nesting', () => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-boundary-contract-'))
+  try {
+    const dataPath = path.join(fixtureRoot, 'data')
+    const nestedCheckpoint = path.join(dataPath, 'checkpoint')
+    const outerCheckpoint = path.join(fixtureRoot, 'outer')
+    const nestedData = path.join(outerCheckpoint, 'data')
+    const siblingCheckpoint = path.join(fixtureRoot, 'checkpoint')
+    const statements = `
+$firstRejected = $false
+try { Assert-SeparateDirectories -First ${powerShellLiteral(dataPath)} -Second ${powerShellLiteral(nestedCheckpoint)} -Platform Windows } catch { $firstRejected = $true }
+if (-not $firstRejected) { throw 'Checkpoint nested in data was accepted.' }
+$secondRejected = $false
+try { Assert-SeparateDirectories -First ${powerShellLiteral(nestedData)} -Second ${powerShellLiteral(outerCheckpoint)} -Platform Windows } catch { $secondRejected = $true }
+if (-not $secondRejected) { throw 'Data nested in checkpoint was accepted.' }
+Assert-SeparateDirectories -First ${powerShellLiteral(dataPath)} -Second ${powerShellLiteral(siblingCheckpoint)} -Platform Windows
+`
+    for (const source of [checkpointScript, rollbackRestoreScript]) {
+      assertRollbackPathProbe(source, statements)
+    }
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  }
+})
+
+test('rollback path contracts reject a reparse-point parent of a future checkpoint path', (t) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-reparse-contract-'))
+  try {
+    const targetPath = path.join(fixtureRoot, 'target')
+    const linkPath = path.join(fixtureRoot, 'linked-parent')
+    fs.mkdirSync(targetPath)
+    try {
+      fs.symlinkSync(targetPath, linkPath, process.platform === 'win32' ? 'junction' : 'dir')
+    } catch (error) {
+      t.skip(`directory links are unavailable on this platform: ${error.message}`)
+      return
+    }
+    const futureCheckpoint = path.join(linkPath, 'future', 'checkpoint')
+    const statements = `
+Get-Command Assert-NoReparsePathComponents -ErrorAction Stop | Out-Null
+$rejected = $false
+try { Assert-NoReparsePathComponents -Path ${powerShellLiteral(futureCheckpoint)} -Label 'Rollback checkpoint' } catch { $rejected = $true }
+if (-not $rejected) { throw 'A reparse-point checkpoint parent was accepted.' }
+`
+    for (const source of [checkpointScript, rollbackRestoreScript]) {
+      assertRollbackPathProbe(source, statements)
+    }
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  }
+})
+
+test('rollback scripts revalidate physical boundaries before destructive data and image operations', () => {
+  for (const source of [checkpointScript, rollbackRestoreScript]) {
+    assert.match(
+      source,
+      /function Assert-SafeRollbackPaths[\s\S]*Assert-NoReparsePathComponents[\s\S]*Assert-RealDirectory[\s\S]*Assert-SeparateDirectories/,
+    )
+  }
+
+  assert.match(
+    checkpointScript,
+    /Assert-SafeRollbackPaths[^\r\n]*CheckpointMayNotExist[\s\S]*New-Item -ItemType Directory -Path \$checkpoint/,
+  )
+  assert.match(
+    checkpointScript,
+    /Assert-SafeRollbackPaths[^\r\n]*[\s\S]*Backend checkpoint image tag[\s\S]*Assert-SafeRollbackPaths[^\r\n]*[\s\S]*Docker shutdown[\s\S]*Assert-SafeRollbackPaths[^\r\n]*[\s\S]*Data backup/,
+  )
+  assert.match(
+    rollbackRestoreScript,
+    /Assert-SafeRollbackPaths[^\r\n]*[\s\S]*Rollback image archive load[\s\S]*Assert-SafeRollbackPaths[^\r\n]*[\s\S]*Current backend compensation tag[\s\S]*Assert-SafeRollbackPaths[^\r\n]*[\s\S]*Current Docker shutdown/,
+  )
+  for (const label of [
+    'Pre-rollback compensation backup',
+    'Rollback data restore',
+    'Failed rollback preparation shutdown',
+    'Preparation compensation data restore',
+    'Failed rollback shutdown',
+    'Compensation data restore',
+  ]) {
+    const operation = rollbackRestoreScript.indexOf(`-Label '${label}'`)
+    assert.ok(operation > 0, `${label} operation is missing`)
+    const command = rollbackRestoreScript.lastIndexOf('Invoke-Checked', operation)
+    const guard = rollbackRestoreScript.lastIndexOf('Assert-SafeRollbackPaths', operation)
+    const previousOperation = Math.max(
+      rollbackRestoreScript.lastIndexOf("backup:data'", command - 1),
+      rollbackRestoreScript.lastIndexOf("restore:data'", command - 1),
+      rollbackRestoreScript.lastIndexOf("'down')", command - 1),
+      rollbackRestoreScript.lastIndexOf("image', 'load", command - 1),
+      rollbackRestoreScript.lastIndexOf("image', 'tag", command - 1),
+    )
+    assert.ok(
+      guard > previousOperation && guard < command,
+      `${label} must have a fresh physical-boundary guard`,
+    )
+  }
+})
+
+test('release rollback verifies the resolved Compose data bind before every recovery startup', () => {
+  for (const source of [checkpointScript, rollbackRestoreScript]) {
+    assert.match(source, /function Assert-ComposeDataSource[\s\S]*'config', '--format', 'json'/)
+    assert.match(
+      source,
+      /Test-ContainerPathEqual -Expected \(\[string\]\$_.target\) -Actual '\/app\/data'[\s\S]*\.Count -ne 1[\s\S]*\.type -ne 'bind'/,
+    )
+    assert.match(source, /Assert-ComposeDataSource[\s\S]*Assert-SamePath/)
+  }
+
+  const checkpointRecovery = checkpointScript.slice(checkpointScript.indexOf('function Start-CapturedDeployment'))
+  assert.match(
+    checkpointRecovery,
+    /Assert-ComposeDataSource[\s\S]*Captured deployment recovery[\s\S]*Assert-RunningBackendDataSource/,
+  )
+
+  const restoreMain = rollbackRestoreScript.slice(rollbackRestoreScript.indexOf('Push-Location $repoRoot'))
+  assert.match(
+    restoreMain,
+    /Assert-ComposeDataSource[\s\S]*Rollback container startup[\s\S]*Assert-RunningBackendDataSource/,
+  )
+  assert.match(
+    restoreMain,
+    /Assert-ComposeDataSource[\s\S]*Forward deployment recovery[\s\S]*Assert-RunningBackendDataSource/,
+  )
+})
+
+test('release data tools and Compose accept an explicit inspected data root', () => {
+  assert.match(dockerCompose, /source:\s*\$\{LOCALMINIDRAMA_DATA_DIR:-\.\/backend-node\/data\}/)
+
+  for (const source of [backupDataScript, restoreDataScript]) {
+    assert.match(source, /'--data-root': 'dataRoot'/)
+    assert.match(source, /path\.join\(dataRoot, 'drama_generator\.db'\)/)
+    assert.match(source, /path\.join\(dataRoot, 'storage'\)/)
+    assert.match(source, /path\.join\(dataRoot, 'story_sources'\)/)
+  }
 })
 
 test('rollback restore captures the running container ID needed for compensation', () => {

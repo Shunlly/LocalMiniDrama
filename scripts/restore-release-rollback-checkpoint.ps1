@@ -56,16 +56,174 @@ function Set-RuntimeConfigEnvironment {
   $env:LOCALMINIDRAMA_CONFIG_PATH = $ConfigPath
 }
 
+function Set-DataSourceEnvironment {
+  param([Parameter(Mandatory = $true)][string]$DataDirectory)
+  $env:LOCALMINIDRAMA_DATA_DIR = $DataDirectory
+}
+
 function Clear-RuntimeConfigEnvironment {
   Remove-Item Env:LOCALMINIDRAMA_CONFIG_DIR -ErrorAction SilentlyContinue
   Remove-Item Env:LOCALMINIDRAMA_CONFIG_PATH -ErrorAction SilentlyContinue
 }
 
+function Clear-DataSourceEnvironment {
+  Remove-Item Env:LOCALMINIDRAMA_DATA_DIR -ErrorAction SilentlyContinue
+}
+
+function Assert-OutsideDirectory {
+  param(
+    [Parameter(Mandatory = $true)][string]$Directory,
+    [Parameter(Mandatory = $true)][string]$Candidate,
+    [ValidateSet('Auto', 'Windows', 'Posix')][string]$Platform = 'Auto'
+  )
+  Assert-SeparateDirectories -First $Directory -Second $Candidate -Platform $Platform
+}
+
+function Assert-SeparateDirectories {
+  param(
+    [Parameter(Mandatory = $true)][string]$First,
+    [Parameter(Mandatory = $true)][string]$Second,
+    [ValidateSet('Auto', 'Windows', 'Posix')][string]$Platform = 'Auto'
+  )
+  $firstPath = Get-NormalizedPath -Path $First -Platform $Platform
+  $secondPath = Get-NormalizedPath -Path $Second -Platform $Platform
+  $comparison = Get-HostPathComparison -Platform $Platform
+  $separator = [System.IO.Path]::DirectorySeparatorChar
+  $firstPrefix = $firstPath.TrimEnd($separator) + $separator
+  $secondPrefix = $secondPath.TrimEnd($separator) + $separator
+  if ($firstPath.Equals($secondPath, $comparison) -or
+      $secondPath.StartsWith($firstPrefix, $comparison) -or
+      $firstPath.StartsWith($secondPrefix, $comparison)) {
+    throw 'The rollback checkpoint and live data directory must be physically separate.'
+  }
+}
+
+function Assert-SafeRollbackPaths {
+  param(
+    [Parameter(Mandatory = $true)][string]$CheckpointDirectory,
+    [Parameter(Mandatory = $true)][string]$DataDirectory,
+    [switch]$CheckpointMayNotExist
+  )
+  if ($CheckpointMayNotExist) {
+    Assert-NoReparsePathComponents -Path $CheckpointDirectory -Label 'Rollback checkpoint' | Out-Null
+  } else {
+    Assert-RealDirectory -Path $CheckpointDirectory -Label 'Rollback checkpoint' | Out-Null
+  }
+  Assert-RealDirectory -Path $DataDirectory -Label 'Rollback data source' | Out-Null
+  Assert-SeparateDirectories -First $CheckpointDirectory -Second $DataDirectory
+}
+
 function Assert-RegularFile {
   param([string]$Path)
+  Assert-NoReparsePathComponents -Path $Path -Label 'Rollback checkpoint file' | Out-Null
   $item = Get-Item -LiteralPath $Path
   if ($item.PSIsContainer -or (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
     throw "Rollback checkpoint file must be a regular file: $Path"
+  }
+}
+
+function Get-HostPathComparison {
+  param(
+    [ValidateSet('Auto', 'Windows', 'Posix')]
+    [string]$Platform = 'Auto'
+  )
+  if ($Platform -eq 'Auto') {
+    $Platform = if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) { 'Windows' } else { 'Posix' }
+  }
+  if ($Platform -eq 'Windows') {
+    return [System.StringComparison]::OrdinalIgnoreCase
+  }
+  return [System.StringComparison]::Ordinal
+}
+
+function Get-NormalizedPath {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [ValidateSet('Auto', 'Windows', 'Posix')][string]$Platform = 'Auto'
+  )
+  if ([string]::IsNullOrWhiteSpace($Path)) { throw 'A required path is empty.' }
+  $fullPath = [System.IO.Path]::GetFullPath($Path)
+  $root = [System.IO.Path]::GetPathRoot($fullPath)
+  $comparison = Get-HostPathComparison -Platform $Platform
+  if (-not $fullPath.Equals($root, $comparison)) {
+    $fullPath = $fullPath.TrimEnd([char[]]@(
+      [System.IO.Path]::DirectorySeparatorChar,
+      [System.IO.Path]::AltDirectorySeparatorChar
+    ))
+  }
+  return $fullPath
+}
+
+function Test-ContainerPathEqual {
+  param(
+    [Parameter(Mandatory = $true)][string]$Expected,
+    [Parameter(Mandatory = $true)][string]$Actual
+  )
+  return $Expected.Equals($Actual, [System.StringComparison]::Ordinal)
+}
+
+function Test-HostPathEqual {
+  param(
+    [Parameter(Mandatory = $true)][string]$Expected,
+    [Parameter(Mandatory = $true)][string]$Actual,
+    [ValidateSet('Auto', 'Windows', 'Posix')][string]$Platform = 'Auto'
+  )
+  $comparison = Get-HostPathComparison -Platform $Platform
+  $expectedPath = Get-NormalizedPath -Path $Expected -Platform $Platform
+  $actualPath = Get-NormalizedPath -Path $Actual -Platform $Platform
+  return $expectedPath.Equals($actualPath, $comparison)
+}
+
+function Assert-NoReparsePathComponents {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $normalizedPath = Get-NormalizedPath -Path $Path
+  $current = [System.IO.DirectoryInfo]::new($normalizedPath)
+  while ($null -ne $current) {
+    $item = $null
+    try {
+      $item = Get-Item -LiteralPath $current.FullName -Force -ErrorAction Stop
+    } catch [System.Management.Automation.ItemNotFoundException] {
+      $item = $null
+    }
+    if ($null -ne $item) {
+      $linkTypeProperty = $item.PSObject.Properties['LinkType']
+      $isLink = (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) -or
+        ($null -ne $linkTypeProperty -and -not [string]::IsNullOrWhiteSpace([string]$linkTypeProperty.Value))
+      if ($isLink) {
+        throw "$Label must not pass through a symbolic link, junction, or reparse point: $($current.FullName)"
+      }
+    }
+    $current = $current.Parent
+  }
+  return $normalizedPath
+}
+
+function Assert-RealDirectory {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [string]$Label = 'Rollback data source'
+  )
+  $normalizedPath = Get-NormalizedPath -Path $Path
+  Assert-NoReparsePathComponents -Path $normalizedPath -Label $Label | Out-Null
+  $item = Get-Item -LiteralPath $normalizedPath -Force
+  if (-not $item.PSIsContainer -or (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+    throw "$Label must be a real directory: $normalizedPath"
+  }
+  return Get-NormalizedPath -Path $item.FullName
+}
+
+function Assert-SamePath {
+  param(
+    [Parameter(Mandatory = $true)][string]$Expected,
+    [Parameter(Mandatory = $true)][string]$Actual,
+    [Parameter(Mandatory = $true)][string]$Label,
+    [ValidateSet('Auto', 'Windows', 'Posix')][string]$Platform = 'Auto'
+  )
+  if (-not (Test-HostPathEqual -Expected $Expected -Actual $Actual -Platform $Platform)) {
+    throw "$Label path does not match the checkpoint data bind source."
   }
 }
 
@@ -79,7 +237,8 @@ function Assert-FileHash {
 function Get-ContainerBindSource {
   param(
     [Parameter(Mandatory = $true)][string]$ContainerId,
-    [Parameter(Mandatory = $true)][string]$Destination
+    [Parameter(Mandatory = $true)][string]$Destination,
+    [switch]$RequireReadWrite
   )
   $mountJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $ContainerId, '--format', '{{json .Mounts}}') -Label "${Destination} mount capture"
   try {
@@ -87,11 +246,18 @@ function Get-ContainerBindSource {
   } catch {
     throw "${Destination} mount capture returned invalid Docker JSON."
   }
-  $mount = $mounts | Where-Object { $_.Type -eq 'bind' -and $_.Destination -eq $Destination } | Select-Object -First 1
-  if ($null -eq $mount -or [string]::IsNullOrWhiteSpace($mount.Source)) {
-    throw "The running backend has no regular bind mount at $Destination."
+  $destinationMounts = @($mounts | Where-Object { Test-ContainerPathEqual -Expected ([string]$_.Destination) -Actual $Destination })
+  if ($destinationMounts.Count -ne 1) {
+    throw "The running backend must have exactly one mount at $Destination."
   }
-  return [System.IO.Path]::GetFullPath([string]$mount.Source)
+  $mount = $destinationMounts[0]
+  if ($mount.Type -ne 'bind' -or [string]::IsNullOrWhiteSpace([string]$mount.Source)) {
+    throw "The running backend mount at $Destination must be a bind mount with a host source."
+  }
+  if ($RequireReadWrite -and $mount.RW -ne $true) {
+    throw "The running backend bind mount at $Destination must be read-write."
+  }
+  return Assert-RealDirectory -Path ([string]$mount.Source)
 }
 
 function Get-ImageRevision {
@@ -137,6 +303,50 @@ function Get-RunningServiceEvidence {
   }
 }
 
+function Assert-RunningBackendDataSource {
+  param(
+    [Parameter(Mandatory = $true)][string]$ExpectedDataDirectory,
+    [Parameter(Mandatory = $true)][string[]]$ComposePrefix,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $arguments = @($ComposePrefix) + @('ps', '-q', 'backend')
+  $containerId = Get-CheckedScalar -FilePath 'docker' -ArgumentList $arguments -Label "$Label container lookup"
+  if ($containerId -notmatch '^[a-f0-9]{12,64}$') {
+    throw "$Label container could not be identified for data bind verification."
+  }
+  $actualDataDirectory = Get-ContainerBindSource -ContainerId $containerId -Destination '/app/data' -RequireReadWrite
+  Assert-SamePath -Expected $ExpectedDataDirectory -Actual $actualDataDirectory -Label "$Label data bind"
+}
+
+function Assert-ComposeDataSource {
+  param(
+    [Parameter(Mandatory = $true)][string]$ExpectedDataDirectory,
+    [Parameter(Mandatory = $true)][string[]]$ComposePrefix,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $arguments = @($ComposePrefix) + @('config', '--format', 'json')
+  $configJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList $arguments -Label "$Label data bind resolution"
+  try {
+    $config = ConvertFrom-Json -InputObject $configJson
+    $dataMounts = @($config.services.backend.volumes | Where-Object { Test-ContainerPathEqual -Expected ([string]$_.target) -Actual '/app/data' })
+  } catch {
+    throw "$Label data bind resolution returned invalid Docker JSON."
+  }
+  if ($dataMounts.Count -ne 1) {
+    throw "$Label must resolve exactly one mount at /app/data."
+  }
+  $dataMount = $dataMounts[0]
+  if ($dataMount.type -ne 'bind' -or [string]::IsNullOrWhiteSpace([string]$dataMount.source)) {
+    throw "$Label /app/data mount must resolve to a bind source."
+  }
+  $readOnlyProperty = $dataMount.PSObject.Properties['read_only']
+  if ($null -ne $readOnlyProperty -and $readOnlyProperty.Value -eq $true) {
+    throw "$Label /app/data bind must be read-write."
+  }
+  $composeDataDirectory = Assert-RealDirectory -Path ([string]$dataMount.source)
+  Assert-SamePath -Expected $ExpectedDataDirectory -Actual $composeDataDirectory -Label "$Label data bind"
+}
+
 function Test-ApplicationHealth {
   foreach ($url in @('http://127.0.0.1:5679/health', 'http://127.0.0.1:5679/ready', 'http://127.0.0.1:3013/')) {
     $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 15
@@ -145,19 +355,16 @@ function Test-ApplicationHealth {
 }
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$checkpointItem = Get-Item -LiteralPath (Resolve-Path -LiteralPath $CheckpointDirectory).Path
-if (-not $checkpointItem.PSIsContainer -or (($checkpointItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
-  throw 'Rollback checkpoint must be a real directory.'
-}
-$checkpoint = $checkpointItem.FullName
+$checkpoint = Assert-RealDirectory -Path $CheckpointDirectory -Label 'Rollback checkpoint'
 $metadataPath = Join-Path $checkpoint 'metadata.json'
 $backupPath = Join-Path $checkpoint 'data.zip'
 $hashPath = Join-Path $checkpoint 'data.sha256.txt'
 $composePath = Join-Path $checkpoint 'docker-compose.yml'
 $configPath = Join-Path $checkpoint 'configs\config.yaml'
+$dataBindSourcePath = Join-Path $checkpoint 'data-bind-source.txt'
 $imageArchivePath = Join-Path $checkpoint 'images.tar'
 $summaryPath = Join-Path $checkpoint 'rollback-drill-summary.json'
-foreach ($requiredPath in @($metadataPath, $backupPath, $hashPath, $composePath, $configPath, $imageArchivePath, $summaryPath)) {
+foreach ($requiredPath in @($metadataPath, $backupPath, $hashPath, $composePath, $configPath, $dataBindSourcePath, $imageArchivePath, $summaryPath)) {
   if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
     throw "Rollback checkpoint is incomplete: $requiredPath"
   }
@@ -165,7 +372,7 @@ foreach ($requiredPath in @($metadataPath, $backupPath, $hashPath, $composePath,
 }
 
 $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
-if ($metadata.schema -ne 'localminidrama.release-rollback-checkpoint.v3') { throw 'Rollback checkpoint schema is invalid.' }
+if ($metadata.schema -ne 'localminidrama.release-rollback-checkpoint.v4') { throw 'Rollback checkpoint schema is invalid.' }
 if ($null -eq $metadata.PSObject.Properties['runtime_config_sanitized'] -or
     $metadata.runtime_config_sanitized -isnot [bool] -or
     $metadata.runtime_config_sanitized -ne $true) {
@@ -182,6 +389,14 @@ if ($null -eq $metadata.PSObject.Properties['credential_reconfiguration_required
   throw 'Rollback checkpoint does not require Provider credential reconfiguration.'
 }
 if ($metadata.previous_commit -notmatch '^[a-f0-9]{40}$') { throw 'Rollback checkpoint commit is invalid.' }
+if ($metadata.data_bind_type -ne 'bind' -or
+    -not (Test-ContainerPathEqual -Expected ([string]$metadata.data_bind_destination) -Actual '/app/data') -or
+    $metadata.data_bind_read_write -isnot [bool] -or
+    $metadata.data_bind_read_write -ne $true -or
+    $metadata.data_bind_source_file -ne 'data-bind-source.txt' -or
+    [string]::IsNullOrWhiteSpace([string]$metadata.data_bind_source)) {
+  throw 'Rollback checkpoint data bind evidence is invalid.'
+}
 if ($metadata.backend.image_id -notmatch '^sha256:[a-f0-9]{64}$' -or $metadata.frontend.image_id -notmatch '^sha256:[a-f0-9]{64}$') {
   throw 'Rollback checkpoint image IDs are invalid.'
 }
@@ -200,8 +415,20 @@ if ($metadata.backup_sha256 -ne $expectedBackupHash) { throw 'Rollback backup ha
 Assert-FileHash -Path $backupPath -Expected $expectedBackupHash -Label 'Rollback data backup'
 Assert-FileHash -Path $composePath -Expected $metadata.compose_sha256 -Label 'Archived Compose file'
 Assert-FileHash -Path $configPath -Expected $metadata.runtime_config_sha256 -Label 'Archived runtime config'
+Assert-FileHash -Path $dataBindSourcePath -Expected $metadata.data_bind_source_sha256 -Label 'Archived data bind source'
 Assert-FileHash -Path $imageArchivePath -Expected $metadata.image_archive_sha256 -Label 'Archived Docker images'
 Assert-FileHash -Path $summaryPath -Expected $metadata.rollback_evidence_sha256 -Label 'Rollback drill evidence'
+
+$recordedDataBindSourceText = Get-Content -LiteralPath $dataBindSourcePath -Raw
+$recordedDataBindSource = $recordedDataBindSourceText.TrimEnd([char[]]@("`r", "`n"))
+if ([string]::IsNullOrWhiteSpace($recordedDataBindSource) -or
+    $recordedDataBindSource.Contains("`r") -or
+    $recordedDataBindSource.Contains("`n")) {
+  throw 'Archived data bind source must contain exactly one path.'
+}
+$recordedDataBindSource = Assert-RealDirectory -Path $recordedDataBindSource -Label 'Rollback checkpoint data bind source'
+Assert-SamePath -Expected ([string]$metadata.data_bind_source) -Actual $recordedDataBindSource -Label 'Rollback checkpoint data bind source record'
+Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $recordedDataBindSource
 
 $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
 if ($summary.schema -ne 'localminidrama.rollback-drill.v2' -or
@@ -215,6 +442,26 @@ if ($summary.schema -ne 'localminidrama.rollback-drill.v2' -or
 Push-Location $repoRoot
 try {
   Write-Warning 'Archived runtime config excludes Provider credentials. After rollback, configure credentials and test again before using AI generation.'
+  $currentBackend = Get-RunningServiceEvidence -Service 'backend'
+  $currentFrontend = Get-RunningServiceEvidence -Service 'frontend'
+  if ($currentBackend.revision -ne $currentFrontend.revision) {
+    throw 'Current backend and frontend image revisions do not match; rollback compensation would be ambiguous.'
+  }
+  $forwardDataDirectory = Get-ContainerBindSource -ContainerId $currentBackend.container_id -Destination '/app/data' -RequireReadWrite
+  Assert-SamePath -Expected $recordedDataBindSource -Actual $forwardDataDirectory -Label 'Current backend data bind'
+  Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory
+  $forwardConfigDirectory = Get-ContainerBindSource -ContainerId $currentBackend.container_id -Destination '/app/config-source'
+  $forwardConfigPath = Join-Path $forwardConfigDirectory 'config.yaml'
+  Assert-RegularFile -Path $forwardConfigPath
+  $configDirectory = Split-Path -Parent $configPath
+  Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
+  Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
+  $env:LOCALMINIDRAMA_IMAGE_TAG = $rollbackTag
+  $env:LOCALMINIDRAMA_BUILD_REVISION = $metadata.previous_commit
+  Assert-ComposeDataSource -ExpectedDataDirectory $forwardDataDirectory -ComposePrefix ([string[]]@('compose', '--project-directory', $repoRoot, '-f', $composePath)) -Label 'Archived rollback Compose'
+  Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', '--project-directory', $repoRoot, '-f', $composePath, 'config', '--quiet') -Label 'Archived Docker Compose validation' | Out-Null
+
+  Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'load', '--input', $imageArchivePath) -Label 'Rollback image archive load' | Out-Null
   $loadedBackendId = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $expectedBackendRef, '--format', '{{.Id}}') -Label 'Backend rollback image load verification').ToLowerInvariant()
   $loadedFrontendId = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $expectedFrontendRef, '--format', '{{.Id}}') -Label 'Frontend rollback image load verification').ToLowerInvariant()
@@ -227,21 +474,8 @@ try {
     throw 'Rollback image labels do not match the checkpoint commit.'
   }
 
-  $currentBackend = Get-RunningServiceEvidence -Service 'backend'
-  $currentFrontend = Get-RunningServiceEvidence -Service 'frontend'
-  if ($currentBackend.revision -ne $currentFrontend.revision) {
-    throw 'Current backend and frontend image revisions do not match; rollback compensation would be ambiguous.'
-  }
-  $forwardConfigDirectory = Get-ContainerBindSource -ContainerId $currentBackend.container_id -Destination '/app/config-source'
-  $forwardConfigPath = Join-Path $forwardConfigDirectory 'config.yaml'
-  Assert-RegularFile -Path $forwardConfigPath
-  $configDirectory = Split-Path -Parent $configPath
-  Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
-  $env:LOCALMINIDRAMA_IMAGE_TAG = $rollbackTag
-  $env:LOCALMINIDRAMA_BUILD_REVISION = $metadata.previous_commit
-  Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', '--project-directory', $repoRoot, '-f', $composePath, 'config', '--quiet') -Label 'Archived Docker Compose validation' | Out-Null
-
   $forwardTag = "rollback-forward-$($currentBackend.revision.Substring(0, 12))"
+  Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'tag', $currentBackend.image_id, "localminidrama-backend:$forwardTag") -Label 'Current backend compensation tag' | Out-Null
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'tag', $currentFrontend.image_id, "localminidrama-frontend:$forwardTag") -Label 'Current frontend compensation tag' | Out-Null
 
@@ -250,20 +484,45 @@ try {
   $probePath = Join-Path $compensationRoot '.write-probe'
   Write-Utf8File -Path $probePath -Value "probe`n"
   Remove-Item -LiteralPath $probePath
+  $compensationDataBindSourcePath = Join-Path $compensationRoot 'data-bind-source.txt'
+  Copy-Item -LiteralPath $dataBindSourcePath -Destination $compensationDataBindSourcePath
+  Assert-RegularFile -Path $compensationDataBindSourcePath
+  Assert-FileHash -Path $compensationDataBindSourcePath -Expected $metadata.data_bind_source_sha256 -Label 'Compensation data bind source'
 
   $compensationBackup = Join-Path $compensationRoot 'data.zip'
   $compensationHash = $null
   $preRollbackError = $null
   try {
     Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+    Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
+    Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory
     Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Current Docker shutdown' | Out-Null
     Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
-    Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'backup:data', '--', '--output', $compensationBackup) -Label 'Pre-rollback compensation backup' | Out-Null
+    Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
+    Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory
+    Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'backup:data', '--', '--output', $compensationBackup, '--data-root', $forwardDataDirectory) -Label 'Pre-rollback compensation backup' | Out-Null
     $compensationHash = (Get-FileHash -LiteralPath $compensationBackup -Algorithm SHA256).Hash.ToLowerInvariant()
     Write-Utf8File -Path (Join-Path $compensationRoot 'data.sha256.txt') -Value "$compensationHash`n"
+    $compensationMetadata = [ordered]@{
+      schema = 'localminidrama.rollback-compensation.v2'
+      created_at = [DateTime]::UtcNow.ToString('o')
+      forward_revision = $currentBackend.revision
+      backup_file = 'data.zip'
+      backup_sha256 = $compensationHash
+      data_bind_type = 'bind'
+      data_bind_destination = '/app/data'
+      data_bind_read_write = $true
+      data_bind_source = $forwardDataDirectory
+      data_bind_source_file = 'data-bind-source.txt'
+      data_bind_source_sha256 = $metadata.data_bind_source_sha256
+      credentials_excluded = $true
+    }
+    Write-Utf8File -Path (Join-Path $compensationRoot 'metadata.json') -Value "$(ConvertTo-Json $compensationMetadata -Depth 4)`n"
 
     Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
-    Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $backupPath, '--yes') -Label 'Rollback data restore' | Out-Null
+    Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
+    Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory
+    Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $backupPath, '--yes', '--data-root', $forwardDataDirectory) -Label 'Rollback data restore' | Out-Null
   } catch {
     $preRollbackError = $_
   }
@@ -275,15 +534,23 @@ try {
       # A failed shutdown can leave only part of the stack stopped. Normalize it
       # before restoring the forward data and starting the captured deployment.
       Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+      Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
+      Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory
       Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Failed rollback preparation shutdown' | Out-Null
       if ($compensationHash -and (Test-Path -LiteralPath $compensationBackup -PathType Leaf)) {
         Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
-        Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $compensationBackup, '--yes') -Label 'Preparation compensation data restore' | Out-Null
+        Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
+        Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory
+        Assert-FileHash -Path $compensationBackup -Expected $compensationHash -Label 'Preparation compensation data backup'
+        Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $compensationBackup, '--yes', '--data-root', $forwardDataDirectory) -Label 'Preparation compensation data restore' | Out-Null
       }
       $env:LOCALMINIDRAMA_IMAGE_TAG = $forwardTag
       $env:LOCALMINIDRAMA_BUILD_REVISION = $currentBackend.revision
       Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+      Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
+      Assert-ComposeDataSource -ExpectedDataDirectory $forwardDataDirectory -ComposePrefix ([string[]]@('compose')) -Label 'Preparation forward Compose'
       Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'up', '-d', '--no-build', '--wait') -Label 'Preparation forward deployment recovery' | Out-Null
+      Assert-RunningBackendDataSource -ExpectedDataDirectory $forwardDataDirectory -ComposePrefix ([string[]]@('compose')) -Label 'Preparation forward backend'
       Test-ApplicationHealth
     } catch {
       $preRollbackCompensationError = $_
@@ -291,6 +558,7 @@ try {
     if ($preRollbackCompensationError) {
       try {
         Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+        Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
         Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Preparation compensation failure shutdown' | Out-Null
       } catch {
         $preRollbackCompensationShutdownError = $_
@@ -307,7 +575,10 @@ try {
     $env:LOCALMINIDRAMA_IMAGE_TAG = $rollbackTag
     $env:LOCALMINIDRAMA_BUILD_REVISION = $metadata.previous_commit
     Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
+    Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
+    Assert-ComposeDataSource -ExpectedDataDirectory $forwardDataDirectory -ComposePrefix ([string[]]@('compose', '--project-directory', $repoRoot, '-f', $composePath)) -Label 'Rollback Compose'
     Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', '--project-directory', $repoRoot, '-f', $composePath, 'up', '-d', '--no-build', '--wait') -Label 'Rollback container startup' | Out-Null
+    Assert-RunningBackendDataSource -ExpectedDataDirectory $forwardDataDirectory -ComposePrefix ([string[]]@('compose', '--project-directory', $repoRoot, '-f', $composePath)) -Label 'Rollback backend'
     Test-ApplicationHealth
   } catch {
     $rollbackStartError = $_
@@ -319,17 +590,25 @@ try {
     $compensationShutdownError = $null
     try {
       Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
+      Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
+      Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory
       Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', '--project-directory', $repoRoot, '-f', $composePath, 'down') -Label 'Failed rollback shutdown' | Out-Null
     } catch {
       $rollbackShutdownError = $_
     }
     try {
       Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
-      Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $compensationBackup, '--yes') -Label 'Compensation data restore' | Out-Null
+      Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
+      Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory
+      Assert-FileHash -Path $compensationBackup -Expected $compensationHash -Label 'Compensation data backup'
+      Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $compensationBackup, '--yes', '--data-root', $forwardDataDirectory) -Label 'Compensation data restore' | Out-Null
       $env:LOCALMINIDRAMA_IMAGE_TAG = $forwardTag
       $env:LOCALMINIDRAMA_BUILD_REVISION = $currentBackend.revision
       Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+      Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
+      Assert-ComposeDataSource -ExpectedDataDirectory $forwardDataDirectory -ComposePrefix ([string[]]@('compose')) -Label 'Forward Compose'
       Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'up', '-d', '--no-build', '--wait') -Label 'Forward deployment recovery' | Out-Null
+      Assert-RunningBackendDataSource -ExpectedDataDirectory $forwardDataDirectory -ComposePrefix ([string[]]@('compose')) -Label 'Forward backend'
       Test-ApplicationHealth
     } catch {
       $compensationError = $_
@@ -337,6 +616,7 @@ try {
     if ($compensationError) {
       try {
         Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
+        Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
         Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Compensation failure shutdown' | Out-Null
       } catch {
         $compensationShutdownError = $_
@@ -348,19 +628,11 @@ try {
     throw "Rollback startup failed; the pre-rollback data and forward deployment were restored automatically. Error: $rollbackStartError"
   }
 
-  $compensationMetadata = [ordered]@{
-    schema = 'localminidrama.rollback-compensation.v1'
-    created_at = [DateTime]::UtcNow.ToString('o')
-    forward_revision = $currentBackend.revision
-    backup_file = 'data.zip'
-    backup_sha256 = $compensationHash
-    credentials_excluded = $true
-  }
-  Write-Utf8File -Path (Join-Path $compensationRoot 'metadata.json') -Value "$(ConvertTo-Json $compensationMetadata -Depth 4)`n"
   Write-Output "Rollback started from commit $($metadata.previous_commit) with tag $rollbackTag."
   Write-Output "Pre-rollback compensation backup retained at $compensationRoot."
   Write-Output 'Provider credentials are excluded from the checkpoint and data backups; configure credentials and test again before using AI generation.'
 } finally {
+  Clear-DataSourceEnvironment
   Clear-RuntimeConfigEnvironment
   Pop-Location
 }

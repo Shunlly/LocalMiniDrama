@@ -40,7 +40,7 @@ async function writeLock(databasePath, overrides = {}) {
     pid: 2147483647,
     ownerScope: 'win32:test-host:native',
     operation: 'service',
-    token: '0123456789abcdef',
+    token: 'a'.repeat(16),
     createdAt: heartbeatAt,
     heartbeatAt,
     contract: 'exclusive-lease-owner-scope-and-heartbeat-required',
