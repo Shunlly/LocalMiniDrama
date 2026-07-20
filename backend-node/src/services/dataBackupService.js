@@ -658,6 +658,13 @@ function recoverInterruptedMaintenanceSync(options = {}) {
   if (!options.databasePath || !options.storagePath) {
     throw backupError('INVALID_ARGUMENT', 'Database and storage locations are required for maintenance recovery.');
   }
+  const expectsOwner = options.expectedOwnerScope !== undefined || options.expectedPid !== undefined;
+  if (expectsOwner && (
+    typeof options.expectedOwnerScope !== 'string' || !options.expectedOwnerScope ||
+    !Number.isInteger(options.expectedPid) || options.expectedPid <= 0
+  )) {
+    throw backupError('INVALID_ARGUMENT', 'A valid expected maintenance owner scope and PID are required.');
+  }
   const databasePath = path.resolve(options.databasePath);
   const storagePath = path.resolve(options.storagePath);
   const storySourcesPath = resolveStorySourcesPath(options);
@@ -672,6 +679,23 @@ function recoverInterruptedMaintenanceSync(options = {}) {
       }
       const lock = readJsonFileSync(lockPath, 'MAINTENANCE_LOCK_INVALID');
       assertMaintenanceLockRecoverable(lock, lockStat, options);
+      if (expectsOwner && (
+        lock.ownerScope !== options.expectedOwnerScope ||
+        Number(lock.pid) !== options.expectedPid
+      )) {
+        throw backupError(
+          'MAINTENANCE_OWNER_MISMATCH',
+          'The maintenance lock owner changed after inspection; inspect it again.'
+        );
+      }
+      if (
+        expectsOwner && lock.ownerScope === nativeMaintenanceOwnerScope() &&
+        processIsRunning(Number(lock.pid))
+      ) {
+        throw backupError('MAINTENANCE_ACTIVE', 'The native maintenance lease owner process is still running.');
+      }
+    } else if (expectsOwner) {
+      throw backupError('MAINTENANCE_LOCK_MISSING', 'No maintenance lock exists.');
     }
 
     const journalStat = lstatIfExistsSync(journalPath);

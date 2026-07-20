@@ -9,6 +9,7 @@
     "migrate": "node src/db/migrate.js",
     "backup:data": "node scripts/backup-data.js",
     "restore:data": "node scripts/restore-data.js",
+    "maintenance:recover": "node scripts/recover-maintenance.js",
     "check": "node scripts/check-js.js src test scripts",
     "test": "node --test --test-concurrency=1",
     "audit": "node scripts/audit-flow.js",

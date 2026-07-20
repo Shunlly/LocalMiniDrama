@@ -11,6 +11,7 @@
     "docker:up": "node scripts/docker-compose-with-revision.cjs",
     "docker:e2e:up": "node scripts/docker-compose-with-revision.cjs --profile e2e",
     "docker:down": "docker compose down",
+    "maintenance:recover": "npm --prefix backend-node run maintenance:recover --",
     "verify": "npm run check && npm run verify:version && npm --prefix backend-node run verify && npm --prefix frontweb run verify && npm --prefix desktop run verify",
     "verify:release": "node scripts/verify-release.cjs",
     "verify:release:artifacts": "node scripts/generate-release-metadata.cjs --verify desktop/release",

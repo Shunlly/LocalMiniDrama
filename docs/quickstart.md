@@ -334,6 +334,20 @@ npm --prefix backend-node run restore:data -- --input D:\backup\localminidrama.z
 
 恢复会先校验归档清单、大小、路径和 SQLite 完整性，并为目标数据保留恢复前回滚副本。安全备份不会携带 Provider 凭据，恢复后需要在「AI 配置」重新填写 Key 并执行连接测试。
 
+后端被强制终止时，可能留下用于保护备份/恢复一致性的维护租约。若下一次启动明确报告 `MAINTENANCE_ACTIVE` 或 `MAINTENANCE_LOCK_FOREIGN`，不要直接删除锁文件。先停止所有源码、桌面和 Docker 后端，再从仓库根目录检查租约：
+
+```bash
+npm run maintenance:recover -- --inspect
+```
+
+只有在确认输出的作用域、PID 和心跳属于已终止的 LocalMiniDrama 进程后，才把检查到的原值原样传回并明确确认：
+
+```bash
+npm run maintenance:recover -- --owner-scope "<检查到的作用域>" --pid <检查到的PID> --yes
+```
+
+该命令不会输出租约令牌；租约仍新鲜、本机 PID 仍活跃、锁已被替换，或作用域/PID 与检查结果不一致时都会失败关闭。恢复完成后再运行 `npm run docker:up`。如果无法证明锁的归属，保留锁和数据目录，先查明仍在运行的进程，不要强制接管。
+
 发布或升级验收时，先停止后端与 Docker，确认 Git 工作树干净，再从仓库根目录运行：
 
 ```bash

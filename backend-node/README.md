@@ -61,7 +61,13 @@ npm run verify
 # 全量数据备份或恢复前都必须停止后端
 npm run backup:data -- --output D:\backup\localminidrama.zip
 npm run restore:data -- --input D:\backup\localminidrama.zip --yes
+
+# 仅当异常退出留下维护租约时：先检查，再用检查到的精确作用域和 PID 恢复
+npm run maintenance:recover -- --inspect
+npm run maintenance:recover -- --owner-scope <scope> --pid <pid> --yes
 ```
+
+维护恢复前必须停止所有源码、桌面和 Docker 后端，并确认检查结果确实属于已终止的 LocalMiniDrama 进程。不要直接删除 `*.maintenance.lock`；租约仍新鲜、本机 PID 仍活跃或锁的作用域/PID 已变化时，恢复命令会拒绝接管。
 
 启动后以就绪端点为准；返回 HTTP 200 且 `status` 为 `ready` 才能接收业务请求：
 ```bash
