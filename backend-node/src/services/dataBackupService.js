@@ -2000,7 +2000,7 @@ function assertRegularZipEntry(externalAttributes) {
   }
 }
 
-async function readArchiveDirectory(archivePath, limits) {
+async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
   const archiveStat = await lstatIfExists(archivePath);
   if (!archiveStat || archiveStat.isSymbolicLink() || !archiveStat.isFile()) {
     throw backupError('ARCHIVE_UNAVAILABLE', 'The requested backup archive is unavailable or unsafe.');
@@ -2009,9 +2009,10 @@ async function readArchiveDirectory(archivePath, limits) {
     throw backupError('ARCHIVE_LIMIT_EXCEEDED', 'The backup archive exceeds the configured size limit.');
   }
 
-  let handle;
+  let handle = archiveHandle;
+  const ownsHandle = !archiveHandle;
   try {
-    handle = await fsp.open(archivePath, 'r');
+    if (ownsHandle) handle = await fsp.open(archivePath, 'r');
     const openedStat = await handle.stat();
     if (!openedStat.isFile() || openedStat.size !== archiveStat.size || openedStat.dev !== archiveStat.dev || openedStat.ino !== archiveStat.ino) {
       throw backupError('ARCHIVE_CHANGED', 'The backup archive changed while it was being opened.');
@@ -2266,9 +2267,9 @@ async function readArchiveDirectory(archivePath, limits) {
       }
     }
 
-    return { handle, entries, archiveStat: openedStat, payloadBytes };
+    return { handle, ownsHandle, entries, archiveStat: openedStat, payloadBytes };
   } catch (error) {
-    if (handle) await handle.close().catch(() => {});
+    if (ownsHandle && handle) await handle.close().catch(() => {});
     if (error instanceof DataBackupError) throw error;
     throw backupError('INVALID_ARCHIVE', 'The backup archive could not be parsed safely.', error);
   }
@@ -2454,7 +2455,14 @@ function makeSiblingPath(targetPath, label) {
   );
 }
 
-async function prepareRestoreStages(archivePath, databasePath, storagePath, storySourcesPath, limits) {
+async function prepareRestoreStages(
+  archivePath,
+  databasePath,
+  storagePath,
+  storySourcesPath,
+  limits,
+  archiveHandle = null
+) {
   const databaseStage = makeSiblingPath(databasePath, 'restore-incoming');
   const storageStage = makeSiblingPath(storagePath, 'restore-incoming');
   let storySourcesStage = null;
@@ -2463,7 +2471,7 @@ async function prepareRestoreStages(archivePath, databasePath, storagePath, stor
     await fsp.mkdir(path.dirname(databasePath), { recursive: true });
     await fsp.mkdir(path.dirname(storagePath), { recursive: true });
     await fsp.mkdir(path.dirname(storySourcesPath), { recursive: true });
-    archive = await readArchiveDirectory(archivePath, limits);
+    archive = await readArchiveDirectory(archivePath, limits, archiveHandle);
     const validated = await readAndValidateManifest(archive, limits);
     const replaceStorySources = Boolean(validated.manifest.storySources);
     if (replaceStorySources) storySourcesStage = makeSiblingPath(storySourcesPath, 'restore-incoming');
@@ -2580,7 +2588,7 @@ async function prepareRestoreStages(archivePath, databasePath, storagePath, stor
     if (error instanceof DataBackupError) throw error;
     throw backupError('ARCHIVE_VALIDATION_FAILED', 'The backup archive could not be validated safely.', error);
   } finally {
-    if (archive?.handle) await archive.handle.close().catch(() => {});
+    if (archive?.ownsHandle && archive.handle) await archive.handle.close().catch(() => {});
   }
 }
 
@@ -3092,7 +3100,8 @@ async function restoreDataBackup(options) {
       databasePath,
       storagePath,
       storySourcesPath,
-      limits
+      limits,
+      options.archiveHandle || null
     );
     await assertServiceStopped(options);
     await assertDatabaseAvailable(databasePath);

@@ -16,6 +16,7 @@ const {
   capturePathIdentity,
   evidenceOutputPath,
   fingerprintDataRoot,
+  isPathOutsideRoot,
   parseDrillArguments,
   prepareEvidenceTarget,
   publishEvidence,
@@ -340,6 +341,14 @@ test('checkpoint input validation rejects wrong types, nesting, and reparse comp
   }
 })
 
+test('Windows checkpoint containment treats another volume as outside', () => {
+  const dataRoot = 'C:\\data'
+  assert.equal(isPathOutsideRoot(dataRoot, 'D:\\checkpoint\\data.zip', path.win32), true)
+  assert.equal(isPathOutsideRoot(dataRoot, 'C:\\checkpoint\\data.zip', path.win32), true)
+  assert.equal(isPathOutsideRoot(dataRoot, 'C:\\data', path.win32), false)
+  assert.equal(isPathOutsideRoot(dataRoot, 'C:\\data\\nested.zip', path.win32), false)
+})
+
 test('data root fingerprint is deterministic, framed, and UTF-8 byte sorted', async (t) => {
   const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-fingerprint-')
   const first = path.join(fixtureRoot, 'first')
@@ -528,6 +537,105 @@ test('v3 validation and publication reject malformed mode, hashes, booleans, ret
   await assert.rejects(publishEvidence(fixtureRoot, VERSION, boundWithoutRetention), /backup\.archive_retained/)
 })
 
+test('complete v3 PASS validation rejects missing fields, invalid types, and false proof flags', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-v3-complete-')
+  const requiredFields = [
+    'executed_at',
+    'source',
+    'source.commit',
+    'source.database',
+    'source.database.relative_path',
+    'focused_tests',
+    'focused_tests.file',
+    'focused_tests.passed',
+    'focused_tests.total',
+    'backup',
+    'backup.format_version',
+    'backup.archive_bytes',
+    'backup.file_count',
+    'backup.storage_files',
+    'backup.story_source_files',
+    'backup.active_story_source_references',
+    'backup.secret_policy',
+    'backup.excluded_values',
+    'restore',
+    'restore.isolated',
+    'restore.integrity_check',
+    'restore.credential_rows_checked',
+    'restore.credentials_excluded',
+    'restore.restored_counts',
+    'restore.rollback_copies',
+    'restore.rollback_copies.database',
+    'restore.rollback_copies.storage',
+    'restore.rollback_copies.story_sources',
+    'operations',
+    'operations.source_database_unchanged',
+    'operations.credential_reconfiguration_required',
+    'operations.workspace_cleanup_verified',
+  ]
+  for (const field of requiredFields) {
+    const evidence = validEvidence()
+    setNested(evidence, field, undefined, true)
+    assert.throws(() => validateEvidenceV3(evidence, VERSION), `${field} must be required`)
+    await assert.rejects(publishEvidence(fixtureRoot, VERSION, evidence), `${field} must block publication`)
+  }
+
+  const invalidValues = [
+    ['executed_at', '2026-07-20'],
+    ['executed_at', 1],
+    ['source.commit', 'A'.repeat(40)],
+    ['source.commit', 'a'.repeat(39)],
+    ['source.database.relative_path', ''],
+    ['source.database.relative_path', 1],
+    ['focused_tests.file', 'other.test.js'],
+    ['focused_tests.passed', '2'],
+    ['focused_tests.passed', 1],
+    ['focused_tests.total', 0],
+    ['focused_tests.total', Number.MAX_SAFE_INTEGER + 1],
+    ['backup.format_version', 0],
+    ['backup.format_version', '1'],
+    ['backup.archive_bytes', -1],
+    ['backup.file_count', 4],
+    ['backup.storage_files', -1],
+    ['backup.story_source_files', 1.5],
+    ['backup.active_story_source_references', Number.MAX_SAFE_INTEGER + 1],
+    ['backup.secret_policy', 'included'],
+    ['restore.isolated', 'true'],
+    ['restore.integrity_check', 'OK'],
+    ['restore.credential_rows_checked', -1],
+    ['restore.credentials_excluded', 'true'],
+    ['restore.restored_counts', []],
+    ['restore.restored_counts.dramas', -1],
+    ['restore.rollback_copies.database', 'true'],
+    ['operations.source_database_unchanged', 'true'],
+    ['operations.credential_reconfiguration_required', 'true'],
+    ['operations.workspace_cleanup_verified', 'true'],
+  ]
+  for (const [field, value] of invalidValues) {
+    const evidence = validEvidence()
+    setNested(evidence, field, value)
+    assert.throws(() => validateEvidenceV3(evidence, VERSION), `${field}=${String(value)} must be rejected`)
+    await assert.rejects(publishEvidence(fixtureRoot, VERSION, evidence), `${field} must block publication`)
+  }
+
+  for (const field of [
+    'restore.isolated',
+    'restore.credentials_excluded',
+    'restore.rollback_copies.database',
+    'restore.rollback_copies.storage',
+    'restore.rollback_copies.story_sources',
+    'operations.source_database_unchanged',
+    'operations.source_data_root_unchanged',
+    'operations.credential_reconfiguration_required',
+    'operations.workspace_cleanup_verified',
+  ]) {
+    const evidence = validEvidence()
+    setNested(evidence, field, false)
+    assert.throws(() => validateEvidenceV3(evidence, VERSION), `${field}=false must be rejected`)
+    await assert.rejects(publishEvidence(fixtureRoot, VERSION, evidence), `${field}=false must block publication`)
+  }
+})
+
 test('prior v1, v2, and different-version v3 evidence is archived by explicit generation', async (t) => {
   const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-prior-')
   const outputPath = evidenceOutputPath(fixtureRoot)
@@ -604,6 +712,41 @@ test('bound execution keeps one archive descriptor open through publication and 
   releasePublication()
   await execution
   await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('bound archive handle prevents swap-use-swap-back restore substitution', async (t) => {
+  const fixture = createExecutorFixture(t)
+  const originalRestore = fixture.runtime.restoreDataBackup
+  let retainedHandle
+  let pathBytesDuringRestore
+  let handleBytesDuringRestore
+  fixture.runtime.hooks = {
+    onArchiveHandleOpened: ({ handle }) => { retainedHandle = handle },
+  }
+  fixture.runtime.restoreDataBackup = async (options) => {
+    assert.equal(options.archiveHandle, retainedHandle, 'restore must receive the retained archive handle')
+    const displaced = `${fixture.archivePath}.during-restore`
+    await fsp.rename(fixture.archivePath, displaced)
+    await fsp.writeFile(fixture.archivePath, 'temporary archive B')
+    try {
+      pathBytesDuringRestore = await fsp.readFile(fixture.archivePath, 'utf8')
+      const buffer = Buffer.alloc(Buffer.byteLength('retained archive bytes'))
+      const { bytesRead } = await options.archiveHandle.read(buffer, 0, buffer.length, 0)
+      handleBytesDuringRestore = buffer.subarray(0, bytesRead).toString('utf8')
+    } finally {
+      await fsp.rm(fixture.archivePath, { force: true })
+      await fsp.rename(displaced, fixture.archivePath)
+    }
+    return originalRestore(options)
+  }
+
+  await assert.rejects(
+    executeRollbackDrill(fixture.options, fixture.runtime),
+    /rollback archive .*identity changed|rollback archive.*changed/i
+  )
+  assert.equal(pathBytesDuringRestore, 'temporary archive B')
+  assert.equal(handleBytesDuringRestore, 'retained archive bytes')
+  assert.equal(fixture.calls.publish.length, 0)
 })
 
 test('bound execution closes its archive descriptor when publication rejects', async (t) => {
@@ -695,6 +838,22 @@ test('standalone execution rejects split source roots before preparing evidence'
   await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /same data root|single data root/i)
   assert.equal(fixture.calls.prepare, 0)
   assert.equal(fixture.calls.publish.length, 0)
+})
+
+test('standalone execution accepts Windows case variants of one physical data root', {
+  skip: process.platform !== 'win32',
+}, async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  fixture.runtime.sourcePaths = {
+    databasePath: path.join(fixture.dataRoot.toUpperCase(), 'drama_generator.db'),
+    storagePath: path.join(fixture.dataRoot.toLowerCase(), 'storage'),
+    storySourcesPath: path.join(fixture.dataRoot, 'story_sources'),
+  }
+
+  const evidence = await executeRollbackDrill(fixture.options, fixture.runtime)
+  assert.equal(evidence.status, 'passed')
+  assert.equal(fixture.calls.prepare, 1)
+  assert.equal(fixture.calls.publish.length, 1)
 })
 
 test('executor validates forged bound options before preparing evidence', async (t) => {

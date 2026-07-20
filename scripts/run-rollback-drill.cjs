@@ -92,6 +92,11 @@ function configuredPath(value, fallback) {
   return path.isAbsolute(candidate) ? candidate : path.resolve(backendRoot, candidate)
 }
 
+function comparableHostPath(value) {
+  const normalized = path.normalize(value)
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
 function tableExists(database, name) {
   return Boolean(database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name))
 }
@@ -225,9 +230,19 @@ async function resolveSourceData(options, runtime) {
   assert.equal(path.basename(storagePath), 'storage', 'standalone storage path must end in storage')
   assert.equal(path.basename(storySourcesPath), 'story_sources', 'standalone story source path must end in story_sources')
   const dataRoot = path.dirname(databasePath)
-  assert.equal(path.dirname(storagePath), dataRoot, 'standalone source paths must use the same data root')
-  assert.equal(path.dirname(storySourcesPath), dataRoot, 'standalone source paths must use the same data root')
-  await capturePathIdentity(dataRoot, 'directory')
+  const parentPaths = [dataRoot, path.dirname(storagePath), path.dirname(storySourcesPath)]
+  for (const parentPath of parentPaths.slice(1)) {
+    assert.equal(
+      comparableHostPath(parentPath),
+      comparableHostPath(dataRoot),
+      'standalone source paths must use the same data root'
+    )
+  }
+  const dataRootIdentity = await capturePathIdentity(dataRoot, 'directory')
+  for (const parentPath of parentPaths.slice(1)) {
+    const parentIdentity = await capturePathIdentity(parentPath, 'directory')
+    assertSamePathIdentity(dataRootIdentity, parentIdentity, 'standalone source data root')
+  }
   await capturePathIdentity(databasePath, 'file')
   await capturePathIdentity(storagePath, 'directory')
   await capturePathIdentity(storySourcesPath, 'directory')
@@ -299,6 +314,7 @@ async function executeRollbackDrill(options, runtime) {
     await (runtime.prepareRestoreTargets || prepareRestoreTargets)(restoredPaths)
     restored = await runtime.restoreDataBackup({
       archivePath,
+      ...(archiveHandle ? { archiveHandle } : {}),
       ...restoredPaths,
       confirmed: true,
       skipServiceCheck: true,

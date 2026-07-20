@@ -169,6 +169,52 @@ test('creates a consistent frozen backup and restores database plus media', asyn
   }
 });
 
+test('caller-owned archive handle is the sole restore source and remains open', async (t) => {
+  const retained = await createFixtureBackup(t);
+  const alternate = await makeWorkspace(t);
+  const alternateDb = createDatabase(alternate.databasePath, 'alternate-state');
+  await seedStorage(alternate.storagePath, 'alternate');
+  const alternateBackup = await createDataBackup({
+    ...alternate,
+    outputPath: alternate.archivePath,
+    skipServiceCheck: true,
+  });
+  alternateDb.close();
+
+  replaceDatabaseValue(retained.databasePath, 'live-state');
+  const archiveHandle = await fsp.open(retained.archivePath, 'r');
+  const retainedAtAlternatePath = `${retained.archivePath}.retained`;
+  const originalStat = archiveHandle.stat.bind(archiveHandle);
+  let handleStatCalls = 0;
+  archiveHandle.stat = async (...args) => {
+    const stat = await originalStat(...args);
+    handleStatCalls += 1;
+    if (handleStatCalls === 1) {
+      await fsp.rename(retained.archivePath, retainedAtAlternatePath);
+      await fsp.copyFile(alternate.archivePath, retained.archivePath);
+    }
+    return stat;
+  };
+
+  try {
+    await restoreDataBackup({
+      ...retained,
+      archiveHandle,
+      confirmed: true,
+      skipServiceCheck: true,
+    });
+
+    assert.ok(handleStatCalls >= 2, 'restore must validate and revalidate the caller-owned archive handle');
+    assert.deepEqual(readDatabaseValues(retained.databasePath), ['backup-state']);
+    assert.equal((await archiveHandle.stat()).isFile(), true, 'restore must not close a caller-owned archive handle');
+    const pathManifest = JSON.parse(new AdmZip(retained.archivePath).readAsText('manifest.json'));
+    assert.equal(pathManifest.database.sha256, alternateBackup.manifest.database.sha256);
+    assert.notEqual(pathManifest.database.sha256, retained.result.manifest.database.sha256);
+  } finally {
+    await archiveHandle.close().catch(() => {});
+  }
+});
+
 test('backs up, hashes, and atomically restores Source Intake raw text', async (t) => {
   const workspace = await makeWorkspace(t);
   const db = createDatabase(workspace.databasePath, 'source-snapshot');

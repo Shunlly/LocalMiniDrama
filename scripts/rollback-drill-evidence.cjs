@@ -128,6 +128,11 @@ function assertSamePathIdentity(before, after, label) {
   )
 }
 
+function isPathOutsideRoot(root, candidate, pathApi = path) {
+  const relative = pathApi.relative(root, candidate)
+  return pathApi.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${pathApi.sep}`)
+}
+
 async function assertCheckpointInputPaths(options) {
   assert.equal(options?.inputMode, 'checkpoint-bound', 'checkpoint input validation requires checkpoint-bound mode')
   assert.equal(path.isAbsolute(options?.archivePath || ''), true, 'checkpoint archive path must be absolute')
@@ -144,9 +149,8 @@ async function assertCheckpointInputPaths(options) {
   )
   const archiveIdentity = await capturePathIdentity(options.archivePath, 'file')
   const dataRootIdentity = await capturePathIdentity(options.dataRoot, 'directory')
-  const relativeArchive = path.relative(options.dataRoot, options.archivePath)
   assert.ok(
-    relativeArchive.startsWith(`..${path.sep}`) || relativeArchive === '..',
+    isPathOutsideRoot(options.dataRoot, options.archivePath),
     'checkpoint archive must be outside the data root'
   )
   return { archiveIdentity, dataRootIdentity }
@@ -381,38 +385,116 @@ async function publishEvidence(repoRoot, expectedVersion, evidence) {
   return outputPath
 }
 
+function assertPlainObject(value, label) {
+  assert.ok(
+    value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.getPrototypeOf(value) === Object.prototype,
+    `${label} must be an object`
+  )
+}
+
+function assertNonNegativeSafeInteger(value, label) {
+  assert.ok(Number.isSafeInteger(value) && value >= 0, `${label} must be a non-negative safe integer`)
+}
+
+function assertTrue(value, label) {
+  assert.equal(typeof value, 'boolean', `${label} must be a boolean`)
+  assert.equal(value, true, `${label} must be true`)
+}
+
 function validateEvidenceV3(evidence, expectedVersion) {
-  assert.equal(evidence?.schema, EVIDENCE_SCHEMA, 'rollback evidence schema is invalid')
-  assert.equal(typeof evidence?.status, 'string', 'rollback evidence status must be a string')
+  assertPlainObject(evidence, 'rollback evidence')
+  assert.equal(evidence.schema, EVIDENCE_SCHEMA, 'rollback evidence schema is invalid')
+  assert.equal(typeof evidence.status, 'string', 'rollback evidence status must be a string')
   assert.equal(evidence.status, 'passed', 'only completed rollback evidence may be published')
   assert.ok(
-    evidence?.input_mode === 'standalone' || evidence?.input_mode === 'checkpoint-bound',
+    evidence.input_mode === 'standalone' || evidence.input_mode === 'checkpoint-bound',
     'rollback evidence input_mode is invalid'
   )
+  assert.equal(typeof evidence.executed_at, 'string', 'rollback evidence executed_at must be a string')
+  assert.match(
+    evidence.executed_at,
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+    'rollback evidence executed_at must be an ISO timestamp'
+  )
+  const executedAtMilliseconds = Date.parse(evidence.executed_at)
+  assert.equal(Number.isFinite(executedAtMilliseconds), true, 'rollback evidence executed_at is invalid')
+  assert.equal(
+    new Date(executedAtMilliseconds).toISOString(),
+    evidence.executed_at,
+    'rollback evidence executed_at is not canonical'
+  )
+
+  assertPlainObject(evidence.source, 'rollback evidence source')
   assert.match(expectedVersion || '', VERSION_PATTERN, 'expected rollback evidence version is invalid')
   assert.equal(
-    evidence?.source?.version,
+    evidence.source.version,
     expectedVersion,
     'rollback evidence source.version does not match the prepared version'
   )
+  assert.match(evidence.source.commit || '', /^[a-f0-9]{40}$/, 'rollback evidence source.commit is invalid')
   assert.equal(
-    typeof evidence?.source?.working_tree_dirty,
+    typeof evidence.source.working_tree_dirty,
     'boolean',
     'rollback evidence source.working_tree_dirty must be a boolean'
   )
   assert.equal(evidence.source.working_tree_dirty, false, 'rollback evidence source.working_tree_dirty must be false')
   assert.match(
-    evidence?.source?.data_root_sha256 || '',
+    evidence.source.data_root_sha256 || '',
     /^[a-f0-9]{64}$/,
     'rollback evidence source.data_root_sha256 is invalid'
   )
+  assertPlainObject(evidence.source.database, 'rollback evidence source.database')
+  assert.ok(
+    typeof evidence.source.database.relative_path === 'string' &&
+      evidence.source.database.relative_path.length > 0 &&
+      !evidence.source.database.relative_path.includes('\0'),
+    'rollback evidence source.database.relative_path is invalid'
+  )
+
+  assertPlainObject(evidence.focused_tests, 'rollback evidence focused_tests')
+  assert.equal(
+    evidence.focused_tests.file,
+    'backend-node/test/dataBackupService.test.js',
+    'rollback evidence focused_tests.file is invalid'
+  )
+  assertNonNegativeSafeInteger(evidence.focused_tests.passed, 'rollback evidence focused_tests.passed')
+  assertNonNegativeSafeInteger(evidence.focused_tests.total, 'rollback evidence focused_tests.total')
+  assert.ok(evidence.focused_tests.total > 0, 'rollback evidence focused_tests.total must be positive')
+  assert.equal(
+    evidence.focused_tests.passed,
+    evidence.focused_tests.total,
+    'rollback evidence focused tests must all pass'
+  )
+
+  assertPlainObject(evidence.backup, 'rollback evidence backup')
+  assert.ok(
+    Number.isSafeInteger(evidence.backup.format_version) && evidence.backup.format_version > 0,
+    'rollback evidence backup.format_version must be a positive safe integer'
+  )
+  for (const field of [
+    'archive_bytes',
+    'file_count',
+    'storage_files',
+    'story_source_files',
+    'active_story_source_references',
+  ]) {
+    assertNonNegativeSafeInteger(evidence.backup[field], `rollback evidence backup.${field}`)
+  }
+  assert.equal(
+    evidence.backup.file_count,
+    1 + evidence.backup.storage_files + evidence.backup.story_source_files,
+    'rollback evidence backup.file_count does not match its entry counts'
+  )
   assert.match(
-    evidence?.backup?.archive_sha256 || '',
+    evidence.backup.archive_sha256 || '',
     /^[a-f0-9]{64}$/,
     'rollback evidence backup.archive_sha256 is invalid'
   )
   assert.equal(
-    typeof evidence?.backup?.archive_retained,
+    typeof evidence.backup.archive_retained,
     'boolean',
     'rollback evidence backup.archive_retained must be a boolean'
   )
@@ -421,6 +503,7 @@ function validateEvidenceV3(evidence, expectedVersion) {
     evidence.input_mode === 'checkpoint-bound',
     'rollback evidence backup.archive_retained does not match input_mode'
   )
+  assert.equal(evidence.backup.secret_policy, 'excluded', 'rollback evidence backup.secret_policy is invalid')
   if (evidence.input_mode === 'checkpoint-bound') {
     assert.equal(
       evidence.backup.excluded_values,
@@ -428,21 +511,39 @@ function validateEvidenceV3(evidence, expectedVersion) {
       'rollback evidence backup.excluded_values must be null in checkpoint-bound mode'
     )
   } else {
-    assert.ok(
-      Number.isInteger(evidence.backup.excluded_values) && evidence.backup.excluded_values >= 0,
-      'rollback evidence backup.excluded_values must be a non-negative integer in standalone mode'
+    assertNonNegativeSafeInteger(
+      evidence.backup.excluded_values,
+      'rollback evidence backup.excluded_values in standalone mode'
     )
   }
-  assert.equal(
-    typeof evidence?.operations?.source_data_root_unchanged,
-    'boolean',
-    'rollback evidence operations.source_data_root_unchanged must be a boolean'
+
+  assertPlainObject(evidence.restore, 'rollback evidence restore')
+  assertTrue(evidence.restore.isolated, 'rollback evidence restore.isolated')
+  assert.equal(evidence.restore.integrity_check, 'ok', 'rollback evidence restore.integrity_check is invalid')
+  assertNonNegativeSafeInteger(
+    evidence.restore.credential_rows_checked,
+    'rollback evidence restore.credential_rows_checked'
   )
-  assert.equal(
-    evidence.operations.source_data_root_unchanged,
-    true,
-    'rollback evidence operations.source_data_root_unchanged must be true'
-  )
+  assertTrue(evidence.restore.credentials_excluded, 'rollback evidence restore.credentials_excluded')
+  assertPlainObject(evidence.restore.restored_counts, 'rollback evidence restore.restored_counts')
+  for (const [table, count] of Object.entries(evidence.restore.restored_counts)) {
+    assert.ok(table.length > 0, 'rollback evidence restore.restored_counts key is invalid')
+    assertNonNegativeSafeInteger(count, `rollback evidence restore.restored_counts.${table}`)
+  }
+  assertPlainObject(evidence.restore.rollback_copies, 'rollback evidence restore.rollback_copies')
+  for (const field of ['database', 'storage', 'story_sources']) {
+    assertTrue(evidence.restore.rollback_copies[field], `rollback evidence restore.rollback_copies.${field}`)
+  }
+
+  assertPlainObject(evidence.operations, 'rollback evidence operations')
+  for (const field of [
+    'source_database_unchanged',
+    'source_data_root_unchanged',
+    'credential_reconfiguration_required',
+    'workspace_cleanup_verified',
+  ]) {
+    assertTrue(evidence.operations[field], `rollback evidence operations.${field}`)
+  }
   return evidence
 }
 
@@ -454,6 +555,7 @@ module.exports = {
   capturePathIdentity,
   evidenceOutputPath,
   fingerprintDataRoot,
+  isPathOutsideRoot,
   parseDrillArguments,
   prepareEvidenceTarget,
   publishEvidence,

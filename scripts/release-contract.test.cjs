@@ -710,17 +710,45 @@ test('rollback drill evidence is fixed, exclusive, and only replaces a same-vers
     schema: EVIDENCE_SCHEMA,
     status: 'passed',
     input_mode: 'standalone',
+    executed_at: '2026-07-20T00:00:00.000Z',
     source: {
       version,
+      commit: 'c'.repeat(40),
       working_tree_dirty: false,
       data_root_sha256: 'a'.repeat(64),
+      database: { relative_path: 'backend-node/data/drama_generator.db' },
+    },
+    focused_tests: {
+      file: 'backend-node/test/dataBackupService.test.js',
+      passed: 2,
+      total: 2,
     },
     backup: {
+      format_version: 1,
+      archive_bytes: 64,
       archive_sha256: 'b'.repeat(64),
       archive_retained: false,
+      file_count: 3,
+      storage_files: 1,
+      story_source_files: 1,
+      active_story_source_references: 0,
+      secret_policy: 'excluded',
       excluded_values: 0,
     },
-    operations: { source_data_root_unchanged: true },
+    restore: {
+      isolated: true,
+      integrity_check: 'ok',
+      credential_rows_checked: 0,
+      credentials_excluded: true,
+      restored_counts: {},
+      rollback_copies: { database: true, storage: true, story_sources: true },
+    },
+    operations: {
+      source_database_unchanged: true,
+      source_data_root_unchanged: true,
+      credential_reconfiguration_required: true,
+      workspace_cleanup_verified: true,
+    },
   }
   assert.equal(validateEvidenceV3(evidence, version), evidence)
   assert.equal(await publishEvidence(fixtureRoot, version, evidence), outputPath)
