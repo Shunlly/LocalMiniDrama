@@ -2247,6 +2247,7 @@ async function installFocusedAiRoutes(page, fixture) {
     uiCreatedIds: new Set(),
     decoratedUiCreatedIds: new Set(),
     includeUiCreated: false,
+    freeCreateReadyImage: false,
     mutationComplete: false,
     recoveryComplete: false,
     readinessStatuses: [],
@@ -2326,6 +2327,15 @@ async function installFocusedAiRoutes(page, fixture) {
       .map((row) => {
         const display = { ...row, base_url: '', api_key: '', settings: null }
         if (row.service_type === 'video') return { ...display, is_default: true, is_active: true, last_test_status: 'failed' }
+        if (row.service_type === 'image' && state.freeCreateReadyImage) {
+          return {
+            ...display,
+            is_default: true,
+            is_active: true,
+            credential_set: true,
+            last_test_status: 'passed',
+          }
+        }
         if (row.service_type === 'image') return { ...display, is_default: false, is_active: true, last_test_status: 'unknown' }
         if (row.service_type === 'tts') return { ...display, is_default: true, is_active: true, last_test_status: 'unknown' }
         if (row.service_type === 'storyboard_image') return { ...display, is_default: true, is_active: true, last_test_status: 'passed' }
@@ -2619,6 +2629,8 @@ async function waitForAcceptanceCaptureReadiness(page, capture, fixture = {}) {
       return isVisible(document.querySelector('.film-list'))
         && isVisible(document.querySelector('.projects-wrap[aria-busy="false"]'))
         && isVisible(document.querySelector('.project-grid'))
+        && isVisible(document.querySelector('.project-card'))
+        && !document.querySelector('.data-load-state')
     }
     if (surface === 'media-library') {
       return isVisible(document.querySelector('.media-library-page'))
@@ -2634,7 +2646,7 @@ async function waitForAcceptanceCaptureReadiness(page, capture, fixture = {}) {
     if (surface === 'free-create') {
       return isVisible(document.querySelector('.free-create-page'))
         && isVisible(document.querySelector('.input-panel'))
-        && isVisible(document.querySelector('.service-readiness:not(.is-loading)'))
+        && isVisible(document.querySelector('.service-readiness.is-ready'))
     }
     return false
   }, { surface: capture.surface, expectedConfigNames, expectedCoverage }, { timeout: 30000 })
@@ -2659,6 +2671,7 @@ function acceptanceCaptureUrl(capture, fixture) {
 
 async function prepareAcceptanceCaptureSurface(page, capture, fixture) {
   fixture.routes.state.includeUiCreated = capture.surface === 'ai-config-management'
+  fixture.routes.state.freeCreateReadyImage = capture.surface === 'free-create'
   const focusedSurface = ['project-readiness', 'film-pipeline', 'ai-config-management', 'ai-config-coverage']
     .includes(capture.surface)
   await page.goto(acceptanceCaptureUrl(capture, fixture), { waitUntil: 'domcontentloaded' })

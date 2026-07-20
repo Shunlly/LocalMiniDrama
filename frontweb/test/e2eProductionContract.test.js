@@ -1388,7 +1388,10 @@ test('acceptance capture preparation waits for mask-free expected surface state'
   assert.match(readiness, /drama-canvas/)
   assert.match(readiness, /vue-flow-canvas/)
   assert.match(readiness, /free-create/)
-  assert.match(readiness, /service-readiness/)
+  assert.match(readiness, /service-readiness\.is-ready/)
+  assert.doesNotMatch(readiness, /service-readiness:not/)
+
+  assert.match(preparation, /fixture\.routes\.state\.freeCreateReadyImage = capture\.surface === 'free-create'/)
 
   assert.match(productionSource, /'project-list': `\$\{FRONTEND_URL\}\/`/)
   assert.match(productionSource, /'media-library': `\$\{FRONTEND_URL\}\/media-library`/)
@@ -1450,11 +1453,27 @@ function createCaptureReadinessPage({
   loadingMasks = 0,
   filmReady = true,
   coverageRecords = FOCUSED_COVERAGE_WAIT_MATRIX,
+  projectListState = 'ready',
+  mediaLibraryState = 'empty',
+  canvasState = 'flow',
+  freeCreateState = 'ready',
 } = {}) {
-  const visible = (textContent = '') => ({
+  const visible = (textContent = '', classNames = [], attributes = {}) => ({
     textContent,
+    classList: createClassList(classNames),
+    getAttribute: (name) => attributes[name] ?? null,
     getClientRects: () => [{}],
   })
+  const matchesSimpleSelector = (node, selector) => {
+    const excludedClasses = [...selector.matchAll(/:not\(\.([A-Za-z0-9_-]+)\)/g)].map((match) => match[1])
+    const positiveSelector = selector.replace(/:not\(\.[A-Za-z0-9_-]+\)/g, '')
+    const requiredClasses = [...positiveSelector.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((match) => match[1])
+    const requiredAttributes = [...positiveSelector.matchAll(/\[([A-Za-z0-9_-]+)="([^"]*)"\]/g)]
+      .map((match) => [match[1], match[2]])
+    return requiredClasses.every((name) => node.classList?.contains(name))
+      && excludedClasses.every((name) => !node.classList?.contains(name))
+      && requiredAttributes.every(([name, value]) => node.getAttribute?.(name) === value)
+  }
   const toggle = {
     ...visible(),
     getAttribute: (name) => (name === 'aria-expanded' ? 'true' : null),
@@ -1466,19 +1485,26 @@ function createCaptureReadinessPage({
     '[data-testid="project-readiness-details"]': visible(),
     '.film-create': visible(),
     '[data-testid="film-pipeline-summary"][data-state="ready"]': filmReady ? visible() : null,
-    '.film-list': visible(),
-    '.projects-wrap[aria-busy="false"]': visible(),
-    '.project-grid': visible(),
-    '.media-library-page': visible(),
-    '.media-grid[aria-busy="false"]': visible(),
-    '.empty-media': visible(),
-    '.drama-canvas-page': visible(),
-    '.canvas-shell': visible(),
-    '.vue-flow-canvas': visible(),
-    '.free-create-page': visible(),
-    '.input-panel': visible(),
-    '.service-readiness:not(.is-loading)': visible(),
   }
+  const surfaceNodes = [
+    visible('', ['film-list']),
+    visible('', ['projects-wrap'], { 'aria-busy': projectListState === 'loading' ? 'true' : 'false' }),
+    visible('', ['project-grid']),
+    visible('', ['media-library-page']),
+    visible('', ['media-grid'], { 'aria-busy': mediaLibraryState === 'loading' ? 'true' : 'false' }),
+    visible('', ['drama-canvas-page']),
+    ...(canvasState === 'error' ? [visible('', ['canvas-load-failure'])] : [visible('', ['canvas-shell'])]),
+    visible('', ['free-create-page']),
+    visible('', ['input-panel']),
+    visible('', ['service-readiness', `is-${freeCreateState}`]),
+  ]
+  if (['ready', 'loading', 'error'].includes(projectListState)) surfaceNodes.push(visible('', ['project-card']))
+  if (projectListState === 'error') surfaceNodes.push(visible('', ['data-load-state']))
+  if (['ready', 'loading', 'error'].includes(mediaLibraryState)) surfaceNodes.push(visible('', ['media-card']))
+  if (mediaLibraryState === 'empty') surfaceNodes.push(visible('', ['empty-media']))
+  if (mediaLibraryState === 'error') surfaceNodes.push(visible('', ['data-load-state']))
+  if (['flow', 'loading'].includes(canvasState)) surfaceNodes.push(visible('', ['vue-flow-canvas']))
+  if (canvasState === 'start') surfaceNodes.push(visible('', ['canvas-start-state']))
   const cell = (textContent = '') => ({
     ...visible(textContent),
     querySelector: (selector) => (selector === '.cell' ? visible(textContent) : null),
@@ -1497,7 +1523,10 @@ function createCaptureReadinessPage({
     },
   }
   const lists = {
-    '.el-loading-mask': Array.from({ length: loadingMasks }, () => visible()),
+    '.el-loading-mask': Array.from({
+      length: loadingMasks + [projectListState, mediaLibraryState, canvasState, freeCreateState]
+        .filter((state) => state === 'loading').length,
+    }, () => visible()),
     '.el-table__row': tableRows,
     '[data-testid="project-readiness-details"] .summary-item': Array.from({ length: summaryItems }, () => visible()),
     '[data-testid="project-readiness-details"] .service-chip': Array.from({ length: serviceChips }, () => visible()),
@@ -1511,7 +1540,9 @@ function createCaptureReadinessPage({
       const hadGetComputedStyle = Object.prototype.hasOwnProperty.call(globalThis, 'getComputedStyle')
       const originalGetComputedStyle = globalThis.getComputedStyle
       globalThis.document = {
-        querySelector: (selector) => nodes[selector] || null,
+        querySelector: (selector) => nodes[selector]
+          || surfaceNodes.find((node) => matchesSimpleSelector(node, selector))
+          || null,
         querySelectorAll: (selector) => lists[selector] || [],
       }
       globalThis.getComputedStyle = () => ({ display: 'block', visibility: 'visible' })
@@ -1671,20 +1702,152 @@ test('project readiness capture waits for all fixed summary and service items', 
   )
 })
 
-test('project list screenshot readiness waits for the populated project list', async () => {
+test('project list screenshot readiness rejects loading, errors, and a list without a visible card', async () => {
+  for (const projectListState of ['loading', 'error', 'no-card']) {
+    await assert.rejects(
+      waitForAcceptanceCaptureReadiness(
+        createCaptureReadinessPage({ projectListState }),
+        { surface: 'project-list' },
+        {},
+      ),
+      /capture readiness predicate did not match/,
+      projectListState,
+    )
+  }
   await waitForAcceptanceCaptureReadiness(createCaptureReadinessPage(), { surface: 'project-list' }, {})
 })
 
-test('media library screenshot readiness waits for the settled empty library', async () => {
+test('media library screenshot readiness rejects loading, errors, and settled output without content', async () => {
+  for (const mediaLibraryState of ['loading', 'error', 'no-content']) {
+    await assert.rejects(
+      waitForAcceptanceCaptureReadiness(
+        createCaptureReadinessPage({ mediaLibraryState }),
+        { surface: 'media-library' },
+        {},
+      ),
+      /capture readiness predicate did not match/,
+      mediaLibraryState,
+    )
+  }
   await waitForAcceptanceCaptureReadiness(createCaptureReadinessPage(), { surface: 'media-library' }, {})
+  await waitForAcceptanceCaptureReadiness(
+    createCaptureReadinessPage({ mediaLibraryState: 'ready' }),
+    { surface: 'media-library' },
+    {},
+  )
 })
 
-test('drama canvas screenshot readiness waits for the canvas surface', async () => {
+test('drama canvas screenshot readiness rejects loading, errors, and a shell without flow or start state', async () => {
+  for (const canvasState of ['loading', 'error', 'no-content']) {
+    await assert.rejects(
+      waitForAcceptanceCaptureReadiness(
+        createCaptureReadinessPage({ canvasState }),
+        { surface: 'drama-canvas' },
+        {},
+      ),
+      /capture readiness predicate did not match/,
+      canvasState,
+    )
+  }
   await waitForAcceptanceCaptureReadiness(createCaptureReadinessPage(), { surface: 'drama-canvas' }, {})
+  await waitForAcceptanceCaptureReadiness(
+    createCaptureReadinessPage({ canvasState: 'start' }),
+    { surface: 'drama-canvas' },
+    {},
+  )
 })
 
-test('free create screenshot readiness waits for the idle service state', async () => {
+test('free create screenshot readiness rejects loading, error, and missing service states', async () => {
+  for (const freeCreateState of ['loading', 'error', 'missing']) {
+    await assert.rejects(
+      waitForAcceptanceCaptureReadiness(
+        createCaptureReadinessPage({ freeCreateState }),
+        { surface: 'free-create' },
+        {},
+      ),
+      /capture readiness predicate did not match/,
+      freeCreateState,
+    )
+  }
   await waitForAcceptanceCaptureReadiness(createCaptureReadinessPage(), { surface: 'free-create' }, {})
+})
+
+test('focused AI list exposes a sanitized ready image only for the free-create capture switch', async () => {
+  const routes = new Map()
+  const listeners = new Map()
+  const imageConfig = {
+    id: 41,
+    name: 'E2E Production Provider image',
+    provider: 'openai_compatible',
+    service_type: 'image',
+    api_protocol: 'openai',
+    default_model: 'local-e2e-image',
+    model: '["local-e2e-image"]',
+    is_default: true,
+    is_active: true,
+    credential_set: false,
+    last_test_status: 'failed',
+    base_url: 'http://protected-provider.invalid/v1',
+    api_key: 'protected-image-key',
+    settings: '{"api_key":"protected-settings-key"}',
+  }
+  const page = {
+    async route(pattern, handler) { routes.set(pattern, handler) },
+    async unrouteAll() {},
+    on(event, listener) { listeners.set(event, listener) },
+    off(event, listener) { listeners.delete(event) },
+  }
+  const installed = await installFocusedAiRoutes(page, {
+    inactiveTextId: 11,
+    providerState: { created: [imageConfig] },
+    uiConfigName: 'Focused test fixture',
+  })
+  const aiConfigHandler = routes.get('**/api/v1/ai-configs*')
+  const decoratedImage = async () => {
+    let payload
+    await aiConfigHandler({
+      request: () => ({
+        method: () => 'GET',
+        url: () => 'http://localhost:5679/api/v1/ai-configs',
+      }),
+      fetch: async () => ({ json: async () => ({ success: true, data: [imageConfig] }) }),
+      continue: async () => assert.fail('focused image list must be decorated'),
+      fulfill: async ({ body }) => { payload = JSON.parse(body) },
+    })
+    return payload.data[0]
+  }
+
+  assert.equal(installed.state.freeCreateReadyImage, false)
+  const ordinaryImage = await decoratedImage()
+  assert.deepEqual(
+    {
+      is_default: ordinaryImage.is_default,
+      is_active: ordinaryImage.is_active,
+      credential_set: ordinaryImage.credential_set,
+      last_test_status: ordinaryImage.last_test_status,
+    },
+    { is_default: false, is_active: true, credential_set: false, last_test_status: 'unknown' },
+  )
+
+  installed.state.freeCreateReadyImage = true
+  const readyImage = await decoratedImage()
+  assert.deepEqual(
+    {
+      is_default: readyImage.is_default,
+      is_active: readyImage.is_active,
+      credential_set: readyImage.credential_set,
+      last_test_status: readyImage.last_test_status,
+    },
+    { is_default: true, is_active: true, credential_set: true, last_test_status: 'passed' },
+  )
+  assert.deepEqual(
+    { base_url: readyImage.base_url, api_key: readyImage.api_key, settings: readyImage.settings },
+    { base_url: '', api_key: '', settings: null },
+  )
+
+  const routesSource = sourceFunction('installFocusedAiRoutes')
+  assert.doesNotMatch(routesSource, /openTest|ai-configs\/test|providerControlRequest/)
+  await installed.dispose()
 })
 
 test('focused AI create route registers ownership and list visibility before fulfilling', async () => {
