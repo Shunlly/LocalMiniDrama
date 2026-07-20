@@ -17,6 +17,7 @@
 - Setup, Portable, and Unpacked must each contain independently verified identical bytes.
 - The Unpacked smoke must perform a real import without a Provider call.
 - Artifact Gitleaks must use `--max-archive-depth 1 --max-target-megabytes 256`.
+- The general root `check` gate runs verifier fixture tests but must not require the production LFS object.
 
 ---
 
@@ -62,10 +63,10 @@ Add release-contract assertions for:
 assert.equal(rootPackage.scripts['test:example-drama-contract'], 'node --test scripts/example-drama-contract.test.cjs')
 assert.equal(rootPackage.scripts['verify:example-drama'], 'node scripts/example-drama-contract.cjs')
 assert.match(rootPackage.scripts.check, /npm run test:example-drama-contract/)
-assert.match(rootPackage.scripts.check, /npm run verify:example-drama/)
+assert.doesNotMatch(rootPackage.scripts.check, /npm run verify:example-drama/)
 ```
 
-For the `desktop` CI job and `build-windows` release job, require the checkout block to contain `lfs: true`, followed by both `git lfs fsck` and `npm run verify:example-drama` before packaging.
+For the `desktop` CI job and `build-windows` release job, require the checkout block to contain `lfs: true`. After each job's pinned Node.js 20 setup and before dependency installation or packaging, require both `git lfs fsck` and `npm run verify:example-drama`.
 
 - [ ] **Step 3: Run focused tests and verify RED**
 
@@ -96,14 +97,14 @@ const EXPECTED_EXAMPLE_DRAMA = Object.freeze({
 
 - [ ] **Step 5: Wire package and workflow gates**
 
-Add syntax checking, `test:example-drama-contract`, and `verify:example-drama` to root `check`. Add this checkout input to the two Windows build jobs:
+Add syntax checking and `test:example-drama-contract` to root `check`. Expose `verify:example-drama` as an independent script, but do not invoke it from root `check`. Add this checkout input to the two Windows build jobs:
 
 ```yaml
 with:
   lfs: true
 ```
 
-Immediately after checkout add:
+Immediately after each job's `actions/setup-node` step add:
 
 ```yaml
 - name: Verify Git LFS example source

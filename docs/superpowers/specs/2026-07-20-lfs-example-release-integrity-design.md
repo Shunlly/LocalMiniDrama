@@ -14,7 +14,7 @@ The authoritative asset is:
 
 Create one shared Node.js contract that exports the authoritative descriptor and verifies a candidate file as a real regular file with the exact byte count and SHA-256. It must reject a Git LFS pointer, a symbolic link, a missing file, and changed bytes.
 
-The root package exposes `verify:example-drama`. The CI `desktop` checkout and release `build-windows` checkout use `actions/checkout` with `lfs: true`, then run the source verifier before packaging. Other jobs that neither build nor inspect the asset do not download LFS content.
+The root package exposes `verify:example-drama`. The CI `desktop` checkout and release `build-windows` checkout use `actions/checkout` with `lfs: true`, then run the source verifier after the pinned Node.js 20 setup and before dependency installation or packaging. The general root `check` gate runs only the small fixture tests for the verifier; it must not execute the 82 MB production-file check because the Ubuntu source-contract checkout intentionally does not download LFS content. Other jobs that neither build nor inspect the asset do not download LFS content.
 
 ## Packaged Artifact Contract
 

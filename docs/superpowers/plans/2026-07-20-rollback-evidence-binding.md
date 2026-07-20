@@ -22,17 +22,19 @@
 ### Task 1: Rollback Drill V3 And Checkpoint-Bound Inputs
 
 **Files:**
+- Create: `scripts/rollback-drill-contract.test.cjs`
 - Modify: `scripts/rollback-drill-evidence.cjs`
 - Modify: `scripts/run-rollback-drill.cjs`
 - Modify: `scripts/release-contract.test.cjs`
+- Modify: `package.json`
 
 **Interfaces:**
-- Produces: `parseDrillArguments(args)`, `fingerprintDataRoot(root)`, and `assertCheckpointInputPaths(options)`.
+- Produces: `parseDrillArguments(args)`, `fingerprintDataRoot(root)`, `assertCheckpointInputPaths(options)`, `validateEvidenceV3(evidence, expectedVersion)`, and a runtime-injectable drill executor.
 - Produces: `localminidrama.rollback-drill.v3` evidence in standalone and checkpoint-bound modes.
 
 - [ ] **Step 1: Write failing strict-CLI tests**
 
-Replace the `assertNoCliArguments` test coverage with exact parser cases:
+In `scripts/rollback-drill-contract.test.cjs`, replace the `assertNoCliArguments` behavior with exact parser cases:
 
 ```js
 assert.deepEqual(parseDrillArguments([]), {
@@ -53,9 +55,24 @@ Require reversed pair order to return the same object. Require unknown, duplicat
 
 Create a temporary tree with files added in different creation orders and require identical digests. Require content, relative path, file length, and entry-type changes to alter the digest. Require a final symlink or symlinked parent to throw; skip only when Windows denies symlink creation.
 
-The digest must match `/^[a-f0-9]{64}$/` and the implementation must sort normalized `/`-separated relative paths before hashing framed type/path/length/content data.
+The digest must match `/^[a-f0-9]{64}$/` and the implementation must sort normalized `/`-separated relative paths by UTF-8 bytes before hashing framed type/path/length/content data. Add empty-directory and non-ASCII-path cases. Replacing an entry while it is fingerprinted must fail closed rather than returning a digest for mixed identities.
 
-- [ ] **Step 3: Write failing v3 source contracts**
+- [ ] **Step 3: Write failing publisher lifecycle tests**
+
+Require `validateEvidenceV3` and `publishEvidence` to reject missing or invalid mode, archive/root digest, typed boolean, retention relationship, version, or status. Require prior v1, v2, and different-version v3 PASS evidence to archive with `legacy-v1`, `v2`, and `v3` generation names. A same-version v2 PASS must be archived rather than silently deleted as current evidence.
+
+Fix the continuity rule explicitly:
+
+```js
+assert.equal(boundEvidence.backup.excluded_values, null)
+assert.equal(Number.isInteger(standaloneEvidence.backup.excluded_values), true)
+```
+
+- [ ] **Step 4: Write failing bound-execution behavior tests**
+
+Exercise the runtime-injectable drill executor with a real temporary archive file and data-root tree. Inject spies for `createDataBackup`, `restoreDataBackup`, and evidence publication. Require bound mode to call `createDataBackup` zero times, pass the exact supplied archive path to restore, retain the same regular-file identity and bytes, and publish that archive hash. Mutating the archive or any root entry between pre/post checks must reject without publishing PASS. Standalone mode must create and remove only its workspace archive.
+
+- [ ] **Step 5: Write failing v3 source contracts**
 
 Require:
 
@@ -67,28 +84,29 @@ assert.match(rollbackDrillScript, /data_root_sha256/)
 assert.match(rollbackDrillScript, /source_data_root_unchanged/)
 ```
 
-Keep the existing root `check` syntax entries for both changed scripts before the release tests.
+Add `test:rollback-contract = node --test scripts/rollback-drill-contract.test.cjs`. Root `check` must syntax-check the new test and execute it only after syntax validation while preserving the existing release/local/OpenClaw gates.
 
-- [ ] **Step 4: Run focused tests and verify RED**
+- [ ] **Step 6: Run focused tests and verify RED**
 
 Run:
 
 ```powershell
 $env:PATH='C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64;' + $env:PATH
+node --test scripts/rollback-drill-contract.test.cjs
 node --test --test-name-pattern="rollback drill evidence|strict rollback|data root fingerprint" scripts/release-contract.test.cjs
 ```
 
-Expected: parser/fingerprint exports and v3 schema are missing.
+Expected: parser, fingerprint, v3 validator, and bound executor are missing or fail the new relationships.
 
-- [ ] **Step 5: Implement strict inputs and path validation**
+- [ ] **Step 7: Implement strict inputs and path validation**
 
 Parse CLI arguments before preparing evidence. For checkpoint-bound mode require resolved absolute inputs, a real regular archive, a real data-root directory, no symbolic path component, and the archive outside the data root. For standalone mode derive the data root containing `drama_generator.db`, `storage`, and `story_sources` and fail if configured paths do not describe that one root.
 
-- [ ] **Step 6: Implement deterministic tree fingerprinting**
+- [ ] **Step 8: Implement deterministic tree fingerprinting**
 
 Walk without following links. Sort by normalized relative path. Feed the hash a framed representation for each directory and file so `a/bc` cannot collide with `ab/c`; stream file bytes and include exact byte length. Compute before the drill and after isolated restore cleanup, and require equality.
 
-- [ ] **Step 7: Restore the selected archive and publish v3**
+- [ ] **Step 9: Restore the selected archive and publish v3**
 
 Standalone mode keeps creating `workspace/current-data.zip`; checkpoint-bound mode uses the supplied archive directly. Both restore into the isolated workspace and validate SQLite, storage, story sources, credentials, and rollback copies. Publish these exact relationships:
 
@@ -109,13 +127,14 @@ operations: {
 },
 ```
 
-Do not remove the supplied archive. Continue archiving recognized prior v1/v2 evidence, but publish only v3.
+Do not remove the supplied archive. Re-hash and re-stat it after restore before setting `archive_retained: true`. Continue archiving recognized prior v1/v2 evidence, but publish only fully validated v3. Checkpoint-bound `backup.excluded_values` is `null`; standalone keeps the actual integer returned by `createDataBackup`.
 
-- [ ] **Step 8: Verify GREEN and commit**
+- [ ] **Step 10: Verify GREEN and commit**
 
 Run:
 
 ```powershell
+node --test scripts/rollback-drill-contract.test.cjs
 node --test --test-name-pattern="rollback" scripts/release-contract.test.cjs
 npm run test:release
 ```
@@ -123,7 +142,7 @@ npm run test:release
 Expected: all rollback and release contracts pass.
 
 ```powershell
-git add -- scripts/rollback-drill-evidence.cjs scripts/run-rollback-drill.cjs scripts/release-contract.test.cjs
+git add -- scripts/rollback-drill-contract.test.cjs scripts/rollback-drill-evidence.cjs scripts/run-rollback-drill.cjs scripts/release-contract.test.cjs package.json
 git commit -m "feat: bind rollback drill to retained inputs"
 ```
 
@@ -151,7 +170,7 @@ Invoke-Checked -FilePath 'npm' -ArgumentList @(
 ) -Label 'Rollback drill'
 ```
 
-Require v3, `checkpoint-bound`, `archive_retained = $true`, matching summary/backup hashes, a 64-character `source.data_root_sha256`, `source_data_root_unchanged = $true`, and `data_root_sha256` in v5 metadata.
+Require v3, `checkpoint-bound`, `archive_retained = $true`, matching summary/backup hashes, a 64-character lowercase `source.data_root_sha256`, `source_data_root_unchanged = $true`, and `data_root_sha256` in v5 metadata. Add executable tests for a pure `Assert-CheckpointDrillEvidence` function; swapped hashes, uppercase hashes, string booleans, wrong commit/version, v2 schema, and standalone mode must all throw.
 
 - [ ] **Step 2: Run the checkpoint contract and verify RED**
 
@@ -165,7 +184,7 @@ Expected: v4/v2 and no paired archive invocation fail the new assertions.
 
 - [ ] **Step 3: Implement v3 validation and v5 metadata**
 
-After the drill, independently re-hash `data.zip`. Reject unless:
+Capture the application version before validating the summary. After the drill, independently require `data.zip` to remain the same regular-file identity and re-hash it. Reject unless:
 
 ```text
 summary.schema == localminidrama.rollback-drill.v3
@@ -174,9 +193,12 @@ summary.backup.archive_retained == true
 summary.backup.archive_sha256 == backup_sha256 == current data.zip SHA-256
 summary.source.data_root_sha256 is 64 lowercase hex
 summary.operations.source_data_root_unchanged == true
+summary.source.commit == captured commit
+summary.source.version == captured version
+summary.source.working_tree_dirty is boolean false
 ```
 
-Write `schema = 'localminidrama.release-rollback-checkpoint.v5'` and `data_root_sha256 = $summary.source.data_root_sha256` while preserving all v4 fields and sanitized-config guarantees.
+Use case-sensitive `-cne` and `-cmatch` for schema, mode, and lowercase digests, and require JSON booleans to be `[bool]`. Write `schema = 'localminidrama.release-rollback-checkpoint.v5'` and `data_root_sha256 = $summary.source.data_root_sha256` while preserving all v4 fields and sanitized-config guarantees.
 
 - [ ] **Step 4: Verify GREEN and commit**
 
@@ -219,6 +241,8 @@ summary.operations.source_data_root_unchanged == true
 
 Require both hash fields to be lowercase 64-character hexadecimal strings. Keep existing file-hash, bind-source, image-ID, commit, version, config, and credential checks.
 
+Add executable tests for a pure `Assert-RollbackEvidenceBinding` PowerShell function. It must reject v4 metadata, v2 evidence, standalone mode, swapped otherwise-valid summary/archive evidence, uppercase or malformed hashes, string booleans, and a root digest changed on either side. A current live data tree that differs from the old digest must not be an input to this function and must not be rejected solely for content drift.
+
 - [ ] **Step 2: Assert destructive ordering and verify RED**
 
 Extend the existing order test so the end of v3/v5 cross-validation occurs before the earliest of:
@@ -240,7 +264,7 @@ Expected: v4/v2 restore validation fails the new assertions.
 
 - [ ] **Step 3: Implement v5/v3 fail-closed validation**
 
-Accept v5 only. Validate metadata field types and hashes, then validate the retained summary relationships. Do not recompute `data_root_sha256` against current live bytes. Continue verifying that the current container bind source is the recorded path before shutdown and preserve all compensation behavior.
+Accept v5 only. Validate metadata field types and hashes, then call the executable retained-summary binding validator. Use case-sensitive schema/mode/hash comparisons and typed booleans. Do not recompute `data_root_sha256` against current live bytes. Continue verifying that the current container bind source is the recorded path before shutdown and preserve all compensation behavior.
 
 - [ ] **Step 4: Verify GREEN and the complete release contract**
 
@@ -262,7 +286,70 @@ git commit -m "fix: fail closed on unbound rollback evidence"
 
 ---
 
-### Task 4: Real Checkpoint And Restore Acceptance
+### Task 4: Workflow And Operator Documentation V3/V5
+
+**Files:**
+- Modify: `.github/workflows/ci.yml`
+- Modify: `.github/workflows/release.yml`
+- Modify: `docs/quickstart.md`
+- Modify: `scripts/release-contract.test.cjs`
+
+**Interfaces:**
+- Consumes: standalone v3 summary and checkpoint/restore v5 commands.
+- Produces: CI, release, and operator contracts that reject old or checkpoint-bound evidence in standalone jobs.
+
+- [ ] **Step 1: Write failing workflow contracts**
+
+For both rollback jobs, require the existing status, commit, version, and clean-tree checks plus:
+
+```js
+assert.equal(summary.schema, 'localminidrama.rollback-drill.v3')
+assert.equal(summary.input_mode, 'standalone')
+assert.equal(summary.backup.archive_retained, false)
+assert.match(summary.backup.archive_sha256, /^[a-f0-9]{64}$/)
+assert.match(summary.source.data_root_sha256, /^[a-f0-9]{64}$/)
+assert.equal(summary.operations.source_data_root_unchanged, true)
+```
+
+The no-argument `npm run verify:rollback` invocation remains unchanged.
+
+- [ ] **Step 2: Run workflow contracts and verify RED**
+
+Run:
+
+```powershell
+node --test --test-name-pattern="rollback drill before|isolated rollback" scripts/release-contract.test.cjs
+```
+
+Expected: both workflows validate only the old fields.
+
+- [ ] **Step 3: Upgrade workflow validation**
+
+Add the exact v3 standalone checks to CI and release before evidence upload. Do not allow a v2 or checkpoint-bound summary to satisfy either job.
+
+- [ ] **Step 4: Update operator documentation**
+
+Update `docs/quickstart.md` from checkpoint v4 to v5 and evidence v3. Document the exact paired checkpoint drill, the single-root standalone layout (`drama_generator.db`, `storage`, `story_sources`), the fact that v4 checkpoints are not release-authoritative, and the rule that restore does not compare current live bytes with the old root digest.
+
+- [ ] **Step 5: Verify GREEN and commit**
+
+Run:
+
+```powershell
+node --test --test-name-pattern="rollback" scripts/release-contract.test.cjs
+npm run test:release
+```
+
+Expected: workflow and release contracts pass.
+
+```powershell
+git add -- .github/workflows/ci.yml .github/workflows/release.yml docs/quickstart.md scripts/release-contract.test.cjs
+git commit -m "docs: enforce rollback v3 in release workflows"
+```
+
+---
+
+### Task 5: Real Checkpoint And Restore Acceptance
 
 **Files:**
 - Verify only: external Docker data root, generated checkpoint directory, and `artifacts/rollback-drill/summary.json`.
@@ -273,11 +360,11 @@ git commit -m "fix: fail closed on unbound rollback evidence"
 
 - [ ] **Step 1: Run standalone v3 on a clean commit**
 
-Run `npm run verify:rollback` with Node 20 and require `input_mode: standalone`, `archive_retained: false`, a valid data-root digest, and cleanup success.
+Run `npm run verify:rollback` with Node 20 and require `input_mode: standalone`, `archive_retained: false`, valid archive/data-root digests, `source_data_root_unchanged: true`, and cleanup success.
 
 - [ ] **Step 2: Create a real checkpoint**
 
-With Docker using a repository-external `LOCALMINIDRAMA_DATA_DIR`, run `npm run checkpoint:rollback -- -CheckpointDirectory <external-checkpoint>`. Require metadata v5, summary v3 checkpoint-bound, and exact backup/root cross-hashes.
+With Docker using a repository-external `LOCALMINIDRAMA_DATA_DIR`, run `npm run checkpoint:rollback -- -CheckpointDirectory <external-checkpoint>`. Require metadata v5, summary v3 checkpoint-bound, exact three-way archive hashes, exact two-way root digests, retained archive identity, and unchanged source root.
 
 - [ ] **Step 3: Exercise restore and compensation**
 
