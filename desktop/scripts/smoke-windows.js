@@ -541,7 +541,7 @@ async function verifyBundledExampleImport({ label, port }, runtime = {}) {
     readBack.statusCode !== 200 ||
     readBack.body.success !== true ||
     !drama ||
-    Number(drama.id) !== imported.drama_id ||
+    drama.id !== imported.drama_id ||
     drama.title !== imported.title
   ) {
     throw new Error(`${label} example import read-back did not match imported ID and title: ${JSON.stringify(readBack)}`);

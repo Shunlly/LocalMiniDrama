@@ -176,6 +176,26 @@ test('bundled example smoke rejects a mismatched read-back identity or title', a
   }
 });
 
+test('bundled example smoke rejects a string read-back ID for a numeric import ID', async () => {
+  await assert.rejects(
+    verifyBundledExampleImport(
+      { label: 'fixture', port: 58123 },
+      {
+        requestJson: async (_port, endpoint) => {
+          if (endpoint === '/api/v1/dramas/examples') {
+            return { statusCode: 200, body: { success: true, data: [{ filename: bundledExampleFilename }] } };
+          }
+          if (endpoint === '/api/v1/dramas/import-example') {
+            return { statusCode: 201, body: { success: true, data: { drama_id: 42, title: 'fixture' } } };
+          }
+          return { statusCode: 200, body: { success: true, data: { id: '42', title: 'fixture' } } };
+        },
+      }
+    ),
+    /read-back/
+  );
+});
+
 test('unpacked example import launch precedes the other Unpacked migration fixtures', () => {
   const exampleImport = smokeWindowsSource.indexOf("'unpacked-example-import'");
   const fresh = smokeWindowsSource.indexOf("'unpacked-fresh'");
