@@ -120,11 +120,9 @@ Run:
 ```powershell
 node --test scripts/example-drama-contract.test.cjs
 node --test --test-name-pattern="LFS|example drama" scripts/release-contract.test.cjs
-npm run verify:example-drama
-git lfs fsck
 ```
 
-Expected: all focused tests and both source integrity commands pass.
+Expected: all focused fixture and workflow/package contract tests pass. The production 82 MB object commands are exercised by the two authorized Windows jobs and by Task 4's final hydrated Windows acceptance, not by the generic source gate.
 
 ```powershell
 git add -- scripts/example-drama-contract.cjs scripts/example-drama-contract.test.cjs scripts/release-contract.test.cjs package.json .github/workflows/ci.yml .github/workflows/release.yml
@@ -144,6 +142,7 @@ git commit -m "test: verify LFS example source in release jobs"
 **Interfaces:**
 - Consumes: `verifyExampleDrama(resourcesDirectory)` and `EXPECTED_EXAMPLE_DRAMA`.
 - Produces: `application.example_drama = { path, bytes, sha256 }` for each Setup, Portable, and Unpacked inventory entry.
+- Produces: `verifyPackagedExampleApplications(applications, scanRoot, expected = EXPECTED_EXAMPLE_DRAMA)`, returning the three verified descriptors or throwing before inventory publication.
 
 - [ ] **Step 1: Write failing artifact inventory tests**
 
@@ -158,6 +157,8 @@ example_drama: {
 ```
 
 Add tests that reject a missing descriptor, wrong bytes, wrong digest, traversal path, a path under another application root, and bytes changed under `options.scanRoot` after inventory creation.
+
+Create a tiny expected descriptor and three physical files under temporary `setup`, `portable`, and `unpacked` resources roots. Pass that descriptor to `verifyPackagedExampleApplications` and require all three roots to be independently re-hashed successfully. Then delete, resize, and same-size tamper each root in turn and require failure. Production code keeps `EXPECTED_EXAMPLE_DRAMA` as the default; unit tests never need the 82 MB object.
 
 - [ ] **Step 2: Run artifact tests and verify RED**
 
@@ -215,7 +216,7 @@ git commit -m "test: attest bundled example in Windows artifacts"
 - Modify: `scripts/release-contract.test.cjs`
 
 **Interfaces:**
-- Produces: `verifyBundledExampleImport({ label, port })` and request-specific `timeoutMs` support.
+- Produces: `verifyBundledExampleImport({ label, port }, runtime = {})`, where `runtime.requestJson` defaults to the real client and `runtime.importTimeoutMs` defaults to the module-level overall smoke timeout.
 - Consumes: `/api/v1/dramas/examples`, `/api/v1/dramas/import-example`, and `/api/v1/dramas/:id`.
 
 - [ ] **Step 1: Write failing smoke contracts**
@@ -234,7 +235,7 @@ assertExampleImportResponse({
 })
 ```
 
-Negative tests must reject missing filename, non-201 import, non-positive `drama_id`, blank title, and a read-back with a different ID or title. Add source-order assertions proving `unpacked-example-import` calls the list endpoint, import endpoint with `sameOriginWriteHeaders(port)`, and read-back before the other Unpacked migration fixtures.
+Negative tests must reject missing filename, non-201 import, non-positive `drama_id`, blank title, and a read-back with a different ID or title. With an injected `requestJson` spy, require the exact list -> import -> read-back call order, dynamic `sameOriginWriteHeaders(port)`, the overall timeout only on import, and the default two-second timeout on ordinary probes. Add source-order assertions proving the dedicated `unpacked-example-import` launch occurs before the other Unpacked migration fixtures.
 
 - [ ] **Step 2: Write failing Gitleaks workflow contract**
 
@@ -257,7 +258,7 @@ Expected: smoke helpers and archive options are missing.
 
 - [ ] **Step 4: Implement the actual Unpacked import**
 
-Allow `requestHttp` to use `options.timeoutMs || 2000`. `verifyBundledExampleImport` must list examples, import the authoritative filename with the dynamic same-origin headers and `timeoutMs: timeoutMs`, then read `/api/v1/dramas/<id>` and compare identifier and title. Add a dedicated isolated launch:
+Allow `requestHttp` to use `options.timeoutMs || 2000`. Inside `verifyBundledExampleImport`, set `const importTimeoutMs = runtime.importTimeoutMs ?? timeoutMs`; list examples, import the authoritative filename with the dynamic same-origin headers and `timeoutMs: importTimeoutMs`, then read `/api/v1/dramas/<id>` and compare identifier and title. Add a dedicated isolated launch:
 
 ```js
 await launchAndProbe(
@@ -289,3 +290,34 @@ Expected: all contract tests pass. The actual `npm --prefix desktop run smoke:wi
 git add -- desktop/scripts/smoke-windows.js desktop/test/smoke-windows.test.js .github/workflows/windows-release-security.yml scripts/release-contract.test.cjs
 git commit -m "test: import bundled example in desktop smoke"
 ```
+
+---
+
+### Task 4: Hydrated Windows Release Acceptance
+
+**Files:**
+- Verify only: hydrated source checkout, `desktop/release`, extracted artifact scan inventory, and desktop smoke logs.
+
+**Interfaces:**
+- Consumes: the CI `desktop` and release `build-windows` executions, each using a clean checkout with `lfs: true`, pinned Node.js 20, trusted FFmpeg tools, and final source SHA.
+- Produces: source object proof, three packaged object proofs, one real Unpacked import, and bounded artifact Gitleaks evidence.
+
+- [ ] **Step 1: Verify both authorized hydrated-source gates**
+
+Require both authorized Windows jobs to record successful `git lfs fsck` and `npm run verify:example-drama` after Node 20 setup. Require the exact `82156132` bytes and authoritative SHA-256. Do not add a third generic source-gate invocation.
+
+- [ ] **Step 2: Build all Windows artifacts**
+
+Run `npm run verify:release:windows` with trusted `FFMPEG_PATH` and `FFPROBE_PATH`. Require Setup, Portable, and Unpacked artifacts from the final source SHA.
+
+- [ ] **Step 3: Verify and scan all extracted artifacts**
+
+Run `npm --prefix desktop run prepare:artifact-scan`. Require the inventory to contain three exact physical example descriptors. Run the pinned Windows Gitleaks command with depth 1 and 256 MB target limit, then Defender and the remaining release security gates.
+
+- [ ] **Step 4: Verify the real import smoke**
+
+Require the Unpacked smoke log to show list, import, positive `drama_id`, and read-back success for `衣服设计天才302.zip`, with no Provider request and complete process cleanup.
+
+- [ ] **Step 5: Retain final evidence**
+
+Require source SHA, source object digest, all three inventory descriptors, smoke result, Gitleaks version/options, and artifact hashes to bind to the same release candidate before Task 4 is accepted.

@@ -41,7 +41,7 @@ The checkpoint script creates `data.zip`, computes its hash, and invokes:
 npm run verify:rollback -- --archive <checkpoint/data.zip> --data-root <inspected-bind-source>
 ```
 
-It accepts only a clean v3 checkpoint-bound PASS for the captured commit and version. Before writing metadata it requires:
+It accepts only a clean v3 checkpoint-bound record whose case-sensitive `status` is exactly `passed` for the captured commit and version. Before writing metadata it requires:
 
 - the summary archive hash equals the checkpoint `backup_sha256`;
 - `archive_retained` is true and `data.zip` still exists with the same hash;
@@ -57,6 +57,7 @@ The restore script accepts v5 only. Before loading/tagging rollback images, stop
 
 - every retained checkpoint file and existing hash contract;
 - v3 schema, `checkpoint-bound` mode, clean commit and version binding;
+- case-sensitive `status: passed` with an actual JSON string value;
 - evidence archive hash equals metadata `backup_sha256` and current `data.zip` hash;
 - evidence data-root digest equals metadata `data_root_sha256`;
 - `archive_retained` and `source_data_root_unchanged` are true;

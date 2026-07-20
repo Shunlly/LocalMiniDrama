@@ -29,7 +29,8 @@
 - Modify: `package.json`
 
 **Interfaces:**
-- Produces: `parseDrillArguments(args)`, `fingerprintDataRoot(root)`, `assertCheckpointInputPaths(options)`, `validateEvidenceV3(evidence, expectedVersion)`, and a runtime-injectable drill executor.
+- Produces: `parseDrillArguments(args)`, `fingerprintDataRoot(root)`, `assertCheckpointInputPaths(options)`, and `validateEvidenceV3(evidence, expectedVersion)`.
+- Produces: `executeRollbackDrill(options, runtime) -> Promise<evidence>`, where `options` is the strict parsed mode object and `runtime` supplies backup, restore, fingerprint, publication, and optional test hooks. It throws before publication on any invalid or changed input.
 - Produces: `localminidrama.rollback-drill.v3` evidence in standalone and checkpoint-bound modes.
 
 - [ ] **Step 1: Write failing strict-CLI tests**
@@ -53,7 +54,7 @@ Require reversed pair order to return the same object. Require unknown, duplicat
 
 - [ ] **Step 2: Write failing fingerprint tests**
 
-Create a temporary tree with files added in different creation orders and require identical digests. Require content, relative path, file length, and entry-type changes to alter the digest. Require a final symlink or symlinked parent to throw; skip only when Windows denies symlink creation.
+Create a temporary tree with files added in different creation orders and require identical digests. Require content, relative path, file length, and entry-type changes to alter the digest. Require a final symlink, symlinked parent, junction/reparse final component, or junction/reparse parent to throw; skip only the fixture that Windows explicitly refuses to create.
 
 The digest must match `/^[a-f0-9]{64}$/` and the implementation must sort normalized `/`-separated relative paths by UTF-8 bytes before hashing framed type/path/length/content data. Add empty-directory and non-ASCII-path cases. Replacing an entry while it is fingerprinted must fail closed rather than returning a digest for mixed identities.
 
@@ -100,7 +101,7 @@ Expected: parser, fingerprint, v3 validator, and bound executor are missing or f
 
 - [ ] **Step 7: Implement strict inputs and path validation**
 
-Parse CLI arguments before preparing evidence. For checkpoint-bound mode require resolved absolute inputs, a real regular archive, a real data-root directory, no symbolic path component, and the archive outside the data root. For standalone mode derive the data root containing `drama_generator.db`, `storage`, and `story_sources` and fail if configured paths do not describe that one root.
+Parse CLI arguments before preparing evidence. For checkpoint-bound mode require resolved absolute inputs, a real regular archive, a real data-root directory, no symbolic-link, junction, mount-point, or other reparse path component, and the archive outside the data root. For standalone mode derive the data root containing `drama_generator.db`, `storage`, and `story_sources` and fail if configured paths do not describe that one root.
 
 - [ ] **Step 8: Implement deterministic tree fingerprinting**
 
@@ -157,6 +158,7 @@ git commit -m "feat: bind rollback drill to retained inputs"
 **Interfaces:**
 - Consumes: v3 checkpoint-bound summary, `data.zip`, and the inspected `/app/data` bind source.
 - Produces: `localminidrama.release-rollback-checkpoint.v5` with `data_root_sha256`.
+- Produces: side-effect-free `Assert-CheckpointDrillEvidence -Summary -ExpectedCommit -ExpectedVersion -ExpectedBackupHash -ActualBackupHash`, returning the validated data-root digest or throwing. Tests invoke only the function definitions before the script's `$repoRoot =` main boundary.
 
 - [ ] **Step 1: Write failing checkpoint contracts**
 
@@ -170,7 +172,7 @@ Invoke-Checked -FilePath 'npm' -ArgumentList @(
 ) -Label 'Rollback drill'
 ```
 
-Require v3, `checkpoint-bound`, `archive_retained = $true`, matching summary/backup hashes, a 64-character lowercase `source.data_root_sha256`, `source_data_root_unchanged = $true`, and `data_root_sha256` in v5 metadata. Add executable tests for a pure `Assert-CheckpointDrillEvidence` function; swapped hashes, uppercase hashes, string booleans, wrong commit/version, v2 schema, and standalone mode must all throw.
+Require case-sensitive `status = 'passed'`, v3, `checkpoint-bound`, `archive_retained = $true`, matching summary/backup hashes, a 64-character lowercase `source.data_root_sha256`, `source_data_root_unchanged = $true`, and `data_root_sha256` in v5 metadata. Add executable tests for the pure validator; `failed`, `PASSED`, swapped hashes, uppercase hashes, string booleans, wrong commit/version, v2 schema, and standalone mode must all throw.
 
 - [ ] **Step 2: Run the checkpoint contract and verify RED**
 
@@ -188,6 +190,7 @@ Capture the application version before validating the summary. After the drill, 
 
 ```text
 summary.schema == localminidrama.rollback-drill.v3
+summary.status == passed
 summary.input_mode == checkpoint-bound
 summary.backup.archive_retained == true
 summary.backup.archive_sha256 == backup_sha256 == current data.zip SHA-256
@@ -226,6 +229,7 @@ git commit -m "feat: bind rollback checkpoint metadata to drill"
 **Interfaces:**
 - Consumes: checkpoint v5 metadata, v3 summary, retained `data.zip`, bind-source evidence, images, compose, and sanitized config.
 - Produces: a restore path that cannot perform a destructive operation with stale or unrelated drill evidence.
+- Produces: side-effect-free `Assert-RollbackEvidenceBinding -Metadata -Summary -ActualBackupHash`, returning no value on success and throwing on any mismatch. Tests invoke only definitions before the `$repoRoot =` main boundary.
 
 - [ ] **Step 1: Write failing restore cross-binding tests**
 
@@ -233,6 +237,7 @@ Require v5/v3 and these exact relationships before `Push-Location $repoRoot` or 
 
 ```text
 summary.input_mode == checkpoint-bound
+summary.status == passed
 summary.backup.archive_retained == true
 summary.backup.archive_sha256 == metadata.backup_sha256
 summary.source.data_root_sha256 == metadata.data_root_sha256
@@ -241,7 +246,7 @@ summary.operations.source_data_root_unchanged == true
 
 Require both hash fields to be lowercase 64-character hexadecimal strings. Keep existing file-hash, bind-source, image-ID, commit, version, config, and credential checks.
 
-Add executable tests for a pure `Assert-RollbackEvidenceBinding` PowerShell function. It must reject v4 metadata, v2 evidence, standalone mode, swapped otherwise-valid summary/archive evidence, uppercase or malformed hashes, string booleans, and a root digest changed on either side. A current live data tree that differs from the old digest must not be an input to this function and must not be rejected solely for content drift.
+Add executable tests for the pure PowerShell function. It must reject `failed` or `PASSED` status, v4 metadata, v2 evidence, standalone mode, swapped otherwise-valid summary/archive evidence, uppercase or malformed hashes, string booleans, and a root digest changed on either side. A current live data tree that differs from the old digest must not be an input to this function and must not be rejected solely for content drift.
 
 - [ ] **Step 2: Assert destructive ordering and verify RED**
 
@@ -358,17 +363,17 @@ git commit -m "docs: enforce rollback v3 in release workflows"
 - Consumes: clean final Git SHA and final Docker images.
 - Produces: one v5 checkpoint, successful restore, and one independent v3 standalone offline drill.
 
-- [ ] **Step 1: Run standalone v3 on a clean commit**
-
-Run `npm run verify:rollback` with Node 20 and require `input_mode: standalone`, `archive_retained: false`, valid archive/data-root digests, `source_data_root_unchanged: true`, and cleanup success.
-
-- [ ] **Step 2: Create a real checkpoint**
+- [ ] **Step 1: Create a real checkpoint**
 
 With Docker using a repository-external `LOCALMINIDRAMA_DATA_DIR`, run `npm run checkpoint:rollback -- -CheckpointDirectory <external-checkpoint>`. Require metadata v5, summary v3 checkpoint-bound, exact three-way archive hashes, exact two-way root digests, retained archive identity, and unchanged source root.
 
-- [ ] **Step 3: Exercise restore and compensation**
+- [ ] **Step 2: Exercise restore and compensation**
 
 Run `npm run restore:rollback -- -CheckpointDirectory <external-checkpoint>`. Require health/readiness success, preserved compensation evidence, and explicit Provider credential reconfiguration warning.
+
+- [ ] **Step 3: Stop Docker and run the offline standalone drill**
+
+Run `docker compose --profile e2e down --remove-orphans` without deleting the external data root, confirm the backend port is closed, then run no-argument `npm run verify:rollback` with Node 20. Require `input_mode: standalone`, `archive_retained: false`, valid archive/data-root digests, `source_data_root_unchanged: true`, workspace cleanup success, and no live service dependency.
 
 - [ ] **Step 4: Re-run release contracts**
 
