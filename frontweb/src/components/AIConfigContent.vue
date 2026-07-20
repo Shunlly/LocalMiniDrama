@@ -1914,6 +1914,10 @@ async function applyRequestedService(serviceType) {
     openAddForService(normalized)
     return
   }
+  if (coverageItem?.targetConfig && !coverageItem.ready && !configWriteLocked.value) {
+    await openEdit(coverageItem.targetConfig, { repairIssue: coverageItem.issue })
+    return
+  }
   await focusServiceConfigs(normalized)
 }
 

@@ -172,6 +172,16 @@ test('project readiness service links are consumed as an AI configuration filter
   assert.match(source, /activeServiceFilter\s*=\s*ref\(normalizeInitialServiceType\(props\.initialServiceType\)\)/)
   assert.match(source, /if \(activeServiceFilter\.value\) await applyRequestedService\(activeServiceFilter\.value\)/)
   assert.match(source, /openAddForService\(normalized\)/)
+  assert.match(source, /coverageItem\?\.targetConfig\s*&&\s*!coverageItem\.ready/)
+  assert.match(source, /await openEdit\(coverageItem\.targetConfig, \{ repairIssue: coverageItem\.issue \}\)/)
+  assert.ok(
+    source.indexOf('shouldAutoOpenRequestedService(coverageItem)')
+      < source.indexOf('coverageItem?.targetConfig && !coverageItem.ready'),
+  )
+  assert.ok(
+    source.indexOf('coverageItem?.targetConfig && !coverageItem.ready')
+      < source.indexOf('await focusServiceConfigs(normalized)'),
+  )
 })
 
 test('ComfyUI configuration exposes a validated workflow editor and persists the parsed object', () => {
