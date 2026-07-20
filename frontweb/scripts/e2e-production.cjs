@@ -2615,20 +2615,58 @@ async function waitForAcceptanceCaptureReadiness(page, capture, fixture = {}) {
       })
       return JSON.stringify(records) === JSON.stringify(coverage)
     }
+    if (surface === 'project-list') {
+      return isVisible(document.querySelector('.film-list'))
+        && isVisible(document.querySelector('.projects-wrap[aria-busy="false"]'))
+        && isVisible(document.querySelector('.project-grid'))
+    }
+    if (surface === 'media-library') {
+      return isVisible(document.querySelector('.media-library-page'))
+        && isVisible(document.querySelector('.media-grid[aria-busy="false"]'))
+        && (isVisible(document.querySelector('.media-card')) || isVisible(document.querySelector('.empty-media')))
+        && !document.querySelector('.data-load-state')
+    }
+    if (surface === 'drama-canvas') {
+      return isVisible(document.querySelector('.drama-canvas-page'))
+        && isVisible(document.querySelector('.canvas-shell'))
+        && (isVisible(document.querySelector('.vue-flow-canvas')) || isVisible(document.querySelector('.canvas-start-state')))
+    }
+    if (surface === 'free-create') {
+      return isVisible(document.querySelector('.free-create-page'))
+        && isVisible(document.querySelector('.input-panel'))
+        && isVisible(document.querySelector('.service-readiness:not(.is-loading)'))
+    }
     return false
   }, { surface: capture.surface, expectedConfigNames, expectedCoverage }, { timeout: 30000 })
   if (capture.surface === 'ai-config-coverage') await waitForCoverageCardMatrix(page)
 }
 
-async function prepareAcceptanceCaptureSurface(page, capture, fixture) {
+function acceptanceCaptureUrl(capture, fixture) {
   const episodeId = fixture.completedDrama.episodes[0].id
+  const urls = {
+    'project-readiness': `${FRONTEND_URL}/drama/${fixture.dramaId}#source-intake-workflow`,
+    'film-pipeline': `${FRONTEND_URL}/film/${fixture.dramaId}?episode=${episodeId}`,
+    'ai-config-management': `${FRONTEND_URL}/film/${fixture.dramaId}?episode=${episodeId}`,
+    'ai-config-coverage': `${FRONTEND_URL}/film/${fixture.dramaId}?episode=${episodeId}`,
+    'project-list': `${FRONTEND_URL}/`,
+    'media-library': `${FRONTEND_URL}/media-library`,
+    'drama-canvas': `${FRONTEND_URL}/film/${fixture.dramaId}/canvas?episode=${episodeId}`,
+    'free-create': `${FRONTEND_URL}/free-create`,
+  }
+  assert.ok(urls[capture.surface], `unknown acceptance capture surface ${capture.surface}`)
+  return urls[capture.surface]
+}
+
+async function prepareAcceptanceCaptureSurface(page, capture, fixture) {
   fixture.routes.state.includeUiCreated = capture.surface === 'ai-config-management'
-  const targetUrl = capture.surface === 'project-readiness'
-    ? `${FRONTEND_URL}/drama/${fixture.dramaId}#source-intake-workflow`
-    : `${FRONTEND_URL}/film/${fixture.dramaId}?episode=${episodeId}`
-  await page.goto(targetUrl, { waitUntil: 'domcontentloaded' })
-  const workspaceDialog = page.locator('.ai-config-workspace-dialog')
-  await workspaceDialog.waitFor({ state: 'hidden', timeout: 30000 })
+  const focusedSurface = ['project-readiness', 'film-pipeline', 'ai-config-management', 'ai-config-coverage']
+    .includes(capture.surface)
+  await page.goto(acceptanceCaptureUrl(capture, fixture), { waitUntil: 'domcontentloaded' })
+  let workspaceDialog
+  if (focusedSurface) {
+    workspaceDialog = page.locator('.ai-config-workspace-dialog')
+    await workspaceDialog.waitFor({ state: 'hidden', timeout: 30000 })
+  }
   await setEvidenceTheme(page, capture.theme)
 
   if (capture.surface === 'project-readiness') {
@@ -2636,7 +2674,7 @@ async function prepareAcceptanceCaptureSurface(page, capture, fixture) {
     await toggle.waitFor({ state: 'visible', timeout: 30000 })
     if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
     await page.getByTestId('project-readiness-details').waitFor({ state: 'visible', timeout: 10000 })
-  } else {
+  } else if (focusedSurface) {
     await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
     await page.locator('[data-testid="film-pipeline-summary"][data-state="ready"]').waitFor({ state: 'visible', timeout: 30000 })
     if (capture.surface !== 'film-pipeline') {

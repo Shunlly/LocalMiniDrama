@@ -1379,6 +1379,21 @@ test('acceptance capture preparation waits for mask-free expected surface state'
   assert.match(readiness, /fixture\.uiConfigName/)
   assert.match(readiness, /fixture\.expectedConfigNames/)
   assert.match(readiness, /waitForCoverageCardMatrix/)
+  assert.match(readiness, /project-list/)
+  assert.match(readiness, /film-list/)
+  assert.match(readiness, /projects-wrap\[aria-busy="false"\]/)
+  assert.match(readiness, /media-library/)
+  assert.match(readiness, /media-grid\[aria-busy="false"\]/)
+  assert.match(readiness, /data-load-state/)
+  assert.match(readiness, /drama-canvas/)
+  assert.match(readiness, /vue-flow-canvas/)
+  assert.match(readiness, /free-create/)
+  assert.match(readiness, /service-readiness/)
+
+  assert.match(productionSource, /'project-list': `\$\{FRONTEND_URL\}\/`/)
+  assert.match(productionSource, /'media-library': `\$\{FRONTEND_URL\}\/media-library`/)
+  assert.match(productionSource, /'drama-canvas': `\$\{FRONTEND_URL\}\/film\/\$\{fixture\.dramaId\}\/canvas\?episode=\$\{episodeId\}`/)
+  assert.match(productionSource, /'free-create': `\$\{FRONTEND_URL\}\/free-create`/)
 
   const captures = sourceFunction('captureAcceptanceReportScreenshots')
   assertSourceOrder(captures, [
@@ -1451,6 +1466,18 @@ function createCaptureReadinessPage({
     '[data-testid="project-readiness-details"]': visible(),
     '.film-create': visible(),
     '[data-testid="film-pipeline-summary"][data-state="ready"]': filmReady ? visible() : null,
+    '.film-list': visible(),
+    '.projects-wrap[aria-busy="false"]': visible(),
+    '.project-grid': visible(),
+    '.media-library-page': visible(),
+    '.media-grid[aria-busy="false"]': visible(),
+    '.empty-media': visible(),
+    '.drama-canvas-page': visible(),
+    '.canvas-shell': visible(),
+    '.vue-flow-canvas': visible(),
+    '.free-create-page': visible(),
+    '.input-panel': visible(),
+    '.service-readiness:not(.is-loading)': visible(),
   }
   const cell = (textContent = '') => ({
     ...visible(textContent),
@@ -1642,6 +1669,22 @@ test('project readiness capture waits for all fixed summary and service items', 
     { surface: 'project-readiness' },
     {},
   )
+})
+
+test('project list screenshot readiness waits for the populated project list', async () => {
+  await waitForAcceptanceCaptureReadiness(createCaptureReadinessPage(), { surface: 'project-list' }, {})
+})
+
+test('media library screenshot readiness waits for the settled empty library', async () => {
+  await waitForAcceptanceCaptureReadiness(createCaptureReadinessPage(), { surface: 'media-library' }, {})
+})
+
+test('drama canvas screenshot readiness waits for the canvas surface', async () => {
+  await waitForAcceptanceCaptureReadiness(createCaptureReadinessPage(), { surface: 'drama-canvas' }, {})
+})
+
+test('free create screenshot readiness waits for the idle service state', async () => {
+  await waitForAcceptanceCaptureReadiness(createCaptureReadinessPage(), { surface: 'free-create' }, {})
 })
 
 test('focused AI create route registers ownership and list visibility before fulfilling', async () => {

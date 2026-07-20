@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { deflateSync } from 'node:zlib'
 
 const require = createRequire(import.meta.url)
@@ -31,6 +32,7 @@ const {
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 const REPORT_RELATIVE_PATH = 'frontweb/public/reports/product-acceptance/report.html'
 const NOTES_RELATIVE_PATH = 'docs/ui-refresh-20260718.md'
+const verificationCliPath = fileURLToPath(new URL('../scripts/verify-acceptance-report.cjs', import.meta.url))
 const acceptanceReportSource = readFileSync(new URL('../public/reports/product-acceptance/report.html', import.meta.url), 'utf8')
 
 function crc32(buffer) {
@@ -290,7 +292,7 @@ test('contract exposes the deterministic verifier API and exact final capture ma
   assert.equal(typeof verifyTrackedReport, 'function')
   assert.equal(typeof verifyFinalEvidence, 'function')
   assert.equal(typeof formatFailures, 'function')
-  assert.equal(REQUIRED_FINAL_CAPTURES.length, 20)
+  assert.equal(REQUIRED_FINAL_CAPTURES.length, 28)
   assert.deepEqual(
     REQUIRED_FINAL_CAPTURES.map(({ surface, width, height, theme }) => `${surface}:${width}x${height}:${theme}`),
     [
@@ -314,6 +316,14 @@ test('contract exposes the deterministic verifier API and exact final capture ma
       'ai-config-management:1440x900:dark',
       'ai-config-coverage:1024x768:light',
       'ai-config-coverage:1024x768:dark',
+      'project-list:1280x720:light',
+      'project-list:1280x720:dark',
+      'media-library:1280x720:light',
+      'media-library:1280x720:dark',
+      'drama-canvas:1280x720:light',
+      'drama-canvas:1280x720:dark',
+      'free-create:1280x720:light',
+      'free-create:1280x720:dark',
     ],
   )
 })
@@ -519,7 +529,7 @@ test('tracked report labels every screenshot and historical run statement as ill
   assert.doesNotMatch(acceptanceReportSource, /截图证明|均无横向溢出|播放到 ended|干净提交生产 E2E 已|本轮实际运行/)
 })
 
-test('final verification accepts exactly 20 ignored and untracked captures from a clean full commit', () => {
+test('final verification accepts exactly 28 ignored and untracked captures from a clean full commit', () => {
   withTempDir('arv-final-pass-', (root) => {
     const fixture = writeFinalFixture(root)
     const firstPath = path.join(fixture.screenshotRoot, `${REQUIRED_FINAL_CAPTURES[0].id}.png`)
@@ -530,7 +540,7 @@ test('final verification accepts exactly 20 ignored and untracked captures from 
       repoRoot: root,
       evidenceRoot: fixture.evidenceRoot,
       expectedCommit: fixture.commit,
-    }), { commit: fixture.commit, screenshots: 20 })
+    }), { commit: fixture.commit, screenshots: 28 })
   })
 })
 
@@ -549,7 +559,7 @@ test('final verification accepts canonical workflow UUIDs without treating their
       repoRoot: root,
       evidenceRoot: fixture.evidenceRoot,
       expectedCommit: fixture.commit,
-    }), { commit: fixture.commit, screenshots: 20 })
+    }), { commit: fixture.commit, screenshots: 28 })
   })
 })
 
@@ -855,10 +865,10 @@ test('CLI supports tracked mode and resolves final commit from the temporary Git
   withTempDir('arv-cli-tracked-', (root) => {
     createTrackedFixture(root)
     const result = spawnSync(process.execPath, [
-      path.resolve('scripts/verify-acceptance-report.cjs'),
+      verificationCliPath,
       '--mode=tracked',
       '--repo-root', root,
-    ], { cwd: path.resolve('.'), encoding: 'utf8' })
+    ], { cwd: path.dirname(verificationCliPath), encoding: 'utf8' })
     assert.equal(result.status, 0, result.stderr)
     assert.deepEqual(JSON.parse(result.stdout), {
       status: 'passed',
@@ -871,17 +881,17 @@ test('CLI supports tracked mode and resolves final commit from the temporary Git
   withTempDir('arv-cli-final-', (root) => {
     const fixture = writeFinalFixture(root)
     const result = spawnSync(process.execPath, [
-      path.resolve('scripts/verify-acceptance-report.cjs'),
+      verificationCliPath,
       '--mode=final',
       '--repo-root', root,
       '--evidence-root', fixture.evidenceRoot,
-    ], { cwd: path.resolve('.'), encoding: 'utf8', env: { ...process.env, LOCALMINIDRAMA_BUILD_REVISION: '' } })
+    ], { cwd: path.dirname(verificationCliPath), encoding: 'utf8', env: { ...process.env, LOCALMINIDRAMA_BUILD_REVISION: '' } })
     assert.equal(result.status, 0, result.stderr)
     assert.deepEqual(JSON.parse(result.stdout), {
       status: 'passed',
       mode: 'final',
       commit: fixture.commit,
-      screenshots: 20,
+      screenshots: 28,
     })
   })
 })

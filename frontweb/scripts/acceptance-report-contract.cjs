@@ -15,6 +15,10 @@ const REQUIRED_FINAL_CAPTURES = Object.freeze([
   ...captureMatrix('film-pipeline', [[1280, 720], [1366, 768], [1440, 900]]),
   ...captureMatrix('ai-config-management', [[1280, 720], [1366, 768], [1440, 900]]),
   ...captureMatrix('ai-config-coverage', [[1024, 768]]),
+  ...captureMatrix('project-list', [[1280, 720]]),
+  ...captureMatrix('media-library', [[1280, 720]]),
+  ...captureMatrix('drama-canvas', [[1280, 720]]),
+  ...captureMatrix('free-create', [[1280, 720]]),
 ])
 
 function captureMatrix(surface, viewports) {
