@@ -1,6 +1,250 @@
 import { assetImageUrl, isPlaceholderMediaUrl } from './mediaUrl.js'
 import { parseDramaMetadata } from './canvasLayout.js'
 
+const STORYBOARD_MEDIA_ENDPOINTS = ['images', 'videos']
+const STORYBOARD_MEDIA_STATE_ERROR = 'STORYBOARD_MEDIA_NOT_READY'
+
+function normalizeMediaContext(context = {}) {
+  const normalizeId = (value) => {
+    if (value == null || value === '') return null
+    const numeric = Number(value)
+    return Number.isFinite(numeric) ? numeric : value
+  }
+  return {
+    projectId: normalizeId(context.projectId),
+    episodeId: normalizeId(context.episodeId),
+  }
+}
+
+function normalizeStoryboardId(value) {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : value
+}
+
+function sameMediaContext(left, right) {
+  const normalizedLeft = normalizeMediaContext(left)
+  const normalizedRight = normalizeMediaContext(right)
+  return normalizedLeft.projectId === normalizedRight.projectId
+    && normalizedLeft.episodeId === normalizedRight.episodeId
+}
+
+function endpointKey(storyboardId, endpoint) {
+  return `${endpoint}:${String(storyboardId)}`
+}
+
+function sortedEndpointRecords(keys, records) {
+  const endpointOrder = new Map(STORYBOARD_MEDIA_ENDPOINTS.map((endpoint, index) => [endpoint, index]))
+  return [...keys]
+    .map((key) => records.get(key))
+    .filter(Boolean)
+    .sort((left, right) => {
+      const leftId = Number(left.storyboardId)
+      const rightId = Number(right.storyboardId)
+      if (Number.isFinite(leftId) && Number.isFinite(rightId) && leftId !== rightId) {
+        return leftId - rightId
+      }
+      const idComparison = String(left.storyboardId).localeCompare(String(right.storyboardId))
+      if (idComparison !== 0) return idComparison
+      return endpointOrder.get(left.endpoint) - endpointOrder.get(right.endpoint)
+    })
+    .map(({ storyboardId, endpoint }) => ({ storyboardId, endpoint }))
+}
+
+function createStoryboardMediaStateError(message) {
+  const error = new Error(message)
+  error.code = STORYBOARD_MEDIA_STATE_ERROR
+  return error
+}
+
+export function isStoryboardMediaStateError(error) {
+  return error?.code === STORYBOARD_MEDIA_STATE_ERROR
+}
+
+export function createStoryboardMediaStateController({ onChange = () => {} } = {}) {
+  let context = normalizeMediaContext()
+  let contextGeneration = 0
+  let requestGeneration = 0
+  let initialized = false
+  let media = { images: {}, videos: {} }
+  let endpointRecords = new Map()
+  let latestRequests = new Map()
+  let pendingEndpoints = new Set()
+  let failedEndpoints = new Set()
+
+  function status() {
+    if (pendingEndpoints.size > 0) return 'loading'
+    if (failedEndpoints.size > 0) return 'error'
+    return initialized ? 'ready' : 'unknown'
+  }
+
+  function getSnapshot() {
+    return {
+      context: { ...context },
+      status: status(),
+      initialized,
+      media: {
+        images: { ...media.images },
+        videos: { ...media.videos },
+      },
+      pendingEndpoints: sortedEndpointRecords(pendingEndpoints, endpointRecords),
+      failedEndpoints: sortedEndpointRecords(failedEndpoints, endpointRecords),
+    }
+  }
+
+  function emitChange() {
+    onChange(getSnapshot())
+  }
+
+  function createRequest(storyboardId, endpoint) {
+    const normalizedStoryboardId = normalizeStoryboardId(storyboardId)
+    const key = endpointKey(normalizedStoryboardId, endpoint)
+    requestGeneration += 1
+    const request = {
+      projectId: context.projectId,
+      episodeId: context.episodeId,
+      storyboardId: normalizedStoryboardId,
+      endpoint,
+      contextGeneration,
+      requestGeneration,
+    }
+    endpointRecords.set(key, { storyboardId: normalizedStoryboardId, endpoint })
+    latestRequests.set(key, requestGeneration)
+    pendingEndpoints.add(key)
+    return request
+  }
+
+  function isCurrentRequest(request) {
+    if (!request || request.contextGeneration !== contextGeneration) return false
+    if (!sameMediaContext(request, context)) return false
+    const key = endpointKey(request.storyboardId, request.endpoint)
+    return latestRequests.get(key) === request.requestGeneration
+  }
+
+  function setContext(nextContext) {
+    contextGeneration += 1
+    context = normalizeMediaContext(nextContext)
+    initialized = false
+    media = { images: {}, videos: {} }
+    endpointRecords = new Map()
+    latestRequests = new Map()
+    pendingEndpoints = new Set()
+    failedEndpoints = new Set()
+    emitChange()
+  }
+
+  function beginFull(storyboardIds = []) {
+    const ids = [...new Set((storyboardIds || []).map(normalizeStoryboardId))]
+    const retainedImages = {}
+    const retainedVideos = {}
+    for (const storyboardId of ids) {
+      if (Object.hasOwn(media.images, storyboardId)) retainedImages[storyboardId] = media.images[storyboardId]
+      if (Object.hasOwn(media.videos, storyboardId)) retainedVideos[storyboardId] = media.videos[storyboardId]
+    }
+    media = { images: retainedImages, videos: retainedVideos }
+
+    const previousFailures = failedEndpoints
+    endpointRecords = new Map()
+    latestRequests = new Map()
+    pendingEndpoints = new Set()
+    failedEndpoints = new Set()
+    initialized = true
+
+    const requests = []
+    for (const storyboardId of ids) {
+      for (const endpoint of STORYBOARD_MEDIA_ENDPOINTS) {
+        const key = endpointKey(storyboardId, endpoint)
+        if (previousFailures.has(key)) failedEndpoints.add(key)
+        requests.push(createRequest(storyboardId, endpoint))
+      }
+    }
+    emitChange()
+    return requests
+  }
+
+  function beginSingle(storyboardId, { expectedContext, storyboardIds } = {}) {
+    const normalizedStoryboardId = normalizeStoryboardId(storyboardId)
+    const allowedStoryboardIds = new Set((storyboardIds || []).map(normalizeStoryboardId))
+    if (
+      storyboardId == null
+      || storyboardId === ''
+      || !sameMediaContext(context, expectedContext)
+      || !allowedStoryboardIds.has(normalizedStoryboardId)
+    ) return []
+    const requests = STORYBOARD_MEDIA_ENDPOINTS.map((endpoint) => (
+      createRequest(normalizedStoryboardId, endpoint)
+    ))
+    emitChange()
+    return requests
+  }
+
+  function commitSuccess(request, items) {
+    if (!isCurrentRequest(request)) return false
+    const key = endpointKey(request.storyboardId, request.endpoint)
+    media = {
+      ...media,
+      [request.endpoint]: {
+        ...media[request.endpoint],
+        [request.storyboardId]: Array.isArray(items) ? items : [],
+      },
+    }
+    pendingEndpoints.delete(key)
+    failedEndpoints.delete(key)
+    emitChange()
+    return true
+  }
+
+  function commitFailure(request) {
+    if (!isCurrentRequest(request)) return false
+    const key = endpointKey(request.storyboardId, request.endpoint)
+    pendingEndpoints.delete(key)
+    failedEndpoints.add(key)
+    emitChange()
+    return true
+  }
+
+  function actionReason(expectedContext = context) {
+    if (!sameMediaContext(context, expectedContext)) {
+      return '分镜图片和视频状态尚未就绪，请先重试加载素材'
+    }
+    const currentStatus = status()
+    if (currentStatus === 'loading') return '正在读取分镜图片和视频，请稍候'
+    if (currentStatus === 'error') return '分镜图片或视频读取失败，请先重试加载素材'
+    if (currentStatus !== 'ready') return '分镜图片和视频状态尚未就绪，请先重试加载素材'
+    return ''
+  }
+
+  function assertReady(expectedContext = context, { required = true } = {}) {
+    if (!required) return true
+    const reason = actionReason(expectedContext)
+    if (reason) throw createStoryboardMediaStateError(reason)
+    return true
+  }
+
+  return {
+    actionReason,
+    assertReady,
+    beginFull,
+    beginSingle,
+    commitFailure,
+    commitSuccess,
+    getSnapshot,
+    isCurrentRequest,
+    isCurrentContext: (expectedContext) => sameMediaContext(context, expectedContext),
+    setContext,
+  }
+}
+
+export async function submitStoryboardVideoAfterAccepted({
+  createVideo,
+  clearSelection = () => {},
+  clearPersistedSelection = () => {},
+} = {}) {
+  const result = await createVideo()
+  clearSelection()
+  await clearPersistedSelection()
+  return result
+}
+
 export function dramaUsesFirstLastFrame(drama) {
   const meta = parseDramaMetadata(drama?.metadata)
   return !!meta.storyboard_use_first_last_frame

@@ -231,13 +231,13 @@
 
     <main v-else class="main">
       <section
-        v-if="projectDependencyWarning"
+        v-if="projectDependencyWarning || storyboardMediaLoadError"
         class="project-dependency-warning"
-        role="status"
+        :role="storyboardMediaLoadError ? 'alert' : 'status'"
         aria-live="polite"
       >
         <el-icon><WarningFilled /></el-icon>
-        <span>{{ projectDependencyWarning }}</span>
+        <span>{{ [storyboardMediaLoadError, projectDependencyWarning].filter(Boolean).join('；') }}</span>
         <el-button size="small" :loading="projectDependencyLoading" @click="retryProjectDependencies">
           <el-icon><Refresh /></el-icon>重试加载素材
         </el-button>
@@ -584,14 +584,17 @@
                       <span v-if="regenSbImagesForAsset.has('char-' + char.id) && regenSbImagesProgress['char-' + char.id]" class="asl-progress">
                         {{ regenSbImagesProgress['char-' + char.id].current }}/{{ regenSbImagesProgress['char-' + char.id].total }}
                       </span>
-                      <el-button
-                        size="small"
-                        class="asl-regen-btn"
-                        :loading="regenSbImagesForAsset.has('char-' + char.id)"
-                        @click="onRegenAffectedSbImages('char-' + char.id, getCharAffectedStoryboards(char.id))"
-                      >
-                        <span v-if="!regenSbImagesForAsset.has('char-' + char.id)">↻ 重新生成分镜图</span>
-                      </el-button>
+                      <ActionGate :reason="storyboardMediaActionReason" label="重新生成关联分镜图">
+                        <el-button
+                          size="small"
+                          class="asl-regen-btn"
+                          :loading="regenSbImagesForAsset.has('char-' + char.id)"
+                          :disabled="Boolean(storyboardMediaActionReason)"
+                          @click="onRegenAffectedSbImages('char-' + char.id, getCharAffectedStoryboards(char.id))"
+                        >
+                          <span v-if="!regenSbImagesForAsset.has('char-' + char.id)">↻ 重新生成分镜图</span>
+                        </el-button>
+                      </ActionGate>
                     </div>
                   </div>
                   <div class="asset-cover-wrap">
@@ -699,14 +702,17 @@
                       <span v-if="regenSbImagesForAsset.has('prop-' + prop.id) && regenSbImagesProgress['prop-' + prop.id]" class="asl-progress">
                         {{ regenSbImagesProgress['prop-' + prop.id].current }}/{{ regenSbImagesProgress['prop-' + prop.id].total }}
                       </span>
-                      <el-button
-                        size="small"
-                        class="asl-regen-btn"
-                        :loading="regenSbImagesForAsset.has('prop-' + prop.id)"
-                        @click="onRegenAffectedSbImages('prop-' + prop.id, getPropAffectedStoryboards(prop.id))"
-                      >
-                        <span v-if="!regenSbImagesForAsset.has('prop-' + prop.id)">↻ 重新生成分镜图</span>
-                      </el-button>
+                      <ActionGate :reason="storyboardMediaActionReason" label="重新生成关联分镜图">
+                        <el-button
+                          size="small"
+                          class="asl-regen-btn"
+                          :loading="regenSbImagesForAsset.has('prop-' + prop.id)"
+                          :disabled="Boolean(storyboardMediaActionReason)"
+                          @click="onRegenAffectedSbImages('prop-' + prop.id, getPropAffectedStoryboards(prop.id))"
+                        >
+                          <span v-if="!regenSbImagesForAsset.has('prop-' + prop.id)">↻ 重新生成分镜图</span>
+                        </el-button>
+                      </ActionGate>
                     </div>
                   </div>
                   <div class="asset-cover-wrap">
@@ -817,14 +823,17 @@
                       <span v-if="regenSbImagesForAsset.has('scene-' + scene.id) && regenSbImagesProgress['scene-' + scene.id]" class="asl-progress">
                         {{ regenSbImagesProgress['scene-' + scene.id].current }}/{{ regenSbImagesProgress['scene-' + scene.id].total }}
                       </span>
-                      <el-button
-                        size="small"
-                        class="asl-regen-btn"
-                        :loading="regenSbImagesForAsset.has('scene-' + scene.id)"
-                        @click="onRegenAffectedSbImages('scene-' + scene.id, getSceneAffectedStoryboards(scene.id))"
-                      >
-                        <span v-if="!regenSbImagesForAsset.has('scene-' + scene.id)">↻ 重新生成分镜图</span>
-                      </el-button>
+                      <ActionGate :reason="storyboardMediaActionReason" label="重新生成关联分镜图">
+                        <el-button
+                          size="small"
+                          class="asl-regen-btn"
+                          :loading="regenSbImagesForAsset.has('scene-' + scene.id)"
+                          :disabled="Boolean(storyboardMediaActionReason)"
+                          @click="onRegenAffectedSbImages('scene-' + scene.id, getSceneAffectedStoryboards(scene.id))"
+                        >
+                          <span v-if="!regenSbImagesForAsset.has('scene-' + scene.id)">↻ 重新生成分镜图</span>
+                        </el-button>
+                      </ActionGate>
                     </div>
                   </div>
                   <div class="asset-cover-wrap">
@@ -2951,7 +2960,13 @@ import {
 } from '@/utils/scriptDraft'
 import { createLatestRequestGuard } from '@/utils/latestRequest.js'
 import { isPlaceholderMediaUrl, probeImageSource, storyboardImageUrl } from '@/utils/mediaUrl'
-import { getSbImagesList, hasRealMediaValue } from '@/utils/storyboardMedia'
+import {
+  createStoryboardMediaStateController,
+  getSbImagesList,
+  hasRealMediaValue,
+  isStoryboardMediaStateError,
+  submitStoryboardVideoAfterAccepted,
+} from '@/utils/storyboardMedia'
 import {
   buildStoryboardVideoRequest,
   collectStoryboardReferenceSlots,
@@ -3612,6 +3627,7 @@ const pipelineStepIndex = ref(0)    // 当前步骤序号（1-based）
 const pipelineStepTotal = ref(10)
 const pipelineOwnedTaskIds = new Set()
 let activePipelineRunPromise = null
+let pipelineRequiresStoryboardMedia = false
 const pipelinePauseGate = createPipelinePauseGate({
   isPaused: () => pipelinePaused.value,
   isAborted: () => pipelineAbortRequested.value,
@@ -4046,6 +4062,72 @@ const sbVideoReferenceImageId = ref({})
 const sbImages = ref({})
 const sbVideos = ref({})
 const sbVideoErrors = ref({})
+const storyboardMediaLoadState = ref('unknown')
+const storyboardMediaLoadError = ref('')
+
+function currentStoryboardMediaContext(projectId = dramaId.value, episodeId = currentEpisodeId.value) {
+  return { projectId, episodeId }
+}
+
+function applyStoryboardMediaSnapshot(snapshot) {
+  sbImages.value = snapshot.media.images
+  sbVideos.value = snapshot.media.videos
+  storyboardMediaLoadState.value = snapshot.status
+  const failedStoryboardCount = new Set(
+    snapshot.failedEndpoints.map(({ storyboardId }) => storyboardId),
+  ).size
+  storyboardMediaLoadError.value = failedStoryboardCount > 0
+    ? describeStoryboardMediaLoadError(failedStoryboardCount)
+    : ''
+}
+
+const storyboardMediaStateController = createStoryboardMediaStateController({
+  onChange: applyStoryboardMediaSnapshot,
+})
+
+function resetStoryboardMediaContext(
+  projectId = dramaId.value,
+  episodeId = currentEpisodeId.value,
+) {
+  storyboardMediaStateController.setContext(currentStoryboardMediaContext(projectId, episodeId))
+}
+
+function ensureStoryboardMediaContext(
+  projectId = dramaId.value,
+  episodeId = currentEpisodeId.value,
+) {
+  const context = currentStoryboardMediaContext(projectId, episodeId)
+  if (!storyboardMediaStateController.isCurrentContext(context)) {
+    storyboardMediaStateController.setContext(context)
+  }
+}
+
+function assertStoryboardMediaReady() {
+  return storyboardMediaStateController.assertReady(currentStoryboardMediaContext())
+}
+
+function currentEpisodeStoryboardIds() {
+  const episodeId = currentEpisodeId.value
+  return (store.storyboards || [])
+    .filter((storyboard) => (
+      storyboard?.episode_id == null || Number(storyboard.episode_id) === Number(episodeId)
+    ))
+    .map((storyboard) => storyboard.id)
+}
+
+function captureStoryboardMediaRefresh(storyboardId, expectedContext = currentStoryboardMediaContext()) {
+  const capturedContext = { ...expectedContext }
+  return () => loadSingleStoryboardMedia(storyboardId, capturedContext)
+}
+
+function refreshStoryboardMediaForCurrentContext(storyboardId) {
+  return loadSingleStoryboardMedia(storyboardId, currentStoryboardMediaContext())
+}
+
+function captureDramaRefresh(expectedContext = currentStoryboardMediaContext()) {
+  const capturedContext = { ...expectedContext }
+  return () => loadDrama({ expectedContext: capturedContext })
+}
 const generatingSbImageIds = reactive(new Set())
 const generatingSbVideoIds = reactive(new Set())
 const generatingUniversalSegmentIds = reactive(new Set())
@@ -4068,6 +4150,10 @@ const batchVideoRunning = ref(false)
 const batchVideoStopping = ref(false)
 const batchVideoProgress = ref({ current: 0, total: 0, failed: 0 })
 const batchVideoErrors = ref([])
+const storyboardMediaActionReason = computed(() => {
+  storyboardMediaLoadState.value
+  return storyboardMediaStateController.actionReason(currentStoryboardMediaContext())
+})
 const projectActionDisabledReason = computed(() => projectResourceDisabledReason({
   hasProject: Boolean(dramaId.value),
 }))
@@ -4094,21 +4180,25 @@ const pipelineActionDisabledReason = computed(() => pipelineDisabledReason({
   pipelineRunning: pipelineRunning.value,
 }))
 const productionPipelineActionDisabledReason = computed(() => (
-  pipelineActionDisabledReason.value || productionReadinessReason.value
+  pipelineActionDisabledReason.value
+  || storyboardMediaActionReason.value
+  || productionReadinessReason.value
 ))
 const storyboardActionDisabledReason = computed(() => storyboardDisabledReason({
   hasEpisode: Boolean(currentEpisodeId.value),
   storyboardGenerating: storyboardGenerating.value,
   omniPolishing: universalOmniPolishRunning.value,
 }))
-const batchActionDisabledReason = computed(() => batchGenerationDisabledReason({
-  hasEpisode: Boolean(currentEpisodeId.value),
-  pipelineRunning: pipelineRunning.value,
-  storyboardGenerating: storyboardGenerating.value,
-  omniPolishing: universalOmniPolishRunning.value,
-  batchImageRunning: batchImageRunning.value,
-  batchVideoRunning: batchVideoRunning.value,
-}))
+const batchActionDisabledReason = computed(() => (
+  storyboardMediaActionReason.value || batchGenerationDisabledReason({
+    hasEpisode: Boolean(currentEpisodeId.value),
+    pipelineRunning: pipelineRunning.value,
+    storyboardGenerating: storyboardGenerating.value,
+    omniPolishing: universalOmniPolishRunning.value,
+    batchImageRunning: batchImageRunning.value,
+    batchVideoRunning: batchVideoRunning.value,
+  })
+))
 const batchVideoActionDisabledReason = computed(() => (
   batchActionDisabledReason.value || videoCapabilityReason.value
 ))
@@ -4741,37 +4831,45 @@ function getSbVideoError(storyboardId) {
   return userFacingVideoGenerationError(failed[0].error_msg)
 }
 
-async function loadStoryboardMedia() {
+function describeStoryboardMediaLoadError(failedCount = 1) {
+  const count = Math.max(1, Number(failedCount) || 1)
+  return `${count} 个分镜的图片或视频读取失败，已保留上次成功读取的内容。重试成功前，为避免重复生成和计费，批量与完整成片已暂停。`
+}
+
+async function loadStoryboardMedia({ failClosed = false } = {}) {
   const boards = store.storyboards || []
-  if (boards.length === 0) {
-    sbImages.value = {}
-    sbVideos.value = {}
-    return { failedCount: 0, total: 0 }
-  }
-  const nextImages = { ...sbImages.value }
-  const nextVideos = { ...sbVideos.value }
-  let failedCount = 0
-  await Promise.all(
-    boards.map(async (sb) => {
-      try {
-        const [imgRes, vidRes] = await Promise.all([
-          imagesAPI.list({ storyboard_id: sb.id, page: 1, page_size: 100 }),
-          videosAPI.list({ storyboard_id: sb.id, page: 1, page_size: 50 })
-        ])
-        nextImages[sb.id] = (imgRes && imgRes.items) ? imgRes.items : []
-        nextVideos[sb.id] = (vidRes && vidRes.items) ? vidRes.items : []
-      } catch (_) {
-        failedCount += 1
-        nextImages[sb.id] = []
-        nextVideos[sb.id] = []
+  const context = currentStoryboardMediaContext()
+  const requests = storyboardMediaStateController.beginFull(boards.map((sb) => sb.id))
+  const outcomes = await Promise.all(requests.map(async (request) => {
+    try {
+      const response = request.endpoint === 'images'
+        ? await imagesAPI.list({ storyboard_id: request.storyboardId, page: 1, page_size: 100 })
+        : await videosAPI.list({ storyboard_id: request.storyboardId, page: 1, page_size: 50 })
+      return {
+        request,
+        failed: false,
+        committed: storyboardMediaStateController.commitSuccess(request, response?.items || []),
       }
-    })
+    } catch (error) {
+      return {
+        request,
+        failed: true,
+        committed: storyboardMediaStateController.commitFailure(request, error),
+      }
+    }
+  }))
+  const committedOutcomes = outcomes.filter(({ committed }) => committed)
+  const failedStoryboardIds = new Set(
+    committedOutcomes.filter(({ failed }) => failed).map(({ request }) => request.storyboardId),
   )
-  sbImages.value = nextImages
-  sbVideos.value = nextVideos
-  // 从后端恢复主图选择
-  restoreSelectionsFromBackend()
-  return { failedCount, total: boards.length }
+  let failedCount = 0
+  for (const _storyboardId of failedStoryboardIds) failedCount += 1
+  const stale = committedOutcomes.length !== outcomes.length
+  if (committedOutcomes.length > 0 && storyboardMediaStateController.isCurrentContext(context)) {
+    restoreSelectionsFromBackend()
+  }
+  if (failClosed) assertStoryboardMediaReady()
+  return { failedCount, total: boards.length, stale }
 }
 
 function getGeneratingSetsBag() {
@@ -4819,12 +4917,13 @@ async function recoverAndSyncEpisodeTasks(epId) {
   const eid = epId ?? currentEpisodeId.value
   if (!did || !eid) return
   const ctx = buildEpisodeContext(store, did, eid)
+  const mediaContext = currentStoryboardMediaContext(did, eid)
   await genStore.recoverPendingForEpisode({
     ...ctx,
     ElMessage,
     callbacks: {
-      onStoryboardMedia: (sbId) => loadSingleStoryboardMedia(sbId),
-      onDramaRefresh: () => loadDrama(),
+      onStoryboardMedia: (sbId) => loadSingleStoryboardMedia(sbId, mediaContext),
+      onDramaRefresh: captureDramaRefresh(mediaContext),
       onEpisodeMergeComplete: () => {
         store.setVideoStatus('done', did, eid)
         store.setVideoProgress(100, did, eid)
@@ -4845,24 +4944,41 @@ async function recoverAndSyncEpisodeTasks(epId) {
 }
 
 /** 只刷新单条分镜的图片/视频，避免每次单图操作都全量请求所有分镜 */
-async function loadSingleStoryboardMedia(sbId) {
-  if (!sbId) return
-  try {
-    const [imgRes, vidRes] = await Promise.all([
-      imagesAPI.list({ storyboard_id: sbId, page: 1, page_size: 100 }),
-      videosAPI.list({ storyboard_id: sbId, page: 1, page_size: 50 })
-    ])
-    sbImages.value = {
-      ...sbImages.value,
-      [sbId]: (imgRes && imgRes.items) ? imgRes.items : []
+async function loadSingleStoryboardMedia(sbId, expectedContext) {
+  if (!sbId || !expectedContext) return { stale: true }
+  if (!storyboardMediaStateController.isCurrentContext(expectedContext)) return { stale: true }
+  const storyboardIds = currentEpisodeStoryboardIds()
+  if (!storyboardIds.some((storyboardId) => Number(storyboardId) === Number(sbId))) {
+    return { stale: true }
+  }
+  const requests = storyboardMediaStateController.beginSingle(sbId, {
+    expectedContext,
+    storyboardIds,
+  })
+  if (requests.length === 0) return { stale: true }
+  const outcomes = await Promise.all(requests.map(async (request) => {
+    try {
+      const response = request.endpoint === 'images'
+        ? await imagesAPI.list({ storyboard_id: request.storyboardId, page: 1, page_size: 100 })
+        : await videosAPI.list({ storyboard_id: request.storyboardId, page: 1, page_size: 50 })
+      return {
+        failed: false,
+        committed: storyboardMediaStateController.commitSuccess(request, response?.items || []),
+      }
+    } catch (error) {
+      return {
+        failed: true,
+        committed: storyboardMediaStateController.commitFailure(request, error),
+      }
     }
-    sbVideos.value = {
-      ...sbVideos.value,
-      [sbId]: (vidRes && vidRes.items) ? vidRes.items : []
-    }
+  }))
+  const committedOutcomes = outcomes.filter(({ committed }) => committed)
+  if (committedOutcomes.length > 0 && storyboardMediaStateController.isCurrentContext(expectedContext)) {
     restoreSelectionsFromBackend()
-  } catch (_) {
-    // 静默忽略，不影响其他分镜的显示
+  }
+  return {
+    failedCount: committedOutcomes.filter(({ failed }) => failed).length,
+    stale: committedOutcomes.length !== outcomes.length,
   }
 }
 
@@ -5038,7 +5154,7 @@ async function onRemoveSbHistoryImage(storyboardId, imageGenId) {
       distinguishCancelAndClose: true,
     })
     await imagesAPI.delete(imageGenId)
-    await loadSingleStoryboardMedia(storyboardId)
+    await refreshStoryboardMediaForCurrentContext(storyboardId)
     ElMessage.success('历史图已删除')
   } catch (err) {
     if (err !== 'cancel' && err !== 'close') {
@@ -5179,6 +5295,10 @@ const showSbFramePromptPreview = openFramePromptEditor
 
 async function onGenerateSbFrameImage(sb, slot) {
   if (!dramaId.value || !sb?.id) return
+  if (storyboardMediaActionReason.value) {
+    ElMessage.warning(storyboardMediaActionReason.value)
+    return
+  }
   const isLast = slot === 'last'
   const loadingSet = isLast ? generatingSbLastImageIds : generatingSbFirstImageIds
   const meta = buildSbGenMeta(
@@ -5227,6 +5347,7 @@ async function onGenerateSbFrameImage(sb, slot) {
         }
       }
     }
+    assertStoryboardMediaReady()
     const res = await imagesAPI.create({
       storyboard_id: sb.id,
       drama_id: dramaId.value,
@@ -5240,7 +5361,7 @@ async function onGenerateSbFrameImage(sb, slot) {
     })
     ElMessage.success(isLast ? '尾帧生成任务已提交' : '首帧生成任务已提交')
     if (res?.task_id) {
-      const pollRes = await pollTask(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
+      const pollRes = await pollTask(res.task_id, captureStoryboardMediaRefresh(sb.id), meta)
       if (pollRes?.status === 'failed') {
         sb.errorMsg = pollRes.error || '生成失败'
       } else if (pollRes?.status !== 'completed') {
@@ -5260,7 +5381,7 @@ async function onGenerateSbFrameImage(sb, slot) {
         }
       }
     } else {
-      await loadSingleStoryboardMedia(sb.id)
+      await refreshStoryboardMediaForCurrentContext(sb.id)
       restoreSelectionsFromBackend()
 
       if (storyboardUseFirstLastFrame.value) {
@@ -5293,6 +5414,10 @@ async function onGenerateSbFramePair(sb) {
 
 async function onGenerateSbImage(sb) {
   if (!dramaId.value || !sb?.id) return
+  if (storyboardMediaActionReason.value) {
+    ElMessage.warning(storyboardMediaActionReason.value)
+    return
+  }
   sb.errorMsg = ''
   sb.error_msg = ''
   const meta = buildSbGenMeta(sb, GEN_RESOURCE.SB_IMAGE, '分镜图')
@@ -5313,6 +5438,7 @@ async function onGenerateSbImage(sb) {
       ElMessage.warning('保存分镜角色失败，请稍后重试')
       return
     }
+    assertStoryboardMediaReady()
     const res = await imagesAPI.create({
       storyboard_id: sb.id,
       drama_id: dramaId.value,
@@ -5324,7 +5450,7 @@ async function onGenerateSbImage(sb) {
     })
     ElMessage.success('分镜图生成任务已提交')
     if (res?.task_id) {
-      const pollRes = await pollTask(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
+      const pollRes = await pollTask(res.task_id, captureStoryboardMediaRefresh(sb.id), meta)
       if (pollRes?.status === 'failed') {
         sb.errorMsg = pollRes.error || '生成失败'
       } else if (pollRes?.status === 'completed') {
@@ -5334,7 +5460,7 @@ async function onGenerateSbImage(sb) {
         ElMessage.warning(sb.errorMsg)
       }
     } else {
-      await loadSingleStoryboardMedia(sb.id)
+      await refreshStoryboardMediaForCurrentContext(sb.id)
     }
   } catch (e) {
     console.error(e)
@@ -5390,7 +5516,7 @@ async function doUploadSbImage(sbId, file, slot = 'first') {
       const { [sbId]: _r, ...rest } = sbSelectedImgId.value
       sbSelectedImgId.value = rest
     }
-    await loadSingleStoryboardMedia(sbId)
+    await refreshStoryboardMediaForCurrentContext(sbId)
     restoreSelectionsFromBackend()
   } catch (e) {
     ElMessage.error(e.message || '上传失败')
@@ -5524,6 +5650,7 @@ async function onEpisodeSelect(epId) {
 }
 
 function applySelectedEpisode(ep) {
+  resetStoryboardMediaContext(dramaId.value, ep?.id ?? null)
   if (!ep) {
     store.setCurrentEpisode(null)
     store.setScriptContent('')
@@ -5566,18 +5693,14 @@ async function refreshProjectDependencies(episodeId, { includeProjectCapabilitie
   const [mediaResult, taskResult] = await Promise.allSettled(dependencyJobs)
   if (dependencyRequestId !== projectDependencyRequestId) return false
 
+  const mediaFailed = mediaResult.status === 'rejected' || mediaResult.value?.failedCount > 0
   const warnings = []
-  if (mediaResult.status === 'rejected') {
-    warnings.push('分镜媒体暂时无法加载')
-  } else if (mediaResult.value?.failedCount > 0) {
-    warnings.push(`${mediaResult.value.failedCount} 个分镜的媒体暂时无法加载`)
-  }
   if (taskResult.status === 'rejected') warnings.push('生成任务状态暂时无法同步')
   projectDependencyWarning.value = warnings.length
     ? `${warnings.join('；')}。项目已正常打开，可重试加载素材。`
     : ''
   projectDependencyLoading.value = false
-  return warnings.length === 0
+  return !mediaFailed && warnings.length === 0
 }
 
 async function retryProjectDependencies() {
@@ -5631,7 +5754,13 @@ const coreDramaAPI = {
   },
 }
 
-async function loadDrama({ blocking = projectLoadState.value !== 'ready' } = {}) {
+async function loadDrama({
+  blocking = projectLoadState.value !== 'ready',
+  expectedContext,
+} = {}) {
+  if (expectedContext && !storyboardMediaStateController.isCurrentContext(expectedContext)) {
+    return { stale: true }
+  }
   const requestedDramaId = Number(store.dramaId)
   if (!Number.isFinite(requestedDramaId) || requestedDramaId <= 0) return false
   const requestId = ++projectLoadRequestId
@@ -5643,7 +5772,10 @@ async function loadDrama({ blocking = projectLoadState.value !== 'ready' } = {})
   try {
     let d = await coreDramaAPI.get(requestedDramaId)
     d = await backfillDramaStylePromptMetadataIfNeeded(coreDramaAPI, requestedDramaId, d)
-    if (requestId !== projectLoadRequestId) return false
+    if (
+      requestId !== projectLoadRequestId
+      || (expectedContext && !storyboardMediaStateController.isCurrentContext(expectedContext))
+    ) return { stale: true }
     store.setDrama(d)
     // 恢复「故事生成」框的梗概（项目 description 存的是故事梗概）
     storyInput.value = (d.description || '').toString().trim()
@@ -5677,6 +5809,7 @@ async function loadDrama({ blocking = projectLoadState.value !== 'ready' } = {})
       scriptTitle.value = ''
       selectedEpisodeId.value = null
     }
+    ensureStoryboardMediaContext(requestedDramaId, ep?.id ?? null)
     markScriptDraftSaved()
     syncStoryboardStateFromEpisode(ep)
     projectLoadState.value = 'ready'
@@ -5877,12 +6010,24 @@ function scrollToStoryboard(sbId) {
 async function onRegenAffectedSbImages(assetKey, affectedBoards) {
   if (!affectedBoards.length || regenSbImagesForAsset.has(assetKey)) return
   try {
+    assertStoryboardMediaReady()
+  } catch (error) {
+    ElMessage.warning(error.message)
+    return
+  }
+  try {
     await ElMessageBox.confirm(
       `将为 ${affectedBoards.length} 个关联分镜重新生成图片（#${affectedBoards.map((s) => s.storyboard_number).join('、#')}），原有图片将被覆盖，是否继续？`,
       '重新生成关联分镜图',
       { confirmButtonText: '确认生成', cancelButtonText: '取消', type: 'warning' }
     )
   } catch {
+    return
+  }
+  try {
+    assertStoryboardMediaReady()
+  } catch (error) {
+    ElMessage.warning(error.message)
     return
   }
   regenSbImagesForAsset.add(assetKey)
@@ -5894,6 +6039,7 @@ async function onRegenAffectedSbImages(assetKey, affectedBoards) {
     for (let i = 0; i < affectedBoards.length; i++) {
       regenSbImagesProgress.value[assetKey] = { current: i + 1, total: affectedBoards.length }
       const sb = affectedBoards[i]
+      const mediaRefresh = captureStoryboardMediaRefresh(sb.id)
       try {
         const useFirstLast = storyboardUseFirstLastFrame.value && !isSbUniversalMode(sb.id)
         let prompt = sb.polished_prompt || sb.image_prompt || sb.description || ''
@@ -5903,6 +6049,7 @@ async function onRegenAffectedSbImages(assetKey, affectedBoards) {
           prompt = await ensureProfessionalFramePrompt(sb, 'first')
           frameTypeForCreate = 'storyboard_first'
         }
+        assertStoryboardMediaReady()
         const res = await imagesAPI.create({
           storyboard_id: sb.id,
           drama_id: dramaId.value,
@@ -5919,7 +6066,7 @@ async function onRegenAffectedSbImages(assetKey, affectedBoards) {
               attempts++
               try {
                 const t = await taskAPI.get(res.task_id)
-                if (t.status === 'completed') { await loadSingleStoryboardMedia(sb.id); return resolve({ status: 'completed' }) }
+                if (t.status === 'completed') { await mediaRefresh(); return resolve({ status: 'completed' }) }
                 if (t.status === 'failed') return resolve({ status: 'failed', error: t.error || '任务失败' })
               } catch (_) {}
               if (attempts < maxAttempts) setTimeout(tick, 2000)
@@ -5929,18 +6076,25 @@ async function onRegenAffectedSbImages(assetKey, affectedBoards) {
           })
           if (pollRes?.status !== 'completed') failed++
         } else {
-          await loadSingleStoryboardMedia(sb.id)
+          await mediaRefresh()
         }
         if (useFirstLast) {
           delete sbSelectedImgId.value[sb.id]
         }
-      } catch (_) {
+      } catch (e) {
+        if (isStoryboardMediaStateError(e)) throw e
         failed++
       }
       if (i < affectedBoards.length - 1) await new Promise((r) => setTimeout(r, 500))
     }
     if (failed === 0) ElMessage.success(`已重新生成 ${affectedBoards.length} 张关联分镜图`)
     else ElMessage.warning(`完成，${failed}/${affectedBoards.length} 条失败`)
+  } catch (error) {
+    if (isStoryboardMediaStateError(error)) {
+      ElMessage.warning(error.message)
+      return
+    }
+    throw error
   } finally {
     regenSbImagesForAsset.delete(assetKey)
     if (regenSbImagesProgress.value) delete regenSbImagesProgress.value[assetKey]
@@ -6611,7 +6765,7 @@ async function onUpscaleSbImage(sb) {
   try {
     await storyboardsAPI.upscale(sb.id)
     ElMessage.success('超分完成，图片已更新为高清版本')
-    await loadSingleStoryboardMedia(sb.id)
+    await refreshStoryboardMediaForCurrentContext(sb.id)
   } catch (e) {
     ElMessage.error(e.message || '超分辨率失败')
   } finally {
@@ -7207,6 +7361,7 @@ function sbCanSubmitVideo(sb) {
 }
 
 function sbVideoGenerationDisabledReason(sb) {
+  if (storyboardMediaActionReason.value) return storyboardMediaActionReason.value
   if (isSbVideoGenerating(sb?.id)) return '正在生成分镜视频，请等待完成'
   if (videoCapabilityReason.value) return videoCapabilityReason.value
   if (sbCanSubmitVideo(sb)) return ''
@@ -7817,6 +7972,7 @@ async function onRegenerateLayoutDescription(sb) {
 
 async function onGenerateSbVideo(sb) {
   if (!dramaId.value || !sb?.id) return
+  const mediaRefresh = captureStoryboardMediaRefresh(sb.id)
   const disabledReason = sbVideoGenerationDisabledReason(sb)
   if (disabledReason) {
     ElMessage.warning(disabledReason)
@@ -7889,13 +8045,6 @@ async function onGenerateSbVideo(sb) {
   const meta = buildSbGenMeta(sb, GEN_RESOURCE.SB_VIDEO, '分镜视频')
   genStore.markRunning(meta)
   sbVideoErrors.value[sb.id] = ''
-  // 清除前端选中状态 + 清除后端手动指定的 video_url，让合成时自动取最新生成的视频
-  if (sbSelectedVideoId.value[sb.id] != null) {
-    const next = { ...sbSelectedVideoId.value }
-    delete next[sb.id]
-    sbSelectedVideoId.value = next
-  }
-  storyboardsAPI.update(sb.id, { video_url: null }).catch(() => {})
   try {
     const referencePayload = await buildStoryboardVideoReferencePayload(sb, {
       universal,
@@ -7905,22 +8054,34 @@ async function onGenerateSbVideo(sb) {
     const vFirst = referencePayload.firstFrameUrl || referencePayload.absoluteUrl
     const vLast = referencePayload.lastFrameUrl
     const preferClassicPrompt = universal && !universalOmniApi
-    const res = await videosAPI.create(buildStoryboardVideoRequest({
-      dramaId: dramaId.value,
-      storyboard: sb,
-      prompt: buildSbVideoPromptForApi(sb, { preferClassicPrompt }),
-      universalOmni: universalOmniApi,
-      firstFrameUrl: vFirst,
-      lastFrameUrl: vLast,
-      referenceImageUrls: referencePayload.referenceUrls,
-      style: getSelectedStyle(),
-      aspectRatio: projectAspectRatio.value || '16:9',
-      resolution: videoResolution.value,
-      duration: getSbVideoDurationForApi(sb),
-      videoReferenceImageId: selectedGrid?.id,
-    }))
+    const res = await submitStoryboardVideoAfterAccepted({
+      createVideo: () => {
+        assertStoryboardMediaReady()
+        return videosAPI.create(buildStoryboardVideoRequest({
+          dramaId: dramaId.value,
+          storyboard: sb,
+          prompt: buildSbVideoPromptForApi(sb, { preferClassicPrompt }),
+          universalOmni: universalOmniApi,
+          firstFrameUrl: vFirst,
+          lastFrameUrl: vLast,
+          referenceImageUrls: referencePayload.referenceUrls,
+          style: getSelectedStyle(),
+          aspectRatio: projectAspectRatio.value || '16:9',
+          resolution: videoResolution.value,
+          duration: getSbVideoDurationForApi(sb),
+          videoReferenceImageId: selectedGrid?.id,
+        }))
+      },
+      clearSelection: () => {
+        if (sbSelectedVideoId.value[sb.id] == null) return
+        const next = { ...sbSelectedVideoId.value }
+        delete next[sb.id]
+        sbSelectedVideoId.value = next
+      },
+      clearPersistedSelection: () => storyboardsAPI.update(sb.id, { video_url: null }).catch(() => {}),
+    })
     if (res?.task_id) {
-      const pollRes = await pollTask(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
+      const pollRes = await pollTask(res.task_id, mediaRefresh, meta)
       if (pollRes?.status === 'failed') {
         sbVideoErrors.value[sb.id] = userFacingVideoGenerationError(pollRes.error)
       } else if (pollRes?.status === 'completed') {
@@ -7928,7 +8089,7 @@ async function onGenerateSbVideo(sb) {
         ElMessage.success('视频生成完成')
       }
     } else {
-      await loadSingleStoryboardMedia(sb.id)
+      await mediaRefresh()
       ElMessage.success('视频生成已提交，请稍后查看')
     }
   } catch (e) {
@@ -7938,7 +8099,7 @@ async function onGenerateSbVideo(sb) {
   } finally {
     generatingSbVideoIds.delete(sb.id)
     genStore.markDone(meta)
-    await loadSingleStoryboardMedia(sb.id)
+    await mediaRefresh()
   }
 }
 
@@ -7973,8 +8134,8 @@ async function onLinkTailFrameToNext(sb) {
     ElMessage.success(`已将尾帧设为 #${nextSb.storyboard_number ?? nextSb.id} 的首帧`)
     // 刷新两个分镜的媒体
     await Promise.all([
-      loadSingleStoryboardMedia(sb.id),
-      loadSingleStoryboardMedia(nextSb.id)
+      refreshStoryboardMediaForCurrentContext(sb.id),
+      refreshStoryboardMediaForCurrentContext(nextSb.id)
     ])
   } catch (e) {
     ElMessage.error(e.message || '尾帧衔接失败')
@@ -8018,7 +8179,7 @@ async function onUsePrevTailAsFirst(sb) {
     // 刷新分镜元数据（拿回服务器最新的 first_frame_image_id）+ 媒体列表
     await Promise.all([
       refreshStoryboardsOnly(),
-      loadSingleStoryboardMedia(sb.id)
+      refreshStoryboardMediaForCurrentContext(sb.id)
     ])
     // 清除可能残留的手动选中（让服务器权威绑定 id 生效）
     delete sbSelectedImgId.value[sb.id]
@@ -8071,7 +8232,7 @@ async function onGenerateStoryboard() {
     })
     const taskId = res?.task_id ?? (typeof res === 'string' ? res : null)
     if (taskId) {
-      const pollRes = await pollTask(taskId, () => loadDrama(), meta)
+      const pollRes = await pollTask(taskId, captureDramaRefresh(), meta)
       // failed / timeout：pollTask 内已展示对应提示，直接返回，不显示「完成」
       if (pollRes?.status !== 'completed') return
       if (pollRes?.result?.truncated) {
@@ -8155,13 +8316,17 @@ async function onInsertStoryboardBefore(sb) {
 
 async function startBatchImageGeneration() {
   if (!currentEpisodeId.value || batchImageRunning.value || pipelineRunning.value) return
+  if (storyboardMediaActionReason.value) {
+    ElMessage.warning(storyboardMediaActionReason.value)
+    return
+  }
   batchImageErrors.value = []
   batchImageStopping.value = false
   batchImageRunning.value = true
   try {
     // 仅当媒体数据尚未加载时才全量拉取，避免点击时触发大量冗余请求
     if (Object.keys(sbImages.value).length === 0) {
-      await loadStoryboardMedia()
+      await loadStoryboardMedia({ failClosed: true })
     }
     const boards = store.storyboards || []
     const todo = boards.filter((sb) => !hasSbImage(sb))
@@ -8188,6 +8353,7 @@ async function startBatchImageGeneration() {
             prompt = await ensureProfessionalFramePrompt(sb, 'first')
             frameTypeForCreate = 'storyboard_first'
           }
+          assertStoryboardMediaReady()
           const res = await imagesAPI.create({
             storyboard_id: sb.id,
             drama_id: dramaId.value,
@@ -8197,19 +8363,20 @@ async function startBatchImageGeneration() {
             aspect_ratio: projectAspectRatio.value || '16:9',
           })
           if (res?.task_id) {
-            const pollRes = await pollTask(res.task_id, () => loadSingleStoryboardMedia(sb.id))
+            const pollRes = await pollTask(res.task_id, captureStoryboardMediaRefresh(sb.id))
             if (pollRes?.status === 'failed') {
               batchImageErrors.value.push(`#${sb.storyboard_number ?? sb.id}: ${pollRes.error || '生成失败'}`)
               batchImageProgress.value = { ...batchImageProgress.value, failed: batchImageProgress.value.failed + 1 }
             }
           } else {
-            await loadSingleStoryboardMedia(sb.id)
+            await refreshStoryboardMediaForCurrentContext(sb.id)
           }
           // 成功后清理手动选中，让服务器 first_frame_image_id 成为权威（与单条生成首帧的清理逻辑一致）
           if (useFirstLast) {
             delete sbSelectedImgId.value[sb.id]
           }
         } catch (e) {
+          if (isStoryboardMediaStateError(e)) throw e
           batchImageErrors.value.push(`#${sb.storyboard_number ?? sb.id}: ${e.message || '提交失败'}`)
           batchImageProgress.value = { ...batchImageProgress.value, failed: batchImageProgress.value.failed + 1 }
         }
@@ -8217,7 +8384,13 @@ async function startBatchImageGeneration() {
         batchImageProgress.value = { ...batchImageProgress.value, current: doneCount }
       }
     }
-    await Promise.allSettled(Array.from({ length: Math.min(concurrency, todo.length) }, () => worker()))
+    const workerResults = await Promise.allSettled(
+      Array.from({ length: Math.min(concurrency, todo.length) }, () => worker()),
+    )
+    const mediaStateFailure = workerResults.find(
+      (result) => result.status === 'rejected' && isStoryboardMediaStateError(result.reason),
+    )
+    if (mediaStateFailure) throw mediaStateFailure.reason
     if (!batchImageStopping.value) {
       // 最终统一恢复选中状态，确保所有首帧生成后服务器绑定立即生效（与单条生成路径一致）
       restoreSelectionsFromBackend()
@@ -8233,7 +8406,15 @@ async function startBatchImageGeneration() {
 
 async function startBatchVideoGeneration() {
   if (!currentEpisodeId.value || batchVideoRunning.value || pipelineRunning.value) return
+  if (storyboardMediaActionReason.value) {
+    ElMessage.warning(storyboardMediaActionReason.value)
+    return
+  }
   const videoCapability = await refreshVideoGenerationCapability()
+  if (storyboardMediaActionReason.value) {
+    ElMessage.warning(storyboardMediaActionReason.value)
+    return
+  }
   if (!videoCapability.ready) {
     ElMessage.warning(videoCapability.reason)
     return
@@ -8246,7 +8427,7 @@ async function startBatchVideoGeneration() {
   try {
     // 仅当媒体数据尚未加载时才全量拉取，避免点击时触发大量冗余请求
     if (Object.keys(sbVideos.value).length === 0) {
-      await loadStoryboardMedia()
+      await loadStoryboardMedia({ failClosed: true })
     }
     const boards = store.storyboards || []
     // 只处理：有参考图（经典=分镜主图；全能=场景/角色/道具，不含经典主图）且 还没有已完成视频 的分镜
@@ -8278,6 +8459,7 @@ async function startBatchVideoGeneration() {
       while (videoQueueIdx < todo.length) {
         if (batchVideoStopping.value) break
         const sb = todo[videoQueueIdx++]
+        const mediaRefresh = captureStoryboardMediaRefresh(sb.id)
         const universal = isSbUniversalMode(sb.id)
         const universalOmni = universal && batchUniversalOmni
         const selectedGrid = getSbVideoReferenceGrid(sb)
@@ -8304,13 +8486,6 @@ async function startBatchVideoGeneration() {
         }
         try {
           generatingSbVideoIds.add(sb.id)
-          // 批量生成时清除手动指定的视频，确保合成时使用最新生成记录
-          storyboardsAPI.update(sb.id, { video_url: null }).catch(() => {})
-          if (sbSelectedVideoId.value[sb.id] != null) {
-            const next = { ...sbSelectedVideoId.value }
-            delete next[sb.id]
-            sbSelectedVideoId.value = next
-          }
           const seedPayload = await buildStoryboardVideoReferencePayload(sb, {
             universal,
             universalOmni,
@@ -8345,23 +8520,35 @@ async function startBatchVideoGeneration() {
           const vFirst = referencePayload.firstFrameUrl
           const vLast = referencePayload.lastFrameUrl
           const refUrls = referencePayload.referenceUrls
-          const res = await videosAPI.create(buildStoryboardVideoRequest({
-            dramaId: dramaId.value,
-            storyboard: sb,
-            prompt: buildSbVideoPromptForApi(sb, { preferClassicPrompt: universal && !universalOmni }),
-            universalOmni,
-            firstFrameUrl: vFirst,
-            lastFrameUrl: vLast,
-            referenceImageUrls: refUrls,
-            style: getSelectedStyle(),
-            aspectRatio: projectAspectRatio.value || '16:9',
-            resolution: videoResolution.value,
-            duration: getSbVideoDurationForApi(sb),
-            videoReferenceImageId: selectedGrid?.id,
-          }))
+          const res = await submitStoryboardVideoAfterAccepted({
+            createVideo: () => {
+              assertStoryboardMediaReady()
+              return videosAPI.create(buildStoryboardVideoRequest({
+                dramaId: dramaId.value,
+                storyboard: sb,
+                prompt: buildSbVideoPromptForApi(sb, { preferClassicPrompt: universal && !universalOmni }),
+                universalOmni,
+                firstFrameUrl: vFirst,
+                lastFrameUrl: vLast,
+                referenceImageUrls: refUrls,
+                style: getSelectedStyle(),
+                aspectRatio: projectAspectRatio.value || '16:9',
+                resolution: videoResolution.value,
+                duration: getSbVideoDurationForApi(sb),
+                videoReferenceImageId: selectedGrid?.id,
+              }))
+            },
+            clearSelection: () => {
+              if (sbSelectedVideoId.value[sb.id] == null) return
+              const next = { ...sbSelectedVideoId.value }
+              delete next[sb.id]
+              sbSelectedVideoId.value = next
+            },
+            clearPersistedSelection: () => storyboardsAPI.update(sb.id, { video_url: null }).catch(() => {}),
+          })
           if (res?.task_id) {
             const meta = buildSbGenMeta(sb, GEN_RESOURCE.SB_VIDEO, '分镜视频')
-            const pollRes = await pollTask(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
+            const pollRes = await pollTask(res.task_id, mediaRefresh, meta)
             if (pollRes?.status === 'failed') {
               batchVideoErrors.value.push(`#${sb.storyboard_number ?? sb.id}: ${pollRes.error || '生成失败'}`)
               batchVideoProgress.value = { ...batchVideoProgress.value, failed: batchVideoProgress.value.failed + 1 }
@@ -8372,13 +8559,14 @@ async function startBatchVideoGeneration() {
               prevVideoItem = vList.find((v) => v.status === 'completed') || null
             }
           } else {
-            await loadSingleStoryboardMedia(sb.id)
+            await mediaRefresh()
             if (contiguity) {
               const vList = sbVideos.value[sb.id] || []
               prevVideoItem = vList.find((v) => v.status === 'completed') || null
             }
           }
         } catch (e) {
+          if (isStoryboardMediaStateError(e)) throw e
           batchVideoErrors.value.push(`#${sb.storyboard_number ?? sb.id}: ${e.message || '提交失败'}`)
           batchVideoProgress.value = { ...batchVideoProgress.value, failed: batchVideoProgress.value.failed + 1 }
           if (contiguity) prevVideoItem = null
@@ -8389,7 +8577,13 @@ async function startBatchVideoGeneration() {
         batchVideoProgress.value = { ...batchVideoProgress.value, current: videoDoneCount }
       }
     }
-    await Promise.allSettled(Array.from({ length: Math.min(videoConcurrency, todo.length) }, () => videoWorker()))
+    const workerResults = await Promise.allSettled(
+      Array.from({ length: Math.min(videoConcurrency, todo.length) }, () => videoWorker()),
+    )
+    const mediaStateFailure = workerResults.find(
+      (result) => result.status === 'rejected' && isStoryboardMediaStateError(result.reason),
+    )
+    if (mediaStateFailure) throw mediaStateFailure.reason
     if (!batchVideoStopping.value) {
       if (batchVideoProgress.value.failed === 0) ElMessage.success(`分镜视频批量生成完成（共 ${todo.length} 条）`)
       else ElMessage.warning(`批量完成，${batchVideoProgress.value.failed}/${todo.length} 条失败`)
@@ -8437,7 +8631,7 @@ async function onGenerateVideo() {
     if (result?.task_id != null) {
       store.setVideoProgress(10, did, epId)
       ElMessage.success(result?.message || '视频合成任务已提交，请稍后查看')
-      const pollResult = await pollTask(result.task_id, () => loadDrama(), mergeMeta)
+      const pollResult = await pollTask(result.task_id, captureDramaRefresh(), mergeMeta)
       await loadDrama()
       if (pollResult?.status === 'completed') {
         store.setVideoProgress(100, did, epId)
@@ -8570,6 +8764,9 @@ function addPipelineError(step, message) {
 
 async function checkPause() {
   await pipelinePauseGate.wait()
+  if (pipelineRequiresStoryboardMedia && storyboardMediaActionReason.value) {
+    throw new Error(storyboardMediaActionReason.value)
+  }
 }
 
 /** 每生成好一个图片或内容后休息，防止任务队列过紧 */
@@ -8600,15 +8797,28 @@ async function runPipelineCountdown(totalSeconds, msg) {
 
 /** 执行可失败步骤；普通错误按上限重试，流水线取消必须立即穿透。 */
 async function pipelineWithRetry(stepName, fn, maxRetries = 3) {
-  return runPipelineTaskWithRetry({
-    task: fn,
+  let mediaStateError = null
+  const result = await runPipelineTaskWithRetry({
+    task: async () => {
+      try {
+        return await fn()
+      } catch (error) {
+        if (isStoryboardMediaStateError(error)) mediaStateError = error
+        throw error
+      }
+    },
     maxRetries,
-    rest: pipelineRest,
+    rest: async () => {
+      if (mediaStateError) throw mediaStateError
+      await pipelineRest()
+    },
     isAborted: () => pipelineAbortRequested.value,
     onFailure: (error) => {
       addPipelineError(stepName, `重试${maxRetries}次均失败: ${error?.message || String(error)}`)
     },
   })
+  if (mediaStateError) throw mediaStateError
+  return result
 }
 
 async function confirmProductionPipelineCost() {
@@ -8638,9 +8848,10 @@ async function confirmProductionPipelineCost() {
   }
 }
 
-async function executeOwnedPipelineRun(run) {
+async function executeOwnedPipelineRun(run, { requireStoryboardMedia = false } = {}) {
   pipelineRunning.value = true
   pipelinePaused.value = false
+  pipelineRequiresStoryboardMedia = requireStoryboardMedia
   pipelinePauseGate.release()
   const runPromise = Promise.resolve().then(run)
   activePipelineRunPromise = runPromise
@@ -8651,6 +8862,7 @@ async function executeOwnedPipelineRun(run) {
     if (!isPipelineAbortError(error)) throw error
   } finally {
     if (activePipelineRunPromise === runPromise) activePipelineRunPromise = null
+    pipelineRequiresStoryboardMedia = false
     if (!pipelineStopping.value) {
       pipelineRunning.value = false
       pipelinePaused.value = false
@@ -8662,17 +8874,29 @@ async function executeOwnedPipelineRun(run) {
 
 async function startOneClickPipeline() {
   if (!currentEpisodeId.value || pipelineStarting.value || pipelineRunning.value || pipelineStopping.value || activePipelineRunPromise) return
+  if (storyboardMediaActionReason.value) {
+    ElMessage.warning(storyboardMediaActionReason.value)
+    return
+  }
   pipelineAbortRequested.value = false
   pipelineStarting.value = true
   try {
     const productionCapability = await refreshProductionReadiness()
     if (pipelineAbortRequested.value) return
+    if (storyboardMediaActionReason.value) {
+      ElMessage.warning(storyboardMediaActionReason.value)
+      return
+    }
     if (!productionCapability.ready) {
       ElMessage.warning(productionCapability.reason)
       return
     }
     if (!await confirmProductionPipelineCost()) return
     if (pipelineAbortRequested.value) return
+    if (storyboardMediaActionReason.value) {
+      ElMessage.warning(storyboardMediaActionReason.value)
+      return
+    }
 
     trackFilmCreateAction('one_click_generate_start')
     pipelineErrorLog.value = []
@@ -8682,7 +8906,10 @@ async function startOneClickPipeline() {
     pipelineOwnedTaskIds.clear()
     pipelineStepTotal.value = 10
     pipelineStarting.value = false
-    await executeOwnedPipelineRun(() => runOneClickPipeline(false))
+    await executeOwnedPipelineRun(
+      () => runOneClickPipeline(false),
+      { requireStoryboardMedia: true },
+    )
   } finally {
     pipelineStarting.value = false
   }
@@ -8718,6 +8945,7 @@ async function runOneClickPipeline(textOnly = false) {
   const style = getSelectedStyle()
 
   try {
+    if (!textOnly && storyboardMediaActionReason.value) throw new Error(storyboardMediaActionReason.value)
     // ════════════════════════════════════════════════════════
     // 阶段一：内容提取 & 分镜生成（快速、低成本）
     // ════════════════════════════════════════════════════════
@@ -8732,7 +8960,7 @@ async function runOneClickPipeline(textOnly = false) {
         const res = await generationAPI.generateCharacters(dramaIdVal, { episode_id: store.currentEpisode?.id ?? undefined, outline: outline || undefined })
         const taskId = res?.task_id
         if (taskId) {
-          const result = await pollTaskWithPause(taskId, () => loadDrama())
+          const result = await pollTaskWithPause(taskId, captureDramaRefresh())
           if (result?.error) { addPipelineError('提取角色', result.error); return }
         } else {
           await loadDrama()
@@ -8756,7 +8984,7 @@ async function runOneClickPipeline(textOnly = false) {
         const res = await dramaAPI.extractBackgrounds(episodeId, { model: undefined, style, language: scriptLanguage.value })
         const taskId = res?.task_id
         if (taskId) {
-          const result = await pollTaskWithPause(taskId, () => loadDrama())
+          const result = await pollTaskWithPause(taskId, captureDramaRefresh())
           if (result?.error) { addPipelineError('提取场景', result.error); return }
         } else {
           await loadDrama()
@@ -8780,7 +9008,7 @@ async function runOneClickPipeline(textOnly = false) {
         const res = await propAPI.extractFromScript(episodeId)
         const taskId = res?.task_id
         if (taskId) {
-          const result = await pollTaskWithPause(taskId, () => loadDrama())
+          const result = await pollTaskWithPause(taskId, captureDramaRefresh())
           if (result?.error) { addPipelineError('提取道具', result.error); return }
         } else {
           await loadDrama()
@@ -8797,7 +9025,7 @@ async function runOneClickPipeline(textOnly = false) {
 
     // 步骤 4：生成分镜脚本
     await checkPause()
-    await loadStoryboardMedia()
+    await loadStoryboardMedia({ failClosed: !textOnly })
     let boards = store.storyboards || []
     const hadBoardsBeforeStep4 = boards.length > 0
     if (boards.length === 0) {
@@ -8815,7 +9043,7 @@ async function runOneClickPipeline(textOnly = false) {
         })
         const taskId = res?.task_id ?? (typeof res === 'string' ? res : null)
         if (taskId) {
-          const result = await pollTaskWithPause(taskId, () => loadDrama())
+          const result = await pollTaskWithPause(taskId, captureDramaRefresh())
           if (result?.error) {
             // 任务失败，但后端可能已保存了部分分镜，确保最新状态显示出来再停止
             await loadDrama()
@@ -8836,7 +9064,7 @@ async function runOneClickPipeline(textOnly = false) {
         return
       }
       clearInterval(sbRefreshTimer)
-      await loadStoryboardMedia()
+      await loadStoryboardMedia({ failClosed: !textOnly })
       boards = store.storyboards || []
     } else {
       setPipelineStep(4, `已有 ${boards.length} 个分镜，跳过生成`)
@@ -8856,7 +9084,7 @@ async function runOneClickPipeline(textOnly = false) {
           addPipelineError('润色全能分镜', `镜#${sb.storyboard_number ?? sb.id}: ${msg}`),
       })
       await loadDrama()
-      await loadStoryboardMedia()
+      await loadStoryboardMedia({ failClosed: !textOnly })
     }
 
     if (textOnly) {
@@ -8897,7 +9125,7 @@ async function runOneClickPipeline(textOnly = false) {
             const res = await characterAPI.generateImage(char.id, undefined, style)
             const taskId = res?.image_generation?.task_id ?? res?.task_id
             if (taskId) {
-              const result = await pollTaskWithPause(taskId, () => loadDrama())
+              const result = await pollTaskWithPause(taskId, captureDramaRefresh())
               if (result?.error) throw new Error(result.error)
             } else {
               await loadDrama()
@@ -8930,7 +9158,7 @@ async function runOneClickPipeline(textOnly = false) {
             const res = await sceneAPI.generateImage({ scene_id: scene.id, model: undefined, style, use_quad_grid: useQuad })
             const taskId = res?.image_generation?.task_id ?? res?.task_id
             if (taskId) {
-              const result = await pollTaskWithPause(taskId, () => loadDrama())
+              const result = await pollTaskWithPause(taskId, captureDramaRefresh())
               if (result?.error) throw new Error(result.error)
             } else {
               await loadDrama()
@@ -8962,7 +9190,7 @@ async function runOneClickPipeline(textOnly = false) {
             const res = await propAPI.generateImage(prop.id, undefined, style)
             const taskId = res?.image_generation?.task_id ?? res?.task_id
             if (taskId) {
-              const result = await pollTaskWithPause(taskId, () => loadDrama())
+              const result = await pollTaskWithPause(taskId, captureDramaRefresh())
               if (result?.error) throw new Error(result.error)
             } else {
               await loadDrama()
@@ -8991,7 +9219,7 @@ async function runOneClickPipeline(textOnly = false) {
 
     // 步骤 8：生成分镜图
     {
-      await loadStoryboardMedia()
+      await loadStoryboardMedia({ failClosed: true })
       boards = store.storyboards || []
       const boardsWithoutImg = boards.filter((sb) => !hasSbImage(sb))
       const concurrency = pipelineConcurrency.value
@@ -9009,6 +9237,7 @@ async function runOneClickPipeline(textOnly = false) {
               prompt = await ensureProfessionalFramePrompt(sb, 'first')
               frameTypeForCreate = 'storyboard_first'
             }
+            assertStoryboardMediaReady()
             const res = await imagesAPI.create({
               storyboard_id: sb.id,
               drama_id: dramaIdVal,
@@ -9019,9 +9248,9 @@ async function runOneClickPipeline(textOnly = false) {
               aspect_ratio: projectAspectRatio.value || '16:9',
             })
             if (res?.task_id) {
-              const result = await pollTaskWithPause(res.task_id, () => loadSingleStoryboardMedia(sb.id))
+              const result = await pollTaskWithPause(res.task_id, captureStoryboardMediaRefresh(sb.id))
               if (result?.error) throw new Error(result.error)
-            } else await loadSingleStoryboardMedia(sb.id)
+            } else await refreshStoryboardMediaForCurrentContext(sb.id)
           })
         } finally {
           generatingSbImageIds.delete(sb.id)
@@ -9041,7 +9270,7 @@ async function runOneClickPipeline(textOnly = false) {
 
     // 步骤 9：生成分镜视频
     {
-      await loadStoryboardMedia()
+      await loadStoryboardMedia({ failClosed: true })
       const boards2 = (store.storyboards || []).filter((sb) => {
         const vidList = sbVideos.value[sb.id] || []
         if (vidList.some((v) => v.status === 'completed' && recordHasPlayableVideoUrl(v))) return false
@@ -9067,6 +9296,7 @@ async function runOneClickPipeline(textOnly = false) {
             const vFirst = referencePayload.firstFrameUrl
             const vLast = referencePayload.lastFrameUrl
             const refUrls = referencePayload.referenceUrls
+            assertStoryboardMediaReady()
             const res = await videosAPI.create(buildStoryboardVideoRequest({
               dramaId: dramaIdVal,
               storyboard: sb,
@@ -9082,9 +9312,9 @@ async function runOneClickPipeline(textOnly = false) {
             }))
             if (res?.task_id) {
               const meta = buildSbGenMeta(sb, GEN_RESOURCE.SB_VIDEO, '分镜视频')
-              const result = await pollTaskWithPause(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
+              const result = await pollTaskWithPause(res.task_id, captureStoryboardMediaRefresh(sb.id), meta)
               if (result?.error) throw new Error(result.error)
-            } else await loadSingleStoryboardMedia(sb.id)
+            } else await refreshStoryboardMediaForCurrentContext(sb.id)
           })
         } finally {
           generatingSbVideoIds.delete(sb.id)
@@ -9098,7 +9328,7 @@ async function runOneClickPipeline(textOnly = false) {
     try {
       const result = await dramaAPI.finalizeEpisode(episodeId, getFinalizeMergeOptions())
       if (result?.task_id != null) {
-        const pollResult = await pollTaskWithPause(result.task_id, () => loadDrama())
+        const pollResult = await pollTaskWithPause(result.task_id, captureDramaRefresh())
         if (pollResult?.error) addPipelineError('合成整集视频', pollResult.error)
         else await pipelineRest()
       } else {
@@ -9131,24 +9361,36 @@ async function runOneClickPipeline(textOnly = false) {
 
 async function startRepairPipeline() {
   if (!currentEpisodeId.value || pipelineStarting.value || pipelineRunning.value || pipelineStopping.value || activePipelineRunPromise) return
+  if (storyboardMediaActionReason.value) {
+    ElMessage.warning(storyboardMediaActionReason.value)
+    return
+  }
   pipelineAbortRequested.value = false
   pipelineStarting.value = true
   try {
     const productionCapability = await refreshProductionReadiness()
     if (pipelineAbortRequested.value) return
+    if (storyboardMediaActionReason.value) {
+      ElMessage.warning(storyboardMediaActionReason.value)
+      return
+    }
     if (!productionCapability.ready) {
       ElMessage.warning(productionCapability.reason)
       return
     }
     if (!await confirmProductionPipelineCost()) return
     if (pipelineAbortRequested.value) return
+    if (storyboardMediaActionReason.value) {
+      ElMessage.warning(storyboardMediaActionReason.value)
+      return
+    }
 
     pipelineErrorLog.value = []
     pipelineCurrentStep.value = ''
     pipelineActiveTasks.clear()
     pipelineOwnedTaskIds.clear()
     pipelineStarting.value = false
-    await executeOwnedPipelineRun(runRepairPipeline)
+    await executeOwnedPipelineRun(runRepairPipeline, { requireStoryboardMedia: true })
   } finally {
     pipelineStarting.value = false
   }
@@ -9164,6 +9406,7 @@ async function runRepairPipeline() {
   try {
     pipelineCurrentStep.value = '正在加载数据...'
     await loadDrama()
+    if (storyboardMediaActionReason.value) throw new Error(storyboardMediaActionReason.value)
 
     // 1. 角色：没有则生成角色；再为每个无图角色生成图
     let chars = store.currentEpisode?.characters ?? []
@@ -9175,7 +9418,7 @@ async function runRepairPipeline() {
         const res = await generationAPI.generateCharacters(dramaIdVal, { episode_id: store.currentEpisode?.id ?? undefined, outline: outline || undefined })
         const taskId = res?.task_id
         if (taskId) {
-          const result = await pollTaskWithPause(taskId, () => loadDrama())
+          const result = await pollTaskWithPause(taskId, captureDramaRefresh())
           if (result?.error) { addPipelineError('生成角色', result.error); return }
         } else await loadDrama()
         await pipelineRest()
@@ -9196,7 +9439,7 @@ async function runRepairPipeline() {
           const res = await characterAPI.generateImage(char.id, undefined, style)
           const taskId = res?.image_generation?.task_id ?? res?.task_id
           if (taskId) {
-            const result = await pollTaskWithPause(taskId, () => loadDrama())
+            const result = await pollTaskWithPause(taskId, captureDramaRefresh())
             if (result?.error) throw new Error(result.error)
           } else {
             await loadDrama()
@@ -9219,7 +9462,7 @@ async function runRepairPipeline() {
         const res = await dramaAPI.extractBackgrounds(episodeId, { model: undefined, style, language: scriptLanguage.value })
         const taskId = res?.task_id
         if (taskId) {
-          const result = await pollTaskWithPause(taskId, () => loadDrama())
+          const result = await pollTaskWithPause(taskId, captureDramaRefresh())
           if (result?.error) { addPipelineError('提取场景', result.error); return }
         } else await loadDrama()
         await pipelineRest()
@@ -9241,7 +9484,7 @@ async function runRepairPipeline() {
           const res = await sceneAPI.generateImage({ scene_id: scene.id, model: undefined, style, use_quad_grid: useQuad })
           const taskId = res?.image_generation?.task_id ?? res?.task_id
           if (taskId) {
-            const result = await pollTaskWithPause(taskId, () => loadDrama())
+            const result = await pollTaskWithPause(taskId, captureDramaRefresh())
             if (result?.error) throw new Error(result.error)
           } else {
             await loadDrama()
@@ -9264,7 +9507,7 @@ async function runRepairPipeline() {
         const res = await propAPI.extractFromScript(episodeId)
         const taskId = res?.task_id
         if (taskId) {
-          const result = await pollTaskWithPause(taskId, () => loadDrama())
+          const result = await pollTaskWithPause(taskId, captureDramaRefresh())
           if (result?.error) { addPipelineError('提取道具', result.error); /* 不中断 */ }
         } else await loadDrama()
         await pipelineRest()
@@ -9287,7 +9530,7 @@ async function runRepairPipeline() {
             const res = await propAPI.generateImage(prop.id, undefined, style)
             const taskId = res?.image_generation?.task_id ?? res?.task_id
             if (taskId) {
-              const result = await pollTaskWithPause(taskId, () => loadDrama())
+              const result = await pollTaskWithPause(taskId, captureDramaRefresh())
               if (result?.error) throw new Error(result.error)
             } else {
               await loadDrama()
@@ -9320,7 +9563,7 @@ async function runRepairPipeline() {
         })
         const taskId = res?.task_id ?? (typeof res === 'string' ? res : null)
         if (taskId) {
-          const result = await pollTaskWithPause(taskId, () => loadDrama())
+          const result = await pollTaskWithPause(taskId, captureDramaRefresh())
           if (result?.error) { addPipelineError('分镜生成', result.error); return }
         }
         await loadDrama()
@@ -9344,7 +9587,7 @@ async function runRepairPipeline() {
       await loadDrama()
     }
     // 先拉取分镜图片/视频列表，再批量生成分镜图（并发）
-    await loadStoryboardMedia()
+    await loadStoryboardMedia({ failClosed: true })
     const boardsWithoutImg = boards.filter((sb) => !hasSbImage(sb))
     {
       const concurrency = pipelineConcurrency.value
@@ -9360,6 +9603,7 @@ async function runRepairPipeline() {
             prompt = await ensureProfessionalFramePrompt(sb, 'first')
             frameTypeForCreate = 'storyboard_first'
           }
+          assertStoryboardMediaReady()
           const res = await imagesAPI.create({
             storyboard_id: sb.id,
             drama_id: dramaIdVal,
@@ -9370,13 +9614,13 @@ async function runRepairPipeline() {
             aspect_ratio: projectAspectRatio.value || '16:9',
           })
           if (res?.task_id) {
-            const result = await pollTaskWithPause(res.task_id, () => loadSingleStoryboardMedia(sb.id))
+            const result = await pollTaskWithPause(res.task_id, captureStoryboardMediaRefresh(sb.id))
             if (result?.error) throw new Error(result.error)
-          } else await loadSingleStoryboardMedia(sb.id)
+          } else await refreshStoryboardMediaForCurrentContext(sb.id)
         })
       }, { getLabel: (sb) => '分镜图 #' + (sb.storyboard_number ?? sb.id) })
     }
-    await loadStoryboardMedia()
+    await loadStoryboardMedia({ failClosed: true })
     const boards2 = (store.storyboards || []).filter((sb) => {
       const vidList = sbVideos.value[sb.id] || []
       if (vidList.some((v) => v.status === 'completed' && recordHasPlayableVideoUrl(v))) return false
@@ -9403,6 +9647,7 @@ async function runRepairPipeline() {
             const vFirst = referencePayload.firstFrameUrl
             const vLast = referencePayload.lastFrameUrl
             const refUrls = referencePayload.referenceUrls
+            assertStoryboardMediaReady()
             const res = await videosAPI.create(buildStoryboardVideoRequest({
               dramaId: dramaIdVal,
               storyboard: sb,
@@ -9417,9 +9662,9 @@ async function runRepairPipeline() {
             }))
             if (res?.task_id) {
               const meta = buildSbGenMeta(sb, GEN_RESOURCE.SB_VIDEO, '分镜视频')
-              const result = await pollTaskWithPause(res.task_id, () => loadSingleStoryboardMedia(sb.id), meta)
+              const result = await pollTaskWithPause(res.task_id, captureStoryboardMediaRefresh(sb.id), meta)
               if (result?.error) throw new Error(result.error)
-            } else await loadSingleStoryboardMedia(sb.id)
+            } else await refreshStoryboardMediaForCurrentContext(sb.id)
           })
         } finally {
           generatingSbVideoIds.delete(sb.id)
@@ -9433,7 +9678,7 @@ async function runRepairPipeline() {
     try {
       const result = await dramaAPI.finalizeEpisode(episodeId, getFinalizeMergeOptions())
       if (result?.task_id != null) {
-        const pollResult = await pollTaskWithPause(result.task_id, () => loadDrama())
+        const pollResult = await pollTaskWithPause(result.task_id, captureDramaRefresh())
         if (pollResult?.error) addPipelineError('生成整集视频', pollResult.error)
         else await pipelineRest()
       } else {
@@ -9538,6 +9783,7 @@ function applyRouteToStore() {
   const id = route.params.id
   projectLoadRequestId += 1
   projectDependencyRequestId += 1
+  resetStoryboardMediaContext(id && id !== 'new' ? Number(id) : null, null)
   projectLoadError.value = ''
   projectLoadNotFound.value = false
   projectDependencyWarning.value = ''

@@ -150,7 +150,7 @@ test('source intake protects drafts, validates URLs early, and keeps mode recove
 
 test('project cards use a keyboard link while keeping the action menu outside it', () => {
   assert.match(filmListSource, /<article\s+v-for="d in filteredDramas"[\s\S]*class="project-card"/)
-  assert.match(filmListSource, /<RouterLink[\s\S]*class="project-card-link"[\s\S]*projectCardDestination\(d, sourceImportIntent, route\.fullPath\)/)
+  assert.match(filmListSource, /<RouterLink[\s\S]*class="project-card-link"[\s\S]*projectCardDestination\(d, sourceImportIntent, projectListReturnTo\)/)
   assert.match(filmListSource, /<\/RouterLink>\s*<RouterLink[\s\S]*class="project-card-assets"[\s\S]*<\/RouterLink>\s*<el-dropdown[\s\S]*class="project-card-menu"/)
   assert.match(filmListSource, /@click\.stop/)
   assert.match(filmListSource, /<el-dropdown-item command="trash"[\s\S]*移入回收站/)

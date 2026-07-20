@@ -250,8 +250,8 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, reactive } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Upload, Search, Loading, CircleCheck,
@@ -264,6 +264,7 @@ import { normalizeMediaLibraryReturnTo } from '@/router'
 import {
   createLatestMediaRequestGuard,
   formatMediaSize as formatSize,
+  getVisibleSelectedMediaIds,
   hasActiveMediaFilters,
   normalizeMediaItem as normalizeItem,
 } from '@/utils/mediaLibrary'
@@ -398,7 +399,11 @@ async function loadMedia() {
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
     const res = await assetsAPI.list(params, { suppressErrorToast: true })
     mediaRequestGuard.commit(requestId, () => {
-      mediaItems.value = (res?.items || []).map(normalizeItem)
+      const nextItems = (res?.items || []).map(normalizeItem)
+      const visibleSelectedIds = getVisibleSelectedMediaIds(selectedIds, nextItems)
+      mediaItems.value = nextItems
+      selectedIds.clear()
+      visibleSelectedIds.forEach((id) => selectedIds.add(id))
       total.value = res?.pagination?.total ?? res?.total ?? 0
       hasSuccessfulMediaLoad.value = true
       loadError.value = ''
@@ -496,15 +501,19 @@ async function deleteItem(item) {
 
 async function batchDelete() {
   if (mediaWriteLocked.value) return
-  const count = selectedIds.size
-  if (count <= 0) return
+  const idsToDelete = getVisibleSelectedMediaIds(selectedIds, mediaItems.value)
+  const count = idsToDelete.length
+  if (count <= 0) {
+    selectedIds.clear()
+    return
+  }
   try {
     await ElMessageBox.confirm(`确定删除选中的 ${count} 个素材？`, '批量删除', { type: 'warning' })
   } catch (_) {
     return
   }
   let failed = 0
-  for (const id of selectedIds) {
+  for (const id of idsToDelete) {
     try {
       await request.delete(`/assets/${id}`)
     } catch (_) { failed++ }
@@ -515,7 +524,29 @@ async function batchDelete() {
   loadMedia()
 }
 
-onMounted(loadMedia)
+function confirmMediaLibraryLeave() {
+  if (!uploading.value) return true
+  ElMessage.warning('素材正在上传，请完成后再离开。')
+  return false
+}
+
+function handleBeforeUnload(event) {
+  if (!uploading.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onBeforeRouteLeave(() => confirmMediaLibraryLeave())
+
+onMounted(() => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  loadMedia()
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(keywordTimer)
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
 </script>
 
 <style scoped>

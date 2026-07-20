@@ -29,6 +29,14 @@ export function hasActiveMediaFilters(mediaType = 'all', keyword = '') {
   return mediaType !== 'all' || String(keyword).trim().length > 0
 }
 
+export function getVisibleSelectedMediaIds(selectedIds, visibleItems = []) {
+  const selected = selectedIds instanceof Set ? selectedIds : new Set(selectedIds || [])
+  const visibleIds = new Set(
+    (Array.isArray(visibleItems) ? visibleItems : []).map((item) => item?.id),
+  )
+  return Array.from(selected).filter((id) => visibleIds.has(id))
+}
+
 export function createLatestMediaRequestGuard() {
   let latestRequestId = 0
 

@@ -322,6 +322,27 @@
           <div class="gs-section-title">⚡ 一键生成并发设置</div>
           <p class="gs-desc">控制「一键生成视频」和「补全并生成」流水线中，各类任务同时并行生成的数量。并发数越高速度越快，但过高可能触发 API 限流（429 错误）。建议根据你的 API 额度选择。</p>
 
+          <div
+            v-if="generationSettingsLoadState === 'error'"
+            class="generation-settings-load-state generation-settings-load-state--error"
+            role="alert"
+            aria-live="assertive"
+          >
+            <div class="generation-settings-load-copy">
+              <strong>生成设置读取失败</strong>
+              <span>{{ generationSettingsLoadError }}</span>
+            </div>
+            <el-button size="small" type="primary" plain @click="loadGenerationSettings">重试</el-button>
+          </div>
+          <div
+            v-else-if="generationSettingsLoadState === 'loading'"
+            class="generation-settings-load-state"
+            role="status"
+            aria-live="polite"
+          >
+            正在读取生成设置...
+          </div>
+          <template v-else>
           <div class="gs-row">
             <span class="gs-label">图片并发数</span>
             <el-select
@@ -369,6 +390,7 @@
               type="primary"
               size="small"
               :loading="genSettingSaving"
+              :disabled="generationSettingsWriteLocked"
               @click="saveGenerationSettings"
             >保存</el-button>
           </div>
@@ -380,6 +402,7 @@
             show-icon
             style="margin-top: 12px; width: fit-content"
           />
+          </template>
           <div class="gs-tip-box">
             <div class="gs-tip-title">📌 适用范围</div>
             <ul class="gs-tip-list">
@@ -1468,17 +1491,32 @@ function onConfigWorkspaceKeydown(currentView, event) {
 const importFileRef = ref(null)
 
 // ---- 生成设置 ----
-const genConcurrencyInput = ref(3)
-const genVideoConcurrencyInput = ref(3)
+const genConcurrencyInput = ref(null)
+const genVideoConcurrencyInput = ref(null)
 const genSettingSaving = ref(false)
 const genSettingSaved = ref(false)
+const generationSettingsLoadState = ref('loading')
+const generationSettingsLoadError = ref('')
+const generationSettingsWriteLocked = computed(() => generationSettingsLoadState.value !== 'ready' || genSettingSaving.value)
 
 async function loadGenerationSettings() {
+  generationSettingsLoadState.value = 'loading'
   try {
     const res = await generationSettingsAPI.get()
-    genConcurrencyInput.value = res?.concurrency ?? 3
-    genVideoConcurrencyInput.value = res?.video_concurrency ?? 3
-  } catch (_) {}
+    const concurrency = Number(res?.concurrency)
+    const videoConcurrency = Number(res?.video_concurrency)
+    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 20
+      || !Number.isInteger(videoConcurrency) || videoConcurrency < 1 || videoConcurrency > 20) {
+      throw new Error('生成设置返回的数据无效，请重试。')
+    }
+    genConcurrencyInput.value = concurrency
+    genVideoConcurrencyInput.value = videoConcurrency
+    generationSettingsLoadError.value = ''
+    generationSettingsLoadState.value = 'ready'
+  } catch (error) {
+    generationSettingsLoadError.value = error?.message || '暂时无法读取生成设置，请稍后重试。'
+    generationSettingsLoadState.value = 'error'
+  }
 }
 
 function onConcurrencyChange(val) {
@@ -1492,6 +1530,10 @@ function onVideoConcurrencyChange(val) {
 }
 
 async function saveGenerationSettings() {
+  if (generationSettingsWriteLocked.value) {
+    ElMessage.warning('生成设置尚未成功读取，请重试后再保存。')
+    return
+  }
   const n = Number(genConcurrencyInput.value)
   const nv = Number(genVideoConcurrencyInput.value)
   if (isNaN(n) || n < 1 || n > 20) {
@@ -3840,6 +3882,34 @@ code {
 }
 .generation-settings {
   max-width: 600px;
+}
+.generation-settings-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 52px;
+  padding: 12px 14px;
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
+  border-radius: 6px;
+  background: var(--el-fill-color-light, #f5f7fa);
+  color: var(--el-text-color-regular, #606266);
+  font-size: 13px;
+}
+.generation-settings-load-state--error {
+  border-color: var(--el-color-danger-light-5, #fab6b6);
+  background: var(--el-color-danger-light-9, #fef0f0);
+}
+.generation-settings-load-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.generation-settings-load-copy strong {
+  color: var(--el-color-danger, #f56c6c);
+}
+.generation-settings-load-copy span {
+  overflow-wrap: anywhere;
 }
 .gs-section-title {
   font-size: 14px;

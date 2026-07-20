@@ -1,7 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
-import { createLatestMediaRequestGuard } from '../src/utils/mediaLibrary.js'
+import * as mediaLibrary from '../src/utils/mediaLibrary.js'
+
+const { createLatestMediaRequestGuard } = mediaLibrary
+const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
 
 test('an out-of-order successful response cannot replace the latest media results', () => {
   const guard = createLatestMediaRequestGuard()
@@ -42,4 +46,34 @@ test('the latest request can commit an error state and finish loading', () => {
   assert.equal(guard.commit(requestId, () => { loading = false }), true)
   assert.deepEqual(items, [])
   assert.equal(loading, false)
+})
+
+test('media selection is limited to ids visible in the latest results', () => {
+  assert.equal(typeof mediaLibrary.getVisibleSelectedMediaIds, 'function')
+
+  const selectedIds = new Set([11, 12, 13])
+  const visibleItems = [{ id: 12 }, { id: 14 }]
+
+  assert.deepEqual(
+    mediaLibrary.getVisibleSelectedMediaIds(selectedIds, visibleItems),
+    [12],
+  )
+  assert.deepEqual(
+    mediaLibrary.getVisibleSelectedMediaIds(selectedIds, []),
+    [],
+  )
+})
+
+test('successful reloads reconcile selection and batch deletion snapshots visible ids', () => {
+  assert.match(
+    mediaLibrarySource,
+    /const visibleSelectedIds = getVisibleSelectedMediaIds\(selectedIds, nextItems\)[\s\S]*selectedIds\.clear\(\)[\s\S]*visibleSelectedIds\.forEach\(\(id\) => selectedIds\.add\(id\)\)/,
+  )
+
+  const batchDeleteStart = mediaLibrarySource.indexOf('async function batchDelete')
+  const batchDeleteEnd = mediaLibrarySource.indexOf('\nonMounted', batchDeleteStart)
+  const batchDeleteSource = mediaLibrarySource.slice(batchDeleteStart, batchDeleteEnd)
+  assert.match(batchDeleteSource, /const idsToDelete = getVisibleSelectedMediaIds\(selectedIds, mediaItems\.value\)/)
+  assert.match(batchDeleteSource, /for \(const id of idsToDelete\)/)
+  assert.doesNotMatch(batchDeleteSource, /for \(const id of selectedIds\)/)
 })

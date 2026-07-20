@@ -238,7 +238,7 @@
           >
             <RouterLink
               class="project-card-link"
-            :to="projectCardDestination(d, sourceImportIntent, route.fullPath)"
+              :to="projectCardDestination(d, sourceImportIntent, projectListReturnTo)"
               :aria-label="`打开项目「${d.title || '未命名项目'}」`"
             >
               <div class="project-card-body">

@@ -468,12 +468,16 @@ onBeforeUnmount(() => {
 })
 
 onBeforeRouteLeave(async () => {
+  if (refImageUploadStatus.value === 'uploading') {
+    ElMessage.warning('参考图正在上传，请完成后再离开。')
+    return false
+  }
   if (!freeCreateTaskOwner.hasActive()) return true
   return cancelActiveGeneration('用户离开自由创作页面')
 })
 
 function handleBeforeUnload(event) {
-  if (!freeCreateTaskOwner.hasActive()) return
+  if (refImageUploadStatus.value !== 'uploading' && !freeCreateTaskOwner.hasActive()) return
   event.preventDefault()
   event.returnValue = ''
 }

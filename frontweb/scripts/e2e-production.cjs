@@ -2818,10 +2818,19 @@ async function verifyFocusedDesktopAcceptance(browser, {
     const projectEntry = projectCard.locator('.project-card-link')
     await projectEntry.getByText(UI.importWebUrl, { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
     const sourceListUrl = new URL(page.url())
-    const sourceReturnTo = `${sourceListUrl.pathname}${sourceListUrl.search}${sourceListUrl.hash}`
     const projectDestination = new URL(await projectEntry.getAttribute('href'), FRONTEND_URL)
+    const sourceReturnTo = projectDestination.searchParams.get('returnTo')
+    assert.ok(sourceReturnTo, 'project action must retain source-import list context')
+    const normalizedSourceListUrl = new URL(sourceReturnTo, FRONTEND_URL)
+    assert.equal(normalizedSourceListUrl.pathname, '/', 'project action must return to the project list')
+    for (const key of ['q', 'status', 'sort', 'intent']) {
+      assert.equal(
+        normalizedSourceListUrl.searchParams.get(key),
+        sourceListUrl.searchParams.get(key),
+        `project action must preserve the ${key} list context`,
+      )
+    }
     assert.equal(projectDestination.searchParams.get('intake'), 'source-url', 'project action must carry URL intake intent')
-    assert.equal(projectDestination.searchParams.get('returnTo'), sourceReturnTo, 'project action must retain the complete source-import list URL')
     const sourceNavigation = page.waitForURL((url) => (
       url.pathname === `/drama/${dramaId}`
         && url.searchParams.get('intake') === 'source-url'

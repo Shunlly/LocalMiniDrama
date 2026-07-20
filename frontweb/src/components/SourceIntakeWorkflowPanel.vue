@@ -1028,11 +1028,11 @@ function resetSourceInput() {
 }
 
 async function confirmSourceInputLeave() {
-  if (!hasUnsavedSourceInput.value) return true
-  if (sourceSaving.value || workflowStarting.value || sourceFileReading.value) {
-    ElMessage.warning('素材正在保存或解析，请完成后再离开。')
+  if (sourceOperationActive.value) {
+    ElMessage.warning('素材正在保存、解析或启动工作流，请完成后再离开。')
     return false
   }
+  if (!hasUnsavedSourceInput.value) return true
   if (leaveConfirmationOpen) return false
   leaveConfirmationOpen = true
   try {

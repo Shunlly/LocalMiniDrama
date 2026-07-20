@@ -119,7 +119,7 @@ test('project list and project workspaces wire safe return navigation through th
   assert.match(filmListSource, /watch\(\s*\(\) => route\.query/)
   assert.match(filmListSource, /router\.replace\(\{ path: route\.path, query: nextQuery, hash: route\.hash \}\)/)
   assert.match(filmListSource, /const projectListReturnTo = computed\(\(\) => normalizeProjectListReturnTo\(route\.fullPath\) \|\| '\/'\)/)
-  assert.match(filmListSource, /projectCardDestination\(d, sourceImportIntent, route\.fullPath\)/)
+  assert.match(filmListSource, /projectCardDestination\(d, sourceImportIntent, projectListReturnTo\)/)
   assert.match(filmListSource, /选择已有项目后导入网页 URL/)
   assert.match(filmListSource, /path: `\/drama\/\$\{drama\.id\}`,[\s\S]{0,100}returnTo: projectListReturnTo\.value/)
 
