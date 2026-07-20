@@ -13,7 +13,14 @@ const {
   normalizeTrivyScanDetails,
   parseFuseReport,
   validateArtifactScanInventory,
+  verifyPackagedExampleApplications,
 } = require('../scripts/verify-windows-artifacts');
+
+const EXAMPLE_DRAMA_DESCRIPTOR = Object.freeze({
+  path: 'resources/example_drama/衣服设计天才302.zip',
+  bytes: 82156132,
+  sha256: 'f2aa6ec793270761b295e5ccc1fa5adb367dd36937db99e0b064667d8bb592f9',
+});
 
 function fuseStates() {
   return Object.fromEntries(
@@ -31,6 +38,10 @@ function scanInventory(version = '1.3.0') {
     packaged_applications: ['setup', 'portable', 'unpacked'].map((kind) => ({
       executable: `${kind}/LocalMiniDrama.exe`,
       asar: `${kind}/resources/app.asar`,
+      example_drama: {
+        ...EXAMPLE_DRAMA_DESCRIPTOR,
+        path: `${kind}/${EXAMPLE_DRAMA_DESCRIPTOR.path}`,
+      },
       fuses: fuseStates(),
     })),
   };
@@ -90,6 +101,8 @@ test('cross-run release inventory rejects path traversal and tampered fuse evide
   const duplicateSetup = scanInventory();
   duplicateSetup.packaged_applications[1].executable = 'setup/second/LocalMiniDrama.exe';
   duplicateSetup.packaged_applications[1].asar = 'setup/second/resources/app.asar';
+  duplicateSetup.packaged_applications[1].example_drama.path =
+    'setup/second/resources/example_drama/衣服设计天才302.zip';
   assert.throws(
     () => validateArtifactScanInventory(duplicateSetup, duplicateSetup.version),
     /cover Setup, Portable, and Unpacked exactly once/
@@ -100,6 +113,110 @@ test('cross-run release inventory rejects path traversal and tampered fuse evide
   assert.throws(
     () => validateArtifactScanInventory(splitApplication, splitApplication.version),
     /belong to different release artifacts/
+  );
+});
+
+test('cross-run release inventory rejects invalid bundled example drama descriptors', () => {
+  const missing = scanInventory();
+  delete missing.packaged_applications[0].example_drama;
+  assert.throws(
+    () => validateArtifactScanInventory(missing, missing.version),
+    /example drama descriptor is invalid/
+  );
+
+  const wrongBytes = scanInventory();
+  wrongBytes.packaged_applications[0].example_drama.bytes += 1;
+  assert.throws(
+    () => validateArtifactScanInventory(wrongBytes, wrongBytes.version),
+    /example drama bytes are invalid/
+  );
+
+  const wrongDigest = scanInventory();
+  wrongDigest.packaged_applications[0].example_drama.sha256 = '0'.repeat(64);
+  assert.throws(
+    () => validateArtifactScanInventory(wrongDigest, wrongDigest.version),
+    /example drama digest is invalid/
+  );
+
+  const traversal = scanInventory();
+  traversal.packaged_applications[0].example_drama.path = '../example_drama/衣服设计天才302.zip';
+  assert.throws(
+    () => validateArtifactScanInventory(traversal, traversal.version),
+    /example drama path must not escape the scan root/
+  );
+
+  const anotherApplication = scanInventory();
+  anotherApplication.packaged_applications[0].example_drama.path =
+    'portable/resources/example_drama/衣服设计天才302.zip';
+  assert.throws(
+    () => validateArtifactScanInventory(anotherApplication, anotherApplication.version),
+    /example drama does not belong to the packaged application/
+  );
+});
+
+test('bundled example drama evidence is independently re-hashed from every extracted application', (t) => {
+  const scanRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-example-drama-scan-'));
+  t.after(() => fs.rmSync(scanRoot, { recursive: true, force: true }));
+  const contents = Buffer.from('tiny verified example drama\n');
+  const expected = {
+    relativePath: 'example_drama/example.zip',
+    fileName: 'example.zip',
+    bytes: contents.length,
+    sha256: crypto.createHash('sha256').update(contents).digest('hex'),
+  };
+  const applications = ['setup', 'portable', 'unpacked'].map((kind) => {
+    const resources = path.join(scanRoot, kind, 'resources');
+    const examplePath = path.join(resources, expected.relativePath);
+    fs.mkdirSync(path.dirname(examplePath), { recursive: true });
+    fs.writeFileSync(examplePath, contents);
+    return {
+      executable: `${kind}/LocalMiniDrama.exe`,
+      asar: `${kind}/resources/app.asar`,
+      example_drama: {
+        path: `${kind}/resources/${expected.relativePath}`,
+        bytes: expected.bytes,
+        sha256: expected.sha256,
+      },
+      fuses: fuseStates(),
+    };
+  });
+
+  assert.deepEqual(
+    verifyPackagedExampleApplications(applications, scanRoot, expected),
+    applications.map((application) => application.example_drama)
+  );
+
+  const inventory = scanInventory();
+  inventory.packaged_applications = applications;
+  validateArtifactScanInventory(inventory, inventory.version, {
+    scanRoot,
+    expectedExampleDrama: expected,
+  });
+
+  const setupExample = path.join(scanRoot, 'setup', 'resources', expected.relativePath);
+  fs.rmSync(setupExample);
+  assert.throws(
+    () => verifyPackagedExampleApplications(applications, scanRoot, expected),
+    /Example drama file is missing/
+  );
+  fs.writeFileSync(setupExample, contents);
+
+  const portableExample = path.join(scanRoot, 'portable', 'resources', expected.relativePath);
+  fs.appendFileSync(portableExample, 'resized');
+  assert.throws(
+    () => verifyPackagedExampleApplications(applications, scanRoot, expected),
+    /Example drama size mismatch/
+  );
+  fs.writeFileSync(portableExample, contents);
+
+  const unpackedExample = path.join(scanRoot, 'unpacked', 'resources', expected.relativePath);
+  fs.writeFileSync(unpackedExample, Buffer.from('tiny verified example dramA\n'));
+  assert.throws(
+    () => validateArtifactScanInventory(inventory, inventory.version, {
+      scanRoot,
+      expectedExampleDrama: expected,
+    }),
+    /Example drama SHA-256 digest mismatch/
   );
 });
 

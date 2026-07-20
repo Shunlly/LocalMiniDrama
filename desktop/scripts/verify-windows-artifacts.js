@@ -15,6 +15,10 @@ const {
   EXPECTED_PACKAGED_APPLICATION_ROOTS,
   validatePackagedApplications,
 } = require('../../scripts/packaged-applications-contract.cjs');
+const {
+  EXPECTED_EXAMPLE_DRAMA,
+  verifyExampleDrama,
+} = require('../../scripts/example-drama-contract.cjs');
 
 const desktopRoot = path.join(__dirname, '..');
 const repoRoot = path.join(desktopRoot, '..');
@@ -109,6 +113,20 @@ function sourceArtifactHashes(version, sourceDirectory) {
   }));
 }
 
+function verifyPackagedExampleApplications(applications, scanRoot, expected = EXPECTED_EXAMPLE_DRAMA) {
+  validatePackagedApplications(applications, expected);
+  const resolvedScanRoot = path.resolve(scanRoot);
+  return applications.map((application) => {
+    const resourcesRoot = path.resolve(resolvedScanRoot, path.dirname(application.asar));
+    const verified = verifyExampleDrama(resourcesRoot, expected);
+    return {
+      path: path.relative(resolvedScanRoot, verified.absolutePath).replace(/\\/g, '/'),
+      bytes: verified.bytes,
+      sha256: verified.sha256,
+    };
+  });
+}
+
 function validateArtifactScanInventory(inventory, version = packageJson.version, options = {}) {
   assert.equal(inventory?.schema, 'localminidrama.artifact-scan-inventory.v1', 'Artifact scan inventory schema is invalid');
   assert.equal(inventory.version, version, 'Artifact scan inventory version is invalid');
@@ -129,7 +147,14 @@ function validateArtifactScanInventory(inventory, version = packageJson.version,
       'Artifact scan source bytes do not match the Windows scan inventory'
     );
   }
-  validatePackagedApplications(inventory.packaged_applications);
+  validatePackagedApplications(inventory.packaged_applications, options.expectedExampleDrama);
+  if (options.scanRoot) {
+    assert.deepEqual(
+      inventory.packaged_applications.map((application) => application.example_drama),
+      verifyPackagedExampleApplications(inventory.packaged_applications, options.scanRoot, options.expectedExampleDrama),
+      'Artifact scan example drama bytes do not match the Windows scan inventory'
+    );
+  }
   return inventory;
 }
 
@@ -230,13 +255,24 @@ async function prepareArtifactScan() {
     version: packageJson.version,
     source_artifacts: Object.values(names),
     source_artifact_sha256: sourceArtifactHashes(packageJson.version, releaseRoot),
-    packaged_applications: applications.map((entry) => ({
-      executable: path.relative(scanRoot, entry.executable).replace(/\\/g, '/'),
-      asar: path.relative(scanRoot, entry.asarPath).replace(/\\/g, '/'),
-      fuses: assertFusePolicy(entry.executable),
-    })),
+    packaged_applications: applications.map((entry) => {
+      const verifiedExampleDrama = verifyExampleDrama(path.dirname(entry.asarPath));
+      return {
+        executable: path.relative(scanRoot, entry.executable).replace(/\\/g, '/'),
+        asar: path.relative(scanRoot, entry.asarPath).replace(/\\/g, '/'),
+        example_drama: {
+          path: path.relative(scanRoot, verifiedExampleDrama.absolutePath).replace(/\\/g, '/'),
+          bytes: verifiedExampleDrama.bytes,
+          sha256: verifiedExampleDrama.sha256,
+        },
+        fuses: assertFusePolicy(entry.executable),
+      };
+    }),
   };
-  validateArtifactScanInventory(inventory, packageJson.version, { sourceDirectory: releaseRoot });
+  validateArtifactScanInventory(inventory, packageJson.version, {
+    sourceDirectory: releaseRoot,
+    scanRoot,
+  });
   fs.writeFileSync(path.join(scanRoot, 'inventory.json'), `${JSON.stringify(inventory, null, 2)}\n`, 'utf8');
   return inventory;
 }
@@ -331,7 +367,7 @@ function recordArtifactSecurity() {
   const inventory = validateArtifactScanInventory(
     JSON.parse(fs.readFileSync(path.join(scanRoot, 'inventory.json'), 'utf8')),
     packageJson.version,
-    { sourceDirectory: releaseRoot }
+    { sourceDirectory: releaseRoot, scanRoot }
   );
   const commit = currentCommit();
   const scanPasses = Object.fromEntries(REQUIRED_SCANNERS.map((scanner) => [scanner, readScanPass(scanner, commit)]));
@@ -414,4 +450,5 @@ module.exports = {
   recordScanPass,
   normalizeTrivyScanDetails,
   validateArtifactScanInventory,
+  verifyPackagedExampleApplications,
 };

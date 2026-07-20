@@ -205,6 +205,11 @@ function passedArtifactSecurity(version, output, commit = gitHead) {
     packaged_applications: ['setup', 'portable', 'unpacked'].map((kind) => ({
       executable: `${kind}/LocalMiniDrama.exe`,
       asar: `${kind}/resources/app.asar`,
+      example_drama: {
+        path: `${kind}/resources/example_drama/衣服设计天才302.zip`,
+        bytes: 82156132,
+        sha256: 'f2aa6ec793270761b295e5ccc1fa5adb367dd36937db99e0b064667d8bb592f9',
+      },
       fuses: Object.fromEntries(
         Object.entries(FUSE_POLICY).map(([name, enabled]) => [name, enabled ? 'Enabled' : 'Disabled'])
       ),
@@ -643,6 +648,11 @@ test('packaged application contract rejects ambiguous or spoofed evidence paths'
   const valid = ['setup', 'portable', 'unpacked'].map((kind) => ({
     executable: `${kind}/LocalMiniDrama.exe`,
     asar: `${kind}/resources/app.asar`,
+    example_drama: {
+      path: `${kind}/resources/example_drama/衣服设计天才302.zip`,
+      bytes: 82156132,
+      sha256: 'f2aa6ec793270761b295e5ccc1fa5adb367dd36937db99e0b064667d8bb592f9',
+    },
     fuses: { ...fuseEvidence },
   }))
   assert.equal(validatePackagedApplications(valid), valid)

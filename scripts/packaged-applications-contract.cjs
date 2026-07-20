@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict')
 const path = require('node:path')
 const { FUSE_POLICY } = require('../desktop/scripts/electron-fuses')
+const { EXPECTED_EXAMPLE_DRAMA } = require('./example-drama-contract.cjs')
 
 const EXPECTED_PACKAGED_APPLICATION_ROOTS = Object.freeze(['portable', 'setup', 'unpacked'])
 const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|(?:com|lpt)(?:[1-9]|[\u00b9\u00b2\u00b3]))(?:\..*)?$/i
@@ -31,7 +32,7 @@ function assertRelativeInventoryPath(value, label) {
   return normalized
 }
 
-function validatePackagedApplications(applications) {
+function validatePackagedApplications(applications, expectedExampleDrama = EXPECTED_EXAMPLE_DRAMA) {
   assert.ok(Array.isArray(applications), 'Packaged application inventory is invalid')
   assert.equal(
     applications.length,
@@ -46,6 +47,12 @@ function validatePackagedApplications(applications) {
   for (const [index, application] of applications.entries()) {
     const executable = assertRelativeInventoryPath(application?.executable, `packaged application ${index} executable`)
     const asarPath = assertRelativeInventoryPath(application?.asar, `packaged application ${index} asar`)
+    assert.equal(typeof application?.example_drama, 'object', 'example drama descriptor is invalid')
+    assert.notEqual(application.example_drama, null, 'example drama descriptor is invalid')
+    const exampleDramaPath = assertRelativeInventoryPath(
+      application.example_drama.path,
+      `packaged application ${index} example drama path`
+    )
     assert.match(executable, /(?:^|\/)[^/]+\.exe$/i, `${executable} is not an application executable`)
     assert.match(asarPath, /(?:^|\/)resources\/app\.asar$/i, `${asarPath} is not an application ASAR`)
     assert.notEqual(executable, asarPath, 'Packaged executable and ASAR paths must differ')
@@ -68,6 +75,13 @@ function validatePackagedApplications(applications) {
       path.posix.dirname(path.posix.dirname(asarPath)),
       `${executable} and ${asarPath} do not describe the same packaged application`
     )
+    assert.equal(
+      exampleDramaPath,
+      path.posix.join(path.posix.dirname(asarPath), expectedExampleDrama.relativePath),
+      'example drama does not belong to the packaged application'
+    )
+    assert.equal(application.example_drama.bytes, expectedExampleDrama.bytes, 'example drama bytes are invalid')
+    assert.equal(application.example_drama.sha256, expectedExampleDrama.sha256, 'example drama digest is invalid')
     roots.push(executableRoot)
     assert.deepEqual(application.fuses, requiredFuses, `${executable} fuse evidence is invalid`)
   }
