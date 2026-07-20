@@ -9,16 +9,9 @@ const {
 } = require('../src/services/dataBackupService');
 
 const packageRoot = path.resolve(__dirname, '..');
-const workspaceRoot = path.resolve(packageRoot, '..');
 const scriptPath = path.join(packageRoot, 'scripts', 'recover-maintenance.js');
 
 function loadCli() {
-  const workspacePackage = JSON.parse(fs.readFileSync(path.join(workspaceRoot, 'package.json'), 'utf8'));
-  assert.equal(
-    workspacePackage.scripts['maintenance:recover'],
-    'npm --prefix backend-node run maintenance:recover --'
-  );
-
   const backendPackage = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
   assert.equal(backendPackage.scripts['maintenance:recover'], 'node scripts/recover-maintenance.js');
   assert.equal(fs.existsSync(scriptPath), true, 'maintenance recovery CLI must exist');
@@ -113,6 +106,7 @@ test('maintenance recovery requires confirmation and the exact inspected owner',
     (error) => error?.code === 'MAINTENANCE_OWNER_MISMATCH'
   );
   assert.ok(await fsp.stat(lockPath));
+
 });
 
 test('maintenance recovery removes only an exact stale foreign lease', async (t) => {
@@ -178,4 +172,22 @@ test('maintenance recovery never reclaims a stale-looking native lease with a li
     (error) => error?.code === 'MAINTENANCE_ACTIVE'
   );
   assert.ok(await fsp.stat(lockPath));
+
+  const deadPid = 2147483647;
+  await fsp.writeFile(lockPath, `${JSON.stringify({
+    ...payload,
+    pid: deadPid,
+    heartbeatAt,
+  })}\n`);
+  await fsp.utimes(lockPath, new Date(heartbeatAt), new Date(heartbeatAt));
+  assert.deepEqual(
+    recoverMaintenanceLock({
+      ...workspace,
+      confirmed: true,
+      expectedOwnerScope: payload.ownerScope,
+      expectedPid: deadPid,
+    }),
+    { recovered: false, ownerScope: payload.ownerScope, pid: deadPid }
+  );
+  assert.equal(await fsp.stat(lockPath).catch(() => null), null);
 });

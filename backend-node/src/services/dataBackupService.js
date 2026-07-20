@@ -3114,6 +3114,7 @@ module.exports = {
   acquireServiceMaintenanceLockSync,
   createDataBackup,
   maintenancePaths,
+  nativeMaintenanceOwnerScope,
   recoverInterruptedMaintenanceSync,
   restoreDataBackup,
   __testing: Object.freeze({

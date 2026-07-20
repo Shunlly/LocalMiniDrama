@@ -22,6 +22,8 @@ const openclawManifest = JSON.parse(read('openclaw-skill', 'skill.json'))
 const openclawTools = JSON.parse(read('openclaw-skill', 'tools.json'))
 const backendRoutes = read('backend-node', 'src', 'routes', 'index.js')
 const backendApp = read('backend-node', 'src', 'app.js')
+const workspacePackage = JSON.parse(read('package.json'))
+const backendPackage = JSON.parse(read('backend-node', 'package.json'))
 const waitLocalDevPath = path.join(root, 'scripts', 'wait-local-dev.cjs')
 const waitLocalDev = fs.existsSync(waitLocalDevPath) ? fs.readFileSync(waitLocalDevPath, 'utf8') : ''
 
@@ -46,6 +48,14 @@ function implementedBackendRoutes(source) {
       .map((match) => normalizeRoute(match[1], match[2])),
   )
 }
+
+test('maintenance recovery is exposed from the workspace and backend packages', () => {
+  assert.equal(
+    workspacePackage.scripts['maintenance:recover'],
+    'npm --prefix backend-node run maintenance:recover --',
+  )
+  assert.equal(backendPackage.scripts['maintenance:recover'], 'node scripts/recover-maintenance.js')
+})
 
 test('Vite development server binds to loopback unless explicitly overridden', () => {
   assert.match(viteConfig, /VITE_DEV_SERVER_HOST\s*\|\|\s*'127\.0\.0\.1'/)

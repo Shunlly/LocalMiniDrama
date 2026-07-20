@@ -6,6 +6,7 @@ const { loadConfig } = require('../src/config');
 const {
   DataBackupError,
   maintenancePaths,
+  nativeMaintenanceOwnerScope,
   recoverInterruptedMaintenanceSync,
 } = require('../src/services/dataBackupService');
 
@@ -127,14 +128,17 @@ function recoverMaintenanceLock(options = {}) {
     );
   }
 
-  const recovered = recoverInterruptedMaintenanceSync({
+  const recoveryOptions = {
     databasePath: options.databasePath,
     storagePath: options.storagePath,
     storySourcesPath: options.storySourcesPath,
-    ownerScope: inspected.ownerScope,
     expectedOwnerScope: inspected.ownerScope,
     expectedPid: inspected.pid,
-  });
+  };
+  if (inspected.ownerScope !== nativeMaintenanceOwnerScope()) {
+    recoveryOptions.ownerScope = inspected.ownerScope;
+  }
+  const recovered = recoverInterruptedMaintenanceSync(recoveryOptions);
   return {
     ...recovered,
     ownerScope: inspected.ownerScope,
