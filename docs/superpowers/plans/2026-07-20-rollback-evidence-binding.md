@@ -13,6 +13,9 @@
 - CLI bound mode accepts only paired `--archive <absolute-file> --data-root <absolute-directory>` arguments.
 - Standalone no-argument mode remains supported.
 - Bound mode never deletes or modifies the supplied archive.
+- Bound mode verifies physical file and directory identity; path plus hash alone is insufficient.
+- The Windows checkpoint holds a read-only `FileShare.Read` lock on `data.zip` through bound-drill validation and metadata publication.
+- The inspected data root must retain one native volume/file identity through shutdown, backup, drill, and checkpoint publication; checkpoint and restore hold a directory handle with no delete sharing for the entire protected operation.
 - Current live data is allowed to differ from checkpoint-time data during restore.
 - Provider credentials remain excluded and require reconfiguration.
 - Restore validation must finish before image load/tag, Docker shutdown, compensation backup, or data restore.
@@ -29,7 +32,7 @@
 - Modify: `package.json`
 
 **Interfaces:**
-- Produces: `parseDrillArguments(args)`, `fingerprintDataRoot(root)`, `assertCheckpointInputPaths(options)`, and `validateEvidenceV3(evidence, expectedVersion)`.
+- Produces: `parseDrillArguments(args)`, `capturePathIdentity(target, expectedType)`, `assertSamePathIdentity(before, after, label)`, `fingerprintDataRoot(root)`, `assertCheckpointInputPaths(options)`, and `validateEvidenceV3(evidence, expectedVersion)`.
 - Produces: `executeRollbackDrill(options, runtime) -> Promise<evidence>`, where `options` is the strict parsed mode object and `runtime` supplies backup, restore, fingerprint, publication, and optional test hooks. It throws before publication on any invalid or changed input.
 - Produces: `localminidrama.rollback-drill.v3` evidence in standalone and checkpoint-bound modes.
 
@@ -56,7 +59,7 @@ Require reversed pair order to return the same object. Require unknown, duplicat
 
 Create a temporary tree with files added in different creation orders and require identical digests. Require content, relative path, file length, and entry-type changes to alter the digest. Require a final symlink, symlinked parent, junction/reparse final component, or junction/reparse parent to throw; skip only the fixture that Windows explicitly refuses to create.
 
-The digest must match `/^[a-f0-9]{64}$/` and the implementation must sort normalized `/`-separated relative paths by UTF-8 bytes before hashing framed type/path/length/content data. Add empty-directory and non-ASCII-path cases. Replacing an entry while it is fingerprinted must fail closed rather than returning a digest for mixed identities.
+The digest must match `/^[a-f0-9]{64}$/` and the implementation must sort normalized `/`-separated relative paths by UTF-8 bytes before hashing framed type/path/length/content data. Add empty-directory and non-ASCII-path cases. Capture BigInt `dev`/`ino` identity for the root and each entry around reads. Deterministic hooks must replace an entry with identical bytes and replace the root directory at the same path; both must fail closed rather than returning a digest for mixed identities.
 
 - [ ] **Step 3: Write failing publisher lifecycle tests**
 
@@ -71,7 +74,7 @@ assert.equal(Number.isInteger(standaloneEvidence.backup.excluded_values), true)
 
 - [ ] **Step 4: Write failing bound-execution behavior tests**
 
-Exercise the runtime-injectable drill executor with a real temporary archive file and data-root tree. Inject spies for `createDataBackup`, `restoreDataBackup`, and evidence publication. Require bound mode to call `createDataBackup` zero times, pass the exact supplied archive path to restore, retain the same regular-file identity and bytes, and publish that archive hash. Mutating the archive or any root entry between pre/post checks must reject without publishing PASS. Standalone mode must create and remove only its workspace archive.
+Exercise the runtime-injectable drill executor with a real temporary archive file and data-root tree. Inject spies for `createDataBackup`, `restoreDataBackup`, evidence publication, and deterministic pre/post hooks. Require bound mode to call `createDataBackup` zero times, pass the exact supplied archive path to restore, retain the same open-descriptor regular-file identity and bytes, and publish that archive hash. The descriptor must remain open until `publishEvidence` resolves and close in `finally`. Replacing the archive with a different file containing identical bytes, replacing the root directory at the same path, mutating any root entry, or replacing an entry with identical bytes between checks must reject without publishing PASS. Standalone mode must create and remove only its workspace archive.
 
 - [ ] **Step 5: Write failing v3 source contracts**
 
@@ -101,11 +104,11 @@ Expected: parser, fingerprint, v3 validator, and bound executor are missing or f
 
 - [ ] **Step 7: Implement strict inputs and path validation**
 
-Parse CLI arguments before preparing evidence. For checkpoint-bound mode require resolved absolute inputs, a real regular archive, a real data-root directory, no symbolic-link, junction, mount-point, or other reparse path component, and the archive outside the data root. For standalone mode derive the data root containing `drama_generator.db`, `storage`, and `story_sources` and fail if configured paths do not describe that one root.
+Parse CLI arguments before preparing evidence. For checkpoint-bound mode require resolved absolute inputs, a real regular archive, a real data-root directory, no symbolic-link, junction, mount-point, or other reparse path component, and the archive outside the data root. Capture BigInt `dev`/`ino`, type, size, `ctimeNs`, and real path, keep the archive descriptor open through restore, and compare descriptor and path identity before publication. For standalone mode derive the data root containing `drama_generator.db`, `storage`, and `story_sources` and fail if configured paths do not describe that one root.
 
 - [ ] **Step 8: Implement deterministic tree fingerprinting**
 
-Walk without following links. Sort by normalized relative path. Feed the hash a framed representation for each directory and file so `a/bc` cannot collide with `ab/c`; stream file bytes and include exact byte length. Compute before the drill and after isolated restore cleanup, and require equality.
+Walk without following links. Sort by normalized relative path. Feed the hash a framed representation for each directory and file so `a/bc` cannot collide with `ab/c`; stream file bytes and include exact byte length. Capture and revalidate root and entry physical identities around each read, then re-enumerate every directory and require its exact entry-name set to remain unchanged. Compute before the drill and after isolated restore cleanup, and require both digest and root identity equality.
 
 - [ ] **Step 9: Restore the selected archive and publish v3**
 
@@ -128,7 +131,7 @@ operations: {
 },
 ```
 
-Do not remove the supplied archive. Re-hash and re-stat it after restore before setting `archive_retained: true`. Continue archiving recognized prior v1/v2 evidence, but publish only fully validated v3. Checkpoint-bound `backup.excluded_values` is `null`; standalone keeps the actual integer returned by `createDataBackup`.
+Do not remove the supplied archive. Re-hash and re-stat it after restore immediately before publication, keep its descriptor open until publication returns, and only then allow `archive_retained: true`. Continue archiving recognized prior v1/v2 evidence, but publish only fully validated v3. Checkpoint-bound `backup.excluded_values` is `null`; standalone keeps the actual integer returned by `createDataBackup`.
 
 - [ ] **Step 10: Verify GREEN and commit**
 
@@ -152,13 +155,15 @@ git commit -m "feat: bind rollback drill to retained inputs"
 ### Task 2: Release Checkpoint Metadata V5
 
 **Files:**
+- Create: `scripts/rollback-path-identity.ps1`
 - Modify: `scripts/create-release-rollback-checkpoint.ps1`
 - Modify: `scripts/release-contract.test.cjs`
 
 **Interfaces:**
 - Consumes: v3 checkpoint-bound summary, `data.zip`, and the inspected `/app/data` bind source.
-- Produces: `localminidrama.release-rollback-checkpoint.v5` with `data_root_sha256`.
-- Produces: side-effect-free `Assert-CheckpointDrillEvidence -Summary -ExpectedCommit -ExpectedVersion -ExpectedBackupHash -ActualBackupHash`, returning the validated data-root digest or throwing. Tests invoke only the function definitions before the script's `$repoRoot =` main boundary.
+- Produces: shared `scripts/rollback-path-identity.ps1` with native `Get-RollbackPathIdentity`, `Assert-RollbackPathIdentity`, `Open-RollbackArchiveReadLock`, and `Open-RollbackDirectoryIdentityLock` helpers. Checkpoint dot-sources it in Task 2; restore dot-sources it in Task 3.
+- Produces: `localminidrama.release-rollback-checkpoint.v5` with `data_root_sha256` and `data_root_identity`, where identity is lowercase `<8-hex-volume-serial>:<16-hex-file-index>`.
+- Produces: side-effect-free `Assert-CheckpointDrillEvidence -Summary -ExpectedCommit -ExpectedVersion -ExpectedBackupHash -ActualBackupHash -ExpectedDataRootIdentity -ActualDataRootIdentity`, returning the validated data-root digest and identity or throwing. Tests invoke only the function definitions before the script's `$repoRoot =` main boundary.
 
 - [ ] **Step 1: Write failing checkpoint contracts**
 
@@ -172,7 +177,7 @@ Invoke-Checked -FilePath 'npm' -ArgumentList @(
 ) -Label 'Rollback drill'
 ```
 
-Require case-sensitive `status = 'passed'`, v3, `checkpoint-bound`, `archive_retained = $true`, matching summary/backup hashes, a 64-character lowercase `source.data_root_sha256`, `source_data_root_unchanged = $true`, and `data_root_sha256` in v5 metadata. Add executable tests for the pure validator; `failed`, `PASSED`, swapped hashes, uppercase hashes, string booleans, wrong commit/version, v2 schema, and standalone mode must all throw.
+Require case-sensitive string `status = 'passed'`, v3, `checkpoint-bound`, `archive_retained = $true`, matching summary/backup hashes, a 64-character lowercase `source.data_root_sha256`, `source_data_root_unchanged = $true`, and both `data_root_sha256` and `data_root_identity` in v5 metadata. Add executable tests for the pure validator; `failed`, `PASSED`, boolean, number, null, swapped hashes, uppercase hashes, string booleans, wrong commit/version, v2 schema, standalone mode, and malformed or changed root identity must all throw. Executable lifecycle tests must prove same-path directory replacement changes identity, the directory lock blocks root delete/rename while allowing descendant read/write, and the archive lock blocks write/delete/rename while a Node 20 reader succeeds.
 
 - [ ] **Step 2: Run the checkpoint contract and verify RED**
 
@@ -186,7 +191,7 @@ Expected: v4/v2 and no paired archive invocation fail the new assertions.
 
 - [ ] **Step 3: Implement v3 validation and v5 metadata**
 
-Capture the application version before validating the summary. After the drill, independently require `data.zip` to remain the same regular-file identity and re-hash it. Reject unless:
+Capture the application version and the inspected root's native physical identity before shutdown, then retain its no-delete-sharing directory handle through metadata publication. Revalidate path identity against that handle after shutdown, around backup creation, and around the bound drill. Immediately after backup creation, open `data.zip` with `FileAccess.Read` and `FileShare.Read`; keep that handle alive through independent post-drill hash/type/identity checks and atomic metadata publication. Reject unless:
 
 ```text
 summary.schema == localminidrama.rollback-drill.v3
@@ -199,9 +204,10 @@ summary.operations.source_data_root_unchanged == true
 summary.source.commit == captured commit
 summary.source.version == captured version
 summary.source.working_tree_dirty is boolean false
+captured data-root identity is unchanged at every lifecycle boundary
 ```
 
-Use case-sensitive `-cne` and `-cmatch` for schema, mode, and lowercase digests, and require JSON booleans to be `[bool]`. Write `schema = 'localminidrama.release-rollback-checkpoint.v5'` and `data_root_sha256 = $summary.source.data_root_sha256` while preserving all v4 fields and sanitized-config guarantees.
+Use case-sensitive `-cne` and `-cmatch` for status, schema, mode, lowercase digests, and native identity format; require status to be `[string]` and JSON booleans to be `[bool]`. Write `schema = 'localminidrama.release-rollback-checkpoint.v5'`, `data_root_sha256 = $summary.source.data_root_sha256`, and `data_root_identity = $capturedDataRootIdentity` while preserving all v4 fields and sanitized-config guarantees. During this task, checkpoint expectations move to v5 while restore expectations intentionally remain v4 until Task 3.
 
 - [ ] **Step 4: Verify GREEN and commit**
 
@@ -214,7 +220,7 @@ node --test --test-name-pattern="release rollback|data bind source" scripts/rele
 Expected: all checkpoint contracts pass.
 
 ```powershell
-git add -- scripts/create-release-rollback-checkpoint.ps1 scripts/release-contract.test.cjs
+git add -- scripts/rollback-path-identity.ps1 scripts/create-release-rollback-checkpoint.ps1 scripts/release-contract.test.cjs
 git commit -m "feat: bind rollback checkpoint metadata to drill"
 ```
 
@@ -223,13 +229,14 @@ git commit -m "feat: bind rollback checkpoint metadata to drill"
 ### Task 3: Restore V5 Fail-Closed Cross-Binding
 
 **Files:**
+- Consume: `scripts/rollback-path-identity.ps1`
 - Modify: `scripts/restore-release-rollback-checkpoint.ps1`
 - Modify: `scripts/release-contract.test.cjs`
 
 **Interfaces:**
 - Consumes: checkpoint v5 metadata, v3 summary, retained `data.zip`, bind-source evidence, images, compose, and sanitized config.
 - Produces: a restore path that cannot perform a destructive operation with stale or unrelated drill evidence.
-- Produces: side-effect-free `Assert-RollbackEvidenceBinding -Metadata -Summary -ActualBackupHash`, returning no value on success and throwing on any mismatch. Tests invoke only definitions before the `$repoRoot =` main boundary.
+- Produces: side-effect-free `Assert-RollbackEvidenceBinding -Metadata -Summary -ActualBackupHash -ActualDataRootIdentity`, returning no value on success and throwing on any mismatch. Tests invoke only definitions before the `$repoRoot =` main boundary.
 
 - [ ] **Step 1: Write failing restore cross-binding tests**
 
@@ -242,11 +249,12 @@ summary.backup.archive_retained == true
 summary.backup.archive_sha256 == metadata.backup_sha256
 summary.source.data_root_sha256 == metadata.data_root_sha256
 summary.operations.source_data_root_unchanged == true
+current inspected bind-source physical identity == metadata.data_root_identity
 ```
 
-Require both hash fields to be lowercase 64-character hexadecimal strings. Keep existing file-hash, bind-source, image-ID, commit, version, config, and credential checks.
+Require both hash fields to be lowercase 64-character hexadecimal strings and the identity to match lowercase `<8-hex-volume-serial>:<16-hex-file-index>`. Keep existing file-hash, bind-source, image-ID, commit, version, config, and credential checks.
 
-Add executable tests for the pure PowerShell function. It must reject `failed` or `PASSED` status, v4 metadata, v2 evidence, standalone mode, swapped otherwise-valid summary/archive evidence, uppercase or malformed hashes, string booleans, and a root digest changed on either side. A current live data tree that differs from the old digest must not be an input to this function and must not be rejected solely for content drift.
+Add executable tests for the pure PowerShell function. It must reject `failed` or `PASSED` status, v4 metadata, v2 evidence, standalone mode, swapped otherwise-valid summary/archive evidence, uppercase or malformed hashes, string booleans, a root digest changed on either side, and a changed or malformed data-root identity. A current live data tree that differs from the old digest must not be an input to this function and must not be rejected solely for content drift.
 
 - [ ] **Step 2: Assert destructive ordering and verify RED**
 
@@ -269,7 +277,7 @@ Expected: v4/v2 restore validation fails the new assertions.
 
 - [ ] **Step 3: Implement v5/v3 fail-closed validation**
 
-Accept v5 only. Validate metadata field types and hashes, then call the executable retained-summary binding validator. Use case-sensitive schema/mode/hash comparisons and typed booleans. Do not recompute `data_root_sha256` against current live bytes. Continue verifying that the current container bind source is the recorded path before shutdown and preserve all compensation behavior.
+Accept v5 only. Require status to be an actual string and case-sensitively equal to `passed`; validate metadata field types, hashes, and native root identity, then call the executable retained-summary binding validator. Open and retain the no-delete-sharing root directory handle before mutation and compare its identity with both the current path and metadata through every rollback and recovery path. Use case-sensitive status/schema/mode/hash/identity comparisons and typed booleans. Do not recompute `data_root_sha256` against current live bytes. Preserve all compensation behavior.
 
 - [ ] **Step 4: Verify GREEN and the complete release contract**
 
@@ -323,10 +331,10 @@ The no-argument `npm run verify:rollback` invocation remains unchanged.
 Run:
 
 ```powershell
-node --test --test-name-pattern="rollback drill before|isolated rollback" scripts/release-contract.test.cjs
+node --test --test-name-pattern="rollback drill before|isolated rollback|release rollback workflow" scripts/release-contract.test.cjs
 ```
 
-Expected: both workflows validate only the old fields.
+Add or rename a dedicated release-workflow rollback test so this pattern executes both CI and release jobs. Expected: both workflows validate only the old fields.
 
 - [ ] **Step 3: Upgrade workflow validation**
 
@@ -334,7 +342,7 @@ Add the exact v3 standalone checks to CI and release before evidence upload. Do 
 
 - [ ] **Step 4: Update operator documentation**
 
-Update `docs/quickstart.md` from checkpoint v4 to v5 and evidence v3. Document the exact paired checkpoint drill, the single-root standalone layout (`drama_generator.db`, `storage`, `story_sources`), the fact that v4 checkpoints are not release-authoritative, and the rule that restore does not compare current live bytes with the old root digest.
+Update `docs/quickstart.md` from checkpoint v4 to v5 and evidence v3. Document the exact paired checkpoint drill, the single-root standalone layout (`drama_generator.db`, `storage`, `story_sources`), the fact that v4 checkpoints are not release-authoritative, and the rule that restore does not compare current live bytes with the old root digest. Also document that checkpoint creation aborts on same-path physical data-root replacement, keeps `data.zip` read-locked during the bound drill, records `data_root_identity`, and restore requires the same directory identity while still allowing its file contents to have changed.
 
 - [ ] **Step 5: Verify GREEN and commit**
 
