@@ -342,7 +342,7 @@ function assertCompleteEvidence(evidence) {
   assert.equal(focused.source_handoff.entered_production, true)
   assert.equal(focused.navigation.current_count, 1)
   assert.ok(focused.navigation.completed_distinct_count > 0)
-  assert.deepEqual(focused.ai.service_order, ['video', 'image', 'text', 'tts', 'storyboard_image'])
+  assert.deepEqual(focused.ai.service_order, ['image', 'video', 'text', 'tts', 'storyboard_image'])
   assert.deepEqual(focused.ai.action_counts, [1, 1, 0, 1, 0])
   assert.equal(focused.ai.mutation.method, 'POST')
   assert.equal(focused.ai.mutation.service_type, 'text')
@@ -1986,8 +1986,8 @@ async function assertComponentHorizontalOverflow(page, label, selectors) {
 }
 
 const FOCUSED_COVERAGE_MATRIX = Object.freeze([
-  Object.freeze({ service: 'video', label: '\u89c6\u9891\u751f\u6210', state: 'default', test_status: 'failed', action_count: 1, action_label: '\u91cd\u65b0\u6d4b\u8bd5' }),
   Object.freeze({ service: 'image', label: '\u7d20\u6750\u56fe\u7247', state: 'configured', test_status: 'unknown', action_count: 1, action_label: '\u8865\u9f50\u9ed8\u8ba4' }),
+  Object.freeze({ service: 'video', label: '\u89c6\u9891\u751f\u6210', state: 'default', test_status: 'failed', action_count: 1, action_label: '\u91cd\u65b0\u6d4b\u8bd5' }),
   Object.freeze({ service: 'text', label: '\u6587\u672c\u751f\u6210', state: 'missing', test_status: 'unknown', action_count: 0, action_label: '' }),
   Object.freeze({ service: 'tts', label: '\u8bed\u97f3\u5408\u6210', state: 'default', test_status: 'unknown', action_count: 1, action_label: '\u7acb\u5373\u6d4b\u8bd5' }),
   Object.freeze({ service: 'storyboard_image', label: '\u5206\u955c\u56fe\u7247', state: 'default', test_status: 'passed', action_count: 0, action_label: '' }),

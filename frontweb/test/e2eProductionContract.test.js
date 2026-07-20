@@ -174,7 +174,7 @@ function focusedAcceptanceEvidence() {
       final_action: '\u4e00\u952e\u751f\u6210\u6210\u7247',
     },
     ai: {
-      service_order: ['video', 'image', 'text', 'tts', 'storyboard_image'],
+      service_order: ['image', 'video', 'text', 'tts', 'storyboard_image'],
       action_counts: [1, 1, 0, 1, 0],
       mutation: { method: 'POST', service_type: 'text', created_id: 99, is_default: false },
       configuration_feedback_observed: true,
@@ -1401,8 +1401,8 @@ test('acceptance capture preparation waits for mask-free expected surface state'
 })
 
 const FOCUSED_COVERAGE_WAIT_MATRIX = [
-  { service: 'video', state: 'default', test_status: 'failed' },
   { service: 'image', state: 'configured', test_status: 'unknown' },
+  { service: 'video', state: 'default', test_status: 'failed' },
   { service: 'text', state: 'missing', test_status: 'unknown' },
   { service: 'tts', state: 'default', test_status: 'unknown' },
   { service: 'storyboard_image', state: 'default', test_status: 'passed' },
@@ -1507,7 +1507,7 @@ test('coverage matrix waiter executes the exact service, state, and test-status 
   const invalidMatrices = [
     FOCUSED_COVERAGE_WAIT_MATRIX.slice(0, -1),
     FOCUSED_COVERAGE_WAIT_MATRIX.map((record, index) => (index === 0 ? { ...record, service: 'text' } : record)),
-    FOCUSED_COVERAGE_WAIT_MATRIX.map((record, index) => (index === 1 ? { ...record, state: 'default' } : record)),
+    FOCUSED_COVERAGE_WAIT_MATRIX.map((record, index) => (index === 0 ? { ...record, state: 'default' } : record)),
     FOCUSED_COVERAGE_WAIT_MATRIX.map((record, index) => (index === 4 ? { ...record, test_status: 'failed' } : record)),
   ]
   for (const coverageRecords of invalidMatrices) {
@@ -1937,10 +1937,10 @@ test('focused readiness routes continue normal requests and record only real tar
   assert.equal(failingListeners.size, 0, 'dispose must remove the response listener when unrouteAll fails')
 })
 
-test('focused coverage geometry uses one normalized DOM snapshot and validates service identity', () => {
+test('focused coverage geometry follows structural-repair priority and validates service identity', () => {
   const records = [
-    { service: 'video', label: '\u89c6\u9891\u751f\u6210', state: 'default', test_status: 'failed', action_count: 1, action_label: '\u91cd\u65b0\u6d4b\u8bd5' },
     { service: 'image', label: '\u7d20\u6750\u56fe\u7247', state: 'configured', test_status: 'unknown', action_count: 1, action_label: '\u8865\u9f50\u9ed8\u8ba4' },
+    { service: 'video', label: '\u89c6\u9891\u751f\u6210', state: 'default', test_status: 'failed', action_count: 1, action_label: '\u91cd\u65b0\u6d4b\u8bd5' },
     { service: 'text', label: '\u6587\u672c\u751f\u6210', state: 'missing', test_status: 'unknown', action_count: 0, action_label: '' },
     { service: 'tts', label: '\u8bed\u97f3\u5408\u6210', state: 'default', test_status: 'unknown', action_count: 1, action_label: '\u7acb\u5373\u6d4b\u8bd5' },
     { service: 'storyboard_image', label: '\u5206\u955c\u56fe\u7247', state: 'default', test_status: 'passed', action_count: 0, action_label: '' },
@@ -2000,7 +2000,7 @@ test('focused acceptance is called once before playback and is mandatory evidenc
     'FOCUSED_DESKTOP_VIEWPORT',
     'AI_TWO_COLUMN_VIEWPORT',
     'current_count, 1',
-    "['video', 'image', 'text', 'tts', 'storyboard_image']",
+    "['image', 'video', 'text', 'tts', 'storyboard_image']",
     '[1, 1, 0, 1, 0]',
     "injected_failure_state, 'error'",
     "final_state, 'ready'",
