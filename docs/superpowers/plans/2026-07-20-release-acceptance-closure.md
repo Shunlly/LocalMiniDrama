@@ -135,7 +135,7 @@ Extend `createCaptureReadinessPage` with visible nodes for:
 '.vue-flow-canvas': visible(),
 '.free-create-page': visible(),
 '.input-panel': visible(),
-'.service-readiness:not(.is-loading)': visible(),
+'.service-readiness.is-ready': visible(),
 ```
 
 Add one successful readiness test per new surface and source assertions that preparation contains these destinations:
@@ -200,7 +200,7 @@ Require:
 project-list: .film-list + .projects-wrap[aria-busy="false"] + .project-grid
 media-library: .media-library-page + .media-grid[aria-busy="false"] + (.media-card or .empty-media), with no .data-load-state
 drama-canvas: .drama-canvas-page + .canvas-shell + (.vue-flow-canvas or .canvas-start-state)
-free-create: .free-create-page + .input-panel + .service-readiness whose class is not is-loading
+free-create: .free-create-page + .input-panel + .service-readiness.is-ready
 ```
 
 Keep the global visible loading-mask rejection before each surface branch and return `false` for unknown surfaces.

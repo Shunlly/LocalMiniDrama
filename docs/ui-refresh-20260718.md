@@ -165,6 +165,10 @@ Final full-viewport captures are generated outside the tracked report under
 source revision, viewport, theme, byte size, and SHA-256 for each capture and is
 validated together with `artifacts/e2e-production/evidence.json`. A source
 change invalidates that evidence and requires the machine gates to run again.
+The release contract requires exactly 28 original-viewport PNG files, including
+light and dark 1280x720 captures for the project list, media library, drama
+canvas, and free creation surfaces. Free creation is accepted only when its
+service readiness state is explicitly ready.
 
 ## Illustrative Screenshots
 

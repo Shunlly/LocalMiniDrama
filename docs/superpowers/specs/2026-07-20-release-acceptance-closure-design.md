@@ -32,7 +32,7 @@ The exact final matrix therefore contains 28 PNG files. Each new surface must:
 - reject visible loading masks, blank output, and protected Provider values;
 - preserve original viewport dimensions and bind its hash to the clean Git commit in the final manifest.
 
-The canvas capture must require a rendered Vue Flow viewport or an explicit usable canvas empty state. The media library must require a completed successful load. Project list and free creation must require their main task surfaces to be visible.
+The canvas capture must require a rendered Vue Flow viewport or an explicit usable canvas empty state. The media library must require a completed successful load. The project list must require its main task surface to be visible. Free creation must require its main task surface and an explicit `.service-readiness.is-ready` state; a merely non-loading service state is insufficient.
 
 ## Failure Handling
 
