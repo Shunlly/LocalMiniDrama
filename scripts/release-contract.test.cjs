@@ -379,6 +379,19 @@ test('user ZIP parsers pin the four-gigabyte allocation fix', () => {
   assert.equal(desktopPackage.dependencies['adm-zip'], '0.6.0')
 })
 
+test('root source gate syntax-checks and executes the OpenClaw contract', () => {
+  assert.equal(
+    rootPackage.scripts['test:openclaw-contract'],
+    'node --test scripts/openclaw-contract.test.cjs'
+  )
+  const syntaxGate = rootPackage.scripts.check.indexOf(
+    'node --check scripts/openclaw-contract.test.cjs'
+  )
+  const executionGate = rootPackage.scripts.check.indexOf('npm run test:openclaw-contract')
+  assert.ok(syntaxGate >= 0, 'root check must syntax-check the OpenClaw contract')
+  assert.ok(executionGate > syntaxGate, 'root check must execute it after syntax validation')
+})
+
 test('verified Docker startup binds images to a clean full Git revision', () => {
   assert.equal(rootPackage.scripts['docker:up'], 'node scripts/docker-compose-with-revision.cjs')
   assert.equal(rootPackage.scripts['docker:e2e:up'], 'node scripts/docker-compose-with-revision.cjs --profile e2e')
