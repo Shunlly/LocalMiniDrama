@@ -82,6 +82,7 @@ const rootPackage = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 
 const backendPackage = JSON.parse(fs.readFileSync(path.join(root, 'backend-node', 'package.json'), 'utf8'))
 const frontendPackage = JSON.parse(fs.readFileSync(path.join(root, 'frontweb', 'package.json'), 'utf8'))
 const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'))
+const ciWorkflowDocument = parseYaml(ciWorkflow)
 const releaseWorkflowDocument = parseYaml(workflow)
 const gitHeadResult = spawnSync('git', ['rev-parse', 'HEAD'], {
   cwd: root,
@@ -134,6 +135,27 @@ function jobBlock(name, source = workflow) {
   const remainder = source.slice(start + marker.length)
   const nextJob = remainder.search(/\r?\n  [a-z][a-z0-9-]*:\r?\n/)
   return source.slice(start, nextJob === -1 ? source.length : start + marker.length + nextJob)
+}
+
+function assertExampleDramaLfsGate(workflowDocument, jobName) {
+  const job = workflowDocument.jobs[jobName]
+  assert.ok(job, `workflow job ${jobName} is missing`)
+  const steps = job.steps || []
+  const checkout = steps.find((step) => String(step.uses || '').startsWith('actions/checkout@'))
+  assert.ok(checkout, `${jobName} must check out the repository`)
+  assert.equal(checkout.with?.lfs, true, `${jobName} checkout must enable Git LFS`)
+
+  const pinnedNodeSetup = 'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020'
+  const nodeSetupIndex = steps.findIndex((step) => step.uses === pinnedNodeSetup)
+  assert.notEqual(nodeSetupIndex, -1, `${jobName} must use the pinned Node.js setup action`)
+  assert.equal(steps[nodeSetupIndex].with?.['node-version'], '20')
+
+  const gate = steps[nodeSetupIndex + 1]
+  assert.equal(gate?.name, 'Verify Git LFS example source')
+  assert.deepEqual(String(gate?.run || '').trim().split(/\r?\n/), [
+    'git lfs fsck',
+    'npm run verify:example-drama',
+  ])
 }
 
 function trustedMediaMetadata() {
@@ -390,6 +412,62 @@ test('root source gate syntax-checks and executes the OpenClaw contract', () => 
   const executionGate = rootPackage.scripts.check.indexOf('npm run test:openclaw-contract')
   assert.ok(syntaxGate >= 0, 'root check must syntax-check the OpenClaw contract')
   assert.ok(executionGate > syntaxGate, 'root check must execute it after syntax validation')
+})
+
+test('root check runs only the fixture-sized example drama contract', () => {
+  assert.equal(
+    rootPackage.scripts['test:example-drama-contract'],
+    'node --test scripts/example-drama-contract.test.cjs',
+  )
+  assert.equal(
+    rootPackage.scripts['verify:example-drama'],
+    'node scripts/example-drama-contract.cjs',
+  )
+  assert.match(rootPackage.scripts.check, /npm run test:example-drama-contract/)
+  assert.doesNotMatch(rootPackage.scripts.check, /npm run verify:example-drama/)
+
+  const verifierSyntaxGate = rootPackage.scripts.check.indexOf(
+    'node --check scripts/example-drama-contract.cjs',
+  )
+  const testSyntaxGate = rootPackage.scripts.check.indexOf(
+    'node --check scripts/example-drama-contract.test.cjs',
+  )
+  const executionGate = rootPackage.scripts.check.indexOf('npm run test:example-drama-contract')
+  assert.ok(verifierSyntaxGate >= 0, 'root check must syntax-check the example drama verifier')
+  assert.ok(testSyntaxGate >= 0, 'root check must syntax-check the example drama fixture contract')
+  assert.ok(executionGate > testSyntaxGate, 'root check must run fixture tests after syntax validation')
+})
+
+test('CI desktop LFS checkout verifies the example drama immediately after Node setup', () => {
+  assertExampleDramaLfsGate(ciWorkflowDocument, 'desktop')
+})
+
+test('release build-windows LFS checkout verifies the example drama immediately after Node setup', () => {
+  assertExampleDramaLfsGate(releaseWorkflowDocument, 'build-windows')
+})
+
+test('only the two Windows build jobs hydrate and verify the production LFS example', () => {
+  const actual = []
+  for (const [workflowName, document] of [
+    ['ci', ciWorkflowDocument],
+    ['release', releaseWorkflowDocument],
+  ]) {
+    for (const [jobName, job] of Object.entries(document.jobs || {})) {
+      const steps = job.steps || []
+      const hydratesLfs = steps.some((step) => (
+        String(step.uses || '').startsWith('actions/checkout@') && step.with?.lfs === true
+      ))
+      const verifiesExample = steps.some((step) => (
+        String(step.run || '').split(/\r?\n/).some((line) => line.trim() === 'npm run verify:example-drama')
+      ))
+      if (hydratesLfs || verifiesExample) {
+        assert.equal(hydratesLfs, true, `${workflowName}:${jobName} verifies without LFS hydration`)
+        assert.equal(verifiesExample, true, `${workflowName}:${jobName} hydrates LFS without verification`)
+        actual.push(`${workflowName}:${jobName}`)
+      }
+    }
+  }
+  assert.deepEqual(actual, ['ci:desktop', 'release:build-windows'])
 })
 
 test('verified Docker startup binds images to a clean full Git revision', () => {
