@@ -111,12 +111,6 @@ jobs:
           name: windows-release-unverified-${{ inputs['artifact-key'] }}
           path: desktop/release
 
-      - name: Download Windows scan evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: windows-release-security-evidence-${{ inputs['artifact-key'] }}
-          path: desktop/release/.artifact-scan
-
       - name: Block high and critical vulnerabilities and source container misconfigurations with Trivy
         shell: bash
         run: |
@@ -160,6 +154,70 @@ jobs:
             "$TRIVY_IMAGE" \
             -c 'cat /root/.cache/trivy/policy/metadata.json')"
           node desktop/scripts/verify-windows-artifacts.js mark trivy "$version" "$version_metadata" "$policy_metadata"
+
+      - name: Upload Trivy scan evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-release-trivy-evidence-${{ inputs['artifact-key'] }}
+          path: desktop/release/.artifact-scan/.evidence/trivy.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  record-windows-artifacts:
+    name: Re-extract and record Windows release security evidence
+    needs: [scan-windows-artifacts, scan-trivy-artifacts]
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install artifact verification dependencies without lifecycle scripts
+        run: npm --prefix desktop ci --ignore-scripts
+
+      - name: Download unverified Windows build output
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-release-unverified-${{ inputs['artifact-key'] }}
+          path: desktop/release
+
+      - name: Download Windows scan evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-release-security-evidence-${{ inputs['artifact-key'] }}
+          path: desktop/security-evidence/windows
+
+      - name: Download Trivy scan evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-release-trivy-evidence-${{ inputs['artifact-key'] }}
+          path: desktop/security-evidence/trivy
+
+      - name: Extract Setup, Portable, Unpacked and ASAR payloads and verify Electron fuses
+        run: npm --prefix desktop run prepare:artifact-scan
+
+      - name: Compare regenerated inventory with the first Windows scan
+        shell: pwsh
+        run: >-
+          node -e "const assert = require('node:assert/strict'); const fs = require('node:fs'); const canonicalizeInventory = (inventory) => ({ ...inventory, packaged_applications: [...inventory.packaged_applications].sort((left, right) => left.executable.localeCompare(right.executable)) }); const firstInventory = canonicalizeInventory(JSON.parse(fs.readFileSync('desktop/security-evidence/windows/inventory.json', 'utf8'))); const regeneratedInventory = canonicalizeInventory(JSON.parse(fs.readFileSync('desktop/release/.artifact-scan/inventory.json', 'utf8'))); assert.deepEqual(regeneratedInventory, firstInventory);"
+
+      - name: Stage scanner markers after inventory equality
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidenceRoot = 'desktop/release/.artifact-scan/.evidence'
+          Copy-Item -LiteralPath 'desktop/security-evidence/windows/.evidence/gitleaks.json' -Destination (Join-Path $evidenceRoot 'gitleaks.json')
+          Copy-Item -LiteralPath 'desktop/security-evidence/windows/.evidence/defender.json' -Destination (Join-Path $evidenceRoot 'defender.json')
+          Copy-Item -LiteralPath 'desktop/security-evidence/trivy/trivy.json' -Destination (Join-Path $evidenceRoot 'trivy.json')
 
       - name: Record complete security evidence and generate the verified release manifest
         run: |

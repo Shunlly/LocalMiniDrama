@@ -1208,6 +1208,50 @@ test('CI and release reuse one complete Windows artifact security workflow', () 
   assert.match(releaseSecurity, /artifact-key: \$\{\{ github\.ref_name \}\}-\$\{\{ github\.sha \}\}/)
 })
 
+test('Windows artifact recording re-extracts physical applications after scanner handoff', () => {
+  const artifactScan = jobBlock('scan-windows-artifacts', windowsReleaseSecurityWorkflow)
+  const trivyScan = jobBlock('scan-trivy-artifacts', windowsReleaseSecurityWorkflow)
+
+  assert.match(trivyScan, /name: windows-release-trivy-evidence-\$\{\{ inputs\['artifact-key'\] \}\}/)
+  assert.match(trivyScan, /path: desktop\/release\/\.artifact-scan\/\.evidence\/trivy\.json/)
+  assert.equal([...trivyScan.matchAll(/actions\/upload-artifact@/g)].length, 1)
+  assert.doesNotMatch(trivyScan, /windows-release-security-evidence-|inventory\.json/)
+  assert.doesNotMatch(trivyScan, /record:artifact-security|release:manifest|verify:release:artifacts/)
+  assert.doesNotMatch(trivyScan, /name: windows-release-\$\{\{ inputs\['artifact-key'\] \}\}/)
+
+  const record = jobBlock('record-windows-artifacts', windowsReleaseSecurityWorkflow)
+  assert.match(record, /runs-on: windows-latest/)
+  assert.match(record, /needs: \[scan-windows-artifacts, scan-trivy-artifacts\]/)
+  assert.match(record, /node-version: '20'/)
+  assert.match(record, /npm --prefix desktop ci --ignore-scripts/)
+  assert.match(
+    record,
+    /windows-release-unverified-[\s\S]*path: desktop\/release[\s\S]*windows-release-security-evidence-[\s\S]*path: desktop\/security-evidence\/windows[\s\S]*windows-release-trivy-evidence-[\s\S]*path: desktop\/security-evidence\/trivy/,
+  )
+
+  const prepareIndex = record.indexOf('npm --prefix desktop run prepare:artifact-scan')
+  const firstParseIndex = record.indexOf('JSON.parse')
+  const equalityIndex = record.indexOf('assert.deepEqual(regeneratedInventory, firstInventory)')
+  const markerIndex = record.indexOf('Copy-Item')
+  const recordIndex = record.indexOf('npm --prefix desktop run record:artifact-security')
+  assert.ok(prepareIndex !== -1 && prepareIndex < firstParseIndex)
+  assert.match(record, /JSON\.parse[\s\S]*JSON\.parse/)
+  assert.match(record, /sort\(\(left, right\) => left\.executable\.localeCompare\(right\.executable\)\)/)
+  assert.ok(equalityIndex !== -1 && equalityIndex < markerIndex)
+  assert.match(record, /gitleaks\.json[\s\S]*defender\.json[\s\S]*trivy\.json/)
+  assert.equal([...record.matchAll(/Copy-Item -LiteralPath/g)].length, 3)
+  assert.ok(recordIndex !== -1 && markerIndex < recordIndex)
+  assert.match(record, /record:artifact-security[\s\S]*release:manifest[\s\S]*verify:release:artifacts/)
+  assert.match(record, /name: windows-release-\$\{\{ inputs\['artifact-key'\] \}\}/)
+  assert.match(record, /desktop\/release\/release-manifest\.json/)
+  assert.match(record, /desktop\/release\/SHA256SUMS/)
+
+  assert.match(artifactScan, /desktop\/release\/\.artifact-scan\/inventory\.json/)
+  assert.match(artifactScan, /desktop\/release\/\.artifact-scan\/\.evidence\/gitleaks\.json/)
+  assert.match(artifactScan, /desktop\/release\/\.artifact-scan\/\.evidence\/defender\.json/)
+  assert.doesNotMatch(artifactScan, /\.artifact-scan\/(?:setup|portable|unpacked)/)
+})
+
 test('release workflow separates read-only build, artifact verification and publishing', () => {
   assert.match(workflow, /^permissions:\s*\{\}\s*$/m)
   const rollback = jobBlock('rollback-drill')
@@ -1215,6 +1259,7 @@ test('release workflow separates read-only build, artifact verification and publ
   const releaseSecurity = jobBlock('windows-release-security')
   const artifactScan = jobBlock('scan-windows-artifacts', windowsReleaseSecurityWorkflow)
   const trivyScan = jobBlock('scan-trivy-artifacts', windowsReleaseSecurityWorkflow)
+  const record = jobBlock('record-windows-artifacts', windowsReleaseSecurityWorkflow)
   const artifactVerification = jobBlock('verify-artifacts')
   const publish = jobBlock('publish-release')
 
@@ -1284,17 +1329,31 @@ test('release workflow separates read-only build, artifact verification and publ
   assert.match(backendTrivyIgnore, /expired_at:\s*2027-07-17/)
   assert.match(backendTrivyIgnore, /setpriv/)
   assert.match(trivyScan, /windows-release-unverified-[\s\S]*path: desktop\/release/)
-  assert.match(
-    trivyScan,
-    /windows-release-security-evidence-[\s\S]*path: desktop\/release\/\.artifact-scan[\s\S]*mark trivy "\$version"/,
-  )
   assert.match(trivyScan, /run_trivy --version --format json/)
   assert.match(trivyScan, /cat \/root\/\.cache\/trivy\/policy\/metadata\.json/)
   assert.match(trivyScan, /mark trivy "\$version" "\$version_metadata" "\$policy_metadata"/)
-  assert.match(trivyScan, /mark trivy "\$version"[\s\S]*record:artifact-security[\s\S]*release:manifest[\s\S]*verify:release:artifacts/)
-  assert.match(trivyScan, /desktop\/release\/release-manifest\.json/)
-  assert.match(trivyScan, /desktop\/release\/SHA256SUMS/)
+  assert.match(trivyScan, /name: windows-release-trivy-evidence-/)
+  assert.doesNotMatch(trivyScan, /windows-release-security-evidence-|record:artifact-security|release:manifest|verify:release:artifacts/)
   assert.doesNotMatch(trivyScan, /contents: write|attest-build-provenance|action-gh-release/)
+
+  assert.match(record, /needs: \[scan-windows-artifacts, scan-trivy-artifacts\]/)
+  assert.match(record, /runs-on: windows-latest/)
+  assert.match(record, /npm --prefix desktop run prepare:artifact-scan/)
+  assert.match(record, /assert\.deepEqual\(regeneratedInventory, firstInventory\)/)
+  assert.match(record, /record:artifact-security[\s\S]*release:manifest[\s\S]*verify:release:artifacts/)
+  for (const name of [
+    'desktop/release/*.exe',
+    'desktop/release/*.exe.blockmap',
+    'desktop/release/LocalMiniDrama-Unpacked-*-x64.zip',
+    'desktop/release/*.cdx.json',
+    'desktop/release/artifact-security.json',
+    'desktop/release/media-tools.json',
+    'desktop/release/release-manifest.json',
+    'desktop/release/SHA256SUMS',
+  ]) {
+    assert.ok(record.includes(name), `final Windows bundle upload must include ${name}`)
+  }
+  assert.doesNotMatch(record, /\.artifact-scan\/(?:setup|portable|unpacked)/)
   assert.match(
     windowsArtifactVerifierSource,
     /source_artifact_sha256: sourceArtifactHashes\(packageJson\.version, releaseRoot\)/,
@@ -1312,7 +1371,7 @@ test('release workflow separates read-only build, artifact verification and publ
   assert.match(publish, /needs: \[production-e2e, rollback-drill, windows-release-security, verify-artifacts\]/)
   assert.match(publish, /permissions:\r?\n      contents: write/)
   assert.match(publish, /softprops\/action-gh-release@[a-f0-9]{40}/)
-  for (const block of [trivyScan, artifactVerification, publish]) {
+  for (const block of [record, artifactVerification, publish]) {
     assert.doesNotMatch(block, /desktop\/release\/\*\.zip/)
     assert.match(block, /desktop\/release\/LocalMiniDrama-Unpacked-\*-x64\.zip/)
   }
