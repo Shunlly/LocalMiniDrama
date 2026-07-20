@@ -180,7 +180,7 @@ function focusedAcceptanceEvidence() {
       configuration_feedback_observed: true,
       native_close_focus_restored: true,
       custom_return_focus_restored: true,
-      columns_1280: 5,
+      columns_1280: 4,
       columns_1024: 2,
       minimum_target_size: 32,
     },
@@ -198,6 +198,13 @@ function focusedAcceptanceEvidence() {
     component_overflow: {
       '1280x720': [{ selector: '.coverage-grid', index: 0, client_width: 100, scroll_width: 100 }],
       '1024x768': [{ selector: '.coverage-grid', index: 0, client_width: 100, scroll_width: 100 }],
+    },
+    coverage_layout: {
+      columns_at_1280: 4,
+      minimum_card_width: 220,
+      visible_card_count: 5,
+      horizontal_overflow: false,
+      columns_at_1024: 2,
     },
     cleanup: {
       exact_name_registered: true,
@@ -666,6 +673,22 @@ test('production evidence can seal a complete successful acceptance package', as
       }),
       /restore the original script title/,
     )
+    assert.throws(
+      () => assertCompleteEvidence({
+        ...persistedEvidence,
+        browser: {
+          ...persistedEvidence.browser,
+          focused_acceptance: {
+            ...persistedEvidence.browser.focused_acceptance,
+            coverage_layout: {
+              ...persistedEvidence.browser.focused_acceptance.coverage_layout,
+              columns_at_1280: 5,
+            },
+          },
+        },
+      }),
+      /four columns/,
+    )
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true })
   }
@@ -763,6 +786,53 @@ test('production E2E verifies workflow-first disclosures and AI config modes', (
     "page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 30000 })",
     "assert.equal(await coverageMode.getAttribute('aria-selected'), 'false'",
     "assert.equal(await configsMode.getAttribute('aria-selected'), 'true'",
+  ])
+})
+
+test('focused production E2E expands the 769px sidebar before checking every header control', () => {
+  const focusedAcceptance = sourceFunction('verifyFocusedDesktopAcceptance')
+  assertSourceOrder(focusedAcceptance, [
+    'await page.setViewportSize(FILM_DESKTOP_EDGE_VIEWPORT)',
+    "page.getByRole('button', { name: UI.expandNavigation, exact: true })",
+    "await edgeExpand.waitFor({ state: 'visible', timeout: 10000 })",
+    'await edgeExpand.click()',
+    "page.getByRole('button', { name: UI.collapseNavigation, exact: true })",
+    "await edgeCollapse.waitFor({ state: 'visible', timeout: 10000 })",
+    'await assertFilmCreateDesktopLayout(page, { ...FILM_DESKTOP_EDGE_VIEWPORT, sidebarWidth: 180 })',
+  ])
+
+  const layoutAssertion = sourceFunction('assertFilmCreateDesktopLayout')
+  for (const selector of [
+    '.header-episode-select',
+    '.btn-back-drama',
+    '.btn-canvas-mode',
+    '.btn-theme',
+    '.btn-ai-config',
+  ]) {
+    assert.match(layoutAssertion, new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+  assert.match(layoutAssertion, /scrollWidth/)
+  assert.match(layoutAssertion, /clientWidth/)
+  assert.match(layoutAssertion, /overlaps/)
+})
+
+test('focused production E2E covers media center to completed-project URL intake focus', () => {
+  const focusedAcceptance = sourceFunction('verifyFocusedDesktopAcceptance')
+  assertSourceOrder(focusedAcceptance, [
+    'await page.goto(`${FRONTEND_URL}/media-library`',
+    "page.getByRole('button', { name: UI.sourceImportProject, exact: true })",
+    "url.searchParams.get('intent') === 'source-import'",
+    'await sourceImportEntry.click()',
+    "page.getByRole('textbox', { name: '\\u641c\\u7d22\\u9879\\u76ee', exact: true })",
+    "projectCard.locator('.project-card-link')",
+    "assert.equal(projectDestination.searchParams.get('intake'), 'source-url'",
+    "assert.equal(projectDestination.searchParams.get('returnTo'), sourceReturnTo",
+    'await projectEntry.click()',
+    "assert.equal(sourceUrl.searchParams.get('intake'), 'source-url'",
+    "assert.equal(sourceUrl.searchParams.get('returnTo'), sourceReturnTo",
+    "workflow.getByRole('textbox', { name: UI.sourceUrlLabel, exact: true })",
+    "await sourceUrlInput.waitFor({ state: 'visible', timeout: 30000 })",
+    'element.ownerDocument.activeElement === element',
   ])
 })
 
@@ -876,9 +946,10 @@ test('focused desktop acceptance is isolated from expensive media workflows', ()
   const focused = sourceFunction('verifyFocusedDesktopAcceptance')
   assertSourceOrder(focused, [
     'FOCUSED_DESKTOP_VIEWPORT',
+    'UI.sourceImportProject',
     "page.locator('.project-card')",
-    'UI.openStoryMaterials',
-    "storyEntry.press('Enter')",
+    "projectCard.locator('.project-card-link')",
+    'projectEntry.click()',
     "#source-intake-workflow",
     "getByTestId('source-workflow-complete')",
     'UI.enterProduction',
@@ -1231,7 +1302,7 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
   assert.doesNotMatch(focused, /fallback:\s*page\.locator/)
   assertSourceOrder(focused, [
     'assertCoverageLayout',
-    'columns: 5',
+    'columns: 4',
     'layout1280.cards.map',
     'assertComponentHorizontalOverflow',
     'minimumTargetSize: 32',
@@ -2471,6 +2542,19 @@ test('production frontend image installs build tooling but compiles the producti
   assert.doesNotMatch(productionDockerfile, /ENV NODE_ENV=development/)
 })
 
+test('production frontend build copies only the Vite runtime instance helper from the backend', () => {
+  assert.match(
+    productionDockerfile,
+    /COPY backend-node\/src\/utils\/runtimeInstanceId\.js \/backend-node\/src\/utils\/runtimeInstanceId\.js/,
+  )
+})
+
+test('focused desktop coverage contract keeps five cards readable in four 1280px columns', () => {
+  assert.match(productionSource, /viewport: FOCUSED_DESKTOP_VIEWPORT,[\s\S]*?columns: 4,[\s\S]*?minimumCardWidth: 220/)
+  assert.match(productionSource, /assertCoverageLayout\(page, \{[\s\S]*?viewport: AI_TWO_COLUMN_VIEWPORT,[\s\S]*?columns: 2/)
+  assert.match(productionSource, /coverage_layout:\s*\{[\s\S]*?columns_at_1280:[\s\S]*?minimum_card_width:[\s\S]*?visible_card_count:[\s\S]*?horizontal_overflow:[\s\S]*?columns_at_1024:/)
+})
+
 test('frontend verification image provides Git for acceptance verifier repositories', () => {
   assert.match(
     verificationDockerfile,
@@ -2481,6 +2565,19 @@ test('frontend verification image provides Git for acceptance verifier repositor
 test('frontend verification image preserves tracked report repository paths', () => {
   assert.match(verificationDockerfile, /COPY docs \/docs/)
   assert.match(verificationDockerfile, /COPY frontweb\/public \/frontweb\/public/)
+})
+
+test('frontend verification image includes Vite runtime scope support and Chromium for browser behavior tests', () => {
+  assert.match(
+    verificationDockerfile,
+    /COPY backend-node\/src\/utils\/runtimeInstanceId\.js \/backend-node\/src\/utils\/runtimeInstanceId\.js/,
+  )
+  assert.match(verificationDockerfile, /npx playwright install --with-deps chromium/)
+  assert.match(verificationDockerfile, /ENV PLAYWRIGHT_BROWSERS_PATH=\/ms-playwright/)
+})
+
+test('frontend verification image includes the real route-loading browser fixture', () => {
+  assert.match(verificationDockerfile, /COPY frontweb\/browser-fixtures \.\/browser-fixtures/)
 })
 
 test('production proxy fails unavailable upstream connections quickly without shortening generation reads', () => {

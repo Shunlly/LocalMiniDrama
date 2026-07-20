@@ -110,6 +110,27 @@ test('legacy userData migration runs before Electron selects the new directory',
   );
 });
 
+test('main process resolves isolated development and packaged userData before migration', () => {
+  assert.match(
+    mainSource,
+    /resolveDesktopUserDataDir\(\{\s*appDataDir: APP_DATA_DIR,\s*isPackaged: app\.isPackaged,\s*environment: process\.env,?\s*\}\)/
+  );
+  assert.match(
+    mainSource,
+    /const SHOULD_MIGRATE_LEGACY_USER_DATA\s*=\s*app\.isPackaged\s*\|\|\s*Boolean\(LEGACY_USERDATA_DIR\)/
+  );
+});
+
+test('development and packaged backends keep mutable data under stable userData', () => {
+  const start = mainSource.indexOf('function getBackendCwd()');
+  const end = mainSource.indexOf('\nfunction ensureBackendCwd(', start);
+  const implementation = mainSource.slice(start, end);
+
+  assert.notEqual(start, -1);
+  assert.match(implementation, /return path\.join\(app\.getPath\('userData'\), 'backend'\)/);
+  assert.doesNotMatch(implementation, /app\.isPackaged|getBackendModulePath\(\)/);
+});
+
 test('main process registers complete createApp resources before asynchronous startup work', () => {
   const createResources = mainSource.indexOf('const backendResources = createApp();');
   const registerResources = mainSource.indexOf(

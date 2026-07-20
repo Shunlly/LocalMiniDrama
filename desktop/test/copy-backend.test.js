@@ -25,6 +25,7 @@ function createFixture(t) {
   const sourceRoot = path.join(root, 'backend-source');
   const destinationRoot = path.join(root, 'backend-app');
   const initialMigrationsRoot = path.join(root, 'initial-migrations');
+  const developmentUserDataDir = path.join(root, 'app-data', 'localminidrama-desktop-dev');
 
   writeFixture(sourceRoot, 'src/app.js', 'module.exports = {};');
   writeFixture(sourceRoot, 'src/services/runtime.js', 'module.exports = true;');
@@ -54,9 +55,10 @@ function createFixture(t) {
 
   writeFixture(initialMigrationsRoot, '02_desktop.sql', 'SELECT 2;');
   writeFixture(initialMigrationsRoot, 'local-secret.txt', 'secret');
-  writeFixture(destinationRoot, 'data/stale-secret.db', 'stale secret');
+  writeFixture(destinationRoot, 'data/drama_generator.db', 'legacy development database');
+  writeFixture(destinationRoot, 'data/storage/uploads/legacy-frame.png', 'legacy development image');
 
-  return { sourceRoot, destinationRoot, initialMigrationsRoot };
+  return { sourceRoot, destinationRoot, initialMigrationsRoot, developmentUserDataDir };
 }
 
 test('copyBackend emits only the explicit runtime allowlist', (t) => {
@@ -73,6 +75,33 @@ test('copyBackend emits only the explicit runtime allowlist', (t) => {
   ]);
   assert.ok(result.files.every(isAllowedBackendFile));
   assert.equal(result.mergedInitialMigrations, 1);
+  assert.equal(result.legacyDevelopmentDataMigration.migrated, true);
+  assert.equal(
+    fs.readFileSync(
+      path.join(
+        fixture.developmentUserDataDir,
+        'backend',
+        'data',
+        'drama_generator.db'
+      ),
+      'utf8'
+    ),
+    'legacy development database'
+  );
+  assert.equal(
+    fs.readFileSync(
+      path.join(
+        fixture.developmentUserDataDir,
+        'backend',
+        'data',
+        'storage',
+        'uploads',
+        'legacy-frame.png'
+      ),
+      'utf8'
+    ),
+    'legacy development image'
+  );
   const runtimeConfig = yaml.load(
     fs.readFileSync(path.join(fixture.destinationRoot, 'configs', 'config.yaml'), 'utf8')
   );
@@ -88,7 +117,6 @@ test('copyBackend emits only the explicit runtime allowlist', (t) => {
     'configs/secrets.yaml',
     'data/drama_generator.db',
     'data/storage/private.png',
-    'data/stale-secret.db',
     'prompts/skills/private.env',
     'scripts/debug.js',
     'secret.txt',
@@ -96,6 +124,45 @@ test('copyBackend emits only the explicit runtime allowlist', (t) => {
   ]) {
     assert.equal(fs.existsSync(path.join(fixture.destinationRoot, forbidden)), false, forbidden);
   }
+});
+
+test('copyBackend preserves backend-app when legacy development data conflicts', (t) => {
+  const fixture = createFixture(t);
+  const legacyDatabase = path.join(fixture.destinationRoot, 'data', 'drama_generator.db');
+  const staleRuntime = path.join(fixture.destinationRoot, 'src', 'stale-runtime.js');
+  const currentDatabase = path.join(
+    fixture.developmentUserDataDir,
+    'backend',
+    'data',
+    'drama_generator.db'
+  );
+  writeFixture(fixture.destinationRoot, 'src/stale-runtime.js', 'must remain on failure');
+  writeFixture(
+    fixture.developmentUserDataDir,
+    'backend/data/drama_generator.db',
+    'current development database'
+  );
+
+  assert.throws(() => copyBackend(fixture), /conflict/i);
+  assert.equal(fs.readFileSync(legacyDatabase, 'utf8'), 'legacy development database');
+  assert.equal(fs.readFileSync(staleRuntime, 'utf8'), 'must remain on failure');
+  assert.equal(fs.readFileSync(currentDatabase, 'utf8'), 'current development database');
+});
+
+test('copyBackend preserves backend-app when an unclassified root entry could contain user data', (t) => {
+  const fixture = createFixture(t);
+  const unclassifiedUpload = path.join(
+    fixture.destinationRoot,
+    'uploads',
+    'unclassified-frame.png'
+  );
+  const staleRuntime = path.join(fixture.destinationRoot, 'src', 'stale-runtime.js');
+  writeFixture(fixture.destinationRoot, 'uploads/unclassified-frame.png', 'unclassified upload');
+  writeFixture(fixture.destinationRoot, 'src/stale-runtime.js', 'must remain on failure');
+
+  assert.throws(() => copyBackend(fixture), /unrecognized legacy development data/i);
+  assert.equal(fs.readFileSync(unclassifiedUpload, 'utf8'), 'unclassified upload');
+  assert.equal(fs.readFileSync(staleRuntime, 'utf8'), 'must remain on failure');
 });
 
 test('backend file allowlist rejects config, data, script, source-map, and secret paths', () => {

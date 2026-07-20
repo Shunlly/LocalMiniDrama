@@ -387,6 +387,30 @@ describe('videoMergeService strict production mode', { concurrency: false }, () 
     assertStrictFailureState(fixture.db, fixture.mergeId, fixture.taskId);
   });
 
+  it('rolls back strict failure state when marking the async task as failed throws', async (t) => {
+    const rollbackInput = path.join(inputRoot, 'strict-rollback-input.mp4');
+    fs.writeFileSync(rollbackInput, 'fixture');
+    t.after(() => fs.rmSync(rollbackInput, { force: true }));
+    const fixture = createMergeFixture({
+      scenes: [{ storyboard_id: 101, video_url: rollbackInput, duration: 0.65, order: 0 }],
+    });
+    t.after(() => fixture.db.close());
+    const taskService = require('../src/services/taskService');
+    const originalUpdateTaskError = taskService.updateTaskError;
+    taskService.updateTaskError = () => {
+      throw new Error('forced task failure');
+    };
+    t.after(() => {
+      taskService.updateTaskError = originalUpdateTaskError;
+    });
+
+    await assert.rejects(videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, ''));
+
+    assert.equal(fixture.db.prepare('SELECT status FROM video_merges WHERE id = ?').get(fixture.mergeId).status, 'processing');
+    assert.equal(fixture.db.prepare('SELECT status FROM episodes WHERE id = 1').get().status, 'processing');
+    assert.equal(fixture.db.prepare('SELECT status FROM async_tasks WHERE id = ?').get(fixture.taskId).status, 'pending');
+  });
+
   it('reuses narration_audio_local_path without invoking TTS', async (t) => {
     if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
     if (!mediaSupport.hasSubtitlesFilter) return t.skip('ffmpeg subtitles filter is unavailable');
@@ -419,4 +443,363 @@ describe('videoMergeService strict production mode', { concurrency: false }, () 
     assert.equal(merge.status, 'completed');
     assert.match(merge.merged_url, /_post\.mp4$/);
   });
+
+  it('keeps the newest completed episode output when an older merge fails later', async (t) => {
+    if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+    const db = createDb();
+    t.after(() => db.close());
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO storyboards
+         (id, episode_id, storyboard_number, duration, dialogue, narration, updated_at)
+       VALUES (101, 1, 1, 0.65, '', '', ?), (102, 1, 2, 0.85, '', '', ?)`
+    ).run(now, now);
+
+    const older = videoMergeService.create(db, log, {
+      episode_id: 1,
+      drama_id: 1,
+      mode: 'strict_production',
+      scenes: [
+        { storyboard_id: 101, video_url: path.relative(storageRoot, corruptClip).replace(/\\/g, '/'), duration: 0.65, order: 0 },
+        { storyboard_id: 102, video_url: path.relative(storageRoot, clipWithAudio).replace(/\\/g, '/'), duration: 0.85, order: 1 },
+      ],
+    });
+    const newer = videoMergeService.create(db, log, {
+      episode_id: 1,
+      drama_id: 1,
+      mode: 'strict_production',
+      scenes: [
+        { storyboard_id: 101, video_url: path.relative(storageRoot, clipWithoutAudio).replace(/\\/g, '/'), duration: 0.65, order: 0 },
+        { storyboard_id: 102, video_url: path.relative(storageRoot, clipWithAudio).replace(/\\/g, '/'), duration: 0.85, order: 1 },
+      ],
+    });
+
+    await videoMergeService.processVideoMerge(db, log, newer.merge_id, '');
+    const newestOutput = db.prepare('SELECT video_url FROM episodes WHERE id = 1').get().video_url;
+    await assert.rejects(videoMergeService.processVideoMerge(db, log, older.merge_id, ''));
+
+    const episode = db.prepare('SELECT status, video_url FROM episodes WHERE id = 1').get();
+    assert.equal(db.prepare('SELECT status FROM video_merges WHERE id = ?').get(older.merge_id).status, 'failed');
+    assert.equal(episode.status, 'completed');
+    assert.equal(episode.video_url, newestOutput);
+  });
+
+  it('keeps the newest completed episode output when an older merge succeeds later', async (t) => {
+    if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+    const db = createDb();
+    t.after(() => db.close());
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO storyboards
+         (id, episode_id, storyboard_number, duration, dialogue, narration, updated_at)
+       VALUES (101, 1, 1, 0.65, '', '', ?), (102, 1, 2, 0.85, '', '', ?)`
+    ).run(now, now);
+    const scenes = [
+      { storyboard_id: 101, video_url: path.relative(storageRoot, clipWithoutAudio).replace(/\\/g, '/'), duration: 0.65, order: 0 },
+      { storyboard_id: 102, video_url: path.relative(storageRoot, clipWithAudio).replace(/\\/g, '/'), duration: 0.85, order: 1 },
+    ];
+    const older = videoMergeService.create(db, log, {
+      episode_id: 1,
+      drama_id: 1,
+      mode: 'strict_production',
+      scenes,
+    });
+    const newer = videoMergeService.create(db, log, {
+      episode_id: 1,
+      drama_id: 1,
+      mode: 'strict_production',
+      scenes,
+    });
+
+    await videoMergeService.processVideoMerge(db, log, newer.merge_id, '');
+    const newestOutput = db.prepare('SELECT video_url FROM episodes WHERE id = 1').get().video_url;
+    await videoMergeService.processVideoMerge(db, log, older.merge_id, '');
+
+    const episode = db.prepare('SELECT status, video_url FROM episodes WHERE id = 1').get();
+    assert.equal(episode.status, 'completed');
+    assert.equal(episode.video_url, newestOutput);
+  });
+
+  it('fails a non-strict merge instead of completing with the first input clip', async (t) => {
+    const invalidClip = path.join(inputRoot, 'invalid-non-strict.mp4');
+    fs.writeFileSync(invalidClip, Buffer.from('not an mp4'));
+    const fixture = createMergeFixture({
+      strict: false,
+      scenes: [
+        { scene_id: 101, video_url: invalidClip, duration: 0.65, order: 0 },
+        { scene_id: 102, video_url: invalidClip, duration: 0.85, order: 1 },
+      ],
+    });
+    t.after(() => fixture.db.close());
+
+    await videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, '');
+
+    const merge = fixture.db.prepare('SELECT status, merged_url, error_msg FROM video_merges WHERE id = ?').get(fixture.mergeId);
+    const episode = fixture.db.prepare('SELECT status, video_url FROM episodes WHERE id = 1').get();
+    const task = fixture.db.prepare('SELECT status, error FROM async_tasks WHERE id = ?').get(fixture.taskId);
+    assert.equal(merge.status, 'failed');
+    assert.equal(merge.merged_url, null);
+    assert.ok(merge.error_msg);
+    assert.equal(episode.status, 'failed');
+    assert.equal(episode.video_url, null);
+    assert.equal(task.status, 'failed');
+    assert.ok(task.error);
+  });
+
+  it('fails a non-strict merge when any requested clip cannot be resolved', async (t) => {
+    if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+    const fixture = createMergeFixture({
+      strict: false,
+      scenes: [
+        { scene_id: 101, video_url: clipWithAudio, duration: 0.85, order: 0 },
+        { scene_id: 102, video_url: '', duration: 0.85, order: 1 },
+      ],
+    });
+    t.after(() => fixture.db.close());
+
+    await videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, '');
+
+    const merge = fixture.db.prepare('SELECT status, merged_url, error_msg FROM video_merges WHERE id = ?').get(fixture.mergeId);
+    const episode = fixture.db.prepare('SELECT status, video_url FROM episodes WHERE id = 1').get();
+    const task = fixture.db.prepare('SELECT status, error FROM async_tasks WHERE id = ?').get(fixture.taskId);
+    assert.equal(merge.status, 'failed');
+    assert.equal(merge.merged_url, null);
+    assert.match(merge.error_msg, /片段/);
+    assert.equal(episode.status, 'failed');
+    assert.equal(episode.video_url, null);
+    assert.equal(task.status, 'failed');
+  });
+
+  it('does not return episode ownership to an older merge after the newer merge is soft-deleted', async (t) => {
+    if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+    const db = createDb();
+    t.after(() => db.close());
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO storyboards
+         (id, episode_id, storyboard_number, duration, dialogue, narration, updated_at)
+       VALUES (101, 1, 1, 0.65, '', '', ?), (102, 1, 2, 0.85, '', '', ?)`
+    ).run(now, now);
+    const scenes = [
+      { storyboard_id: 101, video_url: path.relative(storageRoot, clipWithoutAudio).replace(/\\/g, '/'), duration: 0.65, order: 0 },
+      { storyboard_id: 102, video_url: path.relative(storageRoot, clipWithAudio).replace(/\\/g, '/'), duration: 0.85, order: 1 },
+    ];
+    const older = videoMergeService.create(db, log, {
+      episode_id: 1,
+      drama_id: 1,
+      mode: 'strict_production',
+      scenes,
+    });
+    const newer = videoMergeService.create(db, log, {
+      episode_id: 1,
+      drama_id: 1,
+      mode: 'strict_production',
+      scenes,
+    });
+
+    await videoMergeService.processVideoMerge(db, log, newer.merge_id, '');
+    const newestOutput = db.prepare('SELECT video_url FROM episodes WHERE id = 1').get().video_url;
+    videoMergeService.deleteById(db, log, newer.merge_id);
+    await videoMergeService.processVideoMerge(db, log, older.merge_id, '');
+
+    const episode = db.prepare('SELECT status, video_url FROM episodes WHERE id = 1').get();
+    assert.equal(episode.status, 'completed');
+    assert.equal(episode.video_url, newestOutput);
+  });
+
+  it('completes the async task when a strict merge enters qa_pending', async (t) => {
+    if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+    const fixture = createMergeFixture({
+      scenes: [
+        { storyboard_id: 101, video_url: clipWithoutAudio, duration: 0.65, order: 0 },
+        { storyboard_id: 102, video_url: clipWithAudio, duration: 0.85, order: 1 },
+      ],
+      mergeOptions: { defer_qa_completion: true },
+    });
+    t.after(() => fixture.db.close());
+
+    const result = await videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, '');
+    const task = fixture.db.prepare('SELECT status, result FROM async_tasks WHERE id = ?').get(fixture.taskId);
+
+    assert.equal(result.status, 'qa_pending');
+    assert.equal(task.status, 'completed');
+    assert.equal(JSON.parse(task.result).status, 'qa_pending');
+  });
+
+  it('fails merge and episode when strict success cannot complete the async task', async (t) => {
+    if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+    const fixture = createMergeFixture({
+      scenes: [
+        { storyboard_id: 101, video_url: clipWithoutAudio, duration: 0.65, order: 0 },
+        { storyboard_id: 102, video_url: clipWithAudio, duration: 0.85, order: 1 },
+      ],
+    });
+    t.after(() => fixture.db.close());
+    const taskService = require('../src/services/taskService');
+    const originalUpdateTaskResult = taskService.updateTaskResult;
+    taskService.updateTaskResult = () => false;
+    t.after(() => {
+      taskService.updateTaskResult = originalUpdateTaskResult;
+    });
+
+    await assert.rejects(videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, ''));
+
+    assertStrictFailureState(fixture.db, fixture.mergeId, fixture.taskId);
+  });
+
+  it('ends a strict merge and episode failed when its task was already cancelled', async (t) => {
+    if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+    const fixture = createMergeFixture({
+      scenes: [
+        { storyboard_id: 101, video_url: clipWithoutAudio, duration: 0.65, order: 0 },
+        { storyboard_id: 102, video_url: clipWithAudio, duration: 0.85, order: 1 },
+      ],
+    });
+    t.after(() => fixture.db.close());
+    const taskService = require('../src/services/taskService');
+    assert.equal(taskService.updateTaskError(fixture.db, fixture.taskId, 'cancelled before completion'), true);
+
+    await assert.rejects(videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, ''));
+
+    assert.equal(fixture.db.prepare('SELECT status FROM video_merges WHERE id = ?').get(fixture.mergeId).status, 'failed');
+    assert.equal(fixture.db.prepare('SELECT status FROM episodes WHERE id = 1').get().status, 'failed');
+    assert.equal(fixture.db.prepare('SELECT status FROM async_tasks WHERE id = ?').get(fixture.taskId).status, 'failed');
+  });
+
+  for (const invalidOutput of [
+    { name: 'zero-byte', bytes: Buffer.alloc(0) },
+    { name: 'non-video', bytes: Buffer.from('not a video') },
+  ]) {
+    it(`rejects ${invalidOutput.name} non-strict output after FFmpeg reports success`, async (t) => {
+      const childProcess = require('child_process');
+      const originalSpawnSync = childProcess.spawnSync;
+      const originalHasLocalFfmpeg = ffmpegPath.hasLocalFfmpeg;
+      const originalGetFfmpegPath = ffmpegPath.getFfmpegPath;
+      const originalGetFfprobePath = ffmpegPath.getFfprobePath;
+      let fakeOutputPath = null;
+      childProcess.spawnSync = (command, args) => {
+        if (command === 'fake-ffmpeg') {
+          fakeOutputPath = args[args.length - 1];
+          fs.mkdirSync(path.dirname(fakeOutputPath), { recursive: true });
+          fs.writeFileSync(fakeOutputPath, invalidOutput.bytes);
+          return { status: 0, stdout: '', stderr: '' };
+        }
+        if (command === 'fake-ffprobe') {
+          return { status: 1, stdout: '', stderr: 'invalid media' };
+        }
+        return originalSpawnSync(command, args);
+      };
+      ffmpegPath.hasLocalFfmpeg = () => true;
+      ffmpegPath.getFfmpegPath = () => 'fake-ffmpeg';
+      ffmpegPath.getFfprobePath = () => 'fake-ffprobe';
+      delete require.cache[require.resolve('../src/services/videoMergeService')];
+      const isolatedVideoMergeService = require('../src/services/videoMergeService');
+      t.after(() => {
+        childProcess.spawnSync = originalSpawnSync;
+        ffmpegPath.hasLocalFfmpeg = originalHasLocalFfmpeg;
+        ffmpegPath.getFfmpegPath = originalGetFfmpegPath;
+        ffmpegPath.getFfprobePath = originalGetFfprobePath;
+        delete require.cache[require.resolve('../src/services/videoMergeService')];
+      });
+      const input = path.join(inputRoot, `fake-${invalidOutput.name}-input.mp4`);
+      fs.writeFileSync(input, 'input');
+      t.after(() => fs.rmSync(input, { force: true }));
+      const db = createDb();
+      t.after(() => db.close());
+      const created = isolatedVideoMergeService.create(db, log, {
+        episode_id: 1,
+        drama_id: 1,
+        scenes: [{ scene_id: 101, video_url: path.relative(storageRoot, input).replace(/\\/g, '/'), duration: 1 }],
+      });
+
+      await isolatedVideoMergeService.processVideoMerge(db, log, created.merge_id, '');
+
+      const merge = db.prepare('SELECT status, merged_url FROM video_merges WHERE id = ?').get(created.merge_id);
+      assert.equal(merge.status, 'failed');
+      assert.equal(merge.merged_url, null);
+      assert.equal(fakeOutputPath == null || fs.existsSync(fakeOutputPath), false);
+    });
+  }
+
+  for (const invalidPostOutput of [
+    { name: 'zero-byte', bytes: Buffer.alloc(0) },
+    { name: 'non-video', bytes: Buffer.from('not a video') },
+  ]) {
+    it(`rejects ${invalidPostOutput.name} non-strict post-processed output`, async (t) => {
+      const childProcess = require('child_process');
+      const postProcess = require('../src/services/mergedEpisodePostProcess');
+      const originalSpawnSync = childProcess.spawnSync;
+      const originalHasLocalFfmpeg = ffmpegPath.hasLocalFfmpeg;
+      const originalGetFfmpegPath = ffmpegPath.getFfmpegPath;
+      const originalGetFfprobePath = ffmpegPath.getFfprobePath;
+      const originalPostProcess = postProcess.runMergedEpisodePostProcess;
+      let concatOutputPath = null;
+      let postOutputPath = null;
+      childProcess.spawnSync = (command, args) => {
+        if (command === 'fake-post-ffmpeg') {
+          concatOutputPath = args[args.length - 1];
+          fs.mkdirSync(path.dirname(concatOutputPath), { recursive: true });
+          fs.writeFileSync(concatOutputPath, 'valid concat fixture');
+          return { status: 0, stdout: '', stderr: '' };
+        }
+        if (command === 'fake-post-ffprobe') {
+          const target = args[args.length - 1];
+          if (postOutputPath && path.resolve(target) === path.resolve(postOutputPath)) {
+            return { status: 1, stdout: '', stderr: 'invalid post media' };
+          }
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              streams: [{ codec_type: 'video', width: 320, height: 180, duration: '1' }],
+              format: { duration: '1' },
+            }),
+            stderr: '',
+          };
+        }
+        return originalSpawnSync(command, args);
+      };
+      ffmpegPath.hasLocalFfmpeg = () => true;
+      ffmpegPath.getFfmpegPath = () => 'fake-post-ffmpeg';
+      ffmpegPath.getFfprobePath = () => 'fake-post-ffprobe';
+      postProcess.runMergedEpisodePostProcess = async () => {
+        const relativePath = `videos/merged/post-${invalidPostOutput.name}.mp4`;
+        postOutputPath = path.join(storageRoot, relativePath.replace(/\//g, path.sep));
+        fs.mkdirSync(path.dirname(postOutputPath), { recursive: true });
+        fs.writeFileSync(postOutputPath, invalidPostOutput.bytes);
+        return { ok: true, relativePath };
+      };
+      delete require.cache[require.resolve('../src/services/videoMergeService')];
+      const isolatedVideoMergeService = require('../src/services/videoMergeService');
+      t.after(() => {
+        childProcess.spawnSync = originalSpawnSync;
+        ffmpegPath.hasLocalFfmpeg = originalHasLocalFfmpeg;
+        ffmpegPath.getFfmpegPath = originalGetFfmpegPath;
+        ffmpegPath.getFfprobePath = originalGetFfprobePath;
+        postProcess.runMergedEpisodePostProcess = originalPostProcess;
+        delete require.cache[require.resolve('../src/services/videoMergeService')];
+        if (concatOutputPath) fs.rmSync(concatOutputPath, { force: true });
+        if (postOutputPath) fs.rmSync(postOutputPath, { force: true });
+      });
+      const input = path.join(inputRoot, `post-${invalidPostOutput.name}-input.mp4`);
+      fs.writeFileSync(input, 'input');
+      t.after(() => fs.rmSync(input, { force: true }));
+      const db = createDb();
+      t.after(() => db.close());
+      const created = isolatedVideoMergeService.create(db, log, {
+        episode_id: 1,
+        drama_id: 1,
+        scenes: [{ scene_id: 101, video_url: path.relative(storageRoot, input).replace(/\\/g, '/'), duration: 1 }],
+        merge_options: { watermark_text: 'force post processing' },
+      });
+
+      await isolatedVideoMergeService.processVideoMerge(db, log, created.merge_id, '');
+
+      const merge = db.prepare('SELECT status, merged_url FROM video_merges WHERE id = ?').get(created.merge_id);
+      assert.equal(merge.status, 'failed');
+      assert.equal(merge.merged_url, null);
+      assert.equal(fs.existsSync(postOutputPath), false);
+      assert.equal(db.prepare('SELECT status FROM episodes WHERE id = 1').get().status, 'failed');
+      assert.equal(db.prepare('SELECT status FROM async_tasks WHERE id = ?').get(created.task_id).status, 'failed');
+    });
+  }
 });

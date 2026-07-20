@@ -193,6 +193,16 @@ async function processCharacterGeneration(db, cfg, log, taskID, req) {
 function generateCharacters(db, cfg, log, req) {
   const dramaId = String(req.drama_id || '');
   if (!dramaId) throw new Error('drama_id 必填');
+  if (req.episode_id != null && String(req.episode_id).trim() !== '') {
+    const episode = db.prepare(
+      'SELECT drama_id FROM episodes WHERE id = ? AND deleted_at IS NULL'
+    ).get(Number(req.episode_id));
+    if (!episode || Number(episode.drama_id) !== Number(req.drama_id)) {
+      const error = new Error('episode_id must belong to drama_id');
+      error.code = 'BAD_REQUEST';
+      throw error;
+    }
+  }
   const task = taskService.createTask(db, log, 'character_generation', dramaId);
   scheduleLegacyAsync(log, 'character_generation', () => {
     processCharacterGeneration(db, cfg, log, task.id, {

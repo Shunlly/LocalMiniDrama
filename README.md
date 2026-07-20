@@ -43,10 +43,11 @@
 
 > 当前源码与包版本为 `1.3.3` 发布候选。正式发布以 `v1.3.3` 标签指向 `main`、同提交 Release 工作流全绿、生成的 draft GitHub Release 经人工复核并正式发布后为准。
 
-- 🛠️ **发布扫描修复**：Trivy 改由固定 digest 的官方 OCI 镜像在 Ubuntu 执行，Windows 扫描证据以 SHA-256 绑定最终发布字节，并逐一验证三类制品的 Electron Fuse
+- 🛠️ **发布扫描修复**：PR/分支 CI 使用固定 digest 的 Trivy 0.64.1 扫描完整源码依赖与配置，并与 Tag Release 共用 Windows Gitleaks、Defender、SBOM/配置 Trivy、制品清单和离线复核工作流
 - 🔧 **失败恢复与并发状态**：素材选择器保证最新请求生效、显示安全中文错误与长名称提示，项目包导入失败保留可重试的页内告警
 - 🆕 **桌面创作流程收口**：项目就绪度给出唯一下一步，素材导入、处理、QA、修复、剧集与时间线形成可恢复的五步流程
 - 🆕 **多厂商 AI 配置**：按文本、素材图片、分镜图片、视频和 TTS 管理模型，支持连接测试、默认配置和本地/云端路由
+- 🔧 **AI 就绪度与桌面流程**：连接状态按运行实例隔离并随配置变更失效；缺凭据/模型/工作流时直达具体字段，已有项目可从素材中心直接进入网页 URL 导入
 - 🆕 **Novel2Anime 生产链路**：PDF/图片 OCR、音视频转写、图片/视频/TTS 生成与 FFmpeg 合成串成可验收工作流
 - 🔧 **制作页与画布体验**：项目列表支持服务端搜索/分页和项目级素材入口；画布检查器支持前后镜头与真实媒体摘要；制作台统一成片、字幕和项目包交付
 - 🔒 **发布安全与运维**：本机监听、SSRF/导入导出边界、敏感配置脱敏、可信媒体工具、数据备份恢复与生产 Docker 门禁
@@ -209,7 +210,7 @@ npm start
 cd frontweb && npm install && npm run dev
 ```
 
-浏览器打开 `http://localhost:3013`，或双击根目录 **`run_dev.bat`** 一键启动。
+浏览器打开 `http://localhost:3013`，或双击根目录 **`run_dev.bat`** 一键启动。启动器只会复用已验证的 LocalMiniDrama 前后端；5679 或 3013 被其他程序占用时会明确退出，不会终止陌生进程。新启动的服务会在通过就绪探针后才打开浏览器，60 秒内未就绪则失败关闭并保留服务窗口供排错。Vite 默认只监听 `127.0.0.1`，确需局域网调试时必须显式设置 `VITE_DEV_SERVER_HOST`。
 
 也可以直接从仓库根目录使用 Docker：
 
@@ -246,7 +247,7 @@ npm run verify:release
 
 完整的安全扫描、回滚检查点和发布顺序见 [开发/打包/Docker 指南](docs/quickstart.md)。
 
-源码历史 secret scan 使用不含路径豁免的 `.gitleaks.toml`；PR、`main` 和 tag workflow 除事件范围检查外，还会用固定 digest 的官方 Gitleaks 8.30.1 OCI 镜像扫描 `--all`。本地未跟踪依赖、运行数据和构建输出的目录扫描使用 `.gitleaks-worktree.toml`。Windows 发布制品继续使用独立的 `.gitleaks-artifacts.toml`，三者不能互换。
+源码历史 secret scan 使用不含路径豁免的 `.gitleaks.toml`；PR、`main` 和 tag workflow 除事件范围检查外，还会用固定 digest 的官方 Gitleaks 8.30.1 OCI 镜像扫描 `--all`。PR/分支 CI 另用固定 digest 的 Trivy 0.64.1 `fs` 扫描三个 npm 依赖图（含开发依赖）和全部生产 Dockerfile。Windows 候选在打标签前与 Tag Release 复用同一安全工作流。本地未跟踪依赖、运行数据和构建输出的目录扫描使用 `.gitleaks-worktree.toml`，Windows 发布制品使用 `.gitleaks-artifacts.toml`，三类 Gitleaks 配置不能互换。
 
 生产后端不会直接使用宿主机原始 YAML：Compose 将可选的 `LOCALMINIDRAMA_CONFIG_DIR` 挂载到 `/app/config-source`，入口脚本启动时用 `runtime-config-policy.cjs` 净化到 `/tmp/localminidrama-config/config.yaml`，再以 `node` 用户启动服务。这样即使外部配置包含调试开关或敏感字段，运行配置仍按发布策略收敛；自定义配置目录中的 `config.yaml` 会在启动时重新校验。
 

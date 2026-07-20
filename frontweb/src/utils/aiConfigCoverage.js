@@ -1,3 +1,5 @@
+import { getServiceConfigReadiness } from './aiServiceReadiness.js'
+
 export const AI_SERVICE_COVERAGE_DEFINITIONS = Object.freeze([
   Object.freeze({
     type: 'text',
@@ -27,7 +29,8 @@ export const AI_SERVICE_COVERAGE_DEFINITIONS = Object.freeze([
 ])
 
 function isEnabled(config) {
-  return config?.is_active !== false && config?.is_active !== 0
+  const value = String(config?.is_active ?? '').trim().toLowerCase()
+  return config?.is_active !== false && config?.is_active !== 0 && !['0', 'false'].includes(value)
 }
 
 function isDefault(config) {
@@ -69,11 +72,18 @@ function buildCoverageSummary(services) {
 }
 
 function getCoveragePriority(service) {
-  if (service?.test?.status === 'failed') return 0
-  if (service?.state === 'configured' || ['no_default', 'inactive'].includes(service?.issue)) return 1
-  if (service?.state === 'missing') return 2
-  if (service?.test?.status === 'unknown') return 3
-  return 4
+  if ([
+    'no_default',
+    'inactive',
+    'missing_credentials',
+    'missing_model',
+    'missing_workflow',
+  ].includes(service?.issue)) return 0
+  if (service?.issue === 'connection_failed' || service?.test?.status === 'failed') return 1
+  if (service?.state === 'configured') return 2
+  if (service?.state === 'missing') return 3
+  if (service?.test?.status === 'unknown') return 4
+  return 5
 }
 
 export function sortAiServiceCoverage(services = []) {
@@ -125,8 +135,27 @@ export function getAiServiceCoverageActions(service, options = {}) {
     return []
   }
 
-  if ((vendorLocked || writesLocked) && ['no_default', 'inactive'].includes(service.issue)) {
+  const editableIssues = ['no_default', 'inactive', 'missing_credentials', 'missing_model', 'missing_workflow']
+  if ((vendorLocked || writesLocked) && editableIssues.includes(service.issue)) {
     return []
+  }
+
+  const readinessActions = {
+    missing_credentials: { key: 'fix-credentials', label: '\u8865\u5145\u51ed\u636e' },
+    missing_model: { key: 'fix-model', label: '\u8865\u5145\u6a21\u578b' },
+    missing_workflow: { key: 'fix-workflow', label: '\u8865\u5145\u5de5\u4f5c\u6d41' },
+  }
+  if (service.targetConfig && readinessActions[service.issue]) {
+    return [{ ...readinessActions[service.issue], action: 'edit', emphasis: 'primary' }]
+  }
+
+  if (service.targetConfig && service.test?.status === 'failed') {
+    return [{
+      key: 'test',
+      label: '\u91cd\u65b0\u6d4b\u8bd5',
+      action: 'test',
+      emphasis: 'primary',
+    }]
   }
 
   if (service.issue === 'no_default') {
@@ -174,17 +203,23 @@ export function buildAiServiceCoverage(configs = [], sessionTestStatusById = {})
       issue = activeConfigs.length === 0 ? 'inactive' : (defaultConfig ? null : 'no_default')
     }
 
+    const test = getConfigTestStatus(targetConfig, sessionTestStatusById)
+    const readiness = defaultConfig ? getServiceConfigReadiness(defaultConfig) : null
+    if (defaultConfig) issue = readiness.issue || (test.status === 'failed' ? 'connection_failed' : null)
+    const ready = state === 'default' && readiness?.ready === true && test.status !== 'failed'
+
     return {
       ...definition,
       state,
       issue,
-      ready: state === 'default',
-      needsAttention: state !== 'default',
+      readiness,
+      ready,
+      needsAttention: !ready,
       configuredCount: serviceConfigs.length,
       activeCount: activeConfigs.length,
       defaultConfig,
       targetConfig,
-      test: getConfigTestStatus(targetConfig, sessionTestStatusById),
+      test,
     }
   })
 

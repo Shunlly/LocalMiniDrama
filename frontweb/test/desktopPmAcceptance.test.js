@@ -7,6 +7,7 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const routerSource = read('../src/router/index.js').replace(/\r\n?/g, '\n')
 const aiConfigSource = read('../src/views/AiConfig.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const sectionFocusSource = read('../src/utils/sectionFocus.js')
 const sourceIntakeSource = read('../src/components/SourceIntakeWorkflowPanel.vue')
 const readinessSource = read('../src/components/ProjectReadinessPanel.vue')
 const filmListSource = read('../src/views/FilmList.vue')
@@ -132,7 +133,8 @@ test('source workflow navigation names the actual action and moves focus to its 
   assert.match(dramaDetailSource, /label: '前往素材处理'/)
   assert.doesNotMatch(dramaDetailSource, /label: '从素材生成剧集'/)
   assert.match(sourceIntakeSource, /id="source-intake-workflow" class="source-workflow-section" tabindex="-1"/)
-  assert.match(dramaDetailSource, /target\.focus\(\{ preventScroll: true \}\)/)
+  assert.match(dramaDetailSource, /scrollAndFocusSection\(id/)
+  assert.match(sectionFocusSource, /target\.focus\?\.\(\{ preventScroll: true \}\)/)
 })
 
 test('source intake protects drafts, validates URLs early, and keeps mode recovery operable', () => {
@@ -148,7 +150,7 @@ test('source intake protects drafts, validates URLs early, and keeps mode recove
 
 test('project cards use a keyboard link while keeping the action menu outside it', () => {
   assert.match(filmListSource, /<article\s+v-for="d in filteredDramas"[\s\S]*class="project-card"/)
-  assert.match(filmListSource, /<RouterLink[\s\S]*class="project-card-link"[\s\S]*name: 'film'/)
+  assert.match(filmListSource, /<RouterLink[\s\S]*class="project-card-link"[\s\S]*projectCardDestination\(d, sourceImportIntent, route\.fullPath\)/)
   assert.match(filmListSource, /<\/RouterLink>\s*<RouterLink[\s\S]*class="project-card-assets"[\s\S]*<\/RouterLink>\s*<el-dropdown[\s\S]*class="project-card-menu"/)
   assert.match(filmListSource, /@click\.stop/)
   assert.match(filmListSource, /<el-dropdown-item command="trash"[\s\S]*移入回收站/)

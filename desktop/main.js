@@ -92,23 +92,30 @@ function summarizeExternalUrl(value) {
 const { app, BrowserWindow, Menu, dialog, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { migrateLegacyUserData } = require('./scripts/user-data-migration');
+const {
+  migrateLegacyUserData,
+  resolveDesktopUserDataDir,
+} = require('./scripts/user-data-migration');
 
-// 显式固定 userData 目录，使开发模式与打包 exe 路径完全一致，防止 productName 变更导致路径漂移
+// Keep development data separate from installed application data.
 const APP_DATA_DIR = app.getPath('appData');
-const USERDATA_DIR = process.env.LOCALMINIDRAMA_USER_DATA_DIR
-  ? path.resolve(process.env.LOCALMINIDRAMA_USER_DATA_DIR)
-  : path.join(APP_DATA_DIR, 'localminidrama-desktop');
+const USERDATA_DIR = resolveDesktopUserDataDir({
+  appDataDir: APP_DATA_DIR,
+  isPackaged: app.isPackaged,
+  environment: process.env,
+});
 const LEGACY_USERDATA_DIR = process.env.LOCALMINIDRAMA_USER_DATA_DIR &&
   process.env.LOCALMINIDRAMA_LEGACY_USER_DATA_DIR
   ? path.resolve(process.env.LOCALMINIDRAMA_LEGACY_USER_DATA_DIR)
   : undefined;
+const SHOULD_MIGRATE_LEGACY_USER_DATA = app.isPackaged || Boolean(LEGACY_USERDATA_DIR);
 
 // This must run before any logger or Electron API can create the new userData directory.
 const legacyUserDataMigration = migrateLegacyUserData({
   appDataDir: APP_DATA_DIR,
   userDataDir: USERDATA_DIR,
   legacyUserDataDir: LEGACY_USERDATA_DIR,
+  enabled: SHOULD_MIGRATE_LEGACY_USER_DATA,
 });
 app.setPath('userData', USERDATA_DIR);
 
@@ -185,10 +192,7 @@ function getBackendModulePath() {
 }
 
 function getBackendCwd() {
-  if (app.isPackaged) {
-    return path.join(app.getPath('userData'), 'backend');
-  }
-  return getBackendModulePath();
+  return path.join(app.getPath('userData'), 'backend');
 }
 
 function ensureBackendCwd(backendCwd) {

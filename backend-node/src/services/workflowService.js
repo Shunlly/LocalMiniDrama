@@ -517,7 +517,7 @@ function finalizeQaPendingComposites(db, run) {
       .all(Number(run.drama_id));
   const now = nowIso();
   let mergeCount = 0;
-  const completedTasks = [];
+  const videoMergeService = require('./videoMergeService');
   const scopedMergeIds = new Set();
   const compositorInvocations = db.prepare(
     `SELECT output_json FROM provider_invocations
@@ -534,31 +534,11 @@ function finalizeQaPendingComposites(db, run) {
         WHERE episode_id = ? AND status = 'qa_pending' AND deleted_at IS NULL
         ORDER BY id ASC`
     ).all(episode.id);
-    const scopedMerges = pendingMerges.filter((merge) => scopedMergeIds.has(Number(merge.id)));
-    const merges = scopedMerges.length
-      ? scopedMerges
-      : (compositorInvocations.length && pendingMerges.length ? [pendingMerges[pendingMerges.length - 1]] : []);
+    const merges = pendingMerges.filter((merge) => scopedMergeIds.has(Number(merge.id)));
     if (!merges.length) continue;
     for (const merge of merges) {
-      db.prepare(
-        `UPDATE video_merges
-            SET status = 'completed', completed_at = ?, error_msg = NULL
-          WHERE id = ? AND status = 'qa_pending'`
-      ).run(now, merge.id);
-      mergeCount += 1;
-      if (merge.task_id) completedTasks.push(merge);
+      if (videoMergeService.completeQaPendingMerge(db, merge.id, now)) mergeCount += 1;
     }
-    const selected = merges[merges.length - 1];
-    db.prepare('UPDATE episodes SET video_url = ?, status = ?, updated_at = ? WHERE id = ?')
-      .run(selected.merged_url, 'completed', now, episode.id);
-  }
-  for (const merge of completedTasks) {
-    require('./taskService').updateTaskResult(db, merge.task_id, {
-      merge_id: merge.id,
-      video_url: merge.merged_url,
-      duration: merge.duration,
-      mode: 'strict_production',
-    });
   }
   return { episode_count: episodes.length, merge_count: mergeCount };
 }

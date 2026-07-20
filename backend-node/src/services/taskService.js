@@ -61,6 +61,16 @@ function updateTaskResult(db, taskId, result) {
   return update.changes > 0;
 }
 
+function refreshCompletedTaskResult(db, taskId, result) {
+  const now = new Date().toISOString();
+  const resultStr = typeof result === 'string' ? result : JSON.stringify(result || {});
+  const update = db.prepare(
+    `UPDATE async_tasks SET result = ?, updated_at = ?
+     WHERE id = ? AND status = 'completed'`
+  ).run(resultStr, now, taskId);
+  return update.changes > 0;
+}
+
 function rowToTask(r) {
   return {
     id: r.id,
@@ -135,6 +145,7 @@ module.exports = {
   updateTaskStatus,
   updateTaskError,
   updateTaskResult,
+  refreshCompletedTaskResult,
   failOrphanedAsyncTasksOnStartup,
   cancelTask,
   ORPHAN_ASYNC_TASK_MSG,

@@ -109,6 +109,12 @@ test('project cards use a stable action menu and the no-project state has direct
   assert.match(filmListSource, /route\.query\.new/)
 })
 
+test('project list exposes source import intent with a direct project command', () => {
+  assert.match(filmListSource, /const sourceImportIntent = computed\(\(\) => route\.query\.intent === 'source-import'\)/)
+  assert.match(filmListSource, /v-if="sourceImportIntent"[\s\S]*?role="status"[\s\S]*?@click="openSourceImportProject"/)
+  assert.match(filmListSource, /function openSourceImportProject\(\) \{[\s\S]*?showNewDialog\.value = true/)
+})
+
 test('project workspace list has server-backed filtering, sorting, quiet utility controls and stronger card hierarchy', () => {
   assert.match(filmListSource, /class="workspace-overview"[\s\S]*class="workspace-title"[\s\S]*>项目列表<\/h2>/)
   assert.match(filmListSource, /class="workspace-count"[\s\S]*\{\{ projectListCountLabel \}\}/)
@@ -139,7 +145,7 @@ test('material center frames upload and project-only flows with direct CTAs', ()
   assert.match(mediaLibrarySource, /没有匹配的素材/)
   assert.match(mediaLibrarySource, /@click="clearFilters">清除筛选/)
   assert.match(mediaLibrarySource, /<el-icon><Upload \/><\/el-icon>上传素材/)
-  assert.match(mediaLibrarySource, /新建项目后导入网页 URL/)
+  assert.match(mediaLibrarySource, /选择项目后导入网页 URL/)
   assert.match(mediaLibrarySource, /加入素材库/)
   assert.match(mediaLibrarySource, /uploadAPI\.uploadAsset\(file\)/)
   assert.doesNotMatch(mediaLibrarySource, /uploadAPI\.uploadImage\(file\)/)

@@ -70,16 +70,20 @@ test('the initial empty state has one clearly named primary upload action', () =
   assert.match(actions, /@click="triggerUpload"/)
   assert.doesNotMatch(actions, /goNewProject|goHome/)
   assert.match(source, /:type="mediaItems\.length === 0 && !loading \? 'default' : 'primary'"/)
-  assert.match(source, /class="empty-secondary-action"[\s\S]*aria-label="新建项目并进入项目级网络 URL 素材导入流程"[\s\S]*@click="goNewProject"/)
+  assert.match(source, /class="empty-secondary-action"[\s\S]*aria-label="选择项目后导入网页 URL"[\s\S]*@click="goSourceImport"/)
 })
 
 test('URL import is named as a project-level flow and keeps its existing navigation', () => {
   const entry = urlImportEntryTemplate()
 
-  assert.match(entry, /网页 URL 导入会在项目内完成/)
+  assert.match(entry, /网页 URL 导入会在选择项目后完成/)
   assert.match(entry, /本页不直接粘贴 URL/)
-  assert.match(entry, /aria-label="新建项目并进入项目级网络 URL 素材导入流程"/)
-  assert.match(entry, /@click="goNewProject"\s*>进入项目级素材导入流程<\/el-button>/)
+  assert.match(entry, /aria-label="选择项目后导入网页 URL"/)
+  assert.match(entry, /@click="goSourceImport"\s*>进入项目选择后导入网页 URL<\/el-button>/)
+  assert.match(
+    source,
+    /function goSourceImport\(\) \{[\s\S]*?router\.push\(\{ path: '\/', query: \{ intent: 'source-import' \} \}\)[\s\S]*?\n\}/,
+  )
   assert.match(
     source,
     /function goNewProject\(\) \{[\s\S]*?router\.push\(\{ path: '\/', query: \{ new: '1' \} \}\)[\s\S]*?\n\}/,

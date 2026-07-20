@@ -69,12 +69,12 @@
                 <div class="coverage-title-row">
                   <h2 id="ai-service-coverage-title">AI 服务配置与验证</h2>
                   <el-tag :type="serviceCoverage.ready ? 'success' : 'warning'" size="small" effect="light">
-                    {{ serviceCoverage.readyCount }}/{{ serviceCoverage.totalCount }} 类已配置
+                    {{ serviceCoverage.readyCount }}/{{ serviceCoverage.totalCount }} 类可用
                   </el-tag>
                 </div>
-                <p>每类服务需要一个启用的默认配置。点击服务可查看配置，缺失项可直接补充。</p>
+                <p>每类服务可用需启用默认配置；默认配置还需凭据、模型或工作流完整。</p>
               </div>
-              <span class="coverage-test-note">连接测试结果仅显示后端记录或本次页面会话结果</span>
+              <span class="coverage-test-note">连接测试结果来自后端记录或此设备保存的最近结果</span>
             </div>
             <div class="coverage-summary-strip">
               <div
@@ -243,8 +243,8 @@
             @selection-change="onSelectionChange"
           >
             <el-table-column v-if="!vendorLock.enabled" type="selection" width="46" :selectable="isConfigRowSelectable" />
-            <el-table-column prop="name" label="名称" min-width="130" />
-            <el-table-column prop="provider" label="提供商" width="96" />
+            <el-table-column prop="name" label="名称" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="provider" label="提供商" min-width="180" show-overflow-tooltip />
             <el-table-column prop="base_url" label="Base URL" min-width="170" show-overflow-tooltip />
             <el-table-column prop="default_model" label="默认模型" min-width="130" show-overflow-tooltip>
               <template #default="{ row }">
@@ -418,6 +418,7 @@
           <el-form-item prop="api_key" :rules="[{ required: true, message: '请输入 API Key', trigger: 'blur' }]">
             <template #label><span class="form-label-tip">API Key</span></template>
             <el-input
+              ref="apiKeyInputRef"
               v-model="form.api_key"
               type="password"
               :placeholder="form.provider === 'jimeng_ai_api' ? '即梦 Session，多个用英文逗号分隔' : '输入你的 API 密钥'"
@@ -722,6 +723,7 @@ input_reference = (图片文件，可选)</pre>
             </span>
           </template>
           <el-input
+            ref="apiKeyInputRef"
             v-model="form.api_key"
             type="password"
             :placeholder="form.service_type === 'jimeng2_character_auth' ? 'Bearer Token' : (form.provider === 'jimeng_ai_api' ? '即梦 Session，多个用英文逗号分隔' : 'API 密钥')"
@@ -916,6 +918,7 @@ input_reference = (图片文件，可选)</pre>
 
               <el-form-item v-if="isComfyUiForm" prop="comfy_workflow_json" label="Workflow JSON">
                 <el-input
+                  ref="workflowInputRef"
                   v-model="form.comfy_workflow_json"
                   class="comfy-workflow-input"
                   type="textarea"
@@ -1027,7 +1030,7 @@ input_reference = (图片文件，可选)</pre>
               <el-option v-for="m in availableModels" :key="m" :label="m" :value="m" />
             </el-select>
           </div>
-          <el-input v-model="form.modelText" type="textarea" :rows="2" placeholder="选择预设厂商后自动填入，可编辑；多个用逗号或换行分隔" />
+          <el-input ref="modelListInputRef" v-model="form.modelText" type="textarea" :rows="2" placeholder="选择预设厂商后自动填入，可编辑；多个用逗号或换行分隔" />
         </el-form-item>
         <el-form-item>
           <template #label>
@@ -1405,7 +1408,12 @@ import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
 import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '@/utils/aiConfigExport.js'
 import { buildAiServiceCoverage, getAiServiceCoverageActions, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
+import {
+  createAiConfigConnectionStatusStore,
+  resolveAiConfigConnectionStatusScope,
+} from '@/utils/aiConfigConnectionStatusStore.js'
 import { runAiConfigCreateBatch } from '@/utils/aiConfigMutations.js'
+import { applyAiConfigRepairTarget } from '@/utils/aiConfigRepairTarget.js'
 import { CUSTOM_PROVIDER_SENTINEL, getBaseUrlForProvider, getProviderEndpointDefaults, getProviderProtocol, isApiKeyOptionalProvider, providerConfigs } from '@/utils/aiProviderPresets.js'
 import { buildProviderPricing, parseSettingsObject, readProviderPricingForm } from '@/utils/providerPricing.js'
 import { getConfigWorkspaceKeyTarget, shouldApplyConfigWorkspaceRequest } from '@/utils/aiConfigWorkspace.js'
@@ -1525,6 +1533,19 @@ watch(
   },
 )
 const sessionTestStatusById = ref({})
+let connectionStatusStore = createAiConfigConnectionStatusStore()
+
+async function initializeConnectionStatusStore() {
+  const scope = await resolveAiConfigConnectionStatusScope({
+    fallbackScope: import.meta.env.VITE_LOCALMINIDRAMA_INSTANCE_ID || '',
+  })
+  connectionStatusStore = createAiConfigConnectionStatusStore({ scope })
+}
+
+function invalidateConnectionTestResults() {
+  connectionStatusStore.invalidateAll()
+  sessionTestStatusById.value = {}
+}
 const selectedRows = ref([])
 const batchDeleting = ref(false)
 const MASKED_SECRET = '********'
@@ -1550,6 +1571,9 @@ const jimeng2AssetsRows = ref([])
 const jimeng2AssetsHasMore = ref(false)
 const jimeng2AssetsNextCursor = ref(null)
 const formRef = ref(null)
+const apiKeyInputRef = ref(null)
+const modelListInputRef = ref(null)
+const workflowInputRef = ref(null)
 const advancedFormSections = ref([])
 const form = ref({
   service_type: 'text',
@@ -1701,7 +1725,7 @@ const orderedCoverageServices = computed(() => sortAiServiceCoverage(serviceCove
 const coverageSummaryCards = computed(() => ([
   {
     key: 'ready',
-    label: '已配置',
+    label: '可用',
     value: `${serviceCoverage.value.readyCount}/${serviceCoverage.value.totalCount}`,
     tone: serviceCoverage.value.ready ? 'success' : 'warning',
   },
@@ -1748,14 +1772,18 @@ const canAutoOpenMissingService = computed(() => (
 ))
 
 function coverageStateLabel(item) {
-  if (item.state === 'default') return '默认已配置'
+  if (item.ready) return '可用'
+  if (item.issue === 'missing_credentials') return '缺少凭据'
+  if (item.issue === 'missing_model') return '缺少模型'
+  if (item.issue === 'missing_workflow') return '缺少工作流'
+  if (item.issue === 'connection_failed') return '连接失败'
   if (item.issue === 'inactive') return '未启用'
   if (item.state === 'configured') return '缺少默认'
   return '未配置'
 }
 
 function coverageStateTagType(item) {
-  if (item.state === 'default') return 'success'
+  if (item.ready) return 'success'
   if (item.state === 'configured') return 'warning'
   return 'danger'
 }
@@ -1764,6 +1792,10 @@ function coverageConfigDetail(item) {
   if (item.state === 'missing') return '尚无配置'
   if (item.issue === 'inactive') return `${item.configuredCount} 个配置，均未启用`
   if (!item.defaultConfig) return `${item.activeCount} 个启用配置，请设置默认项`
+  if (item.issue === 'missing_credentials') return '默认配置缺少凭据'
+  if (item.issue === 'missing_model') return '默认配置缺少模型'
+  if (item.issue === 'missing_workflow') return '默认配置缺少工作流'
+  if (item.issue === 'connection_failed') return '默认配置最近连接失败'
   const config = item.defaultConfig
   const model = config.default_model || (Array.isArray(config.model) ? config.model[0] : config.model)
   const identity = config.name || config.provider || '默认配置'
@@ -1867,7 +1899,7 @@ async function onCoverageAction(item, action) {
   }
   if (action.action === 'edit') {
     if (item.targetConfig) {
-      openEdit(item.targetConfig)
+      await openEdit(item.targetConfig, { repairIssue: item.issue })
     } else {
       openAddForService(item.type)
     }
@@ -2204,6 +2236,7 @@ function onRowEdit(row) {
 }
 
 async function handleSd2AssetSaved() {
+  invalidateConnectionTestResults()
   notifyConfigurationChanged()
   await loadList()
 }
@@ -2213,6 +2246,7 @@ async function loadList() {
   configLoadState.value = list.value.length ? 'refreshing' : 'loading'
   try {
     list.value = await aiAPI.list()
+    sessionTestStatusById.value = connectionStatusStore.forConfigs(list.value)
     configLoadError.value = ''
     configLoadState.value = 'ready'
   } catch (error) {
@@ -2326,7 +2360,7 @@ function openAddForService(serviceType) {
   openConfigDialog()
 }
 
-function openEdit(row) {
+async function openEdit(row, { repairIssue = '' } = {}) {
   if (configWriteLocked.value) return
   editingId.value = row.id
   advancedFormSections.value = []
@@ -2384,6 +2418,15 @@ function openEdit(row) {
     ...pricingForm,
   }
   openConfigDialog()
+  await applyAiConfigRepairTarget(repairIssue, {
+    advancedSections: advancedFormSections,
+    fieldRefs: {
+      credentials: apiKeyInputRef,
+      model: modelListInputRef,
+      workflow: workflowInputRef,
+    },
+    nextTickFn: nextTick,
+  })
 }
 
 async function submit() {
@@ -2454,6 +2497,7 @@ async function submit() {
       await aiAPI.create(payload)
       ElMessage.success('添加成功')
     }
+    invalidateConnectionTestResults()
     notifyConfigurationChanged()
     configDialogSaved.value = true
     configFormBaseline.value = configFormFingerprint()
@@ -2480,7 +2524,10 @@ async function submitBulkKey() {
   try {
     const res = await aiAPI.bulkUpdateKey(key)
     ElMessage.success(res?.message || '所有配置的 API Key 已更新')
-    if (Number(res?.updated) > 0) notifyConfigurationChanged()
+    if (Number(res?.updated) > 0) {
+      invalidateConnectionTestResults()
+      notifyConfigurationChanged()
+    }
     bulkKeyVisible.value = false
     await loadList()
   } catch (_) {
@@ -2568,17 +2615,21 @@ async function openTest(row) {
       settings: row.settings
     })
     testResult.value = true
+    const testedAt = new Date().toISOString()
+    connectionStatusStore.set(row.id, 'passed', testedAt)
     sessionTestStatusById.value = {
       ...sessionTestStatusById.value,
-      [row.id]: { status: 'passed', testedAt: new Date().toISOString() },
+      [row.id]: { status: 'passed', testedAt },
     }
     testResultAnnouncement.value = '连接测试通过'
   } catch (e) {
     testResult.value = false
     testError.value = e?.message || '请求失败'
+    const testedAt = new Date().toISOString()
+    connectionStatusStore.set(row.id, 'failed', testedAt)
     sessionTestStatusById.value = {
       ...sessionTestStatusById.value,
-      [row.id]: { status: 'failed', testedAt: new Date().toISOString() },
+      [row.id]: { status: 'failed', testedAt },
     }
     testResultAnnouncement.value = `连接测试失败：${testError.value}`
   } finally {
@@ -2594,6 +2645,7 @@ async function onDelete(row) {
   try {
     await aiAPI.delete(row.id)
     ElMessage.success('已删除')
+    invalidateConnectionTestResults()
     notifyConfigurationChanged()
     await loadList()
   } catch (_) {}
@@ -2621,7 +2673,10 @@ async function onBatchDelete() {
   }
   batchDeleting.value = false
   selectedRows.value = []
-  if (success > 0) notifyConfigurationChanged()
+  if (success > 0) {
+    invalidateConnectionTestResults()
+    notifyConfigurationChanged()
+  }
   ElMessage.success(`已删除 ${success} 条${failed ? `，${failed} 条失败` : ''}`)
   await loadList()
 }
@@ -2651,7 +2706,10 @@ async function submitPresetConfigs(configs, apiKey, closeDialog) {
     })
   }
   const result = await runAiConfigCreateBatch(configs, createOne)
-  if (result.success > 0) notifyConfigurationChanged()
+  if (result.success > 0) {
+    invalidateConnectionTestResults()
+    notifyConfigurationChanged()
+  }
   const message = `预设配置完成：${result.success} 条成功，${result.failed} 条失败`
   if (result.success > 0) {
     closeDialog()
@@ -2771,7 +2829,10 @@ async function importConfigs(event) {
         settings: stripMaskedSecretsFromSettings(cfg.settings) || null,
       })
     })
-    if (result.success > 0) notifyConfigurationChanged()
+    if (result.success > 0) {
+      invalidateConnectionTestResults()
+      notifyConfigurationChanged()
+    }
     const message = `导入完成：${result.success} 条成功，${result.failed} 条失败`
     if (result.success > 0) ElMessage.success(message)
     else ElMessage.error(message)
@@ -2803,6 +2864,7 @@ async function retryConfigDependencies() {
 }
 
 onMounted(async () => {
+  await initializeConnectionStatusStore()
   await Promise.all([loadVendorLock(), loadList(), loadGenerationSettings()])
   if (activeServiceFilter.value) await applyRequestedService(activeServiceFilter.value)
 })
@@ -3102,7 +3164,7 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
 .coverage-summary-card.summary-info strong { color: var(--ai-config-info-text, #0369a1); }
 .coverage-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 8px;
 }
 .coverage-item {

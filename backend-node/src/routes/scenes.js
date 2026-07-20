@@ -5,6 +5,19 @@ const imageService = require('../services/imageService');
 
 function routes(db, log, cfg) {
   return {
+    list: (req, res) => {
+      try {
+        const dramaId = Number(req.params.id ?? req.params.drama_id);
+        if (!Number.isInteger(dramaId) || dramaId <= 0) {
+          return response.badRequest(res, '无效的剧集 ID');
+        }
+        const scenes = sceneService.listByDramaId(db, dramaId);
+        response.success(res, { scenes });
+      } catch (err) {
+        log.error('scenes list', { error: err.message });
+        response.internalError(res, err.message);
+      }
+    },
     getOne: (req, res) => {
       try {
         const scene = sceneService.getSceneById(db, Number(req.params.scene_id));

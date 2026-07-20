@@ -187,13 +187,14 @@
         v-if="drama"
         :drama-id="dramaId"
         :drama="drama"
+        :source-import-intent="sourceImportIntent"
         @refresh="handleSourceWorkflowRefresh"
         @enter-production="enterSourceWorkflowProduction"
         @focus-episode-list="scrollToSection('episode-list')"
       />
 
       <!-- 分集列表 -->
-      <section id="episode-list" class="section card">
+      <section id="episode-list" class="section card" tabindex="-1">
         <div class="section-header">
           <div class="section-title">分集列表</div>
           <span class="section-count">共 {{ episodes.length }} 集</span>
@@ -729,11 +730,13 @@ import { propAPI } from '@/api/props'
 import { stylePromptMetadataForSave, backfillDramaStylePromptMetadataIfNeeded } from '@/constants/styleOptions'
 import { buildProjectReadiness } from '@/utils/projectReadiness'
 import { normalizeProjectListReturnTo, resolveProjectEpisodeId } from '@/utils/projectListRoute'
+import { scrollAndFocusSection } from '@/utils/sectionFocus.js'
 
 const route = useRoute()
 const { isDark, toggle: toggleTheme } = useTheme()
 const router = useRouter()
 const projectListReturnTo = computed(() => normalizeProjectListReturnTo(route.query.returnTo))
+const sourceImportIntent = computed(() => route.query.intake === 'source-url')
 const dramaId = Number(route.params.id)
 
 // 图片编辑 – 文件输入 refs（各资源类型独立）
@@ -1029,7 +1032,7 @@ async function generateDramaPropImg() {
 const loading = ref(false)
 const drama = ref(null)
 const episodes = ref([])
-const canvasEpisodeId = computed(() => resolveProjectEpisodeId(episodes.value, route.query.episode))
+const currentEpisodeId = computed(() => resolveProjectEpisodeId(episodes.value, route.query.episode))
 const aiConfigs = ref(null)
 const sourceCount = ref(null)
 const dramaLoadState = ref('loading')
@@ -1431,16 +1434,8 @@ async function retryReadinessDependencies() {
   await loadReadinessDependencies()
 }
 
-function scrollToSection(id) {
-  const target = document.getElementById(id)
-  if (!target) return
-  const stickyHeader = document.querySelector('.drama-detail > .header')
-  const headerHeight = Math.ceil(stickyHeader?.getBoundingClientRect?.().height || 0)
-  const top = Math.max(0, window.scrollY + target.getBoundingClientRect().top - headerHeight - 16)
-  window.scrollTo({ top, behavior: 'smooth' })
-  if (id === 'source-intake-workflow') {
-    window.setTimeout(() => target.focus({ preventScroll: true }), 250)
-  }
+function scrollToSection(id, { focus = true } = {}) {
+  scrollAndFocusSection(id, { focus, focusDelay: id === 'source-intake-workflow' ? 250 : 0 })
 }
 
 function scrollToSourceIntake() {
@@ -1466,7 +1461,7 @@ watch(
     if (handledRouteAnchor === key) return
     handledRouteAnchor = key
     await nextTick()
-    window.setTimeout(() => scrollToSection(id), 0)
+    window.setTimeout(() => scrollToSection(id, { focus: !(id === 'source-intake-workflow' && sourceImportIntent.value) }), 0)
   },
   { immediate: true },
 )
@@ -1521,11 +1516,16 @@ function withProjectListReturnTo(query = {}) {
 }
 
 function goCreate() {
-  router.push({ path: `/film/${dramaId}`, query: withProjectListReturnTo() })
+  if (!currentEpisodeId.value) {
+    scrollToSection('episode-list')
+    return
+  }
+  const query = { episode: String(currentEpisodeId.value) }
+  router.push({ path: `/film/${dramaId}`, query: withProjectListReturnTo(query) })
 }
 
 function goCanvasMode() {
-  const query = canvasEpisodeId.value ? { episode: String(canvasEpisodeId.value) } : {}
+  const query = currentEpisodeId.value ? { episode: String(currentEpisodeId.value) } : {}
   router.push({ path: `/film/${dramaId}/canvas`, query: withProjectListReturnTo(query) })
 }
 

@@ -170,6 +170,7 @@
 
               <el-form-item label="网页 URL" :error="sourceUrlValidationMessage">
                 <el-input
+                  ref="sourceUrlInput"
                   v-model="form.source_url"
                   clearable
                   placeholder="粘贴公开网页或纯文本链接，系统会抽取正文作为素材"
@@ -516,7 +517,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, Setting } from '@element-plus/icons-vue'
@@ -547,6 +548,7 @@ import {
   launchSourceWorkflow,
   normalizeProductionReadiness,
 } from '@/utils/sourceWorkflowLaunch'
+import { revealSourceImportIntent } from '@/utils/sourceImportIntent'
 
 const MAX_SOURCE_FILE_BYTES = 20 * 1024 * 1024
 const SOURCE_FILE_EXTENSIONS = Object.freeze([
@@ -563,6 +565,7 @@ const TEXT_SOURCE_FILE_EXTENSIONS = new Set(['.txt', '.md', '.csv', '.tsv', '.sr
 const props = defineProps({
   dramaId: { type: Number, required: true },
   drama: { type: Object, default: null },
+  sourceImportIntent: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['refresh', 'enter-production', 'focus-episode-list'])
@@ -578,6 +581,7 @@ const form = reactive({
 })
 
 const sourceFileInput = ref(null)
+const sourceUrlInput = ref(null)
 const sourceFile = ref(null)
 const selectedFilename = ref('')
 const sourceFileReading = ref(false)
@@ -991,6 +995,15 @@ async function loadData() {
   }
 }
 
+async function openSourceImportIntent() {
+  await revealSourceImportIntent({
+    historyExpanded: workflowHistoryExpanded,
+    selectedStepId: selectedFlowStepId,
+    sourceUrlInput,
+    nextTickFn: nextTick,
+  })
+}
+
 async function createSourceFromForm() {
   if (rawSourceUrl.value && sourceUrlValidationMessage.value) {
     throw new Error(sourceUrlValidationMessage.value)
@@ -1305,11 +1318,15 @@ async function openSourceDetail(source) {
 
 watch(() => props.drama, syncDefaults, { immediate: true })
 watch(() => props.dramaId, loadData)
+watch(() => props.sourceImportIntent, (active) => {
+  if (active) openSourceImportIntent()
+})
 
 onBeforeRouteLeave(() => confirmSourceInputLeave())
 
-onMounted(() => {
-  loadData()
+onMounted(async () => {
+  await loadData()
+  if (props.sourceImportIntent) await openSourceImportIntent()
   window.addEventListener('beforeunload', handleBeforeUnload)
 })
 onBeforeUnmount(() => {

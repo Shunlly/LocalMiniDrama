@@ -58,14 +58,14 @@ npm run dev
 # 静态检查、全部测试与流程审计
 npm run verify
 
-# 全量数据备份；恢复前必须停止后端
+# 全量数据备份或恢复前都必须停止后端
 npm run backup:data -- --output D:\backup\localminidrama.zip
 npm run restore:data -- --input D:\backup\localminidrama.zip --yes
 ```
 
-启动成功后终端输出：
-```
-Server started on port 5679
+启动后以就绪端点为准；返回 HTTP 200 且 `status` 为 `ready` 才能接收业务请求：
+```bash
+curl.exe --fail http://127.0.0.1:5679/ready
 ```
 
 ---
@@ -88,7 +88,7 @@ backend-node/
 │       └── merged/             # 合成后的完整视频
 ├── migrations/
 │   ├── 01_init.sql             # 初始建表
-│   └── 02_add_default_model.sql ... 34_ai_config_single_default.sql
+│   └── 02_add_default_model.sql ... 35_storyboard_order_integrity.sql
 ├── src/
 │   ├── app.js                  # Express 应用（路由注册、中间件）
 │   ├── server.js               # HTTP 服务入口
@@ -250,8 +250,10 @@ style:
 |------|------|------|
 | POST | `/videos` | 创建视频生成任务 |
 | GET | `/videos/:id` | 查询任务状态 |
-| POST | `/episodes/:id/merge-video` | 触发视频合并 |
-| GET | `/episodes/:id/merge-status` | 查询合并进度 |
+| POST | `/episodes/:episode_id/finalize` | 从本集已完成分镜创建并启动 FFmpeg 合成 |
+| GET | `/video-merges?episode_id=:episode_id` | 查询本集合成记录 |
+| GET | `/video-merges/:merge_id` | 查询指定合成记录 |
+| GET | `/episodes/:episode_id/download` | 获取最终视频地址 |
 
 ### AI 配置（AI Config）
 
@@ -261,9 +263,7 @@ style:
 | POST | `/ai-configs` | 新增配置 |
 | PUT | `/ai-configs/:id` | 修改配置 |
 | DELETE | `/ai-configs/:id` | 删除配置 |
-| POST | `/ai-configs/:id/test` | 测试连接 |
-| POST | `/ai-configs/preset/dashscope` | 一键创建通义预设 |
-| POST | `/ai-configs/preset/volcengine` | 一键创建火山预设 |
+| POST | `/ai-configs/test` | 测试已保存配置；body 传 `id` 或 `config_id` |
 
 ### 异步任务（Task）
 

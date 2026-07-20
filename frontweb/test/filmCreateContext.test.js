@@ -37,3 +37,10 @@ test('episode context selector keeps the desktop interaction height', () => {
   assert.ok(selectStart >= 0)
   assert.doesNotMatch(episodeSelectSource, /\bsize="small"/)
 })
+
+test('desktop production header groups commands into a non-overlapping actions workspace', () => {
+  assert.match(filmCreateSource, /class="workspace-actions"/)
+  assert.match(filmCreateSource, /@media \(min-width: 769px\) and \(max-width: 1400px\) \{[\s\S]*?\.header-inner\s*\{[\s\S]*?grid-template-columns:/)
+  assert.match(filmCreateSource, /\.workspace-actions\s*\{[\s\S]*?min-height:\s*32px;/)
+  assert.match(filmCreateSource, /@media \(min-width: 769px\) and \(max-width: 1400px\) \{[\s\S]*?\.workspace-actions\s*\{[\s\S]*?grid-column:/)
+})

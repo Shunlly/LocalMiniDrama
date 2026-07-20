@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="localminidrama-evidence-authority" content="machine-artifact">
-  <title>LocalMiniDrama 1.3.3 桌面验收说明 - 2026-07-18</title>
+  <title>LocalMiniDrama 1.3.3 桌面验收说明 - 2026-07-20</title>
   <style>
     :root {
       color-scheme: light;
@@ -215,7 +215,7 @@
   <main>
     <div class="intro" id="summary">
       <div>
-        <p class="eyebrow">Desktop release candidate acceptance / 2026-07-18</p>
+        <p class="eyebrow">Desktop release candidate acceptance / 2026-07-20</p>
         <h1>LocalMiniDrama 产品体验与发布验收</h1>
         <p class="lede">以实际桌面工作流为准，覆盖项目入口、AI 服务、素材、剧集就绪度、制作台、画布和自由创作。移动端、代码签名和外部真实 Provider 深度接入按已确认范围后置。</p>
       </div>
@@ -228,7 +228,7 @@
     <section aria-labelledby="score-title">
       <div class="section-head">
         <h2 id="score-title">验收摘要</h2>
-        <p class="muted">完整播放/下载流程：1440×900、1366×768；桌面专项：1280×720；AI 双列布局专项：1024×768</p>
+        <p class="muted">完整播放/下载流程：1440×900、1366×768；桌面专项：1280×720；AI 双列布局：1024×768；展开侧栏边界：769×720</p>
       </div>
       <div class="score-grid">
         <div class="score"><small>核心页面</small><b>说明</b><span>仓库内图片用于回顾桌面工作流</span></div>
@@ -270,6 +270,9 @@
             <li>项目包导入失败改为持久页内反馈，提供安全文件名、可操作原因、重新选择和关闭入口。</li>
             <li>素材选择器空态可直接清除筛选或前往素材中心上传，并通过受限返回地址回到原制作台。</li>
             <li>AI 配置把“服务状态”和“配置管理”分开，左右方向键同步迁移选中态与焦点；服务直达链接落在正确工作区。</li>
+            <li>AI 可用状态同时校验默认配置、凭据、模型/工作流和最近连接结果；修复入口会展开并聚焦缺失字段，配置变更后旧测试结果立即失效。</li>
+            <li>素材中心的“导入网页 URL”可选择已有项目并直接打开、聚焦 URL 输入；已完成过工作流的项目也无需先手动展开历史步骤。</li>
+            <li>制作台在 769px 展开 180px 导航时把头部操作分行排列，保留全部命令且无控件重叠或横向滚动。</li>
             <li>历史手工检查与生产 E2E 仅作为桌面布局、中文路径媒体和播放流程的说明性上下文；当前结论必须由最终同一提交的 machine artifacts 重新给出。</li>
           </ul>
         </div>
@@ -279,6 +282,7 @@
             <li>桌面范围、后置边界、发布失败条件和回滚责任由文档与自动化合同共同定义。</li>
             <li>源码、Docker、生产 E2E、回滚和安全证据必须由最终干净提交重新生成；历史结果不能迁移为当前结论。</li>
             <li>GitHub CI 须将 Windows 制品、SBOM、秘密扫描和离线校验绑定同一远端提交；完成前不创建正式 Release。</li>
+            <li>QA 只能完成当前工作流明确持有的合成记录；幂等重试、Provider 证据、任务、剧集和最终媒体必须在同一事务与同一所有权下收敛。</li>
             <li>任何同一提交门禁失败都回到开发阶段，不允许用本页或人工说明替代通过记录。</li>
           </ul>
         </div>
@@ -578,8 +582,8 @@
       <table>
         <thead><tr><th>门禁</th><th>结果</th><th>证据</th></tr></thead>
         <tbody>
-          <tr><td>后端</td><td><span class="status info">机器证据</span></td><td>源码检查、流程审计、ZIP/凭据/备份边界和静态媒体行为以最终提交的验证日志为准，本页不保留可过期的测试计数。</td></tr>
-          <tr><td>前端</td><td><span class="status info">机器证据</span></td><td>请求竞态、错误提示、工作区键盘契约、离开保护、桌面无障碍、生产构建和包体预算由最终提交的前端验证记录判定。</td></tr>
+          <tr><td>后端</td><td><span class="status info">机器证据</span></td><td>源码检查、流程审计、当前工作流合成所有权、最终媒体 ffprobe、ZIP/凭据/备份边界以最终提交的验证日志为准，本页不保留可过期的测试计数。</td></tr>
+          <tr><td>前端</td><td><span class="status info">机器证据</span></td><td>请求与路由竞态、AI 状态恢复、URL 导入、769px 几何、键盘焦点、离开保护、生产构建和包体预算由最终提交的前端验证记录判定。</td></tr>
           <tr><td>桌面</td><td><span class="status info">机器证据</span></td><td>Electron 生命周期、原生 ABI、URL 安全和媒体工具信任由同一提交的桌面验证记录判定；Authenticode 仍属延期范围。</td></tr>
           <tr><td>Docker</td><td><span class="status info">机器证据</span></td><td>Node 20 镜像边界、容器验证、运行时净化、镜像 revision 和镜像安全结果必须来自最终提交重新构建的 artifacts。</td></tr>
           <tr><td>生产 E2E</td><td><span class="status info">机器证据</span></td><td>UI 创建、制作、媒体、下载、导出和清理闭环由 ignored evidence 与 acceptance manifest 记录，并须与最终提交完全一致。</td></tr>
@@ -607,6 +611,9 @@
             <li>AI 配置弹窗固定标题与 Tab，内容唯一滚动；测试操作具备 loading、禁用和可访问名称。</li>
             <li>项目就绪度与全流程生成默认紧凑，只保留分数、当前阻断和唯一下一步；运行中任务会自动展开完整控制。</li>
             <li>AI 配置拆分“服务状态 / 配置管理”，服务直达与键盘左右导航都落在正确工作区。</li>
+            <li>连接测试状态按非敏感运行实例隔离，删除陈旧配置记录；缺凭据、模型或工作流时始终优先给出具体修复动作。</li>
+            <li>并发路由使用单调令牌保持最新加载遮罩，旧导航取消、重定向或报错不会提前恢复底层交互。</li>
+            <li>网页 URL 导入意图贯穿项目选择、完成态工作流展开、输入框聚焦和安全返回上下文。</li>
             <li>核心界面统一为中文生产术语。</li>
           </ul>
         </div>
@@ -618,6 +625,8 @@
             <li>AI 默认配置由唯一索引和写事务保证。</li>
             <li>Release 构建禁止自动发布，制品复验后才创建草稿。</li>
             <li>FFmpeg 使用固定可信摘要，备份默认排除 Provider 凭据。</li>
+            <li>合成重试刷新当前 Provider 证据并检查实际更新行数；后处理替换的最终视频必须非空且重新通过 ffprobe。</li>
+            <li>CycloneDX 1.4/1.5/1.6 按各自规范严格校验组件类型与字段类型，拒绝数字 specVersion 和依赖根漂移。</li>
             <li>回滚检查点改为白名单配置脱敏归档，恢复前严格校验凭据排除声明，恢复后要求重新配置并测试。</li>
             <li>Trivy 读取四份 SBOM 并扫描三份真实 Dockerfile；后端绑定目录启动降权例外有明确范围并于 2027-07-17 到期复审。</li>
           </ul>
@@ -653,7 +662,7 @@
   <footer>
     <div class="footer-inner">
       <strong>LocalMiniDrama 1.3.3 桌面验收说明性报告</strong>
-      <span>报告更新：2026-07-18 · 正式发布仅以最终干净提交的 machine artifacts 与 GitHub checks 为准</span>
+      <span>报告更新：2026-07-20 · 正式发布仅以最终干净提交的 machine artifacts 与 GitHub checks 为准</span>
     </div>
   </footer>
 </body>

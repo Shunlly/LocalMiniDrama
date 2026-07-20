@@ -24,10 +24,11 @@ export function pickActiveNavigationAnchor(entries, offset = NAV_STICKY_OFFSET) 
  * 左侧导航折叠/展开逻辑
  */
 export function useNavigation({ getAnchorIds = () => [] } = {}) {
-  const navCollapsed = ref(false)
+  const initiallyNarrow = typeof window !== 'undefined' && window.innerWidth < NAV_AUTO_COLLAPSE_WIDTH
+  const navCollapsed = ref(initiallyNarrow)
   const storyboardMenuExpanded = ref(false)
   const activeNavAnchor = ref('')
-  let _navAutoCollapsed = false
+  let _navAutoCollapsed = initiallyNarrow
   let _scrollFrame = null
 
   function _syncNavCollapse() {

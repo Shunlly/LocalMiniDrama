@@ -535,16 +535,90 @@ function isUsableProviderReference(value) {
   return !!text && !/^(?:mock|placeholder):\/\//i.test(text);
 }
 
+function imageBadRequest(message) {
+  const error = new Error(message);
+  error.code = 'BAD_REQUEST';
+  return error;
+}
+
+function normalizeScopeId(rawValue, field, allowZero) {
+  let value;
+  if (typeof rawValue === 'number') {
+    value = rawValue;
+  } else if (typeof rawValue === 'string' && /^\d+$/.test(rawValue.trim())) {
+    value = Number(rawValue.trim());
+  } else {
+    throw imageBadRequest(`${field} is invalid`);
+  }
+  if (!Number.isSafeInteger(value) || (allowZero ? value < 0 : value <= 0)) {
+    throw imageBadRequest(`${field} is invalid`);
+  }
+  return value;
+}
+
+function resolveImageGenerationScope(db, req) {
+  const hasDramaId = Object.prototype.hasOwnProperty.call(req, 'drama_id');
+  const rawDramaId = req.drama_id;
+  let dramaId = 0;
+  const explicitGlobalEmpty = rawDramaId === null
+    || (typeof rawDramaId === 'string' && rawDramaId.trim() === '');
+  if (hasDramaId && !explicitGlobalEmpty) {
+    dramaId = normalizeScopeId(rawDramaId, 'drama_id', true);
+  }
+  const storyboardId = req.storyboard_id != null
+    ? normalizeScopeId(req.storyboard_id, 'storyboard_id', false)
+    : null;
+  if (storyboardId != null) {
+    const scope = db.prepare(
+      `SELECT e.drama_id
+         FROM storyboards s
+         JOIN episodes e ON e.id = s.episode_id AND e.deleted_at IS NULL
+        WHERE s.id = ? AND s.deleted_at IS NULL`
+    ).get(storyboardId);
+    if (!scope || (dramaId > 0 && Number(scope.drama_id) !== dramaId)) {
+      throw imageBadRequest('storyboard_id must belong to drama_id');
+    }
+    dramaId = Number(scope.drama_id);
+  }
+  return { dramaId, storyboardId };
+}
+
 function create(db, log, req) {
   const now = new Date().toISOString();
+  const { dramaId, storyboardId } = resolveImageGenerationScope(db, req);
   const idempotencyKey = String(req.idempotency_key || '').trim() || null;
   if (idempotencyKey) {
     const existing = db.prepare(
-      'SELECT id FROM image_generations WHERE idempotency_key = ? AND deleted_at IS NULL'
+      `SELECT id, drama_id, storyboard_id, deleted_at
+         FROM image_generations
+        WHERE idempotency_key = ?`
     ).get(idempotencyKey);
-    if (existing) return { ...getById(db, existing.id), idempotent_reuse: true };
+    if (existing) {
+      let existingScope;
+      try {
+        existingScope = resolveImageGenerationScope(db, {
+          drama_id: existing.drama_id,
+          storyboard_id: existing.storyboard_id,
+        });
+      } catch (_) {
+        throw imageBadRequest('idempotency_key belongs to another drama or storyboard');
+      }
+      const wrongDrama = existingScope.dramaId !== dramaId;
+      const wrongStoryboard = existingScope.storyboardId !== storyboardId;
+      if (wrongDrama || wrongStoryboard) {
+        throw imageBadRequest('idempotency_key belongs to another drama or storyboard');
+      }
+      if (existing.deleted_at) {
+        throw imageBadRequest('idempotency_key references a deleted image; use a new key');
+      }
+      if ((Number(existing.drama_id) || 0) !== existingScope.dramaId) {
+        db.prepare('UPDATE image_generations SET drama_id = ?, updated_at = ? WHERE id = ?')
+          .run(existingScope.dramaId, now, existing.id);
+      }
+      return { ...getById(db, existing.id), idempotent_reuse: true };
+    }
   }
-  const task = taskService.createTask(db, log, 'image_generation', String(req.drama_id || ''));
+  const task = taskService.createTask(db, log, 'image_generation', String(dramaId || ''));
   const taskId = task.id;
   const frameType = req.frame_type ?? null;
   const sceneId = req.scene_id != null ? Number(req.scene_id) : null;
@@ -569,8 +643,8 @@ function create(db, log, req) {
     `INSERT INTO image_generations (storyboard_id, drama_id, scene_id, character_id, provider, prompt, negative_prompt, model, frame_type, reference_images, use_first_frame_layout_lock, size, status, task_id, idempotency_key, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`
   ).run(
-    req.storyboard_id ?? null,
-    Number(req.drama_id) || 0,
+    storyboardId,
+    dramaId,
     sceneId,
     req.character_id != null ? Number(req.character_id) : null,
     req.provider || 'openai',
@@ -591,7 +665,7 @@ function create(db, log, req) {
   if (req.__defer_processing !== true) {
     scheduleLegacyAsync(log, 'image_generation', () => {
       processImageGeneration(db, log, imageGenId);
-    }, { image_generation_id: imageGenId, task_id: taskId, drama_id: req.drama_id });
+    }, { image_generation_id: imageGenId, task_id: taskId, drama_id: dramaId });
   }
   return { id: imageGenId, task_id: taskId, status: 'pending', ...getById(db, imageGenId) };
 }
@@ -1653,13 +1727,14 @@ function getBackgroundsForEpisode(db, episodeId) {
 
 function upload(db, log, req) {
   const now = new Date().toISOString();
+  const { dramaId, storyboardId } = resolveImageGenerationScope(db, req);
   const frameType = req.frame_type ?? null;
   const info = db.prepare(
     `INSERT INTO image_generations (storyboard_id, drama_id, provider, prompt, image_url, local_path, frame_type, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?)`
   ).run(
-    req.storyboard_id ?? null,
-    Number(req.drama_id) || 0,
+    storyboardId,
+    dramaId,
     'upload',
     req.prompt || '',
     req.image_url || '',

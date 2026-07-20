@@ -300,6 +300,7 @@ function setupRouter(cfg, db, log) {
   r.put('/dramas/:id/outline', drama.saveOutline);
   r.get('/dramas/:id/characters', drama.getCharacters);
   r.put('/dramas/:id/characters', drama.saveCharacters);
+  r.get('/dramas/:id/scenes', scenes.list);
   r.put('/dramas/:id/episodes', drama.saveEpisodes);
   r.put('/dramas/:id/progress', drama.saveProgress);
   r.put('/dramas/:id/canvas-layout', drama.saveCanvasLayout);
@@ -351,6 +352,7 @@ function setupRouter(cfg, db, log) {
       response.success(res, { task_id: taskId, status: 'pending' });
     } catch (err) {
       log.error('generation/characters', { error: err.message });
+      if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
       response.internalError(res, err.message || '创建任务失败');
     }
   });

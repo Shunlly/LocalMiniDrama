@@ -11,6 +11,14 @@ const response = require('./response.js');
 const { setupRouter } = require('./routes/index.js');
 const uploadService = require('./services/uploadService.js');
 const { backgroundTasks } = require('./services/legacyAsyncSchedulerService.js');
+const {
+  createRuntimeInstanceId,
+  findWorkspaceRoot,
+} = require('./utils/runtimeInstanceId.js');
+
+const RUNTIME_INSTANCE_ID = createRuntimeInstanceId({
+  rootDirectory: findWorkspaceRoot(__dirname),
+});
 
 const READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -534,6 +542,7 @@ function createApp() {
       status: 'ok',
       app: config.app.name,
       version: config.app.version,
+      instance_id: RUNTIME_INSTANCE_ID,
     });
   });
 

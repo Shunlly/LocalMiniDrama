@@ -5,12 +5,63 @@ on:
     tags:
       - 'v*.*.*'
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
+  release-source-gate:
+    name: Require successful pre-tag main CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Verify exact release commit passed main push CI before tagging
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const { data: releaseRun } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            })
+            const releaseCreatedAt = Date.parse(releaseRun.created_at)
+            if (!Number.isFinite(releaseCreatedAt)) {
+              throw new Error('Unable to determine the release workflow creation time')
+            }
+
+            const runs = []
+            for await (const response of github.paginate.iterator(
+              github.rest.actions.listWorkflowRuns,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'ci.yml',
+                branch: 'main',
+                event: 'push',
+                status: 'success',
+                head_sha: context.sha,
+                per_page: 100,
+              },
+            )) {
+              runs.push(...response.data)
+            }
+
+            const approvedRun = runs.find((run) =>
+              run.event === 'push'
+              && run.head_branch === 'main'
+              && run.head_sha === context.sha
+              && run.status === 'completed'
+              && run.conclusion === 'success'
+              && Number.isFinite(Date.parse(run.updated_at))
+              && Date.parse(run.updated_at) < releaseCreatedAt
+            )
+            if (!approvedRun) {
+              throw new Error('Release commit has no successful pre-tag main push run of ci.yml')
+            }
+
   production-e2e:
     name: Verify production Docker workflow
+    needs: release-source-gate
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -132,6 +183,7 @@ jobs:
 
   rollback-drill:
     name: Verify isolated backup and rollback
+    needs: release-source-gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -338,11 +390,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
       - name: Download independently verified release bundle
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: windows-release-${{ github.ref_name }}-${{ github.sha }}
           path: desktop/release
+      - name: Verify remote release tag still resolves to the release commit
+        run: node scripts/verify-release.cjs --verify-remote-tag
       - name: Create draft GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:

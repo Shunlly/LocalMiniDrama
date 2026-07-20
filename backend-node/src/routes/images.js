@@ -1,6 +1,5 @@
 const response = require('../response');
 const imageService = require('../services/imageService');
-const taskService = require('../services/taskService');
 const backgroundExtractionService = require('../services/backgroundExtractionService');
 
 function routes(db, cfg, log) {
@@ -22,6 +21,7 @@ function routes(db, cfg, log) {
         response.created(res, rec);
       } catch (err) {
         log.error('images create', { error: err.message });
+        if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
         response.internalError(res, err.message);
       }
     },
@@ -45,16 +45,12 @@ function routes(db, cfg, log) {
         response.internalError(res, err.message);
       }
     },
-    scene: (req, res) => {
-      try {
-        const task = taskService.createTask(db, log, 'image_generation', req.params.scene_id);
-        setTimeout(() => taskService.updateTaskResult(db, task.id, []), 100);
-        response.success(res, { task_id: task.id });
-      } catch (err) {
-        log.error('images scene', { error: err.message });
-        response.internalError(res, err.message);
-      }
-    },
+    scene: (_req, res) => response.error(
+      res,
+      501,
+      'LEGACY_ENDPOINT_DISABLED',
+      'Use POST /api/v1/scenes/generate-image with scene_id.'
+    ),
     episodeBackgrounds: (req, res) => {
       try {
         const list = imageService.getBackgroundsForEpisode(db, req.params.episode_id);
@@ -85,14 +81,12 @@ function routes(db, cfg, log) {
         response.internalError(res, err.message || '任务创建失败');
       }
     },
-    episodeBatch: (req, res) => {
-      try {
-        response.success(res, []);
-      } catch (err) {
-        log.error('images episode batch', { error: err.message });
-        response.internalError(res, err.message);
-      }
-    },
+    episodeBatch: (_req, res) => response.error(
+      res,
+      501,
+      'LEGACY_ENDPOINT_DISABLED',
+      'Submit POST /api/v1/images once for each storyboard.'
+    ),
     upload: (req, res) => {
       try {
         const body = req.body || {};
@@ -100,6 +94,7 @@ function routes(db, cfg, log) {
         response.created(res, item);
       } catch (err) {
         log.error('images upload', { error: err.message });
+        if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
         response.internalError(res, err.message);
       }
     },

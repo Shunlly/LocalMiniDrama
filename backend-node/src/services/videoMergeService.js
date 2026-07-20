@@ -520,6 +520,36 @@ function runFfmpegConcat(localPaths, outputPath, log) {
   return runFfmpegConcatDetailed(localPaths, outputPath, log).ok;
 }
 
+function updateCurrentMergeEpisodeStatus(db, mergeId, episodeId, status, now) {
+  return db.prepare(
+    `UPDATE episodes
+        SET status = ?, updated_at = ?
+      WHERE id = ?
+        AND ? = (
+          SELECT id
+            FROM video_merges
+           WHERE episode_id = ?
+           ORDER BY id DESC
+           LIMIT 1
+        )`
+  ).run(status, now, episodeId, mergeId, episodeId);
+}
+
+function updateCurrentMergeEpisodeOutput(db, mergeId, episodeId, videoUrl, status, now) {
+  return db.prepare(
+    `UPDATE episodes
+        SET video_url = ?, status = ?, updated_at = ?
+      WHERE id = ?
+        AND ? = (
+          SELECT id
+            FROM video_merges
+           WHERE episode_id = ?
+           ORDER BY id DESC
+           LIMIT 1
+        )`
+  ).run(videoUrl, status, now, episodeId, mergeId, episodeId);
+}
+
 function markStrictMergeFailed(db, log, row, message) {
   const now = new Date().toISOString();
   const errorMessage = String(message || '严格生产合成失败').slice(0, 4000);
@@ -530,7 +560,14 @@ function markStrictMergeFailed(db, log, row, message) {
             SET status = 'failed', merged_url = NULL, duration = NULL, completed_at = ?, error_msg = ?
           WHERE id = ?`
       ).run(now, errorMessage, row.id);
-      db.prepare('UPDATE episodes SET status = ?, updated_at = ? WHERE id = ?').run('failed', now, row.episode_id);
+      updateCurrentMergeEpisodeStatus(db, row.id, row.episode_id, 'failed', now);
+      if (row.task_id) {
+        const taskService = require('./taskService');
+        const task = taskService.getTask(db, row.task_id);
+        if (!task || (task.status !== 'failed' && !taskService.updateTaskError(db, row.task_id, errorMessage))) {
+          throw new Error('Video merge: strict task failure was not persisted');
+        }
+      }
     });
     updateFailure();
   } catch (error) {
@@ -540,17 +577,6 @@ function markStrictMergeFailed(db, log, row, message) {
     });
   }
 
-  if (row.task_id) {
-    try {
-      require('./taskService').updateTaskError(db, row.task_id, errorMessage);
-    } catch (error) {
-      log.error('Video merge: could not fail strict task', {
-        merge_id: row.id,
-        task_id: row.task_id,
-        error: error.message,
-      });
-    }
-  }
   return errorMessage;
 }
 
@@ -732,18 +758,26 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
             SET status = ?, merged_url = ?, duration = ?, completed_at = ?, error_msg = NULL
           WHERE id = ?`
       ).run(completionStatus, mergedRelativePath, duration, completionStatus === 'completed' ? completedAt : null, mergeId);
-      db.prepare('UPDATE episodes SET video_url = ?, status = ?, updated_at = ? WHERE id = ?')
-        .run(mergedRelativePath, completionStatus, completedAt, episodeId);
+      updateCurrentMergeEpisodeOutput(
+        db,
+        mergeId,
+        episodeId,
+        mergedRelativePath,
+        completionStatus,
+        completedAt
+      );
+      if (row.task_id) {
+        const taskUpdated = require('./taskService').updateTaskResult(db, row.task_id, {
+          merge_id: mergeId,
+          video_url: mergedRelativePath,
+          duration,
+          mode: STRICT_PRODUCTION_MODE,
+          status: completionStatus,
+        });
+        if (!taskUpdated) throw strictMergeError('Strict merge task no longer accepts completion');
+      }
     });
     completeMerge();
-    if (row.task_id && completionStatus === 'completed') {
-      require('./taskService').updateTaskResult(db, row.task_id, {
-        merge_id: mergeId,
-        video_url: mergedRelativePath,
-        duration,
-        mode: STRICT_PRODUCTION_MODE,
-      });
-    }
     log.info('Video merge output persisted (strict production)', {
       merge_id: mergeId,
       episode_id: episodeId,
@@ -769,9 +803,7 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
   }
 }
 
-/**
- * 异步处理视频合成：优先使用 ffmpeg 真正合并多段视频；失败或无 ffmpeg 时用首段作为 merged_url。
- */
+/** 异步处理视频合成；未生成可验证的合成文件时失败关闭。 */
 async function processVideoMerge(db, log, mergeId, baseUrl) {
   const r = db.prepare('SELECT * FROM video_merges WHERE id = ? AND deleted_at IS NULL').get(mergeId);
   if (!r) return;
@@ -793,6 +825,7 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
   const taskService = require('./taskService');
   if (scenes.length === 0) {
     db.prepare('UPDATE video_merges SET status = ?, error_msg = ? WHERE id = ?').run('failed', '无有效视频片段', mergeId);
+    updateCurrentMergeEpisodeStatus(db, mergeId, episodeId, 'failed', now);
     if (taskId) taskService.updateTaskError(db, taskId, '无有效视频片段');
     return;
   }
@@ -815,11 +848,13 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
     );
     if (resolved) resolvedVideos.push(resolved);
   }
-  if (resolvedVideos.length === 0) {
-    const message = '无安全且可用的视频片段';
+  if (resolvedVideos.length !== scenes.length) {
+    const message = resolvedVideos.length === 0
+      ? '无安全且可用的视频片段'
+      : '部分视频片段无法安全解析，已拒绝不完整合成';
     fs.rmSync(tempDir, { recursive: true, force: true });
     db.prepare('UPDATE video_merges SET status = ?, error_msg = ? WHERE id = ?').run('failed', message, mergeId);
-    db.prepare('UPDATE episodes SET status = ?, updated_at = ? WHERE id = ?').run('failed', now, episodeId);
+    updateCurrentMergeEpisodeStatus(db, mergeId, episodeId, 'failed', now);
     if (taskId) taskService.updateTaskError(db, taskId, message);
     return;
   }
@@ -846,10 +881,16 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
     const outputPath = path.join(mergedDir, outputFileName);
     const ok = runFfmpegConcat(localPaths, outputPath, log);
     if (ok && fs.existsSync(outputPath)) {
-      mergedRelativePath = sub
-        ? path.join(sub, 'videos', 'merged', outputFileName).replace(/\\/g, '/')
-        : path.join('videos', 'merged', outputFileName).replace(/\\/g, '/');
-      log.info('Video merge completed (ffmpeg)', { merge_id: mergeId, episode_id: episodeId, output: mergedRelativePath });
+      const outputProbe = ffprobeVideo(outputPath);
+      if (outputProbe.ok) {
+        mergedRelativePath = sub
+          ? path.join(sub, 'videos', 'merged', outputFileName).replace(/\\/g, '/')
+          : path.join('videos', 'merged', outputFileName).replace(/\\/g, '/');
+        log.info('Video merge completed (ffmpeg)', { merge_id: mergeId, episode_id: episodeId, output: mergedRelativePath });
+      } else {
+        log.warn('Video merge: FFmpeg output validation failed', { merge_id: mergeId, error: outputProbe.error });
+        fs.rmSync(outputPath, { force: true });
+      }
     }
   }
 
@@ -869,20 +910,52 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
         mergeOpts,
       });
       if (post.ok && post.relativePath) {
-        mergedRelativePath = post.relativePath;
-        log.info('Video merge: merged episode post-process', { merge_id: mergeId, out: mergedRelativePath });
+        const postOutputPath = pathWithinStorage(storageRoot, post.relativePath);
+        const postProbe = postOutputPath
+          ? ffprobeVideo(postOutputPath)
+          : { ok: false, error: 'post-process output is outside storage' };
+        if (postProbe.ok) {
+          mergedRelativePath = post.relativePath;
+          log.info('Video merge: merged episode post-process', { merge_id: mergeId, out: mergedRelativePath });
+        } else {
+          log.warn('Video merge: post-process output validation failed', {
+            merge_id: mergeId,
+            error: postProbe.error,
+          });
+          if (postOutputPath) fs.rmSync(postOutputPath, { force: true });
+          if (path.resolve(mergedAbsPath) !== path.resolve(postOutputPath || mergedAbsPath)) {
+            fs.rmSync(mergedAbsPath, { force: true });
+          }
+          mergedRelativePath = null;
+        }
       } else if (post.error && post.error !== 'NO_POST_OPTS') {
         log.warn('Video merge: post-process skipped', { merge_id: mergeId, err: post.error });
       }
     }
   }
 
-  const finalMergedUrl = mergedRelativePath || resolvedVideos[0].canonical;
+  if (!mergedRelativePath) {
+    const message = ffmpegAvailable
+      ? 'FFmpeg 未生成有效的合成视频文件'
+      : 'FFmpeg 不可用，无法合成视频';
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    const failMerge = db.transaction(() => {
+      db.prepare(
+        'UPDATE video_merges SET status = ?, merged_url = NULL, duration = NULL, completed_at = NULL, error_msg = ? WHERE id = ?'
+      ).run('failed', message, mergeId);
+      updateCurrentMergeEpisodeStatus(db, mergeId, episodeId, 'failed', now);
+    });
+    failMerge();
+    if (taskId) taskService.updateTaskError(db, taskId, message);
+    return { ok: false, merge_id: mergeId, status: 'failed', error: message };
+  }
+
+  const finalMergedUrl = mergedRelativePath;
   fs.rmSync(tempDir, { recursive: true, force: true });
   db.prepare(
     'UPDATE video_merges SET status = ?, merged_url = ?, duration = ?, completed_at = ?, error_msg = ? WHERE id = ?'
   ).run('completed', finalMergedUrl, Math.round(totalDuration) || null, now, null, mergeId);
-  db.prepare('UPDATE episodes SET video_url = ?, status = ?, updated_at = ? WHERE id = ?').run(finalMergedUrl, 'completed', now, episodeId);
+  updateCurrentMergeEpisodeOutput(db, mergeId, episodeId, finalMergedUrl, 'completed', now);
   try {
     const qaService = require('./qaService');
     const qaReport = qaService.auditDrama(db, log, {
@@ -893,7 +966,7 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
     if (!qaReport.passed && mergeOpts.enforce_qa_gate) {
       const msg = `Production QA failed with score ${qaReport.score}`;
       db.prepare('UPDATE video_merges SET status = ?, error_msg = ? WHERE id = ?').run('failed', msg, mergeId);
-      db.prepare('UPDATE episodes SET status = ?, updated_at = ? WHERE id = ?').run('draft', now, episodeId);
+      updateCurrentMergeEpisodeStatus(db, mergeId, episodeId, 'draft', now);
       if (taskId) taskService.updateTaskError(db, taskId, msg);
       return;
     }
@@ -903,9 +976,49 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
   if (taskId) {
     taskService.updateTaskResult(db, taskId, { merge_id: mergeId, video_url: finalMergedUrl, duration: Math.round(totalDuration) });
   }
-  if (!mergedRelativePath) {
-    log.info('Video merge completed (first-clip fallback)', { merge_id: mergeId, episode_id: episodeId });
-  }
+}
+
+function completeQaPendingMerge(db, mergeId, completedAt = new Date().toISOString()) {
+  const row = db.prepare(
+    `SELECT id, episode_id, task_id, merged_url, duration
+       FROM video_merges
+      WHERE id = ? AND status = 'qa_pending'`
+  ).get(Number(mergeId));
+  if (!row) return false;
+  const complete = db.transaction(() => {
+    const result = db.prepare(
+      `UPDATE video_merges
+          SET status = 'completed', completed_at = ?, error_msg = NULL
+        WHERE id = ? AND status = 'qa_pending'`
+    ).run(completedAt, row.id);
+    if (result.changes === 0) return false;
+    updateCurrentMergeEpisodeOutput(
+      db,
+      row.id,
+      row.episode_id,
+      row.merged_url,
+      'completed',
+      completedAt
+    );
+    if (row.task_id) {
+      const taskService = require('./taskService');
+      const task = taskService.getTask(db, row.task_id);
+      if (task && task.status !== 'completed') {
+        throw new Error('Video merge: QA completion task is not completed');
+      }
+      if (task && !taskService.refreshCompletedTaskResult(db, row.task_id, {
+        merge_id: row.id,
+        video_url: row.merged_url,
+        duration: row.duration,
+        mode: STRICT_PRODUCTION_MODE,
+        status: 'completed',
+      })) {
+        throw new Error('Video merge: QA completion task result was not refreshed');
+      }
+    }
+    return true;
+  });
+  return complete();
 }
 
 module.exports = {
@@ -913,6 +1026,8 @@ module.exports = {
   getById,
   create,
   deleteById,
+  completeQaPendingMerge,
   processVideoMerge,
   buildStrictSceneFilterPlan,
+  updateCurrentMergeEpisodeOutput,
 };

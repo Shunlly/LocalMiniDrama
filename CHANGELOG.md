@@ -18,6 +18,15 @@
 
 ### 修复
 
+- **AI 配置状态与修复路径**：五类服务按默认配置、凭据、模型/工作流和最近连接结果给出一致就绪度；连接结果按非敏感运行实例隔离，配置变更后自动失效，缺失项操作会展开并聚焦具体字段。
+- **桌面窄宽度与网页素材入口**：制作台在 769px 展开导航时保留全部头部命令且不重叠；素材中心可直接选择已有项目并打开、聚焦网页 URL 输入，完成过工作流的项目不再多一步展开。
+- **工作流合成一致性**：QA 只处理当前 run 的合成记录；幂等重试同步刷新 Provider 证据并检查实际更新行数，后处理后的最终视频重新执行非空与 ffprobe 校验。
+- **路由并发与键盘焦点**：旧导航取消、重定向或报错不会提前清除新导航遮罩；无剧集时分集列表获得真实程序焦点，遮罩会阻止底层误操作。
+- **严格 SBOM 校验**：CycloneDX 1.4/1.5/1.6 使用版本对应的组件类型集合，字段类型、依赖根和 npm 根规范化均失败关闭。
+- **本地启动安全与就绪等待**：Windows BAT / PowerShell 启动器不再终止占用 5679/3013 的陌生进程；只复用带 LocalMiniDrama 产品标识的服务，新进程通过共享就绪探针后才打开浏览器，Vite 默认仅监听回环地址。
+- **桌面开发数据持久化**：Electron 开发与打包模式统一把数据库、配置、媒体和日志放入稳定的 `%APPDATA%\localminidrama-desktop\backend`，可重建的 `desktop/backend-app` 不再承担可变数据目录。
+- **OpenClaw 生产路由对齐**：补回项目场景列表接口，技能改用逐分镜 `/images`、`/videos` 与 episode `finalize` 合成链路；错误上传、角色反向提取、AI 配置示例同步当前请求体，并禁止公网直接暴露未认证后端。
+- **旧生成端点失败关闭**：不会执行工作的图片/视频 batch、image-to-video 快捷入口和直接 merge 创建端点统一返回 `501 LEGACY_ENDPOINT_DISABLED`，不再返回空成功或永远 pending 的任务。
 - **Trivy 发布门禁**：不再依赖缺少 Windows 二进制附件的 `setup-trivy` 安装路径，改用固定 SHA-256 digest 的官方 GHCR Trivy 0.64.1 镜像，在 Ubuntu runner 扫描四份 CycloneDX SBOM 与三份生产 Dockerfile。
 - **跨作业制品证据绑定**：Windows runner 在完成 Gitleaks、Defender、解包与 Electron Fuse 检查时记录 Setup、Portable、Unpacked 的 SHA-256；Ubuntu runner 生成最终安全证据和发布清单前重新计算并逐项比对，离线验证器也会拒绝扫描后被替换的字节。
 - **精确发布附件集合**：所有 ZIP 都纳入候选制品检查，未在版本化清单中的额外 ZIP 会使发布失败；最终上传、证明和 Release 只接受版本化 Unpacked ZIP。

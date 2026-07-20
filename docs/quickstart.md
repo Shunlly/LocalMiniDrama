@@ -13,6 +13,7 @@
   - [启动前端](#2-启动前端)
   - [一键启动脚本](#3-一键启动脚本)
 - [打包为 Windows exe](#打包为-windows-exe)
+  - [正式发布顺序](#正式发布顺序)
 - [配置文件说明](#配置文件说明)
 - [数据库与数据目录](#数据库与数据目录)
 - [Docker 启动](#docker-启动)
@@ -70,9 +71,9 @@ npm start
 npm run dev
 ```
 
-后端启动成功后，终端会输出：
-```
-Server started on port 5679
+后端启动后以就绪端点为准；返回 HTTP 200 且 `status` 为 `ready` 才能接收业务请求：
+```bash
+curl.exe --fail http://127.0.0.1:5679/ready
 ```
 
 ---
@@ -97,7 +98,7 @@ npm run dev
 
 ### 3. 一键启动脚本
 
-在项目根目录提供了一键启动脚本，**同时启动后端和前端**：
+项目根目录提供一键启动脚本，用于**启动或复用已验证的后端和前端**：
 
 **Windows（双击运行）：**
 ```
@@ -109,7 +110,7 @@ run_dev.bat
 .\run_dev.ps1
 ```
 
-脚本会分别在两个窗口中启动后端（端口 5679）和前端（端口 3013），并自动打开浏览器。
+若端口空闲，脚本会分别在两个窗口中启动后端（5679）和前端（3013），每个服务通过就绪探针后才会自动打开浏览器；60 秒内未就绪会退出并保留对应窗口供排错。若端口上已是可识别的 LocalMiniDrama 服务则直接复用；若任一端口被其他程序占用，脚本会失败关闭且不会终止该程序。
 
 ---
 
@@ -130,12 +131,12 @@ npm run dist
 npm run dist:cn
 ```
 
-打包产物位于 `desktop/release/` 目录：
+`npm run dist`（或 `dist:cn`）只生成 Setup、Portable 与 `win-unpacked`，位于 `desktop/release/`：
 - `LocalMiniDrama-Setup-x.x.x-x64.exe` — NSIS 安装包
 - `LocalMiniDrama-Portable-x.x.x-x64.exe` — 便携版
-- `LocalMiniDrama-Unpacked-x.x.x-x64.zip` — 免安装解包版
+- `win-unpacked/` — 未压缩目录
 
-正式候选必须从仓库根目录运行 `npm run verify:release:source` 和 Windows 上的 `npm run verify:release:windows`。发布工作流会为后端、前端、桌面及发布包生成四份 CycloneDX SBOM，并独立执行 Gitleaks、Trivy、Microsoft Defender、Electron Fuse、制品清单与 `SHA256SUMS` 校验；已有候选可用 `npm run verify:release:artifacts` 离线复核。
+正式候选必须从仓库根目录运行 `npm run verify:release:source` 和 Windows 上的 `npm run verify:release:windows`。Windows 验证在冒烟通过后追加已校验的 `LocalMiniDrama-Unpacked-x.x.x-x64.zip`、四个 CycloneDX SBOM 文件和 `media-tools.json`；四个 SBOM 文件实际覆盖后端、前端、桌面三个独立依赖图，桌面依赖图同时使用版本化发布文件名和内部扫描文件名。CI 与 Release 共用同一套 Gitleaks、Trivy、Microsoft Defender、Electron Fuse、制品清单与 `SHA256SUMS` 安全工作流；`artifact-security.json`、`release-manifest.json` 和 `SHA256SUMS` 仅在这些独立扫描完成后生成。已有候选可用 `npm run verify:release:artifacts` 离线复核。
 
 后端容器入口只在启动时以 root 修正绑定数据目录的属主，随后立即通过 `setpriv` 以 `node` 用户执行服务。对应 Trivy `AVD-DS-0002` 例外仅作用于 `backend-node/Dockerfile`，记录在 `backend-node/.trivyignore.yaml`，并于 2027-07-17 到期复审。
 
@@ -143,6 +144,15 @@ npm run dist:cn
 1. 构建前端静态文件
 2. 复制后端代码与前端产物到 `desktop/` 
 3. electron-builder 打包为 Windows exe
+
+### 正式发布顺序
+
+1. 在最终候选分支提交全部改动，确认版本号一致、Git 工作树干净，并在同一 SHA 完成本地全量验证与生产 Docker E2E。
+2. 推送候选分支并等待分支 CI 全部通过；其中必须包含源码依赖/配置扫描、Windows 候选构建、Gitleaks、Defender、Trivy、回滚演练和制品离线复核。CI 未通过时不得打标签。
+3. 合入 `main` 后再次等待该 SHA 的分支 CI 全绿，部署升级前按下文创建并保留真实回退检查点。
+4. 仅对已经验收的 `main` 提交创建 annotated tag（例如 `git tag -a v1.3.3 <sha> -m "LocalMiniDrama v1.3.3"`）并推送；不要移动或覆盖已发布标签。
+5. Tag workflow 只从同一提交重新验证并生成草稿 Release。核对附件精确集合、`artifact-security.json`、`release-manifest.json`、`SHA256SUMS` 和 provenance 后再人工发布草稿。
+6. 升级后完成健康、就绪、已有项目、媒体播放和关键生成流程验收；回退检查点至少保留到业务验收结束。
 
 ---
 
@@ -185,9 +195,11 @@ AI 服务配置通过软件内「AI 配置」页面管理，无需手动编辑 Y
 | `backend-node/data/storage/` | 生成的图片和视频文件 |
 | `backend-node/data/story_sources/` | 导入的原始故事素材 |
 | `backend-node/data/backups/` | 默认全量备份归档目录 |
-| `%APPDATA%\localminidrama-desktop\` | exe 模式下的所有数据 |
+| `%APPDATA%\localminidrama-desktop\backend\data\` | exe 模式的数据库、媒体与导入原文 |
+| `%APPDATA%\localminidrama-desktop\backend\configs\` | exe 模式的运行配置 |
+| `%APPDATA%\localminidrama-desktop-dev\backend\` | Electron 开发模式的独立可变数据与配置 |
 
-升级版本前建议先执行 `npm --prefix backend-node run backup:data`。备份命令会校验数据库和媒体引用，并默认排除 AI Key、URL 签名等凭据；数据库会在启动时自动执行迁移脚本，一般无需手动操作。
+源码或 Docker 模式升级前，先停止后端服务，再执行 `npm --prefix backend-node run backup:data`。该命令只备份仓库的 `backend-node/data/`，会校验数据库和媒体引用，并默认排除 AI Key、URL 签名等凭据；它不会自动备份 exe 的 `%APPDATA%` 数据。数据库会在启动时自动执行迁移脚本，一般无需手动操作。
 
 ---
 
@@ -207,7 +219,7 @@ docker compose ps
 | 前端 | `http://localhost:3013` |
 | 后端健康检查 | `http://localhost:5679/health` |
 | 后端就绪检查 | `http://localhost:5679/ready` |
-| API 根路径 | `http://localhost:5679/api/v1` |
+| API 路径前缀 | `http://localhost:5679/api/v1`（该前缀本身不是可访问资源） |
 
 Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器会把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器使用 Nginx 提供 Vite 的生产构建产物，源码没有 bind mount。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
 
@@ -265,8 +277,8 @@ npm install
 
 ### Q: 前端报错 `Failed to fetch` 或 API 请求 404
 
-确认后端已正常启动（终端显示 `Server started on port 5679`），且前端代理配置指向正确端口。  
-检查 `frontweb/vite.config.js` 中的 `proxy` 配置，确保 target 为 `http://localhost:5679`。
+确认 `http://127.0.0.1:5679/ready` 返回 HTTP 200，且前端代理配置指向正确端口。
+检查 `frontweb/vite.config.js` 中的 `proxy` 配置；默认 target 为 `http://127.0.0.1:5679`，自定义时由 `VITE_BACKEND_PROXY_TARGET` 显式覆盖。
 
 ---
 
@@ -307,12 +319,16 @@ storage/
 
 **单个项目**：在软件首页点击项目卡片上的「导出」，下载项目 ZIP，在新机器上导入。
 
-**完整数据（推荐在升级/迁移前使用）**：
+**桌面 exe 完整数据**：完全退出桌面应用（关闭窗口并确认后台进程结束）后，再复制整个 `%APPDATA%\localminidrama-desktop\backend\` 到仓库外的备份目录；Electron 开发版使用独立的 `%APPDATA%\localminidrama-desktop-dev\backend\`，需要时单独备份。不要在桌面后端仍监听 5679 或 SQLite 正在写入时复制。该离线副本包含数据库中的 Provider 凭据，必须放在加密且限制访问的位置；单项目导出和下述安全归档默认不携带凭据。
+
+复制前检查 `configs/config.yaml`：如果 `database.path` 或 `storage.local_path` 配置为指向 `backend\` 之外的绝对路径，完整备份还必须单独复制这些绝对路径指向的数据库、素材和导入原文，并在恢复后重新核对路径与访问权限。只复制默认目录不能覆盖自定义外部存储。
+
+**源码 / Docker 完整数据（推荐在升级/迁移前使用）**：先停止后端或 Docker，确认 5679 未被占用，再执行：
 
 ```bash
 npm --prefix backend-node run backup:data -- --output D:\backup\localminidrama.zip
 
-# 恢复时先停止后端或 Docker，确认目标端口和数据库未被占用
+# 恢复同样要求后端与 Docker 已停止，且目标端口和数据库未被占用
 npm --prefix backend-node run restore:data -- --input D:\backup\localminidrama.zip --yes
 ```
 
@@ -345,7 +361,7 @@ npm run restore:rollback -- -CheckpointDirectory $checkpoint
 
 `restore:rollback` 在接触数据前核对 metadata、数据 ZIP、Compose、运行配置、镜像归档、演练摘要的 SHA-256，并从 `images.tar` 加载后逐一核对旧镜像 ID 与 revision；同时从当前 existing 容器捕获前向补偿目标，非健康状态会显式告警但不会阻断旧版本恢复。若当前容器已被删除，则因无法证明补偿镜像和配置而失败关闭。停机后先保留升级后数据补偿备份，再恢复旧数据并用归档 Compose / 配置及专用回退标签启动。旧版本启动失败时，脚本会尝试恢复补偿数据和升级后镜像；补偿也失败才会报告双重故障。成功后仍需复验一条已有媒体播放链路，并在「AI 配置」重新填写所有备份策略排除的 Provider 凭据。不可移动或重写 `v1.3.3` 等正式标签。
 
-**离线目录副本**：只有在后端和 Docker 均已停止时，才可复制整个 `backend-node/data/`；不要在 SQLite 正在写入时直接拷贝。
+**源码离线目录副本**：只有在后端和 Docker 均已停止时，才可复制整个 `backend-node/data/`；不要在 SQLite 正在写入时直接拷贝。exe 数据必须使用上文 `%APPDATA%` 路径，不能用仓库目录替代。
 
 ---
 

@@ -38,7 +38,7 @@
    npm start
    ```
 
-开发时后端工作目录为 `backend-node/`，配置与数据使用仓库内路径。
+`npm start` 的 `prestart` 会把允许发布的后端代码重新复制到 `desktop/backend-app/`。该目录可重新生成且每次复制都会先清空，只承载运行代码，**不要把它当作唯一开发数据目录**。开发模式的可变配置、数据库和媒体位于 `%APPDATA%\localminidrama-desktop-dev\backend\`，安装版位于 `%APPDATA%\localminidrama-desktop\backend\`；测试需要隔离数据时可显式设置 `LOCALMINIDRAMA_USER_DATA_DIR`。
 
 ---
 
@@ -73,16 +73,20 @@ npm run dist:cn
 
 本目录下的 `.npmrc` 已配置 `registry=https://registry.npmmirror.com`，`npm install` 会使用国内源；`dist:cn` 脚本会将 Electron 与 electron-builder 的二进制下载也切换到 npmmirror 镜像。
 
-产物在 `desktop/release/` 下：
+`npm run dist`（或 `dist:cn`）只生成 Setup、Portable 与 `win-unpacked`。仓库根目录的 `npm run verify:release:windows` 会在冒烟通过后追加已校验的 Unpacked ZIP、四个 SBOM 文件和 `media-tools.json`；`artifact-security.json`、`release-manifest.json` 与 `SHA256SUMS` 只有在共享 Windows 安全工作流完成独立扫描后才生成。
+
+完整发布候选目录位于 `desktop/release/`：
 
 | 文件 | 说明 |
 |------|------|
 | `LocalMiniDrama-Setup-x.x.x-x64.exe` | NSIS 安装包（有安装引导，可选安装目录） |
 | `LocalMiniDrama-Portable-x.x.x-x64.exe` | 便携版（单文件，无需安装，双击即用） |
-| `LocalMiniDrama-Unpacked-x.x.x-x64.zip` | 已校验的未压缩目录归档，用于离线检查和恢复 |
+| `LocalMiniDrama-Unpacked-x.x.x-x64.zip` | 已校验的未压缩应用目录归档，用于离线审查和部署，不包含用户数据备份 |
 | `win-unpacked/` | 未压缩桌面目录，用于发布前检查和冒烟 |
-| `artifact-security.json` / `media-tools.json` / `release-manifest.json` / `SHA256SUMS` | 逐制品扫描与 Fuse 证据、媒体工具来源、制品清单和 SHA-256 校验 |
-| `*.cdx.json` | 源码与桌面依赖的 CycloneDX SBOM |
+| `artifact-security.json` | Gitleaks、Defender、Trivy、Electron Fuse 与源制品 SHA-256 证据 |
+| `media-tools.json` | 打包内 FFmpeg/FFprobe 的固定来源、版本和哈希 |
+| `release-manifest.json` / `SHA256SUMS` | 发布附件精确清单、字节数与 SHA-256 校验 |
+| `*.cdx.json` | 四份 CycloneDX SBOM 文件，覆盖后端、前端、桌面三个独立依赖图；两个桌面文件内容相同但承担发布命名和扫描命名职责 |
 
 首次运行时，会在用户数据目录 `%APPDATA%/localminidrama-desktop` 下生成 `backend/`，包含 `configs/config.yaml`（从打包配置复制）、`data/`（数据库与文件存储）及 `tools/ffmpeg/`。启动程序会分别补齐缺失的 `ffmpeg.exe` 与 `ffprobe.exe`，不会覆盖用户已替换的任一工具。
 

@@ -13,16 +13,12 @@ function routes(db, log) {
         response.internalError(res, err.message);
       }
     },
-    create: (req, res) => {
-      try {
-        const body = req.body || {};
-        const rec = videoMergeService.create(db, log, body);
-        response.success(res, { merge_id: rec.merge_id, task_id: rec.task_id, ...rec });
-      } catch (err) {
-        log.error('video-merges create', { error: err.message });
-        response.internalError(res, err.message);
-      }
-    },
+    create: (_req, res) => response.error(
+      res,
+      501,
+      'LEGACY_ENDPOINT_DISABLED',
+      'Use POST /api/v1/episodes/:episode_id/finalize to start an FFmpeg merge.'
+    ),
     get: (req, res) => {
       try {
         const item = videoMergeService.getById(db, req.params.merge_id);

@@ -5,6 +5,7 @@ const imageService = require('./imageService');
 const videoService = require('./videoService');
 const ttsService = require('./ttsService');
 const videoMergeService = require('./videoMergeService');
+const taskService = require('./taskService');
 const timelineService = require('./timelineService');
 const imageClient = require('./imageClient');
 const videoClient = require('./videoClient');
@@ -44,6 +45,14 @@ function recordProviderInvocation(db, params) {
       params.status || 'success'
     );
     if (existing) {
+      if (params.refresh_existing_output === true) {
+        const refresh = db.prepare('UPDATE provider_invocations SET output_json = ? WHERE id = ?')
+          .run(toJson(output), existing.id);
+        if (refresh.changes !== 1) {
+          throw new Error(`Provider invocation output refresh changed ${refresh.changes} rows`);
+        }
+        return { id: Number(existing.id), output, reused: true };
+      }
       let existingOutput = {};
       try { existingOutput = JSON.parse(existing.output_json || '{}'); } catch (_) {}
       return { id: Number(existing.id), output: existingOutput, reused: true };
@@ -232,7 +241,94 @@ function generateStoryboardAudioMock(db, log, params) {
   return { storyboard_count: storyboards.length, audio_updated: updated };
 }
 
+function latestMergeId(db, episodeId) {
+  const row = db.prepare(
+    'SELECT id FROM video_merges WHERE episode_id = ? ORDER BY id DESC LIMIT 1'
+  ).get(Number(episodeId));
+  return row ? Number(row.id) : null;
+}
+
+function updateCompositorTaskResult(db, taskId, result) {
+  if (!taskId) return;
+  const task = taskService.getTask(db, taskId);
+  if (!task) return;
+  const updated = task.status === 'completed'
+    ? taskService.refreshCompletedTaskResult(db, taskId, result)
+    : taskService.updateTaskResult(db, taskId, result);
+  if (!updated) throw new Error('Compositor task result was not persisted');
+}
+
+function persistOwnedCompositorMerge(db, log, params) {
+  const persist = db.transaction(() => {
+    const task = taskService.createTask(db, log, 'video_merge', String(params.episode_id));
+    const info = db.prepare(
+      `INSERT INTO video_merges
+       (episode_id, drama_id, title, provider, model, status, scenes, merge_options, task_id, merged_url, duration, completed_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      Number(params.episode_id),
+      Number(params.drama_id),
+      params.title ?? null,
+      params.provider,
+      params.model ?? null,
+      params.status,
+      typeof params.scenes === 'string' ? params.scenes : toJson(params.scenes || []),
+      typeof params.merge_options === 'string' ? params.merge_options : toJson(params.merge_options || {}),
+      task.id,
+      params.merged_url,
+      params.duration ?? null,
+      params.status === 'completed' ? params.now : null,
+      params.now
+    );
+    const mergeId = Number(info.lastInsertRowid);
+    const episodeUpdated = videoMergeService.updateCurrentMergeEpisodeOutput(
+      db,
+      mergeId,
+      params.episode_id,
+      params.merged_url,
+      params.status,
+      params.now
+    );
+    if (episodeUpdated.changes !== 1) throw new Error('Compositor merge did not acquire episode ownership');
+    updateCompositorTaskResult(db, task.id, {
+      merge_id: mergeId,
+      video_url: params.merged_url,
+      duration: params.duration ?? null,
+      mode: params.mode,
+      status: params.status,
+    });
+    return db.prepare('SELECT * FROM video_merges WHERE id = ?').get(mergeId);
+  });
+  return persist();
+}
+
+function stageCurrentCompositorMerge(db, merge, status, now, mode) {
+  const stage = db.transaction(() => {
+    db.prepare('UPDATE video_merges SET status = ?, completed_at = ? WHERE id = ?')
+      .run(status, status === 'completed' ? now : null, merge.id);
+    const episodeUpdated = videoMergeService.updateCurrentMergeEpisodeOutput(
+      db,
+      merge.id,
+      merge.episode_id,
+      merge.merged_url,
+      status,
+      now
+    );
+    if (episodeUpdated.changes !== 1) throw new Error('Compositor merge no longer owns the episode');
+    updateCompositorTaskResult(db, merge.task_id, {
+      merge_id: Number(merge.id),
+      video_url: merge.merged_url,
+      duration: merge.duration ?? null,
+      mode,
+      status,
+    });
+    return db.prepare('SELECT * FROM video_merges WHERE id = ?').get(merge.id);
+  });
+  return stage();
+}
+
 function compositeEpisodesMock(db, log, params) {
+  const compose = db.transaction(() => {
   const episodes = db.prepare(
     `SELECT id, episode_number, title
        FROM episodes
@@ -251,10 +347,27 @@ function compositeEpisodesMock(db, log, params) {
         ORDER BY id DESC LIMIT 1`
     ).get(episode.id);
     if (existing) {
-      db.prepare('UPDATE video_merges SET status = ?, completed_at = ? WHERE id = ?')
-        .run(completionStatus, completionStatus === 'completed' ? now : null, existing.id);
-      db.prepare('UPDATE episodes SET video_url = ?, status = ?, updated_at = ? WHERE id = ?')
-        .run(existing.merged_url, completionStatus, now, episode.id);
+      const historical = latestMergeId(db, episode.id) !== Number(existing.id);
+      const ownedMerge = historical
+        ? persistOwnedCompositorMerge(db, log, {
+          episode_id: episode.id,
+          drama_id: params.drama_id,
+          title: existing.title || episode.title || `Episode ${episode.episode_number}`,
+          provider: existing.provider || 'mock-compositor',
+          model: existing.model || 'mock-compositor-v1',
+          status: completionStatus,
+          scenes: existing.scenes,
+          merge_options: {
+            ...parseJsonObject(existing.merge_options),
+            reused_from_merge_id: Number(existing.id),
+            defer_qa_completion: !!params.defer_qa_completion,
+          },
+          merged_url: existing.merged_url,
+          duration: existing.duration,
+          mode: 'mock',
+          now,
+        })
+        : stageCurrentCompositorMerge(db, existing, completionStatus, now, 'mock');
       recordProviderInvocation(db, {
         workflow_step_id: params.workflow_step_id,
         run_id: params.run_id,
@@ -262,9 +375,10 @@ function compositeEpisodesMock(db, log, params) {
         provider_name: 'mock-compositor',
         model: 'mock-compositor-v1',
         mode: 'mock',
+        refresh_existing_output: true,
         idempotency_key: providerCallKey(params, 'compositor', 'episode', episode.id),
         input: { call_key: params.call_key || null, episode_id: episode.id, reused: true },
-        output: { merge_id: existing.id, merged_url: existing.merged_url, duration: existing.duration },
+        output: { merge_id: ownedMerge.id, merged_url: ownedMerge.merged_url, duration: ownedMerge.duration },
       });
       reused += 1;
       continue;
@@ -282,26 +396,21 @@ function compositeEpisodesMock(db, log, params) {
     }));
     const duration = scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0);
     const mergedUrl = `mock://dramas/${params.drama_id}/episodes/${episode.id}/merged.mp4`;
-    const insertedMerge = db.prepare(
-      `INSERT INTO video_merges
-       (episode_id, drama_id, title, provider, model, status, scenes, merge_options, task_id, merged_url, duration, completed_at, created_at)
-       VALUES (?, ?, ?, 'mock-compositor', 'mock-compositor-v1', ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      episode.id,
-      params.drama_id,
-      episode.title || `Episode ${episode.episode_number}`,
-      completionStatus,
-      toJson(scenes),
-      toJson({ workflow: 'novel2anime', mode: 'mock', defer_qa_completion: !!params.defer_qa_completion }),
-      `mock-merge-${episode.id}`,
-      mergedUrl,
-      Math.round(duration) || null,
-      completionStatus === 'completed' ? now : null,
-      now
-    );
-    const mergeId = Number(insertedMerge.lastInsertRowid);
-    db.prepare('UPDATE episodes SET video_url = ?, status = ?, updated_at = ? WHERE id = ?')
-      .run(mergedUrl, completionStatus, now, episode.id);
+    const ownedMerge = persistOwnedCompositorMerge(db, log, {
+      episode_id: episode.id,
+      drama_id: params.drama_id,
+      title: episode.title || `Episode ${episode.episode_number}`,
+      provider: 'mock-compositor',
+      model: 'mock-compositor-v1',
+      status: completionStatus,
+      scenes,
+      merge_options: { workflow: 'novel2anime', mode: 'mock', defer_qa_completion: !!params.defer_qa_completion },
+      merged_url: mergedUrl,
+      duration: Math.round(duration) || null,
+      mode: 'mock',
+      now,
+    });
+    const mergeId = Number(ownedMerge.id);
     recordProviderInvocation(db, {
       workflow_step_id: params.workflow_step_id,
       run_id: params.run_id,
@@ -309,6 +418,7 @@ function compositeEpisodesMock(db, log, params) {
       provider_name: 'mock-compositor',
       model: 'mock-compositor-v1',
       mode: 'mock',
+      refresh_existing_output: true,
       idempotency_key: providerCallKey(params, 'compositor', 'episode', episode.id),
       input: { call_key: params.call_key || null, episode_id: episode.id, scenes },
       output: { merge_id: mergeId, merged_url: mergedUrl, duration },
@@ -318,6 +428,8 @@ function compositeEpisodesMock(db, log, params) {
 
   log?.info?.('Mock episode composites prepared', { drama_id: params.drama_id, created, reused });
   return { episode_count: episodes.length, composite_created: created, composite_reused: reused };
+  });
+  return compose();
 }
 
 function isProductionMode(params) {
@@ -966,14 +1078,65 @@ async function compositeEpisodesProduction(db, log, params) {
       parseJsonObject(row.merge_options).timeline_plan_hash === compositePlan.timeline_plan_hash
     ));
     const wasReused = Boolean(merge);
+    const recordCompositeEvidence = (currentMerge) => recordProviderInvocation(db, {
+      workflow_step_id: params.workflow_step_id,
+      run_id: params.run_id,
+      provider_type: 'compositor',
+      provider_name: currentMerge.provider || 'ffmpeg',
+      model: currentMerge.model || path.basename(getFfmpegPath()),
+      mode: 'production',
+      refresh_existing_output: true,
+      billable: !wasReused,
+      pricing: params.compositor_pricing,
+      usage: {
+        duration_seconds: wasReused
+          ? 0
+          : scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0),
+      },
+      idempotency_key: providerCallKey(params, 'compositor', 'episode', episode.id),
+      input: {
+        call_key: params.call_key || null,
+        episode_id: episode.id,
+        scene_count: scenes.length,
+        timeline_plan_hash: compositePlan.timeline_plan_hash,
+      },
+      output: {
+        merge_id: currentMerge.id,
+        merged_url: currentMerge.merged_url,
+        timeline_plan_hash: compositePlan.timeline_plan_hash,
+        timeline_plan: compositePlan.timeline_plan,
+        filter_plan: compositePlan.filter_plan,
+      },
+    });
     try {
       if (merge) {
-        if (params.defer_qa_completion) {
-          db.prepare("UPDATE video_merges SET status = 'qa_pending', completed_at = NULL WHERE id = ?").run(merge.id);
-          db.prepare("UPDATE episodes SET status = 'qa_pending', video_url = ?, updated_at = ? WHERE id = ?")
-            .run(merge.merged_url, nowIso(), episode.id);
-          merge = db.prepare('SELECT * FROM video_merges WHERE id = ?').get(merge.id);
-        }
+        const reuse = db.transaction(() => {
+          const completionStatus = params.defer_qa_completion ? 'qa_pending' : 'completed';
+          const now = nowIso();
+          const ownedMerge = latestMergeId(db, episode.id) !== Number(merge.id)
+            ? persistOwnedCompositorMerge(db, log, {
+              episode_id: episode.id,
+              drama_id: params.drama_id,
+              title: merge.title || episode.title || `Episode ${episode.episode_number}`,
+              provider: merge.provider || 'ffmpeg',
+              model: merge.model || path.basename(getFfmpegPath()),
+              status: completionStatus,
+              scenes: merge.scenes,
+              merge_options: {
+                ...parseJsonObject(merge.merge_options),
+                reused_from_merge_id: Number(merge.id),
+                defer_qa_completion: !!params.defer_qa_completion,
+              },
+              merged_url: merge.merged_url,
+              duration: merge.duration,
+              mode: 'strict_production',
+              now,
+            })
+            : stageCurrentCompositorMerge(db, merge, completionStatus, now, 'strict_production');
+          recordCompositeEvidence(ownedMerge);
+          return ownedMerge;
+        });
+        merge = reuse();
         reused += 1;
       } else {
         if (!scenes.length || scenes.some((scene) => !localMediaExists(scene.video_url))) {
@@ -1007,37 +1170,9 @@ async function compositeEpisodesProduction(db, log, params) {
         if (!merge || merge.status !== expectedStatus || !localMediaExists(merge.merged_url)) {
           throw new Error(merge?.error_msg || 'Strict video merge did not complete');
         }
+        recordCompositeEvidence(merge);
         created += 1;
       }
-      recordProviderInvocation(db, {
-        workflow_step_id: params.workflow_step_id,
-        run_id: params.run_id,
-        provider_type: 'compositor',
-        provider_name: merge.provider || 'ffmpeg',
-        model: merge.model || path.basename(getFfmpegPath()),
-        mode: 'production',
-        billable: !wasReused,
-        pricing: params.compositor_pricing,
-        usage: {
-          duration_seconds: wasReused
-            ? 0
-            : scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0),
-        },
-        idempotency_key: providerCallKey(params, 'compositor', 'episode', episode.id),
-        input: {
-          call_key: params.call_key || null,
-          episode_id: episode.id,
-          scene_count: scenes.length,
-          timeline_plan_hash: compositePlan.timeline_plan_hash,
-        },
-        output: {
-          merge_id: merge.id,
-          merged_url: merge.merged_url,
-          timeline_plan_hash: compositePlan.timeline_plan_hash,
-          timeline_plan: compositePlan.timeline_plan,
-          filter_plan: compositePlan.filter_plan,
-        },
-      });
     } catch (error) {
       recordFailedInvocation(db, params, 'compositor', 'ffmpeg', path.basename(getFfmpegPath()));
       log?.error?.('Production episode composite failed', {

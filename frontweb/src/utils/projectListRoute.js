@@ -62,6 +62,7 @@ export function normalizeProjectListReturnTo(value) {
       sort: parsed.searchParams.get('sort'),
     })
     const query = mergeProjectListFilters({}, filters)
+    if (parsed.searchParams.get('intent') === 'source-import') query.intent = 'source-import'
     const search = new URLSearchParams(query).toString()
     return `/${search ? `?${search}` : ''}`
   } catch (_) {

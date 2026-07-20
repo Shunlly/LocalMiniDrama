@@ -57,6 +57,12 @@
     </header>
 
     <main class="main">
+      <section v-if="sourceImportIntent" class="source-import-intent" role="status" aria-live="polite">
+        <span>选择已有项目后导入网页 URL，或新建项目后继续。</span>
+        <el-button type="primary" size="small" :disabled="listWriteLocked" @click="openSourceImportProject">
+          <el-icon><Plus /></el-icon>新建项目
+        </el-button>
+      </section>
       <div v-loading="loading" class="projects-wrap" :aria-busy="loading">
         <section
           v-if="listError"
@@ -232,7 +238,7 @@
           >
             <RouterLink
               class="project-card-link"
-              :to="{ name: 'film', params: { id: d.id }, query: { returnTo: projectListReturnTo } }"
+            :to="projectCardDestination(d, sourceImportIntent, route.fullPath)"
               :aria-label="`打开项目「${d.title || '未命名项目'}」`"
             >
               <div class="project-card-body">
@@ -276,7 +282,7 @@
                     </div>
                     <div class="project-card-footer">
                       <p class="project-meta">创建于 {{ formatDate(d.created_at) || '未知时间' }}</p>
-                      <span class="project-card-continue">继续制作 <el-icon aria-hidden="true"><ArrowRight /></el-icon></span>
+                      <span class="project-card-continue">{{ sourceImportIntent ? '导入网页 URL' : '继续制作' }} <el-icon aria-hidden="true"><ArrowRight /></el-icon></span>
                     </div>
                   </div>
                 </div>
@@ -691,6 +697,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files, Collection, ArrowDown, MoreFilled, RefreshLeft, Search, ArrowRight } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
+import { projectCardDestination } from '@/utils/sourceImportNavigation.js'
 import { dramaAPI } from '@/api/drama'
 import { characterLibraryAPI } from '@/api/characterLibrary'
 import { sceneLibraryAPI } from '@/api/sceneLibrary'
@@ -794,6 +801,7 @@ const projectSort = ref(initialProjectListFilters.sort)
 const projectStatusFilter = ref(initialProjectListFilters.status)
 const projectCoverErrors = ref(new Set())
 const projectListReturnTo = computed(() => normalizeProjectListReturnTo(route.fullPath) || '/')
+const sourceImportIntent = computed(() => route.query.intent === 'source-import')
 const normalizedProjectSearch = computed(() => projectSearch.value.trim().toLowerCase())
 const hasProjectFilters = computed(() => Boolean(normalizedProjectSearch.value) || projectStatusFilter.value !== 'all')
 const filteredDramas = computed(() => {
@@ -1453,6 +1461,11 @@ async function onExport(d) {
   }
 }
 
+function openSourceImportProject() {
+  if (listWriteLocked.value) return
+  showNewDialog.value = true
+}
+
 function clearImportFailure() {
   importFailure.value = null
 }
@@ -1590,6 +1603,18 @@ onBeforeUnmount(() => {
   min-height: 100vh;
   background: #08080d;
   color: #e4e4e7;
+}
+.source-import-intent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  margin: 16px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--el-border-color-light);
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-regular);
 }
 .header {
   background: rgba(12, 12, 18, 0.82);

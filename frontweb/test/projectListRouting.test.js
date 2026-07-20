@@ -75,6 +75,11 @@ test('project list returnTo keeps only safe first-party filter context', async (
     '/?q=https%3A%2F%2Fevil.test%2Fstory',
   )
   assert.equal(normalizeProjectListReturnTo('/?status=all&sort=updated-desc'), '/')
+  assert.equal(normalizeProjectListReturnTo('/?intent=source-import'), '/?intent=source-import')
+  assert.equal(
+    normalizeProjectListReturnTo('/?q=moon&intent=source-import'),
+    '/?q=moon&intent=source-import',
+  )
 
   for (const value of [
     '',
@@ -114,7 +119,8 @@ test('project list and project workspaces wire safe return navigation through th
   assert.match(filmListSource, /watch\(\s*\(\) => route\.query/)
   assert.match(filmListSource, /router\.replace\(\{ path: route\.path, query: nextQuery, hash: route\.hash \}\)/)
   assert.match(filmListSource, /const projectListReturnTo = computed\(\(\) => normalizeProjectListReturnTo\(route\.fullPath\) \|\| '\/'\)/)
-  assert.match(filmListSource, /name: 'film', params: \{ id: d\.id \}, query: \{ returnTo: projectListReturnTo \}/)
+  assert.match(filmListSource, /projectCardDestination\(d, sourceImportIntent, route\.fullPath\)/)
+  assert.match(filmListSource, /选择已有项目后导入网页 URL/)
   assert.match(filmListSource, /path: `\/drama\/\$\{drama\.id\}`,[\s\S]{0,100}returnTo: projectListReturnTo\.value/)
 
   for (const source of [filmCreateSource, dramaDetailSource]) {
@@ -131,7 +137,12 @@ test('project list and project workspaces wire safe return navigation through th
 
 test('entering canvas mode keeps the project-list return context', () => {
   assert.match(filmCreateSourceForCanvas, /function goCanvasMode\(\)[\s\S]*projectListReturnTo\.value[\s\S]*\/film\/\$\{dramaId\.value\}\/canvas/)
-  assert.match(dramaDetailSourceForCanvas, /resolveProjectEpisodeId\(episodes\.value, route\.query\.episode\)/)
-  assert.match(dramaDetailSourceForCanvas, /function goCanvasMode\(\)[\s\S]*episode: String\(canvasEpisodeId\.value\)[\s\S]*router\.push\(\{ path: `\/film\/\$\{dramaId\}\/canvas`/)
+  assert.match(dramaDetailSourceForCanvas, /const currentEpisodeId = computed\(\(\) => resolveProjectEpisodeId\(episodes\.value, route\.query\.episode\)\)/)
+  assert.equal((dramaDetailSourceForCanvas.match(/resolveProjectEpisodeId\(episodes\.value, route\.query\.episode\)/g) || []).length, 1)
+  assert.match(dramaDetailSourceForCanvas, /function goCanvasMode\(\)[\s\S]*episode: String\(currentEpisodeId\.value\)[\s\S]*router\.push\(\{ path: `\/film\/\$\{dramaId\}\/canvas`/)
   assert.match(dramaCanvasSourceForReturn, /function goListMode\(\)[\s\S]*projectListReturnTo|normalizeProjectListReturnTo\(route\.query\.returnTo\)/)
+})
+
+test('entering production resolves an episode, keeps return context, and focuses the list when absent', () => {
+  assert.match(dramaDetailSourceForCanvas, /function goCreate\(\) \{[\s\S]*?if \(!currentEpisodeId\.value\) \{[\s\S]*?scrollToSection\('episode-list'\)[\s\S]*?return[\s\S]*?episode: String\(currentEpisodeId\.value\)[\s\S]*?withProjectListReturnTo\(query\)/)
 })

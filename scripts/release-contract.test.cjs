@@ -9,6 +9,7 @@ const path = require('node:path')
 const test = require('node:test')
 const {
   artifactInventory,
+  currentCommit,
   expectedChecksumText,
   expectedReleaseArtifactNames,
   isReleaseArtifact,
@@ -32,6 +33,10 @@ const {
   assertMacReleaseFailsClosed,
   assertReleaseBuilderNeverPublishes,
   npmInvocation,
+  validateSbomDocument,
+  verifyRemoteReleaseTag,
+  writeReleaseSboms,
+  writeSbomOutput,
 } = require('./verify-release.cjs')
 const { sanitizeRuntimeConfig, sanitizeRuntimeConfigFile } = require('./runtime-config-policy.cjs')
 const { getTrustedMediaToolRelease } = require('../desktop/scripts/media-tool-policy')
@@ -40,6 +45,7 @@ const { FUSE_POLICY } = require('../desktop/scripts/electron-fuses')
 const root = path.resolve(__dirname, '..')
 const backendRequire = createRequire(path.join(root, 'backend-node', 'package.json'))
 const { parse: parseToml } = backendRequire('smol-toml')
+const { load: parseYaml } = backendRequire('js-yaml')
 const gitAttributes = fs.readFileSync(path.join(root, '.gitattributes'), 'utf8')
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8')
 const checkpointScript = fs.readFileSync(path.join(root, 'scripts', 'create-release-rollback-checkpoint.ps1'), 'utf8')
@@ -74,6 +80,15 @@ const rootPackage = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 
 const backendPackage = JSON.parse(fs.readFileSync(path.join(root, 'backend-node', 'package.json'), 'utf8'))
 const frontendPackage = JSON.parse(fs.readFileSync(path.join(root, 'frontweb', 'package.json'), 'utf8'))
 const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'))
+const releaseWorkflowDocument = parseYaml(workflow)
+const gitHeadResult = spawnSync('git', ['rev-parse', 'HEAD'], {
+  cwd: root,
+  encoding: 'utf8',
+  windowsHide: true,
+})
+assert.equal(gitHeadResult.status, 0, gitHeadResult.stderr || 'unable to read fixture Git HEAD')
+const gitHead = String(gitHeadResult.stdout || '').trim().toLowerCase()
+assert.match(gitHead, /^[a-f0-9]{40,64}$/)
 
 function jobBlock(name, source = workflow) {
   const marker = `  ${name}:`
@@ -112,7 +127,7 @@ function trustedMediaMetadata() {
   }
 }
 
-function passedArtifactSecurity(version, output) {
+function passedArtifactSecurity(version, output, commit = gitHead) {
   const sourceArtifacts = [
     `LocalMiniDrama-Portable-${version}-x64.exe`,
     `LocalMiniDrama-Setup-${version}-x64.exe`,
@@ -121,7 +136,7 @@ function passedArtifactSecurity(version, output) {
   return {
     schema: 'localminidrama.artifact-security.v1',
     version,
-    commit: 'a'.repeat(40),
+    commit,
     generated_at: '2026-07-17T00:00:00.000Z',
     source_artifacts: sourceArtifacts,
     source_artifact_sha256: Object.fromEntries(
@@ -176,7 +191,16 @@ function passedArtifactSecurity(version, output) {
   }
 }
 
-function createReleaseFixture(t) {
+function releaseSbomPackages(version) {
+  return new Map([
+    ['sbom-backend.cdx.json', 'backend-node'],
+    ['sbom-frontend.cdx.json', 'frontweb'],
+    ['sbom-desktop.cdx.json', 'desktop'],
+    [`LocalMiniDrama-${version}.cdx.json`, 'desktop'],
+  ])
+}
+
+function createReleaseFixture(t, { commit = gitHead } = {}) {
   const output = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-release-contract-'))
   t.after(() => fs.rmSync(output, { recursive: true, force: true }))
   const version = desktopPackage.version
@@ -188,14 +212,16 @@ function createReleaseFixture(t) {
     } else if (name === 'artifact-security.json') {
       continue
     } else if (name.endsWith('.cdx.json')) {
-      fs.writeFileSync(filePath, `${JSON.stringify({ bomFormat: 'CycloneDX', components: [] })}\n`)
+      const packageDirectory = releaseSbomPackages(version).get(name)
+      assert.ok(packageDirectory, `release fixture has no package mapping for ${name}`)
+      fs.writeFileSync(filePath, `${JSON.stringify(completeDirectDependencySbom(packageDirectory), null, 2)}\n`)
     } else {
       fs.writeFileSync(filePath, `fixture:${name}\n`)
     }
   }
   fs.writeFileSync(
     path.join(output, 'artifact-security.json'),
-    `${JSON.stringify(passedArtifactSecurity(version, output), null, 2)}\n`,
+    `${JSON.stringify(passedArtifactSecurity(version, output, commit), null, 2)}\n`,
   )
 
   const artifacts = artifactInventory(output, names)
@@ -203,7 +229,7 @@ function createReleaseFixture(t) {
     schema: 'localminidrama.release-manifest.v1',
     version,
     tag: `v${version}`,
-    commit: 'a'.repeat(40),
+    commit,
     source_dirty: false,
     generated_at: '2026-07-17T00:00:00.000Z',
     artifacts,
@@ -211,6 +237,96 @@ function createReleaseFixture(t) {
   fs.writeFileSync(path.join(output, 'release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
   fs.writeFileSync(path.join(output, 'SHA256SUMS'), expectedChecksumText(output, artifacts))
   return { artifacts, output, version }
+}
+
+function createSbomFixture(t) {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-sbom-contract-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const packageDirectory = path.join(fixtureRoot, 'package')
+  const outputDirectory = path.join(fixtureRoot, 'release')
+  fs.mkdirSync(packageDirectory, { recursive: true })
+
+  const packageJson = {
+    name: 'fixture-app',
+    version: '1.0.0',
+    dependencies: { alpha: '^1.0.0' },
+    devDependencies: { beta: '^2.0.0' },
+  }
+  const packageLock = {
+    name: packageJson.name,
+    version: packageJson.version,
+    lockfileVersion: 3,
+    packages: {
+      '': {
+        name: packageJson.name,
+        version: packageJson.version,
+        dependencies: { ...packageJson.dependencies },
+        devDependencies: { ...packageJson.devDependencies },
+      },
+      'node_modules/alpha': { version: '1.4.0' },
+      'node_modules/beta': { version: '2.1.0', dev: true },
+    },
+  }
+  fs.writeFileSync(path.join(packageDirectory, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`)
+  fs.writeFileSync(path.join(packageDirectory, 'package-lock.json'), `${JSON.stringify(packageLock, null, 2)}\n`)
+
+  const rootRef = 'fixture-app@1.0.0'
+  const sbom = {
+    bomFormat: 'CycloneDX',
+    specVersion: '1.5',
+    metadata: {
+      component: {
+        'bom-ref': rootRef,
+        type: 'application',
+        name: packageJson.name,
+        version: packageJson.version,
+      },
+    },
+    components: [
+      { 'bom-ref': 'alpha@1.4.0', type: 'library', name: 'alpha', version: '1.4.0' },
+      { 'bom-ref': 'beta@2.1.0', type: 'library', name: 'beta', version: '2.1.0' },
+    ],
+    dependencies: [
+      { ref: rootRef, dependsOn: ['alpha@1.4.0', 'beta@2.1.0'] },
+      { ref: 'alpha@1.4.0', dependsOn: [] },
+      { ref: 'beta@2.1.0', dependsOn: [] },
+    ],
+  }
+  return { outputDirectory, packageDirectory, packageLock, sbom }
+}
+
+function completeDirectDependencySbom(packageDirectory) {
+  const packageRoot = path.join(root, packageDirectory)
+  const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'))
+  const packageLock = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package-lock.json'), 'utf8'))
+  const directNames = [...new Set([
+    ...Object.keys(packageJson.dependencies || {}),
+    ...Object.keys(packageJson.devDependencies || {}),
+    ...Object.keys(packageJson.optionalDependencies || {}),
+    ...Object.keys(packageJson.peerDependencies || {}),
+  ])].sort((a, b) => a.localeCompare(b, 'en'))
+  const rootRef = `${packageJson.name}@${packageJson.version}`
+  const components = directNames.map((name) => {
+    const version = packageLock.packages[`node_modules/${name}`].version
+    return { 'bom-ref': `${name}@${version}`, type: 'library', name, version }
+  })
+  return {
+    bomFormat: 'CycloneDX',
+    specVersion: '1.5',
+    metadata: {
+      component: {
+        'bom-ref': rootRef,
+        type: 'application',
+        name: packageJson.name,
+        version: packageJson.version,
+      },
+    },
+    components,
+    dependencies: [
+      { ref: rootRef, dependsOn: components.map((component) => component['bom-ref']) },
+      ...components.map((component) => ({ ref: component['bom-ref'], dependsOn: [] })),
+    ],
+  }
 }
 
 test('all desktop release builders explicitly disable electron-builder publishing', () => {
@@ -280,6 +396,94 @@ test('production containers and tag releases bind, harden, and scan final images
   assert.match(ciProduction, /LOCALMINIDRAMA_BUILD_REVISION: \$\{\{ github\.sha \}\}/)
   assert.match(ciProduction, /docker-image-ids\.txt/)
   assert.match(ciProduction, /trivy-backend\.json[\s\S]*trivy-frontend\.json/)
+})
+
+test('tag releases require a successful pre-tag push CI run for the exact main commit', () => {
+  const gate = jobBlock('release-source-gate')
+  const production = jobBlock('production-e2e')
+  const rollback = jobBlock('rollback-drill')
+
+  assert.match(workflow, /^permissions:\s*\{\}\s*$/m)
+  assert.match(gate, /permissions:\r?\n      actions: read/)
+  assert.doesNotMatch(gate, /contents:|actions: write/)
+  assert.match(gate, /actions\/github-script@[a-f0-9]{40}/)
+  assert.match(gate, /workflow_id:\s*['"]ci\.yml['"]/)
+  assert.match(gate, /branch:\s*['"]main['"]/)
+  assert.match(gate, /event:\s*['"]push['"]/)
+  assert.match(gate, /status:\s*['"]success['"]/)
+  assert.match(gate, /head_sha:\s*context\.sha/)
+  assert.match(gate, /runs\.push\(\.\.\.response\.data\)/)
+  assert.doesNotMatch(gate, /response\.data\.workflow_runs/)
+  assert.match(gate, /run\.event === ['"]push['"]/)
+  assert.match(gate, /run\.head_branch === ['"]main['"]/)
+  assert.match(gate, /run\.head_sha === context\.sha/)
+  assert.match(gate, /run\.conclusion === ['"]success['"]/)
+  assert.match(gate, /Date\.parse\(run\.updated_at\) < releaseCreatedAt/)
+  assert.match(production, /needs: release-source-gate/)
+  assert.match(rollback, /needs: release-source-gate/)
+})
+
+test('pre-tag CI gate executes against normalized Octokit pages and rejects inexact runs', async () => {
+  const script = releaseWorkflowDocument.jobs['release-source-gate'].steps[0].with.script
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
+  const execute = new AsyncFunction('github', 'context', script)
+  const sha = '1'.repeat(40)
+  const releaseCreatedAt = '2026-07-20T10:00:01.000Z'
+  const validRun = {
+    event: 'push',
+    head_branch: 'main',
+    head_sha: sha,
+    status: 'completed',
+    conclusion: 'success',
+    updated_at: '2026-07-20T10:00:00.000Z',
+  }
+
+  async function invoke(runs) {
+    const queries = []
+    const github = {
+      rest: {
+        actions: {
+          getWorkflowRun: async () => ({ data: { created_at: releaseCreatedAt } }),
+          listWorkflowRuns: () => {},
+        },
+      },
+      paginate: {
+        iterator: async function* (method, query) {
+          assert.equal(method, github.rest.actions.listWorkflowRuns)
+          queries.push(query)
+          yield { data: runs }
+        },
+      },
+    }
+    await execute(github, {
+      repo: { owner: 'fixture-owner', repo: 'fixture-repo' },
+      runId: 123,
+      sha,
+    })
+    return queries
+  }
+
+  const [query] = await invoke([validRun])
+  assert.deepEqual(query, {
+    owner: 'fixture-owner',
+    repo: 'fixture-repo',
+    workflow_id: 'ci.yml',
+    branch: 'main',
+    event: 'push',
+    status: 'success',
+    head_sha: sha,
+    per_page: 100,
+  })
+
+  for (const invalidRun of [
+    { ...validRun, event: 'pull_request' },
+    { ...validRun, head_branch: 'feature' },
+    { ...validRun, head_sha: '2'.repeat(40) },
+    { ...validRun, conclusion: 'failure' },
+    { ...validRun, updated_at: releaseCreatedAt },
+  ]) {
+    await assert.rejects(() => invoke([invalidRun]), /no successful pre-tag main push run/)
+  }
 })
 
 test('release metadata contract loads without desktop packaging dependencies', () => {
@@ -612,7 +816,7 @@ test('CI and release reuse one complete Windows artifact security workflow', () 
 })
 
 test('release workflow separates read-only build, artifact verification and publishing', () => {
-  assert.match(workflow, /^permissions:\r?\n  contents: read$/m)
+  assert.match(workflow, /^permissions:\s*\{\}\s*$/m)
   const rollback = jobBlock('rollback-drill')
   const build = jobBlock('build-windows')
   const releaseSecurity = jobBlock('windows-release-security')
@@ -720,6 +924,66 @@ test('release workflow separates read-only build, artifact verification and publ
     assert.match(block, /desktop\/release\/LocalMiniDrama-Unpacked-\*-x64\.zip/)
   }
   assert.doesNotMatch(publish, /electron-builder|npm run dist/)
+})
+
+test('remote release tag verification supports lightweight and annotated tags and fails closed', () => {
+  const commit = '1'.repeat(40)
+  const tagObject = '2'.repeat(40)
+  const movedCommit = '3'.repeat(40)
+  const environment = {
+    GITHUB_REF: 'refs/tags/v1.3.3',
+    GITHUB_REF_NAME: 'v1.3.3',
+    GITHUB_REF_TYPE: 'tag',
+    GITHUB_SHA: commit,
+  }
+  const response = (stdout, status = 0) => ({ status, stdout, stderr: '', error: null })
+  const annotated = verifyRemoteReleaseTag(environment, {
+    spawnSync: (command, args) => {
+      assert.equal(command, 'git')
+      assert.deepEqual(args, [
+        'ls-remote',
+        '--exit-code',
+        'origin',
+        'refs/tags/v1.3.3',
+        'refs/tags/v1.3.3^{}',
+      ])
+      return response([
+        `${tagObject}\trefs/tags/v1.3.3`,
+        `${commit}\trefs/tags/v1.3.3^{}`,
+        '',
+      ].join('\n'))
+    },
+  })
+  assert.equal(annotated.commit, commit)
+  assert.equal(annotated.annotated, true)
+
+  const lightweight = verifyRemoteReleaseTag(environment, {
+    spawnSync: () => response(`${commit}\trefs/tags/v1.3.3\n`),
+  })
+  assert.equal(lightweight.commit, commit)
+  assert.equal(lightweight.annotated, false)
+
+  assert.throws(
+    () => verifyRemoteReleaseTag(environment, { spawnSync: () => response('', 2) }),
+    /remote release tag is missing/,
+  )
+  assert.throws(
+    () => verifyRemoteReleaseTag(environment, {
+      spawnSync: () => response(`${movedCommit}\trefs/tags/v1.3.3\n`),
+    }),
+    /does not match GITHUB_SHA/,
+  )
+})
+
+test('publish re-resolves the remote tag immediately before creating the draft release', () => {
+  const publish = jobBlock('publish-release')
+  const checkout = publish.indexOf('actions/checkout@')
+  const remoteTagGate = publish.indexOf('node scripts/verify-release.cjs --verify-remote-tag')
+  const releaseAction = publish.indexOf('softprops/action-gh-release@')
+
+  assert.ok(checkout >= 0 && checkout < remoteTagGate && remoteTagGate < releaseAction)
+  assert.match(publish, /ref: \$\{\{ github\.sha \}\}/)
+  assert.match(publish, /node-version: ['"]20['"]/)
 })
 
 test('CI runs the isolated rollback drill before a release tag is created', () => {
@@ -909,6 +1173,50 @@ test('release tag parsing fails closed in tag context', () => {
   assert.equal(verifyReleaseVersion({ environment: {}, rootDirectory: root }).verified, true)
 })
 
+test('release metadata generation rejects GITHUB_SHA values that differ from Git HEAD', () => {
+  const differentCommit = gitHead === 'f'.repeat(40) ? 'e'.repeat(40) : 'f'.repeat(40)
+  assert.equal(currentCommit({}), gitHead)
+  assert.throws(
+    () => currentCommit({ GITHUB_SHA: differentCommit }),
+    /GITHUB_SHA does not match Git HEAD/,
+  )
+})
+
+test('offline artifact verification rejects a manifest and evidence from an older commit', (t) => {
+  const oldCommit = gitHead === 'a'.repeat(40) ? 'b'.repeat(40) : 'a'.repeat(40)
+  const fixture = createReleaseFixture(t, { commit: oldCommit })
+  assert.throws(
+    () => verify(fixture.output, { environment: {} }),
+    /release manifest commit does not match Git HEAD/,
+  )
+})
+
+for (const [sbomName, packageDirectory] of releaseSbomPackages(desktopPackage.version)) {
+  test(`offline artifact verification rejects an empty ${sbomName}`, (t) => {
+    const fixture = createReleaseFixture(t)
+    const emptySbom = completeDirectDependencySbom(packageDirectory)
+    emptySbom.components = []
+    emptySbom.dependencies = []
+    fs.writeFileSync(path.join(fixture.output, sbomName), `${JSON.stringify(emptySbom, null, 2)}\n`)
+    assert.throws(
+      () => verify(fixture.output, { environment: {} }),
+      /SBOM component inventory is empty/,
+    )
+  })
+}
+
+test('offline artifact verification rejects a numeric CycloneDX specVersion', (t) => {
+  const fixture = createReleaseFixture(t)
+  const sbomPath = path.join(fixture.output, 'sbom-backend.cdx.json')
+  const sbom = JSON.parse(fs.readFileSync(sbomPath, 'utf8'))
+  sbom.specVersion = 1.5
+  fs.writeFileSync(sbomPath, `${JSON.stringify(sbom, null, 2)}\n`)
+  assert.throws(
+    () => verify(fixture.output, { environment: {} }),
+    /CycloneDX specVersion must be a JSON string/,
+  )
+})
+
 test('release verification rejects missing or failed artifact security evidence', (t) => {
   const fixture = createReleaseFixture(t)
   const securityPath = path.join(fixture.output, 'artifact-security.json')
@@ -938,4 +1246,332 @@ test('offline artifact verification detects changed bytes and checksum rows', (t
   fs.writeFileSync(executable, `fixture:LocalMiniDrama-Portable-${fixture.version}-x64.exe\n`)
   fs.appendFileSync(path.join(fixture.output, 'SHA256SUMS'), `${'0'.repeat(64)}  unexpected.exe\n`)
   assert.throws(() => verify(fixture.output, { environment: {} }), /SHA256SUMS does not exactly match/)
+})
+
+test('SBOM validation rejects a missing CycloneDX specVersion', (t) => {
+  const fixture = createSbomFixture(t)
+  delete fixture.sbom.specVersion
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, fixture.sbom),
+    /unsupported CycloneDX specVersion/,
+  )
+})
+
+test('SBOM validation rejects an unsupported CycloneDX specVersion', (t) => {
+  const fixture = createSbomFixture(t)
+  fixture.sbom.specVersion = '9.9'
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, fixture.sbom),
+    /unsupported CycloneDX specVersion/,
+  )
+})
+
+test('SBOM validation rejects a numeric CycloneDX specVersion', (t) => {
+  const fixture = createSbomFixture(t)
+  fixture.sbom.specVersion = 1.5
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, fixture.sbom),
+    /CycloneDX specVersion must be a JSON string/,
+  )
+})
+
+for (const componentType of ['platform', 'data', 'cryptographic-asset']) {
+  test(`CycloneDX 1.4 rejects component type ${componentType}`, (t) => {
+    const fixture = createSbomFixture(t)
+    fixture.sbom.specVersion = '1.4'
+    fixture.sbom.components[0].type = componentType
+    assert.throws(
+      () => validateSbomDocument(fixture.packageDirectory, fixture.sbom),
+      new RegExp(`type ${componentType} is not supported by CycloneDX 1\\.4`),
+    )
+  })
+}
+
+test('CycloneDX 1.5 rejects component type cryptographic-asset', (t) => {
+  const fixture = createSbomFixture(t)
+  fixture.sbom.specVersion = '1.5'
+  fixture.sbom.components[0].type = 'cryptographic-asset'
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, fixture.sbom),
+    /type cryptographic-asset is not supported by CycloneDX 1\.5/,
+  )
+})
+
+test('SBOM validation rejects a component without a type', (t) => {
+  const fixture = createSbomFixture(t)
+  delete fixture.sbom.components[0].type
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, fixture.sbom),
+    /component alpha@1\.4\.0 has no supported type/,
+  )
+})
+
+test('SBOM validation rejects a root component name that differs from package.json', (t) => {
+  const fixture = createSbomFixture(t)
+  fixture.sbom.metadata.component.name = 'different-application'
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, fixture.sbom),
+    /root component name does not match package.json/,
+  )
+})
+
+test('SBOM validation rejects a non-application root component type', (t) => {
+  const fixture = createSbomFixture(t)
+  fixture.sbom.metadata.component.type = 'library'
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, fixture.sbom),
+    /root component type must be application/,
+  )
+})
+
+test('SBOM validation rejects a root component version that differs from package.json', (t) => {
+  const fixture = createSbomFixture(t)
+  fixture.sbom.metadata.component.version = '9.9.9'
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, fixture.sbom),
+    /root component version does not match package.json/,
+  )
+})
+
+test('SBOM validation rejects package-lock root name drift', (t) => {
+  const fixture = createSbomFixture(t)
+  fixture.packageLock.packages[''].name = 'different-application'
+  fs.writeFileSync(
+    path.join(fixture.packageDirectory, 'package-lock.json'),
+    `${JSON.stringify(fixture.packageLock, null, 2)}\n`,
+  )
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, fixture.sbom),
+    /package-lock root name does not match package.json/,
+  )
+})
+
+test('SBOM validation rejects package-lock root version drift', (t) => {
+  const fixture = createSbomFixture(t)
+  fixture.packageLock.packages[''].version = '9.9.9'
+  fs.writeFileSync(
+    path.join(fixture.packageDirectory, 'package-lock.json'),
+    `${JSON.stringify(fixture.packageLock, null, 2)}\n`,
+  )
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, fixture.sbom),
+    /package-lock root version does not match package.json/,
+  )
+})
+
+test('SBOM output rejects empty generator output without creating an artifact', (t) => {
+  const fixture = createSbomFixture(t)
+  const outputName = 'fixture.cdx.json'
+  assert.throws(
+    () => writeSbomOutput(fixture.packageDirectory, outputName, '  \r\n', {
+      outputDirectory: fixture.outputDirectory,
+    }),
+    /SBOM generation returned empty output/,
+  )
+  assert.equal(fs.existsSync(path.join(fixture.outputDirectory, outputName)), false)
+})
+
+test('SBOM output requires CycloneDX metadata, components, and dependencies before writing', (t) => {
+  const fixture = createSbomFixture(t)
+  const outputName = 'fixture.cdx.json'
+  const incomplete = {
+    bomFormat: 'CycloneDX',
+    specVersion: '1.5',
+    components: [],
+    dependencies: [],
+  }
+  assert.throws(
+    () => writeSbomOutput(fixture.packageDirectory, outputName, JSON.stringify(incomplete), {
+      outputDirectory: fixture.outputDirectory,
+    }),
+    /metadata root component/,
+  )
+  assert.equal(fs.existsSync(path.join(fixture.outputDirectory, outputName)), false)
+})
+
+test('SBOM output rejects package and lock root dependency drift before writing', (t) => {
+  const fixture = createSbomFixture(t)
+  const outputName = 'fixture.cdx.json'
+  delete fixture.packageLock.packages[''].devDependencies.beta
+  fs.writeFileSync(
+    path.join(fixture.packageDirectory, 'package-lock.json'),
+    `${JSON.stringify(fixture.packageLock, null, 2)}\n`,
+  )
+  assert.throws(
+    () => writeSbomOutput(fixture.packageDirectory, outputName, JSON.stringify(fixture.sbom), {
+      outputDirectory: fixture.outputDirectory,
+    }),
+    /package-lock root devDependencies do not match package.json/,
+  )
+  assert.equal(fs.existsSync(path.join(fixture.outputDirectory, outputName)), false)
+})
+
+test('SBOM output rejects an incomplete root direct dependency graph before writing', (t) => {
+  const fixture = createSbomFixture(t)
+  const outputName = 'fixture.cdx.json'
+  fixture.sbom.dependencies[0].dependsOn = ['alpha@1.4.0']
+  assert.throws(
+    () => writeSbomOutput(fixture.packageDirectory, outputName, JSON.stringify(fixture.sbom), {
+      outputDirectory: fixture.outputDirectory,
+    }),
+    /SBOM root dependency graph is missing direct dependency beta/,
+  )
+  assert.equal(fs.existsSync(path.join(fixture.outputDirectory, outputName)), false)
+})
+
+test('SBOM output writes every requested artifact only after complete validation', (t) => {
+  const fixture = createSbomFixture(t)
+  const outputNames = ['fixture-primary.cdx.json', 'fixture-alias.cdx.json']
+  const result = writeSbomOutput(
+    fixture.packageDirectory,
+    outputNames,
+    `${JSON.stringify(fixture.sbom)}\n`,
+    { outputDirectory: fixture.outputDirectory },
+  )
+
+  assert.deepEqual(result.outputNames, outputNames)
+  for (const outputName of outputNames) {
+    const outputPath = path.join(fixture.outputDirectory, outputName)
+    assert.ok(fs.statSync(outputPath).size > 0)
+    assert.deepEqual(JSON.parse(fs.readFileSync(outputPath, 'utf8')), fixture.sbom)
+  }
+})
+
+test('release SBOM generation validates every package before publishing any artifact', (t) => {
+  const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-release-sboms-'))
+  t.after(() => fs.rmSync(outputDirectory, { recursive: true, force: true }))
+  fs.rmSync(outputDirectory, { recursive: true, force: true })
+  const documents = Object.fromEntries(
+    ['backend-node', 'frontweb', 'desktop'].map((packageDirectory) => [
+      packageDirectory,
+      completeDirectDependencySbom(packageDirectory),
+    ]),
+  )
+  documents.desktop.dependencies[0].dependsOn.pop()
+
+  assert.throws(
+    () => writeReleaseSboms({
+      outputDirectory,
+      spawnSync: (command, args) => {
+        const packageDirectory = args[args.indexOf('--prefix') + 1]
+        return {
+          status: 0,
+          stdout: JSON.stringify(documents[packageDirectory]),
+          stderr: '',
+          error: null,
+        }
+      },
+    }),
+    /SBOM root dependency graph is missing direct dependency/,
+  )
+  assert.equal(fs.existsSync(outputDirectory), false)
+})
+
+test('release SBOM generation rejects a numeric specVersion before publishing artifacts', (t) => {
+  const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-numeric-spec-sboms-'))
+  t.after(() => fs.rmSync(outputDirectory, { recursive: true, force: true }))
+  fs.rmSync(outputDirectory, { recursive: true, force: true })
+  const documents = Object.fromEntries(
+    ['backend-node', 'frontweb', 'desktop'].map((packageDirectory) => [
+      packageDirectory,
+      completeDirectDependencySbom(packageDirectory),
+    ]),
+  )
+  documents['backend-node'].specVersion = 1.5
+
+  assert.throws(
+    () => writeReleaseSboms({
+      outputDirectory,
+      spawnSync: (command, args) => {
+        const packageDirectory = args[args.indexOf('--prefix') + 1]
+        return {
+          status: 0,
+          stdout: JSON.stringify(documents[packageDirectory]),
+          stderr: '',
+          error: null,
+        }
+      },
+    }),
+    /CycloneDX specVersion must be a JSON string/,
+  )
+  assert.equal(fs.existsSync(outputDirectory), false)
+})
+
+test('release SBOM generation normalizes npm-shaped roots before strict validation', (t) => {
+  const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-npm-root-sboms-'))
+  t.after(() => fs.rmSync(outputDirectory, { recursive: true, force: true }))
+  const documents = Object.fromEntries(
+    ['backend-node', 'frontweb', 'desktop'].map((packageDirectory) => {
+      const document = completeDirectDependencySbom(packageDirectory)
+      document.metadata.component.name = path.basename(packageDirectory)
+      document.metadata.component.type = 'library'
+      return [packageDirectory, document]
+    }),
+  )
+
+  writeReleaseSboms({
+    outputDirectory,
+    spawnSync: (command, args) => {
+      const packageDirectory = args[args.indexOf('--prefix') + 1]
+      return {
+        status: 0,
+        stdout: JSON.stringify(documents[packageDirectory]),
+        stderr: '',
+        error: null,
+      }
+    },
+  })
+
+  for (const [sbomName, packageDirectory] of releaseSbomPackages(desktopPackage.version)) {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(root, packageDirectory, 'package.json'), 'utf8'))
+    const sbom = JSON.parse(fs.readFileSync(path.join(outputDirectory, sbomName), 'utf8'))
+    assert.equal(sbom.metadata.component.name, packageJson.name)
+    assert.equal(sbom.metadata.component.type, 'application')
+    validateSbomDocument(packageDirectory, sbom)
+  }
+})
+
+test('SBOM output canonicalizes duplicate npm refs without losing install paths', (t) => {
+  const fixture = createSbomFixture(t)
+  fixture.sbom.components[0].properties = [{
+    name: 'cdx:npm:package:path',
+    value: 'node_modules/first/node_modules/alpha',
+  }]
+  fixture.sbom.components[0].scope = 'required'
+  fixture.sbom.components[0].externalReferences = [{
+    type: 'distribution',
+    url: 'https://registry.npmjs.org/alpha/-/alpha-1.4.0.tgz',
+  }]
+  fixture.sbom.components.push({
+    ...fixture.sbom.components[0],
+    scope: 'optional',
+    properties: [{
+      name: 'cdx:npm:package:path',
+      value: 'node_modules/second/node_modules/alpha',
+    }],
+    externalReferences: [{
+      type: 'distribution',
+      url: 'https://registry.example.invalid/alpha/-/alpha-1.4.0.tgz',
+    }],
+  })
+  fixture.sbom.dependencies.push({ ref: 'alpha@1.4.0', dependsOn: [] })
+  const outputName = 'fixture.cdx.json'
+
+  writeSbomOutput(fixture.packageDirectory, outputName, JSON.stringify(fixture.sbom), {
+    outputDirectory: fixture.outputDirectory,
+  })
+  const written = JSON.parse(fs.readFileSync(path.join(fixture.outputDirectory, outputName), 'utf8'))
+  const alphaComponents = written.components.filter((component) => component['bom-ref'] === 'alpha@1.4.0')
+  const alphaDependencies = written.dependencies.filter((dependency) => dependency.ref === 'alpha@1.4.0')
+  assert.equal(alphaComponents.length, 1)
+  assert.equal(alphaDependencies.length, 1)
+  assert.equal(alphaComponents[0].scope, 'required')
+  assert.equal(alphaComponents[0].externalReferences.length, 2)
+  assert.deepEqual(
+    alphaComponents[0].properties.map((property) => property.value).sort(),
+    [
+      'node_modules/first/node_modules/alpha',
+      'node_modules/second/node_modules/alpha',
+    ],
+  )
 })

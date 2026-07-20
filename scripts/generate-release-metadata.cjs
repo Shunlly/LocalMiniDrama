@@ -9,6 +9,7 @@ const { validateMediaToolMetadata } = require('../desktop/scripts/media-tool-pol
 const { FUSE_POLICY } = require('../desktop/scripts/electron-fuses')
 const { validatePackagedApplications } = require('./packaged-applications-contract.cjs')
 const { assertReleaseVersion } = require('./verify-release-version.cjs')
+const { validateSbomDocument } = require('./verify-release.cjs')
 
 const root = path.resolve(__dirname, '..')
 
@@ -29,15 +30,16 @@ function sha256(filePath) {
 }
 
 function currentCommit(environment = process.env) {
-  const fromEnvironment = String(environment.GITHUB_SHA || '').trim()
-  if (fromEnvironment) {
-    assert.match(fromEnvironment, /^[a-f0-9]{40,64}$/i, 'GITHUB_SHA is not a full commit digest')
-    return fromEnvironment.toLowerCase()
-  }
   const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true })
   assert.equal(result.status, 0, 'release metadata requires a readable Git commit')
   const commit = String(result.stdout || '').trim().toLowerCase()
   assert.match(commit, /^[a-f0-9]{40,64}$/, 'Git HEAD is not a full commit digest')
+
+  const fromEnvironment = String(environment.GITHUB_SHA || '').trim()
+  if (fromEnvironment) {
+    assert.match(fromEnvironment, /^[a-f0-9]{40,64}$/i, 'GITHUB_SHA is not a full commit digest')
+    assert.equal(fromEnvironment.toLowerCase(), commit, 'GITHUB_SHA does not match Git HEAD')
+  }
   return commit
 }
 
@@ -114,13 +116,20 @@ function releaseArtifactNames(output) {
     .sort((a, b) => a.localeCompare(b, 'en'))
 }
 
-function validateSboms(output, names) {
+function validateSboms(output, names, version) {
   const sbomNames = names.filter((name) => name.endsWith('.cdx.json'))
   assert.equal(sbomNames.length, 4, 'release bundle must contain exactly four CycloneDX SBOM files')
+  const packageDirectories = new Map([
+    ['sbom-backend.cdx.json', 'backend-node'],
+    ['sbom-frontend.cdx.json', 'frontweb'],
+    ['sbom-desktop.cdx.json', 'desktop'],
+    [`LocalMiniDrama-${version}.cdx.json`, 'desktop'],
+  ])
   for (const sbomName of sbomNames) {
+    const packageDirectory = packageDirectories.get(sbomName)
+    assert.ok(packageDirectory, `release SBOM has no package mapping: ${sbomName}`)
     const sbom = readJson(path.join(output, sbomName), sbomName)
-    assert.equal(sbom.bomFormat, 'CycloneDX', `${sbomName} is not a CycloneDX document`)
-    assert.ok(Array.isArray(sbom.components), `${sbomName} has no component inventory`)
+    validateSbomDocument(packageDirectory, sbom)
   }
 }
 
@@ -213,7 +222,7 @@ function validateReleaseArtifacts(output, version) {
   assert.ok(fs.statSync(output, { throwIfNoEntry: false })?.isDirectory(), `release directory does not exist: ${output}`)
   const names = releaseArtifactNames(output)
   assertExactArtifactSet(names, version)
-  validateSboms(output, names)
+  validateSboms(output, names, version)
   validateMediaMetadata(output, names)
   validateArtifactSecurity(output, names, version)
   return names
@@ -282,9 +291,7 @@ function verify(outputDirectory, { environment = process.env } = {}) {
   assert.equal(manifest.tag, releaseTag(version, environment), 'release manifest tag does not match the release tag')
   assert.equal(manifest.source_dirty, false, 'release manifest records a dirty source tree')
   assert.match(String(manifest.commit || ''), /^[a-f0-9]{40,64}$/, 'release manifest commit is invalid')
-  if (String(environment.GITHUB_SHA || '').trim()) {
-    assert.equal(manifest.commit, currentCommit(environment), 'release manifest commit does not match GITHUB_SHA')
-  }
+  assert.equal(manifest.commit, currentCommit(environment), 'release manifest commit does not match Git HEAD')
   assert.ok(Number.isFinite(Date.parse(manifest.generated_at)), 'release manifest generated_at is invalid')
   assert.ok(Array.isArray(manifest.artifacts), 'release manifest artifacts must be an array')
   assert.deepEqual(manifest.artifacts.map((artifact) => artifact.name), names, 'release manifest artifact order or names differ')

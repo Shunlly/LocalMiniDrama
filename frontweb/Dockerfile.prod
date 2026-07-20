@@ -13,6 +13,7 @@ COPY frontweb/public ./public
 COPY frontweb/src ./src
 COPY frontweb/scripts ./scripts
 COPY frontweb/test ./test
+COPY backend-node/src/utils/runtimeInstanceId.js /backend-node/src/utils/runtimeInstanceId.js
 
 ENV NODE_ENV=production
 RUN npm run build

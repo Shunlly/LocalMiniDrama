@@ -49,6 +49,7 @@ const DESKTOP_VIEWPORTS = Object.freeze([
 ])
 const FOCUSED_DESKTOP_VIEWPORT = Object.freeze({ width: 1280, height: 720 })
 const AI_TWO_COLUMN_VIEWPORT = Object.freeze({ width: 1024, height: 768 })
+const FILM_DESKTOP_EDGE_VIEWPORT = Object.freeze({ width: 769, height: 900 })
 const UI = Object.freeze({
   workflowTitle: '\u6545\u4e8b\u7d20\u6750\u6d41\u7a0b',
   intakeStep: '\u5bfc\u5165\u7d20\u6750',
@@ -66,6 +67,9 @@ const UI = Object.freeze({
   collapseNavigation: '\u6536\u8d77\u5bfc\u822a',
   expandNavigation: '\u5c55\u5f00\u5bfc\u822a',
   sourcePlaceholder: '\u7c98\u8d34\u5c0f\u8bf4\u3001\u6897\u6982\u3001\u5267\u672c\u3001\u5206\u955c\u8868\u3001\u6f2b\u753b\u6587\u5b57\u8bf4\u660e\u6216\u8f6c\u5199\u6587\u672c',
+  sourceImportProject: '\u9009\u62e9\u9879\u76ee\u540e\u5bfc\u5165\u7f51\u9875 URL',
+  sourceUrlLabel: '\u7f51\u9875 URL',
+  importWebUrl: '\u5bfc\u5165\u7f51\u9875 URL',
   newProject: '\u65b0\u5efa\u9879\u76ee',
   confirm: '\u786e\u5b9a',
   importOnly: '\u5bfc\u5165\u6545\u4e8b\u7d20\u6750',
@@ -345,9 +349,14 @@ function assertCompleteEvidence(evidence) {
   assert.equal(focused.ai.mutation.is_default, false)
   assert.equal(focused.ai.native_close_focus_restored, true)
   assert.equal(focused.ai.custom_return_focus_restored, true)
-  assert.equal(focused.ai.columns_1280, 5)
+  assert.equal(focused.ai.columns_1280, 4)
   assert.equal(focused.ai.columns_1024, 2)
   assert.ok(focused.ai.minimum_target_size >= 32)
+  assert.equal(focused.coverage_layout.columns_at_1280, 4, 'focused coverage must use four columns at 1280px')
+  assert.ok(focused.coverage_layout.minimum_card_width >= 220, 'focused coverage cards must be at least 220px wide')
+  assert.equal(focused.coverage_layout.visible_card_count, 5, 'focused coverage must show all five cards')
+  assert.equal(focused.coverage_layout.horizontal_overflow, false, 'focused coverage must not overflow horizontally')
+  assert.equal(focused.coverage_layout.columns_at_1024, 2, 'focused coverage must retain two columns at 1024px')
   assert.equal(focused.pipeline.initial_state, 'blocked')
   assert.equal(focused.pipeline.post_mutation_state, 'checking')
   assert.equal(focused.pipeline.injected_failure_state, 'error')
@@ -1839,6 +1848,81 @@ async function verifyFilmPipelineDisclosureUi(page) {
   assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'idle film pipeline must start collapsed')
 }
 
+async function assertFilmCreateDesktopLayout(page, { width, sidebarWidth = 180 }) {
+  assert.ok(width >= 769, 'FilmCreate desktop layout assertion requires a desktop viewport')
+  const controls = [
+    { label: 'episode select', selector: '.film-create > .header .header-episode-select' },
+    { label: 'return to drama', selector: '.film-create > .header .btn-back-drama' },
+    { label: 'canvas mode', selector: '.film-create > .header .btn-canvas-mode' },
+    { label: 'theme', selector: '.film-create > .header .btn-theme' },
+    { label: 'AI config', selector: '.film-create > .header .btn-ai-config' },
+  ]
+  const selectors = [
+    '.film-create > .header',
+    '#film-create-quick-nav',
+    ...controls.map((control) => control.selector),
+  ]
+  const [header, sidebar, ...controlBoxes] = await Promise.all(
+    selectors.map((selector) => page.locator(selector).boundingBox()),
+  )
+  const documentMetrics = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  const tolerance = 0.5
+  const right = (box) => box.x + box.width
+  const bottom = (box) => box.y + box.height
+  const overlaps = (left, other) => (
+    left.x < right(other) - tolerance
+    && right(left) > other.x + tolerance
+    && left.y < bottom(other) - tolerance
+    && bottom(left) > other.y + tolerance
+  )
+
+  assert.ok(header, 'FilmCreate header must have a layout box')
+  assert.ok(sidebar, 'FilmCreate sidebar must have a layout box')
+  assert.equal(Math.round(sidebar.width), sidebarWidth, 'FilmCreate sidebar width is not stable')
+  assert.ok(header.x >= right(sidebar) - tolerance, 'FilmCreate header overlaps the expanded sidebar')
+  assert.ok(right(header) <= width + tolerance, 'FilmCreate header overflows the viewport')
+
+  for (let index = 0; index < controls.length; index += 1) {
+    const control = controls[index]
+    const box = controlBoxes[index]
+    assert.ok(box, `FilmCreate ${control.label} must have a layout box`)
+    assert.ok(
+      box.x >= header.x - tolerance
+        && right(box) <= right(header) + tolerance
+        && box.y >= header.y - tolerance
+        && bottom(box) <= bottom(header) + tolerance,
+      `FilmCreate ${control.label} is outside the header`,
+    )
+    assert.ok(
+      box.x >= -tolerance && right(box) <= width + tolerance,
+      `FilmCreate ${control.label} is outside the viewport`,
+    )
+  }
+
+  for (let index = 0; index < controls.length; index += 1) {
+    for (let other = index + 1; other < controls.length; other += 1) {
+      assert.equal(
+        overlaps(controlBoxes[index], controlBoxes[other]),
+        false,
+        `FilmCreate ${controls[index].label} overlaps ${controls[other].label}`,
+      )
+    }
+  }
+  assert.ok(
+    documentMetrics.scrollWidth <= documentMetrics.clientWidth,
+    `FilmCreate horizontal overflow: ${documentMetrics.scrollWidth} > ${documentMetrics.clientWidth}`,
+  )
+  return {
+    header,
+    sidebar,
+    controls: Object.fromEntries(controls.map((control, index) => [control.label, controlBoxes[index]])),
+    document: documentMetrics,
+  }
+}
+
 async function verifyDraftUpgradeUi(page, dramaId) {
   await page.goto(`${FRONTEND_URL}/film/${dramaId}`, { waitUntil: 'domcontentloaded' })
   await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
@@ -1948,7 +2032,7 @@ async function waitForCoverageCardMatrix(page) {
 async function assertCoverageLayout(page, {
   viewport,
   columns,
-  requireSingleRow = false,
+  minimumCardWidth = 0,
 } = {}) {
   const cards = page.locator('#ai-config-coverage-panel .coverage-item')
   const snapshot = await cards.evaluateAll((elements) => {
@@ -1995,6 +2079,7 @@ async function assertCoverageLayout(page, {
   for (const record of records) {
     assert.notEqual(record.display, 'none', `${record.service} coverage card must be displayed`)
     assert.ok(record.width > 0 && record.height > 0, `${record.service} coverage card has no layout box`)
+    assert.ok(record.width >= minimumCardWidth, `${record.service} coverage card is narrower than ${minimumCardWidth}px`)
   }
 
   for (let left = 0; left < records.length; left += 1) {
@@ -2021,19 +2106,10 @@ async function assertCoverageLayout(page, {
     rowCounts.set(row, (rowCounts.get(row) || 0) + 1)
   }
   assert.equal([...rowCounts.values()].every((count) => count <= columns), true, 'coverage row exceeds its grid tracks')
-  if (requireSingleRow) {
-    assert.equal(rowCounts.size, 1, `${viewport.width} coverage cards must share one row`)
-    const dialogBox = snapshot.dialog
-    for (const record of records) {
-      assert.ok(record.viewport_x >= dialogBox.x - 1 && record.viewport_x + record.width <= dialogBox.x + dialogBox.width + 1)
-      assert.ok(record.viewport_y >= 0 && record.viewport_y + record.height <= viewport.height + 1)
-    }
-  } else {
-    for (let index = 0; index < await cards.count(); index += 1) {
-      const card = cards.nth(index)
-      await card.scrollIntoViewIfNeeded()
-      assert.equal(await card.evaluate((element) => getComputedStyle(element).display !== 'none'), true)
-    }
+  for (let index = 0; index < await cards.count(); index += 1) {
+    const card = cards.nth(index)
+    await card.scrollIntoViewIfNeeded()
+    assert.equal(await card.evaluate((element) => getComputedStyle(element).display !== 'none'), true)
   }
   return { columns: gridColumns, cards: records }
 }
@@ -2724,26 +2800,51 @@ async function verifyFocusedDesktopAcceptance(browser, {
       uiConfigName: exactName,
       cleanupState,
     })
-    await page.goto(`${FRONTEND_URL}/`, { waitUntil: 'domcontentloaded' })
+    await page.goto(`${FRONTEND_URL}/media-library`, { waitUntil: 'domcontentloaded' })
+    const sourceImportEntry = page.getByRole('button', { name: UI.sourceImportProject, exact: true }).first()
+    await sourceImportEntry.waitFor({ state: 'visible', timeout: 30000 })
+    const projectListNavigation = page.waitForURL((url) => (
+      url.pathname === '/' && url.searchParams.get('intent') === 'source-import'
+    ), { timeout: 30000 })
+    await sourceImportEntry.click()
+    await projectListNavigation
     const search = page.getByRole('textbox', { name: '\u641c\u7d22\u9879\u76ee', exact: true })
     await search.waitFor({ state: 'visible', timeout: 30000 })
     await search.fill(fixtureTitle)
+    await page.waitForFunction((title) => new URL(window.location.href).searchParams.get('q') === title, fixtureTitle)
     const projectCard = page.locator('.project-card').filter({ hasText: fixtureTitle })
     await projectCard.waitFor({ state: 'visible', timeout: 30000 })
     assert.equal(await projectCard.count(), 1, 'focused project search must resolve one project card')
-    const storyEntry = projectCard.getByRole('link', { name: UI.openStoryMaterials(fixtureTitle), exact: true })
-    await storyEntry.focus()
+    const projectEntry = projectCard.locator('.project-card-link')
+    await projectEntry.getByText(UI.importWebUrl, { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
+    const sourceListUrl = new URL(page.url())
+    const sourceReturnTo = `${sourceListUrl.pathname}${sourceListUrl.search}${sourceListUrl.hash}`
+    const projectDestination = new URL(await projectEntry.getAttribute('href'), FRONTEND_URL)
+    assert.equal(projectDestination.searchParams.get('intake'), 'source-url', 'project action must carry URL intake intent')
+    assert.equal(projectDestination.searchParams.get('returnTo'), sourceReturnTo, 'project action must retain the complete source-import list URL')
     const sourceNavigation = page.waitForURL((url) => (
-      url.pathname === `/drama/${dramaId}` && url.hash === '#source-intake-workflow'
+      url.pathname === `/drama/${dramaId}`
+        && url.searchParams.get('intake') === 'source-url'
+        && url.searchParams.get('returnTo') === sourceReturnTo
+        && url.hash === '#source-intake-workflow'
     ), { timeout: 30000 })
-    await storyEntry.press('Enter')
+    await projectEntry.click()
     await sourceNavigation
     const sourceUrl = new URL(page.url())
     assert.equal(sourceUrl.hash, '#source-intake-workflow')
-    assert.equal(sourceUrl.searchParams.has('returnTo'), true, 'project-list return context must be preserved')
+    assert.equal(sourceUrl.searchParams.get('intake'), 'source-url')
+    assert.equal(sourceUrl.searchParams.get('returnTo'), sourceReturnTo, 'project-list return context must be preserved')
     const workflow = page.locator('#source-intake-workflow')
     await workflow.waitFor({ state: 'visible', timeout: 30000 })
-    await page.waitForFunction(() => document.querySelector('#source-intake-workflow')?.contains(document.activeElement))
+    const sourceUrlInput = workflow.getByRole('textbox', { name: UI.sourceUrlLabel, exact: true })
+    await sourceUrlInput.waitFor({ state: 'visible', timeout: 30000 })
+    await page.waitForFunction(() => document.activeElement?.getAttribute('role') !== 'status'
+      && document.activeElement?.closest?.('#source-intake-workflow'))
+    assert.equal(
+      await sourceUrlInput.evaluate((element) => element.ownerDocument.activeElement === element),
+      true,
+      'completed source-import workflow must focus the URL input',
+    )
     const completion = workflow.getByTestId('source-workflow-complete')
     await completion.waitFor({ state: 'visible', timeout: 30000 })
     await completion.getByRole('button', { name: UI.workflowHistory, exact: true }).waitFor({ state: 'visible' })
@@ -2791,8 +2892,8 @@ async function verifyFocusedDesktopAcceptance(browser, {
     await waitForCoverageCardMatrix(page)
     const layout1280 = await assertCoverageLayout(page, {
       viewport: FOCUSED_DESKTOP_VIEWPORT,
-      columns: 5,
-      requireSingleRow: true,
+      columns: 4,
+      minimumCardWidth: 220,
     })
     const serviceOrder = layout1280.cards.map(({ service }) => service)
     const actionCounts = layout1280.cards.map(({ action_count }) => action_count)
@@ -2911,6 +3012,20 @@ async function verifyFocusedDesktopAcceptance(browser, {
       label: '1024 native AI close',
     })
 
+    await page.setViewportSize(FILM_DESKTOP_EDGE_VIEWPORT)
+    await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
+    const edgeExpand = page.getByRole('button', { name: UI.expandNavigation, exact: true })
+    await edgeExpand.waitFor({ state: 'visible', timeout: 10000 })
+    await edgeExpand.click()
+    const edgeCollapse = page.getByRole('button', { name: UI.collapseNavigation, exact: true })
+    await edgeCollapse.waitFor({ state: 'visible', timeout: 10000 })
+    await assertFilmCreateDesktopLayout(page, { ...FILM_DESKTOP_EDGE_VIEWPORT, sidebarWidth: 180 })
+    await edgeCollapse.click()
+    await edgeExpand.waitFor({ state: 'visible', timeout: 10000 })
+    await edgeExpand.click()
+    await edgeCollapse.waitFor({ state: 'visible', timeout: 10000 })
+    await assertFilmCreateDesktopLayout(page, { ...FILM_DESKTOP_EDGE_VIEWPORT, sidebarWidth: 180 })
+
     const screenshots = await captureAcceptanceReportScreenshots(page, {
       dramaId,
       completedDrama,
@@ -2929,6 +3044,14 @@ async function verifyFocusedDesktopAcceptance(browser, {
       status: 'passed',
       primary_viewport: FOCUSED_DESKTOP_VIEWPORT,
       ai_two_column_viewport: AI_TWO_COLUMN_VIEWPORT,
+      film_desktop_edge_viewport: FILM_DESKTOP_EDGE_VIEWPORT,
+      coverage_layout: {
+        columns_at_1280: layout1280.columns,
+        minimum_card_width: Math.min(...layout1280.cards.map(({ width }) => width)),
+        visible_card_count: layout1280.cards.length,
+        horizontal_overflow: false,
+        columns_at_1024: layout1024.columns,
+      },
       project: { id: dramaId, title: fixtureTitle },
       episode: {
         id: firstEpisode.id,
@@ -3428,11 +3551,13 @@ module.exports = {
   DESKTOP_VIEWPORTS,
   EVIDENCE_SCHEMA,
   FOCUSED_DESKTOP_VIEWPORT,
+  FILM_DESKTOP_EDGE_VIEWPORT,
   REQUIRED_PROVIDER_ENDPOINTS,
   REQUIRED_PROVIDER_TYPES,
   REQUIRED_TRACK_TYPES,
   assertCoverageCardMatrix,
   assertCoverageLayout,
+  assertFilmCreateDesktopLayout,
   assertCompleteEvidence,
   assertEvidencePayloadSafe,
   assertEvidenceSerializationSafe,

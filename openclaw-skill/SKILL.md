@@ -1,25 +1,25 @@
 ---
 name: local-mini-drama
-version: 1.1.0
+version: 1.1.1
 description: LocalMiniDrama 本地短剧助手 — 通过自然语言控制短剧项目全流程：创建剧本、生成角色/场景/道具、生成分镜、批量出图、出视频、合成完整剧集、支持小说导入和工程导入导出
 trigger: "生成短剧|创建短剧|制作短剧|短剧创作|生成分镜|生成视频|生成图片|生成角色|生成场景|生成道具|导出工程|导入工程|导入小说|合成视频|短剧项目|短剧助手|帮我写剧本|写一个短剧|我要拍短剧|生成本集|继续制作|查看项目|查看剧本|查看分镜|角色库|场景库|道具库|AI配置|配置密钥|配置API"
 config:
   base_url:
     type: string
-    description: LocalMiniDrama 后端地址，如 http://localhost:5679 或 http://你的服务器IP:5679
-    default: "http://localhost:5679"
+    description: LocalMiniDrama 受保护的后端地址；默认仅访问本机回环地址
+    default: "http://127.0.0.1:5679"
   default_aspect_ratio:
     type: string
     description: 默认画面比例
     default: "16:9"
+  default_video_clip_duration:
+    type: number
+    description: 项目单个视频片段时长（秒）的优先配置，写入 metadata.video_clip_duration
   default_video_duration:
     type: number
-    description: 默认单个视频片段时长（秒）
+    description: 兼容旧版配置的弃用别名；仅在 default_video_clip_duration 未设置时回退使用
     default: 5
 tools: [http, memory]
-requiredContext:
-  - drama_id
-  - episode_id
 author: xuanyustudio
 homepage: https://github.com/Shunlly/LocalMiniDrama
 ---
@@ -45,10 +45,12 @@ homepage: https://github.com/Shunlly/LocalMiniDrama
 
 ## ⚡ 快速开始
 
+> 安全边界：后端没有内置 HTTP 用户认证，禁止直接向公网暴露 5679 端口。远程使用必须经过私有 VPN，或同时启用认证和 TLS 的反向代理。
+
 ### 1. 获取后端地址
 
 ```js
-const baseUrl = config.base_url || "http://localhost:5679";
+const baseUrl = config.base_url || "http://127.0.0.1:5679";
 ```
 
 ### 2. 列出已有项目（判断是否需要新建）
@@ -66,32 +68,21 @@ Content-Type: application/json
 {
   "title": "少年修仙传",
   "style": "古风仙侠",
-  "type": "short_drama",
+  "genre": "仙侠",
   "metadata": {
     "aspect_ratio": "16:9",
-    "video_duration": 5
+    "video_clip_duration": 5
   }
 }
 ```
 
 > `metadata.aspect_ratio` 支持 `16:9`（横屏）、`9:16`（竖屏）、`1:1`（方形）
+> 创建响应为 `{ "success": true, "data": { "id": ... } }`。项目主键是 `data.id`；把它保存到会话的 `drama_id` 上下文。
+> 片段时长按 `config.default_video_clip_duration ?? config.default_video_duration ?? 5` 解析，最终写入 `metadata.video_clip_duration`；旧键只用于兼容已有配置。
 
-### 4. 生成剧本（支持流式）
+### 4. 生成剧本
 
-**流式（推荐）**：实时接收 AI 生成的剧本内容
-```
-POST {baseUrl}/api/v1/generation/story/stream
-Content-Type: application/json
-
-{
-  "premise": "一个少年意外获得上古修仙传承...",
-  "style": "古风仙侠",
-  "episode_count": 3,
-  "genre": "仙侠"
-}
-```
-
-**非流式**：等待完整结果后一次性返回
+不传 `drama_id` 时等待完整集数结果；传入 `drama_id` 时返回异步任务响应，从 `data.task_id` 读取任务 ID，随后轮询任务接口。
 ```
 POST {baseUrl}/api/v1/generation/story
 Content-Type: application/json
@@ -102,12 +93,6 @@ Content-Type: application/json
   "episode_count": 3
 }
 ```
-
-流式响应格式（SSE）：
-- `{ "type": "start" }` — 开始
-- `{ "type": "progress", "text": "已生成的文字..." }` — 增量文本
-- `{ "type": "done", "result": { "episodes": [...] } }` — 完成，附结构化集数
-- `{ "type": "error", "message": "..." }` — 错误
 
 **将生成的剧本保存到项目集数**：
 > 字段名：`script_content`（不是 `content`），`title`（集标题），`episode_number`
@@ -173,10 +158,18 @@ POST {baseUrl}/api/v1/generation/characters
 Content-Type: application/json
 
 {
-  "drama_id": "项目ID"
+  "drama_id": "项目ID",
+  "outline": "待提取角色的文本（可选）",
+  "episode_id": "仅用于重建分集角色关联的集数ID（可选）",
+  "model": "可选模型名",
+  "temperature": 0.7
 }
 ```
-→ 返回 `{ "task_id": "...", "status": "pending" }`，用 `GET /api/v1/tasks/{task_id}` 轮询
+→ 响应为 `{ "success": true, "data": { "task_id": "...", "status": "pending" } }`，读取 `data.task_id` 后用 `GET /api/v1/tasks/{task_id}` 轮询
+
+- `outline` 是角色提取输入；未传时，后端使用项目标题、简介和类型构造输入，不会自动读取 `episode_id` 对应的分集剧本。
+- `episode_id` 只用于清空并重建该分集的角色关联，不会改变提取输入，也不会筛选角色来源。
+- 请求参数不支持 `count`，不要发送；任务结果里的 `count` 是实际入库角色数。
 
 ### 手动保存角色
 ```
@@ -191,29 +184,34 @@ Content-Type: application/json
 }
 ```
 
-### 生成角色形象图（AI）
+### 生成角色四视图（AI）
+
+该端点使用角色已保存的 `appearance` / `polished_prompt`。要改外观，应先更新角色资料；请求体只接受可选的模型和风格。
 ```
 POST {baseUrl}/api/v1/characters/{character_id}/generate-image
 Content-Type: application/json
 
 {
-  "prompt_override": "古风仙侠，白衣少年，剑眉星目..."
+  "model": "可选模型名",
+  "style": "古风仙侠"
 }
 ```
 
-### 生成角色四视图
+等价的显式四视图端点：
 ```
 POST {baseUrl}/api/v1/characters/{character_id}/generate-four-view-image
 ```
 
 ### 从图片提取角色描述
-```
-POST {baseUrl}/api/v1/characters/{character_id}/extract-from-image
-Content-Type: application/json
 
-{
-  "image_url": "/static/storage/..."
-}
+先把图片保存到该角色，再调用提取端点；`extract-from-image` 不读取临时 `image_url` 请求体。
+```
+POST {baseUrl}/api/v1/characters/{character_id}/upload-image
+Content-Type: multipart/form-data
+
+file: <图片文件>
+
+POST {baseUrl}/api/v1/characters/{character_id}/extract-from-image
 ```
 
 ### 全局角色库
@@ -235,12 +233,15 @@ GET {baseUrl}/api/v1/dramas/{drama_id}/scenes
 
 ### 提取场景（从集数剧本）
 ```
-POST {baseUrl}/api/v1/episodes/{episode_id}/extract-backgrounds
+POST {baseUrl}/api/v1/images/episode/{episode_id}/backgrounds/extract
 ```
 
 ### 生成场景图
 ```
-POST {baseUrl}/api/v1/scenes/{scene_id}/generate-image
+POST {baseUrl}/api/v1/scenes/generate-image
+Content-Type: application/json
+
+{ "scene_id": "场景ID" }
 ```
 
 ### 全局场景库
@@ -262,7 +263,7 @@ GET {baseUrl}/api/v1/dramas/{drama_id}/props
 
 ### 提取道具
 ```
-POST {baseUrl}/api/v1/episodes/{episode_id}/extract-props
+POST {baseUrl}/api/v1/episodes/{episode_id}/props/extract
 ```
 
 ### 生成道具图
@@ -291,12 +292,14 @@ Content-Type: application/json
   "model": "qwen-plus",          // 可选，AI 模型名称
   "style": "古风仙侠",            // 可选，覆盖项目风格
   "storyboard_count": 8,         // 可选，分镜数量（默认自动）
-  "video_duration": 5,            // 可选，单个视频秒数
+  "video_duration": 40,           // 可选，本集分镜规划的总时长（秒）
   "aspect_ratio": "16:9",        // 可选，覆盖比例
   "include_narration": false      // 是否含旁白
 }
 ```
-→ 返回 `{ "task_id": "...", "status": "pending" }`
+→ 响应为 `{ "success": true, "data": { "task_id": "...", "status": "pending" } }`，读取 `data.task_id`
+
+项目的单个片段时长使用 `metadata.video_clip_duration`；这里的 `video_duration` 是总时长约束，不是单片段时长。实际逐分镜视频生成仍使用 `POST /videos` 请求体的 `duration`。
 
 ### 获取集数分镜列表
 ```
@@ -367,15 +370,23 @@ POST {baseUrl}/api/v1/storyboards/{storyboard_id}/upscale
 
 ## 🖼️ 图片生成
 
-### 批量生成图片（推荐）
+### 逐分镜生成图片（可由调用方限流并行）
+
+先获取本集分镜，对每个尚无可用图片的分镜各提交一次：
 ```
-POST {baseUrl}/api/v1/images/episode/{episode_id}/batch
+POST {baseUrl}/api/v1/images
 Content-Type: application/json
 
 {
-  "types": ["image"]          // 或 ["image", "video"] 同时出图和视频
+  "storyboard_id": "分镜ID",
+  "drama_id": "项目ID",
+  "prompt": "分镜的 polished_prompt 或 image_prompt",
+  "style": "项目风格",
+  "aspect_ratio": "9:16"
 }
 ```
+
+从响应读取 `data.id` 和 `data.task_id`，轮询任务完成后再读取图片记录。不要调用旧版 episode batch 端点；它不会执行生成。
 
 ### 查询图片任务
 ```
@@ -384,30 +395,51 @@ GET {baseUrl}/api/v1/images/{image_gen_id}
 
 ### 获取分镜关联的图片
 ```
-GET {baseUrl}/api/v1/storyboards/{storyboard_id}/images
+GET {baseUrl}/api/v1/images?storyboard_id={storyboard_id}&page_size=100
 ```
 
 ### 手动上传图片覆盖分镜
+先上传文件，再把返回的 `url` / `local_path` 绑定为分镜图片记录：
 ```
-POST {baseUrl}/api/v1/storyboards/{storyboard_id}/upload
+POST {baseUrl}/api/v1/upload/image
 Content-Type: multipart/form-data
 
 file: <图片文件>
+
+POST {baseUrl}/api/v1/images/upload
+Content-Type: application/json
+
+{
+  "storyboard_id": "分镜ID",
+  "drama_id": "项目ID",
+  "image_url": "上一步返回的 url",
+  "local_path": "上一步返回的 local_path",
+  "frame_type": "storyboard_first"
+}
 ```
 
 ---
 
 ## 🎞️ 视频生成
 
-### 批量生成视频
+### 逐分镜生成视频（可由调用方限流并行）
+
+每个分镜必须提交对应的提示词和可用首帧/参考图：
 ```
-POST {baseUrl}/api/v1/videos/episode/{episode_id}/batch
+POST {baseUrl}/api/v1/videos
 Content-Type: application/json
 
 {
-  "types": ["video"]
+  "storyboard_id": "分镜ID",
+  "drama_id": "项目ID",
+  "prompt": "分镜视频提示词",
+  "first_frame_url": "已完成分镜图片的可访问地址",
+  "aspect_ratio": "9:16",
+  "duration": 5
 }
 ```
+
+从响应读取 `data.id` 和 `data.task_id`，逐项轮询。不要调用旧版 episode batch 端点；它不会执行生成。
 
 ### 查询视频任务
 ```
@@ -416,7 +448,7 @@ GET {baseUrl}/api/v1/videos/{video_gen_id}
 
 ### 查询合并进度
 ```
-GET {baseUrl}/api/v1/episodes/{episode_id}/merge-status
+GET {baseUrl}/api/v1/video-merges?episode_id={episode_id}
 ```
 
 ---
@@ -425,24 +457,28 @@ GET {baseUrl}/api/v1/episodes/{episode_id}/merge-status
 
 ### 触发合成
 ```
-POST {baseUrl}/api/v1/video-merges
+POST {baseUrl}/api/v1/episodes/{episode_id}/finalize
 Content-Type: application/json
 
 {
-  "episode_id": "集数ID",
-  "merge_type": "concatenate"   // 串联所有分镜视频
+  "burn_narration_subtitles": false,
+  "burn_dialogue_audio": false,
+  "watermark_text": ""
 }
 ```
+
+该端点从本集已完成的分镜视频构造 FFmpeg 合成任务，从响应读取 `data.merge_id` 和 `data.task_id`。直接创建 `video-merges` 记录不会启动合成，已被禁用。
 
 ### 查询合成任务
 ```
 GET {baseUrl}/api/v1/video-merges/{merge_id}
 ```
 
-### 获取最终视频下载
+### 获取最终视频地址
 ```
 GET {baseUrl}/api/v1/episodes/{episode_id}/download
 ```
+响应中的 `video_url` 是最终文件地址。
 
 ---
 
@@ -454,16 +490,23 @@ GET {baseUrl}/api/v1/episodes/{episode_id}/download
 GET {baseUrl}/api/v1/tasks/{task_id}
 ```
 
-任务状态响应：
+任务创建响应使用 `data.task_id` 作为后续轮询路径参数；任务查询响应的主键字段是 `data.id`，不包含 `data.task_id`。
+
+任务状态响应（外层仍为标准的 `success` / `data` 包装）：
 ```json
 {
-  "task_id": "...",
-  "status": "pending" | "processing" | "completed" | "failed",
-  "progress": 65,
-  "result": { ... },
-  "error": "失败原因（失败时）"
+  "success": true,
+  "data": {
+    "id": "...",
+    "status": "pending" | "processing" | "completed" | "failed",
+    "progress": 65,
+    "result": "{\"characters\":[...],\"count\":2}",
+    "error": "失败原因（失败时）"
+  }
 }
 ```
+
+`result` 在后端数据库中按文本保存，任务查询会原样返回 `null` 或 JSON 字符串；值非空时必须先执行 JSON 解析，再读取其中的 `characters`、`episodes` 等字段。
 
 **轮询策略**：
 - 初始等待：500ms
@@ -516,31 +559,31 @@ Content-Type: application/json
 
 {
   "name": "通义千问",
-  "vendor": "dashscope",
-  "api_key": "sk-...",
-  "model": "qwen-plus",
-  "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  "service_type": "text",
+  "provider": "dashscope",
+  "api_key": "<API_KEY>",
+  "model": ["qwen-plus"],
+  "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"
 }
 ```
 
 ### 测试连接
 ```
-POST {baseUrl}/api/v1/ai-configs/{config_id}/test
+POST {baseUrl}/api/v1/ai-configs/test
+Content-Type: application/json
+
+{ "config_id": "已保存并启用的配置ID" }
 ```
 
-### 一键预设
-```
-POST {baseUrl}/api/v1/ai-configs/preset/dashscope   # 通义千问
-POST {baseUrl}/api/v1/ai-configs/preset/volcengine   # 豆包/火山引擎
-```
+### 厂商锁定模式专用：批量更新密钥
 
-### 批量更新密钥
+`bulk-update-key` 仅在厂商锁定模式下可用。先调用 `GET {baseUrl}/api/v1/ai-configs/vendor-lock`；仅当响应中的 `data.enabled` 为 `true` 时才可继续，普通模式应逐条 `PUT /api/v1/ai-configs/{id}`，否则后端返回 400。
 ```
 PUT {baseUrl}/api/v1/ai-configs/bulk-update-key
 Content-Type: application/json
 
 {
-  "api_key": "sk-..."
+  "api_key": "<API_KEY>"
 }
 ```
 
@@ -563,41 +606,8 @@ PUT  {baseUrl}/api/v1/settings/generation
 ### 提示词覆盖
 ```
 GET  {baseUrl}/api/v1/settings/prompts
-PUT  {baseUrl}/api/v1/settings/prompts/{key}   { "value": "..." }
+PUT  {baseUrl}/api/v1/settings/prompts/{key}   { "content": "..." }
 DELETE {baseUrl}/api/v1/settings/prompts/{key}
-```
-
----
-
-## 📰 内容改良（一键原创/翻译/混剪）
-
-### 一键翻译出海（配字幕、BGM）
-```
-POST {baseUrl}/api/v1/globalize/start
-Content-Type: multipart/form-data
-
-file: <视频文件>
-bgm: <BGM音频>
-subtitle_file: <字幕文件>
-target_lang: "en"
-```
-
-### 一键原创化
-```
-POST {baseUrl}/api/v1/original/start
-```
-
-### 文稿改良
-```
-POST {baseUrl}/api/v1/rewrite/start
-```
-
-### 批量混剪
-```
-POST {baseUrl}/api/v1/mixcut/start
-Content-Type: multipart/form-data
-
-videos: <最多120个视频文件>
 ```
 
 ---
@@ -611,13 +621,13 @@ videos: <最多120个视频文件>
 
 **Step 1：创建项目**
 ```
-POST /api/v1/dramas
-→ 记下返回的 drama_id
+POST /api/v1/dramas → 创建响应读取 data.id
+→ 将 `data.id` 记为后续请求使用的 `drama_id` 上下文
 ```
 
-**Step 2：生成剧本（流式）**
+**Step 2：生成剧本**
 ```
-POST /api/v1/generation/story/stream
+POST /api/v1/generation/story
 ```
 > body 字段：`premise`（梗概）、`style`（风格）、`genre`（类型）、`episode_count`（集数）
 
@@ -627,30 +637,31 @@ PUT /api/v1/dramas/{drama_id}/episodes
 ```
 > 字段名：`script_content`（不是 `content`），`title`（集标题），`episode_number`
 
-**Step 4：提取角色（AI 自动从剧本分析）**
+**Step 4：提取角色（AI 分析显式输入或项目摘要）**
 ```
 POST /api/v1/generation/characters
 Content-Type: application/json
 
 {
   "drama_id": "项目ID",
-  "episode_id": "集数ID（可选）",
-  "outline": "剧本摘要（可选，默认取当前集数剧本内容）",
-  "count": 10
+  "outline": "要分析的剧本文本（可选）",
+  "episode_id": "仅用于重建分集角色关联的集数ID（可选）"
 }
-→ 返回 { "task_id": "..." }，轮询 task 状态，完成后角色自动写入数据库
+→ 从响应读取 `data.task_id`，轮询 task 状态，完成后角色自动写入数据库
 ```
+
+不传 `outline` 时后端使用项目标题、简介和类型，不会自动读取分集剧本；若需要按某集正文提取，应先读取该集 `script_content` 并作为 `outline` 传入。`episode_id` 只控制分集角色关联，`count` 请求参数不支持。
 
 **Step 5：提取场景（AI 自动从剧本分析）**
 ```
 POST /api/v1/images/episode/{episode_id}/backgrounds/extract
-→ 返回 { "task_id": "..." }，轮询 task，返回场景列表含 location/time/atmosphere
+→ 从响应读取 `data.task_id`，轮询 task，返回场景列表含 location/time/atmosphere
 ```
 
 **Step 6：提取道具（AI 自动从剧本分析）**
 ```
 POST /api/v1/episodes/{episode_id}/props/extract
-→ 返回 { "task_id": "..." }，轮询 task，返回道具列表
+→ 从响应读取 `data.task_id`，轮询 task，返回道具列表
 ```
 
 **Step 7：生成角色形象图（可选，建议在生成分镜前完成）**
@@ -661,7 +672,8 @@ POST /api/v1/characters/{character_id}/generate-image
 
 **Step 8：生成场景图（可选）**
 ```
-POST /api/v1/scenes/{scene_id}/generate-image
+POST /api/v1/scenes/generate-image
+{ "scene_id": "场景ID" }
 ```
 
 **Step 9：生成分镜（此时角色已就绪，场景会自动推断）**
@@ -670,23 +682,25 @@ POST /api/v1/episodes/{episode_id}/storyboards
 → 轮询 task，分镜中 characters 字段会自动填充，background 自动推断
 ```
 
-**Step 10：批量生成图片**
+**Step 10：逐分镜生成图片**
 ```
-POST /api/v1/images/episode/{episode_id}/batch
-→ 轮询图片任务直到完成
+POST /api/v1/images
+→ 对本集每个分镜分别提交 storyboard_id、drama_id、提示词和画幅
+→ 读取并轮询各自 `data.task_id` 直到完成
 ```
 
-**Step 11：批量生成视频**
+**Step 11：逐分镜生成视频**
 ```
-POST /api/v1/videos/episode/{episode_id}/batch
-→ 轮询视频任务直到完成
+POST /api/v1/videos
+→ 对每个已有图片的分镜分别提交首帧、视频提示词、时长和画幅
+→ 读取并轮询各自 `data.task_id` 直到完成
 ```
 
 **Step 12：合成最终视频**
 ```
-POST /api/v1/video-merges
+POST /api/v1/episodes/{episode_id}/finalize
 → 轮询直到 completed
-→ GET /api/v1/episodes/{episode_id}/download 获取下载
+→ GET /api/v1/episodes/{episode_id}/download 获取最终 video_url
 ```
 
 ---
@@ -702,7 +716,7 @@ POST /api/v1/video-merges
 
 **问："我有一个仙侠剧本，帮我制作"**
 1. `POST /api/v1/dramas` 创建项目
-2. `POST /api/v1/generation/story/stream` 生成剧本
+2. `POST /api/v1/generation/story` 生成剧本
 3. 后续同上
 
 **问："给这个角色生成一张图"**
@@ -710,7 +724,7 @@ POST /api/v1/video-merges
 2. `POST /api/v1/characters/{id}/generate-image`
 
 **问："这集视频做好了吗"**
-1. `GET /api/v1/episodes/{episode_id}/merge-status` 查合成状态
+1. `GET /api/v1/video-merges?episode_id={episode_id}` 查合成状态
 2. 或 `GET /api/v1/episodes/{episode_id}/storyboards` 查各分镜视频状态
 
 **问："帮我制作这个短剧"**
@@ -749,13 +763,14 @@ POST /api/v1/video-merges
 ## ⚠️ 注意事项
 
 1. **base_url 必须包含协议头**：`http://` 或 `https://`，末尾不带 `/`
-2. **异步任务必须轮询**：不要假设创建任务后立即完成
-3. **生图/视频失败优先检查**：
+2. **禁止公网直连**：不得把未认证的 5679 端口暴露到公网；远程入口必须有认证和 TLS
+3. **异步任务必须轮询**：不要假设创建任务后立即完成
+4. **生图/视频失败优先检查**：
    - AI Config 中图片/视频 API Key 是否配置
    - 账户额度是否充足
-4. **竖屏创作**：`metadata.aspect_ratio = "9:16"`，视频 API 参数也要对应
-5. **工程文件导入**：仅支持从 `LocalMiniDrama` 导出的 ZIP 格式
-6. **小说导入**：建议单次不超过 30 章，超长文本先让用户分段
+5. **竖屏创作**：`metadata.aspect_ratio = "9:16"`，视频 API 参数也要对应
+6. **工程文件导入**：仅支持从 `LocalMiniDrama` 导出的 ZIP 格式
+7. **小说导入**：建议单次不超过 30 章，超长文本先让用户分段
 
 ---
 
@@ -763,15 +778,15 @@ POST /api/v1/video-merges
 
 | 用户意图 | 推荐操作 |
 |---------|---------|
-| "帮我创建一个仙侠短剧" | 创建项目 → 生成剧本（流式）→ 保存剧本 → 提取角色/场景/道具 → 生成分镜 |
+| "帮我创建一个仙侠短剧" | 创建项目 → 生成剧本 → 保存剧本 → 提取角色/场景/道具 → 生成分镜 |
 | "帮我制作这个短剧" | 执行完整制作流程 Step 1–12 |
 | "生成本集分镜" | 确认已有角色/场景/道具 → POST storyboards |
-| "这集做好了吗" | GET merge-status |
+| "这集做好了吗" | GET video-merges 并按 episode_id 过滤 |
 | "给李逍遥生成一张图" | 获取角色 → POST generate-image |
 | "我上传了图片，给我提取角色" | POST extract-from-image |
 | "把这个工程导出" | GET export |
 | "我有篇小说，帮我制作短剧" | POST import-novel → 生成剧本 → 后续流程 |
-| "配置一下通义千问" | POST preset/dashscope 或 POST ai-configs |
+| "配置一下通义千问" | POST ai-configs 创建配置，再 POST ai-configs/test 验证连接 |
 | "增加一个分镜" | POST insert-before |
 | "优化一下这个分镜的描述" | POST polish-prompt |
 

@@ -12,6 +12,7 @@
           <span class="header-context-label">项目</span>
           <h1 class="page-title" :title="projectPageTitle">{{ projectPageTitle }}</h1>
         </div>
+        <div class="workspace-actions">
         <div v-if="projectLoadState === 'ready' && dramaId" class="header-context">
           <span class="header-context-label">当前集</span>
           <el-select
@@ -49,6 +50,7 @@
             <el-icon><Setting /></el-icon>
             AI配置
           </el-button>
+        </div>
         </div>
       </div>
     </header>
@@ -9751,6 +9753,7 @@ html.light .select-script-title {
 }
 
 .film-create {
+  --film-nav-width: 180px;
   min-height: 100vh;
   background: #16171e;
   background-image:
@@ -9760,6 +9763,7 @@ html.light .select-script-title {
     linear-gradient(180deg, #16171e 0%, #1a1b24 40%, #1e1f29 100%);
   color: #e4e4e7;
 }
+.film-create.sidebar-collapsed { --film-nav-width: 48px; }
 html.light .film-create {
   background: #f8f7ff;
   background-image:
@@ -9777,11 +9781,10 @@ html.light .film-create {
   top: 0;
   z-index: 200;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.15), 0 4px 20px rgba(0, 0, 0, 0.2);
-  margin-left: 180px;
-  transition: margin-left 0.25s cubic-bezier(.4,0,.2,1);
+  margin-left: var(--film-nav-width);
 }
 .sidebar-collapsed .header {
-  margin-left: 48px;
+  margin-left: var(--film-nav-width);
 }
 html.light .header {
   background: #ffffff !important;
@@ -9897,6 +9900,63 @@ html.light .page-title {
   gap: 8px;
   flex-shrink: 0;
 }
+.workspace-actions > .el-button,
+.header-actions > .el-button {
+  margin-left: 0;
+}
+.workspace-actions {
+  min-width: 0;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.workspace-actions > * {
+  min-height: 32px;
+}
+@media (min-width: 769px) and (max-width: 1400px) {
+  .header-inner {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "brand project"
+      "actions actions";
+    gap: 8px 16px;
+  }
+  .header-inner .logo { grid-area: brand; }
+  .header-inner .breadcrumb-sep { display: none; }
+  .header-inner > .header-context { grid-area: project; }
+  .workspace-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: minmax(170px, 1fr) auto auto auto;
+    margin-left: 0;
+    width: 100%;
+  }
+  .workspace-actions .header-actions {
+    margin-left: 0;
+  }
+}
+@media (min-width: 769px) and (max-width: 960px) {
+  .film-create {
+    --film-create-sticky-offset: 144px;
+  }
+  .workspace-actions {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "episode episode episode"
+      "back canvas utilities";
+  }
+  .workspace-actions > .header-context { grid-area: episode; }
+  .workspace-actions > .btn-back-drama { grid-area: back; }
+  .workspace-actions > .btn-canvas-mode { grid-area: canvas; }
+  .workspace-actions > .header-actions {
+    grid-area: utilities;
+    justify-self: end;
+  }
+}
 .btn-theme {
   --el-button-bg-color: rgba(255, 255, 255, 0.04);
   --el-button-border-color: rgba(255, 255, 255, 0.08);
@@ -9927,10 +9987,9 @@ html.light .btn-theme {
   background: linear-gradient(180deg, #131318 0%, #111116 50%, #0f0f14 100%);
   border-right: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow: 1px 0 0 rgba(255,255,255,0.02), 4px 0 24px rgba(0, 0, 0, 0.4);
-  width: 180px;
+  width: var(--film-nav-width);
   overflow-y: auto;
   overflow-x: hidden;
-  transition: width 0.25s cubic-bezier(.4,0,.2,1), padding 0.25s cubic-bezier(.4,0,.2,1);
 }
 html.light .quick-nav {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 247, 255, 0.99) 100%);
@@ -10345,10 +10404,9 @@ html.light .nav-sub-item:hover { color: #1e1b4b; background: rgba(99,102,241,0.0
 .logo:focus-visible { outline: 2px solid #818cf8; outline-offset: 4px; }
 
 .main {
-  margin-left: 180px;
+  margin-left: var(--film-nav-width);
   margin-right: 0;
   padding: 24px 32px 48px;
-  transition: margin-left 0.25s cubic-bezier(.4,0,.2,1);
 }
 
 @media (min-width: 769px) {
@@ -10414,7 +10472,7 @@ html.light .project-load-state h1 { color: #18181b; }
 html.light .project-load-state p { color: #52525b; }
 html.light .project-dependency-warning { background: #fffbeb; color: #92400e; border-color: #fcd34d; }
 .sidebar-collapsed .main {
-  margin-left: 48px;
+  margin-left: var(--film-nav-width);
 }
 .section {
   margin-bottom: 24px;

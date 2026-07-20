@@ -187,6 +187,15 @@ function finalizeEpisode(db, log, cfg) {
     const baseUrl = cfg?.storage?.base_url || '';
     const result = dramaService.finalizeEpisode(db, log, episodeId, baseUrl, req.body || {});
     if (!result) return response.notFound(res, '剧集不存在');
+    if (result.scenes_count === 0 && result.merge_id == null) {
+      return response.error(
+        res,
+        409,
+        'EPISODE_NOT_READY',
+        '本集没有可合成的视频片段',
+        { reason: 'NO_VIDEO_CLIPS', episode_id: Number(episodeId) }
+      );
+    }
     response.success(res, result);
   };
 }

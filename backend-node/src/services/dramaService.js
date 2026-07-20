@@ -4,7 +4,10 @@ const storageLayout = require('./storageLayout');
 const uploadService = require('./uploadService');
 const { PRESET_VALUES, resolveStylePreset } = require('../constants/generationStylePresets');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
-const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
+const {
+  assertBackgroundTasksAccepting,
+  scheduleLegacyAsync,
+} = require('./legacyAsyncSchedulerService');
 
 /**
  * 清理 image_url：如果数据库中存储的是 base64 data URL，则返回 null。
@@ -958,9 +961,52 @@ function getVideoUrlForStoryboard(db, storyboardId, baseUrl) {
   return sbUrl;
 }
 
+function findActiveEpisodeMerge(db, episodeId) {
+  return db.prepare(
+    `SELECT merge.id AS merge_id, merge.task_id, merge.scenes, merge.status
+       FROM video_merges merge
+       LEFT JOIN async_tasks task
+         ON task.id = merge.task_id
+        AND task.deleted_at IS NULL
+      WHERE merge.episode_id = ?
+        AND merge.deleted_at IS NULL
+        AND (
+          merge.status = 'qa_pending'
+          OR (
+            merge.status IN ('pending', 'processing')
+            AND task.status IN ('pending', 'processing')
+          )
+        )
+      ORDER BY merge.id DESC
+      LIMIT 1`
+  ).get(Number(episodeId));
+}
+
+function activeMergeResponse(activeMerge, episodeId) {
+  let scenesCount = 0;
+  try {
+    const activeScenes = JSON.parse(activeMerge.scenes || '[]');
+    scenesCount = Array.isArray(activeScenes) ? activeScenes.length : 0;
+  } catch (_) {}
+  return {
+    message: activeMerge.status === 'qa_pending'
+      ? '本集视频已合成，正在等待质量检查'
+      : '本集已有视频合成任务正在处理',
+    merge_id: activeMerge.merge_id,
+    episode_id: Number(episodeId),
+    scenes_count: scenesCount,
+    task_id: activeMerge.task_id,
+    reused: true,
+  };
+}
+
 function finalizeEpisode(db, log, episodeId, baseUrl, body = {}) {
-  const ep = db.prepare('SELECT id, drama_id, episode_number FROM episodes WHERE id = ? AND deleted_at IS NULL').get(episodeId);
+  const ep = db.prepare(
+    'SELECT id, drama_id, episode_number, status, video_url, updated_at FROM episodes WHERE id = ? AND deleted_at IS NULL'
+  ).get(episodeId);
   if (!ep) return null;
+  const activeMerge = findActiveEpisodeMerge(db, episodeId);
+  if (activeMerge) return activeMergeResponse(activeMerge, episodeId);
   const drama = db.prepare('SELECT title FROM dramas WHERE id = ? AND deleted_at IS NULL').get(ep.drama_id);
   const storyboards = db.prepare(
     'SELECT id, storyboard_number, duration FROM storyboards WHERE episode_id = ? AND deleted_at IS NULL ORDER BY storyboard_number ASC'
@@ -992,6 +1038,7 @@ function finalizeEpisode(db, log, episodeId, baseUrl, body = {}) {
     title,
     scenes,
     provider: 'ffmpeg',
+    mode: 'strict_production',
     merge_options: {
       burn_narration_subtitles: !!(body && body.burn_narration_subtitles),
       burn_dialogue_audio: !!(body && body.burn_dialogue_audio),
@@ -1000,12 +1047,44 @@ function finalizeEpisode(db, log, episodeId, baseUrl, body = {}) {
         : '',
     },
   };
-  const created = videoMergeService.create(db, log, mergeReq);
-  const mergeId = created.merge_id || created.id;
-  db.prepare('UPDATE episodes SET status = ? WHERE id = ?').run('processing', episodeId);
-  scheduleLegacyAsync(log, 'episode_video_merge', () => {
-    videoMergeService.processVideoMerge(db, log, mergeId, baseUrl);
-  }, { merge_id: mergeId, episode_id: episodeId });
+  assertBackgroundTasksAccepting();
+  const createMerge = db.transaction(() => {
+    const concurrentMerge = findActiveEpisodeMerge(db, episodeId);
+    if (concurrentMerge) return { activeMerge: concurrentMerge };
+    const created = videoMergeService.create(db, log, mergeReq);
+    const mergeId = created.merge_id || created.id;
+    db.prepare('UPDATE episodes SET status = ? WHERE id = ?').run('processing', episodeId);
+    return { created, mergeId };
+  });
+  const persisted = createMerge();
+  if (persisted.activeMerge) return activeMergeResponse(persisted.activeMerge, episodeId);
+  const { created, mergeId } = persisted;
+  try {
+    scheduleLegacyAsync(
+      log,
+      'episode_video_merge',
+      () => videoMergeService.processVideoMerge(db, log, mergeId, baseUrl),
+      { merge_id: mergeId, episode_id: Number(episodeId) }
+    );
+  } catch (error) {
+    const now = new Date().toISOString();
+    const failUnscheduledMerge = db.transaction(() => {
+      db.prepare(
+        `UPDATE video_merges
+            SET status = 'failed', completed_at = ?, error_msg = ?
+          WHERE id = ?`
+      ).run(now, String(error?.message || error).slice(0, 4000), mergeId);
+      require('./taskService').updateTaskError(db, created.task_id, error?.message || String(error));
+      db.prepare(
+        `UPDATE episodes
+            SET status = ?, video_url = ?, updated_at = ?
+          WHERE id = ?
+            AND ? = (SELECT id FROM video_merges WHERE episode_id = ? ORDER BY id DESC LIMIT 1)`
+      ).run(ep.status, ep.video_url, ep.updated_at, episodeId, mergeId, episodeId);
+    });
+    failUnscheduledMerge();
+    throw error;
+  }
   return {
     message: '视频合成任务已创建，正在后台处理',
     merge_id: mergeId,

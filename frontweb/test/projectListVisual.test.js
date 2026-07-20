@@ -100,7 +100,7 @@ test('project cards expose a visual cover, status filter, and explicit continue 
 test('continue action enters the production workspace while edit remains a management action', () => {
   assert.match(
     filmListSource,
-    /class="project-card-link"[\s\S]*:to="\{ name: 'film', params: \{ id: d\.id \}, query: \{ returnTo: projectListReturnTo \} \}"/,
+    /class="project-card-link"[\s\S]*:to="projectCardDestination\(d, sourceImportIntent, route\.fullPath\)"/,
   )
   assert.match(filmListSource, /if \(action === 'edit'\) return openEditDialog\(drama\)/)
   assert.match(

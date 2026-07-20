@@ -56,14 +56,14 @@
       </div>
       <div class="entry-item">
         <span class="entry-label">网页 URL 导入</span>
-        <p class="entry-description">网页 URL 导入会在项目内完成，本页不直接粘贴 URL；请新建项目后导入网页 URL。</p>
+        <p class="entry-description">网页 URL 导入会在选择项目后完成，本页不直接粘贴 URL。</p>
         <el-button
           text
           class="entry-action"
           :disabled="mediaWriteLocked"
-          aria-label="新建项目并进入项目级网络 URL 素材导入流程"
-          @click="goNewProject"
-        >进入项目级素材导入流程</el-button>
+          aria-label="选择项目后导入网页 URL"
+          @click="goSourceImport"
+        >进入项目选择后导入网页 URL</el-button>
       </div>
       <div class="entry-item">
         <span class="entry-label">角色 / 场景 / 道具入库</span>
@@ -197,9 +197,9 @@
             text
             class="empty-secondary-action"
             :disabled="mediaWriteLocked"
-            aria-label="新建项目并进入项目级网络 URL 素材导入流程"
-            @click="goNewProject"
-          >进入项目级素材导入流程</el-button>
+            aria-label="选择项目后导入网页 URL"
+            @click="goSourceImport"
+          >进入项目选择后导入网页 URL</el-button>
         </template>
       </div>
     </div>
@@ -309,6 +309,11 @@ function goBack() {
 function goNewProject() {
   if (mediaWriteLocked.value) return
   router.push({ path: '/', query: { new: '1' } })
+}
+
+function goSourceImport() {
+  if (mediaWriteLocked.value) return
+  router.push({ path: '/', query: { intent: 'source-import' } })
 }
 
 function triggerUpload() {
