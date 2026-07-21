@@ -184,3 +184,132 @@ but Docker and npm operations are controlled fakes. Exact command arguments,
 environment paths, and consumed bytes are covered; real Docker Engine and live
 container sharing behavior remain an operational integration risk. The larger
 atomic publication redesign remains intentionally deferred to Task 7.
+
+## Second-Round Acceptance
+
+Date: 2026-07-22
+
+Base commit: `24f731109318fe05bcbab3c5074946ba39e7d5ab`
+
+Required subject: `fix: complete rollback authority acceptance`
+
+### RED Evidence
+
+All commands used the pinned environment documented above and ran serially.
+Each focused RED executed the parent and both Windows PowerShell 5.1 and
+PowerShell 7 subtests.
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='release rollback checkpoint fake toolchain' scripts/release-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 100 total, 0 passed, 3 failed, 97 skipped. Both hosts
+proved that the unlocked pre-existing `metadata.json` was deleted after the
+failed move.
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='rollback restore real-authority oracle' scripts/release-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 100 total, 0 passed, 3 failed, 97 skipped. The baseline
+recorded no calls to the production authority assertion.
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='rollback restore recovery-completion oracle' scripts/release-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 100 total, 0 passed, 3 failed, 97 skipped. Existing
+events did not prove post-`up` data-root verification and recovery completion.
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='rollback restore archived-down oracle' scripts/release-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 100 total, 0 passed, 3 failed, 97 skipped. The
+unimplemented byte-mismatch mutation still emitted archived-down success, so
+the oracle reported `Missing expected exception` on both hosts.
+
+### Implementation
+
+- Removed both final `metadata.json` deletion blocks. The atomic publisher owns
+  and exhaustively cleans only its unpredictable temporary path after failure.
+- Added unlocked-conflict behavior alongside the held-conflict case. Both
+  retain exact original bytes and still prove recovery, primary error, cleanup
+  ordering, and post-exit release.
+- Overrode the real `Assert-RollbackFileAuthority` in the restore driver,
+  called the original first, and recorded assertion labels and strict order.
+  External boundary snapshots require the exact authority set accumulated
+  since the previous external boundary.
+- Covered archived Compose/config resolution and validation, image load,
+  bind-source copy, rollback backup/config restore, archived startup,
+  post-startup archived backend lookup, and archived failed shutdown.
+- Required automatic recovery to progress from `compose up` through backend
+  lookup, mount inspection, data-root verification, health, and a final
+  recovery-complete event. Successful recovery must not enter either terminal
+  shutdown branch.
+- Added real scenario mutations for a suppressed authority assertion, failure
+  after recovery `compose up`, and wrong archived Compose bytes during failed
+  rollback shutdown.
+
+One genuine oracle-message correction was made after GREEN implementation: the
+post-`up` mutation passes the backend-lookup authority probe and fails before
+the fake lookup command, so the expected diagnostic also accepts `did not
+execute the recovered backend lookup`.
+
+### GREEN Evidence
+
+The four focused commands above each exited `0`: 100 total, 3 passed, 0
+failed, 97 skipped.
+
+The complete restore harness also passed both hosts:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='rollback restore fake toolchain' scripts/release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 100 total, 3 passed, 0 failed, 97 skipped.
+
+One final full release contract ran serially after all source and test fixes.
+No other release-contract process was active or launched during this run:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test scripts/release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 114 passed, 0 failed, 0 skipped.
+
+### Second-Round Files
+
+- `scripts/create-release-rollback-checkpoint.ps1`
+- `scripts/release-contract.test.cjs`
+- `.superpowers/sdd/rollback-security-task-1-report.md`
+- `.superpowers/sdd/rollback-security-task-1-review-fix-report.md`
+
+`scripts/restore-release-rollback-checkpoint.ps1` was not changed because the
+new executed instrumentation proved its production assertion and recovery
+ordering already satisfy the second-round requirements.
+
+### Second-Round Self-Review
+
+The source diff stays within the brief's allowed files. No code path deletes a
+final metadata pathname after a failed move. Every recorded authority event is
+emitted only after the real assertion returns successfully, and the independent
+OS lock probe remains active. Authority snapshots are reset at every external
+boundary, so a stale assertion cannot satisfy a later consumer. Recovery
+completion occurs only after command execution, backend lookup, mount
+inspection, root verification, and health. Archived-down consumer events remain
+post-validation and are required in startup and terminal failure paths.
+
+### Second-Round Residual Risk
+
+The harness uses real Windows file sharing and both PowerShell hosts, but
+Docker and npm remain controlled fakes. Live Docker Engine and container
+integration remain operational risks. This change intentionally does not
+redesign successful metadata replacement or durability; that broader atomic
+publication work remains deferred to Task 7.
+
+### Commit SHA Strategy
+
+The report records the immutable base and required subject. The resulting
+commit SHA is reported in the final handoff because embedding a commit's own
+SHA in a tracked file would change that SHA.

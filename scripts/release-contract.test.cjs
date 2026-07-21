@@ -2714,6 +2714,28 @@ try {
     'captured version format must be rejected before shutdown',
   )
 
+  const unlockedConflictPath = path.join(fixtureRoot, `${host.name}-unlocked-metadata-conflict-checkpoint`)
+  const unlockedConflictStart = readEvents().length
+  const unlockedConflict = runCheckpoint(host, unlockedConflictPath, 'passed', version, true)
+  assert.notEqual(unlockedConflict.status, 0, 'unlocked metadata publication conflict must fail checkpoint creation')
+  const unlockedMetadataPath = path.join(unlockedConflictPath, 'metadata.json')
+  assert.equal(
+    fs.existsSync(unlockedMetadataPath),
+    true,
+    'failed metadata publication deleted an unowned final path',
+  )
+  assert.equal(fs.readFileSync(unlockedMetadataPath, 'utf8'), '{"schema":"untrusted"}\n')
+  assert.equal(fs.readdirSync(unlockedConflictPath).some((name) => name.startsWith('.metadata.')), false)
+  const unlockedConflictRecords = readEvents().slice(unlockedConflictStart)
+  const unlockedPublicationFailure = unlockedConflictRecords.find((entry) => entry.event === 'publication_failure')
+  const unlockedDriverFailure = unlockedConflictRecords.find((entry) => entry.event === 'driver_failure')
+  assert.ok(unlockedPublicationFailure, `${host.name} did not capture the unlocked publication error`)
+  assert.ok(unlockedDriverFailure, `${host.name} did not capture the unlocked checkpoint error`)
+  assert.equal(unlockedDriverFailure.same_publication_exception, true)
+  assert.deepEqual(unlockedDriverFailure.cleanup_errors, [])
+  assert.ok(unlockedConflictRecords.some((entry) => entry.event === 'recovery_up'))
+  assertNamespacesMovable(unlockedConflictPath)
+
   const publishFailurePath = path.join(fixtureRoot, `${host.name}-publish-failure-checkpoint`)
   const publishFailureStart = readEvents().length
   const publishFailure = runCheckpoint(host, publishFailurePath, 'passed', version, true, true)
@@ -2736,7 +2758,7 @@ try {
   assert.equal(driverFailure.primary_message, publicationFailure.primary_message)
   assert.equal(driverFailure.primary_error_id, publicationFailure.primary_error_id)
   assert.doesNotMatch(driverFailure.primary_error_id, /RemoveFileSystemItemIOError/)
-  assert.equal(driverFailure.cleanup_errors.length, 2, 'both metadata removal failures must be attached')
+  assert.deepEqual(driverFailure.cleanup_errors, [], 'unowned metadata removal must not be attempted')
   assert.notEqual(publishFailureEvents.indexOf('metadata_publish'), -1)
   assert.notEqual(publishFailureEvents.indexOf('failure_recovery'), -1)
   assert.notEqual(publishFailureEvents.indexOf('recovery_up'), -1, 'deployment recovery command did not execute')
@@ -2832,6 +2854,9 @@ record('tool:' + tool)
 if (tool === 'docker') {
   const composeFileIndex = args.indexOf('-f')
   if (composeIndex >= 0 && composeFileIndex >= 0) {
+    if (mode === 'archived-down-compose-bytes-mismatch' && composeOperation === 'down') {
+      fail('archived Compose bytes mismatch at failed rollback shutdown')
+    }
     requireCheckpointFile('archived Compose', args[composeFileIndex + 1], 'docker-compose.yml')
     record('consumer:compose:' + composeOperation)
     requireArchivedConfig('consumer:config:docker-compose:' + composeOperation)
@@ -2982,14 +3007,49 @@ $script:OriginalInvokeChecked = \${function:Invoke-Checked}
 $script:OriginalEvidenceBinding = \${function:Assert-RollbackEvidenceBinding}
 $script:OriginalRootGuard = \${function:Assert-CurrentRollbackRoot}
 $script:OriginalFileHash = \${function:Assert-FileHash}
+$script:OriginalAssertRollbackFileAuthority = \${function:Assert-RollbackFileAuthority}
 $script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
 $script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
 $script:EvidenceValidated = $false
+$script:AuthorityAssertionOrder = 0
+$script:AuthoritiesSinceBoundary = [System.Collections.ArrayList]::new()
+$script:PendingRecoveryLabel = $null
 
 function Write-TestEvent {
   param([string]$Name)
   $line = ConvertTo-Json -Compress -InputObject ([ordered]@{ event = $Name; driver = 'restore' })
   [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+}
+function Write-TestRecord {
+  param([Parameter(Mandatory = $true)][object]$Record)
+  $line = ConvertTo-Json -Compress -Depth 4 -InputObject $Record
+  [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+}
+function Assert-RollbackFileAuthority {
+  param([Parameter(Mandatory = $true)][object]$Authority)
+  $result = & $script:OriginalAssertRollbackFileAuthority @PSBoundParameters
+  $script:AuthorityAssertionOrder += 1
+  if ($env:LMD_SUPPRESS_AUTHORITY_LABEL -cne $Authority.Label) {
+    [void]$script:AuthoritiesSinceBoundary.Add([string]$Authority.Label)
+    Write-TestRecord -Record ([ordered]@{
+      event = 'production-authority'
+      authority = [string]$Authority.Label
+      order = $script:AuthorityAssertionOrder
+      driver = 'restore'
+    })
+  }
+  return $result
+}
+function Record-ProductionAuthorityBoundary {
+  param([Parameter(Mandatory = $true)][string]$Label)
+  $authorities = [object[]]@($script:AuthoritiesSinceBoundary)
+  Write-TestRecord -Record ([ordered]@{
+    event = 'production-authority-boundary'
+    boundary = $Label
+    authorities = $authorities
+    driver = 'restore'
+  })
+  $script:AuthoritiesSinceBoundary.Clear()
 }
 function Assert-TestLocks {
   param([string]$Stage)
@@ -3002,6 +3062,7 @@ function Assert-RollbackEvidenceBinding {
   param([object]$Metadata, [object]$Summary, [object]$ActualBackupHash, [object]$ActualDataRootIdentity)
   & $script:OriginalEvidenceBinding @PSBoundParameters
   $script:EvidenceValidated = $true
+  $script:AuthoritiesSinceBoundary.Clear()
   Write-TestEvent -Name 'binding accepted'
 }
 function Push-Location {
@@ -3015,7 +3076,9 @@ function Assert-CurrentRollbackRoot {
     Write-TestEvent -Name 'identity failure after mutation'
     throw 'Injected post-mutation identity failure.'
   }
-  & $script:OriginalRootGuard @PSBoundParameters
+  $result = & $script:OriginalRootGuard @PSBoundParameters
+  Write-TestEvent -Name ('root-ok:' + $Label)
+  return $result
 }
 function Assert-FileHash {
   param([string]$Path, [string]$Expected, [string]$Label)
@@ -3028,6 +3091,7 @@ function Assert-FileHash {
       throw 'Compensation data bind source copy bytes do not match.'
     }
     Write-TestEvent -Name 'consumer:bind-source-copy'
+    Record-ProductionAuthorityBoundary -Label 'Compensation data bind source copy'
   }
   if ($Label -like '*compensation data backup') { Write-TestEvent -Name ('hash:' + $Label) }
 }
@@ -3047,6 +3111,13 @@ function Invoke-Checked {
   }
   if ($script:EvidenceValidated) {
     Assert-TestLocks -Stage ('invoke:' + $Label)
+    Record-ProductionAuthorityBoundary -Label $Label
+  }
+  if ($env:LMD_FAIL_AFTER_RECOVERY_UP -ceq 'true' -and
+      $script:PendingRecoveryLabel -ceq 'Preparation forward deployment recovery' -and
+      $Label -ceq 'Preparation forward backend container lookup') {
+    Write-TestEvent -Name 'injected-post-up-verification-failure'
+    throw 'Injected failure after recovery compose up and before health.'
   }
   $fail = switch ($env:LMD_SCENARIO) {
     'shutdown_failure' { $Label -ceq 'Current Docker shutdown' }
@@ -3059,7 +3130,15 @@ function Invoke-Checked {
     Write-TestEvent -Name ('injected-boundary:' + $Label)
     throw "Injected failure: $Label"
   }
-  & $script:OriginalInvokeChecked @PSBoundParameters
+  $result = & $script:OriginalInvokeChecked @PSBoundParameters
+  if ($Label -in @(
+      'Rollback container startup',
+      'Preparation forward deployment recovery',
+      'Forward deployment recovery'
+    )) {
+    $script:PendingRecoveryLabel = $Label
+  }
+  return $result
 }
 function Clear-DataSourceEnvironment {
   Write-TestEvent -Name 'cleanup:data'
@@ -3074,7 +3153,16 @@ function Pop-Location {
   Write-TestEvent -Name 'cleanup:location'
   Microsoft.PowerShell.Management\\Pop-Location
 }
-function Test-ApplicationHealth { Write-TestEvent -Name 'health' }
+function Test-ApplicationHealth {
+  if ($null -eq $script:PendingRecoveryLabel) {
+    Write-TestEvent -Name 'health'
+    return
+  }
+  $recoveryLabel = $script:PendingRecoveryLabel
+  Write-TestEvent -Name ('health:' + $recoveryLabel)
+  Write-TestEvent -Name ('recovery-complete:' + $recoveryLabel)
+  $script:PendingRecoveryLabel = $null
+}
 
 try {
   Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpointDirectory
@@ -3209,12 +3297,14 @@ try {
         LMD_EXPECTED_BIND_SOURCE_BASE64: fixture.fixedBytes['data-bind-source.txt'],
         LMD_EVENT_LOG: fixture.eventLog,
         LMD_FAKE_MODE: options.fakeMode || '',
+        LMD_FAIL_AFTER_RECOVERY_UP: String(Boolean(options.failAfterRecoveryUp)),
         LMD_FORWARD_COMMIT: forwardCommit,
         LMD_FRONTEND_IMAGE: frontendImageId,
         LMD_LOCK_PROBE: lockProbePath,
         LMD_NODE_EXE: process.execPath,
         LMD_CLEANUP_FAILURE: String(Boolean(options.cleanupFailure)),
         LMD_SCENARIO: options.runtimeScenario || name,
+        LMD_SUPPRESS_AUTHORITY_LABEL: options.suppressAuthorityLabel || '',
       },
     })
     const events = fs.existsSync(fixture.eventLog)
@@ -3327,6 +3417,136 @@ function assertInjectedAuthorityBoundary(run, label, stage) {
   assert.ok(boundaryIndex > authorityIndex, label + ' did not reach the intentional injected boundary for ' + stage)
 }
 
+function assertProductionAuthorityEventOrder(run, label) {
+  const assertions = run.events.filter((entry) => entry.event === 'production-authority')
+  assert.ok(assertions.length > 0, label + ' recorded no production authority assertions')
+  for (let index = 1; index < assertions.length; index += 1) {
+    assert.ok(
+      assertions[index - 1].order < assertions[index].order,
+      label + ' production authority assertion order is not strictly increasing',
+    )
+  }
+}
+
+function assertProductionAuthorityBoundary(run, label, boundary, expectedAuthorities) {
+  const records = run.events.filter((entry) =>
+    entry.event === 'production-authority-boundary' && entry.boundary === boundary)
+  assert.ok(records.length > 0, label + ' did not record production authorities for ' + boundary)
+  const actual = [...new Set(records.at(-1).authorities)].sort()
+  const expected = [...expectedAuthorities].sort()
+  assert.deepEqual(actual, expected, label + ' asserted the wrong authorities for ' + boundary)
+}
+
+const archivedComposeAuthorities = ['Archived Compose file', 'Archived runtime config']
+
+function assertCheckpointPreparationAuthorityBoundaries(run, label, options = {}) {
+  assertProductionAuthorityBoundary(
+    run,
+    label,
+    'Archived rollback Compose data bind resolution',
+    archivedComposeAuthorities,
+  )
+  assertProductionAuthorityBoundary(
+    run,
+    label,
+    'Archived Docker Compose validation',
+    archivedComposeAuthorities,
+  )
+  assertProductionAuthorityBoundary(run, label, 'Rollback image archive load', ['Archived Docker images'])
+  if (options.bindSource !== false) {
+    assertProductionAuthorityBoundary(
+      run,
+      label,
+      'Compensation data bind source copy',
+      ['Archived data bind source'],
+    )
+  }
+  if (options.rollbackRestore) {
+    assertProductionAuthorityBoundary(
+      run,
+      label,
+      'Rollback data restore',
+      ['Rollback data backup', 'Archived runtime config'],
+    )
+  }
+  if (options.rollbackStartup) {
+    assertProductionAuthorityBoundary(
+      run,
+      label,
+      'Rollback Compose data bind resolution',
+      archivedComposeAuthorities,
+    )
+    assertProductionAuthorityBoundary(run, label, 'Rollback container startup', archivedComposeAuthorities)
+  }
+  if (options.rollbackBackendLookup) {
+    assertProductionAuthorityBoundary(
+      run,
+      label,
+      'Rollback backend container lookup',
+      archivedComposeAuthorities,
+    )
+  }
+  if (options.failedRollbackShutdown) {
+    assertProductionAuthorityBoundary(run, label, 'Failed rollback shutdown', archivedComposeAuthorities)
+  }
+}
+
+function findDockerToolAfter(run, startIndex, predicate, message) {
+  const index = run.events.findIndex((entry, eventIndex) =>
+    eventIndex > startIndex && entry.event === 'tool:docker' && predicate(entry.args))
+  assert.notEqual(index, -1, message)
+  return index
+}
+
+function assertAutomaticRecoveryCompleted(run, label, recoveryLabel, backendLabel) {
+  const recoveryIndex = run.eventNames.lastIndexOf(recoveryLabel)
+  assert.notEqual(recoveryIndex, -1, label + ' did not reach ' + recoveryLabel)
+  const upProbeIndex = run.eventNames.indexOf('authority-ok:invoke:' + recoveryLabel, recoveryIndex)
+  assert.ok(upProbeIndex > recoveryIndex, label + ' did not pass the recovery compose-up authority probe')
+  const upToolIndex = findDockerToolAfter(
+    run,
+    upProbeIndex,
+    (args) => Array.isArray(args) && args.includes('compose') && args.includes('up'),
+    label + ' did not execute recovery compose up',
+  )
+
+  const lookupLabel = backendLabel + ' container lookup'
+  const lookupProbeIndex = run.eventNames.indexOf('authority-ok:invoke:' + lookupLabel, upToolIndex)
+  assert.ok(lookupProbeIndex > upToolIndex, label + ' did not probe the recovered backend lookup')
+  const lookupToolIndex = findDockerToolAfter(
+    run,
+    lookupProbeIndex,
+    (args) => Array.isArray(args) && args.includes('compose') && args.includes('ps') && args.includes('backend'),
+    label + ' did not execute the recovered backend lookup',
+  )
+
+  const mountProbeIndex = run.eventNames.indexOf('authority-ok:invoke:/app/data mount capture', lookupToolIndex)
+  assert.ok(mountProbeIndex > lookupToolIndex, label + ' did not probe recovered bind inspection')
+  const mountToolIndex = findDockerToolAfter(
+    run,
+    mountProbeIndex,
+    (args) => Array.isArray(args) && args[0] === 'inspect' && args.includes('{{json .Mounts}}'),
+    label + ' did not inspect the recovered data bind',
+  )
+
+  const rootVerifiedIndex = run.eventNames.indexOf('root-ok:' + backendLabel + ' data root', mountToolIndex)
+  assert.ok(rootVerifiedIndex > mountToolIndex, label + ' did not verify the recovered data root')
+  const healthIndex = run.eventNames.indexOf('health:' + recoveryLabel, rootVerifiedIndex)
+  assert.ok(healthIndex > rootVerifiedIndex, label + ' did not run post-verification health')
+  const completionIndex = run.eventNames.indexOf('recovery-complete:' + recoveryLabel, healthIndex)
+  assert.ok(completionIndex > healthIndex, label + ' did not record completed automatic recovery')
+  assert.equal(
+    run.eventNames.includes('Preparation compensation failure shutdown'),
+    false,
+    label + ' entered preparation terminal shutdown after successful recovery',
+  )
+  assert.equal(
+    run.eventNames.includes('Compensation failure shutdown'),
+    false,
+    label + ' entered compensation terminal shutdown after successful recovery',
+  )
+}
+
 test('rollback restore final-authority oracle rejects bypassed probes and missing commands', () => {
   const dockerUp = (args) => Array.isArray(args) && args.includes('up')
   const missingProbe = {
@@ -3346,6 +3566,115 @@ test('rollback restore final-authority oracle rejects bypassed probes and missin
     () => assertFinalAuthorityProbe(missingCommand, 'oracle/missing-command', 'Rollback container startup', dockerUp),
     /did not execute the final fake command/,
   )
+})
+
+test('rollback restore real-authority oracle rejects a suppressed production assertion', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Restore authority instrumentation requires Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'restore authority oracle must run under Node 20')
+  const { runScenario } = createRollbackRestoreHarness(t)
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, () => {
+      const baseline = runScenario(host, 'real-authority-oracle-baseline')
+      assert.equal(baseline.result.status, 0, baseline.result.stderr || baseline.result.stdout)
+      assertProductionAuthorityEventOrder(baseline, `${host.name}/real-authority-oracle-baseline`)
+      assertProductionAuthorityBoundary(
+        baseline,
+        `${host.name}/real-authority-oracle-baseline`,
+        'Rollback image archive load',
+        ['Archived Docker images'],
+      )
+
+      const mutation = runScenario(host, 'real-authority-oracle-mutation', {
+        suppressAuthorityLabel: 'Archived Docker images',
+      })
+      assert.equal(mutation.result.status, 0, mutation.result.stderr || mutation.result.stdout)
+      assert.throws(
+        () => assertProductionAuthorityBoundary(
+          mutation,
+          `${host.name}/real-authority-oracle-mutation`,
+          'Rollback image archive load',
+          ['Archived Docker images'],
+        ),
+        /asserted the wrong authorities|did not record production authorities/,
+      )
+    })
+  }
+})
+
+test('rollback restore recovery-completion oracle rejects post-up verification failure', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Restore recovery completion requires Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'restore recovery oracle must run under Node 20')
+  const { runScenario } = createRollbackRestoreHarness(t)
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, () => {
+      const baseline = runScenario(host, 'recovery-completion-oracle-baseline', {
+        runtimeScenario: 'shutdown_failure',
+      })
+      assert.notEqual(baseline.result.status, 0)
+      assertAutomaticRecoveryCompleted(
+        baseline,
+        `${host.name}/recovery-completion-oracle-baseline`,
+        'Preparation forward deployment recovery',
+        'Preparation forward backend',
+      )
+
+      const mutation = runScenario(host, 'recovery-completion-oracle-mutation', {
+        runtimeScenario: 'shutdown_failure',
+        failAfterRecoveryUp: true,
+      })
+      assert.notEqual(mutation.result.status, 0)
+      assert.ok(mutation.eventNames.includes('injected-post-up-verification-failure'))
+      assert.throws(
+        () => assertAutomaticRecoveryCompleted(
+          mutation,
+          `${host.name}/recovery-completion-oracle-mutation`,
+          'Preparation forward deployment recovery',
+          'Preparation forward backend',
+        ),
+        /did not probe the recovered backend lookup|did not execute the recovered backend lookup|did not record completed automatic recovery/,
+      )
+    })
+  }
+})
+
+test('rollback restore archived-down oracle rejects missing exact-byte success events', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Restore archived shutdown consumers require Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'restore archived-down oracle must run under Node 20')
+  const { runScenario } = createRollbackRestoreHarness(t)
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, () => {
+      const baseline = runScenario(host, 'archived-down-oracle-baseline', {
+        runtimeScenario: 'startup_failure',
+      })
+      assert.notEqual(baseline.result.status, 0)
+      assertRestoreConsumerEvents(baseline, `${host.name}/archived-down-oracle-baseline`, [
+        'consumer:compose:down',
+        'consumer:config:docker-compose:down',
+      ])
+
+      const mutation = runScenario(host, 'archived-down-oracle-mutation', {
+        runtimeScenario: 'startup_failure',
+        fakeMode: 'archived-down-compose-bytes-mismatch',
+      })
+      assert.notEqual(mutation.result.status, 0)
+      assert.throws(
+        () => assertRestoreConsumerEvents(mutation, `${host.name}/archived-down-oracle-mutation`, [
+          'consumer:compose:down',
+          'consumer:config:docker-compose:down',
+        ]),
+        /did not prove consumer:compose:down/,
+      )
+    })
+  }
 })
 
 test('rollback restore fake toolchain keeps evidence locks through success and compensation paths', async (t) => {
@@ -3468,6 +3797,12 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     const success = runScenario(host, 'success')
     assert.equal(success.result.status, 0, success.result.stderr || success.result.stdout)
     assertRestoreAuthorityProbeCoverage(success, `${host.name}/success`)
+    assertProductionAuthorityEventOrder(success, `${host.name}/success`)
+    assertCheckpointPreparationAuthorityBoundaries(success, `${host.name}/success`, {
+      rollbackRestore: true,
+      rollbackStartup: true,
+      rollbackBackendLookup: true,
+    })
     const successIndex = (name) => success.eventNames.indexOf(name)
     assert.ok(successIndex('binding accepted') < successIndex('Push'))
     assert.ok(successIndex('Push') < successIndex('Rollback image archive load'))
@@ -3491,6 +3826,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     const shutdownFailure = runScenario(host, 'shutdown_failure')
     assert.notEqual(shutdownFailure.result.status, 0)
     assertRestoreAuthorityProbeCoverage(shutdownFailure, `${host.name}/shutdown_failure`)
+    assertCheckpointPreparationAuthorityBoundaries(shutdownFailure, `${host.name}/shutdown_failure`)
     assert.ok(shutdownFailure.eventNames.indexOf('Current Docker shutdown') < shutdownFailure.eventNames.indexOf('Failed rollback preparation shutdown'))
     assert.ok(shutdownFailure.eventNames.includes('Preparation forward deployment recovery'))
     assertRestoreConsumerEvents(shutdownFailure, `${host.name}/shutdown_failure`, preRestoreConsumers)
@@ -3501,22 +3837,51 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
       'Preparation forward deployment recovery',
       composeCommand('up'),
     )
+    assertAutomaticRecoveryCompleted(
+      shutdownFailure,
+      `${host.name}/shutdown_failure`,
+      'Preparation forward deployment recovery',
+      'Preparation forward backend',
+    )
 
     const restoreFailure = runScenario(host, 'restore_failure')
     assert.notEqual(restoreFailure.result.status, 0)
+    assertRestoreAuthorityProbeCoverage(restoreFailure, `${host.name}/restore_failure`)
+    assertCheckpointPreparationAuthorityBoundaries(restoreFailure, `${host.name}/restore_failure`, {
+      rollbackRestore: true,
+    })
     assert.ok(restoreFailure.eventNames.includes('hash:Preparation compensation data backup'))
     assert.ok(restoreFailure.eventNames.includes('Preparation compensation data restore'))
     assert.ok(restoreFailure.eventNames.includes('Preparation forward deployment recovery'))
+    assertAutomaticRecoveryCompleted(
+      restoreFailure,
+      `${host.name}/restore_failure`,
+      'Preparation forward deployment recovery',
+      'Preparation forward backend',
+    )
 
     const identityFailure = runScenario(host, 'identity_after_mutation')
     assert.notEqual(identityFailure.result.status, 0)
+    assertRestoreAuthorityProbeCoverage(identityFailure, `${host.name}/identity_after_mutation`)
+    assertCheckpointPreparationAuthorityBoundaries(identityFailure, `${host.name}/identity_after_mutation`)
     assert.ok(identityFailure.eventNames.includes('identity failure after mutation'))
     assert.ok(identityFailure.eventNames.includes('Preparation compensation data restore'))
     assert.ok(identityFailure.eventNames.includes('Preparation forward deployment recovery'))
+    assertAutomaticRecoveryCompleted(
+      identityFailure,
+      `${host.name}/identity_after_mutation`,
+      'Preparation forward deployment recovery',
+      'Preparation forward backend',
+    )
 
     const startupFailure = runScenario(host, 'startup_failure')
     assert.notEqual(startupFailure.result.status, 0)
     assertRestoreAuthorityProbeCoverage(startupFailure, `${host.name}/startup_failure`)
+    assertCheckpointPreparationAuthorityBoundaries(startupFailure, `${host.name}/startup_failure`, {
+      rollbackRestore: true,
+      rollbackStartup: true,
+      failedRollbackShutdown: true,
+    })
     assert.ok(startupFailure.eventNames.includes('Failed rollback shutdown'))
     assert.ok(startupFailure.eventNames.includes('hash:Compensation data backup'))
     assert.ok(startupFailure.eventNames.includes('Compensation data restore'))
@@ -3525,6 +3890,8 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
       ...preRestoreConsumers,
       ...rollbackRestoreConsumers,
       'consumer:compensation-data-restore',
+      'consumer:compose:down',
+      'consumer:config:docker-compose:down',
     ])
     assertInjectedAuthorityBoundary(startupFailure, `${host.name}/startup_failure`, 'Rollback container startup')
     assertFinalAuthorityProbe(
@@ -3533,10 +3900,21 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
       'Forward deployment recovery',
       composeCommand('up'),
     )
+    assertAutomaticRecoveryCompleted(
+      startupFailure,
+      `${host.name}/startup_failure`,
+      'Forward deployment recovery',
+      'Forward backend',
+    )
 
     const terminalFailure = runScenario(host, 'terminal_failure')
     assert.notEqual(terminalFailure.result.status, 0)
     assertRestoreAuthorityProbeCoverage(terminalFailure, `${host.name}/terminal_failure`)
+    assertCheckpointPreparationAuthorityBoundaries(terminalFailure, `${host.name}/terminal_failure`, {
+      rollbackRestore: true,
+      rollbackStartup: true,
+      failedRollbackShutdown: true,
+    })
     assert.ok(terminalFailure.eventNames.includes('Forward deployment recovery'))
     assert.ok(terminalFailure.eventNames.includes('Compensation failure shutdown'))
     assert.ok(terminalFailure.eventNames.includes('locks:Compensation failure shutdown'))
@@ -3544,6 +3922,8 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
       ...preRestoreConsumers,
       ...rollbackRestoreConsumers,
       'consumer:compensation-data-restore',
+      'consumer:compose:down',
+      'consumer:config:docker-compose:down',
     ])
     assertInjectedAuthorityBoundary(terminalFailure, `${host.name}/terminal_failure`, 'Rollback container startup')
     assertInjectedAuthorityBoundary(terminalFailure, `${host.name}/terminal_failure`, 'Forward deployment recovery')
@@ -3552,6 +3932,11 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
       `${host.name}/terminal_failure`,
       'Compensation failure shutdown',
       composeCommand('down'),
+    )
+    assert.equal(
+      terminalFailure.eventNames.some((event) => event.startsWith('recovery-complete:')),
+      false,
+      `${host.name}/terminal_failure reported false recovery completion`,
     )
 
     const cleanupFailure = runScenario(host, 'cleanup_failure', {

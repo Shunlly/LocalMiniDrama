@@ -236,13 +236,6 @@ function Publish-Utf8FileAtomically {
       [void]$cleanupErrors.Add($_)
     }
     try {
-      if ($null -ne $primaryError -and (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
-        Remove-Item -LiteralPath $metadataPath -Force
-      }
-    } catch {
-      [void]$cleanupErrors.Add($_)
-    }
-    try {
       if (Test-Path -LiteralPath $metadataTemporaryPath) {
         Remove-Item -LiteralPath $metadataTemporaryPath -Force
       }
@@ -673,14 +666,6 @@ try {
     Write-Output 'Provider credentials were excluded from the archived runtime config and must be configured and tested again after restore.'
   } catch {
     $checkpointError = $_
-    $metadataAuthorityPath = Join-Path $checkpoint 'metadata.json'
-    try {
-      if (Test-Path -LiteralPath $metadataAuthorityPath -PathType Leaf) {
-        Remove-Item -LiteralPath $metadataAuthorityPath -Force
-      }
-    } catch {
-      [void]$cleanupErrors.Add($_)
-    }
     if ($dockerStopped) {
       try {
         Start-CapturedDeployment -Backend $backend -Frontend $frontend -Revision $commit -ConfigDirectory $runtimeConfigDirectory -ConfigPath $runtimeConfigSource -DataDirectory $runtimeDataDirectory -CheckpointDirectory $checkpoint

@@ -140,6 +140,44 @@ namespace. Restore failed before the evidence gate because baseline production
 did not retain the required checkpoint file authorities. The temporary
 worktree and generated patch were removed after replay.
 
+## Second Review-Fix Evidence Added 2026-07-22
+
+Base commit: `24f731109318fe05bcbab3c5074946ba39e7d5ab`.
+
+Second-round review established that a failed atomic move never owns a
+pre-existing final `metadata.json` path. The atomic publisher and checkpoint
+failure handler no longer attempt final-path deletion. Only the invocation's
+GUID-named temporary file is cleaned after publication failure. Both unlocked
+and held conflicts retain their exact original bytes, the original publication
+`ErrorRecord` remains primary, deployment recovery still runs, and no cleanup
+error is fabricated for an unowned path.
+
+The restore behavior harness now calls the real
+`Assert-RollbackFileAuthority` before recording its label and order. It
+snapshots the exact asserted authority set at each checkpoint-file consumer,
+while retaining the independent Windows sharing probe. Mutation scenarios
+prove a missing production assertion, incomplete post-`up` recovery, and
+failed archived-down exact-byte validation cannot satisfy the harness.
+
+Focused RED was recorded under Windows PowerShell 5.1 and PowerShell 7 for
+each of the following patterns. Each exited `1` with 100 total, 0 passed, 3
+failed, and 97 skipped:
+
+- `release rollback checkpoint fake toolchain`
+- `rollback restore real-authority oracle`
+- `rollback restore recovery-completion oracle`
+- `rollback restore archived-down oracle`
+
+After implementation, each pattern exited `0` with 100 total, 3 passed, 0
+failed, and 97 skipped. The complete `rollback restore fake toolchain` pattern
+also exited `0` with 100 total, 3 passed, 0 failed, and 97 skipped, covering
+successful recovery through backend lookup, mount inspection, data-root
+verification, and health on every automatic-recovery branch.
+
+One final full release contract ran serially after all source and test fixes,
+with no overlapping release-contract process. It exited `0`: 114 passed, 0
+failed, and 0 skipped.
+
 ## Self-Review
 
 No unresolved correctness or security findings remain in the allowed Task 1
