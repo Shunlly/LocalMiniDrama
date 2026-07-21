@@ -1,12 +1,11 @@
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)]
-  [ValidateNotNullOrEmpty()]
   [string]$CheckpointDirectory
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'rollback-path-identity.ps1')
 
 function Invoke-Checked {
   param(
@@ -205,6 +204,136 @@ function Write-Utf8File {
   [System.IO.File]::WriteAllText($Path, $Value, [System.Text.UTF8Encoding]::new($false))
 }
 
+function Publish-Utf8FileAtomically {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Value
+  )
+  $directory = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($Path))
+  $metadataPath = [System.IO.Path]::GetFullPath($Path)
+  $metadataTemporaryPath = Join-Path $directory ('.metadata.{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
+  $stream = $null
+  try {
+    $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Value)
+    $stream = [System.IO.FileStream]::new(
+      $metadataTemporaryPath,
+      [System.IO.FileMode]::CreateNew,
+      [System.IO.FileAccess]::Write,
+      [System.IO.FileShare]::None
+    )
+    $stream.Write($bytes, 0, $bytes.Length)
+    $stream.Flush($true)
+    $stream.Dispose()
+    $stream = $null
+    [System.IO.File]::Move($metadataTemporaryPath, $metadataPath)
+  } catch {
+    $publishError = $_
+    if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
+      Remove-Item -LiteralPath $metadataPath -Force
+    }
+    throw $publishError
+  } finally {
+    if ($null -ne $stream) { $stream.Dispose() }
+    if (Test-Path -LiteralPath $metadataTemporaryPath) {
+      Remove-Item -LiteralPath $metadataTemporaryPath -Force
+    }
+  }
+}
+
+function Get-CheckpointEvidenceProperty {
+  param(
+    [Parameter(Mandatory = $true)][object]$Object,
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$Context
+  )
+  if ($null -eq $Object) { throw "$Context is missing." }
+  $property = $Object.PSObject.Properties[$Name]
+  if ($null -eq $property) { throw "$Context.$Name is required." }
+  return $property.Value
+}
+
+function Assert-CheckpointDrillEvidence {
+  param(
+    [Parameter(Mandatory = $true)][object]$Summary,
+    [Parameter(Mandatory = $true)][object]$ExpectedCommit,
+    [Parameter(Mandatory = $true)][object]$ExpectedVersion,
+    [Parameter(Mandatory = $true)][object]$ExpectedBackupHash,
+    [Parameter(Mandatory = $true)][object]$ActualBackupHash,
+    [Parameter(Mandatory = $true)][object]$ExpectedDataRootIdentity,
+    [Parameter(Mandatory = $true)][object]$ActualDataRootIdentity
+  )
+  $schema = Get-CheckpointEvidenceProperty -Object $Summary -Name 'schema' -Context 'summary'
+  $status = Get-CheckpointEvidenceProperty -Object $Summary -Name 'status' -Context 'summary'
+  $inputMode = Get-CheckpointEvidenceProperty -Object $Summary -Name 'input_mode' -Context 'summary'
+  $source = Get-CheckpointEvidenceProperty -Object $Summary -Name 'source' -Context 'summary'
+  $backup = Get-CheckpointEvidenceProperty -Object $Summary -Name 'backup' -Context 'summary'
+  $operations = Get-CheckpointEvidenceProperty -Object $Summary -Name 'operations' -Context 'summary'
+
+  if ($schema -isnot [string] -or $schema -cne 'localminidrama.rollback-drill.v3') {
+    throw 'Rollback drill schema must be the exact v3 schema.'
+  }
+  if ($status -isnot [string] -or $status -cne 'passed') {
+    throw 'Rollback drill status must be the exact string passed.'
+  }
+  if ($inputMode -isnot [string] -or $inputMode -cne 'checkpoint-bound') {
+    throw 'Rollback drill input mode must be checkpoint-bound.'
+  }
+
+  $sourceCommit = Get-CheckpointEvidenceProperty -Object $source -Name 'commit' -Context 'summary.source'
+  $sourceVersion = Get-CheckpointEvidenceProperty -Object $source -Name 'version' -Context 'summary.source'
+  $workingTreeDirty = Get-CheckpointEvidenceProperty -Object $source -Name 'working_tree_dirty' -Context 'summary.source'
+  $dataRootHash = Get-CheckpointEvidenceProperty -Object $source -Name 'data_root_sha256' -Context 'summary.source'
+  if ($ExpectedCommit -isnot [string] -or $ExpectedCommit -cnotmatch '^[a-f0-9]{40}$' -or
+      $sourceCommit -isnot [string] -or $sourceCommit -cnotmatch '^[a-f0-9]{40}$' -or
+      $sourceCommit -cne $ExpectedCommit) {
+    throw 'Rollback drill commit does not match the captured commit.'
+  }
+  $versionPattern = '^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$'
+  if ($ExpectedVersion -isnot [string] -or $ExpectedVersion -cnotmatch $versionPattern -or
+      $sourceVersion -isnot [string] -or $sourceVersion -cnotmatch $versionPattern -or
+      $sourceVersion -cne $ExpectedVersion) {
+    throw 'Rollback drill version does not match the captured version.'
+  }
+  if ($workingTreeDirty -isnot [bool] -or $workingTreeDirty -ne $false) {
+    throw 'Rollback drill working tree evidence must be boolean false.'
+  }
+  if ($dataRootHash -isnot [string] -or $dataRootHash -cnotmatch '^[a-f0-9]{64}$') {
+    throw 'Rollback drill data root digest must be lowercase SHA-256.'
+  }
+
+  $archiveRetained = Get-CheckpointEvidenceProperty -Object $backup -Name 'archive_retained' -Context 'summary.backup'
+  $summaryBackupHash = Get-CheckpointEvidenceProperty -Object $backup -Name 'archive_sha256' -Context 'summary.backup'
+  if ($archiveRetained -isnot [bool] -or $archiveRetained -ne $true) {
+    throw 'Rollback drill archive retention evidence must be boolean true.'
+  }
+  foreach ($hash in @($summaryBackupHash, $ExpectedBackupHash, $ActualBackupHash)) {
+    if ($hash -isnot [string] -or $hash -cnotmatch '^[a-f0-9]{64}$') {
+      throw 'Rollback archive digests must be lowercase SHA-256.'
+    }
+  }
+  if ($summaryBackupHash -cne $ExpectedBackupHash -or $summaryBackupHash -cne $ActualBackupHash) {
+    throw 'Rollback drill, captured, and current archive digests must match.'
+  }
+
+  $sourceDataRootUnchanged = Get-CheckpointEvidenceProperty -Object $operations -Name 'source_data_root_unchanged' -Context 'summary.operations'
+  if ($sourceDataRootUnchanged -isnot [bool] -or $sourceDataRootUnchanged -ne $true) {
+    throw 'Rollback drill root retention evidence must be boolean true.'
+  }
+  foreach ($identity in @($ExpectedDataRootIdentity, $ActualDataRootIdentity)) {
+    if ($identity -isnot [string] -or $identity -cnotmatch '^[a-f0-9]{8}:[a-f0-9]{16}$') {
+      throw 'Rollback data root identities must use the native lowercase identity format.'
+    }
+  }
+  if ($ExpectedDataRootIdentity -cne $ActualDataRootIdentity) {
+    throw 'Rollback data root identity changed during checkpoint creation.'
+  }
+
+  return [pscustomobject][ordered]@{
+    data_root_sha256 = $dataRootHash
+    data_root_identity = $ExpectedDataRootIdentity
+  }
+}
+
 function Set-RuntimeConfigEnvironment {
   param(
     [Parameter(Mandatory = $true)][string]$ConfigDirectory,
@@ -366,6 +495,10 @@ function Start-CapturedDeployment {
   Assert-RunningBackendDataSource -ExpectedDataDirectory $DataDirectory
 }
 
+function Invoke-ReleaseRollbackCheckpoint {
+param([Parameter(Mandatory = $true)][string]$CheckpointDirectory)
+$directoryLock = $null
+$archiveLock = $null
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $checkpoint = Get-NormalizedPath -Path $CheckpointDirectory
 Assert-NoReparsePathComponents -Path $checkpoint -Label 'Rollback checkpoint' | Out-Null
@@ -382,6 +515,10 @@ try {
   }
   $commit = (Get-CheckedScalar -FilePath 'git' -ArgumentList @('rev-parse', 'HEAD') -Label 'Commit capture').ToLowerInvariant()
   if ($commit -notmatch '^[a-f0-9]{40}$') { throw 'Git did not return a full commit SHA.' }
+  $version = Get-CheckedScalar -FilePath 'node' -ArgumentList @('-p', "require('./backend-node/package.json').version") -Label 'Version capture'
+  if ($version -cnotmatch '^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$') {
+    throw 'Version capture did not return a valid release version.'
+  }
 
   $env:LOCALMINIDRAMA_BUILD_REVISION = $commit
   Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'config', '--quiet') -Label 'Docker Compose validation' | Out-Null
@@ -389,6 +526,9 @@ try {
   $frontend = Get-RunningServiceEvidence -Service 'frontend' -ExpectedRevision $commit
   $runtimeDataDirectory = Get-ContainerBindSource -ContainerId $backend.container_id -Destination '/app/data' -RequireReadWrite
   Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $runtimeDataDirectory -CheckpointMayNotExist
+  $directoryLock = Open-RollbackDirectoryIdentityLock -Path $runtimeDataDirectory
+  $capturedDataRootIdentity = Get-RollbackPathIdentity -Handle $directoryLock
+  Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Captured rollback data root' | Out-Null
   Set-DataSourceEnvironment -DataDirectory $runtimeDataDirectory
   $runtimeConfigDirectory = Get-ContainerBindSource -ContainerId $backend.container_id -Destination '/app/config-source'
   $runtimeConfigSource = Join-Path $runtimeConfigDirectory 'config.yaml'
@@ -429,31 +569,47 @@ try {
     $dockerStopped = $true
     Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $runtimeDataDirectory
     Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Docker shutdown' | Out-Null
+    Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root after shutdown' | Out-Null
 
     $backupPath = Join-Path $checkpoint 'data.zip'
     Set-RuntimeConfigEnvironment -ConfigDirectory $runtimeConfigDirectory -ConfigPath $runtimeConfigSource
     Set-DataSourceEnvironment -DataDirectory $runtimeDataDirectory
     Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $runtimeDataDirectory
+    Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root before backup' | Out-Null
     Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'backup:data', '--', '--output', $backupPath, '--data-root', $runtimeDataDirectory) -Label 'Data backup' | Out-Null
+    $archiveLock = Open-RollbackArchiveReadLock -Path $backupPath
+    $capturedArchiveIdentity = Get-RollbackPathIdentity -Handle $archiveLock.SafeFileHandle
+    Assert-RollbackPathIdentity -Path $backupPath -ExpectedIdentity $capturedArchiveIdentity -Label 'Rollback archive after backup' | Out-Null
+    Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root after backup' | Out-Null
     $backupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant()
     Write-Utf8File -Path (Join-Path $checkpoint 'data.sha256.txt') -Value "$backupHash`n"
 
-    Invoke-Checked -FilePath 'npm' -ArgumentList @('run', 'verify:rollback') -Label 'Rollback drill' | Out-Null
+    Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root before drill' | Out-Null
+    Invoke-Checked -FilePath 'npm' -ArgumentList @(
+      'run', 'verify:rollback', '--',
+      '--archive', $backupPath,
+      '--data-root', $runtimeDataDirectory
+    ) -Label 'Rollback drill' | Out-Null
+    Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root after drill' | Out-Null
+    Assert-RollbackPathIdentity -Path $backupPath -ExpectedIdentity $capturedArchiveIdentity -Label 'Rollback archive after drill' | Out-Null
+    $actualBackupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $summaryPath = Join-Path $repoRoot 'artifacts\rollback-drill\summary.json'
-    $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
-    if ($summary.schema -ne 'localminidrama.rollback-drill.v2' -or
-        $summary.status -ne 'passed' -or
-        $summary.source.commit -ne $commit -or
-        $summary.source.working_tree_dirty -ne $false) {
-      throw 'Rollback drill evidence is not a clean v2 PASS for the captured commit.'
-    }
+    $summaryJson = Get-Content -LiteralPath $summaryPath -Raw
+    $summary = $summaryJson | ConvertFrom-Json
+    $actualDataRootIdentity = Get-RollbackPathIdentity -Path $runtimeDataDirectory
+    $validatedEvidence = Assert-CheckpointDrillEvidence -Summary $summary -ExpectedCommit $commit -ExpectedVersion $version -ExpectedBackupHash $backupHash -ActualBackupHash $actualBackupHash -ExpectedDataRootIdentity $capturedDataRootIdentity -ActualDataRootIdentity $actualDataRootIdentity
     $summaryArchive = Join-Path $checkpoint 'rollback-drill-summary.json'
-    Copy-Item -LiteralPath $summaryPath -Destination $summaryArchive
+    Write-Utf8File -Path $summaryArchive -Value $summaryJson
     $summaryHash = (Get-FileHash -LiteralPath $summaryArchive -Algorithm SHA256).Hash.ToLowerInvariant()
 
-    $version = Get-CheckedScalar -FilePath 'node' -ArgumentList @('-p', "require('./backend-node/package.json').version") -Label 'Version capture'
+    Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root before metadata publication' | Out-Null
+    Assert-RollbackPathIdentity -Path $backupPath -ExpectedIdentity $capturedArchiveIdentity -Label 'Rollback archive before metadata publication' | Out-Null
+    $publishedBackupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($publishedBackupHash -cne $backupHash -or $publishedBackupHash -cne $actualBackupHash) {
+      throw 'Rollback archive changed before metadata publication.'
+    }
     $metadata = [ordered]@{
-      schema = 'localminidrama.release-rollback-checkpoint.v4'
+      schema = 'localminidrama.release-rollback-checkpoint.v5'
       created_at = [DateTime]::UtcNow.ToString('o')
       version = $version
       previous_commit = $commit
@@ -479,12 +635,18 @@ try {
       image_archive_sha256 = $imageArchiveHash
       rollback_evidence_file = 'rollback-drill-summary.json'
       rollback_evidence_sha256 = $summaryHash
+      data_root_sha256 = $validatedEvidence.data_root_sha256
+      data_root_identity = $validatedEvidence.data_root_identity
     }
-    Write-Utf8File -Path (Join-Path $checkpoint 'metadata.json') -Value "$(ConvertTo-Json $metadata -Depth 6)`n"
+    Publish-Utf8FileAtomically -Path (Join-Path $checkpoint 'metadata.json') -Value "$(ConvertTo-Json $metadata -Depth 6)`n"
     Write-Output "Rollback checkpoint ready: $checkpoint"
     Write-Output 'Provider credentials were excluded from the archived runtime config and must be configured and tested again after restore.'
   } catch {
     $checkpointError = $_
+    $metadataAuthorityPath = Join-Path $checkpoint 'metadata.json'
+    if (Test-Path -LiteralPath $metadataAuthorityPath -PathType Leaf) {
+      Remove-Item -LiteralPath $metadataAuthorityPath -Force
+    }
     if ($dockerStopped) {
       try {
         Start-CapturedDeployment -Backend $backend -Frontend $frontend -Revision $commit -ConfigDirectory $runtimeConfigDirectory -ConfigPath $runtimeConfigSource -DataDirectory $runtimeDataDirectory -CheckpointDirectory $checkpoint
@@ -495,7 +657,17 @@ try {
     throw $checkpointError
   }
 } finally {
+  if ($null -ne $archiveLock) { $archiveLock.Dispose() }
+  if ($null -ne $directoryLock) { $directoryLock.Dispose() }
   Clear-DataSourceEnvironment
   Clear-RuntimeConfigEnvironment
   Pop-Location
+}
+}
+
+if ($MyInvocation.InvocationName -ne '.') {
+  if ([string]::IsNullOrWhiteSpace($CheckpointDirectory)) {
+    throw 'CheckpointDirectory is required.'
+  }
+  Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $CheckpointDirectory
 }

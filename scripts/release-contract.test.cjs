@@ -44,6 +44,8 @@ const { getTrustedMediaToolRelease } = require('../desktop/scripts/media-tool-po
 const { FUSE_POLICY } = require('../desktop/scripts/electron-fuses')
 
 const root = path.resolve(__dirname, '..')
+const checkpointScriptPath = path.join(root, 'scripts', 'create-release-rollback-checkpoint.ps1')
+const rollbackIdentityScriptPath = path.join(root, 'scripts', 'rollback-path-identity.ps1')
 const backendRequire = createRequire(path.join(root, 'backend-node', 'package.json'))
 const { parse: parseToml } = backendRequire('smol-toml')
 const { load: parseYaml } = backendRequire('js-yaml')
@@ -98,12 +100,55 @@ function powerShellLiteral(value) {
   return `'${String(value).replaceAll("'", "''")}'`
 }
 
+function findPowerShell(command) {
+  const result = spawnSync('where.exe', [command], {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  if (result.status !== 0) return null
+  return String(result.stdout).split(/\r?\n/).find(Boolean) || null
+}
+
+function runPowerShellStatements(statements, { executable } = {}) {
+  const shell = executable || (process.platform === 'win32' ? 'powershell.exe' : 'pwsh')
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-ps-probe-'))
+  const probePath = path.join(fixtureRoot, 'probe.ps1')
+  fs.writeFileSync(probePath, `$ErrorActionPreference = 'Stop'\n${statements}\n`, 'utf8')
+  try {
+    return spawnSync(shell, [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      probePath,
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+      windowsHide: true,
+    })
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  }
+}
+
+function assertPowerShellStatements(statements, options) {
+  const result = runPowerShellStatements(statements, options)
+  assert.equal(result.status, 0, result.stderr || result.stdout || result.error?.message)
+  return result
+}
+
 function runRollbackPathProbe(scriptSource, statements) {
-  const mainStart = scriptSource.indexOf('$repoRoot =')
-  assert.ok(mainStart > 0, 'rollback script main entrypoint is missing')
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-path-probe-'))
   const probePath = path.join(fixtureRoot, 'probe.ps1')
-  fs.writeFileSync(probePath, `${scriptSource.slice(0, mainStart)}\n${statements}\n`, 'utf8')
+  if (scriptSource === checkpointScript) {
+    fs.writeFileSync(probePath, `. ${powerShellLiteral(checkpointScriptPath)}\n${statements}\n`, 'utf8')
+  } else {
+    const mainStart = scriptSource.indexOf('$repoRoot =')
+    assert.ok(mainStart > 0, 'rollback script main entrypoint is missing')
+    fs.writeFileSync(probePath, `${scriptSource.slice(0, mainStart)}\n${statements}\n`, 'utf8')
+  }
   try {
     return spawnSync(process.platform === 'win32' ? 'powershell.exe' : 'pwsh', [
       '-NoProfile',
@@ -800,6 +845,557 @@ test('rollback drill evidence rejects a symbolic-link artifact directory', async
   await assert.rejects(prepareEvidenceTarget(fixtureRoot, '1.3.3'), /must not be a symbolic link/)
 })
 
+test('release rollback scripts dot-source without side effects in Windows PowerShell 5.1', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Win32 handle contracts require Windows')
+    return
+  }
+  assertPowerShellStatements(`
+$output = @(& {
+  . ${powerShellLiteral(checkpointScriptPath)}
+  . ${powerShellLiteral(rollbackIdentityScriptPath)}
+  . ${powerShellLiteral(rollbackIdentityScriptPath)}
+  Get-Command Assert-CheckpointDrillEvidence -ErrorAction Stop | Out-Null
+  Get-Command Get-RollbackPathIdentity -ErrorAction Stop | Out-Null
+  Get-Command Assert-RollbackPathIdentity -ErrorAction Stop | Out-Null
+  Get-Command Open-RollbackArchiveReadLock -ErrorAction Stop | Out-Null
+  Get-Command Open-RollbackDirectoryIdentityLock -ErrorAction Stop | Out-Null
+})
+if ($output.Count -ne 0) { throw "Dot-source produced incidental output: $($output -join ', ')" }
+`, { executable: 'powershell.exe' })
+  const cli = spawnSync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    checkpointScriptPath,
+  ], { cwd: root, encoding: 'utf8', windowsHide: true })
+  assert.notEqual(cli.status, 0, 'checkpoint CLI must require CheckpointDirectory')
+  assert.match(`${cli.stderr}\n${cli.stdout}`, /CheckpointDirectory is required/)
+})
+
+test('release rollback scripts dot-source without side effects in PowerShell 7', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Win32 handle contracts require Windows')
+    return
+  }
+  const pwsh = findPowerShell('pwsh.exe')
+  if (!pwsh) {
+    t.skip('PowerShell 7 is unavailable on this host')
+    return
+  }
+  assertPowerShellStatements(`
+$output = @(& {
+  . ${powerShellLiteral(checkpointScriptPath)}
+  . ${powerShellLiteral(rollbackIdentityScriptPath)}
+  . ${powerShellLiteral(rollbackIdentityScriptPath)}
+  Get-Command Assert-CheckpointDrillEvidence -ErrorAction Stop | Out-Null
+  Get-Command Get-RollbackPathIdentity -ErrorAction Stop | Out-Null
+})
+if ($output.Count -ne 0) { throw 'Dot-source produced incidental output.' }
+`, { executable: pwsh })
+})
+
+test('release rollback checkpoint evidence validator rejects malformed and unbound v3 summaries', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('PowerShell checkpoint contracts require Windows')
+    return
+  }
+  const statements = `
+. ${powerShellLiteral(checkpointScriptPath)}
+function New-ValidSummary {
+  return @'
+{
+  "schema": "localminidrama.rollback-drill.v3",
+  "status": "passed",
+  "input_mode": "checkpoint-bound",
+  "source": {
+    "commit": "cccccccccccccccccccccccccccccccccccccccc",
+    "version": "1.3.3-rc.1",
+    "working_tree_dirty": false,
+    "data_root_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "backup": {
+    "archive_retained": true,
+    "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "operations": { "source_data_root_unchanged": true }
+}
+'@ | ConvertFrom-Json
+}
+function Assert-Rejected {
+  param([Parameter(Mandatory = $true)][scriptblock]$Mutation)
+  $candidate = New-ValidSummary
+  & $Mutation $candidate
+  $threw = $false
+  try {
+    Assert-CheckpointDrillEvidence -Summary $candidate -ExpectedCommit ('c' * 40) -ExpectedVersion '1.3.3-rc.1' -ExpectedBackupHash ('a' * 64) -ActualBackupHash ('a' * 64) -ExpectedDataRootIdentity '484dc672:011e00000001785a' -ActualDataRootIdentity '484dc672:011e00000001785a' | Out-Null
+  } catch { $threw = $true }
+  if (-not $threw) { throw 'Malformed checkpoint drill evidence was accepted.' }
+}
+$valid = New-ValidSummary
+$result = @(Assert-CheckpointDrillEvidence -Summary $valid -ExpectedCommit ('c' * 40) -ExpectedVersion '1.3.3-rc.1' -ExpectedBackupHash ('a' * 64) -ActualBackupHash ('a' * 64) -ExpectedDataRootIdentity '484dc672:011e00000001785a' -ActualDataRootIdentity '484dc672:011e00000001785a')
+if ($result.Count -ne 1) { throw 'Validator emitted incidental pipeline output.' }
+$names = @($result[0].PSObject.Properties.Name)
+if (($names -join ',') -cne 'data_root_sha256,data_root_identity') { throw "Unexpected validator return properties: $($names -join ',')" }
+if ($result[0].data_root_sha256 -cne ('d' * 64)) { throw 'Validated root digest was not returned.' }
+if ($result[0].data_root_identity -cne '484dc672:011e00000001785a') { throw 'Validated root identity was not returned.' }
+
+$mutations = @(
+  { param($s) $s.PSObject.Properties.Remove('status') },
+  { param($s) $s.status = 'failed' },
+  { param($s) $s.status = 'PASSED' },
+  { param($s) $s.status = $true },
+  { param($s) $s.status = 1 },
+  { param($s) $s.status = $null },
+  { param($s) $s.schema = 'localminidrama.rollback-drill.v2' },
+  { param($s) $s.schema = 'LocalMiniDrama.rollback-drill.v3' },
+  { param($s) $s.input_mode = 'standalone' },
+  { param($s) $s.input_mode = 'Checkpoint-bound' },
+  { param($s) $s.source.working_tree_dirty = $true },
+  { param($s) $s.source.working_tree_dirty = 'false' },
+  { param($s) $s.backup.archive_retained = $false },
+  { param($s) $s.backup.archive_retained = 'true' },
+  { param($s) $s.operations.source_data_root_unchanged = $false },
+  { param($s) $s.operations.source_data_root_unchanged = 'true' },
+  { param($s) $s.backup.archive_sha256 = ('b' * 64) },
+  { param($s) $s.backup.archive_sha256 = ('A' * 64) },
+  { param($s) $s.backup.archive_sha256 = 'short' },
+  { param($s) $s.source.data_root_sha256 = ('D' * 64) },
+  { param($s) $s.source.data_root_sha256 = 'short' },
+  { param($s) $s.source.data_root_sha256 = 7 },
+  { param($s) $s.source.commit = ('b' * 40) },
+  { param($s) $s.source.commit = ('C' * 40) },
+  { param($s) $s.source.version = '1.3.4-rc.1' },
+  { param($s) $s.source.version = '1.3.3-RC.1' }
+)
+foreach ($mutation in $mutations) { Assert-Rejected -Mutation $mutation }
+
+foreach ($expectedHash in @(('b' * 64), ('A' * 64), 'short')) {
+  $candidate = New-ValidSummary
+  $threw = $false
+  try { Assert-CheckpointDrillEvidence -Summary $candidate -ExpectedCommit ('c' * 40) -ExpectedVersion '1.3.3-rc.1' -ExpectedBackupHash $expectedHash -ActualBackupHash ('a' * 64) -ExpectedDataRootIdentity '484dc672:011e00000001785a' -ActualDataRootIdentity '484dc672:011e00000001785a' | Out-Null } catch { $threw = $true }
+  if (-not $threw) { throw 'Malformed or mismatched expected archive hash was accepted.' }
+}
+foreach ($actualHash in @(('b' * 64), ('A' * 64), 'short')) {
+  $candidate = New-ValidSummary
+  $threw = $false
+  try { Assert-CheckpointDrillEvidence -Summary $candidate -ExpectedCommit ('c' * 40) -ExpectedVersion '1.3.3-rc.1' -ExpectedBackupHash ('a' * 64) -ActualBackupHash $actualHash -ExpectedDataRootIdentity '484dc672:011e00000001785a' -ActualDataRootIdentity '484dc672:011e00000001785a' | Out-Null } catch { $threw = $true }
+  if (-not $threw) { throw 'Malformed or mismatched current archive hash was accepted.' }
+}
+foreach ($commitPair in @(
+  @('short', 'short'),
+  @(('C' * 40), ('C' * 40))
+)) {
+  $candidate = New-ValidSummary
+  $candidate.source.commit = $commitPair[1]
+  $threw = $false
+  try { Assert-CheckpointDrillEvidence -Summary $candidate -ExpectedCommit $commitPair[0] -ExpectedVersion '1.3.3-rc.1' -ExpectedBackupHash ('a' * 64) -ActualBackupHash ('a' * 64) -ExpectedDataRootIdentity '484dc672:011e00000001785a' -ActualDataRootIdentity '484dc672:011e00000001785a' | Out-Null } catch { $threw = $true }
+  if (-not $threw) { throw 'Equally malformed captured/source commits were accepted.' }
+}
+foreach ($versionPair in @(
+  @('1.03.3', '1.03.3'),
+  @('v1.3.3', 'v1.3.3'),
+  @('1.3.3+build', '1.3.3+build')
+)) {
+  $candidate = New-ValidSummary
+  $candidate.source.version = $versionPair[1]
+  $threw = $false
+  try { Assert-CheckpointDrillEvidence -Summary $candidate -ExpectedCommit ('c' * 40) -ExpectedVersion $versionPair[0] -ExpectedBackupHash ('a' * 64) -ActualBackupHash ('a' * 64) -ExpectedDataRootIdentity '484dc672:011e00000001785a' -ActualDataRootIdentity '484dc672:011e00000001785a' | Out-Null } catch { $threw = $true }
+  if (-not $threw) { throw 'Equally malformed captured/source versions were accepted.' }
+}
+foreach ($identityPair in @(
+  @('484dc672:011e00000001785a', '484dc672:011e00000001785b'),
+  @('484DC672:011e00000001785a', '484DC672:011e00000001785a'),
+  @('484dc67:011e00000001785a', '484dc67:011e00000001785a'),
+  @('484dc672::011e00000001785a', '484dc672::011e00000001785a'),
+  @(7, 7)
+)) {
+  $candidate = New-ValidSummary
+  $threw = $false
+  try { Assert-CheckpointDrillEvidence -Summary $candidate -ExpectedCommit ('c' * 40) -ExpectedVersion '1.3.3-rc.1' -ExpectedBackupHash ('a' * 64) -ActualBackupHash ('a' * 64) -ExpectedDataRootIdentity $identityPair[0] -ActualDataRootIdentity $identityPair[1] | Out-Null } catch { $threw = $true }
+  if (-not $threw) { throw 'Malformed or changed root identity was accepted.' }
+}
+`
+  assertPowerShellStatements(statements, { executable: 'powershell.exe' })
+})
+
+test('rollback path identity matches Node 20 dev and ino and directory identity lock enforces lifecycle sharing', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Win32 handle contracts require Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'identity oracle must run under Node 20')
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-directory-lock-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const oracleDirectory = path.join(fixtureRoot, 'oracle-directory')
+  const oracleFile = path.join(fixtureRoot, 'oracle-file.bin')
+  fs.mkdirSync(oracleDirectory)
+  fs.writeFileSync(oracleFile, 'oracle')
+  const formatIdentity = (target) => {
+    const stat = fs.statSync(target, { bigint: true })
+    return `${stat.dev.toString(16).padStart(8, '0')}:${stat.ino.toString(16).padStart(16, '0')}`
+  }
+  const statements = `
+. ${powerShellLiteral(rollbackIdentityScriptPath)}
+$directoryIdentity = Get-RollbackPathIdentity -Path ${powerShellLiteral(oracleDirectory)}
+$fileIdentity = Get-RollbackPathIdentity -Path ${powerShellLiteral(oracleFile)}
+if ($directoryIdentity -cne ${powerShellLiteral(formatIdentity(oracleDirectory))}) { throw "Directory identity oracle mismatch: $directoryIdentity" }
+if ($fileIdentity -cne ${powerShellLiteral(formatIdentity(oracleFile))}) { throw "File identity oracle mismatch: $fileIdentity" }
+
+$renameRoot = Join-Path ${powerShellLiteral(fixtureRoot)} 'rename-root'
+$renamedRoot = Join-Path ${powerShellLiteral(fixtureRoot)} 'renamed-root'
+[System.IO.Directory]::CreateDirectory($renameRoot) | Out-Null
+$renameLock = Open-RollbackDirectoryIdentityLock -Path $renameRoot
+try {
+  $retained = Get-RollbackPathIdentity -Handle $renameLock
+  Assert-RollbackPathIdentity -Path $renameRoot -ExpectedIdentity $retained -Label 'rename root' | Out-Null
+  & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral("const fs=require('fs');try{fs.renameSync(process.argv[1],process.argv[2])}catch{process.exit(23)}")} $renameRoot $renamedRoot
+  if ($LASTEXITCODE -ne 23) { throw 'Directory rename was not blocked while locked.' }
+} finally { $renameLock.Dispose() }
+& ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral("require('fs').renameSync(process.argv[1],process.argv[2])")} $renameRoot $renamedRoot
+if ($LASTEXITCODE -ne 0) { throw 'Directory rename positive control failed.' }
+if (-not [System.IO.Directory]::Exists($renamedRoot)) { throw 'Directory rename positive control failed.' }
+
+$deleteRoot = Join-Path ${powerShellLiteral(fixtureRoot)} 'delete-root'
+[System.IO.Directory]::CreateDirectory($deleteRoot) | Out-Null
+$deleteLock = Open-RollbackDirectoryIdentityLock -Path $deleteRoot
+try {
+  & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral("const fs=require('fs');try{fs.rmdirSync(process.argv[1])}catch{process.exit(23)}")} $deleteRoot
+  if ($LASTEXITCODE -ne 23) { throw 'Empty directory delete was not blocked while locked.' }
+} finally { $deleteLock.Dispose() }
+& ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral("require('fs').rmdirSync(process.argv[1])")} $deleteRoot
+if ($LASTEXITCODE -ne 0) { throw 'Directory delete positive control failed.' }
+if ([System.IO.Directory]::Exists($deleteRoot)) { throw 'Directory delete positive control failed.' }
+
+$descendantRoot = Join-Path ${powerShellLiteral(fixtureRoot)} 'descendant-root'
+[System.IO.Directory]::CreateDirectory($descendantRoot) | Out-Null
+$descendantLock = Open-RollbackDirectoryIdentityLock -Path $descendantRoot
+try {
+  $before = Get-RollbackPathIdentity -Handle $descendantLock
+  $child = Join-Path $descendantRoot 'child.txt'
+  [System.IO.File]::WriteAllText($child, 'first')
+  if ([System.IO.File]::ReadAllText($child) -cne 'first') { throw 'Descendant read failed.' }
+  [System.IO.File]::WriteAllText($child, 'second')
+  [System.IO.File]::Delete($child)
+  Assert-RollbackPathIdentity -Path $descendantRoot -ExpectedIdentity $before -Label 'descendant root' | Out-Null
+} finally { $descendantLock.Dispose() }
+
+$replacementRoot = Join-Path ${powerShellLiteral(fixtureRoot)} 'replacement-root'
+[System.IO.Directory]::CreateDirectory($replacementRoot) | Out-Null
+$oldIdentity = Get-RollbackPathIdentity -Path $replacementRoot
+[System.IO.Directory]::Delete($replacementRoot)
+[System.IO.Directory]::CreateDirectory($replacementRoot) | Out-Null
+$newIdentity = Get-RollbackPathIdentity -Path $replacementRoot
+if ($newIdentity -ceq $oldIdentity) { throw 'Same-path directory replacement retained the old identity.' }
+$rejected = $false
+try { Assert-RollbackPathIdentity -Path $replacementRoot -ExpectedIdentity $oldIdentity -Label 'replacement root' | Out-Null } catch { $rejected = $true }
+if (-not $rejected) { throw 'Replacement directory was accepted as the retained object.' }
+`
+  assertPowerShellStatements(statements, { executable: 'powershell.exe' })
+})
+
+test('rollback archive read lock blocks mutation but allows a Node 20 reader', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Win32 handle contracts require Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'archive reader must run under Node 20')
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-archive-lock-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const archivePath = path.join(fixtureRoot, 'data.zip')
+  const renamePath = path.join(fixtureRoot, 'renamed.zip')
+  const payload = 'retained archive bytes'
+  fs.writeFileSync(archivePath, payload)
+  const stat = fs.statSync(archivePath, { bigint: true })
+  const oracleIdentity = `${stat.dev.toString(16).padStart(8, '0')}:${stat.ino.toString(16).padStart(16, '0')}`
+  const readerProgram = "const fs=require('fs');process.stdout.write(fs.readFileSync(process.argv[1]).toString('utf8'))"
+  const statements = `
+. ${powerShellLiteral(rollbackIdentityScriptPath)}
+$archive = ${powerShellLiteral(archivePath)}
+$renamed = ${powerShellLiteral(renamePath)}
+$lock = Open-RollbackArchiveReadLock -Path $archive
+try {
+  $retainedIdentity = Get-RollbackPathIdentity -Handle $lock.SafeFileHandle
+  if ($retainedIdentity -cne ${powerShellLiteral(oracleIdentity)}) { throw "Archive identity oracle mismatch: $retainedIdentity" }
+  Assert-RollbackPathIdentity -Path $archive -ExpectedIdentity $retainedIdentity -Label 'archive' | Out-Null
+  $firstHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+  $currentHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($currentHash -cne $firstHash) { throw 'Archive changed while locked.' }
+  $readerOutput = & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(readerProgram)} $archive
+  if ($LASTEXITCODE -ne 0 -or ($readerOutput -join [Environment]::NewLine) -cne ${powerShellLiteral(payload)}) { throw 'Node 20 reader could not read the locked archive.' }
+  $writeBlocked = $false
+  try { [System.IO.File]::WriteAllText($archive, 'mutated') } catch { $writeBlocked = $true }
+  if (-not $writeBlocked) { throw 'Archive write was not blocked.' }
+  $deleteBlocked = $false
+  try { [System.IO.File]::Delete($archive) } catch { $deleteBlocked = $true }
+  if (-not $deleteBlocked) { throw 'Archive delete was not blocked.' }
+  $renameBlocked = $false
+  try { [System.IO.File]::Move($archive, $renamed) } catch { $renameBlocked = $true }
+  if (-not $renameBlocked) { throw 'Archive rename was not blocked.' }
+} finally { $lock.Dispose() }
+[System.IO.File]::WriteAllText($archive, 'write positive control')
+[System.IO.File]::Move($archive, $renamed)
+[System.IO.File]::Delete($renamed)
+if ([System.IO.File]::Exists($renamed)) { throw 'Archive mutation positive controls failed.' }
+
+[System.IO.File]::WriteAllText($archive, ${powerShellLiteral(payload)})
+$oldIdentity = Get-RollbackPathIdentity -Path $archive
+$replacementLock = Open-RollbackArchiveReadLock -Path $archive
+try { Assert-RollbackPathIdentity -Path $archive -ExpectedIdentity (Get-RollbackPathIdentity -Handle $replacementLock.SafeFileHandle) -Label 'replacement archive' | Out-Null } finally { $replacementLock.Dispose() }
+[System.IO.File]::Delete($archive)
+[System.IO.File]::WriteAllText($archive, ${powerShellLiteral(payload)})
+$newIdentity = Get-RollbackPathIdentity -Path $archive
+if ($newIdentity -ceq $oldIdentity) { throw 'Same-path archive replacement retained the old identity.' }
+`
+  assertPowerShellStatements(statements, { executable: 'powershell.exe' })
+})
+
+test('release rollback checkpoint binds paired drill evidence into v5 while restore remains v4', () => {
+  assert.equal(fs.existsSync(rollbackIdentityScriptPath), true, 'shared rollback identity helper is missing')
+  const identityScript = fs.readFileSync(rollbackIdentityScriptPath, 'utf8')
+  for (const functionName of [
+    'Get-RollbackPathIdentity',
+    'Assert-RollbackPathIdentity',
+    'Open-RollbackArchiveReadLock',
+    'Open-RollbackDirectoryIdentityLock',
+  ]) {
+    assert.match(identityScript, new RegExp(`function ${functionName}`))
+  }
+  assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v5/)
+  assert.match(checkpointScript, /data_root_sha256\s*=\s*\$validatedEvidence\.data_root_sha256/)
+  assert.match(checkpointScript, /data_root_identity\s*=\s*\$validatedEvidence\.data_root_identity/)
+  assert.match(
+    checkpointScript,
+    /'run', 'verify:rollback', '--',[\s\S]*'--archive', \$backupPath,[\s\S]*'--data-root', \$runtimeDataDirectory/,
+  )
+  assert.match(checkpointScript, /function Assert-CheckpointDrillEvidence/)
+  assert.match(checkpointScript, /Open-RollbackDirectoryIdentityLock/)
+  assert.match(checkpointScript, /Open-RollbackArchiveReadLock/)
+  assert.match(checkpointScript, /\[System\.IO\.File\]::Move\(\$metadataTemporaryPath, \$metadataPath\)/)
+  assert.match(rollbackRestoreScript, /localminidrama\.release-rollback-checkpoint\.v4/)
+  assert.doesNotMatch(rollbackRestoreScript, /localminidrama\.release-rollback-checkpoint\.v5/)
+})
+
+test('release rollback checkpoint fake toolchain retains locks through v5 metadata publication and failure recovery', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Checkpoint orchestration contract requires Windows PowerShell')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'checkpoint orchestration must run under Node 20')
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-checkpoint-orchestration-'))
+  const binPath = path.join(fixtureRoot, 'bin')
+  const dataRoot = path.join(fixtureRoot, 'data')
+  const configRoot = path.join(fixtureRoot, 'config')
+  const logPath = path.join(fixtureRoot, 'events.jsonl')
+  const summaryPath = path.join(root, 'artifacts', 'rollback-drill', 'summary.json')
+  const summaryExisted = fs.existsSync(summaryPath)
+  const previousSummary = summaryExisted ? fs.readFileSync(summaryPath) : null
+  fs.mkdirSync(binPath)
+  fs.mkdirSync(dataRoot)
+  fs.mkdirSync(configRoot)
+  fs.writeFileSync(path.join(configRoot, 'config.yaml'), 'server:\n  port: 5679\n')
+  fs.mkdirSync(path.dirname(summaryPath), { recursive: true })
+  t.after(() => {
+    if (summaryExisted) fs.writeFileSync(summaryPath, previousSummary)
+    else fs.rmSync(summaryPath, { force: true })
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  })
+
+  const fakeToolPath = path.join(fixtureRoot, 'fake-tool.cjs')
+  fs.writeFileSync(fakeToolPath, `
+'use strict'
+const crypto = require('node:crypto')
+const fs = require('node:fs')
+const path = require('node:path')
+const tool = process.argv[2]
+const args = process.argv.slice(3)
+const record = (event, extra = {}) => fs.appendFileSync(process.env.LMD_EVENT_LOG, JSON.stringify({ event, tool, args, ...extra }) + '\\n')
+const valueAfter = (name) => args[args.indexOf(name) + 1]
+const commit = process.env.LMD_COMMIT
+const version = process.env.LMD_VERSION
+const dataRoot = process.env.LMD_DATA_ROOT
+const configRoot = process.env.LMD_CONFIG_ROOT
+const archivePath = process.env.LMD_ARCHIVE_PATH
+const summaryPath = process.env.LMD_SUMMARY_PATH
+record(tool)
+if (tool === 'git') {
+  if (args[0] === 'rev-parse') process.stdout.write(commit + '\\n')
+  process.exit(0)
+}
+if (tool === 'node') {
+  if (args[0] === '-p') {
+    record('version')
+    process.stdout.write(version + '\\n')
+  } else {
+    fs.writeFileSync(args[2], 'server:\\n  port: 5679\\n')
+  }
+  process.exit(0)
+}
+if (tool === 'docker') {
+  if (args[0] === 'compose' && args[1] === 'ps') {
+    process.stdout.write((args[3] === 'backend' ? 'b' : 'c').repeat(64) + '\\n')
+  } else if (args[0] === 'compose' && args[1] === 'config' && args.includes('--format')) {
+    process.stdout.write(JSON.stringify({ services: { backend: { volumes: [{ type: 'bind', source: dataRoot, target: '/app/data', read_only: false }] } } }) + '\\n')
+  } else if (args[0] === 'compose' && args[1] === 'down') {
+    record('shutdown')
+  } else if (args[0] === 'inspect') {
+    const format = valueAfter('--format')
+    if (format === '{{json .Mounts}}') {
+      process.stdout.write(JSON.stringify([
+        { Type: 'bind', Source: dataRoot, Destination: '/app/data', RW: true },
+        { Type: 'bind', Source: configRoot, Destination: '/app/config-source', RW: false },
+      ]) + '\\n')
+    } else if (format === '{{.State.Status}}') process.stdout.write('running\\n')
+    else if (format.includes('.State.Health')) process.stdout.write('healthy\\n')
+    else if (format === '{{.Image}}') process.stdout.write('sha256:' + (args[1][0] === 'b' ? '1' : '2').repeat(64) + '\\n')
+  } else if (args[0] === 'image' && args[1] === 'inspect') {
+    process.stdout.write(JSON.stringify({ 'org.opencontainers.image.revision': commit }) + '\\n')
+  } else if (args[0] === 'image' && args[1] === 'save') {
+    fs.writeFileSync(valueAfter('--output'), 'fake image archive')
+  }
+  process.exit(0)
+}
+if (tool === 'npm') {
+  if (args.includes('backup:data')) {
+    record('backup')
+    fs.writeFileSync(valueAfter('--output'), 'fake retained rollback archive')
+    process.exit(0)
+  }
+  if (args[0] === 'run' && args[1] === 'verify:rollback') {
+    record('drill')
+    if (JSON.stringify(args) !== JSON.stringify(['run', 'verify:rollback', '--', '--archive', archivePath, '--data-root', dataRoot])) process.exit(31)
+    const blocked = (operation) => { try { operation(); return false } catch { return true } }
+    const renamedArchive = archivePath + '.renamed'
+    const renamedRoot = dataRoot + '.renamed'
+    if (!blocked(() => fs.writeFileSync(archivePath, 'changed'))) process.exit(32)
+    if (!blocked(() => fs.unlinkSync(archivePath))) process.exit(33)
+    if (!blocked(() => fs.renameSync(archivePath, renamedArchive))) process.exit(34)
+    if (!blocked(() => fs.renameSync(dataRoot, renamedRoot))) process.exit(35)
+    if (!blocked(() => fs.rmdirSync(dataRoot))) process.exit(36)
+    if (fs.readFileSync(archivePath, 'utf8') !== 'fake retained rollback archive') process.exit(37)
+    const child = path.join(dataRoot, 'during-drill.txt')
+    fs.writeFileSync(child, 'first')
+    fs.writeFileSync(child, 'second')
+    if (fs.readFileSync(child, 'utf8') !== 'second') process.exit(38)
+    fs.unlinkSync(child)
+    const archiveHash = crypto.createHash('sha256').update(fs.readFileSync(archivePath)).digest('hex')
+    const summary = {
+      schema: 'localminidrama.rollback-drill.v3',
+      status: process.env.LMD_SUMMARY_STATUS,
+      input_mode: 'checkpoint-bound',
+      source: { commit, version, working_tree_dirty: false, data_root_sha256: 'd'.repeat(64) },
+      backup: { archive_retained: true, archive_sha256: archiveHash },
+      operations: { source_data_root_unchanged: true },
+    }
+    fs.writeFileSync(summaryPath, JSON.stringify(summary) + '\\n')
+    if (process.env.LMD_PRECREATE_METADATA === 'true') {
+      fs.writeFileSync(path.join(path.dirname(archivePath), 'metadata.json'), '{"schema":"untrusted"}\\n')
+    }
+    process.exit(0)
+  }
+}
+process.exit(40)
+`, 'utf8')
+  for (const tool of ['git', 'docker', 'npm', 'node']) {
+    fs.writeFileSync(
+      path.join(binPath, `${tool}.cmd`),
+      `@echo off\r\n"${process.execPath}" "${fakeToolPath}" ${tool} %*\r\n`,
+      'utf8',
+    )
+  }
+
+  const commit = 'c'.repeat(40)
+  const version = backendPackage.version
+  const runCheckpoint = (checkpointPath, status, capturedVersion = version, precreateMetadata = false) => {
+    const archivePath = path.join(checkpointPath, 'data.zip')
+    return spawnSync('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      checkpointScriptPath,
+      '-CheckpointDirectory',
+      checkpointPath,
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+      windowsHide: true,
+      env: {
+        ...process.env,
+        PATH: `${binPath};${process.env.PATH}`,
+        LMD_ARCHIVE_PATH: archivePath,
+        LMD_COMMIT: commit,
+        LMD_CONFIG_ROOT: configRoot,
+        LMD_DATA_ROOT: dataRoot,
+        LMD_EVENT_LOG: logPath,
+        LMD_SUMMARY_PATH: summaryPath,
+        LMD_SUMMARY_STATUS: status,
+        LMD_VERSION: capturedVersion,
+        LMD_PRECREATE_METADATA: String(precreateMetadata),
+      },
+    })
+  }
+
+  const checkpointPath = path.join(fixtureRoot, 'valid-checkpoint')
+  const valid = runCheckpoint(checkpointPath, 'passed')
+  assert.equal(valid.status, 0, valid.stderr || valid.stdout)
+  const metadata = JSON.parse(fs.readFileSync(path.join(checkpointPath, 'metadata.json'), 'utf8'))
+  assert.equal(metadata.schema, 'localminidrama.release-rollback-checkpoint.v5')
+  assert.equal(metadata.data_root_sha256, 'd'.repeat(64))
+  assert.match(metadata.data_root_identity, /^[a-f0-9]{8}:[a-f0-9]{16}$/)
+  for (const property of [
+    'created_at', 'version', 'previous_commit', 'backend', 'frontend', 'backup_file', 'backup_sha256',
+    'compose_file', 'compose_sha256', 'runtime_config_file', 'runtime_config_source_file',
+    'runtime_config_sha256', 'data_bind_source', 'data_bind_source_file', 'data_bind_source_sha256',
+    'image_archive_file', 'image_archive_sha256', 'rollback_evidence_file', 'rollback_evidence_sha256',
+  ]) assert.ok(Object.hasOwn(metadata, property), `v4 metadata property ${property} was not preserved`)
+  assert.equal(metadata.runtime_config_sanitized, true)
+  assert.equal(metadata.runtime_config_credentials_excluded, true)
+  assert.equal(metadata.credential_reconfiguration_required, true)
+  const events = fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).map(JSON.parse)
+  const eventIndex = (name) => events.findIndex((entry) => entry.event === name)
+  assert.ok(eventIndex('version') < eventIndex('shutdown'))
+  assert.ok(eventIndex('shutdown') < eventIndex('backup'))
+  assert.ok(eventIndex('backup') < eventIndex('drill'))
+
+  const malformedVersionStart = events.length
+  const malformedVersionPath = path.join(fixtureRoot, 'malformed-version-checkpoint')
+  const malformedVersion = runCheckpoint(malformedVersionPath, 'passed', '1.03.3')
+  assert.notEqual(malformedVersion.status, 0, 'malformed captured version must fail checkpoint creation')
+  const afterMalformedVersion = fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).map(JSON.parse)
+  assert.equal(
+    afterMalformedVersion.slice(malformedVersionStart).some((entry) => entry.event === 'shutdown'),
+    false,
+    'captured version format must be rejected before shutdown',
+  )
+
+  const publishFailurePath = path.join(fixtureRoot, 'publish-failure-checkpoint')
+  const publishFailure = runCheckpoint(publishFailurePath, 'passed', version, true)
+  assert.notEqual(publishFailure.status, 0, 'metadata publication conflict must fail checkpoint creation')
+  assert.equal(
+    fs.existsSync(path.join(publishFailurePath, 'metadata.json')),
+    false,
+    'failed metadata publication must not leave final authority',
+  )
+  assert.equal(fs.readdirSync(publishFailurePath).some((name) => name.startsWith('.metadata.')), false)
+
+  const failedCheckpointPath = path.join(fixtureRoot, 'failed-checkpoint')
+  const failed = runCheckpoint(failedCheckpointPath, 'PASSED')
+  assert.notEqual(failed.status, 0, 'case-invalid drill status must fail checkpoint creation')
+  assert.equal(fs.existsSync(path.join(failedCheckpointPath, 'metadata.json')), false)
+  assert.equal(fs.readdirSync(failedCheckpointPath).some((name) => name.startsWith('.metadata.')), false)
+  const failedArchive = path.join(failedCheckpointPath, 'data.zip')
+  fs.writeFileSync(failedArchive, 'archive lock release positive control')
+  const renamedFailedArchive = `${failedArchive}.renamed`
+  fs.renameSync(failedArchive, renamedFailedArchive)
+  const renamedDataRoot = `${dataRoot}.released`
+  fs.renameSync(dataRoot, renamedDataRoot)
+  fs.renameSync(renamedDataRoot, dataRoot)
+})
+
 test('release rollback scripts fail closed and verify the retained backup before restore', () => {
   for (const source of [checkpointScript, rollbackRestoreScript]) {
     assert.match(source, /\$ErrorActionPreference = 'Stop'/)
@@ -815,7 +1411,7 @@ test('release rollback scripts fail closed and verify the retained backup before
   assert.match(checkpointScript, /ConvertFrom-Json -InputObject \$mountJson[\s\S]*ForEach-Object/)
   assert.match(checkpointScript, /docker-compose\.yml[\s\S]*config\.yaml[\s\S]*composeHash[\s\S]*configHash/)
   assert.match(checkpointScript, /backup:data[\s\S]*Get-FileHash[\s\S]*verify:rollback/)
-  assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v4/)
+  assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v5/)
   assert.match(checkpointScript, /Get-ContainerBindSource[\s\S]*\/app\/config-source/)
   assert.match(checkpointScript, /LOCALMINIDRAMA_CONFIG_PATH/)
   assert.match(checkpointScript, /runtime_config_source_file/)
@@ -897,7 +1493,7 @@ test('release rollback data bind source is captured, archived, and used for chec
   assert.match(checkpointScript, /\$dataBindSourceArchive = Join-Path \$checkpoint 'data-bind-source\.txt'/)
   assert.match(checkpointScript, /Write-Utf8File[\s\S]*\$dataBindSourceArchive[\s\S]*\$runtimeDataDirectory/)
   assert.match(checkpointScript, /Get-FileHash[\s\S]*\$dataBindSourceArchive[\s\S]*dataBindSourceHash/)
-  assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v4/)
+  assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v5/)
   assert.match(checkpointScript, /data_bind_source\s*=\s*\$runtimeDataDirectory/)
   assert.match(checkpointScript, /data_bind_source_file\s*=\s*'data-bind-source\.txt'/)
   assert.match(checkpointScript, /data_bind_source_sha256\s*=\s*\$dataBindSourceHash/)
