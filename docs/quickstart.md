@@ -354,7 +354,7 @@ npm run maintenance:recover -- --owner-scope "<检查到的作用域>" --pid <�
 npm run verify:rollback
 ```
 
-不带参数的 `npm run verify:rollback` 是独立演练：它先运行 38 项备份恢复专项测试，再把当前数据做脱敏备份并恢复到临时隔离目录，校验 SQLite、媒体、原文、凭据排除、中断清理和恢复前回滚副本。演练发布 `localminidrama.rollback-drill.v3` 摘要，要求 `input_mode: standalone`、`backup.archive_retained: false`、有效的小写 SHA-256 归档摘要和数据根摘要，以及 `operations.source_data_root_unchanged: true`。临时归档在结束后删除，摘要写入被 Git 忽略的 `artifacts/rollback-drill/summary.json`；已识别的旧版本摘要会原子迁入 `artifacts/rollback-drill/archive/`，不会冒充当前结果或阻断新演练。
+不带参数的 `npm run verify:rollback` 是独立演练：它先运行备份恢复专项测试，再把当前数据做脱敏备份并恢复到临时隔离目录，校验 SQLite、媒体、原文、凭据排除、中断清理和恢复前回滚副本。演练发布 `localminidrama.rollback-drill.v3` 摘要，要求 `input_mode: standalone`、`backup.archive_retained: false`、有效的小写 SHA-256 归档摘要和数据根摘要，以及 `operations.source_data_root_unchanged: true`。临时归档在结束后删除，摘要写入被 Git 忽略的 `artifacts/rollback-drill/summary.json`；已识别的旧版本摘要会原子迁入 `artifacts/rollback-drill/archive/`，不会冒充当前结果或阻断新演练。
 
 独立演练只接受一个物理数据根，数据库、素材和导入原文必须是该目录下的同级项：
 

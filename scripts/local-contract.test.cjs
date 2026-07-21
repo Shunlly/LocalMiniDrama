@@ -201,6 +201,7 @@ test('operations documentation distinguishes executable data, downtime, API pref
   assert.doesNotMatch(quickstart, /API 根路径/)
   assert.match(quickstart, /正式发布顺序/)
   assert.match(quickstart, /分支 CI[\s\S]*创建 annotated tag[\s\S]*草稿 Release/)
+  assert.doesNotMatch(quickstart, /\d+\s*项备份恢复专项测试/)
 
   assert.match(desktopReadme, /desktop\/backend-app/)
   assert.match(desktopReadme, /可重新生成/)
