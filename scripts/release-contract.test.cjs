@@ -47,6 +47,7 @@ const root = path.resolve(__dirname, '..')
 const checkpointScriptPath = path.join(root, 'scripts', 'create-release-rollback-checkpoint.ps1')
 const rollbackRestoreScriptPath = path.join(root, 'scripts', 'restore-release-rollback-checkpoint.ps1')
 const rollbackIdentityScriptPath = path.join(root, 'scripts', 'rollback-path-identity.ps1')
+const rollbackPowerShellSupportScriptPath = path.join(root, 'scripts', 'rollback-powershell-support.ps1')
 const backendRequire = createRequire(path.join(root, 'backend-node', 'package.json'))
 const { parse: parseToml } = backendRequire('smol-toml')
 const { load: parseYaml } = backendRequire('js-yaml')
@@ -113,8 +114,10 @@ function findPowerShell(command) {
 
 function windowsPowerShellHosts() {
   const hosts = [{ name: 'windows-powershell-5.1', executable: 'powershell.exe' }]
-  const pwsh = findPowerShell('pwsh.exe')
-  if (pwsh) hosts.push({ name: 'powershell-7', executable: pwsh })
+  const explicitPwsh = String(process.env.LMD_PWSH_EXE || '').trim()
+  const pwsh = explicitPwsh || findPowerShell('pwsh.exe')
+  assert.ok(pwsh, 'PowerShell 7 is required for Windows release security coverage')
+  hosts.push({ name: 'powershell-7', executable: pwsh })
   return hosts
 }
 
@@ -2040,16 +2043,223 @@ if ($newIdentity -ceq $oldIdentity) { throw 'Same-path archive replacement retai
   }
 })
 
+test('rollback retained file authorities block mutation and read exact bytes on every Windows host', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Win32 handle contracts require Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'file authority oracle must run under Node 20')
+  const hosts = windowsPowerShellHosts()
+  const overwriteProgram = "const fs=require('fs');try{fs.writeFileSync(process.argv[1],'mutated');process.exit(24)}catch{process.exit(23)}"
+  const renameProgram = "const fs=require('fs');try{fs.renameSync(process.argv[1],process.argv[2]);process.exit(24)}catch{process.exit(23)}"
+  const deleteProgram = "const fs=require('fs');try{fs.unlinkSync(process.argv[1]);process.exit(24)}catch{process.exit(23)}"
+  const readerProgram = "const fs=require('fs');process.stdout.write(fs.readFileSync(process.argv[1]).toString('base64'))"
+  const successfulOverwriteProgram = "require('fs').writeFileSync(process.argv[1],'released')"
+  const successfulRenameProgram = "require('fs').renameSync(process.argv[1],process.argv[2])"
+  const successfulDeleteProgram = "require('fs').unlinkSync(process.argv[1])"
+
+  for (const host of hosts) {
+    await t.test(host.name, () => {
+    const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), `lmd-rollback-file-authority-${host.name}-`))
+    t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+    const authorityPath = path.join(fixtureRoot, 'authority.txt')
+    const renamedPath = path.join(fixtureRoot, 'authority-renamed.txt')
+    const invalidUtf8Path = path.join(fixtureRoot, 'invalid-utf8.bin')
+    const payloadText = 'authority bytes\r\nsecond line\n'
+    const payload = Buffer.from(payloadText, 'utf8')
+    fs.writeFileSync(authorityPath, payload)
+    fs.writeFileSync(invalidUtf8Path, Buffer.from([0xc3, 0x28]))
+    const stat = fs.statSync(authorityPath, { bigint: true })
+    const oracleIdentity = `${stat.dev.toString(16).padStart(8, '0')}:${stat.ino.toString(16).padStart(16, '0')}`
+    const expectedHash = require('node:crypto').createHash('sha256').update(payload).digest('hex')
+    const statements = `
+. ${powerShellLiteral(rollbackIdentityScriptPath)}
+$authorityPath = ${powerShellLiteral(authorityPath)}
+$renamedPath = ${powerShellLiteral(renamedPath)}
+$authority = Open-RollbackFileAuthority -Path $authorityPath -Label 'Fixture authority'
+try {
+  $propertyNames = @($authority.PSObject.Properties.Name)
+  if (($propertyNames -join ',') -cne 'Path,Label,Identity,Stream') { throw "Authority members are not exact: $($propertyNames -join ',')" }
+  if ($authority.Path -cne [System.IO.Path]::GetFullPath($authorityPath)) { throw 'Authority path is not exact.' }
+  if ($authority.Label -cne 'Fixture authority') { throw 'Authority label is not exact.' }
+  if ($authority.Identity -cne ${powerShellLiteral(oracleIdentity)}) { throw "Authority identity mismatch: $($authority.Identity)" }
+  if ($null -eq $authority.Stream -or -not $authority.Stream.CanRead) { throw 'Authority stream is not open for reading.' }
+  Assert-RollbackFileAuthority -Authority $authority | Out-Null
+
+  $authority.Stream.Position = 3
+  $hash = Get-RollbackFileAuthoritySha256 -Authority $authority
+  if ($hash -cne ${powerShellLiteral(expectedHash)}) { throw "Authority hash mismatch: $hash" }
+  if ($authority.Stream.Position -ne 3) { throw 'Authority hashing did not restore the stream position.' }
+  $text = Read-RollbackFileAuthorityUtf8 -Authority $authority
+  if ($text -cne ${powerShellLiteral(payloadText)}) { throw 'Authority UTF-8 reader returned different bytes.' }
+  if (-not $authority.Stream.CanRead) { throw 'Authority UTF-8 reader closed the stream.' }
+
+  & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(overwriteProgram)} $authorityPath
+  if ($LASTEXITCODE -ne 23) { throw 'Separate Node overwrite was not blocked.' }
+  & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(renameProgram)} $authorityPath $renamedPath
+  if ($LASTEXITCODE -ne 23) { throw 'Separate Node rename was not blocked.' }
+  & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(deleteProgram)} $authorityPath
+  if ($LASTEXITCODE -ne 23) { throw 'Separate Node delete was not blocked.' }
+  $readerOutput = & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(readerProgram)} $authorityPath
+  if ($LASTEXITCODE -ne 0 -or ($readerOutput -join '') -cne ${powerShellLiteral(payload.toString('base64'))}) {
+    throw 'Separate Node reader did not receive the exact retained bytes.'
+  }
+} finally {
+  if ($null -ne $authority) { $authority.Stream.Dispose() }
+}
+
+& ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(successfulOverwriteProgram)} $authorityPath
+if ($LASTEXITCODE -ne 0) { throw 'Overwrite remained blocked after authority disposal.' }
+& ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(successfulRenameProgram)} $authorityPath $renamedPath
+if ($LASTEXITCODE -ne 0) { throw 'Rename remained blocked after authority disposal.' }
+& ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(successfulDeleteProgram)} $renamedPath
+if ($LASTEXITCODE -ne 0) { throw 'Delete remained blocked after authority disposal.' }
+
+$invalidAuthority = Open-RollbackFileAuthority -Path ${powerShellLiteral(invalidUtf8Path)} -Label 'Invalid UTF-8 fixture'
+try {
+  $invalidRejected = $false
+  try { Read-RollbackFileAuthorityUtf8 -Authority $invalidAuthority | Out-Null } catch { $invalidRejected = $true }
+  if (-not $invalidRejected) { throw 'Invalid UTF-8 was accepted.' }
+  if (-not $invalidAuthority.Stream.CanRead) { throw 'Invalid UTF-8 handling closed the authority stream.' }
+} finally {
+  if ($null -ne $invalidAuthority) { $invalidAuthority.Stream.Dispose() }
+}
+`
+    assertPowerShellStatements(statements, { executable: host.executable })
+    })
+  }
+})
+
+test('rollback retained directory locks are namespace-local and child authorities block replacement', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Win32 handle contracts require Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'directory authority oracle must run under Node 20')
+  const hosts = windowsPowerShellHosts()
+  const blockedRenameProgram = "const fs=require('fs');try{fs.renameSync(process.argv[1],process.argv[2]);process.exit(24)}catch{process.exit(23)}"
+  const replacementProgram = "const fs=require('fs');try{fs.renameSync(process.argv[1],process.argv[2]);fs.writeFileSync(process.argv[1],'replacement');process.exit(24)}catch{process.exit(23)}"
+  const renameProgram = "require('fs').renameSync(process.argv[1],process.argv[2])"
+
+  for (const host of hosts) {
+    await t.test(host.name, () => {
+    const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), `lmd-rollback-namespace-authority-${host.name}-`))
+    t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+    const rootPath = path.join(fixtureRoot, 'checkpoint')
+    const renamedRootPath = path.join(fixtureRoot, 'checkpoint-renamed')
+    const childPath = path.join(rootPath, 'metadata.json')
+    const movedChildPath = path.join(rootPath, 'metadata-moved.json')
+    fs.mkdirSync(rootPath)
+    fs.writeFileSync(childPath, 'original metadata')
+    const statements = `
+. ${powerShellLiteral(rollbackIdentityScriptPath)}
+$rootPath = ${powerShellLiteral(rootPath)}
+$renamedRootPath = ${powerShellLiteral(renamedRootPath)}
+$childPath = ${powerShellLiteral(childPath)}
+$movedChildPath = ${powerShellLiteral(movedChildPath)}
+$rootLock = Open-RollbackDirectoryIdentityLock -Path $rootPath -Label 'Checkpoint root'
+try {
+  & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(blockedRenameProgram)} $rootPath $renamedRootPath
+  if ($LASTEXITCODE -ne 23) { throw 'Checkpoint root rename was not blocked.' }
+
+  & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(replacementProgram)} $childPath $movedChildPath
+  if ($LASTEXITCODE -ne 24) { throw 'Root lock recursively blocked an unlocked child replacement.' }
+  [System.IO.File]::Delete($childPath)
+  [System.IO.File]::Move($movedChildPath, $childPath)
+
+  $childAuthority = Open-RollbackFileAuthority -Path $childPath -Label 'Checkpoint metadata'
+  try {
+    & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(replacementProgram)} $childPath $movedChildPath
+    if ($LASTEXITCODE -ne 23) { throw 'Child replacement was not blocked by its authority.' }
+    if ([System.IO.File]::ReadAllText($childPath) -cne 'original metadata') { throw 'Child authority did not retain original bytes.' }
+  } finally {
+    if ($null -ne $childAuthority) { $childAuthority.Stream.Dispose() }
+  }
+
+  & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(replacementProgram)} $childPath $movedChildPath
+  if ($LASTEXITCODE -ne 24) { throw 'Child replacement remained blocked after authority disposal.' }
+  [System.IO.File]::Delete($childPath)
+  [System.IO.File]::Move($movedChildPath, $childPath)
+} finally {
+  if ($null -ne $rootLock) { $rootLock.Dispose() }
+}
+& ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(renameProgram)} $rootPath $renamedRootPath
+if ($LASTEXITCODE -ne 0) { throw 'Checkpoint root rename remained blocked after lock disposal.' }
+`
+    assertPowerShellStatements(statements, { executable: host.executable })
+    })
+  }
+})
+
+test('rollback retained cleanup preserves the primary error and reports exhaustive cleanup failures', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('PowerShell cleanup contracts require Windows')
+    return
+  }
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, () => {
+    const statements = `
+. ${powerShellLiteral(rollbackPowerShellSupportScriptPath)}
+$events = [System.Collections.ArrayList]::new()
+$cleanupErrors = [System.Collections.ArrayList]::new()
+$primaryError = $null
+try { throw 'distinct primary failure' } catch { $primaryError = $_ }
+$actions = @(
+  { [void]$events.Add('first'); throw 'first cleanup failure' },
+  { [void]$events.Add('later') },
+  { [void]$events.Add('last'); throw 'last cleanup failure' }
+)
+foreach ($action in $actions) {
+  try { & $action } catch { [void]$cleanupErrors.Add($_) }
+}
+if (($events -join ',') -cne 'first,later,last') { throw 'A cleanup failure skipped later cleanup actions.' }
+$caughtPrimary = $null
+try { Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors } catch { $caughtPrimary = $_ }
+if ($null -eq $caughtPrimary) { throw 'Primary failure was not rethrown.' }
+if ($caughtPrimary.Exception.Message -cne 'distinct primary failure') { throw "Cleanup masked the primary message: $($caughtPrimary.Exception.Message)" }
+if (-not [object]::ReferenceEquals($caughtPrimary.Exception, $primaryError.Exception)) { throw 'Cleanup replaced the primary exception authority.' }
+if ($caughtPrimary.FullyQualifiedErrorId -cne $primaryError.FullyQualifiedErrorId) { throw 'Cleanup replaced the primary ErrorRecord metadata.' }
+$attached = @($caughtPrimary.Exception.Data['RollbackCleanupErrors'])
+if ($attached.Count -ne 2 -or
+    $attached[0].Exception.Message -cne 'first cleanup failure' -or
+    $attached[1].Exception.Message -cne 'last cleanup failure') {
+  throw 'Cleanup details were not attached in execution order.'
+}
+$cleanupOnly = $null
+try { Complete-RollbackInvocation -PrimaryError $null -CleanupErrors $cleanupErrors } catch { $cleanupOnly = $_ }
+if ($null -eq $cleanupOnly -or
+    $cleanupOnly.Exception.Message -notmatch 'first cleanup failure' -or
+    $cleanupOnly.Exception.Message -notmatch 'last cleanup failure') {
+  throw 'Cleanup-only invocation did not throw the cleanup failures.'
+}
+`
+    assertPowerShellStatements(statements, { executable: host.executable })
+    })
+  }
+})
+
 test('release rollback checkpoint and restore consume shared native-lock v5 interfaces', () => {
   assert.equal(fs.existsSync(rollbackIdentityScriptPath), true, 'shared rollback identity helper is missing')
   const identityScript = fs.readFileSync(rollbackIdentityScriptPath, 'utf8')
   for (const functionName of [
     'Get-RollbackPathIdentity',
     'Assert-RollbackPathIdentity',
+    'Open-RollbackFileAuthority',
+    'Assert-RollbackFileAuthority',
+    'Get-RollbackFileAuthoritySha256',
+    'Read-RollbackFileAuthorityUtf8',
     'Open-RollbackArchiveReadLock',
     'Open-RollbackDirectoryIdentityLock',
   ]) {
     assert.match(identityScript, new RegExp(`function ${functionName}`))
+  }
+  assert.equal(fs.existsSync(rollbackPowerShellSupportScriptPath), true, 'rollback PowerShell support helper is missing')
+  const powerShellSupportScript = fs.existsSync(rollbackPowerShellSupportScriptPath)
+    ? fs.readFileSync(rollbackPowerShellSupportScriptPath, 'utf8')
+    : ''
+  assert.match(powerShellSupportScript, /function Complete-RollbackInvocation/)
+  for (const source of [checkpointScript, rollbackRestoreScript]) {
+    assert.match(source, /rollback-powershell-support\.ps1/)
   }
   assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v5/)
   assert.match(checkpointScript, /data_root_sha256\s*=\s*\$validatedEvidence\.data_root_sha256/)
@@ -2065,9 +2275,13 @@ test('release rollback checkpoint and restore consume shared native-lock v5 inte
   assert.match(rollbackRestoreScript, /localminidrama\.release-rollback-checkpoint\.v5/)
   assert.match(rollbackRestoreScript, /localminidrama\.rollback-drill\.v3/)
   assert.doesNotMatch(rollbackRestoreScript, /localminidrama\.release-rollback-checkpoint\.v4/)
+  assert.match(
+    rollbackRestoreScript,
+    /Open-RollbackDirectoryIdentityLock -Path \$checkpoint -Label 'Rollback checkpoint'[\s\S]*Open-RollbackDirectoryIdentityLock -Path \$configDirectory -Label 'Rollback checkpoint config directory'[\s\S]*Open-RollbackFileAuthority -Path \$metadataPath[\s\S]*Open-RollbackFileAuthority -Path \$backupPath[\s\S]*Open-RollbackFileAuthority -Path \$hashPath[\s\S]*Open-RollbackFileAuthority -Path \$composePath[\s\S]*Open-RollbackFileAuthority -Path \$configPath[\s\S]*Open-RollbackFileAuthority -Path \$dataBindSourcePath[\s\S]*Open-RollbackFileAuthority -Path \$imageArchivePath[\s\S]*Open-RollbackFileAuthority -Path \$summaryPath[\s\S]*Read-RollbackFileAuthorityUtf8/,
+  )
 })
 
-test('release rollback checkpoint fake toolchain retains locks through v5 metadata publication and failure recovery', (t) => {
+test('release rollback checkpoint fake toolchain retains locks through v5 metadata publication and failure recovery', async (t) => {
   if (process.platform !== 'win32') {
     t.skip('Checkpoint orchestration contract requires Windows PowerShell')
     return
@@ -2192,12 +2406,15 @@ process.exit(40)
 'use strict'
 const fs = require('node:fs')
 const path = require('node:path')
-const [dataRoot, archivePath, stage] = process.argv.slice(2)
+const [dataRoot, archivePath, checkpointPath, stage] = process.argv.slice(2)
 const fail = (message) => { process.stderr.write(stage + ': ' + message + '\\n'); process.exit(50) }
 const requireBlocked = (label, operation) => {
   try { operation() } catch { return }
   fail(label + ' was not blocked')
 }
+requireBlocked('checkpoint root rename', () => fs.renameSync(checkpointPath, checkpointPath + '.locked-probe'))
+const configRoot = path.join(checkpointPath, 'configs')
+requireBlocked('checkpoint config root rename', () => fs.renameSync(configRoot, configRoot + '.locked-probe'))
 requireBlocked('archive write', () => fs.writeFileSync(archivePath, 'mutated'))
 requireBlocked('archive delete', () => fs.unlinkSync(archivePath))
 requireBlocked('archive rename', () => fs.renameSync(archivePath, archivePath + '.locked-probe'))
@@ -2232,7 +2449,7 @@ function Write-TestEvent {
 
 function Assert-TestLocks {
   param([Parameter(Mandatory = $true)][string]$Stage)
-  $probeOutput = @(& $env:LMD_NODE_EXE $env:LMD_LOCK_PROBE $env:LMD_DATA_ROOT $env:LMD_ARCHIVE_PATH $Stage 2>&1)
+  $probeOutput = @(& $env:LMD_NODE_EXE $env:LMD_LOCK_PROBE $env:LMD_DATA_ROOT $env:LMD_ARCHIVE_PATH $requestedCheckpointDirectory $Stage 2>&1)
   $probeExitCode = [int]$LASTEXITCODE
   if ($probeExitCode -ne 0) {
     throw ('Lock probe failed during ' + $Stage + ' with exit code ' + $probeExitCode + ': ' + ($probeOutput -join [Environment]::NewLine))
@@ -2311,9 +2528,21 @@ Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirect
 
   const commit = 'c'.repeat(40)
   const version = backendPackage.version
-  const runCheckpoint = (checkpointPath, status, capturedVersion = version, precreateMetadata = false) => {
+  const readEvents = () => fs.existsSync(logPath)
+    ? fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).filter(Boolean).map(JSON.parse)
+    : []
+  const assertNamespacesMovable = (checkpointPath) => {
+    const configPath = path.join(checkpointPath, 'configs')
+    const movedConfigPath = path.join(checkpointPath, 'configs.released')
+    fs.renameSync(configPath, movedConfigPath)
+    fs.renameSync(movedConfigPath, configPath)
+    const movedCheckpointPath = `${checkpointPath}.released`
+    fs.renameSync(checkpointPath, movedCheckpointPath)
+    fs.renameSync(movedCheckpointPath, checkpointPath)
+  }
+  const runCheckpoint = (host, checkpointPath, status, capturedVersion = version, precreateMetadata = false) => {
     const archivePath = path.join(checkpointPath, 'data.zip')
-    return spawnSync('powershell.exe', [
+    return spawnSync(host.executable, [
       '-NoProfile',
       '-NonInteractive',
       '-ExecutionPolicy',
@@ -2344,8 +2573,11 @@ Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirect
     })
   }
 
-  const checkpointPath = path.join(fixtureRoot, 'valid-checkpoint')
-  const valid = runCheckpoint(checkpointPath, 'passed')
+  for (const host of windowsPowerShellHosts()) {
+  await t.test(host.name, () => {
+  const validStart = readEvents().length
+  const checkpointPath = path.join(fixtureRoot, `${host.name}-valid-checkpoint`)
+  const valid = runCheckpoint(host, checkpointPath, 'passed')
   assert.equal(valid.status, 0, valid.stderr || valid.stdout)
   const metadata = JSON.parse(fs.readFileSync(path.join(checkpointPath, 'metadata.json'), 'utf8'))
   assert.equal(metadata.schema, 'localminidrama.release-rollback-checkpoint.v5')
@@ -2360,7 +2592,7 @@ Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirect
   assert.equal(metadata.runtime_config_sanitized, true)
   assert.equal(metadata.runtime_config_credentials_excluded, true)
   assert.equal(metadata.credential_reconfiguration_required, true)
-  const events = fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).map(JSON.parse)
+  const events = readEvents().slice(validStart)
   const eventIndex = (name) => events.findIndex((entry) => entry.event === name)
   assert.ok(eventIndex('version') < eventIndex('shutdown'))
   assert.ok(eventIndex('shutdown') < eventIndex('backup'))
@@ -2373,9 +2605,11 @@ Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirect
   assert.ok(eventIndex('validator') < eventIndex('summary_archive'))
   assert.ok(eventIndex('summary_archive') < eventIndex('metadata_publish'))
 
-  const malformedVersionStart = events.length
-  const malformedVersionPath = path.join(fixtureRoot, 'malformed-version-checkpoint')
-  const malformedVersion = runCheckpoint(malformedVersionPath, 'passed', '1.03.3')
+  assertNamespacesMovable(checkpointPath)
+
+  const malformedVersionStart = readEvents().length
+  const malformedVersionPath = path.join(fixtureRoot, `${host.name}-malformed-version-checkpoint`)
+  const malformedVersion = runCheckpoint(host, malformedVersionPath, 'passed', '1.03.3')
   assert.notEqual(malformedVersion.status, 0, 'malformed captured version must fail checkpoint creation')
   const afterMalformedVersion = fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).map(JSON.parse)
   assert.equal(
@@ -2384,9 +2618,9 @@ Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirect
     'captured version format must be rejected before shutdown',
   )
 
-  const publishFailurePath = path.join(fixtureRoot, 'publish-failure-checkpoint')
-  const publishFailureStart = fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).length
-  const publishFailure = runCheckpoint(publishFailurePath, 'passed', version, true)
+  const publishFailurePath = path.join(fixtureRoot, `${host.name}-publish-failure-checkpoint`)
+  const publishFailureStart = readEvents().length
+  const publishFailure = runCheckpoint(host, publishFailurePath, 'passed', version, true)
   assert.notEqual(publishFailure.status, 0, 'metadata publication conflict must fail checkpoint creation')
   assert.equal(
     fs.existsSync(path.join(publishFailurePath, 'metadata.json')),
@@ -2399,10 +2633,11 @@ Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirect
   assert.notEqual(publishFailureEvents.indexOf('metadata_publish'), -1)
   assert.notEqual(publishFailureEvents.indexOf('failure_recovery'), -1)
   assert.ok(publishFailureEvents.indexOf('metadata_publish') < publishFailureEvents.indexOf('failure_recovery'))
+  assertNamespacesMovable(publishFailurePath)
 
-  const failedCheckpointPath = path.join(fixtureRoot, 'failed-checkpoint')
+  const failedCheckpointPath = path.join(fixtureRoot, `${host.name}-failed-checkpoint`)
   const failedStart = afterPublishFailure.length
-  const failed = runCheckpoint(failedCheckpointPath, 'PASSED')
+  const failed = runCheckpoint(host, failedCheckpointPath, 'PASSED')
   assert.notEqual(failed.status, 0, 'case-invalid drill status must fail checkpoint creation')
   assert.equal(fs.existsSync(path.join(failedCheckpointPath, 'metadata.json')), false)
   assert.equal(fs.readdirSync(failedCheckpointPath).some((name) => name.startsWith('.metadata.')), false)
@@ -2416,11 +2651,14 @@ Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirect
   const renamedFailedArchive = `${failedArchive}.renamed`
   fs.renameSync(failedArchive, renamedFailedArchive)
   fs.unlinkSync(renamedFailedArchive)
+  assertNamespacesMovable(failedCheckpointPath)
   const renamedDataRoot = `${dataRoot}.released`
   fs.renameSync(dataRoot, renamedDataRoot)
   fs.renameSync(renamedDataRoot, dataRoot)
   fs.rmdirSync(dataRoot)
   fs.mkdirSync(dataRoot)
+  })
+  }
 })
 
 function createRollbackRestoreHarness(t) {
@@ -2435,6 +2673,16 @@ function createRollbackRestoreHarness(t) {
   const frontendImageId = `sha256:${'2'.repeat(64)}`
   const currentBackendImageId = `sha256:${'3'.repeat(64)}`
   const currentFrontendImageId = `sha256:${'4'.repeat(64)}`
+  const fixedCheckpointFiles = [
+    'metadata.json',
+    'data.zip',
+    'data.sha256.txt',
+    'docker-compose.yml',
+    'configs/config.yaml',
+    'data-bind-source.txt',
+    'images.tar',
+    'rollback-drill-summary.json',
+  ]
 
   const fakeToolPath = path.join(fixtureRoot, 'fake-restore-tool.cjs')
   fs.writeFileSync(fakeToolPath, `
@@ -2520,12 +2768,40 @@ process.exit(62)
 'use strict'
 const fs = require('node:fs')
 const path = require('node:path')
-const [dataRoot, archivePath, stage] = process.argv.slice(2)
+const [dataRoot, checkpointPath, stage] = process.argv.slice(2)
 const fail = (message) => { process.stderr.write(stage + ': ' + message + '\\n'); process.exit(70) }
+const failures = []
 const requireBlocked = (label, operation) => {
   try { operation() } catch { return }
-  fail(label + ' was not blocked')
+  failures.push(label + ' was not blocked')
 }
+const requireRenameBlocked = (label, target) => {
+  const renamed = target + '.authority-probe'
+  try {
+    fs.renameSync(target, renamed)
+  } catch {
+    return
+  }
+  try {
+    fs.renameSync(renamed, target)
+  } catch (error) {
+    fail(label + ' probe could not restore the path: ' + error.message)
+  }
+  failures.push(label + ' was not blocked')
+}
+requireRenameBlocked('checkpoint root rename', checkpointPath)
+const configRoot = path.join(checkpointPath, 'configs')
+requireRenameBlocked('checkpoint config root rename', configRoot)
+const fixedFiles = ${JSON.stringify(fixedCheckpointFiles)}
+for (const relativePath of fixedFiles) {
+  requireRenameBlocked(relativePath + ' rename', path.join(checkpointPath, ...relativePath.split('/')))
+}
+const expectedFiles = JSON.parse(process.env.LMD_EXPECTED_CHECKPOINT_FILES)
+for (const relativePath of fixedFiles) {
+  const actual = fs.readFileSync(path.join(checkpointPath, ...relativePath.split('/'))).toString('base64')
+  if (actual !== expectedFiles[relativePath]) failures.push(relativePath + ' bytes changed before consumption')
+}
+const archivePath = path.join(checkpointPath, 'data.zip')
 requireBlocked('archive write', () => fs.writeFileSync(archivePath, 'mutated'))
 requireBlocked('archive delete', () => fs.unlinkSync(archivePath))
 requireBlocked('archive rename', () => fs.renameSync(archivePath, archivePath + '.renamed'))
@@ -2537,6 +2813,7 @@ fs.writeFileSync(child, 'first')
 fs.writeFileSync(child, 'second')
 if (fs.readFileSync(child, 'utf8') !== 'second') fail('descendant read/write failed')
 fs.unlinkSync(child)
+if (failures.length > 0) fail(failures.join('; '))
 `, 'utf8')
 
   const driverPath = path.join(fixtureRoot, 'restore-driver.ps1')
@@ -2550,6 +2827,9 @@ $script:OriginalInvokeChecked = \${function:Invoke-Checked}
 $script:OriginalEvidenceBinding = \${function:Assert-RollbackEvidenceBinding}
 $script:OriginalRootGuard = \${function:Assert-CurrentRollbackRoot}
 $script:OriginalFileHash = \${function:Assert-FileHash}
+$script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
+$script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
+$script:EvidenceValidated = $false
 
 function Write-TestEvent {
   param([string]$Name)
@@ -2558,13 +2838,14 @@ function Write-TestEvent {
 }
 function Assert-TestLocks {
   param([string]$Stage)
-  $output = @(& $env:LMD_NODE_EXE $env:LMD_LOCK_PROBE $env:LMD_DATA_ROOT (Join-Path $requestedCheckpointDirectory 'data.zip') $Stage 2>&1)
+  $output = @(& $env:LMD_NODE_EXE $env:LMD_LOCK_PROBE $env:LMD_DATA_ROOT $requestedCheckpointDirectory $Stage 2>&1)
   if ($LASTEXITCODE -ne 0) { throw "Lock probe failed during $($Stage): $($output -join [Environment]::NewLine)" }
   Write-TestEvent -Name ('locks:' + $Stage)
 }
 function Assert-RollbackEvidenceBinding {
   param([object]$Metadata, [object]$Summary, [object]$ActualBackupHash, [object]$ActualDataRootIdentity)
   & $script:OriginalEvidenceBinding @PSBoundParameters
+  $script:EvidenceValidated = $true
   Write-TestEvent -Name 'binding accepted'
 }
 function Push-Location {
@@ -2599,6 +2880,9 @@ function Invoke-Checked {
     Write-TestEvent -Name $Label
     Assert-TestLocks -Stage $Label
   }
+  if ($script:EvidenceValidated) {
+    Assert-TestLocks -Stage ('invoke:' + $Label)
+  }
   $fail = switch ($env:LMD_SCENARIO) {
     'shutdown_failure' { $Label -ceq 'Current Docker shutdown' }
     'restore_failure' { $Label -ceq 'Rollback data restore' }
@@ -2609,9 +2893,38 @@ function Invoke-Checked {
   if ($fail) { throw "Injected failure: $Label" }
   & $script:OriginalInvokeChecked @PSBoundParameters
 }
+function Clear-DataSourceEnvironment {
+  Write-TestEvent -Name 'cleanup:data'
+  & $script:OriginalClearDataSourceEnvironment
+  if ($env:LMD_CLEANUP_FAILURE -ceq 'true') { throw 'injected cleanup failure' }
+}
+function Clear-RuntimeConfigEnvironment {
+  Write-TestEvent -Name 'cleanup:config'
+  & $script:OriginalClearRuntimeConfigEnvironment
+}
+function Pop-Location {
+  Write-TestEvent -Name 'cleanup:location'
+  Microsoft.PowerShell.Management\\Pop-Location
+}
 function Test-ApplicationHealth { Write-TestEvent -Name 'health' }
 
-Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpointDirectory
+try {
+  Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpointDirectory
+} catch {
+  $cleanupDetails = @()
+  $attachedCleanupErrors = $_.Exception.Data['RollbackCleanupErrors']
+  if ($null -ne $attachedCleanupErrors) {
+    $cleanupDetails = @($attachedCleanupErrors) | ForEach-Object { $_.Exception.Message }
+  }
+  $line = ConvertTo-Json -Compress -InputObject ([ordered]@{
+    event = 'driver_failure'
+    primary_message = $_.Exception.Message
+    primary_error_id = $_.FullyQualifiedErrorId
+    cleanup_errors = @($cleanupDetails)
+  })
+  [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+  throw
+}
 `, 'utf8')
 
   const createScenario = (name, options = {}) => {
@@ -2688,6 +3001,10 @@ Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpoin
       replacementIdentity = `${replacementStat.dev.toString(16).padStart(8, '0')}:${replacementStat.ino.toString(16).padStart(16, '0')}`
       assert.notEqual(replacementIdentity, actualIdentity, 'same-path replacement fixture reused the original native identity')
     }
+    const fixedBytes = Object.fromEntries(fixedCheckpointFiles.map((relativePath) => [
+      relativePath,
+      fs.readFileSync(path.join(checkpointPath, ...relativePath.split('/'))).toString('base64'),
+    ]))
     return {
       actualIdentity,
       alternateDataRoot,
@@ -2695,6 +3012,7 @@ Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpoin
       configRoot,
       dataRoot,
       eventLog,
+      fixedBytes,
       replacementIdentity,
     }
   }
@@ -2718,12 +3036,14 @@ Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpoin
         LMD_CURRENT_BACKEND_IMAGE: currentBackendImageId,
         LMD_CURRENT_FRONTEND_IMAGE: currentFrontendImageId,
         LMD_DATA_ROOT: fixture.dataRoot,
+        LMD_EXPECTED_CHECKPOINT_FILES: JSON.stringify(fixture.fixedBytes),
         LMD_EVENT_LOG: fixture.eventLog,
         LMD_FAKE_MODE: options.fakeMode || '',
         LMD_FORWARD_COMMIT: forwardCommit,
         LMD_FRONTEND_IMAGE: frontendImageId,
         LMD_LOCK_PROBE: lockProbePath,
         LMD_NODE_EXE: process.execPath,
+        LMD_CLEANUP_FAILURE: String(Boolean(options.cleanupFailure)),
         LMD_SCENARIO: options.runtimeScenario || name,
       },
     })
@@ -2733,6 +3053,19 @@ Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpoin
     const eventNames = events.map((entry) => entry.event)
     const compensationDirectories = fs.readdirSync(fixture.checkpointPath)
       .filter((entry) => entry.startsWith('compensation-'))
+    for (const relativePath of fixedCheckpointFiles) {
+      const originalPath = path.join(fixture.checkpointPath, ...relativePath.split('/'))
+      const movedPath = `${originalPath}.released`
+      fs.renameSync(originalPath, movedPath)
+      fs.renameSync(movedPath, originalPath)
+    }
+    const checkpointConfigPath = path.join(fixture.checkpointPath, 'configs')
+    const movedCheckpointConfigPath = path.join(fixture.checkpointPath, 'configs.released')
+    fs.renameSync(checkpointConfigPath, movedCheckpointConfigPath)
+    fs.renameSync(movedCheckpointConfigPath, checkpointConfigPath)
+    const movedCheckpointPath = `${fixture.checkpointPath}.released`
+    fs.renameSync(fixture.checkpointPath, movedCheckpointPath)
+    fs.renameSync(movedCheckpointPath, fixture.checkpointPath)
     const renamedArchive = path.join(path.dirname(fixture.checkpointPath), 'released-data.zip')
     fs.writeFileSync(path.join(fixture.checkpointPath, 'data.zip'), 'released archive')
     fs.renameSync(path.join(fixture.checkpointPath, 'data.zip'), renamedArchive)
@@ -2760,7 +3093,11 @@ function findUnsafeRestoreToolEvent(run, { allowImageLoad = false } = {}) {
 function assertRestoreStoppedBeforeMutation(run, label) {
   assert.notEqual(run.result.status, 0, `${label} must fail before mutation`)
   assert.equal(run.eventNames.includes('Push'), false, `${label} reached Push-Location`)
-  assert.equal(run.eventNames.some((event) => event.startsWith('locks:')), false, `${label} reached a mutation boundary`)
+  assert.equal(
+    run.eventNames.some((event) => event.startsWith('locks:') && !event.startsWith('locks:invoke:')),
+    false,
+    `${label} reached a mutation boundary`,
+  )
   assert.deepEqual(run.compensationDirectories, [], `${label} published compensation evidence`)
   const unsafeToolEvent = findUnsafeRestoreToolEvent(run)
   assert.equal(unsafeToolEvent, undefined, `${label} executed an unsafe fake tool command`)
@@ -2783,7 +3120,22 @@ function assertRestoreStoppedAfterImageValidation(run, label) {
   assert.equal(findUnsafeRestoreToolEvent(run, { allowImageLoad: true }), undefined, `${label} executed an unsafe fake tool command`)
 }
 
-test('rollback restore fake toolchain keeps evidence locks through success and compensation paths', (t) => {
+function assertRestoreAuthorityProbeCoverage(run, label) {
+  const bindingIndex = run.eventNames.indexOf('binding accepted')
+  assert.notEqual(bindingIndex, -1, `${label} never completed checkpoint validation`)
+  const toolIndices = run.events.flatMap((entry, index) =>
+    index > bindingIndex && String(entry.event).startsWith('tool:') ? [index] : [])
+  assert.ok(toolIndices.length > 0, `${label} executed no post-validation fake command`)
+  let previousToolIndex = bindingIndex
+  for (const toolIndex of toolIndices) {
+    const probe = run.events.slice(previousToolIndex + 1, toolIndex)
+      .find((entry) => String(entry.event).startsWith('locks:invoke:'))
+    assert.ok(probe, `${label} did not retain every checkpoint authority at fake command index ${toolIndex}`)
+    previousToolIndex = toolIndex
+  }
+}
+
+test('rollback restore fake toolchain keeps evidence locks through success and compensation paths', async (t) => {
   if (process.platform !== 'win32') {
     t.skip('Restore orchestration lock contracts require Windows')
     return
@@ -2870,6 +3222,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
   ]
 
   for (const host of hosts) {
+    await t.test(host.name, () => {
     for (const [name, options] of [...gateScenarios, ...preservedPreMutationScenarios]) {
       const run = runScenario(host, name, options)
       assertRestoreStoppedBeforeMutation(run, `${host.name}/${name}`)
@@ -2881,6 +3234,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
 
     const success = runScenario(host, 'success')
     assert.equal(success.result.status, 0, success.result.stderr || success.result.stdout)
+    assertRestoreAuthorityProbeCoverage(success, `${host.name}/success`)
     const successIndex = (name) => success.eventNames.indexOf(name)
     assert.ok(successIndex('binding accepted') < successIndex('Push'))
     assert.ok(successIndex('Push') < successIndex('Rollback image archive load'))
@@ -2891,6 +3245,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
 
     const shutdownFailure = runScenario(host, 'shutdown_failure')
     assert.notEqual(shutdownFailure.result.status, 0)
+    assertRestoreAuthorityProbeCoverage(shutdownFailure, `${host.name}/shutdown_failure`)
     assert.ok(shutdownFailure.eventNames.indexOf('Current Docker shutdown') < shutdownFailure.eventNames.indexOf('Failed rollback preparation shutdown'))
     assert.ok(shutdownFailure.eventNames.includes('Preparation forward deployment recovery'))
 
@@ -2908,6 +3263,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
 
     const startupFailure = runScenario(host, 'startup_failure')
     assert.notEqual(startupFailure.result.status, 0)
+    assertRestoreAuthorityProbeCoverage(startupFailure, `${host.name}/startup_failure`)
     assert.ok(startupFailure.eventNames.includes('Failed rollback shutdown'))
     assert.ok(startupFailure.eventNames.includes('hash:Compensation data backup'))
     assert.ok(startupFailure.eventNames.includes('Compensation data restore'))
@@ -2915,9 +3271,28 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
 
     const terminalFailure = runScenario(host, 'terminal_failure')
     assert.notEqual(terminalFailure.result.status, 0)
+    assertRestoreAuthorityProbeCoverage(terminalFailure, `${host.name}/terminal_failure`)
     assert.ok(terminalFailure.eventNames.includes('Forward deployment recovery'))
     assert.ok(terminalFailure.eventNames.includes('Compensation failure shutdown'))
     assert.ok(terminalFailure.eventNames.includes('locks:Compensation failure shutdown'))
+
+    const cleanupFailure = runScenario(host, 'cleanup_failure', {
+      cleanupFailure: true,
+      runtimeScenario: 'startup_failure',
+    })
+    assert.notEqual(cleanupFailure.result.status, 0)
+    assertRestoreAuthorityProbeCoverage(cleanupFailure, `${host.name}/cleanup_failure`)
+    const driverFailure = cleanupFailure.events.find((entry) => entry.event === 'driver_failure')
+    assert.ok(driverFailure, `${host.name}/cleanup_failure did not report the retained primary error`)
+    assert.match(driverFailure.primary_message, /Rollback startup failed;/)
+    assert.deepEqual(driverFailure.cleanup_errors, ['injected cleanup failure'])
+    assert.match(cleanupFailure.result.stderr, /Rollback startup failed;/)
+    const cleanupDataIndex = cleanupFailure.eventNames.indexOf('cleanup:data')
+    const cleanupConfigIndex = cleanupFailure.eventNames.indexOf('cleanup:config')
+    const cleanupLocationIndex = cleanupFailure.eventNames.indexOf('cleanup:location')
+    assert.ok(cleanupDataIndex >= 0 && cleanupDataIndex < cleanupConfigIndex)
+    assert.ok(cleanupConfigIndex < cleanupLocationIndex)
+    })
   }
 })
 
@@ -3049,8 +3424,9 @@ test('release rollback restore binds every data operation to the inspected sourc
   assert.match(rollbackRestoreScript, /\$dataBindSourcePath = Join-Path \$checkpoint 'data-bind-source\.txt'/)
   assert.match(
     rollbackRestoreScript,
-    /Assert-FileHash -Path \$dataBindSourcePath -Expected \$metadata\.data_bind_source_sha256/,
+    /Assert-RollbackFileAuthorityHash -Authority \$dataBindSourceAuthority -Expected \$metadata\.data_bind_source_sha256/,
   )
+  assert.match(rollbackRestoreScript, /Read-RollbackFileAuthorityUtf8 -Authority \$dataBindSourceAuthority/)
   assert.match(
     rollbackRestoreScript,
     /Get-ContainerBindSource -ContainerId \$currentBackend\.container_id -Destination '\/app\/data' -RequireReadWrite/,

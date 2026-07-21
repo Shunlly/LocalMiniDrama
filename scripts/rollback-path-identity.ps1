@@ -134,8 +134,11 @@ function Assert-RollbackPathIdentity {
   return $actualIdentity
 }
 
-function Open-RollbackArchiveReadLock {
-  param([Parameter(Mandatory = $true)][string]$Path)
+function Open-RollbackFileAuthority {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
   $handle = $null
   $stream = $null
   try {
@@ -158,17 +161,22 @@ function Open-RollbackArchiveReadLock {
       $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
       if ($null -ne $handle) { $handle.Dispose() }
       $handle = $null
-      throw [ComponentModel.Win32Exception]::new($errorCode, "Could not open rollback archive read lock: $fullPath")
+      throw [ComponentModel.Win32Exception]::new($errorCode, "Could not open $Label authority: $fullPath")
     }
     $information = Get-RollbackHandleInformation -Handle $handle
     if ((($information.Attributes -band [System.IO.FileAttributes]::Directory) -ne 0) -or
         (($information.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
-      throw "Rollback archive must be a regular non-reparse file: $fullPath"
+      throw "$Label must be a regular non-reparse file: $fullPath"
     }
-    Assert-RollbackPathIdentity -Path $fullPath -ExpectedIdentity $information.Identity -Label 'Rollback archive' | Out-Null
+    Assert-RollbackPathIdentity -Path $fullPath -ExpectedIdentity $information.Identity -Label $Label | Out-Null
     $stream = [System.IO.FileStream]::new($handle, [System.IO.FileAccess]::Read)
     $handle = $null
-    return $stream
+    return [pscustomobject][ordered]@{
+      Path = $fullPath
+      Label = $Label
+      Identity = $information.Identity
+      Stream = $stream
+    }
   } catch {
     if ($null -ne $stream) { $stream.Dispose() }
     if ($null -ne $handle) { $handle.Dispose() }
@@ -176,14 +184,82 @@ function Open-RollbackArchiveReadLock {
   }
 }
 
-function Open-RollbackDirectoryIdentityLock {
+function Assert-RollbackFileAuthority {
+  param([Parameter(Mandatory = $true)][object]$Authority)
+  foreach ($member in @('Path', 'Label', 'Identity', 'Stream')) {
+    if ($null -eq $Authority.PSObject.Properties[$member]) {
+      throw "Rollback file authority is missing $member."
+    }
+  }
+  if ($Authority.Path -isnot [string] -or
+      $Authority.Label -isnot [string] -or
+      $Authority.Identity -isnot [string] -or
+      $null -eq $Authority.Stream -or
+      -not $Authority.Stream.CanRead) {
+    throw 'Rollback file authority is invalid or closed.'
+  }
+  $handleIdentity = Get-RollbackPathIdentity -Handle $Authority.Stream.SafeFileHandle
+  if ($handleIdentity -cne $Authority.Identity) {
+    throw "$($Authority.Label) retained handle identity changed."
+  }
+  return Assert-RollbackPathIdentity -Path $Authority.Path -ExpectedIdentity $handleIdentity -Label $Authority.Label
+}
+
+function Get-RollbackFileAuthoritySha256 {
+  param([Parameter(Mandatory = $true)][object]$Authority)
+  Assert-RollbackFileAuthority -Authority $Authority | Out-Null
+  if (-not $Authority.Stream.CanSeek) {
+    throw "$($Authority.Label) authority stream must be seekable."
+  }
+  $originalPosition = $Authority.Stream.Position
+  $sha256 = $null
+  try {
+    $Authority.Stream.Position = 0
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $hash = $sha256.ComputeHash($Authority.Stream)
+    return [BitConverter]::ToString($hash).Replace('-', '').ToLowerInvariant()
+  } finally {
+    if ($null -ne $sha256) { $sha256.Dispose() }
+    $Authority.Stream.Position = $originalPosition
+  }
+}
+
+function Read-RollbackFileAuthorityUtf8 {
+  param([Parameter(Mandatory = $true)][object]$Authority)
+  Assert-RollbackFileAuthority -Authority $Authority | Out-Null
+  if (-not $Authority.Stream.CanSeek) {
+    throw "$($Authority.Label) authority stream must be seekable."
+  }
+  $originalPosition = $Authority.Stream.Position
+  $reader = $null
+  try {
+    $Authority.Stream.Position = 0
+    $encoding = [System.Text.UTF8Encoding]::new($false, $true)
+    $reader = [System.IO.StreamReader]::new($Authority.Stream, $encoding, $false, 1024, $true)
+    return $reader.ReadToEnd()
+  } finally {
+    if ($null -ne $reader) { $reader.Dispose() }
+    $Authority.Stream.Position = $originalPosition
+  }
+}
+
+function Open-RollbackArchiveReadLock {
   param([Parameter(Mandatory = $true)][string]$Path)
+  $authority = Open-RollbackFileAuthority -Path $Path -Label 'Rollback archive'
+  return $authority.Stream
+}
+
+function Open-RollbackDirectoryIdentityLock {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [string]$Label = 'Rollback data root'
+  )
   $handle = $null
   try {
     $fullPath = [System.IO.Path]::GetFullPath($Path)
     $item = Get-Item -LiteralPath $fullPath -Force
     if (-not $item.PSIsContainer -or (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
-      throw "Rollback data root must be a real non-reparse directory: $fullPath"
+      throw "$Label must be a real non-reparse directory: $fullPath"
     }
     Initialize-RollbackPathNative
     # FILE_LIST_DIRECTORY is the narrowest access that makes the no-delete share effective for directories.
@@ -205,14 +281,14 @@ function Open-RollbackDirectoryIdentityLock {
       $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
       if ($null -ne $handle) { $handle.Dispose() }
       $handle = $null
-      throw [ComponentModel.Win32Exception]::new($errorCode, "Could not open rollback directory identity lock: $fullPath")
+      throw [ComponentModel.Win32Exception]::new($errorCode, "Could not open $Label directory identity lock: $fullPath")
     }
     $information = Get-RollbackHandleInformation -Handle $handle
     if ((($information.Attributes -band [System.IO.FileAttributes]::Directory) -eq 0) -or
         (($information.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
-      throw "Rollback data root retained handle must refer to a real non-reparse directory: $fullPath"
+      throw "$Label retained handle must refer to a real non-reparse directory: $fullPath"
     }
-    Assert-RollbackPathIdentity -Path $fullPath -ExpectedIdentity $information.Identity -Label 'Rollback data root' | Out-Null
+    Assert-RollbackPathIdentity -Path $fullPath -ExpectedIdentity $information.Identity -Label $Label | Out-Null
     return $handle
   } catch {
     if ($null -ne $handle) { $handle.Dispose() }

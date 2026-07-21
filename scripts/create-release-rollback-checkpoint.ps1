@@ -4,6 +4,7 @@ param(
 )
 
 . (Join-Path $PSScriptRoot 'rollback-path-identity.ps1')
+. (Join-Path $PSScriptRoot 'rollback-powershell-support.ps1')
 
 function Invoke-Checked {
   param(
@@ -505,7 +506,12 @@ param([Parameter(Mandatory = $true)][string]$CheckpointDirectory)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $directoryLock = $null
+$checkpointDirectoryLock = $null
+$configDirectoryLock = $null
 $archiveLock = $null
+$locationPushed = $false
+$primaryError = $null
+$cleanupErrors = [System.Collections.ArrayList]::new()
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $checkpoint = Get-NormalizedPath -Path $CheckpointDirectory
 Assert-NoReparsePathComponents -Path $checkpoint -Label 'Rollback checkpoint' | Out-Null
@@ -515,6 +521,7 @@ if (Test-Path -LiteralPath $checkpoint) {
 }
 
 Push-Location $repoRoot
+$locationPushed = $true
 try {
   $dirty = Get-CheckedScalar -FilePath 'git' -ArgumentList @('status', '--porcelain', '--untracked-files=normal') -Label 'Git status'
   if (-not [string]::IsNullOrWhiteSpace($dirty)) {
@@ -543,9 +550,11 @@ try {
   Set-RuntimeConfigEnvironment -ConfigDirectory $runtimeConfigDirectory -ConfigPath $runtimeConfigSource
 
   New-Item -ItemType Directory -Path $checkpoint | Out-Null
+  $checkpointDirectoryLock = Open-RollbackDirectoryIdentityLock -Path $checkpoint -Label 'Rollback checkpoint'
   Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $runtimeDataDirectory
   $configArchiveRoot = Join-Path $checkpoint 'configs'
   New-Item -ItemType Directory -Path $configArchiveRoot | Out-Null
+  $configDirectoryLock = Open-RollbackDirectoryIdentityLock -Path $configArchiveRoot -Label 'Rollback checkpoint config directory'
   $composeArchive = Join-Path $checkpoint 'docker-compose.yml'
   $configArchive = Join-Path $configArchiveRoot 'config.yaml'
   $dataBindSourceArchive = Join-Path $checkpoint 'data-bind-source.txt'
@@ -663,13 +672,46 @@ try {
     }
     throw $checkpointError
   }
+} catch {
+  $primaryError = $_
 } finally {
-  if ($null -ne $archiveLock) { $archiveLock.Dispose() }
-  if ($null -ne $directoryLock) { $directoryLock.Dispose() }
-  Clear-DataSourceEnvironment
-  Clear-RuntimeConfigEnvironment
-  Pop-Location
+  try {
+    if ($null -ne $archiveLock) { $archiveLock.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $configDirectoryLock) { $configDirectoryLock.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $checkpointDirectoryLock) { $checkpointDirectoryLock.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $directoryLock) { $directoryLock.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    Clear-DataSourceEnvironment
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    Clear-RuntimeConfigEnvironment
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($locationPushed) { Pop-Location }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
 }
+Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

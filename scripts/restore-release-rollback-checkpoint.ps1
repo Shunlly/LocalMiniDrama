@@ -4,6 +4,7 @@ param(
 )
 
 . (Join-Path $PSScriptRoot 'rollback-path-identity.ps1')
+. (Join-Path $PSScriptRoot 'rollback-powershell-support.ps1')
 
 function Invoke-Checked {
   param(
@@ -253,6 +254,20 @@ function Assert-FileHash {
   if ($actual -ne $Expected) { throw "$Label SHA-256 verification failed." }
 }
 
+function Assert-RollbackFileAuthorityHash {
+  param(
+    [Parameter(Mandatory = $true)][object]$Authority,
+    [Parameter(Mandatory = $true)][object]$Expected,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  if ($Expected -isnot [string] -or $Expected -cnotmatch '^[a-f0-9]{64}$') {
+    throw "$Label SHA-256 is invalid."
+  }
+  $actual = Get-RollbackFileAuthoritySha256 -Authority $Authority
+  if ($actual -cne $Expected) { throw "$Label SHA-256 verification failed." }
+  return $actual
+}
+
 function Get-RollbackEvidenceProperty {
   param(
     [Parameter(Mandatory = $true)][object]$Object,
@@ -492,28 +507,44 @@ function Invoke-ReleaseRollbackCheckpointRestore {
 param([Parameter(Mandatory = $true)][string]$CheckpointDirectory)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$checkpointIdentityLock = $null
+$configDirectoryIdentityLock = $null
+$metadataAuthority = $null
+$backupAuthority = $null
+$hashAuthority = $null
+$composeAuthority = $null
+$configAuthority = $null
+$dataBindSourceAuthority = $null
+$imageArchiveAuthority = $null
+$summaryAuthority = $null
 $rootIdentityLock = $null
-$archiveReadLock = $null
 $locationPushed = $false
+$primaryError = $null
+$cleanupErrors = [System.Collections.ArrayList]::new()
 try {
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $checkpoint = Assert-RealDirectory -Path $CheckpointDirectory -Label 'Rollback checkpoint'
+$checkpointIdentityLock = Open-RollbackDirectoryIdentityLock -Path $checkpoint -Label 'Rollback checkpoint'
+$configDirectory = Join-Path $checkpoint 'configs'
 $metadataPath = Join-Path $checkpoint 'metadata.json'
 $backupPath = Join-Path $checkpoint 'data.zip'
 $hashPath = Join-Path $checkpoint 'data.sha256.txt'
 $composePath = Join-Path $checkpoint 'docker-compose.yml'
-$configPath = Join-Path $checkpoint 'configs\config.yaml'
+$configPath = Join-Path $configDirectory 'config.yaml'
 $dataBindSourcePath = Join-Path $checkpoint 'data-bind-source.txt'
 $imageArchivePath = Join-Path $checkpoint 'images.tar'
 $summaryPath = Join-Path $checkpoint 'rollback-drill-summary.json'
-foreach ($requiredPath in @($metadataPath, $backupPath, $hashPath, $composePath, $configPath, $dataBindSourcePath, $imageArchivePath, $summaryPath)) {
-  if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
-    throw "Rollback checkpoint is incomplete: $requiredPath"
-  }
-  Assert-RegularFile -Path $requiredPath
-}
+$configDirectoryIdentityLock = Open-RollbackDirectoryIdentityLock -Path $configDirectory -Label 'Rollback checkpoint config directory'
+$metadataAuthority = Open-RollbackFileAuthority -Path $metadataPath -Label 'Rollback checkpoint metadata'
+$backupAuthority = Open-RollbackFileAuthority -Path $backupPath -Label 'Rollback data backup'
+$hashAuthority = Open-RollbackFileAuthority -Path $hashPath -Label 'Rollback data backup hash'
+$composeAuthority = Open-RollbackFileAuthority -Path $composePath -Label 'Archived Compose file'
+$configAuthority = Open-RollbackFileAuthority -Path $configPath -Label 'Archived runtime config'
+$dataBindSourceAuthority = Open-RollbackFileAuthority -Path $dataBindSourcePath -Label 'Archived data bind source'
+$imageArchiveAuthority = Open-RollbackFileAuthority -Path $imageArchivePath -Label 'Archived Docker images'
+$summaryAuthority = Open-RollbackFileAuthority -Path $summaryPath -Label 'Rollback drill evidence'
 
-$metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+$metadata = Read-RollbackFileAuthorityUtf8 -Authority $metadataAuthority | ConvertFrom-Json
 if ($null -eq $metadata.PSObject.Properties['schema'] -or
     $metadata.schema -isnot [string] -or
     $metadata.schema -cne 'localminidrama.release-rollback-checkpoint.v5') {
@@ -556,15 +587,15 @@ if ($metadata.backend.rollback_ref -ne $expectedBackendRef -or $metadata.fronten
   throw 'Rollback checkpoint image references do not match the captured commit.'
 }
 
-$expectedBackupHash = (Get-Content -LiteralPath $hashPath -Raw).Trim().ToLowerInvariant()
+$expectedBackupHash = (Read-RollbackFileAuthorityUtf8 -Authority $hashAuthority).Trim().ToLowerInvariant()
 if ($metadata.backup_sha256 -ne $expectedBackupHash) { throw 'Rollback backup hash records disagree.' }
-Assert-FileHash -Path $composePath -Expected $metadata.compose_sha256 -Label 'Archived Compose file'
-Assert-FileHash -Path $configPath -Expected $metadata.runtime_config_sha256 -Label 'Archived runtime config'
-Assert-FileHash -Path $dataBindSourcePath -Expected $metadata.data_bind_source_sha256 -Label 'Archived data bind source'
-Assert-FileHash -Path $imageArchivePath -Expected $metadata.image_archive_sha256 -Label 'Archived Docker images'
-Assert-FileHash -Path $summaryPath -Expected $metadata.rollback_evidence_sha256 -Label 'Rollback drill evidence'
+Assert-RollbackFileAuthorityHash -Authority $composeAuthority -Expected $metadata.compose_sha256 -Label 'Archived Compose file' | Out-Null
+Assert-RollbackFileAuthorityHash -Authority $configAuthority -Expected $metadata.runtime_config_sha256 -Label 'Archived runtime config' | Out-Null
+Assert-RollbackFileAuthorityHash -Authority $dataBindSourceAuthority -Expected $metadata.data_bind_source_sha256 -Label 'Archived data bind source' | Out-Null
+Assert-RollbackFileAuthorityHash -Authority $imageArchiveAuthority -Expected $metadata.image_archive_sha256 -Label 'Archived Docker images' | Out-Null
+Assert-RollbackFileAuthorityHash -Authority $summaryAuthority -Expected $metadata.rollback_evidence_sha256 -Label 'Rollback drill evidence' | Out-Null
 
-$recordedDataBindSourceText = Get-Content -LiteralPath $dataBindSourcePath -Raw
+$recordedDataBindSourceText = Read-RollbackFileAuthorityUtf8 -Authority $dataBindSourceAuthority
 $recordedDataBindSource = $recordedDataBindSourceText.TrimEnd([char[]]@("`r", "`n"))
 if ([string]::IsNullOrWhiteSpace($recordedDataBindSource) -or
     $recordedDataBindSource.Contains("`r") -or
@@ -575,7 +606,7 @@ $recordedDataBindSource = Assert-RealDirectory -Path $recordedDataBindSource -La
 Assert-SamePath -Expected ([string]$metadata.data_bind_source) -Actual $recordedDataBindSource -Label 'Rollback checkpoint data bind source record'
 Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $recordedDataBindSource
 
-$summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
+$summary = Read-RollbackFileAuthorityUtf8 -Authority $summaryAuthority | ConvertFrom-Json
 $currentComposePrefix = [string[]]@('compose', '--project-directory', $repoRoot)
 $currentBackend = Get-RunningServiceEvidence -Service 'backend' -ComposePrefix $currentComposePrefix
 $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix $currentComposePrefix
@@ -592,18 +623,20 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
   $rootIdentityLock = Open-RollbackDirectoryIdentityLock -Path $forwardDataDirectory
   $retainedDataRootIdentity = Get-RollbackPathIdentity -Handle $rootIdentityLock
   $actualDataRootIdentity = Assert-RollbackPathIdentity -Path $forwardDataDirectory -ExpectedIdentity $retainedDataRootIdentity -Label 'Rollback data root evidence gate'
-  $archiveReadLock = Open-RollbackArchiveReadLock -Path $backupPath
-  Assert-FileHash -Path $backupPath -Expected $expectedBackupHash -Label 'Rollback data backup'
-  $actualBackupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $actualBackupHash = Assert-RollbackFileAuthorityHash -Authority $backupAuthority -Expected $expectedBackupHash -Label 'Rollback data backup'
   Assert-RollbackEvidenceBinding -Metadata $metadata -Summary $summary -ActualBackupHash $actualBackupHash -ActualDataRootIdentity $actualDataRootIdentity
   Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback evidence gate'
 
-  $configDirectory = Split-Path -Parent $configPath
+  Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
   Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
   Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
   $env:LOCALMINIDRAMA_IMAGE_TAG = $rollbackTag
   $env:LOCALMINIDRAMA_BUILD_REVISION = $metadata.previous_commit
+  Assert-RollbackFileAuthority -Authority $composeAuthority | Out-Null
+  Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
   Assert-ComposeDataSource -ExpectedDataDirectory $forwardDataDirectory -ComposePrefix ([string[]]@('compose', '--project-directory', $repoRoot, '-f', $composePath)) -Label 'Archived rollback Compose'
+  Assert-RollbackFileAuthority -Authority $composeAuthority | Out-Null
+  Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
   Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', '--project-directory', $repoRoot, '-f', $composePath, 'config', '--quiet') -Label 'Archived Docker Compose validation' | Out-Null
 
   Push-Location $repoRoot
@@ -611,6 +644,7 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
   Write-Warning 'Archived runtime config excludes Provider credentials. After rollback, configure credentials and test again before using AI generation.'
 
   Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before image load'
+  Assert-RollbackFileAuthority -Authority $imageArchiveAuthority | Out-Null
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'load', '--input', $imageArchivePath) -Label 'Rollback image archive load' | Out-Null
   $loadedBackendId = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $expectedBackendRef, '--format', '{{.Id}}') -Label 'Backend rollback image load verification').ToLowerInvariant()
   $loadedFrontendId = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $expectedFrontendRef, '--format', '{{.Id}}') -Label 'Frontend rollback image load verification').ToLowerInvariant()
@@ -636,6 +670,7 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
   Write-Utf8File -Path $probePath -Value "probe`n"
   Remove-Item -LiteralPath $probePath
   $compensationDataBindSourcePath = Join-Path $compensationRoot 'data-bind-source.txt'
+  Assert-RollbackFileAuthority -Authority $dataBindSourceAuthority | Out-Null
   Copy-Item -LiteralPath $dataBindSourcePath -Destination $compensationDataBindSourcePath
   Assert-RegularFile -Path $compensationDataBindSourcePath
   Assert-FileHash -Path $compensationDataBindSourcePath -Expected $metadata.data_bind_source_sha256 -Label 'Compensation data bind source'
@@ -670,9 +705,11 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
     }
     Write-Utf8File -Path (Join-Path $compensationRoot 'metadata.json') -Value "$(ConvertTo-Json $compensationMetadata -Depth 4)`n"
 
+    Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
     Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
     Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
     Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before rollback restore'
+    Assert-RollbackFileAuthority -Authority $backupAuthority | Out-Null
     Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $backupPath, '--yes', '--data-root', $forwardDataDirectory) -Label 'Rollback data restore' | Out-Null
   } catch {
     $preRollbackError = $_
@@ -728,12 +765,19 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
   try {
     $env:LOCALMINIDRAMA_IMAGE_TAG = $rollbackTag
     $env:LOCALMINIDRAMA_BUILD_REVISION = $metadata.previous_commit
+    Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
     Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
     Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
     Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before rollback Compose'
+    Assert-RollbackFileAuthority -Authority $composeAuthority | Out-Null
+    Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
     Assert-ComposeDataSource -ExpectedDataDirectory $forwardDataDirectory -ComposePrefix ([string[]]@('compose', '--project-directory', $repoRoot, '-f', $composePath)) -Label 'Rollback Compose'
     Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before rollback startup'
+    Assert-RollbackFileAuthority -Authority $composeAuthority | Out-Null
+    Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
     Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', '--project-directory', $repoRoot, '-f', $composePath, 'up', '-d', '--no-build', '--wait') -Label 'Rollback container startup' | Out-Null
+    Assert-RollbackFileAuthority -Authority $composeAuthority | Out-Null
+    Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
     Assert-RunningBackendDataSource -ExpectedDataDirectory $forwardDataDirectory -ComposePrefix ([string[]]@('compose', '--project-directory', $repoRoot, '-f', $composePath)) -Label 'Rollback backend' -CheckpointDirectory $checkpoint -RetainedDataRootIdentity $retainedDataRootIdentity -MetadataDataRootIdentity $metadata.data_root_identity
     Test-ApplicationHealth
   } catch {
@@ -745,9 +789,12 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
     $compensationError = $null
     $compensationShutdownError = $null
     try {
+      Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
       Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
       Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
       Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before failed rollback shutdown'
+      Assert-RollbackFileAuthority -Authority $composeAuthority | Out-Null
+      Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
       Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', '--project-directory', $repoRoot, '-f', $composePath, 'down') -Label 'Failed rollback shutdown' | Out-Null
     } catch {
       $rollbackShutdownError = $_
@@ -790,13 +837,81 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
   Write-Output "Rollback started from commit $($metadata.previous_commit) with tag $rollbackTag."
   Write-Output "Pre-rollback compensation backup retained at $compensationRoot."
   Write-Output 'Provider credentials are excluded from the checkpoint and data backups; configure credentials and test again before using AI generation.'
+} catch {
+  $primaryError = $_
 } finally {
-  if ($null -ne $archiveReadLock) { $archiveReadLock.Dispose() }
-  if ($null -ne $rootIdentityLock) { $rootIdentityLock.Dispose() }
-  Clear-DataSourceEnvironment
-  Clear-RuntimeConfigEnvironment
-  if ($locationPushed) { Pop-Location }
+  try {
+    if ($null -ne $rootIdentityLock) { $rootIdentityLock.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $summaryAuthority) { $summaryAuthority.Stream.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $imageArchiveAuthority) { $imageArchiveAuthority.Stream.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $dataBindSourceAuthority) { $dataBindSourceAuthority.Stream.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $configAuthority) { $configAuthority.Stream.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $composeAuthority) { $composeAuthority.Stream.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $hashAuthority) { $hashAuthority.Stream.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $backupAuthority) { $backupAuthority.Stream.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $metadataAuthority) { $metadataAuthority.Stream.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $configDirectoryIdentityLock) { $configDirectoryIdentityLock.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $checkpointIdentityLock) { $checkpointIdentityLock.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    Clear-DataSourceEnvironment
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    Clear-RuntimeConfigEnvironment
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($locationPushed) { Pop-Location }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
 }
+Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
