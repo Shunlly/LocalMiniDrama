@@ -518,6 +518,8 @@ $dataBindSourceAuthority = $null
 $imageArchiveAuthority = $null
 $summaryAuthority = $null
 $rootIdentityLock = $null
+$compensationDirectoryLock = $null
+$compensationBackupAuthority = $null
 $locationPushed = $false
 $primaryError = $null
 $cleanupErrors = [System.Collections.ArrayList]::new()
@@ -664,8 +666,9 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'tag', $currentFrontend.image_id, "localminidrama-frontend:$forwardTag") -Label 'Current frontend compensation tag' | Out-Null
 
   Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before compensation publication'
-  $compensationRoot = Join-Path $checkpoint ("compensation-" + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ'))
+  $compensationRoot = Join-Path $checkpoint ("compensation-" + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + "-" + [Guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $compensationRoot | Out-Null
+  $compensationDirectoryLock = Open-RollbackDirectoryIdentityLock -Path $compensationRoot -Label 'Rollback compensation directory'
   $probePath = Join-Path $compensationRoot '.write-probe'
   Write-Utf8File -Path $probePath -Value "probe`n"
   Remove-Item -LiteralPath $probePath
@@ -687,7 +690,8 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
     Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
     Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before compensation backup'
     Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'backup:data', '--', '--output', $compensationBackup, '--data-root', $forwardDataDirectory) -Label 'Pre-rollback compensation backup' | Out-Null
-    $compensationHash = (Get-FileHash -LiteralPath $compensationBackup -Algorithm SHA256).Hash.ToLowerInvariant()
+    $compensationBackupAuthority = Open-RollbackFileAuthority -Path $compensationBackup -Label 'Pre-rollback compensation backup'
+    $compensationHash = Get-RollbackFileAuthoritySha256 -Authority $compensationBackupAuthority
     Write-Utf8File -Path (Join-Path $compensationRoot 'data.sha256.txt') -Value "$compensationHash`n"
     $compensationMetadata = [ordered]@{
       schema = 'localminidrama.rollback-compensation.v2'
@@ -726,12 +730,13 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
       Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
       Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before preparation shutdown'
       Invoke-Checked -FilePath 'docker' -ArgumentList @('compose', 'down') -Label 'Failed rollback preparation shutdown' | Out-Null
-      if ($compensationHash -and (Test-Path -LiteralPath $compensationBackup -PathType Leaf)) {
+      if ($null -ne $compensationBackupAuthority -and $compensationHash) {
         Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
         Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
         Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before preparation compensation restore'
-        Assert-FileHash -Path $compensationBackup -Expected $compensationHash -Label 'Preparation compensation data backup'
-        Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $compensationBackup, '--yes', '--data-root', $forwardDataDirectory) -Label 'Preparation compensation data restore' | Out-Null
+        Assert-RollbackFileAuthorityHash -Authority $compensationBackupAuthority -Expected $compensationHash -Label 'Preparation compensation data backup' | Out-Null
+        Assert-RollbackFileAuthority -Authority $compensationBackupAuthority | Out-Null
+        Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $compensationBackupAuthority.Path, '--yes', '--data-root', $forwardDataDirectory) -Label 'Preparation compensation data restore' | Out-Null
       }
       $env:LOCALMINIDRAMA_IMAGE_TAG = $forwardTag
       $env:LOCALMINIDRAMA_BUILD_REVISION = $currentBackend.revision
@@ -804,8 +809,9 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
       Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
       Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
       Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before compensation restore'
-      Assert-FileHash -Path $compensationBackup -Expected $compensationHash -Label 'Compensation data backup'
-      Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $compensationBackup, '--yes', '--data-root', $forwardDataDirectory) -Label 'Compensation data restore' | Out-Null
+      Assert-RollbackFileAuthorityHash -Authority $compensationBackupAuthority -Expected $compensationHash -Label 'Compensation data backup' | Out-Null
+      Assert-RollbackFileAuthority -Authority $compensationBackupAuthority | Out-Null
+      Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $compensationBackupAuthority.Path, '--yes', '--data-root', $forwardDataDirectory) -Label 'Compensation data restore' | Out-Null
       $env:LOCALMINIDRAMA_IMAGE_TAG = $forwardTag
       $env:LOCALMINIDRAMA_BUILD_REVISION = $currentBackend.revision
       Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
@@ -841,6 +847,16 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
 } catch {
   $primaryError = $_
 } finally {
+  try {
+    if ($null -ne $compensationBackupAuthority) { $compensationBackupAuthority.Stream.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $compensationDirectoryLock) { $compensationDirectoryLock.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
   try {
     if ($null -ne $rootIdentityLock) { $rootIdentityLock.Dispose() }
   } catch {

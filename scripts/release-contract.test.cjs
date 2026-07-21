@@ -2825,11 +2825,126 @@ function createRollbackRestoreHarness(t) {
     'rollback-drill-summary.json',
   ]
 
+  const compensationProbePath = path.join(fixtureRoot, 'compensation-sharing-probe.cjs')
+  fs.writeFileSync(compensationProbePath, `
+'use strict'
+const fs = require('node:fs')
+
+const record = (entry) => {
+  fs.appendFileSync(process.env.LMD_EVENT_LOG, JSON.stringify({ ...entry, driver: 'sharing-probe' }) + '\\n')
+}
+
+const requireOriginalBytes = (archivePath, originalBytes, stage) => {
+  if (!fs.existsSync(archivePath) || !fs.readFileSync(archivePath).equals(originalBytes)) {
+    throw new Error(stage + ': compensation archive original bytes were not retained')
+  }
+}
+
+function probeCompensation(archivePath, directoryPath, stage) {
+  const result = {
+    event: 'compensation-sharing-probe',
+    stage,
+    directory_path: directoryPath,
+    directory_rename_blocked: null,
+    archive_path: archivePath,
+    archive_present: fs.existsSync(archivePath),
+    archive_regular: false,
+    mutations: {},
+    original_bytes_retained: null,
+  }
+
+  const movedDirectoryPath = directoryPath + '.sharing-probe'
+  let directoryMoved = false
+  try {
+    fs.renameSync(directoryPath, movedDirectoryPath)
+    directoryMoved = true
+    result.directory_rename_blocked = false
+  } catch {
+    result.directory_rename_blocked = true
+  } finally {
+    if (directoryMoved) fs.renameSync(movedDirectoryPath, directoryPath)
+  }
+
+  if (result.archive_present && fs.statSync(archivePath).isFile()) {
+    result.archive_regular = true
+    const originalBytes = fs.readFileSync(archivePath)
+
+    let overwritten = false
+    try {
+      fs.writeFileSync(archivePath, 'attacker overwrite')
+      overwritten = true
+      result.mutations.overwrite_blocked = false
+    } catch {
+      result.mutations.overwrite_blocked = true
+    } finally {
+      if (overwritten) fs.writeFileSync(archivePath, originalBytes)
+    }
+    requireOriginalBytes(archivePath, originalBytes, stage)
+
+    const renamedPath = archivePath + '.renamed-probe'
+    let renamed = false
+    try {
+      fs.renameSync(archivePath, renamedPath)
+      renamed = true
+      result.mutations.rename_blocked = false
+    } catch {
+      result.mutations.rename_blocked = true
+    } finally {
+      if (renamed) fs.renameSync(renamedPath, archivePath)
+    }
+    requireOriginalBytes(archivePath, originalBytes, stage)
+
+    let deleted = false
+    try {
+      fs.unlinkSync(archivePath)
+      deleted = true
+      fs.writeFileSync(archivePath, 'attacker recreate')
+      result.mutations.delete_recreate_blocked = false
+    } catch {
+      result.mutations.delete_recreate_blocked = true
+    } finally {
+      if (deleted) {
+        if (fs.existsSync(archivePath)) fs.unlinkSync(archivePath)
+        fs.writeFileSync(archivePath, originalBytes)
+      }
+    }
+    requireOriginalBytes(archivePath, originalBytes, stage)
+
+    const displacedPath = archivePath + '.displaced-probe'
+    const replacementPath = archivePath + '.replacement-probe'
+    fs.writeFileSync(replacementPath, 'attacker replacement')
+    let displaced = false
+    let swapped = false
+    try {
+      fs.renameSync(archivePath, displacedPath)
+      displaced = true
+      fs.renameSync(replacementPath, archivePath)
+      swapped = true
+      result.mutations.swap_before_open_blocked = false
+    } catch {
+      result.mutations.swap_before_open_blocked = true
+    } finally {
+      if (swapped && fs.existsSync(archivePath)) fs.unlinkSync(archivePath)
+      if (displaced) fs.renameSync(displacedPath, archivePath)
+      if (fs.existsSync(replacementPath)) fs.unlinkSync(replacementPath)
+    }
+    requireOriginalBytes(archivePath, originalBytes, stage)
+    result.original_bytes_retained = true
+  }
+
+  record(result)
+  return result
+}
+
+module.exports = { probeCompensation }
+`, 'utf8')
+
   const fakeToolPath = path.join(fixtureRoot, 'fake-restore-tool.cjs')
   fs.writeFileSync(fakeToolPath, `
 'use strict'
 const fs = require('node:fs')
 const path = require('node:path')
+const { probeCompensation } = require(process.env.LMD_COMPENSATION_PROBE)
 const tool = process.argv[2]
 const args = process.argv.slice(3)
 const record = (event, extra = {}) => fs.appendFileSync(process.env.LMD_EVENT_LOG, JSON.stringify({ event, tool, args, ...extra }) + '\\n')
@@ -2923,7 +3038,12 @@ if (tool === 'docker') {
 if (tool === 'npm') {
   const dataRoot = valueAfter('--data-root')
   if (dataRoot !== process.env.LMD_DATA_ROOT) process.exit(61)
-  if (args.includes('backup:data')) fs.writeFileSync(valueAfter('--output'), 'durable compensation bytes')
+  if (args.includes('backup:data')) {
+    const outputPath = valueAfter('--output')
+    if (mode === 'compensation-backup-failure') fail('injected compensation backup failure')
+    if (mode === 'compensation-authority-invalid') fs.mkdirSync(outputPath)
+    else fs.writeFileSync(outputPath, 'durable compensation bytes')
+  }
   if (args.includes('restore:data')) {
     const inputPath = valueAfter('--input')
     const rollbackArchivePath = path.join(checkpointPath, 'data.zip')
@@ -2932,10 +3052,12 @@ if (tool === 'npm') {
       record('consumer:rollback-data-restore')
       requireArchivedConfig('consumer:config:npm-restore')
     } else {
+      probeCompensation(inputPath, path.dirname(inputPath), 'consumer:' + process.env.LMD_SCENARIO)
       if (fs.readFileSync(inputPath, 'utf8') !== 'durable compensation bytes') {
         fail('compensation archive bytes mismatch')
       }
       record('consumer:compensation-data-restore')
+      if (mode === 'compensation-restore-failure') fail('injected compensation restore failure')
     }
   }
   process.exit(0)
@@ -2955,6 +3077,7 @@ process.exit(62)
 'use strict'
 const fs = require('node:fs')
 const path = require('node:path')
+const { probeCompensation } = require(process.env.LMD_COMPENSATION_PROBE)
 const [dataRoot, checkpointPath, stage] = process.argv.slice(2)
 const fail = (message) => { process.stderr.write(stage + ': ' + message + '\\n'); process.exit(70) }
 const failures = []
@@ -2993,6 +3116,14 @@ requireBlocked('archive write', () => fs.writeFileSync(archivePath, 'mutated'))
 requireBlocked('archive delete', () => fs.unlinkSync(archivePath))
 requireBlocked('archive rename', () => fs.renameSync(archivePath, archivePath + '.renamed'))
 fs.readFileSync(archivePath)
+const compensationDirectories = fs.readdirSync(checkpointPath)
+  .filter((entry) => entry.startsWith('compensation-'))
+if (compensationDirectories.length > 1) fail('multiple compensation directories were published')
+if (compensationDirectories.length === 1) {
+  const compensationName = compensationDirectories[0]
+  const compensationDirectory = path.join(checkpointPath, compensationName)
+  probeCompensation(path.join(compensationDirectory, 'data.zip'), compensationDirectory, stage)
+}
 requireBlocked('root rename', () => fs.renameSync(dataRoot, dataRoot + '.renamed'))
 requireBlocked('root delete', () => fs.rmdirSync(dataRoot))
 const child = path.join(dataRoot, 'lock-probe-child.txt')
@@ -3014,12 +3145,16 @@ $script:OriginalInvokeChecked = \${function:Invoke-Checked}
 $script:OriginalEvidenceBinding = \${function:Assert-RollbackEvidenceBinding}
 $script:OriginalRootGuard = \${function:Assert-CurrentRollbackRoot}
 $script:OriginalFileHash = \${function:Assert-FileHash}
+$script:OriginalOpenRollbackFileAuthority = \${function:Open-RollbackFileAuthority}
+$script:OriginalOpenRollbackDirectoryIdentityLock = \${function:Open-RollbackDirectoryIdentityLock}
 $script:OriginalAssertRollbackFileAuthority = \${function:Assert-RollbackFileAuthority}
+$script:OriginalAssertRollbackFileAuthorityHash = \${function:Assert-RollbackFileAuthorityHash}
 $script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
 $script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
 $script:EvidenceValidated = $false
 $script:AuthorityAssertionOrder = 0
 $script:AuthoritiesSinceBoundary = [System.Collections.ArrayList]::new()
+$script:LastAuthorityAssertion = $null
 $script:PendingRecoveryLabel = $null
 
 function Write-TestEvent {
@@ -3032,10 +3167,49 @@ function Write-TestRecord {
   $line = ConvertTo-Json -Compress -Depth 4 -InputObject $Record
   [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 }
+function Open-RollbackFileAuthority {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  if ($Label -ceq 'Pre-rollback compensation backup') {
+    Write-TestRecord -Record ([ordered]@{
+      event = 'compensation-authority-attempt'
+      path = [System.IO.Path]::GetFullPath($Path)
+      driver = 'restore'
+    })
+  }
+  $authority = & $script:OriginalOpenRollbackFileAuthority @PSBoundParameters
+  if ($Label -ceq 'Pre-rollback compensation backup') {
+    Write-TestRecord -Record ([ordered]@{
+      event = 'compensation-authority-opened'
+      path = [string]$authority.Path
+      identity = [string]$authority.Identity
+      driver = 'restore'
+    })
+  }
+  return $authority
+}
+function Open-RollbackDirectoryIdentityLock {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [string]$Label = 'Rollback data root'
+  )
+  $lock = & $script:OriginalOpenRollbackDirectoryIdentityLock @PSBoundParameters
+  if ($Label -ceq 'Rollback compensation directory') {
+    Write-TestRecord -Record ([ordered]@{
+      event = 'compensation-directory-lock-opened'
+      path = [System.IO.Path]::GetFullPath($Path)
+      driver = 'restore'
+    })
+  }
+  return $lock
+}
 function Assert-RollbackFileAuthority {
   param([Parameter(Mandatory = $true)][object]$Authority)
   $result = & $script:OriginalAssertRollbackFileAuthority @PSBoundParameters
   $script:AuthorityAssertionOrder += 1
+  $script:LastAuthorityAssertion = [string]$Authority.Label
   if ($env:LMD_SUPPRESS_AUTHORITY_LABEL -cne $Authority.Label) {
     [void]$script:AuthoritiesSinceBoundary.Add([string]$Authority.Label)
     Write-TestRecord -Record ([ordered]@{
@@ -3045,6 +3219,16 @@ function Assert-RollbackFileAuthority {
       driver = 'restore'
     })
   }
+  return $result
+}
+function Assert-RollbackFileAuthorityHash {
+  param(
+    [Parameter(Mandatory = $true)][object]$Authority,
+    [Parameter(Mandatory = $true)][object]$Expected,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $result = & $script:OriginalAssertRollbackFileAuthorityHash @PSBoundParameters
+  if ($Label -like '*compensation data backup') { Write-TestEvent -Name ('hash:' + $Label) }
   return $result
 }
 function Record-ProductionAuthorityBoundary {
@@ -3070,6 +3254,7 @@ function Assert-RollbackEvidenceBinding {
   & $script:OriginalEvidenceBinding @PSBoundParameters
   $script:EvidenceValidated = $true
   $script:AuthoritiesSinceBoundary.Clear()
+  $script:LastAuthorityAssertion = $null
   Write-TestEvent -Name 'binding accepted'
 }
 function Push-Location {
@@ -3100,7 +3285,6 @@ function Assert-FileHash {
     Write-TestEvent -Name 'consumer:bind-source-copy'
     Record-ProductionAuthorityBoundary -Label 'Compensation data bind source copy'
   }
-  if ($Label -like '*compensation data backup') { Write-TestEvent -Name ('hash:' + $Label) }
 }
 function Invoke-Checked {
   param([string]$FilePath, [string[]]$ArgumentList, [string]$Label)
@@ -3112,6 +3296,13 @@ function Invoke-Checked {
     'Compensation data restore', 'Forward deployment recovery', 'Preparation compensation failure shutdown',
     'Compensation failure shutdown'
   )
+  Write-TestRecord -Record ([ordered]@{
+    event = 'production-immediate-authority'
+    boundary = $Label
+    authority = $script:LastAuthorityAssertion
+    driver = 'restore'
+  })
+  $script:LastAuthorityAssertion = $null
   if ($mutationLabels -ccontains $Label) {
     Write-TestEvent -Name $Label
     Assert-TestLocks -Stage $Label
@@ -3162,10 +3353,12 @@ function Pop-Location {
 }
 function Test-ApplicationHealth {
   if ($null -eq $script:PendingRecoveryLabel) {
+    Assert-TestLocks -Stage 'health'
     Write-TestEvent -Name 'health'
     return
   }
   $recoveryLabel = $script:PendingRecoveryLabel
+  Assert-TestLocks -Stage ('health:' + $recoveryLabel)
   Write-TestEvent -Name ('health:' + $recoveryLabel)
   Write-TestEvent -Name ('recovery-complete:' + $recoveryLabel)
   $script:PendingRecoveryLabel = $null
@@ -3310,6 +3503,7 @@ try {
         LMD_LOCK_PROBE: lockProbePath,
         LMD_NODE_EXE: process.execPath,
         LMD_CLEANUP_FAILURE: String(Boolean(options.cleanupFailure)),
+        LMD_COMPENSATION_PROBE: compensationProbePath,
         LMD_SCENARIO: options.runtimeScenario || name,
         LMD_SUPPRESS_AUTHORITY_LABEL: options.suppressAuthorityLabel || '',
       },
@@ -3320,6 +3514,32 @@ try {
     const eventNames = events.map((entry) => entry.event)
     const compensationDirectories = fs.readdirSync(fixture.checkpointPath)
       .filter((entry) => entry.startsWith('compensation-'))
+    const compensationArtifacts = compensationDirectories.map((name) => {
+      const directoryPath = path.join(fixture.checkpointPath, name)
+      const archivePath = path.join(directoryPath, 'data.zip')
+      const archiveExists = fs.existsSync(archivePath)
+      const archiveType = archiveExists
+        ? (fs.statSync(archivePath).isFile() ? 'file' : 'other')
+        : 'missing'
+      const archiveBytes = archiveType === 'file' ? fs.readFileSync(archivePath) : null
+      if (archiveExists) {
+        const movedArchivePath = archivePath + '.released'
+        fs.renameSync(archivePath, movedArchivePath)
+        fs.renameSync(movedArchivePath, archivePath)
+      }
+      const movedDirectoryPath = directoryPath + '.released'
+      fs.renameSync(directoryPath, movedDirectoryPath)
+      fs.renameSync(movedDirectoryPath, directoryPath)
+      return {
+        archiveBytes,
+        archivePath,
+        archiveType,
+        directoryPath,
+        name,
+        nameIsUnpredictable: /^compensation-\d{8}T\d{6}Z-[a-f0-9]{32}$/.test(name),
+        releasedAfterExit: true,
+      }
+    })
     for (const relativePath of fixedCheckpointFiles) {
       const originalPath = path.join(fixture.checkpointPath, ...relativePath.split('/'))
       const movedPath = `${originalPath}.released`
@@ -3340,7 +3560,7 @@ try {
     const renamedRoot = `${fixture.dataRoot}.released`
     fs.renameSync(fixture.dataRoot, renamedRoot)
     fs.rmdirSync(renamedRoot)
-    return { compensationDirectories, eventNames, events, fixture, result }
+    return { compensationArtifacts, compensationDirectories, eventNames, events, fixture, result }
   }
 
   return { runScenario }
@@ -3473,7 +3693,7 @@ function assertCheckpointPreparationAuthorityBoundaries(run, label, options = {}
       run,
       label,
       'Rollback data restore',
-      ['Rollback data backup', 'Archived runtime config'],
+      ['Rollback data backup', 'Archived runtime config', 'Pre-rollback compensation backup'],
     )
   }
   if (options.rollbackStartup) {
@@ -3701,6 +3921,187 @@ test('rollback restore archived-down oracle rejects missing exact-byte success e
           /did not prove consumer:config:docker-compose:down/,
         )
         assert.equal(mutation.eventNames.includes('consumer:config:docker-compose:down'), false)
+      })
+    })
+  }
+})
+
+const blockedCompensationMutations = {
+  delete_recreate_blocked: true,
+  overwrite_blocked: true,
+  rename_blocked: true,
+  swap_before_open_blocked: true,
+}
+
+function assertCompensationSharingProbe(run, label, stage, { archivePresent = true } = {}) {
+  const records = run.events.filter((entry) =>
+    entry.event === 'compensation-sharing-probe' && entry.stage === stage)
+  assert.equal(records.length, 1, `${label} did not run exactly one compensation sharing probe at ${stage}`)
+  const record = records[0]
+  assert.equal(record.archive_present, archivePresent, `${label} observed the wrong archive state at ${stage}`)
+  if (archivePresent) {
+    assert.equal(record.archive_regular, true, `${label} did not retain a regular compensation archive at ${stage}`)
+    assert.deepEqual(record.mutations, blockedCompensationMutations, `${label} allowed an archive mutation at ${stage}`)
+    assert.equal(record.original_bytes_retained, true, `${label} lost the original archive bytes at ${stage}`)
+  }
+  assert.equal(record.directory_rename_blocked, true, `${label} allowed compensation directory replacement at ${stage}`)
+  assert.match(
+    path.basename(record.directory_path),
+    /^compensation-\d{8}T\d{6}Z-[a-f0-9]{32}$/,
+    `${label} used a predictable compensation directory name`,
+  )
+  return record
+}
+
+function assertCompensationPublishedAndReleased(run, label, expectedArchiveType = 'file') {
+  assert.equal(run.compensationArtifacts.length, 1, `${label} did not retain exactly one compensation directory`)
+  const artifact = run.compensationArtifacts[0]
+  assert.equal(artifact.nameIsUnpredictable, true, `${label} retained a predictable compensation directory`)
+  assert.equal(artifact.archiveType, expectedArchiveType, `${label} retained the wrong compensation archive type`)
+  assert.equal(artifact.releasedAfterExit, true, `${label} did not release compensation handles after exit`)
+  if (expectedArchiveType === 'file') {
+    assert.equal(artifact.archiveBytes.toString('utf8'), 'durable compensation bytes')
+  }
+  return artifact
+}
+
+function assertSingleCompensationAuthority(run, label, artifact) {
+  const attempts = run.events.filter((entry) => entry.event === 'compensation-authority-attempt')
+  const opened = run.events.filter((entry) => entry.event === 'compensation-authority-opened')
+  const directoryLocks = run.events.filter((entry) => entry.event === 'compensation-directory-lock-opened')
+  assert.equal(attempts.length, 1, `${label} did not attempt exactly one compensation authority acquisition`)
+  assert.equal(opened.length, 1, `${label} did not open exactly one compensation authority`)
+  assert.equal(directoryLocks.length, 1, `${label} did not open exactly one compensation directory lock`)
+  assert.equal(attempts[0].path, artifact.archivePath, `${label} acquired authority for the wrong archive path`)
+  assert.equal(opened[0].path, artifact.archivePath, `${label} retained authority for the wrong archive path`)
+  assert.equal(directoryLocks[0].path, artifact.directoryPath, `${label} locked the wrong compensation directory`)
+}
+
+function assertCompensationRestoreConsumer(run, label, boundary, artifact) {
+  const immediate = run.events.filter((entry) =>
+    entry.event === 'production-immediate-authority' && entry.boundary === boundary)
+  assert.equal(immediate.length, 1, `${label} did not record exactly one ${boundary} boundary`)
+  assert.equal(
+    immediate[0].authority,
+    'Pre-rollback compensation backup',
+    `${label} did not assert the compensation authority immediately before ${boundary}`,
+  )
+  const consumers = run.events.filter((entry) => entry.event === 'consumer:compensation-data-restore')
+  assert.equal(consumers.length, 1, `${label} did not execute exactly one compensation restore consumer`)
+  const inputIndex = consumers[0].args.indexOf('--input')
+  assert.notEqual(inputIndex, -1, `${label} compensation restore omitted --input`)
+  assert.equal(consumers[0].args[inputIndex + 1], artifact.archivePath, `${label} restored from a recomputed path`)
+}
+
+test('rollback compensation authority retains the published archive across every branch', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Compensation sharing behavior requires Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'compensation sharing behavior must run under Node 20')
+  const hosts = windowsPowerShellHosts()
+  assert.ok(hosts.some((host) => host.name === 'powershell-7'), 'PowerShell 7 is required for compensation coverage')
+  const { runScenario } = createRollbackRestoreHarness(t)
+
+  for (const host of hosts) {
+    await t.test(host.name, async (t) => {
+      await t.test('restore_failure rejects every archive mutation before preparation compensation', () => {
+        const run = runScenario(host, 'task2-restore-failure', { runtimeScenario: 'restore_failure' })
+        const label = `${host.name}/restore_failure`
+        assert.notEqual(run.result.status, 0)
+        assertCompensationSharingProbe(run, label, 'consumer:restore_failure')
+        const artifact = assertCompensationPublishedAndReleased(run, label)
+        assertSingleCompensationAuthority(run, label, artifact)
+        assertCompensationRestoreConsumer(run, label, 'Preparation compensation data restore', artifact)
+        assert.ok(run.eventNames.includes('recovery-complete:Preparation forward deployment recovery'))
+      })
+
+      await t.test('startup_failure rejects every archive mutation before failed-startup compensation', () => {
+        const run = runScenario(host, 'task2-startup-failure', { runtimeScenario: 'startup_failure' })
+        const label = `${host.name}/startup_failure`
+        assert.notEqual(run.result.status, 0)
+        assertCompensationSharingProbe(run, label, 'consumer:startup_failure')
+        const artifact = assertCompensationPublishedAndReleased(run, label)
+        assertSingleCompensationAuthority(run, label, artifact)
+        assertCompensationRestoreConsumer(run, label, 'Compensation data restore', artifact)
+        assert.ok(run.eventNames.includes('recovery-complete:Forward deployment recovery'))
+      })
+
+      await t.test('terminal_failure retains authority after the compensation restore fails', () => {
+        const run = runScenario(host, 'task2-terminal-failure', {
+          fakeMode: 'compensation-restore-failure',
+          runtimeScenario: 'startup_failure',
+        })
+        const label = `${host.name}/terminal_failure`
+        assert.notEqual(run.result.status, 0)
+        assertCompensationSharingProbe(run, label, 'Compensation failure shutdown')
+        const artifact = assertCompensationPublishedAndReleased(run, label)
+        assertSingleCompensationAuthority(run, label, artifact)
+        assertCompensationRestoreConsumer(run, label, 'Compensation data restore', artifact)
+        assert.ok(run.eventNames.includes('Compensation failure shutdown'))
+        assert.equal(run.eventNames.some((event) => event.startsWith('recovery-complete:')), false)
+      })
+
+      await t.test('preparation terminal shutdown retains the same archive authority', () => {
+        const run = runScenario(host, 'task2-preparation-terminal-failure', {
+          failAfterRecoveryUp: true,
+          runtimeScenario: 'restore_failure',
+        })
+        const label = `${host.name}/preparation-terminal-failure`
+        assert.notEqual(run.result.status, 0)
+        assertCompensationSharingProbe(run, label, 'Preparation compensation failure shutdown')
+        const artifact = assertCompensationPublishedAndReleased(run, label)
+        assertSingleCompensationAuthority(run, label, artifact)
+        assertCompensationRestoreConsumer(run, label, 'Preparation compensation data restore', artifact)
+        assert.ok(run.eventNames.includes('Preparation compensation failure shutdown'))
+      })
+
+      await t.test('successful rollback retains locks through final health and releases them after exit', () => {
+        const run = runScenario(host, 'task2-success')
+        const label = `${host.name}/success`
+        assert.equal(run.result.status, 0, run.result.stderr || run.result.stdout)
+        assertCompensationSharingProbe(run, label, 'Pre-rollback compensation backup', { archivePresent: false })
+        assertCompensationSharingProbe(run, label, 'health:Rollback container startup')
+        const artifact = assertCompensationPublishedAndReleased(run, label)
+        assertSingleCompensationAuthority(run, label, artifact)
+      })
+
+      await t.test('backup creation failure performs forward recovery without archive dereference', () => {
+        const run = runScenario(host, 'task2-backup-failure', {
+          fakeMode: 'compensation-backup-failure',
+        })
+        const label = `${host.name}/backup-failure`
+        assert.notEqual(run.result.status, 0)
+        assertCompensationSharingProbe(run, label, 'Pre-rollback compensation backup', { archivePresent: false })
+        assertCompensationSharingProbe(run, label, 'health:Preparation forward deployment recovery', { archivePresent: false })
+        assertCompensationPublishedAndReleased(run, label, 'missing')
+        assert.equal(run.events.filter((entry) => entry.event === 'compensation-authority-attempt').length, 0)
+        assert.equal(run.events.filter((entry) => entry.event === 'compensation-authority-opened').length, 0)
+        assert.equal(run.events.filter((entry) => entry.event === 'compensation-directory-lock-opened').length, 1)
+        assert.equal(run.eventNames.includes('Rollback data restore'), false)
+        assert.equal(run.eventNames.includes('consumer:rollback-data-restore'), false)
+        assert.ok(run.eventNames.includes('recovery-complete:Preparation forward deployment recovery'))
+        const failure = run.events.find((entry) => entry.event === 'driver_failure')
+        assert.match(failure.primary_message, /Pre-rollback compensation backup failed/)
+        assert.doesNotMatch(failure.primary_message, /null-valued expression|cannot bind.*authority/i)
+      })
+
+      await t.test('authority acquisition failure performs forward recovery before rollback mutation', () => {
+        const run = runScenario(host, 'task2-authority-failure', {
+          fakeMode: 'compensation-authority-invalid',
+        })
+        const label = `${host.name}/authority-failure`
+        assert.notEqual(run.result.status, 0)
+        assertCompensationSharingProbe(run, label, 'Pre-rollback compensation backup', { archivePresent: false })
+        assertCompensationPublishedAndReleased(run, label, 'other')
+        assert.equal(run.events.filter((entry) => entry.event === 'compensation-authority-attempt').length, 1)
+        assert.equal(run.events.filter((entry) => entry.event === 'compensation-authority-opened').length, 0)
+        assert.equal(run.events.filter((entry) => entry.event === 'compensation-directory-lock-opened').length, 1)
+        assert.equal(run.eventNames.includes('Rollback data restore'), false)
+        assert.equal(run.eventNames.includes('consumer:rollback-data-restore'), false)
+        assert.ok(run.eventNames.includes('recovery-complete:Preparation forward deployment recovery'))
+        const failure = run.events.find((entry) => entry.event === 'driver_failure')
+        assert.match(failure.primary_message, /Pre-rollback compensation backup.*(?:authority|regular non-reparse file)/i)
       })
     })
   }
@@ -4140,9 +4541,38 @@ test('release rollback restore binds every data operation to the inspected sourc
     'checkpoint restore and all compensation operations must use the inspected data bind source',
   )
   assert.equal(
-    [...rollbackRestoreScript.matchAll(/Assert-FileHash -Path \$compensationBackup -Expected \$compensationHash/g)].length,
+    [...rollbackRestoreScript.matchAll(/Open-RollbackFileAuthority -Path \$compensationBackup -Label 'Pre-rollback compensation backup'/g)].length,
+    1,
+    'the outer restore invocation must acquire exactly one compensation archive authority',
+  )
+  assert.equal(
+    [...rollbackRestoreScript.matchAll(/Assert-RollbackFileAuthority -Authority \$compensationBackupAuthority \| Out-Null/g)].length,
     2,
-    'both automatic compensation restores must verify the retained backup hash',
+    'both automatic compensation restores must assert the retained archive authority',
+  )
+  assert.equal(
+    [...rollbackRestoreScript.matchAll(/Assert-RollbackFileAuthorityHash -Authority \$compensationBackupAuthority -Expected \$compensationHash/g)].length,
+    2,
+    'both automatic compensation restores must rehash the retained archive stream',
+  )
+  assert.equal(
+    [...rollbackRestoreScript.matchAll(/'--input', \$compensationBackupAuthority\.Path/g)].length,
+    2,
+    'both automatic compensation restores must consume the retained authority path',
+  )
+  assert.match(rollbackRestoreScript, /\$compensationHash = Get-RollbackFileAuthoritySha256 -Authority \$compensationBackupAuthority/)
+  assert.doesNotMatch(rollbackRestoreScript, /Assert-FileHash -Path \$compensationBackup/)
+  assert.match(
+    rollbackRestoreScript,
+    /New-Item -ItemType Directory -Path \$compensationRoot \| Out-Null\r?\n\s*\$compensationDirectoryLock = Open-RollbackDirectoryIdentityLock -Path \$compensationRoot -Label 'Rollback compensation directory'/,
+  )
+  assert.match(
+    rollbackRestoreScript,
+    /\$compensationRoot = Join-Path \$checkpoint \("compensation-" \+ \[DateTime\]::UtcNow\.ToString\('yyyyMMddTHHmmssZ'\) \+ "-" \+ \[Guid\]::NewGuid\(\)\.ToString\('N'\)\)/,
+  )
+  assert.match(
+    rollbackRestoreScript,
+    /if \(\$null -ne \$compensationBackupAuthority\) \{ \$compensationBackupAuthority\.Stream\.Dispose\(\) \}[\s\S]*if \(\$null -ne \$compensationDirectoryLock\) \{ \$compensationDirectoryLock\.Dispose\(\) \}/,
   )
   assert.match(
     rollbackRestoreScript,
