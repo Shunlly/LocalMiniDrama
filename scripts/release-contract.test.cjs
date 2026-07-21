@@ -2838,14 +2838,18 @@ const valueAfter = (name) => args[args.indexOf(name) + 1]
 const mode = process.env.LMD_FAKE_MODE
 const checkpointPath = process.env.LMD_CHECKPOINT_PATH
 const expectedFiles = JSON.parse(process.env.LMD_EXPECTED_CHECKPOINT_FILES)
-const requireCheckpointFile = (label, actualPath, relativePath) => {
+const wrongExpectedBytes = (relativePath) => Buffer.concat([
+  Buffer.from(expectedFiles[relativePath], 'base64'),
+  Buffer.from('archived-down-mutation'),
+]).toString('base64')
+const requireCheckpointFile = (label, actualPath, relativePath, expectedBytes = expectedFiles[relativePath]) => {
   const expectedPath = path.join(checkpointPath, ...relativePath.split('/'))
   if (actualPath !== expectedPath) fail(label + ' path mismatch: ' + actualPath)
   const actualBytes = fs.readFileSync(actualPath).toString('base64')
-  if (actualBytes !== expectedFiles[relativePath]) fail(label + ' bytes mismatch')
+  if (actualBytes !== expectedBytes) fail(label + ' bytes mismatch')
 }
-const requireArchivedConfig = (event) => {
-  requireCheckpointFile('archived config', process.env.LOCALMINIDRAMA_CONFIG_PATH, 'configs/config.yaml')
+const requireArchivedConfig = (event, expectedBytes) => {
+  requireCheckpointFile('archived config', process.env.LOCALMINIDRAMA_CONFIG_PATH, 'configs/config.yaml', expectedBytes)
   record(event)
 }
 const composeIndex = args.indexOf('compose')
@@ -2854,12 +2858,15 @@ record('tool:' + tool)
 if (tool === 'docker') {
   const composeFileIndex = args.indexOf('-f')
   if (composeIndex >= 0 && composeFileIndex >= 0) {
-    if (mode === 'archived-down-compose-bytes-mismatch' && composeOperation === 'down') {
-      fail('archived Compose bytes mismatch at failed rollback shutdown')
-    }
-    requireCheckpointFile('archived Compose', args[composeFileIndex + 1], 'docker-compose.yml')
+    const composeExpectedBytes = mode === 'archived-down-compose-bytes-mismatch' && composeOperation === 'down'
+      ? wrongExpectedBytes('docker-compose.yml')
+      : undefined
+    requireCheckpointFile('archived Compose', args[composeFileIndex + 1], 'docker-compose.yml', composeExpectedBytes)
     record('consumer:compose:' + composeOperation)
-    requireArchivedConfig('consumer:config:docker-compose:' + composeOperation)
+    const configExpectedBytes = mode === 'archived-down-config-bytes-mismatch' && composeOperation === 'down'
+      ? wrongExpectedBytes('configs/config.yaml')
+      : undefined
+    requireArchivedConfig('consumer:config:docker-compose:' + composeOperation, configExpectedBytes)
   }
   if (composeOperation === 'ps') {
     const service = args[args.length - 1]
@@ -3651,7 +3658,7 @@ test('rollback restore archived-down oracle rejects missing exact-byte success e
   assert.equal(process.versions.node.split('.')[0], '20', 'restore archived-down oracle must run under Node 20')
   const { runScenario } = createRollbackRestoreHarness(t)
   for (const host of windowsPowerShellHosts()) {
-    await t.test(host.name, () => {
+    await t.test(host.name, async (t) => {
       const baseline = runScenario(host, 'archived-down-oracle-baseline', {
         runtimeScenario: 'startup_failure',
       })
@@ -3661,18 +3668,40 @@ test('rollback restore archived-down oracle rejects missing exact-byte success e
         'consumer:config:docker-compose:down',
       ])
 
-      const mutation = runScenario(host, 'archived-down-oracle-mutation', {
-        runtimeScenario: 'startup_failure',
-        fakeMode: 'archived-down-compose-bytes-mismatch',
+      await t.test('rejects archived Compose down byte mismatch', () => {
+        const mutation = runScenario(host, 'archived-down-compose-oracle-mutation', {
+          runtimeScenario: 'startup_failure',
+          fakeMode: 'archived-down-compose-bytes-mismatch',
+        })
+        assert.notEqual(mutation.result.status, 0)
+        assert.throws(
+          () => assertRestoreConsumerEvents(mutation, `${host.name}/archived-down-compose-oracle-mutation`, [
+            'consumer:compose:down',
+            'consumer:config:docker-compose:down',
+          ]),
+          /did not prove consumer:compose:down/,
+        )
+        assert.equal(mutation.eventNames.includes('consumer:compose:down'), false)
+        assert.equal(mutation.eventNames.includes('consumer:config:docker-compose:down'), false)
       })
-      assert.notEqual(mutation.result.status, 0)
-      assert.throws(
-        () => assertRestoreConsumerEvents(mutation, `${host.name}/archived-down-oracle-mutation`, [
+
+      await t.test('rejects archived config down byte mismatch after Compose success', () => {
+        const mutation = runScenario(host, 'archived-down-config-oracle-mutation', {
+          runtimeScenario: 'startup_failure',
+          fakeMode: 'archived-down-config-bytes-mismatch',
+        })
+        assert.notEqual(mutation.result.status, 0)
+        assertRestoreConsumerEvents(mutation, `${host.name}/archived-down-config-oracle-mutation`, [
           'consumer:compose:down',
-          'consumer:config:docker-compose:down',
-        ]),
-        /did not prove consumer:compose:down/,
-      )
+        ])
+        assert.throws(
+          () => assertRestoreConsumerEvents(mutation, `${host.name}/archived-down-config-oracle-mutation`, [
+            'consumer:config:docker-compose:down',
+          ]),
+          /did not prove consumer:config:docker-compose:down/,
+        )
+        assert.equal(mutation.eventNames.includes('consumer:config:docker-compose:down'), false)
+      })
     })
   }
 })

@@ -313,3 +313,110 @@ publication work remains deferred to Task 7.
 The report records the immutable base and required subject. The resulting
 commit SHA is reported in the final handoff because embedding a commit's own
 SHA in a tracked file would change that SHA.
+
+## Third-Round Review Test Closure
+
+Date: 2026-07-22
+
+Base commit: `b33dabac039d23d6d22d504a04b38730a4c6ab9d`
+
+Required subject: `test: exercise rollback consumer byte comparator`
+
+All commands below used the pinned Node 20 and PowerShell 7 environment
+documented above. Each restore behavior run exercised Windows PowerShell 5.1
+and portable PowerShell 7.6.4 serially.
+
+### RED Evidence
+
+The archived-down oracle was first split into independent Compose and config
+mutation subtests for each host. The config mismatch mode was referenced before
+it existed in the fake consumer:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='rollback restore archived-down oracle' scripts/release-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 104 total, 2 passed, 5 failed, 97 skipped. Both config
+leaf cases failed with `Missing expected exception`; their host parents and the
+top-level oracle also failed. The Compose leaves remained green only because
+the existing mode still exited through its pre-comparator shortcut.
+
+### Test Harness Fix
+
+- `requireCheckpointFile` now accepts an optional expected-byte override while
+  retaining its literal-path check and one shared byte-equality branch.
+- The Compose mismatch supplies valid but incorrect expected Compose bytes only
+  for archived `down`, then calls `requireCheckpointFile` normally.
+- A separate config mismatch supplies valid but incorrect expected config bytes
+  at the same boundary through `requireArchivedConfig` and the shared comparator.
+- Compose success is recorded only after its comparison; config success is
+  recorded only after its later comparison. The direct pre-comparator failure
+  was removed.
+- Independent nested subtests allow both mutation cases to execute even when
+  one oracle assertion fails.
+
+### Mutation Sensitivity
+
+After the initial focused GREEN, the byte comparison was temporarily bypassed
+with `false && actualBytes !== expectedBytes`, and the same focused command was
+run again.
+
+Exit code: `1`. Tests: 104 total, 0 passed, 7 failed, 97 skipped. All four leaf
+cases, Compose and config under both PowerShell hosts, failed with `Missing
+expected exception`; both host parents and the top-level oracle also failed.
+This proves neither case can pass when the shared byte-equality branch is
+bypassed. The original comparison was then restored before further testing.
+
+### Focused GREEN
+
+The focused command above was rerun after restoring the comparator.
+
+Exit code: `0`. Tests: 104 total, 7 passed, 0 failed, 97 skipped. The Compose
+mutation emitted neither archived-down success event. The config mutation
+emitted Compose success but not config success on both hosts.
+
+The complete restore harness then passed without overlap:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='rollback restore fake toolchain' scripts/release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 100 total, 3 passed, 0 failed, 97 skipped. Both host
+subtests and their parent passed.
+
+### Final Serial Release Contract
+
+No matching release-contract Node process was active immediately before this
+run, and no other test process was launched while it ran:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test scripts/release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 118 passed, 0 failed, 0 skipped. This was the only full
+release-contract run for the third-round fix and is the sole final full-suite
+evidence.
+
+### Third-Round Files
+
+- `scripts/release-contract.test.cjs`
+- `.superpowers/sdd/rollback-security-task-1-review-fix-report.md`
+
+No production file was changed.
+
+### Third-Round Self-Review
+
+The diff is limited to the two allowed files. Both mismatch modes preserve all
+earlier archived consumers by selecting only `composeOperation === 'down'`.
+The Compose event remains after the Compose comparator, and the config event
+remains after the config comparator, so the asserted partial-success boundary
+matches execution. Calls without an override still use the original expected
+checkpoint bytes. The transient comparator bypass is absent from the final
+diff.
+
+### Third-Round Residual Risk
+
+This is test-only coverage around the controlled Docker consumer. It proves
+literal paths, exact archived bytes, event ordering, and comparator mutation
+sensitivity with both required PowerShell hosts. Live Docker Engine behavior
+remains an operational integration risk already covered by the prior report.
