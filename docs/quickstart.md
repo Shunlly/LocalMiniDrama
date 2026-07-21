@@ -354,7 +354,18 @@ npm run maintenance:recover -- --owner-scope "<检查到的作用域>" --pid <�
 npm run verify:rollback
 ```
 
-该门禁先运行 38 项备份恢复专项测试，再把当前数据做脱敏备份并恢复到临时隔离目录，校验 SQLite、媒体、原文、凭据排除、中断清理和恢复前回滚副本。临时归档在结束后删除，摘要写入被 Git 忽略的 `artifacts/rollback-drill/summary.json`；已识别的旧版本摘要会原子迁入 `artifacts/rollback-drill/archive/`，不会冒充当前结果或阻断新演练。
+不带参数的 `npm run verify:rollback` 是独立演练：它先运行 38 项备份恢复专项测试，再把当前数据做脱敏备份并恢复到临时隔离目录，校验 SQLite、媒体、原文、凭据排除、中断清理和恢复前回滚副本。演练发布 `localminidrama.rollback-drill.v3` 摘要，要求 `input_mode: standalone`、`backup.archive_retained: false`、有效的小写 SHA-256 归档摘要和数据根摘要，以及 `operations.source_data_root_unchanged: true`。临时归档在结束后删除，摘要写入被 Git 忽略的 `artifacts/rollback-drill/summary.json`；已识别的旧版本摘要会原子迁入 `artifacts/rollback-drill/archive/`，不会冒充当前结果或阻断新演练。
+
+独立演练只接受一个物理数据根，数据库、素材和导入原文必须是该目录下的同级项：
+
+```text
+<data-root>/
+├── drama_generator.db
+├── storage/
+└── story_sources/
+```
+
+如果数据库、`storage/` 和 `story_sources/` 的已配置父目录不是同一个物理目录，演练会失败关闭；仅有看起来相同的路径文本不能代替物理目录证明。
 
 `verify:rollback` 只证明备份与恢复链路可用，不会保留上线回退所需的真实备份。正式升级前必须建立可追溯的回退检查点：
 
@@ -364,7 +375,11 @@ $checkpoint = "D:\backup\localminidrama-$stamp"
 npm run checkpoint:rollback -- -CheckpointDirectory $checkpoint
 ```
 
-`checkpoint:rollback` 要求当前服务由 `npm run docker:up` 构建且健康。脚本会在停机前从实际运行的 backend 容器捕获 `/app/data` 和 `/app/config-source`：数据挂载必须恰好一个、类型为可写 bind，且宿主 source 必须是真实目录。脚本核对两份镜像 revision 与当前 Git SHA 一致，把镜像保存到 `images.tar`，把规范化数据 source 写入固定归档文件 `data-bind-source.txt`，并在 v4 metadata 中保存 source、目标、类型和 SHA-256；随后才停止 Docker，并用该 source 作为显式 `--data-root` 创建数据备份。中途失败时，恢复 Compose 在启动前和启动后都会验证仍绑定同一 source。检查点必须位于仓库和实时数据目录之外且至少保留到新版本完成业务验收，不能只保留 metadata 而删除 `images.tar`、`data.zip` 或 `data-bind-source.txt`。
+`checkpoint:rollback` 要求当前服务由 `npm run docker:up` 构建且健康。脚本会在停机前从实际运行的 backend 容器捕获 `/app/data` 和 `/app/config-source`：数据挂载必须恰好一个、类型为可写 bind，且宿主 source 必须是真实目录。脚本核对两份镜像 revision 与当前 Git SHA 一致，把镜像保存到 `images.tar`，把规范化数据 source 写入固定归档文件 `data-bind-source.txt`，并在 `localminidrama.release-rollback-checkpoint.v5` metadata 中记录小写原生 `data_root_identity`。如果相同路径上的物理数据根在检查点创建期间被替换，脚本会中止；路径文本相同不视为同一目录。
+
+停止 Docker 后，脚本以重新检查的 bind source 创建并保留 `checkpoint/data.zip`，随后自动对这一精确配对运行 `npm run verify:rollback -- --archive <checkpoint/data.zip> --data-root <inspected-bind-source>`。不要用其他归档或数据根替换该配对。生成的 `localminidrama.rollback-drill.v3` 摘要必须为 `input_mode: checkpoint-bound` 且 `backup.archive_retained: true`；摘要中的归档 SHA-256、v5 metadata 中记录的归档 SHA-256 和当前保留的 `data.zip` 字节摘要必须三方一致，摘要中的历史数据根 SHA-256 也会复制到 v5 metadata。脚本从演练开始前一直对 `data.zip` 保持读取锁，直至演练、证据校验和 metadata 发布全部完成。
+
+v5 是升级和回退的唯一发布权威格式。v4 检查点仍可检查，但不具备发布权威性，升级或回退前必须重新创建为 v5。检查点必须位于仓库和实时数据目录之外且至少保留到新版本完成业务验收；身份校验不能替代 `data.zip`、`images.tar`、净化后的运行配置、`data-bind-source.txt` 或前向补偿证据，不能只保留 metadata 而删除这些文件。
 
 需要回退时，优先保持当前部署运行并直接执行恢复命令；若升级后容器已经 unhealthy 或 stopped，只要 Compose 容器尚未被删除，脚本仍会从容器捕获镜像、revision、状态和配置作为补偿证据后继续回退。不要先执行会删除容器的 `docker compose down`，也不要覆盖或移动正式发布标签：
 
@@ -373,7 +388,9 @@ $checkpoint = 'D:\backup\localminidrama-YYYYMMDD-HHMMSS'
 npm run restore:rollback -- -CheckpointDirectory $checkpoint
 ```
 
-`restore:rollback` 只接受 v4 检查点；本修复前生成的 v3 检查点没有数据 bind 证据，必须在升级前重新创建。脚本在接触数据前核对固定位置的 metadata、`data-bind-source.txt`、数据 ZIP、Compose、运行配置、镜像归档和演练摘要及其 SHA-256，再从当前 existing backend 容器重新捕获 `/app/data`。当前挂载不是唯一可写 bind、宿主目录不真实、source 与检查点不一致，或当前容器已被删除时都会失败关闭。归档 metadata 中的路径只用于证据比对，不会被用来拼接归档文件或选择备份/恢复目标；检查点备份、旧数据恢复和所有前向补偿都显式使用重新 inspect 的同一 source。每次启动回滚或前向部署前会先解析 Compose 确认 `/app/data` 指向该 source，启动后再 inspect 容器复核。旧版本启动失败时，脚本会尝试恢复补偿数据和升级后镜像；补偿也失败才会报告双重故障。成功后仍需复验一条已有媒体播放链路，并在「AI 配置」重新填写所有备份策略排除的 Provider 凭据。不可移动或重写 `v1.3.3` 等正式标签。
+`restore:rollback` 只接受 v5 检查点。脚本在接触数据前核对固定位置的 metadata、`data-bind-source.txt`、数据 ZIP、Compose、净化后的运行配置、镜像归档和 v3 演练摘要及其 SHA-256，再从当前 existing backend 容器重新捕获 `/app/data`。当前挂载必须仍是唯一可写 bind，且当前检查到的宿主 source 必须与检查点记录的小写原生 `data_root_identity` 表示同一个物理目录；路径文本相同但目录身份不同会失败关闭。归档 metadata 中的路径只用于证据比对，不会被用来拼接归档文件或选择备份/恢复目标；检查点备份、旧数据恢复和所有前向补偿都显式使用重新 inspect 的同一 source。
+
+检查点创建后，当前实时数据根内的数据库、素材和原文等后代内容可以正常变化。恢复只比较 v3 摘要与 v5 metadata 之间保存的历史数据根摘要，不会重新散列当前实时字节并与该旧摘要比较；物理目录身份约束与历史内容摘要是两个不同的证明。每次启动回滚或前向部署前会先解析 Compose 确认 `/app/data` 指向该 source，启动后再 inspect 容器复核。旧版本启动失败时，脚本会尝试恢复补偿数据和升级后镜像；补偿也失败才会报告双重故障。安全归档和发布证据始终排除 Provider 凭据；成功后仍需复验一条已有媒体播放链路，并在「AI 配置」重新填写所有备份策略排除的 Provider 凭据。不可移动或重写 `v1.3.3` 等正式标签。
 
 **源码离线目录副本**：只有在后端和 Docker 均已停止时，才可复制整个 `backend-node/data/`；不要在 SQLite 正在写入时直接拷贝。exe 数据必须使用上文 `%APPDATA%` 路径，不能用仓库目录替代。
 

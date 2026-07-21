@@ -338,6 +338,226 @@ function jobBlock(name, source = workflow) {
   return source.slice(start, nextJob === -1 ? source.length : start + marker.length + nextJob)
 }
 
+const rollbackWorkflowSha = '0123456789abcdef0123456789abcdef01234567'
+
+function validStandaloneRollbackSummary() {
+  return {
+    schema: 'localminidrama.rollback-drill.v3',
+    status: 'passed',
+    input_mode: 'standalone',
+    source: {
+      commit: rollbackWorkflowSha,
+      version: '1.3.3',
+      working_tree_dirty: false,
+      data_root_sha256: 'b'.repeat(64),
+    },
+    backup: {
+      archive_retained: false,
+      archive_sha256: 'a'.repeat(64),
+    },
+    operations: {
+      source_data_root_unchanged: true,
+    },
+  }
+}
+
+function standaloneRollbackEvidenceMutations() {
+  const mutations = []
+  const addInvalidValues = (field, pathParts, values) => {
+    for (const [name, value] of Object.entries(values)) {
+      mutations.push({ field, name, pathParts, value })
+    }
+    mutations.push({ field, name: 'missing', pathParts, missing: true })
+  }
+
+  addInvalidValues('schema', ['schema'], {
+    'old v2 schema': 'localminidrama.rollback-drill.v2',
+    'case drift': 'LocalMiniDrama.rollback-drill.v3',
+    null: null,
+    boolean: false,
+    number: 3,
+    array: [],
+    object: {},
+  })
+  addInvalidValues('status', ['status'], {
+    failed: 'failed',
+    'case drift': 'PASSED',
+    null: null,
+    boolean: true,
+    number: 1,
+    array: [],
+    object: {},
+  })
+  addInvalidValues('input mode', ['input_mode'], {
+    'checkpoint-bound': 'checkpoint-bound',
+    'case drift': 'STANDALONE',
+    null: null,
+    boolean: true,
+    number: 1,
+    array: [],
+    object: {},
+  })
+  addInvalidValues('archive retention', ['backup', 'archive_retained'], {
+    true: true,
+    'boolean string': 'false',
+    null: null,
+    number: 0,
+    array: [],
+    object: {},
+  })
+  addInvalidValues('archive hash', ['backup', 'archive_sha256'], {
+    uppercase: 'A'.repeat(64),
+    'bad length': 'a'.repeat(63),
+    'non-hex': `${'a'.repeat(63)}z`,
+    null: null,
+    boolean: false,
+    number: 64,
+    array: [],
+    object: {},
+  })
+  addInvalidValues('root digest', ['source', 'data_root_sha256'], {
+    uppercase: 'B'.repeat(64),
+    'bad length': 'b'.repeat(65),
+    'non-hex': `${'b'.repeat(63)}z`,
+    null: null,
+    boolean: false,
+    number: 64,
+    array: [],
+    object: {},
+  })
+  addInvalidValues('root unchanged proof', ['operations', 'source_data_root_unchanged'], {
+    false: false,
+    'boolean string': 'true',
+    null: null,
+    number: 1,
+    array: [],
+    object: {},
+  })
+  addInvalidValues('commit', ['source', 'commit'], {
+    mismatch: 'f'.repeat(40),
+    'case drift': rollbackWorkflowSha.toUpperCase(),
+    null: null,
+    boolean: false,
+    number: 1,
+    array: [],
+    object: {},
+  })
+  addInvalidValues('version', ['source', 'version'], {
+    mismatch: '1.3.2',
+    'case drift': 'V1.3.3',
+    null: null,
+    boolean: false,
+    number: 133,
+    array: [],
+    object: {},
+  })
+  addInvalidValues('working tree dirty', ['source', 'working_tree_dirty'], {
+    true: true,
+    'boolean string': 'false',
+    null: null,
+    number: 0,
+    array: [],
+    object: {},
+  })
+  return mutations
+}
+
+function rollbackWorkflowValidator(workflowDocument, label) {
+  const rollbackJob = workflowDocument.jobs?.['rollback-drill']
+  assert.ok(rollbackJob, `${label} rollback-drill job is missing`)
+  assert.ok(Array.isArray(rollbackJob.steps), `${label} rollback-drill steps are missing`)
+  assert.equal(rollbackJob['runs-on'], 'ubuntu-latest')
+
+  const nodeSetupSteps = rollbackJob.steps.filter((step) =>
+    String(step.uses || '').startsWith('actions/setup-node@'))
+  assert.equal(nodeSetupSteps.length, 1, `${label} must have exactly one Node setup step`)
+  assert.equal(nodeSetupSteps[0].with?.['node-version'], '20')
+  assert.equal(
+    rollbackJob.steps.filter((step) => step.run === 'npm --prefix backend-node ci').length,
+    1,
+    `${label} must install backend dependencies exactly once`,
+  )
+  const initializeSteps = rollbackJob.steps.filter((step) =>
+    step.name === 'Initialize isolated rollback source')
+  assert.equal(initializeSteps.length, 1, `${label} must initialize the rollback source exactly once`)
+  assert.ok(
+    String(initializeSteps[0].run || '').split(/\r?\n/).includes('npm --prefix backend-node run migrate'),
+    `${label} must migrate the isolated rollback source`,
+  )
+
+  const validateSteps = rollbackJob.steps
+    .map((step, index) => ({ step, index }))
+    .filter(({ step }) => step.name === 'Run and validate rollback drill')
+  const uploadSteps = rollbackJob.steps
+    .map((step, index) => ({ step, index }))
+    .filter(({ step }) => step.name === 'Upload rollback evidence')
+  assert.equal(validateSteps.length, 1, `${label} must have exactly one rollback validation step`)
+  assert.equal(uploadSteps.length, 1, `${label} must have exactly one rollback evidence upload step`)
+
+  const [{ step: validateStep, index: validateIndex }] = validateSteps
+  const [{ index: uploadIndex }] = uploadSteps
+  assert.ok(validateIndex < uploadIndex, `${label} must validate rollback evidence before upload`)
+  assert.equal(validateStep.shell, 'bash')
+
+  const lines = String(validateStep.run || '').split(/\r?\n/)
+  assert.equal(lines[0], 'set -euo pipefail')
+  const rollbackCommands = lines
+    .map((line) => line.trim())
+    .filter((line) => line.includes('npm run verify:rollback'))
+  assert.deepEqual(rollbackCommands, [
+    'npm run verify:rollback 2>&1 | tee "$RUNNER_TEMP/rollback-drill.log"',
+  ])
+
+  const openingDelimiter = "node - <<'NODE'"
+  const openingIndices = lines.flatMap((line, index) => line === openingDelimiter ? [index] : [])
+  assert.equal(openingIndices.length, 1, `${label} must have exactly one Node heredoc`)
+  const openingIndex = openingIndices[0]
+  const closingIndices = lines.flatMap((line, index) => line === 'NODE' && index > openingIndex ? [index] : [])
+  assert.equal(closingIndices.length, 1, `${label} must close the selected Node heredoc exactly once`)
+  return lines.slice(openingIndex + 1, closingIndices[0]).join('\n')
+}
+
+function runRollbackWorkflowValidator(validator, summaryText) {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-workflow-rollback-'))
+  const evidenceDirectory = path.join(fixtureRoot, 'artifacts', 'rollback-drill')
+  fs.mkdirSync(evidenceDirectory, { recursive: true })
+  fs.writeFileSync(path.join(evidenceDirectory, 'summary.json'), summaryText, 'utf8')
+  try {
+    return spawnSync(process.execPath, ['-e', validator], {
+      cwd: fixtureRoot,
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_SHA: rollbackWorkflowSha },
+      windowsHide: true,
+    })
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  }
+}
+
+function assertStandaloneRollbackWorkflowContract(workflowDocument, label) {
+  const validator = rollbackWorkflowValidator(workflowDocument, label)
+  const validSummary = validStandaloneRollbackSummary()
+  const validResult = runRollbackWorkflowValidator(validator, JSON.stringify(validSummary))
+  assert.equal(validResult.status, 0, validResult.stderr || validResult.stdout)
+
+  for (const mutation of standaloneRollbackEvidenceMutations()) {
+    const summary = validStandaloneRollbackSummary()
+    const parent = mutation.pathParts.slice(0, -1).reduce((value, key) => value[key], summary)
+    const property = mutation.pathParts.at(-1)
+    if (mutation.missing) delete parent[property]
+    else parent[property] = mutation.value
+    const result = runRollbackWorkflowValidator(validator, JSON.stringify(summary))
+    assert.notEqual(
+      result.status,
+      0,
+      `${label} accepted invalid ${mutation.field} (${mutation.name})`,
+    )
+  }
+
+  const malformedResult = runRollbackWorkflowValidator(validator, '{')
+  assert.notEqual(malformedResult.status, 0, `${label} accepted malformed summary JSON`)
+}
+
 function assertExampleDramaLfsGate(workflowDocument, jobName) {
   const job = workflowDocument.jobs[jobName]
   assert.ok(job, `workflow job ${jobName} is missing`)
@@ -3415,14 +3635,12 @@ test('publish re-resolves the remote tag immediately before creating the draft r
   assert.match(publish, /node-version: ['"]20['"]/)
 })
 
-test('CI runs the isolated rollback drill before a release tag is created', () => {
-  const rollback = jobBlock('rollback-drill', ciWorkflow)
-  assert.match(rollback, /runs-on: ubuntu-latest/)
-  assert.match(rollback, /node-version: '20'/)
-  assert.match(rollback, /npm --prefix backend-node ci/)
-  assert.match(rollback, /npm --prefix backend-node run migrate/)
-  assert.match(rollback, /npm run verify:rollback/)
-  assert.match(rollback, /summary\.source\.commit[\s\S]*GITHUB_SHA/)
+test('CI isolated rollback workflow enforces standalone v3 evidence', () => {
+  assertStandaloneRollbackWorkflowContract(ciWorkflowDocument, 'CI')
+})
+
+test('release rollback workflow enforces standalone v3 evidence', () => {
+  assertStandaloneRollbackWorkflowContract(releaseWorkflowDocument, 'release')
 })
 
 test('third-party workflow actions are pinned to full commit digests', () => {
