@@ -111,6 +111,13 @@ function findPowerShell(command) {
   return String(result.stdout).split(/\r?\n/).find(Boolean) || null
 }
 
+function windowsPowerShellHosts() {
+  const hosts = [{ name: 'windows-powershell-5.1', executable: 'powershell.exe' }]
+  const pwsh = findPowerShell('pwsh.exe')
+  if (pwsh) hosts.push({ name: 'powershell-7', executable: pwsh })
+  return hosts
+}
+
 function runPowerShellStatements(statements, { executable } = {}) {
   const shell = executable || (process.platform === 'win32' ? 'powershell.exe' : 'pwsh')
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-ps-probe-'))
@@ -1353,35 +1360,80 @@ $mutations = @(
   { param($m, $s) $m.schema = $null },
   { param($m, $s) $m.schema = $true },
   { param($m, $s) $m.schema = 5 },
+  { param($m, $s) $m.schema = [pscustomobject]@{ value = 'localminidrama.release-rollback-checkpoint.v5' } },
   { param($m, $s) $s.PSObject.Properties.Remove('schema') },
   { param($m, $s) $s.schema = 'localminidrama.rollback-drill.v2' },
   { param($m, $s) $s.schema = 'LocalMiniDrama.rollback-drill.v3' },
+  { param($m, $s) $s.schema = $null },
+  { param($m, $s) $s.schema = 3 },
+  { param($m, $s) $s.schema = [pscustomobject]@{ value = 'localminidrama.rollback-drill.v3' } },
+  { param($m, $s) $s.PSObject.Properties.Remove('input_mode') },
   { param($m, $s) $s.input_mode = 'standalone' },
   { param($m, $s) $s.input_mode = 'Checkpoint-bound' },
+  { param($m, $s) $s.input_mode = $null },
+  { param($m, $s) $s.input_mode = $true },
+  { param($m, $s) $s.input_mode = 1 },
+  { param($m, $s) $s.input_mode = [pscustomobject]@{ value = 'checkpoint-bound' } },
+  { param($m, $s) $s.PSObject.Properties.Remove('status') },
   { param($m, $s) $s.status = 'failed' },
   { param($m, $s) $s.status = 'PASSED' },
   { param($m, $s) $s.status = $true },
   { param($m, $s) $s.status = 1 },
   { param($m, $s) $s.status = $null },
+  { param($m, $s) $s.status = [pscustomobject]@{ value = 'passed' } },
   { param($m, $s) $s.backup.archive_retained = $false },
   { param($m, $s) $s.backup.archive_retained = 'true' },
   { param($m, $s) $s.backup.archive_retained = 1 },
   { param($m, $s) $s.backup.archive_retained = $null },
+  { param($m, $s) $s.backup.archive_retained = [pscustomobject]@{ value = $true } },
   { param($m, $s) $s.backup.PSObject.Properties.Remove('archive_retained') },
   { param($m, $s) $s.operations.source_data_root_unchanged = $false },
   { param($m, $s) $s.operations.source_data_root_unchanged = 'true' },
   { param($m, $s) $s.operations.source_data_root_unchanged = 1 },
   { param($m, $s) $s.operations.source_data_root_unchanged = $null },
+  { param($m, $s) $s.operations.source_data_root_unchanged = [pscustomobject]@{ value = $true } },
   { param($m, $s) $s.operations.PSObject.Properties.Remove('source_data_root_unchanged') },
+  { param($m, $s) $s.PSObject.Properties.Remove('source') },
+  { param($m, $s) $s.source = $null },
+  { param($m, $s) $s.source = 'source' },
+  { param($m, $s) $s.PSObject.Properties.Remove('backup') },
+  { param($m, $s) $s.backup = $null },
+  { param($m, $s) $s.backup = 'backup' },
+  { param($m, $s) $s.PSObject.Properties.Remove('operations') },
+  { param($m, $s) $s.operations = $null },
+  { param($m, $s) $s.operations = 'operations' },
   { param($m, $s) $s.source.working_tree_dirty = $true },
   { param($m, $s) $s.source.working_tree_dirty = 'false' },
   { param($m, $s) $s.source.working_tree_dirty = 0 },
   { param($m, $s) $s.source.working_tree_dirty = $null },
+  { param($m, $s) $s.source.working_tree_dirty = [pscustomobject]@{ value = $false } },
   { param($m, $s) $s.source.PSObject.Properties.Remove('working_tree_dirty') },
+  { param($m, $s) $m.PSObject.Properties.Remove('previous_commit') },
+  { param($m, $s) $m.previous_commit = $null },
+  { param($m, $s) $m.previous_commit = 7 },
+  { param($m, $s) $m.previous_commit = [pscustomobject]@{ value = ('c' * 40) } },
   { param($m, $s) $m.previous_commit = ('b' * 40) },
   { param($m, $s) $m.previous_commit = ('C' * 40); $s.source.commit = ('C' * 40) },
+  { param($m, $s) $m.previous_commit = ('c' * 39); $s.source.commit = ('c' * 39) },
+  { param($m, $s) $m.previous_commit = ('c' * 41); $s.source.commit = ('c' * 41) },
+  { param($m, $s) $m.previous_commit = ('z' * 40); $s.source.commit = ('z' * 40) },
+  { param($m, $s) $s.source.PSObject.Properties.Remove('commit') },
+  { param($m, $s) $s.source.commit = $null },
+  { param($m, $s) $s.source.commit = 7 },
+  { param($m, $s) $s.source.commit = [pscustomobject]@{ value = ('c' * 40) } },
   { param($m, $s) $s.source.commit = ('b' * 40) },
+  { param($m, $s) $m.PSObject.Properties.Remove('version') },
+  { param($m, $s) $m.version = $null },
+  { param($m, $s) $m.version = 7 },
+  { param($m, $s) $m.version = [pscustomobject]@{ value = '1.3.3-rc.1' } },
   { param($m, $s) $m.version = '1.3.4-rc.1' },
+  { param($m, $s) $m.version = '1.03.3'; $s.source.version = '1.03.3' },
+  { param($m, $s) $m.version = 'v1.3.3'; $s.source.version = 'v1.3.3' },
+  { param($m, $s) $m.version = '1.3.3+build'; $s.source.version = '1.3.3+build' },
+  { param($m, $s) $s.source.PSObject.Properties.Remove('version') },
+  { param($m, $s) $s.source.version = $null },
+  { param($m, $s) $s.source.version = 7 },
+  { param($m, $s) $s.source.version = [pscustomobject]@{ value = '1.3.3-rc.1' } },
   { param($m, $s) $s.source.version = '1.3.3-RC.1' },
   { param($m, $s) $m.backup_sha256 = ('A' * 64) },
   { param($m, $s) $s.backup.archive_sha256 = ('A' * 64) },
@@ -1406,15 +1458,34 @@ $mutations = @(
   { param($m, $s) $m.PSObject.Properties.Remove('data_root_identity') },
   { param($m, $s) Set-EvidenceArray -Object $m -Name 'schema' -Value 'localminidrama.release-rollback-checkpoint.v5' },
   { param($m, $s) Set-EvidenceArray -Object $m -Name 'schema' -Value 'localminidrama.release-rollback-checkpoint.v5' -Nested },
+  { param($m, $s) Set-EvidenceArray -Object $m -Name 'previous_commit' -Value ('c' * 40) },
+  { param($m, $s) Set-EvidenceArray -Object $m -Name 'previous_commit' -Value ('c' * 40) -Nested },
+  { param($m, $s) Set-EvidenceArray -Object $m -Name 'version' -Value '1.3.3-rc.1' },
+  { param($m, $s) Set-EvidenceArray -Object $m -Name 'version' -Value '1.3.3-rc.1' -Nested },
   { param($m, $s) Set-EvidenceArray -Object $m -Name 'backup_sha256' -Value ('a' * 64) },
   { param($m, $s) Set-EvidenceArray -Object $m -Name 'data_root_identity' -Value '484dc672:011e00000001785a' -Nested },
   { param($m, $s) Set-EvidenceArray -Object $s -Name 'input_mode' -Value 'checkpoint-bound' },
+  { param($m, $s) Set-EvidenceArray -Object $s -Name 'input_mode' -Value 'checkpoint-bound' -Nested },
+  { param($m, $s) Set-EvidenceArray -Object $s -Name 'schema' -Value 'localminidrama.rollback-drill.v3' },
+  { param($m, $s) Set-EvidenceArray -Object $s -Name 'schema' -Value 'localminidrama.rollback-drill.v3' -Nested },
   { param($m, $s) Set-EvidenceArray -Object $s -Name 'status' -Value 'passed' },
   { param($m, $s) Set-EvidenceArray -Object $s -Name 'status' -Value 'passed' -Nested },
   { param($m, $s) Set-EvidenceArray -Object $s -Name 'source' -Value $s.source },
   { param($m, $s) Set-EvidenceArray -Object $s -Name 'source' -Value $s.source -Nested },
+  { param($m, $s) Set-EvidenceArray -Object $s -Name 'backup' -Value $s.backup },
+  { param($m, $s) Set-EvidenceArray -Object $s -Name 'backup' -Value $s.backup -Nested },
+  { param($m, $s) Set-EvidenceArray -Object $s -Name 'operations' -Value $s.operations },
+  { param($m, $s) Set-EvidenceArray -Object $s -Name 'operations' -Value $s.operations -Nested },
+  { param($m, $s) Set-EvidenceArray -Object $s.source -Name 'commit' -Value ('c' * 40) },
+  { param($m, $s) Set-EvidenceArray -Object $s.source -Name 'commit' -Value ('c' * 40) -Nested },
+  { param($m, $s) Set-EvidenceArray -Object $s.source -Name 'version' -Value '1.3.3-rc.1' },
+  { param($m, $s) Set-EvidenceArray -Object $s.source -Name 'version' -Value '1.3.3-rc.1' -Nested },
+  { param($m, $s) Set-EvidenceArray -Object $s.source -Name 'working_tree_dirty' -Value $false },
+  { param($m, $s) Set-EvidenceArray -Object $s.source -Name 'working_tree_dirty' -Value $false -Nested },
   { param($m, $s) Set-EvidenceArray -Object $s.backup -Name 'archive_retained' -Value $true },
+  { param($m, $s) Set-EvidenceArray -Object $s.backup -Name 'archive_retained' -Value $true -Nested },
   { param($m, $s) Set-EvidenceArray -Object $s.backup -Name 'archive_sha256' -Value ('a' * 64) -Nested },
+  { param($m, $s) Set-EvidenceArray -Object $s.operations -Name 'source_data_root_unchanged' -Value $true },
   { param($m, $s) Set-EvidenceArray -Object $s.operations -Name 'source_data_root_unchanged' -Value $true -Nested }
 )
 $index = 0
@@ -1423,16 +1494,130 @@ foreach ($mutation in $mutations) {
   $index++
 }
 
-foreach ($actualHash in @(('b' * 64), ('A' * 64), ('b' * 63), ('b' * 65), ('z' * 64), 7, $null)) {
+function Assert-HashFieldRejected {
+  param(
+    [string]$Field,
+    [AllowNull()][object]$Value,
+    [switch]$Missing,
+    [string]$Label
+  )
+  $metadata = New-ValidMetadata
+  $summary = New-ValidSummary
+  $arguments = @{
+    Metadata = $metadata
+    Summary = $summary
+    ActualBackupHash = ('a' * 64)
+    ActualDataRootIdentity = '484dc672:011e00000001785a'
+  }
+  switch ($Field) {
+    'metadata.backup_sha256' {
+      if ($Missing) { $metadata.PSObject.Properties.Remove('backup_sha256') } else { $metadata.backup_sha256 = $Value }
+    }
+    'summary.backup.archive_sha256' {
+      if ($Missing) { $summary.backup.PSObject.Properties.Remove('archive_sha256') } else { $summary.backup.archive_sha256 = $Value }
+    }
+    'actual_backup_sha256' {
+      if ($Missing) { $arguments.Remove('ActualBackupHash') } else { $arguments.ActualBackupHash = $Value }
+    }
+    'metadata.data_root_sha256' {
+      if ($Missing) { $metadata.PSObject.Properties.Remove('data_root_sha256') } else { $metadata.data_root_sha256 = $Value }
+    }
+    'summary.source.data_root_sha256' {
+      if ($Missing) { $summary.source.PSObject.Properties.Remove('data_root_sha256') } else { $summary.source.data_root_sha256 = $Value }
+    }
+  }
   $threw = $false
-  try { Assert-RollbackEvidenceBinding -Metadata (New-ValidMetadata) -Summary (New-ValidSummary) -ActualBackupHash $actualHash -ActualDataRootIdentity '484dc672:011e00000001785a' } catch { $threw = $true }
-  if (-not $threw) { throw 'Malformed or changed actual archive hash was accepted.' }
+  try { Assert-RollbackEvidenceBinding @arguments } catch { $threw = $true }
+  if (-not $threw) { throw "Malformed hash field was accepted: $Field/$Label" }
 }
-foreach ($actualIdentity in @('484dc672:011e00000001785b', '484DC672:011e00000001785a', '484dc67:011e00000001785a', '484dc672-011e00000001785a', '484dc672:011e00000001785z', 7, $null)) {
+$hashFields = @(
+  'metadata.backup_sha256',
+  'summary.backup.archive_sha256',
+  'actual_backup_sha256',
+  'metadata.data_root_sha256',
+  'summary.source.data_root_sha256'
+)
+$hashVariants = @(
+  [pscustomobject]@{ Label = 'uppercase'; Value = ('A' * 64) },
+  [pscustomobject]@{ Label = 'length-63'; Value = ('a' * 63) },
+  [pscustomobject]@{ Label = 'length-65'; Value = ('a' * 65) },
+  [pscustomobject]@{ Label = 'non-hex'; Value = ('z' * 64) },
+  [pscustomobject]@{ Label = 'number'; Value = 7 },
+  [pscustomobject]@{ Label = 'null'; Value = $null },
+  [pscustomobject]@{ Label = 'object'; Value = [pscustomobject]@{ value = ('a' * 64) } }
+)
+foreach ($field in $hashFields) {
+  foreach ($variant in $hashVariants) {
+    Assert-HashFieldRejected -Field $field -Value $variant.Value -Label $variant.Label
+  }
+  foreach ($nested in @($false, $true)) {
+    $array = [object[]]::new(1)
+    if ($nested) {
+      $inner = [object[]]::new(1)
+      $inner[0] = ('a' * 64)
+      $array[0] = $inner
+    } else { $array[0] = ('a' * 64) }
+    Assert-HashFieldRejected -Field $field -Value $array -Label "array-nested=$nested"
+  }
+  Assert-HashFieldRejected -Field $field -Missing -Label 'missing'
+}
+Assert-HashFieldRejected -Field 'summary.backup.archive_sha256' -Value ('b' * 64) -Label 'otherwise-valid-mismatch'
+Assert-HashFieldRejected -Field 'actual_backup_sha256' -Value ('b' * 64) -Label 'otherwise-valid-mismatch'
+
+function Assert-IdentityFieldRejected {
+  param(
+    [string]$Field,
+    [AllowNull()][object]$Value,
+    [switch]$Missing,
+    [string]$Label
+  )
+  $metadata = New-ValidMetadata
+  $arguments = @{
+    Metadata = $metadata
+    Summary = New-ValidSummary
+    ActualBackupHash = ('a' * 64)
+    ActualDataRootIdentity = '484dc672:011e00000001785a'
+  }
+  if ($Field -ceq 'metadata.data_root_identity') {
+    if ($Missing) { $metadata.PSObject.Properties.Remove('data_root_identity') } else { $metadata.data_root_identity = $Value }
+  } elseif ($Missing) {
+    $arguments.Remove('ActualDataRootIdentity')
+  } else {
+    $arguments.ActualDataRootIdentity = $Value
+  }
   $threw = $false
-  try { Assert-RollbackEvidenceBinding -Metadata (New-ValidMetadata) -Summary (New-ValidSummary) -ActualBackupHash ('a' * 64) -ActualDataRootIdentity $actualIdentity } catch { $threw = $true }
-  if (-not $threw) { throw 'Malformed or changed actual root identity was accepted.' }
+  try { Assert-RollbackEvidenceBinding @arguments } catch { $threw = $true }
+  if (-not $threw) { throw "Malformed identity field was accepted: $Field/$Label" }
 }
+$identityFields = @('metadata.data_root_identity', 'actual_data_root_identity')
+$identityVariants = @(
+  [pscustomobject]@{ Label = 'uppercase'; Value = '484DC672:011e00000001785a' },
+  [pscustomobject]@{ Label = 'serial-short'; Value = '484dc67:011e00000001785a' },
+  [pscustomobject]@{ Label = 'serial-long'; Value = '484dc6720:011e00000001785a' },
+  [pscustomobject]@{ Label = 'index-short'; Value = '484dc672:011e00000001785' },
+  [pscustomobject]@{ Label = 'index-long'; Value = '484dc672:011e00000001785aa' },
+  [pscustomobject]@{ Label = 'separator'; Value = '484dc672-011e00000001785a' },
+  [pscustomobject]@{ Label = 'non-hex'; Value = '484dc672:011e00000001785z' },
+  [pscustomobject]@{ Label = 'number'; Value = 7 },
+  [pscustomobject]@{ Label = 'null'; Value = $null },
+  [pscustomobject]@{ Label = 'object'; Value = [pscustomobject]@{ value = '484dc672:011e00000001785a' } }
+)
+foreach ($field in $identityFields) {
+  foreach ($variant in $identityVariants) {
+    Assert-IdentityFieldRejected -Field $field -Value $variant.Value -Label $variant.Label
+  }
+  foreach ($nested in @($false, $true)) {
+    $array = [object[]]::new(1)
+    if ($nested) {
+      $inner = [object[]]::new(1)
+      $inner[0] = '484dc672:011e00000001785a'
+      $array[0] = $inner
+    } else { $array[0] = '484dc672:011e00000001785a' }
+    Assert-IdentityFieldRejected -Field $field -Value $array -Label "array-nested=$nested"
+  }
+  Assert-IdentityFieldRejected -Field $field -Missing -Label 'missing'
+}
+Assert-IdentityFieldRejected -Field 'actual_data_root_identity' -Value '484dc672:011e00000001785b' -Label 'mismatch'
 foreach ($argumentName in @('Metadata', 'Summary', 'ActualBackupHash', 'ActualDataRootIdentity')) {
   foreach ($nested in @($false, $true)) {
     $arguments = @{
@@ -1470,17 +1655,20 @@ test('rollback path identity matches Node 20 dev and ino and directory identity 
     return
   }
   assert.equal(process.versions.node.split('.')[0], '20', 'identity oracle must run under Node 20')
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-directory-lock-'))
-  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
-  const oracleDirectory = path.join(fixtureRoot, 'oracle-directory')
-  const oracleFile = path.join(fixtureRoot, 'oracle-file.bin')
-  fs.mkdirSync(oracleDirectory)
-  fs.writeFileSync(oracleFile, 'oracle')
+  const hosts = windowsPowerShellHosts()
+  assert.ok(hosts.some((host) => host.name === 'powershell-7'), 'PowerShell 7 is required for directory lock coverage')
   const formatIdentity = (target) => {
     const stat = fs.statSync(target, { bigint: true })
     return `${stat.dev.toString(16).padStart(8, '0')}:${stat.ino.toString(16).padStart(16, '0')}`
   }
-  const statements = `
+  for (const host of hosts) {
+    const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), `lmd-rollback-directory-lock-${host.name}-`))
+    t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+    const oracleDirectory = path.join(fixtureRoot, 'oracle-directory')
+    const oracleFile = path.join(fixtureRoot, 'oracle-file.bin')
+    fs.mkdirSync(oracleDirectory)
+    fs.writeFileSync(oracleFile, 'oracle')
+    const statements = `
 . ${powerShellLiteral(rollbackIdentityScriptPath)}
 $directoryIdentity = Get-RollbackPathIdentity -Path ${powerShellLiteral(oracleDirectory)}
 $fileIdentity = Get-RollbackPathIdentity -Path ${powerShellLiteral(oracleFile)}
@@ -1568,7 +1756,8 @@ if (-not $script:raceReplacementPerformed) { throw "Deterministic final-object r
 [System.IO.File]::Delete($raceRenamed)
 if (-not $raceRejected) { throw 'Directory helper accepted a non-directory retained final object.' }
 `
-  assertPowerShellStatements(statements, { executable: 'powershell.exe' })
+    assertPowerShellStatements(statements, { executable: host.executable })
+  }
 })
 
 test('rollback archive read lock blocks mutation but allows a Node 20 reader', (t) => {
@@ -1577,16 +1766,19 @@ test('rollback archive read lock blocks mutation but allows a Node 20 reader', (
     return
   }
   assert.equal(process.versions.node.split('.')[0], '20', 'archive reader must run under Node 20')
-  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-archive-lock-'))
-  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
-  const archivePath = path.join(fixtureRoot, 'data.zip')
-  const renamePath = path.join(fixtureRoot, 'renamed.zip')
-  const payload = 'retained archive bytes'
-  fs.writeFileSync(archivePath, payload)
-  const stat = fs.statSync(archivePath, { bigint: true })
-  const oracleIdentity = `${stat.dev.toString(16).padStart(8, '0')}:${stat.ino.toString(16).padStart(16, '0')}`
+  const hosts = windowsPowerShellHosts()
+  assert.ok(hosts.some((host) => host.name === 'powershell-7'), 'PowerShell 7 is required for archive lock coverage')
   const readerProgram = "const fs=require('fs');process.stdout.write(fs.readFileSync(process.argv[1]).toString('utf8'))"
-  const statements = `
+  for (const host of hosts) {
+    const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), `lmd-rollback-archive-lock-${host.name}-`))
+    t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+    const archivePath = path.join(fixtureRoot, 'data.zip')
+    const renamePath = path.join(fixtureRoot, 'renamed.zip')
+    const payload = 'retained archive bytes'
+    fs.writeFileSync(archivePath, payload)
+    const stat = fs.statSync(archivePath, { bigint: true })
+    const oracleIdentity = `${stat.dev.toString(16).padStart(8, '0')}:${stat.ino.toString(16).padStart(16, '0')}`
+    const statements = `
 . ${powerShellLiteral(rollbackIdentityScriptPath)}
 $archive = ${powerShellLiteral(archivePath)}
 $renamed = ${powerShellLiteral(renamePath)}
@@ -1624,7 +1816,8 @@ try { Assert-RollbackPathIdentity -Path $archive -ExpectedIdentity (Get-Rollback
 $newIdentity = Get-RollbackPathIdentity -Path $archive
 if ($newIdentity -ceq $oldIdentity) { throw 'Same-path archive replacement retained the old identity.' }
 `
-  assertPowerShellStatements(statements, { executable: 'powershell.exe' })
+    assertPowerShellStatements(statements, { executable: host.executable })
+  }
 })
 
 test('release rollback checkpoint and restore consume shared native-lock v5 interfaces', () => {
@@ -2010,12 +2203,7 @@ Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirect
   fs.mkdirSync(dataRoot)
 })
 
-test('rollback restore fake toolchain keeps evidence locks through success and compensation paths', (t) => {
-  if (process.platform !== 'win32') {
-    t.skip('Restore orchestration lock contracts require Windows')
-    return
-  }
-  assert.equal(process.versions.node.split('.')[0], '20', 'restore orchestration must run under Node 20')
+function createRollbackRestoreHarness(t) {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-restore-orchestration-'))
   const binPath = path.join(fixtureRoot, 'bin')
   fs.mkdirSync(binPath)
@@ -2036,35 +2224,55 @@ const tool = process.argv[2]
 const args = process.argv.slice(3)
 const record = (event, extra = {}) => fs.appendFileSync(process.env.LMD_EVENT_LOG, JSON.stringify({ event, tool, args, ...extra }) + '\\n')
 const valueAfter = (name) => args[args.indexOf(name) + 1]
+const mode = process.env.LMD_FAKE_MODE
 const composeIndex = args.indexOf('compose')
 const composeOperation = composeIndex >= 0 ? args.slice(composeIndex + 1).find((value) => ['ps', 'config', 'down', 'up'].includes(value)) : null
 record('tool:' + tool)
 if (tool === 'docker') {
   if (composeOperation === 'ps') {
     const service = args[args.length - 1]
-    process.stdout.write((service === 'frontend' ? 'f' : 'b').repeat(64) + '\\n')
+    const containerId = (service === 'frontend' ? 'f' : 'b').repeat(64)
+    process.stdout.write((mode === 'current-container-id-invalid' && service === 'backend' ? 'invalid' : containerId) + '\\n')
   } else if (composeOperation === 'config' && args.includes('--format')) {
-    process.stdout.write(JSON.stringify({ services: { backend: { volumes: [{ type: 'bind', source: process.env.LMD_DATA_ROOT, target: '/app/data', read_only: false }] } } }) + '\\n')
+    const composeSource = mode === 'compose-data-source-mismatch' ? process.env.LMD_ALT_DATA_ROOT : process.env.LMD_DATA_ROOT
+    const composeType = mode === 'compose-data-type-invalid' ? 'volume' : 'bind'
+    const composeReadOnly = mode === 'compose-data-read-only'
+    process.stdout.write(JSON.stringify({ services: { backend: { volumes: [{ type: composeType, source: composeSource, target: '/app/data', read_only: composeReadOnly }] } } }) + '\\n')
   } else if (args[0] === 'inspect') {
     const format = valueAfter('--format')
     const containerId = args[1]
     if (format === '{{json .Mounts}}') {
-      process.stdout.write(JSON.stringify([
-        { Type: 'bind', Source: process.env.LMD_DATA_ROOT, Destination: '/app/data', RW: true },
+      const dataSource = mode === 'inspect-data-source-mismatch' ? process.env.LMD_ALT_DATA_ROOT : process.env.LMD_DATA_ROOT
+      const dataType = mode === 'inspect-data-type-invalid' ? 'volume' : 'bind'
+      const dataReadWrite = mode !== 'inspect-data-read-only'
+      const dataDestination = mode === 'inspect-data-destination-invalid' ? '/app/other' : '/app/data'
+      const dataMounts = [
+        { Type: dataType, Source: dataSource, Destination: dataDestination, RW: dataReadWrite },
         { Type: 'bind', Source: process.env.LMD_CONFIG_ROOT, Destination: '/app/config-source', RW: false },
-      ]) + '\\n')
+      ]
+      if (mode === 'inspect-data-duplicate') dataMounts.push({ Type: 'bind', Source: dataSource, Destination: '/app/data', RW: true })
+      process.stdout.write(JSON.stringify(dataMounts) + '\\n')
     } else if (format === '{{.State.Status}}') process.stdout.write('running\\n')
     else if (format.includes('.State.Health')) process.stdout.write('healthy\\n')
-    else if (format === '{{.Image}}') process.stdout.write((containerId[0] === 'f' ? process.env.LMD_CURRENT_FRONTEND_IMAGE : process.env.LMD_CURRENT_BACKEND_IMAGE) + '\\n')
+    else if (format === '{{.Image}}') {
+      const currentImageId = containerId[0] === 'f' ? process.env.LMD_CURRENT_FRONTEND_IMAGE : process.env.LMD_CURRENT_BACKEND_IMAGE
+      process.stdout.write((mode === 'current-image-id-invalid' && containerId[0] === 'b' ? 'invalid' : currentImageId) + '\\n')
+    }
   } else if (args[0] === 'image' && args[1] === 'inspect') {
     const target = args[2]
     const format = valueAfter('--format')
     if (format === '{{.Id}}') {
-      process.stdout.write((target.includes('frontend') ? process.env.LMD_FRONTEND_IMAGE : process.env.LMD_BACKEND_IMAGE) + '\\n')
+      const expected = target.includes('frontend') ? process.env.LMD_FRONTEND_IMAGE : process.env.LMD_BACKEND_IMAGE
+      const mismatch = (mode === 'loaded-backend-image-id-mismatch' && target.includes('backend')) ||
+        (mode === 'loaded-frontend-image-id-mismatch' && target.includes('frontend'))
+      process.stdout.write((mismatch ? 'sha256:' + '9'.repeat(64) : expected) + '\\n')
     } else {
-      const revision = target === process.env.LMD_CURRENT_BACKEND_IMAGE || target === process.env.LMD_CURRENT_FRONTEND_IMAGE
-        ? process.env.LMD_FORWARD_COMMIT
-        : process.env.LMD_COMMIT
+      const currentImage = target === process.env.LMD_CURRENT_BACKEND_IMAGE || target === process.env.LMD_CURRENT_FRONTEND_IMAGE
+      let revision = currentImage ? process.env.LMD_FORWARD_COMMIT : process.env.LMD_COMMIT
+      if (mode === 'loaded-backend-image-revision-mismatch' && target.includes('backend')) revision = '9'.repeat(40)
+      if (mode === 'loaded-frontend-image-revision-mismatch' && target.includes('frontend')) revision = '9'.repeat(40)
+      if (mode === 'current-image-revision-invalid' && target === process.env.LMD_CURRENT_BACKEND_IMAGE) revision = 'invalid'
+      if (mode === 'current-image-revision-mismatch' && target === process.env.LMD_CURRENT_FRONTEND_IMAGE) revision = '8'.repeat(40)
       process.stdout.write(JSON.stringify({ 'org.opencontainers.image.revision': revision }) + '\\n')
     }
   }
@@ -2190,10 +2398,12 @@ Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpoin
     const scenarioRoot = path.join(fixtureRoot, name)
     const checkpointPath = path.join(scenarioRoot, 'checkpoint')
     const dataRoot = path.join(scenarioRoot, 'data')
+    const alternateDataRoot = path.join(scenarioRoot, 'alternate-data')
     const configRoot = path.join(scenarioRoot, 'config')
     const eventLog = path.join(scenarioRoot, 'events.jsonl')
     fs.mkdirSync(path.join(checkpointPath, 'configs'), { recursive: true })
     fs.mkdirSync(dataRoot)
+    fs.mkdirSync(alternateDataRoot)
     fs.mkdirSync(configRoot)
     fs.writeFileSync(path.join(configRoot, 'config.yaml'), 'server:\n  port: 5679\n')
     const archiveBytes = Buffer.from('retained rollback archive ' + name)
@@ -2213,12 +2423,13 @@ Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpoin
     const actualIdentity = `${stat.dev.toString(16).padStart(8, '0')}:${stat.ino.toString(16).padStart(16, '0')}`
     const summary = {
       schema: 'localminidrama.rollback-drill.v3',
-      status: options.status || 'passed',
+      status: 'passed',
       input_mode: 'checkpoint-bound',
       source: { commit, version: backendPackage.version, working_tree_dirty: false, data_root_sha256: 'd'.repeat(64) },
       backup: { archive_retained: true, archive_sha256: boundArchiveHash },
       operations: { source_data_root_unchanged: true },
     }
+    if (options.mutateSummary) options.mutateSummary(summary)
     const summaryBytes = Buffer.from(JSON.stringify(summary) + '\n')
     fs.writeFileSync(path.join(checkpointPath, 'rollback-drill-summary.json'), summaryBytes)
     const rollbackTag = `rollback-checkpoint-${commit.slice(0, 12)}`
@@ -2245,13 +2456,32 @@ Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpoin
       data_root_sha256: 'd'.repeat(64),
       data_root_identity: options.identityMismatch ? '00000000:0000000000000001' : actualIdentity,
     }
+    if (options.mutateMetadata) {
+      options.mutateMetadata(metadata, { alternateDataRoot, archiveHash, checkpointPath, dataRoot })
+    }
     fs.writeFileSync(path.join(checkpointPath, 'metadata.json'), JSON.stringify(metadata) + '\n')
-    return { checkpointPath, dataRoot, configRoot, eventLog }
+    let replacementIdentity = null
+    if (options.replaceDataRootAfterMetadata) {
+      fs.renameSync(dataRoot, `${dataRoot}-original`)
+      fs.mkdirSync(dataRoot)
+      const replacementStat = fs.statSync(dataRoot, { bigint: true })
+      replacementIdentity = `${replacementStat.dev.toString(16).padStart(8, '0')}:${replacementStat.ino.toString(16).padStart(16, '0')}`
+      assert.notEqual(replacementIdentity, actualIdentity, 'same-path replacement fixture reused the original native identity')
+    }
+    return {
+      actualIdentity,
+      alternateDataRoot,
+      checkpointPath,
+      configRoot,
+      dataRoot,
+      eventLog,
+      replacementIdentity,
+    }
   }
 
-  const runScenario = (name, options = {}) => {
-    const fixture = createScenario(name, options)
-    const result = spawnSync('powershell.exe', [
+  const runScenario = (host, name, options = {}) => {
+    const fixture = createScenario(`${host.name}-${name}`, options)
+    const result = spawnSync(host.executable, [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driverPath,
       '-CheckpointDirectory', fixture.checkpointPath,
     ], {
@@ -2261,6 +2491,7 @@ Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpoin
       env: {
         ...process.env,
         PATH: `${binPath};${process.env.PATH}`,
+        LMD_ALT_DATA_ROOT: fixture.alternateDataRoot,
         LMD_BACKEND_IMAGE: backendImageId,
         LMD_COMMIT: commit,
         LMD_CONFIG_ROOT: fixture.configRoot,
@@ -2268,6 +2499,7 @@ Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpoin
         LMD_CURRENT_FRONTEND_IMAGE: currentFrontendImageId,
         LMD_DATA_ROOT: fixture.dataRoot,
         LMD_EVENT_LOG: fixture.eventLog,
+        LMD_FAKE_MODE: options.fakeMode || '',
         LMD_FORWARD_COMMIT: forwardCommit,
         LMD_FRONTEND_IMAGE: frontendImageId,
         LMD_LOCK_PROBE: lockProbePath,
@@ -2279,6 +2511,8 @@ Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpoin
       ? fs.readFileSync(fixture.eventLog, 'utf8').trim().split(/\r?\n/).filter(Boolean).map(JSON.parse)
       : []
     const eventNames = events.map((entry) => entry.event)
+    const compensationDirectories = fs.readdirSync(fixture.checkpointPath)
+      .filter((entry) => entry.startsWith('compensation-'))
     const renamedArchive = path.join(path.dirname(fixture.checkpointPath), 'released-data.zip')
     fs.writeFileSync(path.join(fixture.checkpointPath, 'data.zip'), 'released archive')
     fs.renameSync(path.join(fixture.checkpointPath, 'data.zip'), renamedArchive)
@@ -2286,62 +2520,185 @@ Invoke-ReleaseRollbackCheckpointRestore -CheckpointDirectory $requestedCheckpoin
     const renamedRoot = `${fixture.dataRoot}.released`
     fs.renameSync(fixture.dataRoot, renamedRoot)
     fs.rmdirSync(renamedRoot)
-    return { result, events, eventNames }
+    return { compensationDirectories, eventNames, events, fixture, result }
   }
 
-  for (const [name, options] of [
-    ['invalid_status', { status: 'PASSED' }],
-    ['invalid_identity', { identityMismatch: true }],
-    ['invalid_archive', { archiveMismatch: true }],
-  ]) {
-    const run = runScenario(name, options)
-    assert.notEqual(run.result.status, 0, `${name} must fail before mutation`)
-    assert.equal(run.eventNames.includes('Push'), false, `${name} reached Push-Location`)
-    assert.equal(run.eventNames.some((event) => event.startsWith('locks:')), false, `${name} reached a mutation boundary`)
+  return { runScenario }
+}
+
+function findUnsafeRestoreToolEvent(run, { allowImageLoad = false } = {}) {
+  return run.events.find((entry) => {
+    if (!Array.isArray(entry.args)) return false
+    if (entry.tool === 'npm') return entry.args.includes('backup:data') || entry.args.includes('restore:data')
+    if (entry.tool !== 'docker') return false
+    const imageMutation = entry.args[0] === 'image' &&
+      (entry.args[1] === 'tag' || (!allowImageLoad && entry.args[1] === 'load'))
+    return imageMutation || entry.args.includes('down') || entry.args.includes('up')
+  })
+}
+
+function assertRestoreStoppedBeforeMutation(run, label) {
+  assert.notEqual(run.result.status, 0, `${label} must fail before mutation`)
+  assert.equal(run.eventNames.includes('Push'), false, `${label} reached Push-Location`)
+  assert.equal(run.eventNames.some((event) => event.startsWith('locks:')), false, `${label} reached a mutation boundary`)
+  assert.deepEqual(run.compensationDirectories, [], `${label} published compensation evidence`)
+  const unsafeToolEvent = findUnsafeRestoreToolEvent(run)
+  assert.equal(unsafeToolEvent, undefined, `${label} executed an unsafe fake tool command`)
+}
+
+function assertRestoreStoppedAfterImageValidation(run, label) {
+  assert.notEqual(run.result.status, 0, `${label} must fail image validation`)
+  assert.equal(run.eventNames.includes('Push'), true, `${label} did not pass the evidence gate`)
+  assert.equal(run.eventNames.includes('Rollback image archive load'), true, `${label} did not load the image archive`)
+  for (const forbidden of [
+    'Current backend compensation tag',
+    'Current frontend compensation tag',
+    'Current Docker shutdown',
+    'Pre-rollback compensation backup',
+    'Rollback data restore',
+    'Preparation forward deployment recovery',
+    'Forward deployment recovery',
+  ]) assert.equal(run.eventNames.includes(forbidden), false, `${label} continued to ${forbidden}`)
+  assert.deepEqual(run.compensationDirectories, [], `${label} published compensation evidence`)
+  assert.equal(findUnsafeRestoreToolEvent(run, { allowImageLoad: true }), undefined, `${label} executed an unsafe fake tool command`)
+}
+
+test('rollback restore fake toolchain keeps evidence locks through success and compensation paths', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Restore orchestration lock contracts require Windows')
+    return
   }
+  assert.equal(process.versions.node.split('.')[0], '20', 'restore orchestration must run under Node 20')
+  const hosts = windowsPowerShellHosts()
+  assert.ok(hosts.some((host) => host.name === 'powershell-7'), 'PowerShell 7 is required for restore orchestration coverage')
+  const { runScenario } = createRollbackRestoreHarness(t)
+  const gateScenarios = [
+    ['metadata-v4', { mutateMetadata: (metadata) => { metadata.schema = 'localminidrama.release-rollback-checkpoint.v4' } }],
+    ['summary-v2', { mutateSummary: (summary) => { summary.schema = 'localminidrama.rollback-drill.v2' } }],
+    ['standalone-mode', { mutateSummary: (summary) => { summary.input_mode = 'standalone' } }],
+    ['status-failed', { mutateSummary: (summary) => { summary.status = 'failed' } }],
+    ['status-uppercase', { mutateSummary: (summary) => { summary.status = 'PASSED' } }],
+    ['status-boolean', { mutateSummary: (summary) => { summary.status = true } }],
+    ['status-null', { mutateSummary: (summary) => { summary.status = null } }],
+    ['status-collection', { mutateSummary: (summary) => { summary.status = ['passed'] } }],
+    ['archive-retained-false', { mutateSummary: (summary) => { summary.backup.archive_retained = false } }],
+    ['archive-retained-string', { mutateSummary: (summary) => { summary.backup.archive_retained = 'true' } }],
+    ['archive-retained-missing', { mutateSummary: (summary) => { delete summary.backup.archive_retained } }],
+    ['root-unchanged-false', { mutateSummary: (summary) => { summary.operations.source_data_root_unchanged = false } }],
+    ['root-unchanged-number', { mutateSummary: (summary) => { summary.operations.source_data_root_unchanged = 1 } }],
+    ['root-unchanged-missing', { mutateSummary: (summary) => { delete summary.operations.source_data_root_unchanged } }],
+    ['working-tree-dirty-true', { mutateSummary: (summary) => { summary.source.working_tree_dirty = true } }],
+    ['working-tree-dirty-string', { mutateSummary: (summary) => { summary.source.working_tree_dirty = 'false' } }],
+    ['working-tree-dirty-missing', { mutateSummary: (summary) => { delete summary.source.working_tree_dirty } }],
+    ['commit-mismatch', { mutateSummary: (summary) => { summary.source.commit = 'b'.repeat(40) } }],
+    ['commit-uppercase', { mutateSummary: (summary) => { summary.source.commit = 'C'.repeat(40) } }],
+    ['version-mismatch', { mutateSummary: (summary) => { summary.source.version = '9.9.9' } }],
+    ['metadata-version-mismatch', { mutateMetadata: (metadata) => { metadata.version = '9.9.9' } }],
+    ['metadata-backup-hash-uppercase', { mutateMetadata: (metadata) => { metadata.backup_sha256 = metadata.backup_sha256.toUpperCase() } }],
+    ['summary-archive-hash-mismatch', { mutateSummary: (summary) => { summary.backup.archive_sha256 = 'e'.repeat(64) } }],
+    ['metadata-root-digest-mismatch', { mutateMetadata: (metadata) => { metadata.data_root_sha256 = 'e'.repeat(64) } }],
+    ['summary-root-digest-mismatch', { mutateSummary: (summary) => { summary.source.data_root_sha256 = 'e'.repeat(64) } }],
+    ['archive-current-bytes-mismatch', { archiveMismatch: true }],
+    ['metadata-identity-mismatch', { identityMismatch: true }],
+    ['same-path-native-root-replacement', { replaceDataRootAfterMetadata: true }],
+  ]
+  const preservedPreMutationScenarios = [
+    ['metadata-backend-image-id-invalid', { mutateMetadata: (metadata) => { metadata.backend.image_id = 'not-an-image-id' } }],
+    ['metadata-frontend-image-id-invalid', { mutateMetadata: (metadata) => { metadata.frontend.image_id = 'not-an-image-id' } }],
+    ['metadata-backend-image-revision-mismatch', { mutateMetadata: (metadata) => { metadata.backend.revision = 'b'.repeat(40) } }],
+    ['metadata-frontend-image-revision-mismatch', { mutateMetadata: (metadata) => { metadata.frontend.revision = 'b'.repeat(40) } }],
+    ['metadata-backend-image-ref-mismatch', { mutateMetadata: (metadata) => { metadata.backend.rollback_ref = 'localminidrama-backend:wrong' } }],
+    ['metadata-frontend-image-ref-mismatch', { mutateMetadata: (metadata) => { metadata.frontend.rollback_ref = 'localminidrama-frontend:wrong' } }],
+    ['current-container-id-invalid', { fakeMode: 'current-container-id-invalid' }],
+    ['current-image-id-invalid', { fakeMode: 'current-image-id-invalid' }],
+    ['current-image-revision-invalid', { fakeMode: 'current-image-revision-invalid' }],
+    ['current-image-revision-mismatch', { fakeMode: 'current-image-revision-mismatch' }],
+    ['compose-file-hash-mismatch', { mutateMetadata: (metadata) => { metadata.compose_sha256 = '0'.repeat(64) } }],
+    ['config-file-hash-mismatch', { mutateMetadata: (metadata) => { metadata.runtime_config_sha256 = '0'.repeat(64) } }],
+    ['image-file-hash-mismatch', { mutateMetadata: (metadata) => { metadata.image_archive_sha256 = '0'.repeat(64) } }],
+    ['summary-file-hash-mismatch', { mutateMetadata: (metadata) => { metadata.rollback_evidence_sha256 = '0'.repeat(64) } }],
+    ['runtime-config-not-sanitized', { mutateMetadata: (metadata) => { metadata.runtime_config_sanitized = false } }],
+    ['runtime-config-sanitized-string', { mutateMetadata: (metadata) => { metadata.runtime_config_sanitized = 'true' } }],
+    ['runtime-config-sanitized-missing', { mutateMetadata: (metadata) => { delete metadata.runtime_config_sanitized } }],
+    ['runtime-config-credentials-present', { mutateMetadata: (metadata) => { metadata.runtime_config_credentials_excluded = false } }],
+    ['runtime-config-credentials-string', { mutateMetadata: (metadata) => { metadata.runtime_config_credentials_excluded = 'true' } }],
+    ['runtime-config-credentials-missing', { mutateMetadata: (metadata) => { delete metadata.runtime_config_credentials_excluded } }],
+    ['credential-reconfiguration-not-required', { mutateMetadata: (metadata) => { metadata.credential_reconfiguration_required = false } }],
+    ['credential-reconfiguration-string', { mutateMetadata: (metadata) => { metadata.credential_reconfiguration_required = 'true' } }],
+    ['credential-reconfiguration-missing', { mutateMetadata: (metadata) => { delete metadata.credential_reconfiguration_required } }],
+    ['bind-source-file-hash-mismatch', { mutateMetadata: (metadata) => { metadata.data_bind_source_sha256 = '0'.repeat(64) } }],
+    ['bind-source-path-mismatch', { mutateMetadata: (metadata, context) => { metadata.data_bind_source = context.alternateDataRoot } }],
+    ['bind-source-type-invalid', { mutateMetadata: (metadata) => { metadata.data_bind_type = 'volume' } }],
+    ['bind-source-read-only', { mutateMetadata: (metadata) => { metadata.data_bind_read_write = false } }],
+    ['bind-source-read-write-string', { mutateMetadata: (metadata) => { metadata.data_bind_read_write = 'true' } }],
+    ['bind-source-destination-invalid', { mutateMetadata: (metadata) => { metadata.data_bind_destination = '/app/other' } }],
+    ['bind-source-record-name-invalid', { mutateMetadata: (metadata) => { metadata.data_bind_source_file = 'other.txt' } }],
+    ['inspect-data-source-mismatch', { fakeMode: 'inspect-data-source-mismatch' }],
+    ['inspect-data-type-invalid', { fakeMode: 'inspect-data-type-invalid' }],
+    ['inspect-data-read-only', { fakeMode: 'inspect-data-read-only' }],
+    ['inspect-data-destination-invalid', { fakeMode: 'inspect-data-destination-invalid' }],
+    ['inspect-data-duplicate', { fakeMode: 'inspect-data-duplicate' }],
+    ['compose-data-source-mismatch', { fakeMode: 'compose-data-source-mismatch' }],
+    ['compose-data-type-invalid', { fakeMode: 'compose-data-type-invalid' }],
+    ['compose-data-read-only', { fakeMode: 'compose-data-read-only' }],
+  ]
+  const postImageValidationScenarios = [
+    ['loaded-backend-image-id-mismatch', { fakeMode: 'loaded-backend-image-id-mismatch' }],
+    ['loaded-frontend-image-id-mismatch', { fakeMode: 'loaded-frontend-image-id-mismatch' }],
+    ['loaded-backend-image-revision-mismatch', { fakeMode: 'loaded-backend-image-revision-mismatch' }],
+    ['loaded-frontend-image-revision-mismatch', { fakeMode: 'loaded-frontend-image-revision-mismatch' }],
+  ]
 
-  const success = runScenario('success')
-  assert.equal(success.result.status, 0, success.result.stderr || success.result.stdout)
-  const successIndex = (name) => success.eventNames.indexOf(name)
-  assert.ok(successIndex('binding accepted') < successIndex('Push'))
-  assert.ok(successIndex('Push') < successIndex('Rollback image archive load'))
-  assert.ok(successIndex('Rollback image archive load') < successIndex('Current Docker shutdown'))
-  assert.ok(successIndex('Current Docker shutdown') < successIndex('Pre-rollback compensation backup'))
-  assert.ok(successIndex('Pre-rollback compensation backup') < successIndex('Rollback data restore'))
-  assert.ok(successIndex('Rollback data restore') < successIndex('Rollback container startup'))
-  for (const event of success.events.filter((entry) => entry.driver === 'restore' && entry.event.startsWith('locks:'))) {
-    assert.ok(event.event.length > 'locks:'.length)
+  for (const host of hosts) {
+    for (const [name, options] of [...gateScenarios, ...preservedPreMutationScenarios]) {
+      const run = runScenario(host, name, options)
+      assertRestoreStoppedBeforeMutation(run, `${host.name}/${name}`)
+    }
+    for (const [name, options] of postImageValidationScenarios) {
+      const run = runScenario(host, name, options)
+      assertRestoreStoppedAfterImageValidation(run, `${host.name}/${name}`)
+    }
+
+    const success = runScenario(host, 'success')
+    assert.equal(success.result.status, 0, success.result.stderr || success.result.stdout)
+    const successIndex = (name) => success.eventNames.indexOf(name)
+    assert.ok(successIndex('binding accepted') < successIndex('Push'))
+    assert.ok(successIndex('Push') < successIndex('Rollback image archive load'))
+    assert.ok(successIndex('Rollback image archive load') < successIndex('Current Docker shutdown'))
+    assert.ok(successIndex('Current Docker shutdown') < successIndex('Pre-rollback compensation backup'))
+    assert.ok(successIndex('Pre-rollback compensation backup') < successIndex('Rollback data restore'))
+    assert.ok(successIndex('Rollback data restore') < successIndex('Rollback container startup'))
+
+    const shutdownFailure = runScenario(host, 'shutdown_failure')
+    assert.notEqual(shutdownFailure.result.status, 0)
+    assert.ok(shutdownFailure.eventNames.indexOf('Current Docker shutdown') < shutdownFailure.eventNames.indexOf('Failed rollback preparation shutdown'))
+    assert.ok(shutdownFailure.eventNames.includes('Preparation forward deployment recovery'))
+
+    const restoreFailure = runScenario(host, 'restore_failure')
+    assert.notEqual(restoreFailure.result.status, 0)
+    assert.ok(restoreFailure.eventNames.includes('hash:Preparation compensation data backup'))
+    assert.ok(restoreFailure.eventNames.includes('Preparation compensation data restore'))
+    assert.ok(restoreFailure.eventNames.includes('Preparation forward deployment recovery'))
+
+    const identityFailure = runScenario(host, 'identity_after_mutation')
+    assert.notEqual(identityFailure.result.status, 0)
+    assert.ok(identityFailure.eventNames.includes('identity failure after mutation'))
+    assert.ok(identityFailure.eventNames.includes('Preparation compensation data restore'))
+    assert.ok(identityFailure.eventNames.includes('Preparation forward deployment recovery'))
+
+    const startupFailure = runScenario(host, 'startup_failure')
+    assert.notEqual(startupFailure.result.status, 0)
+    assert.ok(startupFailure.eventNames.includes('Failed rollback shutdown'))
+    assert.ok(startupFailure.eventNames.includes('hash:Compensation data backup'))
+    assert.ok(startupFailure.eventNames.includes('Compensation data restore'))
+    assert.ok(startupFailure.eventNames.includes('Forward deployment recovery'))
+
+    const terminalFailure = runScenario(host, 'terminal_failure')
+    assert.notEqual(terminalFailure.result.status, 0)
+    assert.ok(terminalFailure.eventNames.includes('Forward deployment recovery'))
+    assert.ok(terminalFailure.eventNames.includes('Compensation failure shutdown'))
+    assert.ok(terminalFailure.eventNames.includes('locks:Compensation failure shutdown'))
   }
-
-  const shutdownFailure = runScenario('shutdown_failure')
-  assert.notEqual(shutdownFailure.result.status, 0)
-  assert.ok(shutdownFailure.eventNames.indexOf('Current Docker shutdown') < shutdownFailure.eventNames.indexOf('Failed rollback preparation shutdown'))
-  assert.ok(shutdownFailure.eventNames.includes('Preparation forward deployment recovery'))
-
-  const restoreFailure = runScenario('restore_failure')
-  assert.notEqual(restoreFailure.result.status, 0)
-  assert.ok(restoreFailure.eventNames.includes('hash:Preparation compensation data backup'))
-  assert.ok(restoreFailure.eventNames.includes('Preparation compensation data restore'))
-  assert.ok(restoreFailure.eventNames.includes('Preparation forward deployment recovery'))
-
-  const identityFailure = runScenario('identity_after_mutation')
-  assert.notEqual(identityFailure.result.status, 0)
-  assert.ok(identityFailure.eventNames.includes('identity failure after mutation'))
-  assert.ok(identityFailure.eventNames.includes('Preparation compensation data restore'))
-  assert.ok(identityFailure.eventNames.includes('Preparation forward deployment recovery'))
-
-  const startupFailure = runScenario('startup_failure')
-  assert.notEqual(startupFailure.result.status, 0)
-  assert.ok(startupFailure.eventNames.includes('Failed rollback shutdown'))
-  assert.ok(startupFailure.eventNames.includes('hash:Compensation data backup'))
-  assert.ok(startupFailure.eventNames.includes('Compensation data restore'))
-  assert.ok(startupFailure.eventNames.includes('Forward deployment recovery'))
-
-  const terminalFailure = runScenario('terminal_failure')
-  assert.notEqual(terminalFailure.result.status, 0)
-  assert.ok(terminalFailure.eventNames.includes('Forward deployment recovery'))
-  assert.ok(terminalFailure.eventNames.includes('Compensation failure shutdown'))
-  assert.ok(terminalFailure.eventNames.includes('locks:Compensation failure shutdown'))
 })
 
 test('release rollback scripts fail closed and verify the retained backup before restore', () => {
