@@ -3,8 +3,6 @@ param(
   [string]$CheckpointDirectory
 )
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'rollback-path-identity.ps1')
 
 function Invoke-Checked {
@@ -249,7 +247,34 @@ function Get-CheckpointEvidenceProperty {
   if ($null -eq $Object) { throw "$Context is missing." }
   $property = $Object.PSObject.Properties[$Name]
   if ($null -eq $property) { throw "$Context.$Name is required." }
-  return $property.Value
+  return $property
+}
+
+function Assert-CheckpointEvidenceExactString {
+  param(
+    [Parameter(Mandatory = $true)][object]$Value,
+    [Parameter(Mandatory = $true)][string]$Expected,
+    [Parameter(Mandatory = $true)][string]$Message
+  )
+  if ($Value -isnot [string] -or $Value -cne $Expected) { throw $Message }
+}
+
+function Assert-CheckpointEvidenceStringPattern {
+  param(
+    [Parameter(Mandatory = $true)][object]$Value,
+    [Parameter(Mandatory = $true)][string]$Pattern,
+    [Parameter(Mandatory = $true)][string]$Message
+  )
+  if ($Value -isnot [string] -or $Value -cnotmatch $Pattern) { throw $Message }
+}
+
+function Assert-CheckpointEvidenceBoolean {
+  param(
+    [Parameter(Mandatory = $true)][object]$Value,
+    [Parameter(Mandatory = $true)][bool]$Expected,
+    [Parameter(Mandatory = $true)][string]$Message
+  )
+  if ($Value -isnot [bool] -or $Value -ne $Expected) { throw $Message }
 }
 
 function Assert-CheckpointDrillEvidence {
@@ -262,74 +287,54 @@ function Assert-CheckpointDrillEvidence {
     [Parameter(Mandatory = $true)][object]$ExpectedDataRootIdentity,
     [Parameter(Mandatory = $true)][object]$ActualDataRootIdentity
   )
-  $schema = Get-CheckpointEvidenceProperty -Object $Summary -Name 'schema' -Context 'summary'
-  $status = Get-CheckpointEvidenceProperty -Object $Summary -Name 'status' -Context 'summary'
-  $inputMode = Get-CheckpointEvidenceProperty -Object $Summary -Name 'input_mode' -Context 'summary'
-  $source = Get-CheckpointEvidenceProperty -Object $Summary -Name 'source' -Context 'summary'
-  $backup = Get-CheckpointEvidenceProperty -Object $Summary -Name 'backup' -Context 'summary'
-  $operations = Get-CheckpointEvidenceProperty -Object $Summary -Name 'operations' -Context 'summary'
+  $schemaProperty = Get-CheckpointEvidenceProperty -Object $Summary -Name 'schema' -Context 'summary'
+  $statusProperty = Get-CheckpointEvidenceProperty -Object $Summary -Name 'status' -Context 'summary'
+  $inputModeProperty = Get-CheckpointEvidenceProperty -Object $Summary -Name 'input_mode' -Context 'summary'
+  $sourceProperty = Get-CheckpointEvidenceProperty -Object $Summary -Name 'source' -Context 'summary'
+  $backupProperty = Get-CheckpointEvidenceProperty -Object $Summary -Name 'backup' -Context 'summary'
+  $operationsProperty = Get-CheckpointEvidenceProperty -Object $Summary -Name 'operations' -Context 'summary'
 
-  if ($schema -isnot [string] -or $schema -cne 'localminidrama.rollback-drill.v3') {
-    throw 'Rollback drill schema must be the exact v3 schema.'
-  }
-  if ($status -isnot [string] -or $status -cne 'passed') {
-    throw 'Rollback drill status must be the exact string passed.'
-  }
-  if ($inputMode -isnot [string] -or $inputMode -cne 'checkpoint-bound') {
-    throw 'Rollback drill input mode must be checkpoint-bound.'
-  }
+  Assert-CheckpointEvidenceExactString -Value $schemaProperty.Value -Expected 'localminidrama.rollback-drill.v3' -Message 'Rollback drill schema must be the exact v3 schema.'
+  Assert-CheckpointEvidenceExactString -Value $statusProperty.Value -Expected 'passed' -Message 'Rollback drill status must be the exact string passed.'
+  Assert-CheckpointEvidenceExactString -Value $inputModeProperty.Value -Expected 'checkpoint-bound' -Message 'Rollback drill input mode must be checkpoint-bound.'
 
-  $sourceCommit = Get-CheckpointEvidenceProperty -Object $source -Name 'commit' -Context 'summary.source'
-  $sourceVersion = Get-CheckpointEvidenceProperty -Object $source -Name 'version' -Context 'summary.source'
-  $workingTreeDirty = Get-CheckpointEvidenceProperty -Object $source -Name 'working_tree_dirty' -Context 'summary.source'
-  $dataRootHash = Get-CheckpointEvidenceProperty -Object $source -Name 'data_root_sha256' -Context 'summary.source'
-  if ($ExpectedCommit -isnot [string] -or $ExpectedCommit -cnotmatch '^[a-f0-9]{40}$' -or
-      $sourceCommit -isnot [string] -or $sourceCommit -cnotmatch '^[a-f0-9]{40}$' -or
-      $sourceCommit -cne $ExpectedCommit) {
-    throw 'Rollback drill commit does not match the captured commit.'
-  }
+  $sourceCommitProperty = Get-CheckpointEvidenceProperty -Object $sourceProperty.Value -Name 'commit' -Context 'summary.source'
+  $sourceVersionProperty = Get-CheckpointEvidenceProperty -Object $sourceProperty.Value -Name 'version' -Context 'summary.source'
+  $workingTreeDirtyProperty = Get-CheckpointEvidenceProperty -Object $sourceProperty.Value -Name 'working_tree_dirty' -Context 'summary.source'
+  $dataRootHashProperty = Get-CheckpointEvidenceProperty -Object $sourceProperty.Value -Name 'data_root_sha256' -Context 'summary.source'
+  $commitPattern = '^[a-f0-9]{40}$'
+  Assert-CheckpointEvidenceStringPattern -Value $ExpectedCommit -Pattern $commitPattern -Message 'Captured rollback commit must be a lowercase full SHA.'
+  Assert-CheckpointEvidenceStringPattern -Value $sourceCommitProperty.Value -Pattern $commitPattern -Message 'Rollback drill source commit must be a lowercase full SHA.'
+  Assert-CheckpointEvidenceExactString -Value $sourceCommitProperty.Value -Expected $ExpectedCommit -Message 'Rollback drill commit does not match the captured commit.'
   $versionPattern = '^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$'
-  if ($ExpectedVersion -isnot [string] -or $ExpectedVersion -cnotmatch $versionPattern -or
-      $sourceVersion -isnot [string] -or $sourceVersion -cnotmatch $versionPattern -or
-      $sourceVersion -cne $ExpectedVersion) {
-    throw 'Rollback drill version does not match the captured version.'
-  }
-  if ($workingTreeDirty -isnot [bool] -or $workingTreeDirty -ne $false) {
-    throw 'Rollback drill working tree evidence must be boolean false.'
-  }
-  if ($dataRootHash -isnot [string] -or $dataRootHash -cnotmatch '^[a-f0-9]{64}$') {
-    throw 'Rollback drill data root digest must be lowercase SHA-256.'
-  }
+  Assert-CheckpointEvidenceStringPattern -Value $ExpectedVersion -Pattern $versionPattern -Message 'Captured rollback version is malformed.'
+  Assert-CheckpointEvidenceStringPattern -Value $sourceVersionProperty.Value -Pattern $versionPattern -Message 'Rollback drill source version is malformed.'
+  Assert-CheckpointEvidenceExactString -Value $sourceVersionProperty.Value -Expected $ExpectedVersion -Message 'Rollback drill version does not match the captured version.'
+  Assert-CheckpointEvidenceBoolean -Value $workingTreeDirtyProperty.Value -Expected $false -Message 'Rollback drill working tree evidence must be boolean false.'
+  $hashPattern = '^[a-f0-9]{64}$'
+  Assert-CheckpointEvidenceStringPattern -Value $dataRootHashProperty.Value -Pattern $hashPattern -Message 'Rollback drill data root digest must be lowercase SHA-256.'
 
-  $archiveRetained = Get-CheckpointEvidenceProperty -Object $backup -Name 'archive_retained' -Context 'summary.backup'
-  $summaryBackupHash = Get-CheckpointEvidenceProperty -Object $backup -Name 'archive_sha256' -Context 'summary.backup'
-  if ($archiveRetained -isnot [bool] -or $archiveRetained -ne $true) {
-    throw 'Rollback drill archive retention evidence must be boolean true.'
-  }
-  foreach ($hash in @($summaryBackupHash, $ExpectedBackupHash, $ActualBackupHash)) {
-    if ($hash -isnot [string] -or $hash -cnotmatch '^[a-f0-9]{64}$') {
-      throw 'Rollback archive digests must be lowercase SHA-256.'
-    }
-  }
-  if ($summaryBackupHash -cne $ExpectedBackupHash -or $summaryBackupHash -cne $ActualBackupHash) {
+  $archiveRetainedProperty = Get-CheckpointEvidenceProperty -Object $backupProperty.Value -Name 'archive_retained' -Context 'summary.backup'
+  $summaryBackupHashProperty = Get-CheckpointEvidenceProperty -Object $backupProperty.Value -Name 'archive_sha256' -Context 'summary.backup'
+  Assert-CheckpointEvidenceBoolean -Value $archiveRetainedProperty.Value -Expected $true -Message 'Rollback drill archive retention evidence must be boolean true.'
+  Assert-CheckpointEvidenceStringPattern -Value $summaryBackupHashProperty.Value -Pattern $hashPattern -Message 'Rollback drill archive digest must be lowercase SHA-256.'
+  Assert-CheckpointEvidenceStringPattern -Value $ExpectedBackupHash -Pattern $hashPattern -Message 'Captured rollback archive digest must be lowercase SHA-256.'
+  Assert-CheckpointEvidenceStringPattern -Value $ActualBackupHash -Pattern $hashPattern -Message 'Current rollback archive digest must be lowercase SHA-256.'
+  if ($summaryBackupHashProperty.Value -cne $ExpectedBackupHash -or $summaryBackupHashProperty.Value -cne $ActualBackupHash) {
     throw 'Rollback drill, captured, and current archive digests must match.'
   }
 
-  $sourceDataRootUnchanged = Get-CheckpointEvidenceProperty -Object $operations -Name 'source_data_root_unchanged' -Context 'summary.operations'
-  if ($sourceDataRootUnchanged -isnot [bool] -or $sourceDataRootUnchanged -ne $true) {
-    throw 'Rollback drill root retention evidence must be boolean true.'
-  }
-  foreach ($identity in @($ExpectedDataRootIdentity, $ActualDataRootIdentity)) {
-    if ($identity -isnot [string] -or $identity -cnotmatch '^[a-f0-9]{8}:[a-f0-9]{16}$') {
-      throw 'Rollback data root identities must use the native lowercase identity format.'
-    }
-  }
+  $sourceDataRootUnchangedProperty = Get-CheckpointEvidenceProperty -Object $operationsProperty.Value -Name 'source_data_root_unchanged' -Context 'summary.operations'
+  Assert-CheckpointEvidenceBoolean -Value $sourceDataRootUnchangedProperty.Value -Expected $true -Message 'Rollback drill root retention evidence must be boolean true.'
+  $identityPattern = '^[a-f0-9]{8}:[a-f0-9]{16}$'
+  Assert-CheckpointEvidenceStringPattern -Value $ExpectedDataRootIdentity -Pattern $identityPattern -Message 'Captured rollback data root identity must use the native lowercase format.'
+  Assert-CheckpointEvidenceStringPattern -Value $ActualDataRootIdentity -Pattern $identityPattern -Message 'Current rollback data root identity must use the native lowercase format.'
   if ($ExpectedDataRootIdentity -cne $ActualDataRootIdentity) {
     throw 'Rollback data root identity changed during checkpoint creation.'
   }
 
   return [pscustomobject][ordered]@{
-    data_root_sha256 = $dataRootHash
+    data_root_sha256 = $dataRootHashProperty.Value
     data_root_identity = $ExpectedDataRootIdentity
   }
 }
@@ -497,6 +502,8 @@ function Start-CapturedDeployment {
 
 function Invoke-ReleaseRollbackCheckpoint {
 param([Parameter(Mandatory = $true)][string]$CheckpointDirectory)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 $directoryLock = $null
 $archiveLock = $null
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))

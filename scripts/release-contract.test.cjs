@@ -139,6 +139,155 @@ function assertPowerShellStatements(statements, options) {
   return result
 }
 
+function rollbackHostProbeStatements(fixtureRoot) {
+  const identityDirectory = path.join(fixtureRoot, 'identity-directory')
+  const identityFile = path.join(fixtureRoot, 'identity-file.bin')
+  const callerDirectory = path.join(fixtureRoot, 'caller-directory')
+  const callerDirectoryRenamed = path.join(fixtureRoot, 'caller-directory-renamed')
+  const callerArchive = path.join(fixtureRoot, 'caller-archive.zip')
+  const callerArchiveRenamed = path.join(fixtureRoot, 'caller-archive-renamed.zip')
+  const failureDirectory = path.join(fixtureRoot, 'failure-directory')
+  const failureDirectoryRenamed = path.join(fixtureRoot, 'failure-directory-renamed')
+  const failureArchive = path.join(fixtureRoot, 'failure-archive.zip')
+  const failureArchiveRenamed = path.join(fixtureRoot, 'failure-archive-renamed.zip')
+  fs.mkdirSync(identityDirectory)
+  fs.writeFileSync(identityFile, 'identity')
+  fs.mkdirSync(callerDirectory)
+  fs.writeFileSync(callerArchive, 'caller archive')
+  fs.mkdirSync(failureDirectory)
+  fs.writeFileSync(failureArchive, 'failure archive')
+  const identityOf = (target) => {
+    const stat = fs.statSync(target, { bigint: true })
+    return `${stat.dev.toString(16).padStart(8, '0')}:${stat.ino.toString(16).padStart(16, '0')}`
+  }
+  const blockedRenameProgram = "const fs=require('fs');try{fs.renameSync(process.argv[1],process.argv[2]);process.exit(24)}catch{process.exit(23)}"
+  const blockedDeleteProgram = "const fs=require('fs');try{fs.rmdirSync(process.argv[1]);process.exit(24)}catch{process.exit(23)}"
+  const renameProgram = "require('fs').renameSync(process.argv[1],process.argv[2])"
+  const deleteDirectoryProgram = "require('fs').rmdirSync(process.argv[1])"
+  const readerProgram = "const fs=require('fs');process.stdout.write(fs.readFileSync(process.argv[1],'utf8'))"
+  return `
+$ErrorActionPreference = 'Stop'
+$identityDirectory = ${powerShellLiteral(identityDirectory)}
+$identityFile = ${powerShellLiteral(identityFile)}
+$directoryIdentity = Get-RollbackPathIdentity -Path $identityDirectory
+$fileIdentity = Get-RollbackPathIdentity -Path $identityFile
+if ($directoryIdentity -cne ${powerShellLiteral(identityOf(identityDirectory))}) { throw 'Directory native identity mismatch.' }
+if ($fileIdentity -cne ${powerShellLiteral(identityOf(identityFile))}) { throw 'File native identity mismatch.' }
+. ${powerShellLiteral(rollbackIdentityScriptPath)}
+$reloadedIdentity = Get-RollbackPathIdentity -Path $identityFile
+if ($reloadedIdentity -cne $fileIdentity) { throw 'Native helper re-entry changed identity.' }
+
+$summary = @'
+{
+  "schema": "localminidrama.rollback-drill.v3",
+  "status": "passed",
+  "input_mode": "checkpoint-bound",
+  "source": {
+    "commit": "cccccccccccccccccccccccccccccccccccccccc",
+    "version": "1.3.3-rc.1",
+    "working_tree_dirty": false,
+    "data_root_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "backup": {
+    "archive_retained": true,
+    "archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "operations": { "source_data_root_unchanged": true }
+}
+'@ | ConvertFrom-Json
+$validated = @(Assert-CheckpointDrillEvidence -Summary $summary -ExpectedCommit ('c' * 40) -ExpectedVersion '1.3.3-rc.1' -ExpectedBackupHash ('a' * 64) -ActualBackupHash ('a' * 64) -ExpectedDataRootIdentity $directoryIdentity -ActualDataRootIdentity $directoryIdentity)
+if ($validated.Count -ne 1 -or $validated[0].data_root_identity -cne $directoryIdentity) { throw 'Validator host probe failed.' }
+
+$callerDirectory = ${powerShellLiteral(callerDirectory)}
+$callerDirectoryRenamed = ${powerShellLiteral(callerDirectoryRenamed)}
+$directoryLock = Open-RollbackDirectoryIdentityLock -Path $callerDirectory
+$intentionalDirectoryFailure = $false
+try {
+  $retainedDirectoryIdentity = Get-RollbackPathIdentity -Handle $directoryLock
+  Assert-RollbackPathIdentity -Path $callerDirectory -ExpectedIdentity $retainedDirectoryIdentity -Label 'host directory lock' | Out-Null
+  & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(blockedRenameProgram)} $callerDirectory $callerDirectoryRenamed
+  if ($LASTEXITCODE -ne 23) { throw 'Directory rename was not blocked during caller failure probe.' }
+  & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(blockedDeleteProgram)} $callerDirectory
+  if ($LASTEXITCODE -ne 23) { throw 'Directory delete was not blocked during caller failure probe.' }
+  $child = Join-Path $callerDirectory 'child.txt'
+  [System.IO.File]::WriteAllText($child, 'first')
+  [System.IO.File]::WriteAllText($child, 'second')
+  if ([System.IO.File]::ReadAllText($child) -cne 'second') { throw 'Directory descendant access failed.' }
+  [System.IO.File]::Delete($child)
+  throw 'intentional directory caller failure'
+} catch {
+  if ($_.Exception.Message -cne 'intentional directory caller failure') { throw }
+  $intentionalDirectoryFailure = $true
+} finally {
+  $directoryLock.Dispose()
+}
+if (-not $intentionalDirectoryFailure) { throw 'Directory caller failure did not execute.' }
+& ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(renameProgram)} $callerDirectory $callerDirectoryRenamed
+if ($LASTEXITCODE -ne 0) { throw 'Directory rename release control failed.' }
+& ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(deleteDirectoryProgram)} $callerDirectoryRenamed
+if ($LASTEXITCODE -ne 0) { throw 'Directory delete release control failed.' }
+
+$callerArchive = ${powerShellLiteral(callerArchive)}
+$callerArchiveRenamed = ${powerShellLiteral(callerArchiveRenamed)}
+$archiveLock = Open-RollbackArchiveReadLock -Path $callerArchive
+$intentionalArchiveFailure = $false
+try {
+  $retainedArchiveIdentity = Get-RollbackPathIdentity -Handle $archiveLock.SafeFileHandle
+  Assert-RollbackPathIdentity -Path $callerArchive -ExpectedIdentity $retainedArchiveIdentity -Label 'host archive lock' | Out-Null
+  $readerOutput = & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(readerProgram)} $callerArchive
+  if ($LASTEXITCODE -ne 0 -or ($readerOutput -join [Environment]::NewLine) -cne 'caller archive') { throw 'Node 20 archive read failed.' }
+  $writeBlocked = $false
+  try { [System.IO.File]::WriteAllText($callerArchive, 'mutated') } catch { $writeBlocked = $true }
+  if (-not $writeBlocked) { throw 'Archive write was not blocked during caller failure probe.' }
+  $deleteBlocked = $false
+  try { [System.IO.File]::Delete($callerArchive) } catch { $deleteBlocked = $true }
+  if (-not $deleteBlocked) { throw 'Archive delete was not blocked during caller failure probe.' }
+  $renameBlocked = $false
+  try { [System.IO.File]::Move($callerArchive, $callerArchiveRenamed) } catch { $renameBlocked = $true }
+  if (-not $renameBlocked) { throw 'Archive rename was not blocked during caller failure probe.' }
+  throw 'intentional archive caller failure'
+} catch {
+  if ($_.Exception.Message -cne 'intentional archive caller failure') { throw }
+  $intentionalArchiveFailure = $true
+} finally {
+  $archiveLock.Dispose()
+}
+if (-not $intentionalArchiveFailure) { throw 'Archive caller failure did not execute.' }
+[System.IO.File]::WriteAllText($callerArchive, 'release control')
+[System.IO.File]::Move($callerArchive, $callerArchiveRenamed)
+[System.IO.File]::Delete($callerArchiveRenamed)
+
+function Assert-RollbackPathIdentity { throw 'forced post-open validation failure' }
+$failureDirectory = ${powerShellLiteral(failureDirectory)}
+$failureDirectoryRenamed = ${powerShellLiteral(failureDirectoryRenamed)}
+$directoryFailureRejected = $false
+$unexpectedDirectoryLock = $null
+try { $unexpectedDirectoryLock = Open-RollbackDirectoryIdentityLock -Path $failureDirectory } catch {
+  if ($_.Exception.Message -cne 'forced post-open validation failure') { throw }
+  $directoryFailureRejected = $true
+} finally {
+  if ($null -ne $unexpectedDirectoryLock) { $unexpectedDirectoryLock.Dispose() }
+}
+if (-not $directoryFailureRejected) { throw 'Directory post-open validation failure was not induced.' }
+[System.IO.Directory]::Move($failureDirectory, $failureDirectoryRenamed)
+[System.IO.Directory]::Delete($failureDirectoryRenamed)
+
+$failureArchive = ${powerShellLiteral(failureArchive)}
+$failureArchiveRenamed = ${powerShellLiteral(failureArchiveRenamed)}
+$archiveFailureRejected = $false
+$unexpectedArchiveLock = $null
+try { $unexpectedArchiveLock = Open-RollbackArchiveReadLock -Path $failureArchive } catch {
+  if ($_.Exception.Message -cne 'forced post-open validation failure') { throw }
+  $archiveFailureRejected = $true
+} finally {
+  if ($null -ne $unexpectedArchiveLock) { $unexpectedArchiveLock.Dispose() }
+}
+if (-not $archiveFailureRejected) { throw 'Archive post-open validation failure was not induced.' }
+[System.IO.File]::Move($failureArchive, $failureArchiveRenamed)
+[System.IO.File]::Delete($failureArchiveRenamed)
+`
+}
+
 function runRollbackPathProbe(scriptSource, statements) {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-path-probe-'))
   const probePath = path.join(fixtureRoot, 'probe.ps1')
@@ -850,8 +999,13 @@ test('release rollback scripts dot-source without side effects in Windows PowerS
     t.skip('Win32 handle contracts require Windows')
     return
   }
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-ps51-host-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const hostProbe = rollbackHostProbeStatements(fixtureRoot)
   assertPowerShellStatements(`
-$output = @(& {
+$ErrorActionPreference = 'Continue'
+Set-StrictMode -Off
+$output = @(
   . ${powerShellLiteral(checkpointScriptPath)}
   . ${powerShellLiteral(rollbackIdentityScriptPath)}
   . ${powerShellLiteral(rollbackIdentityScriptPath)}
@@ -860,8 +1014,13 @@ $output = @(& {
   Get-Command Assert-RollbackPathIdentity -ErrorAction Stop | Out-Null
   Get-Command Open-RollbackArchiveReadLock -ErrorAction Stop | Out-Null
   Get-Command Open-RollbackDirectoryIdentityLock -ErrorAction Stop | Out-Null
-})
+)
 if ($output.Count -ne 0) { throw "Dot-source produced incidental output: $($output -join ', ')" }
+if ($ErrorActionPreference -cne 'Continue') { throw 'Dot-source changed caller ErrorActionPreference.' }
+$strictModeChanged = $false
+try { $null = $undefinedAfterCheckpointDotSource } catch { $strictModeChanged = $true }
+if ($strictModeChanged) { throw 'Dot-source changed caller strict mode.' }
+${hostProbe}
 `, { executable: 'powershell.exe' })
   const cli = spawnSync('powershell.exe', [
     '-NoProfile',
@@ -885,15 +1044,25 @@ test('release rollback scripts dot-source without side effects in PowerShell 7',
     t.skip('PowerShell 7 is unavailable on this host')
     return
   }
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-ps7-host-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const hostProbe = rollbackHostProbeStatements(fixtureRoot)
   assertPowerShellStatements(`
-$output = @(& {
+$ErrorActionPreference = 'Continue'
+Set-StrictMode -Off
+$output = @(
   . ${powerShellLiteral(checkpointScriptPath)}
   . ${powerShellLiteral(rollbackIdentityScriptPath)}
   . ${powerShellLiteral(rollbackIdentityScriptPath)}
   Get-Command Assert-CheckpointDrillEvidence -ErrorAction Stop | Out-Null
   Get-Command Get-RollbackPathIdentity -ErrorAction Stop | Out-Null
-})
+)
 if ($output.Count -ne 0) { throw 'Dot-source produced incidental output.' }
+if ($ErrorActionPreference -cne 'Continue') { throw 'Dot-source changed caller ErrorActionPreference.' }
+$strictModeChanged = $false
+try { $null = $undefinedAfterCheckpointDotSource } catch { $strictModeChanged = $true }
+if ($strictModeChanged) { throw 'Dot-source changed caller strict mode.' }
+${hostProbe}
 `, { executable: pwsh })
 })
 
@@ -925,14 +1094,34 @@ function New-ValidSummary {
 '@ | ConvertFrom-Json
 }
 function Assert-Rejected {
-  param([Parameter(Mandatory = $true)][scriptblock]$Mutation)
+  param(
+    [Parameter(Mandatory = $true)][scriptblock]$Mutation,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
   $candidate = New-ValidSummary
   & $Mutation $candidate
   $threw = $false
   try {
     Assert-CheckpointDrillEvidence -Summary $candidate -ExpectedCommit ('c' * 40) -ExpectedVersion '1.3.3-rc.1' -ExpectedBackupHash ('a' * 64) -ActualBackupHash ('a' * 64) -ExpectedDataRootIdentity '484dc672:011e00000001785a' -ActualDataRootIdentity '484dc672:011e00000001785a' | Out-Null
   } catch { $threw = $true }
-  if (-not $threw) { throw 'Malformed checkpoint drill evidence was accepted.' }
+  if (-not $threw) { throw "Malformed checkpoint drill evidence was accepted: $Label" }
+}
+function Set-EvidenceArray {
+  param(
+    [Parameter(Mandatory = $true)][object]$Object,
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][object]$Value,
+    [switch]$Nested
+  )
+  $result = [object[]]::new(1)
+  if ($Nested) {
+    $inner = [object[]]::new(1)
+    $inner[0] = $Value
+    $result[0] = $inner
+  } else {
+    $result[0] = $Value
+  }
+  $Object.PSObject.Properties[$Name].Value = $result
 }
 $valid = New-ValidSummary
 $result = @(Assert-CheckpointDrillEvidence -Summary $valid -ExpectedCommit ('c' * 40) -ExpectedVersion '1.3.3-rc.1' -ExpectedBackupHash ('a' * 64) -ActualBackupHash ('a' * 64) -ExpectedDataRootIdentity '484dc672:011e00000001785a' -ActualDataRootIdentity '484dc672:011e00000001785a')
@@ -968,9 +1157,60 @@ $mutations = @(
   { param($s) $s.source.commit = ('b' * 40) },
   { param($s) $s.source.commit = ('C' * 40) },
   { param($s) $s.source.version = '1.3.4-rc.1' },
-  { param($s) $s.source.version = '1.3.3-RC.1' }
+  { param($s) $s.source.version = '1.3.3-RC.1' },
+  { param($s) Set-EvidenceArray -Object $s -Name 'schema' -Value 'localminidrama.rollback-drill.v3' },
+  { param($s) Set-EvidenceArray -Object $s -Name 'schema' -Value 'localminidrama.rollback-drill.v3' -Nested },
+  { param($s) Set-EvidenceArray -Object $s -Name 'status' -Value 'passed' },
+  { param($s) Set-EvidenceArray -Object $s -Name 'status' -Value 'passed' -Nested },
+  { param($s) Set-EvidenceArray -Object $s -Name 'input_mode' -Value 'checkpoint-bound' },
+  { param($s) Set-EvidenceArray -Object $s -Name 'input_mode' -Value 'checkpoint-bound' -Nested },
+  { param($s) Set-EvidenceArray -Object $s.source -Name 'commit' -Value ('c' * 40) },
+  { param($s) Set-EvidenceArray -Object $s.source -Name 'commit' -Value ('c' * 40) -Nested },
+  { param($s) Set-EvidenceArray -Object $s.source -Name 'version' -Value '1.3.3-rc.1' },
+  { param($s) Set-EvidenceArray -Object $s.source -Name 'version' -Value '1.3.3-rc.1' -Nested },
+  { param($s) Set-EvidenceArray -Object $s.source -Name 'data_root_sha256' -Value ('d' * 64) },
+  { param($s) Set-EvidenceArray -Object $s.source -Name 'data_root_sha256' -Value ('d' * 64) -Nested },
+  { param($s) Set-EvidenceArray -Object $s.backup -Name 'archive_sha256' -Value ('a' * 64) },
+  { param($s) Set-EvidenceArray -Object $s.backup -Name 'archive_sha256' -Value ('a' * 64) -Nested },
+  { param($s) Set-EvidenceArray -Object $s.source -Name 'working_tree_dirty' -Value $false },
+  { param($s) Set-EvidenceArray -Object $s.source -Name 'working_tree_dirty' -Value $false -Nested },
+  { param($s) Set-EvidenceArray -Object $s.backup -Name 'archive_retained' -Value $true },
+  { param($s) Set-EvidenceArray -Object $s.backup -Name 'archive_retained' -Value $true -Nested },
+  { param($s) Set-EvidenceArray -Object $s.operations -Name 'source_data_root_unchanged' -Value $true },
+  { param($s) Set-EvidenceArray -Object $s.operations -Name 'source_data_root_unchanged' -Value $true -Nested }
 )
-foreach ($mutation in $mutations) { Assert-Rejected -Mutation $mutation }
+$mutationIndex = 0
+foreach ($mutation in $mutations) {
+  Assert-Rejected -Mutation $mutation -Label "mutation[$mutationIndex]"
+  $mutationIndex++
+}
+
+foreach ($nested in @($false, $true)) {
+  $arguments = @{
+    Summary = New-ValidSummary
+    ExpectedCommit = ('c' * 40)
+    ExpectedVersion = '1.3.3-rc.1'
+    ExpectedBackupHash = ('a' * 64)
+    ActualBackupHash = ('a' * 64)
+    ExpectedDataRootIdentity = '484dc672:011e00000001785a'
+    ActualDataRootIdentity = '484dc672:011e00000001785a'
+  }
+  foreach ($argumentName in @('ExpectedCommit', 'ExpectedVersion', 'ExpectedBackupHash', 'ActualBackupHash', 'ExpectedDataRootIdentity', 'ActualDataRootIdentity')) {
+    $candidateArguments = $arguments.Clone()
+    $arrayValue = [object[]]::new(1)
+    if ($nested) {
+      $innerValue = [object[]]::new(1)
+      $innerValue[0] = $arguments[$argumentName]
+      $arrayValue[0] = $innerValue
+    } else {
+      $arrayValue[0] = $arguments[$argumentName]
+    }
+    $candidateArguments[$argumentName] = $arrayValue
+    $threw = $false
+    try { Assert-CheckpointDrillEvidence @candidateArguments | Out-Null } catch { $threw = $true }
+    if (-not $threw) { throw "Array-shaped validator argument was accepted: $argumentName nested=$nested" }
+  }
+}
 
 foreach ($expectedHash in @(('b' * 64), ('A' * 64), 'short')) {
   $candidate = New-ValidSummary
@@ -1018,7 +1258,10 @@ foreach ($identityPair in @(
   if (-not $threw) { throw 'Malformed or changed root identity was accepted.' }
 }
 `
-  assertPowerShellStatements(statements, { executable: 'powershell.exe' })
+  const executables = ['powershell.exe']
+  const pwsh = findPowerShell('pwsh.exe')
+  if (pwsh) executables.push(pwsh)
+  for (const executable of executables) assertPowerShellStatements(statements, { executable })
 })
 
 test('rollback path identity matches Node 20 dev and ino and directory identity lock enforces lifecycle sharing', (t) => {
@@ -1092,6 +1335,38 @@ if ($newIdentity -ceq $oldIdentity) { throw 'Same-path directory replacement ret
 $rejected = $false
 try { Assert-RollbackPathIdentity -Path $replacementRoot -ExpectedIdentity $oldIdentity -Label 'replacement root' | Out-Null } catch { $rejected = $true }
 if (-not $rejected) { throw 'Replacement directory was accepted as the retained object.' }
+
+$raceRoot = Join-Path ${powerShellLiteral(fixtureRoot)} 'final-object-race'
+$raceRenamed = Join-Path ${powerShellLiteral(fixtureRoot)} 'final-object-race-renamed'
+[System.IO.Directory]::CreateDirectory($raceRoot) | Out-Null
+$script:raceReplacementPerformed = $false
+function Get-Item {
+  param([string]$LiteralPath, [switch]$Force)
+  if (-not $script:raceReplacementPerformed -and $LiteralPath -ceq $raceRoot) {
+    $oldItem = Microsoft.PowerShell.Management\\Get-Item -LiteralPath $LiteralPath -Force:$Force
+    [System.IO.Directory]::Delete($LiteralPath)
+    [System.IO.File]::WriteAllText($LiteralPath, 'replacement file')
+    $script:raceReplacementPerformed = $true
+    return $oldItem
+  }
+  return Microsoft.PowerShell.Management\\Get-Item @PSBoundParameters
+}
+$unexpectedRaceLock = $null
+$raceRejected = $false
+$raceError = $null
+try {
+  $unexpectedRaceLock = Open-RollbackDirectoryIdentityLock -Path $raceRoot
+} catch {
+  $raceRejected = $true
+  $raceError = $_
+} finally {
+  if ($null -ne $unexpectedRaceLock) { $unexpectedRaceLock.Dispose() }
+}
+Remove-Item -LiteralPath Function:\\Get-Item
+if (-not $script:raceReplacementPerformed) { throw "Deterministic final-object race did not run: $raceError" }
+[System.IO.File]::Move($raceRoot, $raceRenamed)
+[System.IO.File]::Delete($raceRenamed)
+if (-not $raceRejected) { throw 'Directory helper accepted a non-directory retained final object.' }
 `
   assertPowerShellStatements(statements, { executable: 'powershell.exe' })
 })
@@ -1298,6 +1573,120 @@ if (tool === 'npm') {
 }
 process.exit(40)
 `, 'utf8')
+  const lockProbePath = path.join(fixtureRoot, 'lock-probe.cjs')
+  fs.writeFileSync(lockProbePath, `
+'use strict'
+const fs = require('node:fs')
+const path = require('node:path')
+const [dataRoot, archivePath, stage] = process.argv.slice(2)
+const fail = (message) => { process.stderr.write(stage + ': ' + message + '\\n'); process.exit(50) }
+const requireBlocked = (label, operation) => {
+  try { operation() } catch { return }
+  fail(label + ' was not blocked')
+}
+requireBlocked('archive write', () => fs.writeFileSync(archivePath, 'mutated'))
+requireBlocked('archive delete', () => fs.unlinkSync(archivePath))
+requireBlocked('archive rename', () => fs.renameSync(archivePath, archivePath + '.locked-probe'))
+if (fs.readFileSync(archivePath, 'utf8') !== 'fake retained rollback archive') fail('archive read failed')
+requireBlocked('root rename', () => fs.renameSync(dataRoot, dataRoot + '.locked-probe'))
+requireBlocked('empty root delete', () => fs.rmdirSync(dataRoot))
+const child = path.join(dataRoot, 'lock-probe-child.txt')
+fs.writeFileSync(child, 'first')
+fs.writeFileSync(child, 'second')
+if (fs.readFileSync(child, 'utf8') !== 'second') fail('descendant read/write failed')
+fs.unlinkSync(child)
+`, 'utf8')
+  const checkpointDriverPath = path.join(fixtureRoot, 'checkpoint-driver.ps1')
+  fs.writeFileSync(checkpointDriverPath, `
+[CmdletBinding()]
+param([Parameter(Mandatory = $true)][string]$CheckpointDirectory)
+$ErrorActionPreference = 'Stop'
+$requestedCheckpointDirectory = $CheckpointDirectory
+. ${powerShellLiteral(checkpointScriptPath)}
+
+$script:OriginalInvokeChecked = \${function:Invoke-Checked}
+$script:OriginalAssertCheckpointDrillEvidence = \${function:Assert-CheckpointDrillEvidence}
+$script:OriginalWriteUtf8File = \${function:Write-Utf8File}
+$script:OriginalPublishUtf8FileAtomically = \${function:Publish-Utf8FileAtomically}
+$script:OriginalStartCapturedDeployment = \${function:Start-CapturedDeployment}
+
+function Write-TestEvent {
+  param([Parameter(Mandatory = $true)][string]$Name)
+  $line = ConvertTo-Json -Compress -InputObject ([ordered]@{ event = $Name; driver = 'checkpoint' })
+  [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Assert-TestLocks {
+  param([Parameter(Mandatory = $true)][string]$Stage)
+  $probeOutput = @(& $env:LMD_NODE_EXE $env:LMD_LOCK_PROBE $env:LMD_DATA_ROOT $env:LMD_ARCHIVE_PATH $Stage 2>&1)
+  $probeExitCode = [int]$LASTEXITCODE
+  if ($probeExitCode -ne 0) {
+    throw ('Lock probe failed during ' + $Stage + ' with exit code ' + $probeExitCode + ': ' + ($probeOutput -join [Environment]::NewLine))
+  }
+  Write-TestEvent -Name $Stage
+}
+
+function Invoke-Checked {
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string[]]$ArgumentList,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  if ($Label -ceq 'Rollback drill') { Write-TestEvent -Name 'paired_drill' }
+  & $script:OriginalInvokeChecked @PSBoundParameters
+}
+
+function Assert-CheckpointDrillEvidence {
+  param(
+    [Parameter(Mandatory = $true)][object]$Summary,
+    [Parameter(Mandatory = $true)][object]$ExpectedCommit,
+    [Parameter(Mandatory = $true)][object]$ExpectedVersion,
+    [Parameter(Mandatory = $true)][object]$ExpectedBackupHash,
+    [Parameter(Mandatory = $true)][object]$ActualBackupHash,
+    [Parameter(Mandatory = $true)][object]$ExpectedDataRootIdentity,
+    [Parameter(Mandatory = $true)][object]$ActualDataRootIdentity
+  )
+  Assert-TestLocks -Stage 'validator'
+  & $script:OriginalAssertCheckpointDrillEvidence @PSBoundParameters
+}
+
+function Write-Utf8File {
+  param([string]$Path, [string]$Value)
+  & $script:OriginalWriteUtf8File @PSBoundParameters
+  $fileName = [System.IO.Path]::GetFileName($Path)
+  if ([string]::Equals($fileName, 'data.sha256.txt', [System.StringComparison]::Ordinal)) {
+    Assert-TestLocks -Stage 'first_locked_hash'
+  } elseif ([string]::Equals($fileName, 'rollback-drill-summary.json', [System.StringComparison]::Ordinal)) {
+    Assert-TestLocks -Stage 'summary_archive'
+  }
+}
+
+function Publish-Utf8FileAtomically {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Value
+  )
+  Assert-TestLocks -Stage 'metadata_publish'
+  & $script:OriginalPublishUtf8FileAtomically @PSBoundParameters
+}
+
+function Start-CapturedDeployment {
+  param(
+    [Parameter(Mandatory = $true)]$Backend,
+    [Parameter(Mandatory = $true)]$Frontend,
+    [Parameter(Mandatory = $true)][string]$Revision,
+    [Parameter(Mandatory = $true)][string]$ConfigDirectory,
+    [Parameter(Mandatory = $true)][string]$ConfigPath,
+    [Parameter(Mandatory = $true)][string]$DataDirectory,
+    [Parameter(Mandatory = $true)][string]$CheckpointDirectory
+  )
+  Assert-TestLocks -Stage 'failure_recovery'
+  & $script:OriginalStartCapturedDeployment @PSBoundParameters
+}
+
+Write-TestEvent -Name 'driver_ready'
+Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirectory
+`, 'utf8')
   for (const tool of ['git', 'docker', 'npm', 'node']) {
     fs.writeFileSync(
       path.join(binPath, `${tool}.cmd`),
@@ -1316,7 +1705,7 @@ process.exit(40)
       '-ExecutionPolicy',
       'Bypass',
       '-File',
-      checkpointScriptPath,
+      checkpointDriverPath,
       '-CheckpointDirectory',
       checkpointPath,
     ], {
@@ -1331,6 +1720,8 @@ process.exit(40)
         LMD_CONFIG_ROOT: configRoot,
         LMD_DATA_ROOT: dataRoot,
         LMD_EVENT_LOG: logPath,
+        LMD_LOCK_PROBE: lockProbePath,
+        LMD_NODE_EXE: process.execPath,
         LMD_SUMMARY_PATH: summaryPath,
         LMD_SUMMARY_STATUS: status,
         LMD_VERSION: capturedVersion,
@@ -1360,6 +1751,13 @@ process.exit(40)
   assert.ok(eventIndex('version') < eventIndex('shutdown'))
   assert.ok(eventIndex('shutdown') < eventIndex('backup'))
   assert.ok(eventIndex('backup') < eventIndex('drill'))
+  for (const name of ['first_locked_hash', 'paired_drill', 'validator', 'summary_archive', 'metadata_publish']) {
+    assert.notEqual(eventIndex(name), -1, `checkpoint orchestration event is missing: ${name}; ${events.map((entry) => entry.event).join(',')}`)
+  }
+  assert.ok(eventIndex('first_locked_hash') < eventIndex('paired_drill'))
+  assert.ok(eventIndex('paired_drill') < eventIndex('validator'))
+  assert.ok(eventIndex('validator') < eventIndex('summary_archive'))
+  assert.ok(eventIndex('summary_archive') < eventIndex('metadata_publish'))
 
   const malformedVersionStart = events.length
   const malformedVersionPath = path.join(fixtureRoot, 'malformed-version-checkpoint')
@@ -1373,6 +1771,7 @@ process.exit(40)
   )
 
   const publishFailurePath = path.join(fixtureRoot, 'publish-failure-checkpoint')
+  const publishFailureStart = fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).length
   const publishFailure = runCheckpoint(publishFailurePath, 'passed', version, true)
   assert.notEqual(publishFailure.status, 0, 'metadata publication conflict must fail checkpoint creation')
   assert.equal(
@@ -1381,19 +1780,33 @@ process.exit(40)
     'failed metadata publication must not leave final authority',
   )
   assert.equal(fs.readdirSync(publishFailurePath).some((name) => name.startsWith('.metadata.')), false)
+  const afterPublishFailure = fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).map(JSON.parse)
+  const publishFailureEvents = afterPublishFailure.slice(publishFailureStart).map((entry) => entry.event)
+  assert.notEqual(publishFailureEvents.indexOf('metadata_publish'), -1)
+  assert.notEqual(publishFailureEvents.indexOf('failure_recovery'), -1)
+  assert.ok(publishFailureEvents.indexOf('metadata_publish') < publishFailureEvents.indexOf('failure_recovery'))
 
   const failedCheckpointPath = path.join(fixtureRoot, 'failed-checkpoint')
+  const failedStart = afterPublishFailure.length
   const failed = runCheckpoint(failedCheckpointPath, 'PASSED')
   assert.notEqual(failed.status, 0, 'case-invalid drill status must fail checkpoint creation')
   assert.equal(fs.existsSync(path.join(failedCheckpointPath, 'metadata.json')), false)
   assert.equal(fs.readdirSync(failedCheckpointPath).some((name) => name.startsWith('.metadata.')), false)
+  const afterFailed = fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).map(JSON.parse)
+  const failedEvents = afterFailed.slice(failedStart).map((entry) => entry.event)
+  assert.notEqual(failedEvents.indexOf('validator'), -1)
+  assert.notEqual(failedEvents.indexOf('failure_recovery'), -1)
+  assert.ok(failedEvents.indexOf('validator') < failedEvents.indexOf('failure_recovery'))
   const failedArchive = path.join(failedCheckpointPath, 'data.zip')
   fs.writeFileSync(failedArchive, 'archive lock release positive control')
   const renamedFailedArchive = `${failedArchive}.renamed`
   fs.renameSync(failedArchive, renamedFailedArchive)
+  fs.unlinkSync(renamedFailedArchive)
   const renamedDataRoot = `${dataRoot}.released`
   fs.renameSync(dataRoot, renamedDataRoot)
   fs.renameSync(renamedDataRoot, dataRoot)
+  fs.rmdirSync(dataRoot)
+  fs.mkdirSync(dataRoot)
 })
 
 test('release rollback scripts fail closed and verify the retained backup before restore', () => {

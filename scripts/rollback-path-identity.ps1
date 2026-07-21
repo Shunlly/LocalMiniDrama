@@ -66,13 +66,15 @@ function Get-RollbackPathIdentity {
   $ownedHandle = $null
   try {
     if ($PSCmdlet.ParameterSetName -eq 'Path') {
+      $backupSemantics = [uint32]0x02000000
+      $openReparsePoint = [uint32]0x00200000
       $ownedHandle = [LocalMiniDrama.Rollback.NativeMethods]::CreateFileW(
         [System.IO.Path]::GetFullPath($Path),
         [uint32]0,
         [uint32]7,
         [IntPtr]::Zero,
         [uint32]3,
-        [uint32]0x02000000,
+        ($backupSemantics -bor $openReparsePoint),
         [IntPtr]::Zero
       )
       if ($null -eq $ownedHandle -or $ownedHandle.IsInvalid) {
@@ -87,15 +89,32 @@ function Get-RollbackPathIdentity {
       throw 'Rollback path identity requires an open valid handle.'
     }
 
-    $information = [LocalMiniDrama.Rollback.ByHandleFileInformation]::new()
-    if (-not [LocalMiniDrama.Rollback.NativeMethods]::GetFileInformationByHandle($Handle, [ref]$information)) {
-      $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-      throw [ComponentModel.Win32Exception]::new($errorCode, 'Could not read rollback path identity.')
-    }
-    $fileIndex = (([uint64]$information.FileIndexHigh) -shl 32) -bor ([uint64]$information.FileIndexLow)
-    return ('{0:x8}:{1:x16}' -f ([uint64]$information.VolumeSerialNumber), $fileIndex)
+    $information = Get-RollbackHandleInformation -Handle $Handle
+    return $information.Identity
   } finally {
     if ($null -ne $ownedHandle) { $ownedHandle.Dispose() }
+  }
+}
+
+function Get-RollbackHandleInformation {
+  param(
+    [Parameter(Mandatory = $true)]
+    [Microsoft.Win32.SafeHandles.SafeFileHandle]$Handle
+  )
+  Initialize-RollbackPathNative
+  if ($null -eq $Handle -or $Handle.IsInvalid -or $Handle.IsClosed) {
+    throw 'Rollback path information requires an open valid handle.'
+  }
+
+  $information = [LocalMiniDrama.Rollback.ByHandleFileInformation]::new()
+  if (-not [LocalMiniDrama.Rollback.NativeMethods]::GetFileInformationByHandle($Handle, [ref]$information)) {
+    $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    throw [ComponentModel.Win32Exception]::new($errorCode, 'Could not read rollback path information.')
+  }
+  $fileIndex = (([uint64]$information.FileIndexHigh) -shl 32) -bor ([uint64]$information.FileIndexLow)
+  return [pscustomobject][ordered]@{
+    Identity = ('{0:x8}:{1:x16}' -f ([uint64]$information.VolumeSerialNumber), $fileIndex)
+    Attributes = [System.IO.FileAttributes]$information.FileAttributes
   }
 }
 
@@ -117,24 +136,42 @@ function Assert-RollbackPathIdentity {
 
 function Open-RollbackArchiveReadLock {
   param([Parameter(Mandatory = $true)][string]$Path)
+  $handle = $null
   $stream = $null
   try {
     $fullPath = [System.IO.Path]::GetFullPath($Path)
-    $stream = [System.IO.FileStream]::new(
+    Initialize-RollbackPathNative
+    $genericRead = [uint32]2147483648
+    $fileShareRead = [uint32][System.IO.FileShare]::Read
+    $openExisting = [uint32]3
+    $openReparsePoint = [uint32]0x00200000
+    $handle = [LocalMiniDrama.Rollback.NativeMethods]::CreateFileW(
       $fullPath,
-      [System.IO.FileMode]::Open,
-      [System.IO.FileAccess]::Read,
-      [System.IO.FileShare]::Read
+      $genericRead,
+      $fileShareRead,
+      [IntPtr]::Zero,
+      $openExisting,
+      $openReparsePoint,
+      [IntPtr]::Zero
     )
-    $item = Get-Item -LiteralPath $fullPath -Force
-    if ($item.PSIsContainer -or (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+    if ($null -eq $handle -or $handle.IsInvalid) {
+      $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+      if ($null -ne $handle) { $handle.Dispose() }
+      $handle = $null
+      throw [ComponentModel.Win32Exception]::new($errorCode, "Could not open rollback archive read lock: $fullPath")
+    }
+    $information = Get-RollbackHandleInformation -Handle $handle
+    if ((($information.Attributes -band [System.IO.FileAttributes]::Directory) -ne 0) -or
+        (($information.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
       throw "Rollback archive must be a regular non-reparse file: $fullPath"
     }
-    $identity = Get-RollbackPathIdentity -Handle $stream.SafeFileHandle
-    Assert-RollbackPathIdentity -Path $fullPath -ExpectedIdentity $identity -Label 'Rollback archive' | Out-Null
+    Assert-RollbackPathIdentity -Path $fullPath -ExpectedIdentity $information.Identity -Label 'Rollback archive' | Out-Null
+    $stream = [System.IO.FileStream]::new($handle, [System.IO.FileAccess]::Read)
+    $handle = $null
     return $stream
   } catch {
     if ($null -ne $stream) { $stream.Dispose() }
+    if ($null -ne $handle) { $handle.Dispose() }
     throw
   }
 }
@@ -154,13 +191,14 @@ function Open-RollbackDirectoryIdentityLock {
     $fileShareReadWrite = [uint32]3
     $openExisting = [uint32]3
     $backupSemantics = [uint32]0x02000000
+    $openReparsePoint = [uint32]0x00200000
     $handle = [LocalMiniDrama.Rollback.NativeMethods]::CreateFileW(
       $fullPath,
       $fileListDirectory,
       $fileShareReadWrite,
       [IntPtr]::Zero,
       $openExisting,
-      $backupSemantics,
+      ($backupSemantics -bor $openReparsePoint),
       [IntPtr]::Zero
     )
     if ($null -eq $handle -or $handle.IsInvalid) {
@@ -169,8 +207,12 @@ function Open-RollbackDirectoryIdentityLock {
       $handle = $null
       throw [ComponentModel.Win32Exception]::new($errorCode, "Could not open rollback directory identity lock: $fullPath")
     }
-    $identity = Get-RollbackPathIdentity -Handle $handle
-    Assert-RollbackPathIdentity -Path $fullPath -ExpectedIdentity $identity -Label 'Rollback data root' | Out-Null
+    $information = Get-RollbackHandleInformation -Handle $handle
+    if ((($information.Attributes -band [System.IO.FileAttributes]::Directory) -eq 0) -or
+        (($information.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+      throw "Rollback data root retained handle must refer to a real non-reparse directory: $fullPath"
+    }
+    Assert-RollbackPathIdentity -Path $fullPath -ExpectedIdentity $information.Identity -Label 'Rollback data root' | Out-Null
     return $handle
   } catch {
     if ($null -ne $handle) { $handle.Dispose() }
