@@ -2898,10 +2898,19 @@ function probeCompensation(archivePath, directoryPath, stage) {
     try {
       fs.unlinkSync(archivePath)
       deleted = true
-      fs.writeFileSync(archivePath, 'attacker recreate')
-      result.mutations.delete_recreate_blocked = false
     } catch {
-      result.mutations.delete_recreate_blocked = true
+      deleted = false
+    }
+    result.mutations.delete_recreate_blocked = !deleted
+    try {
+      if (deleted) {
+        if (process.env.LMD_COMPENSATION_PROBE_FAULT === 'fail-after-delete') {
+          throw new Error('injected recreate failure after delete')
+        }
+        fs.writeFileSync(archivePath, 'attacker recreate')
+      }
+    } catch {
+      // The destructive unlink result remains authoritative.
     } finally {
       if (deleted) {
         if (fs.existsSync(archivePath)) fs.unlinkSync(archivePath)
@@ -2918,11 +2927,20 @@ function probeCompensation(archivePath, directoryPath, stage) {
     try {
       fs.renameSync(archivePath, displacedPath)
       displaced = true
-      fs.renameSync(replacementPath, archivePath)
-      swapped = true
-      result.mutations.swap_before_open_blocked = false
     } catch {
-      result.mutations.swap_before_open_blocked = true
+      displaced = false
+    }
+    result.mutations.swap_before_open_blocked = !displaced
+    try {
+      if (displaced) {
+        if (process.env.LMD_COMPENSATION_PROBE_FAULT === 'fail-after-displace') {
+          throw new Error('injected replacement failure after displacement')
+        }
+        fs.renameSync(replacementPath, archivePath)
+        swapped = true
+      }
+    } catch {
+      // The destructive displacement result remains authoritative.
     } finally {
       if (swapped && fs.existsSync(archivePath)) fs.unlinkSync(archivePath)
       if (displaced) fs.renameSync(displacedPath, archivePath)
@@ -3563,7 +3581,35 @@ try {
     return { compensationArtifacts, compensationDirectories, eventNames, events, fixture, result }
   }
 
-  return { runScenario }
+  const runCompensationProbeFault = (fault) => {
+    const probeRoot = fs.mkdtempSync(path.join(fixtureRoot, 'mutation-oracle-'))
+    const archivePath = path.join(probeRoot, 'data.zip')
+    const eventLog = path.join(probeRoot, 'events.jsonl')
+    const originalBytes = Buffer.from('mutation oracle original bytes')
+    fs.writeFileSync(archivePath, originalBytes)
+    const runner = `
+const { probeCompensation } = require(process.argv[1])
+const result = probeCompensation(process.argv[2], process.argv[3], process.argv[4])
+process.stdout.write(JSON.stringify(result))
+`
+    const result = spawnSync(process.execPath, [
+      '-e', runner, compensationProbePath, archivePath, probeRoot, fault,
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+      windowsHide: true,
+      env: {
+        ...process.env,
+        LMD_COMPENSATION_PROBE_FAULT: fault,
+        LMD_EVENT_LOG: eventLog,
+      },
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    assert.equal(fs.readFileSync(archivePath).equals(originalBytes), true, `${fault} did not restore fixture bytes`)
+    return JSON.parse(result.stdout)
+  }
+
+  return { runCompensationProbeFault, runScenario }
 }
 
 function findUnsafeRestoreToolEvent(run, { allowImageLoad = false } = {}) {
@@ -3992,6 +4038,29 @@ function assertCompensationRestoreConsumer(run, label, boundary, artifact) {
   assert.notEqual(inputIndex, -1, `${label} compensation restore omitted --input`)
   assert.equal(consumers[0].args[inputIndex + 1], artifact.archivePath, `${label} restored from a recomputed path`)
 }
+
+test('rollback compensation mutation oracle rejects destructive partial success', async (t) => {
+  assert.equal(process.versions.node.split('.')[0], '20', 'compensation mutation oracle must run under Node 20')
+  const { runCompensationProbeFault } = createRollbackRestoreHarness(t)
+
+  await t.test('reports delete/recreate unblocked when unlink succeeds before recreate fails', () => {
+    const probe = runCompensationProbeFault('fail-after-delete')
+    assert.equal(
+      probe.mutations.delete_recreate_blocked,
+      false,
+      'successful unlink was hidden by the later recreate failure',
+    )
+  })
+
+  await t.test('reports swap unblocked when displacement succeeds before replacement fails', () => {
+    const probe = runCompensationProbeFault('fail-after-displace')
+    assert.equal(
+      probe.mutations.swap_before_open_blocked,
+      false,
+      'successful displacement was hidden by the later replacement failure',
+    )
+  })
+})
 
 test('rollback compensation authority retains the published archive across every branch', async (t) => {
   if (process.platform !== 'win32') {
