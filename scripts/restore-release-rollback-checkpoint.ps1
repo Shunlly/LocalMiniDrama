@@ -710,6 +710,7 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
     Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
     Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before rollback restore'
     Assert-RollbackFileAuthority -Authority $backupAuthority | Out-Null
+    Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
     Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $backupPath, '--yes', '--data-root', $forwardDataDirectory) -Label 'Rollback data restore' | Out-Null
   } catch {
     $preRollbackError = $_

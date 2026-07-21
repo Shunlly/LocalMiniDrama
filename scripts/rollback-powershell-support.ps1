@@ -5,7 +5,19 @@ function Complete-RollbackInvocation {
     [Parameter(Mandatory = $true)][System.Collections.IList]$CleanupErrors
   )
 
-  $retainedCleanupErrors = [object[]]@($CleanupErrors)
+  $mergedCleanupErrors = [System.Collections.ArrayList]::new()
+  if ($null -ne $PrimaryError) {
+    $attachedCleanupErrors = $PrimaryError.Exception.Data['RollbackCleanupErrors']
+    if ($null -ne $attachedCleanupErrors) {
+      foreach ($cleanupError in @($attachedCleanupErrors)) {
+        [void]$mergedCleanupErrors.Add($cleanupError)
+      }
+    }
+  }
+  foreach ($cleanupError in @($CleanupErrors)) {
+    [void]$mergedCleanupErrors.Add($cleanupError)
+  }
+  $retainedCleanupErrors = [object[]]@($mergedCleanupErrors)
   if ($null -ne $PrimaryError) {
     if ($retainedCleanupErrors.Count -gt 0) {
       $PrimaryError.Exception.Data['RollbackCleanupErrors'] = $retainedCleanupErrors

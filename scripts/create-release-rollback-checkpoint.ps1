@@ -212,6 +212,8 @@ function Publish-Utf8FileAtomically {
   $metadataPath = [System.IO.Path]::GetFullPath($Path)
   $metadataTemporaryPath = Join-Path $directory ('.metadata.{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
   $stream = $null
+  $primaryError = $null
+  $cleanupErrors = [System.Collections.ArrayList]::new()
   try {
     $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Value)
     $stream = [System.IO.FileStream]::new(
@@ -226,17 +228,29 @@ function Publish-Utf8FileAtomically {
     $stream = $null
     [System.IO.File]::Move($metadataTemporaryPath, $metadataPath)
   } catch {
-    $publishError = $_
-    if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
-      Remove-Item -LiteralPath $metadataPath -Force
-    }
-    throw $publishError
+    $primaryError = $_
   } finally {
-    if ($null -ne $stream) { $stream.Dispose() }
-    if (Test-Path -LiteralPath $metadataTemporaryPath) {
-      Remove-Item -LiteralPath $metadataTemporaryPath -Force
+    try {
+      if ($null -ne $stream) { $stream.Dispose() }
+    } catch {
+      [void]$cleanupErrors.Add($_)
+    }
+    try {
+      if ($null -ne $primaryError -and (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
+        Remove-Item -LiteralPath $metadataPath -Force
+      }
+    } catch {
+      [void]$cleanupErrors.Add($_)
+    }
+    try {
+      if (Test-Path -LiteralPath $metadataTemporaryPath) {
+        Remove-Item -LiteralPath $metadataTemporaryPath -Force
+      }
+    } catch {
+      [void]$cleanupErrors.Add($_)
     }
   }
+  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
 
 function Get-CheckpointEvidenceProperty {
@@ -660,14 +674,18 @@ try {
   } catch {
     $checkpointError = $_
     $metadataAuthorityPath = Join-Path $checkpoint 'metadata.json'
-    if (Test-Path -LiteralPath $metadataAuthorityPath -PathType Leaf) {
-      Remove-Item -LiteralPath $metadataAuthorityPath -Force
+    try {
+      if (Test-Path -LiteralPath $metadataAuthorityPath -PathType Leaf) {
+        Remove-Item -LiteralPath $metadataAuthorityPath -Force
+      }
+    } catch {
+      [void]$cleanupErrors.Add($_)
     }
     if ($dockerStopped) {
       try {
         Start-CapturedDeployment -Backend $backend -Frontend $frontend -Revision $commit -ConfigDirectory $runtimeConfigDirectory -ConfigPath $runtimeConfigSource -DataDirectory $runtimeDataDirectory -CheckpointDirectory $checkpoint
       } catch {
-        throw "Rollback checkpoint failed and the captured deployment could not be restarted. Original error: $checkpointError Recovery error: $_"
+        [void]$cleanupErrors.Add($_)
       }
     }
     throw $checkpointError

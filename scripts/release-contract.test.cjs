@@ -2232,10 +2232,37 @@ if ($null -eq $cleanupOnly -or
     $cleanupOnly.Exception.Message -notmatch 'last cleanup failure') {
   throw 'Cleanup-only invocation did not throw the cleanup failures.'
 }
+
+$nestedPrimary = $null
+try { throw 'nested primary failure' } catch { $nestedPrimary = $_ }
+$nestedCleanup = [System.Collections.ArrayList]::new()
+try { throw 'nested cleanup failure' } catch { [void]$nestedCleanup.Add($_) }
+$nestedPrimary.Exception.Data['RollbackCleanupErrors'] = [object[]]@($nestedCleanup)
+$outerCleanup = [System.Collections.ArrayList]::new()
+try { throw 'outer cleanup failure' } catch { [void]$outerCleanup.Add($_) }
+$caughtNestedPrimary = $null
+try { Complete-RollbackInvocation -PrimaryError $nestedPrimary -CleanupErrors $outerCleanup } catch { $caughtNestedPrimary = $_ }
+if ($null -eq $caughtNestedPrimary -or
+    -not [object]::ReferenceEquals($caughtNestedPrimary.Exception, $nestedPrimary.Exception)) {
+  throw 'Nested cleanup merging replaced the primary exception.'
+}
+$mergedCleanup = @($caughtNestedPrimary.Exception.Data['RollbackCleanupErrors'])
+if ($mergedCleanup.Count -ne 2 -or
+    $mergedCleanup[0].Exception.Message -cne 'nested cleanup failure' -or
+    $mergedCleanup[1].Exception.Message -cne 'outer cleanup failure') {
+  throw 'Nested and outer cleanup failures were not merged in order.'
+}
 `
     assertPowerShellStatements(statements, { executable: host.executable })
     })
   }
+})
+
+test('rollback restore reasserts backup and config authorities at the archived Node boundary', () => {
+  assert.match(
+    rollbackRestoreScript,
+    /Assert-RollbackFileAuthority -Authority \$backupAuthority \| Out-Null\r?\n\s*Assert-RollbackFileAuthority -Authority \$configAuthority \| Out-Null\r?\n\s*Invoke-Checked -FilePath 'npm'[^\r\n]*'restore:data'[^\r\n]*\$backupPath/,
+  )
 })
 
 test('release rollback checkpoint and restore consume shared native-lock v5 interfaces', () => {
@@ -2343,6 +2370,8 @@ if (tool === 'docker') {
     process.stdout.write(JSON.stringify({ services: { backend: { volumes: [{ type: 'bind', source: dataRoot, target: '/app/data', read_only: false }] } } }) + '\\n')
   } else if (args[0] === 'compose' && args[1] === 'down') {
     record('shutdown')
+  } else if (args[0] === 'compose' && args[1] === 'up') {
+    record('recovery_up')
   } else if (args[0] === 'inspect') {
     const format = valueAfter('--format')
     if (format === '{{json .Mounts}}') {
@@ -2440,6 +2469,10 @@ $script:OriginalAssertCheckpointDrillEvidence = \${function:Assert-CheckpointDri
 $script:OriginalWriteUtf8File = \${function:Write-Utf8File}
 $script:OriginalPublishUtf8FileAtomically = \${function:Publish-Utf8FileAtomically}
 $script:OriginalStartCapturedDeployment = \${function:Start-CapturedDeployment}
+$script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
+$script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
+$script:MetadataConflictAuthority = $null
+$script:PublicationError = $null
 
 function Write-TestEvent {
   param([Parameter(Mandatory = $true)][string]$Name)
@@ -2498,7 +2531,21 @@ function Publish-Utf8FileAtomically {
     [Parameter(Mandatory = $true)][string]$Value
   )
   Assert-TestLocks -Stage 'metadata_publish'
-  & $script:OriginalPublishUtf8FileAtomically @PSBoundParameters
+  if ($env:LMD_HOLD_METADATA_AUTHORITY -ceq 'true') {
+    $script:MetadataConflictAuthority = Open-RollbackFileAuthority -Path $Path -Label 'Held metadata conflict'
+  }
+  try {
+    & $script:OriginalPublishUtf8FileAtomically @PSBoundParameters
+  } catch {
+    $script:PublicationError = $_
+    $line = ConvertTo-Json -Compress -InputObject ([ordered]@{
+      event = 'publication_failure'
+      primary_message = $_.Exception.Message
+      primary_error_id = $_.FullyQualifiedErrorId
+    })
+    [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+    throw
+  }
 }
 
 function Start-CapturedDeployment {
@@ -2515,8 +2562,49 @@ function Start-CapturedDeployment {
   & $script:OriginalStartCapturedDeployment @PSBoundParameters
 }
 
+function Clear-DataSourceEnvironment {
+  Write-TestEvent -Name 'cleanup:data'
+  & $script:OriginalClearDataSourceEnvironment
+}
+
+function Clear-RuntimeConfigEnvironment {
+  Write-TestEvent -Name 'cleanup:config'
+  & $script:OriginalClearRuntimeConfigEnvironment
+}
+
+function Pop-Location {
+  Write-TestEvent -Name 'cleanup:location'
+  Microsoft.PowerShell.Management\\Pop-Location
+}
+
 Write-TestEvent -Name 'driver_ready'
-Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirectory
+try {
+  Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirectory
+} catch {
+  $cleanupDetails = @()
+  $attachedCleanupErrors = $_.Exception.Data['RollbackCleanupErrors']
+  if ($null -ne $attachedCleanupErrors) {
+    $cleanupDetails = @($attachedCleanupErrors) | ForEach-Object { $_.Exception.Message }
+  }
+  $samePublicationException = $false
+  if ($null -ne $script:PublicationError) {
+    $samePublicationException = [object]::ReferenceEquals($_.Exception, $script:PublicationError.Exception)
+  }
+  $line = ConvertTo-Json -Compress -InputObject ([ordered]@{
+    event = 'driver_failure'
+    primary_message = $_.Exception.Message
+    primary_error_id = $_.FullyQualifiedErrorId
+    same_publication_exception = $samePublicationException
+    cleanup_errors = @($cleanupDetails)
+  })
+  [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+  throw
+} finally {
+  if ($null -ne $script:MetadataConflictAuthority) {
+    $script:MetadataConflictAuthority.Stream.Dispose()
+    Write-TestEvent -Name 'metadata_authority_released'
+  }
+}
 `, 'utf8')
   for (const tool of ['git', 'docker', 'npm', 'node']) {
     fs.writeFileSync(
@@ -2540,7 +2628,14 @@ Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirect
     fs.renameSync(checkpointPath, movedCheckpointPath)
     fs.renameSync(movedCheckpointPath, checkpointPath)
   }
-  const runCheckpoint = (host, checkpointPath, status, capturedVersion = version, precreateMetadata = false) => {
+  const runCheckpoint = (
+    host,
+    checkpointPath,
+    status,
+    capturedVersion = version,
+    precreateMetadata = false,
+    holdMetadataAuthority = false,
+  ) => {
     const archivePath = path.join(checkpointPath, 'data.zip')
     return spawnSync(host.executable, [
       '-NoProfile',
@@ -2563,6 +2658,7 @@ Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirect
         LMD_CONFIG_ROOT: configRoot,
         LMD_DATA_ROOT: dataRoot,
         LMD_EVENT_LOG: logPath,
+        LMD_HOLD_METADATA_AUTHORITY: String(holdMetadataAuthority),
         LMD_LOCK_PROBE: lockProbePath,
         LMD_NODE_EXE: process.execPath,
         LMD_SUMMARY_PATH: summaryPath,
@@ -2620,19 +2716,42 @@ Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirect
 
   const publishFailurePath = path.join(fixtureRoot, `${host.name}-publish-failure-checkpoint`)
   const publishFailureStart = readEvents().length
-  const publishFailure = runCheckpoint(host, publishFailurePath, 'passed', version, true)
+  const publishFailure = runCheckpoint(host, publishFailurePath, 'passed', version, true, true)
   assert.notEqual(publishFailure.status, 0, 'metadata publication conflict must fail checkpoint creation')
   assert.equal(
     fs.existsSync(path.join(publishFailurePath, 'metadata.json')),
-    false,
-    'failed metadata publication must not leave final authority',
+    true,
+    'failed metadata publication must not delete the unrelated conflicting authority',
   )
+  assert.equal(fs.readFileSync(path.join(publishFailurePath, 'metadata.json'), 'utf8'), '{"schema":"untrusted"}\n')
   assert.equal(fs.readdirSync(publishFailurePath).some((name) => name.startsWith('.metadata.')), false)
   const afterPublishFailure = fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).map(JSON.parse)
-  const publishFailureEvents = afterPublishFailure.slice(publishFailureStart).map((entry) => entry.event)
+  const publishFailureRecords = afterPublishFailure.slice(publishFailureStart)
+  const publishFailureEvents = publishFailureRecords.map((entry) => entry.event)
+  const publicationFailure = publishFailureRecords.find((entry) => entry.event === 'publication_failure')
+  const driverFailure = publishFailureRecords.find((entry) => entry.event === 'driver_failure')
+  assert.ok(publicationFailure, `${host.name} did not capture the atomic publication error`)
+  assert.ok(driverFailure, `${host.name} did not capture the checkpoint invocation error`)
+  assert.equal(driverFailure.same_publication_exception, true, 'checkpoint cleanup replaced the publication exception')
+  assert.equal(driverFailure.primary_message, publicationFailure.primary_message)
+  assert.equal(driverFailure.primary_error_id, publicationFailure.primary_error_id)
+  assert.doesNotMatch(driverFailure.primary_error_id, /RemoveFileSystemItemIOError/)
+  assert.equal(driverFailure.cleanup_errors.length, 2, 'both metadata removal failures must be attached')
   assert.notEqual(publishFailureEvents.indexOf('metadata_publish'), -1)
   assert.notEqual(publishFailureEvents.indexOf('failure_recovery'), -1)
+  assert.notEqual(publishFailureEvents.indexOf('recovery_up'), -1, 'deployment recovery command did not execute')
   assert.ok(publishFailureEvents.indexOf('metadata_publish') < publishFailureEvents.indexOf('failure_recovery'))
+  const cleanupDataIndex = publishFailureEvents.indexOf('cleanup:data')
+  const cleanupConfigIndex = publishFailureEvents.indexOf('cleanup:config')
+  const cleanupLocationIndex = publishFailureEvents.indexOf('cleanup:location')
+  const authorityReleaseIndex = publishFailureEvents.indexOf('metadata_authority_released')
+  assert.ok(cleanupDataIndex >= 0 && cleanupDataIndex < cleanupConfigIndex)
+  assert.ok(cleanupConfigIndex < cleanupLocationIndex)
+  assert.ok(cleanupLocationIndex < authorityReleaseIndex)
+  const heldMetadataPath = path.join(publishFailurePath, 'metadata.json')
+  const movedMetadataPath = `${heldMetadataPath}.released`
+  fs.renameSync(heldMetadataPath, movedMetadataPath)
+  fs.renameSync(movedMetadataPath, heldMetadataPath)
   assertNamespacesMovable(publishFailurePath)
 
   const failedCheckpointPath = path.join(fixtureRoot, `${host.name}-failed-checkpoint`)
@@ -2688,15 +2807,35 @@ function createRollbackRestoreHarness(t) {
   fs.writeFileSync(fakeToolPath, `
 'use strict'
 const fs = require('node:fs')
+const path = require('node:path')
 const tool = process.argv[2]
 const args = process.argv.slice(3)
 const record = (event, extra = {}) => fs.appendFileSync(process.env.LMD_EVENT_LOG, JSON.stringify({ event, tool, args, ...extra }) + '\\n')
+const fail = (message) => { process.stderr.write(message + '\\n'); process.exit(63) }
 const valueAfter = (name) => args[args.indexOf(name) + 1]
 const mode = process.env.LMD_FAKE_MODE
+const checkpointPath = process.env.LMD_CHECKPOINT_PATH
+const expectedFiles = JSON.parse(process.env.LMD_EXPECTED_CHECKPOINT_FILES)
+const requireCheckpointFile = (label, actualPath, relativePath) => {
+  const expectedPath = path.join(checkpointPath, ...relativePath.split('/'))
+  if (actualPath !== expectedPath) fail(label + ' path mismatch: ' + actualPath)
+  const actualBytes = fs.readFileSync(actualPath).toString('base64')
+  if (actualBytes !== expectedFiles[relativePath]) fail(label + ' bytes mismatch')
+}
+const requireArchivedConfig = (event) => {
+  requireCheckpointFile('archived config', process.env.LOCALMINIDRAMA_CONFIG_PATH, 'configs/config.yaml')
+  record(event)
+}
 const composeIndex = args.indexOf('compose')
 const composeOperation = composeIndex >= 0 ? args.slice(composeIndex + 1).find((value) => ['ps', 'config', 'down', 'up'].includes(value)) : null
 record('tool:' + tool)
 if (tool === 'docker') {
+  const composeFileIndex = args.indexOf('-f')
+  if (composeIndex >= 0 && composeFileIndex >= 0) {
+    requireCheckpointFile('archived Compose', args[composeFileIndex + 1], 'docker-compose.yml')
+    record('consumer:compose:' + composeOperation)
+    requireArchivedConfig('consumer:config:docker-compose:' + composeOperation)
+  }
   if (composeOperation === 'ps') {
     const service = args[args.length - 1]
     const containerId = (service === 'frontend' ? 'f' : 'b').repeat(64)
@@ -2726,6 +2865,9 @@ if (tool === 'docker') {
       const currentImageId = containerId[0] === 'f' ? process.env.LMD_CURRENT_FRONTEND_IMAGE : process.env.LMD_CURRENT_BACKEND_IMAGE
       process.stdout.write((mode === 'current-image-id-invalid' && containerId[0] === 'b' ? 'invalid' : currentImageId) + '\\n')
     }
+  } else if (args[0] === 'image' && args[1] === 'load') {
+    requireCheckpointFile('rollback image archive', valueAfter('--input'), 'images.tar')
+    record('consumer:image-load')
   } else if (args[0] === 'image' && args[1] === 'inspect') {
     const target = args[2]
     const format = valueAfter('--format')
@@ -2750,7 +2892,20 @@ if (tool === 'npm') {
   const dataRoot = valueAfter('--data-root')
   if (dataRoot !== process.env.LMD_DATA_ROOT) process.exit(61)
   if (args.includes('backup:data')) fs.writeFileSync(valueAfter('--output'), 'durable compensation bytes')
-  if (args.includes('restore:data')) fs.readFileSync(valueAfter('--input'))
+  if (args.includes('restore:data')) {
+    const inputPath = valueAfter('--input')
+    const rollbackArchivePath = path.join(checkpointPath, 'data.zip')
+    if (inputPath === rollbackArchivePath) {
+      requireCheckpointFile('rollback data archive', inputPath, 'data.zip')
+      record('consumer:rollback-data-restore')
+      requireArchivedConfig('consumer:config:npm-restore')
+    } else {
+      if (fs.readFileSync(inputPath, 'utf8') !== 'durable compensation bytes') {
+        fail('compensation archive bytes mismatch')
+      }
+      record('consumer:compensation-data-restore')
+    }
+  }
   process.exit(0)
 }
 process.exit(62)
@@ -2841,6 +2996,7 @@ function Assert-TestLocks {
   $output = @(& $env:LMD_NODE_EXE $env:LMD_LOCK_PROBE $env:LMD_DATA_ROOT $requestedCheckpointDirectory $Stage 2>&1)
   if ($LASTEXITCODE -ne 0) { throw "Lock probe failed during $($Stage): $($output -join [Environment]::NewLine)" }
   Write-TestEvent -Name ('locks:' + $Stage)
+  Write-TestEvent -Name ('authority-ok:' + $Stage)
 }
 function Assert-RollbackEvidenceBinding {
   param([object]$Metadata, [object]$Summary, [object]$ActualBackupHash, [object]$ActualDataRootIdentity)
@@ -2864,6 +3020,15 @@ function Assert-CurrentRollbackRoot {
 function Assert-FileHash {
   param([string]$Path, [string]$Expected, [string]$Label)
   & $script:OriginalFileHash @PSBoundParameters
+  if ($Label -ceq 'Compensation data bind source') {
+    $sourcePath = Join-Path $requestedCheckpointDirectory 'data-bind-source.txt'
+    $sourceBytes = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($sourcePath))
+    $destinationBytes = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($Path))
+    if ($sourceBytes -cne $env:LMD_EXPECTED_BIND_SOURCE_BASE64 -or $destinationBytes -cne $sourceBytes) {
+      throw 'Compensation data bind source copy bytes do not match.'
+    }
+    Write-TestEvent -Name 'consumer:bind-source-copy'
+  }
   if ($Label -like '*compensation data backup') { Write-TestEvent -Name ('hash:' + $Label) }
 }
 function Invoke-Checked {
@@ -2890,7 +3055,10 @@ function Invoke-Checked {
     'terminal_failure' { $Label -ceq 'Rollback container startup' -or $Label -ceq 'Forward deployment recovery' }
     default { $false }
   }
-  if ($fail) { throw "Injected failure: $Label" }
+  if ($fail) {
+    Write-TestEvent -Name ('injected-boundary:' + $Label)
+    throw "Injected failure: $Label"
+  }
   & $script:OriginalInvokeChecked @PSBoundParameters
 }
 function Clear-DataSourceEnvironment {
@@ -3031,12 +3199,14 @@ try {
         PATH: `${binPath};${process.env.PATH}`,
         LMD_ALT_DATA_ROOT: fixture.alternateDataRoot,
         LMD_BACKEND_IMAGE: backendImageId,
+        LMD_CHECKPOINT_PATH: fixture.checkpointPath,
         LMD_COMMIT: commit,
         LMD_CONFIG_ROOT: fixture.configRoot,
         LMD_CURRENT_BACKEND_IMAGE: currentBackendImageId,
         LMD_CURRENT_FRONTEND_IMAGE: currentFrontendImageId,
         LMD_DATA_ROOT: fixture.dataRoot,
         LMD_EXPECTED_CHECKPOINT_FILES: JSON.stringify(fixture.fixedBytes),
+        LMD_EXPECTED_BIND_SOURCE_BASE64: fixture.fixedBytes['data-bind-source.txt'],
         LMD_EVENT_LOG: fixture.eventLog,
         LMD_FAKE_MODE: options.fakeMode || '',
         LMD_FORWARD_COMMIT: forwardCommit,
@@ -3135,6 +3305,49 @@ function assertRestoreAuthorityProbeCoverage(run, label) {
   }
 }
 
+function assertRestoreConsumerEvents(run, label, expectedEvents) {
+  for (const event of expectedEvents) {
+    assert.ok(run.eventNames.includes(event), label + ' did not prove ' + event)
+  }
+}
+
+function assertFinalAuthorityProbe(run, label, stage, commandPredicate) {
+  const authorityEvent = 'authority-ok:invoke:' + stage
+  const authorityIndex = run.eventNames.lastIndexOf(authorityEvent)
+  assert.notEqual(authorityIndex, -1, label + ' did not complete the final authority probe for ' + stage)
+  const commandIndex = run.events.findIndex((entry, index) =>
+    index > authorityIndex && entry.event === 'tool:docker' && commandPredicate(entry.args))
+  assert.notEqual(commandIndex, -1, label + ' did not execute the final fake command for ' + stage)
+}
+
+function assertInjectedAuthorityBoundary(run, label, stage) {
+  const authorityIndex = run.eventNames.lastIndexOf('authority-ok:invoke:' + stage)
+  const boundaryIndex = run.eventNames.lastIndexOf('injected-boundary:' + stage)
+  assert.notEqual(authorityIndex, -1, label + ' did not complete the authority probe for ' + stage)
+  assert.ok(boundaryIndex > authorityIndex, label + ' did not reach the intentional injected boundary for ' + stage)
+}
+
+test('rollback restore final-authority oracle rejects bypassed probes and missing commands', () => {
+  const dockerUp = (args) => Array.isArray(args) && args.includes('up')
+  const missingProbe = {
+    eventNames: ['tool:docker'],
+    events: [{ event: 'tool:docker', tool: 'docker', args: ['compose', 'up'] }],
+  }
+  assert.throws(
+    () => assertFinalAuthorityProbe(missingProbe, 'oracle/missing-probe', 'Rollback container startup', dockerUp),
+    /did not complete the final authority probe/,
+  )
+
+  const missingCommand = {
+    eventNames: ['authority-ok:invoke:Rollback container startup'],
+    events: [{ event: 'authority-ok:invoke:Rollback container startup', driver: 'restore' }],
+  }
+  assert.throws(
+    () => assertFinalAuthorityProbe(missingCommand, 'oracle/missing-command', 'Rollback container startup', dockerUp),
+    /did not execute the final fake command/,
+  )
+})
+
 test('rollback restore fake toolchain keeps evidence locks through success and compensation paths', async (t) => {
   if (process.platform !== 'win32') {
     t.skip('Restore orchestration lock contracts require Windows')
@@ -3220,6 +3433,21 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     ['loaded-backend-image-revision-mismatch', { fakeMode: 'loaded-backend-image-revision-mismatch' }],
     ['loaded-frontend-image-revision-mismatch', { fakeMode: 'loaded-frontend-image-revision-mismatch' }],
   ]
+  const composeCommand = (operation, requireArchivedFile = false) => (args) =>
+    Array.isArray(args) &&
+    args.includes('compose') &&
+    args.includes(operation) &&
+    (!requireArchivedFile || args.includes('-f'))
+  const preRestoreConsumers = [
+    'consumer:compose:config',
+    'consumer:config:docker-compose:config',
+    'consumer:image-load',
+    'consumer:bind-source-copy',
+  ]
+  const rollbackRestoreConsumers = [
+    'consumer:rollback-data-restore',
+    'consumer:config:npm-restore',
+  ]
 
   for (const host of hosts) {
     await t.test(host.name, () => {
@@ -3230,6 +3458,11 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     for (const [name, options] of postImageValidationScenarios) {
       const run = runScenario(host, name, options)
       assertRestoreStoppedAfterImageValidation(run, `${host.name}/${name}`)
+      assertRestoreConsumerEvents(run, `${host.name}/${name}`, [
+        'consumer:compose:config',
+        'consumer:config:docker-compose:config',
+        'consumer:image-load',
+      ])
     }
 
     const success = runScenario(host, 'success')
@@ -3242,12 +3475,32 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     assert.ok(successIndex('Current Docker shutdown') < successIndex('Pre-rollback compensation backup'))
     assert.ok(successIndex('Pre-rollback compensation backup') < successIndex('Rollback data restore'))
     assert.ok(successIndex('Rollback data restore') < successIndex('Rollback container startup'))
+    assertRestoreConsumerEvents(success, `${host.name}/success`, [
+      ...preRestoreConsumers,
+      ...rollbackRestoreConsumers,
+      'consumer:compose:up',
+      'consumer:config:docker-compose:up',
+    ])
+    assertFinalAuthorityProbe(
+      success,
+      `${host.name}/success`,
+      'Rollback container startup',
+      composeCommand('up', true),
+    )
 
     const shutdownFailure = runScenario(host, 'shutdown_failure')
     assert.notEqual(shutdownFailure.result.status, 0)
     assertRestoreAuthorityProbeCoverage(shutdownFailure, `${host.name}/shutdown_failure`)
     assert.ok(shutdownFailure.eventNames.indexOf('Current Docker shutdown') < shutdownFailure.eventNames.indexOf('Failed rollback preparation shutdown'))
     assert.ok(shutdownFailure.eventNames.includes('Preparation forward deployment recovery'))
+    assertRestoreConsumerEvents(shutdownFailure, `${host.name}/shutdown_failure`, preRestoreConsumers)
+    assertInjectedAuthorityBoundary(shutdownFailure, `${host.name}/shutdown_failure`, 'Current Docker shutdown')
+    assertFinalAuthorityProbe(
+      shutdownFailure,
+      `${host.name}/shutdown_failure`,
+      'Preparation forward deployment recovery',
+      composeCommand('up'),
+    )
 
     const restoreFailure = runScenario(host, 'restore_failure')
     assert.notEqual(restoreFailure.result.status, 0)
@@ -3268,6 +3521,18 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     assert.ok(startupFailure.eventNames.includes('hash:Compensation data backup'))
     assert.ok(startupFailure.eventNames.includes('Compensation data restore'))
     assert.ok(startupFailure.eventNames.includes('Forward deployment recovery'))
+    assertRestoreConsumerEvents(startupFailure, `${host.name}/startup_failure`, [
+      ...preRestoreConsumers,
+      ...rollbackRestoreConsumers,
+      'consumer:compensation-data-restore',
+    ])
+    assertInjectedAuthorityBoundary(startupFailure, `${host.name}/startup_failure`, 'Rollback container startup')
+    assertFinalAuthorityProbe(
+      startupFailure,
+      `${host.name}/startup_failure`,
+      'Forward deployment recovery',
+      composeCommand('up'),
+    )
 
     const terminalFailure = runScenario(host, 'terminal_failure')
     assert.notEqual(terminalFailure.result.status, 0)
@@ -3275,6 +3540,19 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     assert.ok(terminalFailure.eventNames.includes('Forward deployment recovery'))
     assert.ok(terminalFailure.eventNames.includes('Compensation failure shutdown'))
     assert.ok(terminalFailure.eventNames.includes('locks:Compensation failure shutdown'))
+    assertRestoreConsumerEvents(terminalFailure, `${host.name}/terminal_failure`, [
+      ...preRestoreConsumers,
+      ...rollbackRestoreConsumers,
+      'consumer:compensation-data-restore',
+    ])
+    assertInjectedAuthorityBoundary(terminalFailure, `${host.name}/terminal_failure`, 'Rollback container startup')
+    assertInjectedAuthorityBoundary(terminalFailure, `${host.name}/terminal_failure`, 'Forward deployment recovery')
+    assertFinalAuthorityProbe(
+      terminalFailure,
+      `${host.name}/terminal_failure`,
+      'Compensation failure shutdown',
+      composeCommand('down'),
+    )
 
     const cleanupFailure = runScenario(host, 'cleanup_failure', {
       cleanupFailure: true,
@@ -3323,7 +3601,10 @@ test('release rollback scripts fail closed and verify the retained backup before
   assert.match(checkpointScript, /image_archive_sha256/)
   assert.match(rollbackRestoreScript, /image[\s\S]*load[\s\S]*imageArchivePath/)
   assert.match(rollbackRestoreScript, /Loaded rollback image IDs do not match/)
-  assert.match(checkpointScript, /Start-CapturedDeployment[\s\S]*checkpoint failed/)
+  assert.match(
+    checkpointScript,
+    /Start-CapturedDeployment[\s\S]*\$cleanupErrors\.Add\(\$_\)[\s\S]*throw \$checkpointError/,
+  )
   assert.match(rollbackRestoreScript, /Get-ContainerBindSource[\s\S]*\/app\/config-source/)
   assert.match(rollbackRestoreScript, /forwardConfigDirectory[\s\S]*forwardConfigPath/)
   assert.match(rollbackRestoreScript, /Set-RuntimeConfigEnvironment[\s\S]*Pre-rollback compensation backup/)

@@ -104,6 +104,42 @@ git diff --check
 
 Exit code: `0` with no whitespace errors.
 
+## Review-Fix Evidence Added 2026-07-22
+
+The metadata cleanup review finding was reproduced before its production fix
+with the final held-authority creation test under both PowerShell hosts:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='release rollback checkpoint fake toolchain' scripts/release-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 96 total, 0 passed, 3 failed, 93 skipped. The
+Windows PowerShell 5.1 and PowerShell 7 subtests, plus their parent, failed
+because an undeletable conflicting `metadata.json` replaced the publication
+error and prevented deployment recovery.
+
+After the review fix, the same focused pattern exited `0`: 97 total, 3
+passed, 0 failed, 94 skipped. Both hosts retained the publication
+`ErrorRecord`, attached both metadata-removal failures in order, executed the
+deployment recovery command, ran every outer cleanup, and released the held
+authority after process exit.
+
+The omitted Task 1 orchestration RED was reconstructed without moving the main
+checkout from `d1bea05830dd2b4e15b3c5eed12b1291b33c5302`. A detached temporary
+worktree at baseline `ccdb85f1df999ec6c580fc77a000986d891aadb2` received the
+final test-only diff and ran both host matrices:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='release rollback checkpoint fake toolchain' scripts/release-contract.test.cjs
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='rollback restore fake toolchain' scripts/release-contract.test.cjs
+```
+
+Each command exited `1` with 97 total, 3 failed, and 94 skipped. Creation
+failed because baseline production did not retain the checkpoint `configs`
+namespace. Restore failed before the evidence gate because baseline production
+did not retain the required checkpoint file authorities. The temporary
+worktree and generated patch were removed after replay.
+
 ## Self-Review
 
 No unresolved correctness or security findings remain in the allowed Task 1
@@ -122,6 +158,4 @@ real Docker engine sharing behavior remains an operational integration risk.
 
 Required subject: `fix: retain rollback checkpoint file authorities`
 
-Task commit SHA: the SHA of the commit containing this report, resolved with
-`git rev-parse HEAD` and recorded in the final handoff. A Git commit cannot
-embed its own SHA in a tracked file because changing the file changes the SHA.
+Task commit SHA: `d1bea05830dd2b4e15b3c5eed12b1291b33c5302`
