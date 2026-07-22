@@ -50,6 +50,12 @@ function temporaryDirectory(t, prefix) {
   return directory
 }
 
+function evidenceTransactionTemps(repoRoot) {
+  const evidenceRoot = path.dirname(evidenceOutputPath(repoRoot))
+  if (!fs.existsSync(evidenceRoot)) return []
+  return fs.readdirSync(evidenceRoot).filter((name) => /^\.summary-.*\.tmp$/.test(name))
+}
+
 function validEvidence(inputMode = 'standalone', version = VERSION) {
   const checkpointBound = inputMode === 'checkpoint-bound'
   return {
@@ -215,9 +221,9 @@ function createExecutorFixture(t, inputMode = 'checkpoint-bound') {
       restored_counts: {},
     }),
     fingerprintDataRoot,
-    publishEvidence: async (_repoRoot, _version, evidence) => {
+    publishEvidence: async (repoRoot, version, evidence, limits, transactionOptions) => {
       calls.publish.push(evidence)
-      return evidenceOutputPath(fixtureRoot)
+      return publishEvidence(repoRoot, version, evidence, limits, transactionOptions)
     },
     now: () => new Date('2026-07-20T00:00:00.000Z'),
   }
@@ -594,10 +600,10 @@ test('executor passes one immutable limits object through real fingerprint, hash
     assert.equal(fs.existsSync(workspace), false)
     cleanupCompleted = true
   }
-  fixture.runtime.publishEvidence = (repoRoot, version, evidence, limits) => {
+  fixture.runtime.publishEvidence = (repoRoot, version, evidence, limits, transactionOptions) => {
     assert.equal(cleanupCompleted, true)
     seenLimits.push(limits)
-    return publish(repoRoot, version, evidence, limits)
+    return publish(repoRoot, version, evidence, limits, transactionOptions)
   }
 
   await executeRollbackDrill(fixture.options, fixture.runtime)
@@ -874,6 +880,45 @@ test('v3 limits accept maximum valid format-2 file-count and archive arithmetic'
   assert.equal(validateEvidenceV3(evidence, VERSION), evidence)
 })
 
+test('publication transaction removes callback-failed PASS and temp without deleting an unrelated replacement', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-publication-transaction-')
+  const beforeCommitRoot = path.join(fixtureRoot, 'before-commit')
+  const afterCommitRoot = path.join(fixtureRoot, 'after-commit')
+  await fsp.mkdir(beforeCommitRoot)
+  await fsp.mkdir(afterCommitRoot)
+
+  const beforeCommitFailure = new Error('before commit rejected')
+  let beforeCommitThrown
+  try {
+    await publishEvidence(beforeCommitRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
+      beforeCommit: () => { throw beforeCommitFailure },
+    })
+  } catch (error) {
+    beforeCommitThrown = error
+  }
+  assert.equal(beforeCommitThrown, beforeCommitFailure)
+  assert.equal(fs.existsSync(evidenceOutputPath(beforeCommitRoot)), false)
+  assert.deepEqual(evidenceTransactionTemps(beforeCommitRoot), [])
+
+  const afterCommitFailure = new Error('after commit rejected')
+  let afterCommitThrown
+  try {
+    await publishEvidence(afterCommitRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
+      afterCommit: async ({ outputPath }) => {
+        assert.equal(fs.existsSync(outputPath), true)
+        await fsp.unlink(outputPath)
+        await fsp.writeFile(outputPath, 'unrelated replacement')
+        throw afterCommitFailure
+      },
+    })
+  } catch (error) {
+    afterCommitThrown = error
+  }
+  assert.equal(afterCommitThrown, afterCommitFailure)
+  assert.equal(await fsp.readFile(evidenceOutputPath(afterCommitRoot), 'utf8'), 'unrelated replacement')
+  assert.deepEqual(evidenceTransactionTemps(afterCommitRoot), [])
+})
+
 test('complete v3 PASS validation rejects missing fields, invalid types, and false proof flags', async (t) => {
   const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-v3-complete-')
   const requiredFields = [
@@ -1025,29 +1070,41 @@ test('bound execution restores the exact retained archive without creating a bac
   assert.equal(fixture.calls.publish.length, 1)
 })
 
-test('bound execution keeps one archive descriptor open through publication and closes it afterward', async (t) => {
+test('bound execution keeps one archive descriptor authoritative through PASS link and closes it afterward', async (t) => {
   const fixture = createExecutorFixture(t)
+  const publish = fixture.runtime.publishEvidence
+  const events = []
   let archiveHandle
-  let releasePublication
-  let publicationStartedResolve
-  const publicationStarted = new Promise((resolve) => { publicationStartedResolve = resolve })
-  const publicationGate = new Promise((resolve) => { releasePublication = resolve })
   fixture.runtime.hooks = {
     onArchiveHandleOpened: ({ handle }) => { archiveHandle = handle },
+    onEvidenceStaged: async () => {
+      events.push('evidence-staged')
+      assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+      assert.equal((await archiveHandle.stat({ bigint: true })).isFile(), true)
+    },
   }
-  fixture.runtime.publishEvidence = async (_repoRoot, _version, evidence) => {
-    publicationStartedResolve()
-    await publicationGate
-    fixture.calls.publish.push(evidence)
-    return evidenceOutputPath(fixture.fixtureRoot)
+  fixture.runtime.closeRetainedHandle = async (handle, label) => {
+    assert.equal(label, 'rollback archive')
+    assert.equal(handle, archiveHandle)
+    assert.deepEqual(events, ['evidence-staged'])
+    assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), true)
+    events.push('pass-linked')
+    assert.equal((await archiveHandle.stat({ bigint: true })).isFile(), true)
+    events.push('archive-closed')
+    await handle.close()
+  }
+  fixture.runtime.publishEvidence = async (repoRoot, version, evidence, limits, transactionOptions) => {
+    const outputPath = await publish(repoRoot, version, evidence, limits, transactionOptions)
+    events.push('publication-returned')
+    assert.equal(fs.existsSync(outputPath), true)
+    await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+    return outputPath
   }
 
-  const execution = executeRollbackDrill(fixture.options, fixture.runtime)
-  await publicationStarted
+  await executeRollbackDrill(fixture.options, fixture.runtime)
+
   assert.ok(archiveHandle)
-  assert.equal((await archiveHandle.stat({ bigint: true })).isFile(), true)
-  releasePublication()
-  await execution
+  assert.deepEqual(events, ['evidence-staged', 'pass-linked', 'archive-closed', 'publication-returned'])
   await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
 })
 
@@ -1097,6 +1154,103 @@ test('bound execution closes its archive descriptor when publication rejects', a
   }
   await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /publication rejected/)
   assert.ok(archiveHandle)
+  await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('checkpoint after-commit close failure throws the exact cleanup error and compensates PASS', async (t) => {
+  const fixture = createExecutorFixture(t)
+  const closeFailure = new Error('retained archive close failed')
+  let archiveHandle
+  let staged = false
+  fixture.runtime.hooks = {
+    onArchiveHandleOpened: ({ handle }) => { archiveHandle = handle },
+    onEvidenceStaged: () => {
+      staged = true
+      assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+    },
+  }
+  fixture.runtime.closeRetainedHandle = async (handle, label) => {
+    assert.equal(staged, true)
+    assert.equal(handle, archiveHandle)
+    assert.equal(label, 'rollback archive')
+    assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), true)
+    await handle.close()
+    throw closeFailure
+  }
+
+  let thrown
+  try {
+    await executeRollbackDrill(fixture.options, fixture.runtime)
+  } catch (error) {
+    thrown = error
+  }
+
+  assert.equal(thrown, closeFailure)
+  assert.equal(staged, true)
+  assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+  assert.deepEqual(evidenceTransactionTemps(fixture.fixtureRoot), [])
+  await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('staged publication error remains exact when retained cleanup also fails', async (t) => {
+  const fixture = createExecutorFixture(t)
+  const publicationFailure = new Error('staged publication rejected')
+  const cleanupFailure = new Error('cleanup after publication rejection failed')
+  let archiveHandle
+  fixture.runtime.hooks = {
+    onArchiveHandleOpened: ({ handle }) => { archiveHandle = handle },
+    onEvidenceStaged: () => { throw publicationFailure },
+  }
+  fixture.runtime.closeRetainedHandle = async (handle) => {
+    assert.equal(handle, archiveHandle)
+    await handle.close()
+    throw cleanupFailure
+  }
+
+  let thrown
+  try {
+    await executeRollbackDrill(fixture.options, fixture.runtime)
+  } catch (error) {
+    thrown = error
+  }
+
+  assert.equal(thrown, publicationFailure)
+  assert.deepEqual(thrown.cleanupErrors, [cleanupFailure])
+  assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+  assert.deepEqual(evidenceTransactionTemps(fixture.fixtureRoot), [])
+  await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('operation error remains exact when workspace and retained cleanup also fail', async (t) => {
+  const fixture = createExecutorFixture(t)
+  const operationFailure = new Error('restore verification failed')
+  const workspaceCleanupFailure = new Error('workspace cleanup failed')
+  const retainedCleanupFailure = new Error('retained cleanup failed')
+  let archiveHandle
+  fixture.runtime.hooks = {
+    onArchiveHandleOpened: ({ handle }) => { archiveHandle = handle },
+    afterRestore: () => { throw operationFailure },
+  }
+  fixture.runtime.cleanupWorkspace = async (workspace) => {
+    await fsp.rm(workspace, { recursive: true, force: true })
+    throw workspaceCleanupFailure
+  }
+  fixture.runtime.closeRetainedHandle = async (handle) => {
+    assert.equal(handle, archiveHandle)
+    await handle.close()
+    throw retainedCleanupFailure
+  }
+
+  let thrown
+  try {
+    await executeRollbackDrill(fixture.options, fixture.runtime)
+  } catch (error) {
+    thrown = error
+  }
+
+  assert.equal(thrown, operationFailure)
+  assert.deepEqual(thrown.cleanupErrors, [workspaceCleanupFailure, retainedCleanupFailure])
+  assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
   await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
 })
 
@@ -1166,28 +1320,71 @@ test('standalone execution creates and removes only its workspace archive and re
   assert.equal(evidence.backup.excluded_values, 7)
 })
 
-test('standalone archive exact limit retains one handle through restore and publication then closes it', async (t) => {
+test('standalone exact boundary publishes PASS only after final fingerprint, handle closure, and archive deletion', async (t) => {
   const fixture = createExecutorFixture(t, 'standalone')
   assert.equal(fixture.options.inputMode, 'standalone')
   fixture.runtime.limits = tinyLimits({ maxArchiveBytes: Buffer.byteLength('standalone archive bytes') })
   const restore = fixture.runtime.restoreDataBackup
   const publish = fixture.runtime.publishEvidence
-  let retainedHandle
+  const fingerprint = fixture.runtime.fingerprintDataRoot
+  const events = []
+  let archiveHandle
+  let sourceDatabaseHandle
   fixture.runtime.hooks = {
     onArchiveHandleOpened: ({ handle, inputMode }) => {
       assert.equal(inputMode, 'standalone')
-      retainedHandle = handle
+      archiveHandle = handle
+    },
+    afterFinalArchiveHash: () => {
+      events.push('after-final-archive-hash')
+    },
+    onEvidenceStaged: async () => {
+      events.push('evidence-staged')
+      assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+      assert.equal(fs.existsSync(fixture.calls.create[0].outputPath), true)
+      assert.equal((await archiveHandle.stat({ bigint: true })).isFile(), true)
+      assert.equal((await sourceDatabaseHandle.stat({ bigint: true })).isFile(), true)
     },
   }
   fixture.runtime.restoreDataBackup = (options) => {
-    assert.ok(retainedHandle)
-    assert.equal(options.archiveHandle, retainedHandle)
+    assert.ok(archiveHandle)
+    assert.equal(options.archiveHandle, archiveHandle)
     return restore(options)
   }
-  fixture.runtime.publishEvidence = async (repoRoot, version, evidence, limits) => {
-    assert.equal((await retainedHandle.stat({ bigint: true })).isFile(), true)
-    assert.equal(fs.existsSync(fixture.calls.create[0].outputPath), true)
-    return publish(repoRoot, version, evidence, limits)
+  fixture.runtime.sha256FileHandle = async (handle, options) => {
+    const digest = await sha256FileHandle(handle, options)
+    if (options.label === 'source database') sourceDatabaseHandle = handle
+    events.push(`hash:${options.label}`)
+    return digest
+  }
+  fixture.runtime.fingerprintDataRoot = async (root, hooks, limits) => {
+    const digest = await fingerprint(root, hooks, limits)
+    events.push('fingerprint')
+    return digest
+  }
+  fixture.runtime.cleanupWorkspace = async (workspace) => {
+    await fsp.rm(workspace, { recursive: true, force: true })
+    assert.equal(fs.existsSync(workspace), false)
+    events.push('workspace-cleaned')
+  }
+  fixture.runtime.closeRetainedHandle = async (handle, label) => {
+    assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+    events.push(`close:${label}`)
+    await handle.close()
+  }
+  fixture.runtime.removeStandaloneArchive = async (archivePath) => {
+    assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+    await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+    await assert.rejects(sourceDatabaseHandle.stat({ bigint: true }), /closed|EBADF/i)
+    await fsp.rm(archivePath, { force: true })
+    events.push('archive-deleted')
+  }
+  fixture.runtime.publishEvidence = async (repoRoot, version, evidence, limits, transactionOptions) => {
+    const outputPath = await publish(repoRoot, version, evidence, limits, transactionOptions)
+    events.push('pass-linked')
+    assert.equal(fs.existsSync(outputPath), true)
+    assert.equal(fs.existsSync(fixture.calls.create[0].outputPath), false)
+    return outputPath
   }
 
   const evidence = await executeRollbackDrill(fixture.options, fixture.runtime)
@@ -1196,7 +1393,139 @@ test('standalone archive exact limit retains one handle through restore and publ
   assert.equal(fixture.calls.restore.length, 1)
   assert.equal(fixture.calls.publish.length, 1)
   assert.equal(fs.existsSync(fixture.calls.create[0].outputPath), false)
-  await assert.rejects(retainedHandle.stat({ bigint: true }), /closed|EBADF/i)
+  assert.deepEqual(evidenceTransactionTemps(fixture.fixtureRoot), [])
+  assert.deepEqual(events, [
+    'fingerprint',
+    'hash:source database',
+    'hash:rollback archive',
+    'hash:source database',
+    'workspace-cleaned',
+    'hash:source database',
+    'hash:rollback archive',
+    'after-final-archive-hash',
+    'fingerprint',
+    'evidence-staged',
+    'close:rollback archive',
+    'close:source database',
+    'archive-deleted',
+    'pass-linked',
+  ])
+  await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+  await assert.rejects(sourceDatabaseHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('standalone mutation after final archive hash is rejected by the last fingerprint without PASS', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  assert.equal(fixture.options.inputMode, 'standalone')
+  let mutationRan = false
+  fixture.runtime.hooks = {
+    afterFinalArchiveHash: async () => {
+      mutationRan = true
+      await fsp.writeFile(path.join(fixture.dataRoot, 'story_sources', 'source.txt'), 'late mutation')
+    },
+  }
+
+  await assert.rejects(
+    executeRollbackDrill(fixture.options, fixture.runtime),
+    /fingerprint|data root.*changed/i
+  )
+  assert.equal(mutationRan, true)
+  assert.equal(fixture.calls.publish.length, 0)
+  assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+  assert.deepEqual(evidenceTransactionTemps(fixture.fixtureRoot), [])
+})
+
+test('standalone close failure after staging throws the exact cleanup error before link and leaves no temp', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  assert.equal(fixture.options.inputMode, 'standalone')
+  const closeFailure = new Error('standalone retained archive close failed')
+  let archiveHandle
+  let generatedArchivePath
+  let failedOnce = false
+  let staged = false
+  t.after(async () => {
+    if (generatedArchivePath) await fsp.rm(generatedArchivePath, { force: true })
+  })
+  const createBackup = fixture.runtime.createDataBackup
+  fixture.runtime.createDataBackup = async (options) => {
+    generatedArchivePath = options.outputPath
+    return createBackup(options)
+  }
+  fixture.runtime.hooks = {
+    onArchiveHandleOpened: ({ handle }) => { archiveHandle = handle },
+    onEvidenceStaged: () => {
+      staged = true
+      assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+    },
+  }
+  fixture.runtime.closeRetainedHandle = async (handle, label) => {
+    assert.equal(staged, true)
+    assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+    await handle.close()
+    if (label === 'rollback archive' && !failedOnce) {
+      failedOnce = true
+      throw closeFailure
+    }
+  }
+
+  let thrown
+  try {
+    await executeRollbackDrill(fixture.options, fixture.runtime)
+  } catch (error) {
+    thrown = error
+  }
+
+  assert.equal(thrown, closeFailure)
+  assert.equal(failedOnce, true)
+  assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+  assert.deepEqual(evidenceTransactionTemps(fixture.fixtureRoot), [])
+  await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('standalone archive deletion failure after staging throws cleanup and leaves no PASS', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  assert.equal(fixture.options.inputMode, 'standalone')
+  const deletionFailure = new Error('standalone archive deletion failed')
+  let archiveHandle
+  let sourceDatabaseHandle
+  let generatedArchivePath
+  let staged = false
+  t.after(async () => {
+    if (generatedArchivePath) await fsp.rm(generatedArchivePath, { force: true })
+  })
+  fixture.runtime.hooks = {
+    onArchiveHandleOpened: ({ handle }) => { archiveHandle = handle },
+    onEvidenceStaged: () => {
+      staged = true
+      assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+    },
+  }
+  fixture.runtime.sha256FileHandle = (handle, options) => {
+    if (options.label === 'source database') sourceDatabaseHandle = handle
+    return sha256FileHandle(handle, options)
+  }
+  fixture.runtime.closeRetainedHandle = (handle) => handle.close()
+  fixture.runtime.removeStandaloneArchive = async (archivePath) => {
+    generatedArchivePath = archivePath
+    assert.equal(staged, true)
+    assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+    await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+    await assert.rejects(sourceDatabaseHandle.stat({ bigint: true }), /closed|EBADF/i)
+    throw deletionFailure
+  }
+
+  let thrown
+  try {
+    await executeRollbackDrill(fixture.options, fixture.runtime)
+  } catch (error) {
+    thrown = error
+  }
+
+  assert.equal(thrown, deletionFailure)
+  assert.equal(staged, true)
+  assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
+  assert.deepEqual(evidenceTransactionTemps(fixture.fixtureRoot), [])
+  assert.equal(fs.existsSync(generatedArchivePath), true)
 })
 
 test('standalone archive plus-one growth fails from the retained handle before restore or PASS', async (t) => {

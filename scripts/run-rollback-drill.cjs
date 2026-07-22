@@ -9,6 +9,8 @@ const path = require('node:path')
 const { createRequire } = require('node:module')
 const { spawnSync } = require('node:child_process')
 
+const MAX_CLEANUP_ERROR_DETAILS = 8
+
 const root = path.resolve(__dirname, '..')
 const backendRoot = path.join(root, 'backend-node')
 const backendRequire = createRequire(path.join(backendRoot, 'package.json'))
@@ -67,6 +69,33 @@ function normalizeDrillLimits(overrides = {}) {
   }
   assert.ok(limits.maxManifestBytes <= limits.maxFileBytes, 'manifest size limit must not exceed file size limit')
   return Object.freeze(limits)
+}
+
+function attachCleanupErrors(primaryError, cleanupErrors) {
+  if (!primaryError || (typeof primaryError !== 'object' && typeof primaryError !== 'function')) return
+  const existing = Array.isArray(primaryError.cleanupErrors) ? primaryError.cleanupErrors : []
+  const additions = cleanupErrors.filter((error) => error && error !== primaryError)
+  const bounded = [...existing, ...additions].slice(0, MAX_CLEANUP_ERROR_DETAILS)
+  if (bounded.length === 0) return
+  try {
+    Object.defineProperty(primaryError, 'cleanupErrors', {
+      value: Object.freeze(bounded),
+      configurable: true,
+      enumerable: false,
+    })
+  } catch {}
+}
+
+function throwPrimaryOrCleanup(primaryError, cleanupErrors) {
+  if (primaryError) {
+    attachCleanupErrors(primaryError, cleanupErrors)
+    throw primaryError
+  }
+  if (cleanupErrors.length > 0) {
+    const [cleanupError, ...laterCleanupErrors] = cleanupErrors
+    attachCleanupErrors(cleanupError, laterCleanupErrors)
+    throw cleanupError
+  }
 }
 
 function nonNegativeBigInt(value, label) {
@@ -211,6 +240,11 @@ async function cleanupWorkspace(workspace) {
   activeWorkspace = null
 }
 
+async function removeStandaloneArchive(archivePath) {
+  await fsp.rm(archivePath, { force: true })
+  assert.equal(fs.existsSync(archivePath), false, 'standalone rollback archive cleanup could not be verified')
+}
+
 function assertDrillNotAborted(signal) {
   assert.equal(signal.aborted, false, 'rollback drill was interrupted')
 }
@@ -315,6 +349,44 @@ async function executeRollbackDrill(options, runtime) {
   let rollbackCopies
   let evidence
   let primaryError
+  let standaloneArchiveRemoved = false
+  const closeHandle = runtime.closeRetainedHandle || ((handle) => handle.close())
+  const removeArchive = runtime.removeStandaloneArchive || removeStandaloneArchive
+
+  async function closeArchiveHandle() {
+    if (!archiveHandle) return
+    const handle = archiveHandle
+    await closeHandle(handle, 'rollback archive')
+    archiveHandle = null
+  }
+
+  async function closeSourceDatabaseHandle() {
+    if (!sourceDatabaseHandle) return
+    const handle = sourceDatabaseHandle
+    await closeHandle(handle, 'source database')
+    sourceDatabaseHandle = null
+  }
+
+  async function cleanupStandalonePublicationResources() {
+    const cleanupErrors = []
+    for (const cleanup of [closeArchiveHandle, closeSourceDatabaseHandle]) {
+      try {
+        await cleanup()
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
+    }
+    if (archivePath && !standaloneArchiveRemoved) {
+      try {
+        await removeArchive(archivePath)
+        assert.equal(fs.existsSync(archivePath), false, 'standalone rollback archive cleanup could not be verified')
+        standaloneArchiveRemoved = true
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
+    }
+    throwPrimaryOrCleanup(null, cleanupErrors)
+  }
 
   try {
     if (options.inputMode === 'standalone') {
@@ -462,29 +534,19 @@ async function executeRollbackDrill(options, runtime) {
     } catch (error) {
       cleanupError = error
     }
+    if (operationError) throwPrimaryOrCleanup(operationError, cleanupError ? [cleanupError] : [])
     if (cleanupError) throw cleanupError
-    if (operationError) throw operationError
     assertDrillNotAborted(signal)
 
-    const afterDataRootSha256 = await fingerprint(dataRoot, runtime.fingerprintHooks?.after, limits)
-    const afterRootIdentity = await capturePathIdentity(dataRoot, 'directory')
-    assertSamePathIdentity(beforeRootIdentity, afterRootIdentity, 'source data root')
-    assert.equal(afterDataRootSha256, beforeDataRootSha256, 'source data root fingerprint changed')
-
+    let finalDatabaseSha256
     if (sourceDatabaseHandle) {
-      const finalDatabaseSha256 = await hashFileHandle(sourceDatabaseHandle, {
+      finalDatabaseSha256 = await hashFileHandle(sourceDatabaseHandle, {
         expectedBytes: sourceDatabaseIdentity.size,
         maxBytes: limits.maxFileBytes,
         limits,
         limitKey: 'maxFileBytes',
         label: 'source database',
       })
-      const finalDatabaseIdentity = await captureRetainedFileIdentity(
-        sourceDatabaseHandle,
-        sourcePaths.databasePath,
-        'source database'
-      )
-      assertSamePathIdentity(sourceDatabaseIdentity, finalDatabaseIdentity, 'source database')
       assert.equal(finalDatabaseSha256, sourceDatabaseSha256, 'source database bytes changed')
     }
 
@@ -495,9 +557,24 @@ async function executeRollbackDrill(options, runtime) {
       limitKey: 'maxArchiveBytes',
       label: 'rollback archive',
     })
+    assert.equal(finalArchiveSha256, archiveSha256, 'rollback archive bytes changed')
+    await runtime.hooks?.afterFinalArchiveHash?.({ archivePath, dataRoot })
+
+    const afterDataRootSha256 = await fingerprint(dataRoot, runtime.fingerprintHooks?.after, limits)
+    const afterRootIdentity = await capturePathIdentity(dataRoot, 'directory')
+    assertSamePathIdentity(beforeRootIdentity, afterRootIdentity, 'source data root')
+    assert.equal(afterDataRootSha256, beforeDataRootSha256, 'source data root fingerprint changed')
+
+    if (sourceDatabaseHandle) {
+      const finalDatabaseIdentity = await captureRetainedFileIdentity(
+        sourceDatabaseHandle,
+        sourcePaths.databasePath,
+        'source database'
+      )
+      assertSamePathIdentity(sourceDatabaseIdentity, finalDatabaseIdentity, 'source database')
+    }
     const finalArchiveIdentity = await captureRetainedFileIdentity(archiveHandle, archivePath, 'rollback archive')
     assertSamePathIdentity(archiveIdentity, finalArchiveIdentity, 'rollback archive')
-    assert.equal(finalArchiveSha256, archiveSha256, 'rollback archive bytes changed')
 
     const manifest = backup?.manifest || restored.manifest
     evidence = {
@@ -543,32 +620,37 @@ async function executeRollbackDrill(options, runtime) {
         workspace_cleanup_verified: true,
       },
     }
-    await (runtime.publishEvidence || publishEvidence)(repoRoot, runtime.version, evidence, limits)
+    await (runtime.publishEvidence || publishEvidence)(repoRoot, runtime.version, evidence, limits, {
+      onStaged: runtime.hooks?.onEvidenceStaged,
+      beforeCommit: options.inputMode === 'standalone'
+        ? cleanupStandalonePublicationResources
+        : undefined,
+      afterCommit: options.inputMode === 'checkpoint-bound'
+        ? closeArchiveHandle
+        : undefined,
+    })
   } catch (error) {
     primaryError = error
   }
 
   const finalCleanupErrors = []
-  for (const handle of [archiveHandle, sourceDatabaseHandle]) {
-    if (!handle) continue
+  for (const cleanup of [closeArchiveHandle, closeSourceDatabaseHandle]) {
     try {
-      await handle.close()
+      await cleanup()
     } catch (error) {
       finalCleanupErrors.push(error)
     }
   }
-  if (options.inputMode === 'standalone' && archivePath) {
+  if (options.inputMode === 'standalone' && archivePath && !standaloneArchiveRemoved) {
     try {
-      await fsp.rm(archivePath, { force: true })
+      await removeArchive(archivePath)
       assert.equal(fs.existsSync(archivePath), false, 'standalone rollback archive cleanup could not be verified')
+      standaloneArchiveRemoved = true
     } catch (error) {
       finalCleanupErrors.push(error)
     }
   }
-  if (finalCleanupErrors.length > 0) {
-    throw new AggregateError(finalCleanupErrors, 'rollback drill final cleanup failed')
-  }
-  if (primaryError) throw primaryError
+  throwPrimaryOrCleanup(primaryError, finalCleanupErrors)
   return evidence
 }
 

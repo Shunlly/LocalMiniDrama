@@ -15,6 +15,7 @@ const V2_EVIDENCE_SCHEMA = 'localminidrama.rollback-drill.v2'
 const LEGACY_EVIDENCE_SCHEMA = 'localminidrama.rollback-drill.v1'
 const EVIDENCE_RELATIVE_PATH = 'artifacts/rollback-drill/summary.json'
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/
+const MAX_CLEANUP_ERROR_DETAILS = 8
 
 function comparablePath(value) {
   const normalized = path.normalize(value)
@@ -63,6 +64,49 @@ async function lstatIfExists(targetPath) {
     if (error?.code === 'ENOENT') return null
     throw error
   }
+}
+
+async function lstatBigIntIfExists(targetPath) {
+  try {
+    return await fsp.lstat(targetPath, { bigint: true })
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  }
+}
+
+function attachCleanupErrors(primaryError, cleanupErrors) {
+  if (!primaryError || (typeof primaryError !== 'object' && typeof primaryError !== 'function')) return
+  const existing = Array.isArray(primaryError.cleanupErrors) ? primaryError.cleanupErrors : []
+  const additions = cleanupErrors.filter((error) => error && error !== primaryError)
+  const bounded = [...existing, ...additions].slice(0, MAX_CLEANUP_ERROR_DETAILS)
+  if (bounded.length === 0) return
+  try {
+    Object.defineProperty(primaryError, 'cleanupErrors', {
+      value: Object.freeze(bounded),
+      configurable: true,
+      enumerable: false,
+    })
+  } catch {}
+}
+
+function throwPrimaryOrCleanup(primaryError, cleanupErrors) {
+  if (primaryError) {
+    attachCleanupErrors(primaryError, cleanupErrors)
+    throw primaryError
+  }
+  if (cleanupErrors.length > 0) {
+    const [cleanupError, ...laterCleanupErrors] = cleanupErrors
+    attachCleanupErrors(cleanupError, laterCleanupErrors)
+    throw cleanupError
+  }
+}
+
+async function unlinkOwnedPublication(outputPath, stagedIdentity) {
+  const outputIdentity = await lstatBigIntIfExists(outputPath)
+  if (!outputIdentity || outputIdentity.isSymbolicLink() || !outputIdentity.isFile()) return
+  if (outputIdentity.dev !== stagedIdentity.dev || outputIdentity.ino !== stagedIdentity.ino) return
+  await fsp.unlink(outputPath)
 }
 
 function statType(stat) {
@@ -414,25 +458,71 @@ async function prepareEvidenceTarget(repoRoot, version) {
   return outputPath
 }
 
-async function publishEvidence(repoRoot, expectedVersion, evidence, limits = DEFAULT_LIMITS) {
+async function publishEvidence(
+  repoRoot,
+  expectedVersion,
+  evidence,
+  limits = DEFAULT_LIMITS,
+  transactionOptions = {}
+) {
   validateEvidenceV3(evidence, expectedVersion, limits)
+  assertPlainObject(transactionOptions, 'rollback evidence publication transaction')
+  for (const callback of ['onStaged', 'beforeCommit', 'afterCommit']) {
+    assert.ok(
+      transactionOptions[callback] === undefined || typeof transactionOptions[callback] === 'function',
+      `rollback evidence publication ${callback} must be a function`
+    )
+  }
   const evidenceRoot = await ensureEvidenceDirectory(repoRoot)
   const outputPath = evidenceOutputPath(repoRoot)
   assert.equal(await lstatIfExists(outputPath), null, 'rollback evidence target changed during the drill')
 
   const temporaryPath = path.join(evidenceRoot, `.summary-${process.pid}-${crypto.randomBytes(8).toString('hex')}.tmp`)
   let handle
+  let stagedIdentity
+  let linked = false
+  let primaryError
   try {
     handle = await fsp.open(temporaryPath, 'wx', 0o600)
     await handle.writeFile(`${JSON.stringify(evidence, null, 2)}\n`, 'utf8')
     await handle.sync()
     await handle.close()
     handle = null
+    stagedIdentity = await lstatBigIntIfExists(temporaryPath)
+    assert.ok(stagedIdentity?.isFile(), 'staged rollback evidence must be a regular file')
+    const transaction = { temporaryPath, outputPath }
+    await transactionOptions.onStaged?.(transaction)
+    await transactionOptions.beforeCommit?.(transaction)
+    assert.equal(await lstatIfExists(outputPath), null, 'rollback evidence target changed before PASS publication')
     await fsp.link(temporaryPath, outputPath)
-  } finally {
-    if (handle) await handle.close().catch(() => {})
-    await fsp.rm(temporaryPath, { force: true }).catch(() => {})
+    linked = true
+    await fsp.unlink(temporaryPath)
+    await transactionOptions.afterCommit?.(transaction)
+  } catch (error) {
+    primaryError = error
   }
+
+  const cleanupErrors = []
+  if (primaryError && linked && stagedIdentity) {
+    try {
+      await unlinkOwnedPublication(outputPath, stagedIdentity)
+    } catch (error) {
+      cleanupErrors.push(error)
+    }
+  }
+  if (handle) {
+    try {
+      await handle.close()
+    } catch (error) {
+      cleanupErrors.push(error)
+    }
+  }
+  try {
+    await fsp.rm(temporaryPath, { force: true })
+  } catch (error) {
+    cleanupErrors.push(error)
+  }
+  throwPrimaryOrCleanup(primaryError, cleanupErrors)
   return outputPath
 }
 

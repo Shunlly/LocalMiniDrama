@@ -349,3 +349,133 @@ workspace; normal success and handled failures verify deletion.
 The immutable resulting follow-up commit SHA is reported in the final handoff.
 Embedding it in this tracked report would change the commit object and produce
 a different SHA.
+
+## Review Fix 3: Publication Lifecycle Remediation
+
+Review-fix date: 2026-07-22
+
+Review-fix base: `db9dab6aa64f7611c289f67db66bd4cae45a74e0`
+
+Required follow-up subject: `fix: publish rollback evidence after cleanup`
+
+### Review-Fix Initial State
+
+`git rev-parse HEAD` matched the required base exactly. The worktree presented
+to this review-fix turn already contained partial changes in the two allowed
+paths `scripts/rollback-drill-contract.test.cjs` and
+`scripts/rollback-drill-evidence.cjs`. Those changes were inspected against
+HEAD, corrected where their checkpoint ordering conflicted with the brief, and
+incorporated. No out-of-scope path was changed.
+
+### Review-Fix RED Evidence
+
+The inherited lifecycle tests were run before executor changes and produced
+seven expected failures. The checkpoint expectation was then corrected to keep
+archive authority through the PASS link, and direct transaction compensation,
+standalone close, archive deletion, strict error identity, and stale-temp
+coverage were completed before production implementation.
+
+The retained aligned RED command was:
+
+```powershell
+npx --yes node@20 --test --test-name-pattern="publication transaction|authoritative through PASS|after-commit close|staged publication|operation error|standalone exact boundary|after final archive hash|standalone close failure|archive deletion failure|final fingerprint" scripts/rollback-drill-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 48 total, 1 passed, 9 failed, 38 skipped by the
+pattern. The expected failures covered unsupported `afterCommit` compensation,
+checkpoint authority/closure ordering, standalone cleanup before linking,
+post-final-hash mutation detection, and primary-versus-cleanup error identity.
+
+### Review-Fix Implementation
+
+- Final standalone database and archive hashes now complete before the final
+  data-root fingerprint. Only retained descriptor/path identity checks,
+  evidence construction, staging, cleanup callbacks, and the publication link
+  follow that fingerprint.
+- `publishEvidence` accepts validated `onStaged`, `beforeCommit`, and
+  `afterCommit` callbacks. It records the synced unpredictable temp's physical
+  identity, links PASS, removes the temp name, and compensates an `afterCommit`
+  failure by unlinking the output only if it is still the staged inode.
+- Standalone `beforeCommit` exhaustively closes both retained handles, removes
+  the generated archive, and verifies its absence before PASS can be linked.
+- Checkpoint-bound `afterCommit` keeps the archive descriptor authoritative
+  through the link. A close failure removes the just-linked owned PASS before
+  the exact close error is rethrown.
+- Operation, verification, and publication errors retain strict object
+  identity when later cleanup also fails. Up to eight later cleanup errors are
+  attached as a non-enumerable frozen `cleanupErrors` array when the error
+  object permits it. A cleanup-only failure throws the original cleanup error.
+
+### Review-Fix GREEN Verification
+
+Final focused lifecycle gate using the retained RED command:
+
+Exit code: `0`. Tests: 48 total, 10 passed, 0 failed, 38 skipped by the
+pattern.
+
+Complete rollback drill contract:
+
+```powershell
+npx --yes node@20 --test scripts/rollback-drill-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 67 passed, 0 failed, 0 skipped.
+
+Complete release contract with portable PowerShell 7.6.4 added to `PATH`:
+
+```powershell
+$env:PATH = (Join-Path $env:TEMP 'codex-pwsh-7.6.4') + [IO.Path]::PathSeparator + $env:PATH
+npx --yes node@20 --test scripts/release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 196 passed, 0 failed, 0 skipped. Wall time was 528.8
+seconds; TAP duration was 526.0 seconds.
+
+Pinned Node syntax checks for all three JavaScript Task 4 files returned exit
+code `0`. `git diff --check` returned exit code `0` with only the checkout's
+existing LF-to-CRLF warnings.
+
+### Review-Fix Changed Files
+
+- `scripts/run-rollback-drill.cjs`
+- `scripts/rollback-drill-evidence.cjs`
+- `scripts/rollback-drill-contract.test.cjs`
+- `.superpowers/sdd/rollback-security-task-4-report.md`
+
+### Review-Fix Self-Review
+
+- The order trace proves both expensive final standalone hashes precede the
+  final fingerprint, retained identities remain valid afterward, standalone
+  cleanup precedes the link, and checkpoint archive authority spans the link.
+- Mutation of `story_sources` after the final archive hash is detected by the
+  last fingerprint and leaves neither PASS nor a transaction temp.
+- Standalone close and archive-delete failures happen while only the staged
+  temp exists; both block the link and clean the temp. Checkpoint close failure
+  happens after link and removes the owned PASS before returning failure.
+- Compensation compares descriptor-grade `dev` and `ino` identity and therefore
+  does not delete an unrelated file that replaces the linked output during a
+  failing callback.
+- Cleanup details are bounded and non-enumerable. Primary publication and
+  verification errors remain reference-equal after workspace, handle, or
+  archive cleanup failures.
+- The bounded hashing interfaces, normalized immutable limits object, and
+  production default values are unchanged.
+
+### Review-Fix Residual Risks
+
+As before, abrupt process termination before standalone `beforeCommit` may
+leave the random sibling archive in the system temporary directory. Normal
+success and handled failures close retained handles and verify archive removal.
+In checkpoint mode, termination after the PASS link naturally releases the OS
+archive handle; no compensating unlink is needed because the evidence was
+already verified and durably linked.
+
+There remains an intentionally short concurrent-mutation window after the final
+data-root fingerprint while quick retained-identity checks, evidence staging,
+cleanup callbacks, and the hard-link transition complete. The remediation
+moves the potentially 44 GiB of final retained hashing before that fingerprint
+and adds no expensive hash or fingerprint work afterward.
+
+The immutable resulting follow-up commit SHA is reported in the final handoff.
+Embedding it in this tracked report would change the commit object and produce
+a different SHA.
