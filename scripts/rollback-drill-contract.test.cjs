@@ -56,6 +56,37 @@ function evidenceTransactionTemps(repoRoot) {
   return fs.readdirSync(evidenceRoot).filter((name) => /^\.summary-.*\.tmp$/.test(name))
 }
 
+async function rejectAfterCommitWithCleanupFailure(repoRoot, primaryError, cleanupError) {
+  const originalUnlink = fsp.unlink
+  let afterCommitStarted = false
+  let cleanupFailureInjected = false
+  let caught = false
+  let thrown
+  fsp.unlink = async (...args) => {
+    if (afterCommitStarted && !cleanupFailureInjected) {
+      cleanupFailureInjected = true
+      throw cleanupError
+    }
+    return originalUnlink(...args)
+  }
+  try {
+    try {
+      await publishEvidence(repoRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
+        afterCommit: () => {
+          afterCommitStarted = true
+          throw primaryError
+        },
+      })
+    } catch (error) {
+      caught = true
+      thrown = error
+    }
+  } finally {
+    fsp.unlink = originalUnlink
+  }
+  return { caught, cleanupFailureInjected, thrown }
+}
+
 function validEvidence(inputMode = 'standalone', version = VERSION) {
   const checkpointBound = inputMode === 'checkpoint-bound'
   return {
@@ -917,6 +948,290 @@ test('publication transaction removes callback-failed PASS and temp without dele
   assert.equal(afterCommitThrown, afterCommitFailure)
   assert.equal(await fsp.readFile(evidenceOutputPath(afterCommitRoot), 'utf8'), 'unrelated replacement')
   assert.deepEqual(evidenceTransactionTemps(afterCommitRoot), [])
+})
+
+test('publication rejects a staged temporary-path replacement without linking or deleting its bytes', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-staged-replacement-')
+  const replacementBytes = 'unvalidated staged replacement bytes'
+  let temporaryPath
+
+  await assert.rejects(
+    publishEvidence(fixtureRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
+      beforeCommit: async (transaction) => {
+        temporaryPath = transaction.temporaryPath
+        const displacedPath = `${temporaryPath}.displaced`
+        await fsp.rename(temporaryPath, displacedPath)
+        await fsp.writeFile(temporaryPath, replacementBytes)
+        await fsp.unlink(displacedPath)
+      },
+    }),
+    /staged rollback evidence.*identity changed/i
+  )
+
+  assert.equal(await fsp.readFile(temporaryPath, 'utf8'), replacementBytes)
+  assert.equal(fs.existsSync(evidenceOutputPath(fixtureRoot)), false)
+})
+
+test('publication rejects same-size in-place mutation of the staged evidence inode', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-staged-content-mutation-')
+  let temporaryPath
+
+  await assert.rejects(
+    publishEvidence(fixtureRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
+      beforeCommit: async (transaction) => {
+        temporaryPath = transaction.temporaryPath
+        const stagedStat = await fsp.lstat(temporaryPath, { bigint: true })
+        assert.ok(stagedStat.size <= BigInt(Number.MAX_SAFE_INTEGER))
+        await fsp.writeFile(temporaryPath, Buffer.alloc(Number(stagedStat.size), 0x78))
+      },
+    }),
+    /staged rollback evidence.*content changed/i
+  )
+
+  assert.equal(fs.existsSync(evidenceOutputPath(fixtureRoot)), false)
+})
+
+test('callback failure cleanup preserves a replacement at the staged temporary path', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-temp-cleanup-')
+  const callbackFailure = new Error('staged callback failed after replacement')
+  const replacementBytes = 'replacement must survive cleanup'
+  let temporaryPath
+  let thrown
+
+  try {
+    await publishEvidence(fixtureRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
+      onStaged: async (transaction) => {
+        temporaryPath = transaction.temporaryPath
+        const displacedPath = `${temporaryPath}.displaced`
+        await fsp.rename(temporaryPath, displacedPath)
+        await fsp.writeFile(temporaryPath, replacementBytes)
+        await fsp.unlink(displacedPath)
+        throw callbackFailure
+      },
+    })
+  } catch (error) {
+    thrown = error
+  }
+
+  assert.equal(thrown, callbackFailure)
+  assert.equal(await fsp.readFile(temporaryPath, 'utf8'), replacementBytes)
+  assert.equal(fs.existsSync(evidenceOutputPath(fixtureRoot)), false)
+})
+
+test('callback failure cleanup preserves a non-regular temporary-path replacement', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-temp-directory-cleanup-')
+  const callbackFailure = new Error('staged callback failed after directory replacement')
+  const markerBytes = 'directory replacement must remain at its original path'
+  let temporaryPath
+  let thrown
+
+  try {
+    await publishEvidence(fixtureRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
+      onStaged: async (transaction) => {
+        temporaryPath = transaction.temporaryPath
+        const displacedPath = `${temporaryPath}.displaced`
+        await fsp.rename(temporaryPath, displacedPath)
+        await fsp.unlink(displacedPath)
+        await fsp.mkdir(temporaryPath)
+        await fsp.writeFile(path.join(temporaryPath, 'marker.txt'), markerBytes)
+        throw callbackFailure
+      },
+    })
+  } catch (error) {
+    thrown = error
+  }
+
+  assert.equal(thrown, callbackFailure)
+  assert.equal((await fsp.lstat(temporaryPath)).isDirectory(), true)
+  assert.equal(await fsp.readFile(path.join(temporaryPath, 'marker.txt'), 'utf8'), markerBytes)
+  assert.equal(fs.existsSync(evidenceOutputPath(fixtureRoot)), false)
+})
+
+test('after-commit compensation atomically preserves replacement at the old check-unlink boundary', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-compensation-boundary-')
+  const outputPath = evidenceOutputPath(fixtureRoot)
+  const afterCommitFailure = new Error('after commit boundary failure')
+  const replacementBytes = 'replacement installed at compensation boundary'
+  const originalLstat = fsp.lstat
+  const originalRename = fsp.rename
+  let compensationStarted = false
+  let boundaryTriggered = false
+  let thrown
+
+  async function replaceOutputAtBoundary() {
+    if (boundaryTriggered) return
+    boundaryTriggered = true
+    const displacedPath = `${outputPath}.owned-pass`
+    await originalRename(outputPath, displacedPath)
+    await fsp.writeFile(outputPath, replacementBytes)
+    await fsp.unlink(displacedPath)
+  }
+
+  fsp.lstat = async (...args) => {
+    const stat = await originalLstat(...args)
+    if (compensationStarted && !boundaryTriggered && path.resolve(args[0]) === path.resolve(outputPath)) {
+      await replaceOutputAtBoundary()
+    }
+    return stat
+  }
+  fsp.rename = async (...args) => {
+    if (compensationStarted && !boundaryTriggered && path.resolve(args[0]) === path.resolve(outputPath)) {
+      await replaceOutputAtBoundary()
+    }
+    return originalRename(...args)
+  }
+  try {
+    try {
+      await publishEvidence(fixtureRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
+        afterCommit: () => {
+          compensationStarted = true
+          throw afterCommitFailure
+        },
+      })
+    } catch (error) {
+      thrown = error
+    }
+  } finally {
+    fsp.lstat = originalLstat
+    fsp.rename = originalRename
+  }
+
+  assert.equal(boundaryTriggered, true)
+  assert.equal(thrown, afterCommitFailure)
+  assert.equal(await fsp.readFile(outputPath, 'utf8'), replacementBytes)
+})
+
+test('after-commit compensation preserves a non-regular output replacement', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-output-directory-compensation-')
+  const outputPath = evidenceOutputPath(fixtureRoot)
+  const afterCommitFailure = new Error('after commit failed after directory replacement')
+  const markerBytes = 'output directory replacement must remain at summary path'
+  let thrown
+
+  try {
+    await publishEvidence(fixtureRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
+      afterCommit: async () => {
+        await fsp.unlink(outputPath)
+        await fsp.mkdir(outputPath)
+        await fsp.writeFile(path.join(outputPath, 'marker.txt'), markerBytes)
+        throw afterCommitFailure
+      },
+    })
+  } catch (error) {
+    thrown = error
+  }
+
+  assert.equal(thrown, afterCommitFailure)
+  assert.equal((await fsp.lstat(outputPath)).isDirectory(), true)
+  assert.equal(await fsp.readFile(path.join(outputPath, 'marker.txt'), 'utf8'), markerBytes)
+})
+
+test('falsey after-commit rejections remain exact failures and compensate PASS', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-falsey-rejections-')
+  const falseyValues = [
+    ['undefined', undefined],
+    ['null', null],
+    ['zero', 0],
+    ['empty-string', ''],
+  ]
+
+  for (const [name, falseyValue] of falseyValues) {
+    await t.test(name, async () => {
+      const repoRoot = path.join(fixtureRoot, name)
+      await fsp.mkdir(repoRoot)
+      let caught = false
+      let thrown = Symbol('not thrown')
+      try {
+        await publishEvidence(repoRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
+          afterCommit: () => { throw falseyValue },
+        })
+      } catch (error) {
+        caught = true
+        thrown = error
+      }
+      assert.equal(caught, true)
+      assert.equal(thrown, falseyValue)
+      assert.equal(fs.existsSync(evidenceOutputPath(repoRoot)), false)
+    })
+  }
+})
+
+test('cleanup error attachment ignores an accessor and preserves the exact primary error', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-cleanup-accessor-')
+  const primaryError = new Error('primary with hostile cleanup accessor')
+  const cleanupError = new Error('compensation cleanup failed')
+  let accessorReads = 0
+  Object.defineProperty(primaryError, 'cleanupErrors', {
+    configurable: true,
+    get() {
+      accessorReads += 1
+      throw new Error('cleanupErrors accessor must not run')
+    },
+  })
+
+  const result = await rejectAfterCommitWithCleanupFailure(fixtureRoot, primaryError, cleanupError)
+
+  assert.equal(result.caught, true)
+  assert.equal(result.cleanupFailureInjected, true)
+  assert.equal(result.thrown, primaryError)
+  assert.equal(accessorReads, 0)
+  assert.deepEqual(result.thrown.cleanupErrors, [cleanupError])
+})
+
+test('cleanup error attachment reads at most eight own data entries from a large array', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-cleanup-large-array-')
+  const primaryError = new Error('primary with large cleanup array')
+  const cleanupError = new Error('later compensation cleanup failed')
+  const existingDetails = new Array(10_000_000)
+  const expectedDetails = Array.from({ length: 8 }, (_, index) => new Error(`existing cleanup ${index}`))
+  for (let index = 0; index < expectedDetails.length; index += 1) existingDetails[index] = expectedDetails[index]
+  let overflowReads = 0
+  Object.defineProperty(existingDetails, '8', {
+    configurable: true,
+    get() {
+      overflowReads += 1
+      throw new Error('cleanup detail beyond the cap must not be read')
+    },
+  })
+  Object.defineProperty(primaryError, 'cleanupErrors', {
+    configurable: true,
+    value: existingDetails,
+  })
+
+  const result = await rejectAfterCommitWithCleanupFailure(fixtureRoot, primaryError, cleanupError)
+
+  assert.equal(result.caught, true)
+  assert.equal(result.cleanupFailureInjected, true)
+  assert.equal(result.thrown, primaryError)
+  assert.equal(overflowReads, 0)
+  assert.deepEqual(result.thrown.cleanupErrors, expectedDetails)
+  assert.equal(Object.isFrozen(result.thrown.cleanupErrors), true)
+})
+
+test('cleanup error attachment ignores hostile non-array detail containers', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-cleanup-non-array-')
+  const primaryError = new Error('primary with non-array cleanup details')
+  const cleanupError = new Error('compensation cleanup failed after non-array details')
+  const hostileDetails = {}
+  let hostileReads = 0
+  Object.defineProperty(hostileDetails, '0', {
+    get() {
+      hostileReads += 1
+      throw new Error('non-array cleanup detail must not be read')
+    },
+  })
+  Object.defineProperty(primaryError, 'cleanupErrors', {
+    configurable: true,
+    value: hostileDetails,
+  })
+
+  const result = await rejectAfterCommitWithCleanupFailure(fixtureRoot, primaryError, cleanupError)
+
+  assert.equal(result.caught, true)
+  assert.equal(result.cleanupFailureInjected, true)
+  assert.equal(result.thrown, primaryError)
+  assert.equal(hostileReads, 0)
+  assert.deepEqual(result.thrown.cleanupErrors, [cleanupError])
 })
 
 test('complete v3 PASS validation rejects missing fields, invalid types, and false proof flags', async (t) => {

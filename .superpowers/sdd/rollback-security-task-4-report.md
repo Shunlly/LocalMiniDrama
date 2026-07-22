@@ -479,3 +479,153 @@ and adds no expensive hash or fingerprint work afterward.
 The immutable resulting follow-up commit SHA is reported in the final handoff.
 Embedding it in this tracked report would change the commit object and produce
 a different SHA.
+
+## Review Fix 4: Publication Ownership Races
+
+Review-fix date: 2026-07-22
+
+Review-fix base: `f2e927ffa2dda884dc413417037910be4d4eb145`
+
+Required follow-up subject: `fix: close rollback publication ownership races`
+
+### Findings Addressed
+
+- The staged evidence pathname is now moved atomically to an unpredictable
+  same-directory ownership claim after all pre-commit callbacks. The claimed
+  inode must match the post-write descriptor's `dev` and `ino`. An authoritative
+  read handle then proves exact size, complete bytes, descriptor identity, and
+  claimed-path identity against the serialized evidence buffer immediately
+  before the hard-link commit and remains authoritative through that link.
+  Inode replacement and in-place mutation are both rejected without publication.
+- Temporary cleanup and after-commit PASS compensation both atomically move the
+  currently named inode to an ownership claim before inspecting it. Owned files
+  are deleted only from the claimed name. Unrelated regular-file replacements
+  are hard-linked back to their original path before the private claim is
+  removed, eliminating the prior target-path check/unlink interval. Non-regular
+  replacements are detected before a claim and remain untouched at their
+  original temporary or output pathname.
+- Publication tracks `hasPrimaryError` independently of the thrown value.
+  Rejections with `undefined`, `null`, `0`, and `''` remain exact failures and
+  still execute PASS compensation.
+- Existing `cleanupErrors` are read only from an own data property. At most
+  eight own array data entries are inspected and copied; accessors, sparse
+  holes, non-array containers, and entries beyond the cap are not evaluated.
+  Attachment failure cannot replace the exact primary error.
+
+### RED Evidence
+
+The deterministic security regressions were added before production edits and
+run with pinned Node.js 20:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='publication rejects a staged|callback failure cleanup|old check-unlink boundary|falsey after-commit|cleanup error attachment' scripts\rollback-drill-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 59 total, 1 passed, 10 failed, 48 skipped by the
+pattern. The expected failures were:
+
+- replaced staged bytes were published instead of rejected;
+- callback-failure cleanup deleted the unrelated temporary-path replacement;
+- compensation deleted a replacement installed after its old identity check;
+- all four falsey after-commit rejections were swallowed and left PASS; and
+- accessor and ninth-entry reads replaced the exact primary error.
+
+The hostile non-array control passed while the vulnerable implementation was
+still present, confirming it did not depend on iterable behavior.
+
+Controller static self-review then identified same-inode content mutation and
+non-regular replacement preservation as uncovered edges. Their tests were also
+added before the follow-up production edits:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='same-size in-place mutation|non-regular temporary-path replacement|non-regular output replacement' scripts\rollback-drill-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 58 total, 0 passed, 3 failed, 55 skipped by the
+pattern. Same-size in-place mutation published successfully, while temporary
+and output directory replacements were moved away from their original paths.
+
+### GREEN Verification
+
+The same focused lifecycle/publication command after implementation:
+
+Exit code: `0`. Tests: 59 total, 11 passed, 0 failed, 48 skipped by the
+pattern.
+
+Final cumulative publication-security focus:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='publication rejects a staged|same-size in-place mutation|callback failure cleanup|old check-unlink boundary|non-regular output replacement|falsey after-commit|cleanup error attachment' scripts\rollback-drill-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 62 total, 14 passed, 0 failed, 48 skipped by the
+pattern. The three-edge follow-up alone passed 3 of 3 tests.
+
+Complete rollback drill contract:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test scripts\rollback-drill-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 81 passed, 0 failed, 0 skipped.
+
+Pinned Node.js 20 syntax checks:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --check scripts\run-rollback-drill.cjs
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --check scripts\rollback-drill-evidence.cjs
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --check scripts\rollback-drill-contract.test.cjs
+```
+
+Exit codes: `0`, `0`, `0`.
+
+```powershell
+git diff --check
+```
+
+Exit code: `0`. Git emitted only the checkout's existing LF-to-CRLF warnings.
+
+### Review-Fix Changed Files
+
+- `scripts/rollback-drill-evidence.cjs`
+- `scripts/rollback-drill-contract.test.cjs`
+- `.superpowers/sdd/rollback-security-task-4-report.md`
+
+### Review-Fix Self-Review
+
+- No target pathname is checked and then unlinked. Every potentially destructive
+  cleanup first atomically claims the currently named inode with `rename`.
+- The staged inode is claimed and re-bound after callbacks, with no callback or
+  unrelated asynchronous work between exact content verification and `link`.
+- The expected bytes are serialized once. The post-sync descriptor length and
+  the claimed descriptor's complete bytes must match that bounded buffer; an
+  extra-byte probe, after-read descriptor check, and claimed-path check close
+  growth, truncation, same-size mutation, and pathname replacement cases.
+- A claimed unrelated replacement is restored through a no-overwrite hard link;
+  restoration failure fails closed instead of deleting either the replacement
+  or a competing target.
+- Directory and other non-regular replacements are never moved into a claim;
+  deterministic callback replacement at both temporary and output paths keeps
+  its original pathname and contents after rejection.
+- PASS compensation runs for every caught primary value, including all falsey
+  JavaScript values, and preserves unrelated output bytes at `summary.json`.
+- Cleanup detail collection allocates no array proportional to attacker-owned
+  length and never invokes a `cleanupErrors` property or element accessor.
+- Existing hashing, fingerprinting, evidence validation, callback order, and
+  `run-rollback-drill.cjs` behavior are unchanged.
+
+### Review-Fix Residual Risks
+
+Ownership claims use 128 bits of cryptographic randomness in the validated
+evidence directory. As with other pathname transactions, abrupt process
+termination can leave a private claim behind; normal success and handled
+failure paths exhaustively release owned claims. Restoring an unrelated regular
+inode requires it to be hard-linkable, which holds for the evidence-file
+replacement contract. A concurrent regular-to-non-regular type swap in the
+narrow, callback-free interval between the non-regular gate and atomic claim
+fails closed with the object preserved under the private claim rather than
+deleting it; ordinary non-regular replacements remain at the original path.
+
+The immutable resulting follow-up commit SHA is reported in the final handoff.
+Embedding it in this tracked report would change the commit object and produce
+a different SHA.

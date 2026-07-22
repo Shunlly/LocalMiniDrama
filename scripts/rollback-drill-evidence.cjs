@@ -75,13 +75,40 @@ async function lstatBigIntIfExists(targetPath) {
   }
 }
 
-function attachCleanupErrors(primaryError, cleanupErrors) {
-  if (!primaryError || (typeof primaryError !== 'object' && typeof primaryError !== 'function')) return
-  const existing = Array.isArray(primaryError.cleanupErrors) ? primaryError.cleanupErrors : []
-  const additions = cleanupErrors.filter((error) => error && error !== primaryError)
-  const bounded = [...existing, ...additions].slice(0, MAX_CLEANUP_ERROR_DETAILS)
-  if (bounded.length === 0) return
+function boundedOwnDataArrayValues(candidate, maximumValues, excludedValue) {
+  const values = []
+  if (maximumValues <= 0) return values
   try {
+    if (!Array.isArray(candidate)) return values
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(candidate, 'length')
+    if (!lengthDescriptor || !Object.hasOwn(lengthDescriptor, 'value')) return values
+    const length = lengthDescriptor.value
+    if (!Number.isSafeInteger(length) || length < 0) return values
+    const inspectedLength = Math.min(length, maximumValues)
+    for (let index = 0; index < inspectedLength; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(candidate, String(index))
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) continue
+      if (descriptor.value !== excludedValue) values.push(descriptor.value)
+    }
+  } catch {}
+  return values
+}
+
+function attachCleanupErrors(primaryError, cleanupErrors) {
+  if (primaryError === null || (typeof primaryError !== 'object' && typeof primaryError !== 'function')) return
+  try {
+    const existingDescriptor = Object.getOwnPropertyDescriptor(primaryError, 'cleanupErrors')
+    const existingCandidate = existingDescriptor && Object.hasOwn(existingDescriptor, 'value')
+      ? existingDescriptor.value
+      : null
+    const bounded = boundedOwnDataArrayValues(existingCandidate, MAX_CLEANUP_ERROR_DETAILS, primaryError)
+    const additions = boundedOwnDataArrayValues(
+      cleanupErrors,
+      MAX_CLEANUP_ERROR_DETAILS - bounded.length,
+      primaryError
+    )
+    for (const addition of additions) bounded.push(addition)
+    if (bounded.length === 0) return
     Object.defineProperty(primaryError, 'cleanupErrors', {
       value: Object.freeze(bounded),
       configurable: true,
@@ -90,23 +117,131 @@ function attachCleanupErrors(primaryError, cleanupErrors) {
   } catch {}
 }
 
-function throwPrimaryOrCleanup(primaryError, cleanupErrors) {
-  if (primaryError) {
+function throwPrimaryOrCleanup(hasPrimaryError, primaryError, cleanupErrors) {
+  if (hasPrimaryError) {
     attachCleanupErrors(primaryError, cleanupErrors)
     throw primaryError
   }
   if (cleanupErrors.length > 0) {
-    const [cleanupError, ...laterCleanupErrors] = cleanupErrors
+    const cleanupError = cleanupErrors[0]
+    const laterCleanupErrors = cleanupErrors.slice(1, MAX_CLEANUP_ERROR_DETAILS + 1)
     attachCleanupErrors(cleanupError, laterCleanupErrors)
     throw cleanupError
   }
 }
 
-async function unlinkOwnedPublication(outputPath, stagedIdentity) {
-  const outputIdentity = await lstatBigIntIfExists(outputPath)
-  if (!outputIdentity || outputIdentity.isSymbolicLink() || !outputIdentity.isFile()) return
-  if (outputIdentity.dev !== stagedIdentity.dev || outputIdentity.ino !== stagedIdentity.ino) return
-  await fsp.unlink(outputPath)
+function isOwnedRegularFile(identity, ownedIdentity) {
+  return Boolean(
+    identity &&
+      !identity.isSymbolicLink() &&
+      identity.isFile() &&
+      identity.dev === ownedIdentity.dev &&
+      identity.ino === ownedIdentity.ino
+  )
+}
+
+function ownershipClaimPath(targetPath) {
+  return path.join(
+    path.dirname(targetPath),
+    `.rollback-ownership-${process.pid}-${crypto.randomBytes(16).toString('hex')}.claim`
+  )
+}
+
+async function movePathToOwnershipClaim(targetPath) {
+  const claimPath = ownershipClaimPath(targetPath)
+  try {
+    await fsp.rename(targetPath, claimPath)
+    return claimPath
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  }
+}
+
+async function restoreClaimedPath(claimPath, targetPath) {
+  await fsp.link(claimPath, targetPath)
+  await fsp.unlink(claimPath)
+}
+
+async function claimOwnedPath(targetPath, ownedIdentity, label) {
+  const observedIdentity = await lstatBigIntIfExists(targetPath)
+  assert.ok(observedIdentity, `${label} disappeared before ownership claim`)
+  assert.ok(
+    !observedIdentity.isSymbolicLink() && observedIdentity.isFile(),
+    `${label} identity changed to a non-regular object before ownership claim`
+  )
+  const claimPath = await movePathToOwnershipClaim(targetPath)
+  assert.ok(claimPath, `${label} disappeared before ownership claim`)
+  const claimedIdentity = await fsp.lstat(claimPath, { bigint: true })
+  if (isOwnedRegularFile(claimedIdentity, ownedIdentity)) return claimPath
+  await restoreClaimedPath(claimPath, targetPath)
+  assert.fail(`${label} identity changed before ownership claim`)
+}
+
+async function removePathIfOwned(targetPath, ownedIdentity) {
+  const observedIdentity = await lstatBigIntIfExists(targetPath)
+  if (!observedIdentity) return false
+  if (observedIdentity.isSymbolicLink() || !observedIdentity.isFile()) return false
+  const claimPath = await movePathToOwnershipClaim(targetPath)
+  if (!claimPath) return false
+  const claimedIdentity = await fsp.lstat(claimPath, { bigint: true })
+  if (isOwnedRegularFile(claimedIdentity, ownedIdentity)) {
+    await fsp.unlink(claimPath)
+    return true
+  }
+  await restoreClaimedPath(claimPath, targetPath)
+  return false
+}
+
+async function openVerifiedClaimedStagedContent(claimPath, ownedIdentity, expectedBytes) {
+  let handle
+  try {
+    handle = await fsp.open(claimPath, 'r')
+    const beforeRead = await handle.stat({ bigint: true })
+    assert.ok(
+      isOwnedRegularFile(beforeRead, ownedIdentity),
+      'staged rollback evidence descriptor identity changed before content proof'
+    )
+    assert.equal(
+      beforeRead.size,
+      BigInt(expectedBytes.length),
+      'staged rollback evidence content changed before PASS publication'
+    )
+    const actualBytes = Buffer.allocUnsafe(expectedBytes.length)
+    let offset = 0
+    while (offset < actualBytes.length) {
+      const { bytesRead } = await handle.read(actualBytes, offset, actualBytes.length - offset, offset)
+      assert.notEqual(bytesRead, 0, 'staged rollback evidence content changed before PASS publication')
+      offset += bytesRead
+    }
+    const extraByte = Buffer.allocUnsafe(1)
+    const { bytesRead: extraBytesRead } = await handle.read(extraByte, 0, 1, expectedBytes.length)
+    assert.equal(extraBytesRead, 0, 'staged rollback evidence content changed before PASS publication')
+    assert.equal(
+      crypto.timingSafeEqual(actualBytes, expectedBytes),
+      true,
+      'staged rollback evidence content changed before PASS publication'
+    )
+    const afterRead = await handle.stat({ bigint: true })
+    assert.ok(
+      isOwnedRegularFile(afterRead, ownedIdentity),
+      'staged rollback evidence descriptor identity changed during content proof'
+    )
+    assert.equal(
+      afterRead.size,
+      BigInt(expectedBytes.length),
+      'staged rollback evidence content changed during content proof'
+    )
+    const claimedIdentity = await fsp.lstat(claimPath, { bigint: true })
+    assert.ok(
+      isOwnedRegularFile(claimedIdentity, ownedIdentity),
+      'staged rollback evidence claim identity changed during content proof'
+    )
+    return handle
+  } catch (error) {
+    if (handle) await handle.close().catch(() => {})
+    throw error
+  }
 }
 
 function statType(stat) {
@@ -478,34 +613,75 @@ async function publishEvidence(
   assert.equal(await lstatIfExists(outputPath), null, 'rollback evidence target changed during the drill')
 
   const temporaryPath = path.join(evidenceRoot, `.summary-${process.pid}-${crypto.randomBytes(8).toString('hex')}.tmp`)
+  const serializedEvidence = Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`, 'utf8')
   let handle
+  let temporaryIdentity
   let stagedIdentity
+  let stagedClaimPath
+  let stagedContentHandle
   let linked = false
+  let hasPrimaryError = false
   let primaryError
   try {
     handle = await fsp.open(temporaryPath, 'wx', 0o600)
-    await handle.writeFile(`${JSON.stringify(evidence, null, 2)}\n`, 'utf8')
+    temporaryIdentity = await handle.stat({ bigint: true })
+    assert.ok(temporaryIdentity.isFile(), 'staged rollback evidence must be a regular file')
+    await handle.writeFile(serializedEvidence)
     await handle.sync()
+    stagedIdentity = await handle.stat({ bigint: true })
+    assert.ok(
+      isOwnedRegularFile(stagedIdentity, temporaryIdentity),
+      'staged rollback evidence descriptor identity changed during staging'
+    )
+    assert.equal(
+      stagedIdentity.size,
+      BigInt(serializedEvidence.length),
+      'staged rollback evidence content changed during staging'
+    )
     await handle.close()
     handle = null
-    stagedIdentity = await lstatBigIntIfExists(temporaryPath)
-    assert.ok(stagedIdentity?.isFile(), 'staged rollback evidence must be a regular file')
+    const stagedPathIdentity = await lstatBigIntIfExists(temporaryPath)
+    assert.ok(
+      isOwnedRegularFile(stagedPathIdentity, stagedIdentity),
+      'staged rollback evidence identity changed before callbacks'
+    )
     const transaction = { temporaryPath, outputPath }
     await transactionOptions.onStaged?.(transaction)
     await transactionOptions.beforeCommit?.(transaction)
     assert.equal(await lstatIfExists(outputPath), null, 'rollback evidence target changed before PASS publication')
-    await fsp.link(temporaryPath, outputPath)
+    stagedClaimPath = await claimOwnedPath(temporaryPath, stagedIdentity, 'staged rollback evidence')
+    stagedContentHandle = await openVerifiedClaimedStagedContent(
+      stagedClaimPath,
+      stagedIdentity,
+      serializedEvidence
+    )
+    await fsp.link(stagedClaimPath, outputPath)
     linked = true
-    await fsp.unlink(temporaryPath)
+    await stagedContentHandle.close()
+    stagedContentHandle = null
+    assert.equal(
+      await removePathIfOwned(stagedClaimPath, stagedIdentity),
+      true,
+      'staged rollback evidence ownership claim changed before cleanup'
+    )
+    stagedClaimPath = null
     await transactionOptions.afterCommit?.(transaction)
   } catch (error) {
+    hasPrimaryError = true
     primaryError = error
   }
 
   const cleanupErrors = []
-  if (primaryError && linked && stagedIdentity) {
+  if (stagedContentHandle) {
     try {
-      await unlinkOwnedPublication(outputPath, stagedIdentity)
+      await stagedContentHandle.close()
+    } catch (error) {
+      cleanupErrors.push(error)
+    }
+  }
+  if (hasPrimaryError && linked && stagedIdentity) {
+    try {
+      await removePathIfOwned(outputPath, stagedIdentity)
     } catch (error) {
       cleanupErrors.push(error)
     }
@@ -517,12 +693,22 @@ async function publishEvidence(
       cleanupErrors.push(error)
     }
   }
-  try {
-    await fsp.rm(temporaryPath, { force: true })
-  } catch (error) {
-    cleanupErrors.push(error)
+  const cleanupIdentity = stagedIdentity || temporaryIdentity
+  if (cleanupIdentity) {
+    if (stagedClaimPath) {
+      try {
+        await removePathIfOwned(stagedClaimPath, cleanupIdentity)
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
+    }
+    try {
+      await removePathIfOwned(temporaryPath, cleanupIdentity)
+    } catch (error) {
+      cleanupErrors.push(error)
+    }
   }
-  throwPrimaryOrCleanup(primaryError, cleanupErrors)
+  throwPrimaryOrCleanup(hasPrimaryError, primaryError, cleanupErrors)
   return outputPath
 }
 
