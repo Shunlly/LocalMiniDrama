@@ -14,7 +14,7 @@ const backendRoot = path.join(root, 'backend-node')
 const backendRequire = createRequire(path.join(backendRoot, 'package.json'))
 const Database = backendRequire('better-sqlite3')
 const { loadConfig } = backendRequire('./src/config')
-const { createDataBackup, restoreDataBackup } = backendRequire('./src/services/dataBackupService')
+const { DEFAULT_LIMITS, createDataBackup, restoreDataBackup } = backendRequire('./src/services/dataBackupService')
 const {
   EVIDENCE_RELATIVE_PATH,
   EVIDENCE_SCHEMA,
@@ -73,16 +73,53 @@ function sha256(filePath) {
   return hash.digest('hex')
 }
 
-async function sha256FileHandle(handle) {
+function normalizeDrillLimits(overrides = {}) {
+  assert.ok(overrides && typeof overrides === 'object' && !Array.isArray(overrides), 'rollback limits must be an object')
+  const limits = {}
+  for (const [key, defaultValue] of Object.entries(DEFAULT_LIMITS)) {
+    const value = overrides[key] === undefined ? defaultValue : overrides[key]
+    assert.ok(Number.isSafeInteger(value) && value > 0, `rollback limit ${key} must be a positive safe integer`)
+    limits[key] = value
+  }
+  assert.ok(limits.maxManifestBytes <= limits.maxFileBytes, 'manifest size limit must not exceed file size limit')
+  return Object.freeze(limits)
+}
+
+function nonNegativeBigInt(value, label) {
+  if (typeof value === 'bigint') {
+    assert.ok(value >= 0n, `${label} must be non-negative`)
+    return value
+  }
+  assert.ok(Number.isSafeInteger(value) && value >= 0, `${label} must be a non-negative safe integer`)
+  return BigInt(value)
+}
+
+async function sha256FileHandle(handle, { expectedBytes, maxBytes }) {
+  const expected = nonNegativeBigInt(expectedBytes, 'expected rollback archive bytes')
+  assert.ok(Number.isSafeInteger(maxBytes) && maxBytes > 0, 'maximum rollback archive bytes must be a positive safe integer')
+  const maximum = BigInt(maxBytes)
+  const before = await handle.stat({ bigint: true })
+  assert.equal(before.isFile(), true, 'rollback archive descriptor must be a regular file')
+  assert.equal(before.size, expected, 'rollback archive descriptor length does not match its retained identity')
+  assert.ok(before.size <= maximum, 'rollback archive exceeds the archive size limit')
+
   const hash = crypto.createHash('sha256')
-  const buffer = Buffer.allocUnsafe(1024 * 1024)
+  const buffer = Buffer.allocUnsafe(Math.min(1024 * 1024, maxBytes))
   let position = 0
   while (true) {
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
     if (bytesRead === 0) break
+    const nextPosition = BigInt(position) + BigInt(bytesRead)
+    assert.ok(nextPosition <= maximum, 'rollback archive exceeds the archive size limit while hashing')
+    assert.ok(nextPosition <= expected, 'rollback archive grew while it was hashed')
     hash.update(buffer.subarray(0, bytesRead))
-    position += bytesRead
-    assert.equal(Number.isSafeInteger(position), true, 'rollback archive is too large to hash safely')
+    position = Number(nextPosition)
+  }
+  assert.equal(BigInt(position), expected, 'rollback archive length changed while it was hashed')
+  const after = await handle.stat({ bigint: true })
+  assert.equal(after.isFile(), true, 'rollback archive descriptor must remain a regular file')
+  for (const field of ['dev', 'ino', 'size', 'ctimeNs']) {
+    assert.equal(after[field], before[field], `rollback archive descriptor ${field} identity changed while hashing`)
   }
   return hash.digest('hex')
 }
@@ -255,13 +292,14 @@ async function executeRollbackDrill(options, runtime) {
   assert.match(runtime.version || '', /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/, 'rollback version is invalid')
   assert.match(runtime.commit || '', /^[a-f0-9]{40}$/, 'rollback commit is invalid')
   assert.ok(Number.isInteger(runtime.focusedTestCount) && runtime.focusedTestCount > 0, 'focused test count is invalid')
+  const limits = normalizeDrillLimits(runtime.limits)
   const { dataRoot, sourcePaths } = await resolveSourceData(options, runtime)
   await runtime.runFocusedTests?.()
   await (runtime.prepareEvidenceTarget || prepareEvidenceTarget)(repoRoot, runtime.version)
 
   const fingerprint = runtime.fingerprintDataRoot || fingerprintDataRoot
   const beforeRootIdentity = await capturePathIdentity(dataRoot, 'directory')
-  const beforeDataRootSha256 = await fingerprint(dataRoot, runtime.fingerprintHooks?.before)
+  const beforeDataRootSha256 = await fingerprint(dataRoot, runtime.fingerprintHooks?.before, limits)
   const sourceDatabaseSha256 = options.inputMode === 'standalone' ? sha256(sourcePaths.databasePath) : null
   const signal = runtime.signal || new AbortController().signal
   const createWorkspace = runtime.createWorkspace || (() => fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-rollback-drill-')))
@@ -291,7 +329,10 @@ async function executeRollbackDrill(options, runtime) {
       archiveHandle = await fsp.open(archivePath, 'r')
       archiveIdentity = await capturePathIdentity({ handle: archiveHandle, path: archivePath }, 'file')
       runtime.hooks?.onArchiveHandleOpened?.({ handle: archiveHandle, path: archivePath, identity: archiveIdentity })
-      archiveSha256 = await sha256FileHandle(archiveHandle)
+      archiveSha256 = await sha256FileHandle(archiveHandle, {
+        expectedBytes: archiveIdentity.size,
+        maxBytes: limits.maxArchiveBytes,
+      })
       archiveBytes = Number(archiveIdentity.size)
       assert.equal(Number.isSafeInteger(archiveBytes), true, 'rollback archive size is not a safe integer')
     } else {
@@ -303,6 +344,7 @@ async function executeRollbackDrill(options, runtime) {
         serviceHost: runtime.serviceHost,
         servicePort: runtime.servicePort,
         signal,
+        limits,
       })
       assertDrillNotAborted(signal)
       assert.equal(backup.manifest.security.secretPolicy, 'excluded', 'rollback backup must exclude credentials')
@@ -319,6 +361,7 @@ async function executeRollbackDrill(options, runtime) {
       confirmed: true,
       skipServiceCheck: true,
       signal,
+      limits,
     })
     assertDrillNotAborted(signal)
     if (backup) assert.deepEqual(restored.manifest, backup.manifest, 'restored manifest differs from the backup manifest')
@@ -345,7 +388,7 @@ async function executeRollbackDrill(options, runtime) {
     if (cleanupError) throw cleanupError
     if (operationError) throw operationError
     assertDrillNotAborted(signal)
-    const afterDataRootSha256 = await fingerprint(dataRoot, runtime.fingerprintHooks?.after)
+    const afterDataRootSha256 = await fingerprint(dataRoot, runtime.fingerprintHooks?.after, limits)
     const afterRootIdentity = await capturePathIdentity(dataRoot, 'directory')
     assertSamePathIdentity(beforeRootIdentity, afterRootIdentity, 'source data root')
     assert.equal(afterDataRootSha256, beforeDataRootSha256, 'source data root fingerprint changed')
@@ -353,7 +396,10 @@ async function executeRollbackDrill(options, runtime) {
     if (archiveHandle) {
       const finalArchiveIdentity = await capturePathIdentity({ handle: archiveHandle, path: archivePath }, 'file')
       assertSamePathIdentity(archiveIdentity, finalArchiveIdentity, 'rollback archive')
-      const finalArchiveSha256 = await sha256FileHandle(archiveHandle)
+      const finalArchiveSha256 = await sha256FileHandle(archiveHandle, {
+        expectedBytes: archiveIdentity.size,
+        maxBytes: limits.maxArchiveBytes,
+      })
       assert.equal(finalArchiveSha256, archiveSha256, 'rollback archive bytes changed')
     }
 
@@ -403,7 +449,7 @@ async function executeRollbackDrill(options, runtime) {
         workspace_cleanup_verified: true,
       },
     }
-    await (runtime.publishEvidence || publishEvidence)(repoRoot, runtime.version, evidence)
+    await (runtime.publishEvidence || publishEvidence)(repoRoot, runtime.version, evidence, limits)
     return evidence
   } finally {
     if (archiveHandle) await archiveHandle.close()
@@ -476,4 +522,4 @@ if (require.main === module) {
   })
 }
 
-module.exports = { executeRollbackDrill, main }
+module.exports = { executeRollbackDrill, main, sha256FileHandle }

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
 const fsp = require('node:fs/promises')
 const path = require('node:path')
+const { DEFAULT_LIMITS } = require('../backend-node/src/services/dataBackupService')
 const {
   MINIMUM_ZIP_ARCHIVE_BYTES,
   SUPPORTED_FORMAT_VERSIONS,
@@ -182,47 +183,92 @@ function updateBytesFrame(hash, value) {
   hash.update(bytes)
 }
 
-async function readFileIntoHash(handle, expectedSize, hash) {
-  const buffer = Buffer.allocUnsafe(1024 * 1024)
+function positiveSafeIntegerLimit(limits, key) {
+  assert.ok(limits && typeof limits === 'object', 'rollback limits must be an object')
+  const value = limits[key]
+  assert.ok(Number.isSafeInteger(value) && value > 0, `rollback limit ${key} must be a positive safe integer`)
+  return value
+}
+
+async function readFileIntoHash(handle, expectedSize, maxBytes, hash) {
+  assert.ok(expectedSize <= maxBytes, 'fingerprinted file exceeds the file size limit')
+  const buffer = Buffer.allocUnsafe(Math.min(1024 * 1024, Number(maxBytes)))
   let total = 0n
   while (true) {
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, null)
     if (bytesRead === 0) break
     total += BigInt(bytesRead)
+    assert.ok(total <= maxBytes, 'fingerprinted file exceeds the file size limit while it is read')
     assert.ok(total <= expectedSize, 'fingerprinted file grew while it was read')
     hash.update(buffer.subarray(0, bytesRead))
   }
   assert.equal(total, expectedSize, 'fingerprinted file length changed while it was read')
 }
 
-async function fingerprintDataRoot(root, hooks = {}) {
+async function readDirectoryNamesBounded(absolutePath, maxEntries) {
+  const names = []
+  const directory = await fsp.opendir(absolutePath)
+  for await (const dirent of directory) {
+    assert.ok(BigInt(names.length) < maxEntries, 'data root directory exceeds the discovered entry limit')
+    names.push(dirent.name)
+  }
+  return names.sort(compareUtf8)
+}
+
+async function fingerprintDataRoot(root, hooks = {}, limits = DEFAULT_LIMITS) {
+  const maxFiles = BigInt(positiveSafeIntegerLimit(limits, 'maxFiles'))
+  const maxTotalBytes = BigInt(positiveSafeIntegerLimit(limits, 'maxTotalBytes'))
+  const maxFileBytes = BigInt(positiveSafeIntegerLimit(limits, 'maxFileBytes'))
+  const maxPathBytes = positiveSafeIntegerLimit(limits, 'maxPathBytes')
+  const maxPathDepth = positiveSafeIntegerLimit(limits, 'maxPathDepth')
+  const maxRegularFiles = maxFiles + 1n
+  const maxEntries = (maxFiles * BigInt(maxPathDepth)) + 1n
   const resolvedRoot = path.resolve(root)
   assert.equal(comparablePath(resolvedRoot), comparablePath(root), 'data root path must be fully resolved')
   const rootIdentity = await capturePathIdentity(resolvedRoot, 'directory')
   const entries = []
   const directories = []
+  let discoveredEntries = 0n
+  let regularFiles = 0n
+  let totalBytes = 0n
 
   async function discoverDirectory(absolutePath, relativePath) {
     const identity = await capturePathIdentity(absolutePath, 'directory')
-    const dirents = await fsp.readdir(absolutePath, { withFileTypes: true })
-    const names = dirents.map((dirent) => dirent.name).sort(compareUtf8)
-    directories.push({ absolutePath, relativePath, identity, names })
-    const byName = new Map(dirents.map((dirent) => [dirent.name, dirent]))
-    for (const name of names) {
-      const dirent = byName.get(name)
+    const children = []
+    const directory = await fsp.opendir(absolutePath)
+    for await (const dirent of directory) {
+      const name = dirent.name
       const childAbsolutePath = path.join(absolutePath, name)
       const childRelativePath = normalizedRelativePath(relativePath ? path.join(relativePath, name) : name)
+      discoveredEntries += 1n
+      assert.ok(discoveredEntries <= maxEntries, 'data root exceeds the discovered entry limit')
+      assert.ok(Buffer.byteLength(childRelativePath, 'utf8') <= maxPathBytes, `${childRelativePath} exceeds the path size limit`)
+      assert.ok(childRelativePath.split('/').length <= maxPathDepth, `${childRelativePath} exceeds the path depth limit`)
       assert.equal(dirent.isSymbolicLink(), false, `${childRelativePath} must not be a symbolic link or reparse point`)
       const type = dirent.isFile() ? 'file' : dirent.isDirectory() ? 'directory' : 'unsupported'
       assert.notEqual(type, 'unsupported', `${childRelativePath} has an unsupported entry type`)
       const childIdentity = await capturePathIdentity(childAbsolutePath, type)
-      entries.push({
+      if (type === 'file') {
+        regularFiles += 1n
+        assert.ok(regularFiles <= maxRegularFiles, 'data root exceeds the regular file limit')
+        assert.ok(childIdentity.size <= maxFileBytes, `${childRelativePath} exceeds the file size limit`)
+        totalBytes += childIdentity.size
+        assert.ok(totalBytes <= maxTotalBytes, 'data root exceeds the aggregate byte limit')
+      }
+      const entry = {
         absolutePath: childAbsolutePath,
+        name,
         relativePath: childRelativePath,
         type,
         identity: childIdentity,
-      })
-      if (type === 'directory') await discoverDirectory(childAbsolutePath, childRelativePath)
+      }
+      entries.push(entry)
+      children.push(entry)
+    }
+    const names = children.map((entry) => entry.name).sort(compareUtf8)
+    directories.push({ absolutePath, relativePath, identity, names })
+    for (const child of children.sort((left, right) => compareUtf8(left.relativePath, right.relativePath))) {
+      if (child.type === 'directory') await discoverDirectory(child.absolutePath, child.relativePath)
     }
   }
 
@@ -248,7 +294,8 @@ async function fingerprintDataRoot(root, hooks = {}) {
         handle = await fsp.open(entry.absolutePath, 'r')
         const descriptorIdentity = await capturePathIdentity({ handle, path: entry.absolutePath }, 'file')
         assertSamePathIdentity(beforeRead, descriptorIdentity, `data root entry ${entry.relativePath}`)
-        await readFileIntoHash(handle, beforeRead.size, hash)
+        assert.ok(beforeRead.size <= maxFileBytes, `${entry.relativePath} exceeds the file size limit before read`)
+        await readFileIntoHash(handle, beforeRead.size, maxFileBytes, hash)
         const descriptorAfterRead = await capturePathIdentity({ handle, path: entry.absolutePath }, 'file')
         assertSamePathIdentity(descriptorIdentity, descriptorAfterRead, `data root entry ${entry.relativePath}`)
       } finally {
@@ -270,7 +317,7 @@ async function fingerprintDataRoot(root, hooks = {}) {
       relativePath: directory.relativePath,
     })
     if (directory.relativePath === '') await hooks.beforeRootPostCheck?.({ absolutePath: directory.absolutePath })
-    const names = (await fsp.readdir(directory.absolutePath)).sort(compareUtf8)
+    const names = await readDirectoryNamesBounded(directory.absolutePath, maxEntries)
     assert.deepEqual(names, directory.names, `data root directory ${directory.relativePath || '.'} entries changed`)
     const after = await capturePathIdentity(directory.absolutePath, 'directory')
     assertSamePathIdentity(directory.identity, after, `data root directory ${directory.relativePath || '.'}`)
@@ -367,8 +414,8 @@ async function prepareEvidenceTarget(repoRoot, version) {
   return outputPath
 }
 
-async function publishEvidence(repoRoot, expectedVersion, evidence) {
-  validateEvidenceV3(evidence, expectedVersion)
+async function publishEvidence(repoRoot, expectedVersion, evidence, limits = DEFAULT_LIMITS) {
+  validateEvidenceV3(evidence, expectedVersion, limits)
   const evidenceRoot = await ensureEvidenceDirectory(repoRoot)
   const outputPath = evidenceOutputPath(repoRoot)
   assert.equal(await lstatIfExists(outputPath), null, 'rollback evidence target changed during the drill')
@@ -408,7 +455,9 @@ function assertTrue(value, label) {
   assert.equal(value, true, `${label} must be true`)
 }
 
-function validateEvidenceV3(evidence, expectedVersion) {
+function validateEvidenceV3(evidence, expectedVersion, limits = DEFAULT_LIMITS) {
+  const maxFiles = BigInt(positiveSafeIntegerLimit(limits, 'maxFiles'))
+  const maxArchiveBytes = BigInt(positiveSafeIntegerLimit(limits, 'maxArchiveBytes'))
   assertPlainObject(evidence, 'rollback evidence')
   assert.equal(evidence.schema, EVIDENCE_SCHEMA, 'rollback evidence schema is invalid')
   assert.equal(typeof evidence.status, 'string', 'rollback evidence status must be a string')
@@ -491,10 +540,27 @@ function validateEvidenceV3(evidence, expectedVersion) {
     evidence.backup.archive_bytes >= MINIMUM_ZIP_ARCHIVE_BYTES,
     `rollback evidence backup.archive_bytes must be at least ${MINIMUM_ZIP_ARCHIVE_BYTES}`
   )
+  assert.ok(
+    BigInt(evidence.backup.archive_bytes) <= maxArchiveBytes,
+    'rollback evidence backup.archive_bytes exceeds the archive size limit'
+  )
+  for (const field of ['storage_files', 'story_source_files']) {
+    assert.ok(
+      BigInt(evidence.backup[field]) <= maxFiles,
+      `rollback evidence backup.${field} exceeds the directory file limit`
+    )
+  }
+  const directoryFileCount = BigInt(evidence.backup.storage_files) + BigInt(evidence.backup.story_source_files)
+  assert.ok(directoryFileCount <= maxFiles, 'rollback evidence backup directory file counts exceed the file limit')
+  const totalFileCount = directoryFileCount + 1n
   assert.equal(
-    evidence.backup.file_count,
-    1 + evidence.backup.storage_files + evidence.backup.story_source_files,
+    BigInt(evidence.backup.file_count),
+    totalFileCount,
     'rollback evidence backup.file_count does not match its entry counts'
+  )
+  assert.ok(
+    totalFileCount <= maxFiles + 1n,
+    'rollback evidence backup.file_count exceeds the total file limit'
   )
   assert.match(
     evidence.backup.archive_sha256 || '',

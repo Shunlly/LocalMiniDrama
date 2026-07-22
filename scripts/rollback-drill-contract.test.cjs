@@ -9,6 +9,8 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const test = require('node:test')
 
+const { DEFAULT_LIMITS } = require('../backend-node/src/services/dataBackupService')
+
 const {
   EVIDENCE_SCHEMA,
   assertCheckpointInputPaths,
@@ -22,11 +24,25 @@ const {
   publishEvidence,
   validateEvidenceV3,
 } = require('./rollback-drill-evidence.cjs')
-const { executeRollbackDrill } = require('./run-rollback-drill.cjs')
+const { executeRollbackDrill, sha256FileHandle } = require('./run-rollback-drill.cjs')
 
 const HEX_64 = /^[a-f0-9]{64}$/
 const VERSION = '1.3.3'
 const COMMIT = 'a'.repeat(40)
+
+function tinyLimits(overrides = {}) {
+  return {
+    ...DEFAULT_LIMITS,
+    maxFiles: 2,
+    maxTotalBytes: 19,
+    maxFileBytes: 8,
+    maxArchiveBytes: 22,
+    maxPathBytes: Buffer.byteLength('story_sources/source.txt'),
+    maxManifestBytes: 8,
+    maxPathDepth: 2,
+    ...overrides,
+  }
+}
 
 function temporaryDirectory(t, prefix) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -474,6 +490,136 @@ test('data root fingerprint rejects final, parent, and descendant links or junct
   await assert.rejects(fingerprintDataRoot(realRoot), /symbolic|reparse|unsupported/i)
 })
 
+test('fingerprint and archive limits accept every exact tiny boundary before publication', async (t) => {
+  const fixture = createExecutorFixture(t)
+  fixture.runtime.limits = tinyLimits()
+
+  const evidence = await executeRollbackDrill(fixture.options, fixture.runtime)
+
+  assert.equal(evidence.backup.archive_bytes, fixture.runtime.limits.maxArchiveBytes)
+  assert.equal(fixture.calls.publish.length, 1)
+})
+
+test('fingerprint and archive limits reject every tiny boundary plus one before publication', async (t) => {
+  const cases = [
+    {
+      name: 'regular files',
+      limits: tinyLimits({ maxTotalBytes: 100, maxFileBytes: 100, maxPathBytes: 100, maxManifestBytes: 8, maxPathDepth: 3 }),
+      mutate: (fixture) => fs.writeFileSync(path.join(fixture.dataRoot, 'extra.txt'), 'x'),
+    },
+    {
+      name: 'aggregate bytes',
+      limits: tinyLimits({ maxTotalBytes: 18 }),
+    },
+    {
+      name: 'single file bytes',
+      limits: tinyLimits({ maxFileBytes: 7, maxManifestBytes: 7 }),
+    },
+    {
+      name: 'UTF-8 path bytes',
+      limits: tinyLimits({ maxPathBytes: Buffer.byteLength('story_sources/source.txt') - 1 }),
+    },
+    {
+      name: 'relative depth',
+      limits: tinyLimits({ maxFiles: 5, maxPathDepth: 1 }),
+    },
+    {
+      name: 'discovered entries',
+      limits: tinyLimits(),
+      mutate: (fixture) => fs.mkdirSync(path.join(fixture.dataRoot, 'empty')),
+    },
+    {
+      name: 'archive bytes',
+      limits: tinyLimits({ maxArchiveBytes: 21 }),
+    },
+  ]
+
+  for (const boundary of cases) {
+    await t.test(boundary.name, async (t) => {
+      const fixture = createExecutorFixture(t)
+      fixture.runtime.limits = boundary.limits
+      boundary.mutate?.(fixture)
+
+      await assert.rejects(
+        executeRollbackDrill(fixture.options, fixture.runtime),
+        /archive|bytes|depth|entries|file|large|limit|path/i
+      )
+      assert.equal(fixture.calls.publish.length, 0)
+    })
+  }
+})
+
+test('executor normalizes one immutable limits object for both fingerprints, backup, restore, and publication', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  const injectedLimits = tinyLimits({ maxArchiveBytes: 64 })
+  const seenLimits = []
+  const fingerprint = fixture.runtime.fingerprintDataRoot
+  const createBackup = fixture.runtime.createDataBackup
+  const restoreBackup = fixture.runtime.restoreDataBackup
+  const publish = fixture.runtime.publishEvidence
+  fixture.runtime.limits = injectedLimits
+  fixture.runtime.fingerprintDataRoot = (root, hooks, limits) => {
+    seenLimits.push(limits)
+    return fingerprint(root, hooks, limits)
+  }
+  fixture.runtime.createDataBackup = (options) => {
+    seenLimits.push(options.limits)
+    return createBackup(options)
+  }
+  fixture.runtime.restoreDataBackup = (options) => {
+    seenLimits.push(options.limits)
+    return restoreBackup(options)
+  }
+  fixture.runtime.publishEvidence = (repoRoot, version, evidence, limits) => {
+    seenLimits.push(limits)
+    return publish(repoRoot, version, evidence)
+  }
+
+  await executeRollbackDrill(fixture.options, fixture.runtime)
+
+  assert.equal(seenLimits.length, 5)
+  assert.equal(new Set(seenLimits).size, 1)
+  assert.equal(typeof seenLimits[0], 'object')
+  assert.deepEqual(seenLimits[0], injectedLimits)
+  assert.equal(Object.isFrozen(seenLimits[0]), true)
+  assert.notEqual(seenLimits[0], injectedLimits)
+})
+
+test('oversized retained archive is rejected from descriptor stat before its first read', async () => {
+  let reads = 0
+  const handle = {
+    stat: async () => ({ size: 11n, isFile: () => true }),
+    read: async () => {
+      reads += 1
+      throw new Error('oversized archive must not be read')
+    },
+  }
+
+  await assert.rejects(
+    sha256FileHandle(handle, { expectedBytes: 11n, maxBytes: 10 }),
+    /archive.*(large|limit|bytes)|maxBytes/i
+  )
+  assert.equal(reads, 0)
+})
+
+test('fingerprint hashing rejects a retained file that grows while streaming', async () => {
+  let reads = 0
+  const chunks = [Buffer.from('abc'), Buffer.from('d'), Buffer.alloc(0)]
+  const handle = {
+    stat: async () => ({ size: 3n, isFile: () => true, dev: 1n, ino: 2n, ctimeNs: 3n }),
+    read: async (buffer) => {
+      const chunk = chunks[reads++]
+      chunk.copy(buffer)
+      return { bytesRead: chunk.length, buffer }
+    },
+  }
+
+  await assert.rejects(
+    sha256FileHandle(handle, { expectedBytes: 3n, maxBytes: 4 }),
+    /grew|length|expected/i
+  )
+})
+
 test('v3 validation and publication reject malformed mode, hashes, booleans, retention, version, or status', async (t) => {
   const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-v3-validation-')
   const invalidCases = [
@@ -588,6 +734,63 @@ test('v3 requires a safe archive size at or above the ZIP minimum', async (t) =>
       assert.throws(() => validateEvidenceV3(evidence, VERSION), /backup\.archive_bytes/)
     })
   }
+})
+
+test('v3 archive size limit rejects 36 GiB plus one in validation and before publication', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-v3-archive-limit-')
+  const evidence = validEvidence()
+  evidence.backup.archive_bytes = DEFAULT_LIMITS.maxArchiveBytes + 1
+
+  assert.throws(() => validateEvidenceV3(evidence, VERSION), /backup\.archive_bytes/)
+  await assert.rejects(publishEvidence(fixtureRoot, VERSION, evidence), /backup\.archive_bytes/)
+  assert.equal(fs.existsSync(evidenceOutputPath(fixtureRoot)), false)
+})
+
+test('v3 file-count limits accept exact tiny boundaries and reject plus one before publication', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-v3-file-limit-')
+  const limits = tinyLimits()
+  const exactRoot = path.join(fixtureRoot, 'exact')
+  await fsp.mkdir(exactRoot)
+  const exact = validEvidence()
+  exact.backup.format_version = 2
+  exact.backup.archive_bytes = limits.maxArchiveBytes
+  exact.backup.file_count = limits.maxFiles + 1
+  exact.backup.storage_files = limits.maxFiles
+  exact.backup.story_source_files = 0
+  assert.equal(validateEvidenceV3(exact, VERSION, limits), exact)
+  assert.equal(await publishEvidence(exactRoot, VERSION, exact, limits), evidenceOutputPath(exactRoot))
+
+  const cases = [
+    { name: 'storage', storage: limits.maxFiles + 1, story: 0 },
+    { name: 'story sources', storage: 0, story: limits.maxFiles + 1 },
+    { name: 'combined directories', storage: limits.maxFiles, story: 1 },
+  ]
+  for (const value of cases) {
+    await t.test(value.name, async () => {
+      const repoRoot = path.join(fixtureRoot, value.name.replaceAll(' ', '-'))
+      await fsp.mkdir(repoRoot)
+      const evidence = validEvidence()
+      evidence.backup.format_version = 2
+      evidence.backup.archive_bytes = limits.maxArchiveBytes
+      evidence.backup.storage_files = value.storage
+      evidence.backup.story_source_files = value.story
+      evidence.backup.file_count = 1 + value.storage + value.story
+      assert.throws(() => validateEvidenceV3(evidence, VERSION, limits), /backup.*file|file.*limit/i)
+      await assert.rejects(publishEvidence(repoRoot, VERSION, evidence, limits), /backup.*file|file.*limit/i)
+      assert.equal(fs.existsSync(evidenceOutputPath(repoRoot)), false)
+    })
+  }
+})
+
+test('v3 limits accept maximum valid format-2 file-count and archive arithmetic', () => {
+  const evidence = validEvidence()
+  evidence.backup.format_version = 2
+  evidence.backup.archive_bytes = DEFAULT_LIMITS.maxArchiveBytes
+  evidence.backup.file_count = DEFAULT_LIMITS.maxFiles + 1
+  evidence.backup.storage_files = DEFAULT_LIMITS.maxFiles
+  evidence.backup.story_source_files = 0
+
+  assert.equal(validateEvidenceV3(evidence, VERSION), evidence)
 })
 
 test('complete v3 PASS validation rejects missing fields, invalid types, and false proof flags', async (t) => {
