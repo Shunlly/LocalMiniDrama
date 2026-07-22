@@ -549,16 +549,22 @@ test('fingerprint and archive limits reject every tiny boundary plus one before 
   }
 })
 
-test('executor normalizes one immutable limits object for both fingerprints, backup, restore, and publication', async (t) => {
+test('executor passes one immutable limits object through real fingerprint, hashing, backup, restore, and publication', async (t) => {
   const fixture = createExecutorFixture(t, 'standalone')
   const injectedLimits = tinyLimits({ maxArchiveBytes: 64 })
   const seenLimits = []
+  const hashObservations = []
+  const hashCounts = new Map()
+  let cleanupCompleted = false
+  let fingerprintCalls = 0
   const fingerprint = fixture.runtime.fingerprintDataRoot
   const createBackup = fixture.runtime.createDataBackup
   const restoreBackup = fixture.runtime.restoreDataBackup
   const publish = fixture.runtime.publishEvidence
   fixture.runtime.limits = injectedLimits
   fixture.runtime.fingerprintDataRoot = (root, hooks, limits) => {
+    fingerprintCalls += 1
+    if (fingerprintCalls === 2) assert.equal(cleanupCompleted, true)
     seenLimits.push(limits)
     return fingerprint(root, hooks, limits)
   }
@@ -570,23 +576,56 @@ test('executor normalizes one immutable limits object for both fingerprints, bac
     seenLimits.push(options.limits)
     return restoreBackup(options)
   }
+  fixture.runtime.sha256FileHandle = (handle, options) => {
+    const count = (hashCounts.get(options.label) || 0) + 1
+    hashCounts.set(options.label, count)
+    if (
+      (options.label === 'source database' && count === 3) ||
+      (options.label === 'rollback archive' && count === 2)
+    ) {
+      assert.equal(cleanupCompleted, true)
+    }
+    seenLimits.push(options.limits)
+    hashObservations.push({ handle, label: options.label, limitKey: options.limitKey })
+    return sha256FileHandle(handle, options)
+  }
+  fixture.runtime.cleanupWorkspace = async (workspace) => {
+    await fsp.rm(workspace, { recursive: true, force: true })
+    assert.equal(fs.existsSync(workspace), false)
+    cleanupCompleted = true
+  }
   fixture.runtime.publishEvidence = (repoRoot, version, evidence, limits) => {
+    assert.equal(cleanupCompleted, true)
     seenLimits.push(limits)
-    return publish(repoRoot, version, evidence)
+    return publish(repoRoot, version, evidence, limits)
   }
 
   await executeRollbackDrill(fixture.options, fixture.runtime)
 
-  assert.equal(seenLimits.length, 5)
+  assert.equal(seenLimits.length, 10)
   assert.equal(new Set(seenLimits).size, 1)
   assert.equal(typeof seenLimits[0], 'object')
   assert.deepEqual(seenLimits[0], injectedLimits)
   assert.equal(Object.isFrozen(seenLimits[0]), true)
   assert.notEqual(seenLimits[0], injectedLimits)
+  assert.deepEqual(
+    hashObservations.map(({ label, limitKey }) => [label, limitKey]),
+    [
+      ['source database', 'maxFileBytes'],
+      ['rollback archive', 'maxArchiveBytes'],
+      ['source database', 'maxFileBytes'],
+      ['source database', 'maxFileBytes'],
+      ['rollback archive', 'maxArchiveBytes'],
+    ]
+  )
+  assert.equal(hashObservations[0].handle, hashObservations[2].handle)
+  assert.equal(hashObservations[0].handle, hashObservations[3].handle)
+  assert.equal(hashObservations[1].handle, hashObservations[4].handle)
 })
 
 test('oversized retained archive is rejected from descriptor stat before its first read', async () => {
   let reads = 0
+  const limits = Object.freeze(tinyLimits({ maxArchiveBytes: 10 }))
   const handle = {
     stat: async () => ({ size: 11n, isFile: () => true }),
     read: async () => {
@@ -596,7 +635,13 @@ test('oversized retained archive is rejected from descriptor stat before its fir
   }
 
   await assert.rejects(
-    sha256FileHandle(handle, { expectedBytes: 11n, maxBytes: 10 }),
+    sha256FileHandle(handle, {
+      expectedBytes: 11n,
+      maxBytes: limits.maxArchiveBytes,
+      limits,
+      limitKey: 'maxArchiveBytes',
+      label: 'rollback archive',
+    }),
     /archive.*(large|limit|bytes)|maxBytes/i
   )
   assert.equal(reads, 0)
@@ -604,6 +649,7 @@ test('oversized retained archive is rejected from descriptor stat before its fir
 
 test('fingerprint hashing rejects a retained file that grows while streaming', async () => {
   let reads = 0
+  const limits = Object.freeze(tinyLimits({ maxArchiveBytes: 4 }))
   const chunks = [Buffer.from('abc'), Buffer.from('d'), Buffer.alloc(0)]
   const handle = {
     stat: async () => ({ size: 3n, isFile: () => true, dev: 1n, ino: 2n, ctimeNs: 3n }),
@@ -615,9 +661,44 @@ test('fingerprint hashing rejects a retained file that grows while streaming', a
   }
 
   await assert.rejects(
-    sha256FileHandle(handle, { expectedBytes: 3n, maxBytes: 4 }),
+    sha256FileHandle(handle, {
+      expectedBytes: 3n,
+      maxBytes: limits.maxArchiveBytes,
+      limits,
+      limitKey: 'maxArchiveBytes',
+      label: 'rollback archive',
+    }),
     /grew|length|expected/i
   )
+})
+
+test('retained hashing requires the matching immutable limits object before reading', async () => {
+  let reads = 0
+  const handle = {
+    stat: async () => ({ size: 3n, isFile: () => true }),
+    read: async () => {
+      reads += 1
+      return { bytesRead: 0 }
+    },
+  }
+  const mutableLimits = tinyLimits({ maxArchiveBytes: 3 })
+  await assert.rejects(sha256FileHandle(handle, {
+    expectedBytes: 3n,
+    maxBytes: 3,
+    limits: mutableLimits,
+    limitKey: 'maxArchiveBytes',
+    label: 'rollback archive',
+  }), /limits.*immutable|frozen/i)
+
+  const mismatchedLimits = Object.freeze(tinyLimits({ maxArchiveBytes: 4 }))
+  await assert.rejects(sha256FileHandle(handle, {
+    expectedBytes: 3n,
+    maxBytes: 3,
+    limits: mismatchedLimits,
+    limitKey: 'maxArchiveBytes',
+    label: 'rollback archive',
+  }), /maxBytes|limit.*match/i)
+  assert.equal(reads, 0)
 })
 
 test('v3 validation and publication reject malformed mode, hashes, booleans, retention, version, or status', async (t) => {
@@ -1083,6 +1164,173 @@ test('standalone execution creates and removes only its workspace archive and re
   assert.equal(evidence.backup.archive_retained, false)
   assert.equal(Number.isInteger(evidence.backup.excluded_values), true)
   assert.equal(evidence.backup.excluded_values, 7)
+})
+
+test('standalone archive exact limit retains one handle through restore and publication then closes it', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  assert.equal(fixture.options.inputMode, 'standalone')
+  fixture.runtime.limits = tinyLimits({ maxArchiveBytes: Buffer.byteLength('standalone archive bytes') })
+  const restore = fixture.runtime.restoreDataBackup
+  const publish = fixture.runtime.publishEvidence
+  let retainedHandle
+  fixture.runtime.hooks = {
+    onArchiveHandleOpened: ({ handle, inputMode }) => {
+      assert.equal(inputMode, 'standalone')
+      retainedHandle = handle
+    },
+  }
+  fixture.runtime.restoreDataBackup = (options) => {
+    assert.ok(retainedHandle)
+    assert.equal(options.archiveHandle, retainedHandle)
+    return restore(options)
+  }
+  fixture.runtime.publishEvidence = async (repoRoot, version, evidence, limits) => {
+    assert.equal((await retainedHandle.stat({ bigint: true })).isFile(), true)
+    assert.equal(fs.existsSync(fixture.calls.create[0].outputPath), true)
+    return publish(repoRoot, version, evidence, limits)
+  }
+
+  const evidence = await executeRollbackDrill(fixture.options, fixture.runtime)
+
+  assert.equal(evidence.backup.archive_bytes, fixture.runtime.limits.maxArchiveBytes)
+  assert.equal(fixture.calls.restore.length, 1)
+  assert.equal(fixture.calls.publish.length, 1)
+  assert.equal(fs.existsSync(fixture.calls.create[0].outputPath), false)
+  await assert.rejects(retainedHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('standalone archive plus-one growth fails from the retained handle before restore or PASS', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  assert.equal(fixture.options.inputMode, 'standalone')
+  fixture.runtime.limits = tinyLimits({ maxArchiveBytes: Buffer.byteLength('standalone archive bytes') })
+  let retainedHandle
+  fixture.runtime.hooks = {
+    onArchiveHandleOpened: async ({ handle, path: openedPath, inputMode }) => {
+      assert.equal(inputMode, 'standalone')
+      retainedHandle = handle
+      await fsp.appendFile(openedPath, 'x')
+    },
+  }
+
+  await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /archive.*(length|limit|identity|large)/i)
+  assert.equal(fixture.calls.restore.length, 0)
+  assert.equal(fixture.calls.publish.length, 0)
+  assert.ok(retainedHandle)
+  await assert.rejects(retainedHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('standalone archive replacement after real hashing fails before restore or PASS', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  assert.equal(fixture.options.inputMode, 'standalone')
+  fixture.runtime.limits = tinyLimits({ maxArchiveBytes: Buffer.byteLength('standalone archive bytes') })
+  let archiveHashCalls = 0
+  let displacedArchivePath
+  let retainedHandle
+  t.after(async () => {
+    if (displacedArchivePath) await fsp.rm(displacedArchivePath, { force: true })
+  })
+  fixture.runtime.hooks = {
+    onArchiveHandleOpened: ({ handle, inputMode }) => {
+      assert.equal(inputMode, 'standalone')
+      retainedHandle = handle
+    },
+  }
+  fixture.runtime.sha256FileHandle = async (handle, options) => {
+    const digest = await sha256FileHandle(handle, options)
+    if (options.label === 'rollback archive' && ++archiveHashCalls === 1) {
+      const archivePath = fixture.calls.create[0].outputPath
+      displacedArchivePath = `${archivePath}.displaced`
+      const contents = await fsp.readFile(archivePath)
+      await fsp.rename(archivePath, displacedArchivePath)
+      await fsp.writeFile(archivePath, contents)
+    }
+    return digest
+  }
+
+  await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /archive.*(identity|changed)/i)
+  assert.equal(archiveHashCalls, 1)
+  assert.equal(fixture.calls.restore.length, 0)
+  assert.equal(fixture.calls.publish.length, 0)
+  assert.ok(retainedHandle)
+  await assert.rejects(retainedHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('standalone database same-byte replacement fails before restore and closes its retained handle', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  assert.equal(fixture.options.inputMode, 'standalone')
+  const createBackup = fixture.runtime.createDataBackup
+  let databaseHandle
+  fixture.runtime.createDataBackup = async (options) => {
+    const backup = await createBackup(options)
+    const displaced = `${options.databasePath}.displaced`
+    const contents = await fsp.readFile(options.databasePath)
+    await fsp.rename(options.databasePath, displaced)
+    await fsp.writeFile(options.databasePath, contents)
+    return backup
+  }
+  fixture.runtime.sha256FileHandle = (handle, options) => {
+    if (options.label === 'source database') databaseHandle = handle
+    return sha256FileHandle(handle, options)
+  }
+
+  await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /database.*(identity|changed)/i)
+  assert.equal(fixture.calls.restore.length, 0)
+  assert.equal(fixture.calls.publish.length, 0)
+  assert.ok(databaseHandle)
+  await assert.rejects(databaseHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('standalone database plus-one growth is rejected by stat before a post-backup read', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  assert.equal(fixture.options.inputMode, 'standalone')
+  fixture.runtime.limits = tinyLimits({ maxArchiveBytes: 64 })
+  const createBackup = fixture.runtime.createDataBackup
+  let databaseHandle
+  let databaseHashCalls = 0
+  let postBackupReads = 0
+  fixture.runtime.createDataBackup = async (options) => {
+    const backup = await createBackup(options)
+    await fsp.appendFile(options.databasePath, 'x')
+    return backup
+  }
+  fixture.runtime.sha256FileHandle = (handle, options) => {
+    if (options.label !== 'source database') return sha256FileHandle(handle, options)
+    databaseHandle = handle
+    databaseHashCalls += 1
+    if (databaseHashCalls !== 2) return sha256FileHandle(handle, options)
+    const observedHandle = {
+      stat: (...args) => handle.stat(...args),
+      read: (...args) => {
+        postBackupReads += 1
+        return handle.read(...args)
+      },
+    }
+    return sha256FileHandle(observedHandle, options)
+  }
+
+  await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /database.*(length|limit|identity|large)/i)
+  assert.equal(databaseHashCalls, 2)
+  assert.equal(postBackupReads, 0)
+  assert.equal(fixture.calls.restore.length, 0)
+  assert.equal(fixture.calls.publish.length, 0)
+  assert.ok(databaseHandle)
+  await assert.rejects(databaseHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('standalone final fingerprint runs after workspace cleanup and blocks cleanup-window mutation', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  assert.equal(fixture.options.inputMode, 'standalone')
+  let cleanupCompleted = false
+  fixture.runtime.cleanupWorkspace = async (workspace) => {
+    await fsp.rm(workspace, { recursive: true, force: true })
+    assert.equal(fs.existsSync(workspace), false)
+    cleanupCompleted = true
+    await fsp.writeFile(path.join(fixture.dataRoot, 'storage', 'asset.txt'), 'cleanup mutation')
+  }
+
+  await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /fingerprint|data root.*changed/i)
+  assert.equal(cleanupCompleted, true)
+  assert.equal(fixture.calls.publish.length, 0)
 })
 
 test('standalone execution rejects split source roots before preparing evidence', async (t) => {

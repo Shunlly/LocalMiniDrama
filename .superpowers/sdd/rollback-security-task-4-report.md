@@ -183,3 +183,169 @@ sharing semantics already covered by the retained-handle contracts.
 The immutable resulting commit SHA is reported in the final handoff. Embedding
 that SHA in this tracked report would change the commit object and produce a
 different SHA.
+
+## Review Fix: Bounded Standalone Hashing
+
+Review-fix date: 2026-07-22
+
+Review-fix base: `d81662fc01ebfb4d5f02842f0c48ed6b3fcd22ea`
+
+Required follow-up subject: `fix: bound standalone rollback hashing`
+
+### Findings Addressed
+
+The initial Task 4 commit bounded retained checkpoint hashing but left three
+standalone path reopen/read flows in `run-rollback-drill.cjs`: the source
+database pre/post hashes and the newly produced archive hash. It also passed
+only a copied `maxBytes` scalar into retained hashing, and its propagation test
+recorded stub options without invoking the real hasher.
+
+The follow-up removes the path-based hash helper entirely. Standalone execution
+now retains:
+
+- one regular-file handle for the source database from its initial bounded hash
+  through post-backup verification, post-cleanup final verification, evidence
+  publication, and exhaustive closure; and
+- one regular-file handle for the generated archive from immediate post-backup
+  open/identity/`backup.archiveBytes` validation through bounded hashing,
+  restore, post-cleanup final verification, publication, closure, and archive
+  deletion.
+
+`sha256FileHandle(handle, { expectedBytes, maxBytes, limits, limitKey, label })`
+preserves the required `expectedBytes`/`maxBytes` contract and additionally
+requires the exact immutable limits object. It rejects a mutable limits object
+or a `maxBytes` value that does not equal the selected property on that object
+before descriptor stat, allocation, or read.
+
+The produced standalone archive uses a random sibling path derived from the
+random `mkdtemp` workspace name. This is necessary on Windows: an open archive
+inside the workspace made recursive workspace removal fail with `ENOTEMPTY`.
+The sibling arrangement permits verified workspace cleanup before final source,
+database, and archive verification and PASS publication while the archive
+handle remains open. The archive is removed after publication and exhaustive
+handle closure.
+
+### RED Evidence
+
+Tests were added before the production follow-up:
+
+```powershell
+npx --yes node@20 --test --test-name-pattern="limit|oversized|archive size|fingerprint|standalone archive|standalone database|hashing" scripts/rollback-drill-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 55 total, 29 passed, 7 failed, 19 skipped by the
+pattern. Expected failures covered:
+
+- no real retained-hasher calls in the shared-limits propagation test;
+- no immutable/matching limits assertion in `sha256FileHandle`;
+- no standalone retained archive handle at the exact boundary;
+- no standalone archive growth or replacement rejection before restore;
+- no retained database authority for same-byte replacement; and
+- no observable stat-before-read database growth rejection.
+
+The first implementation run exposed a Windows lifecycle issue rather than a
+contract success: 55 total, 30 passed, 6 failed, and 19 skipped. Every
+standalone failure was `ENOTEMPTY` while removing a workspace containing the
+open retained archive. The archive was moved to its random sibling path before
+the retained-handle tests were considered GREEN.
+
+### GREEN Verification
+
+Final focused limit/hash/standalone gate:
+
+```powershell
+npx --yes node@20 --test --test-name-pattern="limit|oversized|archive size|fingerprint|standalone archive|standalone database|hashing" scripts/rollback-drill-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 56 total, 37 passed, 0 failed, 19 skipped by the
+pattern.
+
+Complete rollback contract:
+
+```powershell
+npx --yes node@20 --test scripts/rollback-drill-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 60 passed, 0 failed, 0 skipped.
+
+Complete release contract with both Windows PowerShell hosts:
+
+```powershell
+$env:PATH = (Join-Path $env:TEMP 'codex-pwsh-7.6.4') + [IO.Path]::PathSeparator + $env:PATH
+npx --yes node@20 --test scripts/release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 196 passed, 0 failed, 0 skipped. Duration was 529.1
+seconds.
+
+Pinned Node syntax checks:
+
+```powershell
+npx --yes node@20 --check scripts/run-rollback-drill.cjs
+npx --yes node@20 --check scripts/rollback-drill-evidence.cjs
+npx --yes node@20 --check scripts/rollback-drill-contract.test.cjs
+```
+
+Exit codes: `0`, `0`, `0`.
+
+```powershell
+git diff --check
+```
+
+Exit code: `0`. Git emitted only the checkout's existing LF-to-CRLF warnings.
+
+### Review-Fix Changed Files
+
+- `scripts/run-rollback-drill.cjs`
+- `scripts/rollback-drill-contract.test.cjs`
+- `.superpowers/sdd/rollback-security-task-4-report.md`
+
+`scripts/rollback-drill-evidence.cjs` required no follow-up change.
+
+### Review-Fix Self-Review
+
+- No `sha256(path)`, synchronous open/read hash helper, or unbounded standalone
+  hash path remains in `run-rollback-drill.cjs`.
+- The generated archive is opened before any post-backup database hash. Its
+  descriptor size must equal safe-integer `backup.archiveBytes`, and its first
+  byte is read only after descriptor identity, expected size, archive cap,
+  immutable limits identity, and selected limit-key checks pass.
+- Restore receives the same archive `FileHandle` observed by initial and final
+  real hashes in both checkpoint and standalone modes.
+- Source database pre-backup, post-backup, and final checks use the same retained
+  regular-file handle, `maxFileBytes`, expected length, stream cap, digest, and
+  descriptor/path identity checks.
+- The exact normalized frozen limits object is observed by both fingerprints,
+  all five standalone real hash calls, backup, restore, and publisher. The
+  publisher wrapper forwards the limits argument.
+- Exact standalone archive size passes. One-byte archive/database growth is
+  rejected by stat before a post-backup read, and same-byte archive/database
+  replacement is rejected before restore. No failure case publishes PASS, and
+  every observed handle is closed.
+- Workspace cleanup retains baseline ordering and error precedence: operation
+  work is captured, workspace cleanup is attempted once, cleanup errors take
+  precedence, and only then do final source fingerprint/database/archive checks
+  run immediately before publication. A cleanup-window mutation test proves the
+  final fingerprint remains after cleanup.
+- Production defaults remain exactly 25,000 files, 32 GiB payload, 8 GiB per
+  file, 36 GiB archive, 1024 UTF-8 path bytes, and depth 64.
+- The follow-up diff contains only the three stated allowed paths.
+
+### Review-Fix Residual Risks
+
+The backup service returns a path and byte count rather than an already-open
+handle, so a minimal pathname-to-open interval necessarily remains immediately
+after `createDataBackup` returns. The code performs no intervening asynchronous
+operation before opening the random archive path, then retains and validates
+that descriptor through publication. Eliminating that final interval would
+require a backup-service interface change outside Task 4's allowed files.
+
+Maximum-valid hashing remains intentionally expensive at the unchanged 32 GiB
+payload, 8 GiB file, 36 GiB archive, and 1,600,001-entry tree limits. A process
+termination before final cleanup can leave a random sibling archive in the
+system temporary directory, as the prior in-workspace layout could leave its
+workspace; normal success and handled failures verify deletion.
+
+The immutable resulting follow-up commit SHA is reported in the final handoff.
+Embedding it in this tracked report would change the commit object and produce
+a different SHA.
