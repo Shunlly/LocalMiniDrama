@@ -54,6 +54,7 @@ const checkpointScriptPath = path.join(root, 'scripts', 'create-release-rollback
 const rollbackRestoreScriptPath = path.join(root, 'scripts', 'restore-release-rollback-checkpoint.ps1')
 const rollbackIdentityScriptPath = path.join(root, 'scripts', 'rollback-path-identity.ps1')
 const rollbackPowerShellSupportScriptPath = path.join(root, 'scripts', 'rollback-powershell-support.ps1')
+const rollbackEvidencePlanPath = path.join(root, 'docs', 'superpowers', 'plans', '2026-07-20-rollback-evidence-binding.md')
 const backendRequire = createRequire(path.join(root, 'backend-node', 'package.json'))
 const { parse: parseToml } = backendRequire('smol-toml')
 const { load: parseYaml } = backendRequire('js-yaml')
@@ -65,6 +66,7 @@ const backupDataScript = fs.readFileSync(path.join(root, 'backend-node', 'script
 const restoreDataScript = fs.readFileSync(path.join(root, 'backend-node', 'scripts', 'restore-data.js'), 'utf8')
 const rollbackDrillScript = fs.readFileSync(path.join(root, 'scripts', 'run-rollback-drill.cjs'), 'utf8')
 const rollbackEvidenceScript = fs.readFileSync(path.join(root, 'scripts', 'rollback-drill-evidence.cjs'), 'utf8')
+const rollbackEvidencePlan = fs.readFileSync(rollbackEvidencePlanPath, 'utf8')
 const dockerComposeRevisionScript = fs.readFileSync(path.join(root, 'scripts', 'docker-compose-with-revision.cjs'), 'utf8')
 const backendTrivyIgnore = fs.readFileSync(path.join(root, 'backend-node', '.trivyignore.yaml'), 'utf8')
 const backendDockerfile = fs.readFileSync(path.join(root, 'backend-node', 'Dockerfile'), 'utf8')
@@ -667,26 +669,28 @@ function rollbackWorkflowValidator(workflowDocument, label) {
   assert.equal(uploadSteps.length, 1, `${label} must have exactly one rollback evidence upload step`)
 
   const [{ step: validateStep, index: validateIndex }] = validateSteps
-  const [{ index: uploadIndex }] = uploadSteps
+  const [{ step: uploadStep, index: uploadIndex }] = uploadSteps
   assert.ok(validateIndex < uploadIndex, `${label} must validate rollback evidence before upload`)
   assert.equal(validateStep.shell, 'bash')
 
-  const lines = String(validateStep.run || '').split(/\r?\n/)
+  const runScript = String(validateStep.run || '')
+  const lines = runScript.split(/\r?\n/)
   assert.equal(lines[0], 'set -euo pipefail')
-  const commands = lines
-    .map((line) => line.trim())
-    .filter(Boolean)
-  assert.deepEqual(commands, [
-    'set -euo pipefail',
-    'npm run verify:rollback 2>&1 \\',
-    '| tee "$RUNNER_TEMP/rollback-drill.log" \\',
-    '| node scripts/rollback-drill-evidence.cjs \\',
-    '--validate-result-stream \\',
-    '--expected-version 1.3.3 \\',
-    '--expected-commit "$GITHUB_SHA" \\',
-    '--expected-mode standalone',
-  ])
-  assert.doesNotMatch(validateStep.run, /summary\.json|readFileSync|Get-Content/)
+  assert.match(runScript, /stdout_log="\$RUNNER_TEMP\/rollback-drill\.stdout\.log"/)
+  assert.match(runScript, /stderr_log="\$RUNNER_TEMP\/rollback-drill\.stderr\.log"/)
+  assert.match(runScript, /mkfifo "\$stderr_pipe"/)
+  assert.match(runScript, /262144/)
+  assert.match(runScript, /npm run verify:rollback\s+2>"\$stderr_pipe"/)
+  assert.match(runScript, /tee "\$stdout_log"/)
+  assert.match(runScript, /node scripts\/rollback-drill-evidence\.cjs[\s\\]+--validate-result-stream/)
+  assert.match(runScript, /pipeline_status=\("\$\{PIPESTATUS\[@\]\}"\)/)
+  assert.match(runScript, /wait "\$stderr_pid"/)
+  assert.match(runScript, /stderr_status=\$\?/)
+  assert.doesNotMatch(runScript, /2>&1|summary\.json|readFileSync|Get-Content/)
+
+  const uploadedPaths = String(uploadStep.with?.path || '').split(/\r?\n/).map((value) => value.trim())
+  assert.ok(uploadedPaths.includes('${{ runner.temp }}/rollback-drill.stdout.log'))
+  assert.ok(uploadedPaths.includes('${{ runner.temp }}/rollback-drill.stderr.log'))
   return [
     path.join(root, 'scripts', 'rollback-drill-evidence.cjs'),
     '--validate-result-stream',
@@ -1489,7 +1493,8 @@ test('checkpoint result marker parser is strict and bounded on every Windows Pow
   }), 'utf8').toString('base64url')}`
   const statements = `
 . ${powerShellLiteral(checkpointScriptPath)}
-$parsed = @(ConvertFrom-RollbackResultOutput -Lines @('focused test log', ${powerShellLiteral(marker)}))
+$validOutput = [System.Text.UTF8Encoding]::new($false, $true).GetBytes(('focused test log' + [char]10 + ${powerShellLiteral(marker)} + [char]10))
+$parsed = @(ConvertFrom-RollbackResultOutput -Bytes $validOutput)
 if ($parsed.Count -ne 1) { throw 'Marker parser emitted an invalid result count.' }
 $result = $parsed[0]
 if ($result.Schema -cne 'localminidrama.rollback-result.v1') { throw 'Marker parser returned the wrong schema.' }
@@ -1500,7 +1505,8 @@ if ($result.Evidence.source.commit -cne ('c' * 40)) { throw 'Marker parser retur
 function Assert-ResultRejected {
   param([object[]]$Lines, [string]$Label)
   $threw = $false
-  try { ConvertFrom-RollbackResultOutput -Lines $Lines | Out-Null } catch { $threw = $true }
+  $bytes = [System.Text.UTF8Encoding]::new($false, $true).GetBytes(($Lines -join [char]10))
+  try { ConvertFrom-RollbackResultOutput -Bytes $bytes | Out-Null } catch { $threw = $true }
   if (-not $threw) { throw "Invalid rollback result was accepted: $Label" }
 }
 Assert-ResultRejected -Lines @() -Label 'missing marker'
@@ -1511,6 +1517,97 @@ Assert-ResultRejected -Lines @(${powerShellLiteral(malformedJsonMarker)}) -Label
 Assert-ResultRejected -Lines @(${powerShellLiteral(mistypedEnvelopeMarker)}) -Label 'mistyped envelope'
 Assert-ResultRejected -Lines @(('x' * (${MAX_ROLLBACK_RESULT_STREAM_BYTES} + 1))) -Label 'oversized stream'
 Assert-ResultRejected -Lines @('LOCALMINIDRAMA_ROLLBACK_RESULT_V1=' + ('A' * 1048576)) -Label 'oversized marker'
+`
+  for (const host of windowsPowerShellHosts()) {
+    assertPowerShellStatements(statements, { executable: host.executable })
+  }
+})
+
+test('checkpoint summary is created and retained through one read-write authority', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('PowerShell checkpoint authority contracts require Windows')
+    return
+  }
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-checkpoint-summary-authority-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const summaryPath = path.join(fixtureRoot, 'rollback-drill-summary.json')
+  const summaryText = '{"schema":"localminidrama.rollback-drill.v3","status":"passed"}\n'
+  const summaryHash = crypto.createHash('sha256').update(summaryText, 'utf8').digest('hex')
+  const statements = `
+. ${powerShellLiteral(checkpointScriptPath)}
+$summaryBytes = [System.Text.UTF8Encoding]::new($false, $true).GetBytes(${powerShellLiteral(summaryText)})
+$authority = New-RollbackSummaryAuthority -Path ${powerShellLiteral(summaryPath)} -Bytes $summaryBytes -Label 'Rollback checkpoint drill summary'
+try {
+  if (-not $authority.Stream.CanRead -or -not $authority.Stream.CanWrite) { throw 'Summary authority is not read-write.' }
+  Assert-RollbackFileAuthority -Authority $authority | Out-Null
+  if ((Get-RollbackFileAuthoritySha256 -Authority $authority) -cne ${powerShellLiteral(summaryHash)}) {
+    throw 'Summary authority digest changed.'
+  }
+  $actual = [byte[]]::new($summaryBytes.Length)
+  $authority.Stream.Position = 0
+  $offset = 0
+  while ($offset -lt $actual.Length) {
+    $read = $authority.Stream.Read($actual, $offset, $actual.Length - $offset)
+    if ($read -eq 0) { throw 'Summary authority bytes were truncated.' }
+    $offset += $read
+  }
+  for ($index = 0; $index -lt $actual.Length; $index++) {
+    if ($actual[$index] -ne $summaryBytes[$index]) { throw 'Summary authority bytes changed.' }
+  }
+  $writeBlocked = $false
+  try {
+    $writer = [System.IO.FileStream]::new(${powerShellLiteral(summaryPath)}, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+    $writer.Dispose()
+  } catch { $writeBlocked = $true }
+  if (-not $writeBlocked) { throw 'Summary authority allowed a competing writer.' }
+  $deleteBlocked = $false
+  try { [System.IO.File]::Delete(${powerShellLiteral(summaryPath)}) } catch { $deleteBlocked = $true }
+  if (-not $deleteBlocked) { throw 'Summary authority allowed deletion.' }
+} finally {
+  if ($null -ne $authority) { $authority.Stream.Dispose() }
+}
+`
+  for (const host of windowsPowerShellHosts()) {
+    assertPowerShellStatements(statements, { executable: host.executable })
+    fs.rmSync(summaryPath, { force: true })
+  }
+})
+
+test('checkpoint native reader returns bounded separate bytes and ignores stderr markers', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('PowerShell native stream contracts require Windows')
+    return
+  }
+  const checkpointEvidence = validStandaloneRollbackSummary()
+  const stderrMarker = createRollbackResultMarker({
+    evidence: checkpointEvidence,
+    evidenceBytes: serializeEvidence(checkpointEvidence),
+    diagnosticRelativePath: `artifacts/rollback-drill/summary-v3-${'c'.repeat(40)}-${'1'.repeat(32)}.json`,
+  }, backendPackage.version)
+  const statements = `
+. ${powerShellLiteral(checkpointScriptPath)}
+$separate = Invoke-NativeCommandWithTimeout -FilePath ${powerShellLiteral(process.execPath)} -ArgumentList @(
+  '-e',
+  ${powerShellLiteral(`process.stdout.write('stdout-only\\n'); process.stderr.write(${JSON.stringify(`${stderrMarker}\n`)})`)}
+) -Label 'Separate native streams' -TimeoutMilliseconds 10000 -CaptureOutputBytes -MaximumOutputBytes 2097152 -MaximumErrorBytes 65536
+$stdoutText = [System.Text.UTF8Encoding]::new($false, $true).GetString($separate.StandardOutputBytes)
+$stderrText = [System.Text.UTF8Encoding]::new($false, $true).GetString($separate.StandardErrorBytes)
+if ($stdoutText -cne ('stdout-only' + [char]10)) { throw 'Native stdout bytes changed.' }
+if ($stderrText -cne ${powerShellLiteral(`${stderrMarker}\n`)}) { throw 'Native stderr bytes changed.' }
+$stderrMarkerRejected = $false
+try { ConvertFrom-RollbackResultOutput -Bytes $separate.StandardOutputBytes | Out-Null } catch { $stderrMarkerRejected = $true }
+if (-not $stderrMarkerRejected) { throw 'A stderr-only marker was accepted.' }
+
+$oversizedRejected = $false
+try {
+  Invoke-NativeCommandWithTimeout -FilePath ${powerShellLiteral(process.execPath)} -ArgumentList @(
+    '-e',
+    'process.stdout.write(Buffer.alloc(2097153, 0x61)); process.stderr.write("stderr-drained")'
+  ) -Label 'Oversized native stdout' -TimeoutMilliseconds 10000 -CaptureOutputBytes -MaximumOutputBytes 2097152 -MaximumErrorBytes 65536 | Out-Null
+} catch {
+  $oversizedRejected = $_.Exception.Message -match 'output exceeded.*2097152'
+}
+if (-not $oversizedRejected) { throw 'Oversized native stdout was accepted.' }
 `
   for (const host of windowsPowerShellHosts()) {
     assertPowerShellStatements(statements, { executable: host.executable })
@@ -2501,21 +2598,39 @@ test('release rollback checkpoint and restore consume shared native-lock v5 inte
   assert.match(checkpointScript, /data_root_identity\s*=\s*\$validatedEvidence\.data_root_identity/)
   assert.match(
     checkpointScript,
-    /'run', 'verify:rollback', '--',[\s\S]*'--archive', \$backupPath,[\s\S]*'--data-root', \$runtimeDataDirectory/,
+    /run-rollback-drill\.cjs'[\s\S]*'--archive', \$backupPath,[\s\S]*'--data-root', \$runtimeDataDirectory/,
   )
   assert.match(checkpointScript, /function Assert-CheckpointDrillEvidence/)
   assert.match(checkpointScript, /function ConvertFrom-RollbackResultOutput/)
   assert.match(checkpointScript, /LOCALMINIDRAMA_ROLLBACK_RESULT_V1=/)
-  assert.match(checkpointScript, /\$drillOutput\s*=\s*@\(Invoke-Checked[\s\S]*ConvertFrom-RollbackResultOutput -Lines \$drillOutput/)
+  assert.match(
+    checkpointScript,
+    /\$drillInvocation\s*=\s*Invoke-NativeCommandWithTimeout[\s\S]*-FilePath 'node'[\s\S]*run-rollback-drill\.cjs[\s\S]*-CaptureOutputBytes[\s\S]*-MaximumOutputBytes 2097152/,
+  )
+  assert.match(
+    checkpointScript,
+    /\$validatorInvocation\s*=\s*Invoke-NativeCommandWithTimeout[\s\S]*rollback-drill-evidence\.cjs[\s\S]*--validate-result-stream[\s\S]*-StandardInputBytes \$drillInvocation\.StandardOutputBytes/,
+  )
+  assert.match(checkpointScript, /ConvertFrom-RollbackResultOutput -Bytes \$drillInvocation\.StandardOutputBytes/)
+  assert.doesNotMatch(checkpointScript, /Invoke-Checked[^\r\n]*-Label 'Rollback drill'/)
   assert.doesNotMatch(checkpointScript, /artifacts\\rollback-drill\\summary\.json/)
   assert.doesNotMatch(checkpointScript, /Get-Content[^\r\n]*rollback-drill[^\r\n]*summary/i)
   assert.match(checkpointScript, /Open-RollbackDirectoryIdentityLock/)
   assert.match(checkpointScript, /Open-RollbackArchiveReadLock/)
-  assert.match(checkpointScript, /Publish-BytesAtomically -Path \$summaryArchive -Bytes \$rollbackResult\.EvidenceBytes/)
-  assert.match(checkpointScript, /Open-RollbackFileAuthority -Path \$summaryArchive -Label 'Rollback checkpoint drill summary'/)
+  assert.match(checkpointScript, /function New-RollbackSummaryAuthority/)
+  assert.match(checkpointScript, /\[System\.IO\.FileMode\]::CreateNew/)
+  assert.match(checkpointScript, /\[System\.IO\.FileAccess\]::ReadWrite/)
+  assert.match(checkpointScript, /\[System\.IO\.FileShare\]::Read/)
+  assert.match(checkpointScript, /\$summaryAuthority\s*=\s*New-RollbackSummaryAuthority -Path \$summaryArchive -Bytes \$rollbackResult\.EvidenceBytes/)
+  assert.doesNotMatch(checkpointScript, /Publish-BytesAtomically -Path \$summaryArchive/)
+  assert.doesNotMatch(checkpointScript, /Open-RollbackFileAuthority -Path \$summaryArchive -Label 'Rollback checkpoint drill summary'/)
   assert.match(checkpointScript, /Get-RollbackFileAuthoritySha256 -Authority \$summaryAuthority/)
   assert.match(checkpointScript, /\[System\.IO\.File\]::Move\(\$temporaryPath, \$targetPath\)/)
-  const summaryAuthorityOpen = checkpointScript.indexOf("Open-RollbackFileAuthority -Path $summaryArchive -Label 'Rollback checkpoint drill summary'")
+  const drillInvocation = checkpointScript.indexOf('$drillInvocation = Invoke-NativeCommandWithTimeout')
+  const nodeValidation = checkpointScript.indexOf('$validatorInvocation = Invoke-NativeCommandWithTimeout')
+  const powerShellParsing = checkpointScript.indexOf('ConvertFrom-RollbackResultOutput -Bytes $drillInvocation.StandardOutputBytes')
+  assert.ok(drillInvocation >= 0 && drillInvocation < nodeValidation && nodeValidation < powerShellParsing)
+  const summaryAuthorityOpen = checkpointScript.indexOf('$summaryAuthority = New-RollbackSummaryAuthority')
   const metadataPublication = checkpointScript.indexOf("Publish-Utf8FileAtomically -Path (Join-Path $checkpoint 'metadata.json')")
   const summaryAuthorityDispose = checkpointScript.indexOf('if ($null -ne $summaryAuthority) { $summaryAuthority.Stream.Dispose() }')
   const checkpointLockDispose = checkpointScript.indexOf('if ($null -ne $checkpointDirectoryLock) { $checkpointDirectoryLock.Dispose() }')
@@ -2558,7 +2673,13 @@ test('release rollback checkpoint container bind proof is retained, exact, and o
   assert.match(checkpointScript, /FileName\s*=\s*\$TaskkillFilePath/)
   assert.match(checkpointScript, /NativeProcessTreeTerminated/)
   assert.match(checkpointScript, /\[byte\[\]\]::new\(\$MaximumOutputBytes\)/)
-  assert.match(checkpointScript, /RedirectStandardOutput\s*=\s*\$CaptureOutput/)
+  assert.match(checkpointScript, /\[byte\[\]\]::new\(\$MaximumErrorBytes\)/)
+  assert.match(checkpointScript, /\[switch\]\$CaptureOutputBytes/)
+  assert.match(checkpointScript, /RedirectStandardOutput\s*=\s*\$captureStreams/)
+  assert.match(checkpointScript, /RedirectStandardError\s*=\s*\$captureStreams/)
+  assert.match(checkpointScript, /RedirectStandardInput\s*=\s*\(\$null -ne \$StandardInputBytes\)/)
+  assert.match(checkpointScript, /StandardOutputBytes/)
+  assert.match(checkpointScript, /StandardErrorBytes/)
   assert.match(checkpointScript, /NativeExitCode/)
   assert.doesNotMatch(checkpointScript, /dockerTransportRetryExitCode/)
   assert.match(checkpointScript, /\$dockerExecTimeoutMilliseconds\s*=\s*10000/)
@@ -2593,7 +2714,7 @@ test('release rollback checkpoint container bind proof is retained, exact, and o
   const imageSave = checkpointMain.indexOf("@('image', 'save'")
   const shutdown = checkpointMain.indexOf("@('compose', 'down')")
   const backup = checkpointMain.indexOf("'backup:data'")
-  const fingerprint = checkpointMain.indexOf("'verify:rollback'")
+  const rollbackDrill = checkpointMain.indexOf('run-rollback-drill.cjs')
   for (const [label, index] of [
     ['bind capture', bindCapture],
     ['directory lock', lockOpen],
@@ -2603,12 +2724,12 @@ test('release rollback checkpoint container bind proof is retained, exact, and o
     ['image save', imageSave],
     ['shutdown', shutdown],
     ['backup', backup],
-    ['fingerprint', fingerprint],
+    ['rollback drill', rollbackDrill],
   ]) assert.notEqual(index, -1, `${label} is missing from checkpoint creation`)
   assert.ok(bindCapture < lockOpen)
   assert.ok(lockOpen < identityCapture)
   assert.ok(identityCapture < proof)
-  for (const later of [checkpointCreation, imageSave, shutdown, backup, fingerprint]) assert.ok(proof < later)
+  for (const later of [checkpointCreation, imageSave, shutdown, backup, rollbackDrill]) assert.ok(proof < later)
   assert.doesNotMatch(rollbackRestoreScript, /Confirm-RollbackContainerBindAuthority/)
 })
 
@@ -2703,8 +2824,27 @@ if (tool === 'git') {
   process.exit(0)
 }
 if (tool === 'node') {
-  if (args[0] === '-p') process.stdout.write(state.version + '\\n')
-  else fs.writeFileSync(args[2], 'server:\\n  port: 5679\\n')
+  if (args[0] === '-p') {
+    process.stdout.write(state.version + '\\n')
+  } else if (path.basename(args[0]) === 'run-rollback-drill.cjs') {
+    const drillResult = spawnSync(
+      process.execPath,
+      [__filename, 'npm', 'run', 'verify:rollback', '--', ...args.slice(1)],
+      { env: process.env, stdio: 'inherit', windowsHide: true },
+    )
+    if (drillResult.error) process.exit(63)
+    process.exit(drillResult.status == null ? 64 : drillResult.status)
+  } else if (path.basename(args[0]) === 'rollback-drill-evidence.cjs') {
+    const validatorResult = spawnSync(
+      process.execPath,
+      args,
+      { env: process.env, input: fs.readFileSync(0), stdio: ['pipe', 'inherit', 'inherit'], windowsHide: true },
+    )
+    if (validatorResult.error) process.exit(65)
+    process.exit(validatorResult.status == null ? 66 : validatorResult.status)
+  } else {
+    fs.writeFileSync(args[2], 'server:\\n  port: 5679\\n')
+  }
   process.exit(0)
 }
 if (tool === 'docker') {
@@ -2939,19 +3079,32 @@ function Stop-NativeProcessTreeBounded {
 }
 
 function Invoke-NativeCommandWithTimeout {
+  [CmdletBinding()]
   param(
     [Parameter(Mandatory = $true)][string]$FilePath,
     [Parameter(Mandatory = $true)][string[]]$ArgumentList,
     [Parameter(Mandatory = $true)][string]$Label,
     [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds,
     [switch]$CaptureOutput,
+    [switch]$CaptureOutputBytes,
     [int]$MaximumOutputBytes = 262144,
+    [int]$MaximumErrorBytes = 65536,
+    [AllowNull()][byte[]]$StandardInputBytes = $null,
     [int]$TerminationTimeoutMilliseconds = 2000
   )
-  $PSBoundParameters['TimeoutMilliseconds'] = [int]$env:LMD_TEST_NATIVE_TIMEOUT_MS
-  $PSBoundParameters['TerminationTimeoutMilliseconds'] = [int]$env:LMD_TEST_TERMINATION_TIMEOUT_MS
+  $forward = @{}
+  foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+    $forward[$entry.Key] = $entry.Value
+  }
+  if ($FilePath -ceq 'node') {
+    $forward['FilePath'] = $env:LMD_NATIVE_DOCKER_NODE
+    $forward['ArgumentList'] = @($env:LMD_FAKE_TOOL, 'node') + @($ArgumentList)
+  } else {
+    $forward['TimeoutMilliseconds'] = [int]$env:LMD_TEST_NATIVE_TIMEOUT_MS
+    $forward['TerminationTimeoutMilliseconds'] = [int]$env:LMD_TEST_TERMINATION_TIMEOUT_MS
+  }
   try {
-    & $script:OriginalInvokeNativeCommandWithTimeout @PSBoundParameters
+    & $script:OriginalInvokeNativeCommandWithTimeout @forward
   } catch {
     $script:LastProofError = $_
     throw
@@ -3117,6 +3270,7 @@ try {
         LMD_BIND_EVENT_LOG: eventLog,
         LMD_BIND_STATE: statePath,
         LMD_BIND_SUMMARY: summaryPath,
+        LMD_FAKE_TOOL: fakeToolPath,
         LMD_MARKER_CLEANUP_DETAIL: String(cleanupDetail),
         LMD_MARKER_CLEANUP_FAILURE: String(cleanupFailure),
         LMD_NATIVE_DOCKER_NODE: process.execPath,
@@ -3555,6 +3709,23 @@ if (tool === 'node') {
   if (args[0] === '-p') {
     record('version')
     process.stdout.write(version + '\\n')
+  } else if (path.basename(args[0]) === 'run-rollback-drill.cjs') {
+    const drillResult = spawnSync(
+      process.execPath,
+      [__filename, 'npm', 'run', 'verify:rollback', '--', ...args.slice(1)],
+      { env: process.env, stdio: 'inherit', windowsHide: true },
+    )
+    if (drillResult.error) process.exit(41)
+    process.exit(drillResult.status == null ? 42 : drillResult.status)
+  } else if (path.basename(args[0]) === 'rollback-drill-evidence.cjs') {
+    record('node_validator')
+    const validatorResult = spawnSync(
+      process.execPath,
+      args,
+      { env: process.env, input: fs.readFileSync(0), stdio: ['pipe', 'inherit', 'inherit'], windowsHide: true },
+    )
+    if (validatorResult.error) process.exit(43)
+    process.exit(validatorResult.status == null ? 44 : validatorResult.status)
   } else {
     fs.writeFileSync(args[2], 'server:\\n  port: 5679\\n')
   }
@@ -3672,6 +3843,7 @@ if (tool === 'npm') {
         workspace_cleanup_verified: true,
       },
     }
+    if (process.env.LMD_MARKER_MODE === 'extra-evidence') summary.unexpected = true
     const evidenceBytes = Buffer.from(JSON.stringify(summary, null, 2) + '\\n', 'utf8')
     const envelope = {
       schema: 'localminidrama.rollback-result.v1',
@@ -3686,7 +3858,8 @@ if (tool === 'npm') {
       fs.writeFileSync(path.join(path.dirname(archivePath), 'metadata.json'), '{"schema":"untrusted"}\\n')
     }
     process.stdout.write('focused test log\\n')
-    if (process.env.LMD_MARKER_MODE === 'duplicate') process.stdout.write(marker + '\\n' + marker + '\\n')
+    if (process.env.LMD_MARKER_MODE === 'stderr-only') process.stderr.write(marker + '\\n')
+    else if (process.env.LMD_MARKER_MODE === 'duplicate') process.stdout.write(marker + '\\n' + marker + '\\n')
     else if (process.env.LMD_MARKER_MODE === 'malformed') process.stdout.write(markerPrefix + 'bad=\\n')
     else if (process.env.LMD_MARKER_MODE === 'oversized') process.stdout.write(markerPrefix + 'A'.repeat(1024 * 1024) + '\\n')
     else if (process.env.LMD_MARKER_MODE !== 'missing') process.stdout.write(marker + '\\n')
@@ -3739,10 +3912,12 @@ $requestedCheckpointDirectory = $CheckpointDirectory
 . ${powerShellLiteral(checkpointScriptPath)}
 
 $script:OriginalInvokeChecked = \${function:Invoke-Checked}
+$script:OriginalInvokeNativeCommandWithTimeout = \${function:Invoke-NativeCommandWithTimeout}
 $script:OriginalAssertCheckpointDrillEvidence = \${function:Assert-CheckpointDrillEvidence}
 $script:OriginalWriteUtf8File = \${function:Write-Utf8File}
 $script:OriginalPublishUtf8FileAtomically = \${function:Publish-Utf8FileAtomically}
 $script:OriginalOpenRollbackFileAuthority = \${function:Open-RollbackFileAuthority}
+$script:OriginalNewRollbackSummaryAuthority = \${function:New-RollbackSummaryAuthority}
 $script:OriginalStartCapturedDeployment = \${function:Start-CapturedDeployment}
 $script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
 $script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
@@ -3773,6 +3948,32 @@ function Invoke-Checked {
   )
   if ($Label -ceq 'Rollback drill') { Write-TestEvent -Name 'paired_drill' }
   & $script:OriginalInvokeChecked @PSBoundParameters
+}
+
+function Invoke-NativeCommandWithTimeout {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string[]]$ArgumentList,
+    [Parameter(Mandatory = $true)][string]$Label,
+    [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds,
+    [switch]$CaptureOutput,
+    [switch]$CaptureOutputBytes,
+    [int]$MaximumOutputBytes = 262144,
+    [int]$MaximumErrorBytes = 65536,
+    [AllowNull()][byte[]]$StandardInputBytes = $null,
+    [int]$TerminationTimeoutMilliseconds = 2000
+  )
+  $forward = @{}
+  foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+    $forward[$entry.Key] = $entry.Value
+  }
+  if ($FilePath -ceq 'node') {
+    if ($Label -ceq 'Rollback drill') { Write-TestEvent -Name 'paired_drill' }
+    $forward['FilePath'] = $env:LMD_NODE_EXE
+    $forward['ArgumentList'] = @($env:LMD_FAKE_TOOL, 'node') + @($ArgumentList)
+  }
+  & $script:OriginalInvokeNativeCommandWithTimeout @forward
 }
 
 function Assert-CheckpointDrillEvidence {
@@ -3809,6 +4010,23 @@ function Open-RollbackFileAuthority {
     if ($Label -ceq 'Rollback checkpoint drill summary') {
       Assert-TestLocks -Stage 'summary_archive'
     }
+    return $authority
+  } catch {
+    if ($null -ne $authority) { $authority.Stream.Dispose() }
+    throw
+  }
+}
+
+function New-RollbackSummaryAuthority {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $authority = $null
+  try {
+    $authority = & $script:OriginalNewRollbackSummaryAuthority @PSBoundParameters
+    Assert-TestLocks -Stage 'summary_archive'
     return $authority
   } catch {
     if ($null -ne $authority) { $authority.Stream.Dispose() }
@@ -3950,6 +4168,7 @@ try {
         LMD_CONFIG_ROOT: configRoot,
         LMD_DATA_ROOT: dataRoot,
         LMD_EVENT_LOG: logPath,
+        LMD_FAKE_TOOL: fakeToolPath,
         LMD_HOLD_METADATA_AUTHORITY: String(holdMetadataAuthority),
         LMD_LOCK_PROBE: lockProbePath,
         LMD_MARKER_MODE: markerMode,
@@ -4012,17 +4231,18 @@ try {
   assert.ok(eventIndex('version') < eventIndex('shutdown'))
   assert.ok(eventIndex('shutdown') < eventIndex('backup'))
   assert.ok(eventIndex('backup') < eventIndex('drill'))
-  for (const name of ['first_locked_hash', 'paired_drill', 'validator', 'summary_archive', 'metadata_publish']) {
+  for (const name of ['first_locked_hash', 'paired_drill', 'node_validator', 'validator', 'summary_archive', 'metadata_publish']) {
     assert.notEqual(eventIndex(name), -1, `checkpoint orchestration event is missing: ${name}; ${events.map((entry) => entry.event).join(',')}`)
   }
   assert.ok(eventIndex('first_locked_hash') < eventIndex('paired_drill'))
-  assert.ok(eventIndex('paired_drill') < eventIndex('validator'))
+  assert.ok(eventIndex('paired_drill') < eventIndex('node_validator'))
+  assert.ok(eventIndex('node_validator') < eventIndex('validator'))
   assert.ok(eventIndex('validator') < eventIndex('summary_archive'))
   assert.ok(eventIndex('summary_archive') < eventIndex('metadata_publish'))
 
   assertNamespacesMovable(checkpointPath)
 
-  for (const markerMode of ['missing', 'duplicate', 'malformed', 'oversized']) {
+  for (const markerMode of ['missing', 'duplicate', 'malformed', 'oversized', 'stderr-only', 'extra-evidence']) {
     const markerFailureStart = readEvents().length
     const markerFailurePath = path.join(fixtureRoot, `${host.name}-${markerMode}-marker-checkpoint`)
     const markerFailure = runCheckpoint(
@@ -4039,6 +4259,7 @@ try {
     assert.equal(fs.existsSync(path.join(markerFailurePath, 'rollback-drill-summary.json')), false)
     const markerFailureEvents = readEvents().slice(markerFailureStart).map((entry) => entry.event)
     assert.notEqual(markerFailureEvents.indexOf('drill'), -1)
+    assert.notEqual(markerFailureEvents.indexOf('node_validator'), -1)
     assert.equal(markerFailureEvents.indexOf('validator'), -1)
     assert.equal(markerFailureEvents.indexOf('summary_archive'), -1)
     assert.equal(markerFailureEvents.indexOf('metadata_publish'), -1)
@@ -4127,9 +4348,10 @@ try {
   assert.equal(fs.readdirSync(failedCheckpointPath).some((name) => name.startsWith('.metadata.')), false)
   const afterFailed = fs.readFileSync(logPath, 'utf8').trim().split(/\r?\n/).map(JSON.parse)
   const failedEvents = afterFailed.slice(failedStart).map((entry) => entry.event)
-  assert.notEqual(failedEvents.indexOf('validator'), -1)
+  assert.notEqual(failedEvents.indexOf('node_validator'), -1)
+  assert.equal(failedEvents.indexOf('validator'), -1)
   assert.notEqual(failedEvents.indexOf('failure_recovery'), -1)
-  assert.ok(failedEvents.indexOf('validator') < failedEvents.indexOf('failure_recovery'))
+  assert.ok(failedEvents.indexOf('node_validator') < failedEvents.indexOf('failure_recovery'))
   const failedArchive = path.join(failedCheckpointPath, 'data.zip')
   fs.writeFileSync(failedArchive, 'archive lock release positive control')
   const renamedFailedArchive = `${failedArchive}.renamed`
@@ -5815,7 +6037,7 @@ test('release rollback scripts fail closed and verify the retained backup before
   assert.match(checkpointScript, /function Get-ImageRevision[\s\S]*\{\{json \.Config\.Labels\}\}/)
   assert.match(checkpointScript, /ConvertFrom-Json -InputObject \$mountJson[\s\S]*ForEach-Object/)
   assert.match(checkpointScript, /docker-compose\.yml[\s\S]*config\.yaml[\s\S]*composeHash[\s\S]*configHash/)
-  assert.match(checkpointScript, /backup:data[\s\S]*Get-FileHash[\s\S]*verify:rollback/)
+  assert.match(checkpointScript, /backup:data[\s\S]*Get-FileHash[\s\S]*run-rollback-drill\.cjs/)
   assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v5/)
   assert.match(checkpointScript, /Get-ContainerBindSource[\s\S]*\/app\/config-source/)
   assert.match(checkpointScript, /LOCALMINIDRAMA_CONFIG_PATH/)
@@ -6555,6 +6777,14 @@ test('CI isolated rollback workflow enforces standalone v3 evidence', () => {
 
 test('release rollback workflow enforces standalone v3 evidence', () => {
   assertStandaloneRollbackWorkflowContract(releaseWorkflowDocument, 'release')
+})
+
+test('rollback acceptance plan never treats the repository diagnostic as authoritative', () => {
+  const taskFive = rollbackEvidencePlan.slice(rollbackEvidencePlan.indexOf('### Task 5:'))
+  assert.ok(taskFive.startsWith('### Task 5:'))
+  assert.doesNotMatch(taskFive, /artifacts\/rollback-drill\/summary\.json/)
+  assert.match(taskFive, /LOCALMINIDRAMA_ROLLBACK_RESULT_V1|live stdout|machine result/i)
+  assert.match(taskFive, /checkpoint\/rollback-drill-summary\.json|checkpoint-bound summary/i)
 })
 
 test('third-party workflow actions are pinned to full commit digests', () => {

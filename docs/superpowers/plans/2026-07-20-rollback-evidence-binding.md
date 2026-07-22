@@ -365,15 +365,15 @@ git commit -m "docs: enforce rollback v3 in release workflows"
 ### Task 5: Real Checkpoint And Restore Acceptance
 
 **Files:**
-- Verify only: external Docker data root, generated checkpoint directory, and `artifacts/rollback-drill/summary.json`.
+- Verify only: external Docker data root, generated checkpoint directory, and the bounded live stdout machine result from the independent standalone drill.
 
 **Interfaces:**
-- Consumes: clean final Git SHA and final Docker images.
+- Consumes: clean final Git SHA, final Docker images, the checkpoint-bound summary retained as `checkpoint/rollback-drill-summary.json`, and exactly one `LOCALMINIDRAMA_ROLLBACK_RESULT_V1` marker from live stdout for the standalone drill.
 - Produces: one v5 checkpoint, successful restore, and one independent v3 standalone offline drill.
 
 - [ ] **Step 1: Create a real checkpoint**
 
-With Docker using a repository-external `LOCALMINIDRAMA_DATA_DIR`, run `npm run checkpoint:rollback -- -CheckpointDirectory <external-checkpoint>`. Require metadata v5, summary v3 checkpoint-bound, exact three-way archive hashes, exact two-way root digests, retained archive identity, and unchanged source root.
+With Docker using a repository-external `LOCALMINIDRAMA_DATA_DIR`, run `npm run checkpoint:rollback -- -CheckpointDirectory <external-checkpoint>`. Require metadata v5, the checkpoint-bound summary created directly inside the generated checkpoint, exact three-way archive hashes, exact two-way root digests, retained archive identity, and unchanged source root. Treat repository evidence files as append-only diagnostics only.
 
 - [ ] **Step 2: Exercise restore and compensation**
 
@@ -381,7 +381,7 @@ Run `npm run restore:rollback -- -CheckpointDirectory <external-checkpoint>`. Re
 
 - [ ] **Step 3: Stop Docker and run the offline standalone drill**
 
-Run `docker compose --profile e2e down --remove-orphans` without deleting the external data root, confirm the backend port is closed, then run no-argument `npm run verify:rollback` with Node 20. Require `input_mode: standalone`, `archive_retained: false`, valid archive/data-root digests, `source_data_root_unchanged: true`, workspace cleanup success, and no live service dependency.
+Run `docker compose --profile e2e down --remove-orphans` without deleting the external data root, confirm the backend port is closed, then run no-argument `npm run verify:rollback` with Node 20. Feed its bounded live stdout directly to `scripts/rollback-drill-evidence.cjs --validate-result-stream`; keep stderr separate and require exactly one valid machine result. Require `input_mode: standalone`, `archive_retained: false`, valid archive/data-root digests, `source_data_root_unchanged: true`, workspace cleanup success, and no live service dependency. Never reopen a diagnostic pathname to authorize acceptance.
 
 - [ ] **Step 4: Re-run release contracts**
 

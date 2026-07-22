@@ -25,7 +25,7 @@ const RESULT_ENVELOPE_FIELDS = Object.freeze([
   'evidence_sha256',
   'diagnostic_relative_path',
 ])
-const STRICT_UTF8_DECODER = new TextDecoder('utf-8', { fatal: true })
+const STRICT_UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
 function comparablePath(value) {
   const normalized = path.normalize(value)
@@ -322,6 +322,16 @@ async function fingerprintDataRoot(root, hooks = {}, limits = DEFAULT_LIMITS) {
     assertSamePathIdentity(beforeRead, afterRead, `data root entry ${entry.relativePath}`)
   }
 
+  for (const entry of [...entries].reverse()) {
+    if (entry.type !== 'file') continue
+    await hooks.beforePersistentFilePostCheck?.({
+      absolutePath: entry.absolutePath,
+      relativePath: entry.relativePath,
+    })
+    const persistentIdentity = await capturePathIdentity(entry.absolutePath, 'file')
+    assertSamePathIdentity(entry.identity, persistentIdentity, `data root persistent file ${entry.relativePath}`)
+  }
+
   for (const directory of [...directories].reverse()) {
     await hooks.beforeDirectoryPostCheck?.({
       absolutePath: directory.absolutePath,
@@ -503,6 +513,7 @@ function parseRollbackResultStream(stream, options, limits = DEFAULT_LIMITS) {
   const streamBytes = Buffer.isBuffer(stream) ? stream : Buffer.from(stream, 'utf8')
   assert.ok(streamBytes.length <= MAX_ROLLBACK_RESULT_STREAM_BYTES, 'rollback result stream exceeds the byte limit')
   const streamText = decodeStrictUtf8(streamBytes, 'rollback result stream')
+  assert.notEqual(streamText.codePointAt(0), 0xfeff, 'rollback result stream must not begin with a BOM')
   const markers = streamText.split(/\r?\n/).filter((line) => line.startsWith(ROLLBACK_RESULT_MARKER_PREFIX))
   assert.equal(markers.length, 1, 'rollback result stream must contain exactly one machine marker')
   const marker = markers[0]
@@ -514,6 +525,7 @@ function parseRollbackResultStream(stream, options, limits = DEFAULT_LIMITS) {
     MAX_ROLLBACK_RESULT_MARKER_BYTES
   )
   const envelopeText = decodeStrictUtf8(envelopeBytes, 'rollback result envelope')
+  assert.notEqual(envelopeText.codePointAt(0), 0xfeff, 'rollback result envelope JSON must be canonical without a BOM')
   let envelope
   try {
     envelope = JSON.parse(envelopeText)
@@ -618,6 +630,14 @@ function assertPlainObject(value, label) {
   )
 }
 
+function assertExactProperties(value, properties, label) {
+  assert.deepEqual(
+    Object.keys(value).sort(),
+    [...properties].sort(),
+    `${label} properties are invalid`
+  )
+}
+
 function assertNonNegativeSafeInteger(value, label) {
   assert.ok(Number.isSafeInteger(value) && value >= 0, `${label} must be a non-negative safe integer`)
 }
@@ -631,6 +651,17 @@ function validateEvidenceV3(evidence, expectedVersion, limits = DEFAULT_LIMITS) 
   const maxFiles = BigInt(positiveSafeIntegerLimit(limits, 'maxFiles'))
   const maxArchiveBytes = BigInt(positiveSafeIntegerLimit(limits, 'maxArchiveBytes'))
   assertPlainObject(evidence, 'rollback evidence')
+  assertExactProperties(evidence, [
+    'schema',
+    'status',
+    'input_mode',
+    'executed_at',
+    'source',
+    'focused_tests',
+    'backup',
+    'restore',
+    'operations',
+  ], 'rollback evidence')
   assert.equal(evidence.schema, EVIDENCE_SCHEMA, 'rollback evidence schema is invalid')
   assert.equal(typeof evidence.status, 'string', 'rollback evidence status must be a string')
   assert.equal(evidence.status, 'passed', 'only completed rollback evidence may be published')
@@ -653,6 +684,13 @@ function validateEvidenceV3(evidence, expectedVersion, limits = DEFAULT_LIMITS) 
   )
 
   assertPlainObject(evidence.source, 'rollback evidence source')
+  assertExactProperties(evidence.source, [
+    'version',
+    'commit',
+    'working_tree_dirty',
+    'data_root_sha256',
+    'database',
+  ], 'rollback evidence source')
   assert.match(expectedVersion || '', VERSION_PATTERN, 'expected rollback evidence version is invalid')
   assert.equal(
     evidence.source.version,
@@ -672,6 +710,7 @@ function validateEvidenceV3(evidence, expectedVersion, limits = DEFAULT_LIMITS) 
     'rollback evidence source.data_root_sha256 is invalid'
   )
   assertPlainObject(evidence.source.database, 'rollback evidence source.database')
+  assertExactProperties(evidence.source.database, ['relative_path'], 'rollback evidence source.database')
   assert.ok(
     typeof evidence.source.database.relative_path === 'string' &&
       evidence.source.database.relative_path.length > 0 &&
@@ -680,6 +719,11 @@ function validateEvidenceV3(evidence, expectedVersion, limits = DEFAULT_LIMITS) 
   )
 
   assertPlainObject(evidence.focused_tests, 'rollback evidence focused_tests')
+  assertExactProperties(
+    evidence.focused_tests,
+    ['file', 'passed', 'total'],
+    'rollback evidence focused_tests'
+  )
   assert.equal(
     evidence.focused_tests.file,
     'backend-node/test/dataBackupService.test.js',
@@ -695,6 +739,18 @@ function validateEvidenceV3(evidence, expectedVersion, limits = DEFAULT_LIMITS) 
   )
 
   assertPlainObject(evidence.backup, 'rollback evidence backup')
+  assertExactProperties(evidence.backup, [
+    'format_version',
+    'archive_bytes',
+    'archive_sha256',
+    'archive_retained',
+    'file_count',
+    'storage_files',
+    'story_source_files',
+    'active_story_source_references',
+    'secret_policy',
+    'excluded_values',
+  ], 'rollback evidence backup')
   assert.ok(
     SUPPORTED_FORMAT_VERSIONS.includes(evidence.backup.format_version),
     'rollback evidence backup.format_version is not supported'
@@ -764,6 +820,14 @@ function validateEvidenceV3(evidence, expectedVersion, limits = DEFAULT_LIMITS) 
   }
 
   assertPlainObject(evidence.restore, 'rollback evidence restore')
+  assertExactProperties(evidence.restore, [
+    'isolated',
+    'integrity_check',
+    'credential_rows_checked',
+    'credentials_excluded',
+    'restored_counts',
+    'rollback_copies',
+  ], 'rollback evidence restore')
   assertTrue(evidence.restore.isolated, 'rollback evidence restore.isolated')
   assert.equal(evidence.restore.integrity_check, 'ok', 'rollback evidence restore.integrity_check is invalid')
   assertNonNegativeSafeInteger(
@@ -777,11 +841,22 @@ function validateEvidenceV3(evidence, expectedVersion, limits = DEFAULT_LIMITS) 
     assertNonNegativeSafeInteger(count, `rollback evidence restore.restored_counts.${table}`)
   }
   assertPlainObject(evidence.restore.rollback_copies, 'rollback evidence restore.rollback_copies')
+  assertExactProperties(
+    evidence.restore.rollback_copies,
+    ['database', 'storage', 'story_sources'],
+    'rollback evidence restore.rollback_copies'
+  )
   for (const field of ['database', 'storage', 'story_sources']) {
     assertTrue(evidence.restore.rollback_copies[field], `rollback evidence restore.rollback_copies.${field}`)
   }
 
   assertPlainObject(evidence.operations, 'rollback evidence operations')
+  assertExactProperties(evidence.operations, [
+    'source_database_unchanged',
+    'source_data_root_unchanged',
+    'credential_reconfiguration_required',
+    'workspace_cleanup_verified',
+  ], 'rollback evidence operations')
   for (const field of [
     'source_database_unchanged',
     'source_data_root_unchanged',

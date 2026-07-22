@@ -210,13 +210,58 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm run verify:rollback 2>&1 \
-            | tee "$RUNNER_TEMP/rollback-drill.log" \
+          stdout_log="$RUNNER_TEMP/rollback-drill.stdout.log"
+          stderr_log="$RUNNER_TEMP/rollback-drill.stderr.log"
+          stderr_pipe="$RUNNER_TEMP/rollback-drill.stderr.pipe"
+          rm -f "$stderr_pipe"
+          mkfifo "$stderr_pipe"
+          trap 'rm -f "$stderr_pipe"' EXIT
+
+          node -e '
+            const fs = require("node:fs")
+            const [logPath, limitText] = process.argv.slice(1)
+            const limit = Number(limitText)
+            const log = fs.openSync(logPath, "w")
+            let retained = 0
+            let truncated = false
+            process.stdin.on("data", (chunk) => {
+              const keep = chunk.subarray(0, Math.max(0, limit - retained))
+              if (keep.length > 0) {
+                fs.writeSync(log, keep)
+                process.stderr.write(keep)
+                retained += keep.length
+              }
+              if (keep.length !== chunk.length) truncated = true
+            })
+            process.stdin.on("end", () => {
+              fs.closeSync(log)
+              if (truncated) {
+                process.stderr.write("\n[rollback drill stderr truncated]\n")
+                process.exitCode = 1
+              }
+            })
+          ' "$stderr_log" 262144 <"$stderr_pipe" &
+          stderr_pid=$!
+
+          set +e
+          npm run verify:rollback 2>"$stderr_pipe" \
+            | tee "$stdout_log" \
             | node scripts/rollback-drill-evidence.cjs \
                 --validate-result-stream \
                 --expected-version 1.3.3 \
                 --expected-commit "$GITHUB_SHA" \
                 --expected-mode standalone
+          pipeline_status=("${PIPESTATUS[@]}")
+          wait "$stderr_pid"
+          stderr_status=$?
+          rm -f "$stderr_pipe"
+          trap - EXIT
+          set -e
+
+          for status in "${pipeline_status[@]}"; do
+            if (( status != 0 )); then exit "$status"; fi
+          done
+          exit "$stderr_status"
       - name: Upload rollback evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -224,7 +269,8 @@ jobs:
           name: release-rollback-drill-${{ github.sha }}
           path: |
             artifacts/rollback-drill/
-            ${{ runner.temp }}/rollback-drill.log
+            ${{ runner.temp }}/rollback-drill.stdout.log
+            ${{ runner.temp }}/rollback-drill.stderr.log
           if-no-files-found: warn
           retention-days: 14
 

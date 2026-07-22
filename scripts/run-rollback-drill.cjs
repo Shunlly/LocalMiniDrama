@@ -207,6 +207,54 @@ async function captureRetainedFileIdentity(handle, filePath, label) {
   }
 }
 
+function assertOwnedObjectType(stat, expectedType, label) {
+  const matches = expectedType === 'file' ? stat.isFile() : stat.isDirectory()
+  assert.equal(matches, true, `${label} retained object must remain a ${expectedType}`)
+}
+
+async function captureOwnedLinkIdentity(handle, targetPath, expectedType, label) {
+  const descriptor = await handle.stat({ bigint: true })
+  const pathStat = await fsp.lstat(targetPath, { bigint: true })
+  assertOwnedObjectType(descriptor, expectedType, label)
+  assertOwnedObjectType(pathStat, expectedType, `${label} path`)
+  for (const field of ['dev', 'ino']) {
+    assert.equal(pathStat[field], descriptor[field], `${label} path ${field} does not match the retained object`)
+  }
+  if (expectedType === 'file') {
+    assert.equal(pathStat.size, descriptor.size, `${label} path size does not match the retained object`)
+  }
+  assert.equal(pathStat.nlink, descriptor.nlink, `${label} path link count does not match the retained object`)
+  assert.ok(descriptor.nlink > 0n, `${label} retained object must have a live link`)
+  return {
+    dev: descriptor.dev,
+    ino: descriptor.ino,
+    nlink: descriptor.nlink,
+    size: descriptor.size,
+    type: expectedType,
+  }
+}
+
+async function assertOwnedPathStillLinked(handle, targetPath, expected, label) {
+  const current = await captureOwnedLinkIdentity(handle, targetPath, expected.type, label)
+  for (const field of ['dev', 'ino']) {
+    assert.equal(current[field], expected[field], `${label} retained ${field} identity changed`)
+  }
+  if (expected.type === 'file') {
+    assert.equal(current.size, expected.size, `${label} retained size changed`)
+    assert.equal(current.nlink, expected.nlink, `${label} retained link count changed before cleanup`)
+  }
+}
+
+async function assertOwnedHandleUnlinked(handle, expected, label) {
+  const current = await handle.stat({ bigint: true })
+  assertOwnedObjectType(current, expected.type, label)
+  for (const field of ['dev', 'ino']) {
+    assert.equal(current[field], expected[field], `${label} retained ${field} identity changed`)
+  }
+  if (expected.type === 'file') assert.equal(current.size, expected.size, `${label} retained size changed`)
+  assert.equal(current.nlink, 0n, `${label} original retained object was not unlinked`)
+}
+
 function configuredPath(value, fallback) {
   const candidate = value || fallback
   return path.isAbsolute(candidate) ? candidate : path.resolve(backendRoot, candidate)
@@ -295,7 +343,6 @@ function uninstallWorkspaceSignalCleanup() {
 async function cleanupWorkspace(workspace) {
   await fsp.rm(workspace, { recursive: true, force: true })
   assert.equal(fs.existsSync(workspace), false, 'rollback drill workspace cleanup could not be verified')
-  activeWorkspace = null
 }
 
 async function removeStandaloneArchive(archivePath) {
@@ -396,6 +443,7 @@ async function executeRollbackDrill(options, runtime) {
   let archivePath
   let archiveHandle
   let archiveIdentity
+  let archiveLinkIdentity
   let archiveSha256
   let archiveBytes
   let sourceDatabaseHandle
@@ -408,6 +456,12 @@ async function executeRollbackDrill(options, runtime) {
   let evidence
   let evidenceBytes
   let result
+  let workspaceDirectoryHandle
+  let workspaceDirectoryIdentity
+  let workspaceMarkerHandle
+  let workspaceMarkerIdentity
+  let workspaceMarkerPath
+  let workspaceRemovalProven = false
   let hasPrimaryError = false
   let primaryError
   let standaloneArchiveRemoved = false
@@ -449,6 +503,100 @@ async function executeRollbackDrill(options, runtime) {
     await closeConsumedHandle(handle, 'source database')
   }
 
+  async function closeWorkspaceMarkerHandle() {
+    if (!workspaceMarkerHandle) return
+    const handle = workspaceMarkerHandle
+    workspaceMarkerHandle = null
+    await handle.close()
+  }
+
+  async function closeWorkspaceDirectoryHandle() {
+    if (!workspaceDirectoryHandle) return
+    const handle = workspaceDirectoryHandle
+    workspaceDirectoryHandle = null
+    await handle.close()
+  }
+
+  async function removeWorkspaceWithProof() {
+    if (!workspace || workspaceRemovalProven) return
+    assert.ok(workspaceMarkerHandle && workspaceMarkerIdentity && workspaceMarkerPath, 'workspace marker authority is missing')
+    assert.ok(workspaceDirectoryHandle && workspaceDirectoryIdentity, 'workspace directory authority is missing')
+
+    await assertOwnedPathStillLinked(
+      workspaceMarkerHandle,
+      workspaceMarkerPath,
+      workspaceMarkerIdentity,
+      'rollback workspace marker'
+    )
+    await fsp.unlink(workspaceMarkerPath)
+    await assertOwnedHandleUnlinked(workspaceMarkerHandle, workspaceMarkerIdentity, 'rollback workspace marker')
+    await closeWorkspaceMarkerHandle()
+    await assertOwnedPathStillLinked(
+      workspaceDirectoryHandle,
+      workspace,
+      workspaceDirectoryIdentity,
+      'rollback workspace'
+    )
+
+    let hasRemovalError = false
+    let removalError
+    try {
+      await removeWorkspace(workspace)
+    } catch (error) {
+      hasRemovalError = true
+      removalError = error
+    }
+
+    const proofErrors = []
+    let removalProofPassed = false
+    try {
+      await assertOwnedHandleUnlinked(workspaceDirectoryHandle, workspaceDirectoryIdentity, 'rollback workspace')
+      assert.equal(fs.existsSync(workspace), false, 'rollback workspace path still exists after cleanup')
+      removalProofPassed = true
+      workspaceRemovalProven = true
+      if (activeWorkspace === workspace) activeWorkspace = null
+    } catch (error) {
+      proofErrors.push(error)
+    }
+    try {
+      await closeWorkspaceDirectoryHandle()
+    } catch (error) {
+      proofErrors.push(error)
+    }
+    if (!removalProofPassed) workspaceRemovalProven = false
+    throwPrimaryOrCleanup(hasRemovalError, removalError, proofErrors)
+  }
+
+  async function removeStandaloneArchiveWithProof() {
+    if (options.inputMode !== 'standalone' || !archivePath || standaloneArchiveRemoved) return
+    assert.ok(archiveHandle && archiveLinkIdentity, 'standalone rollback archive authority is missing')
+    await assertOwnedPathStillLinked(
+      archiveHandle,
+      archivePath,
+      archiveLinkIdentity,
+      'standalone rollback archive'
+    )
+
+    let hasRemovalError = false
+    let removalError
+    try {
+      await removeArchive(archivePath)
+    } catch (error) {
+      hasRemovalError = true
+      removalError = error
+    }
+
+    const proofErrors = []
+    try {
+      await assertOwnedHandleUnlinked(archiveHandle, archiveLinkIdentity, 'standalone rollback archive')
+      assert.equal(fs.existsSync(archivePath), false, 'standalone rollback archive path still exists after cleanup')
+      standaloneArchiveRemoved = true
+    } catch (error) {
+      proofErrors.push(error)
+    }
+    throwPrimaryOrCleanup(hasRemovalError, removalError, proofErrors)
+  }
+
   try {
     if (options.inputMode === 'standalone') {
       sourceDatabaseHandle = await fsp.open(sourcePaths.databasePath, 'r')
@@ -474,6 +622,26 @@ async function executeRollbackDrill(options, runtime) {
 
     workspace = await createWorkspace()
     activeWorkspace = workspace
+    workspaceDirectoryHandle = await fsp.open(workspace, 'r')
+    workspaceMarkerPath = path.join(
+      workspace,
+      `.localminidrama-workspace-${crypto.randomBytes(16).toString('hex')}.marker`
+    )
+    workspaceMarkerHandle = await fsp.open(workspaceMarkerPath, 'wx+', 0o600)
+    await workspaceMarkerHandle.writeFile(crypto.randomBytes(32))
+    await workspaceMarkerHandle.sync()
+    workspaceMarkerIdentity = await captureOwnedLinkIdentity(
+      workspaceMarkerHandle,
+      workspaceMarkerPath,
+      'file',
+      'rollback workspace marker'
+    )
+    workspaceDirectoryIdentity = await captureOwnedLinkIdentity(
+      workspaceDirectoryHandle,
+      workspace,
+      'directory',
+      'rollback workspace'
+    )
     const standaloneArchivePath = `${workspace}-current-data.zip`
     archivePath = options.inputMode === 'checkpoint-bound' ? options.archivePath : standaloneArchivePath
     const restoreRoot = path.join(workspace, 'isolated-restore', 'data')
@@ -526,6 +694,12 @@ async function executeRollbackDrill(options, runtime) {
 
         archiveHandle = await fsp.open(archivePath, 'r')
         archiveIdentity = await captureRetainedFileIdentity(archiveHandle, archivePath, 'rollback archive')
+        archiveLinkIdentity = await captureOwnedLinkIdentity(
+          archiveHandle,
+          archivePath,
+          'file',
+          'standalone rollback archive'
+        )
         assert.equal(
           archiveIdentity.size,
           BigInt(backup.archiveBytes),
@@ -593,8 +767,7 @@ async function executeRollbackDrill(options, runtime) {
     let hasCleanupError = false
     let cleanupError
     try {
-      await removeWorkspace(workspace)
-      if (activeWorkspace === workspace) activeWorkspace = null
+      await removeWorkspaceWithProof()
     } catch (error) {
       hasCleanupError = true
       cleanupError = error
@@ -605,6 +778,7 @@ async function executeRollbackDrill(options, runtime) {
       hasCleanupError ? [cleanupError] : []
     )
     assertDrillNotAborted(signal)
+    assert.equal(workspaceRemovalProven, true, 'rollback workspace deletion was not proven')
 
     let finalDatabaseSha256
     if (sourceDatabaseHandle) {
@@ -685,7 +859,7 @@ async function executeRollbackDrill(options, runtime) {
         source_database_unchanged: true,
         source_data_root_unchanged: afterDataRootSha256 === beforeDataRootSha256,
         credential_reconfiguration_required: true,
-        workspace_cleanup_verified: true,
+        workspace_cleanup_verified: workspaceRemovalProven,
       },
     }
     evidenceBytes = serializeEvidence(evidence)
@@ -696,19 +870,23 @@ async function executeRollbackDrill(options, runtime) {
 
     const preResultCleanupErrors = []
     let hasPreResultCleanupError = false
-    for (const cleanup of [closeArchiveHandle, closeSourceDatabaseHandle]) {
+    const preResultCleanups = options.inputMode === 'standalone'
+      ? [
+          closeSourceDatabaseHandle,
+          closeWorkspaceMarkerHandle,
+          closeWorkspaceDirectoryHandle,
+          removeStandaloneArchiveWithProof,
+          closeArchiveHandle,
+        ]
+      : [
+          closeArchiveHandle,
+          closeSourceDatabaseHandle,
+          closeWorkspaceMarkerHandle,
+          closeWorkspaceDirectoryHandle,
+        ]
+    for (const cleanup of preResultCleanups) {
       try {
         await cleanup()
-      } catch (error) {
-        hasPreResultCleanupError = true
-        preResultCleanupErrors.push(error)
-      }
-    }
-    if (options.inputMode === 'standalone' && archivePath && !standaloneArchiveRemoved) {
-      try {
-        await removeArchive(archivePath)
-        assert.equal(fs.existsSync(archivePath), false, 'standalone rollback archive cleanup could not be verified')
-        standaloneArchiveRemoved = true
       } catch (error) {
         hasPreResultCleanupError = true
         preResultCleanupErrors.push(error)
@@ -749,9 +927,9 @@ async function executeRollbackDrill(options, runtime) {
 
   const finalCleanupErrors = []
   let hasFinalCleanupError = false
-  for (const cleanup of [closeArchiveHandle, closeSourceDatabaseHandle]) {
+  if (workspace && !workspaceRemovalProven) {
     try {
-      await cleanup()
+      await removeWorkspaceWithProof()
     } catch (error) {
       hasFinalCleanupError = true
       finalCleanupErrors.push(error)
@@ -759,9 +937,20 @@ async function executeRollbackDrill(options, runtime) {
   }
   if (options.inputMode === 'standalone' && archivePath && !standaloneArchiveRemoved) {
     try {
-      await removeArchive(archivePath)
-      assert.equal(fs.existsSync(archivePath), false, 'standalone rollback archive cleanup could not be verified')
-      standaloneArchiveRemoved = true
+      await removeStandaloneArchiveWithProof()
+    } catch (error) {
+      hasFinalCleanupError = true
+      finalCleanupErrors.push(error)
+    }
+  }
+  for (const cleanup of [
+    closeArchiveHandle,
+    closeSourceDatabaseHandle,
+    closeWorkspaceMarkerHandle,
+    closeWorkspaceDirectoryHandle,
+  ]) {
+    try {
+      await cleanup()
     } catch (error) {
       hasFinalCleanupError = true
       finalCleanupErrors.push(error)

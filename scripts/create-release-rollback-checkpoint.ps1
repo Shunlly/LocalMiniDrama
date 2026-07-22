@@ -185,10 +185,17 @@ function Invoke-NativeCommandWithTimeout {
     [Parameter(Mandatory = $true)][string]$Label,
     [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$TimeoutMilliseconds,
     [switch]$CaptureOutput,
-    [ValidateRange(1, 1048576)][int]$MaximumOutputBytes = 262144,
+    [switch]$CaptureOutputBytes,
+    [ValidateRange(1, 2097152)][int]$MaximumOutputBytes = 262144,
+    [ValidateRange(1, 1048576)][int]$MaximumErrorBytes = 65536,
+    [AllowNull()][byte[]]$StandardInputBytes = $null,
     [ValidateRange(1, [int]::MaxValue)][int]$TerminationTimeoutMilliseconds = 2000
   )
 
+  if ($CaptureOutput -and $CaptureOutputBytes) {
+    throw 'Native output can be captured as text or bytes, but not both.'
+  }
+  $captureStreams = $CaptureOutput -or $CaptureOutputBytes
   $process = [System.Diagnostics.Process]::new()
   $started = $false
   $terminationAttempted = $false
@@ -201,8 +208,9 @@ function Invoke-NativeCommandWithTimeout {
     }) -join ' ')
     $processStartInfo.UseShellExecute = $false
     $processStartInfo.CreateNoWindow = $true
-    $processStartInfo.RedirectStandardOutput = $CaptureOutput
-    $processStartInfo.RedirectStandardError = $CaptureOutput
+    $processStartInfo.RedirectStandardOutput = $captureStreams
+    $processStartInfo.RedirectStandardError = $captureStreams
+    $processStartInfo.RedirectStandardInput = ($null -ne $StandardInputBytes)
     $process.StartInfo = $processStartInfo
 
     try {
@@ -214,6 +222,15 @@ function Invoke-NativeCommandWithTimeout {
       throw [System.InvalidOperationException]::new("$Label could not execute: $($_.Exception.Message)", $_.Exception)
     }
 
+    if ($null -ne $StandardInputBytes) {
+      try {
+        $process.StandardInput.BaseStream.Write($StandardInputBytes, 0, $StandardInputBytes.Length)
+        $process.StandardInput.BaseStream.Flush()
+      } finally {
+        $process.StandardInput.Close()
+      }
+    }
+
     $completed = $false
     $outputTruncated = $false
     $errorTruncated = $false
@@ -221,9 +238,9 @@ function Invoke-NativeCommandWithTimeout {
     $errorCount = 0
     $outputBytes = $null
     $errorBytes = $null
-    if ($CaptureOutput) {
+    if ($captureStreams) {
       $outputBytes = [byte[]]::new($MaximumOutputBytes)
-      $errorBytes = [byte[]]::new(4096)
+      $errorBytes = [byte[]]::new($MaximumErrorBytes)
       $outputReadBuffer = [byte[]]::new(4096)
       $errorReadBuffer = [byte[]]::new(4096)
       $outputReadTask = $process.StandardOutput.BaseStream.ReadAsync($outputReadBuffer, 0, $outputReadBuffer.Length)
@@ -291,12 +308,12 @@ function Invoke-NativeCommandWithTimeout {
     }
 
     $exitCode = [int]$process.ExitCode
-    if ($CaptureOutput -and $outputTruncated) {
+    if ($captureStreams -and $outputTruncated) {
       throw [System.InvalidOperationException]::new("$Label output exceeded the $MaximumOutputBytes-byte bound.")
     }
     if ($exitCode -ne 0) {
       $message = "$Label failed with exit code $exitCode."
-      if ($CaptureOutput -and $errorCount -gt 0) {
+      if ($captureStreams -and $errorCount -gt 0) {
         $diagnostic = [System.Text.Encoding]::UTF8.GetString($errorBytes, 0, $errorCount).Trim()
         if ($errorTruncated) { $diagnostic += [Environment]::NewLine + '[diagnostic truncated]' }
         if (-not [string]::IsNullOrWhiteSpace($diagnostic)) {
@@ -306,6 +323,17 @@ function Invoke-NativeCommandWithTimeout {
       $nativeError = [System.InvalidOperationException]::new($message)
       $nativeError.Data['NativeExitCode'] = $exitCode
       throw $nativeError
+    }
+    if ($CaptureOutputBytes) {
+      $capturedOutput = [byte[]]::new($outputCount)
+      $capturedError = [byte[]]::new($errorCount)
+      if ($outputCount -gt 0) { [Array]::Copy($outputBytes, 0, $capturedOutput, 0, $outputCount) }
+      if ($errorCount -gt 0) { [Array]::Copy($errorBytes, 0, $capturedError, 0, $errorCount) }
+      return [pscustomobject][ordered]@{
+        StandardOutputBytes = $capturedOutput
+        StandardErrorBytes = $capturedError
+        StandardErrorTruncated = $errorTruncated
+      }
     }
     if ($CaptureOutput) {
       return [System.Text.Encoding]::UTF8.GetString($outputBytes, 0, $outputCount)
@@ -323,6 +351,23 @@ function Invoke-NativeCommandWithTimeout {
     throw
   } finally {
     $process.Dispose()
+  }
+}
+
+function Write-NativeDiagnostic {
+  param(
+    [Parameter(Mandatory = $true)][object]$Invocation,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  if ($null -eq $Invocation.PSObject.Properties['StandardErrorBytes'] -or
+      $Invocation.StandardErrorBytes -isnot [byte[]]) {
+    throw "$Label did not return bounded stderr bytes."
+  }
+  if ($Invocation.StandardErrorBytes.Length -gt 0) {
+    [Console]::Error.Write([System.Text.Encoding]::UTF8.GetString($Invocation.StandardErrorBytes))
+  }
+  if ($Invocation.StandardErrorTruncated -eq $true) {
+    [Console]::Error.WriteLine("[$Label diagnostic truncated]")
   }
 }
 
@@ -683,6 +728,51 @@ function Publish-Utf8FileAtomically {
   Publish-BytesAtomically -Path $Path -Bytes $bytes
 }
 
+function New-RollbackSummaryAuthority {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $fullPath = [System.IO.Path]::GetFullPath($Path)
+  $stream = $null
+  try {
+    $stream = [System.IO.FileStream]::new(
+      $fullPath,
+      [System.IO.FileMode]::CreateNew,
+      [System.IO.FileAccess]::ReadWrite,
+      [System.IO.FileShare]::Read
+    )
+    $stream.Write($Bytes, 0, $Bytes.Length)
+    $stream.Flush($true)
+    $identity = Get-RollbackPathIdentity -Handle $stream.SafeFileHandle
+    Assert-RollbackPathIdentity -Path $fullPath -ExpectedIdentity $identity -Label $Label | Out-Null
+
+    $actual = [byte[]]::new($Bytes.Length)
+    $stream.Position = 0
+    $offset = 0
+    while ($offset -lt $actual.Length) {
+      $read = $stream.Read($actual, $offset, $actual.Length - $offset)
+      if ($read -eq 0) { throw "$Label bytes were truncated after publication." }
+      $offset += $read
+    }
+    if ($stream.ReadByte() -ne -1) { throw "$Label bytes grew after publication." }
+    for ($index = 0; $index -lt $actual.Length; $index++) {
+      if ($actual[$index] -ne $Bytes[$index]) { throw "$Label bytes changed after publication." }
+    }
+    $stream.Position = 0
+    return [pscustomobject][ordered]@{
+      Path = $fullPath
+      Label = $Label
+      Identity = $identity
+      Stream = $stream
+    }
+  } catch {
+    if ($null -ne $stream) { $stream.Dispose() }
+    throw
+  }
+}
+
 function ConvertFrom-CanonicalRollbackBase64Url {
   param(
     [Parameter(Mandatory = $true)][object]$Value,
@@ -711,40 +801,29 @@ function ConvertFrom-CanonicalRollbackBase64Url {
 
 function ConvertFrom-RollbackResultOutput {
   param(
-    [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Lines
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes
   )
   $markerPrefix = 'LOCALMINIDRAMA_ROLLBACK_RESULT_V1='
   $maximumStreamBytes = 2 * 1024 * 1024
   $maximumMarkerBytes = 1024 * 1024
   $maximumEvidenceBytes = 512 * 1024
   $strictUtf8 = [System.Text.UTF8Encoding]::new($false, $true)
-  $streamBytes = [long]0
   $marker = $null
   $markerCount = 0
-
-  foreach ($lineValue in $Lines) {
-    if ($lineValue -is [string]) {
-      $lineText = $lineValue
-    } elseif ($lineValue -is [System.Management.Automation.ErrorRecord]) {
-      $lineText = $lineValue.ToString()
-    } else {
-      throw 'Rollback result output lines must be strings.'
+  if ($Bytes.Length -gt $maximumStreamBytes) { throw 'Rollback result stream exceeds the byte limit.' }
+  try {
+    $streamText = $strictUtf8.GetString($Bytes)
+  } catch {
+    throw 'Rollback result output must be strict UTF-8.'
+  }
+  foreach ($physicalLine in [regex]::Split($streamText, '\r?\n')) {
+    if (-not $physicalLine.StartsWith($markerPrefix, [System.StringComparison]::Ordinal)) { continue }
+    $markerCount += 1
+    if ($markerCount -gt 1) { throw 'Rollback result stream must contain exactly one machine marker.' }
+    if ($strictUtf8.GetByteCount($physicalLine) -gt $maximumMarkerBytes) {
+      throw 'Rollback result marker exceeds the byte limit.'
     }
-    try {
-      $streamBytes += [long]$strictUtf8.GetByteCount($lineText) + 1
-    } catch {
-      throw 'Rollback result output must be valid UTF-8 text.'
-    }
-    if ($streamBytes -gt $maximumStreamBytes) { throw 'Rollback result stream exceeds the byte limit.' }
-    foreach ($physicalLine in [regex]::Split($lineText, '\r?\n')) {
-      if (-not $physicalLine.StartsWith($markerPrefix, [System.StringComparison]::Ordinal)) { continue }
-      $markerCount += 1
-      if ($markerCount -gt 1) { throw 'Rollback result stream must contain exactly one machine marker.' }
-      if ($strictUtf8.GetByteCount($physicalLine) -gt $maximumMarkerBytes) {
-        throw 'Rollback result marker exceeds the byte limit.'
-      }
-      $marker = $physicalLine
-    }
+    $marker = $physicalLine
   }
   if ($markerCount -ne 1 -or $null -eq $marker) {
     throw 'Rollback result stream must contain exactly one machine marker.'
@@ -1180,31 +1259,29 @@ try {
     Write-Utf8File -Path (Join-Path $checkpoint 'data.sha256.txt') -Value "$backupHash`n"
 
     Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root before drill' | Out-Null
-    $drillOutput = @(Invoke-Checked -FilePath 'npm' -ArgumentList @(
-      'run', 'verify:rollback', '--',
+    $drillInvocation = Invoke-NativeCommandWithTimeout -FilePath 'node' -ArgumentList @(
+      (Join-Path $repoRoot 'scripts\run-rollback-drill.cjs'),
       '--archive', $backupPath,
       '--data-root', $runtimeDataDirectory
-    ) -Label 'Rollback drill')
-    $rollbackResult = ConvertFrom-RollbackResultOutput -Lines $drillOutput
+    ) -Label 'Rollback drill' -TimeoutMilliseconds 900000 -CaptureOutputBytes -MaximumOutputBytes 2097152 -MaximumErrorBytes 262144
+    Write-NativeDiagnostic -Invocation $drillInvocation -Label 'Rollback drill'
+    $validatorInvocation = Invoke-NativeCommandWithTimeout -FilePath 'node' -ArgumentList @(
+      (Join-Path $repoRoot 'scripts\rollback-drill-evidence.cjs'),
+      '--validate-result-stream',
+      '--expected-version', $version,
+      '--expected-commit', $commit,
+      '--expected-mode', 'checkpoint-bound'
+    ) -Label 'Rollback result validation' -TimeoutMilliseconds 60000 -CaptureOutputBytes -MaximumOutputBytes 65536 -MaximumErrorBytes 262144 -StandardInputBytes $drillInvocation.StandardOutputBytes
+    Write-NativeDiagnostic -Invocation $validatorInvocation -Label 'Rollback result validation'
+    $rollbackResult = ConvertFrom-RollbackResultOutput -Bytes $drillInvocation.StandardOutputBytes
     Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root after drill' | Out-Null
     Assert-RollbackPathIdentity -Path $backupPath -ExpectedIdentity $capturedArchiveIdentity -Label 'Rollback archive after drill' | Out-Null
     $actualBackupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $actualDataRootIdentity = Get-RollbackPathIdentity -Path $runtimeDataDirectory
     $validatedEvidence = Assert-CheckpointDrillEvidence -Summary $rollbackResult.Evidence -ExpectedCommit $commit -ExpectedVersion $version -ExpectedBackupHash $backupHash -ActualBackupHash $actualBackupHash -ExpectedDataRootIdentity $capturedDataRootIdentity -ActualDataRootIdentity $actualDataRootIdentity
     $summaryArchive = Join-Path $checkpoint 'rollback-drill-summary.json'
-    Publish-BytesAtomically -Path $summaryArchive -Bytes $rollbackResult.EvidenceBytes
-    $summaryAuthority = Open-RollbackFileAuthority -Path $summaryArchive -Label 'Rollback checkpoint drill summary'
+    $summaryAuthority = New-RollbackSummaryAuthority -Path $summaryArchive -Bytes $rollbackResult.EvidenceBytes -Label 'Rollback checkpoint drill summary'
     Assert-RollbackFileAuthority -Authority $summaryAuthority | Out-Null
-    $summaryAuthorityText = Read-RollbackFileAuthorityUtf8 -Authority $summaryAuthority
-    $summaryAuthorityBytes = [System.Text.UTF8Encoding]::new($false, $true).GetBytes($summaryAuthorityText)
-    if ($summaryAuthorityBytes.Length -ne $rollbackResult.EvidenceBytes.Length) {
-      throw 'Rollback checkpoint drill summary length differs from captured evidence bytes.'
-    }
-    for ($byteIndex = 0; $byteIndex -lt $summaryAuthorityBytes.Length; $byteIndex++) {
-      if ($summaryAuthorityBytes[$byteIndex] -ne $rollbackResult.EvidenceBytes[$byteIndex]) {
-        throw 'Rollback checkpoint drill summary differs from captured evidence bytes.'
-      }
-    }
     $summaryHash = Get-RollbackFileAuthoritySha256 -Authority $summaryAuthority
     if ($summaryHash -cne $rollbackResult.EvidenceSha256) {
       throw 'Rollback checkpoint drill summary digest differs from captured evidence bytes.'

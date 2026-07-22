@@ -444,6 +444,43 @@ test('data root fingerprint is deterministic, framed, and UTF-8 byte sorted', as
   assert.notEqual(await fingerprintDataRoot(framedA), await fingerprintDataRoot(framedB))
 })
 
+test('data root fingerprint rechecks earlier files after a later large file read', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-fingerprint-persistent-')
+  const dataRoot = path.join(fixtureRoot, 'tree')
+  const earlierPath = path.join(dataRoot, 'a-earlier.txt')
+  const laterPath = path.join(dataRoot, 'z-later-large.bin')
+  fs.mkdirSync(dataRoot)
+  fs.writeFileSync(earlierPath, 'original-earlier-bytes')
+  fs.writeFileSync(laterPath, Buffer.alloc(2 * 1024 * 1024, 0x7a))
+
+  const originalOpen = fsp.open
+  let mutationRan = false
+  fsp.open = async (...args) => {
+    const handle = await originalOpen(...args)
+    if (path.resolve(args[0]) !== path.resolve(laterPath)) return handle
+    const originalRead = handle.read.bind(handle)
+    handle.read = async (...readArgs) => {
+      const result = await originalRead(...readArgs)
+      if (!mutationRan && result.bytesRead > 0) {
+        mutationRan = true
+        await fsp.writeFile(earlierPath, 'mutated-earlier-bytes!')
+      }
+      return result
+    }
+    return handle
+  }
+
+  try {
+    await assert.rejects(
+      fingerprintDataRoot(dataRoot),
+      /a-earlier\.txt.*(?:identity|changed)|data root entry.*changed/i,
+    )
+  } finally {
+    fsp.open = originalOpen
+  }
+  assert.equal(mutationRan, true)
+})
+
 test('data root fingerprint changes for content, length, path, type, and empty directories', async (t) => {
   const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-fingerprint-change-')
   const root = path.join(fixtureRoot, 'tree')
@@ -1334,6 +1371,83 @@ test('standalone execution creates and removes only its workspace archive and re
   assert.deepEqual(result.evidenceBytes, serializeEvidence(evidence))
 })
 
+test('workspace cleanup rejects a moved original workspace without authoritative PASS', async (t) => {
+  const fixture = createExecutorFixture(t)
+  fixture.runtime.createWorkspace = () => fsp.mkdtemp(path.join(fixture.fixtureRoot, 'owned-workspace-'))
+  let movedWorkspace
+  fixture.runtime.cleanupWorkspace = async (workspace) => {
+    movedWorkspace = `${workspace}.moved`
+    await fsp.rename(workspace, movedWorkspace)
+    await fsp.mkdir(workspace)
+  }
+
+  await assert.rejects(
+    executeRollbackDrill(fixture.options, fixture.runtime),
+    /workspace.*(?:identity|link|removed|changed)|cleanup.*workspace/i,
+  )
+  assert.ok(movedWorkspace)
+  assert.equal(fs.existsSync(movedWorkspace), true)
+  assert.equal(fs.existsSync(movedWorkspace.replace(/\.moved$/, '')), true)
+  assert.equal(fixture.calls.publish.length, 0)
+})
+
+test('workspace cleanup rejects a replaced marker and preserves the displaced original', async (t) => {
+  const fixture = createExecutorFixture(t)
+  let workspace
+  let markerPath
+  let movedMarker
+  fixture.runtime.createWorkspace = async () => {
+    workspace = await fsp.mkdtemp(path.join(fixture.fixtureRoot, 'owned-workspace-'))
+    return workspace
+  }
+  const restore = fixture.runtime.restoreDataBackup
+  fixture.runtime.restoreDataBackup = async (options) => {
+    markerPath = (await fsp.readdir(workspace))
+      .map((name) => path.join(workspace, name))
+      .find((candidate) => candidate.endsWith('.marker'))
+    assert.ok(markerPath, 'workspace marker was not created')
+    movedMarker = `${markerPath}.moved`
+    await fsp.rename(markerPath, movedMarker)
+    await fsp.writeFile(markerPath, 'replacement marker')
+    return restore(options)
+  }
+
+  await assert.rejects(
+    executeRollbackDrill(fixture.options, fixture.runtime),
+    /workspace marker.*(?:identity|match|changed)|cleanup.*marker/i,
+  )
+  assert.equal(fs.readFileSync(markerPath, 'utf8'), 'replacement marker')
+  assert.equal(fs.existsSync(movedMarker), true)
+  assert.equal(fixture.calls.publish.length, 0)
+})
+
+test('standalone archive cleanup rejects a moved original while its retained handle is open', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  fixture.runtime.createWorkspace = () => fsp.mkdtemp(path.join(fixture.fixtureRoot, 'owned-workspace-'))
+  let movedArchive
+  let retainedArchiveHandle
+  fixture.runtime.hooks = {
+    onArchiveHandleOpened: ({ handle }) => { retainedArchiveHandle = handle },
+  }
+  fixture.runtime.removeStandaloneArchive = async (archivePath) => {
+    assert.ok(retainedArchiveHandle)
+    assert.equal((await retainedArchiveHandle.stat({ bigint: true })).isFile(), true)
+    movedArchive = `${archivePath}.moved`
+    await fsp.rename(archivePath, movedArchive)
+    await fsp.writeFile(archivePath, 'replacement archive')
+  }
+
+  await assert.rejects(
+    executeRollbackDrill(fixture.options, fixture.runtime),
+    /archive.*(?:identity|link|removed|changed)|cleanup.*archive/i,
+  )
+  assert.ok(movedArchive)
+  assert.equal(fs.existsSync(movedArchive), true)
+  assert.equal(fs.readFileSync(movedArchive.replace(/\.moved$/, ''), 'utf8'), 'replacement archive')
+  assert.equal(fixture.calls.publish.length, 0)
+  await assert.rejects(retainedArchiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
 test('standalone exact boundary publishes diagnostics only after final fingerprint, closure, and archive deletion', async (t) => {
   const fixture = createExecutorFixture(t, 'standalone')
   assert.equal(fixture.options.inputMode, 'standalone')
@@ -1388,9 +1502,10 @@ test('standalone exact boundary publishes diagnostics only after final fingerpri
   }
   fixture.runtime.removeStandaloneArchive = async (archivePath) => {
     assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
-    await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+    assert.equal((await archiveHandle.stat({ bigint: true })).isFile(), true)
     await assert.rejects(sourceDatabaseHandle.stat({ bigint: true }), /closed|EBADF/i)
     await fsp.rm(archivePath, { force: true })
+    assert.equal((await archiveHandle.stat({ bigint: true })).nlink, 0n)
     events.push('archive-deleted')
   }
   fixture.runtime.publishEvidence = async (repoRoot, version, evidence, limits) => {
@@ -1420,9 +1535,9 @@ test('standalone exact boundary publishes diagnostics only after final fingerpri
     'after-final-archive-hash',
     'fingerprint',
     'evidence-staged',
-    'close:rollback archive',
     'close:source database',
     'archive-deleted',
+    'close:rollback archive',
     'diagnostic-published',
   ])
   await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
@@ -1524,7 +1639,7 @@ test('standalone archive deletion failure after staging blocks diagnostics', asy
     generatedArchivePath = archivePath
     assert.equal(staged, true)
     assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
-    await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+    assert.equal((await archiveHandle.stat({ bigint: true })).isFile(), true)
     await assert.rejects(sourceDatabaseHandle.stat({ bigint: true }), /closed|EBADF/i)
     throw deletionFailure
   }
@@ -1733,6 +1848,7 @@ test('rollback result marker round-trips canonical exact evidence bytes', () => 
 
 test('rollback result parser rejects missing, duplicate, oversized, noncanonical, malformed, and mistyped markers', () => {
   const evidenceBytes = serializeEvidence(validEvidence())
+  const utf8Bom = Buffer.from([0xef, 0xbb, 0xbf])
   const validEnvelope = resultEnvelopeForEvidence(evidenceBytes)
   const validMarker = encodeResultEnvelope(validEnvelope)
   const options = {
@@ -1744,10 +1860,21 @@ test('rollback result parser rejects missing, duplicate, oversized, noncanonical
 
   rejects('no marker here\n', /exactly one.*marker/i)
   rejects(`${validMarker}\n${validMarker}\n`, /exactly one.*marker/i)
+  rejects(Buffer.concat([
+    utf8Bom,
+    Buffer.from(`diagnostic output\n${validMarker}\n`, 'utf8'),
+  ]), /BOM|canonical/i)
   rejects(Buffer.alloc(MAX_ROLLBACK_RESULT_STREAM_BYTES + 1, 0x61), /stream.*limit|too large/i)
   rejects(`${ROLLBACK_RESULT_MARKER_PREFIX}***\n`, /base64url/i)
   rejects(`${ROLLBACK_RESULT_MARKER_PREFIX}${Buffer.from([0xff]).toString('base64url')}\n`, /UTF-8/i)
   rejects(`${ROLLBACK_RESULT_MARKER_PREFIX}${Buffer.from(` ${JSON.stringify(validEnvelope)}`, 'utf8').toString('base64url')}\n`, /canonical/i)
+  rejects(
+    `${ROLLBACK_RESULT_MARKER_PREFIX}${Buffer.concat([
+      utf8Bom,
+      Buffer.from(JSON.stringify(validEnvelope), 'utf8'),
+    ]).toString('base64url')}\n`,
+    /canonical|BOM/i,
+  )
 
   const envelopeCases = [
     [{ ...validEnvelope, schema: 'localminidrama.rollback-result.v2' }, /schema/i],
@@ -1761,6 +1888,8 @@ test('rollback result parser rejects missing, duplicate, oversized, noncanonical
 
   const invalidUtf8Evidence = Buffer.from([0xc3, 0x28])
   rejects(`${encodeResultEnvelope(resultEnvelopeForEvidence(invalidUtf8Evidence))}\n`, /evidence.*UTF-8/i)
+  const bomEvidence = Buffer.concat([utf8Bom, evidenceBytes])
+  rejects(`${encodeResultEnvelope(resultEnvelopeForEvidence(bomEvidence))}\n`, /evidence.*(?:canonical|JSON|BOM)/i)
   const malformedEvidenceEnvelope = resultEnvelopeForEvidence(Buffer.from('{', 'utf8'))
   rejects(`${encodeResultEnvelope(malformedEvidenceEnvelope)}\n`, /evidence.*JSON/i)
   const wrongSchemaEvidence = validEvidence()

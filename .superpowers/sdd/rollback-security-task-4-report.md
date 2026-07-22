@@ -350,6 +350,179 @@ The immutable resulting follow-up commit SHA is reported in the final handoff.
 Embedding it in this tracked report would change the commit object and produce
 a different SHA.
 
+## Review Fix 5: Result Authority And Cleanup Proof
+
+Review-fix date: 2026-07-22
+
+Implementation base: `8f4dc3dfa1270a82f72e9417c7395a9666f1e706`
+
+Cumulative Task 4 review base:
+`25c869dfb39e87251c76bcd9fb849926cd7c98dd`
+
+Required follow-up subject: `fix: close rollback result authority gaps`
+
+### Findings Addressed
+
+- Checkpoint summary publication no longer moves a temporary file and then
+  reopens the final path. The final path is created once with
+  `FileMode.CreateNew`, `FileAccess.ReadWrite`, and `FileShare.Read`; that same
+  retained stream writes, durably flushes, verifies exact bytes and identity,
+  supplies the digest, and remains open through v5 metadata publication.
+- The checkpoint runs the Node drill through the bounded native-process helper.
+  Stdout and stderr are drained into independent fixed-size buffers. Only the
+  exact stdout byte array is sent through stdin to the Node result validator;
+  PowerShell parses that same in-memory byte array only after Node acceptance.
+  Stderr markers are diagnostic text and cannot authorize PASS.
+- CI and Release retain `pipefail`, keep stdout in the validator pipeline, and
+  drain stderr through a separate 256 KiB diagnostic process. They upload
+  distinct stdout and stderr logs and reject stderr truncation.
+- Strict Node UTF-8 decoding preserves a BOM as input data. Explicit stream,
+  envelope, and evidence canonical checks reject BOM-prefixed results. v3
+  validation also requires the exact complete proof object shape before any
+  consumer can accept the marker.
+- Data-root hashing now performs a final reverse-order persistent identity check
+  of every regular file after all content reads and before directory/root final
+  checks. An earlier file changed while a later large file is read is rejected.
+- Every drill workspace contains a synced random marker with a retained handle,
+  plus a retained workspace directory handle. Cleanup verifies marker/path
+  identity, unlinks the marker, requires the original marker link count to reach
+  zero, removes the workspace, and requires the original directory link count
+  to reach zero before PASS.
+- A standalone archive is removed while its retained archive handle is still
+  open. Its path must still identify the retained inode before removal and the
+  original inode must have zero links afterward; only then is the handle closed
+  and evidence publication allowed.
+- The real-acceptance plan now treats repository evidence files as append-only
+  diagnostics. Standalone acceptance consumes only the bounded live stdout
+  machine result, while checkpoint acceptance consumes the retained summary in
+  the external checkpoint.
+
+### Reconstructed Independent RED Proof
+
+The original implementer did not leave a usable RED transcript. To avoid
+inventing one, the controller created a temporary detached worktree at the exact
+implementation base, applied only the two contract-test diffs, linked the
+already-installed package dependencies, and ran the focused regressions against
+the old production implementation. The temporary worktree and TAP files were
+then removed.
+
+Rollback regression command:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-concurrency=1 --test-name-pattern='data root fingerprint rechecks earlier|workspace cleanup rejects|standalone archive cleanup rejects|rollback result parser rejects' scripts\rollback-drill-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 62 total, 0 passed, 5 failed, 57 skipped. The old
+implementation failed to reject the early-file mutation, moved workspace,
+replaced marker, moved retained standalone archive, and BOM-prefixed result.
+
+Release regression command:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-concurrency=1 --test-name-pattern='checkpoint summary is created|checkpoint native reader returns|release rollback checkpoint fake toolchain|CI isolated rollback workflow|release rollback workflow|rollback acceptance plan never' scripts\release-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 108 total, 0 passed, 8 failed, 100 skipped. Both
+PowerShell-host fake-toolchain rows failed, together with the direct summary,
+bounded native reader, CI workflow, Release workflow, and acceptance-plan
+contracts.
+
+### GREEN Verification
+
+The same focused rollback command on the implementation exited `0`: 62 total,
+5 passed, 0 failed, 57 skipped.
+
+The same focused release command on the implementation exited `0`: 108 total,
+8 passed, 0 failed, 100 skipped. This includes the Windows PowerShell 5.1 and
+PowerShell 7 fake-toolchain rows.
+
+Complete rollback contract:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-concurrency=1 scripts\rollback-drill-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 100 passed, 0 failed, 0 skipped. Windows emitted the
+existing best-effort reparse-fixture diagnostic because the host refused that
+optional file fixture with `EPERM`; the executable junction coverage and all
+assertions still ran successfully.
+
+Complete release contract:
+
+```powershell
+$env:LMD_PWSH_EXE='C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64\pwsh.exe'
+$env:PATH='C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64;C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64;' + $env:PATH
+npm run test:release
+```
+
+Exit code: `0`. Tests: 200 passed, 0 failed, 0 skipped. TAP duration was
+610.4 seconds; command wall time was 610.8 seconds.
+
+Pinned Node 20 syntax checks passed for both production JavaScript files and
+both contract files. `create-release-rollback-checkpoint.ps1` parsed with zero
+errors under Windows PowerShell 5.1 and PowerShell 7.6.4. `git diff --check`
+exited `0`; Git emitted only the checkout's LF-to-CRLF notices.
+
+### Changed Files
+
+- `.github/workflows/ci.yml`
+- `.github/workflows/release.yml`
+- `docs/superpowers/plans/2026-07-20-rollback-evidence-binding.md`
+- `scripts/create-release-rollback-checkpoint.ps1`
+- `scripts/release-contract.test.cjs`
+- `scripts/rollback-drill-contract.test.cjs`
+- `scripts/rollback-drill-evidence.cjs`
+- `scripts/run-rollback-drill.cjs`
+- `.superpowers/sdd/rollback-security-task-4-report.md`
+
+### Self-Review
+
+- No checkpoint consumer reopens a repository diagnostic or summary path to
+  establish authority. The checkpoint summary authority is the stream that
+  created and flushed the final file.
+- Captured stdout is allocated at no more than 2 MiB and stderr at no more than
+  256 KiB for the drill and validator calls. Both streams continue draining
+  after their retained buffers fill, so a child cannot deadlock the parent by
+  filling the discarded diagnostic tail.
+- The Node validator receives exactly the captured stdout bytes and emits no
+  authority of its own. PowerShell's subsequent parser consumes the identical
+  byte array, not reconstructed lines or a file.
+- Cleanup failures, including falsey thrown values and hostile cleanup-detail
+  containers, retain the exact pre-existing primary precedence and block
+  diagnostic publication.
+- The final file recheck is intentionally reverse ordered, leaving no expensive
+  content read after an early file's final persistent identity check.
+- Workspace and standalone archive proofs retain the original objects through
+  deletion and require their link count to reach zero. A visible replacement or
+  displacement fails before PASS and is covered by deterministic tests.
+
+### Residual Trust Boundary
+
+These controls prove local invocation-time consistency; they are not a global
+filesystem snapshot. A same-permission process can still race after an object's
+last stat, cause denial of service, or mutate protected source data after the
+drill returns. The reverse final check closes the reviewed long-read mutation
+window, while later concurrent mutation remains inside the protected-data-root
+and operator process trust boundary.
+
+Node exposes no portable handle-directed recursive directory deletion API. The
+cleanup path therefore verifies retained identity immediately before pathname
+removal and original link count immediately afterward. Visible replacement or
+movement fails closed, but an actively malicious same-permission process can
+still race pathname operations, delete the original itself, or cause collateral
+cleanup failure. Administrator/SYSTEM access and process injection remain out
+of scope. No claim of malicious-at-rest authenticity or creator identity is
+made.
+
+An abrupt process or host termination may leave an incomplete checkpoint
+summary, workspace, archive, or diagnostic record. A checkpoint summary is not
+release-authoritative without the later v5 metadata, and repository diagnostics
+are never authoritative. Normal handled success and failure paths perform all
+retained-handle proofs and cleanup described above.
+
+The immutable resulting commit SHA is reported in the handoff rather than
+embedded in this tracked report.
+
 ## Architecture Fix: Trusted Rollback Result
 
 Architecture-fix date: 2026-07-22
