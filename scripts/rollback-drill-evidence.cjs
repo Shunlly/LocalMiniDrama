@@ -4,6 +4,7 @@ const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
 const fsp = require('node:fs/promises')
 const path = require('node:path')
+const { TextDecoder } = require('node:util')
 const { DEFAULT_LIMITS } = require('../backend-node/src/services/dataBackupService')
 const {
   MINIMUM_ZIP_ARCHIVE_BYTES,
@@ -11,11 +12,20 @@ const {
 } = require('../backend-node/src/services/dataBackupFormatContract')
 
 const EVIDENCE_SCHEMA = 'localminidrama.rollback-drill.v3'
-const V2_EVIDENCE_SCHEMA = 'localminidrama.rollback-drill.v2'
-const LEGACY_EVIDENCE_SCHEMA = 'localminidrama.rollback-drill.v1'
 const EVIDENCE_RELATIVE_PATH = 'artifacts/rollback-drill/summary.json'
+const ROLLBACK_RESULT_SCHEMA = 'localminidrama.rollback-result.v1'
+const ROLLBACK_RESULT_MARKER_PREFIX = 'LOCALMINIDRAMA_ROLLBACK_RESULT_V1='
+const MAX_ROLLBACK_RESULT_EVIDENCE_BYTES = 512 * 1024
+const MAX_ROLLBACK_RESULT_MARKER_BYTES = 1024 * 1024
+const MAX_ROLLBACK_RESULT_STREAM_BYTES = 2 * 1024 * 1024
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/
-const MAX_CLEANUP_ERROR_DETAILS = 8
+const RESULT_ENVELOPE_FIELDS = Object.freeze([
+  'schema',
+  'evidence_utf8_base64url',
+  'evidence_sha256',
+  'diagnostic_relative_path',
+])
+const STRICT_UTF8_DECODER = new TextDecoder('utf-8', { fatal: true })
 
 function comparablePath(value) {
   const normalized = path.normalize(value)
@@ -62,184 +72,6 @@ async function lstatIfExists(targetPath) {
     return await fsp.lstat(targetPath)
   } catch (error) {
     if (error?.code === 'ENOENT') return null
-    throw error
-  }
-}
-
-async function lstatBigIntIfExists(targetPath) {
-  try {
-    return await fsp.lstat(targetPath, { bigint: true })
-  } catch (error) {
-    if (error?.code === 'ENOENT') return null
-    throw error
-  }
-}
-
-function boundedOwnDataArrayValues(candidate, maximumValues, excludedValue) {
-  const values = []
-  if (maximumValues <= 0) return values
-  try {
-    if (!Array.isArray(candidate)) return values
-    const lengthDescriptor = Object.getOwnPropertyDescriptor(candidate, 'length')
-    if (!lengthDescriptor || !Object.hasOwn(lengthDescriptor, 'value')) return values
-    const length = lengthDescriptor.value
-    if (!Number.isSafeInteger(length) || length < 0) return values
-    const inspectedLength = Math.min(length, maximumValues)
-    for (let index = 0; index < inspectedLength; index += 1) {
-      const descriptor = Object.getOwnPropertyDescriptor(candidate, String(index))
-      if (!descriptor || !Object.hasOwn(descriptor, 'value')) continue
-      if (descriptor.value !== excludedValue) values.push(descriptor.value)
-    }
-  } catch {}
-  return values
-}
-
-function attachCleanupErrors(primaryError, cleanupErrors) {
-  if (primaryError === null || (typeof primaryError !== 'object' && typeof primaryError !== 'function')) return
-  try {
-    const existingDescriptor = Object.getOwnPropertyDescriptor(primaryError, 'cleanupErrors')
-    const existingCandidate = existingDescriptor && Object.hasOwn(existingDescriptor, 'value')
-      ? existingDescriptor.value
-      : null
-    const bounded = boundedOwnDataArrayValues(existingCandidate, MAX_CLEANUP_ERROR_DETAILS, primaryError)
-    const additions = boundedOwnDataArrayValues(
-      cleanupErrors,
-      MAX_CLEANUP_ERROR_DETAILS - bounded.length,
-      primaryError
-    )
-    for (const addition of additions) bounded.push(addition)
-    if (bounded.length === 0) return
-    Object.defineProperty(primaryError, 'cleanupErrors', {
-      value: Object.freeze(bounded),
-      configurable: true,
-      enumerable: false,
-    })
-  } catch {}
-}
-
-function throwPrimaryOrCleanup(hasPrimaryError, primaryError, cleanupErrors) {
-  if (hasPrimaryError) {
-    attachCleanupErrors(primaryError, cleanupErrors)
-    throw primaryError
-  }
-  if (cleanupErrors.length > 0) {
-    const cleanupError = cleanupErrors[0]
-    const laterCleanupErrors = cleanupErrors.slice(1, MAX_CLEANUP_ERROR_DETAILS + 1)
-    attachCleanupErrors(cleanupError, laterCleanupErrors)
-    throw cleanupError
-  }
-}
-
-function isOwnedRegularFile(identity, ownedIdentity) {
-  return Boolean(
-    identity &&
-      !identity.isSymbolicLink() &&
-      identity.isFile() &&
-      identity.dev === ownedIdentity.dev &&
-      identity.ino === ownedIdentity.ino
-  )
-}
-
-function ownershipClaimPath(targetPath) {
-  return path.join(
-    path.dirname(targetPath),
-    `.rollback-ownership-${process.pid}-${crypto.randomBytes(16).toString('hex')}.claim`
-  )
-}
-
-async function movePathToOwnershipClaim(targetPath) {
-  const claimPath = ownershipClaimPath(targetPath)
-  try {
-    await fsp.rename(targetPath, claimPath)
-    return claimPath
-  } catch (error) {
-    if (error?.code === 'ENOENT') return null
-    throw error
-  }
-}
-
-async function restoreClaimedPath(claimPath, targetPath) {
-  await fsp.link(claimPath, targetPath)
-  await fsp.unlink(claimPath)
-}
-
-async function claimOwnedPath(targetPath, ownedIdentity, label) {
-  const observedIdentity = await lstatBigIntIfExists(targetPath)
-  assert.ok(observedIdentity, `${label} disappeared before ownership claim`)
-  assert.ok(
-    !observedIdentity.isSymbolicLink() && observedIdentity.isFile(),
-    `${label} identity changed to a non-regular object before ownership claim`
-  )
-  const claimPath = await movePathToOwnershipClaim(targetPath)
-  assert.ok(claimPath, `${label} disappeared before ownership claim`)
-  const claimedIdentity = await fsp.lstat(claimPath, { bigint: true })
-  if (isOwnedRegularFile(claimedIdentity, ownedIdentity)) return claimPath
-  await restoreClaimedPath(claimPath, targetPath)
-  assert.fail(`${label} identity changed before ownership claim`)
-}
-
-async function removePathIfOwned(targetPath, ownedIdentity) {
-  const observedIdentity = await lstatBigIntIfExists(targetPath)
-  if (!observedIdentity) return false
-  if (observedIdentity.isSymbolicLink() || !observedIdentity.isFile()) return false
-  const claimPath = await movePathToOwnershipClaim(targetPath)
-  if (!claimPath) return false
-  const claimedIdentity = await fsp.lstat(claimPath, { bigint: true })
-  if (isOwnedRegularFile(claimedIdentity, ownedIdentity)) {
-    await fsp.unlink(claimPath)
-    return true
-  }
-  await restoreClaimedPath(claimPath, targetPath)
-  return false
-}
-
-async function openVerifiedClaimedStagedContent(claimPath, ownedIdentity, expectedBytes) {
-  let handle
-  try {
-    handle = await fsp.open(claimPath, 'r')
-    const beforeRead = await handle.stat({ bigint: true })
-    assert.ok(
-      isOwnedRegularFile(beforeRead, ownedIdentity),
-      'staged rollback evidence descriptor identity changed before content proof'
-    )
-    assert.equal(
-      beforeRead.size,
-      BigInt(expectedBytes.length),
-      'staged rollback evidence content changed before PASS publication'
-    )
-    const actualBytes = Buffer.allocUnsafe(expectedBytes.length)
-    let offset = 0
-    while (offset < actualBytes.length) {
-      const { bytesRead } = await handle.read(actualBytes, offset, actualBytes.length - offset, offset)
-      assert.notEqual(bytesRead, 0, 'staged rollback evidence content changed before PASS publication')
-      offset += bytesRead
-    }
-    const extraByte = Buffer.allocUnsafe(1)
-    const { bytesRead: extraBytesRead } = await handle.read(extraByte, 0, 1, expectedBytes.length)
-    assert.equal(extraBytesRead, 0, 'staged rollback evidence content changed before PASS publication')
-    assert.equal(
-      crypto.timingSafeEqual(actualBytes, expectedBytes),
-      true,
-      'staged rollback evidence content changed before PASS publication'
-    )
-    const afterRead = await handle.stat({ bigint: true })
-    assert.ok(
-      isOwnedRegularFile(afterRead, ownedIdentity),
-      'staged rollback evidence descriptor identity changed during content proof'
-    )
-    assert.equal(
-      afterRead.size,
-      BigInt(expectedBytes.length),
-      'staged rollback evidence content changed during content proof'
-    )
-    const claimedIdentity = await fsp.lstat(claimPath, { bigint: true })
-    assert.ok(
-      isOwnedRegularFile(claimedIdentity, ownedIdentity),
-      'staged rollback evidence claim identity changed during content proof'
-    )
-    return handle
-  } catch (error) {
-    if (handle) await handle.close().catch(() => {})
     throw error
   }
 }
@@ -527,189 +359,253 @@ async function ensureEvidenceDirectory(repoRoot) {
   return evidenceRoot
 }
 
-function recognizedEvidenceVersion(evidence) {
-  if (![EVIDENCE_SCHEMA, V2_EVIDENCE_SCHEMA, LEGACY_EVIDENCE_SCHEMA].includes(evidence?.schema)) {
-    assert.fail('existing rollback evidence is not recognized')
-  }
-  assert.equal(typeof evidence?.status, 'string', 'existing rollback evidence status must be a string')
-  assert.equal(evidence?.status, 'passed', 'existing rollback evidence is not a completed PASS record')
-  if (evidence?.schema === EVIDENCE_SCHEMA) {
-    validateEvidenceV3(evidence, evidence?.source?.version)
-    return evidence.source.version
-  }
-  if (evidence?.schema === V2_EVIDENCE_SCHEMA) {
-    assert.match(evidence?.source?.version || '', VERSION_PATTERN, 'existing rollback evidence version is invalid')
-    return evidence.source.version
-  }
-  if (evidence?.schema === LEGACY_EVIDENCE_SCHEMA) {
-    assert.match(evidence?.source_version || '', VERSION_PATTERN, 'legacy rollback evidence version is invalid')
-    assert.match(evidence?.backup?.archive_sha256 || '', /^[a-f0-9]{64}$/i, 'legacy rollback evidence hash is invalid')
-    return evidence.source_version
-  }
-  assert.fail('existing rollback evidence is not recognized')
-}
-
-async function archivePriorEvidence(evidenceRoot, outputPath, contents, evidence, version) {
-  const archiveRoot = path.join(evidenceRoot, 'archive')
-  await ensureRealDirectory(archiveRoot)
-  const digest = crypto.createHash('sha256').update(contents).digest('hex')
-  const generation = evidence.schema === LEGACY_EVIDENCE_SCHEMA
-    ? 'legacy-v1'
-    : evidence.schema === V2_EVIDENCE_SCHEMA
-      ? 'v2'
-      : 'v3'
-  const archivePath = path.join(archiveRoot, `${generation}-${version}-${digest.slice(0, 16)}.json`)
-  const existingArchive = await lstatIfExists(archivePath)
-  if (existingArchive) {
-    assert.equal(existingArchive.isSymbolicLink(), false, 'rollback evidence archive must not be a symbolic link')
-    assert.equal(existingArchive.isFile(), true, 'rollback evidence archive must be a regular file')
-    assert.equal(
-      crypto.createHash('sha256').update(await fsp.readFile(archivePath)).digest('hex'),
-      digest,
-      'rollback evidence archive collision detected'
-    )
-  } else {
-    await fsp.link(outputPath, archivePath)
-  }
-  await fsp.unlink(outputPath)
-}
-
 async function prepareEvidenceTarget(repoRoot, version) {
   assert.match(version || '', VERSION_PATTERN, 'expected rollback evidence version is invalid')
-  const evidenceRoot = await ensureEvidenceDirectory(repoRoot)
-  const outputPath = evidenceOutputPath(repoRoot)
-  const stat = await lstatIfExists(outputPath)
-  if (!stat) return outputPath
-  assert.equal(stat.isSymbolicLink(), false, 'rollback evidence must not be a symbolic link')
-  assert.equal(stat.isFile(), true, 'rollback evidence must be a regular file')
-  const contents = await fsp.readFile(outputPath)
-  const existing = JSON.parse(contents.toString('utf8'))
-  const existingVersion = recognizedEvidenceVersion(existing)
-  if (existing.schema === EVIDENCE_SCHEMA && existingVersion === version) {
-    await fsp.unlink(outputPath)
-  } else {
-    await archivePriorEvidence(evidenceRoot, outputPath, contents, existing, existingVersion)
-  }
-  return outputPath
+  return ensureEvidenceDirectory(repoRoot)
 }
 
-async function publishEvidence(
-  repoRoot,
-  expectedVersion,
-  evidence,
-  limits = DEFAULT_LIMITS,
-  transactionOptions = {}
-) {
-  validateEvidenceV3(evidence, expectedVersion, limits)
-  assertPlainObject(transactionOptions, 'rollback evidence publication transaction')
-  for (const callback of ['onStaged', 'beforeCommit', 'afterCommit']) {
-    assert.ok(
-      transactionOptions[callback] === undefined || typeof transactionOptions[callback] === 'function',
-      `rollback evidence publication ${callback} must be a function`
-    )
-  }
-  const evidenceRoot = await ensureEvidenceDirectory(repoRoot)
-  const outputPath = evidenceOutputPath(repoRoot)
-  assert.equal(await lstatIfExists(outputPath), null, 'rollback evidence target changed during the drill')
+function serializeEvidence(evidence) {
+  return Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`, 'utf8')
+}
 
-  const temporaryPath = path.join(evidenceRoot, `.summary-${process.pid}-${crypto.randomBytes(8).toString('hex')}.tmp`)
-  const serializedEvidence = Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`, 'utf8')
+function assertSafeDiagnosticRelativePath(relativePath) {
+  assert.equal(typeof relativePath, 'string', 'rollback diagnostic relative path must be a string')
+  assert.ok(Buffer.byteLength(relativePath, 'utf8') <= 240, 'rollback diagnostic relative path is too long')
+  assert.match(
+    relativePath,
+    /^artifacts\/rollback-drill\/summary-v3-[a-f0-9]{40}-[a-f0-9]{32}\.json$/,
+    'rollback diagnostic relative path is invalid'
+  )
+  return relativePath
+}
+
+function diagnosticRelativePathForEvidence(evidence) {
+  return assertSafeDiagnosticRelativePath(
+    `artifacts/rollback-drill/summary-v3-${evidence.source.commit}-${crypto.randomBytes(16).toString('hex')}.json`
+  )
+}
+
+function assertSameDiagnosticIdentity(expected, actual, label) {
+  assert.ok(expected && actual, `${label} identity is missing`)
+  assert.equal(actual.isSymbolicLink(), false, `${label} must not be a symbolic link`)
+  assert.equal(actual.isFile(), true, `${label} must be a regular file`)
+  for (const field of ['dev', 'ino', 'size']) assert.equal(actual[field], expected[field], `${label} ${field} changed`)
+}
+
+async function writeDiagnosticFile(outputPath, evidenceBytes) {
   let handle
-  let temporaryIdentity
-  let stagedIdentity
-  let stagedClaimPath
-  let stagedContentHandle
-  let linked = false
   let hasPrimaryError = false
   let primaryError
   try {
-    handle = await fsp.open(temporaryPath, 'wx', 0o600)
-    temporaryIdentity = await handle.stat({ bigint: true })
-    assert.ok(temporaryIdentity.isFile(), 'staged rollback evidence must be a regular file')
-    await handle.writeFile(serializedEvidence)
+    handle = await fsp.open(outputPath, 'wx+', 0o600)
+    await handle.writeFile(evidenceBytes)
     await handle.sync()
-    stagedIdentity = await handle.stat({ bigint: true })
-    assert.ok(
-      isOwnedRegularFile(stagedIdentity, temporaryIdentity),
-      'staged rollback evidence descriptor identity changed during staging'
-    )
-    assert.equal(
-      stagedIdentity.size,
-      BigInt(serializedEvidence.length),
-      'staged rollback evidence content changed during staging'
-    )
-    await handle.close()
-    handle = null
-    const stagedPathIdentity = await lstatBigIntIfExists(temporaryPath)
-    assert.ok(
-      isOwnedRegularFile(stagedPathIdentity, stagedIdentity),
-      'staged rollback evidence identity changed before callbacks'
-    )
-    const transaction = { temporaryPath, outputPath }
-    await transactionOptions.onStaged?.(transaction)
-    await transactionOptions.beforeCommit?.(transaction)
-    assert.equal(await lstatIfExists(outputPath), null, 'rollback evidence target changed before PASS publication')
-    stagedClaimPath = await claimOwnedPath(temporaryPath, stagedIdentity, 'staged rollback evidence')
-    stagedContentHandle = await openVerifiedClaimedStagedContent(
-      stagedClaimPath,
-      stagedIdentity,
-      serializedEvidence
-    )
-    await fsp.link(stagedClaimPath, outputPath)
-    linked = true
-    await stagedContentHandle.close()
-    stagedContentHandle = null
-    assert.equal(
-      await removePathIfOwned(stagedClaimPath, stagedIdentity),
-      true,
-      'staged rollback evidence ownership claim changed before cleanup'
-    )
-    stagedClaimPath = null
-    await transactionOptions.afterCommit?.(transaction)
+    const descriptorBefore = await handle.stat({ bigint: true })
+    assert.equal(descriptorBefore.isFile(), true, 'rollback diagnostic descriptor must be a regular file')
+    assert.equal(descriptorBefore.size, BigInt(evidenceBytes.length), 'rollback diagnostic descriptor length changed')
+    const pathBefore = await fsp.lstat(outputPath, { bigint: true })
+    assertSameDiagnosticIdentity(descriptorBefore, pathBefore, 'rollback diagnostic path')
+
+    const actualBytes = Buffer.allocUnsafe(evidenceBytes.length)
+    let offset = 0
+    while (offset < actualBytes.length) {
+      const { bytesRead } = await handle.read(actualBytes, offset, actualBytes.length - offset, offset)
+      assert.notEqual(bytesRead, 0, 'rollback diagnostic bytes were truncated')
+      offset += bytesRead
+    }
+    const extra = Buffer.allocUnsafe(1)
+    const { bytesRead: extraBytesRead } = await handle.read(extra, 0, 1, evidenceBytes.length)
+    assert.equal(extraBytesRead, 0, 'rollback diagnostic bytes grew during verification')
+    assert.equal(crypto.timingSafeEqual(actualBytes, evidenceBytes), true, 'rollback diagnostic bytes changed')
+
+    const descriptorAfter = await handle.stat({ bigint: true })
+    const pathAfter = await fsp.lstat(outputPath, { bigint: true })
+    assertSameDiagnosticIdentity(descriptorBefore, descriptorAfter, 'rollback diagnostic descriptor')
+    assertSameDiagnosticIdentity(descriptorBefore, pathAfter, 'rollback diagnostic path')
   } catch (error) {
     hasPrimaryError = true
     primaryError = error
   }
 
-  const cleanupErrors = []
-  if (stagedContentHandle) {
-    try {
-      await stagedContentHandle.close()
-    } catch (error) {
-      cleanupErrors.push(error)
-    }
-  }
-  if (hasPrimaryError && linked && stagedIdentity) {
-    try {
-      await removePathIfOwned(outputPath, stagedIdentity)
-    } catch (error) {
-      cleanupErrors.push(error)
-    }
-  }
+  let hasCloseError = false
+  let closeError
   if (handle) {
     try {
       await handle.close()
     } catch (error) {
-      cleanupErrors.push(error)
+      hasCloseError = true
+      closeError = error
     }
   }
-  const cleanupIdentity = stagedIdentity || temporaryIdentity
-  if (cleanupIdentity) {
-    if (stagedClaimPath) {
-      try {
-        await removePathIfOwned(stagedClaimPath, cleanupIdentity)
-      } catch (error) {
-        cleanupErrors.push(error)
-      }
-    }
-    try {
-      await removePathIfOwned(temporaryPath, cleanupIdentity)
-    } catch (error) {
-      cleanupErrors.push(error)
-    }
+  if (hasPrimaryError) throw primaryError
+  if (hasCloseError) throw closeError
+}
+
+async function publishEvidence(repoRoot, expectedVersion, evidence, limits = DEFAULT_LIMITS) {
+  validateEvidenceV3(evidence, expectedVersion, limits)
+  const evidenceRoot = await ensureEvidenceDirectory(repoRoot)
+  const evidenceBytes = serializeEvidence(evidence)
+  assert.ok(
+    evidenceBytes.length <= MAX_ROLLBACK_RESULT_EVIDENCE_BYTES,
+    'rollback evidence exceeds the result evidence byte limit'
+  )
+  const diagnosticRelativePath = diagnosticRelativePathForEvidence(evidence)
+  const outputPath = path.join(evidenceRoot, path.basename(diagnosticRelativePath))
+  await writeDiagnosticFile(outputPath, evidenceBytes)
+  return { diagnosticRelativePath, evidenceBytes }
+}
+
+function decodeCanonicalBase64url(value, label, maximumBytes) {
+  assert.equal(typeof value, 'string', `${label} must be a string`)
+  assert.match(value, /^[A-Za-z0-9_-]+$/, `${label} must be canonical base64url`)
+  const bytes = Buffer.from(value, 'base64url')
+  assert.equal(bytes.toString('base64url'), value, `${label} must be canonical base64url`)
+  assert.ok(bytes.length <= maximumBytes, `${label} exceeds its byte limit`)
+  return bytes
+}
+
+function decodeStrictUtf8(bytes, label) {
+  try {
+    return STRICT_UTF8_DECODER.decode(bytes)
+  } catch {
+    assert.fail(`${label} must be strict UTF-8`)
   }
-  throwPrimaryOrCleanup(hasPrimaryError, primaryError, cleanupErrors)
-  return outputPath
+}
+
+function createRollbackResultMarker(result, expectedVersion, limits = DEFAULT_LIMITS) {
+  assertPlainObject(result, 'rollback result')
+  assert.deepEqual(
+    Object.keys(result).sort(),
+    ['diagnosticRelativePath', 'evidence', 'evidenceBytes'],
+    'rollback result properties are invalid'
+  )
+  validateEvidenceV3(result.evidence, expectedVersion, limits)
+  assert.equal(Buffer.isBuffer(result.evidenceBytes), true, 'rollback result evidenceBytes must be a Buffer')
+  assert.ok(
+    result.evidenceBytes.length <= MAX_ROLLBACK_RESULT_EVIDENCE_BYTES,
+    'rollback result evidence exceeds the byte limit'
+  )
+  assert.deepEqual(result.evidenceBytes, serializeEvidence(result.evidence), 'rollback result evidence bytes are not canonical')
+  assertSafeDiagnosticRelativePath(result.diagnosticRelativePath)
+  const envelope = {
+    schema: ROLLBACK_RESULT_SCHEMA,
+    evidence_utf8_base64url: result.evidenceBytes.toString('base64url'),
+    evidence_sha256: crypto.createHash('sha256').update(result.evidenceBytes).digest('hex'),
+    diagnostic_relative_path: result.diagnosticRelativePath,
+  }
+  const encodedEnvelope = Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url')
+  const marker = `${ROLLBACK_RESULT_MARKER_PREFIX}${encodedEnvelope}`
+  assert.ok(Buffer.byteLength(marker, 'utf8') <= MAX_ROLLBACK_RESULT_MARKER_BYTES, 'rollback result marker is too large')
+  return marker
+}
+
+function parseRollbackResultStream(stream, options, limits = DEFAULT_LIMITS) {
+  const streamBytes = Buffer.isBuffer(stream) ? stream : Buffer.from(stream, 'utf8')
+  assert.ok(streamBytes.length <= MAX_ROLLBACK_RESULT_STREAM_BYTES, 'rollback result stream exceeds the byte limit')
+  const streamText = decodeStrictUtf8(streamBytes, 'rollback result stream')
+  const markers = streamText.split(/\r?\n/).filter((line) => line.startsWith(ROLLBACK_RESULT_MARKER_PREFIX))
+  assert.equal(markers.length, 1, 'rollback result stream must contain exactly one machine marker')
+  const marker = markers[0]
+  assert.ok(Buffer.byteLength(marker, 'utf8') <= MAX_ROLLBACK_RESULT_MARKER_BYTES, 'rollback result marker is too large')
+  const encodedEnvelope = marker.slice(ROLLBACK_RESULT_MARKER_PREFIX.length)
+  const envelopeBytes = decodeCanonicalBase64url(
+    encodedEnvelope,
+    'rollback result envelope',
+    MAX_ROLLBACK_RESULT_MARKER_BYTES
+  )
+  const envelopeText = decodeStrictUtf8(envelopeBytes, 'rollback result envelope')
+  let envelope
+  try {
+    envelope = JSON.parse(envelopeText)
+  } catch {
+    assert.fail('rollback result envelope must contain JSON')
+  }
+  assertPlainObject(envelope, 'rollback result envelope')
+  assert.deepEqual(Object.keys(envelope), RESULT_ENVELOPE_FIELDS, 'rollback result envelope property list is invalid')
+  assert.equal(JSON.stringify(envelope), envelopeText, 'rollback result envelope JSON must be canonical')
+  assert.equal(envelope.schema, ROLLBACK_RESULT_SCHEMA, 'rollback result envelope schema is invalid')
+  assert.match(envelope.evidence_sha256 || '', /^[a-f0-9]{64}$/, 'rollback result evidence sha256 is invalid')
+  assertSafeDiagnosticRelativePath(envelope.diagnostic_relative_path)
+
+  const evidenceBytes = decodeCanonicalBase64url(
+    envelope.evidence_utf8_base64url,
+    'rollback result evidence base64url',
+    MAX_ROLLBACK_RESULT_EVIDENCE_BYTES
+  )
+  const evidenceSha256 = crypto.createHash('sha256').update(evidenceBytes).digest('hex')
+  assert.equal(evidenceSha256, envelope.evidence_sha256, 'rollback result evidence digest does not match')
+  const evidenceText = decodeStrictUtf8(evidenceBytes, 'rollback result evidence')
+  let evidence
+  try {
+    evidence = JSON.parse(evidenceText)
+  } catch {
+    assert.fail('rollback result evidence must contain JSON')
+  }
+  assert.deepEqual(evidenceBytes, serializeEvidence(evidence), 'rollback result evidence JSON must be canonical')
+  assertPlainObject(options, 'rollback result validation options')
+  assert.match(options.expectedVersion || '', VERSION_PATTERN, 'expected rollback result version is invalid')
+  assert.match(options.expectedCommit || '', /^[a-f0-9]{40}$/, 'expected rollback result commit is invalid')
+  assert.ok(
+    options.expectedInputMode === 'standalone' || options.expectedInputMode === 'checkpoint-bound',
+    'expected rollback result input mode is invalid'
+  )
+  validateEvidenceV3(evidence, options.expectedVersion, limits)
+  assert.equal(evidence.source.commit, options.expectedCommit, 'rollback result commit does not match')
+  assert.equal(evidence.input_mode, options.expectedInputMode, 'rollback result input mode does not match')
+  return {
+    schema: envelope.schema,
+    evidence,
+    evidenceBytes,
+    evidenceSha256,
+    diagnosticRelativePath: envelope.diagnostic_relative_path,
+  }
+}
+
+function parseResultStreamValidationArguments(args) {
+  assert.ok(Array.isArray(args), 'rollback result validator arguments must be an array')
+  assert.equal(args[0], '--validate-result-stream', 'rollback result validator mode is required')
+  assert.equal(args.length, 7, 'rollback result validator requires version, commit, and mode')
+  const values = new Map()
+  for (let index = 1; index < args.length; index += 2) {
+    const flag = args[index]
+    const value = args[index + 1]
+    assert.ok(
+      flag === '--expected-version' || flag === '--expected-commit' || flag === '--expected-mode',
+      `unknown rollback result validator argument: ${flag}`
+    )
+    assert.equal(values.has(flag), false, `duplicate rollback result validator argument: ${flag}`)
+    assert.equal(typeof value, 'string', `${flag} requires a value`)
+    values.set(flag, value)
+  }
+  assert.equal(values.has('--expected-version'), true, 'rollback result validator requires --expected-version')
+  assert.equal(values.has('--expected-commit'), true, 'rollback result validator requires --expected-commit')
+  assert.equal(values.has('--expected-mode'), true, 'rollback result validator requires --expected-mode')
+  return {
+    expectedVersion: values.get('--expected-version'),
+    expectedCommit: values.get('--expected-commit'),
+    expectedInputMode: values.get('--expected-mode'),
+  }
+}
+
+async function readBoundedResultStream(readable) {
+  const chunks = []
+  let byteLength = 0
+  for await (const chunk of readable) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    byteLength += bytes.length
+    assert.ok(
+      byteLength <= MAX_ROLLBACK_RESULT_STREAM_BYTES,
+      'rollback result stream exceeds the byte limit'
+    )
+    chunks.push(bytes)
+  }
+  return Buffer.concat(chunks, byteLength)
+}
+
+async function validateResultStreamCli(args, readable = process.stdin) {
+  const options = parseResultStreamValidationArguments(args)
+  const stream = await readBoundedResultStream(readable)
+  parseRollbackResultStream(stream, options)
 }
 
 function assertPlainObject(value, label) {
@@ -897,17 +793,36 @@ function validateEvidenceV3(evidence, expectedVersion, limits = DEFAULT_LIMITS) 
   return evidence
 }
 
+if (require.main === module) {
+  validateResultStreamCli(process.argv.slice(2)).catch((error) => {
+    const message = error && typeof error.stack === 'string'
+      ? error.stack
+      : 'rollback result stream validation failed'
+    process.stderr.write(`${message}\n`)
+    process.exitCode = 1
+  })
+}
+
 module.exports = {
   EVIDENCE_RELATIVE_PATH,
   EVIDENCE_SCHEMA,
+  MAX_ROLLBACK_RESULT_EVIDENCE_BYTES,
+  MAX_ROLLBACK_RESULT_MARKER_BYTES,
+  MAX_ROLLBACK_RESULT_STREAM_BYTES,
+  ROLLBACK_RESULT_MARKER_PREFIX,
+  ROLLBACK_RESULT_SCHEMA,
   assertCheckpointInputPaths,
   assertSamePathIdentity,
   capturePathIdentity,
+  createRollbackResultMarker,
   evidenceOutputPath,
   fingerprintDataRoot,
   isPathOutsideRoot,
   parseDrillArguments,
+  parseRollbackResultStream,
   prepareEvidenceTarget,
   publishEvidence,
+  serializeEvidence,
   validateEvidenceV3,
+  validateResultStreamCli,
 }

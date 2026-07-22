@@ -8,6 +8,7 @@ const os = require('node:os')
 const path = require('node:path')
 const { createRequire } = require('node:module')
 const { spawnSync } = require('node:child_process')
+const { types: utilTypes } = require('node:util')
 
 const MAX_CLEANUP_ERROR_DETAILS = 8
 
@@ -18,15 +19,16 @@ const Database = backendRequire('better-sqlite3')
 const { loadConfig } = backendRequire('./src/config')
 const { DEFAULT_LIMITS, createDataBackup, restoreDataBackup } = backendRequire('./src/services/dataBackupService')
 const {
-  EVIDENCE_RELATIVE_PATH,
   EVIDENCE_SCHEMA,
   assertCheckpointInputPaths,
   assertSamePathIdentity,
   capturePathIdentity,
+  createRollbackResultMarker,
   fingerprintDataRoot,
   parseDrillArguments,
   prepareEvidenceTarget,
   publishEvidence,
+  serializeEvidence,
 } = require('./rollback-drill-evidence.cjs')
 
 let activeWorkspace = null
@@ -71,11 +73,46 @@ function normalizeDrillLimits(overrides = {}) {
   return Object.freeze(limits)
 }
 
+function copyBoundedOwnArrayDataValues(value, maximum) {
+  if (utilTypes.isProxy(value) || !Array.isArray(value)) return []
+  const copied = []
+  for (let index = 0; index < maximum; index += 1) {
+    let descriptor
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(value, String(index))
+    } catch {
+      break
+    }
+    if (descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+      copied.push(descriptor.value)
+    }
+  }
+  return copied
+}
+
 function attachCleanupErrors(primaryError, cleanupErrors) {
-  if (!primaryError || (typeof primaryError !== 'object' && typeof primaryError !== 'function')) return
-  const existing = Array.isArray(primaryError.cleanupErrors) ? primaryError.cleanupErrors : []
-  const additions = cleanupErrors.filter((error) => error && error !== primaryError)
-  const bounded = [...existing, ...additions].slice(0, MAX_CLEANUP_ERROR_DETAILS)
+  if (
+    (typeof primaryError !== 'object' && typeof primaryError !== 'function') ||
+    primaryError === null ||
+    utilTypes.isProxy(primaryError)
+  ) return
+
+  let existing = []
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(primaryError, 'cleanupErrors')
+    if (descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+      existing = copyBoundedOwnArrayDataValues(descriptor.value, MAX_CLEANUP_ERROR_DETAILS)
+    }
+  } catch {
+    return
+  }
+
+  const additions = copyBoundedOwnArrayDataValues(cleanupErrors, MAX_CLEANUP_ERROR_DETAILS)
+  const bounded = existing.slice(0, MAX_CLEANUP_ERROR_DETAILS)
+  for (const cleanupError of additions) {
+    if (bounded.length >= MAX_CLEANUP_ERROR_DETAILS) break
+    if (cleanupError !== primaryError) bounded.push(cleanupError)
+  }
   if (bounded.length === 0) return
   try {
     Object.defineProperty(primaryError, 'cleanupErrors', {
@@ -86,16 +123,37 @@ function attachCleanupErrors(primaryError, cleanupErrors) {
   } catch {}
 }
 
-function throwPrimaryOrCleanup(primaryError, cleanupErrors) {
-  if (primaryError) {
+function throwPrimaryOrCleanup(hasPrimaryError, primaryError, cleanupErrors) {
+  if (hasPrimaryError) {
     attachCleanupErrors(primaryError, cleanupErrors)
     throw primaryError
   }
   if (cleanupErrors.length > 0) {
-    const [cleanupError, ...laterCleanupErrors] = cleanupErrors
+    const cleanupError = cleanupErrors[0]
+    const laterCleanupErrors = cleanupErrors.slice(1, MAX_CLEANUP_ERROR_DETAILS + 1)
     attachCleanupErrors(cleanupError, laterCleanupErrors)
     throw cleanupError
   }
+}
+
+function renderThrownValue(value) {
+  if (value === undefined) return 'undefined'
+  if (value === null) return 'null'
+  if (typeof value === 'string') return value.length === 0 ? "''" : value
+  if (typeof value !== 'object' && typeof value !== 'function') return String(value)
+  if (utilTypes.isProxy(value)) return '[unrenderable thrown object]'
+  try {
+    for (const property of ['stack', 'message']) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, property)
+      if (
+        descriptor &&
+        Object.prototype.hasOwnProperty.call(descriptor, 'value') &&
+        typeof descriptor.value === 'string' &&
+        descriptor.value.length > 0
+      ) return descriptor.value
+    }
+  } catch {}
+  return '[unrenderable thrown object]'
 }
 
 function nonNegativeBigInt(value, label) {
@@ -348,44 +406,47 @@ async function executeRollbackDrill(options, runtime) {
   let restoredVerification
   let rollbackCopies
   let evidence
+  let evidenceBytes
+  let result
+  let hasPrimaryError = false
   let primaryError
   let standaloneArchiveRemoved = false
   const closeHandle = runtime.closeRetainedHandle || ((handle) => handle.close())
   const removeArchive = runtime.removeStandaloneArchive || removeStandaloneArchive
 
+  async function closeConsumedHandle(handle, label) {
+    let hasCloseError = false
+    let closeError
+    try {
+      await closeHandle(handle, label)
+    } catch (error) {
+      hasCloseError = true
+      closeError = error
+    }
+    if (!hasCloseError) return
+
+    const fallbackErrors = []
+    try {
+      await handle.close()
+    } catch (error) {
+      fallbackErrors.push(error)
+    }
+    attachCleanupErrors(closeError, fallbackErrors)
+    throw closeError
+  }
+
   async function closeArchiveHandle() {
     if (!archiveHandle) return
     const handle = archiveHandle
-    await closeHandle(handle, 'rollback archive')
     archiveHandle = null
+    await closeConsumedHandle(handle, 'rollback archive')
   }
 
   async function closeSourceDatabaseHandle() {
     if (!sourceDatabaseHandle) return
     const handle = sourceDatabaseHandle
-    await closeHandle(handle, 'source database')
     sourceDatabaseHandle = null
-  }
-
-  async function cleanupStandalonePublicationResources() {
-    const cleanupErrors = []
-    for (const cleanup of [closeArchiveHandle, closeSourceDatabaseHandle]) {
-      try {
-        await cleanup()
-      } catch (error) {
-        cleanupErrors.push(error)
-      }
-    }
-    if (archivePath && !standaloneArchiveRemoved) {
-      try {
-        await removeArchive(archivePath)
-        assert.equal(fs.existsSync(archivePath), false, 'standalone rollback archive cleanup could not be verified')
-        standaloneArchiveRemoved = true
-      } catch (error) {
-        cleanupErrors.push(error)
-      }
-    }
-    throwPrimaryOrCleanup(null, cleanupErrors)
+    await closeConsumedHandle(handle, 'source database')
   }
 
   try {
@@ -422,6 +483,7 @@ async function executeRollbackDrill(options, runtime) {
       storySourcesPath: path.join(restoreRoot, 'story_sources'),
     }
 
+    let hasOperationError = false
     let operationError
     try {
       if (options.inputMode === 'checkpoint-bound') {
@@ -524,18 +586,24 @@ async function executeRollbackDrill(options, runtime) {
       restoredVerification = (runtime.verifyRestoredDatabase || verifyRestoredDatabase)(restoredPaths.databasePath)
       await runtime.hooks?.afterRestore?.({ archivePath, dataRoot, workspace })
     } catch (error) {
+      hasOperationError = true
       operationError = error
     }
 
+    let hasCleanupError = false
     let cleanupError
     try {
       await removeWorkspace(workspace)
       if (activeWorkspace === workspace) activeWorkspace = null
     } catch (error) {
+      hasCleanupError = true
       cleanupError = error
     }
-    if (operationError) throwPrimaryOrCleanup(operationError, cleanupError ? [cleanupError] : [])
-    if (cleanupError) throw cleanupError
+    throwPrimaryOrCleanup(
+      hasOperationError,
+      operationError,
+      hasCleanupError ? [cleanupError] : []
+    )
     assertDrillNotAborted(signal)
 
     let finalDatabaseSha256
@@ -620,24 +688,72 @@ async function executeRollbackDrill(options, runtime) {
         workspace_cleanup_verified: true,
       },
     }
-    await (runtime.publishEvidence || publishEvidence)(repoRoot, runtime.version, evidence, limits, {
-      onStaged: runtime.hooks?.onEvidenceStaged,
-      beforeCommit: options.inputMode === 'standalone'
-        ? cleanupStandalonePublicationResources
-        : undefined,
-      afterCommit: options.inputMode === 'checkpoint-bound'
-        ? closeArchiveHandle
-        : undefined,
+    evidenceBytes = serializeEvidence(evidence)
+    await runtime.hooks?.onEvidenceStaged?.({
+      evidenceBytes: Buffer.from(evidenceBytes),
+      inputMode: options.inputMode,
     })
+
+    const preResultCleanupErrors = []
+    let hasPreResultCleanupError = false
+    for (const cleanup of [closeArchiveHandle, closeSourceDatabaseHandle]) {
+      try {
+        await cleanup()
+      } catch (error) {
+        hasPreResultCleanupError = true
+        preResultCleanupErrors.push(error)
+      }
+    }
+    if (options.inputMode === 'standalone' && archivePath && !standaloneArchiveRemoved) {
+      try {
+        await removeArchive(archivePath)
+        assert.equal(fs.existsSync(archivePath), false, 'standalone rollback archive cleanup could not be verified')
+        standaloneArchiveRemoved = true
+      } catch (error) {
+        hasPreResultCleanupError = true
+        preResultCleanupErrors.push(error)
+      }
+    }
+    if (hasPreResultCleanupError) {
+      throwPrimaryOrCleanup(false, undefined, preResultCleanupErrors)
+    }
+
+    const publication = await (runtime.publishEvidence || publishEvidence)(
+      repoRoot,
+      runtime.version,
+      evidence,
+      limits
+    )
+    assert.deepEqual(
+      serializeEvidence(evidence),
+      evidenceBytes,
+      'rollback authoritative evidence changed during diagnostic publication'
+    )
+    assert.ok(publication && typeof publication === 'object', 'rollback diagnostic publication result is required')
+    assert.match(
+      publication.diagnosticRelativePath || '',
+      /^artifacts\/rollback-drill\/summary-v3-[a-f0-9]{40}-[a-f0-9]{32}\.json$/,
+      'rollback diagnostic publication path is invalid'
+    )
+    assert.equal(Buffer.isBuffer(publication.evidenceBytes), true, 'rollback diagnostic publication bytes are required')
+    assert.deepEqual(publication.evidenceBytes, evidenceBytes, 'rollback diagnostic publication bytes changed')
+    result = {
+      evidence,
+      evidenceBytes,
+      diagnosticRelativePath: publication.diagnosticRelativePath,
+    }
   } catch (error) {
+    hasPrimaryError = true
     primaryError = error
   }
 
   const finalCleanupErrors = []
+  let hasFinalCleanupError = false
   for (const cleanup of [closeArchiveHandle, closeSourceDatabaseHandle]) {
     try {
       await cleanup()
     } catch (error) {
+      hasFinalCleanupError = true
       finalCleanupErrors.push(error)
     }
   }
@@ -647,11 +763,16 @@ async function executeRollbackDrill(options, runtime) {
       assert.equal(fs.existsSync(archivePath), false, 'standalone rollback archive cleanup could not be verified')
       standaloneArchiveRemoved = true
     } catch (error) {
+      hasFinalCleanupError = true
       finalCleanupErrors.push(error)
     }
   }
-  throwPrimaryOrCleanup(primaryError, finalCleanupErrors)
-  return evidence
+  throwPrimaryOrCleanup(
+    hasPrimaryError,
+    primaryError,
+    hasFinalCleanupError ? finalCleanupErrors : []
+  )
+  return result
 }
 
 async function main() {
@@ -695,12 +816,12 @@ async function main() {
   }
   installWorkspaceSignalCleanup()
   try {
-    const evidence = await executeRollbackDrill(drillOptions, runtime)
+    const result = await executeRollbackDrill(drillOptions, runtime)
     if (interruptedSignal) {
       process.exitCode = interruptedExitCode
       throw new Error(`rollback drill interrupted by ${interruptedSignal}`)
     }
-    process.stdout.write(`${JSON.stringify({ output: EVIDENCE_RELATIVE_PATH, ...evidence }, null, 2)}\n`)
+    process.stdout.write(`${createRollbackResultMarker(result, packageJson.version)}\n`)
   } catch (error) {
     if (interruptedSignal) {
       process.exitCode = interruptedExitCode
@@ -715,9 +836,9 @@ async function main() {
 
 if (require.main === module) {
   main().catch((error) => {
-    process.stderr.write(`${error.stack || error}\n`)
+    process.stderr.write(`${renderThrownValue(error)}\n`)
     if (!process.exitCode) process.exitCode = 1
   })
 }
 
-module.exports = { executeRollbackDrill, main, sha256FileHandle }
+module.exports = { executeRollbackDrill, main, renderThrownValue, sha256FileHandle }

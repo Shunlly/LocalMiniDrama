@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict')
 const { spawnSync } = require('node:child_process')
+const crypto = require('node:crypto')
 const fs = require('node:fs')
 const { createRequire } = require('node:module')
 const os = require('node:os')
@@ -19,10 +20,15 @@ const { validatePackagedApplications } = require('./packaged-applications-contra
 const {
   EVIDENCE_RELATIVE_PATH,
   EVIDENCE_SCHEMA,
+  MAX_ROLLBACK_RESULT_STREAM_BYTES,
+  ROLLBACK_RESULT_MARKER_PREFIX,
+  ROLLBACK_RESULT_SCHEMA,
+  createRollbackResultMarker,
   evidenceOutputPath,
   parseDrillArguments,
   prepareEvidenceTarget,
   publishEvidence,
+  serializeEvidence,
   validateEvidenceV3,
 } = require('./rollback-drill-evidence.cjs')
 const {
@@ -58,6 +64,7 @@ const rollbackRestoreScript = fs.readFileSync(path.join(root, 'scripts', 'restor
 const backupDataScript = fs.readFileSync(path.join(root, 'backend-node', 'scripts', 'backup-data.js'), 'utf8')
 const restoreDataScript = fs.readFileSync(path.join(root, 'backend-node', 'scripts', 'restore-data.js'), 'utf8')
 const rollbackDrillScript = fs.readFileSync(path.join(root, 'scripts', 'run-rollback-drill.cjs'), 'utf8')
+const rollbackEvidenceScript = fs.readFileSync(path.join(root, 'scripts', 'rollback-drill-evidence.cjs'), 'utf8')
 const dockerComposeRevisionScript = fs.readFileSync(path.join(root, 'scripts', 'docker-compose-with-revision.cjs'), 'utf8')
 const backendTrivyIgnore = fs.readFileSync(path.join(root, 'backend-node', '.trivyignore.yaml'), 'utf8')
 const backendDockerfile = fs.readFileSync(path.join(root, 'backend-node', 'Dockerfile'), 'utf8')
@@ -463,20 +470,67 @@ function validStandaloneRollbackSummary() {
     schema: 'localminidrama.rollback-drill.v3',
     status: 'passed',
     input_mode: 'standalone',
+    executed_at: '2026-07-20T00:00:00.000Z',
     source: {
       commit: rollbackWorkflowSha,
       version: '1.3.3',
       working_tree_dirty: false,
       data_root_sha256: 'b'.repeat(64),
+      database: { relative_path: 'backend-node/data/drama_generator.db' },
+    },
+    focused_tests: {
+      file: 'backend-node/test/dataBackupService.test.js',
+      passed: 2,
+      total: 2,
     },
     backup: {
+      format_version: 1,
+      archive_bytes: 64,
       archive_retained: false,
       archive_sha256: 'a'.repeat(64),
+      file_count: 3,
+      storage_files: 1,
+      story_source_files: 1,
+      active_story_source_references: 0,
+      secret_policy: 'excluded',
+      excluded_values: 0,
+    },
+    restore: {
+      isolated: true,
+      integrity_check: 'ok',
+      credential_rows_checked: 0,
+      credentials_excluded: true,
+      restored_counts: {},
+      rollback_copies: { database: true, storage: true, story_sources: true },
     },
     operations: {
+      source_database_unchanged: true,
       source_data_root_unchanged: true,
+      credential_reconfiguration_required: true,
+      workspace_cleanup_verified: true,
     },
   }
+}
+
+function rollbackResultMarkerForEvidence(evidence) {
+  const evidenceBytes = serializeEvidence(evidence)
+  const envelope = {
+    schema: ROLLBACK_RESULT_SCHEMA,
+    evidence_utf8_base64url: evidenceBytes.toString('base64url'),
+    evidence_sha256: crypto.createHash('sha256').update(evidenceBytes).digest('hex'),
+    diagnostic_relative_path: `artifacts/rollback-drill/summary-v3-${evidence.source.commit}-${'1'.repeat(32)}.json`,
+  }
+  return `${ROLLBACK_RESULT_MARKER_PREFIX}${Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url')}`
+}
+
+function validCheckpointRollbackEvidence() {
+  const evidence = validStandaloneRollbackSummary()
+  evidence.input_mode = 'checkpoint-bound'
+  evidence.source.commit = 'c'.repeat(40)
+  evidence.source.version = '1.3.3-rc.1'
+  evidence.backup.archive_retained = true
+  evidence.backup.excluded_values = null
+  return evidence
 }
 
 function standaloneRollbackEvidenceMutations() {
@@ -619,31 +673,43 @@ function rollbackWorkflowValidator(workflowDocument, label) {
 
   const lines = String(validateStep.run || '').split(/\r?\n/)
   assert.equal(lines[0], 'set -euo pipefail')
-  const rollbackCommands = lines
+  const commands = lines
     .map((line) => line.trim())
-    .filter((line) => line.includes('npm run verify:rollback'))
-  assert.deepEqual(rollbackCommands, [
-    'npm run verify:rollback 2>&1 | tee "$RUNNER_TEMP/rollback-drill.log"',
+    .filter(Boolean)
+  assert.deepEqual(commands, [
+    'set -euo pipefail',
+    'npm run verify:rollback 2>&1 \\',
+    '| tee "$RUNNER_TEMP/rollback-drill.log" \\',
+    '| node scripts/rollback-drill-evidence.cjs \\',
+    '--validate-result-stream \\',
+    '--expected-version 1.3.3 \\',
+    '--expected-commit "$GITHUB_SHA" \\',
+    '--expected-mode standalone',
   ])
-
-  const openingDelimiter = "node - <<'NODE'"
-  const openingIndices = lines.flatMap((line, index) => line === openingDelimiter ? [index] : [])
-  assert.equal(openingIndices.length, 1, `${label} must have exactly one Node heredoc`)
-  const openingIndex = openingIndices[0]
-  const closingIndices = lines.flatMap((line, index) => line === 'NODE' && index > openingIndex ? [index] : [])
-  assert.equal(closingIndices.length, 1, `${label} must close the selected Node heredoc exactly once`)
-  return lines.slice(openingIndex + 1, closingIndices[0]).join('\n')
+  assert.doesNotMatch(validateStep.run, /summary\.json|readFileSync|Get-Content/)
+  return [
+    path.join(root, 'scripts', 'rollback-drill-evidence.cjs'),
+    '--validate-result-stream',
+    '--expected-version', '1.3.3',
+    '--expected-commit', rollbackWorkflowSha,
+    '--expected-mode', 'standalone',
+  ]
 }
 
-function runRollbackWorkflowValidator(validator, summaryText) {
+function runRollbackWorkflowValidator(validatorArgs, stream) {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-workflow-rollback-'))
   const evidenceDirectory = path.join(fixtureRoot, 'artifacts', 'rollback-drill')
   fs.mkdirSync(evidenceDirectory, { recursive: true })
-  fs.writeFileSync(path.join(evidenceDirectory, 'summary.json'), summaryText, 'utf8')
+  fs.writeFileSync(
+    path.join(evidenceDirectory, 'summary.json'),
+    '{"schema":"malicious-repo-diagnostic","status":"passed"}\n',
+    'utf8',
+  )
   try {
-    return spawnSync(process.execPath, ['-e', validator], {
+    return spawnSync(process.execPath, validatorArgs, {
       cwd: fixtureRoot,
       encoding: 'utf8',
+      input: stream,
       env: { ...process.env, GITHUB_SHA: rollbackWorkflowSha },
       windowsHide: true,
     })
@@ -655,7 +721,12 @@ function runRollbackWorkflowValidator(validator, summaryText) {
 function assertStandaloneRollbackWorkflowContract(workflowDocument, label) {
   const validator = rollbackWorkflowValidator(workflowDocument, label)
   const validSummary = validStandaloneRollbackSummary()
-  const validResult = runRollbackWorkflowValidator(validator, JSON.stringify(validSummary))
+  const validMarker = createRollbackResultMarker({
+    evidence: validSummary,
+    evidenceBytes: serializeEvidence(validSummary),
+    diagnosticRelativePath: `artifacts/rollback-drill/summary-v3-${rollbackWorkflowSha}-${'1'.repeat(32)}.json`,
+  }, '1.3.3')
+  const validResult = runRollbackWorkflowValidator(validator, `drill log\n${validMarker}\n`)
   assert.equal(validResult.status, 0, validResult.stderr || validResult.stdout)
 
   for (const mutation of standaloneRollbackEvidenceMutations()) {
@@ -664,7 +735,7 @@ function assertStandaloneRollbackWorkflowContract(workflowDocument, label) {
     const property = mutation.pathParts.at(-1)
     if (mutation.missing) delete parent[property]
     else parent[property] = mutation.value
-    const result = runRollbackWorkflowValidator(validator, JSON.stringify(summary))
+    const result = runRollbackWorkflowValidator(validator, `${rollbackResultMarkerForEvidence(summary)}\n`)
     assert.notEqual(
       result.status,
       0,
@@ -672,8 +743,15 @@ function assertStandaloneRollbackWorkflowContract(workflowDocument, label) {
     )
   }
 
-  const malformedResult = runRollbackWorkflowValidator(validator, '{')
-  assert.notEqual(malformedResult.status, 0, `${label} accepted malformed summary JSON`)
+  for (const [name, stream] of [
+    ['missing marker', 'drill log only\n'],
+    ['duplicate marker', `${validMarker}\n${validMarker}\n`],
+    ['malformed marker', `${ROLLBACK_RESULT_MARKER_PREFIX}bad=\n`],
+    ['oversized stream', Buffer.alloc(MAX_ROLLBACK_RESULT_STREAM_BYTES + 1, 0x61)],
+  ]) {
+    const malformedResult = runRollbackWorkflowValidator(validator, stream)
+    assert.notEqual(malformedResult.status, 0, `${label} accepted ${name}`)
+  }
 }
 
 function assertExampleDramaLfsGate(workflowDocument, jobName) {
@@ -1226,6 +1304,12 @@ test('strict rollback drill and data root fingerprint source contracts publish v
   assert.match(rollbackDrillScript, /source_data_root_unchanged/)
   assert.match(rollbackDrillScript, /require\.main\s*===\s*module/)
   assert.match(rollbackDrillScript, /executeRollbackDrill/)
+  assert.match(rollbackDrillScript, /createRollbackResultMarker/)
+  assert.match(rollbackDrillScript, /LOCALMINIDRAMA_ROLLBACK_RESULT_V1|createRollbackResultMarker\(result/)
+  assert.doesNotMatch(rollbackDrillScript, /JSON\.stringify\(\{ output:/)
+  assert.match(rollbackEvidenceScript, /--validate-result-stream/)
+  assert.match(rollbackEvidenceScript, /FileMode|wx\+/)
+  assert.doesNotMatch(rollbackEvidenceScript, /fsp\.(?:link|rename|unlink)\(/)
   assert.match(rootPackage.scripts['test:rollback-contract'], /rollback-drill-contract\.test\.cjs/)
   const syntaxCheck = rootPackage.scripts.check.indexOf('node --check scripts/rollback-drill-contract.test.cjs')
   const contractRun = rootPackage.scripts.check.indexOf('npm run test:rollback-contract')
@@ -1235,96 +1319,51 @@ test('strict rollback drill and data root fingerprint source contracts publish v
   assert.match(rootPackage.scripts.check, /npm run test:openclaw-contract/)
 })
 
-test('rollback drill evidence is fixed, exclusive, and only replaces a same-version PASS record', async (t) => {
+test('rollback drill diagnostics are append-only and preserve every prior record', async (t) => {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-evidence-'))
   t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
   const version = '1.3.3'
-  const outputPath = evidenceOutputPath(fixtureRoot)
-  assert.equal(path.relative(fixtureRoot, outputPath).replace(/\\/g, '/'), EVIDENCE_RELATIVE_PATH)
+  const fixedPath = evidenceOutputPath(fixtureRoot)
+  const evidenceRoot = path.dirname(fixedPath)
+  const legacyPath = path.join(evidenceRoot, 'legacy-v1.json')
+  const fixedBytes = Buffer.from('{"schema":"untrusted-fixed-record"}\n')
+  const legacyBytes = Buffer.from('{"schema":"localminidrama.rollback-drill.v1"}\n')
+  fs.mkdirSync(evidenceRoot, { recursive: true })
+  fs.writeFileSync(fixedPath, fixedBytes)
+  fs.writeFileSync(legacyPath, legacyBytes)
+  assert.equal(path.relative(fixtureRoot, fixedPath).replace(/\\/g, '/'), EVIDENCE_RELATIVE_PATH)
   assert.deepEqual(parseDrillArguments([]), { inputMode: 'standalone', archivePath: null, dataRoot: null })
 
   await prepareEvidenceTarget(fixtureRoot, version)
-  const evidence = {
-    schema: EVIDENCE_SCHEMA,
-    status: 'passed',
-    input_mode: 'standalone',
-    executed_at: '2026-07-20T00:00:00.000Z',
-    source: {
-      version,
-      commit: 'c'.repeat(40),
-      working_tree_dirty: false,
-      data_root_sha256: 'a'.repeat(64),
-      database: { relative_path: 'backend-node/data/drama_generator.db' },
-    },
-    focused_tests: {
-      file: 'backend-node/test/dataBackupService.test.js',
-      passed: 2,
-      total: 2,
-    },
-    backup: {
-      format_version: 1,
-      archive_bytes: 64,
-      archive_sha256: 'b'.repeat(64),
-      archive_retained: false,
-      file_count: 3,
-      storage_files: 1,
-      story_source_files: 1,
-      active_story_source_references: 0,
-      secret_policy: 'excluded',
-      excluded_values: 0,
-    },
-    restore: {
-      isolated: true,
-      integrity_check: 'ok',
-      credential_rows_checked: 0,
-      credentials_excluded: true,
-      restored_counts: {},
-      rollback_copies: { database: true, storage: true, story_sources: true },
-    },
-    operations: {
-      source_database_unchanged: true,
-      source_data_root_unchanged: true,
-      credential_reconfiguration_required: true,
-      workspace_cleanup_verified: true,
-    },
-  }
+  assert.deepEqual(fs.readFileSync(fixedPath), fixedBytes)
+  assert.deepEqual(fs.readFileSync(legacyPath), legacyBytes)
+
+  const evidence = validStandaloneRollbackSummary()
   assert.equal(validateEvidenceV3(evidence, version), evidence)
-  assert.equal(await publishEvidence(fixtureRoot, version, evidence), outputPath)
-  assert.deepEqual(JSON.parse(fs.readFileSync(outputPath, 'utf8')), evidence)
-
-  await prepareEvidenceTarget(fixtureRoot, version)
-  assert.equal(fs.existsSync(outputPath), false)
-  fs.writeFileSync(outputPath, '{"schema":"untrusted"}\n')
-  await assert.rejects(prepareEvidenceTarget(fixtureRoot, version), /not recognized/)
-  assert.equal(fs.readFileSync(outputPath, 'utf8'), '{"schema":"untrusted"}\n')
-  await assert.rejects(publishEvidence(fixtureRoot, version, evidence), /target changed/)
-  assert.equal(fs.readFileSync(outputPath, 'utf8'), '{"schema":"untrusted"}\n')
-
-  fs.unlinkSync(outputPath)
-  const legacy = {
-    schema: 'localminidrama.rollback-drill.v1',
-    status: 'passed',
-    source_version: '1.2.8',
-    backup: { archive_sha256: 'a'.repeat(64) },
+  const first = await publishEvidence(fixtureRoot, version, evidence)
+  const second = await publishEvidence(fixtureRoot, version, evidence)
+  assert.notEqual(first.diagnosticRelativePath, second.diagnosticRelativePath)
+  for (const publication of [first, second]) {
+    const diagnosticPath = path.join(fixtureRoot, ...publication.diagnosticRelativePath.split('/'))
+    assert.deepEqual(publication.evidenceBytes, serializeEvidence(evidence))
+    assert.deepEqual(fs.readFileSync(diagnosticPath), publication.evidenceBytes)
   }
-  fs.writeFileSync(outputPath, `${JSON.stringify(legacy)}\n`)
-  await prepareEvidenceTarget(fixtureRoot, version)
-  assert.equal(fs.existsSync(outputPath), false)
-  const archiveRoot = path.join(fixtureRoot, 'artifacts', 'rollback-drill', 'archive')
-  const archives = fs.readdirSync(archiveRoot)
-  assert.equal(archives.length, 1)
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(archiveRoot, archives[0]), 'utf8')), legacy)
+  assert.deepEqual(fs.readFileSync(fixedPath), fixedBytes)
+  assert.deepEqual(fs.readFileSync(legacyPath), legacyBytes)
 
+  const wrongVersionEvidence = validStandaloneRollbackSummary()
+  wrongVersionEvidence.source.version = '9.9.9'
   await assert.rejects(
-    publishEvidence(fixtureRoot, version, { ...evidence, source: { version: '9.9.9' } }),
-    /does not match the prepared version/
+    publishEvidence(fixtureRoot, version, wrongVersionEvidence),
+    /does not match the prepared version/,
   )
-  const concurrent = await Promise.allSettled([
+  const concurrent = await Promise.all([
     publishEvidence(fixtureRoot, version, evidence),
     publishEvidence(fixtureRoot, version, evidence),
   ])
-  assert.equal(concurrent.filter((result) => result.status === 'fulfilled').length, 1)
-  assert.equal(concurrent.filter((result) => result.status === 'rejected').length, 1)
+  assert.notEqual(concurrent[0].diagnosticRelativePath, concurrent[1].diagnosticRelativePath)
+  assert.deepEqual(fs.readFileSync(fixedPath), fixedBytes)
+  assert.deepEqual(fs.readFileSync(legacyPath), legacyBytes)
 })
 
 test('rollback drill evidence rejects a symbolic-link artifact directory', async (t) => {
@@ -1422,6 +1461,60 @@ try { $null = $undefinedAfterCheckpointDotSource } catch { $strictModeChanged = 
 if ($strictModeChanged) { throw 'Dot-source changed caller strict mode.' }
 ${hostProbe}
 `, { executable: pwsh })
+})
+
+test('checkpoint result marker parser is strict and bounded on every Windows PowerShell host', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('PowerShell checkpoint marker contracts require Windows')
+    return
+  }
+  const evidence = validCheckpointRollbackEvidence()
+  const result = {
+    evidence,
+    evidenceBytes: serializeEvidence(evidence),
+    diagnosticRelativePath: `artifacts/rollback-drill/summary-v3-${evidence.source.commit}-${'1'.repeat(32)}.json`,
+  }
+  const marker = createRollbackResultMarker(result, evidence.source.version)
+  const validEnvelope = {
+    schema: ROLLBACK_RESULT_SCHEMA,
+    evidence_utf8_base64url: result.evidenceBytes.toString('base64url'),
+    evidence_sha256: crypto.createHash('sha256').update(result.evidenceBytes).digest('hex'),
+    diagnostic_relative_path: result.diagnosticRelativePath,
+  }
+  const malformedJsonMarker = `${ROLLBACK_RESULT_MARKER_PREFIX}${Buffer.from('{', 'utf8').toString('base64url')}`
+  const invalidUtf8Marker = `${ROLLBACK_RESULT_MARKER_PREFIX}${Buffer.from([0xff]).toString('base64url')}`
+  const mistypedEnvelopeMarker = `${ROLLBACK_RESULT_MARKER_PREFIX}${Buffer.from(JSON.stringify({
+    ...validEnvelope,
+    evidence_sha256: 7,
+  }), 'utf8').toString('base64url')}`
+  const statements = `
+. ${powerShellLiteral(checkpointScriptPath)}
+$parsed = @(ConvertFrom-RollbackResultOutput -Lines @('focused test log', ${powerShellLiteral(marker)}))
+if ($parsed.Count -ne 1) { throw 'Marker parser emitted an invalid result count.' }
+$result = $parsed[0]
+if ($result.Schema -cne 'localminidrama.rollback-result.v1') { throw 'Marker parser returned the wrong schema.' }
+if ($result.DiagnosticRelativePath -cne ${powerShellLiteral(result.diagnosticRelativePath)}) { throw 'Marker parser returned the wrong diagnostic path.' }
+if ([Convert]::ToBase64String($result.EvidenceBytes) -cne ${powerShellLiteral(result.evidenceBytes.toString('base64'))}) { throw 'Marker parser changed authoritative evidence bytes.' }
+if ($result.Evidence.source.commit -cne ('c' * 40)) { throw 'Marker parser returned the wrong evidence object.' }
+
+function Assert-ResultRejected {
+  param([object[]]$Lines, [string]$Label)
+  $threw = $false
+  try { ConvertFrom-RollbackResultOutput -Lines $Lines | Out-Null } catch { $threw = $true }
+  if (-not $threw) { throw "Invalid rollback result was accepted: $Label" }
+}
+Assert-ResultRejected -Lines @() -Label 'missing marker'
+Assert-ResultRejected -Lines @(${powerShellLiteral(marker)}, ${powerShellLiteral(marker)}) -Label 'duplicate marker'
+Assert-ResultRejected -Lines @('LOCALMINIDRAMA_ROLLBACK_RESULT_V1=bad=') -Label 'malformed base64url'
+Assert-ResultRejected -Lines @(${powerShellLiteral(invalidUtf8Marker)}) -Label 'invalid envelope UTF-8'
+Assert-ResultRejected -Lines @(${powerShellLiteral(malformedJsonMarker)}) -Label 'malformed envelope JSON'
+Assert-ResultRejected -Lines @(${powerShellLiteral(mistypedEnvelopeMarker)}) -Label 'mistyped envelope'
+Assert-ResultRejected -Lines @(('x' * (${MAX_ROLLBACK_RESULT_STREAM_BYTES} + 1))) -Label 'oversized stream'
+Assert-ResultRejected -Lines @('LOCALMINIDRAMA_ROLLBACK_RESULT_V1=' + ('A' * 1048576)) -Label 'oversized marker'
+`
+  for (const host of windowsPowerShellHosts()) {
+    assertPowerShellStatements(statements, { executable: host.executable })
+  }
 })
 
 test('release rollback checkpoint evidence validator rejects malformed and unbound v3 summaries', (t) => {
@@ -2411,9 +2504,23 @@ test('release rollback checkpoint and restore consume shared native-lock v5 inte
     /'run', 'verify:rollback', '--',[\s\S]*'--archive', \$backupPath,[\s\S]*'--data-root', \$runtimeDataDirectory/,
   )
   assert.match(checkpointScript, /function Assert-CheckpointDrillEvidence/)
+  assert.match(checkpointScript, /function ConvertFrom-RollbackResultOutput/)
+  assert.match(checkpointScript, /LOCALMINIDRAMA_ROLLBACK_RESULT_V1=/)
+  assert.match(checkpointScript, /\$drillOutput\s*=\s*@\(Invoke-Checked[\s\S]*ConvertFrom-RollbackResultOutput -Lines \$drillOutput/)
+  assert.doesNotMatch(checkpointScript, /artifacts\\rollback-drill\\summary\.json/)
+  assert.doesNotMatch(checkpointScript, /Get-Content[^\r\n]*rollback-drill[^\r\n]*summary/i)
   assert.match(checkpointScript, /Open-RollbackDirectoryIdentityLock/)
   assert.match(checkpointScript, /Open-RollbackArchiveReadLock/)
-  assert.match(checkpointScript, /\[System\.IO\.File\]::Move\(\$metadataTemporaryPath, \$metadataPath\)/)
+  assert.match(checkpointScript, /Publish-BytesAtomically -Path \$summaryArchive -Bytes \$rollbackResult\.EvidenceBytes/)
+  assert.match(checkpointScript, /Open-RollbackFileAuthority -Path \$summaryArchive -Label 'Rollback checkpoint drill summary'/)
+  assert.match(checkpointScript, /Get-RollbackFileAuthoritySha256 -Authority \$summaryAuthority/)
+  assert.match(checkpointScript, /\[System\.IO\.File\]::Move\(\$temporaryPath, \$targetPath\)/)
+  const summaryAuthorityOpen = checkpointScript.indexOf("Open-RollbackFileAuthority -Path $summaryArchive -Label 'Rollback checkpoint drill summary'")
+  const metadataPublication = checkpointScript.indexOf("Publish-Utf8FileAtomically -Path (Join-Path $checkpoint 'metadata.json')")
+  const summaryAuthorityDispose = checkpointScript.indexOf('if ($null -ne $summaryAuthority) { $summaryAuthority.Stream.Dispose() }')
+  const checkpointLockDispose = checkpointScript.indexOf('if ($null -ne $checkpointDirectoryLock) { $checkpointDirectoryLock.Dispose() }')
+  assert.ok(summaryAuthorityOpen >= 0 && summaryAuthorityOpen < metadataPublication)
+  assert.ok(metadataPublication < summaryAuthorityDispose && summaryAuthorityDispose < checkpointLockDispose)
   assert.match(rollbackRestoreScript, /localminidrama\.release-rollback-checkpoint\.v5/)
   assert.match(rollbackRestoreScript, /localminidrama\.rollback-drill\.v3/)
   assert.doesNotMatch(rollbackRestoreScript, /localminidrama\.release-rollback-checkpoint\.v4/)
@@ -2719,14 +2826,55 @@ if (tool === 'npm') {
     const archivePath = valueAfter('--archive')
     record('fingerprint', { markers: markers(dataRoot) })
     const archiveHash = crypto.createHash('sha256').update(fs.readFileSync(archivePath)).digest('hex')
-    fs.writeFileSync(process.env.LMD_BIND_SUMMARY, JSON.stringify({
+    const summary = {
       schema: 'localminidrama.rollback-drill.v3',
       status: 'passed',
       input_mode: 'checkpoint-bound',
-      source: { commit: state.commit, version: state.version, working_tree_dirty: false, data_root_sha256: 'd'.repeat(64) },
-      backup: { archive_retained: true, archive_sha256: archiveHash },
-      operations: { source_data_root_unchanged: true },
-    }) + '\\n')
+      executed_at: '2026-07-20T00:00:00.000Z',
+      source: {
+        commit: state.commit,
+        version: state.version,
+        working_tree_dirty: false,
+        data_root_sha256: 'd'.repeat(64),
+        database: { relative_path: '[external-database]' },
+      },
+      focused_tests: { file: 'backend-node/test/dataBackupService.test.js', passed: 2, total: 2 },
+      backup: {
+        format_version: 1,
+        archive_bytes: fs.statSync(archivePath).size,
+        archive_sha256: archiveHash,
+        archive_retained: true,
+        file_count: 3,
+        storage_files: 1,
+        story_source_files: 1,
+        active_story_source_references: 0,
+        secret_policy: 'excluded',
+        excluded_values: null,
+      },
+      restore: {
+        isolated: true,
+        integrity_check: 'ok',
+        credential_rows_checked: 0,
+        credentials_excluded: true,
+        restored_counts: {},
+        rollback_copies: { database: true, storage: true, story_sources: true },
+      },
+      operations: {
+        source_database_unchanged: true,
+        source_data_root_unchanged: true,
+        credential_reconfiguration_required: true,
+        workspace_cleanup_verified: true,
+      },
+    }
+    const evidenceBytes = Buffer.from(JSON.stringify(summary, null, 2) + '\\n', 'utf8')
+    const envelope = {
+      schema: 'localminidrama.rollback-result.v1',
+      evidence_utf8_base64url: evidenceBytes.toString('base64url'),
+      evidence_sha256: crypto.createHash('sha256').update(evidenceBytes).digest('hex'),
+      diagnostic_relative_path: 'artifacts/rollback-drill/summary-v3-' + state.commit + '-' + '1'.repeat(32) + '.json',
+    }
+    fs.writeFileSync(process.env.LMD_BIND_SUMMARY, '{"schema":"malicious-bind-diagnostic"}\\n')
+    process.stdout.write('LOCALMINIDRAMA_ROLLBACK_RESULT_V1=' + Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url') + '\\n')
     process.exit(0)
   }
 }
@@ -3484,14 +3632,64 @@ if (tool === 'npm') {
       schema: 'localminidrama.rollback-drill.v3',
       status: process.env.LMD_SUMMARY_STATUS,
       input_mode: 'checkpoint-bound',
-      source: { commit, version, working_tree_dirty: false, data_root_sha256: 'd'.repeat(64) },
-      backup: { archive_retained: true, archive_sha256: archiveHash },
-      operations: { source_data_root_unchanged: true },
+      executed_at: '2026-07-20T00:00:00.000Z',
+      source: {
+        commit,
+        version,
+        working_tree_dirty: false,
+        data_root_sha256: 'd'.repeat(64),
+        database: { relative_path: '[external-database]' },
+      },
+      focused_tests: {
+        file: 'backend-node/test/dataBackupService.test.js',
+        passed: 2,
+        total: 2,
+      },
+      backup: {
+        format_version: 1,
+        archive_bytes: fs.statSync(archivePath).size,
+        archive_sha256: archiveHash,
+        archive_retained: true,
+        file_count: 3,
+        storage_files: 1,
+        story_source_files: 1,
+        active_story_source_references: 0,
+        secret_policy: 'excluded',
+        excluded_values: null,
+      },
+      restore: {
+        isolated: true,
+        integrity_check: 'ok',
+        credential_rows_checked: 0,
+        credentials_excluded: true,
+        restored_counts: {},
+        rollback_copies: { database: true, storage: true, story_sources: true },
+      },
+      operations: {
+        source_database_unchanged: true,
+        source_data_root_unchanged: true,
+        credential_reconfiguration_required: true,
+        workspace_cleanup_verified: true,
+      },
     }
-    fs.writeFileSync(summaryPath, JSON.stringify(summary) + '\\n')
+    const evidenceBytes = Buffer.from(JSON.stringify(summary, null, 2) + '\\n', 'utf8')
+    const envelope = {
+      schema: 'localminidrama.rollback-result.v1',
+      evidence_utf8_base64url: evidenceBytes.toString('base64url'),
+      evidence_sha256: crypto.createHash('sha256').update(evidenceBytes).digest('hex'),
+      diagnostic_relative_path: 'artifacts/rollback-drill/summary-v3-' + commit + '-' + '1'.repeat(32) + '.json',
+    }
+    const markerPrefix = 'LOCALMINIDRAMA_ROLLBACK_RESULT_V1='
+    const marker = markerPrefix + Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url')
+    fs.writeFileSync(summaryPath, '{"schema":"malicious-repo-diagnostic","status":"passed"}\\n')
     if (process.env.LMD_PRECREATE_METADATA === 'true') {
       fs.writeFileSync(path.join(path.dirname(archivePath), 'metadata.json'), '{"schema":"untrusted"}\\n')
     }
+    process.stdout.write('focused test log\\n')
+    if (process.env.LMD_MARKER_MODE === 'duplicate') process.stdout.write(marker + '\\n' + marker + '\\n')
+    else if (process.env.LMD_MARKER_MODE === 'malformed') process.stdout.write(markerPrefix + 'bad=\\n')
+    else if (process.env.LMD_MARKER_MODE === 'oversized') process.stdout.write(markerPrefix + 'A'.repeat(1024 * 1024) + '\\n')
+    else if (process.env.LMD_MARKER_MODE !== 'missing') process.stdout.write(marker + '\\n')
     process.exit(0)
   }
 }
@@ -3516,6 +3714,14 @@ requireBlocked('archive write', () => fs.writeFileSync(archivePath, 'mutated'))
 requireBlocked('archive delete', () => fs.unlinkSync(archivePath))
 requireBlocked('archive rename', () => fs.renameSync(archivePath, archivePath + '.locked-probe'))
 if (fs.readFileSync(archivePath, 'utf8') !== 'fake retained rollback archive') fail('archive read failed')
+const summaryPath = path.join(checkpointPath, 'rollback-drill-summary.json')
+if (fs.existsSync(summaryPath)) {
+  const summaryBytes = fs.readFileSync(summaryPath)
+  requireBlocked('summary write', () => fs.writeFileSync(summaryPath, 'mutated'))
+  requireBlocked('summary delete', () => fs.unlinkSync(summaryPath))
+  requireBlocked('summary rename', () => fs.renameSync(summaryPath, summaryPath + '.locked-probe'))
+  if (!fs.readFileSync(summaryPath).equals(summaryBytes)) fail('summary bytes changed while retained')
+}
 requireBlocked('root rename', () => fs.renameSync(dataRoot, dataRoot + '.locked-probe'))
 requireBlocked('empty root delete', () => fs.rmdirSync(dataRoot))
 const child = path.join(dataRoot, 'lock-probe-child.txt')
@@ -3536,6 +3742,7 @@ $script:OriginalInvokeChecked = \${function:Invoke-Checked}
 $script:OriginalAssertCheckpointDrillEvidence = \${function:Assert-CheckpointDrillEvidence}
 $script:OriginalWriteUtf8File = \${function:Write-Utf8File}
 $script:OriginalPublishUtf8FileAtomically = \${function:Publish-Utf8FileAtomically}
+$script:OriginalOpenRollbackFileAuthority = \${function:Open-RollbackFileAuthority}
 $script:OriginalStartCapturedDeployment = \${function:Start-CapturedDeployment}
 $script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
 $script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
@@ -3588,8 +3795,24 @@ function Write-Utf8File {
   $fileName = [System.IO.Path]::GetFileName($Path)
   if ([string]::Equals($fileName, 'data.sha256.txt', [System.StringComparison]::Ordinal)) {
     Assert-TestLocks -Stage 'first_locked_hash'
-  } elseif ([string]::Equals($fileName, 'rollback-drill-summary.json', [System.StringComparison]::Ordinal)) {
-    Assert-TestLocks -Stage 'summary_archive'
+  }
+}
+
+function Open-RollbackFileAuthority {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $authority = $null
+  try {
+    $authority = & $script:OriginalOpenRollbackFileAuthority @PSBoundParameters
+    if ($Label -ceq 'Rollback checkpoint drill summary') {
+      Assert-TestLocks -Stage 'summary_archive'
+    }
+    return $authority
+  } catch {
+    if ($null -ne $authority) { $authority.Stream.Dispose() }
+    throw
   }
 }
 
@@ -3703,6 +3926,7 @@ try {
     capturedVersion = version,
     precreateMetadata = false,
     holdMetadataAuthority = false,
+    markerMode = 'valid',
   ) => {
     const archivePath = path.join(checkpointPath, 'data.zip')
     return spawnSync(host.executable, [
@@ -3728,6 +3952,7 @@ try {
         LMD_EVENT_LOG: logPath,
         LMD_HOLD_METADATA_AUTHORITY: String(holdMetadataAuthority),
         LMD_LOCK_PROBE: lockProbePath,
+        LMD_MARKER_MODE: markerMode,
         LMD_NODE_EXE: process.execPath,
         LMD_NATIVE_DOCKER_HANG: 'false',
         LMD_NATIVE_DOCKER_NODE: process.execPath,
@@ -3748,8 +3973,22 @@ try {
   const valid = runCheckpoint(host, checkpointPath, 'passed')
   assert.equal(valid.status, 0, valid.stderr || valid.stdout)
   const metadata = JSON.parse(fs.readFileSync(path.join(checkpointPath, 'metadata.json'), 'utf8'))
+  const archivedSummaryBytes = fs.readFileSync(path.join(checkpointPath, 'rollback-drill-summary.json'))
+  const archivedSummary = JSON.parse(archivedSummaryBytes.toString('utf8'))
   assert.equal(metadata.schema, 'localminidrama.release-rollback-checkpoint.v5')
   assert.equal(metadata.data_root_sha256, 'd'.repeat(64))
+  assert.equal(archivedSummary.schema, 'localminidrama.rollback-drill.v3')
+  assert.equal(archivedSummary.status, 'passed')
+  assert.equal(archivedSummary.source.commit, commit)
+  assert.equal(
+    metadata.rollback_evidence_sha256,
+    crypto.createHash('sha256').update(archivedSummaryBytes).digest('hex'),
+  )
+  assert.equal(
+    fs.readFileSync(summaryPath, 'utf8'),
+    '{"schema":"malicious-repo-diagnostic","status":"passed"}\n',
+    'checkpoint trusted the malicious repo diagnostic',
+  )
   assert.match(metadata.data_root_identity, /^[a-f0-9]{8}:[a-f0-9]{16}$/)
   for (const property of [
     'created_at', 'version', 'previous_commit', 'backend', 'frontend', 'backup_file', 'backup_sha256',
@@ -3782,6 +4021,30 @@ try {
   assert.ok(eventIndex('summary_archive') < eventIndex('metadata_publish'))
 
   assertNamespacesMovable(checkpointPath)
+
+  for (const markerMode of ['missing', 'duplicate', 'malformed', 'oversized']) {
+    const markerFailureStart = readEvents().length
+    const markerFailurePath = path.join(fixtureRoot, `${host.name}-${markerMode}-marker-checkpoint`)
+    const markerFailure = runCheckpoint(
+      host,
+      markerFailurePath,
+      'passed',
+      version,
+      false,
+      false,
+      markerMode,
+    )
+    assert.notEqual(markerFailure.status, 0, `${markerMode} marker must fail checkpoint creation`)
+    assert.equal(fs.existsSync(path.join(markerFailurePath, 'metadata.json')), false)
+    assert.equal(fs.existsSync(path.join(markerFailurePath, 'rollback-drill-summary.json')), false)
+    const markerFailureEvents = readEvents().slice(markerFailureStart).map((entry) => entry.event)
+    assert.notEqual(markerFailureEvents.indexOf('drill'), -1)
+    assert.equal(markerFailureEvents.indexOf('validator'), -1)
+    assert.equal(markerFailureEvents.indexOf('summary_archive'), -1)
+    assert.equal(markerFailureEvents.indexOf('metadata_publish'), -1)
+    assert.notEqual(markerFailureEvents.indexOf('failure_recovery'), -1)
+    assertNamespacesMovable(markerFailurePath)
+  }
 
   const malformedVersionStart = readEvents().length
   const malformedVersionPath = path.join(fixtureRoot, `${host.name}-malformed-version-checkpoint`)
@@ -6115,7 +6378,8 @@ test('release workflow separates read-only build, artifact verification and publ
   assert.match(rollback, /npm --prefix backend-node ci/)
   assert.match(rollback, /npm --prefix backend-node run migrate/)
   assert.match(rollback, /npm run verify:rollback/)
-  assert.match(rollback, /summary\.source\.commit[\s\S]*GITHUB_SHA/)
+  assert.match(rollback, /--expected-commit "\$GITHUB_SHA"/)
+  assert.doesNotMatch(rollback, /summary\.json|readFileSync/)
   assert.match(rollback, /name: release-rollback-drill-\$\{\{ github\.sha \}\}/)
 
   assert.match(build, /needs: \[production-e2e, rollback-drill\]/)

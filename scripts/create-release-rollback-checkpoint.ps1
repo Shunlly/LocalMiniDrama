@@ -632,30 +632,29 @@ function Write-Utf8File {
   [System.IO.File]::WriteAllText($Path, $Value, [System.Text.UTF8Encoding]::new($false))
 }
 
-function Publish-Utf8FileAtomically {
+function Publish-BytesAtomically {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][string]$Value
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes
   )
   $directory = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($Path))
-  $metadataPath = [System.IO.Path]::GetFullPath($Path)
-  $metadataTemporaryPath = Join-Path $directory ('.metadata.{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
+  $targetPath = [System.IO.Path]::GetFullPath($Path)
+  $temporaryPath = Join-Path $directory ('.metadata.{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
   $stream = $null
   $primaryError = $null
   $cleanupErrors = [System.Collections.ArrayList]::new()
   try {
-    $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Value)
     $stream = [System.IO.FileStream]::new(
-      $metadataTemporaryPath,
+      $temporaryPath,
       [System.IO.FileMode]::CreateNew,
       [System.IO.FileAccess]::Write,
       [System.IO.FileShare]::None
     )
-    $stream.Write($bytes, 0, $bytes.Length)
+    $stream.Write($Bytes, 0, $Bytes.Length)
     $stream.Flush($true)
     $stream.Dispose()
     $stream = $null
-    [System.IO.File]::Move($metadataTemporaryPath, $metadataPath)
+    [System.IO.File]::Move($temporaryPath, $targetPath)
   } catch {
     $primaryError = $_
   } finally {
@@ -665,14 +664,156 @@ function Publish-Utf8FileAtomically {
       [void]$cleanupErrors.Add($_)
     }
     try {
-      if (Test-Path -LiteralPath $metadataTemporaryPath) {
-        Remove-Item -LiteralPath $metadataTemporaryPath -Force
+      if (Test-Path -LiteralPath $temporaryPath) {
+        Remove-Item -LiteralPath $temporaryPath -Force
       }
     } catch {
       [void]$cleanupErrors.Add($_)
     }
   }
   Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
+}
+
+function Publish-Utf8FileAtomically {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Value
+  )
+  $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Value)
+  Publish-BytesAtomically -Path $Path -Bytes $bytes
+}
+
+function ConvertFrom-CanonicalRollbackBase64Url {
+  param(
+    [Parameter(Mandatory = $true)][object]$Value,
+    [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$MaximumBytes,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  if ($Value -isnot [string] -or $Value.Length -eq 0 -or $Value -cnotmatch '^[A-Za-z0-9_-]+$') {
+    throw "$Label must be canonical base64url."
+  }
+  $maximumCharacters = [int]([Math]::Ceiling(($MaximumBytes * 4.0) / 3.0)) + 2
+  if ($Value.Length -gt $maximumCharacters) { throw "$Label exceeds its byte limit." }
+  $remainder = $Value.Length % 4
+  if ($remainder -eq 1) { throw "$Label must be canonical base64url." }
+  $padded = $Value.Replace('-', '+').Replace('_', '/')
+  if ($remainder -gt 0) { $padded += ('=' * (4 - $remainder)) }
+  try {
+    $bytes = [Convert]::FromBase64String($padded)
+  } catch {
+    throw "$Label must be canonical base64url."
+  }
+  if ($bytes.Length -gt $MaximumBytes) { throw "$Label exceeds its byte limit." }
+  $canonical = [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+  if ($canonical -cne $Value) { throw "$Label must be canonical base64url." }
+  return [pscustomobject][ordered]@{ Bytes = $bytes }
+}
+
+function ConvertFrom-RollbackResultOutput {
+  param(
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Lines
+  )
+  $markerPrefix = 'LOCALMINIDRAMA_ROLLBACK_RESULT_V1='
+  $maximumStreamBytes = 2 * 1024 * 1024
+  $maximumMarkerBytes = 1024 * 1024
+  $maximumEvidenceBytes = 512 * 1024
+  $strictUtf8 = [System.Text.UTF8Encoding]::new($false, $true)
+  $streamBytes = [long]0
+  $marker = $null
+  $markerCount = 0
+
+  foreach ($lineValue in $Lines) {
+    if ($lineValue -is [string]) {
+      $lineText = $lineValue
+    } elseif ($lineValue -is [System.Management.Automation.ErrorRecord]) {
+      $lineText = $lineValue.ToString()
+    } else {
+      throw 'Rollback result output lines must be strings.'
+    }
+    try {
+      $streamBytes += [long]$strictUtf8.GetByteCount($lineText) + 1
+    } catch {
+      throw 'Rollback result output must be valid UTF-8 text.'
+    }
+    if ($streamBytes -gt $maximumStreamBytes) { throw 'Rollback result stream exceeds the byte limit.' }
+    foreach ($physicalLine in [regex]::Split($lineText, '\r?\n')) {
+      if (-not $physicalLine.StartsWith($markerPrefix, [System.StringComparison]::Ordinal)) { continue }
+      $markerCount += 1
+      if ($markerCount -gt 1) { throw 'Rollback result stream must contain exactly one machine marker.' }
+      if ($strictUtf8.GetByteCount($physicalLine) -gt $maximumMarkerBytes) {
+        throw 'Rollback result marker exceeds the byte limit.'
+      }
+      $marker = $physicalLine
+    }
+  }
+  if ($markerCount -ne 1 -or $null -eq $marker) {
+    throw 'Rollback result stream must contain exactly one machine marker.'
+  }
+
+  $encodedEnvelope = $marker.Substring($markerPrefix.Length)
+  $envelopeBytes = (ConvertFrom-CanonicalRollbackBase64Url -Value $encodedEnvelope -MaximumBytes $maximumMarkerBytes -Label 'Rollback result envelope').Bytes
+  try {
+    $envelopeText = $strictUtf8.GetString($envelopeBytes)
+  } catch {
+    throw 'Rollback result envelope must be strict UTF-8.'
+  }
+  try {
+    $envelope = ConvertFrom-Json -InputObject $envelopeText
+  } catch {
+    throw 'Rollback result envelope must contain JSON.'
+  }
+  if ($envelope -isnot [pscustomobject]) { throw 'Rollback result envelope must be an object.' }
+  $expectedProperties = @('schema', 'evidence_utf8_base64url', 'evidence_sha256', 'diagnostic_relative_path')
+  $actualProperties = @($envelope.PSObject.Properties.Name)
+  if ($actualProperties.Count -ne $expectedProperties.Count -or ($actualProperties -join ',') -cne ($expectedProperties -join ',')) {
+    throw 'Rollback result envelope property list is invalid.'
+  }
+  if ($envelope.schema -isnot [string] -or $envelope.schema -cne 'localminidrama.rollback-result.v1') {
+    throw 'Rollback result envelope schema is invalid.'
+  }
+  if ($envelope.evidence_sha256 -isnot [string] -or $envelope.evidence_sha256 -cnotmatch '^[a-f0-9]{64}$') {
+    throw 'Rollback result evidence sha256 is invalid.'
+  }
+  if ($envelope.diagnostic_relative_path -isnot [string] -or
+      $envelope.diagnostic_relative_path -cnotmatch '^artifacts/rollback-drill/summary-v3-[a-f0-9]{40}-[a-f0-9]{32}\.json$' -or
+      $strictUtf8.GetByteCount($envelope.diagnostic_relative_path) -gt 240) {
+    throw 'Rollback result diagnostic relative path is invalid.'
+  }
+  if ($envelope.evidence_utf8_base64url -isnot [string]) {
+    throw 'Rollback result evidence base64url must be a string.'
+  }
+  $canonicalEnvelope = '{"schema":"localminidrama.rollback-result.v1","evidence_utf8_base64url":"' +
+    $envelope.evidence_utf8_base64url + '","evidence_sha256":"' + $envelope.evidence_sha256 +
+    '","diagnostic_relative_path":"' + $envelope.diagnostic_relative_path + '"}'
+  if ($envelopeText -cne $canonicalEnvelope) { throw 'Rollback result envelope JSON must be canonical.' }
+
+  $evidenceBytes = (ConvertFrom-CanonicalRollbackBase64Url -Value $envelope.evidence_utf8_base64url -MaximumBytes $maximumEvidenceBytes -Label 'Rollback result evidence').Bytes
+  $sha256 = $null
+  try {
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $evidenceSha256 = [BitConverter]::ToString($sha256.ComputeHash($evidenceBytes)).Replace('-', '').ToLowerInvariant()
+  } finally {
+    if ($null -ne $sha256) { $sha256.Dispose() }
+  }
+  if ($evidenceSha256 -cne $envelope.evidence_sha256) { throw 'Rollback result evidence digest does not match.' }
+  try {
+    $evidenceText = $strictUtf8.GetString($evidenceBytes)
+  } catch {
+    throw 'Rollback result evidence must be strict UTF-8.'
+  }
+  try {
+    $evidence = ConvertFrom-Json -InputObject $evidenceText
+  } catch {
+    throw 'Rollback result evidence must contain JSON.'
+  }
+  if ($evidence -isnot [pscustomobject]) { throw 'Rollback result evidence must be an object.' }
+  return [pscustomobject][ordered]@{
+    Schema = $envelope.schema
+    Evidence = $evidence
+    EvidenceBytes = $evidenceBytes
+    EvidenceSha256 = $evidenceSha256
+    DiagnosticRelativePath = $envelope.diagnostic_relative_path
+  }
 }
 
 function Get-CheckpointEvidenceProperty {
@@ -945,6 +1086,7 @@ $directoryLock = $null
 $checkpointDirectoryLock = $null
 $configDirectoryLock = $null
 $archiveLock = $null
+$summaryAuthority = $null
 $locationPushed = $false
 $primaryError = $null
 $cleanupErrors = [System.Collections.ArrayList]::new()
@@ -1038,22 +1180,35 @@ try {
     Write-Utf8File -Path (Join-Path $checkpoint 'data.sha256.txt') -Value "$backupHash`n"
 
     Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root before drill' | Out-Null
-    Invoke-Checked -FilePath 'npm' -ArgumentList @(
+    $drillOutput = @(Invoke-Checked -FilePath 'npm' -ArgumentList @(
       'run', 'verify:rollback', '--',
       '--archive', $backupPath,
       '--data-root', $runtimeDataDirectory
-    ) -Label 'Rollback drill' | Out-Null
+    ) -Label 'Rollback drill')
+    $rollbackResult = ConvertFrom-RollbackResultOutput -Lines $drillOutput
     Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root after drill' | Out-Null
     Assert-RollbackPathIdentity -Path $backupPath -ExpectedIdentity $capturedArchiveIdentity -Label 'Rollback archive after drill' | Out-Null
     $actualBackupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    $summaryPath = Join-Path $repoRoot 'artifacts\rollback-drill\summary.json'
-    $summaryJson = Get-Content -LiteralPath $summaryPath -Raw
-    $summary = $summaryJson | ConvertFrom-Json
     $actualDataRootIdentity = Get-RollbackPathIdentity -Path $runtimeDataDirectory
-    $validatedEvidence = Assert-CheckpointDrillEvidence -Summary $summary -ExpectedCommit $commit -ExpectedVersion $version -ExpectedBackupHash $backupHash -ActualBackupHash $actualBackupHash -ExpectedDataRootIdentity $capturedDataRootIdentity -ActualDataRootIdentity $actualDataRootIdentity
+    $validatedEvidence = Assert-CheckpointDrillEvidence -Summary $rollbackResult.Evidence -ExpectedCommit $commit -ExpectedVersion $version -ExpectedBackupHash $backupHash -ActualBackupHash $actualBackupHash -ExpectedDataRootIdentity $capturedDataRootIdentity -ActualDataRootIdentity $actualDataRootIdentity
     $summaryArchive = Join-Path $checkpoint 'rollback-drill-summary.json'
-    Write-Utf8File -Path $summaryArchive -Value $summaryJson
-    $summaryHash = (Get-FileHash -LiteralPath $summaryArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+    Publish-BytesAtomically -Path $summaryArchive -Bytes $rollbackResult.EvidenceBytes
+    $summaryAuthority = Open-RollbackFileAuthority -Path $summaryArchive -Label 'Rollback checkpoint drill summary'
+    Assert-RollbackFileAuthority -Authority $summaryAuthority | Out-Null
+    $summaryAuthorityText = Read-RollbackFileAuthorityUtf8 -Authority $summaryAuthority
+    $summaryAuthorityBytes = [System.Text.UTF8Encoding]::new($false, $true).GetBytes($summaryAuthorityText)
+    if ($summaryAuthorityBytes.Length -ne $rollbackResult.EvidenceBytes.Length) {
+      throw 'Rollback checkpoint drill summary length differs from captured evidence bytes.'
+    }
+    for ($byteIndex = 0; $byteIndex -lt $summaryAuthorityBytes.Length; $byteIndex++) {
+      if ($summaryAuthorityBytes[$byteIndex] -ne $rollbackResult.EvidenceBytes[$byteIndex]) {
+        throw 'Rollback checkpoint drill summary differs from captured evidence bytes.'
+      }
+    }
+    $summaryHash = Get-RollbackFileAuthoritySha256 -Authority $summaryAuthority
+    if ($summaryHash -cne $rollbackResult.EvidenceSha256) {
+      throw 'Rollback checkpoint drill summary digest differs from captured evidence bytes.'
+    }
 
     Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root before metadata publication' | Out-Null
     Assert-RollbackPathIdentity -Path $backupPath -ExpectedIdentity $capturedArchiveIdentity -Label 'Rollback archive before metadata publication' | Out-Null
@@ -1091,6 +1246,10 @@ try {
       data_root_sha256 = $validatedEvidence.data_root_sha256
       data_root_identity = $validatedEvidence.data_root_identity
     }
+    Assert-RollbackFileAuthority -Authority $summaryAuthority | Out-Null
+    if ((Get-RollbackFileAuthoritySha256 -Authority $summaryAuthority) -cne $summaryHash) {
+      throw 'Rollback checkpoint drill summary changed before metadata publication.'
+    }
     Publish-Utf8FileAtomically -Path (Join-Path $checkpoint 'metadata.json') -Value "$(ConvertTo-Json $metadata -Depth 6)`n"
     Write-Output "Rollback checkpoint ready: $checkpoint"
     Write-Output 'Provider credentials were excluded from the archived runtime config and must be configured and tested again after restore.'
@@ -1110,6 +1269,11 @@ try {
 } finally {
   try {
     if ($null -ne $archiveLock) { $archiveLock.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $summaryAuthority) { $summaryAuthority.Stream.Dispose() }
   } catch {
     [void]$cleanupErrors.Add($_)
   }

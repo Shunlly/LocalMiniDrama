@@ -354,7 +354,9 @@ npm run maintenance:recover -- --owner-scope "<检查到的作用域>" --pid <�
 npm run verify:rollback
 ```
 
-不带参数的 `npm run verify:rollback` 是独立演练：它先运行备份恢复专项测试，再把当前数据做脱敏备份并恢复到临时隔离目录，校验 SQLite、媒体、原文、凭据排除、中断清理和恢复前回滚副本。演练发布 `localminidrama.rollback-drill.v3` 摘要，要求 `input_mode: standalone`、`backup.archive_retained: false`、有效的小写 SHA-256 归档摘要和数据根摘要，以及 `operations.source_data_root_unchanged: true`。临时归档在结束后删除，摘要写入被 Git 忽略的 `artifacts/rollback-drill/summary.json`；已识别的旧版本摘要会原子迁入 `artifacts/rollback-drill/archive/`，不会冒充当前结果或阻断新演练。
+不带参数的 `npm run verify:rollback` 是独立演练：它先运行备份恢复专项测试，再把当前数据做脱敏备份并恢复到临时隔离目录，校验 SQLite、媒体、原文、凭据排除、中断清理和恢复前回滚副本。演练完成所有验证、句柄关闭和临时归档清理后，才在标准输出写出唯一一行 `LOCALMINIDRAMA_ROLLBACK_RESULT_V1=...` 机器结果；其中绑定 `localminidrama.rollback-drill.v3` 的精确 UTF-8 字节及其小写 SHA-256。CI 和发布流程直接校验这条实时管道结果，不会重新打开仓库文件来决定成功。结果要求 `input_mode: standalone`、`backup.archive_retained: false`、有效的归档摘要和数据根摘要，以及 `operations.source_data_root_unchanged: true`。
+
+文件系统中的演练记录只用于诊断。每次成功演练以 `wx+` 新建独立的 `artifacts/rollback-drill/summary-v3-<commit>-<random>.json`，不会覆盖、重命名或删除任何已有记录。旧的 `artifacts/rollback-drill/summary.json`、v1/v2/v3 文件即使存在也保持原样，不能作为当前演练或发布的权威结果；临时归档仍会在独立演练结束前删除。
 
 独立演练只接受一个物理数据根，数据库、素材和导入原文必须是该目录下的同级项：
 
@@ -377,7 +379,9 @@ npm run checkpoint:rollback -- -CheckpointDirectory $checkpoint
 
 `checkpoint:rollback` 要求当前服务由 `npm run docker:up` 构建且健康。脚本会在停机前从实际运行的 backend 容器捕获 `/app/data` 和 `/app/config-source`：数据挂载必须恰好一个、类型为可写 bind，且宿主 source 必须是真实目录。脚本核对两份镜像 revision 与当前 Git SHA 一致，把镜像保存到 `images.tar`，把规范化数据 source 写入固定归档文件 `data-bind-source.txt`，并在 `localminidrama.release-rollback-checkpoint.v5` metadata 中记录小写原生 `data_root_identity`。如果相同路径上的物理数据根在检查点创建期间被替换，脚本会中止；路径文本相同不视为同一目录。
 
-停止 Docker 后，脚本以重新检查的 bind source 创建并保留 `checkpoint/data.zip`，随后自动对这一精确配对运行 `npm run verify:rollback -- --archive <checkpoint/data.zip> --data-root <inspected-bind-source>`。不要用其他归档或数据根替换该配对。生成的 `localminidrama.rollback-drill.v3` 摘要必须为 `input_mode: checkpoint-bound` 且 `backup.archive_retained: true`；摘要中的归档 SHA-256、v5 metadata 中记录的归档 SHA-256 和当前保留的 `data.zip` 字节摘要必须三方一致，摘要中的历史数据根 SHA-256 也会复制到 v5 metadata。脚本从演练开始前一直对 `data.zip` 保持读取锁，直至演练、证据校验和 metadata 发布全部完成。
+停止 Docker 后，脚本以重新检查的 bind source 创建并保留 `checkpoint/data.zip`，随后自动对这一精确配对运行 `npm run verify:rollback -- --archive <checkpoint/data.zip> --data-root <inspected-bind-source>`。不要用其他归档或数据根替换该配对。检查点脚本只接受子进程标准输出中的唯一、有界机器结果，严格解码 UTF-8、核对摘要并验证 `input_mode: checkpoint-bound` 与 `backup.archive_retained: true`；它不会读取仓库中的 `artifacts/rollback-drill/summary.json` 或其他诊断文件。
+
+验证通过后，脚本把机器结果中捕获的精确证据字节原子、不可覆盖地发布为 `checkpoint/rollback-drill-summary.json`，立即打开只读文件权威句柄，逐字节复核并通过该保留句柄计算 SHA-256。该句柄一直持有到 v5 metadata 发布完成；摘要中的归档 SHA-256、v5 metadata 中记录的归档 SHA-256 和当前保留的 `data.zip` 字节摘要必须三方一致，历史数据根 SHA-256 也会复制到 v5 metadata。脚本同时从演练开始前一直对 `data.zip` 保持读取锁，直至演练、证据校验和 metadata 发布全部完成。
 
 v5 是升级和回退的唯一发布权威格式。v4 检查点仍可检查，但不具备发布权威性，升级或回退前必须重新创建为 v5。检查点必须位于仓库和实时数据目录之外且至少保留到新版本完成业务验收；身份校验不能替代 `data.zip`、`images.tar`、净化后的运行配置、`data-bind-source.txt` 或前向补偿证据，不能只保留 metadata 而删除这些文件。
 

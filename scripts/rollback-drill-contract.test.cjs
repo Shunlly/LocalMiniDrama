@@ -13,18 +13,25 @@ const { DEFAULT_LIMITS } = require('../backend-node/src/services/dataBackupServi
 
 const {
   EVIDENCE_SCHEMA,
+  MAX_ROLLBACK_RESULT_EVIDENCE_BYTES,
+  MAX_ROLLBACK_RESULT_STREAM_BYTES,
+  ROLLBACK_RESULT_MARKER_PREFIX,
+  ROLLBACK_RESULT_SCHEMA,
   assertCheckpointInputPaths,
   assertSamePathIdentity,
   capturePathIdentity,
+  createRollbackResultMarker,
   evidenceOutputPath,
   fingerprintDataRoot,
   isPathOutsideRoot,
   parseDrillArguments,
+  parseRollbackResultStream,
   prepareEvidenceTarget,
   publishEvidence,
+  serializeEvidence,
   validateEvidenceV3,
 } = require('./rollback-drill-evidence.cjs')
-const { executeRollbackDrill, sha256FileHandle } = require('./run-rollback-drill.cjs')
+const { executeRollbackDrill, renderThrownValue, sha256FileHandle } = require('./run-rollback-drill.cjs')
 
 const HEX_64 = /^[a-f0-9]{64}$/
 const VERSION = '1.3.3'
@@ -50,41 +57,10 @@ function temporaryDirectory(t, prefix) {
   return directory
 }
 
-function evidenceTransactionTemps(repoRoot) {
+function diagnosticRecords(repoRoot) {
   const evidenceRoot = path.dirname(evidenceOutputPath(repoRoot))
   if (!fs.existsSync(evidenceRoot)) return []
-  return fs.readdirSync(evidenceRoot).filter((name) => /^\.summary-.*\.tmp$/.test(name))
-}
-
-async function rejectAfterCommitWithCleanupFailure(repoRoot, primaryError, cleanupError) {
-  const originalUnlink = fsp.unlink
-  let afterCommitStarted = false
-  let cleanupFailureInjected = false
-  let caught = false
-  let thrown
-  fsp.unlink = async (...args) => {
-    if (afterCommitStarted && !cleanupFailureInjected) {
-      cleanupFailureInjected = true
-      throw cleanupError
-    }
-    return originalUnlink(...args)
-  }
-  try {
-    try {
-      await publishEvidence(repoRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
-        afterCommit: () => {
-          afterCommitStarted = true
-          throw primaryError
-        },
-      })
-    } catch (error) {
-      caught = true
-      thrown = error
-    }
-  } finally {
-    fsp.unlink = originalUnlink
-  }
-  return { caught, cleanupFailureInjected, thrown }
+  return fs.readdirSync(evidenceRoot).filter((name) => /^summary-v3-[a-f0-9-]+\.json$/.test(name))
 }
 
 function validEvidence(inputMode = 'standalone', version = VERSION) {
@@ -128,6 +104,36 @@ function validEvidence(inputMode = 'standalone', version = VERSION) {
       credential_reconfiguration_required: true,
       workspace_cleanup_verified: true,
     },
+  }
+}
+
+function diagnosticRelativePath() {
+  return `artifacts/rollback-drill/summary-v3-${COMMIT}-${'1'.repeat(32)}.json`
+}
+
+function validRollbackResult(evidence = validEvidence()) {
+  return {
+    evidence,
+    evidenceBytes: serializeEvidence(evidence),
+    diagnosticRelativePath: diagnosticRelativePath(),
+  }
+}
+
+function publishedDiagnosticPath(repoRoot, publication) {
+  return path.join(repoRoot, ...publication.diagnosticRelativePath.split('/'))
+}
+
+function encodeResultEnvelope(envelope) {
+  return `${ROLLBACK_RESULT_MARKER_PREFIX}${Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url')}`
+}
+
+function resultEnvelopeForEvidence(evidenceBytes, overrides = {}) {
+  return {
+    schema: ROLLBACK_RESULT_SCHEMA,
+    evidence_utf8_base64url: evidenceBytes.toString('base64url'),
+    evidence_sha256: crypto.createHash('sha256').update(evidenceBytes).digest('hex'),
+    diagnostic_relative_path: diagnosticRelativePath(),
+    ...overrides,
   }
 }
 
@@ -252,9 +258,9 @@ function createExecutorFixture(t, inputMode = 'checkpoint-bound') {
       restored_counts: {},
     }),
     fingerprintDataRoot,
-    publishEvidence: async (repoRoot, version, evidence, limits, transactionOptions) => {
+    publishEvidence: async (repoRoot, version, evidence, limits) => {
       calls.publish.push(evidence)
-      return publishEvidence(repoRoot, version, evidence, limits, transactionOptions)
+      return publishEvidence(repoRoot, version, evidence, limits)
     },
     now: () => new Date('2026-07-20T00:00:00.000Z'),
   }
@@ -531,9 +537,9 @@ test('fingerprint and archive limits accept every exact tiny boundary before pub
   const fixture = createExecutorFixture(t)
   fixture.runtime.limits = tinyLimits()
 
-  const evidence = await executeRollbackDrill(fixture.options, fixture.runtime)
+  const result = await executeRollbackDrill(fixture.options, fixture.runtime)
 
-  assert.equal(evidence.backup.archive_bytes, fixture.runtime.limits.maxArchiveBytes)
+  assert.equal(result.evidence.backup.archive_bytes, fixture.runtime.limits.maxArchiveBytes)
   assert.equal(fixture.calls.publish.length, 1)
 })
 
@@ -631,10 +637,10 @@ test('executor passes one immutable limits object through real fingerprint, hash
     assert.equal(fs.existsSync(workspace), false)
     cleanupCompleted = true
   }
-  fixture.runtime.publishEvidence = (repoRoot, version, evidence, limits, transactionOptions) => {
+  fixture.runtime.publishEvidence = (repoRoot, version, evidence, limits) => {
     assert.equal(cleanupCompleted, true)
     seenLimits.push(limits)
-    return publish(repoRoot, version, evidence, limits, transactionOptions)
+    return publish(repoRoot, version, evidence, limits)
   }
 
   await executeRollbackDrill(fixture.options, fixture.runtime)
@@ -811,8 +817,10 @@ test('v3 accepts only backup formats supported by the restore service', async (t
       const evidence = validEvidence()
       evidence.backup.format_version = formatVersion
       assert.equal(validateEvidenceV3(evidence, VERSION), evidence)
-      assert.equal(await publishEvidence(repoRoot, VERSION, evidence), evidenceOutputPath(repoRoot))
-      assert.equal(fs.existsSync(evidenceOutputPath(repoRoot)), true)
+      const publication = await publishEvidence(repoRoot, VERSION, evidence)
+      assert.deepEqual(publication.evidenceBytes, serializeEvidence(evidence))
+      assert.equal(fs.existsSync(publishedDiagnosticPath(repoRoot, publication)), true)
+      assert.equal(fs.existsSync(evidenceOutputPath(repoRoot)), false)
     })
   }
 
@@ -836,10 +844,10 @@ test('v3 requires a safe archive size at or above the ZIP minimum', async (t) =>
   const minimumEvidence = validEvidence()
   minimumEvidence.backup.archive_bytes = 22
   assert.equal(validateEvidenceV3(minimumEvidence, VERSION), minimumEvidence)
-  assert.equal(
-    await publishEvidence(minimumRoot, VERSION, minimumEvidence),
-    evidenceOutputPath(minimumRoot)
-  )
+  const minimumPublication = await publishEvidence(minimumRoot, VERSION, minimumEvidence)
+  assert.deepEqual(minimumPublication.evidenceBytes, serializeEvidence(minimumEvidence))
+  assert.equal(fs.existsSync(publishedDiagnosticPath(minimumRoot, minimumPublication)), true)
+  assert.equal(fs.existsSync(evidenceOutputPath(minimumRoot)), false)
 
   for (const archiveBytes of [0, 1, 21, -1, Number.MAX_SAFE_INTEGER + 1]) {
     await t.test(`rejects archive_bytes=${archiveBytes} without publishing`, async () => {
@@ -876,7 +884,10 @@ test('v3 file-count limits accept exact tiny boundaries and reject plus one befo
   exact.backup.storage_files = limits.maxFiles
   exact.backup.story_source_files = 0
   assert.equal(validateEvidenceV3(exact, VERSION, limits), exact)
-  assert.equal(await publishEvidence(exactRoot, VERSION, exact, limits), evidenceOutputPath(exactRoot))
+  const exactPublication = await publishEvidence(exactRoot, VERSION, exact, limits)
+  assert.deepEqual(exactPublication.evidenceBytes, serializeEvidence(exact))
+  assert.equal(fs.existsSync(publishedDiagnosticPath(exactRoot, exactPublication)), true)
+  assert.equal(fs.existsSync(evidenceOutputPath(exactRoot)), false)
 
   const cases = [
     { name: 'storage', storage: limits.maxFiles + 1, story: 0 },
@@ -909,329 +920,6 @@ test('v3 limits accept maximum valid format-2 file-count and archive arithmetic'
   evidence.backup.story_source_files = 0
 
   assert.equal(validateEvidenceV3(evidence, VERSION), evidence)
-})
-
-test('publication transaction removes callback-failed PASS and temp without deleting an unrelated replacement', async (t) => {
-  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-publication-transaction-')
-  const beforeCommitRoot = path.join(fixtureRoot, 'before-commit')
-  const afterCommitRoot = path.join(fixtureRoot, 'after-commit')
-  await fsp.mkdir(beforeCommitRoot)
-  await fsp.mkdir(afterCommitRoot)
-
-  const beforeCommitFailure = new Error('before commit rejected')
-  let beforeCommitThrown
-  try {
-    await publishEvidence(beforeCommitRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
-      beforeCommit: () => { throw beforeCommitFailure },
-    })
-  } catch (error) {
-    beforeCommitThrown = error
-  }
-  assert.equal(beforeCommitThrown, beforeCommitFailure)
-  assert.equal(fs.existsSync(evidenceOutputPath(beforeCommitRoot)), false)
-  assert.deepEqual(evidenceTransactionTemps(beforeCommitRoot), [])
-
-  const afterCommitFailure = new Error('after commit rejected')
-  let afterCommitThrown
-  try {
-    await publishEvidence(afterCommitRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
-      afterCommit: async ({ outputPath }) => {
-        assert.equal(fs.existsSync(outputPath), true)
-        await fsp.unlink(outputPath)
-        await fsp.writeFile(outputPath, 'unrelated replacement')
-        throw afterCommitFailure
-      },
-    })
-  } catch (error) {
-    afterCommitThrown = error
-  }
-  assert.equal(afterCommitThrown, afterCommitFailure)
-  assert.equal(await fsp.readFile(evidenceOutputPath(afterCommitRoot), 'utf8'), 'unrelated replacement')
-  assert.deepEqual(evidenceTransactionTemps(afterCommitRoot), [])
-})
-
-test('publication rejects a staged temporary-path replacement without linking or deleting its bytes', async (t) => {
-  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-staged-replacement-')
-  const replacementBytes = 'unvalidated staged replacement bytes'
-  let temporaryPath
-
-  await assert.rejects(
-    publishEvidence(fixtureRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
-      beforeCommit: async (transaction) => {
-        temporaryPath = transaction.temporaryPath
-        const displacedPath = `${temporaryPath}.displaced`
-        await fsp.rename(temporaryPath, displacedPath)
-        await fsp.writeFile(temporaryPath, replacementBytes)
-        await fsp.unlink(displacedPath)
-      },
-    }),
-    /staged rollback evidence.*identity changed/i
-  )
-
-  assert.equal(await fsp.readFile(temporaryPath, 'utf8'), replacementBytes)
-  assert.equal(fs.existsSync(evidenceOutputPath(fixtureRoot)), false)
-})
-
-test('publication rejects same-size in-place mutation of the staged evidence inode', async (t) => {
-  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-staged-content-mutation-')
-  let temporaryPath
-
-  await assert.rejects(
-    publishEvidence(fixtureRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
-      beforeCommit: async (transaction) => {
-        temporaryPath = transaction.temporaryPath
-        const stagedStat = await fsp.lstat(temporaryPath, { bigint: true })
-        assert.ok(stagedStat.size <= BigInt(Number.MAX_SAFE_INTEGER))
-        await fsp.writeFile(temporaryPath, Buffer.alloc(Number(stagedStat.size), 0x78))
-      },
-    }),
-    /staged rollback evidence.*content changed/i
-  )
-
-  assert.equal(fs.existsSync(evidenceOutputPath(fixtureRoot)), false)
-})
-
-test('callback failure cleanup preserves a replacement at the staged temporary path', async (t) => {
-  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-temp-cleanup-')
-  const callbackFailure = new Error('staged callback failed after replacement')
-  const replacementBytes = 'replacement must survive cleanup'
-  let temporaryPath
-  let thrown
-
-  try {
-    await publishEvidence(fixtureRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
-      onStaged: async (transaction) => {
-        temporaryPath = transaction.temporaryPath
-        const displacedPath = `${temporaryPath}.displaced`
-        await fsp.rename(temporaryPath, displacedPath)
-        await fsp.writeFile(temporaryPath, replacementBytes)
-        await fsp.unlink(displacedPath)
-        throw callbackFailure
-      },
-    })
-  } catch (error) {
-    thrown = error
-  }
-
-  assert.equal(thrown, callbackFailure)
-  assert.equal(await fsp.readFile(temporaryPath, 'utf8'), replacementBytes)
-  assert.equal(fs.existsSync(evidenceOutputPath(fixtureRoot)), false)
-})
-
-test('callback failure cleanup preserves a non-regular temporary-path replacement', async (t) => {
-  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-temp-directory-cleanup-')
-  const callbackFailure = new Error('staged callback failed after directory replacement')
-  const markerBytes = 'directory replacement must remain at its original path'
-  let temporaryPath
-  let thrown
-
-  try {
-    await publishEvidence(fixtureRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
-      onStaged: async (transaction) => {
-        temporaryPath = transaction.temporaryPath
-        const displacedPath = `${temporaryPath}.displaced`
-        await fsp.rename(temporaryPath, displacedPath)
-        await fsp.unlink(displacedPath)
-        await fsp.mkdir(temporaryPath)
-        await fsp.writeFile(path.join(temporaryPath, 'marker.txt'), markerBytes)
-        throw callbackFailure
-      },
-    })
-  } catch (error) {
-    thrown = error
-  }
-
-  assert.equal(thrown, callbackFailure)
-  assert.equal((await fsp.lstat(temporaryPath)).isDirectory(), true)
-  assert.equal(await fsp.readFile(path.join(temporaryPath, 'marker.txt'), 'utf8'), markerBytes)
-  assert.equal(fs.existsSync(evidenceOutputPath(fixtureRoot)), false)
-})
-
-test('after-commit compensation atomically preserves replacement at the old check-unlink boundary', async (t) => {
-  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-compensation-boundary-')
-  const outputPath = evidenceOutputPath(fixtureRoot)
-  const afterCommitFailure = new Error('after commit boundary failure')
-  const replacementBytes = 'replacement installed at compensation boundary'
-  const originalLstat = fsp.lstat
-  const originalRename = fsp.rename
-  let compensationStarted = false
-  let boundaryTriggered = false
-  let thrown
-
-  async function replaceOutputAtBoundary() {
-    if (boundaryTriggered) return
-    boundaryTriggered = true
-    const displacedPath = `${outputPath}.owned-pass`
-    await originalRename(outputPath, displacedPath)
-    await fsp.writeFile(outputPath, replacementBytes)
-    await fsp.unlink(displacedPath)
-  }
-
-  fsp.lstat = async (...args) => {
-    const stat = await originalLstat(...args)
-    if (compensationStarted && !boundaryTriggered && path.resolve(args[0]) === path.resolve(outputPath)) {
-      await replaceOutputAtBoundary()
-    }
-    return stat
-  }
-  fsp.rename = async (...args) => {
-    if (compensationStarted && !boundaryTriggered && path.resolve(args[0]) === path.resolve(outputPath)) {
-      await replaceOutputAtBoundary()
-    }
-    return originalRename(...args)
-  }
-  try {
-    try {
-      await publishEvidence(fixtureRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
-        afterCommit: () => {
-          compensationStarted = true
-          throw afterCommitFailure
-        },
-      })
-    } catch (error) {
-      thrown = error
-    }
-  } finally {
-    fsp.lstat = originalLstat
-    fsp.rename = originalRename
-  }
-
-  assert.equal(boundaryTriggered, true)
-  assert.equal(thrown, afterCommitFailure)
-  assert.equal(await fsp.readFile(outputPath, 'utf8'), replacementBytes)
-})
-
-test('after-commit compensation preserves a non-regular output replacement', async (t) => {
-  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-output-directory-compensation-')
-  const outputPath = evidenceOutputPath(fixtureRoot)
-  const afterCommitFailure = new Error('after commit failed after directory replacement')
-  const markerBytes = 'output directory replacement must remain at summary path'
-  let thrown
-
-  try {
-    await publishEvidence(fixtureRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
-      afterCommit: async () => {
-        await fsp.unlink(outputPath)
-        await fsp.mkdir(outputPath)
-        await fsp.writeFile(path.join(outputPath, 'marker.txt'), markerBytes)
-        throw afterCommitFailure
-      },
-    })
-  } catch (error) {
-    thrown = error
-  }
-
-  assert.equal(thrown, afterCommitFailure)
-  assert.equal((await fsp.lstat(outputPath)).isDirectory(), true)
-  assert.equal(await fsp.readFile(path.join(outputPath, 'marker.txt'), 'utf8'), markerBytes)
-})
-
-test('falsey after-commit rejections remain exact failures and compensate PASS', async (t) => {
-  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-falsey-rejections-')
-  const falseyValues = [
-    ['undefined', undefined],
-    ['null', null],
-    ['zero', 0],
-    ['empty-string', ''],
-  ]
-
-  for (const [name, falseyValue] of falseyValues) {
-    await t.test(name, async () => {
-      const repoRoot = path.join(fixtureRoot, name)
-      await fsp.mkdir(repoRoot)
-      let caught = false
-      let thrown = Symbol('not thrown')
-      try {
-        await publishEvidence(repoRoot, VERSION, validEvidence(), DEFAULT_LIMITS, {
-          afterCommit: () => { throw falseyValue },
-        })
-      } catch (error) {
-        caught = true
-        thrown = error
-      }
-      assert.equal(caught, true)
-      assert.equal(thrown, falseyValue)
-      assert.equal(fs.existsSync(evidenceOutputPath(repoRoot)), false)
-    })
-  }
-})
-
-test('cleanup error attachment ignores an accessor and preserves the exact primary error', async (t) => {
-  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-cleanup-accessor-')
-  const primaryError = new Error('primary with hostile cleanup accessor')
-  const cleanupError = new Error('compensation cleanup failed')
-  let accessorReads = 0
-  Object.defineProperty(primaryError, 'cleanupErrors', {
-    configurable: true,
-    get() {
-      accessorReads += 1
-      throw new Error('cleanupErrors accessor must not run')
-    },
-  })
-
-  const result = await rejectAfterCommitWithCleanupFailure(fixtureRoot, primaryError, cleanupError)
-
-  assert.equal(result.caught, true)
-  assert.equal(result.cleanupFailureInjected, true)
-  assert.equal(result.thrown, primaryError)
-  assert.equal(accessorReads, 0)
-  assert.deepEqual(result.thrown.cleanupErrors, [cleanupError])
-})
-
-test('cleanup error attachment reads at most eight own data entries from a large array', async (t) => {
-  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-cleanup-large-array-')
-  const primaryError = new Error('primary with large cleanup array')
-  const cleanupError = new Error('later compensation cleanup failed')
-  const existingDetails = new Array(10_000_000)
-  const expectedDetails = Array.from({ length: 8 }, (_, index) => new Error(`existing cleanup ${index}`))
-  for (let index = 0; index < expectedDetails.length; index += 1) existingDetails[index] = expectedDetails[index]
-  let overflowReads = 0
-  Object.defineProperty(existingDetails, '8', {
-    configurable: true,
-    get() {
-      overflowReads += 1
-      throw new Error('cleanup detail beyond the cap must not be read')
-    },
-  })
-  Object.defineProperty(primaryError, 'cleanupErrors', {
-    configurable: true,
-    value: existingDetails,
-  })
-
-  const result = await rejectAfterCommitWithCleanupFailure(fixtureRoot, primaryError, cleanupError)
-
-  assert.equal(result.caught, true)
-  assert.equal(result.cleanupFailureInjected, true)
-  assert.equal(result.thrown, primaryError)
-  assert.equal(overflowReads, 0)
-  assert.deepEqual(result.thrown.cleanupErrors, expectedDetails)
-  assert.equal(Object.isFrozen(result.thrown.cleanupErrors), true)
-})
-
-test('cleanup error attachment ignores hostile non-array detail containers', async (t) => {
-  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-cleanup-non-array-')
-  const primaryError = new Error('primary with non-array cleanup details')
-  const cleanupError = new Error('compensation cleanup failed after non-array details')
-  const hostileDetails = {}
-  let hostileReads = 0
-  Object.defineProperty(hostileDetails, '0', {
-    get() {
-      hostileReads += 1
-      throw new Error('non-array cleanup detail must not be read')
-    },
-  })
-  Object.defineProperty(primaryError, 'cleanupErrors', {
-    configurable: true,
-    value: hostileDetails,
-  })
-
-  const result = await rejectAfterCommitWithCleanupFailure(fixtureRoot, primaryError, cleanupError)
-
-  assert.equal(result.caught, true)
-  assert.equal(result.cleanupFailureInjected, true)
-  assert.equal(result.thrown, primaryError)
-  assert.equal(hostileReads, 0)
-  assert.deepEqual(result.thrown.cleanupErrors, [cleanupError])
 })
 
 test('complete v3 PASS validation rejects missing fields, invalid types, and false proof flags', async (t) => {
@@ -1333,7 +1021,7 @@ test('complete v3 PASS validation rejects missing fields, invalid types, and fal
   }
 })
 
-test('prior v1, v2, and different-version v3 evidence is archived by explicit generation', async (t) => {
+test('prior v1, v2, and different-version v3 evidence remains untouched during preparation', async (t) => {
   const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-prior-')
   const outputPath = evidenceOutputPath(fixtureRoot)
   const records = [
@@ -1361,17 +1049,18 @@ test('prior v1, v2, and different-version v3 evidence is archived by explicit ge
   ]
   for (const record of records) {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true })
-    fs.writeFileSync(outputPath, `${JSON.stringify(record.evidence)}\n`)
+    const recordBytes = Buffer.from(`${JSON.stringify(record.evidence)}\n`)
+    fs.writeFileSync(outputPath, recordBytes)
     await prepareEvidenceTarget(fixtureRoot, VERSION)
-    assert.equal(fs.existsSync(outputPath), false)
-    const archives = fs.readdirSync(path.join(fixtureRoot, 'artifacts', 'rollback-drill', 'archive'))
-    assert.equal(archives.some((name) => name.startsWith(`${record.generation}-`)), true)
+    assert.deepEqual(fs.readFileSync(outputPath), recordBytes, record.generation)
+    assert.deepEqual(diagnosticRecords(fixtureRoot), [])
   }
 })
 
 test('bound execution restores the exact retained archive without creating a backup', async (t) => {
   const fixture = createExecutorFixture(t)
-  const evidence = await executeRollbackDrill(fixture.options, fixture.runtime)
+  const result = await executeRollbackDrill(fixture.options, fixture.runtime)
+  const { evidence } = result
   assert.equal(fixture.calls.prepare, 1)
   assert.equal(fixture.calls.create.length, 0)
   assert.equal(fixture.calls.restore.length, 1)
@@ -1382,18 +1071,24 @@ test('bound execution restores the exact retained archive without creating a bac
   assert.equal(evidence.backup.excluded_values, null)
   assert.equal(evidence.backup.archive_sha256, crypto.createHash('sha256').update('retained archive bytes').digest('hex'))
   assert.equal(evidence.operations.source_data_root_unchanged, true)
+  assert.deepEqual(result.evidenceBytes, serializeEvidence(evidence))
   assert.equal(fixture.calls.publish.length, 1)
 })
 
-test('bound execution keeps one archive descriptor authoritative through PASS link and closes it afterward', async (t) => {
+test('bound execution stages copied bytes before cleanup and publishes diagnostics only after closure', async (t) => {
   const fixture = createExecutorFixture(t)
   const publish = fixture.runtime.publishEvidence
   const events = []
   let archiveHandle
+  let stagedBytes
   fixture.runtime.hooks = {
     onArchiveHandleOpened: ({ handle }) => { archiveHandle = handle },
-    onEvidenceStaged: async () => {
+    onEvidenceStaged: async (staged) => {
       events.push('evidence-staged')
+      assert.deepEqual(Object.keys(staged).sort(), ['evidenceBytes', 'inputMode'])
+      assert.equal(staged.inputMode, 'checkpoint-bound')
+      stagedBytes = staged.evidenceBytes
+      stagedBytes.fill(0x78)
       assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
       assert.equal((await archiveHandle.stat({ bigint: true })).isFile(), true)
     },
@@ -1402,24 +1097,26 @@ test('bound execution keeps one archive descriptor authoritative through PASS li
     assert.equal(label, 'rollback archive')
     assert.equal(handle, archiveHandle)
     assert.deepEqual(events, ['evidence-staged'])
-    assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), true)
-    events.push('pass-linked')
+    assert.equal(diagnosticRecords(fixture.fixtureRoot).length, 0)
     assert.equal((await archiveHandle.stat({ bigint: true })).isFile(), true)
     events.push('archive-closed')
     await handle.close()
   }
-  fixture.runtime.publishEvidence = async (repoRoot, version, evidence, limits, transactionOptions) => {
-    const outputPath = await publish(repoRoot, version, evidence, limits, transactionOptions)
-    events.push('publication-returned')
-    assert.equal(fs.existsSync(outputPath), true)
+  fixture.runtime.publishEvidence = async (repoRoot, version, evidence, limits) => {
+    assert.deepEqual(events, ['evidence-staged', 'archive-closed'])
     await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
-    return outputPath
+    const publication = await publish(repoRoot, version, evidence, limits)
+    events.push('diagnostic-published')
+    assert.equal(fs.existsSync(publishedDiagnosticPath(repoRoot, publication)), true)
+    return publication
   }
 
-  await executeRollbackDrill(fixture.options, fixture.runtime)
+  const result = await executeRollbackDrill(fixture.options, fixture.runtime)
 
   assert.ok(archiveHandle)
-  assert.deepEqual(events, ['evidence-staged', 'pass-linked', 'archive-closed', 'publication-returned'])
+  assert.deepEqual(events, ['evidence-staged', 'archive-closed', 'diagnostic-published'])
+  assert.notDeepEqual(stagedBytes, result.evidenceBytes)
+  assert.deepEqual(result.evidenceBytes, serializeEvidence(result.evidence))
   await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
 })
 
@@ -1472,7 +1169,7 @@ test('bound execution closes its archive descriptor when publication rejects', a
   await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
 })
 
-test('checkpoint after-commit close failure throws the exact cleanup error and compensates PASS', async (t) => {
+test('checkpoint close failure after in-memory staging blocks diagnostics and remains exact', async (t) => {
   const fixture = createExecutorFixture(t)
   const closeFailure = new Error('retained archive close failed')
   let archiveHandle
@@ -1488,7 +1185,7 @@ test('checkpoint after-commit close failure throws the exact cleanup error and c
     assert.equal(staged, true)
     assert.equal(handle, archiveHandle)
     assert.equal(label, 'rollback archive')
-    assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), true)
+    assert.deepEqual(diagnosticRecords(fixture.fixtureRoot), [])
     await handle.close()
     throw closeFailure
   }
@@ -1503,11 +1200,11 @@ test('checkpoint after-commit close failure throws the exact cleanup error and c
   assert.equal(thrown, closeFailure)
   assert.equal(staged, true)
   assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
-  assert.deepEqual(evidenceTransactionTemps(fixture.fixtureRoot), [])
+  assert.deepEqual(diagnosticRecords(fixture.fixtureRoot), [])
   await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
 })
 
-test('staged publication error remains exact when retained cleanup also fails', async (t) => {
+test('in-memory staging error remains exact when retained cleanup also fails', async (t) => {
   const fixture = createExecutorFixture(t)
   const publicationFailure = new Error('staged publication rejected')
   const cleanupFailure = new Error('cleanup after publication rejection failed')
@@ -1532,7 +1229,7 @@ test('staged publication error remains exact when retained cleanup also fails', 
   assert.equal(thrown, publicationFailure)
   assert.deepEqual(thrown.cleanupErrors, [cleanupFailure])
   assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
-  assert.deepEqual(evidenceTransactionTemps(fixture.fixtureRoot), [])
+  assert.deepEqual(diagnosticRecords(fixture.fixtureRoot), [])
   await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
 })
 
@@ -1623,7 +1320,8 @@ test('bound execution rejects identical-byte entry replacement during post-drill
 
 test('standalone execution creates and removes only its workspace archive and retains integer exclusions', async (t) => {
   const fixture = createExecutorFixture(t, 'standalone')
-  const evidence = await executeRollbackDrill(fixture.options, fixture.runtime)
+  const result = await executeRollbackDrill(fixture.options, fixture.runtime)
+  const { evidence } = result
   assert.equal(fixture.calls.create.length, 1)
   assert.equal(fixture.calls.restore.length, 1)
   assert.equal(fixture.calls.create[0].outputPath, fixture.calls.restore[0].archivePath)
@@ -1633,9 +1331,10 @@ test('standalone execution creates and removes only its workspace archive and re
   assert.equal(evidence.backup.archive_retained, false)
   assert.equal(Number.isInteger(evidence.backup.excluded_values), true)
   assert.equal(evidence.backup.excluded_values, 7)
+  assert.deepEqual(result.evidenceBytes, serializeEvidence(evidence))
 })
 
-test('standalone exact boundary publishes PASS only after final fingerprint, handle closure, and archive deletion', async (t) => {
+test('standalone exact boundary publishes diagnostics only after final fingerprint, closure, and archive deletion', async (t) => {
   const fixture = createExecutorFixture(t, 'standalone')
   assert.equal(fixture.options.inputMode, 'standalone')
   fixture.runtime.limits = tinyLimits({ maxArchiveBytes: Buffer.byteLength('standalone archive bytes') })
@@ -1694,21 +1393,22 @@ test('standalone exact boundary publishes PASS only after final fingerprint, han
     await fsp.rm(archivePath, { force: true })
     events.push('archive-deleted')
   }
-  fixture.runtime.publishEvidence = async (repoRoot, version, evidence, limits, transactionOptions) => {
-    const outputPath = await publish(repoRoot, version, evidence, limits, transactionOptions)
-    events.push('pass-linked')
-    assert.equal(fs.existsSync(outputPath), true)
+  fixture.runtime.publishEvidence = async (repoRoot, version, evidence, limits) => {
+    const publication = await publish(repoRoot, version, evidence, limits)
+    events.push('diagnostic-published')
+    assert.equal(fs.existsSync(publishedDiagnosticPath(repoRoot, publication)), true)
     assert.equal(fs.existsSync(fixture.calls.create[0].outputPath), false)
-    return outputPath
+    return publication
   }
 
-  const evidence = await executeRollbackDrill(fixture.options, fixture.runtime)
+  const result = await executeRollbackDrill(fixture.options, fixture.runtime)
+  const { evidence } = result
 
   assert.equal(evidence.backup.archive_bytes, fixture.runtime.limits.maxArchiveBytes)
   assert.equal(fixture.calls.restore.length, 1)
   assert.equal(fixture.calls.publish.length, 1)
   assert.equal(fs.existsSync(fixture.calls.create[0].outputPath), false)
-  assert.deepEqual(evidenceTransactionTemps(fixture.fixtureRoot), [])
+  assert.equal(diagnosticRecords(fixture.fixtureRoot).length, 1)
   assert.deepEqual(events, [
     'fingerprint',
     'hash:source database',
@@ -1723,7 +1423,7 @@ test('standalone exact boundary publishes PASS only after final fingerprint, han
     'close:rollback archive',
     'close:source database',
     'archive-deleted',
-    'pass-linked',
+    'diagnostic-published',
   ])
   await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
   await assert.rejects(sourceDatabaseHandle.stat({ bigint: true }), /closed|EBADF/i)
@@ -1747,10 +1447,10 @@ test('standalone mutation after final archive hash is rejected by the last finge
   assert.equal(mutationRan, true)
   assert.equal(fixture.calls.publish.length, 0)
   assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
-  assert.deepEqual(evidenceTransactionTemps(fixture.fixtureRoot), [])
+  assert.deepEqual(diagnosticRecords(fixture.fixtureRoot), [])
 })
 
-test('standalone close failure after staging throws the exact cleanup error before link and leaves no temp', async (t) => {
+test('standalone close failure after staging throws the exact error before diagnostics', async (t) => {
   const fixture = createExecutorFixture(t, 'standalone')
   assert.equal(fixture.options.inputMode, 'standalone')
   const closeFailure = new Error('standalone retained archive close failed')
@@ -1793,11 +1493,11 @@ test('standalone close failure after staging throws the exact cleanup error befo
   assert.equal(thrown, closeFailure)
   assert.equal(failedOnce, true)
   assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
-  assert.deepEqual(evidenceTransactionTemps(fixture.fixtureRoot), [])
+  assert.deepEqual(diagnosticRecords(fixture.fixtureRoot), [])
   await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
 })
 
-test('standalone archive deletion failure after staging throws cleanup and leaves no PASS', async (t) => {
+test('standalone archive deletion failure after staging blocks diagnostics', async (t) => {
   const fixture = createExecutorFixture(t, 'standalone')
   assert.equal(fixture.options.inputMode, 'standalone')
   const deletionFailure = new Error('standalone archive deletion failed')
@@ -1839,7 +1539,7 @@ test('standalone archive deletion failure after staging throws cleanup and leave
   assert.equal(thrown, deletionFailure)
   assert.equal(staged, true)
   assert.equal(fs.existsSync(evidenceOutputPath(fixture.fixtureRoot)), false)
-  assert.deepEqual(evidenceTransactionTemps(fixture.fixtureRoot), [])
+  assert.deepEqual(diagnosticRecords(fixture.fixtureRoot), [])
   assert.equal(fs.existsSync(generatedArchivePath), true)
 })
 
@@ -1998,8 +1698,8 @@ test('standalone execution accepts Windows case variants of one physical data ro
     storySourcesPath: path.join(fixture.dataRoot, 'story_sources'),
   }
 
-  const evidence = await executeRollbackDrill(fixture.options, fixture.runtime)
-  assert.equal(evidence.status, 'passed')
+  const result = await executeRollbackDrill(fixture.options, fixture.runtime)
+  assert.equal(result.evidence.status, 'passed')
   assert.equal(fixture.calls.prepare, 1)
   assert.equal(fixture.calls.publish.length, 1)
 })
@@ -2010,6 +1710,402 @@ test('executor validates forged bound options before preparing evidence', async 
   await assert.rejects(executeRollbackDrill(forged, fixture.runtime))
   assert.equal(fixture.calls.prepare, 0)
   assert.equal(fixture.calls.publish.length, 0)
+})
+
+test('rollback result marker round-trips canonical exact evidence bytes', () => {
+  const result = validRollbackResult()
+  const marker = createRollbackResultMarker(result, VERSION)
+  assert.equal(marker.startsWith(ROLLBACK_RESULT_MARKER_PREFIX), true)
+  assert.equal(marker.includes('\n'), false)
+
+  const parsed = parseRollbackResultStream(`diagnostic output\n${marker}\n`, {
+    expectedCommit: COMMIT,
+    expectedInputMode: 'standalone',
+    expectedVersion: VERSION,
+  })
+
+  assert.equal(parsed.schema, ROLLBACK_RESULT_SCHEMA)
+  assert.equal(parsed.diagnosticRelativePath, result.diagnosticRelativePath)
+  assert.deepEqual(parsed.evidenceBytes, result.evidenceBytes)
+  assert.deepEqual(parsed.evidence, result.evidence)
+  assert.equal(parsed.evidenceSha256, crypto.createHash('sha256').update(result.evidenceBytes).digest('hex'))
+})
+
+test('rollback result parser rejects missing, duplicate, oversized, noncanonical, malformed, and mistyped markers', () => {
+  const evidenceBytes = serializeEvidence(validEvidence())
+  const validEnvelope = resultEnvelopeForEvidence(evidenceBytes)
+  const validMarker = encodeResultEnvelope(validEnvelope)
+  const options = {
+    expectedCommit: COMMIT,
+    expectedInputMode: 'standalone',
+    expectedVersion: VERSION,
+  }
+  const rejects = (stream, pattern) => assert.throws(() => parseRollbackResultStream(stream, options), pattern)
+
+  rejects('no marker here\n', /exactly one.*marker/i)
+  rejects(`${validMarker}\n${validMarker}\n`, /exactly one.*marker/i)
+  rejects(Buffer.alloc(MAX_ROLLBACK_RESULT_STREAM_BYTES + 1, 0x61), /stream.*limit|too large/i)
+  rejects(`${ROLLBACK_RESULT_MARKER_PREFIX}***\n`, /base64url/i)
+  rejects(`${ROLLBACK_RESULT_MARKER_PREFIX}${Buffer.from([0xff]).toString('base64url')}\n`, /UTF-8/i)
+  rejects(`${ROLLBACK_RESULT_MARKER_PREFIX}${Buffer.from(` ${JSON.stringify(validEnvelope)}`, 'utf8').toString('base64url')}\n`, /canonical/i)
+
+  const envelopeCases = [
+    [{ ...validEnvelope, schema: 'localminidrama.rollback-result.v2' }, /schema/i],
+    [{ ...validEnvelope, evidence_sha256: 'A'.repeat(64) }, /sha256|digest/i],
+    [{ ...validEnvelope, diagnostic_relative_path: '../summary.json' }, /diagnostic/i],
+    [{ ...validEnvelope, diagnostic_relative_path: 'artifacts/rollback-drill/summary.json' }, /diagnostic/i],
+    [{ ...validEnvelope, evidence_utf8_base64url: 7 }, /evidence.*base64url|type/i],
+    [{ ...validEnvelope, extra: true }, /property|canonical|field/i],
+  ]
+  for (const [envelope, pattern] of envelopeCases) rejects(`${encodeResultEnvelope(envelope)}\n`, pattern)
+
+  const invalidUtf8Evidence = Buffer.from([0xc3, 0x28])
+  rejects(`${encodeResultEnvelope(resultEnvelopeForEvidence(invalidUtf8Evidence))}\n`, /evidence.*UTF-8/i)
+  const malformedEvidenceEnvelope = resultEnvelopeForEvidence(Buffer.from('{', 'utf8'))
+  rejects(`${encodeResultEnvelope(malformedEvidenceEnvelope)}\n`, /evidence.*JSON/i)
+  const wrongSchemaEvidence = validEvidence()
+  wrongSchemaEvidence.schema = 'localminidrama.rollback-drill.v2'
+  rejects(`${encodeResultEnvelope(resultEnvelopeForEvidence(serializeEvidence(wrongSchemaEvidence)))}\n`, /schema/i)
+  const mistypedEvidence = validEvidence()
+  mistypedEvidence.status = true
+  const mistypedBytes = Buffer.from(`${JSON.stringify(mistypedEvidence, null, 2)}\n`, 'utf8')
+  rejects(`${encodeResultEnvelope(resultEnvelopeForEvidence(mistypedBytes))}\n`, /status/i)
+  const oversizedEvidence = Buffer.alloc(MAX_ROLLBACK_RESULT_EVIDENCE_BYTES + 1, 0x61)
+  rejects(`${encodeResultEnvelope(resultEnvelopeForEvidence(oversizedEvidence))}\n`, /evidence.*limit|too large/i)
+})
+
+test('rollback result stream CLI validates the live anonymous stream', () => {
+  const modulePath = path.join(__dirname, 'rollback-drill-evidence.cjs')
+  const marker = createRollbackResultMarker(validRollbackResult(), VERSION)
+  const args = [
+    modulePath,
+    '--validate-result-stream',
+    '--expected-version', VERSION,
+    '--expected-commit', COMMIT,
+    '--expected-mode', 'standalone',
+  ]
+  const valid = spawnSync(process.execPath, args, {
+    cwd: path.dirname(__dirname),
+    encoding: 'utf8',
+    input: `focused test log\n${marker}\n`,
+    windowsHide: true,
+  })
+  assert.equal(valid.status, 0, valid.stderr || valid.stdout)
+  assert.equal(valid.stdout, '')
+
+  for (const stream of ['missing\n', `${marker}\n${marker}\n`, `${ROLLBACK_RESULT_MARKER_PREFIX}bad=\n`]) {
+    const invalid = spawnSync(process.execPath, args, {
+      cwd: path.dirname(__dirname),
+      encoding: 'utf8',
+      input: stream,
+      windowsHide: true,
+    })
+    assert.notEqual(invalid.status, 0, `stream validator accepted: ${JSON.stringify(stream)}`)
+  }
+})
+
+test('diagnostic publication is append-only, leaves prior records untouched, and never calls fsp.link', async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-append-only-diagnostic-')
+  const evidenceRoot = path.dirname(evidenceOutputPath(fixtureRoot))
+  const legacyPath = evidenceOutputPath(fixtureRoot)
+  const v1Path = path.join(evidenceRoot, 'legacy-v1.json')
+  const fixedPath = path.join(evidenceRoot, 'fixed-record.json')
+  const legacyBytes = Buffer.from(`${JSON.stringify(validEvidence())}\n`)
+  const v1Bytes = Buffer.from('{"schema":"localminidrama.rollback-drill.v1"}\n')
+  const fixedBytes = Buffer.from('fixed record bytes\n')
+  await fsp.mkdir(evidenceRoot, { recursive: true })
+  await fsp.writeFile(legacyPath, legacyBytes)
+  await fsp.writeFile(v1Path, v1Bytes)
+  await fsp.writeFile(fixedPath, fixedBytes)
+
+  await prepareEvidenceTarget(fixtureRoot, VERSION)
+  assert.deepEqual(await fsp.readFile(legacyPath), legacyBytes)
+  assert.deepEqual(await fsp.readFile(v1Path), v1Bytes)
+  assert.deepEqual(await fsp.readFile(fixedPath), fixedBytes)
+
+  const originalLink = fsp.link
+  let linkCalls = 0
+  fsp.link = async (sourcePath, outputPath) => {
+    linkCalls += 1
+    const displacedPath = `${sourcePath}.old-source`
+    await fsp.rename(sourcePath, displacedPath)
+    await fsp.writeFile(sourcePath, 'malicious final-boundary replacement')
+    return originalLink(sourcePath, outputPath)
+  }
+  let publication
+  try {
+    publication = await publishEvidence(fixtureRoot, VERSION, validEvidence())
+  } finally {
+    fsp.link = originalLink
+  }
+
+  assert.equal(linkCalls, 0)
+  assert.match(publication.diagnosticRelativePath, /^artifacts\/rollback-drill\/summary-v3-[a-f0-9-]+\.json$/)
+  assert.notEqual(publication.diagnosticRelativePath, 'artifacts/rollback-drill/summary.json')
+  assert.deepEqual(publication.evidenceBytes, serializeEvidence(validEvidence()))
+  assert.deepEqual(
+    await fsp.readFile(path.join(fixtureRoot, ...publication.diagnosticRelativePath.split('/'))),
+    publication.evidenceBytes
+  )
+  assert.deepEqual(await fsp.readFile(legacyPath), legacyBytes)
+  assert.deepEqual(await fsp.readFile(v1Path), v1Bytes)
+  assert.deepEqual(await fsp.readFile(fixedPath), fixedBytes)
+})
+
+test('executor closes every retained resource before diagnostic publication and returns authoritative bytes', async (t) => {
+  for (const inputMode of ['checkpoint-bound', 'standalone']) {
+    await t.test(inputMode, async () => {
+      const fixture = createExecutorFixture(t, inputMode)
+      let archiveHandle
+      let archivePath
+      let archiveClosed = false
+      let sourceDatabaseClosed = inputMode === 'checkpoint-bound'
+      let standaloneArchiveRemoved = inputMode === 'checkpoint-bound'
+      fixture.runtime.hooks = {
+        onArchiveHandleOpened: ({ handle, path: openedPath }) => {
+          archiveHandle = handle
+          archivePath = openedPath
+        },
+      }
+      fixture.runtime.closeRetainedHandle = async (handle, label) => {
+        await handle.close()
+        if (label === 'rollback archive') archiveClosed = true
+        if (label === 'source database') sourceDatabaseClosed = true
+      }
+      fixture.runtime.removeStandaloneArchive = async (targetPath) => {
+        await fsp.rm(targetPath, { force: true })
+        standaloneArchiveRemoved = true
+      }
+      fixture.runtime.publishEvidence = async (repoRoot, version, evidence) => {
+        assert.equal(archiveClosed, true)
+        assert.equal(sourceDatabaseClosed, true)
+        assert.equal(standaloneArchiveRemoved, true)
+        await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+        if (inputMode === 'standalone') assert.equal(fs.existsSync(archivePath), false)
+        return {
+          diagnosticRelativePath: diagnosticRelativePath(),
+          evidenceBytes: serializeEvidence(evidence),
+        }
+      }
+
+      const result = await executeRollbackDrill(fixture.options, fixture.runtime)
+
+      assert.equal(result.evidence.input_mode, inputMode)
+      assert.equal(result.diagnosticRelativePath, diagnosticRelativePath())
+      assert.deepEqual(result.evidenceBytes, serializeEvidence(result.evidence))
+    })
+  }
+})
+
+test('executor rejects a diagnostic publisher that mutates authoritative in-memory evidence', async (t) => {
+  const fixture = createExecutorFixture(t)
+  fixture.runtime.publishEvidence = async (repoRoot, version, evidence) => {
+    const evidenceBytes = serializeEvidence(evidence)
+    evidence.status = 'failed'
+    return {
+      diagnosticRelativePath: diagnosticRelativePath(),
+      evidenceBytes,
+    }
+  }
+
+  await assert.rejects(
+    executeRollbackDrill(fixture.options, fixture.runtime),
+    /authoritative.*evidence.*changed|evidence.*canonical/i,
+  )
+})
+
+test('same-size mutation at the former afterCommit boundary cannot affect result authority', async (t) => {
+  const fixture = createExecutorFixture(t)
+  const legacyPath = evidenceOutputPath(fixture.fixtureRoot)
+  const originalBytes = Buffer.from('legacy fixed diagnostic A')
+  const replacementBytes = Buffer.from('legacy fixed diagnostic B')
+  assert.equal(originalBytes.length, replacementBytes.length)
+  await fsp.mkdir(path.dirname(legacyPath), { recursive: true })
+  await fsp.writeFile(legacyPath, originalBytes)
+  fixture.runtime.closeRetainedHandle = async (handle, label) => {
+    await handle.close()
+    if (label === 'rollback archive') await fsp.writeFile(legacyPath, replacementBytes)
+  }
+
+  const result = await executeRollbackDrill(fixture.options, fixture.runtime)
+
+  assert.deepEqual(await fsp.readFile(legacyPath), replacementBytes)
+  assert.deepEqual(result.evidenceBytes, serializeEvidence(result.evidence))
+  assert.notDeepEqual(result.evidenceBytes, replacementBytes)
+})
+
+test('checkpoint close failure occurs before diagnostics and produces no authoritative result', async (t) => {
+  const fixture = createExecutorFixture(t)
+  const closeFailure = new Error('checkpoint close gate failed')
+  let publishCalls = 0
+  fixture.runtime.closeRetainedHandle = async (handle) => {
+    await handle.close()
+    throw closeFailure
+  }
+  fixture.runtime.publishEvidence = async () => {
+    publishCalls += 1
+    throw new Error('diagnostic publication must not run')
+  }
+
+  let thrown
+  try {
+    await executeRollbackDrill(fixture.options, fixture.runtime)
+  } catch (error) {
+    thrown = error
+  }
+  assert.equal(thrown, closeFailure)
+  assert.equal(publishCalls, 0)
+})
+
+test('executor preserves every falsey operation, cleanup-only, and publication failure after cleanup', async (t) => {
+  const falseyValues = [undefined, null, 0, '']
+  for (let index = 0; index < falseyValues.length; index += 1) {
+    const value = falseyValues[index]
+    await t.test(`operation-${index}`, async () => {
+      const fixture = createExecutorFixture(t)
+      let workspaceCleaned = false
+      let archiveClosed = false
+      let published = false
+      fixture.runtime.hooks = { afterRestore: () => { throw value } }
+      fixture.runtime.cleanupWorkspace = async (workspace) => {
+        await fsp.rm(workspace, { recursive: true, force: true })
+        workspaceCleaned = true
+      }
+      fixture.runtime.closeRetainedHandle = async (handle) => {
+        await handle.close()
+        archiveClosed = true
+      }
+      fixture.runtime.publishEvidence = async () => {
+        published = true
+        throw new Error('unexpected diagnostic publication')
+      }
+      let caught = false
+      let thrown = Symbol('not thrown')
+      try { await executeRollbackDrill(fixture.options, fixture.runtime) } catch (error) { caught = true; thrown = error }
+      assert.equal(caught, true)
+      assert.equal(thrown, value)
+      assert.equal(workspaceCleaned, true)
+      assert.equal(archiveClosed, true)
+      assert.equal(published, false)
+    })
+
+    await t.test(`cleanup-only-${index}`, async () => {
+      const fixture = createExecutorFixture(t)
+      let archiveClosed = false
+      let published = false
+      fixture.runtime.cleanupWorkspace = async (workspace) => {
+        await fsp.rm(workspace, { recursive: true, force: true })
+        throw value
+      }
+      fixture.runtime.closeRetainedHandle = async (handle) => {
+        await handle.close()
+        archiveClosed = true
+      }
+      fixture.runtime.publishEvidence = async () => { published = true }
+      let caught = false
+      let thrown = Symbol('not thrown')
+      try { await executeRollbackDrill(fixture.options, fixture.runtime) } catch (error) { caught = true; thrown = error }
+      assert.equal(caught, true)
+      assert.equal(thrown, value)
+      assert.equal(archiveClosed, true)
+      assert.equal(published, false)
+    })
+
+    await t.test(`publication-${index}`, async () => {
+      const fixture = createExecutorFixture(t)
+      let archiveClosed = false
+      fixture.runtime.closeRetainedHandle = async (handle) => {
+        await handle.close()
+        archiveClosed = true
+      }
+      fixture.runtime.publishEvidence = async () => {
+        assert.equal(archiveClosed, true)
+        throw value
+      }
+      let caught = false
+      let thrown = Symbol('not thrown')
+      try { await executeRollbackDrill(fixture.options, fixture.runtime) } catch (error) { caught = true; thrown = error }
+      assert.equal(caught, true)
+      assert.equal(thrown, value)
+      assert.equal(archiveClosed, true)
+    })
+  }
+})
+
+test('executor cleanup attachment skips proxies and bounds own data descriptors at eight', async (t) => {
+  const cases = []
+
+  const accessorPrimary = new Error('accessor primary')
+  let accessorReads = 0
+  Object.defineProperty(accessorPrimary, 'cleanupErrors', {
+    configurable: true,
+    get() { accessorReads += 1; throw new Error('accessor executed') },
+  })
+  cases.push({ name: 'accessor', primary: accessorPrimary, reads: () => accessorReads, expected: [] })
+
+  let proxyReads = 0
+  const proxyPrimary = new Proxy(new Error('proxy primary'), {
+    get() { proxyReads += 1; throw new Error('proxy get executed') },
+    getOwnPropertyDescriptor() { proxyReads += 1; throw new Error('proxy descriptor executed') },
+  })
+  cases.push({ name: 'proxy', primary: proxyPrimary, reads: () => proxyReads, expected: null })
+
+  const proxyContainerPrimary = new Error('proxy cleanup container primary')
+  let proxyContainerReads = 0
+  const proxyContainer = new Proxy([], {
+    get() { proxyContainerReads += 1; throw new Error('proxy container get executed') },
+    getOwnPropertyDescriptor() { proxyContainerReads += 1; throw new Error('proxy container descriptor executed') },
+  })
+  Object.defineProperty(proxyContainerPrimary, 'cleanupErrors', { configurable: true, value: proxyContainer })
+  cases.push({ name: 'proxy-container', primary: proxyContainerPrimary, reads: () => proxyContainerReads, expected: [] })
+
+  const nonArrayPrimary = new Error('non-array cleanup container primary')
+  let nonArrayReads = 0
+  const nonArrayContainer = {}
+  Object.defineProperty(nonArrayContainer, '0', {
+    get() { nonArrayReads += 1; throw new Error('non-array entry executed') },
+  })
+  Object.defineProperty(nonArrayPrimary, 'cleanupErrors', { configurable: true, value: nonArrayContainer })
+  cases.push({ name: 'non-array-container', primary: nonArrayPrimary, reads: () => nonArrayReads, expected: [] })
+
+  const largePrimary = new Error('large cleanup primary')
+  const existing = new Array(10_000_000)
+  const expected = Array.from({ length: 8 }, (_, index) => new Error(`existing ${index}`))
+  for (let index = 0; index < expected.length; index += 1) existing[index] = expected[index]
+  let overflowReads = 0
+  Object.defineProperty(existing, '8', {
+    get() { overflowReads += 1; throw new Error('ninth entry executed') },
+  })
+  Object.defineProperty(largePrimary, 'cleanupErrors', { configurable: true, value: existing })
+  cases.push({ name: 'large', primary: largePrimary, reads: () => overflowReads, expected })
+
+  for (const value of cases) {
+    await t.test(value.name, async () => {
+      const fixture = createExecutorFixture(t)
+      const cleanupFailure = new Error(`${value.name} cleanup failure`)
+      fixture.runtime.hooks = { afterRestore: () => { throw value.primary } }
+      fixture.runtime.cleanupWorkspace = async (workspace) => {
+        await fsp.rm(workspace, { recursive: true, force: true })
+        throw cleanupFailure
+      }
+      let thrown
+      try { await executeRollbackDrill(fixture.options, fixture.runtime) } catch (error) { thrown = error }
+      assert.equal(thrown, value.primary)
+      assert.equal(value.reads(), 0)
+      if (value.expected) assert.deepEqual(thrown.cleanupErrors, value.expected.length === 8 ? value.expected : [cleanupFailure])
+    })
+  }
+})
+
+test('stderr rendering is safe and explicit for falsey and proxy thrown values', () => {
+  assert.equal(renderThrownValue(undefined), 'undefined')
+  assert.equal(renderThrownValue(null), 'null')
+  assert.equal(renderThrownValue(0), '0')
+  assert.equal(renderThrownValue(''), "''")
+  let trapReads = 0
+  const proxy = new Proxy({}, { get() { trapReads += 1; throw new Error('render trap') } })
+  assert.equal(renderThrownValue(proxy), '[unrenderable thrown object]')
+  assert.equal(trapReads, 0)
 })
 
 test('rollback drill module import does not execute the CLI', () => {

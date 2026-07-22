@@ -250,22 +250,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm run verify:rollback 2>&1 | tee "$RUNNER_TEMP/rollback-drill.log"
-          node - <<'NODE'
-          const assert = require('node:assert/strict')
-          const fs = require('node:fs')
-          const summary = JSON.parse(fs.readFileSync('artifacts/rollback-drill/summary.json', 'utf8'))
-          assert.equal(summary.status, 'passed')
-          assert.equal(summary.source.commit, process.env.GITHUB_SHA)
-          assert.equal(summary.source.version, '1.3.3')
-          assert.equal(summary.source.working_tree_dirty, false)
-          assert.equal(summary.schema, 'localminidrama.rollback-drill.v3')
-          assert.equal(summary.input_mode, 'standalone')
-          assert.equal(summary.backup.archive_retained, false)
-          assert.match(summary.backup.archive_sha256, /^[a-f0-9]{64}$/)
-          assert.match(summary.source.data_root_sha256, /^[a-f0-9]{64}$/)
-          assert.equal(summary.operations.source_data_root_unchanged, true)
-          NODE
+          npm run verify:rollback 2>&1 \
+            | tee "$RUNNER_TEMP/rollback-drill.log" \
+            | node scripts/rollback-drill-evidence.cjs \
+                --validate-result-stream \
+                --expected-version 1.3.3 \
+                --expected-commit "$GITHUB_SHA" \
+                --expected-mode standalone
       - name: Upload rollback evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -350,6 +350,204 @@ The immutable resulting follow-up commit SHA is reported in the final handoff.
 Embedding it in this tracked report would change the commit object and produce
 a different SHA.
 
+## Architecture Fix: Trusted Rollback Result
+
+Architecture-fix date: 2026-07-22
+
+Architecture-fix base: `943d6a23e5d1ac3024b4bf888571cddce24c4a39`
+
+Required follow-up subject: `fix: bind rollback evidence to trusted result`
+
+This section supersedes the pathname-authority and hard-link publication model
+described by the earlier review-fix sections. Files under
+`artifacts/rollback-drill/` are now append-only diagnostics only. They cannot
+authorize a drill, checkpoint, CI run, or release.
+
+### Architecture Findings Addressed
+
+- `executeRollbackDrill` retains the canonical v3 evidence object and exact
+  serialized UTF-8 bytes in process. Workspace cleanup, retained archive and
+  database closure, and standalone archive deletion all complete before any
+  diagnostic is written or a result is returned. A checkpoint close failure
+  therefore produces neither a diagnostic PASS nor an authoritative result.
+- Success emits exactly one bounded
+  `LOCALMINIDRAMA_ROLLBACK_RESULT_V1=<canonical-base64url-envelope>` line. The
+  exact envelope schema binds the evidence bytes, their lowercase SHA-256, and
+  the generation-specific diagnostic relative path. Node stream validation is
+  strict for UTF-8, base64url canonicality, JSON shape/order, evidence schema,
+  types, version, commit, input mode, digest, and all size limits.
+- Diagnostics use unpredictable `summary-v3-<commit>-<random>.json` names and
+  `wx+` creation. Each file is written, synced, and proved through its retained
+  descriptor and pathname without rename, link, unlink, overwrite, ownership
+  claims, or contested cleanup. Existing fixed, v1, v2, and v3 files remain
+  byte-for-byte untouched. A raced or partial diagnostic fails the operation
+  and is left non-authoritative.
+- The in-memory staging hook receives only a copied evidence buffer and mode,
+  with no mutable publication path. Exact evidence bytes are rebound after the
+  diagnostic publisher returns, so publisher-side object mutation is rejected.
+  Same-size mutation at the former `afterCommit` boundary can only affect an
+  unrelated legacy diagnostic and cannot affect result authority.
+- Executor catches use explicit `hasOperationError`, `hasPrimaryError`, and
+  cleanup sentinels. Exact `undefined`, `null`, `0`, and `''` failures win over
+  every later cleanup failure. A close callback consumes its handle before it
+  runs and directly closes on callback failure, preventing a closed handle from
+  being retried as a spurious `EBADF` cleanup failure.
+- Cleanup details use `util.types.isProxy` before descriptor inspection.
+  Existing details are read only from an own data descriptor; Proxy containers,
+  accessors, non-arrays, holes, and entries after index 7 are never evaluated.
+  The exact primary value is never replaced.
+- CI and release pipe the live anonymous drill stream through the bounded Node
+  validator while `tee` retains diagnostic logs. Neither workflow reopens
+  `summary.json` or any generation diagnostic to establish success.
+- Windows checkpoint creation captures the drill output in memory, requires one
+  bounded canonical marker under both Windows PowerShell 5.1 and PowerShell 7,
+  verifies strict UTF-8 and SHA-256, parses the exact captured evidence, and
+  runs `Assert-CheckpointDrillEvidence`. It atomically publishes those exact
+  bytes to `checkpoint/rollback-drill-summary.json`, immediately opens a
+  `RollbackFileAuthority`, proves exact bytes, hashes through the retained
+  authority, and holds it through v5 metadata publication. The summary
+  authority is disposed before the checkpoint directory lock.
+
+### Architecture RED Evidence
+
+The initial Node architecture tests were added before Node production changes:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='rollback result|diagnostic publication is append-only|executor closes every|checkpoint close failure occurs|executor preserves every falsey|executor cleanup attachment|stderr rendering' scripts\rollback-drill-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 84 total, 0 passed, 26 failed, 58 skipped. The
+failures were the intended missing result-marker API/CLI, destructive fixed
+publication behavior, pre-close publication, falsey error swallowing, and
+hostile cleanup-detail reads.
+
+The checkpoint parser and live workflow tests were then added before changing
+the PowerShell consumer or workflows:
+
+```powershell
+$env:LMD_PWSH_EXE='C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64\pwsh.exe'
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='checkpoint result marker parser|CI isolated rollback workflow|release rollback workflow' scripts\release-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 103 total, 0 passed, 3 failed, 100 skipped. Windows
+PowerShell rejected the missing marker parser, and both workflows still used a
+heredoc that reopened `artifacts/rollback-drill/summary.json`.
+
+Final self-review found a publisher-side in-memory mutation edge. Its focused
+test failed before the rebind was added:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='diagnostic publisher that mutates|former afterCommit boundary' scripts\rollback-drill-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 58 total, 1 passed, 1 failed, 56 skipped. The former
+`afterCommit` same-size mutation control already passed; the injected publisher
+could still mutate the returned evidence object without rejection.
+
+### Architecture GREEN Verification
+
+The final complete rollback contract:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test scripts\rollback-drill-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 96 passed, 0 failed, 0 skipped, including the hostile
+container extension covering primary Proxies, Proxy cleanup containers,
+non-array accessor containers, and a ten-million-slot sparse array without
+reading beyond index 7.
+
+Checkpoint parser and workflow focus after implementation:
+
+```powershell
+$env:LMD_PWSH_EXE='C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64\pwsh.exe'
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='checkpoint result marker parser|CI isolated rollback workflow|release rollback workflow' scripts\release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 103 total, 3 passed, 0 failed, 100 skipped.
+
+The two-host checkpoint fake toolchain, including a malicious repo diagnostic
+and missing, duplicate, malformed, and oversized marker cases:
+
+```powershell
+$env:LMD_PWSH_EXE='C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64\pwsh.exe'
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='release rollback checkpoint fake toolchain' scripts\release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 105 total, 3 passed, 0 failed, 102 skipped. The
+checkpoint summary and metadata derived only from stdout bytes, the summary
+authority blocked write/delete/rename through metadata publication and failure
+recovery, and all invalid markers failed before metadata.
+
+The existing bind-identity checkpoint harness, converted to stdout authority:
+
+```powershell
+$env:LMD_PWSH_EXE='C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64\pwsh.exe'
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='release rollback checkpoint proves the captured container sees exact locked-root bytes' scripts\release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 159 total, 57 passed, 0 failed, 102 skipped.
+
+The full release suite was run once after every focused gate was green:
+
+```powershell
+$env:LMD_PWSH_EXE='C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64\pwsh.exe'
+$env:PATH='C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64;C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64;' + $env:PATH
+npm run test:release
+```
+
+Exit code: `0`. Tests: 197 passed, 0 failed, 0 skipped. TAP duration was
+576.6 seconds and command wall time was 578.8 seconds.
+
+Pinned Node.js 20 syntax checks passed for both implementation files and both
+contract files. The checkpoint script parsed successfully under Windows
+PowerShell 5.1 and PowerShell 7.6.4. `git diff --check` returned exit code `0`;
+Git emitted only the checkout's LF-to-CRLF notices.
+
+### Architecture-Fix Changed Files
+
+- `scripts/rollback-drill-evidence.cjs`
+- `scripts/run-rollback-drill.cjs`
+- `scripts/rollback-drill-contract.test.cjs`
+- `scripts/create-release-rollback-checkpoint.ps1`
+- `scripts/release-contract.test.cjs`
+- `.github/workflows/ci.yml`
+- `.github/workflows/release.yml`
+- `docs/quickstart.md`
+- `.superpowers/sdd/rollback-security-task-4-report.md`
+
+### Architecture-Fix Self-Review
+
+- Production publication contains no `link`, `rename`, `unlink`, ownership
+  claim, temporary-path callback, or fixed-path replacement logic.
+- The authoritative bytes cross Node consumers only through the live stdout
+  marker and cross into the checkpoint only through the captured byte array.
+  Reopening a repo diagnostic cannot authorize any consumer.
+- Every pre-result resource cleanup runs before diagnostics. Every falsey
+  operation, cleanup-only, staging, close, and publication failure remains an
+  exact rejection.
+- File diagnostics and legacy files are never removed or moved. A failed
+  diagnostic may remain for investigation but cannot be mistaken for PASS.
+- The checkpoint summary is opened once after atomic no-overwrite publication;
+  its retained handle proves bytes and digest and denies write/delete sharing
+  until metadata publication has completed.
+- Workflow `pipefail` preserves failures from the drill, `tee`, or validator;
+  diagnostic files and complete logs remain uploadable artifacts.
+
+### Architecture-Fix Residual Risks
+
+Same-permission processes may modify generation diagnostics after their proof;
+this is intentional because those files are explicitly non-authoritative.
+Abrupt process termination can leave a partial generation diagnostic or a
+standalone temporary archive, while handled success and failure paths perform
+all required closure and cleanup. The checkpoint's authoritative summary is
+protected by Windows file sharing authority through metadata publication and
+is subsequently governed by the existing v5 checkpoint controls.
+
+The immutable resulting commit SHA is reported in the final handoff. Embedding
+it in this tracked report would change the commit object and produce a
+different SHA.
+
 ## Review Fix 3: Publication Lifecycle Remediation
 
 Review-fix date: 2026-07-22
