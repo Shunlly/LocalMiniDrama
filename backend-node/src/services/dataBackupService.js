@@ -42,6 +42,9 @@ const ZIP_UTF8_FLAG = 0x0800;
 const ZIP_DATA_DESCRIPTOR_FLAG = 0x0008;
 const ZIP64_UINT32 = 0xffffffff;
 const ZIP64_UINT16 = 0xffff;
+const BACKUP_PUBLICATION_RESULT_SCHEMA = 'localminidrama.backup-publication-result.v1';
+const BACKUP_PUBLICATION_FILE = 'data.zip';
+const BACKUP_PUBLICATION_OPERATION_PATTERN = /^[a-f0-9]{32}$/;
 
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 25000,
@@ -2092,6 +2095,128 @@ async function writeAll(handle, buffer, startPosition) {
   return startPosition + buffer.length;
 }
 
+function descriptorCall(invoker) {
+  return new Promise((resolve, reject) => {
+    invoker((error, value, buffer) => {
+      if (error) reject(error);
+      else resolve({ value, buffer });
+    });
+  });
+}
+
+function descriptorHandle(fd) {
+  return Object.freeze({
+    async write(buffer, offset, length, position) {
+      const result = await descriptorCall((done) => fs.write(fd, buffer, offset, length, position, done));
+      return { bytesWritten: result.value, buffer: result.buffer };
+    },
+    async sync() {
+      await descriptorCall((done) => fs.fsync(fd, (error) => done(error, undefined)));
+    },
+  });
+}
+
+async function descriptorStat(fd) {
+  const result = await descriptorCall((done) => fs.fstat(fd, { bigint: true }, done));
+  return result.value;
+}
+
+async function descriptorRead(fd, buffer, offset, length, position) {
+  const result = await descriptorCall((done) => fs.read(fd, buffer, offset, length, position, done));
+  return { bytesRead: result.value, buffer: result.buffer };
+}
+
+function canonicalPhysicalIdentity(stat) {
+  const dev = BigInt.asUintN(32, BigInt(stat.dev));
+  const ino = BigInt.asUintN(64, BigInt(stat.ino));
+  return `${dev.toString(16).padStart(8, '0')}:${ino.toString(16).padStart(16, '0')}`;
+}
+
+function descriptorSize(stat, code = 'INVALID_DESCRIPTOR_PUBLICATION') {
+  if (typeof stat.size !== 'bigint' || stat.size < 0n || stat.size > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw backupError(code, 'The descriptor-backed archive size is unsupported.');
+  }
+  return Number(stat.size);
+}
+
+function assertRegularDescriptorStat(stat) {
+  if (!stat?.isFile?.()) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires regular file descriptors.');
+  }
+}
+
+function sameDescriptorIdentity(left, right) {
+  return canonicalPhysicalIdentity(left) === canonicalPhysicalIdentity(right);
+}
+
+async function sha256Descriptor(fd, expectedBytes, signal) {
+  const hash = crypto.createHash('sha256');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let position = 0;
+  while (position < expectedBytes) {
+    assertOperationNotAborted(signal);
+    const length = Math.min(buffer.length, expectedBytes - position);
+    const result = await descriptorRead(fd, buffer, 0, length, position);
+    if (result.bytesRead <= 0) {
+      throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The descriptor-backed archive changed while it was being verified.');
+    }
+    hash.update(buffer.subarray(0, result.bytesRead));
+    position += result.bytesRead;
+  }
+  return hash.digest('hex');
+}
+
+function normalizeDescriptorPublication(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication options are invalid.');
+  }
+  const {
+    readFd,
+    writeFd,
+    publicationPath,
+    publicationFile,
+    operationId,
+    waitForPublication,
+  } = value;
+  if (!Number.isInteger(readFd) || readFd < 0 || !Number.isInteger(writeFd) || writeFd < 0 || readFd === writeFd) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires distinct read and write descriptors.');
+  }
+  if (
+    typeof publicationPath !== 'string' || !path.isAbsolute(publicationPath) ||
+    typeof publicationFile !== 'string' || publicationFile !== BACKUP_PUBLICATION_FILE ||
+    path.basename(publicationPath) !== publicationFile
+  ) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires an absolute data.zip path.');
+  }
+  if (typeof operationId !== 'string' || !BACKUP_PUBLICATION_OPERATION_PATTERN.test(operationId)) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires a canonical operation identifier.');
+  }
+  if (typeof waitForPublication !== 'function') {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires a publication wait callback.');
+  }
+  return Object.freeze({
+    readFd,
+    writeFd,
+    publicationPath: path.resolve(publicationPath),
+    publicationFile,
+    operationId,
+    waitForPublication,
+  });
+}
+
+function descriptorPublicationMarker(publication, phase, archiveSha256, archiveBytes, filesystemIdentity) {
+  return Object.freeze({
+    schema: BACKUP_PUBLICATION_RESULT_SCHEMA,
+    operation_id: publication.operationId,
+    phase,
+    publication_file: publication.publicationFile,
+    archive_sha256: archiveSha256,
+    archive_bytes: String(archiveBytes),
+    filesystem_identity: filesystemIdentity,
+    format_version: FORMAT_VERSION,
+  });
+}
+
 function createLocalZip64Extra() {
   const extra = Buffer.alloc(20);
   extra.writeUInt16LE(0x0001, 0);
@@ -2197,11 +2322,9 @@ async function writeStoredZipEntry(archiveHandle, position, source, signal) {
   };
 }
 
-async function writeZip64Archive(tempPath, sources, signal) {
-  let handle;
+async function writeZip64ArchiveToHandle(handle, sources, signal) {
   try {
     assertOperationNotAborted(signal);
-    handle = await fsp.open(tempPath, 'wx', 0o600);
     let position = 0;
     const centralEntries = [];
     for (const source of sources) {
@@ -2270,14 +2393,127 @@ async function writeZip64Archive(tempPath, sources, signal) {
     end.writeUInt32LE(ZIP64_UINT32, 12);
     end.writeUInt32LE(ZIP64_UINT32, 16);
     end.writeUInt16LE(0, 20);
-    await writeAll(handle, end, position);
+    position = await writeAll(handle, end, position);
     await handle.sync();
+    return position;
   } catch (error) {
     if (error instanceof DataBackupError) throw error;
     throw backupError('ARCHIVE_WRITE_FAILED', 'The backup archive could not be written.', error);
+  }
+}
+
+async function writeZip64Archive(tempPath, sources, signal) {
+  let handle;
+  try {
+    handle = await fsp.open(tempPath, 'wx', 0o600);
+    return await writeZip64ArchiveToHandle(handle, sources, signal);
   } finally {
     if (handle) await handle.close();
   }
+}
+
+async function createDescriptorArchive(publication, sources, limits, signal) {
+  let readStat;
+  let writeStat;
+  try {
+    [readStat, writeStat] = await Promise.all([
+      descriptorStat(publication.readFd),
+      descriptorStat(publication.writeFd),
+    ]);
+  } catch (error) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication handles could not be inspected.', error);
+  }
+  assertRegularDescriptorStat(readStat);
+  assertRegularDescriptorStat(writeStat);
+  if (!sameDescriptorIdentity(readStat, writeStat) || descriptorSize(readStat) !== 0 || descriptorSize(writeStat) !== 0) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication handles must refer to the same empty file.');
+  }
+  const filesystemIdentity = canonicalPhysicalIdentity(readStat);
+  const archiveBytesWritten = await writeZip64ArchiveToHandle(
+    descriptorHandle(publication.writeFd),
+    sources,
+    signal
+  );
+  assertOperationNotAborted(signal);
+
+  [readStat, writeStat] = await Promise.all([
+    descriptorStat(publication.readFd),
+    descriptorStat(publication.writeFd),
+  ]);
+  assertRegularDescriptorStat(readStat);
+  assertRegularDescriptorStat(writeStat);
+  const archiveBytes = descriptorSize(readStat);
+  if (
+    !sameDescriptorIdentity(readStat, writeStat) ||
+    canonicalPhysicalIdentity(readStat) !== filesystemIdentity ||
+    descriptorSize(writeStat) !== archiveBytes ||
+    archiveBytes !== archiveBytesWritten
+  ) {
+    throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The descriptor-backed archive changed while it was being written.');
+  }
+  if (archiveBytes > limits.maxArchiveBytes) {
+    throw backupError('ARCHIVE_LIMIT_EXCEEDED', 'The resulting backup exceeds the configured archive size limit.');
+  }
+  const archiveSha256 = await sha256Descriptor(publication.readFd, archiveBytes, signal);
+  const preReadyStat = await descriptorStat(publication.readFd);
+  if (
+    canonicalPhysicalIdentity(preReadyStat) !== filesystemIdentity ||
+    descriptorSize(preReadyStat, 'PUBLICATION_CONTENT_MISMATCH') !== archiveBytes
+  ) {
+    throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The descriptor-backed archive changed before publication.');
+  }
+
+  const ready = descriptorPublicationMarker(
+    publication,
+    'ready',
+    archiveSha256,
+    archiveBytes,
+    filesystemIdentity
+  );
+  await publication.waitForPublication(ready);
+  assertOperationNotAborted(signal);
+
+  let finalPathStat;
+  try {
+    finalPathStat = await fsp.lstat(publication.publicationPath, { bigint: true });
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      throw backupError('PUBLICATION_IDENTITY_MISMATCH', 'The descriptor-backed archive was not published at the expected path.');
+    }
+    throw backupError('PUBLICATION_IDENTITY_MISMATCH', 'The descriptor-backed archive path could not be inspected.', error);
+  }
+  const [finalReadStat, finalWriteStat] = await Promise.all([
+    descriptorStat(publication.readFd),
+    descriptorStat(publication.writeFd),
+  ]);
+  if (
+    !finalPathStat.isFile() || finalPathStat.isSymbolicLink() ||
+    !sameDescriptorIdentity(finalReadStat, finalWriteStat) ||
+    canonicalPhysicalIdentity(finalReadStat) !== filesystemIdentity ||
+    canonicalPhysicalIdentity(finalPathStat) !== filesystemIdentity
+  ) {
+    throw backupError('PUBLICATION_IDENTITY_MISMATCH', 'The published archive does not match the retained descriptor identity.');
+  }
+  if (descriptorSize(finalReadStat, 'PUBLICATION_CONTENT_MISMATCH') !== archiveBytes) {
+    throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The published archive size changed after publication.');
+  }
+  const committedSha256 = await sha256Descriptor(publication.readFd, archiveBytes, signal);
+  const committedReadStat = await descriptorStat(publication.readFd);
+  if (
+    committedSha256 !== archiveSha256 ||
+    canonicalPhysicalIdentity(committedReadStat) !== filesystemIdentity ||
+    descriptorSize(committedReadStat, 'PUBLICATION_CONTENT_MISMATCH') !== archiveBytes
+  ) {
+    throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The published archive bytes changed after publication.');
+  }
+  const committed = descriptorPublicationMarker(
+    publication,
+    'committed',
+    committedSha256,
+    archiveBytes,
+    filesystemIdentity
+  );
+  return { archiveBytes, ready, committed };
 }
 
 async function createDataBackup(options) {
@@ -2285,9 +2521,17 @@ async function createDataBackup(options) {
   const databasePath = path.resolve(options?.databasePath || '');
   const storagePath = path.resolve(options?.storagePath || '');
   const storySourcesPath = resolveStorySourcesPath(options);
-  const outputPath = path.resolve(options?.outputPath || '');
+  const descriptorPublication = options?.descriptorPublication == null
+    ? null
+    : normalizeDescriptorPublication(options.descriptorPublication);
+  if (descriptorPublication && options?.outputPath != null) {
+    throw backupError('INVALID_ARGUMENT', 'Descriptor publication and output paths are mutually exclusive.');
+  }
+  const outputPath = descriptorPublication
+    ? descriptorPublication.publicationPath
+    : path.resolve(options?.outputPath || '');
   const limits = normalizeLimits(options?.limits);
-  if (!options?.databasePath || !options?.storagePath || !options?.outputPath) {
+  if (!options?.databasePath || !options?.storagePath || (!descriptorPublication && !options?.outputPath)) {
     throw backupError('INVALID_ARGUMENT', 'Database, storage, and output locations are required.');
   }
   assertSafeTargetPaths(databasePath, storagePath, storySourcesPath);
@@ -2301,7 +2545,16 @@ async function createDataBackup(options) {
     throw backupError('OUTPUT_EXISTS', 'The requested backup output already exists.');
   }
 
-  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+  if (descriptorPublication) {
+    const parentStat = await fsp.lstat(path.dirname(outputPath)).catch((error) => {
+      throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'The descriptor publication directory is unavailable.', error);
+    });
+    if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) {
+      throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'The descriptor publication directory must be a real directory.');
+    }
+  } else {
+    await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+  }
   const externalMaintenanceLease = options?.externalMaintenanceLease == null
     ? null
     : assertExternalMaintenanceLease(databasePath, options.externalMaintenanceLease);
@@ -2330,7 +2583,9 @@ async function createDataBackup(options) {
   let snapshotPath = null;
   let outputLinked = false;
   let outputIdentity = null;
-  const tempArchivePath = path.join(path.dirname(outputPath), `.${path.basename(outputPath)}.${randomSuffix()}.tmp`);
+  const tempArchivePath = descriptorPublication
+    ? null
+    : path.join(path.dirname(outputPath), `.${path.basename(outputPath)}.${randomSuffix()}.tmp`);
 
   try {
     workDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-backup-'));
@@ -2430,6 +2685,28 @@ async function createDataBackup(options) {
         mtimeMs: file.identity.mtimeMs,
       })),
     ];
+    if (descriptorPublication) {
+      const publication = await createDescriptorArchive(
+        descriptorPublication,
+        sources,
+        limits,
+        options?.signal
+      );
+      if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
+      await runFaultInjector(options, 'after-backup-output-linked');
+      if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
+      return {
+        outputPath,
+        manifest,
+        archiveBytes: publication.archiveBytes,
+        security,
+        publication: {
+          ready: publication.ready,
+          committed: publication.committed,
+        },
+      };
+    }
+
     await writeZip64Archive(tempArchivePath, sources, options?.signal);
     assertOperationNotAborted(options?.signal);
     const archiveStat = await fsp.stat(tempArchivePath);
@@ -2485,7 +2762,7 @@ async function createDataBackup(options) {
     }
     throw primaryError;
   } finally {
-    await fsp.rm(tempArchivePath, { force: true }).catch(() => {});
+    if (tempArchivePath) await fsp.rm(tempArchivePath, { force: true }).catch(() => {});
     if (workDir) await fsp.rm(workDir, { recursive: true, force: true }).catch(() => {});
     await releaseMaintenanceLock(maintenanceLock);
   }
@@ -3705,12 +3982,14 @@ module.exports = {
   assertServiceStopped,
   createExternalMaintenanceLease,
   createDataBackup,
+  writeZip64ArchiveToHandle,
   maintenancePaths,
   nativeMaintenanceOwnerScope,
   recoverInterruptedMaintenanceSync,
   restoreDataBackup,
   __testing: Object.freeze({
     acquireMaintenanceRecoveryClaimSync,
+    canonicalPhysicalIdentity,
     releaseMaintenanceRecoveryClaimSync,
   }),
 };

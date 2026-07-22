@@ -1391,7 +1391,9 @@ $ErrorActionPreference = 'Stop'
 $directoryLock = $null
 $checkpointDirectoryLock = $null
 $configDirectoryLock = $null
-$archiveLock = $null
+$archiveAuthority = $null
+$dataBindSourceAuthority = $null
+$backupHashAuthority = $null
 $summaryAuthority = $null
 $metadataAuthority = $null
 $locationPushed = $false
@@ -1436,7 +1438,7 @@ try {
   Set-RuntimeConfigEnvironment -ConfigDirectory $runtimeConfigDirectory -ConfigPath $runtimeConfigSource
 
   New-Item -ItemType Directory -Path $checkpoint | Out-Null
-  $checkpointDirectoryLock = Open-RollbackDirectoryIdentityLock -Path $checkpoint -Label 'Rollback checkpoint'
+  $checkpointDirectoryLock = Open-RollbackWritableDirectoryAuthority -Path $checkpoint -Label 'Rollback checkpoint'
   Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $runtimeDataDirectory
   $configArchiveRoot = Join-Path $checkpoint 'configs'
   New-Item -ItemType Directory -Path $configArchiveRoot | Out-Null
@@ -1445,13 +1447,13 @@ try {
   $configArchive = Join-Path $configArchiveRoot 'config.yaml'
   $dataBindSourceArchive = Join-Path $checkpoint 'data-bind-source.txt'
   Copy-Item -LiteralPath (Join-Path $repoRoot 'docker-compose.yml') -Destination $composeArchive
-  Write-Utf8File -Path $dataBindSourceArchive -Value "$runtimeDataDirectory`n"
+  $dataBindSourceAuthority = Publish-RollbackUtf8FileAtomically -Path $dataBindSourceArchive -Value "$runtimeDataDirectory`n" -Label 'Rollback checkpoint data bind source' -ParentDirectoryAuthority $checkpointDirectoryLock
   Invoke-Checked -FilePath 'node' -ArgumentList @((Join-Path $repoRoot 'scripts\runtime-config-policy.cjs'), $runtimeConfigSource, $configArchive) -Label 'Runtime config sanitization' | Out-Null
   Assert-RegularFile -Path $configArchive
-  Assert-RegularFile -Path $dataBindSourceArchive
+  Assert-RollbackFileAuthority -Authority $dataBindSourceAuthority | Out-Null
   $composeHash = (Get-FileHash -LiteralPath $composeArchive -Algorithm SHA256).Hash.ToLowerInvariant()
   $configHash = (Get-FileHash -LiteralPath $configArchive -Algorithm SHA256).Hash.ToLowerInvariant()
-  $dataBindSourceHash = (Get-FileHash -LiteralPath $dataBindSourceArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+  $dataBindSourceHash = Get-RollbackFileAuthoritySha256 -Authority $dataBindSourceAuthority
   $imageArchive = Join-Path $checkpoint 'images.tar'
   $rollbackTag = "rollback-checkpoint-$($commit.Substring(0, 12))"
   $backendRollbackRef = "localminidrama-backend:$rollbackTag"
@@ -1478,13 +1480,16 @@ try {
     Set-DataSourceEnvironment -DataDirectory $runtimeDataDirectory
     Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $runtimeDataDirectory
     Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root before backup' | Out-Null
-    Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'backup:data', '--', '--output', $backupPath, '--data-root', $runtimeDataDirectory) -Label 'Data backup' | Out-Null
-    $archiveLock = Open-RollbackArchiveReadLock -Path $backupPath
-    $capturedArchiveIdentity = Get-RollbackPathIdentity -Handle $archiveLock.SafeFileHandle
+    $descriptorBackup = Invoke-RollbackDescriptorBackup -DestinationPath $backupPath -DataDirectory $runtimeDataDirectory -RepositoryRoot $repoRoot -Label 'Data backup' -ParentDirectoryAuthority $checkpointDirectoryLock
+    $archiveAuthority = $descriptorBackup.Authority
+    $capturedArchiveIdentity = $descriptorBackup.FilesystemIdentity
     Assert-RollbackPathIdentity -Path $backupPath -ExpectedIdentity $capturedArchiveIdentity -Label 'Rollback archive after backup' | Out-Null
     Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root after backup' | Out-Null
-    $backupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    Write-Utf8File -Path (Join-Path $checkpoint 'data.sha256.txt') -Value "$backupHash`n"
+    $backupHash = $descriptorBackup.ArchiveSha256
+    if ((Get-RollbackFileAuthoritySha256 -Authority $archiveAuthority) -cne $backupHash) {
+      throw 'Rollback archive differs from its committed descriptor result.'
+    }
+    $backupHashAuthority = Publish-RollbackUtf8FileAtomically -Path (Join-Path $checkpoint 'data.sha256.txt') -Value "$backupHash`n" -Label 'Rollback checkpoint data hash' -ParentDirectoryAuthority $checkpointDirectoryLock
 
     Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root before drill' | Out-Null
     $drillInvocation = Invoke-NativeCommandWithTimeout -FilePath 'node' -ArgumentList @(
@@ -1504,7 +1509,7 @@ try {
     $rollbackResult = ConvertFrom-RollbackResultOutput -Bytes $drillInvocation.StandardOutputBytes
     Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root after drill' | Out-Null
     Assert-RollbackPathIdentity -Path $backupPath -ExpectedIdentity $capturedArchiveIdentity -Label 'Rollback archive after drill' | Out-Null
-    $actualBackupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actualBackupHash = Get-RollbackFileAuthoritySha256 -Authority $archiveAuthority
     $actualDataRootIdentity = Get-RollbackPathIdentity -Path $runtimeDataDirectory
     $validatedEvidence = Assert-CheckpointDrillEvidence -Summary $rollbackResult.Evidence -ExpectedCommit $commit -ExpectedVersion $version -ExpectedBackupHash $backupHash -ActualBackupHash $actualBackupHash -ExpectedDataRootIdentity $capturedDataRootIdentity -ActualDataRootIdentity $actualDataRootIdentity
     $summaryArchive = Join-Path $checkpoint 'rollback-drill-summary.json'
@@ -1517,7 +1522,7 @@ try {
 
     Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root before metadata publication' | Out-Null
     Assert-RollbackPathIdentity -Path $backupPath -ExpectedIdentity $capturedArchiveIdentity -Label 'Rollback archive before metadata publication' | Out-Null
-    $publishedBackupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $publishedBackupHash = Get-RollbackFileAuthoritySha256 -Authority $archiveAuthority
     if ($publishedBackupHash -cne $backupHash -or $publishedBackupHash -cne $actualBackupHash) {
       throw 'Rollback archive changed before metadata publication.'
     }
@@ -1556,8 +1561,8 @@ try {
       throw 'Rollback checkpoint drill summary changed before metadata publication.'
     }
     $metadataPath = Join-Path $checkpoint 'metadata.json'
-    $metadataBytes = [System.Text.UTF8Encoding]::new($false, $true).GetBytes("$(ConvertTo-Json $metadata -Depth 6)`n")
-    $metadataAuthority = New-RollbackFileAuthorityFromBytes -Path $metadataPath -Bytes $metadataBytes -Label 'Rollback checkpoint metadata'
+    $metadataText = "$(ConvertTo-Json $metadata -Depth 6)`n"
+    $metadataAuthority = Publish-RollbackUtf8FileAtomically -Path $metadataPath -Value $metadataText -Label 'Rollback checkpoint metadata' -ParentDirectoryAuthority $checkpointDirectoryLock
     Assert-RollbackFileAuthority -Authority $metadataAuthority | Out-Null
     Write-Output "Rollback checkpoint ready: $checkpoint"
     Write-Output 'Provider credentials were excluded from the archived runtime config and must be configured and tested again after restore.'
@@ -1576,12 +1581,7 @@ try {
   $primaryError = $_
 } finally {
   try {
-    if ($null -ne $metadataAuthority) { $metadataAuthority.Stream.Dispose() }
-  } catch {
-    [void]$cleanupErrors.Add($_)
-  }
-  try {
-    if ($null -ne $archiveLock) { $archiveLock.Dispose() }
+    if ($null -ne $metadataAuthority) { Close-RollbackFilePublicationAuthority -Authority $metadataAuthority }
   } catch {
     [void]$cleanupErrors.Add($_)
   }
@@ -1591,12 +1591,29 @@ try {
     [void]$cleanupErrors.Add($_)
   }
   try {
+    if ($null -ne $backupHashAuthority) { Close-RollbackFilePublicationAuthority -Authority $backupHashAuthority }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $archiveAuthority) { Close-RollbackFilePublicationAuthority -Authority $archiveAuthority }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $dataBindSourceAuthority) { Close-RollbackFilePublicationAuthority -Authority $dataBindSourceAuthority }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
     if ($null -ne $configDirectoryLock) { $configDirectoryLock.Dispose() }
   } catch {
     [void]$cleanupErrors.Add($_)
   }
   try {
-    if ($null -ne $checkpointDirectoryLock) { $checkpointDirectoryLock.Dispose() }
+    if ($null -ne $checkpointDirectoryLock) {
+      Close-RollbackWritableDirectoryAuthority -Authority $checkpointDirectoryLock
+    }
   } catch {
     [void]$cleanupErrors.Add($_)
   }

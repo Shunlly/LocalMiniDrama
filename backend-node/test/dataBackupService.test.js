@@ -216,6 +216,150 @@ test('caller-owned archive handle is the sole restore source and remains open', 
   }
 });
 
+test('descriptor publication writes and verifies the caller-owned archive without closing descriptors', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const liveDb = createDatabase(workspace.databasePath, 'descriptor-publication');
+  await seedStorage(workspace.storagePath, 'descriptor-publication');
+  liveDb.close();
+
+  const publicationPath = path.join(workspace.root, 'archives', 'data.zip');
+  const temporaryPath = path.join(workspace.root, 'archives', '.data.zip.retained.tmp');
+  await fsp.mkdir(path.dirname(publicationPath), { recursive: true });
+  const writeHandle = await fsp.open(temporaryPath, 'wx+', 0o600);
+  const readHandle = await fsp.open(temporaryPath, 'r+');
+
+  const readyMarkers = [];
+  let result;
+  try {
+    result = await createDataBackup({
+      ...workspace,
+      skipServiceCheck: true,
+      descriptorPublication: {
+        readFd: readHandle.fd,
+        writeFd: writeHandle.fd,
+        publicationPath,
+        publicationFile: 'data.zip',
+        operationId: '0123456789abcdef0123456789abcdef',
+        waitForPublication: async (marker) => {
+          readyMarkers.push(marker);
+          assert.equal(marker.phase, 'ready');
+          assert.equal((await readHandle.stat()).isFile(), true);
+          assert.equal((await writeHandle.stat()).isFile(), true);
+          await fsp.rename(temporaryPath, publicationPath);
+        },
+      },
+    });
+
+    assert.equal((await readHandle.stat()).isFile(), true, 'the read descriptor must remain caller-owned');
+    assert.equal((await writeHandle.stat()).isFile(), true, 'the write descriptor must remain caller-owned');
+  } finally {
+    await readHandle.close().catch(() => {});
+    await writeHandle.close().catch(() => {});
+  }
+
+  assert.equal(readyMarkers.length, 1);
+  assert.deepEqual(result.publication.ready, readyMarkers[0]);
+  assert.equal(result.publication.committed.phase, 'committed');
+  assert.equal(result.publication.committed.archive_sha256, result.publication.ready.archive_sha256);
+  assert.equal(result.publication.committed.archive_bytes, String(result.archiveBytes));
+  assert.equal(result.outputPath, publicationPath);
+  assert.deepEqual(new AdmZip(publicationPath).getEntries().map((entry) => entry.entryName).sort(), [
+    'database.sqlite',
+    'manifest.json',
+    'storage/images/cover.txt',
+    'storage/images/nested/clip.bin',
+  ]);
+});
+
+test('descriptor publication rejects the same archive bytes at a different filesystem identity', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const liveDb = createDatabase(workspace.databasePath, 'descriptor-copy');
+  await seedStorage(workspace.storagePath, 'descriptor-copy');
+  liveDb.close();
+
+  const publicationPath = path.join(workspace.root, 'archives', 'data.zip');
+  const temporaryPath = path.join(workspace.root, 'archives', '.data.zip.copy-source.tmp');
+  await fsp.mkdir(path.dirname(publicationPath), { recursive: true });
+  const writeHandle = await fsp.open(temporaryPath, 'wx+', 0o600);
+  const readHandle = await fsp.open(temporaryPath, 'r+');
+
+  try {
+    await assert.rejects(
+      createDataBackup({
+        ...workspace,
+        skipServiceCheck: true,
+        descriptorPublication: {
+          readFd: readHandle.fd,
+          writeFd: writeHandle.fd,
+          publicationPath,
+          publicationFile: 'data.zip',
+          operationId: '11111111111111111111111111111111',
+          waitForPublication: async () => {
+            await fsp.copyFile(temporaryPath, publicationPath);
+          },
+        },
+      }),
+      expectCode('PUBLICATION_IDENTITY_MISMATCH')
+    );
+    assert.equal((await readHandle.stat()).isFile(), true);
+    assert.equal((await writeHandle.stat()).isFile(), true);
+  } finally {
+    await readHandle.close().catch(() => {});
+    await writeHandle.close().catch(() => {});
+  }
+});
+
+test('descriptor publication rejects changed bytes at the retained filesystem identity', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const liveDb = createDatabase(workspace.databasePath, 'descriptor-mutation');
+  await seedStorage(workspace.storagePath, 'descriptor-mutation');
+  liveDb.close();
+
+  const publicationPath = path.join(workspace.root, 'archives', 'data.zip');
+  const temporaryPath = path.join(workspace.root, 'archives', '.data.zip.mutation.tmp');
+  await fsp.mkdir(path.dirname(publicationPath), { recursive: true });
+  const writeHandle = await fsp.open(temporaryPath, 'wx+', 0o600);
+  const readHandle = await fsp.open(temporaryPath, 'r+');
+
+  try {
+    await assert.rejects(
+      createDataBackup({
+        ...workspace,
+        skipServiceCheck: true,
+        descriptorPublication: {
+          readFd: readHandle.fd,
+          writeFd: writeHandle.fd,
+          publicationPath,
+          publicationFile: 'data.zip',
+          operationId: '22222222222222222222222222222222',
+          waitForPublication: async () => {
+            await fsp.rename(temporaryPath, publicationPath);
+            await writeHandle.write(Buffer.from([0x00]), 0, 1, 0);
+            await writeHandle.sync();
+          },
+        },
+      }),
+      expectCode('PUBLICATION_CONTENT_MISMATCH')
+    );
+    assert.equal((await readHandle.stat()).isFile(), true);
+    assert.equal((await writeHandle.stat()).isFile(), true);
+  } finally {
+    await readHandle.close().catch(() => {});
+    await writeHandle.close().catch(() => {});
+  }
+});
+
+test('descriptor physical identity uses canonical unsigned Windows-width fields', () => {
+  assert.equal(
+    __testing.canonicalPhysicalIdentity({ dev: -1n, ino: -1n }),
+    'ffffffff:ffffffffffffffff'
+  );
+  assert.equal(
+    __testing.canonicalPhysicalIdentity({ dev: 0x1234n, ino: 0x5678n }),
+    '00001234:0000000000005678'
+  );
+});
+
 test('backs up, hashes, and atomically restores Source Intake raw text', async (t) => {
   const workspace = await makeWorkspace(t);
   const db = createDatabase(workspace.databasePath, 'source-snapshot');

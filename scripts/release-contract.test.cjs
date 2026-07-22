@@ -2870,6 +2870,420 @@ if ($newIdentity -ceq $oldIdentity) { throw 'Same-path archive replacement retai
   }
 })
 
+test('rollback handle-bound publication retains identity and never overwrites destinations', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Handle-bound rollback publication requires Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'handle-bound publication must run under Node 20')
+  const rollbackIdentityScript = fs.readFileSync(rollbackIdentityScriptPath, 'utf8')
+  const rollbackPowerShellSupportScript = fs.readFileSync(rollbackPowerShellSupportScriptPath, 'utf8')
+
+  for (const functionName of [
+    'New-RollbackFilePublicationAuthority',
+    'Publish-RollbackFileAuthority',
+    'Remove-RollbackUnpublishedFileAuthority',
+    'Open-RollbackWritableDirectoryAuthority',
+    'Publish-RollbackDirectoryAuthority',
+  ]) {
+    assert.match(rollbackIdentityScript, new RegExp(`function ${functionName}`), `${functionName} is missing`)
+  }
+  assert.match(
+    rollbackPowerShellSupportScript,
+    /function Publish-RollbackUtf8FileAtomically/,
+    'handle-bound UTF-8 publisher is missing',
+  )
+  assert.match(
+    rollbackPowerShellSupportScript,
+    /function Close-RollbackWritableDirectoryAuthority/,
+    'writable directory authority closer is missing',
+  )
+
+  const filePublisherStart = rollbackIdentityScript.indexOf('function New-RollbackFilePublicationAuthority')
+  const filePublisherEnd = rollbackIdentityScript.indexOf('\nfunction Open-RollbackWritableDirectoryAuthority', filePublisherStart)
+  assert.ok(filePublisherStart >= 0 && filePublisherEnd > filePublisherStart)
+  const filePublisherSource = rollbackIdentityScript.slice(filePublisherStart, filePublisherEnd)
+  assert.match(rollbackIdentityScript, /SetFileInformationByHandle/)
+  assert.match(rollbackIdentityScript, /FlushFileBuffers/)
+  assert.match(rollbackIdentityScript, /FILE_RENAME_INFO|FileRenameInfo/)
+  assert.match(rollbackIdentityScript, /FILE_DISPOSITION_INFO|FileDispositionInfo/)
+  assert.doesNotMatch(filePublisherSource, /File\.Move|File\.Delete|Remove-Item/)
+
+  const blockedMutationProgram = [
+    "const fs=require('fs')",
+    "const operation=process.argv[1]",
+    "const source=process.argv[2]",
+    "const target=process.argv[3]",
+    "try{",
+    "if(operation==='write')fs.writeFileSync(source,'mutated')",
+    "else if(operation==='delete')fs.unlinkSync(source)",
+    "else if(operation==='rename')fs.renameSync(source,target)",
+    "else process.exit(25)",
+    "process.exit(24)",
+    "}catch{process.exit(23)}",
+  ].join(';')
+
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, () => {
+      const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), `lmd-handle-publish-${host.name}-`))
+      t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+      const existingPath = path.join(fixtureRoot, 'existing.txt')
+      const successPath = path.join(fixtureRoot, 'published.txt')
+      const unpublishedPath = path.join(fixtureRoot, 'unpublished.txt')
+      const renamedProbePath = path.join(fixtureRoot, 'renamed-probe.txt')
+      const incompleteDirectory = path.join(fixtureRoot, 'compensation-incomplete')
+      const readyDirectory = path.join(fixtureRoot, 'compensation-ready')
+      const conflictingIncompleteDirectory = path.join(fixtureRoot, 'conflict-incomplete')
+      const conflictingReadyDirectory = path.join(fixtureRoot, 'conflict-ready')
+      const preRenameFailurePath = path.join(fixtureRoot, 'pre-rename-failure.txt')
+      const postRenameFlushFailurePath = path.join(fixtureRoot, 'post-rename-flush-failure.txt')
+      const flushIncompleteDirectory = path.join(fixtureRoot, 'flush-incomplete')
+      const flushReadyDirectory = path.join(fixtureRoot, 'flush-ready')
+      const borrowedParentDirectory = path.join(fixtureRoot, 'borrowed-parent')
+      const unrelatedParentDirectory = path.join(fixtureRoot, 'unrelated-parent')
+      const borrowedPublicationPath = path.join(borrowedParentDirectory, 'bound.txt')
+      const existingBytes = Buffer.from('pre-existing destination\n', 'utf8')
+      fs.writeFileSync(existingPath, existingBytes)
+      fs.mkdirSync(incompleteDirectory)
+      fs.writeFileSync(path.join(incompleteDirectory, 'child.txt'), 'child bytes')
+      fs.mkdirSync(conflictingIncompleteDirectory)
+      fs.writeFileSync(path.join(conflictingIncompleteDirectory, 'source.txt'), 'source bytes')
+      fs.mkdirSync(conflictingReadyDirectory)
+      fs.writeFileSync(path.join(conflictingReadyDirectory, 'sentinel.txt'), 'destination bytes')
+      fs.mkdirSync(flushIncompleteDirectory)
+      fs.writeFileSync(path.join(flushIncompleteDirectory, 'retained.txt'), 'retained incomplete bytes')
+      fs.mkdirSync(borrowedParentDirectory)
+      fs.mkdirSync(unrelatedParentDirectory)
+
+      const statements = `
+. ${powerShellLiteral(rollbackIdentityScriptPath)}
+. ${powerShellLiteral(rollbackPowerShellSupportScriptPath)}
+function Close-TestPublicationAuthority {
+  param([AllowNull()][object]$Authority)
+  if ($null -eq $Authority) { return }
+  if ($null -ne $Authority.PSObject.Properties['Stream'] -and $null -ne $Authority.Stream) { $Authority.Stream.Dispose() }
+  if ($null -ne $Authority.PSObject.Properties['Handle'] -and $null -ne $Authority.Handle) { $Authority.Handle.Dispose() }
+  if ($null -ne $Authority.PSObject.Properties['ParentDirectoryHandle'] -and $null -ne $Authority.ParentDirectoryHandle) { $Authority.ParentDirectoryHandle.Dispose() }
+}
+function Assert-NodeMutationBlocked {
+  param([string]$Operation, [string]$Source, [string]$Target)
+  & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(blockedMutationProgram)} $Operation $Source $Target
+  if ($LASTEXITCODE -ne 23) { throw "$Operation was not blocked for retained authority $Source (exit $LASTEXITCODE)." }
+}
+
+$existingPath = ${powerShellLiteral(existingPath)}
+$beforeEntries = @([System.IO.Directory]::GetFileSystemEntries(${powerShellLiteral(fixtureRoot)}) | Sort-Object)
+$conflictRejected = $false
+try {
+  Publish-RollbackUtf8FileAtomically -Path $existingPath -Value ('replacement' + [Environment]::NewLine) -Label 'Existing UTF-8 destination' | Out-Null
+} catch { $conflictRejected = $true }
+if (-not $conflictRejected) { throw 'Existing UTF-8 destination was overwritten.' }
+$afterEntries = @([System.IO.Directory]::GetFileSystemEntries(${powerShellLiteral(fixtureRoot)}) | Sort-Object)
+if (($beforeEntries -join [Environment]::NewLine) -cne ($afterEntries -join [Environment]::NewLine)) { throw 'Destination conflict leaked an owned temporary path.' }
+if ([Convert]::ToBase64String([System.IO.File]::ReadAllBytes($existingPath)) -cne ${powerShellLiteral(existingBytes.toString('base64'))}) {
+  throw 'Existing UTF-8 destination bytes changed.'
+}
+
+$published = $null
+try {
+  $published = Publish-RollbackUtf8FileAtomically -Path ${powerShellLiteral(successPath)} -Value ('\u77ed\u5267 bytes' + [Environment]::NewLine) -Label 'Published UTF-8 fixture'
+  if ($published.Path -cne [System.IO.Path]::GetFullPath(${powerShellLiteral(successPath)})) { throw 'Published authority path is wrong.' }
+  if ($published.Published -ne $true) { throw 'Published authority did not record publication.' }
+  Assert-RollbackFileAuthority -Authority $published | Out-Null
+  $expected = [System.Text.UTF8Encoding]::new($false, $true).GetBytes(('\u77ed\u5267 bytes' + [Environment]::NewLine))
+  $actualText = Read-RollbackFileAuthorityUtf8 -Authority $published
+  if ([Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false, $true).GetBytes($actualText)) -cne [Convert]::ToBase64String($expected)) {
+    throw 'Published UTF-8 bytes changed or gained a BOM.'
+  }
+  Assert-NodeMutationBlocked -Operation 'write' -Source $published.Path -Target ${powerShellLiteral(renamedProbePath)}
+  Assert-NodeMutationBlocked -Operation 'delete' -Source $published.Path -Target ${powerShellLiteral(renamedProbePath)}
+  Assert-NodeMutationBlocked -Operation 'rename' -Source $published.Path -Target ${powerShellLiteral(renamedProbePath)}
+} finally { Close-TestPublicationAuthority -Authority $published }
+
+$unpublished = New-RollbackFilePublicationAuthority -Path ${powerShellLiteral(unpublishedPath)} -Label 'Unpublished fixture'
+$temporaryPath = $unpublished.TemporaryPath
+try {
+  $payload = [System.Text.UTF8Encoding]::new($false, $true).GetBytes('unpublished bytes')
+  $unpublished.Stream.Write($payload, 0, $payload.Length)
+  $unpublished.Stream.Flush($true)
+  Assert-NodeMutationBlocked -Operation 'write' -Source $temporaryPath -Target ${powerShellLiteral(renamedProbePath)}
+  Assert-NodeMutationBlocked -Operation 'delete' -Source $temporaryPath -Target ${powerShellLiteral(renamedProbePath)}
+  Assert-NodeMutationBlocked -Operation 'rename' -Source $temporaryPath -Target ${powerShellLiteral(renamedProbePath)}
+  Remove-RollbackUnpublishedFileAuthority -Authority $unpublished
+  $unpublished = $null
+} finally { Close-TestPublicationAuthority -Authority $unpublished }
+if ([System.IO.File]::Exists($temporaryPath) -or [System.IO.File]::Exists(${powerShellLiteral(unpublishedPath)})) {
+  throw 'Owned unpublished authority cleanup leaked a path.'
+}
+
+$borrowedParent = $null
+$unrelatedParentHandle = $null
+try {
+  $borrowedParent = Open-RollbackWritableDirectoryAuthority -Path ${powerShellLiteral(borrowedParentDirectory)} -Label 'Borrowed parent fixture'
+  $unrelatedParentHandle = Open-RollbackWritableDirectoryHandle -Path ${powerShellLiteral(unrelatedParentDirectory)} -Label 'Unrelated parent fixture'
+  $forgedParent = [pscustomobject][ordered]@{
+    Path = $borrowedParent.Path
+    Identity = $borrowedParent.Identity
+    Handle = $unrelatedParentHandle
+  }
+  $wrongHandleRejected = $false
+  try {
+    New-RollbackFilePublicationAuthority -Path ${powerShellLiteral(borrowedPublicationPath)} -Label 'Wrong parent handle fixture' -ParentDirectoryAuthority $forgedParent | Out-Null
+  } catch { $wrongHandleRejected = $true }
+  if (-not $wrongHandleRejected) { throw 'A borrowed parent authority with an unrelated retained handle was accepted.' }
+  if ([System.IO.File]::Exists(${powerShellLiteral(borrowedPublicationPath)}) -or
+      @([System.IO.Directory]::GetFiles(${powerShellLiteral(borrowedParentDirectory)}, '*.localminidrama-publish-*.tmp')).Count -ne 0) {
+    throw 'Rejected borrowed parent authority leaked a publication file.'
+  }
+} finally {
+  if ($null -ne $unrelatedParentHandle) { $unrelatedParentHandle.Dispose() }
+  if ($null -ne $borrowedParent) { Close-RollbackWritableDirectoryAuthority -Authority $borrowedParent }
+}
+
+$directoryAuthority = $null
+try {
+  $directoryAuthority = Open-RollbackWritableDirectoryAuthority -Path ${powerShellLiteral(incompleteDirectory)} -Label 'Incomplete bundle'
+  $beforeIdentity = $directoryAuthority.Identity
+  $sameAuthority = Publish-RollbackDirectoryAuthority -Authority $directoryAuthority -Path ${powerShellLiteral(readyDirectory)}
+  if (-not [object]::ReferenceEquals($sameAuthority, $directoryAuthority)) { throw 'Directory publication replaced the authority object.' }
+  if ($directoryAuthority.Identity -cne $beforeIdentity) { throw 'Directory identity changed during publication.' }
+  if ([System.IO.Directory]::Exists(${powerShellLiteral(incompleteDirectory)}) -or -not [System.IO.Directory]::Exists(${powerShellLiteral(readyDirectory)})) {
+    throw 'Directory publication did not move exactly one retained directory.'
+  }
+  if ([System.IO.File]::ReadAllText((Join-Path ${powerShellLiteral(readyDirectory)} 'child.txt')) -cne 'child bytes') { throw 'Directory child bytes changed.' }
+  Assert-NodeMutationBlocked -Operation 'rename' -Source ${powerShellLiteral(readyDirectory)} -Target ${powerShellLiteral(incompleteDirectory)}
+} finally { Close-TestPublicationAuthority -Authority $directoryAuthority }
+
+$conflictAuthority = $null
+try {
+  $conflictAuthority = Open-RollbackWritableDirectoryAuthority -Path ${powerShellLiteral(conflictingIncompleteDirectory)} -Label 'Conflicting incomplete bundle'
+  $directoryConflictRejected = $false
+  try { Publish-RollbackDirectoryAuthority -Authority $conflictAuthority -Path ${powerShellLiteral(conflictingReadyDirectory)} | Out-Null } catch { $directoryConflictRejected = $true }
+  if (-not $directoryConflictRejected) { throw 'Existing ready directory was overwritten.' }
+  if (-not [System.IO.Directory]::Exists(${powerShellLiteral(conflictingIncompleteDirectory)})) { throw 'Incomplete bundle was lost after ready conflict.' }
+  if ([System.IO.File]::ReadAllText((Join-Path ${powerShellLiteral(conflictingReadyDirectory)} 'sentinel.txt')) -cne 'destination bytes') {
+    throw 'Existing ready directory bytes changed.'
+  }
+} finally { Close-TestPublicationAuthority -Authority $conflictAuthority }
+
+$originalRename = \${function:Invoke-RollbackHandleRename}
+function Invoke-RollbackHandleRename { throw 'Injected pre-rename publication failure.' }
+try {
+  $preRenameRejected = $false
+  try {
+    Publish-RollbackUtf8FileAtomically -Path ${powerShellLiteral(preRenameFailurePath)} -Value 'pre-rename bytes' -Label 'Pre-rename failure fixture' | Out-Null
+  } catch { $preRenameRejected = $true }
+  if (-not $preRenameRejected) { throw 'Injected pre-rename failure was accepted.' }
+} finally {
+  Set-Item -LiteralPath Function:Invoke-RollbackHandleRename -Value $originalRename
+}
+if ([System.IO.File]::Exists(${powerShellLiteral(preRenameFailurePath)})) { throw 'Pre-rename failure published a final record.' }
+if (@([System.IO.Directory]::GetFiles(${powerShellLiteral(fixtureRoot)}, '*.localminidrama-publish-*.tmp')).Count -ne 0) {
+  throw 'Pre-rename failure leaked an owned temporary file.'
+}
+
+$originalFlush = \${function:Flush-RollbackHandle}
+function Flush-RollbackHandle {
+  param([Microsoft.Win32.SafeHandles.SafeFileHandle]$Handle, [string]$Label)
+  if ($Label -like '*parent directory') { throw 'Injected parent directory flush failure.' }
+  & $originalFlush -Handle $Handle -Label $Label
+}
+try {
+  $postRenameRejected = $false
+  try {
+    Publish-RollbackUtf8FileAtomically -Path ${powerShellLiteral(postRenameFlushFailurePath)} -Value 'retained after failed flush' -Label 'Post-rename flush fixture' | Out-Null
+  } catch { $postRenameRejected = $true }
+  if (-not $postRenameRejected) { throw 'Injected post-rename flush failure was accepted.' }
+} finally {
+  Set-Item -LiteralPath Function:Flush-RollbackHandle -Value $originalFlush
+}
+if (-not [System.IO.File]::Exists(${powerShellLiteral(postRenameFlushFailurePath)})) {
+  throw 'Post-rename flush failure did not retain the published bytes.'
+}
+if ([System.IO.File]::ReadAllText(${powerShellLiteral(postRenameFlushFailurePath)}) -cne 'retained after failed flush') {
+  throw 'Post-rename flush failure changed retained bytes.'
+}
+
+$flushAuthority = $null
+$originalFlush = \${function:Flush-RollbackHandle}
+function Flush-RollbackHandle { throw 'Injected incomplete directory flush failure.' }
+try {
+  $flushAuthority = Open-RollbackWritableDirectoryAuthority -Path ${powerShellLiteral(flushIncompleteDirectory)} -Label 'Flush incomplete bundle'
+  $directoryFlushRejected = $false
+  try { Publish-RollbackDirectoryAuthority -Authority $flushAuthority -Path ${powerShellLiteral(flushReadyDirectory)} | Out-Null } catch { $directoryFlushRejected = $true }
+  if (-not $directoryFlushRejected) { throw 'Injected directory flush failure was accepted.' }
+} finally {
+  Set-Item -LiteralPath Function:Flush-RollbackHandle -Value $originalFlush
+  Close-TestPublicationAuthority -Authority $flushAuthority
+}
+if (-not [System.IO.Directory]::Exists(${powerShellLiteral(flushIncompleteDirectory)}) -or [System.IO.Directory]::Exists(${powerShellLiteral(flushReadyDirectory)})) {
+  throw 'Directory flush failure did not retain only the incomplete bundle.'
+}
+`
+      assertPowerShellStatements(statements, { executable: host.executable })
+    })
+  }
+})
+
+test('rollback descriptor backup inherits only retained handles and commits the canonical machine protocol', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Descriptor-backed rollback publication requires Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'descriptor publication must run under Node 20')
+  const supportSource = fs.readFileSync(rollbackPowerShellSupportScriptPath, 'utf8')
+  for (const contract of [
+    /STARTUPINFOEX/,
+    /PROC_THREAD_ATTRIBUTE_HANDLE_LIST/,
+    /UpdateProcThreadAttribute/,
+    /DuplicateHandle/,
+    /JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE/,
+    /function Invoke-RollbackDescriptorBackup/,
+    /localminidrama\.backup-publication-result\.v1/,
+  ]) {
+    assert.match(supportSource, contract)
+  }
+
+  const Database = backendRequire('better-sqlite3')
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, () => {
+      const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), `lmd-descriptor-backup-${host.name}-`))
+      t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+      const dataRoot = path.join(fixtureRoot, 'data')
+      const checkpointRoot = path.join(fixtureRoot, 'checkpoint')
+      const destinationPath = path.join(checkpointRoot, 'data.zip')
+      fs.mkdirSync(path.join(dataRoot, 'storage'), { recursive: true })
+      fs.mkdirSync(path.join(dataRoot, 'story_sources'), { recursive: true })
+      fs.mkdirSync(checkpointRoot, { recursive: true })
+      fs.writeFileSync(path.join(dataRoot, 'storage', 'asset.txt'), `${host.name}-asset`)
+      const db = new Database(path.join(dataRoot, 'drama_generator.db'))
+      db.exec('CREATE TABLE records (id INTEGER PRIMARY KEY, value TEXT NOT NULL)')
+      db.prepare('INSERT INTO records (value) VALUES (?)').run(host.name)
+      db.close()
+
+      const statements = `
+. ${powerShellLiteral(rollbackIdentityScriptPath)}
+. ${powerShellLiteral(rollbackPowerShellSupportScriptPath)}
+$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+$listener.Start()
+$env:HOST = '127.0.0.1'
+$env:PORT = [string](([System.Net.IPEndPoint]$listener.LocalEndpoint).Port)
+$listener.Stop()
+$result = $null
+try {
+  $result = Invoke-RollbackDescriptorBackup -DestinationPath ${powerShellLiteral(destinationPath)} -DataDirectory ${powerShellLiteral(dataRoot)} -RepositoryRoot ${powerShellLiteral(root)} -Label 'Descriptor backup fixture' -NodeExecutable ${powerShellLiteral(process.execPath)} -TimeoutMilliseconds 120000
+  if ($result.ArchiveSha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'Descriptor archive hash is not canonical.' }
+  if ($result.ArchiveBytes -isnot [long] -or $result.ArchiveBytes -le 0) { throw 'Descriptor archive byte count is invalid.' }
+  if ($result.FilesystemIdentity -cnotmatch '^[a-f0-9]{8}:[a-f0-9]{16}$') { throw 'Descriptor archive identity is invalid.' }
+  if ($result.Authority.Published -ne $true) { throw 'Descriptor archive authority was not published.' }
+  if ($result.Authority.Identity -cne $result.FilesystemIdentity) { throw 'Node and PowerShell physical identities differ.' }
+  if ((Get-RollbackFileAuthoritySha256 -Authority $result.Authority) -cne $result.ArchiveSha256) { throw 'Retained descriptor archive hash changed.' }
+  if ($result.Authority.Stream.Length -ne $result.ArchiveBytes) { throw 'Retained descriptor archive length changed.' }
+  Assert-RollbackPathIdentity -Path ${powerShellLiteral(destinationPath)} -ExpectedIdentity $result.FilesystemIdentity -Label 'Published descriptor archive' | Out-Null
+} finally {
+  if ($null -ne $result -and $null -ne $result.Authority) { Close-RollbackFilePublicationAuthority -Authority $result.Authority }
+}
+`
+      assertPowerShellStatements(statements, { executable: host.executable, timeout: 180000 })
+      assert.equal(fs.existsSync(destinationPath), true)
+      assert.ok(fs.statSync(destinationPath).size > 0)
+    })
+  }
+})
+
+test('rollback descriptor backup kills malformed machine children and never authorizes incomplete publication', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Descriptor-backed rollback publication requires Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'descriptor failure matrix must run under Node 20')
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-descriptor-failure-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const fakeChild = path.join(fixtureRoot, 'descriptor-child.cjs')
+  fs.writeFileSync(fakeChild, `
+'use strict'
+const crypto = require('node:crypto')
+const fs = require('node:fs')
+const mode = process.argv[2]
+const operationId = process.argv[3]
+if (mode === 'timeout') setInterval(() => {}, 1000)
+else {
+  const payload = Buffer.from('descriptor child bytes', 'utf8')
+  fs.writeSync(1, payload, 0, payload.length, 0)
+  fs.fsyncSync(1)
+  const stat = fs.fstatSync(0, { bigint: true })
+  const identity = BigInt.asUintN(32, stat.dev).toString(16).padStart(8, '0') + ':'
+    + BigInt.asUintN(64, stat.ino).toString(16).padStart(16, '0')
+  const marker = {
+    schema: 'localminidrama.backup-publication-result.v1',
+    operation_id: operationId,
+    phase: mode === 'out-of-order' ? 'committed' : 'ready',
+    publication_file: 'data.zip',
+    archive_sha256: crypto.createHash('sha256').update(payload).digest('hex'),
+    archive_bytes: String(payload.length),
+    filesystem_identity: identity,
+    format_version: 2,
+  }
+  let line = JSON.stringify(marker)
+  if (mode === 'malformed') line = '{not-json}'
+  if (mode === 'duplicate') line = line.replace('"phase":"ready"', '"phase":"ready","phase":"ready"')
+  if (mode === 'out-of-order') {
+    line = JSON.stringify({ operation_id: marker.operation_id, schema: marker.schema, ...marker })
+  }
+  if (mode === 'oversized') line = 'A'.repeat(1024)
+  process.stderr.write(line + '\\n')
+  if (mode !== 'ready-only') setInterval(() => {}, 1000)
+}
+`, 'utf8')
+  const dataRoot = path.join(fixtureRoot, 'data')
+  fs.mkdirSync(dataRoot)
+
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, () => {
+      const hostRoot = path.join(fixtureRoot, host.name)
+      fs.mkdirSync(hostRoot)
+      const statements = `
+. ${powerShellLiteral(rollbackIdentityScriptPath)}
+. ${powerShellLiteral(rollbackPowerShellSupportScriptPath)}
+$script:OriginalStartRollbackDescriptorProcess = \${function:Start-RollbackDescriptorProcess}
+function Start-RollbackDescriptorProcess {
+  param(
+    [string]$FilePath,
+    [string[]]$ArgumentList,
+    [string]$WorkingDirectory,
+    [Microsoft.Win32.SafeHandles.SafeFileHandle]$ArchiveHandle
+  )
+  $operationIndex = [Array]::IndexOf($ArgumentList, '--operation-id')
+  if ($operationIndex -lt 0) { throw 'Descriptor operation id argument is missing.' }
+  & $script:OriginalStartRollbackDescriptorProcess -FilePath ${powerShellLiteral(process.execPath)} -ArgumentList @(${powerShellLiteral(fakeChild)}, $env:LMD_DESCRIPTOR_MODE, $ArgumentList[$operationIndex + 1]) -WorkingDirectory $WorkingDirectory -ArchiveHandle $ArchiveHandle
+}
+foreach ($mode in @('malformed', 'duplicate', 'out-of-order', 'oversized', 'timeout', 'ready-only')) {
+  $env:LMD_DESCRIPTOR_MODE = $mode
+  $modeRoot = Join-Path ${powerShellLiteral(hostRoot)} $mode
+  [System.IO.Directory]::CreateDirectory($modeRoot) | Out-Null
+  $destination = Join-Path $modeRoot 'data.zip'
+  $failed = $false
+  $failureRecord = $null
+  try {
+    Invoke-RollbackDescriptorBackup -DestinationPath $destination -DataDirectory ${powerShellLiteral(dataRoot)} -RepositoryRoot ${powerShellLiteral(root)} -Label "Descriptor $mode fixture" -NodeExecutable ${powerShellLiteral(process.execPath)} -TimeoutMilliseconds 1000 | Out-Null
+  } catch { $failed = $true; $failureRecord = $_ }
+  if (-not $failed) { throw "Descriptor $mode fixture unexpectedly succeeded." }
+  $expectedFinal = $mode -ceq 'ready-only'
+  if ([System.IO.File]::Exists($destination) -ne $expectedFinal) {
+    throw "Descriptor $mode final-path retention was wrong."
+  }
+  $temporaryFiles = @([System.IO.Directory]::GetFiles($modeRoot, '*.localminidrama-publish-*.tmp'))
+  if ($temporaryFiles.Count -ne 0) {
+    $cleanup = @($failureRecord.Exception.Data['RollbackCleanupErrors'] | ForEach-Object { $_.Exception.Message }) -join ' | '
+    throw "Descriptor $mode leaked an owned temporary file: $($temporaryFiles -join ', '); primary: $($failureRecord.Exception.Message); cleanup: $cleanup"
+  }
+}
+`
+      assertPowerShellStatements(statements, { executable: host.executable, timeout: 60000 })
+    })
+  }
+})
+
 test('rollback retained file authorities block mutation and read exact bytes on every Windows host', async (t) => {
   if (process.platform !== 'win32') {
     t.skip('Win32 handle contracts require Windows')
@@ -3079,6 +3493,32 @@ if ($mergedCleanup.Count -ne 2 -or
     $mergedCleanup[1].Exception.Message -cne 'outer cleanup failure') {
   throw 'Nested and outer cleanup failures were not merged in order.'
 }
+
+$script:DirectoryCloseEvents = [System.Collections.ArrayList]::new()
+$parentDisposable = [pscustomobject][ordered]@{ Name = 'parent' }
+$handleDisposable = [pscustomobject][ordered]@{ Name = 'handle' }
+$disposeBody = {
+  [void]$script:DirectoryCloseEvents.Add($this.Name)
+  throw "$($this.Name) close failure"
+}
+$parentDisposable | Add-Member -MemberType ScriptMethod -Name Dispose -Value $disposeBody
+$handleDisposable | Add-Member -MemberType ScriptMethod -Name Dispose -Value $disposeBody
+$directoryCloseError = $null
+try {
+  Close-RollbackWritableDirectoryAuthority -Authority ([pscustomobject][ordered]@{
+    ParentDirectoryHandle = $parentDisposable
+    Handle = $handleDisposable
+  })
+} catch { $directoryCloseError = $_ }
+if (($script:DirectoryCloseEvents -join ',') -cne 'parent,handle') {
+  throw "Directory authority handles were not closed exhaustively in reverse acquisition order: $($script:DirectoryCloseEvents -join ',')"
+}
+$directoryCleanupErrors = @($directoryCloseError.Exception.Data['RollbackCleanupErrors'])
+if ($directoryCleanupErrors.Count -ne 2 -or
+    $directoryCleanupErrors[0].Exception.Message -notmatch 'parent close failure' -or
+    $directoryCleanupErrors[1].Exception.Message -notmatch 'handle close failure') {
+  throw 'Directory authority close failures were not retained in execution order.'
+}
 `
     assertPowerShellStatements(statements, { executable: host.executable })
     })
@@ -3112,6 +3552,9 @@ test('release rollback checkpoint and restore consume shared native-lock v5 inte
     ? fs.readFileSync(rollbackPowerShellSupportScriptPath, 'utf8')
     : ''
   assert.match(powerShellSupportScript, /function Complete-RollbackInvocation/)
+  assert.match(powerShellSupportScript, /function Invoke-RollbackDescriptorBackup/)
+  assert.match(powerShellSupportScript, /function Publish-RollbackUtf8FileAtomically/)
+  assert.match(powerShellSupportScript, /function Close-RollbackWritableDirectoryAuthority/)
   for (const source of [checkpointScript, rollbackRestoreScript]) {
     assert.match(source, /rollback-powershell-support\.ps1/)
   }
@@ -3138,7 +3581,9 @@ test('release rollback checkpoint and restore consume shared native-lock v5 inte
   assert.doesNotMatch(checkpointScript, /artifacts\\rollback-drill\\summary\.json/)
   assert.doesNotMatch(checkpointScript, /Get-Content[^\r\n]*rollback-drill[^\r\n]*summary/i)
   assert.match(checkpointScript, /Open-RollbackDirectoryIdentityLock/)
-  assert.match(checkpointScript, /Open-RollbackArchiveReadLock/)
+  assert.match(checkpointScript, /Invoke-RollbackDescriptorBackup/)
+  assert.doesNotMatch(checkpointScript, /Open-RollbackArchiveReadLock/)
+  assert.doesNotMatch(checkpointScript, /Invoke-Checked[^\r\n]*backup:data/)
   assert.match(checkpointScript, /function New-RollbackFileAuthorityFromBytes/)
   assert.match(checkpointScript, /\[System\.IO\.FileMode\]::CreateNew/)
   assert.match(checkpointScript, /\[System\.IO\.FileAccess\]::ReadWrite/)
@@ -3157,11 +3602,11 @@ test('release rollback checkpoint and restore consume shared native-lock v5 inte
   const powerShellParsing = checkpointScript.indexOf('ConvertFrom-RollbackResultOutput -Bytes $drillInvocation.StandardOutputBytes')
   assert.ok(drillInvocation >= 0 && drillInvocation < nodeValidation && nodeValidation < powerShellParsing)
   const summaryAuthorityOpen = checkpointScript.indexOf('$summaryAuthority = New-RollbackFileAuthorityFromBytes')
-  const metadataPublication = checkpointScript.indexOf('$metadataAuthority = New-RollbackFileAuthorityFromBytes')
+  const metadataPublication = checkpointScript.indexOf('$metadataAuthority = Publish-RollbackUtf8FileAtomically')
   const readyOutput = checkpointScript.indexOf('Write-Output "Rollback checkpoint ready: $checkpoint"')
-  const metadataAuthorityDispose = checkpointScript.indexOf('if ($null -ne $metadataAuthority) { $metadataAuthority.Stream.Dispose() }')
+  const metadataAuthorityDispose = checkpointScript.indexOf('if ($null -ne $metadataAuthority) { Close-RollbackFilePublicationAuthority -Authority $metadataAuthority }')
   const summaryAuthorityDispose = checkpointScript.indexOf('if ($null -ne $summaryAuthority) { $summaryAuthority.Stream.Dispose() }')
-  const checkpointLockDispose = checkpointScript.indexOf('if ($null -ne $checkpointDirectoryLock) { $checkpointDirectoryLock.Dispose() }')
+  const checkpointLockDispose = checkpointScript.indexOf('Close-RollbackWritableDirectoryAuthority -Authority $checkpointDirectoryLock')
   assert.ok(summaryAuthorityOpen >= 0 && summaryAuthorityOpen < metadataPublication)
   assert.ok(metadataPublication < readyOutput && readyOutput < metadataAuthorityDispose)
   assert.ok(metadataAuthorityDispose < summaryAuthorityDispose && summaryAuthorityDispose < checkpointLockDispose)
@@ -3241,7 +3686,7 @@ test('release rollback checkpoint container bind proof is retained, exact, and o
   const checkpointCreation = checkpointMain.indexOf('New-Item -ItemType Directory -Path $checkpoint')
   const imageSave = checkpointMain.indexOf("@('image', 'save'")
   const shutdown = checkpointMain.indexOf("@('compose', 'down')")
-  const backup = checkpointMain.indexOf("'backup:data'")
+  const backup = checkpointMain.indexOf('Invoke-RollbackDescriptorBackup')
   const rollbackDrill = checkpointMain.indexOf('run-rollback-drill.cjs')
   for (const [label, index] of [
     ['bind capture', bindCapture],
@@ -4443,8 +4888,10 @@ $requestedCheckpointDirectory = $CheckpointDirectory
 
 $script:OriginalInvokeChecked = \${function:Invoke-Checked}
 $script:OriginalInvokeNativeCommandWithTimeout = \${function:Invoke-NativeCommandWithTimeout}
+$script:OriginalInvokeRollbackDescriptorBackup = \${function:Invoke-RollbackDescriptorBackup}
 $script:OriginalAssertCheckpointDrillEvidence = \${function:Assert-CheckpointDrillEvidence}
 $script:OriginalWriteUtf8File = \${function:Write-Utf8File}
+$script:OriginalPublishRollbackUtf8FileAtomically = \${function:Publish-RollbackUtf8FileAtomically}
 $script:OriginalNewRollbackFileAuthorityFromBytes = \${function:New-RollbackFileAuthorityFromBytes}
 $script:OriginalStartCapturedDeployment = \${function:Start-CapturedDeployment}
 $script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
@@ -4504,6 +4951,27 @@ function Invoke-NativeCommandWithTimeout {
   & $script:OriginalInvokeNativeCommandWithTimeout @forward
 }
 
+function Invoke-RollbackDescriptorBackup {
+  param(
+    [Parameter(Mandatory = $true)][string]$DestinationPath,
+    [Parameter(Mandatory = $true)][string]$DataDirectory,
+    [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+    [Parameter(Mandatory = $true)][string]$Label,
+    [string]$NodeExecutable = '',
+    [AllowNull()][object]$ParentDirectoryAuthority = $null,
+    [int]$TimeoutMilliseconds = 900000
+  )
+  $authority = & $script:OriginalPublishRollbackUtf8FileAtomically -Path $DestinationPath -Value 'fake retained rollback archive' -Label $Label -ParentDirectoryAuthority $ParentDirectoryAuthority
+  $hash = Get-RollbackFileAuthoritySha256 -Authority $authority
+  Write-TestEvent -Name 'backup'
+  return [pscustomobject][ordered]@{
+    Authority = $authority
+    ArchiveSha256 = $hash
+    ArchiveBytes = [long]$authority.Stream.Length
+    FilesystemIdentity = $authority.Identity
+  }
+}
+
 function Assert-CheckpointDrillEvidence {
   param(
     [Parameter(Mandatory = $true)][object]$Summary,
@@ -4527,11 +4995,12 @@ function Write-Utf8File {
   }
 }
 
-function New-RollbackFileAuthorityFromBytes {
+function Publish-RollbackUtf8FileAtomically {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes,
-    [Parameter(Mandatory = $true)][string]$Label
+    [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Value,
+    [string]$Label = 'Rollback UTF-8 record',
+    [AllowNull()][object]$ParentDirectoryAuthority = $null
   )
   $authority = $null
   $isMetadata = $Label -ceq 'Rollback checkpoint metadata'
@@ -4542,13 +5011,13 @@ function New-RollbackFileAuthorityFromBytes {
     }
   }
   try {
-    $authority = & $script:OriginalNewRollbackFileAuthorityFromBytes @PSBoundParameters
-    if ($Label -ceq 'Rollback checkpoint drill summary') {
-      Assert-TestLocks -Stage 'summary_archive'
+    $authority = & $script:OriginalPublishRollbackUtf8FileAtomically @PSBoundParameters
+    if ($Label -ceq 'Rollback checkpoint data hash') {
+      Assert-TestLocks -Stage 'first_locked_hash'
     }
     return $authority
   } catch {
-    if ($null -ne $authority) { $authority.Stream.Dispose() }
+    if ($null -ne $authority) { Close-RollbackFilePublicationAuthority -Authority $authority }
     if ($isMetadata) {
       $script:PublicationError = $_
       $line = ConvertTo-Json -Compress -InputObject ([ordered]@{
@@ -4558,6 +5027,25 @@ function New-RollbackFileAuthorityFromBytes {
       })
       [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
     }
+    throw
+  }
+}
+
+function New-RollbackFileAuthorityFromBytes {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $authority = $null
+  try {
+    $authority = & $script:OriginalNewRollbackFileAuthorityFromBytes @PSBoundParameters
+    if ($Label -ceq 'Rollback checkpoint drill summary') {
+      Assert-TestLocks -Stage 'summary_archive'
+    }
+    return $authority
+  } catch {
+    if ($null -ne $authority) { $authority.Stream.Dispose() }
     throw
   }
 }
@@ -6689,7 +7177,8 @@ test('release rollback scripts fail closed and verify the retained backup before
   assert.match(checkpointScript, /function Get-ImageRevision[\s\S]*\{\{json \.Config\.Labels\}\}/)
   assert.match(checkpointScript, /ConvertFrom-Json -InputObject \$mountJson[\s\S]*ForEach-Object/)
   assert.match(checkpointScript, /docker-compose\.yml[\s\S]*config\.yaml[\s\S]*composeHash[\s\S]*configHash/)
-  assert.match(checkpointScript, /backup:data[\s\S]*Get-FileHash[\s\S]*run-rollback-drill\.cjs/)
+  assert.match(checkpointScript, /Invoke-RollbackDescriptorBackup[\s\S]*Get-RollbackFileAuthoritySha256[\s\S]*run-rollback-drill\.cjs/)
+  assert.doesNotMatch(checkpointScript, /Invoke-Checked[^\r\n]*backup:data/)
   assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v5/)
   assert.match(checkpointScript, /Get-ContainerBindSource[\s\S]*\/app\/config-source/)
   assert.match(checkpointScript, /LOCALMINIDRAMA_CONFIG_PATH/)
@@ -6786,15 +7275,15 @@ test('release rollback data bind source is captured, archived, and used for chec
   assert.match(checkpointScript, /Assert-RealDirectory[\s\S]*\$runtimeDataDirectory/)
   assert.match(checkpointScript, /Assert-OutsideDirectory[\s\S]*\$runtimeDataDirectory[\s\S]*\$checkpoint/)
   assert.match(checkpointScript, /\$dataBindSourceArchive = Join-Path \$checkpoint 'data-bind-source\.txt'/)
-  assert.match(checkpointScript, /Write-Utf8File[\s\S]*\$dataBindSourceArchive[\s\S]*\$runtimeDataDirectory/)
-  assert.match(checkpointScript, /Get-FileHash[\s\S]*\$dataBindSourceArchive[\s\S]*dataBindSourceHash/)
+  assert.match(checkpointScript, /Publish-RollbackUtf8FileAtomically[^\r\n]*\$dataBindSourceArchive[^\r\n]*\$runtimeDataDirectory/)
+  assert.match(checkpointScript, /Get-RollbackFileAuthoritySha256[^\r\n]*\$dataBindSourceAuthority/)
   assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v5/)
   assert.match(checkpointScript, /data_bind_source\s*=\s*\$runtimeDataDirectory/)
   assert.match(checkpointScript, /data_bind_source_file\s*=\s*'data-bind-source\.txt'/)
   assert.match(checkpointScript, /data_bind_source_sha256\s*=\s*\$dataBindSourceHash/)
   assert.match(
     checkpointScript,
-    /backup:data[\s\S]*'--data-root', \$runtimeDataDirectory[\s\S]*Data backup/,
+    /Invoke-RollbackDescriptorBackup[^\r\n]*-DataDirectory \$runtimeDataDirectory[^\r\n]*-Label 'Data backup'/,
   )
   assert.match(
     checkpointScript,
