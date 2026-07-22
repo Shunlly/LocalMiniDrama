@@ -1359,32 +1359,33 @@ test('service release surfaces descriptor close failure and restores the public 
   const originalCloseSync = fs.closeSync;
   const closeFailure = new Error('injected maintenance descriptor close failure');
   let injected = false;
-  t.after(async () => {
+  try {
+    fs.closeSync = (fd) => {
+      if (!injected && fd === guard.fd) {
+        injected = true;
+        throw closeFailure;
+      }
+      return originalCloseSync(fd);
+    };
+
+    let releaseFailure;
+    assert.throws(
+      () => guard.release(),
+      (error) => {
+        releaseFailure = error;
+        return error?.code === 'MAINTENANCE_LOCK_RELEASE_FAILED';
+      }
+    );
+
+    assert.equal(injected, true);
+    assert.equal(releaseFailure.cause, closeFailure);
+    assert.ok((await fsp.stat(lockPath)).isFile());
+    assert.equal(JSON.parse(await fsp.readFile(lockPath, 'utf8')).token, guard.token);
+  } finally {
     fs.closeSync = originalCloseSync;
     try { originalCloseSync(guard.fd); } catch (_) {}
     await fsp.rm(lockPath, { force: true });
-  });
-  fs.closeSync = (fd) => {
-    if (!injected && fd === guard.fd) {
-      injected = true;
-      throw closeFailure;
-    }
-    return originalCloseSync(fd);
-  };
-
-  let releaseFailure;
-  assert.throws(
-    () => guard.release(),
-    (error) => {
-      releaseFailure = error;
-      return error?.code === 'MAINTENANCE_LOCK_RELEASE_FAILED';
-    }
-  );
-
-  assert.equal(injected, true);
-  assert.equal(releaseFailure.cause, closeFailure);
-  assert.ok((await fsp.stat(lockPath)).isFile());
-  assert.equal(JSON.parse(await fsp.readFile(lockPath, 'utf8')).token, guard.token);
+  }
 });
 
 test('external service lease rejects a path replacement installed after its read descriptor opens', async (t) => {
@@ -1511,47 +1512,49 @@ test('backup failure compensation preserves an output replacement installed at i
   const displacedOutputPath = `${workspace.archivePath}.displaced`;
   let injected = false;
   const originalRenameSync = fs.renameSync;
-  t.after(async () => {
+  try {
+    fs.renameSync = (source, destination) => {
+      if (!injected && path.resolve(source) === path.resolve(workspace.archivePath)) {
+        injected = true;
+        originalRenameSync(source, displacedOutputPath);
+        fs.writeFileSync(workspace.archivePath, 'unrelated-output', { flag: 'wx' });
+      }
+      return originalRenameSync(source, destination);
+    };
+
+    let backupFailure;
+    await assert.rejects(
+      createDataBackup({
+        ...workspace,
+        outputPath: workspace.archivePath,
+        externalMaintenanceLease: lease,
+        async faultInjector(step) {
+          if (step === 'after-backup-output-linked') {
+            await fsp.writeFile(lockPath, `${JSON.stringify({ ...guard.payload, token: 'e'.repeat(16) })}\n`);
+          }
+        },
+      }),
+      (error) => {
+        backupFailure = error;
+        return expectCode('MAINTENANCE_LEASE_INVALID')(error);
+      }
+    );
+
+    assert.equal(injected, true, 'backup compensation did not atomically claim the output path');
+    assert.equal(await fsp.readFile(workspace.archivePath, 'utf8'), 'unrelated-output');
+    assert.ok((await fsp.stat(displacedOutputPath)).isFile());
+    assert.equal(Object.hasOwn(backupFailure, 'cleanupError'), false);
+    const cleanupDescriptor = Object.getOwnPropertyDescriptor(backupFailure, 'cleanupErrors');
+    assert.equal(cleanupDescriptor?.enumerable, false);
+    assert.equal(cleanupDescriptor?.value.length, 1);
+    assert.equal(cleanupDescriptor.value[0]?.code, 'OUTPUT_CLEANUP_FAILED');
+  } finally {
     fs.renameSync = originalRenameSync;
     guard.abandon();
     await fsp.rm(workspace.archivePath, { force: true });
     await fsp.rm(displacedOutputPath, { force: true });
-  });
-  fs.renameSync = (source, destination) => {
-    if (!injected && path.resolve(source) === path.resolve(workspace.archivePath)) {
-      injected = true;
-      originalRenameSync(source, displacedOutputPath);
-      fs.writeFileSync(workspace.archivePath, 'unrelated-output', { flag: 'wx' });
-    }
-    return originalRenameSync(source, destination);
-  };
-
-  let backupFailure;
-  await assert.rejects(
-    createDataBackup({
-      ...workspace,
-      outputPath: workspace.archivePath,
-      externalMaintenanceLease: lease,
-      async faultInjector(step) {
-        if (step === 'after-backup-output-linked') {
-          await fsp.writeFile(lockPath, `${JSON.stringify({ ...guard.payload, token: 'e'.repeat(16) })}\n`);
-        }
-      },
-    }),
-    (error) => {
-      backupFailure = error;
-      return expectCode('MAINTENANCE_LEASE_INVALID')(error);
-    }
-  );
-
-  assert.equal(injected, true, 'backup compensation did not atomically claim the output path');
-  assert.equal(await fsp.readFile(workspace.archivePath, 'utf8'), 'unrelated-output');
-  assert.ok((await fsp.stat(displacedOutputPath)).isFile());
-  assert.equal(Object.hasOwn(backupFailure, 'cleanupError'), false);
-  const cleanupDescriptor = Object.getOwnPropertyDescriptor(backupFailure, 'cleanupErrors');
-  assert.equal(cleanupDescriptor?.enumerable, false);
-  assert.equal(cleanupDescriptor?.value.length, 1);
-  assert.equal(cleanupDescriptor.value[0]?.code, 'OUTPUT_CLEANUP_FAILED');
+    await fsp.rm(lockPath, { force: true });
+  }
 });
 
 test('external service maintenance lease binds the original lock identity and requires a fresh heartbeat', async (t) => {
