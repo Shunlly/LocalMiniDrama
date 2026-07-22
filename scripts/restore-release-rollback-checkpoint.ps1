@@ -249,9 +249,9 @@ function Assert-SamePath {
 
 function Assert-FileHash {
   param([string]$Path, [string]$Expected, [string]$Label)
-  if ($Expected -notmatch '^[a-f0-9]{64}$') { throw "$Label SHA-256 is invalid." }
+  if ($Expected -cnotmatch '^[a-f0-9]{64}$') { throw "$Label SHA-256 is invalid." }
   $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($actual -ne $Expected) { throw "$Label SHA-256 verification failed." }
+  if ($actual -cne $Expected) { throw "$Label SHA-256 verification failed." }
 }
 
 function Assert-RollbackFileAuthorityHash {
@@ -291,6 +291,14 @@ function Assert-RollbackEvidenceExactString {
   if ($Value -isnot [string] -or $Value -cne $Expected) { throw $Message }
 }
 
+function Assert-RollbackEvidenceJsonObject {
+  param(
+    [Parameter(Mandatory = $true)][AllowNull()][object]$Value,
+    [Parameter(Mandatory = $true)][string]$Message
+  )
+  if ($Value -isnot [pscustomobject]) { throw $Message }
+}
+
 function Assert-RollbackEvidenceStringPattern {
   param(
     [Parameter(Mandatory = $true)][AllowNull()][object]$Value,
@@ -307,6 +315,72 @@ function Assert-RollbackEvidenceBoolean {
     [Parameter(Mandatory = $true)][string]$Message
   )
   if ($Value -isnot [bool] -or $Value -ne $Expected) { throw $Message }
+}
+
+function Assert-RollbackCheckpointMetadata {
+  param([Parameter(Mandatory = $true)][object]$Metadata)
+
+  $schemaProperty = Get-RollbackEvidenceProperty -Object $Metadata -Name 'schema' -Context 'metadata'
+  $versionProperty = Get-RollbackEvidenceProperty -Object $Metadata -Name 'version' -Context 'metadata'
+  $commitProperty = Get-RollbackEvidenceProperty -Object $Metadata -Name 'previous_commit' -Context 'metadata'
+  Assert-RollbackEvidenceExactString -Value $schemaProperty.Value -Expected 'localminidrama.release-rollback-checkpoint.v5' -Message 'Rollback checkpoint schema is invalid.'
+  Assert-RollbackEvidenceStringPattern -Value $versionProperty.Value -Pattern '^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$' -Message 'Rollback checkpoint version is invalid.'
+  Assert-RollbackEvidenceStringPattern -Value $commitProperty.Value -Pattern '^[a-f0-9]{40}$' -Message 'Rollback checkpoint commit is invalid.'
+
+  foreach ($booleanContract in @(
+    @('runtime_config_sanitized', 'Rollback checkpoint runtime config is not declared sanitized.'),
+    @('runtime_config_credentials_excluded', 'Rollback checkpoint does not prove that runtime config credentials were excluded.'),
+    @('credential_reconfiguration_required', 'Rollback checkpoint does not require Provider credential reconfiguration.')
+  )) {
+    $property = Get-RollbackEvidenceProperty -Object $Metadata -Name $booleanContract[0] -Context 'metadata'
+    Assert-RollbackEvidenceBoolean -Value $property.Value -Expected $true -Message $booleanContract[1]
+  }
+
+  foreach ($digestName in @(
+    'backup_sha256',
+    'compose_sha256',
+    'runtime_config_sha256',
+    'data_bind_source_sha256',
+    'image_archive_sha256',
+    'rollback_evidence_sha256',
+    'data_root_sha256'
+  )) {
+    $property = Get-RollbackEvidenceProperty -Object $Metadata -Name $digestName -Context 'metadata'
+    Assert-RollbackEvidenceStringPattern -Value $property.Value -Pattern '^[a-f0-9]{64}$' -Message "Rollback checkpoint $digestName is invalid."
+  }
+  $identityProperty = Get-RollbackEvidenceProperty -Object $Metadata -Name 'data_root_identity' -Context 'metadata'
+  Assert-RollbackEvidenceStringPattern -Value $identityProperty.Value -Pattern '^[a-f0-9]{8}:[a-f0-9]{16}$' -Message 'Rollback checkpoint data root identity is invalid.'
+
+  $bindTypeProperty = Get-RollbackEvidenceProperty -Object $Metadata -Name 'data_bind_type' -Context 'metadata'
+  $bindDestinationProperty = Get-RollbackEvidenceProperty -Object $Metadata -Name 'data_bind_destination' -Context 'metadata'
+  $bindReadWriteProperty = Get-RollbackEvidenceProperty -Object $Metadata -Name 'data_bind_read_write' -Context 'metadata'
+  $bindSourceProperty = Get-RollbackEvidenceProperty -Object $Metadata -Name 'data_bind_source' -Context 'metadata'
+  $bindSourceFileProperty = Get-RollbackEvidenceProperty -Object $Metadata -Name 'data_bind_source_file' -Context 'metadata'
+  Assert-RollbackEvidenceExactString -Value $bindTypeProperty.Value -Expected 'bind' -Message 'Rollback checkpoint data bind type is invalid.'
+  Assert-RollbackEvidenceExactString -Value $bindDestinationProperty.Value -Expected '/app/data' -Message 'Rollback checkpoint data bind destination is invalid.'
+  Assert-RollbackEvidenceBoolean -Value $bindReadWriteProperty.Value -Expected $true -Message 'Rollback checkpoint data bind must be boolean read-write.'
+  Assert-RollbackEvidenceExactString -Value $bindSourceFileProperty.Value -Expected 'data-bind-source.txt' -Message 'Rollback checkpoint data bind source record is invalid.'
+  if ($bindSourceProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($bindSourceProperty.Value)) {
+    throw 'Rollback checkpoint data bind source is invalid.'
+  }
+
+  $backendProperty = Get-RollbackEvidenceProperty -Object $Metadata -Name 'backend' -Context 'metadata'
+  $frontendProperty = Get-RollbackEvidenceProperty -Object $Metadata -Name 'frontend' -Context 'metadata'
+  Assert-RollbackEvidenceJsonObject -Value $backendProperty.Value -Message 'Rollback checkpoint backend evidence must be an object.'
+  Assert-RollbackEvidenceJsonObject -Value $frontendProperty.Value -Message 'Rollback checkpoint frontend evidence must be an object.'
+  $rollbackTag = "rollback-checkpoint-$($commitProperty.Value.Substring(0, 12))"
+  foreach ($imageContract in @(
+    @('backend', $backendProperty.Value, "localminidrama-backend:$rollbackTag"),
+    @('frontend', $frontendProperty.Value, "localminidrama-frontend:$rollbackTag")
+  )) {
+    $context = "metadata.$($imageContract[0])"
+    $imageIdProperty = Get-RollbackEvidenceProperty -Object $imageContract[1] -Name 'image_id' -Context $context
+    $revisionProperty = Get-RollbackEvidenceProperty -Object $imageContract[1] -Name 'revision' -Context $context
+    $rollbackRefProperty = Get-RollbackEvidenceProperty -Object $imageContract[1] -Name 'rollback_ref' -Context $context
+    Assert-RollbackEvidenceStringPattern -Value $imageIdProperty.Value -Pattern '^sha256:[a-f0-9]{64}$' -Message "$context image ID is invalid."
+    Assert-RollbackEvidenceExactString -Value $revisionProperty.Value -Expected $commitProperty.Value -Message "$context revision does not match the recorded commit."
+    Assert-RollbackEvidenceExactString -Value $rollbackRefProperty.Value -Expected $imageContract[2] -Message "$context rollback reference is invalid."
+  }
 }
 
 function Assert-RollbackEvidenceBinding {
@@ -388,18 +462,40 @@ function Get-ContainerBindSource {
   } catch {
     throw "${Destination} mount capture returned invalid Docker JSON."
   }
-  $destinationMounts = @($mounts | Where-Object { Test-ContainerPathEqual -Expected ([string]$_.Destination) -Actual $Destination })
+  $validatedMounts = @($mounts | ForEach-Object {
+    Assert-RollbackEvidenceJsonObject -Value $_ -Message "${Destination} mount capture entries must be objects."
+    $typeProperty = Get-RollbackEvidenceProperty -Object $_ -Name 'Type' -Context "${Destination} mount capture entry"
+    $sourceProperty = Get-RollbackEvidenceProperty -Object $_ -Name 'Source' -Context "${Destination} mount capture entry"
+    $destinationProperty = Get-RollbackEvidenceProperty -Object $_ -Name 'Destination' -Context "${Destination} mount capture entry"
+    $readWriteProperty = Get-RollbackEvidenceProperty -Object $_ -Name 'RW' -Context "${Destination} mount capture entry"
+    if ($typeProperty.Value -isnot [string] -or
+        $sourceProperty.Value -isnot [string] -or
+        [string]::IsNullOrWhiteSpace($sourceProperty.Value) -or
+        $destinationProperty.Value -isnot [string] -or
+        $readWriteProperty.Value -isnot [bool]) {
+      throw "${Destination} mount capture fields have invalid JSON types."
+    }
+    [pscustomobject][ordered]@{
+      Type = $typeProperty.Value
+      Source = $sourceProperty.Value
+      Destination = $destinationProperty.Value
+      RW = $readWriteProperty.Value
+    }
+  })
+  $destinationMounts = @($validatedMounts | Where-Object {
+    Test-ContainerPathEqual -Expected $_.Destination -Actual $Destination
+  })
   if ($destinationMounts.Count -ne 1) {
     throw "The running backend must have exactly one mount at $Destination."
   }
   $mount = $destinationMounts[0]
-  if ($mount.Type -ne 'bind' -or [string]::IsNullOrWhiteSpace([string]$mount.Source)) {
+  if ($mount.Type -cne 'bind') {
     throw "The running backend mount at $Destination must be a bind mount with a host source."
   }
   if ($RequireReadWrite -and $mount.RW -ne $true) {
     throw "The running backend bind mount at $Destination must be read-write."
   }
-  return Assert-RealDirectory -Path ([string]$mount.Source)
+  return Assert-RealDirectory -Path $mount.Source
 }
 
 function Get-ImageRevision {
@@ -413,11 +509,10 @@ function Get-ImageRevision {
   } catch {
     throw "$Label returned invalid Docker labels JSON."
   }
-  $property = $labels.PSObject.Properties['org.opencontainers.image.revision']
-  if ($null -eq $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) {
-    throw "$Label did not contain org.opencontainers.image.revision."
-  }
-  return ([string]$property.Value).ToLowerInvariant()
+  Assert-RollbackEvidenceJsonObject -Value $labels -Message "$Label returned invalid Docker labels JSON."
+  $property = Get-RollbackEvidenceProperty -Object $labels -Name 'org.opencontainers.image.revision' -Context $Label
+  Assert-RollbackEvidenceStringPattern -Value $property.Value -Pattern '^[a-f0-9]{40}$' -Message "$Label did not contain an exact lowercase revision."
+  return $property.Value
 }
 
 function Get-RunningServiceEvidence {
@@ -426,17 +521,17 @@ function Get-RunningServiceEvidence {
     [Parameter(Mandatory = $true)][string[]]$ComposePrefix
   )
   $containerId = Get-CheckedScalar -FilePath 'docker' -ArgumentList (@($ComposePrefix) + @('ps', '-a', '-q', $Service)) -Label "$Service container lookup"
-  if ($containerId -notmatch '^[a-f0-9]{12,64}$') {
+  if ($containerId -cnotmatch '^[a-f0-9]{12,64}$') {
     throw "The current $Service container must still exist before rollback so immutable compensation evidence can be captured."
   }
   $status = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.State.Status}}') -Label "$Service container status"
   $health = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}') -Label "$Service container health"
-  if ($status -ne 'running' -or $health -ne 'healthy') {
+  if ($status -cne 'running' -or $health -cne 'healthy') {
     Write-Warning "The current $Service container is $status with health $health; rollback will continue using its immutable image and configuration evidence."
   }
-  $imageId = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.Image}}') -Label "$Service image capture").ToLowerInvariant()
+  $imageId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.Image}}') -Label "$Service image capture"
   $revision = Get-ImageRevision -ImageReference $imageId -Label "$Service image revision"
-  if ($imageId -notmatch '^sha256:[a-f0-9]{64}$' -or $revision -notmatch '^[a-f0-9]{40}$') {
+  if ($imageId -cnotmatch '^sha256:[a-f0-9]{64}$' -or $revision -cnotmatch '^[a-f0-9]{40}$') {
     throw "The current $Service image lacks immutable ID or revision evidence."
   }
   return [ordered]@{
@@ -459,7 +554,7 @@ function Assert-RunningBackendDataSource {
   )
   $arguments = @($ComposePrefix) + @('ps', '-q', 'backend')
   $containerId = Get-CheckedScalar -FilePath 'docker' -ArgumentList $arguments -Label "$Label container lookup"
-  if ($containerId -notmatch '^[a-f0-9]{12,64}$') {
+  if ($containerId -cnotmatch '^[a-f0-9]{12,64}$') {
     throw "$Label container could not be identified for data bind verification."
   }
   $actualDataDirectory = Get-ContainerBindSource -ContainerId $containerId -Destination '/app/data' -RequireReadWrite
@@ -477,22 +572,58 @@ function Assert-ComposeDataSource {
   $configJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList $arguments -Label "$Label data bind resolution"
   try {
     $config = ConvertFrom-Json -InputObject $configJson
-    $dataMounts = @($config.services.backend.volumes | Where-Object { Test-ContainerPathEqual -Expected ([string]$_.target) -Actual '/app/data' })
   } catch {
     throw "$Label data bind resolution returned invalid Docker JSON."
   }
+  Assert-RollbackEvidenceJsonObject -Value $config -Message "$Label data bind resolution must be a JSON object."
+  $servicesProperty = Get-RollbackEvidenceProperty -Object $config -Name 'services' -Context "$Label Compose config"
+  Assert-RollbackEvidenceJsonObject -Value $servicesProperty.Value -Message "$Label Compose services must be an object."
+  $backendProperty = Get-RollbackEvidenceProperty -Object $servicesProperty.Value -Name 'backend' -Context "$Label Compose services"
+  Assert-RollbackEvidenceJsonObject -Value $backendProperty.Value -Message "$Label Compose backend must be an object."
+  $volumesProperty = Get-RollbackEvidenceProperty -Object $backendProperty.Value -Name 'volumes' -Context "$Label Compose backend"
+  if ($volumesProperty.Value -isnot [System.Collections.IList]) {
+    throw "$Label Compose backend volumes must be an array."
+  }
+  $validatedMounts = @($volumesProperty.Value | ForEach-Object {
+    Assert-RollbackEvidenceJsonObject -Value $_ -Message "$Label Compose volume entries must be objects."
+    $typeProperty = Get-RollbackEvidenceProperty -Object $_ -Name 'type' -Context "$Label Compose volume"
+    $sourceProperty = Get-RollbackEvidenceProperty -Object $_ -Name 'source' -Context "$Label Compose volume"
+    $targetProperty = Get-RollbackEvidenceProperty -Object $_ -Name 'target' -Context "$Label Compose volume"
+    if ($typeProperty.Value -isnot [string] -or
+        $sourceProperty.Value -isnot [string] -or
+        [string]::IsNullOrWhiteSpace($sourceProperty.Value) -or
+        $targetProperty.Value -isnot [string]) {
+      throw "$Label Compose volume fields have invalid JSON types."
+    }
+    $readOnly = $false
+    $readOnlyProperty = $_.PSObject.Properties['read_only']
+    if ($null -ne $readOnlyProperty) {
+      if ($readOnlyProperty.Value -isnot [bool]) {
+        throw "$Label Compose volume read_only must be a Boolean."
+      }
+      $readOnly = $readOnlyProperty.Value
+    }
+    [pscustomobject][ordered]@{
+      type = $typeProperty.Value
+      source = $sourceProperty.Value
+      target = $targetProperty.Value
+      read_only = $readOnly
+    }
+  })
+  $dataMounts = @($validatedMounts | Where-Object {
+    Test-ContainerPathEqual -Expected $_.target -Actual '/app/data'
+  })
   if ($dataMounts.Count -ne 1) {
     throw "$Label must resolve exactly one mount at /app/data."
   }
   $dataMount = $dataMounts[0]
-  if ($dataMount.type -ne 'bind' -or [string]::IsNullOrWhiteSpace([string]$dataMount.source)) {
+  if ($dataMount.type -cne 'bind') {
     throw "$Label /app/data mount must resolve to a bind source."
   }
-  $readOnlyProperty = $dataMount.PSObject.Properties['read_only']
-  if ($null -ne $readOnlyProperty -and $readOnlyProperty.Value -eq $true) {
+  if ($dataMount.read_only -eq $true) {
     throw "$Label /app/data bind must be read-write."
   }
-  $composeDataDirectory = Assert-RealDirectory -Path ([string]$dataMount.source)
+  $composeDataDirectory = Assert-RealDirectory -Path $dataMount.source
   Assert-SamePath -Expected $ExpectedDataDirectory -Actual $composeDataDirectory -Label "$Label data bind"
 }
 
@@ -546,51 +677,15 @@ $dataBindSourceAuthority = Open-RollbackFileAuthority -Path $dataBindSourcePath 
 $imageArchiveAuthority = Open-RollbackFileAuthority -Path $imageArchivePath -Label 'Archived Docker images'
 $summaryAuthority = Open-RollbackFileAuthority -Path $summaryPath -Label 'Rollback drill evidence'
 
-$metadata = Read-RollbackFileAuthorityUtf8 -Authority $metadataAuthority | ConvertFrom-Json
-if ($null -eq $metadata.PSObject.Properties['schema'] -or
-    $metadata.schema -isnot [string] -or
-    $metadata.schema -cne 'localminidrama.release-rollback-checkpoint.v5') {
-  throw 'Rollback checkpoint schema is invalid.'
-}
-if ($null -eq $metadata.PSObject.Properties['runtime_config_sanitized'] -or
-    $metadata.runtime_config_sanitized -isnot [bool] -or
-    $metadata.runtime_config_sanitized -ne $true) {
-  throw 'Rollback checkpoint runtime config is not declared sanitized.'
-}
-if ($null -eq $metadata.PSObject.Properties['runtime_config_credentials_excluded'] -or
-    $metadata.runtime_config_credentials_excluded -isnot [bool] -or
-    $metadata.runtime_config_credentials_excluded -ne $true) {
-  throw 'Rollback checkpoint does not prove that runtime config credentials were excluded.'
-}
-if ($null -eq $metadata.PSObject.Properties['credential_reconfiguration_required'] -or
-    $metadata.credential_reconfiguration_required -isnot [bool] -or
-    $metadata.credential_reconfiguration_required -ne $true) {
-  throw 'Rollback checkpoint does not require Provider credential reconfiguration.'
-}
-if ($metadata.previous_commit -isnot [string] -or $metadata.previous_commit -cnotmatch '^[a-f0-9]{40}$') { throw 'Rollback checkpoint commit is invalid.' }
-if ($metadata.data_bind_type -ne 'bind' -or
-    -not (Test-ContainerPathEqual -Expected ([string]$metadata.data_bind_destination) -Actual '/app/data') -or
-    $metadata.data_bind_read_write -isnot [bool] -or
-    $metadata.data_bind_read_write -ne $true -or
-    $metadata.data_bind_source_file -ne 'data-bind-source.txt' -or
-    [string]::IsNullOrWhiteSpace([string]$metadata.data_bind_source)) {
-  throw 'Rollback checkpoint data bind evidence is invalid.'
-}
-if ($metadata.backend.image_id -notmatch '^sha256:[a-f0-9]{64}$' -or $metadata.frontend.image_id -notmatch '^sha256:[a-f0-9]{64}$') {
-  throw 'Rollback checkpoint image IDs are invalid.'
-}
-if ($metadata.backend.revision -ne $metadata.previous_commit -or $metadata.frontend.revision -ne $metadata.previous_commit) {
-  throw 'Rollback checkpoint image revisions do not match the recorded commit.'
-}
+$metadata = Read-StrictRollbackJson -Authority $metadataAuthority -Label 'Rollback checkpoint metadata'
+Assert-RollbackCheckpointMetadata -Metadata $metadata
 $rollbackTag = "rollback-checkpoint-$($metadata.previous_commit.Substring(0, 12))"
 $expectedBackendRef = "localminidrama-backend:$rollbackTag"
 $expectedFrontendRef = "localminidrama-frontend:$rollbackTag"
-if ($metadata.backend.rollback_ref -ne $expectedBackendRef -or $metadata.frontend.rollback_ref -ne $expectedFrontendRef) {
-  throw 'Rollback checkpoint image references do not match the captured commit.'
-}
 
-$expectedBackupHash = (Read-RollbackFileAuthorityUtf8 -Authority $hashAuthority).Trim().ToLowerInvariant()
-if ($metadata.backup_sha256 -ne $expectedBackupHash) { throw 'Rollback backup hash records disagree.' }
+$expectedBackupHash = (Read-RollbackFileAuthorityUtf8 -Authority $hashAuthority).Trim()
+if ($expectedBackupHash -cnotmatch '^[a-f0-9]{64}$') { throw 'Rollback backup hash record is invalid.' }
+if ($metadata.backup_sha256 -cne $expectedBackupHash) { throw 'Rollback backup hash records disagree.' }
 Assert-RollbackFileAuthorityHash -Authority $composeAuthority -Expected $metadata.compose_sha256 -Label 'Archived Compose file' | Out-Null
 Assert-RollbackFileAuthorityHash -Authority $configAuthority -Expected $metadata.runtime_config_sha256 -Label 'Archived runtime config' | Out-Null
 Assert-RollbackFileAuthorityHash -Authority $dataBindSourceAuthority -Expected $metadata.data_bind_source_sha256 -Label 'Archived data bind source' | Out-Null
@@ -605,14 +700,17 @@ if ([string]::IsNullOrWhiteSpace($recordedDataBindSource) -or
   throw 'Archived data bind source must contain exactly one path.'
 }
 $recordedDataBindSource = Assert-RealDirectory -Path $recordedDataBindSource -Label 'Rollback checkpoint data bind source'
-Assert-SamePath -Expected ([string]$metadata.data_bind_source) -Actual $recordedDataBindSource -Label 'Rollback checkpoint data bind source record'
+if ($metadata.data_bind_source -cne $recordedDataBindSource) {
+  throw 'Rollback checkpoint data bind source record does not match exactly.'
+}
+Assert-SamePath -Expected $metadata.data_bind_source -Actual $recordedDataBindSource -Label 'Rollback checkpoint data bind source record'
 Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $recordedDataBindSource
 
-$summary = Read-RollbackFileAuthorityUtf8 -Authority $summaryAuthority | ConvertFrom-Json
+$summary = Read-StrictRollbackJson -Authority $summaryAuthority -Label 'Rollback drill evidence'
 $currentComposePrefix = [string[]]@('compose', '--project-directory', $repoRoot)
 $currentBackend = Get-RunningServiceEvidence -Service 'backend' -ComposePrefix $currentComposePrefix
 $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix $currentComposePrefix
-  if ($currentBackend.revision -ne $currentFrontend.revision) {
+  if ($currentBackend.revision -cne $currentFrontend.revision) {
     throw 'Current backend and frontend image revisions do not match; rollback compensation would be ambiguous.'
   }
   $forwardDataDirectory = Get-ContainerBindSource -ContainerId $currentBackend.container_id -Destination '/app/data' -RequireReadWrite
@@ -648,14 +746,17 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
   Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before image load'
   Assert-RollbackFileAuthority -Authority $imageArchiveAuthority | Out-Null
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'load', '--input', $imageArchivePath) -Label 'Rollback image archive load' | Out-Null
-  $loadedBackendId = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $expectedBackendRef, '--format', '{{.Id}}') -Label 'Backend rollback image load verification').ToLowerInvariant()
-  $loadedFrontendId = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $expectedFrontendRef, '--format', '{{.Id}}') -Label 'Frontend rollback image load verification').ToLowerInvariant()
-  if ($loadedBackendId -ne $metadata.backend.image_id -or $loadedFrontendId -ne $metadata.frontend.image_id) {
+  $loadedBackendId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $expectedBackendRef, '--format', '{{.Id}}') -Label 'Backend rollback image load verification'
+  $loadedFrontendId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $expectedFrontendRef, '--format', '{{.Id}}') -Label 'Frontend rollback image load verification'
+  if ($loadedBackendId -cnotmatch '^sha256:[a-f0-9]{64}$' -or
+      $loadedFrontendId -cnotmatch '^sha256:[a-f0-9]{64}$' -or
+      $loadedBackendId -cne $metadata.backend.image_id -or
+      $loadedFrontendId -cne $metadata.frontend.image_id) {
     throw 'Loaded rollback image IDs do not match the checkpoint.'
   }
   $backendRevision = Get-ImageRevision -ImageReference $expectedBackendRef -Label 'Backend rollback image verification'
   $frontendRevision = Get-ImageRevision -ImageReference $expectedFrontendRef -Label 'Frontend rollback image verification'
-  if ($backendRevision -ne $metadata.previous_commit -or $frontendRevision -ne $metadata.previous_commit) {
+  if ($backendRevision -cne $metadata.previous_commit -or $frontendRevision -cne $metadata.previous_commit) {
     throw 'Rollback image labels do not match the checkpoint commit.'
   }
 

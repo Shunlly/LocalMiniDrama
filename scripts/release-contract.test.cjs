@@ -54,6 +54,7 @@ const checkpointScriptPath = path.join(root, 'scripts', 'create-release-rollback
 const rollbackRestoreScriptPath = path.join(root, 'scripts', 'restore-release-rollback-checkpoint.ps1')
 const rollbackIdentityScriptPath = path.join(root, 'scripts', 'rollback-path-identity.ps1')
 const rollbackPowerShellSupportScriptPath = path.join(root, 'scripts', 'rollback-powershell-support.ps1')
+const rollbackJsonContractPath = path.join(root, 'scripts', 'rollback-json-contract.cjs')
 const rollbackEvidencePlanPath = path.join(root, 'docs', 'superpowers', 'plans', '2026-07-20-rollback-evidence-binding.md')
 const quickstartPath = path.join(root, 'docs', 'quickstart.md')
 const rollbackTaskFourReportPath = path.join(root, '.superpowers', 'sdd', 'rollback-security-task-4-report.md')
@@ -114,6 +115,123 @@ assert.match(gitHead, /^[a-f0-9]{40,64}$/)
 function powerShellLiteral(value) {
   return `'${String(value).replaceAll("'", "''")}'`
 }
+
+test('rollback JSON contract rejects duplicate decoded keys at every object depth', () => {
+  const { parseJsonWithUniqueObjectKeys } = require(rollbackJsonContractPath)
+  const accepted = parseJsonWithUniqueObjectKeys(
+    '{"path":"D:\\\\短剧\\\\素材","message":"braces { } and quote \\\" stay data","nested":[{"Status":"ok"}]}',
+    { rejectCaseCollisions: true },
+  )
+  assert.equal(accepted.path, 'D:\\短剧\\素材')
+  assert.equal(accepted.nested[0].Status, 'ok')
+
+  const rejected = [
+    ['top-level duplicate', '{"status":1,"status":2}'],
+    ['nested duplicate', '{"outer":{"status":1,"status":2}}'],
+    ['array nested duplicate', '[{"status":1,"status":2}]'],
+    ['pretty-printed duplicate', '{\n  "status": 1,\n  "status": 2\n}\n'],
+    ['escaped-equivalent duplicate', '{"status":1,"\\u0073tatus":2}'],
+    ['case collision lower-first', '{"status":1,"Status":2}'],
+    ['case collision upper-first', '{"Status":1,"status":2}'],
+  ]
+  for (const [label, source] of rejected) {
+    assert.throws(
+      () => parseJsonWithUniqueObjectKeys(source, { rejectCaseCollisions: true }),
+      /duplicate|collision/i,
+      label,
+    )
+  }
+
+  assert.deepEqual(
+    parseJsonWithUniqueObjectKeys('{"status":1,"Status":2}', { rejectCaseCollisions: false }),
+    { status: 1, Status: 2 },
+  )
+  assert.deepEqual(
+    parseJsonWithUniqueObjectKeys('{"i":1,"ı":2,"s":3,"ſ":4}', { rejectCaseCollisions: true }),
+    { i: 1, ı: 2, s: 3, ſ: 4 },
+  )
+  assert.throws(
+    () => parseJsonWithUniqueObjectKeys('{"é":1,"É":2}', { rejectCaseCollisions: true }),
+    /collision/i,
+  )
+})
+
+test('rollback JSON contract CLI is silent on success and bounds rejection diagnostics', (t) => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-json-contract-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const validPath = path.join(fixtureRoot, 'valid.json')
+  const duplicatePath = path.join(fixtureRoot, 'duplicate.json')
+  fs.writeFileSync(validPath, '{"路径":"D:\\\\短剧\\\\素材"}\n')
+  fs.writeFileSync(duplicatePath, `{"status":1,"status":2,"padding":"${'x'.repeat(8192)}"}\n`)
+
+  const valid = spawnSync(process.execPath, [rollbackJsonContractPath, '--check', validPath], {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  assert.equal(valid.status, 0, valid.stderr || valid.stdout)
+  assert.equal(valid.stdout, '')
+  assert.equal(valid.stderr, '')
+
+  const duplicate = spawnSync(process.execPath, [rollbackJsonContractPath, '--check', duplicatePath], {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  assert.notEqual(duplicate.status, 0)
+  assert.equal(duplicate.stdout, '')
+  assert.match(duplicate.stderr, /duplicate/i)
+  assert.ok(Buffer.byteLength(duplicate.stderr, 'utf8') <= 4096)
+})
+
+test('strict rollback JSON authority preserves non-ASCII paths on every Windows PowerShell host', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Retained rollback JSON authority requires Windows')
+    return
+  }
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-json-中文-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const dataPath = path.join(fixtureRoot, '短剧素材')
+  const jsonPath = path.join(fixtureRoot, '回滚元数据.json')
+  const probePath = path.join(fixtureRoot, 'probe.ps1')
+  fs.mkdirSync(dataPath)
+  fs.writeFileSync(jsonPath, JSON.stringify({ path: dataPath }) + '\n')
+  fs.writeFileSync(probePath, `
+$ErrorActionPreference = 'Stop'
+. ${powerShellLiteral(rollbackIdentityScriptPath)}
+. ${powerShellLiteral(rollbackPowerShellSupportScriptPath)}
+$authority = $null
+try {
+  $authority = Open-RollbackFileAuthority -Path $env:LMD_JSON_PATH -Label 'Non-ASCII rollback JSON'
+  $value = Read-StrictRollbackJson -Authority $authority -Label 'Non-ASCII rollback JSON'
+  if ($value.path -isnot [string] -or $value.path -cne $env:LMD_EXPECTED_PATH) {
+    throw 'Strict rollback JSON did not preserve the exact non-ASCII path.'
+  }
+} finally {
+  if ($null -ne $authority) { $authority.Stream.Dispose() }
+}
+`, 'ascii')
+
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, () => {
+      const result = spawnSync(host.executable, [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probePath,
+      ], {
+        cwd: root,
+        encoding: 'utf8',
+        windowsHide: true,
+        env: {
+          ...process.env,
+          LMD_EXPECTED_PATH: dataPath,
+          LMD_JSON_PATH: jsonPath,
+          LMD_NODE_EXE: process.execPath,
+        },
+      })
+      assert.equal(result.status, 0, result.stderr || result.stdout)
+      assert.equal(result.stdout, '')
+    })
+  }
+})
 
 function findPowerShell(command) {
   const result = spawnSync('where.exe', [command], {
@@ -1570,6 +1688,112 @@ Assert-ResultRejected -Lines @('LOCALMINIDRAMA_ROLLBACK_RESULT_V1=' + ('A' * 104
   }
 })
 
+test('checkpoint Docker JSON validators reject coercive ancillary fields on every Windows PowerShell host', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('PowerShell checkpoint Docker JSON contracts require Windows')
+    return
+  }
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-checkpoint-docker-json-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const dataRoot = path.join(fixtureRoot, 'data')
+  fs.mkdirSync(dataRoot)
+  const revision = 'c'.repeat(40)
+  const mount = { Type: 'bind', Source: dataRoot, Destination: '/app/data', RW: true }
+  const composeVolume = { type: 'bind', source: dataRoot, target: '/app/data', read_only: false }
+  const invalidValues = [
+    ['array', ['unexpected']],
+    ['number', 7],
+    ['object', { unexpected: true }],
+    ['null', null],
+  ]
+  const cases = []
+  for (const field of ['Type', 'Source', 'Destination', 'RW']) {
+    for (const [valueLabel, value] of invalidValues) {
+      cases.push(['mount-' + field + '-' + valueLabel, 'mount', JSON.stringify([{ ...mount, [field]: value }])])
+    }
+  }
+  cases.push(['mount-Type-case', 'mount', JSON.stringify([{ ...mount, Type: 'BIND' }])])
+  cases.push(['mount-Destination-case', 'mount', JSON.stringify([{ ...mount, Destination: '/APP/DATA' }])])
+  cases.push(['mount-RW-string', 'mount', JSON.stringify([{ ...mount, RW: 'TRUE' }])])
+
+  for (const field of ['type', 'source', 'target', 'read_only']) {
+    for (const [valueLabel, value] of invalidValues) {
+      cases.push([
+        'compose-' + field + '-' + valueLabel,
+        'compose',
+        JSON.stringify({ services: { backend: { volumes: [{ ...composeVolume, [field]: value }] } } }),
+      ])
+    }
+  }
+  cases.push(['compose-type-case', 'compose', JSON.stringify({
+    services: { backend: { volumes: [{ ...composeVolume, type: 'BIND' }] } },
+  })])
+  cases.push(['compose-target-case', 'compose', JSON.stringify({
+    services: { backend: { volumes: [{ ...composeVolume, target: '/APP/DATA' }] } },
+  })])
+  cases.push(['compose-read-only-string', 'compose', JSON.stringify({
+    services: { backend: { volumes: [{ ...composeVolume, read_only: 'FALSE' }] } },
+  })])
+
+  for (const [valueLabel, value] of invalidValues) {
+    cases.push([
+      'image-revision-' + valueLabel,
+      'image',
+      JSON.stringify({ 'org.opencontainers.image.revision': value }),
+    ])
+  }
+  cases.push(['image-revision-case', 'image', JSON.stringify({
+    'org.opencontainers.image.revision': revision.toUpperCase(),
+  })])
+
+  const caseStatements = cases.map(([label, kind, json]) =>
+    `Assert-JsonRejected -Kind ${powerShellLiteral(kind)} -Json ${powerShellLiteral(json)} -Label ${powerShellLiteral(label)}`,
+  ).join('\n')
+  const statements = `
+. ${powerShellLiteral(checkpointScriptPath)}
+$script:InjectedJson = ''
+function Get-CheckedScalar {
+  param([string]$FilePath, [string[]]$ArgumentList, [string]$Label)
+  return $script:InjectedJson
+}
+function Assert-JsonRejected {
+  param([string]$Kind, [string]$Json, [string]$Label)
+  $script:InjectedJson = $Json
+  $threw = $false
+  try {
+    if ($Kind -ceq 'mount') {
+      Get-ContainerBindSource -ContainerId ('b' * 64) -Destination '/app/data' -RequireReadWrite | Out-Null
+    } elseif ($Kind -ceq 'compose') {
+      Assert-ComposeDataSource -ExpectedDataDirectory ${powerShellLiteral(dataRoot)}
+    } elseif ($Kind -ceq 'image') {
+      Get-ImageRevision -ImageReference ('sha256:' + ('1' * 64)) -Label 'Injected image revision' | Out-Null
+    } else {
+      throw 'Unknown injected JSON kind.'
+    }
+  } catch {
+    $threw = $true
+  }
+  if (-not $threw) { throw ('Coercive checkpoint Docker JSON was accepted: ' + $Label) }
+}
+$script:InjectedJson = ${powerShellLiteral(JSON.stringify([mount]))}
+if ((Get-ContainerBindSource -ContainerId ('b' * 64) -Destination '/app/data' -RequireReadWrite) -cne ${powerShellLiteral(dataRoot)}) {
+  throw 'Valid checkpoint mount JSON changed the source path.'
+}
+$script:InjectedJson = ${powerShellLiteral(JSON.stringify({ services: { backend: { volumes: [composeVolume] } } }))}
+Assert-ComposeDataSource -ExpectedDataDirectory ${powerShellLiteral(dataRoot)}
+$script:InjectedJson = ${powerShellLiteral(JSON.stringify({ 'org.opencontainers.image.revision': revision }))}
+if ((Get-ImageRevision -ImageReference ('sha256:' + ('1' * 64)) -Label 'Valid image revision') -cne ${powerShellLiteral(revision)}) {
+  throw 'Valid checkpoint image revision changed.'
+}
+${caseStatements}
+`
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, () => {
+      assertPowerShellStatements(statements, { executable: host.executable })
+    })
+  }
+})
+
 test('checkpoint summary is created and retained through one read-write authority', (t) => {
   if (process.platform !== 'win32') {
     t.skip('PowerShell checkpoint authority contracts require Windows')
@@ -1626,7 +1850,7 @@ test('checkpoint byte authority rejects existing targets and exposes no move-to-
     return
   }
   const helperStart = checkpointScript.indexOf('function New-RollbackFileAuthorityFromBytes')
-  const helperEnd = checkpointScript.indexOf('\nfunction ConvertFrom-CanonicalRollbackBase64Url', helperStart)
+  const helperEnd = checkpointScript.indexOf('\nfunction ConvertFrom-StrictRollbackJsonBytes', helperStart)
   assert.ok(helperStart >= 0 && helperEnd > helperStart, 'checkpoint byte-authority helper is missing')
   const helperSource = checkpointScript.slice(helperStart, helperEnd)
   assert.match(helperSource, /\[System\.IO\.FileMode\]::CreateNew/)
@@ -2923,7 +3147,11 @@ test('release rollback checkpoint and restore consume shared native-lock v5 inte
   assert.doesNotMatch(checkpointScript, /Publish-BytesAtomically -Path \$summaryArchive/)
   assert.doesNotMatch(checkpointScript, /Open-RollbackFileAuthority -Path \$summaryArchive -Label 'Rollback checkpoint drill summary'/)
   assert.match(checkpointScript, /Get-RollbackFileAuthoritySha256 -Authority \$summaryAuthority/)
-  assert.doesNotMatch(checkpointScript, /\[System\.IO\.File\]::Move|File\.Move|\$temporaryPath/)
+  const byteAuthorityStart = checkpointScript.indexOf('function New-RollbackFileAuthorityFromBytes')
+  const byteAuthorityEnd = checkpointScript.indexOf('\nfunction ConvertFrom-StrictRollbackJsonBytes', byteAuthorityStart)
+  assert.ok(byteAuthorityStart >= 0 && byteAuthorityEnd > byteAuthorityStart)
+  const byteAuthoritySource = checkpointScript.slice(byteAuthorityStart, byteAuthorityEnd)
+  assert.doesNotMatch(byteAuthoritySource, /\[System\.IO\.File\]::Move|File\.Move|\$temporaryPath/)
   const drillInvocation = checkpointScript.indexOf('$drillInvocation = Invoke-NativeCommandWithTimeout')
   const nodeValidation = checkpointScript.indexOf('$validatorInvocation = Invoke-NativeCommandWithTimeout')
   const powerShellParsing = checkpointScript.indexOf('ConvertFrom-RollbackResultOutput -Bytes $drillInvocation.StandardOutputBytes')
@@ -4127,15 +4355,34 @@ if (tool === 'npm') {
       },
     }
     if (process.env.LMD_MARKER_MODE === 'extra-evidence') summary.unexpected = true
-    const evidenceBytes = Buffer.from(JSON.stringify(summary, null, 2) + '\\n', 'utf8')
+    let evidenceText = JSON.stringify(summary, null, 2) + '\\n'
+    if (process.env.LMD_MARKER_MODE === 'duplicate-evidence-status') {
+      evidenceText = evidenceText.replace('"status": "passed"', '"status": "passed",\\n  "status": "passed"')
+    }
+    if (process.env.LMD_MARKER_MODE === 'case-colliding-evidence-status') {
+      evidenceText = evidenceText.replace('"status": "passed"', '"status": "passed",\\n  "Status": "passed"')
+    }
+    record('marker_payload', {
+      mode: process.env.LMD_MARKER_MODE,
+      lowercaseStatusKeys: (evidenceText.match(/"status"\\s*:/g) || []).length,
+      uppercaseStatusKeys: (evidenceText.match(/"Status"\\s*:/g) || []).length,
+    })
+    const evidenceBytes = Buffer.from(evidenceText, 'utf8')
     const envelope = {
       schema: 'localminidrama.rollback-result.v1',
       evidence_utf8_base64url: evidenceBytes.toString('base64url'),
       evidence_sha256: crypto.createHash('sha256').update(evidenceBytes).digest('hex'),
       diagnostic_relative_path: 'artifacts/rollback-drill/summary-v3-' + commit + '-' + '1'.repeat(32) + '.json',
     }
+    let envelopeText = JSON.stringify(envelope)
+    if (process.env.LMD_MARKER_MODE === 'duplicate-envelope-digest') {
+      envelopeText = envelopeText.replace(
+        '"evidence_sha256":"' + envelope.evidence_sha256 + '"',
+        '"evidence_sha256":"' + envelope.evidence_sha256 + '","evidence_sha256":"' + envelope.evidence_sha256 + '"',
+      )
+    }
     const markerPrefix = 'LOCALMINIDRAMA_ROLLBACK_RESULT_V1='
-    const marker = markerPrefix + Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url')
+    const marker = markerPrefix + Buffer.from(envelopeText, 'utf8').toString('base64url')
     fs.writeFileSync(summaryPath, '{"schema":"malicious-repo-diagnostic","status":"passed"}\\n')
     if (process.env.LMD_PRECREATE_METADATA === 'true') {
       fs.writeFileSync(path.join(path.dirname(archivePath), 'metadata.json'), '{"schema":"untrusted"}\\n')
@@ -4500,7 +4747,17 @@ try {
 
   assertNamespacesMovable(checkpointPath)
 
-  for (const markerMode of ['missing', 'duplicate', 'malformed', 'oversized', 'stderr-only', 'extra-evidence']) {
+  for (const markerMode of [
+    'missing',
+    'duplicate',
+    'malformed',
+    'oversized',
+    'stderr-only',
+    'extra-evidence',
+    'duplicate-envelope-digest',
+    'duplicate-evidence-status',
+    'case-colliding-evidence-status',
+  ]) {
     const markerFailureStart = readEvents().length
     const markerFailurePath = path.join(fixtureRoot, `${host.name}-${markerMode}-marker-checkpoint`)
     const markerFailure = runCheckpoint(
@@ -4512,10 +4769,19 @@ try {
       false,
       markerMode,
     )
-    assert.notEqual(markerFailure.status, 0, `${markerMode} marker must fail checkpoint creation`)
+    const markerFailureRecords = readEvents().slice(markerFailureStart)
+    const markerPayload = markerFailureRecords.find((entry) => entry.event === 'marker_payload')
+    if (markerMode === 'duplicate-evidence-status') {
+      assert.equal(markerPayload.lowercaseStatusKeys, 2, 'duplicate evidence fixture did not contain two status keys')
+    }
+    if (markerMode === 'case-colliding-evidence-status') {
+      assert.equal(markerPayload.lowercaseStatusKeys, 1, 'case-collision fixture lost lowercase status')
+      assert.equal(markerPayload.uppercaseStatusKeys, 1, 'case-collision fixture lost uppercase Status')
+    }
+    assert.notEqual(markerFailure.status, 0, markerMode + ' marker must fail checkpoint creation')
     assert.equal(fs.existsSync(path.join(markerFailurePath, 'metadata.json')), false)
     assert.equal(fs.existsSync(path.join(markerFailurePath, 'rollback-drill-summary.json')), false)
-    const markerFailureEvents = readEvents().slice(markerFailureStart).map((entry) => entry.event)
+    const markerFailureEvents = markerFailureRecords.map((entry) => entry.event)
     assert.notEqual(markerFailureEvents.indexOf('drill'), -1)
     assert.notEqual(markerFailureEvents.indexOf('node_validator'), -1)
     assert.equal(markerFailureEvents.indexOf('validator'), -1)
@@ -4792,6 +5058,11 @@ const record = (event, extra = {}) => fs.appendFileSync(process.env.LMD_EVENT_LO
 const fail = (message) => { process.stderr.write(message + '\\n'); process.exit(63) }
 const valueAfter = (name) => args[args.indexOf(name) + 1]
 const mode = process.env.LMD_FAKE_MODE
+const typedField = process.env.LMD_FAKE_TYPED_FIELD || ''
+const typedEnvelope = process.env.LMD_FAKE_TYPED_VALUE_BASE64
+  ? JSON.parse(Buffer.from(process.env.LMD_FAKE_TYPED_VALUE_BASE64, 'base64').toString('utf8'))
+  : null
+const typedValue = (field, fallback) => typedField === field ? typedEnvelope.value : fallback
 const checkpointPath = process.env.LMD_CHECKPOINT_PATH
 const expectedFiles = JSON.parse(process.env.LMD_EXPECTED_CHECKPOINT_FILES)
 const wrongExpectedBytes = (relativePath) => Buffer.concat([
@@ -4832,7 +5103,12 @@ if (tool === 'docker') {
     const composeSource = mode === 'compose-data-source-mismatch' ? process.env.LMD_ALT_DATA_ROOT : process.env.LMD_DATA_ROOT
     const composeType = mode === 'compose-data-type-invalid' ? 'volume' : 'bind'
     const composeReadOnly = mode === 'compose-data-read-only'
-    process.stdout.write(JSON.stringify({ services: { backend: { volumes: [{ type: composeType, source: composeSource, target: '/app/data', read_only: composeReadOnly }] } } }) + '\\n')
+    process.stdout.write(JSON.stringify({ services: { backend: { volumes: [{
+      type: typedValue('compose.type', composeType),
+      source: typedValue('compose.source', composeSource),
+      target: typedValue('compose.target', '/app/data'),
+      read_only: typedValue('compose.read_only', composeReadOnly),
+    }] } } }) + '\\n')
   } else if (args[0] === 'inspect') {
     const format = valueAfter('--format')
     const containerId = args[1]
@@ -4842,7 +5118,12 @@ if (tool === 'docker') {
       const dataReadWrite = mode !== 'inspect-data-read-only'
       const dataDestination = mode === 'inspect-data-destination-invalid' ? '/app/other' : '/app/data'
       const dataMounts = [
-        { Type: dataType, Source: dataSource, Destination: dataDestination, RW: dataReadWrite },
+        {
+          Type: typedValue('inspect.Type', dataType),
+          Source: typedValue('inspect.Source', dataSource),
+          Destination: typedValue('inspect.Destination', dataDestination),
+          RW: typedValue('inspect.RW', dataReadWrite),
+        },
         { Type: 'bind', Source: process.env.LMD_CONFIG_ROOT, Destination: '/app/config-source', RW: false },
       ]
       if (mode === 'inspect-data-duplicate') dataMounts.push({ Type: 'bind', Source: dataSource, Destination: '/app/data', RW: true })
@@ -4871,7 +5152,9 @@ if (tool === 'docker') {
       if (mode === 'loaded-frontend-image-revision-mismatch' && target.includes('frontend')) revision = '9'.repeat(40)
       if (mode === 'current-image-revision-invalid' && target === process.env.LMD_CURRENT_BACKEND_IMAGE) revision = 'invalid'
       if (mode === 'current-image-revision-mismatch' && target === process.env.LMD_CURRENT_FRONTEND_IMAGE) revision = '8'.repeat(40)
-      process.stdout.write(JSON.stringify({ 'org.opencontainers.image.revision': revision }) + '\\n')
+      process.stdout.write(JSON.stringify({
+        'org.opencontainers.image.revision': typedValue('image.revision', revision),
+      }) + '\\n')
     }
   }
   process.exit(0)
@@ -5260,7 +5543,10 @@ try {
       operations: { source_data_root_unchanged: true },
     }
     if (options.mutateSummary) options.mutateSummary(summary)
-    const summaryBytes = Buffer.from(JSON.stringify(summary) + '\n')
+    let summaryBytes = Buffer.from(JSON.stringify(summary) + '\n')
+    if (options.mutateSummaryBytes) {
+      summaryBytes = Buffer.from(options.mutateSummaryBytes(summaryBytes.toString('utf8'), summary))
+    }
     fs.writeFileSync(path.join(checkpointPath, 'rollback-drill-summary.json'), summaryBytes)
     const rollbackTag = `rollback-checkpoint-${commit.slice(0, 12)}`
     const metadata = {
@@ -5289,7 +5575,11 @@ try {
     if (options.mutateMetadata) {
       options.mutateMetadata(metadata, { alternateDataRoot, archiveHash, checkpointPath, dataRoot })
     }
-    fs.writeFileSync(path.join(checkpointPath, 'metadata.json'), JSON.stringify(metadata) + '\n')
+    let metadataBytes = Buffer.from(JSON.stringify(metadata) + '\n')
+    if (options.mutateMetadataBytes) {
+      metadataBytes = Buffer.from(options.mutateMetadataBytes(metadataBytes.toString('utf8'), metadata))
+    }
+    fs.writeFileSync(path.join(checkpointPath, 'metadata.json'), metadataBytes)
     let replacementIdentity = null
     if (options.replaceDataRootAfterMetadata) {
       fs.renameSync(dataRoot, `${dataRoot}-original`)
@@ -5338,6 +5628,10 @@ try {
         LMD_EXPECTED_BIND_SOURCE_BASE64: fixture.fixedBytes['data-bind-source.txt'],
         LMD_EVENT_LOG: fixture.eventLog,
         LMD_FAKE_MODE: options.fakeMode || '',
+        LMD_FAKE_TYPED_FIELD: options.fakeTypedField || '',
+        LMD_FAKE_TYPED_VALUE_BASE64: options.fakeTypedField
+          ? Buffer.from(JSON.stringify({ value: options.fakeTypedValue })).toString('base64')
+          : '',
         LMD_FAIL_AFTER_RECOVERY_UP: String(Boolean(options.failAfterRecoveryUp)),
         LMD_FORWARD_COMMIT: forwardCommit,
         LMD_FRONTEND_IMAGE: frontendImageId,
@@ -6038,6 +6332,99 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     ['metadata-identity-mismatch', { identityMismatch: true }],
     ['same-path-native-root-replacement', { replaceDataRootAfterMetadata: true }],
   ]
+  const ambiguousJsonScenarios = [
+    ['metadata-duplicate-backup-hash', {
+      mutateMetadataBytes: (text, metadata) => text.replace(
+        `"backup_sha256":"${metadata.backup_sha256}"`,
+        `"backup_sha256":"${metadata.backup_sha256}","backup_sha256":"${metadata.backup_sha256}"`,
+      ),
+    }],
+    ['summary-duplicate-status', {
+      mutateSummaryBytes: (text) => text.replace('"status":"passed"', '"status":"passed","status":"passed"'),
+    }],
+    ['summary-nested-duplicate-status', {
+      mutateSummaryBytes: (text) => text.replace(
+        '"source":{',
+        '"source":{"status":"passed","status":"passed",',
+      ),
+    }],
+    ['summary-status-case-collision-lower-first', {
+      mutateSummaryBytes: (text) => text.replace('"status":"passed"', '"status":"passed","Status":"passed"'),
+    }],
+    ['summary-status-case-collision-upper-first', {
+      mutateSummaryBytes: (text) => text.replace('"status":"passed"', '"Status":"passed","status":"passed"'),
+    }],
+  ]
+  const invalidJsonScalarValues = [
+    ['array', ['unexpected']],
+    ['number', 7],
+    ['object', { unexpected: true }],
+    ['null', null],
+  ]
+  const metadataTypedScenarios = []
+  const metadataScalarContracts = [
+    ['data-bind-type', (metadata, context, value) => { metadata.data_bind_type = value }, () => 'BIND'],
+    ['data-bind-destination', (metadata, context, value) => { metadata.data_bind_destination = value }, () => '/APP/DATA'],
+    ['data-bind-source-file', (metadata, context, value) => { metadata.data_bind_source_file = value }, () => 'DATA-BIND-SOURCE.TXT'],
+    ['data-bind-source', (metadata, context, value) => { metadata.data_bind_source = value }, (metadata, context) => context.dataRoot.toUpperCase()],
+    ['data-bind-read-write', (metadata, context, value) => { metadata.data_bind_read_write = value }, () => 'TRUE'],
+    ['backend-image-id', (metadata, context, value) => { metadata.backend.image_id = value }, (metadata) => metadata.backend.image_id.toUpperCase()],
+    ['backend-revision', (metadata, context, value) => { metadata.backend.revision = value }, (metadata) => metadata.backend.revision.toUpperCase()],
+    ['backend-rollback-ref', (metadata, context, value) => { metadata.backend.rollback_ref = value }, (metadata) => metadata.backend.rollback_ref.toUpperCase()],
+    ['frontend-image-id', (metadata, context, value) => { metadata.frontend.image_id = value }, (metadata) => metadata.frontend.image_id.toUpperCase()],
+    ['frontend-revision', (metadata, context, value) => { metadata.frontend.revision = value }, (metadata) => metadata.frontend.revision.toUpperCase()],
+    ['frontend-rollback-ref', (metadata, context, value) => { metadata.frontend.rollback_ref = value }, (metadata) => metadata.frontend.rollback_ref.toUpperCase()],
+  ]
+  for (const [fieldLabel, assign, caseVariant] of metadataScalarContracts) {
+    for (const [valueLabel, value] of invalidJsonScalarValues) {
+      metadataTypedScenarios.push([
+        'metadata-' + fieldLabel + '-' + valueLabel,
+        { mutateMetadata: (metadata, context) => assign(metadata, context, value) },
+      ])
+    }
+    metadataTypedScenarios.push([
+      'metadata-' + fieldLabel + '-case-variant',
+      { mutateMetadata: (metadata, context) => assign(metadata, context, caseVariant(metadata, context)) },
+    ])
+  }
+  for (const objectField of ['backend', 'frontend']) {
+    for (const [valueLabel, value] of [
+      ...invalidJsonScalarValues,
+      ['string', 'unexpected'],
+    ]) {
+      metadataTypedScenarios.push([
+        'metadata-' + objectField + '-object-' + valueLabel,
+        { mutateMetadata: (metadata) => { metadata[objectField] = value } },
+      ])
+    }
+  }
+
+  const dockerTypedScenarios = []
+  const dockerScalarContracts = [
+    ['inspect-type', 'inspect.Type', 'BIND'],
+    ['inspect-source', 'inspect.Source', null],
+    ['inspect-destination', 'inspect.Destination', '/APP/DATA'],
+    ['inspect-read-write', 'inspect.RW', 'TRUE'],
+    ['compose-type', 'compose.type', 'BIND'],
+    ['compose-source', 'compose.source', null],
+    ['compose-target', 'compose.target', '/APP/DATA'],
+    ['compose-read-only', 'compose.read_only', 'FALSE'],
+    ['image-revision', 'image.revision', 'E'.repeat(40)],
+  ]
+  for (const [fieldLabel, fakeTypedField, caseVariant] of dockerScalarContracts) {
+    for (const [valueLabel, value] of invalidJsonScalarValues) {
+      dockerTypedScenarios.push([
+        'docker-' + fieldLabel + '-' + valueLabel,
+        { fakeTypedField, fakeTypedValue: value },
+      ])
+    }
+    if (caseVariant !== null) {
+      dockerTypedScenarios.push([
+        'docker-' + fieldLabel + '-case-variant',
+        { fakeTypedField, fakeTypedValue: caseVariant },
+      ])
+    }
+  }
   const preservedPreMutationScenarios = [
     ['metadata-backend-image-id-invalid', { mutateMetadata: (metadata) => { metadata.backend.image_id = 'not-an-image-id' } }],
     ['metadata-frontend-image-id-invalid', { mutateMetadata: (metadata) => { metadata.frontend.image_id = 'not-an-image-id' } }],
@@ -6102,7 +6489,13 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
 
   for (const host of hosts) {
     await t.test(host.name, () => {
-    for (const [name, options] of [...gateScenarios, ...preservedPreMutationScenarios]) {
+    for (const [name, options] of [
+      ...dockerTypedScenarios,
+      ...gateScenarios,
+      ...ambiguousJsonScenarios,
+      ...metadataTypedScenarios,
+      ...preservedPreMutationScenarios,
+    ]) {
       const run = runScenario(host, name, options)
       assertRestoreStoppedBeforeMutation(run, `${host.name}/${name}`)
     }
@@ -6129,6 +6522,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     assert.ok(successIndex('binding accepted') < successIndex('Push'))
     assert.ok(successIndex('Push') < successIndex('Rollback image archive load'))
     assert.ok(successIndex('Rollback image archive load') < successIndex('Current Docker shutdown'))
+
     assert.ok(successIndex('Current Docker shutdown') < successIndex('Pre-rollback compensation backup'))
     assert.ok(successIndex('Pre-rollback compensation backup') < successIndex('Rollback data restore'))
     assert.ok(successIndex('Rollback data restore') < successIndex('Rollback container startup'))
@@ -6377,11 +6771,18 @@ test('release rollback data bind source is captured, archived, and used for chec
     checkpointScript,
     /Get-ContainerBindSource -ContainerId \$backend\.container_id -Destination '\/app\/data' -RequireReadWrite/,
   )
-  assert.match(
-    checkpointScript,
-    /Test-ContainerPathEqual -Expected \(\[string\]\$_.Destination\) -Actual \$Destination[\s\S]*\.Count -ne 1[\s\S]*\.Type -ne 'bind'/,
-  )
-  assert.match(checkpointScript, /RequireReadWrite[\s\S]*\.RW/)
+  const mountValidationStart = checkpointScript.indexOf('function ConvertTo-CheckpointDockerMounts')
+  const mountValidationEnd = checkpointScript.indexOf('\nfunction Confirm-RollbackContainerBindAuthority', mountValidationStart)
+  assert.ok(mountValidationStart >= 0 && mountValidationEnd > mountValidationStart)
+  const mountValidation = checkpointScript.slice(mountValidationStart, mountValidationEnd)
+  assert.match(mountValidation, /Get-CheckpointEvidenceProperty[^\r\n]*-Name 'Destination'/)
+  assert.match(mountValidation, /\$destinationProperty\.Value -isnot \[string\]/)
+  assert.match(mountValidation, /\$readWriteProperty\.Value -isnot \[bool\]/)
+  assert.match(mountValidation, /Test-ContainerPathEqual -Expected \$_\.Destination -Actual \$Destination/)
+  assert.match(mountValidation, /\.Count -ne 1/)
+  assert.match(mountValidation, /\.Type -cne 'bind'/)
+  assert.match(mountValidation, /\$RequireReadWrite[\s\S]*\.RW -ne \$true/)
+  assert.doesNotMatch(mountValidation, /\(\[string\]\$_\.Destination\)/)
   assert.match(checkpointScript, /Assert-RealDirectory[\s\S]*\$runtimeDataDirectory/)
   assert.match(checkpointScript, /Assert-OutsideDirectory[\s\S]*\$runtimeDataDirectory[\s\S]*\$checkpoint/)
   assert.match(checkpointScript, /\$dataBindSourceArchive = Join-Path \$checkpoint 'data-bind-source\.txt'/)
@@ -6617,11 +7018,18 @@ test('rollback scripts revalidate physical boundaries before destructive data an
 
 test('release rollback verifies the resolved Compose data bind before every recovery startup', () => {
   for (const source of [checkpointScript, rollbackRestoreScript]) {
-    assert.match(source, /function Assert-ComposeDataSource[\s\S]*'config', '--format', 'json'/)
-    assert.match(
-      source,
-      /Test-ContainerPathEqual -Expected \(\[string\]\$_.target\) -Actual '\/app\/data'[\s\S]*\.Count -ne 1[\s\S]*\.type -ne 'bind'/,
-    )
+    const composeValidationStart = source.indexOf('function Assert-ComposeDataSource')
+    const composeValidationEnd = source.indexOf('\nfunction ', composeValidationStart + 1)
+    assert.ok(composeValidationStart >= 0 && composeValidationEnd > composeValidationStart)
+    const composeValidation = source.slice(composeValidationStart, composeValidationEnd)
+    assert.match(composeValidation, /'config', '--format', 'json'/)
+    assert.match(composeValidation, /Get-(?:Checkpoint|Rollback)EvidenceProperty[^\r\n]*-Name 'target'/)
+    assert.match(composeValidation, /\$targetProperty\.Value -isnot \[string\]/)
+    assert.match(composeValidation, /\$readOnlyProperty\.Value -isnot \[bool\]/)
+    assert.match(composeValidation, /Test-ContainerPathEqual -Expected \$_\.target -Actual '\/app\/data'/)
+    assert.match(composeValidation, /\.Count -ne 1/)
+    assert.match(composeValidation, /\.type -cne 'bind'/)
+    assert.doesNotMatch(composeValidation, /\(\[string\]\$_\.target\)/)
     assert.match(source, /Assert-ComposeDataSource[\s\S]*Assert-SamePath/)
   }
 
@@ -6685,16 +7093,30 @@ test('rollback checkpoints archive only sanitized runtime config and require cre
     'credential_reconfiguration_required',
   ]) {
     assert.match(checkpointScript, new RegExp(`${field}\\s*=\\s*\\$true`))
-    assert.match(rollbackRestoreScript, new RegExp(`\\$metadata\\.${field}`))
-    assert.match(
-      rollbackRestoreScript,
-      new RegExp(`\\$metadata\\.${field}\\s+-isnot\\s+\\[bool\\]`),
-    )
   }
+  const metadataValidationStart = rollbackRestoreScript.indexOf('function Assert-RollbackCheckpointMetadata')
+  const metadataValidationEnd = rollbackRestoreScript.indexOf(
+    '\nfunction Assert-RollbackEvidenceBinding',
+    metadataValidationStart,
+  )
+  assert.ok(
+    metadataValidationStart >= 0 && metadataValidationEnd > metadataValidationStart,
+    'rollback checkpoint metadata validator is missing',
+  )
+  const metadataValidation = rollbackRestoreScript.slice(metadataValidationStart, metadataValidationEnd)
+  for (const field of [
+    'runtime_config_sanitized',
+    'runtime_config_credentials_excluded',
+    'credential_reconfiguration_required',
+  ]) {
+    assert.match(metadataValidation, new RegExp(`['\"]${field}['\"]`))
+  }
+  assert.match(metadataValidation, /Get-RollbackEvidenceProperty/)
+  assert.match(metadataValidation, /Assert-RollbackEvidenceBoolean[\s\S]*-Expected \$true/)
   assert.match(rollbackRestoreScript, /configure[\s\S]*credentials[\s\S]*test again/i)
   const sanitization = checkpointScript.indexOf('Runtime config sanitization')
   const sanitizedConfigHash = checkpointScript.indexOf('$configHash =')
-  const restorePolicyValidation = rollbackRestoreScript.indexOf("Properties['runtime_config_sanitized']")
+  const restorePolicyValidation = rollbackRestoreScript.indexOf('Assert-RollbackCheckpointMetadata -Metadata $metadata')
   const rollbackImageLoad = rollbackRestoreScript.indexOf('Rollback image archive load')
   assert.ok(sanitization >= 0 && sanitization < sanitizedConfigHash)
   assert.ok(restorePolicyValidation >= 0 && restorePolicyValidation < rollbackImageLoad)

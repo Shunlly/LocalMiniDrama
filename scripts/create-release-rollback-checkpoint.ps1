@@ -657,6 +657,33 @@ function Assert-SamePath {
   }
 }
 
+function ConvertTo-CheckpointDockerMounts {
+  param(
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Mounts,
+    [Parameter(Mandatory = $true)][string]$Context
+  )
+  return @($Mounts | ForEach-Object {
+    Assert-CheckpointEvidenceJsonObject -Value $_ -Message "$Context entries must be objects."
+    $typeProperty = Get-CheckpointEvidenceProperty -Object $_ -Name 'Type' -Context "$Context entry"
+    $sourceProperty = Get-CheckpointEvidenceProperty -Object $_ -Name 'Source' -Context "$Context entry"
+    $destinationProperty = Get-CheckpointEvidenceProperty -Object $_ -Name 'Destination' -Context "$Context entry"
+    $readWriteProperty = Get-CheckpointEvidenceProperty -Object $_ -Name 'RW' -Context "$Context entry"
+    if ($typeProperty.Value -isnot [string] -or
+        $sourceProperty.Value -isnot [string] -or
+        [string]::IsNullOrWhiteSpace($sourceProperty.Value) -or
+        $destinationProperty.Value -isnot [string] -or
+        $readWriteProperty.Value -isnot [bool]) {
+      throw "$Context fields have invalid JSON types."
+    }
+    [pscustomobject][ordered]@{
+      Type = $typeProperty.Value
+      Source = $sourceProperty.Value
+      Destination = $destinationProperty.Value
+      RW = $readWriteProperty.Value
+    }
+  })
+}
+
 function Get-ContainerBindSource {
   param(
     [Parameter(Mandatory = $true)][string]$ContainerId,
@@ -669,18 +696,21 @@ function Get-ContainerBindSource {
   } catch {
     throw "${Destination} mount capture returned invalid Docker JSON."
   }
-  $destinationMounts = @($mounts | Where-Object { Test-ContainerPathEqual -Expected ([string]$_.Destination) -Actual $Destination })
+  $validatedMounts = ConvertTo-CheckpointDockerMounts -Mounts $mounts -Context "${Destination} mount capture"
+  $destinationMounts = @($validatedMounts | Where-Object {
+    Test-ContainerPathEqual -Expected $_.Destination -Actual $Destination
+  })
   if ($destinationMounts.Count -ne 1) {
     throw "The running backend must have exactly one mount at $Destination."
   }
   $mount = $destinationMounts[0]
-  if ($mount.Type -ne 'bind' -or [string]::IsNullOrWhiteSpace([string]$mount.Source)) {
+  if ($mount.Type -cne 'bind') {
     throw "The running backend mount at $Destination must be a bind mount with a host source."
   }
   if ($RequireReadWrite -and $mount.RW -ne $true) {
     throw "The running backend bind mount at $Destination must be read-write."
   }
-  return Assert-RealDirectory -Path ([string]$mount.Source)
+  return Assert-RealDirectory -Path $mount.Source
 }
 
 function Confirm-RollbackContainerBindAuthority {
@@ -762,27 +792,30 @@ function Confirm-RollbackContainerBindAuthority {
       } catch {
         throw 'Running container data bind reinspection returned invalid Docker JSON.'
       }
-      $idProperty = $container.PSObject.Properties['Id']
-      if ($null -eq $idProperty -or $idProperty.Value -isnot [string] -or $idProperty.Value -cne $fullContainerId) {
+      Assert-CheckpointEvidenceJsonObject -Value $container -Message 'Running container data bind reinspection must be an object.'
+      $idProperty = Get-CheckpointEvidenceProperty -Object $container -Name 'Id' -Context 'Running container data bind reinspection'
+      if ($idProperty.Value -isnot [string] -or $idProperty.Value -cne $fullContainerId) {
         throw 'Running container data bind reinspection no longer represents the captured container.'
       }
-      $mountsProperty = $container.PSObject.Properties['Mounts']
-      if ($null -eq $mountsProperty) {
-        throw 'Running container data bind reinspection did not contain mounts.'
+      $mountsProperty = Get-CheckpointEvidenceProperty -Object $container -Name 'Mounts' -Context 'Running container data bind reinspection'
+      if ($mountsProperty.Value -isnot [System.Collections.IList]) {
+        throw 'Running container data bind reinspection mounts must be an array.'
       }
-      $mounts = @($mountsProperty.Value | ForEach-Object { $_ })
-      $destinationMounts = @($mounts | Where-Object { Test-ContainerPathEqual -Expected ([string]$_.Destination) -Actual $Destination })
+      $mounts = ConvertTo-CheckpointDockerMounts -Mounts @($mountsProperty.Value) -Context 'Running container data bind reinspection mount'
+      $destinationMounts = @($mounts | Where-Object {
+        Test-ContainerPathEqual -Expected $_.Destination -Actual $Destination
+      })
       if ($destinationMounts.Count -ne 1) {
         throw "The captured container must still have exactly one mount at $Destination."
       }
       $mount = $destinationMounts[0]
-      if ($mount.Type -cne 'bind' -or [string]::IsNullOrWhiteSpace([string]$mount.Source)) {
+      if ($mount.Type -cne 'bind') {
         throw "The captured container mount at $Destination must remain a bind mount with a host source."
       }
       if ($mount.RW -isnot [bool] -or $mount.RW -ne $true) {
         throw "The captured container bind mount at $Destination must remain read-write."
       }
-      $reinspectedSource = Assert-RealDirectory -Path ([string]$mount.Source)
+      $reinspectedSource = Assert-RealDirectory -Path $mount.Source
       Assert-SamePath -Expected $HostDirectory -Actual $reinspectedSource -Label 'Captured container data bind reinspection'
       Assert-RollbackPathIdentity -Path $HostDirectory -ExpectedIdentity $retainedIdentity -Label 'Rollback data root retained container bind proof' | Out-Null
     }
@@ -828,11 +861,10 @@ function Get-ImageRevision {
   } catch {
     throw "$Label returned invalid Docker labels JSON."
   }
-  $property = $labels.PSObject.Properties['org.opencontainers.image.revision']
-  if ($null -eq $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) {
-    throw "$Label did not contain org.opencontainers.image.revision."
-  }
-  return ([string]$property.Value).ToLowerInvariant()
+  Assert-CheckpointEvidenceJsonObject -Value $labels -Message "$Label returned invalid Docker labels JSON."
+  $property = Get-CheckpointEvidenceProperty -Object $labels -Name 'org.opencontainers.image.revision' -Context $Label
+  Assert-CheckpointEvidenceStringPattern -Value $property.Value -Pattern '^[a-f0-9]{40}$' -Message "$Label did not contain an exact lowercase revision."
+  return $property.Value
 }
 
 function Write-Utf8File {
@@ -893,6 +925,43 @@ function New-RollbackFileAuthorityFromBytes {
     }
   }
   Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
+}
+
+function ConvertFrom-StrictRollbackJsonBytes {
+  param(
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $temporaryPath = Join-Path ([System.IO.Path]::GetTempPath()) (
+    ".localminidrama-rollback-json-$([Guid]::NewGuid().ToString('N')).json"
+  )
+  $authority = $null
+  $owned = $false
+  $result = $null
+  $primaryError = $null
+  $cleanupErrors = [System.Collections.ArrayList]::new()
+  try {
+    $authority = New-RollbackFileAuthorityFromBytes -Path $temporaryPath -Bytes $Bytes -Label $Label
+    $owned = $true
+    $result = Read-StrictRollbackJson -Authority $authority -Label $Label
+  } catch {
+    $primaryError = $_
+  } finally {
+    try {
+      if ($null -ne $authority) { $authority.Stream.Dispose() }
+    } catch {
+      [void]$cleanupErrors.Add($_)
+    }
+    try {
+      if ($owned -and (Test-Path -LiteralPath $temporaryPath)) {
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction Stop
+      }
+    } catch {
+      [void]$cleanupErrors.Add($_)
+    }
+  }
+  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
+  return $result
 }
 
 function ConvertFrom-CanonicalRollbackBase64Url {
@@ -958,11 +1027,7 @@ function ConvertFrom-RollbackResultOutput {
   } catch {
     throw 'Rollback result envelope must be strict UTF-8.'
   }
-  try {
-    $envelope = ConvertFrom-Json -InputObject $envelopeText
-  } catch {
-    throw 'Rollback result envelope must contain JSON.'
-  }
+  $envelope = ConvertFrom-StrictRollbackJsonBytes -Bytes $envelopeBytes -Label 'Rollback result envelope'
   if ($envelope -isnot [pscustomobject]) { throw 'Rollback result envelope must be an object.' }
   $expectedProperties = @('schema', 'evidence_utf8_base64url', 'evidence_sha256', 'diagnostic_relative_path')
   $actualProperties = @($envelope.PSObject.Properties.Name)
@@ -1002,11 +1067,7 @@ function ConvertFrom-RollbackResultOutput {
   } catch {
     throw 'Rollback result evidence must be strict UTF-8.'
   }
-  try {
-    $evidence = ConvertFrom-Json -InputObject $evidenceText
-  } catch {
-    throw 'Rollback result evidence must contain JSON.'
-  }
+  $evidence = ConvertFrom-StrictRollbackJsonBytes -Bytes $evidenceBytes -Label 'Rollback result evidence'
   if ($evidence -isnot [pscustomobject]) { throw 'Rollback result evidence must be an object.' }
   return [pscustomobject][ordered]@{
     Schema = $envelope.schema
@@ -1023,10 +1084,18 @@ function Get-CheckpointEvidenceProperty {
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Context
   )
-  if ($null -eq $Object) { throw "$Context is missing." }
+  if ($Object -isnot [pscustomobject]) { throw "$Context must be a JSON object." }
   $property = $Object.PSObject.Properties[$Name]
   if ($null -eq $property) { throw "$Context.$Name is required." }
   return $property
+}
+
+function Assert-CheckpointEvidenceJsonObject {
+  param(
+    [Parameter(Mandatory = $true)][AllowNull()][object]$Value,
+    [Parameter(Mandatory = $true)][string]$Message
+  )
+  if ($Value -isnot [pscustomobject]) { throw $Message }
 }
 
 function Assert-CheckpointEvidenceExactString {
@@ -1192,7 +1261,7 @@ function Assert-OutsideRepository {
 function Assert-RunningBackendDataSource {
   param([Parameter(Mandatory = $true)][string]$ExpectedDataDirectory)
   $containerId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('compose', 'ps', '-q', 'backend') -Label 'Recovered backend container lookup'
-  if ($containerId -notmatch '^[a-f0-9]{12,64}$') {
+  if ($containerId -cnotmatch '^[a-f0-9]{12,64}$') {
     throw 'The recovered backend container could not be identified for data bind verification.'
   }
   $actualDataDirectory = Get-ContainerBindSource -ContainerId $containerId -Destination '/app/data' -RequireReadWrite
@@ -1204,22 +1273,58 @@ function Assert-ComposeDataSource {
   $configJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('compose', 'config', '--format', 'json') -Label 'Recovery Compose data bind resolution'
   try {
     $config = ConvertFrom-Json -InputObject $configJson
-    $dataMounts = @($config.services.backend.volumes | Where-Object { Test-ContainerPathEqual -Expected ([string]$_.target) -Actual '/app/data' })
   } catch {
     throw 'Recovery Compose data bind resolution returned invalid Docker JSON.'
   }
+  Assert-CheckpointEvidenceJsonObject -Value $config -Message 'Recovery Compose data bind resolution must be an object.'
+  $servicesProperty = Get-CheckpointEvidenceProperty -Object $config -Name 'services' -Context 'Recovery Compose config'
+  Assert-CheckpointEvidenceJsonObject -Value $servicesProperty.Value -Message 'Recovery Compose services must be an object.'
+  $backendProperty = Get-CheckpointEvidenceProperty -Object $servicesProperty.Value -Name 'backend' -Context 'Recovery Compose services'
+  Assert-CheckpointEvidenceJsonObject -Value $backendProperty.Value -Message 'Recovery Compose backend must be an object.'
+  $volumesProperty = Get-CheckpointEvidenceProperty -Object $backendProperty.Value -Name 'volumes' -Context 'Recovery Compose backend'
+  if ($volumesProperty.Value -isnot [System.Collections.IList]) {
+    throw 'Recovery Compose backend volumes must be an array.'
+  }
+  $validatedMounts = @($volumesProperty.Value | ForEach-Object {
+    Assert-CheckpointEvidenceJsonObject -Value $_ -Message 'Recovery Compose volume entries must be objects.'
+    $typeProperty = Get-CheckpointEvidenceProperty -Object $_ -Name 'type' -Context 'Recovery Compose volume'
+    $sourceProperty = Get-CheckpointEvidenceProperty -Object $_ -Name 'source' -Context 'Recovery Compose volume'
+    $targetProperty = Get-CheckpointEvidenceProperty -Object $_ -Name 'target' -Context 'Recovery Compose volume'
+    if ($typeProperty.Value -isnot [string] -or
+        $sourceProperty.Value -isnot [string] -or
+        [string]::IsNullOrWhiteSpace($sourceProperty.Value) -or
+        $targetProperty.Value -isnot [string]) {
+      throw 'Recovery Compose volume fields have invalid JSON types.'
+    }
+    $readOnly = $false
+    $readOnlyProperty = $_.PSObject.Properties['read_only']
+    if ($null -ne $readOnlyProperty) {
+      if ($readOnlyProperty.Value -isnot [bool]) {
+        throw 'Recovery Compose volume read_only must be a Boolean.'
+      }
+      $readOnly = $readOnlyProperty.Value
+    }
+    [pscustomobject][ordered]@{
+      type = $typeProperty.Value
+      source = $sourceProperty.Value
+      target = $targetProperty.Value
+      read_only = $readOnly
+    }
+  })
+  $dataMounts = @($validatedMounts | Where-Object {
+    Test-ContainerPathEqual -Expected $_.target -Actual '/app/data'
+  })
   if ($dataMounts.Count -ne 1) {
     throw 'Recovery Compose must resolve exactly one mount at /app/data.'
   }
   $dataMount = $dataMounts[0]
-  if ($dataMount.type -ne 'bind' -or [string]::IsNullOrWhiteSpace([string]$dataMount.source)) {
+  if ($dataMount.type -cne 'bind') {
     throw 'Recovery Compose /app/data mount must resolve to a bind source.'
   }
-  $readOnlyProperty = $dataMount.PSObject.Properties['read_only']
-  if ($null -ne $readOnlyProperty -and $readOnlyProperty.Value -eq $true) {
+  if ($dataMount.read_only -eq $true) {
     throw 'Recovery Compose /app/data bind must be read-write.'
   }
-  $composeDataDirectory = Assert-RealDirectory -Path ([string]$dataMount.source)
+  $composeDataDirectory = Assert-RealDirectory -Path $dataMount.source
   Assert-SamePath -Expected $ExpectedDataDirectory -Actual $composeDataDirectory -Label 'Recovery Compose data bind'
 }
 
@@ -1229,22 +1334,22 @@ function Get-RunningServiceEvidence {
     [Parameter(Mandatory = $true)][string]$ExpectedRevision
   )
   $containerId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('compose', 'ps', '-q', $Service) -Label "$Service container lookup"
-  if ($containerId -notmatch '^[a-f0-9]{12,64}$') {
+  if ($containerId -cnotmatch '^[a-f0-9]{12,64}$') {
     throw "The $Service service must be running before a rollback checkpoint is created."
   }
 
   $status = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.State.Status}}') -Label "$Service container status"
   $health = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}') -Label "$Service container health"
-  if ($status -ne 'running' -or $health -ne 'healthy') {
+  if ($status -cne 'running' -or $health -cne 'healthy') {
     throw "The $Service service must be running and healthy before a rollback checkpoint is created."
   }
 
-  $imageId = (Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.Image}}') -Label "$Service running image capture").ToLowerInvariant()
-  if ($imageId -notmatch '^sha256:[a-f0-9]{64}$') {
+  $imageId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.Image}}') -Label "$Service running image capture"
+  if ($imageId -cnotmatch '^sha256:[a-f0-9]{64}$') {
     throw "Docker did not return an immutable image ID for $Service."
   }
   $revision = Get-ImageRevision -ImageReference $imageId -Label "$Service image revision capture"
-  if ($revision -ne $ExpectedRevision) {
+  if ($revision -cne $ExpectedRevision) {
     throw "The running $Service image revision $revision does not match Git commit $ExpectedRevision. Rebuild with npm run docker:up before creating a checkpoint."
   }
 
@@ -1307,8 +1412,8 @@ try {
   if (-not [string]::IsNullOrWhiteSpace($dirty)) {
     throw 'Rollback checkpoint requires a clean Git working tree.'
   }
-  $commit = (Get-CheckedScalar -FilePath 'git' -ArgumentList @('rev-parse', 'HEAD') -Label 'Commit capture').ToLowerInvariant()
-  if ($commit -notmatch '^[a-f0-9]{40}$') { throw 'Git did not return a full commit SHA.' }
+  $commit = Get-CheckedScalar -FilePath 'git' -ArgumentList @('rev-parse', 'HEAD') -Label 'Commit capture'
+  if ($commit -cnotmatch '^[a-f0-9]{40}$') { throw 'Git did not return a full commit SHA.' }
   $version = Get-CheckedScalar -FilePath 'node' -ArgumentList @('-p', "require('./backend-node/package.json').version") -Label 'Version capture'
   if ($version -cnotmatch '^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$') {
     throw 'Version capture did not return a valid release version.'
