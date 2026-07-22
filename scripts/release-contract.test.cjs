@@ -121,6 +121,61 @@ function windowsPowerShellHosts() {
   return hosts
 }
 
+function installNativeFakeDocker(binPath, fixtureRoot) {
+  const dockerPath = path.join(binPath, 'docker.exe')
+  const bootstrapPath = path.join(fixtureRoot, 'native-docker-bootstrap.cjs')
+  fs.copyFileSync(process.execPath, dockerPath)
+  fs.writeFileSync(bootstrapPath, `
+'use strict'
+const { spawnSync } = require('node:child_process')
+const fs = require('node:fs')
+const path = require('node:path')
+
+if (path.basename(process.execPath).toLowerCase() === 'docker.exe') {
+  const args = process.argv.slice(1)
+  if (args.length > 0) args[0] = path.basename(args[0])
+  if (process.env.LMD_NATIVE_DOCKER_HANG === 'true' && args[0] === 'exec') {
+    fs.appendFileSync(
+      process.env.LMD_BIND_EVENT_LOG,
+      JSON.stringify({ event: 'docker_exec_hang', tool: 'docker', args, pid: process.pid }) + '\\n',
+    )
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)
+  }
+  const result = spawnSync(
+    process.env.LMD_NATIVE_DOCKER_NODE,
+    [process.env.LMD_NATIVE_DOCKER_TOOL, 'docker', ...args],
+    { env: process.env, stdio: 'inherit', windowsHide: true },
+  )
+  if (result.error) {
+    process.stderr.write(String(result.error.message || result.error) + '\\n')
+    process.exit(70)
+  }
+  process.exit(result.status == null ? 71 : result.status)
+}
+`, 'utf8')
+  return { bootstrapPath, dockerPath }
+}
+
+function nodeOptionsWithRequire(modulePath) {
+  return [`--require=${modulePath}`, process.env.NODE_OPTIONS].filter(Boolean).join(' ')
+}
+
+function isProcessRunning(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return error && error.code === 'EPERM'
+  }
+}
+
+function terminateProcessTree(pid) {
+  spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+}
+
 function runPowerShellStatements(statements, { executable } = {}) {
   const shell = executable || (process.platform === 'win32' ? 'powershell.exe' : 'pwsh')
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-ps-probe-'))
@@ -2321,9 +2376,16 @@ test('release rollback checkpoint container bind proof is retained, exact, and o
   assert.match(checkpointScript, /\.Flush\(\$true\)/)
   assert.match(
     checkpointScript,
-    /@\('exec', \$ContainerId, 'node', '-e', \$reader, '--', \$containerMarkerPath, \$expectedHex\)/,
+    /\$dockerExecArguments\s*=\s*@\('exec', \$fullContainerId, 'node', '-e', \$reader, '--', \$containerMarkerPath, \$expectedHex\)/,
   )
-  assert.doesNotMatch(checkpointScript, /@\('exec',[^\r\n]*(?:'sh'|'bash'|'cmd'|'powershell')/)
+  assert.match(checkpointScript, /function Invoke-NativeCommandWithTimeout/)
+  assert.match(checkpointScript, /\[System\.Diagnostics\.ProcessStartInfo\]::new\(\)/)
+  assert.match(checkpointScript, /UseShellExecute\s*=\s*\$false/)
+  assert.match(checkpointScript, /WaitForExit\(\$TimeoutMilliseconds\)/)
+  assert.match(checkpointScript, /\.Kill\(\)/)
+  assert.match(checkpointScript, /NativeExitCode/)
+  assert.match(checkpointScript, /\$dockerTransportRetryExitCode\s*=\s*125/)
+  assert.doesNotMatch(checkpointScript, /(?:cmd|sh|bash)(?:\.exe)?\s+\/c/i)
   assert.match(checkpointScript, /Get-RollbackPathIdentity -Handle \$DirectoryHandle/)
   assert.match(checkpointScript, /Assert-RollbackPathIdentity[\s\S]*retained container bind proof/)
 
@@ -2382,6 +2444,7 @@ test('release rollback checkpoint proves the captured container sees exact locke
   const fakeToolPath = path.join(fixtureRoot, 'fake-bind-tool.cjs')
   fs.writeFileSync(fakeToolPath, `
 'use strict'
+const { spawnSync } = require('node:child_process')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -2399,12 +2462,41 @@ const record = (event, extra = {}) => fs.appendFileSync(
 )
 const valueAfter = (name) => args[args.indexOf(name) + 1]
 const backendId = 'b'.repeat(64)
+const backendShortId = backendId.slice(0, 12)
 const frontendId = 'c'.repeat(64)
+const capturedBackendId = state.scenario.startsWith('short_id_') ? backendShortId : backendId
+const isBackendId = (value) => value === backendId || value === backendShortId
+const blocked = (operation) => {
+  try {
+    operation()
+    return false
+  } catch {
+    return true
+  }
+}
+const markerSharingProbe = (markerPath) => {
+  const renamedPath = markerPath + '.renamed'
+  const replacementPath = markerPath + '.replacement'
+  fs.writeFileSync(replacementPath, Buffer.alloc(32, 0x5a))
+  const result = {
+    writeBlocked: blocked(() => fs.writeFileSync(markerPath, Buffer.alloc(32, 0x41))),
+    deleteBlocked: blocked(() => fs.rmSync(markerPath)),
+    renameBlocked: blocked(() => fs.renameSync(markerPath, renamedPath)),
+    replacementBlocked: blocked(() => fs.renameSync(replacementPath, markerPath)),
+  }
+  fs.rmSync(replacementPath, { force: true })
+  fs.rmSync(renamedPath, { force: true })
+  return result
+}
 const mounts = ({ reinspection = false } = {}) => {
   const dataMount = {
     Type: reinspection && state.scenario === 'reinspect_type' ? 'volume' : 'bind',
     Source: reinspection && state.scenario === 'reinspect_source' ? state.alternateRoot : state.dataRoot,
-    Destination: reinspection && state.scenario === 'reinspect_destination' ? '/app/not-data' : '/app/data',
+    Destination: reinspection && state.scenario === 'reinspect_destination'
+      ? '/app/not-data'
+      : reinspection && state.scenario === 'reinspect_destination_case'
+        ? '/APP/DATA'
+        : '/app/data',
     RW: !(reinspection && state.scenario === 'reinspect_read_only'),
   }
   const result = [
@@ -2426,7 +2518,7 @@ if (tool === 'node') {
 }
 if (tool === 'docker') {
   if (args[0] === 'compose' && args[1] === 'ps') {
-    process.stdout.write((args[3] === 'backend' ? backendId : frontendId) + '\\n')
+    process.stdout.write((args[3] === 'backend' ? capturedBackendId : frontendId) + '\\n')
     process.exit(0)
   }
   if (args[0] === 'compose' && args[1] === 'config') process.exit(0)
@@ -2442,9 +2534,14 @@ if (tool === 'docker') {
     const format = valueAfter('--format')
     if (format === '{{.State.Status}}') process.stdout.write('running\\n')
     else if (format.includes('.State.Health')) process.stdout.write('healthy\\n')
-    else if (format === '{{.Image}}') process.stdout.write('sha256:' + (args[1] === backendId ? '1' : '2').repeat(64) + '\\n')
+    else if (format === '{{.Image}}') process.stdout.write('sha256:' + (isBackendId(args[1]) ? '1' : '2').repeat(64) + '\\n')
+    else if (format === '{{.Id}}') {
+      const resolvedId = state.scenario === 'short_id_nonmatching' ? 'd'.repeat(64) : backendId
+      record('container_id_resolution', { capturedId: args[1], resolvedId })
+      process.stdout.write(resolvedId + '\\n')
+    }
     else if (format === '{{json .Mounts}}') {
-      if (args[1] === backendId && !state.initialMountReported) {
+      if (isBackendId(args[1]) && !state.initialMountReported) {
         state.initialMountReported = true
         if (state.scenario === 'swap_before_lock') {
           fs.renameSync(state.dataRoot, state.visibleRoot)
@@ -2472,22 +2569,55 @@ if (tool === 'docker') {
     const containerPath = args[6]
     const expectedHex = args[7]
     const markerPath = path.join(state.visibleRoot, path.posix.basename(containerPath || ''))
-    let actual = fs.existsSync(markerPath) ? fs.readFileSync(markerPath) : null
-    if (state.scenario === 'missing_marker') actual = null
-    if (actual && state.scenario === 'wrong_bytes') {
-      actual = Buffer.from(actual)
-      actual[0] ^= 0xff
+    if (state.scenario === 'transient_transport' && state.execAttempts === 1) {
+      record('docker_exec', {
+        containerPath,
+        expectedHex,
+        reader: args[4],
+        readerExecuted: false,
+        transportExitCode: 125,
+      })
+      process.exit(125)
     }
+    let readerMarkerPath = markerPath
+    let readerExpectedHex = expectedHex
+    let temporaryReaderPath = null
+    if (state.scenario === 'missing_marker' ||
+        (state.scenario === 'missing_then_success' && state.execAttempts === 1)) {
+      readerMarkerPath = markerPath + '.missing'
+    }
+    if (state.scenario === 'wrong_bytes' ||
+        (state.scenario === 'mismatch_then_success' && state.execAttempts === 1)) {
+      temporaryReaderPath = markerPath + '.mismatch'
+      const wrongBytes = Buffer.from(fs.readFileSync(markerPath))
+      wrongBytes[0] ^= 0xff
+      fs.writeFileSync(temporaryReaderPath, wrongBytes)
+      readerMarkerPath = temporaryReaderPath
+    }
+    if (state.scenario === 'malformed_expected_hex') readerExpectedHex = 'not-hex'
+    if (state.scenario === 'wrong_expected_length') readerExpectedHex = expectedHex.slice(0, -2)
+    const sharing = state.scenario === 'success' ? markerSharingProbe(markerPath) : null
+    const readerResult = spawnSync(
+      process.env.LMD_NATIVE_DOCKER_NODE,
+      ['-e', args[4], '--', readerMarkerPath, readerExpectedHex],
+      { encoding: 'utf8', env: process.env, windowsHide: true },
+    )
+    const actual = fs.existsSync(readerMarkerPath) ? fs.readFileSync(readerMarkerPath) : null
     record('docker_exec', {
       actualHex: actual ? actual.toString('hex') : null,
       containerPath,
       expectedHex,
       markerNames: markers(state.dataRoot),
       reader: args[4],
+      readerArgv: [readerMarkerPath, readerExpectedHex],
+      readerError: readerResult.error ? String(readerResult.error.message || readerResult.error) : null,
+      readerExecuted: true,
+      readerExitCode: readerResult.status,
+      sharing,
     })
-    if (state.scenario === 'transient_missing' && state.execAttempts === 1) process.exit(46)
-    if (!actual || actual.length !== 32 || !/^[a-f0-9]{64}$/.test(expectedHex) || actual.toString('hex') !== expectedHex) process.exit(47)
-    process.exit(0)
+    if (temporaryReaderPath) fs.rmSync(temporaryReaderPath, { force: true })
+    if (readerResult.error) process.exit(61)
+    process.exit(readerResult.status == null ? 62 : readerResult.status)
   }
   if (args[0] === 'image' && args[1] === 'save') {
     record('image_save', { markers: markers(state.dataRoot) })
@@ -2531,9 +2661,11 @@ $ErrorActionPreference = 'Stop'
 $requestedCheckpointDirectory = $CheckpointDirectory
 . ${powerShellLiteral(checkpointScriptPath)}
 $script:OriginalInvokeChecked = \${function:Invoke-Checked}
+$script:OriginalInvokeNativeCommandWithTimeout = \${function:Invoke-NativeCommandWithTimeout}
 $script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
 $script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
 $script:LastProofError = $null
+$script:HostIdentityReplaced = $false
 
 function Write-BindEvent {
   param(
@@ -2562,6 +2694,21 @@ function Invoke-Checked {
   }
 }
 
+function Invoke-NativeCommandWithTimeout {
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string[]]$ArgumentList,
+    [Parameter(Mandatory = $true)][string]$Label,
+    [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds
+  )
+  try {
+    & $script:OriginalInvokeNativeCommandWithTimeout @PSBoundParameters
+  } catch {
+    $script:LastProofError = $_
+    throw
+  }
+}
+
 function Remove-Item {
   [CmdletBinding(DefaultParameterSetName = 'Path')]
   param(
@@ -2581,7 +2728,29 @@ function Remove-Item {
   Microsoft.PowerShell.Management\\Remove-Item @PSBoundParameters
   foreach ($itemPath in @($itemPaths)) {
     $name = [System.IO.Path]::GetFileName($itemPath)
-    if ($name -match '^\\.localminidrama-bind-proof-') { Write-BindEvent -Name 'marker_removed' -Details @{ marker = $name } }
+    if ($name -match '^\\.localminidrama-bind-proof-') {
+      Write-BindEvent -Name 'marker_removed' -Details @{ marker = $name }
+      if ($env:LMD_REPLACE_DATA_AFTER_PROOF -ceq 'true' -and -not $script:HostIdentityReplaced) {
+        $state = Get-Content -LiteralPath $env:LMD_BIND_STATE -Raw | ConvertFrom-Json
+        $originalPath = ([string]$state.dataRoot) + '.proof-original'
+        try {
+          [System.IO.Directory]::Move([string]$state.dataRoot, $originalPath)
+          [void][System.IO.Directory]::CreateDirectory([string]$state.dataRoot)
+          $script:HostIdentityReplaced = $true
+          Write-BindEvent -Name 'host_identity_replaced' -Details @{
+            original = $originalPath
+            replacement = [string]$state.dataRoot
+          }
+        } catch {
+          Write-BindEvent -Name 'host_identity_replacement_blocked' -Details @{
+            original = [string]$state.dataRoot
+            replacement = $originalPath
+            message = $_.Exception.Message
+          }
+          throw
+        }
+      }
+    }
   }
 }
 
@@ -2620,7 +2789,8 @@ try {
 }
 `, 'utf8')
 
-  for (const tool of ['git', 'docker', 'npm', 'node']) {
+  const nativeDocker = installNativeFakeDocker(binPath, fixtureRoot)
+  for (const tool of ['git', 'npm', 'node']) {
     fs.writeFileSync(
       path.join(binPath, `${tool}.cmd`),
       `@echo off\r\n"${process.execPath}" "${fakeToolPath}" ${tool} %*\r\n`,
@@ -2631,7 +2801,7 @@ try {
   const commit = 'a'.repeat(40)
   const version = backendPackage.version
   let scenarioSequence = 0
-  const runScenario = (host, scenario, { cleanupFailure = false } = {}) => {
+  const runScenario = (host, scenario, { cleanupFailure = false, timeout = 30000 } = {}) => {
     scenarioSequence += 1
     const scenarioRoot = path.join(fixtureRoot, `${host.name}-${scenario}-${scenarioSequence}`)
     const dataRoot = path.join(scenarioRoot, 'data')
@@ -2658,6 +2828,7 @@ try {
     const eventStart = fs.existsSync(eventLog)
       ? fs.readFileSync(eventLog, 'utf8').trim().split(/\r?\n/).filter(Boolean).length
       : 0
+    const startedAt = Date.now()
     const result = spawnSync(host.executable, [
       '-NoProfile',
       '-NonInteractive',
@@ -2670,6 +2841,7 @@ try {
     ], {
       cwd: root,
       encoding: 'utf8',
+      timeout,
       windowsHide: true,
       env: {
         ...process.env,
@@ -2678,6 +2850,11 @@ try {
         LMD_BIND_STATE: statePath,
         LMD_BIND_SUMMARY: summaryPath,
         LMD_MARKER_CLEANUP_FAILURE: String(cleanupFailure),
+        LMD_NATIVE_DOCKER_HANG: String(scenario === 'timeout'),
+        LMD_NATIVE_DOCKER_NODE: process.execPath,
+        LMD_NATIVE_DOCKER_TOOL: fakeToolPath,
+        LMD_REPLACE_DATA_AFTER_PROOF: String(scenario === 'replace_identity_after_proof'),
+        NODE_OPTIONS: nodeOptionsWithRequire(nativeDocker.bootstrapPath),
       },
     })
     const events = fs.existsSync(eventLog)
@@ -2687,6 +2864,7 @@ try {
       alternateRoot,
       checkpointPath,
       dataRoot,
+      durationMs: Date.now() - startedAt,
       events,
       result,
       visibleRoot: JSON.parse(fs.readFileSync(statePath, 'utf8')).visibleRoot,
@@ -2738,10 +2916,7 @@ try {
           assertNoLateOperations(run)
           assertMarkerRemoved(run)
           const execs = run.events.filter((event) => event.event === 'docker_exec')
-          assert.ok(
-            execs.length >= 1 && execs.length <= 3,
-            `container proof retry count was not short and bounded; events=${JSON.stringify(run.events)}; stderr=${run.result.stderr}; stdout=${run.result.stdout}`,
-          )
+          assert.equal(execs.length, 1, `reader-confirmed rejection was retried; events=${JSON.stringify(run.events)}`)
           const first = execs[0]
           assert.match(first.containerPath, /^\/app\/data\/\.localminidrama-bind-proof-[a-f0-9]{32}\.tmp$/)
           if (scenario === 'missing_marker') assert.equal(first.actualHex, null)
@@ -2749,9 +2924,28 @@ try {
         })
       }
 
+      for (const [scenario, expectedReaderExit] of [
+        ['missing_then_success', 53],
+        ['mismatch_then_success', 56],
+        ['malformed_expected_hex', 51],
+        ['wrong_expected_length', 52],
+      ]) {
+        await t.test(`never hides ${scenario.replaceAll('_', ' ')} with a later success`, () => {
+          const run = runScenario(host, scenario)
+          assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+          assertNoLateOperations(run)
+          assertMarkerRemoved(run)
+          const execs = run.events.filter((event) => event.event === 'docker_exec')
+          assert.equal(execs.length, 1, `reader failure was retried; events=${JSON.stringify(run.events)}`)
+          assert.equal(execs[0].readerExecuted, true)
+          assert.equal(execs[0].readerExitCode, expectedReaderExit)
+        })
+      }
+
       for (const scenario of [
         'reinspect_source',
         'reinspect_destination',
+        'reinspect_destination_case',
         'reinspect_read_only',
         'reinspect_duplicate',
         'reinspect_type',
@@ -2771,13 +2965,44 @@ try {
         })
       }
 
+      await t.test('accepts a matching short captured ID only after resolving its full Docker ID', () => {
+        const run = runScenario(host, 'short_id_matching')
+        assert.equal(run.result.status, 0, run.result.stderr || run.result.stdout)
+        const resolution = run.events.find((event) => event.event === 'container_id_resolution')
+        assert.ok(resolution)
+        assert.equal(resolution.capturedId, 'b'.repeat(12))
+        assert.equal(resolution.resolvedId, 'b'.repeat(64))
+        const execs = run.events.filter((event) => event.event === 'docker_exec')
+        assert.equal(execs.length, 1)
+        assert.equal(execs[0].args[1], 'b'.repeat(64))
+        assertMarkerRemoved(run)
+      })
+
+      await t.test('rejects a short captured ID that resolves to a nonmatching full Docker ID', () => {
+        const run = runScenario(host, 'short_id_nonmatching')
+        assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+        assertNoLateOperations(run)
+        assert.equal(run.events.filter((event) => event.event === 'docker_exec').length, 0)
+      })
+
+      await t.test('rejects an attempted same-text host directory identity replacement after byte proof', () => {
+        const run = runScenario(host, 'replace_identity_after_proof')
+        assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+        assertNoLateOperations(run)
+        assert.equal(run.events.filter((event) => event.event === 'docker_exec').length, 1)
+        assert.equal(run.events.filter((event) => event.event === 'host_identity_replaced').length, 0)
+        assert.equal(run.events.filter((event) => event.event === 'host_identity_replacement_blocked').length, 1)
+        assert.match(run.result.stderr, /Rollback cleanup failed:/i)
+      })
+
       await t.test('uses one unpredictable exact marker across retry and removes it before every consumer', () => {
-        const firstRun = runScenario(host, 'transient_missing')
+        const firstRun = runScenario(host, 'transient_transport')
         assert.equal(firstRun.result.status, 0, firstRun.result.stderr || firstRun.result.stdout)
         const firstExecs = firstRun.events.filter((event) => event.event === 'docker_exec')
-        assert.equal(firstExecs.length, 2, 'transient propagation failure was not retried exactly once')
+        assert.equal(firstExecs.length, 2, 'classified Docker transport failure was not retried exactly once')
         const [firstExec, secondExec] = firstExecs
         assert.equal(firstExec.args[0], 'exec')
+        assert.equal(firstExec.args[1], 'b'.repeat(64))
         assert.equal(firstExec.args[2], 'node')
         assert.equal(firstExec.args[3], '-e')
         assert.equal(firstExec.args[5], '--')
@@ -2786,6 +3011,10 @@ try {
         assert.equal(firstExec.reader, secondExec.reader)
         assert.match(firstExec.containerPath, /^\/app\/data\/\.localminidrama-bind-proof-[a-f0-9]{32}\.tmp$/)
         assert.match(firstExec.expectedHex, /^[a-f0-9]{64}$/)
+        assert.equal(firstExec.readerExecuted, false)
+        assert.equal(firstExec.transportExitCode, 125)
+        assert.equal(secondExec.readerExecuted, true)
+        assert.equal(secondExec.readerExitCode, 0)
         assert.equal(secondExec.actualHex, secondExec.expectedHex)
         assert.match(firstExec.reader, /readFileSync/)
         assert.match(firstExec.reader, /Buffer\.from/)
@@ -2805,6 +3034,41 @@ try {
         assert.notEqual(repeatedExec.expectedHex, firstExec.expectedHex, 'marker token was reused across invocations')
         assert.equal(repeatedExec.reader, firstExec.reader, 'container reader must remain fixed')
         assertMarkerRemoved(secondRun)
+      })
+
+      await t.test('executes the exact reader argv and enforces Windows marker sharing from another process', () => {
+        const run = runScenario(host, 'success')
+        assert.equal(run.result.status, 0, run.result.stderr || run.result.stdout)
+        const proof = run.events.find((event) => event.event === 'docker_exec')
+        assert.ok(proof)
+        assert.equal(proof.readerExecuted, true)
+        assert.equal(proof.readerExitCode, 0)
+        assert.equal(proof.reader, proof.args[4])
+        assert.equal(proof.readerArgv[1], proof.expectedHex)
+        assert.equal(path.basename(proof.readerArgv[0]), path.posix.basename(proof.containerPath))
+        assert.deepEqual(proof.sharing, {
+          writeBlocked: true,
+          deleteBlocked: true,
+          renameBlocked: true,
+          replacementBlocked: true,
+        })
+        assert.equal(proof.actualHex, proof.expectedHex)
+        assertMarkerRemoved(run)
+      })
+
+      await t.test('hard-times out docker exec, kills and waits for the child, and prevents later work', () => {
+        const run = runScenario(host, 'timeout', { timeout: 8000 })
+        const hang = run.events.find((event) => event.event === 'docker_exec_hang')
+        assert.ok(hang, `native docker hang was not reached; stderr=${run.result.stderr}; stdout=${run.result.stdout}`)
+        const childStillRunning = isProcessRunning(hang.pid)
+        if (childStillRunning) terminateProcessTree(hang.pid)
+        assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+        assert.equal(run.result.signal, null, 'outer test timeout fired instead of the production timeout')
+        assert.ok(run.durationMs < 8000, `production timeout was not bounded: ${run.durationMs}ms`)
+        assert.equal(childStillRunning, false, `timed-out docker child ${hang.pid} leaked`)
+        assert.match(run.result.stderr, /timed out after \d+ milliseconds/i)
+        assertNoLateOperations(run)
+        assertMarkerRemoved(run)
       })
 
       await t.test('surfaces marker cleanup failure and still runs every outer cleanup', () => {
@@ -2828,7 +3092,7 @@ try {
         assertOuterCleanupRan(run)
         const failure = run.events.find((event) => event.event === 'driver_failure')
         assert.ok(failure)
-        assert.match(failure.primary_message, /container data bind byte proof failed with exit code 47/i)
+        assert.match(failure.primary_message, /container data bind byte proof failed with exit code 56/i)
         assert.doesNotMatch(failure.primary_message, /^Rollback cleanup failed:/)
         assert.equal(failure.same_proof_exception, true)
         assert.equal(failure.cleanup_errors.length, 1)
@@ -2867,6 +3131,7 @@ test('release rollback checkpoint fake toolchain retains locks through v5 metada
   const fakeToolPath = path.join(fixtureRoot, 'fake-tool.cjs')
   fs.writeFileSync(fakeToolPath, `
 'use strict'
+const { spawnSync } = require('node:child_process')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -2911,6 +3176,8 @@ if (tool === 'docker') {
     const format = valueAfter('--format')
     if (format === '{{json .Mounts}}') {
       process.stdout.write(JSON.stringify(dockerMounts) + '\\n')
+    } else if (format === '{{.Id}}') {
+      process.stdout.write(args[1] + '\\n')
     } else if (format === '{{json .}}') {
       process.stdout.write(JSON.stringify({ Id: args[1], Mounts: dockerMounts }) + '\\n')
     } else if (format === '{{.State.Status}}') process.stdout.write('running\\n')
@@ -2919,8 +3186,20 @@ if (tool === 'docker') {
   } else if (args[0] === 'exec') {
     const markerPath = path.join(dataRoot, path.posix.basename(args[6]))
     const actualHex = fs.existsSync(markerPath) ? fs.readFileSync(markerPath).toString('hex') : null
-    record('bind_proof', { actualHex, expectedHex: args[7] })
-    if (actualHex !== args[7]) process.exit(30)
+    const readerResult = spawnSync(
+      process.env.LMD_NATIVE_DOCKER_NODE,
+      ['-e', args[4], '--', markerPath, args[7]],
+      { encoding: 'utf8', env: process.env, windowsHide: true },
+    )
+    record('bind_proof', {
+      actualHex,
+      expectedHex: args[7],
+      reader: args[4],
+      readerArgv: [markerPath, args[7]],
+      readerExitCode: readerResult.status,
+    })
+    if (readerResult.error) process.exit(30)
+    process.exit(readerResult.status == null ? 30 : readerResult.status)
   } else if (args[0] === 'image' && args[1] === 'inspect') {
     process.stdout.write(JSON.stringify({ 'org.opencontainers.image.revision': commit }) + '\\n')
   } else if (args[0] === 'image' && args[1] === 'save') {
@@ -2969,6 +3248,7 @@ if (tool === 'npm') {
 }
 process.exit(40)
 `, 'utf8')
+  const nativeDocker = installNativeFakeDocker(binPath, fixtureRoot)
   const lockProbePath = path.join(fixtureRoot, 'lock-probe.cjs')
   fs.writeFileSync(lockProbePath, `
 'use strict'
@@ -3145,7 +3425,7 @@ try {
   }
 }
 `, 'utf8')
-  for (const tool of ['git', 'docker', 'npm', 'node']) {
+  for (const tool of ['git', 'npm', 'node']) {
     fs.writeFileSync(
       path.join(binPath, `${tool}.cmd`),
       `@echo off\r\n"${process.execPath}" "${fakeToolPath}" ${tool} %*\r\n`,
@@ -3200,10 +3480,14 @@ try {
         LMD_HOLD_METADATA_AUTHORITY: String(holdMetadataAuthority),
         LMD_LOCK_PROBE: lockProbePath,
         LMD_NODE_EXE: process.execPath,
+        LMD_NATIVE_DOCKER_HANG: 'false',
+        LMD_NATIVE_DOCKER_NODE: process.execPath,
+        LMD_NATIVE_DOCKER_TOOL: fakeToolPath,
         LMD_SUMMARY_PATH: summaryPath,
         LMD_SUMMARY_STATUS: status,
         LMD_VERSION: capturedVersion,
         LMD_PRECREATE_METADATA: String(precreateMetadata),
+        NODE_OPTIONS: nodeOptionsWithRequire(nativeDocker.bootstrapPath),
       },
     })
   }
@@ -3229,6 +3513,13 @@ try {
   assert.equal(metadata.credential_reconfiguration_required, true)
   const events = readEvents().slice(validStart)
   const eventIndex = (name) => events.findIndex((entry) => entry.event === name)
+  const bindProof = events.find((entry) => entry.event === 'bind_proof')
+  assert.ok(bindProof)
+  assert.equal(bindProof.readerExitCode, 0)
+  assert.equal(bindProof.reader, bindProof.args[4])
+  assert.equal(bindProof.readerArgv[1], bindProof.expectedHex)
+  assert.equal(path.basename(bindProof.readerArgv[0]), path.posix.basename(bindProof.args[6]))
+  assert.equal(bindProof.actualHex, bindProof.expectedHex)
   assert.ok(eventIndex('bind_proof') < eventIndex('shutdown'))
   assert.ok(eventIndex('version') < eventIndex('shutdown'))
   assert.ok(eventIndex('shutdown') < eventIndex('backup'))

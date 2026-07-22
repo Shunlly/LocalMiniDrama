@@ -219,3 +219,164 @@ Subject: `fix: prove checkpoint container bind identity`
 The immutable SHA is reported in the final handoff. A commit cannot contain
 its own SHA because adding that SHA to this tracked report would produce a
 different commit object and therefore a different SHA.
+
+## Review Fix Evidence
+
+Date: 2026-07-22
+
+Review-fix base SHA:
+`315b974755365f2ed2559f30eb7920844d5f7483`
+
+Required review-fix subject: `fix: close checkpoint bind proof review gaps`
+
+### Initial State
+
+```powershell
+git rev-parse HEAD
+git status --short
+```
+
+Exit codes: `0`, `0`. HEAD matched the requested review base exactly. The
+worktree was not clean as requested: it already contained an unstaged
+`scripts/release-contract.test.cjs` delta with 76 insertions and 4 deletions.
+Inspection showed that delta was a partial start on this same review fix
+(native fake-Docker helpers, short-ID fixture support, and destination-case
+fixture support). It was preserved and completed; no unrelated user change was
+reverted.
+
+### Review-Fix RED Evidence
+
+Tests were completed before production edits. A first expanded behavior run
+hit the command harness's 120-second ceiling because every leaf launches a new
+PowerShell process; it exited `124` and was not treated as authoritative RED
+evidence. The source-only RED then failed as intended:
+
+```powershell
+$env:LMD_PWSH_EXE = 'C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64\pwsh.exe'
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='container bind proof is retained|never hides missing then success|never hides mismatch then success|matching short captured ID|same-text host directory identity replacement|hard-times out docker exec' scripts\release-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 102 total, 0 passed, 1 failed, 101 skipped. The source
+contract failed because no native timeout runner, canonical full container ID,
+or classified transport retry existed.
+
+The full behavior parent was then given enough time to finish:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='checkpoint proves the captured container' scripts\release-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 148 total, 22 passed, 25 failed, 101 skipped across
+Windows PowerShell 5.1 and PowerShell 7. Expected failures proved that the old
+implementation retried reader-confirmed missing and mismatched bytes, accepted
+later success, rejected matching short IDs, lacked a hard child-process
+timeout, and did not exercise the real reader through native argv. A fixture
+hard link also could not be removed while Node's executable image was loaded;
+the harness was corrected to copy the native executable before production was
+edited.
+
+### Review-Fix Implementation Decisions
+
+- The fixed reader reserves exits `51` through `56` for malformed expected
+  hex, wrong expected length, missing marker, other read failure, actual-length
+  mismatch, and byte mismatch. Every reader exit fails immediately.
+- Docker exit `125` is the only retryable transport/propagation class. At most
+  three attempts use one canonical full container ID, argument array, reader,
+  marker path, and expected token, with 100 ms between retries.
+- Captured IDs must be 12-64 lowercase hexadecimal characters. Docker
+  `{{.Id}}` must return one 64-hex ID with the captured ID as its exact prefix;
+  all exec and reinspection calls then use that canonical full ID.
+- `Invoke-NativeCommandWithTimeout` uses `ProcessStartInfo` with
+  `UseShellExecute = $false`, a Windows command-line quoting routine for the
+  original argument array, redirected diagnostics capped at 4096 characters,
+  and a 1500 ms hard timeout. Timeout kills and waits for the native child,
+  retains the timeout as primary, and lets marker cleanup attach independently.
+- The native fake Docker executes the exact supplied `node -e` reader and
+  mapped marker argv. It no longer duplicates reader acceptance logic.
+- The retained marker is probed from another real process: exact read succeeds
+  while write, delete, rename, and replacement fail. The retained directory
+  authority also blocks a same-text root replacement attempted after byte
+  proof. Destination matching remains ordinal, so `/APP/DATA` is rejected.
+- A final retained host-identity assertion runs after marker cleanup and before
+  checkpoint creation. Restore, Provider, frontend, workflows, package
+  metadata, and documentation behavior were not changed.
+
+### Review-Fix GREEN Evidence
+
+Pinned Node 20 Task 3 focus with both PowerShell hosts:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='checkpoint container bind proof is retained|checkpoint proves the captured container' scripts\release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 148 total, 48 passed, 0 failed, 100 skipped. All 22
+behavior leaves passed under each host. This includes missing-then-success and
+mismatch-then-success rejection, malformed expected values, short/full ID
+matching, case-altered destination, post-proof replacement attempt, exact
+reader argv, real Windows sharing, classified transport retry, timeout cleanup,
+primary-error retention, and no leaked fake Docker child.
+
+Existing checkpoint-creation orchestration:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='release rollback checkpoint fake toolchain' scripts\release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 104 total, 3 passed, 0 failed, 101 skipped. Both hosts
+passed success, publication conflict, recovery, lock-retention, and exact-reader
+orchestration.
+
+Complete serial release contract:
+
+```powershell
+$env:PATH = 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64;C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64;' + $env:PATH
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test scripts\release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 186 total, 186 passed, 0 failed, 0 skipped. An earlier
+supplemental full run passed 185 tests with one host-discovery skip because
+`pwsh.exe` was not on that process's `PATH`; the authoritative command above
+corrected the environment and executed every PowerShell 7 test.
+
+Final syntax, parser, process-leak, and whitespace gates:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --check scripts\release-contract.test.cjs
+powershell.exe -NoLogo -NoProfile -NonInteractive -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path "scripts\create-release-rollback-checkpoint.ps1"), [ref]$tokens, [ref]$errors) | Out-Null; if($errors.Count -gt 0){$errors | ForEach-Object { Write-Error $_.Message }; exit 1}'
+& 'C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64\pwsh.exe' -NoLogo -NoProfile -NonInteractive -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path "scripts\create-release-rollback-checkpoint.ps1"), [ref]$tokens, [ref]$errors) | Out-Null; if($errors.Count -gt 0){$errors | ForEach-Object { Write-Error $_.Message }; exit 1}'
+git diff --check
+```
+
+Exit codes: `0`, `0`, `0`, `0`. No temporary fake `docker.exe` process was
+left running. Git emitted only the checkout's existing LF-to-CRLF warning.
+
+### Review-Fix Changed Files
+
+- `scripts/create-release-rollback-checkpoint.ps1`
+- `scripts/release-contract.test.cjs`
+- `.superpowers/sdd/rollback-security-task-3-report.md`
+
+### Review-Fix Self-Review
+
+- Reader-confirmed failures can no longer be hidden by a later success;
+  transport retry is an explicit single exit-code class.
+- The native command inputs remain an array, no command shell is used, and the
+  exact reader with spaces and quotes passes unchanged under PS5.1 and PS7.
+- Every exec attempt is time-bounded. Timeout kills and waits, preserves the
+  primary error, removes the marker, runs outer cleanup, performs no checkpoint,
+  image-save, shutdown, backup, drill, fingerprint, or recovery operation, and
+  leaves no fake child.
+- Short captured IDs are bound to Docker's full immutable ID before proof; a
+  nonmatching full ID fails before marker creation or exec.
+- Marker sharing and directory authority reject mutation and namespace
+  replacement from a separate process while exact reads remain possible.
+- Marker cleanup still precedes every checkpoint consumer and retains the
+  established primary-versus-cleanup error precedence.
+
+### Review-Fix Residual Risk And Resulting SHA
+
+No real Docker command was run, as required. Live Docker Desktop exit-code
+behavior and bind propagation remain operational integration risks; the proof
+fails closed if three exit-125 attempts or any 1500 ms attempt bound is
+exceeded. The immutable resulting commit SHA is reported in the final handoff;
+embedding it in this tracked report would change that SHA.

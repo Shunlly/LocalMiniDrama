@@ -31,6 +31,150 @@ function Invoke-Checked {
   return $output
 }
 
+function ConvertTo-WindowsCommandLineArgument {
+  param(
+    [Parameter(Mandatory = $true)]
+    [AllowEmptyString()]
+    [string]$Argument
+  )
+  if ($Argument.Length -gt 0 -and $Argument -cnotmatch '[\s"]') {
+    return $Argument
+  }
+
+  $builder = [System.Text.StringBuilder]::new()
+  [void]$builder.Append('"')
+  $backslashCount = 0
+  foreach ($character in $Argument.ToCharArray()) {
+    if ($character -eq '\') {
+      $backslashCount += 1
+      continue
+    }
+    if ($character -eq '"') {
+      if ($backslashCount -gt 0) {
+        [void]$builder.Append((('\' * (($backslashCount * 2) + 1)) -join ''))
+      } else {
+        [void]$builder.Append('\')
+      }
+      [void]$builder.Append('"')
+    } else {
+      if ($backslashCount -gt 0) {
+        [void]$builder.Append((('\' * $backslashCount) -join ''))
+      }
+      [void]$builder.Append($character)
+    }
+    $backslashCount = 0
+  }
+  if ($backslashCount -gt 0) {
+    [void]$builder.Append((('\' * ($backslashCount * 2)) -join ''))
+  }
+  [void]$builder.Append('"')
+  return $builder.ToString()
+}
+
+function Get-BoundedNativeDiagnostic {
+  param(
+    [AllowEmptyString()][string]$StandardOutput,
+    [AllowEmptyString()][string]$StandardError,
+    [int]$MaximumLength = 4096
+  )
+  $diagnostic = (@($StandardOutput, $StandardError) |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join [Environment]::NewLine
+  $diagnostic = $diagnostic.Trim()
+  if ($diagnostic.Length -le $MaximumLength) {
+    return $diagnostic
+  }
+  return $diagnostic.Substring(0, $MaximumLength) + [Environment]::NewLine + '[diagnostic truncated]'
+}
+
+function Invoke-NativeCommandWithTimeout {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string[]]$ArgumentList,
+    [Parameter(Mandatory = $true)][string]$Label,
+    [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$TimeoutMilliseconds
+  )
+
+  $process = [System.Diagnostics.Process]::new()
+  $started = $false
+  $standardOutputTask = $null
+  $standardErrorTask = $null
+  try {
+    $processStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $processStartInfo.FileName = $FilePath
+    $processStartInfo.Arguments = (@($ArgumentList | ForEach-Object {
+      ConvertTo-WindowsCommandLineArgument -Argument $_
+    }) -join ' ')
+    $processStartInfo.UseShellExecute = $false
+    $processStartInfo.CreateNoWindow = $true
+    $processStartInfo.RedirectStandardOutput = $true
+    $processStartInfo.RedirectStandardError = $true
+    $process.StartInfo = $processStartInfo
+
+    try {
+      if (-not $process.Start()) {
+        throw [System.InvalidOperationException]::new('The native process did not start.')
+      }
+      $started = $true
+    } catch {
+      throw [System.InvalidOperationException]::new("$Label could not execute: $($_.Exception.Message)", $_.Exception)
+    }
+
+    $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
+    $standardErrorTask = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit($TimeoutMilliseconds)) {
+      $processId = $process.Id
+      $killError = $null
+      $waitError = $null
+      try {
+        $process.Kill()
+      } catch {
+        $killError = $_
+      }
+      try {
+        $process.WaitForExit()
+      } catch {
+        $waitError = $_
+      }
+      $standardOutput = [string]$standardOutputTask.Result
+      $standardError = [string]$standardErrorTask.Result
+      $diagnostic = Get-BoundedNativeDiagnostic -StandardOutput $standardOutput -StandardError $standardError
+      $message = "$Label timed out after $TimeoutMilliseconds milliseconds."
+      if (-not [string]::IsNullOrWhiteSpace($diagnostic)) {
+        $message += [Environment]::NewLine + $diagnostic
+      }
+      $timeoutError = [System.TimeoutException]::new($message)
+      $timeoutError.Data['NativeTimedOut'] = $true
+      $timeoutError.Data['NativeProcessId'] = $processId
+      if ($null -ne $killError) { $timeoutError.Data['NativeKillError'] = $killError }
+      if ($null -ne $waitError) { $timeoutError.Data['NativeWaitError'] = $waitError }
+      throw $timeoutError
+    }
+
+    $process.WaitForExit()
+    $standardOutput = [string]$standardOutputTask.Result
+    $standardError = [string]$standardErrorTask.Result
+    $exitCode = [int]$process.ExitCode
+    $diagnostic = Get-BoundedNativeDiagnostic -StandardOutput $standardOutput -StandardError $standardError
+    if ($exitCode -ne 0) {
+      $message = "$Label failed with exit code $exitCode."
+      if (-not [string]::IsNullOrWhiteSpace($diagnostic)) {
+        $message += [Environment]::NewLine + $diagnostic
+      }
+      $nativeError = [System.InvalidOperationException]::new($message)
+      $nativeError.Data['NativeExitCode'] = $exitCode
+      throw $nativeError
+    }
+    return @($standardOutput -split "`r?`n" | Where-Object { $_.Length -gt 0 })
+  } finally {
+    if ($started -and -not $process.HasExited) {
+      try { $process.Kill() } catch { }
+      try { $process.WaitForExit() } catch { }
+    }
+    $process.Dispose()
+  }
+}
+
 function Get-CheckedScalar {
   param(
     [Parameter(Mandatory = $true)][string]$FilePath,
@@ -192,13 +336,25 @@ function Confirm-RollbackContainerBindAuthority {
   $markerName = ".localminidrama-bind-proof-$([Guid]::NewGuid().ToString('N')).tmp"
   $markerPath = Join-Path $HostDirectory $markerName
   $containerMarkerPath = "$($Destination.TrimEnd('/'))/$markerName"
-  $reader = "const fs=require('node:fs');const actual=fs.readFileSync(process.argv[1]);const expected=Buffer.from(process.argv[2],'hex');if(expected.length!==32)process.exit(51);if(actual.length!==expected.length)process.exit(52);if(!actual.equals(expected))process.exit(53);"
+  $reader = 'const fs = require("node:fs"); const expectedHex = process.argv[2]; if (typeof expectedHex !== "string" || !/^[a-f0-9]+$/.test(expectedHex)) process.exit(51); if (expectedHex.length !== 64) process.exit(52); const expected = Buffer.from(expectedHex, "hex"); let actual; try { actual = fs.readFileSync(process.argv[1]); } catch (error) { process.exit(error && error.code === "ENOENT" ? 53 : 54); } if (actual.length !== expected.length) process.exit(55); if (!actual.equals(expected)) process.exit(56);'
+  $dockerTransportRetryExitCode = 125
+  $dockerExecTimeoutMilliseconds = 1500
   $markerStream = $null
   $markerOwned = $false
   $randomNumberGenerator = $null
+  $retainedIdentity = $null
   $primaryError = $null
   $cleanupErrors = [System.Collections.ArrayList]::new()
   try {
+    if ($ContainerId -cnotmatch '^[a-f0-9]{12,64}$') {
+      throw 'The captured backend container ID must contain 12 to 64 lowercase hexadecimal characters.'
+    }
+    $fullContainerId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $ContainerId, '--format', '{{.Id}}') -Label 'Running container ID resolution'
+    if ($fullContainerId -cnotmatch '^[a-f0-9]{64}$' -or
+        -not $fullContainerId.StartsWith($ContainerId, [System.StringComparison]::Ordinal)) {
+      throw 'Running container ID resolution did not match the captured backend container.'
+    }
+
     $retainedIdentity = Get-RollbackPathIdentity -Handle $DirectoryHandle
     Assert-RollbackPathIdentity -Path $HostDirectory -ExpectedIdentity $retainedIdentity -Label 'Rollback data root retained container bind proof' | Out-Null
 
@@ -219,15 +375,20 @@ function Confirm-RollbackContainerBindAuthority {
     $markerStream.Write($randomBytes, 0, $randomBytes.Length)
     $markerStream.Flush($true)
 
+    $dockerExecArguments = @('exec', $fullContainerId, 'node', '-e', $reader, '--', $containerMarkerPath, $expectedHex)
     $proofError = $null
     for ($attempt = 1; $attempt -le 3; $attempt += 1) {
       try {
-        Invoke-Checked -FilePath 'docker' -ArgumentList @('exec', $ContainerId, 'node', '-e', $reader, '--', $containerMarkerPath, $expectedHex) -Label 'Running container data bind byte proof' | Out-Null
+        Invoke-NativeCommandWithTimeout -FilePath 'docker.exe' -ArgumentList $dockerExecArguments -Label 'Running container data bind byte proof' -TimeoutMilliseconds $dockerExecTimeoutMilliseconds | Out-Null
         $proofError = $null
         break
       } catch {
         $proofError = $_
-        if ($attempt -lt 3) { Start-Sleep -Milliseconds 100 }
+        $nativeExitCode = $_.Exception.Data['NativeExitCode']
+        if ($nativeExitCode -ne $dockerTransportRetryExitCode -or $attempt -ge 3) {
+          break
+        }
+        Start-Sleep -Milliseconds 100
       }
     }
     if ($null -ne $proofError) {
@@ -235,14 +396,14 @@ function Confirm-RollbackContainerBindAuthority {
     }
 
     if ($null -eq $primaryError) {
-      $containerJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $ContainerId, '--format', '{{json .}}') -Label 'Running container data bind reinspection'
+      $containerJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $fullContainerId, '--format', '{{json .}}') -Label 'Running container data bind reinspection'
       try {
         $container = ConvertFrom-Json -InputObject $containerJson
       } catch {
         throw 'Running container data bind reinspection returned invalid Docker JSON.'
       }
       $idProperty = $container.PSObject.Properties['Id']
-      if ($null -eq $idProperty -or $idProperty.Value -isnot [string] -or $idProperty.Value -cne $ContainerId) {
+      if ($null -eq $idProperty -or $idProperty.Value -isnot [string] -or $idProperty.Value -cne $fullContainerId) {
         throw 'Running container data bind reinspection no longer represents the captured container.'
       }
       $mountsProperty = $container.PSObject.Properties['Mounts']
@@ -284,6 +445,13 @@ function Confirm-RollbackContainerBindAuthority {
       }
     } catch {
       [void]$cleanupErrors.Add($_)
+    }
+  }
+  if ($null -eq $primaryError -and $cleanupErrors.Count -eq 0 -and $null -ne $retainedIdentity) {
+    try {
+      Assert-RollbackPathIdentity -Path $HostDirectory -ExpectedIdentity $retainedIdentity -Label 'Rollback data root retained container bind proof after marker cleanup' | Out-Null
+    } catch {
+      $primaryError = $_
     }
   }
   Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
