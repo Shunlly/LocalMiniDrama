@@ -601,11 +601,50 @@ function recordLauncherCleanupFailure(primaryError, cleanupError) {
   return primaryError ? attachCleanupError(primaryError, cleanupError) : cleanupError
 }
 
+async function runWindowsRollback({
+  parsed,
+  config = loadConfig(),
+  environment = process.env,
+  drillMain = (options) => require('./run-rollback-drill.cjs').main(options),
+} = {}) {
+  assert.ok(parsed && typeof parsed === 'object', 'Windows rollback arguments are required')
+  const sourcePaths = parsed.inputMode === 'checkpoint-bound'
+    ? resolveCheckpointSourcePaths(parsed.dataRoot)
+    : resolveStandaloneSourcePaths(config)
+  const serviceHost = environment.HOST || config.server?.host || '127.0.0.1'
+  const servicePort = Number(environment.PORT) || config.server?.port || 5679
+  await assertServiceStopped({ serviceHost, servicePort })
+
+  let maintenanceGuard
+  let primaryError = null
+  try {
+    maintenanceGuard = acquireServiceMaintenanceLockSync({
+      databasePath: sourcePaths.databasePath,
+      storagePath: sourcePaths.storagePath,
+      storySourcesPath: sourcePaths.storySourcesPath,
+    })
+    await drillMain({
+      externalMaintenanceLease: createExternalMaintenanceLease(maintenanceGuard),
+    })
+  } catch (error) {
+    primaryError = error
+  } finally {
+    if (maintenanceGuard) {
+      try {
+        maintenanceGuard.release()
+      } catch (cleanupError) {
+        primaryError = recordLauncherCleanupFailure(primaryError, cleanupError)
+      }
+    }
+  }
+  if (primaryError) throw primaryError
+}
+
 async function main() {
   const drillArguments = process.argv.slice(2)
   const parsed = parseDrillArguments(drillArguments)
   if (process.platform === 'win32') {
-    await require('./run-rollback-drill.cjs').main()
+    await runWindowsRollback({ parsed })
     return
   }
   assert.equal(process.platform, 'linux', 'Rollback drill launcher supports Windows directly and Linux through Docker')
@@ -720,13 +759,6 @@ async function main() {
   if (primaryError) throw primaryError
 }
 
-if (require.main === module) {
-  main().catch((error) => {
-    process.stderr.write(`${renderLauncherError(error)}\n`)
-    if (!process.exitCode) process.exitCode = 1
-  })
-}
-
 module.exports = {
   ROLLBACK_NODE_IMAGE,
   assertDiagnosticDirectory,
@@ -740,4 +772,12 @@ module.exports = {
   inspectOwnedContainer,
   main,
   renderLauncherError,
+  runWindowsRollback,
+}
+
+if (require.main === module) {
+  main().catch((error) => {
+    process.stderr.write(`${renderLauncherError(error)}\n`)
+    if (!process.exitCode) process.exitCode = 1
+  })
 }

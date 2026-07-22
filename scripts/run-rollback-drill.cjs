@@ -1210,7 +1210,8 @@ async function executeRollbackDrill(options, runtime) {
   return result
 }
 
-async function main() {
+async function main(options = {}) {
+  assert.ok(options && typeof options === 'object' && !Array.isArray(options), 'rollback main options must be an object')
   const drillOptions = parseDrillArguments(process.argv.slice(2))
   let externalMaintenanceLease = null
   let commit
@@ -1220,6 +1221,11 @@ async function main() {
     commit = String(process.env.LMD_ROLLBACK_SOURCE_COMMIT || '').toLowerCase()
     assert.match(commit, /^[a-f0-9]{40}$/, 'Linux rollback requires a launcher-proven source commit')
   } else {
+    assert.ok(
+      options.externalMaintenanceLease && typeof options.externalMaintenanceLease === 'object',
+      'Windows rollback requires a launcher-retained external maintenance lease',
+    )
+    externalMaintenanceLease = options.externalMaintenanceLease
     assertCleanSourceTree()
     commit = gitOutput(['rev-parse', 'HEAD']).toLowerCase()
     assert.match(commit, /^[a-f0-9]{40}$/, 'rollback drill requires a full Git commit')

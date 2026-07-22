@@ -485,9 +485,13 @@ test('rollback launcher hard-bounds Docker controls, runs Windows in-process, an
   assert.match(source, /\['container',\s*'ls',\s*'--all',\s*'--no-trunc'/)
   assert.match(source, /\[\s*'create',\s*'--pull',\s*'never'/)
   assert.doesNotMatch(source, /runChildSync\(process\.execPath/)
-  assert.match(source, /await\s+require\('\.\/run-rollback-drill\.cjs'\)\.main\(\)/)
+  assert.match(source, /await\s+runWindowsRollback\(\{\s*parsed\s*\}\)/)
   assert.match(source, /function recordLauncherCleanupFailure/)
   assert.match(source, /finally\s*\{[\s\S]*recordLauncherCleanupFailure/)
+  assert.ok(
+    source.indexOf('module.exports = {') < source.indexOf('if (require.main === module)'),
+    'launcher exports must be published before the CLI path can load the drill through a circular require',
+  )
   const drillSource = fs.readFileSync(path.join(__dirname, 'run-rollback-drill.cjs'), 'utf8')
   assert.match(drillSource, /spawnSync\(command, args,[\s\S]*timeout:\s*options\.timeout[\s\S]*killSignal:\s*'SIGKILL'/)
   assert.match(drillSource, /runFocusedTests:[\s\S]{0,500}timeout:\s*600000/)
@@ -509,6 +513,48 @@ test('rollback launcher hard-bounds Docker controls, runs Windows in-process, an
   assert.match(rendered, /container cleanup failure/)
   assert.ok(rendered.indexOf('primary launcher failure') < rendered.indexOf('container cleanup failure'))
   assert.ok(Buffer.byteLength(rendered, 'utf8') <= 64 * 1024)
+})
+
+test('Windows rollback launcher holds one external maintenance lease across drill identity checks', async (t) => {
+  const { runWindowsRollback } = require('./run-rollback-drill-launcher.cjs')
+  assert.equal(typeof runWindowsRollback, 'function', 'Windows rollback lease runner is missing')
+
+  const fixtureRoot = temporaryDirectory(t, 'lmd-windows-rollback-lease-')
+  const dataRoot = path.join(fixtureRoot, 'data')
+  seedCheckpointDataRoot(dataRoot)
+  const databasePath = path.join(dataRoot, 'drama_generator.db')
+  const storagePath = path.join(dataRoot, 'storage')
+  const storySourcesPath = path.join(dataRoot, 'story_sources')
+  const lockPath = `${databasePath}.maintenance.lock`
+  const lockOptions = { databasePath, storagePath, storySourcesPath }
+
+  const transientBefore = fs.statSync(dataRoot, { bigint: true }).ctimeNs
+  const transientGuard = acquireServiceMaintenanceLockSync(lockOptions)
+  transientGuard.release()
+  const transientAfter = fs.statSync(dataRoot, { bigint: true }).ctimeNs
+  assert.notEqual(transientAfter, transientBefore, 'transient maintenance lock did not reproduce data-root ctime drift')
+
+  let drillBefore
+  let drillAfter
+  await runWindowsRollback({
+    parsed: {
+      inputMode: 'checkpoint-bound',
+      archivePath: path.join(fixtureRoot, 'checkpoint.zip'),
+      dataRoot,
+    },
+    config: { server: { host: '127.0.0.1', port: await unusedTcpPort() } },
+    environment: {},
+    drillMain: async ({ externalMaintenanceLease }) => {
+      assert.equal(fs.existsSync(lockPath), true, 'maintenance lease was not present before the drill')
+      assert.equal(externalMaintenanceLease.schema, 'localminidrama.maintenance-lease.v2')
+      drillBefore = fs.statSync(dataRoot, { bigint: true }).ctimeNs
+      await new Promise((resolve) => setImmediate(resolve))
+      drillAfter = fs.statSync(dataRoot, { bigint: true }).ctimeNs
+    },
+  })
+
+  assert.equal(drillAfter, drillBefore, 'data-root identity changed while the retained lease covered the drill')
+  assert.equal(fs.existsSync(lockPath), false, 'Windows launcher did not release its maintenance lease')
 })
 
 test('rollback launcher fails closed when Docker inspect fails for a CID that still exists', () => {
