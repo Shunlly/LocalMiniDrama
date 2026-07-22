@@ -780,6 +780,11 @@ async function executeRollbackDrill(options, runtime) {
   async function removeStandaloneArchiveWithProof() {
     if (options.inputMode !== 'standalone' || !archivePath || standaloneArchiveRemoved) return
     if (archiveCleanupBlockedError) throw archiveCleanupBlockedError
+    if (!archiveHandle && !archiveLinkIdentity) {
+      await assertPathEntryAbsent(archivePath, 'standalone rollback archive')
+      standaloneArchiveRemoved = true
+      return
+    }
     assert.ok(archiveHandle && archiveLinkIdentity, 'standalone rollback archive authority is missing')
     try {
       archiveClaimPath = archiveClaimPath || await claimOwnedPath(

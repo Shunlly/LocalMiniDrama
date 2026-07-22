@@ -2239,6 +2239,35 @@ test('standalone execution creates and removes only its workspace archive and re
   assert.deepEqual(result.evidenceBytes, serializeEvidence(evidence))
 })
 
+test('standalone pre-backup failure proves archive absence without adding a cleanup failure', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  const primary = new Error('injected pre-backup service failure')
+  let workspace
+  fixture.runtime.createWorkspace = async () => {
+    workspace = await fsp.mkdtemp(path.join(fixture.fixtureRoot, 'pre-backup-workspace-'))
+    return workspace
+  }
+  fixture.runtime.createDataBackup = async (options) => {
+    fixture.calls.create.push(options)
+    assert.equal(fs.existsSync(options.outputPath), false)
+    throw primary
+  }
+
+  let thrown
+  try {
+    await executeRollbackDrill(fixture.options, fixture.runtime)
+  } catch (error) {
+    thrown = error
+  }
+
+  assert.strictEqual(thrown, primary)
+  assert.equal(Object.hasOwn(thrown, 'cleanupErrors'), false)
+  assert.ok(workspace)
+  assert.equal(fs.existsSync(workspace), false)
+  assert.equal(fs.existsSync(`${workspace}-current-data.zip`), false)
+  assert.equal(fixture.calls.publish.length, 0)
+})
+
 test('workspace cleanup rejects a moved original workspace without authoritative PASS', async (t) => {
   const fixture = createExecutorFixture(t)
   fixture.runtime.createWorkspace = () => fsp.mkdtemp(path.join(fixture.fixtureRoot, 'owned-workspace-'))

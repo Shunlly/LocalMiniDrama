@@ -1495,3 +1495,41 @@ retained descriptor.
 
 The complete rollback/release contracts, independent re-review, and clean-SHA
 real rollback drill remain mandatory. This section does not close Task 4.
+
+## Review Fix 11: Pre-Backup Failure Cleanup
+
+Review-fix date: 2026-07-22
+
+The first clean-SHA `npm run verify:rollback` attempt at `5fcc14c` correctly
+rejected the live Docker backend on port 5679, but also attached an unrelated
+cleanup assertion: the standalone archive path had been selected before backup,
+while no archive handle or link identity had ever been created.
+
+### RED Evidence
+
+A standalone executor regression injected the same pre-backup service failure.
+It failed because the exact primary error acquired a `cleanupErrors` detail
+claiming that standalone archive authority was missing, even though the archive
+path did not exist and there was nothing to delete.
+
+### Implementation
+
+When both archive authority fields are absent, standalone final cleanup now
+proves the unpredictable sibling archive path is absent and records cleanup as
+complete. It does not relax partial-authority handling: if either authority
+field exists, the complete retained pair is still mandatory. If any file,
+directory, or link appears at the no-authority path, absence proof fails and the
+entry is preserved rather than deleted.
+
+### GREEN Verification
+
+- Focused pre-backup failure regression: `1` passed, `0` failed; the exact
+  service failure remained primary with no fabricated cleanup detail.
+- Complete Windows Node 20 rollback contract: `126` passed, `0` failed, `6`
+  Linux-only skips (`132` total).
+- Fixed-image Linux Node 20 rollback contract: `120` passed, `0` failed, `6`
+  Windows-only skips (`126` total).
+
+The real rollback drill must be rerun from the follow-up clean commit with the
+project backend stopped. The failed precondition attempt did not mutate the
+source data and published no authoritative PASS result.
