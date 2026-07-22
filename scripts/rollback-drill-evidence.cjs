@@ -7,8 +7,8 @@ const path = require('node:path')
 const { TextDecoder } = require('node:util')
 const { DEFAULT_LIMITS } = require('../backend-node/src/services/dataBackupService')
 const {
+  FORMAT_VERSION,
   MINIMUM_ZIP_ARCHIVE_BYTES,
-  SUPPORTED_FORMAT_VERSIONS,
 } = require('../backend-node/src/services/dataBackupFormatContract')
 
 const EVIDENCE_SCHEMA = 'localminidrama.rollback-drill.v3'
@@ -830,9 +830,10 @@ function validateEvidenceV3(evidence, expectedVersion, limits = DEFAULT_LIMITS) 
     'secret_policy',
     'excluded_values',
   ], 'rollback evidence backup')
-  assert.ok(
-    SUPPORTED_FORMAT_VERSIONS.includes(evidence.backup.format_version),
-    'rollback evidence backup.format_version is not supported'
+  assert.equal(
+    evidence.backup.format_version,
+    FORMAT_VERSION,
+    `rollback evidence backup.format_version must equal current format ${FORMAT_VERSION}`
   )
   for (const field of [
     'archive_bytes',

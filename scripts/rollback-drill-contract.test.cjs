@@ -140,7 +140,7 @@ function validEvidence(inputMode = 'standalone', version = VERSION) {
     },
     focused_tests: { file: 'backend-node/test/dataBackupService.test.js', passed: 2, total: 2 },
     backup: {
-      format_version: 1,
+      format_version: 2,
       archive_bytes: 64,
       archive_sha256: 'c'.repeat(64),
       archive_retained: checkpointBound,
@@ -278,10 +278,16 @@ function writeDataRoot(dataRoot, values = {}) {
 
 function backupManifest() {
   return {
-    formatVersion: 1,
+    formatVersion: 2,
     fileCount: 3,
     storage: { fileCount: 1 },
-    storySources: { fileCount: 1, referenceCount: 0 },
+    storySources: {
+      entryPrefix: 'story_sources/',
+      fileCount: 1,
+      totalBytes: 6,
+      sha256: 'a'.repeat(64),
+      referenceCount: 0,
+    },
     security: { secretPolicy: 'excluded' },
   }
 }
@@ -1820,25 +1826,21 @@ test('v3 validation and publication reject malformed mode, hashes, booleans, ret
   await assert.rejects(publishEvidence(fixtureRoot, VERSION, boundWithoutRetention), /backup\.archive_retained/)
 })
 
-test('v3 accepts only backup formats supported by the restore service', async (t) => {
+test('v3 rollback evidence requires current backup format 2', async (t) => {
   const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-v3-formats-')
 
-  for (const formatVersion of [1, 2]) {
-    await t.test(`accepts backup format ${formatVersion}`, async () => {
-      const repoRoot = path.join(fixtureRoot, `supported-${formatVersion}`)
-      await fsp.mkdir(repoRoot)
-      const evidence = validEvidence()
-      evidence.backup.format_version = formatVersion
-      assert.equal(validateEvidenceV3(evidence, VERSION), evidence)
-      const publication = await publishEvidence(repoRoot, VERSION, evidence)
-      assert.deepEqual(publication.evidenceBytes, serializeEvidence(evidence))
-      assert.equal(fs.existsSync(publishedDiagnosticPath(repoRoot, publication)), true)
-      assert.equal(fs.existsSync(evidenceOutputPath(repoRoot)), false)
-    })
-  }
+  const supportedRoot = path.join(fixtureRoot, 'supported-2')
+  await fsp.mkdir(supportedRoot)
+  const supportedEvidence = validEvidence()
+  supportedEvidence.backup.format_version = 2
+  assert.equal(validateEvidenceV3(supportedEvidence, VERSION), supportedEvidence)
+  const publication = await publishEvidence(supportedRoot, VERSION, supportedEvidence)
+  assert.deepEqual(publication.evidenceBytes, serializeEvidence(supportedEvidence))
+  assert.equal(fs.existsSync(publishedDiagnosticPath(supportedRoot, publication)), true)
+  assert.equal(fs.existsSync(evidenceOutputPath(supportedRoot)), false)
 
-  for (const formatVersion of [3, 999]) {
-    await t.test(`rejects unsupported backup format ${formatVersion} without publishing`, async () => {
+  for (const formatVersion of [1, 3, 999]) {
+    await t.test(`rejects non-current backup format ${formatVersion} without publishing`, async () => {
       const repoRoot = path.join(fixtureRoot, `unsupported-${formatVersion}`)
       await fsp.mkdir(repoRoot)
       const evidence = validEvidence()
@@ -2086,6 +2088,75 @@ test('bound execution restores the exact retained archive without creating a bac
   assert.equal(evidence.operations.source_data_root_unchanged, true)
   assert.deepEqual(result.evidenceBytes, serializeEvidence(evidence))
   assert.equal(fixture.calls.publish.length, 1)
+})
+
+test('executor rejects legacy and incomplete story-source manifests before rollback-copy checks or PASS', async (t) => {
+  const cases = [
+    {
+      name: 'legacy format 1 without story sources',
+      manifest() {
+        const manifest = backupManifest()
+        manifest.formatVersion = 1
+        delete manifest.storySources
+        return manifest
+      },
+      removeStoryRollback: true,
+    },
+    {
+      name: 'format 2 without story sources',
+      manifest() {
+        const manifest = backupManifest()
+        delete manifest.storySources
+        return manifest
+      },
+    },
+    {
+      name: 'format 2 with incomplete story sources',
+      manifest() {
+        const manifest = backupManifest()
+        manifest.storySources = { fileCount: 1 }
+        return manifest
+      },
+    },
+  ]
+
+  for (const scenario of cases) {
+    await t.test(scenario.name, async (t) => {
+      const fixture = createExecutorFixture(t)
+      const restore = fixture.runtime.restoreDataBackup
+      let archiveHandle
+      let workspace
+      fixture.runtime.createWorkspace = async () => {
+        workspace = await fsp.mkdtemp(path.join(fixture.fixtureRoot, 'format-workspace-'))
+        return workspace
+      }
+      fixture.runtime.cleanupWorkspace = (target) => fsp.rm(target, { recursive: true, force: true })
+      fixture.runtime.hooks = {
+        onArchiveHandleOpened: ({ handle }) => { archiveHandle = handle },
+      }
+      fixture.runtime.restoreDataBackup = async (options) => {
+        const result = await restore(options)
+        const rollback = { ...result.rollback }
+        if (scenario.removeStoryRollback) delete rollback.storySourcesPath
+        return { ...result, manifest: scenario.manifest(), rollback }
+      }
+
+      let thrown
+      try {
+        await executeRollbackDrill(fixture.options, fixture.runtime)
+      } catch (error) {
+        thrown = error
+      }
+
+      assert.ok(thrown)
+      assert.equal(thrown instanceof TypeError, false)
+      assert.match(String(thrown.message), /format 2.*(?:required|storySources)/i)
+      assert.equal(fixture.calls.publish.length, 0)
+      assert.deepEqual(diagnosticRecords(fixture.fixtureRoot), [])
+      assert.equal(fs.existsSync(workspace), false, 'format rejection did not clean its workspace')
+      await assert.rejects(archiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+    })
+  }
 })
 
 test('bound execution stages copied bytes before cleanup and publishes diagnostics only after closure', async (t) => {

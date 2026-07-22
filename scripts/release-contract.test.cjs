@@ -483,7 +483,7 @@ function validStandaloneRollbackSummary() {
       total: 2,
     },
     backup: {
-      format_version: 1,
+      format_version: 2,
       archive_bytes: 64,
       archive_retained: false,
       archive_sha256: 'a'.repeat(64),
@@ -3280,7 +3280,7 @@ if (tool === 'npm') {
       },
       focused_tests: { file: 'backend-node/test/dataBackupService.test.js', passed: 2, total: 2 },
       backup: {
-        format_version: 1,
+        format_version: 2,
         archive_bytes: fs.statSync(archivePath).size,
         archive_sha256: archiveHash,
         archive_retained: true,
@@ -4100,7 +4100,7 @@ if (tool === 'npm') {
         total: 2,
       },
       backup: {
-        format_version: 1,
+        format_version: 2,
         archive_bytes: fs.statSync(archivePath).size,
         archive_sha256: archiveHash,
         archive_retained: true,

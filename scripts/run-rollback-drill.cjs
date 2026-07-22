@@ -18,7 +18,12 @@ const backendRoot = path.join(root, 'backend-node')
 const backendRequire = createRequire(path.join(backendRoot, 'package.json'))
 const Database = backendRequire('better-sqlite3')
 const { loadConfig } = backendRequire('./src/config')
-const { DEFAULT_LIMITS, createDataBackup, restoreDataBackup } = backendRequire('./src/services/dataBackupService')
+const {
+  DEFAULT_LIMITS,
+  FORMAT_VERSION,
+  createDataBackup,
+  restoreDataBackup,
+} = backendRequire('./src/services/dataBackupService')
 const {
   EVIDENCE_SCHEMA,
   assertCheckpointInputPaths,
@@ -512,6 +517,43 @@ function assertParsedOptions(options) {
   assert.equal(path.isAbsolute(options.dataRoot || ''), true, 'checkpoint data root must be absolute')
 }
 
+function assertFormat2Manifest(manifest) {
+  assert.ok(manifest && typeof manifest === 'object' && !Array.isArray(manifest), 'rollback drill manifest is required')
+  assert.equal(
+    manifest.formatVersion,
+    FORMAT_VERSION,
+    `rollback drill backup format ${FORMAT_VERSION} required`,
+  )
+  const storySources = manifest.storySources
+  assert.ok(
+    storySources && typeof storySources === 'object' && !Array.isArray(storySources),
+    `rollback drill format ${FORMAT_VERSION} storySources metadata is required`,
+  )
+  const storySourceFields = ['entryPrefix', 'fileCount', 'referenceCount', 'sha256', 'totalBytes']
+  assert.deepEqual(
+    Object.keys(storySources).sort(),
+    storySourceFields,
+    `rollback drill format ${FORMAT_VERSION} storySources metadata must be complete`,
+  )
+  assert.equal(
+    storySources.entryPrefix,
+    'story_sources/',
+    `rollback drill format ${FORMAT_VERSION} storySources entryPrefix is invalid`,
+  )
+  for (const field of ['fileCount', 'totalBytes', 'referenceCount']) {
+    assert.ok(
+      Number.isSafeInteger(storySources[field]) && storySources[field] >= 0,
+      `rollback drill format ${FORMAT_VERSION} storySources.${field} is invalid`,
+    )
+  }
+  assert.match(
+    storySources.sha256 || '',
+    /^[a-f0-9]{64}$/,
+    `rollback drill format ${FORMAT_VERSION} storySources.sha256 is invalid`,
+  )
+  return manifest
+}
+
 async function resolveSourceData(options, runtime) {
   assertParsedOptions(options)
   if (options.inputMode === 'checkpoint-bound') {
@@ -593,6 +635,7 @@ async function executeRollbackDrill(options, runtime) {
   let sourceDatabaseSha256
   let backup
   let restored
+  let verifiedManifest
   let restoredVerification
   let rollbackCopies
   let evidence
@@ -927,7 +970,8 @@ async function executeRollbackDrill(options, runtime) {
           limits,
         })
         assertDrillNotAborted(signal)
-        assert.equal(backup.manifest.security.secretPolicy, 'excluded', 'rollback backup must exclude credentials')
+        verifiedManifest = assertFormat2Manifest(backup?.manifest)
+        assert.equal(verifiedManifest.security.secretPolicy, 'excluded', 'rollback backup must exclude credentials')
         assert.ok(
           Number.isSafeInteger(backup.archiveBytes) && backup.archiveBytes >= 0,
           'backup archive size is not a non-negative safe integer'
@@ -990,8 +1034,10 @@ async function executeRollbackDrill(options, runtime) {
         limits,
       })
       assertDrillNotAborted(signal)
-      if (backup) assert.deepEqual(restored.manifest, backup.manifest, 'restored manifest differs from the backup manifest')
-      assert.equal(restored.manifest.security.secretPolicy, 'excluded', 'restored rollback backup must exclude credentials')
+      const restoredManifest = assertFormat2Manifest(restored?.manifest)
+      if (backup) assert.deepEqual(restoredManifest, verifiedManifest, 'restored manifest differs from the backup manifest')
+      else verifiedManifest = restoredManifest
+      assert.equal(restoredManifest.security.secretPolicy, 'excluded', 'restored rollback backup must exclude credentials')
       rollbackCopies = {
         database: Boolean(restored.rollback.databasePath && fs.existsSync(restored.rollback.databasePath)),
         storage: Boolean(restored.rollback.storagePath && fs.existsSync(restored.rollback.storagePath)),
@@ -1064,7 +1110,7 @@ async function executeRollbackDrill(options, runtime) {
     const finalArchiveIdentity = await captureRetainedFileIdentity(archiveHandle, archivePath, 'rollback archive')
     assertSamePathIdentity(archiveIdentity, finalArchiveIdentity, 'rollback archive')
 
-    const manifest = backup?.manifest || restored.manifest
+    const manifest = verifiedManifest
     evidence = {
       schema: EVIDENCE_SCHEMA,
       status: 'passed',
