@@ -11,6 +11,7 @@ const { createRequire } = require('node:module')
 const root = path.resolve(__dirname, '..')
 const backendRoot = path.join(root, 'backend-node')
 const backendRequire = createRequire(path.join(backendRoot, 'package.json'))
+const Database = backendRequire('better-sqlite3')
 const { loadConfig } = backendRequire('./src/config')
 const {
   acquireServiceMaintenanceLockSync,
@@ -601,21 +602,47 @@ function recordLauncherCleanupFailure(primaryError, cleanupError) {
   return primaryError ? attachCleanupError(primaryError, cleanupError) : cleanupError
 }
 
+function retainWindowsSqliteControlPaths(databasePath) {
+  const database = new Database(databasePath, { fileMustExist: true })
+  try {
+    database.pragma('busy_timeout = 0')
+    const journalMode = String(database.pragma('journal_mode', { simple: true }) || '').toLowerCase()
+    database.prepare('SELECT 1').get()
+    if (journalMode !== 'wal') {
+      database.close()
+      return null
+    }
+    for (const suffix of ['-wal', '-shm']) {
+      const controlPath = `${databasePath}${suffix}`
+      const information = fs.lstatSync(controlPath)
+      assert.equal(information.isSymbolicLink(), false, `SQLite ${suffix} control path must not be a symbolic link`)
+      assert.equal(information.isFile(), true, `SQLite ${suffix} control path must be a regular file`)
+    }
+    return database
+  } catch (error) {
+    try { database.close() } catch (_) {}
+    throw error
+  }
+}
+
 async function runWindowsRollback({
   parsed,
   config = loadConfig(),
   environment = process.env,
   drillMain = (options) => require('./run-rollback-drill.cjs').main(options),
+  sourcePaths: suppliedSourcePaths,
 } = {}) {
   assert.ok(parsed && typeof parsed === 'object', 'Windows rollback arguments are required')
-  const sourcePaths = parsed.inputMode === 'checkpoint-bound'
+  const sourcePaths = suppliedSourcePaths || (parsed.inputMode === 'checkpoint-bound'
     ? resolveCheckpointSourcePaths(parsed.dataRoot)
-    : resolveStandaloneSourcePaths(config)
+    : resolveStandaloneSourcePaths(config))
   const serviceHost = environment.HOST || config.server?.host || '127.0.0.1'
   const servicePort = Number(environment.PORT) || config.server?.port || 5679
   await assertServiceStopped({ serviceHost, servicePort })
 
   let maintenanceGuard
+  let sourceDatabaseControl
+  let sourceDatabaseControlClosed = false
   let primaryError = null
   try {
     maintenanceGuard = acquireServiceMaintenanceLockSync({
@@ -623,15 +650,27 @@ async function runWindowsRollback({
       storagePath: sourcePaths.storagePath,
       storySourcesPath: sourcePaths.storySourcesPath,
     })
+    if (parsed.inputMode === 'standalone') {
+      sourceDatabaseControl = retainWindowsSqliteControlPaths(sourcePaths.databasePath)
+    }
     await drillMain({
       externalMaintenanceLease: createExternalMaintenanceLease(maintenanceGuard),
     })
   } catch (error) {
     primaryError = error
   } finally {
+    if (sourceDatabaseControl) {
+      try {
+        sourceDatabaseControl.close()
+        sourceDatabaseControlClosed = true
+      } catch (cleanupError) {
+        primaryError = recordLauncherCleanupFailure(primaryError, cleanupError)
+      }
+    }
     if (maintenanceGuard) {
       try {
-        maintenanceGuard.release()
+        if (sourceDatabaseControl && !sourceDatabaseControlClosed) maintenanceGuard.abandon()
+        else maintenanceGuard.release()
       } catch (cleanupError) {
         primaryError = recordLauncherCleanupFailure(primaryError, cleanupError)
       }

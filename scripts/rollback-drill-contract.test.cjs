@@ -8,11 +8,16 @@ const net = require('node:net')
 const os = require('node:os')
 const path = require('node:path')
 const { spawn, spawnSync } = require('node:child_process')
+const { createRequire } = require('node:module')
 const test = require('node:test')
+
+const backendRequire = createRequire(path.join(__dirname, '..', 'backend-node', 'package.json'))
+const Database = backendRequire('better-sqlite3')
 
 const {
   DEFAULT_LIMITS,
   acquireServiceMaintenanceLockSync,
+  createDataBackup,
   createExternalMaintenanceLease,
 } = require('../backend-node/src/services/dataBackupService')
 
@@ -555,6 +560,63 @@ test('Windows rollback launcher holds one external maintenance lease across dril
 
   assert.equal(drillAfter, drillBefore, 'data-root identity changed while the retained lease covered the drill')
   assert.equal(fs.existsSync(lockPath), false, 'Windows launcher did not release its maintenance lease')
+})
+
+test('Windows rollback launcher retains WAL control paths across a real standalone backup', async (t) => {
+  const { runWindowsRollback } = require('./run-rollback-drill-launcher.cjs')
+  const fixtureRoot = temporaryDirectory(t, 'lmd-windows-rollback-wal-')
+  const dataRoot = path.join(fixtureRoot, 'data')
+  const databasePath = path.join(dataRoot, 'drama_generator.db')
+  const storagePath = path.join(dataRoot, 'storage')
+  const storySourcesPath = path.join(dataRoot, 'story_sources')
+  const firstArchivePath = path.join(fixtureRoot, 'without-retained-reader.zip')
+  const secondArchivePath = path.join(fixtureRoot, 'with-retained-reader.zip')
+  fs.mkdirSync(storagePath, { recursive: true })
+  fs.mkdirSync(storySourcesPath, { recursive: true })
+  fs.writeFileSync(path.join(storagePath, 'asset.txt'), 'asset')
+  const database = new Database(databasePath)
+  database.pragma('journal_mode = WAL')
+  database.exec('CREATE TABLE records (id INTEGER PRIMARY KEY, value TEXT NOT NULL); INSERT INTO records (value) VALUES (\'fixture\')')
+  database.close()
+  const sourcePaths = { databasePath, storagePath, storySourcesPath }
+
+  const transientGuard = acquireServiceMaintenanceLockSync(sourcePaths)
+  try {
+    const before = fs.statSync(dataRoot, { bigint: true }).ctimeNs
+    await createDataBackup({
+      ...sourcePaths,
+      outputPath: firstArchivePath,
+      externalMaintenanceLease: createExternalMaintenanceLease(transientGuard),
+    })
+    const after = fs.statSync(dataRoot, { bigint: true }).ctimeNs
+    assert.notEqual(after, before, 'WAL backup did not reproduce transient sidecar ctime drift')
+  } finally {
+    transientGuard.release()
+  }
+
+  let drillBefore
+  let drillAfter
+  await runWindowsRollback({
+    parsed: { inputMode: 'standalone', archivePath: null, dataRoot: null },
+    sourcePaths,
+    config: { server: { host: '127.0.0.1', port: await unusedTcpPort() } },
+    environment: {},
+    drillMain: async ({ externalMaintenanceLease }) => {
+      assert.equal(fs.existsSync(`${databasePath}-wal`), true, 'retained WAL path is missing before the drill')
+      assert.equal(fs.existsSync(`${databasePath}-shm`), true, 'retained SHM path is missing before the drill')
+      drillBefore = fs.statSync(dataRoot, { bigint: true }).ctimeNs
+      await createDataBackup({
+        ...sourcePaths,
+        outputPath: secondArchivePath,
+        externalMaintenanceLease,
+      })
+      drillAfter = fs.statSync(dataRoot, { bigint: true }).ctimeNs
+    },
+  })
+
+  assert.equal(drillAfter, drillBefore, 'WAL control paths changed the data-root identity during the drill')
+  assert.equal(fs.existsSync(`${databasePath}-wal`), false, 'retained WAL path was not released')
+  assert.equal(fs.existsSync(`${databasePath}-shm`), false, 'retained SHM path was not released')
 })
 
 test('rollback launcher fails closed when Docker inspect fails for a CID that still exists', () => {
