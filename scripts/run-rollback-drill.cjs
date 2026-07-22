@@ -11,6 +11,7 @@ const { spawnSync } = require('node:child_process')
 const { types: utilTypes } = require('node:util')
 
 const MAX_CLEANUP_ERROR_DETAILS = 8
+const MAX_THROWN_DIAGNOSTIC_BYTES = 64 * 1024
 
 const root = path.resolve(__dirname, '..')
 const backendRoot = path.join(root, 'backend-node')
@@ -30,18 +31,25 @@ const {
   publishEvidence,
   serializeEvidence,
 } = require('./rollback-drill-evidence.cjs')
+const {
+  assertPrivateCleanupBoundary,
+  decodeExternalMaintenanceLease,
+} = require('./run-rollback-drill-launcher.cjs')
 
 let activeWorkspace = null
 let activeAbortController = null
 let interruptedSignal = null
 let interruptedExitCode = null
 const workspaceSignalHandlers = new Map()
+const windowsOwnedPathDeletionScript = path.join(__dirname, 'remove-rollback-owned-path.ps1')
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd || root,
     encoding: options.encoding,
     stdio: options.stdio,
+    timeout: options.timeout,
+    killSignal: 'SIGKILL',
     windowsHide: true,
   })
   if (result.error) throw result.error
@@ -50,7 +58,7 @@ function run(command, args, options = {}) {
 }
 
 function gitOutput(args) {
-  return run('git', args, { encoding: 'utf8' })
+  return run('git', args, { encoding: 'utf8', timeout: 30000 })
 }
 
 function assertCleanSourceTree() {
@@ -136,7 +144,7 @@ function throwPrimaryOrCleanup(hasPrimaryError, primaryError, cleanupErrors) {
   }
 }
 
-function renderThrownValue(value) {
+function renderPrimaryThrownValue(value) {
   if (value === undefined) return 'undefined'
   if (value === null) return 'null'
   if (typeof value === 'string') return value.length === 0 ? "''" : value
@@ -154,6 +162,30 @@ function renderThrownValue(value) {
     }
   } catch {}
   return '[unrenderable thrown object]'
+}
+
+function renderThrownValue(value) {
+  const sections = [renderPrimaryThrownValue(value)]
+  if (
+    (typeof value === 'object' || typeof value === 'function') &&
+    value !== null &&
+    !utilTypes.isProxy(value)
+  ) {
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(value, 'cleanupErrors')
+      if (descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+        const cleanupErrors = copyBoundedOwnArrayDataValues(descriptor.value, MAX_CLEANUP_ERROR_DETAILS)
+        cleanupErrors.forEach((cleanupError, index) => {
+          const detail = Buffer.from(renderPrimaryThrownValue(cleanupError), 'utf8')
+          sections.push(`[cleanup ${index + 1}] ${detail.subarray(0, 4096).toString('utf8')}`)
+        })
+      }
+    } catch {}
+  }
+  const rendered = sections.join('\n')
+  const bytes = Buffer.from(rendered, 'utf8')
+  if (bytes.length <= MAX_THROWN_DIAGNOSTIC_BYTES) return rendered
+  return `${bytes.subarray(0, MAX_THROWN_DIAGNOSTIC_BYTES - 32).toString('utf8')}\n[diagnostic truncated]`
 }
 
 function nonNegativeBigInt(value, label) {
@@ -253,6 +285,107 @@ async function assertOwnedHandleUnlinked(handle, expected, label) {
   }
   if (expected.type === 'file') assert.equal(current.size, expected.size, `${label} retained size changed`)
   assert.equal(current.nlink, 0n, `${label} original retained object was not unlinked`)
+}
+
+function privateCleanupClaimPath(targetPath) {
+  const claimName = `.${path.basename(targetPath)}.localminidrama-cleanup-${crypto.randomBytes(16).toString('hex')}`
+  return path.join(path.dirname(targetPath), claimName)
+}
+
+async function assertPathEntryAbsent(targetPath, label) {
+  try {
+    await fsp.lstat(targetPath)
+  } catch (error) {
+    if (error?.code === 'ENOENT') return
+    throw error
+  }
+  assert.fail(`${label} path entry still exists after cleanup`)
+}
+
+async function restoreUnownedClaimWithoutOverwrite(claimPath, targetPath, expectedType) {
+  const claimStat = await fsp.lstat(claimPath, { bigint: true })
+  if (expectedType === 'file' && claimStat.isFile()) {
+    await fsp.link(claimPath, targetPath)
+    return
+  }
+  if (expectedType === 'directory' && claimStat.isDirectory()) {
+    await fsp.symlink(claimPath, targetPath, process.platform === 'win32' ? 'junction' : 'dir')
+  }
+}
+
+async function assertClaimOwnedOrPreserve(handle, claimPath, targetPath, expected, label) {
+  try {
+    await assertOwnedPathStillLinked(handle, claimPath, expected, `${label} private claim`)
+  } catch (error) {
+    const preservationErrors = []
+    try {
+      await restoreUnownedClaimWithoutOverwrite(claimPath, targetPath, expected.type)
+    } catch (preservationError) {
+      preservationErrors.push(preservationError)
+    }
+    attachCleanupErrors(error, preservationErrors)
+    throw error
+  }
+}
+
+async function claimOwnedPath(handle, targetPath, expected, label) {
+  const claimPath = privateCleanupClaimPath(targetPath)
+  await fsp.rename(targetPath, claimPath)
+  await assertClaimOwnedOrPreserve(handle, claimPath, targetPath, expected, label)
+  return claimPath
+}
+
+function windowsOwnedPathIdentity(expected, label) {
+  assert.ok(expected && typeof expected === 'object', `${label} retained identity is required`)
+  assert.ok(typeof expected.dev === 'bigint' && expected.dev >= 0n && expected.dev <= 0xffffffffn, `${label} retained device identity is invalid`)
+  assert.ok(typeof expected.ino === 'bigint' && expected.ino >= 0n && expected.ino <= 0xffffffffffffffffn, `${label} retained inode identity is invalid`)
+  assert.ok(expected.type === 'file' || expected.type === 'directory', `${label} retained type is invalid`)
+  return `${expected.dev.toString(16).padStart(8, '0')}:${expected.ino.toString(16).padStart(16, '0')}`
+}
+
+async function removeOwnedClaimWindows({
+  claimPath,
+  expected,
+  label,
+  maximumEntries = (DEFAULT_LIMITS.maxFiles * DEFAULT_LIMITS.maxPathDepth) + 1,
+  timeoutMilliseconds = 120000,
+}) {
+  assert.equal(process.platform, 'win32', `${label} handle-bound cleanup requires Windows`)
+  assert.equal(path.isAbsolute(claimPath), true, `${label} claim path must be absolute`)
+  assert.ok(Number.isSafeInteger(maximumEntries) && maximumEntries > 0 && maximumEntries <= 1600001, `${label} cleanup entry limit is invalid`)
+  assert.ok(Number.isSafeInteger(timeoutMilliseconds) && timeoutMilliseconds > 0 && timeoutMilliseconds <= 300000, `${label} cleanup timeout is invalid`)
+  const expectedIdentity = windowsOwnedPathIdentity(expected, label)
+  const shell = String(process.env.LMD_PWSH_EXE || '').trim() || 'powershell.exe'
+  const result = spawnSync(shell, [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    windowsOwnedPathDeletionScript,
+    '-Path',
+    claimPath,
+    '-ExpectedIdentity',
+    expectedIdentity,
+    '-ExpectedType',
+    expected.type,
+    '-MaximumEntries',
+    String(maximumEntries),
+    '-TimeoutMilliseconds',
+    String(timeoutMilliseconds),
+  ], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: timeoutMilliseconds + 10000,
+    windowsHide: true,
+  })
+  if (result.error) {
+    throw new Error(`${label} handle-bound cleanup could not execute for preserved claim ${JSON.stringify(claimPath)}: ${result.error.message}`, { cause: result.error })
+  }
+  if (result.status !== 0) {
+    const diagnostic = String(result.stderr || result.stdout || '').trim()
+    throw new Error(`${label} handle-bound cleanup failed for preserved claim ${JSON.stringify(claimPath)}${diagnostic ? `: ${diagnostic}` : ` with exit code ${result.status}`}`)
+  }
 }
 
 function configuredPath(value, fallback) {
@@ -429,13 +562,22 @@ async function executeRollbackDrill(options, runtime) {
   assert.ok(Number.isInteger(runtime.focusedTestCount) && runtime.focusedTestCount > 0, 'focused test count is invalid')
   const limits = normalizeDrillLimits(runtime.limits)
   const { dataRoot, sourcePaths } = await resolveSourceData(options, runtime)
-  await runtime.runFocusedTests?.()
-  await (runtime.prepareEvidenceTarget || prepareEvidenceTarget)(repoRoot, runtime.version)
-
   const fingerprint = runtime.fingerprintDataRoot || fingerprintDataRoot
   const hashFileHandle = runtime.sha256FileHandle || sha256FileHandle
+  const fingerprintOptions = runtime.externalMaintenanceLease
+    ? Object.freeze({
+        volatileControlPaths: Object.freeze([`${sourcePaths.databasePath}.maintenance.lock`]),
+      })
+    : Object.freeze({})
+  await runtime.runFocusedTests?.()
+  await (runtime.prepareEvidenceTarget || prepareEvidenceTarget)(repoRoot, runtime.version)
   const beforeRootIdentity = await capturePathIdentity(dataRoot, 'directory')
-  const beforeDataRootSha256 = await fingerprint(dataRoot, runtime.fingerprintHooks?.before, limits)
+  const beforeDataRootSha256 = await fingerprint(
+    dataRoot,
+    runtime.fingerprintHooks?.before,
+    limits,
+    fingerprintOptions
+  )
   const signal = runtime.signal || new AbortController().signal
   const createWorkspace = runtime.createWorkspace || (() => fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-rollback-drill-')))
   const removeWorkspace = runtime.cleanupWorkspace || cleanupWorkspace
@@ -461,12 +603,26 @@ async function executeRollbackDrill(options, runtime) {
   let workspaceMarkerHandle
   let workspaceMarkerIdentity
   let workspaceMarkerPath
+  let workspaceMarkerClaimPath
+  let workspaceClaimPath
+  let workspaceCleanupBlockedError
   let workspaceRemovalProven = false
   let hasPrimaryError = false
   let primaryError
+  let archiveClaimPath
+  let archiveCleanupBlockedError
   let standaloneArchiveRemoved = false
   const closeHandle = runtime.closeRetainedHandle || ((handle) => handle.close())
   const removeArchive = runtime.removeStandaloneArchive || removeStandaloneArchive
+  const removeOwnedClaim = runtime.removeOwnedClaim || (async ({ claimPath, expected, label, maximumEntries }) => {
+    if (process.platform === 'win32') {
+      return removeOwnedClaimWindows({ claimPath, expected, label, maximumEntries })
+    }
+    assertPrivateCleanupBoundary()
+    if (expected.type === 'directory') return removeWorkspace(claimPath)
+    if (label === 'standalone rollback archive') return removeArchive(claimPath)
+    return fsp.unlink(claimPath)
+  })
 
   async function closeConsumedHandle(handle, label) {
     let hasCloseError = false
@@ -519,39 +675,93 @@ async function executeRollbackDrill(options, runtime) {
 
   async function removeWorkspaceWithProof() {
     if (!workspace || workspaceRemovalProven) return
+    if (workspaceCleanupBlockedError) throw workspaceCleanupBlockedError
     assert.ok(workspaceMarkerHandle && workspaceMarkerIdentity && workspaceMarkerPath, 'workspace marker authority is missing')
     assert.ok(workspaceDirectoryHandle && workspaceDirectoryIdentity, 'workspace directory authority is missing')
 
-    await assertOwnedPathStillLinked(
-      workspaceMarkerHandle,
-      workspaceMarkerPath,
-      workspaceMarkerIdentity,
-      'rollback workspace marker'
-    )
-    await fsp.unlink(workspaceMarkerPath)
+    try {
+      workspaceMarkerClaimPath = workspaceMarkerClaimPath || await claimOwnedPath(
+        workspaceMarkerHandle,
+        workspaceMarkerPath,
+        workspaceMarkerIdentity,
+        'rollback workspace marker'
+      )
+      await assertClaimOwnedOrPreserve(
+        workspaceMarkerHandle,
+        workspaceMarkerClaimPath,
+        workspaceMarkerPath,
+        workspaceMarkerIdentity,
+        'rollback workspace marker'
+      )
+    } catch (error) {
+      workspaceCleanupBlockedError = error
+      throw error
+    }
+    try {
+      await runtime.hooks?.beforeOwnedClaimRemoval?.({
+        claimPath: workspaceMarkerClaimPath,
+        expected: workspaceMarkerIdentity,
+        label: 'rollback workspace marker',
+      })
+      await removeOwnedClaim({
+        claimPath: workspaceMarkerClaimPath,
+        expected: workspaceMarkerIdentity,
+        label: 'rollback workspace marker',
+        maximumEntries: 1,
+      })
+    } catch (error) {
+      workspaceCleanupBlockedError = error
+      throw error
+    }
     await assertOwnedHandleUnlinked(workspaceMarkerHandle, workspaceMarkerIdentity, 'rollback workspace marker')
+    workspaceMarkerClaimPath = null
     await closeWorkspaceMarkerHandle()
-    await assertOwnedPathStillLinked(
-      workspaceDirectoryHandle,
-      workspace,
-      workspaceDirectoryIdentity,
-      'rollback workspace'
-    )
+
+    try {
+      workspaceClaimPath = workspaceClaimPath || await claimOwnedPath(
+        workspaceDirectoryHandle,
+        workspace,
+        workspaceDirectoryIdentity,
+        'rollback workspace'
+      )
+      await assertClaimOwnedOrPreserve(
+        workspaceDirectoryHandle,
+        workspaceClaimPath,
+        workspace,
+        workspaceDirectoryIdentity,
+        'rollback workspace'
+      )
+    } catch (error) {
+      workspaceCleanupBlockedError = error
+      throw error
+    }
 
     let hasRemovalError = false
     let removalError
     try {
-      await removeWorkspace(workspace)
+      await runtime.hooks?.beforeOwnedClaimRemoval?.({
+        claimPath: workspaceClaimPath,
+        expected: workspaceDirectoryIdentity,
+        label: 'rollback workspace',
+      })
+      await removeOwnedClaim({
+        claimPath: workspaceClaimPath,
+        expected: workspaceDirectoryIdentity,
+        label: 'rollback workspace',
+        maximumEntries: (limits.maxFiles * limits.maxPathDepth) + 1,
+      })
     } catch (error) {
       hasRemovalError = true
       removalError = error
+      workspaceCleanupBlockedError = error
     }
 
     const proofErrors = []
     let removalProofPassed = false
     try {
       await assertOwnedHandleUnlinked(workspaceDirectoryHandle, workspaceDirectoryIdentity, 'rollback workspace')
-      assert.equal(fs.existsSync(workspace), false, 'rollback workspace path still exists after cleanup')
+      workspaceClaimPath = null
+      await assertPathEntryAbsent(workspace, 'rollback workspace')
       removalProofPassed = true
       workspaceRemovalProven = true
       if (activeWorkspace === workspace) activeWorkspace = null
@@ -569,27 +779,52 @@ async function executeRollbackDrill(options, runtime) {
 
   async function removeStandaloneArchiveWithProof() {
     if (options.inputMode !== 'standalone' || !archivePath || standaloneArchiveRemoved) return
+    if (archiveCleanupBlockedError) throw archiveCleanupBlockedError
     assert.ok(archiveHandle && archiveLinkIdentity, 'standalone rollback archive authority is missing')
-    await assertOwnedPathStillLinked(
-      archiveHandle,
-      archivePath,
-      archiveLinkIdentity,
-      'standalone rollback archive'
-    )
+    try {
+      archiveClaimPath = archiveClaimPath || await claimOwnedPath(
+        archiveHandle,
+        archivePath,
+        archiveLinkIdentity,
+        'standalone rollback archive'
+      )
+      await assertClaimOwnedOrPreserve(
+        archiveHandle,
+        archiveClaimPath,
+        archivePath,
+        archiveLinkIdentity,
+        'standalone rollback archive'
+      )
+    } catch (error) {
+      archiveCleanupBlockedError = error
+      throw error
+    }
 
     let hasRemovalError = false
     let removalError
     try {
-      await removeArchive(archivePath)
+      await runtime.hooks?.beforeOwnedClaimRemoval?.({
+        claimPath: archiveClaimPath,
+        expected: archiveLinkIdentity,
+        label: 'standalone rollback archive',
+      })
+      await removeOwnedClaim({
+        claimPath: archiveClaimPath,
+        expected: archiveLinkIdentity,
+        label: 'standalone rollback archive',
+        maximumEntries: 1,
+      })
     } catch (error) {
       hasRemovalError = true
       removalError = error
+      archiveCleanupBlockedError = error
     }
 
     const proofErrors = []
     try {
       await assertOwnedHandleUnlinked(archiveHandle, archiveLinkIdentity, 'standalone rollback archive')
-      assert.equal(fs.existsSync(archivePath), false, 'standalone rollback archive path still exists after cleanup')
+      archiveClaimPath = null
+      await assertPathEntryAbsent(archivePath, 'standalone rollback archive')
       standaloneArchiveRemoved = true
     } catch (error) {
       proofErrors.push(error)
@@ -682,6 +917,7 @@ async function executeRollbackDrill(options, runtime) {
           outputPath: archivePath,
           serviceHost: runtime.serviceHost,
           servicePort: runtime.servicePort,
+          externalMaintenanceLease: runtime.externalMaintenanceLease,
           signal,
           limits,
         })
@@ -802,7 +1038,12 @@ async function executeRollbackDrill(options, runtime) {
     assert.equal(finalArchiveSha256, archiveSha256, 'rollback archive bytes changed')
     await runtime.hooks?.afterFinalArchiveHash?.({ archivePath, dataRoot })
 
-    const afterDataRootSha256 = await fingerprint(dataRoot, runtime.fingerprintHooks?.after, limits)
+    const afterDataRootSha256 = await fingerprint(
+      dataRoot,
+      runtime.fingerprintHooks?.after,
+      limits,
+      fingerprintOptions
+    )
     const afterRootIdentity = await capturePathIdentity(dataRoot, 'directory')
     assertSamePathIdentity(beforeRootIdentity, afterRootIdentity, 'source data root')
     assert.equal(afterDataRootSha256, beforeDataRootSha256, 'source data root fingerprint changed')
@@ -966,14 +1207,23 @@ async function executeRollbackDrill(options, runtime) {
 
 async function main() {
   const drillOptions = parseDrillArguments(process.argv.slice(2))
+  let externalMaintenanceLease = null
+  let commit
+  if (process.platform === 'linux') {
+    assertPrivateCleanupBoundary()
+    externalMaintenanceLease = decodeExternalMaintenanceLease(process.env.LMD_ROLLBACK_MAINTENANCE_LEASE)
+    commit = String(process.env.LMD_ROLLBACK_SOURCE_COMMIT || '').toLowerCase()
+    assert.match(commit, /^[a-f0-9]{40}$/, 'Linux rollback requires a launcher-proven source commit')
+  } else {
+    assertCleanSourceTree()
+    commit = gitOutput(['rev-parse', 'HEAD']).toLowerCase()
+    assert.match(commit, /^[a-f0-9]{40}$/, 'rollback drill requires a full Git commit')
+  }
   const packageJson = backendRequire('./package.json')
   const config = loadConfig()
   const focusedTestPath = path.join(backendRoot, 'test', 'dataBackupService.test.js')
   const focusedTestCount = (fs.readFileSync(focusedTestPath, 'utf8').match(/^test\(/gm) || []).length
   assert.ok(focusedTestCount > 0, 'backup and restore test inventory is empty')
-  assertCleanSourceTree()
-  const commit = gitOutput(['rev-parse', 'HEAD']).toLowerCase()
-  assert.match(commit, /^[a-f0-9]{40}$/, 'rollback drill requires a full Git commit')
   const controller = new AbortController()
   activeAbortController = controller
   interruptedSignal = null
@@ -988,9 +1238,11 @@ async function main() {
       storySourcesPath: path.join(backendRoot, 'data', 'story_sources'),
     },
     focusedTestCount,
+    externalMaintenanceLease,
     runFocusedTests: () => run(process.execPath, ['--test', '--test-concurrency=1', 'test/dataBackupService.test.js'], {
       cwd: backendRoot,
       stdio: 'inherit',
+      timeout: 600000,
     }),
     createDataBackup,
     restoreDataBackup,
@@ -1030,4 +1282,10 @@ if (require.main === module) {
   })
 }
 
-module.exports = { executeRollbackDrill, main, renderThrownValue, sha256FileHandle }
+module.exports = {
+  executeRollbackDrill,
+  main,
+  removeOwnedClaimWindows,
+  renderThrownValue,
+  sha256FileHandle,
+}

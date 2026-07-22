@@ -701,9 +701,10 @@ Git emitted only the checkout's LF-to-CRLF notices.
   exact rejection.
 - File diagnostics and legacy files are never removed or moved. A failed
   diagnostic may remain for investigation but cannot be mistaken for PASS.
-- The checkpoint summary is opened once after atomic no-overwrite publication;
-  its retained handle proves bytes and digest and denies write/delete sharing
-  until metadata publication has completed.
+- Superseded historical note: this section originally described opening the
+  checkpoint summary after a no-overwrite publication. The final Review Fix 5
+  at the end of this report replaces that model with direct final-path
+  `FileMode.CreateNew` creation through one retained read/write authority.
 - Workflow `pipefail` preserves failures from the drill, `tee`, or validator;
   diagnostic files and complete logs remain uploadable artifacts.
 
@@ -1000,3 +1001,497 @@ deleting it; ordinary non-regular replacements remain at the original path.
 The immutable resulting follow-up commit SHA is reported in the final handoff.
 Embedding it in this tracked report would change the commit object and produce
 a different SHA.
+
+## Review Fix 5: Final Direct Authorities And Bounded Workflow Pumps
+
+Review-fix date: 2026-07-22
+
+Cumulative Task 4 review base:
+`25c869dfb39e87251c76bcd9fb849926cd7c98dd`
+
+### Findings Addressed
+
+- Both `rollback-drill-summary.json` and `metadata.json` are created directly at
+  their final path with `FileMode.CreateNew`. The same retained read/write
+  authority writes, durably flushes, verifies exact bytes and final-path
+  identity, and remains open through its required trust boundary. There is no
+  move, close, or pathname reopen between creation and authorization.
+- Native stdout and stderr reads start before asynchronous stdin pumping. All
+  three streams and process completion share one deadline; timeout terminates
+  the process tree and closes stdin without allowing a blocked pipe write to
+  bypass the deadline.
+- CI and release wrap the rollback drill with a bounded main-command timeout,
+  fully write every retained stderr slice, and bound stderr-drainer shutdown.
+  Drill, `tee`, validator, truncation, and inherited-writer failures all remain
+  independently observable and fail the workflow.
+- Workspace marker, workspace tree, and standalone archive cleanup now claim
+  a pathname atomically before deletion and verify the private claim against
+  the retained original handle. Unrelated replacements remain preserved.
+
+### Supersession
+
+Any earlier wording in this report that describes temporary-file movement or
+opening a final pathname after publication is historical evidence only. This
+section is the current Task 4 authority and cleanup model.
+
+## Review Fix 6: Native Platform Containment
+
+Review-fix date: 2026-07-22
+
+Cumulative Task 4 review base:
+`25c869dfb39e87251c76bcd9fb849926cd7c98dd`
+
+### Findings Addressed
+
+- Windows launches the checkpoint child suspended, assigns it to a
+  kill-on-close Job Object, and only then resumes it. Timeout terminates the
+  complete job and waits for zero active processes. Bounded native pipes cover
+  stdout, stderr, and stdin under one deadline.
+- Windows marker, workspace, and archive claims are removed through retained
+  handles on NTFS/ReFS. Replacement identities and cross-type replacements are
+  preserved instead of being deleted by a later pathname operation.
+- POSIX cleanup is permitted only inside an actual Docker container carrying
+  the launcher marker. The fixed-digest Node 20 slim container has no network,
+  no capabilities, no privilege escalation, a read-only root and source/data
+  mounts, and a private tmpfs owned by the selected UID/GID. Only the validated
+  repository diagnostic directory is writable, and symbolic-link components
+  are rejected before Docker starts.
+- The Linux host proves a clean Git tree and full commit before launch. The
+  commit is passed explicitly to the container; a successful child is accepted
+  only after the host proves the same clean revision again. This avoids relying
+  on unavailable or checkout-dependent Git LFS filters inside the container.
+- Before Docker starts, the host proves the backend port is stopped and holds a
+  service maintenance guard for the source data root. The random lease is
+  validated from the read-only mount before source capture, before archive
+  publication, and after publication. Wrong or mutated leases fail closed, and
+  normal Docker success or failure releases the host guard.
+
+### RED Evidence
+
+- A real fixed-image probe using `mode=700` tmpfs plus an unprivileged UID
+  failed `mkdtemp('/tmp/...')` with `EACCES`.
+- The original slim image had no Git; the larger official image had Git but no
+  Git LFS. A real read-only repository probe failed with
+  `git-lfs filter-process: git-lfs: not found`. Disabling the filter marked the
+  Windows/CRLF checkout broadly dirty, so it could not be an authority.
+- The executable fake-Docker test initially accepted a listening host service
+  and started Docker with status zero.
+- The diagnostic symlink regression initially failed because no physical
+  diagnostic-directory boundary function existed.
+- The executor lease-forwarding regression received `undefined`, and the
+  backend external-lease test had no API capable of using the host guard with a
+  read-only source mount.
+
+### GREEN Verification
+
+Fixed Node 20 Linux rollback contract, including executable launcher, active
+host-service rejection, host source proof, private cleanup, and lease transfer:
+
+```powershell
+docker run --rm --volume "${PWD}:/workspace" --volume lmd-task4-node20-deps:/workspace/backend-node/node_modules --workdir /workspace node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 node --test scripts/rollback-drill-contract.test.cjs
+```
+
+Exit code: `0`. Tests: `111` passed, `0` failed, `6` platform skips.
+
+Fixed Node 20 Linux backup/restore contract with the external lease success,
+mismatch, and mutation regressions:
+
+```powershell
+docker run --rm --volume "${PWD}:/workspace" --volume lmd-task4-node20-deps:/workspace/backend-node/node_modules --workdir /workspace/backend-node node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 node --test --test-concurrency=1 test/dataBackupService.test.js
+```
+
+Exit code: `0`. Tests: `46` passed, `0` failed, `0` skipped.
+
+Fixed Node 20 Windows rollback contract:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test scripts\rollback-drill-contract.test.cjs
+```
+
+Exit code: `0`. Tests: `120` passed, `0` failed, `3` Linux-only skips.
+The optional Windows symbolic-link fixture remained unavailable because this
+host denied link creation with `EPERM`; file/directory and every cross-type
+replacement case passed.
+
+Node 20 syntax checks for the backend service, launcher, drill, and rollback
+contract all exited `0`. `git diff --check` exited `0` with only existing
+LF-to-CRLF checkout warnings.
+
+### Review-Fix Changed Files
+
+- `.github/workflows/ci.yml`
+- `.github/workflows/release.yml`
+- `.superpowers/sdd/rollback-security-task-4-report.md`
+- `backend-node/src/services/dataBackupService.js`
+- `backend-node/test/dataBackupService.test.js`
+- `docs/quickstart.md`
+- `package.json`
+- `scripts/create-release-rollback-checkpoint.ps1`
+- `scripts/release-contract.test.cjs`
+- `scripts/remove-rollback-owned-path.ps1`
+- `scripts/rollback-drill-contract.test.cjs`
+- `scripts/run-rollback-drill-launcher.cjs`
+- `scripts/run-rollback-drill.cjs`
+
+### Residual Risks And Deferred Gates
+
+- A same-permission process that can rewrite and restore the source checkout,
+  replace the maintenance lease with identical bytes, or control Docker is
+  outside the stated threat model. The ordinary edit case is covered by the
+  host pre/post clean-revision proof.
+- Administrator/SYSTEM injection and Docker-daemon compromise remain outside
+  the boundary. An uncatchable host termination can leave the maintenance
+  lease; the documented inspected recovery command remains required.
+- The real clean-tree Linux container drill must run after this change is
+  committed, because the drill intentionally rejects an uncommitted source
+  tree. The final release suite and all same-SHA Docker/checkpoint/restore gates
+  remain required before release and are not claimed by this section.
+
+## Review Fix 7: Lease Identity And Interrupt-Safe Container Cleanup
+
+### Independent Finding Intake
+
+The next independent security review reported `Critical 0 / Important 3 /
+Minor 1`:
+
+1. The external service lease compared copyable JSON fields but did not bind
+   the original lock inode or require a fresh heartbeat.
+2. A signal could terminate the synchronous Docker CLI without proving that
+   the daemon-owned container had stopped before the host lease was released.
+3. `AssignProcessToJobObject` failure could leave the newly created suspended
+   process outside the Job Object.
+4. The Linux operator prerequisites did not name Git, Git LFS, and installed
+   backend dependencies.
+
+### RED Evidence
+
+- The external-lease identity test first received the v1 lease schema and had
+  no `device` or `inode` fields.
+- The hardened Linux invocation test first failed because `--cidfile`,
+  `--label`, and `--name` were absent.
+- The Windows native bridge source test first failed because it had no direct
+  `TerminateProcess` fallback or injected assignment-failure probe.
+- The CI/release workflow contract first failed because it had no container
+  ownership environment or EXIT cleanup and still used a five-second TERM to
+  KILL grace period.
+
+### Implementation
+
+- External maintenance leases now use
+  `localminidrama.maintenance-lease.v2`, bind canonical decimal `dev`/`ino`,
+  compare the current path to that identity at every backup checkpoint, and
+  require valid, ordered, non-future, non-stale `createdAt`/`heartbeatAt`
+  values. Service-lock release checks descriptor and path identity before and
+  after closing the descriptor, so a replacement path is preserved.
+- The Linux launcher now runs Docker asynchronously while a service heartbeat
+  remains live. It owns a 128-bit random container name and label plus a
+  private CID file, catches SIGINT/SIGTERM, terminates the CLI with a bounded
+  escalation, and uses bounded Docker list/stop/kill/rm commands. It requires
+  a delayed final empty-label observation before releasing the service guard.
+  If cleanup cannot be proven after a launch attempt, it abandons the runtime
+  guard while retaining the persistent lock for inspected recovery.
+- CI and release workflows supply the same private CID/name/label contract,
+  repeat bounded daemon cleanup in EXIT/INT/TERM paths, and allow 30 seconds
+  between TERM and KILL. The outer pipeline bound is 760 seconds so the
+  720-second drill has time to complete its cleanup proof.
+- The Windows bridge directly terminates an unassigned suspended process and
+  waits at most two seconds for exit. Its injected assignment-failure test
+  verifies the reported PID no longer exists under Windows PowerShell 5.1 and
+  PowerShell 7.
+- The operator guide now declares Docker, Git, Git LFS, and lockfile-installed
+  backend dependencies, and documents lock identity, cleanup ordering, and
+  fail-closed retained-lease recovery.
+
+### GREEN Verification
+
+Current Linux Node 20 rollback contract in the fixed slim image:
+
+```powershell
+docker run --rm --volume "${PWD}:/workspace" --volume "lmd-task4-node20-deps:/workspace/backend-node/node_modules" --workdir /workspace node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 node --test scripts/rollback-drill-contract.test.cjs
+```
+
+Exit code: `0`. Tests: `113` passed, `0` failed, `6` platform skips.
+
+Current Linux Node 20 backup/restore contract:
+
+```powershell
+docker run --rm --volume "${PWD}:/workspace" --volume "lmd-task4-node20-deps:/workspace/backend-node/node_modules" --workdir /workspace/backend-node node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 node --test --test-concurrency=1 test/dataBackupService.test.js
+```
+
+Exit code: `0`. Tests: `48` passed, `0` failed, `0` skipped.
+
+Current Windows rollback contract:
+
+```powershell
+node --test scripts/rollback-drill-contract.test.cjs
+```
+
+Exit code: `0`. Tests: `120` passed, `0` failed, `5` Linux-only skips.
+
+The executable Linux workflow-shell contract passed in the full Node 20 image,
+including drill, tee, validator, stderr truncation, inherited-writer, and
+timeout propagation cases. The Windows injected Job assignment failure passed
+under both required PowerShell hosts.
+
+The complete Node 20 release contract then exited `0` with `205` passed, `0`
+failed, and `1` platform skip. Node 20 syntax checks and `git diff --check`
+also exited `0`; the credential endpoint/key regression scan returned no
+tracked or untracked repository matches.
+
+### Remaining Gate
+
+This section records implementation and controller verification, not the
+independent final verdict. Two fresh reviewers must still report
+`Critical/Important/Minor 0/0/0` on the final bytes. After commit, the real
+clean-tree Linux `npm run verify:rollback` and same-SHA release gates remain
+mandatory.
+
+## Review Fix 8: Retain Workflow Control Evidence On Cleanup Failure
+
+Review-fix date: 2026-07-22
+
+### Finding Addressed
+
+The CI and release EXIT paths correctly skipped container cleanup when the
+rollback session could not be proven stopped, but they still removed the
+pipeline control files whenever session cleanup alone succeeded. A later
+container-cleanup failure therefore contradicted the emitted diagnostic that
+control evidence remained. Both the trap path and the normal post-pipeline
+path now remove the stderr FIFO, pipeline script, pipeline status, and control
+directory only when session cleanup and container cleanup both succeed.
+
+### RED And GREEN Evidence
+
+The workflow contract first failed for both CI and release because their
+cleanup predicates contained only the session status. After the workflow fix,
+the same focused Node 20 command passed both selected tests:
+
+```powershell
+node --test --test-name-pattern='rollback workflow enforces standalone' scripts/release-contract.test.cjs
+```
+
+Exit code: `0`. Selected tests: `2` passed, `0` failed.
+
+The executable Linux workflow-shell contract passed under the full Node 20
+image with Docker `--init`. A control run without `--init` left an orphaned
+test writer as a zombie owned by the container's Node PID 1, so Linux process
+group liveness remained true until the outer harness timed out. Repeating the
+same test with an init reaper passed in about four seconds. GitHub's Ubuntu
+host has a normal init/reaper; this was a test-container boundary, not a
+workflow behavior change.
+
+### Final Controller Verification
+
+- Linux Node 20 rollback contract: `114` passed, `0` failed, `6` platform
+  skips.
+- Linux Node 20 backend backup/restore contract: `52` passed, `0` failed.
+- Windows Node 20 rollback contract: `121` passed, `0` failed, `5` Linux-only
+  skips.
+- Windows Node 20 complete release contract: `205` passed, `0` failed, `1`
+  Linux-only skip (`206` total), in 681 seconds.
+- Node 20 syntax checks passed for the drill, launcher, rollback contract,
+  release contract, and backend backup service.
+- `git diff --check` passed with only checkout line-ending warnings.
+- The exact provided endpoint and credential had zero matches across Git
+  tracked files and non-ignored untracked files. Ignored local runtime data was
+  intentionally left untouched and is outside the commit scope.
+
+### Remaining Gate
+
+The two final independent reviews and the post-commit clean-tree rollback
+drill remain mandatory. No Task 4 completion claim is made by this section.
+
+## Review Fix 9: Public-Path Lease Proof And Signaled-Daemon Containment
+
+Review-fix date: 2026-07-22
+
+### Findings Addressed
+
+The latest lifecycle and release-contract review pass identified the following
+remaining failure modes:
+
+1. Service heartbeat updated the retained descriptor without proving that the
+   public maintenance-lock path still named that descriptor. Release swallowed
+   claim, descriptor-close, restoration, and deletion failures.
+2. A sibling claim pathname left a final check-then-delete window and could
+   silently move a directory or link replacement away from the public lock
+   path.
+3. Docker `inspect` treated every nonzero result as absence. A signal-killed
+   Docker CLI and the subsequent create/remove sentinel could not prove that a
+   daemon request would not arrive after the sentinel was removed.
+4. CI and release could delete control evidence after a nonzero drill or
+   validator result when session/container cleanup happened to return zero.
+5. Fingerprint handle-close failure could replace the read/identity primary
+   error. Diagnostic directory creation followed ancestor links before the
+   launcher validated the physical path.
+6. The Windows native-command success path observed only the root process and
+   stream EOF; a Job Object descendant could remain active when success was
+   returned.
+7. Backend failed-output compensation attached singular `cleanupError`, while
+   downstream drill and launcher diagnostics consume bounded plural
+   `cleanupErrors`.
+
+### RED Evidence
+
+- The displaced-public-lock heartbeat test timed out with no `heartbeatError`,
+  and both replacement-boundary release tests observed a silent return.
+- The fingerprint dual-failure fixture received the injected close error
+  instead of the exact injected read error.
+- The Docker inspect fixture received no exported fail-closed inspector, and
+  the Linux delayed-request fixture could recreate owned state after the old
+  sentinel sequence.
+- The workflow validators rejected both cleanup predicates because execution
+  status was absent from their evidence-removal conditions.
+- After warming the native bridge, the Windows success-path fixture returned
+  in under 250 ms while its 350 ms Job descendant was still active.
+- The service descriptor-close fixture received the raw close failure instead
+  of `MAINTENANCE_LOCK_RELEASE_FAILED`.
+
+### Implementation
+
+- Every service heartbeat now checks the retained descriptor and public path
+  identity before and after the write. Loss or replacement records a deliberate
+  lease error; external-lease issuance and release fail closed.
+- Claims now use an unpredictable private sibling directory, validate that
+  directory's identity, and preserve cross-type replacements for inspection.
+  Release runs every close/restoration/removal step, surfaces a stable release
+  error, and attaches at most eight cleanup details as a frozen non-enumerable
+  `cleanupErrors` array. Failed-backup cleanup uses the same plural contract.
+- The private directory and random name protect against other OS identities.
+  A process executing as the same account can discover or alter that directory
+  and remains inside the documented trusted-local-operator boundary; Node does
+  not expose a portable atomic unlink-by-handle primitive, and this report does
+  not claim otherwise.
+- A failed Docker inspect now re-lists the captured CID and refuses cleanup
+  authority while it still exists or Docker state is unavailable. Any child
+  signal or host interruption makes Docker CLI completion unproven even when
+  subsequent best-effort cleanup is empty. The launcher abandons the service
+  guard and retains both the persistent lease and control evidence.
+- CI/release delete their control files only when execution, stderr handling,
+  session cleanup, and container cleanup all complete normally. Nonzero or
+  signaled execution emits an explicit unproven-daemon diagnostic and retains
+  evidence.
+- Fingerprint closure now preserves the exact primary and attaches close
+  failure non-enumerably. The Linux launcher creates each diagnostic directory
+  component only after validating its parent and rejects links without first
+  creating an external child.
+- The Windows bridge now polls `ActiveProcesses` with a bounded condition wait
+  on the success path. Query failure or a descendant that does not exit fails
+  closed and enters the existing Job termination cleanup.
+
+### Current Verification
+
+- Backend complete test command: exit `0`.
+- Windows rollback contract: `125` passed, `0` failed, `6` Linux-only skips
+  (`131` total).
+- Linux Node 20 delayed Docker request and diagnostic-link regression: `2`
+  passed, `0` failed.
+- Linux Node 20 executable workflow-shell contract: `1` selected test passed,
+  `0` failed.
+- Node 20 CI/release workflow validators: `2` selected tests passed, `0`
+  failed.
+- Windows PowerShell 5.1 and PowerShell 7 Job-descendant regression: both
+  hosts passed.
+- Node syntax checks, both PowerShell parsers, and `git diff --check`: exit
+  `0`.
+- The exact provided endpoint and credential have zero repository matches
+  outside ignored local runtime data.
+
+The latest complete Node 20 release-contract rerun then exited `0` after about
+632 seconds: `206` passed, `0` failed, and `1` Linux-only test skipped (`207`
+total including nested tests). Final independent `0/0/0` reviews and the
+post-commit clean-tree rollback drill remain mandatory; Task 4 is not closed by
+this section alone.
+
+## Review Fix 10: Recovery-Lease Ownership And Durable Control Diagnostics
+
+Review-fix date: 2026-07-22
+
+### Independent Findings Addressed
+
+The next independent review reported one Critical recovery-lease reclaim race,
+one Important cross-type claim recovery issue, one Minor exit-hook isolation
+issue, and one Important workflow-diagnostic gap:
+
+1. A process could validate a stale recovery lease, lose the path to a newly
+   created fresh lease, and then rename and delete that fresh lease.
+2. A directory or link replacement moved at the atomic claim boundary remained
+   only in the private claim while the public maintenance path disappeared.
+3. One service-lock release error in the process exit hook prevented later
+   runtime locks from being released.
+4. CI and Release retained random container/session control evidence after a
+   failure but did not upload the random directory, pipeline script, or pipeline
+   status file before the runner was destroyed.
+
+Controller self-review found and fixed the symmetric recovery-lease release
+race before the complete backend gate: the old release path read a copyable
+token and then removed the pathname without proving that it still named the
+retained descriptor.
+
+### RED Evidence
+
+- The initial recovery-reclaim and exit-isolation focus exited `1`: the fresh
+  replacement was silently deleted, and the old exit listener threw before it
+  could release the second lock.
+- The cross-type replacement focus exited `1` because the public maintenance
+  path was absent after the directory was preserved in the private claim.
+- The recovery-release focus exited `1` because a fresh replacement installed
+  after the token read was deleted and release returned successfully.
+- The CI workflow contract exited `1` first for the missing
+  `rollback-container.*` upload, then again for the missing retained pipeline
+  and status uploads.
+- The first complete backend run exited `1` with `486` passed and `1` failed.
+  It exposed a real Windows identity bug: the pre-claim `lstat` represented a
+  large inode as a Number while the post-claim check used BigInt, so precision
+  loss could misclassify the same inode as a replacement.
+
+### Implementation
+
+- Stale recovery leases are now moved through the same unpredictable private
+  atomic claim used by service-lock release. The claimed inode must equal the
+  exact BigInt identity that was validated; only that inode is removed. A fresh
+  regular replacement is restored by no-overwrite hard link and causes
+  `MAINTENANCE_ACTIVE`.
+- Active recovery-lease release now binds the retained descriptor identity,
+  atomically claims the public path, closes the descriptor, and removes only
+  the claimed inode. Claim, close, restoration, and deletion failures use the
+  bounded frozen non-enumerable `cleanupErrors` contract. Recovery operation
+  failures remain primary when release also fails.
+- Cross-type replacements remain preserved in the private `0700` claim because
+  Node exposes no portable atomic no-overwrite rename for directories or links.
+  The implementation instead creates a durable `wx` public quarantine marker
+  containing only the private claim basename, entry name, replacement type, and
+  `manual-inspection-required` contract. A competing public entry is never
+  overwritten. The operator guide documents the exclusive manual recovery
+  boundary.
+- The process exit hook catches each release failure independently, continues
+  through every runtime lock, and emits one bounded synchronous warning without
+  changing an otherwise successful process exit.
+- Both workflow upload steps now include the random
+  `${{ runner.temp }}/rollback-container.*` directories plus the retained
+  pipeline script and status file. Successful runs still delete these controls;
+  failed or uncertain runs retain and upload them with the existing stdout,
+  stderr, and generated diagnostics.
+
+### Current Verification
+
+- Focused recovery reclaim, recovery release, quarantine-marker, and exit-hook
+  regressions: `4` passed, `0` failed.
+- Focused CI/Release standalone rollback workflow validators: `2` passed, `0`
+  failed.
+- Complete backend test suite: `487` passed, `0` failed, `0` skipped.
+- Complete Windows Node 20 rollback contract: `125` passed, `0` failed, `6`
+  Linux-only skips (`131` total).
+- Fixed-image Linux Node 20 rollback contract: `119` passed, `0` failed, `6`
+  Windows-only skips (`125` total).
+- Fixed-image Linux Node 20 backend backup/restore contract: `58` passed, `0`
+  failed, `0` skipped.
+- Backend package verification: `191` JavaScript files passed syntax/source
+  checks; `487` tests passed; the backend flow audit completed with exit `0`.
+- Complete Node 20 release contract across Windows PowerShell 5.1 and PowerShell
+  7.6.4: `206` passed, `0` failed, `1` Linux-only skip (`207` total), in
+  approximately 629 seconds.
+- Pinned Node 20 backend syntax check and `git diff --check`: exit `0`.
+
+The complete rollback/release contracts, independent re-review, and clean-SHA
+real rollback drill remain mandatory. This section does not close Task 4.

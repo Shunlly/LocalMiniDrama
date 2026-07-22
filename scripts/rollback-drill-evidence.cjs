@@ -18,6 +18,7 @@ const ROLLBACK_RESULT_MARKER_PREFIX = 'LOCALMINIDRAMA_ROLLBACK_RESULT_V1='
 const MAX_ROLLBACK_RESULT_EVIDENCE_BYTES = 512 * 1024
 const MAX_ROLLBACK_RESULT_MARKER_BYTES = 1024 * 1024
 const MAX_ROLLBACK_RESULT_STREAM_BYTES = 2 * 1024 * 1024
+const MAX_CLEANUP_ERROR_DETAILS = 8
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/
 const RESULT_ENVELOPE_FIELDS = Object.freeze([
   'schema',
@@ -26,6 +27,27 @@ const RESULT_ENVELOPE_FIELDS = Object.freeze([
   'diagnostic_relative_path',
 ])
 const STRICT_UTF8_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+
+function attachCleanupError(primaryError, cleanupError) {
+  let existing = []
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(primaryError, 'cleanupErrors')
+    if (descriptor && Object.hasOwn(descriptor, 'value') && Array.isArray(descriptor.value)) {
+      for (let index = 0; index < Math.min(MAX_CLEANUP_ERROR_DETAILS - 1, descriptor.value.length); index += 1) {
+        const entry = Object.getOwnPropertyDescriptor(descriptor.value, String(index))
+        if (entry && Object.hasOwn(entry, 'value')) existing.push(entry.value)
+      }
+    }
+  } catch (_) {}
+  try {
+    Object.defineProperty(primaryError, 'cleanupErrors', {
+      configurable: true,
+      enumerable: false,
+      value: Object.freeze([...existing, cleanupError]),
+    })
+  } catch (_) {}
+  return primaryError
+}
 
 function comparablePath(value) {
   const normalized = path.normalize(value)
@@ -226,7 +248,25 @@ async function readDirectoryNamesBounded(absolutePath, maxEntries) {
   return names.sort(compareUtf8)
 }
 
-async function fingerprintDataRoot(root, hooks = {}, limits = DEFAULT_LIMITS) {
+function normalizeVolatileControlPaths(root, options = {}) {
+  assert.ok(options && typeof options === 'object' && !Array.isArray(options), 'fingerprint options must be an object')
+  const paths = options.volatileControlPaths ?? []
+  assert.ok(Array.isArray(paths) && paths.length <= 1, 'fingerprint accepts at most one volatile control path')
+  const resolvedRoot = path.resolve(root)
+  const relativePaths = new Set()
+  for (const controlPath of paths) {
+    assert.equal(typeof controlPath, 'string', 'volatile control path must be text')
+    const resolvedPath = path.resolve(controlPath)
+    assert.equal(path.isAbsolute(controlPath), true, 'volatile control path must be absolute')
+    assert.equal(path.dirname(resolvedPath), resolvedRoot, 'volatile control path must be a direct data-root child')
+    assert.equal(path.basename(resolvedPath).endsWith('.maintenance.lock'), true, 'volatile control path must be a maintenance lock')
+    relativePaths.add(normalizedRelativePath(path.relative(resolvedRoot, resolvedPath)))
+  }
+  assert.equal(relativePaths.size, paths.length, 'volatile control paths must be unique')
+  return relativePaths
+}
+
+async function fingerprintDataRoot(root, hooks = {}, limits = DEFAULT_LIMITS, options = {}) {
   const maxFiles = BigInt(positiveSafeIntegerLimit(limits, 'maxFiles'))
   const maxTotalBytes = BigInt(positiveSafeIntegerLimit(limits, 'maxTotalBytes'))
   const maxFileBytes = BigInt(positiveSafeIntegerLimit(limits, 'maxFileBytes'))
@@ -236,6 +276,8 @@ async function fingerprintDataRoot(root, hooks = {}, limits = DEFAULT_LIMITS) {
   const maxEntries = (maxFiles * BigInt(maxPathDepth)) + 1n
   const resolvedRoot = path.resolve(root)
   assert.equal(comparablePath(resolvedRoot), comparablePath(root), 'data root path must be fully resolved')
+  const volatileControlPaths = normalizeVolatileControlPaths(resolvedRoot, options)
+  const discoveredVolatileControls = new Set()
   const rootIdentity = await capturePathIdentity(resolvedRoot, 'directory')
   const entries = []
   const directories = []
@@ -256,9 +298,18 @@ async function fingerprintDataRoot(root, hooks = {}, limits = DEFAULT_LIMITS) {
       assert.ok(Buffer.byteLength(childRelativePath, 'utf8') <= maxPathBytes, `${childRelativePath} exceeds the path size limit`)
       assert.ok(childRelativePath.split('/').length <= maxPathDepth, `${childRelativePath} exceeds the path depth limit`)
       assert.equal(dirent.isSymbolicLink(), false, `${childRelativePath} must not be a symbolic link or reparse point`)
-      const type = dirent.isFile() ? 'file' : dirent.isDirectory() ? 'directory' : 'unsupported'
+      const isVolatileControl = volatileControlPaths.has(childRelativePath)
+      if (isVolatileControl) {
+        assert.equal(dirent.isFile(), true, `${childRelativePath} volatile control must be a regular file`)
+        discoveredVolatileControls.add(childRelativePath)
+      }
+      const type = isVolatileControl
+        ? 'volatile-control'
+        : dirent.isFile() ? 'file' : dirent.isDirectory() ? 'directory' : 'unsupported'
       assert.notEqual(type, 'unsupported', `${childRelativePath} has an unsupported entry type`)
-      const childIdentity = await capturePathIdentity(childAbsolutePath, type)
+      const childIdentity = type === 'volatile-control'
+        ? null
+        : await capturePathIdentity(childAbsolutePath, type)
       if (type === 'file') {
         regularFiles += 1n
         assert.ok(regularFiles <= maxRegularFiles, 'data root exceeds the regular file limit')
@@ -284,6 +335,11 @@ async function fingerprintDataRoot(root, hooks = {}, limits = DEFAULT_LIMITS) {
   }
 
   await discoverDirectory(resolvedRoot, '')
+  assert.deepEqual(
+    [...discoveredVolatileControls].sort(compareUtf8),
+    [...volatileControlPaths].sort(compareUtf8),
+    'volatile maintenance control path is missing from the data root'
+  )
   entries.sort((left, right) => compareUtf8(left.relativePath, right.relativePath))
 
   const hash = crypto.createHash('sha256')
@@ -294,6 +350,18 @@ async function fingerprintDataRoot(root, hooks = {}, limits = DEFAULT_LIMITS) {
       relativePath: entry.relativePath,
       type: entry.type,
     })
+    if (entry.type === 'volatile-control') {
+      const before = await fsp.lstat(entry.absolutePath)
+      assert.equal(before.isSymbolicLink(), false, `${entry.relativePath} volatile control must not be a symbolic link`)
+      assert.equal(before.isFile(), true, `${entry.relativePath} volatile control must be a regular file`)
+      updateBytesFrame(hash, entry.type)
+      updateBytesFrame(hash, entry.relativePath)
+      updateLengthFrame(hash, 0n)
+      const after = await fsp.lstat(entry.absolutePath)
+      assert.equal(after.isSymbolicLink(), false, `${entry.relativePath} volatile control must not be a symbolic link`)
+      assert.equal(after.isFile(), true, `${entry.relativePath} volatile control must be a regular file`)
+      continue
+    }
     const beforeRead = await capturePathIdentity(entry.absolutePath, entry.type)
     assertSamePathIdentity(entry.identity, beforeRead, `data root entry ${entry.relativePath}`)
     updateBytesFrame(hash, entry.type)
@@ -301,6 +369,7 @@ async function fingerprintDataRoot(root, hooks = {}, limits = DEFAULT_LIMITS) {
     updateLengthFrame(hash, entry.type === 'file' ? beforeRead.size : 0n)
     if (entry.type === 'file') {
       let handle
+      let primaryError = null
       try {
         handle = await fsp.open(entry.absolutePath, 'r')
         const descriptorIdentity = await capturePathIdentity({ handle, path: entry.absolutePath }, 'file')
@@ -309,9 +378,19 @@ async function fingerprintDataRoot(root, hooks = {}, limits = DEFAULT_LIMITS) {
         await readFileIntoHash(handle, beforeRead.size, maxFileBytes, hash)
         const descriptorAfterRead = await capturePathIdentity({ handle, path: entry.absolutePath }, 'file')
         assertSamePathIdentity(descriptorIdentity, descriptorAfterRead, `data root entry ${entry.relativePath}`)
+      } catch (error) {
+        primaryError = error
       } finally {
-        if (handle) await handle.close()
+        if (handle) {
+          try {
+            await handle.close()
+          } catch (closeError) {
+            if (primaryError) attachCleanupError(primaryError, closeError)
+            else primaryError = closeError
+          }
+        }
       }
+      if (primaryError) throw primaryError
     }
     await hooks.afterEntryRead?.({
       absolutePath: entry.absolutePath,

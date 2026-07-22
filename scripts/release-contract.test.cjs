@@ -55,6 +55,8 @@ const rollbackRestoreScriptPath = path.join(root, 'scripts', 'restore-release-ro
 const rollbackIdentityScriptPath = path.join(root, 'scripts', 'rollback-path-identity.ps1')
 const rollbackPowerShellSupportScriptPath = path.join(root, 'scripts', 'rollback-powershell-support.ps1')
 const rollbackEvidencePlanPath = path.join(root, 'docs', 'superpowers', 'plans', '2026-07-20-rollback-evidence-binding.md')
+const quickstartPath = path.join(root, 'docs', 'quickstart.md')
+const rollbackTaskFourReportPath = path.join(root, '.superpowers', 'sdd', 'rollback-security-task-4-report.md')
 const backendRequire = createRequire(path.join(root, 'backend-node', 'package.json'))
 const { parse: parseToml } = backendRequire('smol-toml')
 const { load: parseYaml } = backendRequire('js-yaml')
@@ -67,6 +69,8 @@ const restoreDataScript = fs.readFileSync(path.join(root, 'backend-node', 'scrip
 const rollbackDrillScript = fs.readFileSync(path.join(root, 'scripts', 'run-rollback-drill.cjs'), 'utf8')
 const rollbackEvidenceScript = fs.readFileSync(path.join(root, 'scripts', 'rollback-drill-evidence.cjs'), 'utf8')
 const rollbackEvidencePlan = fs.readFileSync(rollbackEvidencePlanPath, 'utf8')
+const quickstart = fs.readFileSync(quickstartPath, 'utf8')
+const rollbackTaskFourReport = fs.readFileSync(rollbackTaskFourReportPath, 'utf8')
 const dockerComposeRevisionScript = fs.readFileSync(path.join(root, 'scripts', 'docker-compose-with-revision.cjs'), 'utf8')
 const backendTrivyIgnore = fs.readFileSync(path.join(root, 'backend-node', '.trivyignore.yaml'), 'utf8')
 const backendDockerfile = fs.readFileSync(path.join(root, 'backend-node', 'Dockerfile'), 'utf8')
@@ -141,14 +145,6 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const executableName = path.basename(process.execPath).toLowerCase()
-if (executableName === 'taskkill.exe') {
-  fs.appendFileSync(
-    process.env.LMD_BIND_EVENT_LOG,
-    JSON.stringify({ event: 'taskkill_hang', args: process.argv.slice(1), pid: process.pid }) + '\\n',
-  )
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)
-}
-
 if (executableName === 'docker.exe') {
   const args = process.argv.slice(1)
   if (args.length > 0) args[0] = path.basename(args[0])
@@ -245,7 +241,7 @@ function waitForProcessExit(pid, timeout = 3000) {
   return !isProcessRunning(pid)
 }
 
-function runPowerShellStatements(statements, { executable } = {}) {
+function runPowerShellStatements(statements, { executable, timeout } = {}) {
   const shell = executable || (process.platform === 'win32' ? 'powershell.exe' : 'pwsh')
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-ps-probe-'))
   const probePath = path.join(fixtureRoot, 'probe.ps1')
@@ -261,6 +257,7 @@ function runPowerShellStatements(statements, { executable } = {}) {
     ], {
       cwd: root,
       encoding: 'utf8',
+      timeout,
       windowsHide: true,
     })
   } finally {
@@ -680,17 +677,67 @@ function rollbackWorkflowValidator(workflowDocument, label) {
   assert.match(runScript, /stderr_log="\$RUNNER_TEMP\/rollback-drill\.stderr\.log"/)
   assert.match(runScript, /mkfifo "\$stderr_pipe"/)
   assert.match(runScript, /262144/)
-  assert.match(runScript, /npm run verify:rollback\s+2>"\$stderr_pipe"/)
+  assert.match(runScript, /LMD_ROLLBACK_CIDFILE/)
+  assert.match(runScript, /LMD_ROLLBACK_CONTAINER_LABEL/)
+  assert.match(runScript, /LMD_ROLLBACK_CONTAINER_NAME/)
+  assert.match(runScript, /cleanup_rollback_container/)
+  assert.match(runScript, /docker container ls --all --no-trunc --quiet --filter "label=\$LMD_ROLLBACK_CONTAINER_LABEL"/)
+  assert.match(runScript, /docker container ls --all --no-trunc --quiet --filter "id=\$recorded_id"/)
+  assert.match(runScript, /docker container inspect --format/)
+  assert.match(runScript, /docker create --pull never/)
+  assert.match(runScript, /docker stop --time 3/)
+  assert.match(runScript, /docker kill/)
+  assert.match(runScript, /docker rm --force/)
+  assert.match(runScript, /setsid --wait timeout --signal=TERM --kill-after=30s 720s/)
+  assert.match(runScript, /timeout --signal=TERM --kill-after=30s 720s\s+npm run verify:rollback\s+2>"\$stderr_pipe"/)
+  assert.match(runScript, /kill -0 -- "-\$session_pid"/)
+  assert.match(runScript, /kill -TERM -- "-\$session_pid"/)
+  assert.match(runScript, /kill -KILL -- "-\$session_pid"/)
+  assert.match(runScript, /:\s*>"\$rollback_session_file"[\s\S]{0,300}setsid --wait timeout/)
+  assert.match(runScript, /kill -KILL -- "-\$session_pid"[\s\S]{0,500}while kill -0 -- "-\$session_pid"/)
+  const exitCleanup = runScript.slice(runScript.indexOf('cleanup_on_exit()'), runScript.indexOf("trap cleanup_on_exit EXIT"))
+  assert.ok(exitCleanup.indexOf('terminate_rollback_session') < exitCleanup.indexOf('cleanup_rollback_container'))
+  assert.match(exitCleanup, /if \(\( session_status == 0 \)\); then[\s\S]*cleanup_rollback_container/)
+  assert.match(exitCleanup, /rollback session cleanup failed|container cleanup failed/i)
+  assert.match(
+    exitCleanup,
+    /if \(\( original_status == 0 && session_status == 0 && cleanup_status == 0 \)\); then\s+rm -f "\$stderr_pipe" "\$pipeline_script" "\$pipeline_status_file"\s+rmdir "\$rollback_control_dir"/,
+    `${label} must retain control evidence unless execution, session, and container cleanup all succeed`,
+  )
+  assert.match(
+    runScript,
+    /if \(\( rollback_execution_normal == 1 && session_cleanup_status == 0 && container_cleanup_status == 0 \)\); then\s+rm -f "\$stderr_pipe" "\$pipeline_script" "\$pipeline_status_file"\s+rmdir "\$rollback_control_dir"/,
+    `${label} must retain final control evidence unless execution and both cleanup phases succeed`,
+  )
+  assert.match(runScript, /daemon completion is unproven and control evidence remains/i)
+  assert.match(runScript, /drill_status=124/)
   assert.match(runScript, /tee "\$stdout_log"/)
   assert.match(runScript, /node scripts\/rollback-drill-evidence\.cjs[\s\\]+--validate-result-stream/)
   assert.match(runScript, /pipeline_status=\("\$\{PIPESTATUS\[@\]\}"\)/)
+  assert.match(runScript, /while \(\( written < keep\.length \)\)/)
+  assert.match(runScript, /stderr_deadline=\$\(\(SECONDS \+ 5\)\)/)
+  assert.match(runScript, /kill -0 "\$stderr_pid"/)
+  assert.match(runScript, /kill -KILL "\$stderr_pid"/)
   assert.match(runScript, /wait "\$stderr_pid"/)
   assert.match(runScript, /stderr_status=\$\?/)
+  assert.match(runScript, /stderr_status=124/)
   assert.doesNotMatch(runScript, /2>&1|summary\.json|readFileSync|Get-Content/)
 
   const uploadedPaths = String(uploadStep.with?.path || '').split(/\r?\n/).map((value) => value.trim())
   assert.ok(uploadedPaths.includes('${{ runner.temp }}/rollback-drill.stdout.log'))
   assert.ok(uploadedPaths.includes('${{ runner.temp }}/rollback-drill.stderr.log'))
+  assert.ok(
+    uploadedPaths.includes('${{ runner.temp }}/rollback-container.*'),
+    `${label} must upload retained rollback control evidence`,
+  )
+  assert.ok(
+    uploadedPaths.includes('${{ runner.temp }}/rollback-drill.pipeline.sh'),
+    `${label} must upload the retained rollback pipeline`,
+  )
+  assert.ok(
+    uploadedPaths.includes('${{ runner.temp }}/rollback-drill.pipeline.status'),
+    `${label} must upload the retained rollback pipeline statuses`,
+  )
   return [
     path.join(root, 'scripts', 'rollback-drill-evidence.cjs'),
     '--validate-result-stream',
@@ -1536,7 +1583,7 @@ test('checkpoint summary is created and retained through one read-write authorit
   const statements = `
 . ${powerShellLiteral(checkpointScriptPath)}
 $summaryBytes = [System.Text.UTF8Encoding]::new($false, $true).GetBytes(${powerShellLiteral(summaryText)})
-$authority = New-RollbackSummaryAuthority -Path ${powerShellLiteral(summaryPath)} -Bytes $summaryBytes -Label 'Rollback checkpoint drill summary'
+$authority = New-RollbackFileAuthorityFromBytes -Path ${powerShellLiteral(summaryPath)} -Bytes $summaryBytes -Label 'Rollback checkpoint drill summary'
 try {
   if (-not $authority.Stream.CanRead -or -not $authority.Stream.CanWrite) { throw 'Summary authority is not read-write.' }
   Assert-RollbackFileAuthority -Authority $authority | Out-Null
@@ -1573,11 +1620,90 @@ try {
   }
 })
 
+test('checkpoint byte authority rejects existing targets and exposes no move-to-open boundary', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('PowerShell checkpoint authority contracts require Windows')
+    return
+  }
+  const helperStart = checkpointScript.indexOf('function New-RollbackFileAuthorityFromBytes')
+  const helperEnd = checkpointScript.indexOf('\nfunction ConvertFrom-CanonicalRollbackBase64Url', helperStart)
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, 'checkpoint byte-authority helper is missing')
+  const helperSource = checkpointScript.slice(helperStart, helperEnd)
+  assert.match(helperSource, /\[System\.IO\.FileMode\]::CreateNew/)
+  assert.match(helperSource, /\[System\.IO\.FileAccess\]::ReadWrite/)
+  assert.match(helperSource, /\[System\.IO\.FileShare\]::Read/)
+  assert.doesNotMatch(helperSource, /File\.Move|temporaryPath|Open-RollbackFileAuthority/)
+
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-checkpoint-existing-authority-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const targetPath = path.join(fixtureRoot, 'metadata.json')
+  const sentinel = Buffer.from('pre-existing metadata\n', 'utf8')
+  fs.writeFileSync(targetPath, sentinel)
+  const statements = `
+. ${powerShellLiteral(checkpointScriptPath)}
+$bytes = [System.Text.UTF8Encoding]::new($false, $true).GetBytes('replacement metadata')
+$rejected = $false
+try {
+  New-RollbackFileAuthorityFromBytes -Path ${powerShellLiteral(targetPath)} -Bytes $bytes -Label 'Rollback checkpoint metadata' | Out-Null
+} catch { $rejected = $true }
+if (-not $rejected) { throw 'A pre-existing metadata target was overwritten.' }
+`
+  for (const host of windowsPowerShellHosts()) {
+    assertPowerShellStatements(statements, { executable: host.executable })
+    assert.deepEqual(fs.readFileSync(targetPath), sentinel)
+  }
+})
+
 test('checkpoint native reader returns bounded separate bytes and ignores stderr markers', (t) => {
   if (process.platform !== 'win32') {
     t.skip('PowerShell native stream contracts require Windows')
     return
   }
+  const nativeStart = checkpointScript.indexOf('function Invoke-NativeCommandWithTimeout')
+  const nativeEnd = checkpointScript.indexOf('\nfunction Write-NativeDiagnostic', nativeStart)
+  const nativeSource = checkpointScript.slice(nativeStart, nativeEnd)
+  const bridgeStart = checkpointScript.indexOf('function Initialize-NativeJobBridge')
+  const bridgeEnd = checkpointScript.indexOf('\nfunction Resolve-NativeExecutablePath', bridgeStart)
+  const bridgeSource = checkpointScript.slice(bridgeStart, bridgeEnd)
+  assert.match(bridgeSource, /CreateProcess\(applicationName[\s\S]*CREATE_SUSPENDED/)
+  assert.match(bridgeSource, /AssignProcessToJobObject/)
+  assert.match(bridgeSource, /TerminateProcess/)
+  assert.match(bridgeSource, /StartForAssignmentFailureTest/)
+  assert.match(bridgeSource, /JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE/)
+  assert.match(bridgeSource, /TerminateJobObject/)
+  assert.doesNotMatch(bridgeSource, /taskkill/i)
+  assert.match(nativeSource, /catch\s*\{\s*\$primaryError\s*=\s*\$_/)
+  assert.match(nativeSource, /try\s*\{[\s\S]*Stop-NativeProcessTreeBounded[\s\S]*catch\s*\{[\s\S]*\$cleanupErrors\.Add\(\$_\)/)
+  assert.match(nativeSource, /try\s*\{[\s\S]*\$nativeProcess\.Dispose\(\)[\s\S]*\$cleanupErrors\.Add\(\$_\)/)
+  assert.match(nativeSource, /Complete-RollbackInvocation -PrimaryError \$primaryError -CleanupErrors \$cleanupErrors/)
+  const orphanPidPath = path.join(os.tmpdir(), `lmd-native-orphan-${process.pid}-${crypto.randomBytes(8).toString('hex')}.pid`)
+  t.after(() => {
+    try {
+      const orphanPid = Number(fs.readFileSync(orphanPidPath, 'utf8'))
+      if (Number.isSafeInteger(orphanPid) && orphanPid > 0) process.kill(orphanPid)
+    } catch {}
+    fs.rmSync(orphanPidPath, { force: true })
+  })
+  const orphanWriterScript = [
+    "const fs=require('fs')",
+    `fs.writeFileSync(${JSON.stringify(orphanPidPath)},String(process.pid))`,
+    "setInterval(()=>{process.stdout.write('o');process.stderr.write('e')},25)",
+  ].join(';')
+  const orphanParentScript = [
+    "const {spawn}=require('child_process')",
+    "const fs=require('fs')",
+    `const pidPath=${JSON.stringify(orphanPidPath)}`,
+    `const writer=${JSON.stringify(orphanWriterScript)}`,
+    'setTimeout(()=>{',
+    "const child=spawn(process.execPath,['-e',writer],{detached:true,stdio:['ignore','inherit','inherit'],windowsHide:true})",
+    'child.unref()',
+    'const deadline=Date.now()+5000',
+    'const timer=setInterval(()=>{',
+    'if(fs.existsSync(pidPath)){clearInterval(timer);process.exit(0)}',
+    'if(Date.now()>deadline){clearInterval(timer);process.exit(91)}',
+    '},10)',
+    '},250)',
+  ].join(';')
   const checkpointEvidence = validStandaloneRollbackSummary()
   const stderrMarker = createRollbackResultMarker({
     evidence: checkpointEvidence,
@@ -1608,9 +1734,181 @@ try {
   $oversizedRejected = $_.Exception.Message -match 'output exceeded.*2097152'
 }
 if (-not $oversizedRejected) { throw 'Oversized native stdout was accepted.' }
+
+$deadlockTimedOut = $false
+$deadlockStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+try {
+  Invoke-NativeCommandWithTimeout -FilePath ${powerShellLiteral(process.execPath)} -ArgumentList @(
+    '-e',
+    'process.stdout.write(Buffer.alloc(1048576, 0x62)); setTimeout(() => process.exit(0), 3000)'
+  ) -Label 'Bidirectional native pump' -TimeoutMilliseconds 100 -CaptureOutputBytes -MaximumOutputBytes 2097152 -MaximumErrorBytes 65536 -StandardInputBytes ([byte[]]::new(2097152)) | Out-Null
+} catch {
+  $deadlockTimedOut = $_.Exception.Data['NativeTimedOut'] -eq $true
+}
+if (-not $deadlockTimedOut) { throw 'Blocking stdin bypassed the native timeout.' }
+if ($deadlockStopwatch.ElapsedMilliseconds -gt 5000) { throw 'Bidirectional native timeout was not bounded.' }
+
+$script:OriginalStopNativeProcessTreeBounded = \${function:Stop-NativeProcessTreeBounded}
+$script:StreamCleanupFailure = [System.InvalidOperationException]::new('stream cleanup sentinel')
+function Stop-NativeProcessTreeBounded {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]$Invocation,
+    [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds
+  )
+  & $script:OriginalStopNativeProcessTreeBounded @PSBoundParameters | Out-Null
+  throw $script:StreamCleanupFailure
+}
+$streamFailure = $null
+try {
+  Invoke-NativeCommandWithTimeout -FilePath ${powerShellLiteral(process.execPath)} -ArgumentList @(
+    '-e',
+    'require("fs").closeSync(0); setInterval(() => {}, 1000)'
+  ) -Label 'Native stdin failure' -TimeoutMilliseconds 1000 -CaptureOutputBytes -MaximumOutputBytes 65536 -MaximumErrorBytes 65536 -StandardInputBytes ([byte[]]::new(8388608)) | Out-Null
+} catch { $streamFailure = $_ }
+if ($null -eq $streamFailure) { throw 'Native stdin failure was not surfaced.' }
+if ([object]::ReferenceEquals($streamFailure.Exception, $script:StreamCleanupFailure)) {
+  throw 'Termination cleanup replaced the native stream error.'
+}
+$streamCleanupErrors = @($streamFailure.Exception.Data['RollbackCleanupErrors'])
+if ($streamFailure.Exception.Data['NativeTimedOut'] -eq $true) {
+  if ([string]$streamFailure.Exception.Data['NativeTerminationDetail'] -notmatch 'stream cleanup sentinel') {
+    throw 'Timeout cleanup failure was not retained as bounded diagnostic detail.'
+  }
+} elseif ($streamCleanupErrors.Count -ne 1 -or -not [object]::ReferenceEquals($streamCleanupErrors[0].Exception, $script:StreamCleanupFailure)) {
+  throw 'Termination cleanup was not attached to the native stream error.'
+}
+Set-Item -Path Function:Stop-NativeProcessTreeBounded -Value $script:OriginalStopNativeProcessTreeBounded
+
+Remove-Item -LiteralPath ${powerShellLiteral(orphanPidPath)} -Force -ErrorAction SilentlyContinue
+$orphanTimedOut = $false
+try {
+  Invoke-NativeCommandWithTimeout -FilePath ${powerShellLiteral(process.execPath)} -ArgumentList @(
+    '-e',
+    ${powerShellLiteral(orphanParentScript)}
+  ) -Label 'Exited native parent' -TimeoutMilliseconds 1000 -CaptureOutputBytes -MaximumOutputBytes 65536 -MaximumErrorBytes 65536 | Out-Null
+} catch { $orphanTimedOut = $_.Exception.Data['NativeTimedOut'] -eq $true }
+if (-not $orphanTimedOut) { throw 'Inherited native handles did not trigger the bounded timeout.' }
+$orphanPid = [int][System.IO.File]::ReadAllText(${powerShellLiteral(orphanPidPath)})
+Start-Sleep -Milliseconds 200
+$orphan = Get-Process -Id $orphanPid -ErrorAction SilentlyContinue
+if ($null -ne $orphan) {
+  Stop-Process -Id $orphanPid -Force -ErrorAction SilentlyContinue
+  throw 'Native timeout left an orphaned descendant running.'
+}
 `
   for (const host of windowsPowerShellHosts()) {
-    assertPowerShellStatements(statements, { executable: host.executable })
+    assertPowerShellStatements(statements, { executable: host.executable, timeout: 30000 })
+  }
+})
+
+test('checkpoint native job launcher terminates an unassigned suspended process', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Windows native launcher contracts require Windows')
+    return
+  }
+  const statements = `
+. ${powerShellLiteral(checkpointScriptPath)}
+Initialize-NativeJobBridge
+$executable = Resolve-NativeExecutablePath -FilePath ${powerShellLiteral(process.execPath)}
+$commandLine = ((@($executable, '-e', 'setInterval(() => {}, 1000)') | ForEach-Object {
+  ConvertTo-WindowsCommandLineArgument -Argument ([string]$_)
+}) -join ' ')
+$failure = $null
+try {
+  [LocalMiniDrama.NativeJobLauncher]::StartForAssignmentFailureTest($executable, $commandLine, (Get-Location).Path) | Out-Null
+} catch { $failure = $_ }
+if ($null -eq $failure) { throw 'Injected Job assignment failure unexpectedly succeeded.' }
+$nativeError = $failure.Exception
+while ($null -ne $nativeError.InnerException -and -not $nativeError.Data.Contains('NativeProcessId')) {
+  $nativeError = $nativeError.InnerException
+}
+$createdPid = [int]$nativeError.Data['NativeProcessId']
+if ($createdPid -le 0) { throw 'Injected Job assignment failure did not report its process ID.' }
+if ($nativeError.Data['NativeUnassignedProcessTerminated'] -ne $true) {
+  throw 'Unassigned suspended process termination was not confirmed.'
+}
+Start-Sleep -Milliseconds 100
+if ($null -ne (Get-Process -Id $createdPid -ErrorAction SilentlyContinue)) {
+  Stop-Process -Id $createdPid -Force -ErrorAction SilentlyContinue
+  throw 'Job assignment failure left a suspended process running.'
+}
+`
+  for (const host of windowsPowerShellHosts()) {
+    assertPowerShellStatements(statements, { executable: host.executable, timeout: 30000 })
+  }
+})
+
+test('checkpoint native success waits until every Job Object descendant has exited', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Windows native launcher contracts require Windows')
+    return
+  }
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-native-success-descendant-'))
+  const descendantPidPath = path.join(fixtureRoot, 'descendant.pid')
+  t.after(() => {
+    try {
+      const descendantPid = Number(fs.readFileSync(descendantPidPath, 'utf8'))
+      if (Number.isSafeInteger(descendantPid) && descendantPid > 0) process.kill(descendantPid)
+    } catch {}
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  })
+  const descendantScript = 'setTimeout(() => process.exit(0), 350)'
+  const parentScript = [
+    "const fs=require('node:fs')",
+    "const {spawn}=require('node:child_process')",
+    `const child=spawn(process.execPath,['-e',${JSON.stringify(descendantScript)}],{detached:true,stdio:'ignore',windowsHide:true})`,
+    `fs.writeFileSync(${JSON.stringify(descendantPidPath)},String(child.pid))`,
+    'child.unref()',
+    'process.exit(0)',
+  ].join(';')
+  const statements = `
+. ${powerShellLiteral(checkpointScriptPath)}
+Initialize-NativeJobBridge
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+Invoke-NativeCommandWithTimeout -FilePath ${powerShellLiteral(process.execPath)} -ArgumentList @(
+  '-e',
+  ${powerShellLiteral(parentScript)}
+) -Label 'Successful native descendant' -TimeoutMilliseconds 5000 -CaptureOutputBytes -MaximumOutputBytes 65536 -MaximumErrorBytes 65536 | Out-Null
+$stopwatch.Stop()
+if ($stopwatch.ElapsedMilliseconds -lt 250) { throw 'Successful native invocation returned before its Job Object descendant exited.' }
+$descendantPid = [int][System.IO.File]::ReadAllText(${powerShellLiteral(descendantPidPath)})
+if ($null -ne (Get-Process -Id $descendantPid -ErrorAction SilentlyContinue)) {
+  Stop-Process -Id $descendantPid -Force -ErrorAction SilentlyContinue
+  throw 'Successful native invocation left a Job Object descendant running.'
+}
+`
+  for (const host of windowsPowerShellHosts()) {
+    fs.rmSync(descendantPidPath, { force: true })
+    assertPowerShellStatements(statements, { executable: host.executable, timeout: 30000 })
+  }
+})
+
+test('checkpoint native job launcher executes a renamed absolute Node binary', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Windows native launcher contracts require Windows')
+    return
+  }
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-native-renamed-node-'))
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+  const renamedNodePath = path.join(fixtureRoot, 'docker.exe')
+  const probePath = path.join(fixtureRoot, 'probe.cjs')
+  fs.copyFileSync(process.execPath, renamedNodePath)
+  fs.writeFileSync(probePath, "process.stdout.write(JSON.stringify(process.argv.slice(2)))\n")
+  const expected = ['inspect', 'abc', '--format', '{{.Id}}']
+  const statements = `
+$env:PATH = ${powerShellLiteral(fixtureRoot)} + [IO.Path]::PathSeparator + $env:PATH
+. ${powerShellLiteral(checkpointScriptPath)}
+$actual = Invoke-NativeCommandWithTimeout -FilePath 'docker.exe' -ArgumentList @(
+  ${powerShellLiteral(probePath)},
+  ${expected.map((value) => powerShellLiteral(value)).join(',\n  ')}
+) -Label 'Renamed Node probe' -TimeoutMilliseconds 10000 -CaptureOutput
+if ($actual -cne ${powerShellLiteral(JSON.stringify(expected))}) {
+  throw "Renamed Node arguments changed: $actual"
+}
+`
+  for (const host of windowsPowerShellHosts()) {
+    assertPowerShellStatements(statements, { executable: host.executable, timeout: 30000 })
   }
 })
 
@@ -2617,25 +2915,28 @@ test('release rollback checkpoint and restore consume shared native-lock v5 inte
   assert.doesNotMatch(checkpointScript, /Get-Content[^\r\n]*rollback-drill[^\r\n]*summary/i)
   assert.match(checkpointScript, /Open-RollbackDirectoryIdentityLock/)
   assert.match(checkpointScript, /Open-RollbackArchiveReadLock/)
-  assert.match(checkpointScript, /function New-RollbackSummaryAuthority/)
+  assert.match(checkpointScript, /function New-RollbackFileAuthorityFromBytes/)
   assert.match(checkpointScript, /\[System\.IO\.FileMode\]::CreateNew/)
   assert.match(checkpointScript, /\[System\.IO\.FileAccess\]::ReadWrite/)
   assert.match(checkpointScript, /\[System\.IO\.FileShare\]::Read/)
-  assert.match(checkpointScript, /\$summaryAuthority\s*=\s*New-RollbackSummaryAuthority -Path \$summaryArchive -Bytes \$rollbackResult\.EvidenceBytes/)
+  assert.match(checkpointScript, /\$summaryAuthority\s*=\s*New-RollbackFileAuthorityFromBytes -Path \$summaryArchive -Bytes \$rollbackResult\.EvidenceBytes/)
   assert.doesNotMatch(checkpointScript, /Publish-BytesAtomically -Path \$summaryArchive/)
   assert.doesNotMatch(checkpointScript, /Open-RollbackFileAuthority -Path \$summaryArchive -Label 'Rollback checkpoint drill summary'/)
   assert.match(checkpointScript, /Get-RollbackFileAuthoritySha256 -Authority \$summaryAuthority/)
-  assert.match(checkpointScript, /\[System\.IO\.File\]::Move\(\$temporaryPath, \$targetPath\)/)
+  assert.doesNotMatch(checkpointScript, /\[System\.IO\.File\]::Move|File\.Move|\$temporaryPath/)
   const drillInvocation = checkpointScript.indexOf('$drillInvocation = Invoke-NativeCommandWithTimeout')
   const nodeValidation = checkpointScript.indexOf('$validatorInvocation = Invoke-NativeCommandWithTimeout')
   const powerShellParsing = checkpointScript.indexOf('ConvertFrom-RollbackResultOutput -Bytes $drillInvocation.StandardOutputBytes')
   assert.ok(drillInvocation >= 0 && drillInvocation < nodeValidation && nodeValidation < powerShellParsing)
-  const summaryAuthorityOpen = checkpointScript.indexOf('$summaryAuthority = New-RollbackSummaryAuthority')
-  const metadataPublication = checkpointScript.indexOf("Publish-Utf8FileAtomically -Path (Join-Path $checkpoint 'metadata.json')")
+  const summaryAuthorityOpen = checkpointScript.indexOf('$summaryAuthority = New-RollbackFileAuthorityFromBytes')
+  const metadataPublication = checkpointScript.indexOf('$metadataAuthority = New-RollbackFileAuthorityFromBytes')
+  const readyOutput = checkpointScript.indexOf('Write-Output "Rollback checkpoint ready: $checkpoint"')
+  const metadataAuthorityDispose = checkpointScript.indexOf('if ($null -ne $metadataAuthority) { $metadataAuthority.Stream.Dispose() }')
   const summaryAuthorityDispose = checkpointScript.indexOf('if ($null -ne $summaryAuthority) { $summaryAuthority.Stream.Dispose() }')
   const checkpointLockDispose = checkpointScript.indexOf('if ($null -ne $checkpointDirectoryLock) { $checkpointDirectoryLock.Dispose() }')
   assert.ok(summaryAuthorityOpen >= 0 && summaryAuthorityOpen < metadataPublication)
-  assert.ok(metadataPublication < summaryAuthorityDispose && summaryAuthorityDispose < checkpointLockDispose)
+  assert.ok(metadataPublication < readyOutput && readyOutput < metadataAuthorityDispose)
+  assert.ok(metadataAuthorityDispose < summaryAuthorityDispose && summaryAuthorityDispose < checkpointLockDispose)
   assert.match(rollbackRestoreScript, /localminidrama\.release-rollback-checkpoint\.v5/)
   assert.match(rollbackRestoreScript, /localminidrama\.rollback-drill\.v3/)
   assert.doesNotMatch(rollbackRestoreScript, /localminidrama\.release-rollback-checkpoint\.v4/)
@@ -2662,22 +2963,21 @@ test('release rollback checkpoint container bind proof is retained, exact, and o
   )
   assert.match(checkpointScript, /function Invoke-NativeCommandWithTimeout/)
   assert.match(checkpointScript, /function Stop-NativeProcessTreeBounded/)
-  assert.match(checkpointScript, /\[System\.Diagnostics\.ProcessStartInfo\]::new\(\)/)
-  assert.match(checkpointScript, /UseShellExecute\s*=\s*\$false/)
-  assert.match(checkpointScript, /WaitForExit\(\$TimeoutMilliseconds\)/)
-  assert.doesNotMatch(checkpointScript, /WaitForExit\(\s*\)/)
+  assert.match(checkpointScript, /function Initialize-NativeJobBridge/)
+  assert.match(checkpointScript, /CreateProcess\(applicationName[\s\S]*CREATE_SUSPENDED/)
+  assert.match(checkpointScript, /AssignProcessToJobObject/)
+  assert.match(checkpointScript, /JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE/)
+  assert.match(checkpointScript, /TerminateJobObject/)
+  assert.match(checkpointScript, /QueryInformationJobObject/)
   assert.doesNotMatch(checkpointScript, /\.Result\b/)
   assert.doesNotMatch(checkpointScript, /ReadToEndAsync/)
-  assert.match(checkpointScript, /\$taskkillArguments\s*=\s*@\('\/PID', \[string\]\$Process\.Id, '\/T', '\/F'\)/)
-  assert.match(checkpointScript, /\[string\]\$TaskkillFilePath\s*=\s*'taskkill\.exe'/)
-  assert.match(checkpointScript, /FileName\s*=\s*\$TaskkillFilePath/)
+  assert.doesNotMatch(checkpointScript, /taskkill/i)
   assert.match(checkpointScript, /NativeProcessTreeTerminated/)
   assert.match(checkpointScript, /\[byte\[\]\]::new\(\$MaximumOutputBytes\)/)
   assert.match(checkpointScript, /\[byte\[\]\]::new\(\$MaximumErrorBytes\)/)
   assert.match(checkpointScript, /\[switch\]\$CaptureOutputBytes/)
-  assert.match(checkpointScript, /RedirectStandardOutput\s*=\s*\$captureStreams/)
-  assert.match(checkpointScript, /RedirectStandardError\s*=\s*\$captureStreams/)
-  assert.match(checkpointScript, /RedirectStandardInput\s*=\s*\(\$null -ne \$StandardInputBytes\)/)
+  assert.match(checkpointScript, /CreateParentReadPipe/)
+  assert.match(checkpointScript, /CreateParentWritePipe/)
   assert.match(checkpointScript, /StandardOutputBytes/)
   assert.match(checkpointScript, /StandardErrorBytes/)
   assert.match(checkpointScript, /NativeExitCode/)
@@ -3065,17 +3365,13 @@ function Invoke-Checked {
 
 function Stop-NativeProcessTreeBounded {
   param(
-    [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process,
-    [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds,
-    [string]$TaskkillFilePath = 'taskkill.exe'
+    [Parameter(Mandatory = $true)]$Invocation,
+    [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds
   )
-  if (-not [string]::IsNullOrWhiteSpace($env:LMD_TEST_TASKKILL_PATH)) {
-    $TaskkillFilePath = $env:LMD_TEST_TASKKILL_PATH
-  }
   if ($env:LMD_TEST_TERMINATION_HELPER_ERROR -ceq 'true') {
     throw [System.IO.IOException]::new('Injected termination helper failure')
   }
-  & $script:OriginalStopNativeProcessTreeBounded -Process $Process -TimeoutMilliseconds $TimeoutMilliseconds -TaskkillFilePath $TaskkillFilePath
+  & $script:OriginalStopNativeProcessTreeBounded -Invocation $Invocation -TimeoutMilliseconds $TimeoutMilliseconds
 }
 
 function Invoke-NativeCommandWithTimeout {
@@ -3223,7 +3519,6 @@ try {
     const alternateRoot = path.join(scenarioRoot, 'alternate-data')
     const configRoot = path.join(scenarioRoot, 'config')
     const checkpointPath = path.join(scenarioRoot, 'checkpoint')
-    const scenarioBinPath = path.join(scenarioRoot, 'bin')
     const statePath = path.join(scenarioRoot, 'state.json')
     fs.mkdirSync(dataRoot, { recursive: true })
     fs.mkdirSync(alternateRoot)
@@ -3241,10 +3536,6 @@ try {
       version,
       visibleRoot,
     }))
-    if (scenario === 'termination_helper_hang') {
-      fs.mkdirSync(scenarioBinPath)
-      fs.copyFileSync(process.execPath, path.join(scenarioBinPath, 'taskkill.exe'))
-    }
     const eventStart = fs.existsSync(eventLog)
       ? fs.readFileSync(eventLog, 'utf8').trim().split(/\r?\n/).filter(Boolean).length
       : 0
@@ -3261,12 +3552,12 @@ try {
     ], {
       cwd: root,
       encoding: 'utf8',
-      stdio: ['termination_helper_error', 'termination_helper_hang'].includes(scenario) ? 'ignore' : 'pipe',
+      stdio: scenario === 'termination_helper_error' ? 'ignore' : 'pipe',
       timeout,
       windowsHide: true,
       env: {
         ...process.env,
-        PATH: `${scenario === 'termination_helper_hang' ? `${scenarioBinPath};` : ''}${binPath};${process.env.PATH}`,
+        PATH: `${binPath};${process.env.PATH}`,
         LMD_BIND_EVENT_LOG: eventLog,
         LMD_BIND_STATE: statePath,
         LMD_BIND_SUMMARY: summaryPath,
@@ -3277,9 +3568,6 @@ try {
         LMD_NATIVE_DOCKER_TOOL: fakeToolPath,
         LMD_REPLACE_DATA_AFTER_PROOF: String(scenario === 'replace_identity_after_proof'),
         LMD_TEST_NATIVE_TIMEOUT_MS: String(nativeTimeout),
-        LMD_TEST_TASKKILL_PATH: scenario === 'termination_helper_hang'
-          ? path.join(scenarioBinPath, 'taskkill.exe')
-          : '',
         LMD_TEST_TERMINATION_HELPER_ERROR: String(scenario === 'termination_helper_error'),
         LMD_TEST_TERMINATION_TIMEOUT_MS: String(terminationTimeout),
         NODE_OPTIONS: nodeOptionsWithRequire(nativeDocker.bootstrapPath),
@@ -3554,42 +3842,37 @@ try {
         assertMarkerRemoved(run)
       })
 
-      await t.test('returns promptly when bounded tree termination cannot complete', () => {
+      await t.test('confirms Job Object termination for a detached tree', () => {
         const run = runScenario(host, 'termination_helper_hang', { timeout: 7000 })
         const hang = run.events.find((event) => event.event === 'docker_exec_hang')
-        const taskkillHang = run.events.find((event) => event.event === 'taskkill_hang')
         const dockerWasRunning = hang ? isProcessRunning(hang.parentPid) : false
         const descendantWasRunning = hang ? isProcessRunning(hang.descendantPid) : false
-        const taskkillWasRunning = taskkillHang ? isProcessRunning(taskkillHang.pid) : false
         try {
           assert.ok(hang)
-          assert.ok(taskkillHang)
           assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
           assert.equal(run.result.signal, null)
-          assert.ok(run.durationMs < 7000, `termination failure was not bounded: ${run.durationMs}ms`)
-          assert.equal(dockerWasRunning, true, 'fixture did not exercise failed tree termination')
-          assert.equal(descendantWasRunning, true, 'fixture descendant did not survive failed tree termination')
-          assert.equal(taskkillWasRunning, false, 'bounded termination helper leaked')
+          assert.ok(run.durationMs < 7000, `Job termination was not bounded: ${run.durationMs}ms`)
+          assert.equal(dockerWasRunning, false, 'Job Object left the timed-out parent running')
+          assert.equal(descendantWasRunning, false, 'Job Object left the detached descendant running')
           assertNoLateOperations(run)
           assertOuterCleanupRan(run)
           assertMarkerRemoved(run)
           const failure = run.events.find((event) => event.event === 'driver_failure')
           assert.ok(failure)
           assert.equal(failure.native_timed_out, true)
-          assert.equal(failure.process_tree_terminated, false)
+          assert.equal(failure.process_tree_terminated, true)
           assert.match(failure.primary_message, /timed out after \d+ milliseconds/i)
-          assert.match(failure.termination_detail, /taskkill exceeded its bounded wait/i)
+          assert.match(failure.termination_detail, /Job terminated and has no active processes/i)
         } finally {
           if (hang && isProcessRunning(hang.parentPid)) terminateProcessTree(hang.parentPid)
           if (hang) {
             waitForProcessExit(hang.parentPid)
             waitForProcessExit(hang.descendantPid)
           }
-          if (taskkillHang && isProcessRunning(taskkillHang.pid)) terminateProcessTree(taskkillHang.pid)
         }
       })
 
-      await t.test('retains timeout as primary when the termination helper throws', () => {
+      await t.test('retains timeout and job-close containment when the termination helper throws', () => {
         const run = runScenario(host, 'termination_helper_error', { cleanupDetail: true, timeout: 7000 })
         const hang = run.events.find((event) => event.event === 'docker_exec_hang')
         const dockerWasRunning = hang ? isProcessRunning(hang.parentPid) : false
@@ -3599,8 +3882,8 @@ try {
           assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
           assert.equal(run.result.signal, null)
           assert.ok(run.durationMs < 7000, `termination helper failure was not bounded: ${run.durationMs}ms`)
-          assert.equal(dockerWasRunning, true, 'fixture did not exercise failed tree termination')
-          assert.equal(descendantWasRunning, true, 'fixture descendant did not survive failed tree termination')
+          assert.equal(dockerWasRunning, false, 'Job close left the parent running after helper failure')
+          assert.equal(descendantWasRunning, false, 'Job close left the detached descendant running after helper failure')
           assertNoLateOperations(run)
           assertOuterCleanupRan(run)
           assertMarkerRemoved(run)
@@ -3915,9 +4198,7 @@ $script:OriginalInvokeChecked = \${function:Invoke-Checked}
 $script:OriginalInvokeNativeCommandWithTimeout = \${function:Invoke-NativeCommandWithTimeout}
 $script:OriginalAssertCheckpointDrillEvidence = \${function:Assert-CheckpointDrillEvidence}
 $script:OriginalWriteUtf8File = \${function:Write-Utf8File}
-$script:OriginalPublishUtf8FileAtomically = \${function:Publish-Utf8FileAtomically}
-$script:OriginalOpenRollbackFileAuthority = \${function:Open-RollbackFileAuthority}
-$script:OriginalNewRollbackSummaryAuthority = \${function:New-RollbackSummaryAuthority}
+$script:OriginalNewRollbackFileAuthorityFromBytes = \${function:New-RollbackFileAuthorityFromBytes}
 $script:OriginalStartCapturedDeployment = \${function:Start-CapturedDeployment}
 $script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
 $script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
@@ -3999,60 +4280,37 @@ function Write-Utf8File {
   }
 }
 
-function Open-RollbackFileAuthority {
-  param(
-    [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][string]$Label
-  )
-  $authority = $null
-  try {
-    $authority = & $script:OriginalOpenRollbackFileAuthority @PSBoundParameters
-    if ($Label -ceq 'Rollback checkpoint drill summary') {
-      Assert-TestLocks -Stage 'summary_archive'
-    }
-    return $authority
-  } catch {
-    if ($null -ne $authority) { $authority.Stream.Dispose() }
-    throw
-  }
-}
-
-function New-RollbackSummaryAuthority {
+function New-RollbackFileAuthorityFromBytes {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes,
     [Parameter(Mandatory = $true)][string]$Label
   )
   $authority = $null
+  $isMetadata = $Label -ceq 'Rollback checkpoint metadata'
+  if ($isMetadata) {
+    Assert-TestLocks -Stage 'metadata_publish'
+    if ($env:LMD_HOLD_METADATA_AUTHORITY -ceq 'true') {
+      $script:MetadataConflictAuthority = Open-RollbackFileAuthority -Path $Path -Label 'Held metadata conflict'
+    }
+  }
   try {
-    $authority = & $script:OriginalNewRollbackSummaryAuthority @PSBoundParameters
-    Assert-TestLocks -Stage 'summary_archive'
+    $authority = & $script:OriginalNewRollbackFileAuthorityFromBytes @PSBoundParameters
+    if ($Label -ceq 'Rollback checkpoint drill summary') {
+      Assert-TestLocks -Stage 'summary_archive'
+    }
     return $authority
   } catch {
     if ($null -ne $authority) { $authority.Stream.Dispose() }
-    throw
-  }
-}
-
-function Publish-Utf8FileAtomically {
-  param(
-    [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][string]$Value
-  )
-  Assert-TestLocks -Stage 'metadata_publish'
-  if ($env:LMD_HOLD_METADATA_AUTHORITY -ceq 'true') {
-    $script:MetadataConflictAuthority = Open-RollbackFileAuthority -Path $Path -Label 'Held metadata conflict'
-  }
-  try {
-    & $script:OriginalPublishUtf8FileAtomically @PSBoundParameters
-  } catch {
-    $script:PublicationError = $_
-    $line = ConvertTo-Json -Compress -InputObject ([ordered]@{
-      event = 'publication_failure'
-      primary_message = $_.Exception.Message
-      primary_error_id = $_.FullyQualifiedErrorId
-    })
-    [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+    if ($isMetadata) {
+      $script:PublicationError = $_
+      $line = ConvertTo-Json -Compress -InputObject ([ordered]@{
+        event = 'publication_failure'
+        primary_message = $_.Exception.Message
+        primary_error_id = $_.FullyQualifiedErrorId
+      })
+      [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+    }
     throw
   }
 }
@@ -6779,12 +7037,214 @@ test('release rollback workflow enforces standalone v3 evidence', () => {
   assertStandaloneRollbackWorkflowContract(releaseWorkflowDocument, 'release')
 })
 
+test('rollback workflow shell propagates drill, tee, validator, stderr, and inherited-writer failures', (t) => {
+  if (process.platform !== 'linux') {
+    t.skip('Executable rollback workflow shell contract runs on the Ubuntu workflow host')
+    return
+  }
+  const runScriptOf = (document) => String(document.jobs['rollback-drill'].steps
+    .find((step) => step.name === 'Run and validate rollback drill').run)
+  const ciRunScript = runScriptOf(ciWorkflowDocument)
+  assert.equal(runScriptOf(releaseWorkflowDocument), ciRunScript)
+  const executableRunScript = ciRunScript
+    .replace('720s npm run verify:rollback', '1s npm run verify:rollback')
+    .replace('760s bash "$pipeline_script"', '3s bash "$pipeline_script"')
+  const realTee = spawnSync('sh', ['-c', 'command -v tee'], { encoding: 'utf8' }).stdout.trim()
+  assert.ok(path.isAbsolute(realTee), 'system tee is unavailable')
+
+  const runCase = (environment = {}) => {
+    const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-workflow-shell-'))
+    const binDirectory = path.join(fixtureRoot, 'bin')
+    const runnerTemp = path.join(fixtureRoot, 'runner-temp')
+    const scriptsDirectory = path.join(fixtureRoot, 'scripts')
+    fs.mkdirSync(binDirectory)
+    fs.mkdirSync(runnerTemp)
+    fs.mkdirSync(scriptsDirectory)
+    const npmPath = path.join(binDirectory, 'npm')
+    const teePath = path.join(binDirectory, 'tee')
+    const dockerPath = path.join(binDirectory, 'docker')
+    const shortWritePreloadPath = path.join(fixtureRoot, 'short-write-preload.cjs')
+    const dockerStatePath = path.join(fixtureRoot, 'docker-state.json')
+    const dockerEventsPath = path.join(fixtureRoot, 'docker-events.jsonl')
+    const fullContainerId = 'c'.repeat(64)
+    if (environment.EXERCISE_CID_ONLY_CLEANUP === '1') {
+      fs.writeFileSync(dockerStatePath, JSON.stringify({ id: fullContainerId }))
+    }
+    fs.writeFileSync(npmPath, `#!/bin/sh
+if [ "\${EXERCISE_CID_ONLY_CLEANUP:-0}" = 1 ]; then printf '%s\\n' '${fullContainerId}' >"$LMD_ROLLBACK_CIDFILE"; fi
+printf 'stdout-line\\n'
+if [ "\${LARGE_STDERR:-0}" = 1 ]; then
+  dd if=/dev/zero bs=262145 count=1 2>/dev/null | tr '\\000' x >&2
+else
+  printf 'stderr-line\\n' >&2
+fi
+if [ "\${HOLD_STDERR:-0}" = 1 ]; then
+  (trap 'exit 0' PIPE TERM; while :; do printf h >&2 || exit 0; sleep 1; done) &
+fi
+if [ "\${DETACH_WRITER:-0}" = 1 ]; then
+  setsid sh -c 'trap "exit 0" PIPE TERM; while :; do printf o || exit 0; printf e >&2 || exit 0; sleep 1; done' &
+fi
+if [ "\${HANG_MAIN:-0}" = 1 ]; then
+  trap 'exit 0' TERM
+  while :; do sleep 1; done
+fi
+exit "\${DRILL_STATUS:-0}"
+`, { mode: 0o755 })
+    fs.writeFileSync(teePath, `#!/bin/sh
+"\${REAL_TEE}" "$@"
+actual=$?
+if [ "\${TEE_STATUS:-0}" -ne 0 ]; then exit "\${TEE_STATUS}"; fi
+exit "$actual"
+`, { mode: 0o755 })
+    fs.writeFileSync(dockerPath, `#!/usr/bin/env node
+'use strict'
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+const statePath = process.env.FAKE_DOCKER_STATE_PATH
+const eventsPath = process.env.FAKE_DOCKER_EVENTS_PATH
+const readState = () => fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : null
+const record = (event) => fs.appendFileSync(eventsPath, JSON.stringify({ event, args }) + '\\n')
+if (args[0] === 'container' && args[1] === 'ls') {
+  record('list')
+  const state = readState()
+  const filter = args[args.indexOf('--filter') + 1] || ''
+  if (state && filter.startsWith('id=')) process.stdout.write(state.id + '\\n')
+  process.exit(0)
+}
+if (args[0] === 'container' && args[1] === 'inspect') {
+  record('inspect')
+  if (!readState()) process.exit(1)
+  process.stdout.write(String(process.env.LMD_ROLLBACK_CONTAINER_LABEL).split('=').slice(1).join('=') + '\\n')
+  process.exit(0)
+}
+if (args[0] === 'stop') { record('stop'); process.exit(19) }
+if (args[0] === 'kill') { record('kill'); process.exit(0) }
+if (args[0] === 'rm') { record('rm'); fs.rmSync(statePath, { force: true }); process.exit(0) }
+if (args[0] === 'create') {
+  record('create')
+  if (readState()) process.exit(1)
+  const id = 'd'.repeat(64)
+  fs.writeFileSync(statePath, JSON.stringify({ id }))
+  process.stdout.write(id + '\\n')
+  process.exit(0)
+}
+process.exit(41)
+`, { mode: 0o755 })
+    fs.writeFileSync(
+      path.join(scriptsDirectory, 'rollback-drill-evidence.cjs'),
+      `process.stdin.resume(); process.stdin.on('end', () => process.exit(Number(process.env.VALIDATOR_STATUS || 0)))\n`,
+    )
+    fs.writeFileSync(shortWritePreloadPath, `
+const fs = require('node:fs')
+const originalWriteSync = fs.writeSync
+fs.writeSync = function (fd, buffer, offset, length, ...rest) {
+  if (process.env.FORCE_SHORT_WRITE === '1' && ArrayBuffer.isView(buffer) && length > 1) {
+    return originalWriteSync.call(this, fd, buffer, offset, Math.max(1, Math.floor(length / 2)), ...rest)
+  }
+  return originalWriteSync.call(this, fd, buffer, offset, length, ...rest)
+}
+`, 'utf8')
+    try {
+      const result = spawnSync('bash', ['-c', executableRunScript], {
+        cwd: fixtureRoot,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          ...environment,
+          GITHUB_SHA: rollbackWorkflowSha,
+          PATH: `${binDirectory}${path.delimiter}${process.env.PATH}`,
+          REAL_TEE: realTee,
+          RUNNER_TEMP: runnerTemp,
+          NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --require ${shortWritePreloadPath}`.trim(),
+          FAKE_DOCKER_EVENTS_PATH: dockerEventsPath,
+          FAKE_DOCKER_STATE_PATH: dockerStatePath,
+        },
+        timeout: 20000,
+      })
+      return {
+        result,
+        stdout: fs.readFileSync(path.join(runnerTemp, 'rollback-drill.stdout.log')),
+        stderr: fs.readFileSync(path.join(runnerTemp, 'rollback-drill.stderr.log')),
+        dockerEvents: fs.existsSync(dockerEventsPath)
+          ? fs.readFileSync(dockerEventsPath, 'utf8').trim().split(/\r?\n/).filter(Boolean).map(JSON.parse)
+          : [],
+      }
+    } finally {
+      fs.rmSync(fixtureRoot, { recursive: true, force: true })
+    }
+  }
+
+  const success = runCase()
+  assert.equal(success.result.status, 0, success.result.stderr)
+  assert.equal(success.stdout.toString('utf8'), 'stdout-line\n')
+  assert.equal(success.stderr.toString('utf8'), 'stderr-line\n')
+
+  const cidOnlyCleanup = runCase({ EXERCISE_CID_ONLY_CLEANUP: '1' })
+  assert.equal(cidOnlyCleanup.result.status, 0, cidOnlyCleanup.result.stderr)
+  for (const event of ['inspect', 'stop', 'kill', 'rm', 'create']) {
+    assert.ok(cidOnlyCleanup.dockerEvents.some((entry) => entry.event === event), `missing Docker cleanup event ${event}`)
+  }
+  assert.ok(cidOnlyCleanup.dockerEvents.some((entry) => entry.event === 'list' && entry.args.includes('--no-trunc')))
+
+  for (const [name, environment, expectedStatus] of [
+    ['drill', { DRILL_STATUS: '7' }, 7],
+    ['tee', { TEE_STATUS: '8' }, 8],
+    ['validator', { VALIDATOR_STATUS: '9' }, 9],
+  ]) {
+    const failure = runCase(environment)
+    assert.equal(failure.result.status, expectedStatus, `${name} failure was not propagated: ${failure.result.stderr}`)
+  }
+
+  const truncated = runCase({ LARGE_STDERR: '1' })
+  assert.equal(truncated.result.status, 1, truncated.result.stderr)
+  assert.equal(truncated.stderr.length, 262144)
+  assert.equal(truncated.stdout.toString('utf8'), 'stdout-line\n')
+
+  const shortWrite = runCase({ FORCE_SHORT_WRITE: '1' })
+  assert.equal(shortWrite.result.status, 0, shortWrite.result.stderr)
+  assert.equal(shortWrite.stderr.toString('utf8'), 'stderr-line\n')
+
+  const hungMain = runCase({ HANG_MAIN: '1' })
+  assert.equal(hungMain.result.status, 124, hungMain.result.stderr)
+  assert.notEqual(hungMain.result.error?.code, 'ETIMEDOUT')
+
+  const inheritedWriter = runCase({ HOLD_STDERR: '1' })
+  assert.equal(inheritedWriter.result.status, 124, inheritedWriter.result.stderr)
+  assert.notEqual(inheritedWriter.result.error?.code, 'ETIMEDOUT')
+
+  const detachedWriter = runCase({ DETACH_WRITER: '1' })
+  assert.equal(detachedWriter.result.status, 124, detachedWriter.result.stderr)
+  assert.notEqual(detachedWriter.result.error?.code, 'ETIMEDOUT')
+})
+
 test('rollback acceptance plan never treats the repository diagnostic as authoritative', () => {
   const taskFive = rollbackEvidencePlan.slice(rollbackEvidencePlan.indexOf('### Task 5:'))
   assert.ok(taskFive.startsWith('### Task 5:'))
   assert.doesNotMatch(taskFive, /artifacts\/rollback-drill\/summary\.json/)
   assert.match(taskFive, /LOCALMINIDRAMA_ROLLBACK_RESULT_V1|live stdout|machine result/i)
   assert.match(taskFive, /checkpoint\/rollback-drill-summary\.json|checkpoint-bound summary/i)
+})
+
+test('operator and Task 4 reports state the final direct-authority model', () => {
+  assert.match(
+    quickstart,
+    /rollback-drill-summary\.json[\s\S]{0,500}FileMode\.CreateNew[\s\S]{0,500}same retained|same retained[\s\S]{0,500}FileMode\.CreateNew/i,
+  )
+  assert.doesNotMatch(
+    quickstart,
+    /rollback-drill-summary\.json[\s\S]{0,300}atomically[^\n]*publish[\s\S]{0,200}(?:then|immediately) opens? a read-only/i,
+  )
+  const finalFix = rollbackTaskFourReport.slice(rollbackTaskFourReport.lastIndexOf('## Review Fix 5:'))
+  assert.ok(finalFix.startsWith('## Review Fix 5:'))
+  assert.match(finalFix, /direct|CreateNew/i)
+  assert.doesNotMatch(finalFix, /opened once after atomic no-overwrite publication/i)
+})
+
+test('operator guide states the platform rollback containment boundaries', () => {
+  assert.match(quickstart, /Windows[\s\S]{0,300}Job Object[\s\S]{0,300}NTFS\/ReFS/)
+  assert.match(quickstart, /Linux[\s\S]{0,600}宿主[\s\S]{0,300}维护租约/)
+  assert.match(quickstart, /只读挂载[\s\S]{0,400}禁用网络[\s\S]{0,400}私有 `\/tmp`/)
+  assert.match(quickstart, /只有 `artifacts\/rollback-drill\/` 可写/)
 })
 
 test('third-party workflow actions are pinned to full commit digests', () => {

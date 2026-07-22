@@ -348,11 +348,15 @@ npm run maintenance:recover -- --owner-scope "<检查到的作用域>" --pid <�
 
 该命令不会输出租约令牌；租约仍新鲜、本机 PID 仍活跃、锁已被替换，或作用域/PID 与检查结果不一致时都会失败关闭。恢复完成后再运行 `npm run docker:up`。如果无法证明锁的归属，保留锁和数据目录，先查明仍在运行的进程，不要强制接管。
 
+如果锁文件内容的 schema 是 `localminidrama.maintenance-quarantine.v1`，说明释放锁时发现目录、符号链接或其他非普通文件替身。公开路径上的隔离标记用于阻止新进程误启动，`claimDirectory` 与 `claimEntry` 指向同目录下保留的原替身。此时不要运行自动恢复，也不要删除标记或 claim；先停止全部源码、桌面和 Docker 后端，保全两者并查明替换来源，再在独占维护窗口人工处理。系统不会自动把 claim 移回公开路径，因为跨平台 rename 无法同时保证“不覆盖恢复窗口中新出现的对象”。
+
 发布或升级验收时，先停止后端与 Docker，确认 Git 工作树干净，再从仓库根目录运行：
 
 ```bash
 npm run verify:rollback
 ```
+
+Windows 会在启动器当前 Node 进程中直接运行演练，内部测试子进程有 10 分钟硬超时；检查点和恢复脚本启动的外部命令树由 Job Object 约束。临时文件清理要求 NTFS/ReFS，并按保留句柄的文件身份删除。Linux 宿主必须可用 Docker、Git、Git LFS，并已按 `backend-node/package-lock.json` 安装后端依赖：启动器先在宿主确认 Git 工作树干净、记录完整提交 SHA、确认后端端口未监听并持有同一数据根的维护租约，再把仓库、数据根和检查点归档只读挂载到固定摘要的 Node.js 20 镜像。维护租约绑定原锁文件的设备号、inode 和新鲜心跳。容器成功后宿主会再次核对工作树仍干净且 SHA 未变化。容器禁用网络与额外能力，使用归属当前 UID/GID 的私有 `/tmp`，只有 `artifacts/rollback-drill/` 可写；诊断路径含符号链接、宿主服务仍在运行、维护租约变化、源码版本变化或容器边界无法建立时都会失败关闭。启动器和 CI 都通过私有 CID 文件、唯一标签和容器名三路发现并校验归属，清理后以同名哨兵容器建立 Docker daemon 屏障；只有复核标签、名称和 CID 均不存在后才释放宿主维护租约。无法证明 CLI 退出或容器清理完成时会保留租约，按上文维护恢复流程处理。
 
 不带参数的 `npm run verify:rollback` 是独立演练：它先运行备份恢复专项测试，再把当前数据做脱敏备份并恢复到临时隔离目录，校验 SQLite、媒体、原文、凭据排除、中断清理和恢复前回滚副本。演练完成所有验证、句柄关闭和临时归档清理后，才在标准输出写出唯一一行 `LOCALMINIDRAMA_ROLLBACK_RESULT_V1=...` 机器结果；其中绑定 `localminidrama.rollback-drill.v3` 的精确 UTF-8 字节及其小写 SHA-256。CI 和发布流程直接校验这条实时管道结果，不会重新打开仓库文件来决定成功。结果要求 `input_mode: standalone`、`backup.archive_retained: false`、有效的归档摘要和数据根摘要，以及 `operations.source_data_root_unchanged: true`。
 
@@ -381,7 +385,7 @@ npm run checkpoint:rollback -- -CheckpointDirectory $checkpoint
 
 停止 Docker 后，脚本以重新检查的 bind source 创建并保留 `checkpoint/data.zip`，随后自动对这一精确配对运行 `npm run verify:rollback -- --archive <checkpoint/data.zip> --data-root <inspected-bind-source>`。不要用其他归档或数据根替换该配对。检查点脚本只接受子进程标准输出中的唯一、有界机器结果，严格解码 UTF-8、核对摘要并验证 `input_mode: checkpoint-bound` 与 `backup.archive_retained: true`；它不会读取仓库中的 `artifacts/rollback-drill/summary.json` 或其他诊断文件。
 
-验证通过后，脚本把机器结果中捕获的精确证据字节原子、不可覆盖地发布为 `checkpoint/rollback-drill-summary.json`，立即打开只读文件权威句柄，逐字节复核并通过该保留句柄计算 SHA-256。该句柄一直持有到 v5 metadata 发布完成；摘要中的归档 SHA-256、v5 metadata 中记录的归档 SHA-256 和当前保留的 `data.zip` 字节摘要必须三方一致，历史数据根 SHA-256 也会复制到 v5 metadata。脚本同时从演练开始前一直对 `data.zip` 保持读取锁，直至演练、证据校验和 metadata 发布全部完成。
+验证通过后，`checkpoint/rollback-drill-summary.json` 由脚本使用 `FileMode.CreateNew` 直接在最终路径创建；同一个保留的读写权威句柄（same retained read/write authority）负责写入精确证据字节、持久化刷新、逐字节复核、最终路径身份校验和 SHA-256 计算，不存在临时文件移动或关闭后重开边界。v5 `metadata.json` 也通过同一机制直接创建，并保持自己的权威句柄直到成功输出完成；摘要句柄则持续持有到 metadata 创建完成。摘要中的归档 SHA-256、v5 metadata 中记录的归档 SHA-256 和当前保留的 `data.zip` 字节摘要必须三方一致，历史数据根 SHA-256 也会复制到 v5 metadata。脚本同时从演练开始前一直对 `data.zip` 保持读取锁，直至演练、证据校验和 metadata 发布全部完成。
 
 v5 是升级和回退的唯一发布权威格式。v4 检查点仍可检查，但不具备发布权威性，升级或回退前必须重新创建为 v5。检查点必须位于仓库和实时数据目录之外且至少保留到新版本完成业务验收；身份校验不能替代 `data.zip`、`images.tar`、净化后的运行配置、`data-bind-source.txt` 或前向补偿证据，不能只保留 metadata 而删除这些文件。
 

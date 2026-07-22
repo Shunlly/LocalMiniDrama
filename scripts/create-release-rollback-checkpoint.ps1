@@ -79,102 +79,225 @@ function Get-RemainingNativeTimeoutMilliseconds {
   return [Math]::Max(0, $TimeoutMilliseconds - [int]$Stopwatch.ElapsedMilliseconds)
 }
 
+function Initialize-NativeJobBridge {
+  if ($null -ne ('LocalMiniDrama.NativeJobLauncher' -as [type])) { return }
+  Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+
+namespace LocalMiniDrama {
+  public sealed class NativeJobProcess : IDisposable {
+    public SafeFileHandle Job;
+    public SafeFileHandle Process;
+    public SafeFileHandle StandardInput;
+    public SafeFileHandle StandardOutput;
+    public SafeFileHandle StandardError;
+    public int ProcessId;
+    public void Dispose() {
+      if (StandardInput != null) StandardInput.Dispose();
+      if (StandardOutput != null) StandardOutput.Dispose();
+      if (StandardError != null) StandardError.Dispose();
+      if (Process != null) Process.Dispose();
+      if (Job != null) Job.Dispose();
+    }
+  }
+
+  public static class NativeJobLauncher {
+    const uint CREATE_SUSPENDED = 0x00000004;
+    const uint CREATE_NO_WINDOW = 0x08000000;
+    const uint STARTF_USESTDHANDLES = 0x00000100;
+    const uint HANDLE_FLAG_INHERIT = 0x00000001;
+    const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+    const uint ERROR_CANCELLED = 1223;
+    const uint WAIT_OBJECT_0 = 0;
+    const uint WAIT_TIMEOUT = 258;
+    const uint INFINITE = 0xffffffff;
+    const int JobObjectBasicAccountingInformation = 1;
+    const int JobObjectExtendedLimitInformation = 9;
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct SECURITY_ATTRIBUTES { public int nLength; public IntPtr lpSecurityDescriptor; [MarshalAs(UnmanagedType.Bool)] public bool bInheritHandle; }
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct STARTUPINFO { public int cb; public string lpReserved; public string lpDesktop; public string lpTitle; public int dwX; public int dwY; public int dwXSize; public int dwYSize; public int dwXCountChars; public int dwYCountChars; public int dwFillAttribute; public uint dwFlags; public short wShowWindow; public short cbReserved2; public IntPtr lpReserved2; public IntPtr hStdInput; public IntPtr hStdOutput; public IntPtr hStdError; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct PROCESS_INFORMATION { public IntPtr hProcess; public IntPtr hThread; public int dwProcessId; public int dwThreadId; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct JOBOBJECT_BASIC_LIMIT_INFORMATION { public long PerProcessUserTimeLimit; public long PerJobUserTimeLimit; public uint LimitFlags; public UIntPtr MinimumWorkingSetSize; public UIntPtr MaximumWorkingSetSize; public uint ActiveProcessLimit; public UIntPtr Affinity; public uint PriorityClass; public uint SchedulingClass; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct IO_COUNTERS { public ulong ReadOperationCount; public ulong WriteOperationCount; public ulong OtherOperationCount; public ulong ReadTransferCount; public ulong WriteTransferCount; public ulong OtherTransferCount; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION { public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation; public IO_COUNTERS IoInfo; public UIntPtr ProcessMemoryLimit; public UIntPtr JobMemoryLimit; public UIntPtr PeakProcessMemoryUsed; public UIntPtr PeakJobMemoryUsed; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct JOBOBJECT_BASIC_ACCOUNTING_INFORMATION { public long TotalUserTime; public long TotalKernelTime; public long ThisPeriodTotalUserTime; public long ThisPeriodTotalKernelTime; public uint TotalPageFaultCount; public uint TotalProcesses; public uint ActiveProcesses; public uint TotalTerminatedProcesses; }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, int length);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool QueryInformationJobObject(IntPtr job, int infoClass, out JOBOBJECT_BASIC_ACCOUNTING_INFORMATION info, int length, IntPtr returnedLength);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool CreateProcess(string applicationName, StringBuilder commandLine, IntPtr processAttributes, IntPtr threadAttributes, [MarshalAs(UnmanagedType.Bool)] bool inheritHandles, uint creationFlags, IntPtr environment, string currentDirectory, ref STARTUPINFO startupInfo, out PROCESS_INFORMATION processInformation);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool TerminateProcess(IntPtr process, uint exitCode);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern uint ResumeThread(IntPtr thread);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool CreatePipe(out IntPtr readPipe, out IntPtr writePipe, ref SECURITY_ATTRIBUTES attributes, int size);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+    [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] static extern bool CloseHandle(IntPtr handle);
+
+    static Exception LastError(string operation) { int error = Marshal.GetLastWin32Error(); return new Win32Exception(error, operation + " failed (Win32 error " + error + ")."); }
+    static void CloseRaw(ref IntPtr handle) { if (handle != IntPtr.Zero && handle != new IntPtr(-1)) { CloseHandle(handle); handle = IntPtr.Zero; } }
+    static void CreateParentReadPipe(ref SECURITY_ATTRIBUTES attributes, out IntPtr parentRead, out IntPtr childWrite) {
+      if (!CreatePipe(out parentRead, out childWrite, ref attributes, 0)) throw LastError("CreatePipe(stdout/stderr)");
+      if (!SetHandleInformation(parentRead, HANDLE_FLAG_INHERIT, 0)) { CloseRaw(ref parentRead); CloseRaw(ref childWrite); throw LastError("SetHandleInformation(stdout/stderr)"); }
+    }
+    static void CreateParentWritePipe(ref SECURITY_ATTRIBUTES attributes, out IntPtr childRead, out IntPtr parentWrite) {
+      if (!CreatePipe(out childRead, out parentWrite, ref attributes, 0)) throw LastError("CreatePipe(stdin)");
+      if (!SetHandleInformation(parentWrite, HANDLE_FLAG_INHERIT, 0)) { CloseRaw(ref childRead); CloseRaw(ref parentWrite); throw LastError("SetHandleInformation(stdin)"); }
+    }
+
+    public static NativeJobProcess Start(string applicationName, string commandLine, string currentDirectory) {
+      return StartCore(applicationName, commandLine, currentDirectory, false);
+    }
+
+    public static NativeJobProcess StartForAssignmentFailureTest(string applicationName, string commandLine, string currentDirectory) {
+      return StartCore(applicationName, commandLine, currentDirectory, true);
+    }
+
+    static NativeJobProcess StartCore(string applicationName, string commandLine, string currentDirectory, bool failAssignmentForTest) {
+      NativeJobProcess result = new NativeJobProcess();
+      IntPtr job = IntPtr.Zero, stdoutRead = IntPtr.Zero, stdoutWrite = IntPtr.Zero, stderrRead = IntPtr.Zero, stderrWrite = IntPtr.Zero, stdinRead = IntPtr.Zero, stdinWrite = IntPtr.Zero, process = IntPtr.Zero, thread = IntPtr.Zero;
+      int createdProcessId = 0;
+      bool assignedToJob = false;
+      try {
+        job = CreateJobObject(IntPtr.Zero, null);
+        if (job == IntPtr.Zero || job == new IntPtr(-1)) throw LastError("CreateJobObject");
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, ref limits, Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION)))) throw LastError("SetInformationJobObject");
+        SECURITY_ATTRIBUTES attributes = new SECURITY_ATTRIBUTES(); attributes.nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES)); attributes.bInheritHandle = true;
+        CreateParentReadPipe(ref attributes, out stdoutRead, out stdoutWrite);
+        CreateParentReadPipe(ref attributes, out stderrRead, out stderrWrite);
+        CreateParentWritePipe(ref attributes, out stdinRead, out stdinWrite);
+        STARTUPINFO startup = new STARTUPINFO(); startup.cb = Marshal.SizeOf(typeof(STARTUPINFO)); startup.dwFlags = STARTF_USESTDHANDLES; startup.hStdInput = stdinRead; startup.hStdOutput = stdoutWrite; startup.hStdError = stderrWrite;
+        PROCESS_INFORMATION info;
+        StringBuilder mutableCommandLine = new StringBuilder(commandLine);
+        if (!CreateProcess(applicationName, mutableCommandLine, IntPtr.Zero, IntPtr.Zero, true, CREATE_SUSPENDED | CREATE_NO_WINDOW, IntPtr.Zero, currentDirectory, ref startup, out info)) throw LastError("CreateProcessW");
+        process = info.hProcess; thread = info.hThread;
+        createdProcessId = info.dwProcessId;
+        CloseRaw(ref stdoutWrite); CloseRaw(ref stderrWrite); CloseRaw(ref stdinRead);
+        if (failAssignmentForTest) throw new Win32Exception(5, "Injected AssignProcessToJobObject failure.");
+        if (!AssignProcessToJobObject(job, process)) throw LastError("AssignProcessToJobObject");
+        assignedToJob = true;
+        if (ResumeThread(thread) == 0xffffffff) throw LastError("ResumeThread");
+        CloseRaw(ref thread);
+        result.Job = new SafeFileHandle(job, true); job = IntPtr.Zero;
+        result.Process = new SafeFileHandle(process, true); process = IntPtr.Zero;
+        result.StandardOutput = new SafeFileHandle(stdoutRead, true); stdoutRead = IntPtr.Zero;
+        result.StandardError = new SafeFileHandle(stderrRead, true); stderrRead = IntPtr.Zero;
+        result.StandardInput = new SafeFileHandle(stdinWrite, true); stdinWrite = IntPtr.Zero;
+        result.ProcessId = info.dwProcessId;
+        return result;
+      } catch (Exception primaryError) {
+        if (createdProcessId > 0) primaryError.Data["NativeProcessId"] = createdProcessId;
+        if (process != IntPtr.Zero && !assignedToJob) {
+          bool terminated = TerminateProcess(process, ERROR_CANCELLED);
+          if (!terminated && WaitForSingleObject(process, 0) != WAIT_OBJECT_0) {
+            primaryError.Data["NativeStartupCleanupError"] = LastError("TerminateProcess").Message;
+          }
+          uint waitResult = WaitForSingleObject(process, 2000);
+          bool confirmed = waitResult == WAIT_OBJECT_0;
+          primaryError.Data["NativeUnassignedProcessTerminated"] = confirmed;
+          if (!confirmed) {
+            primaryError.Data["NativeStartupCleanupError"] = waitResult == WAIT_TIMEOUT
+              ? "Unassigned suspended process termination exceeded its bounded wait."
+              : LastError("WaitForSingleObject").Message;
+          }
+        }
+        if (job != IntPtr.Zero && assignedToJob) TerminateJobObject(job, ERROR_CANCELLED);
+        result.Dispose();
+        throw;
+      } finally {
+        CloseRaw(ref thread); CloseRaw(ref process); CloseRaw(ref stdoutRead); CloseRaw(ref stdoutWrite); CloseRaw(ref stderrRead); CloseRaw(ref stderrWrite); CloseRaw(ref stdinRead); CloseRaw(ref stdinWrite); CloseRaw(ref job);
+      }
+    }
+
+    public static bool HasExited(NativeJobProcess process) { return WaitForSingleObject(process.Process.DangerousGetHandle(), 0) == WAIT_OBJECT_0; }
+    public static int ExitCode(NativeJobProcess process) { uint code; if (!GetExitCodeProcess(process.Process.DangerousGetHandle(), out code)) throw LastError("GetExitCodeProcess"); return unchecked((int)code); }
+    public static bool WaitForNoActiveProcesses(NativeJobProcess process, int timeoutMilliseconds, out string detail) {
+      Stopwatch stopwatch = Stopwatch.StartNew();
+      while (stopwatch.ElapsedMilliseconds < timeoutMilliseconds) {
+        JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting;
+        if (!QueryInformationJobObject(process.Job.DangerousGetHandle(), JobObjectBasicAccountingInformation, out accounting, Marshal.SizeOf(typeof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION)), IntPtr.Zero)) { detail = LastError("QueryInformationJobObject").Message; return false; }
+        if (accounting.ActiveProcesses == 0) { detail = "Job has no active processes."; return true; }
+        System.Threading.Thread.Sleep(10);
+      }
+      detail = "Job descendants did not exit within the bounded wait.";
+      return false;
+    }
+    public static bool TerminateAndWait(NativeJobProcess process, int timeoutMilliseconds, out string detail) {
+      if (!TerminateJobObject(process.Job.DangerousGetHandle(), ERROR_CANCELLED)) { detail = LastError("TerminateJobObject").Message; return false; }
+      bool confirmed = WaitForNoActiveProcesses(process, timeoutMilliseconds, out detail);
+      if (confirmed) detail = "Job terminated and has no active processes.";
+      else if (detail == "Job descendants did not exit within the bounded wait.") detail = "Job termination exceeded its bounded wait.";
+      return confirmed;
+    }
+  }
+}
+'@ -ErrorAction Stop
+}
+
+function Resolve-NativeExecutablePath {
+  param([Parameter(Mandatory = $true)][string]$FilePath)
+  $candidate = $FilePath
+  if (-not [System.IO.Path]::IsPathRooted($candidate)) {
+    $command = Get-Command -Name $FilePath -CommandType Application -ErrorAction Stop | Select-Object -First 1
+    $candidate = if (-not [string]::IsNullOrWhiteSpace([string]$command.Path)) { [string]$command.Path } else { [string]$command.Source }
+  }
+  $resolved = [System.IO.Path]::GetFullPath($candidate)
+  if (-not [System.IO.File]::Exists($resolved)) { throw "Native executable does not exist: $resolved" }
+  return $resolved
+}
+
+function Start-NativeJobProcess {
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string[]]$ArgumentList
+  )
+  Initialize-NativeJobBridge
+  $executable = Resolve-NativeExecutablePath -FilePath $FilePath
+  $commandLine = ((@($executable) + @($ArgumentList) | ForEach-Object {
+    ConvertTo-WindowsCommandLineArgument -Argument ([string]$_)
+  }) -join ' ')
+  return [LocalMiniDrama.NativeJobLauncher]::Start($executable, $commandLine, (Get-Location).Path)
+}
+
 function Stop-NativeProcessTreeBounded {
   [CmdletBinding()]
   param(
-    [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process,
-    [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$TimeoutMilliseconds,
-    [string]$TaskkillFilePath = 'taskkill.exe'
+    [Parameter(Mandatory = $true)][LocalMiniDrama.NativeJobProcess]$Invocation,
+    [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$TimeoutMilliseconds
   )
+  $detail = ''
+  $confirmed = [LocalMiniDrama.NativeJobLauncher]::TerminateAndWait($Invocation, $TimeoutMilliseconds, [ref]$detail)
+  if ($detail.Length -gt 1024) { $detail = $detail.Substring(0, 1024) }
+  return [pscustomobject]@{ Confirmed = $confirmed; Detail = $detail }
+}
 
-  $details = [System.Collections.ArrayList]::new()
-  $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-  $taskkill = [System.Diagnostics.Process]::new()
-  $taskkillStarted = $false
-  $taskkillCompleted = $false
-  $taskkillExitCode = $null
-  try {
-    $taskkillArguments = @('/PID', [string]$Process.Id, '/T', '/F')
-    $taskkillStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $taskkillStartInfo.FileName = $TaskkillFilePath
-    $taskkillStartInfo.Arguments = (@($taskkillArguments | ForEach-Object {
-      ConvertTo-WindowsCommandLineArgument -Argument $_
-    }) -join ' ')
-    $taskkillStartInfo.UseShellExecute = $false
-    $taskkillStartInfo.CreateNoWindow = $true
-    $taskkill.StartInfo = $taskkillStartInfo
-    try {
-      $taskkillStarted = $taskkill.Start()
-    } catch {
-      [void]$details.Add("taskkill could not start: $($_.Exception.Message)")
-    }
-
-    if ($taskkillStarted) {
-      $remaining = Get-RemainingNativeTimeoutMilliseconds -Stopwatch $stopwatch -TimeoutMilliseconds $TimeoutMilliseconds
-      if ($remaining -gt 0 -and $taskkill.WaitForExit($remaining)) {
-        $taskkillCompleted = $true
-        $taskkillExitCode = [int]$taskkill.ExitCode
-        if ($taskkillExitCode -ne 0) {
-          [void]$details.Add("taskkill exited with code $taskkillExitCode")
-        }
-      } else {
-        [void]$details.Add('taskkill exceeded its bounded wait')
-        try {
-          $taskkill.Kill()
-        } catch {
-          [void]$details.Add("taskkill termination failed: $($_.Exception.Message)")
-        }
-        $remaining = Get-RemainingNativeTimeoutMilliseconds -Stopwatch $stopwatch -TimeoutMilliseconds $TimeoutMilliseconds
-        if ($remaining -gt 0) {
-          $taskkillCompleted = $taskkill.WaitForExit([Math]::Min($remaining, 250))
-        }
-        if (-not $taskkillCompleted) {
-          [void]$details.Add('taskkill exit could not be confirmed within the deadline')
-        }
-      }
-    }
-
-    $parentExited = $false
-    try {
-      $parentExited = $Process.HasExited
-    } catch {
-      [void]$details.Add("parent status check failed: $($_.Exception.Message)")
-    }
-    if (-not $parentExited) {
-      $remaining = Get-RemainingNativeTimeoutMilliseconds -Stopwatch $stopwatch -TimeoutMilliseconds $TimeoutMilliseconds
-      if ($remaining -gt 0) {
-        try {
-          $parentExited = $Process.WaitForExit($remaining)
-        } catch {
-          [void]$details.Add("bounded parent wait failed: $($_.Exception.Message)")
-        }
-      }
-    }
-    if (-not $parentExited) {
-      [void]$details.Add('parent exit could not be confirmed within the deadline')
-    }
-
-    $confirmed = $taskkillCompleted -and $taskkillExitCode -eq 0 -and $parentExited
-    $detail = ($details -join '; ')
-    if ($detail.Length -gt 1024) { $detail = $detail.Substring(0, 1024) }
-    return [pscustomobject]@{
-      Confirmed = $confirmed
-      Detail = $detail
-    }
-  } finally {
-    if ($taskkillStarted) {
-      $taskkillExited = $false
-      try { $taskkillExited = $taskkill.HasExited } catch { }
-      if (-not $taskkillExited) {
-        try { $taskkill.Kill() } catch { }
-        $remaining = Get-RemainingNativeTimeoutMilliseconds -Stopwatch $stopwatch -TimeoutMilliseconds $TimeoutMilliseconds
-        if ($remaining -gt 0) {
-          try { [void]$taskkill.WaitForExit([Math]::Min($remaining, 100)) } catch { }
-        }
-      }
-    }
-    $taskkill.Dispose()
-  }
+function Wait-NativeProcessTreeExitBounded {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)][LocalMiniDrama.NativeJobProcess]$Invocation,
+    [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$TimeoutMilliseconds
+  )
+  $detail = ''
+  $confirmed = [LocalMiniDrama.NativeJobLauncher]::WaitForNoActiveProcesses($Invocation, $TimeoutMilliseconds, [ref]$detail)
+  if ($detail.Length -gt 1024) { $detail = $detail.Substring(0, 1024) }
+  return [pscustomobject]@{ Confirmed = $confirmed; Detail = $detail }
 }
 
 function Invoke-NativeCommandWithTimeout {
@@ -196,40 +319,28 @@ function Invoke-NativeCommandWithTimeout {
     throw 'Native output can be captured as text or bytes, but not both.'
   }
   $captureStreams = $CaptureOutput -or $CaptureOutputBytes
-  $process = [System.Diagnostics.Process]::new()
+  $nativeProcess = $null
+  $outputStream = $null
+  $errorStream = $null
+  $inputStream = $null
   $started = $false
   $terminationAttempted = $false
+  $standardInputClosed = ($null -eq $StandardInputBytes)
+  $result = $null
+  $primaryError = $null
+  $cleanupErrors = [System.Collections.ArrayList]::new()
   $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
   try {
-    $processStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $processStartInfo.FileName = $FilePath
-    $processStartInfo.Arguments = (@($ArgumentList | ForEach-Object {
-      ConvertTo-WindowsCommandLineArgument -Argument $_
-    }) -join ' ')
-    $processStartInfo.UseShellExecute = $false
-    $processStartInfo.CreateNoWindow = $true
-    $processStartInfo.RedirectStandardOutput = $captureStreams
-    $processStartInfo.RedirectStandardError = $captureStreams
-    $processStartInfo.RedirectStandardInput = ($null -ne $StandardInputBytes)
-    $process.StartInfo = $processStartInfo
-
     try {
-      if (-not $process.Start()) {
-        throw [System.InvalidOperationException]::new('The native process did not start.')
-      }
+      $nativeProcess = Start-NativeJobProcess -FilePath $FilePath -ArgumentList $ArgumentList
       $started = $true
     } catch {
       throw [System.InvalidOperationException]::new("$Label could not execute: $($_.Exception.Message)", $_.Exception)
     }
 
-    if ($null -ne $StandardInputBytes) {
-      try {
-        $process.StandardInput.BaseStream.Write($StandardInputBytes, 0, $StandardInputBytes.Length)
-        $process.StandardInput.BaseStream.Flush()
-      } finally {
-        $process.StandardInput.Close()
-      }
-    }
+    $outputStream = [System.IO.FileStream]::new($nativeProcess.StandardOutput, [System.IO.FileAccess]::Read, 4096, $false)
+    $errorStream = [System.IO.FileStream]::new($nativeProcess.StandardError, [System.IO.FileAccess]::Read, 4096, $false)
+    $inputStream = [System.IO.FileStream]::new($nativeProcess.StandardInput, [System.IO.FileAccess]::Write, 4096, $false)
 
     $completed = $false
     $outputTruncated = $false
@@ -238,16 +349,29 @@ function Invoke-NativeCommandWithTimeout {
     $errorCount = 0
     $outputBytes = $null
     $errorBytes = $null
+    $outputReadTask = $null
+    $errorReadTask = $null
+    $inputWriteTask = $null
+    $outputFinished = $false
+    $errorFinished = $false
+    $inputFinished = ($null -eq $StandardInputBytes)
+    $outputReadBuffer = [byte[]]::new(4096)
+    $errorReadBuffer = [byte[]]::new(4096)
+    $outputReadTask = $outputStream.ReadAsync($outputReadBuffer, 0, $outputReadBuffer.Length)
+    $errorReadTask = $errorStream.ReadAsync($errorReadBuffer, 0, $errorReadBuffer.Length)
     if ($captureStreams) {
       $outputBytes = [byte[]]::new($MaximumOutputBytes)
       $errorBytes = [byte[]]::new($MaximumErrorBytes)
-      $outputReadBuffer = [byte[]]::new(4096)
-      $errorReadBuffer = [byte[]]::new(4096)
-      $outputReadTask = $process.StandardOutput.BaseStream.ReadAsync($outputReadBuffer, 0, $outputReadBuffer.Length)
-      $errorReadTask = $process.StandardError.BaseStream.ReadAsync($errorReadBuffer, 0, $errorReadBuffer.Length)
-      $outputFinished = $false
-      $errorFinished = $false
-      while ($stopwatch.ElapsedMilliseconds -lt $TimeoutMilliseconds) {
+    }
+    if ($null -ne $StandardInputBytes) {
+      # Output readers must already be active before a potentially blocking stdin write begins.
+      $inputWriteTask = $inputStream.WriteAsync($StandardInputBytes, 0, $StandardInputBytes.Length)
+    } else {
+      $inputStream.Close()
+      $standardInputClosed = $true
+    }
+
+    while ($stopwatch.ElapsedMilliseconds -lt $TimeoutMilliseconds) {
         $madeProgress = $false
         if (-not $outputFinished -and $outputReadTask.IsCompleted) {
           $readCount = [int]$outputReadTask.GetAwaiter().GetResult()
@@ -255,13 +379,18 @@ function Invoke-NativeCommandWithTimeout {
           if ($readCount -eq 0) {
             $outputFinished = $true
           } else {
-            $copyCount = [Math]::Min($readCount, $MaximumOutputBytes - $outputCount)
-            if ($copyCount -gt 0) {
-              [Array]::Copy($outputReadBuffer, 0, $outputBytes, $outputCount, $copyCount)
-              $outputCount += $copyCount
+            if ($captureStreams) {
+              $copyCount = [Math]::Min($readCount, $MaximumOutputBytes - $outputCount)
+              if ($copyCount -gt 0) {
+                [Array]::Copy($outputReadBuffer, 0, $outputBytes, $outputCount, $copyCount)
+                $outputCount += $copyCount
+              }
+              if ($copyCount -lt $readCount) {
+                $outputTruncated = $true
+                throw [System.InvalidOperationException]::new("$Label output exceeded the $MaximumOutputBytes-byte bound.")
+              }
             }
-            if ($copyCount -lt $readCount) { $outputTruncated = $true }
-            $outputReadTask = $process.StandardOutput.BaseStream.ReadAsync($outputReadBuffer, 0, $outputReadBuffer.Length)
+            $outputReadTask = $outputStream.ReadAsync($outputReadBuffer, 0, $outputReadBuffer.Length)
           }
         }
         if (-not $errorFinished -and $errorReadTask.IsCompleted) {
@@ -270,32 +399,40 @@ function Invoke-NativeCommandWithTimeout {
           if ($readCount -eq 0) {
             $errorFinished = $true
           } else {
-            $copyCount = [Math]::Min($readCount, $errorBytes.Length - $errorCount)
-            if ($copyCount -gt 0) {
-              [Array]::Copy($errorReadBuffer, 0, $errorBytes, $errorCount, $copyCount)
-              $errorCount += $copyCount
+            if ($captureStreams) {
+              $copyCount = [Math]::Min($readCount, $errorBytes.Length - $errorCount)
+              if ($copyCount -gt 0) {
+                [Array]::Copy($errorReadBuffer, 0, $errorBytes, $errorCount, $copyCount)
+                $errorCount += $copyCount
+              }
+              if ($copyCount -lt $readCount) { $errorTruncated = $true }
             }
-            if ($copyCount -lt $readCount) { $errorTruncated = $true }
-            $errorReadTask = $process.StandardError.BaseStream.ReadAsync($errorReadBuffer, 0, $errorReadBuffer.Length)
+            $errorReadTask = $errorStream.ReadAsync($errorReadBuffer, 0, $errorReadBuffer.Length)
           }
         }
-        if ($process.HasExited -and $outputFinished -and $errorFinished) {
+        if (-not $inputFinished -and $inputWriteTask.IsCompleted) {
+          try {
+            [void]$inputWriteTask.GetAwaiter().GetResult()
+          } finally {
+            try { $inputStream.Close() } finally { $standardInputClosed = $true }
+          }
+          $inputFinished = $true
+          $madeProgress = $true
+        }
+        if ([LocalMiniDrama.NativeJobLauncher]::HasExited($nativeProcess) -and $outputFinished -and $errorFinished -and $inputFinished) {
           $completed = $true
           break
         }
         if (-not $madeProgress) { Start-Sleep -Milliseconds 10 }
-      }
-    } else {
-      $completed = $process.WaitForExit($TimeoutMilliseconds)
     }
 
     if (-not $completed) {
       $terminationAttempted = $true
       $timeoutError = [System.TimeoutException]::new("$Label timed out after $TimeoutMilliseconds milliseconds.")
       $timeoutError.Data['NativeTimedOut'] = $true
-      $timeoutError.Data['NativeProcessId'] = $process.Id
+      $timeoutError.Data['NativeProcessId'] = $nativeProcess.ProcessId
       try {
-        $termination = Stop-NativeProcessTreeBounded -Process $process -TimeoutMilliseconds $TerminationTimeoutMilliseconds
+        $termination = Stop-NativeProcessTreeBounded -Invocation $nativeProcess -TimeoutMilliseconds $TerminationTimeoutMilliseconds
         $timeoutError.Data['NativeProcessTreeTerminated'] = [bool]$termination.Confirmed
         $timeoutError.Data['NativeTerminationDetail'] = [string]$termination.Detail
       } catch {
@@ -307,7 +444,15 @@ function Invoke-NativeCommandWithTimeout {
       throw $timeoutError
     }
 
-    $exitCode = [int]$process.ExitCode
+    $quiescence = Wait-NativeProcessTreeExitBounded -Invocation $nativeProcess -TimeoutMilliseconds $TerminationTimeoutMilliseconds
+    if (-not $quiescence.Confirmed) {
+      $quiescenceError = [System.InvalidOperationException]::new("$Label completed but its process tree did not become quiescent.")
+      $quiescenceError.Data['NativeProcessTreeQuiesced'] = $false
+      $quiescenceError.Data['NativeQuiescenceDetail'] = [string]$quiescence.Detail
+      throw $quiescenceError
+    }
+
+    $exitCode = [LocalMiniDrama.NativeJobLauncher]::ExitCode($nativeProcess)
     if ($captureStreams -and $outputTruncated) {
       throw [System.InvalidOperationException]::new("$Label output exceeded the $MaximumOutputBytes-byte bound.")
     }
@@ -329,29 +474,47 @@ function Invoke-NativeCommandWithTimeout {
       $capturedError = [byte[]]::new($errorCount)
       if ($outputCount -gt 0) { [Array]::Copy($outputBytes, 0, $capturedOutput, 0, $outputCount) }
       if ($errorCount -gt 0) { [Array]::Copy($errorBytes, 0, $capturedError, 0, $errorCount) }
-      return [pscustomobject][ordered]@{
+      $result = [pscustomobject][ordered]@{
         StandardOutputBytes = $capturedOutput
         StandardErrorBytes = $capturedError
         StandardErrorTruncated = $errorTruncated
       }
     }
     if ($CaptureOutput) {
-      return [System.Text.Encoding]::UTF8.GetString($outputBytes, 0, $outputCount)
+      $result = [System.Text.Encoding]::UTF8.GetString($outputBytes, 0, $outputCount)
     }
   } catch {
+    $primaryError = $_
     if ($started -and -not $terminationAttempted) {
-      $running = $false
-      try { $running = -not $process.HasExited } catch { }
-      if ($running) {
-        $termination = Stop-NativeProcessTreeBounded -Process $process -TimeoutMilliseconds $TerminationTimeoutMilliseconds
-        $_.Exception.Data['NativeProcessTreeTerminated'] = [bool]$termination.Confirmed
-        $_.Exception.Data['NativeTerminationDetail'] = [string]$termination.Detail
+      try {
+        $termination = Stop-NativeProcessTreeBounded -Invocation $nativeProcess -TimeoutMilliseconds $TerminationTimeoutMilliseconds
+        $primaryError.Exception.Data['NativeProcessTreeTerminated'] = [bool]$termination.Confirmed
+        $primaryError.Exception.Data['NativeTerminationDetail'] = [string]$termination.Detail
+      } catch {
+        [void]$cleanupErrors.Add($_)
+        $primaryError.Exception.Data['NativeProcessTreeTerminated'] = $false
+        $primaryError.Exception.Data['NativeTerminationDetail'] = 'Process-tree cleanup failed after the native stream error.'
       }
     }
-    throw
   } finally {
-    $process.Dispose()
+    if ($started -and $null -ne $StandardInputBytes -and -not $standardInputClosed) {
+      try {
+        $inputStream.Close()
+      } catch {
+        [void]$cleanupErrors.Add($_)
+      }
+    }
+    try {
+      if ($null -ne $outputStream) { $outputStream.Dispose() }
+      if ($null -ne $errorStream) { $errorStream.Dispose() }
+      if ($null -ne $inputStream) { $inputStream.Dispose() }
+      if ($null -ne $nativeProcess) { $nativeProcess.Dispose() }
+    } catch {
+      [void]$cleanupErrors.Add($_)
+    }
   }
+  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
+  return $result
 }
 
 function Write-NativeDiagnostic {
@@ -677,58 +840,7 @@ function Write-Utf8File {
   [System.IO.File]::WriteAllText($Path, $Value, [System.Text.UTF8Encoding]::new($false))
 }
 
-function Publish-BytesAtomically {
-  param(
-    [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes
-  )
-  $directory = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($Path))
-  $targetPath = [System.IO.Path]::GetFullPath($Path)
-  $temporaryPath = Join-Path $directory ('.metadata.{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
-  $stream = $null
-  $primaryError = $null
-  $cleanupErrors = [System.Collections.ArrayList]::new()
-  try {
-    $stream = [System.IO.FileStream]::new(
-      $temporaryPath,
-      [System.IO.FileMode]::CreateNew,
-      [System.IO.FileAccess]::Write,
-      [System.IO.FileShare]::None
-    )
-    $stream.Write($Bytes, 0, $Bytes.Length)
-    $stream.Flush($true)
-    $stream.Dispose()
-    $stream = $null
-    [System.IO.File]::Move($temporaryPath, $targetPath)
-  } catch {
-    $primaryError = $_
-  } finally {
-    try {
-      if ($null -ne $stream) { $stream.Dispose() }
-    } catch {
-      [void]$cleanupErrors.Add($_)
-    }
-    try {
-      if (Test-Path -LiteralPath $temporaryPath) {
-        Remove-Item -LiteralPath $temporaryPath -Force
-      }
-    } catch {
-      [void]$cleanupErrors.Add($_)
-    }
-  }
-  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
-}
-
-function Publish-Utf8FileAtomically {
-  param(
-    [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][string]$Value
-  )
-  $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($Value)
-  Publish-BytesAtomically -Path $Path -Bytes $bytes
-}
-
-function New-RollbackSummaryAuthority {
+function New-RollbackFileAuthorityFromBytes {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes,
@@ -736,6 +848,8 @@ function New-RollbackSummaryAuthority {
   )
   $fullPath = [System.IO.Path]::GetFullPath($Path)
   $stream = $null
+  $primaryError = $null
+  $cleanupErrors = [System.Collections.ArrayList]::new()
   try {
     $stream = [System.IO.FileStream]::new(
       $fullPath,
@@ -768,9 +882,17 @@ function New-RollbackSummaryAuthority {
       Stream = $stream
     }
   } catch {
-    if ($null -ne $stream) { $stream.Dispose() }
-    throw
+    $primaryError = $_
+  } finally {
+    if ($null -ne $primaryError -and $null -ne $stream) {
+      try {
+        $stream.Dispose()
+      } catch {
+        [void]$cleanupErrors.Add($_)
+      }
+    }
   }
+  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
 
 function ConvertFrom-CanonicalRollbackBase64Url {
@@ -1166,6 +1288,7 @@ $checkpointDirectoryLock = $null
 $configDirectoryLock = $null
 $archiveLock = $null
 $summaryAuthority = $null
+$metadataAuthority = $null
 $locationPushed = $false
 $primaryError = $null
 $cleanupErrors = [System.Collections.ArrayList]::new()
@@ -1280,7 +1403,7 @@ try {
     $actualDataRootIdentity = Get-RollbackPathIdentity -Path $runtimeDataDirectory
     $validatedEvidence = Assert-CheckpointDrillEvidence -Summary $rollbackResult.Evidence -ExpectedCommit $commit -ExpectedVersion $version -ExpectedBackupHash $backupHash -ActualBackupHash $actualBackupHash -ExpectedDataRootIdentity $capturedDataRootIdentity -ActualDataRootIdentity $actualDataRootIdentity
     $summaryArchive = Join-Path $checkpoint 'rollback-drill-summary.json'
-    $summaryAuthority = New-RollbackSummaryAuthority -Path $summaryArchive -Bytes $rollbackResult.EvidenceBytes -Label 'Rollback checkpoint drill summary'
+    $summaryAuthority = New-RollbackFileAuthorityFromBytes -Path $summaryArchive -Bytes $rollbackResult.EvidenceBytes -Label 'Rollback checkpoint drill summary'
     Assert-RollbackFileAuthority -Authority $summaryAuthority | Out-Null
     $summaryHash = Get-RollbackFileAuthoritySha256 -Authority $summaryAuthority
     if ($summaryHash -cne $rollbackResult.EvidenceSha256) {
@@ -1327,7 +1450,10 @@ try {
     if ((Get-RollbackFileAuthoritySha256 -Authority $summaryAuthority) -cne $summaryHash) {
       throw 'Rollback checkpoint drill summary changed before metadata publication.'
     }
-    Publish-Utf8FileAtomically -Path (Join-Path $checkpoint 'metadata.json') -Value "$(ConvertTo-Json $metadata -Depth 6)`n"
+    $metadataPath = Join-Path $checkpoint 'metadata.json'
+    $metadataBytes = [System.Text.UTF8Encoding]::new($false, $true).GetBytes("$(ConvertTo-Json $metadata -Depth 6)`n")
+    $metadataAuthority = New-RollbackFileAuthorityFromBytes -Path $metadataPath -Bytes $metadataBytes -Label 'Rollback checkpoint metadata'
+    Assert-RollbackFileAuthority -Authority $metadataAuthority | Out-Null
     Write-Output "Rollback checkpoint ready: $checkpoint"
     Write-Output 'Provider credentials were excluded from the archived runtime config and must be configured and tested again after restore.'
   } catch {
@@ -1344,6 +1470,11 @@ try {
 } catch {
   $primaryError = $_
 } finally {
+  try {
+    if ($null -ne $metadataAuthority) { $metadataAuthority.Stream.Dispose() }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
   try {
     if ($null -ne $archiveLock) { $archiveLock.Dispose() }
   } catch {

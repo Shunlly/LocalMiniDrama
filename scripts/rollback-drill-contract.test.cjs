@@ -4,12 +4,17 @@ const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const fsp = require('node:fs/promises')
+const net = require('node:net')
 const os = require('node:os')
 const path = require('node:path')
-const { spawnSync } = require('node:child_process')
+const { spawn, spawnSync } = require('node:child_process')
 const test = require('node:test')
 
-const { DEFAULT_LIMITS } = require('../backend-node/src/services/dataBackupService')
+const {
+  DEFAULT_LIMITS,
+  acquireServiceMaintenanceLockSync,
+  createExternalMaintenanceLease,
+} = require('../backend-node/src/services/dataBackupService')
 
 const {
   EVIDENCE_SCHEMA,
@@ -31,7 +36,12 @@ const {
   serializeEvidence,
   validateEvidenceV3,
 } = require('./rollback-drill-evidence.cjs')
-const { executeRollbackDrill, renderThrownValue, sha256FileHandle } = require('./run-rollback-drill.cjs')
+const {
+  executeRollbackDrill,
+  removeOwnedClaimWindows,
+  renderThrownValue,
+  sha256FileHandle,
+} = require('./run-rollback-drill.cjs')
 
 const HEX_64 = /^[a-f0-9]{64}$/
 const VERSION = '1.3.3'
@@ -55,6 +65,52 @@ function temporaryDirectory(t, prefix) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
   return directory
+}
+
+function seedCheckpointDataRoot(dataRoot) {
+  fs.mkdirSync(path.join(dataRoot, 'storage'), { recursive: true })
+  fs.mkdirSync(path.join(dataRoot, 'story_sources'), { recursive: true })
+  fs.writeFileSync(path.join(dataRoot, 'drama_generator.db'), 'fixture database')
+}
+
+async function unusedTcpPort() {
+  const server = net.createServer()
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const port = server.address().port
+  await new Promise((resolve) => server.close(resolve))
+  return port
+}
+
+function validExternalMaintenanceLease() {
+  return {
+    schema: 'localminidrama.maintenance-lease.v2',
+    contract: 'exclusive-lease-owner-scope-and-heartbeat-required',
+    device: '2049',
+    inode: '1234567',
+    ownerScope: 'linux:host:pid:[4026531836]',
+    pid: 1234,
+    token: '0123456789abcdef',
+    version: 2,
+  }
+}
+
+function installFakeGit(fakeBin) {
+  const fakeGitPath = path.join(fakeBin, 'git')
+  fs.writeFileSync(fakeGitPath, [
+    '#!/usr/bin/env node',
+    "'use strict'",
+    "const fs = require('node:fs')",
+    "const args = process.argv.slice(2)",
+    "if (process.env.LMD_FAKE_GIT_CAPTURE) fs.appendFileSync(process.env.LMD_FAKE_GIT_CAPTURE, JSON.stringify(args) + '\\n')",
+    "if (args[0] === 'status') process.stdout.write(process.env.LMD_FAKE_GIT_STATUS || '')",
+    "else if (args[0] === 'rev-parse' && args[1] === 'HEAD') process.stdout.write(process.env.LMD_FAKE_GIT_COMMIT || '')",
+    "else process.exit(41)",
+    '',
+  ].join('\n'))
+  fs.chmodSync(fakeGitPath, 0o755)
 }
 
 function diagnosticRecords(repoRoot) {
@@ -171,6 +227,42 @@ function createFileLink(t, target, linkPath) {
   }
 }
 
+function installPublicPathReplacementRace(targetPath, installReplacement, { deleteOriginal = false } = {}) {
+  const original = {
+    rename: fsp.rename,
+    rm: fsp.rm,
+    unlink: fsp.unlink,
+  }
+  const displacedPath = `${targetPath}.race-original-${crypto.randomBytes(8).toString('hex')}`
+  let fired = false
+
+  async function replaceBeforeMutation() {
+    fired = true
+    await original.rename(targetPath, displacedPath)
+    if (deleteOriginal) await original.rm(displacedPath, { recursive: true, force: true })
+    await installReplacement(targetPath)
+  }
+
+  async function intercept(method, target, args) {
+    if (!fired && path.resolve(target) === path.resolve(targetPath)) await replaceBeforeMutation()
+    return original[method](target, ...args)
+  }
+
+  fsp.rename = (source, ...args) => intercept('rename', source, args)
+  fsp.rm = (target, ...args) => intercept('rm', target, args)
+  fsp.unlink = (target, ...args) => intercept('unlink', target, args)
+
+  return {
+    displacedPath,
+    get fired() { return fired },
+    restore() {
+      fsp.rename = original.rename
+      fsp.rm = original.rm
+      fsp.unlink = original.unlink
+    },
+  }
+}
+
 function writeDataRoot(dataRoot, values = {}) {
   fs.mkdirSync(path.join(dataRoot, 'storage'), { recursive: true })
   fs.mkdirSync(path.join(dataRoot, 'story_sources'), { recursive: true })
@@ -258,6 +350,16 @@ function createExecutorFixture(t, inputMode = 'checkpoint-bound') {
       restored_counts: {},
     }),
     fingerprintDataRoot,
+    removeOwnedClaim: async ({ claimPath, expected, label }) => {
+      if (label === 'standalone rollback archive' && runtime.removeStandaloneArchive) {
+        return runtime.removeStandaloneArchive(claimPath)
+      }
+      if (expected.type === 'directory' && runtime.cleanupWorkspace) {
+        return runtime.cleanupWorkspace(claimPath)
+      }
+      if (expected.type === 'directory') return fsp.rm(claimPath, { recursive: true, force: true })
+      return fsp.unlink(claimPath)
+    },
     publishEvidence: async (repoRoot, version, evidence, limits) => {
       calls.publish.push(evidence)
       return publishEvidence(repoRoot, version, evidence, limits)
@@ -305,6 +407,591 @@ test('strict rollback CLI accepts only standalone or paired absolute checkpoint 
   }
 })
 
+test('Linux rollback launcher builds a hardened private-cleanup container invocation', () => {
+  const launcherPath = path.join(__dirname, 'run-rollback-drill-launcher.cjs')
+  let launcher
+  try {
+    launcher = require(launcherPath)
+  } catch (error) {
+    assert.fail(`Linux rollback launcher is missing: ${error.message}`)
+  }
+  const repoRoot = path.resolve('/workspace/localminidrama')
+  const dataRoot = path.resolve('/srv/localminidrama-data')
+  const archivePath = path.resolve('/srv/checkpoints/data.zip')
+  const artifactDirectory = path.join(repoRoot, 'artifacts', 'rollback-drill')
+  const invocation = launcher.buildLinuxRollbackContainerInvocation({
+    repoRoot,
+    dataRoot,
+    archivePath,
+    artifactDirectory,
+    drillArguments: ['--archive', archivePath, '--data-root', dataRoot],
+    environment: {
+      LOCALMINIDRAMA_DATA_DIR: dataRoot,
+      LOCALMINIDRAMA_CONFIG_PATH: path.join(repoRoot, 'backend-node', 'configs', 'config.yaml'),
+    },
+    externalMaintenanceLease: validExternalMaintenanceLease(),
+    cidFile: path.resolve('/run/user/1001/localminidrama-rollback.cid'),
+    containerLabel: 'localminidrama.rollback-drill.run=0123456789abcdef0123456789abcdef',
+    containerName: 'localminidrama-rollback-0123456789abcdef0123456789abcdef',
+    sourceCommit: COMMIT,
+    uid: 1001,
+    gid: 1001,
+  })
+
+  assert.equal(invocation.command, 'docker')
+  assert.equal(invocation.args[0], 'run')
+  for (const required of [
+    '--rm',
+    '--cidfile',
+    path.resolve('/run/user/1001/localminidrama-rollback.cid'),
+    '--label',
+    'localminidrama.rollback-drill.run=0123456789abcdef0123456789abcdef',
+    '--name',
+    'localminidrama-rollback-0123456789abcdef0123456789abcdef',
+    '--init',
+    '--read-only',
+    '--network',
+    'none',
+    '--cap-drop',
+    'ALL',
+    '--security-opt',
+    'no-new-privileges',
+    '--tmpfs',
+    '/tmp:rw,nosuid,nodev,exec,mode=700,size=48g,uid=1001,gid=1001',
+    '--user',
+    '1001:1001',
+    'LMD_ROLLBACK_PRIVATE_CLEANUP=container-v1',
+    `LMD_ROLLBACK_SOURCE_COMMIT=${COMMIT}`,
+  ]) assert.ok(invocation.args.includes(required), `missing hardened Docker argument ${required}`)
+  assert.ok(invocation.args.includes(`${repoRoot}:/workspace:ro`))
+  assert.ok(invocation.args.includes(`${artifactDirectory}:/workspace/artifacts/rollback-drill:rw`))
+  assert.ok(invocation.args.includes(`${dataRoot}:${dataRoot}:ro`))
+  assert.ok(invocation.args.includes(`${path.dirname(archivePath)}:${path.dirname(archivePath)}:ro`))
+  assert.ok(invocation.args.includes('node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0'))
+  assert.deepEqual(invocation.args.slice(-6), [
+    'node',
+    'scripts/run-rollback-drill.cjs',
+    '--archive',
+    archivePath,
+    '--data-root',
+    dataRoot,
+  ])
+})
+
+test('rollback launcher hard-bounds Docker controls, runs Windows in-process, and renders cleanup diagnostics', () => {
+  const launcherPath = path.join(__dirname, 'run-rollback-drill-launcher.cjs')
+  const source = fs.readFileSync(launcherPath, 'utf8')
+  assert.match(source, /spawnSync\('docker',[\s\S]*killSignal:\s*'SIGKILL'/)
+  assert.match(source, /\['container',\s*'ls',\s*'--all',\s*'--no-trunc'/)
+  assert.match(source, /\[\s*'create',\s*'--pull',\s*'never'/)
+  assert.doesNotMatch(source, /runChildSync\(process\.execPath/)
+  assert.match(source, /await\s+require\('\.\/run-rollback-drill\.cjs'\)\.main\(\)/)
+  assert.match(source, /function recordLauncherCleanupFailure/)
+  assert.match(source, /finally\s*\{[\s\S]*recordLauncherCleanupFailure/)
+  const drillSource = fs.readFileSync(path.join(__dirname, 'run-rollback-drill.cjs'), 'utf8')
+  assert.match(drillSource, /spawnSync\(command, args,[\s\S]*timeout:\s*options\.timeout[\s\S]*killSignal:\s*'SIGKILL'/)
+  assert.match(drillSource, /runFocusedTests:[\s\S]{0,500}timeout:\s*600000/)
+  assert.match(
+    source,
+    /cleanupOwnedContainer\(management\)[\s\S]{0,500}createExternalMaintenanceLease\(maintenanceGuard\)/,
+    'Linux launcher must revalidate the host lease after daemon cleanup and before release',
+  )
+
+  const { renderLauncherError } = require(launcherPath)
+  assert.equal(typeof renderLauncherError, 'function')
+  const primary = new Error('primary launcher failure')
+  Object.defineProperty(primary, 'cleanupErrors', {
+    configurable: true,
+    value: [new Error('container cleanup failure')],
+  })
+  const rendered = renderLauncherError(primary)
+  assert.match(rendered, /primary launcher failure/)
+  assert.match(rendered, /container cleanup failure/)
+  assert.ok(rendered.indexOf('primary launcher failure') < rendered.indexOf('container cleanup failure'))
+  assert.ok(Buffer.byteLength(rendered, 'utf8') <= 64 * 1024)
+})
+
+test('rollback launcher fails closed when Docker inspect fails for a CID that still exists', () => {
+  const { inspectOwnedContainer } = require('./run-rollback-drill-launcher.cjs')
+  assert.equal(typeof inspectOwnedContainer, 'function')
+  const id = 'c'.repeat(64)
+  const token = 'a'.repeat(32)
+  const management = {
+    cidFile: path.join(os.tmpdir(), 'unused-rollback.cid'),
+    containerLabel: `localminidrama.rollback-drill.run=${token}`,
+    containerName: `localminidrama-rollback-${token}`,
+  }
+  const dockerControl = () => ({ error: null, status: 1, stderr: 'inspect unavailable', stdout: '' })
+
+  assert.throws(
+    () => inspectOwnedContainer(id, management, {
+      dockerControl,
+      listContainerIds: () => [id],
+    }),
+    /inspect|exists|container/i,
+  )
+  assert.equal(inspectOwnedContainer(id, management, {
+    dockerControl,
+    listContainerIds: () => [],
+  }), false)
+})
+
+test('Linux rollback launcher retains its host lease and control evidence after a signaled late Docker request', {
+  skip: process.platform !== 'linux',
+  timeout: 15000,
+}, async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-signal-cleanup-')
+  const fakeBin = path.join(fixtureRoot, 'bin')
+  const statePath = path.join(fixtureRoot, 'docker-state.json')
+  const eventPath = path.join(fixtureRoot, 'docker-events.jsonl')
+  const lateDaemonPath = path.join(fixtureRoot, 'late-docker-request.cjs')
+  const lateReadyPath = path.join(fixtureRoot, 'late-docker-request.ready')
+  const dataRoot = path.join(fixtureRoot, 'data')
+  const archivePath = path.join(fixtureRoot, 'checkpoint.zip')
+  fs.mkdirSync(fakeBin)
+  seedCheckpointDataRoot(dataRoot)
+  fs.writeFileSync(archivePath, 'checkpoint')
+  installFakeGit(fakeBin)
+  fs.writeFileSync(lateDaemonPath, [
+    "'use strict'",
+    "const fs = require('node:fs')",
+    "setTimeout(() => {",
+    "  fs.writeFileSync(process.env.LMD_FAKE_DOCKER_STATE, JSON.stringify({ cid: 'e'.repeat(64), label: process.env.LMD_FAKE_LATE_LABEL, running: false, late: true }))",
+    "  fs.appendFileSync(process.env.LMD_FAKE_DOCKER_EVENTS, JSON.stringify({ event: 'late-create', args: [], lockPresent: fs.existsSync(process.env.LMD_FAKE_MAINTENANCE_LOCK) }) + '\\n')",
+    "}, 2600)",
+    '',
+  ].join('\n'))
+
+  const fakeDockerPath = path.join(fakeBin, 'docker')
+  fs.writeFileSync(fakeDockerPath, [
+    '#!/usr/bin/env node',
+    "'use strict'",
+    "const fs = require('node:fs')",
+    "const { spawn } = require('node:child_process')",
+    "const args = process.argv.slice(2)",
+    "const statePath = process.env.LMD_FAKE_DOCKER_STATE",
+    "const eventPath = process.env.LMD_FAKE_DOCKER_EVENTS",
+    "const record = (event) => fs.appendFileSync(eventPath, JSON.stringify({ event, args, lockPresent: fs.existsSync(process.env.LMD_FAKE_MAINTENANCE_LOCK) }) + '\\n')",
+    "const readState = () => fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : null",
+    "if (args[0] === 'run') {",
+    "  const cid = 'c'.repeat(64)",
+    "  const cidIndex = args.indexOf('--cidfile')",
+    "  fs.writeFileSync(args[cidIndex + 1], cid + '\\n')",
+    "  const label = args[args.indexOf('--label') + 1].split('=').slice(1).join('=')",
+    "  fs.writeFileSync(statePath, JSON.stringify({ cid, label, running: true }))",
+    "  record('run')",
+    "  const late = spawn(process.execPath, [process.env.LMD_FAKE_LATE_DAEMON], { detached: true, stdio: 'ignore', env: { ...process.env, LMD_FAKE_LATE_LABEL: label } })",
+    "  late.unref()",
+    "  fs.writeFileSync(process.env.LMD_FAKE_LATE_READY, 'ready')",
+    "  process.on('SIGTERM', () => {})",
+    "  setInterval(() => {}, 1000)",
+    "} else if (args[0] === 'container' && args[1] === 'ls') {",
+    "  const state = readState()",
+    "  record('list')",
+    "  const filter = args[args.indexOf('--filter') + 1] || ''",
+    "  if (state && (filter.startsWith('id=') || process.env.LMD_FAKE_CID_ONLY !== '1')) process.stdout.write(state.cid + '\\n')",
+    "} else if (args[0] === 'container' && args[1] === 'inspect') {",
+    "  const state = readState()",
+    "  record('inspect')",
+    "  if (!state) process.exit(1)",
+    "  process.stdout.write(state.label + '\\n')",
+    "} else if (args[0] === 'stop') {",
+    "  record('stop')",
+    "  process.exit(19)",
+    "} else if (args[0] === 'kill') {",
+    "  const state = readState()",
+    "  record('kill')",
+    "  if (state) fs.writeFileSync(statePath, JSON.stringify({ ...state, running: false }))",
+    "} else if (args[0] === 'rm') {",
+    "  record('rm')",
+    "  fs.rmSync(statePath, { force: true })",
+    "} else if (args[0] === 'create') {",
+    "  record('create')",
+    "  if (readState()) process.exit(1)",
+    "  const cid = 'd'.repeat(64)",
+    "  const label = args[args.indexOf('--label') + 1].split('=').slice(1).join('=')",
+    "  fs.writeFileSync(statePath, JSON.stringify({ cid, label, running: false }))",
+    "  process.stdout.write(cid + '\\n')",
+    "} else {",
+    "  record('unexpected')",
+    "  process.exit(41)",
+    "}",
+    '',
+  ].join('\n'))
+  fs.chmodSync(fakeDockerPath, 0o755)
+
+  const child = spawn(process.execPath, [
+    path.join(__dirname, 'run-rollback-drill-launcher.cjs'),
+    '--archive',
+    archivePath,
+    '--data-root',
+    dataRoot,
+  ], {
+    cwd: path.resolve(__dirname, '..'),
+    env: {
+      ...process.env,
+      HOST: '127.0.0.1',
+      PORT: String(await unusedTcpPort()),
+      PATH: `${fakeBin}${path.delimiter}${process.env.PATH || ''}`,
+      LMD_FAKE_DOCKER_EVENTS: eventPath,
+      LMD_FAKE_DOCKER_STATE: statePath,
+      LMD_FAKE_LATE_DAEMON: lateDaemonPath,
+      LMD_FAKE_LATE_READY: lateReadyPath,
+      LMD_FAKE_GIT_COMMIT: COMMIT,
+      LMD_FAKE_MAINTENANCE_LOCK: `${path.join(dataRoot, 'drama_generator.db')}.maintenance.lock`,
+      LMD_FAKE_CID_ONLY: '1',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const stderr = []
+  child.stdout.resume()
+  child.stderr.on('data', (chunk) => stderr.push(chunk))
+
+  const deadline = Date.now() + 5000
+  while ((!fs.existsSync(statePath) || !fs.existsSync(lateReadyPath)) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  assert.ok(fs.existsSync(statePath) && fs.existsSync(lateReadyPath), `fake Docker did not start: ${Buffer.concat(stderr).toString('utf8')}`)
+  child.kill('SIGTERM')
+  const result = await new Promise((resolve, reject) => {
+    child.once('error', reject)
+    child.once('exit', (code, signal) => resolve({ code, signal }))
+  })
+
+  assert.deepEqual(result, { code: 143, signal: null }, Buffer.concat(stderr).toString('utf8'))
+  await new Promise((resolve) => setTimeout(resolve, 1000))
+  assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).late, true, 'late Docker request was not reproduced')
+  assert.equal(fs.existsSync(`${path.join(dataRoot, 'drama_generator.db')}.maintenance.lock`), true)
+  const events = fs.readFileSync(eventPath, 'utf8').trim().split(/\r?\n/).map(JSON.parse)
+  assert.ok(events.some(({ event }) => event === 'stop'))
+  assert.ok(events.some(({ event }) => event === 'kill'))
+  assert.ok(events.some(({ event }) => event === 'rm'))
+  assert.ok(events.some(({ event }) => event === 'inspect'))
+  assert.ok(events.some(({ event }) => event === 'create'))
+  assert.ok(events.some(({ event }) => event === 'late-create'))
+  assert.ok(events.filter(({ event }) => ['stop', 'kill', 'rm'].includes(event)).every(({ lockPresent }) => lockPresent))
+})
+
+test('Linux rollback launcher retains the host lease when Docker cleanup cannot be proven', {
+  skip: process.platform !== 'linux',
+}, async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-cleanup-failure-')
+  const fakeBin = path.join(fixtureRoot, 'bin')
+  const controlDirectory = path.join(fixtureRoot, 'control')
+  const dataRoot = path.join(fixtureRoot, 'data')
+  const archivePath = path.join(fixtureRoot, 'checkpoint.zip')
+  fs.mkdirSync(fakeBin)
+  fs.mkdirSync(controlDirectory)
+  seedCheckpointDataRoot(dataRoot)
+  fs.writeFileSync(archivePath, 'checkpoint')
+  installFakeGit(fakeBin)
+  const fakeDockerPath = path.join(fakeBin, 'docker')
+  fs.writeFileSync(fakeDockerPath, [
+    '#!/usr/bin/env node',
+    "'use strict'",
+    "const args = process.argv.slice(2)",
+    "if (args[0] === 'run') process.exit(23)",
+    "if (args[0] === 'container' && args[1] === 'ls') process.exit(55)",
+    "process.exit(41)",
+    '',
+  ].join('\n'))
+  fs.chmodSync(fakeDockerPath, 0o755)
+  const token = 'f'.repeat(32)
+  const result = spawnSync(process.execPath, [
+    path.join(__dirname, 'run-rollback-drill-launcher.cjs'),
+    '--archive',
+    archivePath,
+    '--data-root',
+    dataRoot,
+  ], {
+    cwd: path.resolve(__dirname, '..'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOST: '127.0.0.1',
+      PORT: String(await unusedTcpPort()),
+      PATH: `${fakeBin}${path.delimiter}${process.env.PATH || ''}`,
+      LMD_FAKE_GIT_COMMIT: COMMIT,
+      LMD_ROLLBACK_CIDFILE: path.join(controlDirectory, 'container.cid'),
+      LMD_ROLLBACK_CONTAINER_LABEL: `localminidrama.rollback-drill.run=${token}`,
+      LMD_ROLLBACK_CONTAINER_NAME: `localminidrama-rollback-${token}`,
+    },
+  })
+
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Docker control|container|cleanup/i)
+  const lockPath = `${path.join(dataRoot, 'drama_generator.db')}.maintenance.lock`
+  assert.ok(fs.statSync(lockPath).isFile(), 'cleanup failure released the host maintenance lease')
+  const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'))
+  assert.equal(lock.operation, 'service')
+  assert.equal(lock.contract, 'exclusive-lease-owner-scope-and-heartbeat-required')
+})
+
+test('Linux rollback launcher executes Docker and preserves its exit status without forwarding secrets', {
+  skip: process.platform !== 'linux',
+}, async (t) => {
+  const { ROLLBACK_NODE_IMAGE } = require('./run-rollback-drill-launcher.cjs')
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-launcher-')
+  const fakeBin = path.join(fixtureRoot, 'bin')
+  const capturePath = path.join(fixtureRoot, 'docker-arguments.json')
+  const gitCapturePath = path.join(fixtureRoot, 'git-arguments.jsonl')
+  const dataRoot = path.join(fixtureRoot, 'data')
+  const archivePath = path.join(fixtureRoot, 'checkpoint.zip')
+  fs.mkdirSync(fakeBin)
+  seedCheckpointDataRoot(dataRoot)
+  fs.writeFileSync(archivePath, 'checkpoint')
+  const servicePort = await unusedTcpPort()
+  installFakeGit(fakeBin)
+
+  const fakeDockerPath = path.join(fakeBin, 'docker')
+  fs.writeFileSync(fakeDockerPath, [
+    '#!/usr/bin/env node',
+    "'use strict'",
+    "const fs = require('node:fs')",
+    "const args = process.argv.slice(2)",
+    "const statePath = process.env.LMD_FAKE_DOCKER_CAPTURE + '.state'",
+    "if (args[0] === 'run') {",
+    "  fs.writeFileSync(process.env.LMD_FAKE_DOCKER_CAPTURE, JSON.stringify(args))",
+    "  process.exit(Number(process.env.LMD_FAKE_DOCKER_EXIT))",
+    "}",
+    "if (args[0] === 'container' && args[1] === 'ls') process.exit(0)",
+    "if (args[0] === 'container' && args[1] === 'inspect') {",
+    "  if (!fs.existsSync(statePath)) process.exit(1)",
+    "  process.stdout.write(fs.readFileSync(statePath, 'utf8') + '\\n')",
+    "  process.exit(0)",
+    "}",
+    "if (args[0] === 'create') {",
+    "  fs.writeFileSync(statePath, args[args.indexOf('--label') + 1].split('=').slice(1).join('='))",
+    "  process.stdout.write('d'.repeat(64) + '\\n')",
+    "  process.exit(0)",
+    "}",
+    "if (args[0] === 'rm') { fs.rmSync(statePath, { force: true }); process.exit(0) }",
+    "process.exit(41)",
+    '',
+  ].join('\n'))
+  fs.chmodSync(fakeDockerPath, 0o755)
+
+  const secret = 'must-not-enter-docker-arguments'
+  const result = spawnSync(process.execPath, [
+    path.join(__dirname, 'run-rollback-drill-launcher.cjs'),
+    '--archive',
+    archivePath,
+    '--data-root',
+    dataRoot,
+  ], {
+    cwd: path.resolve(__dirname, '..'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOST: '127.0.0.1',
+      PORT: String(servicePort),
+      PATH: `${fakeBin}${path.delimiter}${process.env.PATH || ''}`,
+      LMD_FAKE_DOCKER_CAPTURE: capturePath,
+      LMD_FAKE_DOCKER_EXIT: '23',
+      LMD_FAKE_GIT_CAPTURE: gitCapturePath,
+      LMD_FAKE_GIT_COMMIT: COMMIT,
+      LMD_SECRET_DO_NOT_FORWARD: secret,
+    },
+  })
+
+  assert.equal(result.error, undefined)
+  assert.equal(result.signal, null)
+  assert.equal(result.status, 23, result.stderr)
+  const dockerArguments = JSON.parse(fs.readFileSync(capturePath, 'utf8'))
+  assert.equal(dockerArguments[0], 'run')
+  assert.ok(dockerArguments.includes(ROLLBACK_NODE_IMAGE))
+  assert.ok(dockerArguments.includes(`${dataRoot}:${dataRoot}:ro`))
+  assert.ok(dockerArguments.includes(`${fixtureRoot}:${fixtureRoot}:ro`))
+  const leaseArguments = dockerArguments.filter((argument) => argument.startsWith('LMD_ROLLBACK_MAINTENANCE_LEASE='))
+  assert.equal(leaseArguments.length, 1)
+  assert.ok(dockerArguments.includes(`LMD_ROLLBACK_SOURCE_COMMIT=${COMMIT}`))
+  assert.deepEqual(dockerArguments.slice(-6), [
+    'node',
+    'scripts/run-rollback-drill.cjs',
+    '--archive',
+    archivePath,
+    '--data-root',
+    dataRoot,
+  ])
+  assert.equal(dockerArguments.some((argument) => argument.includes(secret)), false)
+  assert.equal(dockerArguments.some((argument) => argument.startsWith('LMD_SECRET_DO_NOT_FORWARD=')), false)
+  assert.equal(fs.existsSync(`${path.join(dataRoot, 'drama_generator.db')}.maintenance.lock`), false)
+  const gitArguments = fs.readFileSync(gitCapturePath, 'utf8').trim().split(/\r?\n/).map(JSON.parse)
+  assert.deepEqual(gitArguments, [
+    ['status', '--porcelain', '--untracked-files=all'],
+    ['rev-parse', 'HEAD'],
+  ])
+})
+
+test('Linux rollback launcher rejects a diagnostic mount reached through symbolic links', {
+  skip: process.platform !== 'linux',
+}, (t) => {
+  const { assertDiagnosticDirectory } = require('./run-rollback-drill-launcher.cjs')
+  assert.equal(typeof assertDiagnosticDirectory, 'function', 'diagnostic directory boundary check is missing')
+
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-diagnostic-mount-')
+  const outsideRoot = path.join(fixtureRoot, 'outside')
+  fs.mkdirSync(outsideRoot)
+  fs.mkdirSync(path.join(outsideRoot, 'rollback-drill'))
+
+  const ancestorLinkRepo = path.join(fixtureRoot, 'ancestor-link-repo')
+  fs.mkdirSync(ancestorLinkRepo)
+  fs.symlinkSync(outsideRoot, path.join(ancestorLinkRepo, 'artifacts'), 'dir')
+  assert.throws(
+    () => assertDiagnosticDirectory(
+      ancestorLinkRepo,
+      path.join(ancestorLinkRepo, 'artifacts', 'rollback-drill'),
+    ),
+    /diagnostic|symbolic|link|outside/i,
+  )
+
+  const finalLinkRepo = path.join(fixtureRoot, 'final-link-repo')
+  fs.mkdirSync(path.join(finalLinkRepo, 'artifacts'), { recursive: true })
+  fs.symlinkSync(path.join(outsideRoot, 'rollback-drill'), path.join(finalLinkRepo, 'artifacts', 'rollback-drill'), 'dir')
+  assert.throws(
+    () => assertDiagnosticDirectory(
+      finalLinkRepo,
+      path.join(finalLinkRepo, 'artifacts', 'rollback-drill'),
+    ),
+    /diagnostic|symbolic|link|outside/i,
+  )
+
+  const ordinaryRepo = path.join(fixtureRoot, 'ordinary-repo')
+  const ordinaryDirectory = path.join(ordinaryRepo, 'artifacts', 'rollback-drill')
+  fs.mkdirSync(ordinaryDirectory, { recursive: true })
+  assert.doesNotThrow(() => assertDiagnosticDirectory(ordinaryRepo, ordinaryDirectory))
+})
+
+test('Linux rollback launcher creates diagnostic directories without following an ancestor link', {
+  skip: process.platform !== 'linux',
+}, (t) => {
+  const { ensureDiagnosticDirectory } = require('./run-rollback-drill-launcher.cjs')
+  assert.equal(typeof ensureDiagnosticDirectory, 'function', 'safe diagnostic directory creation is missing')
+
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-diagnostic-create-')
+  const outsideRoot = path.join(fixtureRoot, 'outside')
+  const repoRoot = path.join(fixtureRoot, 'repo')
+  fs.mkdirSync(outsideRoot)
+  fs.mkdirSync(repoRoot)
+  fs.symlinkSync(outsideRoot, path.join(repoRoot, 'artifacts'), 'dir')
+
+  assert.throws(
+    () => ensureDiagnosticDirectory(repoRoot),
+    /diagnostic|symbolic|link|outside/i,
+  )
+  assert.equal(
+    fs.existsSync(path.join(outsideRoot, 'rollback-drill')),
+    false,
+    'diagnostic creation followed an ancestor link before validating it',
+  )
+})
+
+test('Linux rollback launcher rejects a listening host service before Docker starts', {
+  skip: process.platform !== 'linux',
+}, async (t) => {
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-host-service-')
+  const fakeBin = path.join(fixtureRoot, 'bin')
+  const capturePath = path.join(fixtureRoot, 'docker-started')
+  const dataRoot = path.join(fixtureRoot, 'data')
+  const archivePath = path.join(fixtureRoot, 'checkpoint.zip')
+  fs.mkdirSync(fakeBin)
+  seedCheckpointDataRoot(dataRoot)
+  fs.writeFileSync(archivePath, 'checkpoint')
+  installFakeGit(fakeBin)
+
+  const fakeDockerPath = path.join(fakeBin, 'docker')
+  fs.writeFileSync(fakeDockerPath, [
+    '#!/usr/bin/env node',
+    "'use strict'",
+    "require('node:fs').writeFileSync(process.env.LMD_FAKE_DOCKER_CAPTURE, 'started')",
+    '',
+  ].join('\n'))
+  fs.chmodSync(fakeDockerPath, 0o755)
+
+  const server = net.createServer()
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  t.after(() => new Promise((resolve) => server.close(resolve)))
+  const port = server.address().port
+
+  const result = spawnSync(process.execPath, [
+    path.join(__dirname, 'run-rollback-drill-launcher.cjs'),
+    '--archive',
+    archivePath,
+    '--data-root',
+    dataRoot,
+  ], {
+    cwd: path.resolve(__dirname, '..'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOST: '127.0.0.1',
+      PORT: String(port),
+      PATH: `${fakeBin}${path.delimiter}${process.env.PATH || ''}`,
+      LMD_FAKE_DOCKER_CAPTURE: capturePath,
+      LMD_FAKE_GIT_COMMIT: COMMIT,
+    },
+  })
+
+  assert.notEqual(result.status, 0, 'launcher accepted a listening host service')
+  assert.match(result.stderr, /service|backend|running|listening/i)
+  assert.equal(fs.existsSync(capturePath), false, 'Docker started before the host service check passed')
+})
+
+test('POSIX path cleanup requires an actual private container boundary', () => {
+  const launcherPath = path.join(__dirname, 'run-rollback-drill-launcher.cjs')
+  let assertPrivateCleanupBoundary
+  try {
+    ({ assertPrivateCleanupBoundary } = require(launcherPath))
+  } catch (error) {
+    assert.fail(`Linux rollback launcher is missing: ${error.message}`)
+  }
+  assert.throws(
+    () => assertPrivateCleanupBoundary({ platform: 'linux', environment: {}, dockerEnvironmentPresent: false }),
+    /private|container|isolated/i,
+  )
+  assert.throws(
+    () => assertPrivateCleanupBoundary({
+      platform: 'linux',
+      environment: { LMD_ROLLBACK_PRIVATE_CLEANUP: 'container-v1' },
+      dockerEnvironmentPresent: false,
+    }),
+    /private|container|isolated/i,
+  )
+  assert.doesNotThrow(() => assertPrivateCleanupBoundary({
+    platform: 'linux',
+    environment: { LMD_ROLLBACK_PRIVATE_CLEANUP: 'container-v1' },
+    dockerEnvironmentPresent: true,
+  }))
+  assert.doesNotThrow(() => assertPrivateCleanupBoundary({ platform: 'win32' }))
+})
+
+test('Linux rollback host source proof rejects dirty or changed revisions', () => {
+  const { assertHostSourceRevision } = require('./run-rollback-drill-launcher.cjs')
+  assert.equal(typeof assertHostSourceRevision, 'function', 'host source revision proof is missing')
+  const commit = 'd'.repeat(40)
+  assert.equal(assertHostSourceRevision(null, (args) => {
+    if (args[0] === 'status') return ''
+    if (args[0] === 'rev-parse') return commit
+    throw new Error(`unexpected Git arguments: ${args.join(' ')}`)
+  }), commit)
+  assert.equal(assertHostSourceRevision(commit, (args) => {
+    if (args[0] === 'status') return ''
+    if (args[0] === 'rev-parse') return commit
+    throw new Error(`unexpected Git arguments: ${args.join(' ')}`)
+  }), commit)
+  assert.throws(
+    () => assertHostSourceRevision(null, (args) => args[0] === 'status' ? ' M changed.js' : commit),
+    /clean|dirty|working tree/i,
+  )
+  assert.throws(
+    () => assertHostSourceRevision(commit, (args) => args[0] === 'status' ? '' : 'e'.repeat(40)),
+    /commit|revision|changed/i,
+  )
+})
+
 test('path identity captures BigInt physical metadata and compares every bound field', async (t) => {
   const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-identity-')
   const filePath = path.join(fixtureRoot, 'archive.zip')
@@ -331,6 +1018,117 @@ test('path identity captures BigInt physical metadata and compares every bound f
       () => assertSamePathIdentity(identity, { ...identity, [field]: value }, 'archive'),
       /archive/
     )
+  }
+})
+
+test('Windows handle-bound cleanup removes matching file and non-empty directory claims', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Windows handle-bound cleanup requires Windows')
+    return
+  }
+  assert.equal(typeof removeOwnedClaimWindows, 'function', 'Windows handle-bound cleanup is missing')
+  const fixtureRoot = temporaryDirectory(t, 'lmd-owned-cleanup-match-')
+
+  for (const [type, create] of [
+    ['file', async (target) => fsp.writeFile(target, 'owned file')],
+    ['directory', async (target) => {
+      await fsp.mkdir(path.join(target, 'nested'), { recursive: true })
+      await fsp.writeFile(path.join(target, 'nested', 'owned.txt'), 'owned tree')
+    }],
+  ]) {
+    await t.test(type, async () => {
+      const claimPath = path.join(fixtureRoot, `owned-${type}`)
+      await create(claimPath)
+      const handle = await fsp.open(claimPath, 'r')
+      try {
+        const expected = await capturePathIdentity({ handle, path: claimPath }, type)
+        await removeOwnedClaimWindows({ claimPath, expected, label: `owned ${type}` })
+        await assert.rejects(fsp.lstat(claimPath), (error) => error?.code === 'ENOENT')
+        assert.equal((await handle.stat({ bigint: true })).nlink, 0n)
+      } finally {
+        await handle.close()
+      }
+    })
+  }
+})
+
+test('Windows handle-bound cleanup preserves replacements installed after caller verification', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Windows handle-bound cleanup requires Windows')
+    return
+  }
+  assert.equal(typeof removeOwnedClaimWindows, 'function', 'Windows handle-bound cleanup is missing')
+  const fixtureRoot = temporaryDirectory(t, 'lmd-owned-cleanup-replacement-')
+  const cases = [
+    ['file-to-file', 'file', async (target) => fsp.writeFile(target, 'replacement file')],
+    ['file-to-directory', 'file', async (target) => {
+      await fsp.mkdir(target)
+      await fsp.writeFile(path.join(target, 'canary.txt'), 'replacement directory')
+    }],
+    ['directory-to-file', 'directory', async (target) => fsp.writeFile(target, 'replacement file')],
+    ['directory-to-directory', 'directory', async (target) => {
+      await fsp.mkdir(target)
+      await fsp.writeFile(path.join(target, 'canary.txt'), 'replacement directory')
+    }],
+  ]
+
+  for (const [name, originalType, installReplacement] of cases) {
+    await t.test(name, async () => {
+      const claimPath = path.join(fixtureRoot, name)
+      if (originalType === 'file') await fsp.writeFile(claimPath, 'owned original')
+      else await fsp.mkdir(claimPath)
+      const handle = await fsp.open(claimPath, 'r')
+      try {
+        const expected = await capturePathIdentity({ handle, path: claimPath }, originalType)
+        const displacedPath = `${claimPath}.displaced`
+        await fsp.rename(claimPath, displacedPath)
+        await fsp.rm(displacedPath, { recursive: true, force: true })
+        await installReplacement(claimPath)
+
+        await assert.rejects(
+          removeOwnedClaimWindows({ claimPath, expected, label: `replacement probe ${name}` }),
+          (error) => {
+            assert.match(error.message, /identity|type|filesystem object/i)
+            assert.ok(error.message.includes(JSON.stringify(claimPath)), 'preserved private claim path was not reported')
+            return true
+          },
+        )
+        const replacement = await fsp.lstat(claimPath)
+        if (name.endsWith('file')) {
+          assert.equal(replacement.isFile(), true)
+          assert.equal(await fsp.readFile(claimPath, 'utf8'), 'replacement file')
+        } else {
+          assert.equal(replacement.isDirectory(), true)
+          assert.equal(await fsp.readFile(path.join(claimPath, 'canary.txt'), 'utf8'), 'replacement directory')
+        }
+      } finally {
+        await handle.close()
+      }
+    })
+  }
+
+  const linkPath = path.join(fixtureRoot, 'file-to-dangling-link')
+  const missingTarget = path.join(fixtureRoot, 'missing-target')
+  await fsp.writeFile(linkPath, 'owned original')
+  const linkHandle = await fsp.open(linkPath, 'r')
+  try {
+    const expected = await capturePathIdentity({ handle: linkHandle, path: linkPath }, 'file')
+    const displacedPath = `${linkPath}.displaced`
+    await fsp.rename(linkPath, displacedPath)
+    await fsp.rm(displacedPath, { force: true })
+    if (!createFileLink(t, missingTarget, linkPath)) return
+    await assert.rejects(
+      removeOwnedClaimWindows({ claimPath: linkPath, expected, label: 'dangling-link replacement probe' }),
+      (error) => {
+        assert.match(error.message, /identity|type|filesystem object/i)
+        assert.ok(error.message.includes(JSON.stringify(linkPath)), 'preserved private claim path was not reported')
+        return true
+      },
+    )
+    assert.equal((await fsp.lstat(linkPath)).isSymbolicLink(), true)
+    assert.equal(await fsp.readlink(linkPath), missingTarget)
+  } finally {
+    await linkHandle.close()
   }
 })
 
@@ -442,6 +1240,70 @@ test('data root fingerprint is deterministic, framed, and UTF-8 byte sorted', as
   fs.writeFileSync(path.join(framedA, 'a', 'bc'), 'same')
   fs.writeFileSync(path.join(framedB, 'ab', 'c'), 'same')
   assert.notEqual(await fingerprintDataRoot(framedA), await fingerprintDataRoot(framedB))
+})
+
+test('external maintenance heartbeat is bound separately from the source data fingerprint', async (t) => {
+  const dataRoot = temporaryDirectory(t, 'lmd-fingerprint-maintenance-lease-')
+  const databasePath = path.join(dataRoot, 'drama_generator.db')
+  const storagePath = path.join(dataRoot, 'storage')
+  const storySourcesPath = path.join(dataRoot, 'story_sources')
+  fs.writeFileSync(databasePath, 'database')
+  fs.mkdirSync(storagePath)
+  fs.mkdirSync(storySourcesPath)
+
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath,
+    storagePath,
+    storySourcesPath,
+    heartbeatIntervalMs: 100,
+  })
+  try {
+    createExternalMaintenanceLease(guard)
+    const fingerprintOptions = {
+      volatileControlPaths: [`${databasePath}.maintenance.lock`],
+    }
+    const before = await fingerprintDataRoot(dataRoot, {}, DEFAULT_LIMITS, fingerprintOptions)
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    const after = await fingerprintDataRoot(dataRoot, {}, DEFAULT_LIMITS, fingerprintOptions)
+    assert.equal(after, before)
+  } finally {
+    guard.release()
+  }
+})
+
+test('data root fingerprint preserves a read failure when the retained handle also fails to close', async (t) => {
+  const dataRoot = temporaryDirectory(t, 'lmd-fingerprint-primary-close-')
+  const filePath = path.join(dataRoot, 'source.txt')
+  fs.writeFileSync(filePath, 'source')
+  const readFailure = new Error('injected fingerprint read failure')
+  const closeFailure = new Error('injected fingerprint close failure')
+  const originalOpen = fsp.open
+  t.after(() => { fsp.open = originalOpen })
+  fsp.open = async (target, ...args) => {
+    const handle = await originalOpen(target, ...args)
+    if (path.resolve(String(target)) !== path.resolve(filePath)) return handle
+    return {
+      stat: (...statArgs) => handle.stat(...statArgs),
+      read: async () => { throw readFailure },
+      close: async () => {
+        await handle.close()
+        throw closeFailure
+      },
+    }
+  }
+
+  let thrown
+  await assert.rejects(
+    fingerprintDataRoot(dataRoot),
+    (error) => {
+      thrown = error
+      return true
+    },
+  )
+  assert.equal(thrown, readFailure)
+  const descriptor = Object.getOwnPropertyDescriptor(thrown, 'cleanupErrors')
+  assert.equal(descriptor?.enumerable, false)
+  assert.deepEqual(descriptor?.value, [closeFailure])
 })
 
 test('data root fingerprint rechecks earlier files after a later large file read', async (t) => {
@@ -632,6 +1494,7 @@ test('fingerprint and archive limits reject every tiny boundary plus one before 
 test('executor passes one immutable limits object through real fingerprint, hashing, backup, restore, and publication', async (t) => {
   const fixture = createExecutorFixture(t, 'standalone')
   const injectedLimits = tinyLimits({ maxArchiveBytes: 64 })
+  const externalMaintenanceLease = Object.freeze(validExternalMaintenanceLease())
   const seenLimits = []
   const hashObservations = []
   const hashCounts = new Map()
@@ -642,13 +1505,18 @@ test('executor passes one immutable limits object through real fingerprint, hash
   const restoreBackup = fixture.runtime.restoreDataBackup
   const publish = fixture.runtime.publishEvidence
   fixture.runtime.limits = injectedLimits
-  fixture.runtime.fingerprintDataRoot = (root, hooks, limits) => {
+  fixture.runtime.externalMaintenanceLease = externalMaintenanceLease
+  fixture.runtime.fingerprintDataRoot = (root, hooks, limits, options) => {
     fingerprintCalls += 1
     if (fingerprintCalls === 2) assert.equal(cleanupCompleted, true)
+    assert.deepEqual(options, {
+      volatileControlPaths: [`${fixture.runtime.sourcePaths.databasePath}.maintenance.lock`],
+    })
     seenLimits.push(limits)
     return fingerprint(root, hooks, limits)
   }
   fixture.runtime.createDataBackup = (options) => {
+    assert.equal(options.externalMaintenanceLease, externalMaintenanceLease)
     seenLimits.push(options.limits)
     return createBackup(options)
   }
@@ -1391,6 +2259,174 @@ test('workspace cleanup rejects a moved original workspace without authoritative
   assert.equal(fixture.calls.publish.length, 0)
 })
 
+test('marker cleanup preserves a private-claim replacement installed after verification', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Windows handle-bound cleanup requires Windows')
+    return
+  }
+  const fixture = createExecutorFixture(t)
+  let replacementClaimPath
+  let replacementCalls = 0
+  fixture.runtime.createWorkspace = () => fsp.mkdtemp(path.join(fixture.fixtureRoot, 'owned-workspace-'))
+  fixture.runtime.removeOwnedClaim = removeOwnedClaimWindows
+  fixture.runtime.hooks = {
+    beforeOwnedClaimRemoval: async ({ claimPath, label }) => {
+      if (label !== 'rollback workspace marker') return
+      replacementCalls += 1
+      replacementClaimPath = claimPath
+      const displacedPath = `${claimPath}.owned-displaced`
+      await fsp.rename(claimPath, displacedPath)
+      await fsp.rm(displacedPath, { force: true })
+      await fsp.writeFile(claimPath, 'unrelated marker replacement')
+    },
+  }
+
+  await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /marker.*(?:identity|cleanup)|handle-bound/i)
+  assert.equal(replacementCalls, 1)
+  assert.equal(await fsp.readFile(replacementClaimPath, 'utf8'), 'unrelated marker replacement')
+  assert.equal(fixture.calls.publish.length, 0)
+})
+
+test('workspace cleanup preserves a cross-type private-claim replacement installed after verification', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Windows handle-bound cleanup requires Windows')
+    return
+  }
+  const fixture = createExecutorFixture(t)
+  let replacementClaimPath
+  let replacementCalls = 0
+  fixture.runtime.createWorkspace = () => fsp.mkdtemp(path.join(fixture.fixtureRoot, 'owned-workspace-'))
+  fixture.runtime.removeOwnedClaim = removeOwnedClaimWindows
+  fixture.runtime.hooks = {
+    beforeOwnedClaimRemoval: async ({ claimPath, label }) => {
+      if (label !== 'rollback workspace') return
+      replacementCalls += 1
+      replacementClaimPath = claimPath
+      const displacedPath = `${claimPath}.owned-displaced`
+      await fsp.rename(claimPath, displacedPath)
+      await fsp.rm(displacedPath, { recursive: true, force: true })
+      await fsp.writeFile(claimPath, 'unrelated file at directory claim')
+    },
+  }
+
+  await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /workspace.*(?:identity|type|cleanup)|handle-bound/i)
+  assert.equal(replacementCalls, 1)
+  assert.equal(await fsp.readFile(replacementClaimPath, 'utf8'), 'unrelated file at directory claim')
+  assert.equal(fixture.calls.publish.length, 0)
+})
+
+test('standalone archive cleanup preserves a cross-type private-claim replacement installed after verification', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Windows handle-bound cleanup requires Windows')
+    return
+  }
+  const fixture = createExecutorFixture(t, 'standalone')
+  let replacementClaimPath
+  let replacementCalls = 0
+  fixture.runtime.removeOwnedClaim = removeOwnedClaimWindows
+  fixture.runtime.hooks = {
+    beforeOwnedClaimRemoval: async ({ claimPath, label }) => {
+      if (label !== 'standalone rollback archive') return
+      replacementCalls += 1
+      replacementClaimPath = claimPath
+      const displacedPath = `${claimPath}.owned-displaced`
+      await fsp.rename(claimPath, displacedPath)
+      await fsp.rm(displacedPath, { force: true })
+      await fsp.mkdir(claimPath)
+      await fsp.writeFile(path.join(claimPath, 'canary.txt'), 'unrelated directory at file claim')
+    },
+  }
+
+  await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /archive.*(?:identity|type|cleanup)|handle-bound/i)
+  assert.equal(replacementCalls, 1)
+  assert.equal(await fsp.readFile(path.join(replacementClaimPath, 'canary.txt'), 'utf8'), 'unrelated directory at file claim')
+  assert.equal(fixture.calls.publish.length, 0)
+})
+
+test('marker cleanup preserves a replacement installed after its last identity check', async (t) => {
+  const fixture = createExecutorFixture(t)
+  let race
+  let markerPath
+  fixture.runtime.createWorkspace = () => fsp.mkdtemp(path.join(fixture.fixtureRoot, 'owned-workspace-'))
+  fixture.runtime.hooks = {
+    afterRestore: async ({ workspace }) => {
+      markerPath = (await fsp.readdir(workspace))
+        .map((name) => path.join(workspace, name))
+        .find((candidate) => candidate.endsWith('.marker'))
+      assert.ok(markerPath)
+      race = installPublicPathReplacementRace(
+        markerPath,
+        (target) => fsp.writeFile(target, 'unrelated replacement marker'),
+      )
+    },
+  }
+
+  try {
+    await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /workspace marker|cleanup/i)
+  } finally {
+    race?.restore()
+  }
+
+  assert.equal(race.fired, true)
+  assert.equal(await fsp.readFile(markerPath, 'utf8'), 'unrelated replacement marker')
+  assert.equal(fs.existsSync(race.displacedPath), true)
+  assert.equal(fixture.calls.publish.length, 0)
+})
+
+test('workspace cleanup preserves a replacement tree installed after its last identity check', async (t) => {
+  const fixture = createExecutorFixture(t)
+  let race
+  let workspace
+  fixture.runtime.createWorkspace = async () => {
+    workspace = await fsp.mkdtemp(path.join(fixture.fixtureRoot, 'owned-workspace-'))
+    return workspace
+  }
+  fixture.runtime.hooks = {
+    afterRestore: () => {
+      race = installPublicPathReplacementRace(workspace, async (target) => {
+        await fsp.mkdir(target)
+        await fsp.writeFile(path.join(target, 'unrelated.txt'), 'unrelated replacement tree')
+      })
+    },
+  }
+
+  try {
+    await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /workspace|cleanup/i)
+  } finally {
+    race?.restore()
+  }
+
+  assert.equal(race.fired, true)
+  assert.equal(await fsp.readFile(path.join(workspace, 'unrelated.txt'), 'utf8'), 'unrelated replacement tree')
+  assert.equal(fs.existsSync(race.displacedPath), true)
+  assert.equal(fixture.calls.publish.length, 0)
+})
+
+test('workspace cleanup rejects a dangling public link after owned removal', async (t) => {
+  const fixture = createExecutorFixture(t)
+  const missingTarget = path.join(fixture.fixtureRoot, 'missing-workspace-target')
+  const probePath = path.join(fixture.fixtureRoot, 'workspace-link-probe')
+  if (!createDirectoryLink(t, missingTarget, probePath)) {
+    t.skip('Directory reparse-point fixtures are unavailable')
+    return
+  }
+  fs.rmSync(probePath, { force: true })
+
+  let workspace
+  fixture.runtime.createWorkspace = async () => {
+    workspace = await fsp.mkdtemp(path.join(fixture.fixtureRoot, 'owned-workspace-'))
+    return workspace
+  }
+  fixture.runtime.cleanupWorkspace = async (claimPath) => {
+    await fsp.rm(claimPath, { recursive: true, force: true })
+    assert.equal(createDirectoryLink(t, missingTarget, workspace), true)
+  }
+
+  await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /workspace|cleanup|path/i)
+  assert.equal((await fsp.lstat(workspace)).isSymbolicLink(), true)
+  assert.equal(fixture.calls.publish.length, 0)
+})
+
 test('workspace cleanup rejects a replaced marker and preserves the displaced original', async (t) => {
   const fixture = createExecutorFixture(t)
   let workspace
@@ -1446,6 +2482,82 @@ test('standalone archive cleanup rejects a moved original while its retained han
   assert.equal(fs.readFileSync(movedArchive.replace(/\.moved$/, ''), 'utf8'), 'replacement archive')
   assert.equal(fixture.calls.publish.length, 0)
   await assert.rejects(retainedArchiveHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('standalone archive cleanup preserves a replacement installed after its last identity check', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  let race
+  fixture.runtime.hooks = {
+    onEvidenceStaged: () => {
+      const archivePath = fixture.calls.create[0].outputPath
+      race = installPublicPathReplacementRace(
+        archivePath,
+        (target) => fsp.writeFile(target, 'unrelated replacement archive'),
+      )
+    },
+  }
+
+  try {
+    await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /archive|cleanup/i)
+  } finally {
+    race?.restore()
+  }
+
+  const archivePath = fixture.calls.create[0].outputPath
+  assert.equal(race.fired, true)
+  assert.equal(await fsp.readFile(archivePath, 'utf8'), 'unrelated replacement archive')
+  assert.equal(fs.existsSync(race.displacedPath), true)
+  assert.equal(fixture.calls.publish.length, 0)
+})
+
+test('zero original links cannot authorize deleting a standalone archive replacement', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  let race
+  fixture.runtime.hooks = {
+    onEvidenceStaged: () => {
+      const archivePath = fixture.calls.create[0].outputPath
+      race = installPublicPathReplacementRace(
+        archivePath,
+        (target) => fsp.writeFile(target, 'unrelated zero-link replacement'),
+        { deleteOriginal: true },
+      )
+    },
+  }
+
+  try {
+    await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /archive|cleanup/i)
+  } finally {
+    race?.restore()
+  }
+
+  const archivePath = fixture.calls.create[0].outputPath
+  assert.equal(race.fired, true)
+  assert.equal(await fsp.readFile(archivePath, 'utf8'), 'unrelated zero-link replacement')
+  assert.equal(fs.existsSync(race.displacedPath), false)
+  assert.equal(fixture.calls.publish.length, 0)
+})
+
+test('standalone archive cleanup rejects a dangling public link after owned removal', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  const missingTarget = path.join(fixture.fixtureRoot, 'missing-archive-target')
+  const probePath = path.join(fixture.fixtureRoot, 'archive-link-probe')
+  if (!createDirectoryLink(t, missingTarget, probePath)) {
+    t.skip('Directory reparse-point fixtures are unavailable')
+    return
+  }
+  fs.rmSync(probePath, { force: true })
+
+  let archivePath
+  fixture.runtime.hooks = {
+    onArchiveHandleOpened: ({ path: openedPath }) => { archivePath = openedPath },
+  }
+  fixture.runtime.removeStandaloneArchive = async (claimPath) => {
+    await fsp.rm(claimPath, { force: true })
+    assert.equal(createDirectoryLink(t, missingTarget, archivePath), true)
+  }
+
+  await assert.rejects(executeRollbackDrill(fixture.options, fixture.runtime), /archive|cleanup|path/i)
+  assert.equal(fixture.calls.publish.length, 0)
 })
 
 test('standalone exact boundary publishes diagnostics only after final fingerprint, closure, and archive deletion', async (t) => {
@@ -1737,6 +2849,43 @@ test('standalone database same-byte replacement fails before restore and closes 
   assert.equal(fixture.calls.publish.length, 0)
   assert.ok(databaseHandle)
   await assert.rejects(databaseHandle.stat({ bigint: true }), /closed|EBADF/i)
+})
+
+test('standalone public database swap-use-swap-back is rejected by retained ctime authority', async (t) => {
+  const fixture = createExecutorFixture(t, 'standalone')
+  const sourceDatabasePath = fixture.runtime.sourcePaths.databasePath
+  const displacedDatabasePath = `${sourceDatabasePath}.displaced`
+  const createBackup = fixture.runtime.createDataBackup
+  let backupDatabasePath
+  let mutationCompleted = false
+  fixture.runtime.createDataBackup = async (options) => {
+    backupDatabasePath = options.databasePath
+    const backup = await createBackup(options)
+    await fsp.rename(sourceDatabasePath, displacedDatabasePath)
+    await fsp.writeFile(sourceDatabasePath, 'valid replacement database')
+    try {
+      await fsp.rm(sourceDatabasePath, { force: true })
+      await fsp.rename(displacedDatabasePath, sourceDatabasePath)
+      mutationCompleted = true
+      return backup
+    } finally {
+      if (fs.existsSync(displacedDatabasePath)) {
+        await fsp.rm(sourceDatabasePath, { force: true })
+        await fsp.rename(displacedDatabasePath, sourceDatabasePath)
+      }
+    }
+  }
+
+  await assert.rejects(
+    executeRollbackDrill(fixture.options, fixture.runtime),
+    /source database.*(?:ctime|identity|changed)/i
+  )
+
+  assert.equal(path.resolve(backupDatabasePath), path.resolve(sourceDatabasePath))
+  assert.equal(mutationCompleted, true)
+  assert.equal(fixture.calls.restore.length, 0)
+  assert.equal(fixture.calls.publish.length, 0)
+  assert.equal(await fsp.readFile(sourceDatabasePath, 'utf8'), 'database')
 })
 
 test('standalone database plus-one growth is rejected by stat before a post-backup read', async (t) => {
@@ -2235,6 +3384,17 @@ test('stderr rendering is safe and explicit for falsey and proxy thrown values',
   const proxy = new Proxy({}, { get() { trapReads += 1; throw new Error('render trap') } })
   assert.equal(renderThrownValue(proxy), '[unrenderable thrown object]')
   assert.equal(trapReads, 0)
+
+  const primary = new Error('primary rollback failure')
+  Object.defineProperty(primary, 'cleanupErrors', {
+    configurable: true,
+    value: [new Error('retained cleanup failure')],
+  })
+  const rendered = renderThrownValue(primary)
+  assert.match(rendered, /primary rollback failure/)
+  assert.match(rendered, /retained cleanup failure/)
+  assert.ok(rendered.indexOf('primary rollback failure') < rendered.indexOf('retained cleanup failure'))
+  assert.ok(Buffer.byteLength(rendered, 'utf8') <= 64 * 1024)
 })
 
 test('rollback drill module import does not execute the CLI', () => {

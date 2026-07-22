@@ -60,6 +60,9 @@ const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 const LEGACY_MAINTENANCE_JOURNAL_VERSION = 1;
 const MAINTENANCE_JOURNAL_VERSION = 2;
 const MAINTENANCE_LOCK_VERSION = 2;
+const EXTERNAL_MAINTENANCE_LEASE_SCHEMA = 'localminidrama.maintenance-lease.v2';
+const MAX_MAINTENANCE_LEASE_BYTES = 64 * 1024;
+const MAX_CLEANUP_ERROR_DETAILS = 8;
 const MAINTENANCE_HEARTBEAT_INTERVAL_MS = 5000;
 const MAINTENANCE_LOCK_STALE_MS = 30000;
 const LEGACY_MAINTENANCE_LOCK_CONTRACT = 'advisory-single-host-all-localminidrama-processes-must-honor';
@@ -92,6 +95,33 @@ class DataBackupError extends Error {
 
 function backupError(code, message, cause) {
   return new DataBackupError(code, message, cause);
+}
+
+function attachCleanupErrors(primaryError, cleanupErrors) {
+  let existing = [];
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(primaryError, 'cleanupErrors');
+    if (descriptor && Object.hasOwn(descriptor, 'value') && Array.isArray(descriptor.value)) {
+      for (let index = 0; index < Math.min(MAX_CLEANUP_ERROR_DETAILS, descriptor.value.length); index += 1) {
+        const entry = Object.getOwnPropertyDescriptor(descriptor.value, String(index));
+        if (entry && Object.hasOwn(entry, 'value')) existing.push(entry.value);
+      }
+    }
+  } catch (_) {}
+  const bounded = existing.slice(0, MAX_CLEANUP_ERROR_DETAILS);
+  for (const cleanupError of cleanupErrors) {
+    if (bounded.length >= MAX_CLEANUP_ERROR_DETAILS) break;
+    bounded.push(cleanupError);
+  }
+  if (bounded.length === 0) return primaryError;
+  try {
+    Object.defineProperty(primaryError, 'cleanupErrors', {
+      configurable: true,
+      enumerable: false,
+      value: Object.freeze(bounded),
+    });
+  } catch (_) {}
+  return primaryError;
 }
 
 function assertOperationNotAborted(signal) {
@@ -223,9 +253,9 @@ async function lstatIfExists(target) {
   }
 }
 
-function lstatIfExistsSync(target) {
+function lstatIfExistsSync(target, options) {
   try {
-    return fs.lstatSync(target);
+    return fs.lstatSync(target, options);
   } catch (error) {
     if (error.code === 'ENOENT') return null;
     throw error;
@@ -375,13 +405,17 @@ function startMaintenanceHeartbeat(lock, options = {}) {
   lock.heartbeatTimer = setInterval(() => {
     if (lock.released) return;
     try {
+      assertServiceMaintenanceLockPath(lock);
       lock.payload = updateMaintenanceHeartbeatFd(lock.fd, {
         contract: MAINTENANCE_LOCK_CONTRACT,
         pid: process.pid,
         token: lock.token,
       });
+      assertServiceMaintenanceLockPath(lock);
     } catch (error) {
-      lock.heartbeatError = error;
+      lock.heartbeatError = error instanceof DataBackupError
+        ? error
+        : backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard lost its public path.', error);
       options.log?.error?.('Maintenance lock heartbeat failed', { error: error.message });
     }
   }, intervalMs);
@@ -591,6 +625,304 @@ function readJsonFileSync(filePath, code) {
   }
 }
 
+function maintenanceLeaseFileIdentity(stat) {
+  return Object.freeze({
+    device: stat.dev.toString(10),
+    inode: stat.ino.toString(10),
+  });
+}
+
+function sameMaintenanceLeaseFile(stat, identity) {
+  return stat.isFile() && !stat.isSymbolicLink() &&
+    stat.dev.toString(10) === identity.device &&
+    stat.ino.toString(10) === identity.inode;
+}
+
+function assertServiceMaintenanceLockPath(lock) {
+  try {
+    const descriptorStat = fs.fstatSync(lock.fd, { bigint: true });
+    const pathStat = fs.lstatSync(lock.lockPath, { bigint: true });
+    if (
+      !sameMaintenanceLeaseFile(descriptorStat, lock.identity) ||
+      !sameMaintenanceLeaseFile(pathStat, lock.identity)
+    ) {
+      throw backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard lost its public path identity.');
+    }
+  } catch (error) {
+    if (error instanceof DataBackupError) throw error;
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard public path is unavailable.', error);
+  }
+  return lock;
+}
+
+function sameMaintenanceLeaseSnapshot(left, right) {
+  return left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.size === right.size &&
+    left.mtimeNs === right.mtimeNs;
+}
+
+function readExternalMaintenanceLeaseSync(lockPath, identity) {
+  let lastInstability = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let fd;
+    let unstable = false;
+    try {
+      fd = fs.openSync(lockPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const descriptorBefore = fs.fstatSync(fd, { bigint: true });
+      const pathBefore = fs.lstatSync(lockPath, { bigint: true });
+      if (
+        !sameMaintenanceLeaseFile(descriptorBefore, identity) ||
+        !sameMaintenanceLeaseFile(pathBefore, identity)
+      ) {
+        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease file identity changed.');
+      }
+      if (
+        descriptorBefore.size <= 0n ||
+        descriptorBefore.size > BigInt(MAX_MAINTENANCE_LEASE_BYTES)
+      ) {
+        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease file size is invalid.');
+      }
+      if (!sameMaintenanceLeaseSnapshot(descriptorBefore, pathBefore)) {
+        unstable = true;
+        lastInstability = 'The external maintenance lease changed before it was read.';
+        continue;
+      }
+
+      const data = Buffer.alloc(Number(descriptorBefore.size));
+      let offset = 0;
+      while (offset < data.length) {
+        const bytesRead = fs.readSync(fd, data, offset, data.length - offset, offset);
+        if (bytesRead === 0) {
+          throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease ended before its file boundary.');
+        }
+        offset += bytesRead;
+      }
+      if (fs.readSync(fd, Buffer.alloc(1), 0, 1, data.length) !== 0) {
+        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease grew while it was read.');
+      }
+
+      const descriptorAfter = fs.fstatSync(fd, { bigint: true });
+      const pathAfter = fs.lstatSync(lockPath, { bigint: true });
+      if (
+        !sameMaintenanceLeaseFile(descriptorAfter, identity) ||
+        !sameMaintenanceLeaseFile(pathAfter, identity)
+      ) {
+        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease file identity changed.');
+      }
+      if (
+        !sameMaintenanceLeaseSnapshot(descriptorBefore, descriptorAfter) ||
+        !sameMaintenanceLeaseSnapshot(descriptorAfter, pathAfter)
+      ) {
+        unstable = true;
+        lastInstability = 'The external maintenance lease changed while it was read.';
+        continue;
+      }
+      try {
+        return JSON.parse(data.toString('utf8'));
+      } catch (error) {
+        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease is not valid JSON.', error);
+      }
+    } catch (error) {
+      if (error instanceof DataBackupError) throw error;
+      throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease file is unavailable.', error);
+    } finally {
+      if (fd != null) {
+        try { fs.closeSync(fd); } catch (_) {}
+      }
+    }
+    if (!unstable) break;
+  }
+  throw backupError(
+    'MAINTENANCE_LEASE_INVALID',
+    lastInstability || 'The external maintenance lease could not be read consistently.'
+  );
+}
+
+function restoreRegularClaimWithoutOverwriteSync(claimPath, targetPath, identity) {
+  const claimStat = fs.lstatSync(claimPath, { bigint: true });
+  if (!sameMaintenanceLeaseFile(claimStat, identity)) return false;
+  fs.linkSync(claimPath, targetPath);
+  const restoredStat = fs.lstatSync(targetPath, { bigint: true });
+  if (!sameMaintenanceLeaseFile(restoredStat, identity)) {
+    throw backupError('PATH_CLAIM_RESTORE_FAILED', 'A claimed replacement could not be restored safely.');
+  }
+  fs.rmSync(claimPath);
+  syncParentDirectoriesSync(claimPath, targetPath);
+  return true;
+}
+
+function maintenanceClaimReplacementType(stat) {
+  if (stat.isSymbolicLink()) return 'symbolic-link';
+  if (stat.isDirectory()) return 'directory';
+  return 'unsupported';
+}
+
+function writeMaintenanceQuarantineMarkerSync(targetPath, claim, claimStat) {
+  const payload = {
+    schema: 'localminidrama.maintenance-quarantine.v1',
+    claimDirectory: path.basename(claim.directoryPath),
+    claimEntry: path.basename(claim.claimPath),
+    replacementType: maintenanceClaimReplacementType(claimStat),
+    contract: 'manual-inspection-required',
+  };
+  let fd;
+  let primaryError = null;
+  try {
+    fd = fs.openSync(targetPath, 'wx', 0o600);
+    writeMaintenanceLockFd(fd, payload);
+  } catch (error) {
+    if (fd == null && error.code === 'EEXIST') return false;
+    primaryError = error;
+  }
+  if (fd != null) {
+    try {
+      fs.closeSync(fd);
+    } catch (error) {
+      if (!primaryError) primaryError = error;
+    }
+  }
+  if (primaryError) throw primaryError;
+  syncParentDirectoriesSync(targetPath);
+  return true;
+}
+
+function createPrivateClaimSync(targetPath, code, message) {
+  let directoryPath;
+  try {
+    directoryPath = fs.mkdtempSync(path.join(path.dirname(targetPath), `.${path.basename(targetPath)}.claim-`));
+    try { fs.chmodSync(directoryPath, 0o700); } catch (error) {
+      if (!['ENOSYS', 'ENOTSUP', 'EPERM', 'EINVAL'].includes(error.code)) throw error;
+    }
+    const directoryStat = fs.lstatSync(directoryPath, { bigint: true });
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) throw new Error('The private claim is not a directory.');
+    return {
+      claimPath: path.join(directoryPath, 'owned'),
+      directoryIdentity: maintenanceLeaseFileIdentity(directoryStat),
+      directoryPath,
+    };
+  } catch (error) {
+    if (directoryPath) {
+      try { fs.rmdirSync(directoryPath); } catch (_) {}
+    }
+    throw backupError(code, message, error);
+  }
+}
+
+function sameMaintenanceLeaseDirectory(stat, identity) {
+  return stat.isDirectory() && !stat.isSymbolicLink() &&
+    stat.dev.toString(10) === identity.device &&
+    stat.ino.toString(10) === identity.inode;
+}
+
+function removePrivateClaimDirectorySync(claim) {
+  const directoryStat = fs.lstatSync(claim.directoryPath, { bigint: true });
+  if (!sameMaintenanceLeaseDirectory(directoryStat, claim.directoryIdentity)) {
+    throw new Error('The private claim directory identity changed.');
+  }
+  fs.rmdirSync(claim.directoryPath);
+  syncParentDirectoriesSync(claim.directoryPath);
+}
+
+function claimOwnedRegularPathSync(targetPath, identity, code, message) {
+  const claim = createPrivateClaimSync(targetPath, code, message);
+  try {
+    renameDurablySync(targetPath, claim.claimPath);
+  } catch (error) {
+    try { removePrivateClaimDirectorySync(claim); } catch (_) {}
+    throw backupError(code, message, error);
+  }
+
+  let claimStat;
+  try {
+    claimStat = fs.lstatSync(claim.claimPath, { bigint: true });
+  } catch (error) {
+    throw backupError(code, message, error);
+  }
+  if (sameMaintenanceLeaseFile(claimStat, identity)) return claim;
+
+  const replacementIdentity = claimStat.isFile() && !claimStat.isSymbolicLink()
+    ? maintenanceLeaseFileIdentity(claimStat)
+    : null;
+  let restoreError = null;
+  if (replacementIdentity) {
+    try {
+      restoreRegularClaimWithoutOverwriteSync(claim.claimPath, targetPath, replacementIdentity);
+      removePrivateClaimDirectorySync(claim);
+    } catch (error) {
+      restoreError = error;
+    }
+  } else {
+    try {
+      writeMaintenanceQuarantineMarkerSync(targetPath, claim, claimStat);
+    } catch (error) {
+      restoreError = error;
+    }
+  }
+  throw backupError(code, message, restoreError || undefined);
+}
+
+function removeOwnedClaimSync(claim, identity, code, message) {
+  try {
+    const directoryStat = fs.lstatSync(claim.directoryPath, { bigint: true });
+    if (!sameMaintenanceLeaseDirectory(directoryStat, claim.directoryIdentity)) {
+      throw new Error('The private claim directory identity changed.');
+    }
+    const finalStat = fs.lstatSync(claim.claimPath, { bigint: true });
+    if (!sameMaintenanceLeaseFile(finalStat, identity)) throw new Error('The private claim identity changed.');
+    // The unpredictable 0700 directory excludes other OS identities. A process running as
+    // the same account remains inside the local-operator trust boundary and can alter it.
+    fs.rmSync(claim.claimPath);
+    removePrivateClaimDirectorySync(claim);
+  } catch (error) {
+    throw backupError(code, message, error);
+  }
+}
+
+function assertExternalMaintenanceLeaseState(lockPath, value) {
+  const persisted = readExternalMaintenanceLeaseSync(lockPath, value);
+  for (const field of ['contract', 'ownerScope', 'pid', 'token', 'version']) {
+    if (persisted?.[field] !== value[field]) {
+      throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease no longer matches its host guard.');
+    }
+  }
+  if (persisted.operation !== 'service') {
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease is not a service guard.');
+  }
+  const createdAt = Date.parse(String(persisted.createdAt || ''));
+  const heartbeatAt = Date.parse(String(persisted.heartbeatAt || ''));
+  const now = Date.now();
+  if (
+    !Number.isFinite(createdAt) || !Number.isFinite(heartbeatAt) ||
+    heartbeatAt < createdAt || now - heartbeatAt > MAINTENANCE_LOCK_STALE_MS ||
+    heartbeatAt - now > MAINTENANCE_LOCK_STALE_MS
+  ) {
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease heartbeat is not fresh.');
+  }
+  return value;
+}
+
+function assertExternalMaintenanceLease(databasePath, value) {
+  const expectedKeys = ['contract', 'device', 'inode', 'ownerScope', 'pid', 'schema', 'token', 'version'];
+  if (
+    !value || typeof value !== 'object' || Array.isArray(value) ||
+    Object.keys(value).sort().join('\0') !== expectedKeys.join('\0') ||
+    value.schema !== EXTERNAL_MAINTENANCE_LEASE_SCHEMA ||
+    value.contract !== MAINTENANCE_LOCK_CONTRACT ||
+    value.version !== MAINTENANCE_LOCK_VERSION ||
+    typeof value.token !== 'string' || !/^[0-9a-f]{16}$/.test(value.token) ||
+    typeof value.device !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value.device) ||
+    typeof value.inode !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value.inode) ||
+    typeof value.ownerScope !== 'string' || !value.ownerScope || value.ownerScope.length > 512 ||
+    !Number.isSafeInteger(value.pid) || value.pid <= 0
+  ) {
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease is invalid.');
+  }
+
+  const { lockPath } = maintenancePaths(databasePath);
+  return assertExternalMaintenanceLeaseState(lockPath, value);
+}
+
 function removeSqliteSidecarsSync(databasePath) {
   for (const suffix of SQLITE_SIDECAR_SUFFIXES) fs.rmSync(`${databasePath}${suffix}`, { force: true });
 }
@@ -606,7 +938,14 @@ function acquireMaintenanceRecoveryClaimSync(databasePath, options = {}) {
     try {
       fd = fs.openSync(recoveryLockPath, 'wx', 0o600);
       writeMaintenanceLockFd(fd, payload);
-      const claim = { fd, lockPath: recoveryLockPath, payload, token, released: false };
+      const claim = {
+        fd,
+        identity: maintenanceLeaseFileIdentity(fs.fstatSync(fd, { bigint: true })),
+        lockPath: recoveryLockPath,
+        payload,
+        token,
+        released: false,
+      };
       try {
         startMaintenanceRecoveryHeartbeat(claim, options);
       } catch (heartbeatError) {
@@ -623,7 +962,7 @@ function acquireMaintenanceRecoveryClaimSync(databasePath, options = {}) {
         throw backupError('MAINTENANCE_LOCK_FAILED', 'The maintenance recovery lease could not be created.', error);
       }
 
-      const claimStat = lstatIfExistsSync(recoveryLockPath);
+      const claimStat = lstatIfExistsSync(recoveryLockPath, { bigint: true });
       if (!claimStat) continue;
       if (claimStat.isSymbolicLink() || !claimStat.isFile()) {
         throw backupError('MAINTENANCE_LOCK_INVALID', 'Maintenance recovery lease is not a regular file.');
@@ -631,14 +970,25 @@ function acquireMaintenanceRecoveryClaimSync(databasePath, options = {}) {
       const current = readJsonFileSync(recoveryLockPath, 'MAINTENANCE_LOCK_INVALID');
       assertMaintenanceLockRecoverable(current, claimStat, options);
 
-      const reclaimedPath = `${recoveryLockPath}.reclaimed.${randomSuffix()}`;
+      const staleIdentity = maintenanceLeaseFileIdentity(claimStat);
+      let staleClaim;
       try {
-        renameDurablySync(recoveryLockPath, reclaimedPath);
-        fs.rmSync(reclaimedPath, { force: true });
-      } catch (renameError) {
-        if (renameError.code === 'ENOENT') continue;
-        throw backupError('MAINTENANCE_LOCK_FAILED', 'A stale maintenance recovery lease could not be reclaimed.', renameError);
+        staleClaim = claimOwnedRegularPathSync(
+          recoveryLockPath,
+          staleIdentity,
+          'MAINTENANCE_ACTIVE',
+          'The maintenance recovery lease changed while it was being reclaimed.'
+        );
+      } catch (claimError) {
+        if (claimError?.cause?.code === 'ENOENT') continue;
+        throw claimError;
       }
+      removeOwnedClaimSync(
+        staleClaim,
+        staleIdentity,
+        'MAINTENANCE_LOCK_FAILED',
+        'The stale maintenance recovery lease could not be removed.'
+      );
     }
   }
 
@@ -649,13 +999,61 @@ function releaseMaintenanceRecoveryClaimSync(claim) {
   if (!claim || claim.released) return;
   claim.released = true;
   stopMaintenanceRecoveryHeartbeat(claim);
-  try { fs.closeSync(claim.fd); } catch (_) {}
+  let ownedClaim = null;
+  let primaryError = null;
+  const cleanupErrors = [];
   try {
-    const current = JSON.parse(fs.readFileSync(claim.lockPath, 'utf8'));
-    if (current.token === claim.token && Number(current.pid) === process.pid) {
-      fs.rmSync(claim.lockPath, { force: true });
+    const descriptorStat = fs.fstatSync(claim.fd, { bigint: true });
+    if (!claim.identity || !sameMaintenanceLeaseFile(descriptorStat, claim.identity)) {
+      throw backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The maintenance recovery lease descriptor identity changed.');
     }
-  } catch (_) {}
+    ownedClaim = claimOwnedRegularPathSync(
+      claim.lockPath,
+      claim.identity,
+      'MAINTENANCE_LOCK_RELEASE_FAILED',
+      'The maintenance recovery lease could not be claimed for release.'
+    );
+  } catch (error) {
+    primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
+      ? error
+      : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The maintenance recovery lease could not be claimed for release.', error);
+  }
+  let descriptorClosed = false;
+  try {
+    fs.closeSync(claim.fd);
+    descriptorClosed = true;
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  if (ownedClaim) {
+    if (!descriptorClosed) {
+      try {
+        restoreRegularClaimWithoutOverwriteSync(ownedClaim.claimPath, claim.lockPath, claim.identity);
+        removePrivateClaimDirectorySync(ownedClaim);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    } else {
+      try {
+        removeOwnedClaimSync(
+          ownedClaim,
+          claim.identity,
+          'MAINTENANCE_LOCK_RELEASE_FAILED',
+          'The claimed maintenance recovery lease could not be removed.'
+        );
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+  }
+  if (!primaryError && cleanupErrors.length > 0) {
+    primaryError = backupError(
+      'MAINTENANCE_LOCK_RELEASE_FAILED',
+      'The maintenance recovery lease cleanup failed.',
+      cleanupErrors.shift()
+    );
+  }
+  if (primaryError) throw attachCleanupErrors(primaryError, cleanupErrors);
 }
 
 function recoverInterruptedMaintenanceSync(options = {}) {
@@ -675,6 +1073,8 @@ function recoverInterruptedMaintenanceSync(options = {}) {
   assertSafeTargetPaths(databasePath, storagePath, storySourcesPath);
   const recoveryClaim = acquireMaintenanceRecoveryClaimSync(databasePath, options);
   const { lockPath, journalPath } = maintenancePaths(databasePath);
+  let recoveryFailed = false;
+  let recoveryError = null;
   try {
     const lockStat = lstatIfExistsSync(lockPath);
     if (lockStat) {
@@ -761,8 +1161,17 @@ function recoverInterruptedMaintenanceSync(options = {}) {
       if (error instanceof DataBackupError) throw error;
       throw backupError('RESTORE_RECOVERY_FAILED', 'Interrupted restore could not be recovered automatically.', error);
     }
+  } catch (error) {
+    recoveryFailed = true;
+    recoveryError = error;
+    throw error;
   } finally {
-    releaseMaintenanceRecoveryClaimSync(recoveryClaim);
+    try {
+      releaseMaintenanceRecoveryClaimSync(recoveryClaim);
+    } catch (releaseError) {
+      if (!recoveryFailed) throw releaseError;
+      try { attachCleanupErrors(recoveryError, [releaseError]); } catch (_) {}
+    }
   }
 }
 
@@ -771,11 +1180,129 @@ function releaseServiceMaintenanceLock(lock) {
   lock.released = true;
   if (lock.heartbeatTimer) clearInterval(lock.heartbeatTimer);
   runtimeServiceLocks.delete(lock.lockPath);
-  try { fs.closeSync(lock.fd); } catch (_) {}
+  let claim = null;
+  let primaryError = lock.heartbeatError
+    ? backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock lost its public path before release.', lock.heartbeatError)
+    : null;
+  const cleanupErrors = [];
   try {
-    const current = JSON.parse(fs.readFileSync(lock.lockPath, 'utf8'));
-    if (current.token === lock.token && Number(current.pid) === process.pid) fs.rmSync(lock.lockPath, { force: true });
-  } catch (_) {}
+    if (primaryError) throw primaryError;
+    const descriptorStat = fs.fstatSync(lock.fd, { bigint: true });
+    const current = readExternalMaintenanceLeaseSync(lock.lockPath, lock.identity);
+    if (!sameMaintenanceLeaseFile(descriptorStat, lock.identity) || current.token !== lock.token || Number(current.pid) !== process.pid) {
+      throw backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock no longer belongs to this guard.');
+    }
+    claim = claimOwnedRegularPathSync(
+      lock.lockPath,
+      lock.identity,
+      'MAINTENANCE_LOCK_RELEASE_FAILED',
+      'The service maintenance lock could not be claimed for release.'
+    );
+  } catch (error) {
+    if (!primaryError) {
+      primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
+        ? error
+        : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock could not be claimed for release.', error);
+    } else if (error !== primaryError) {
+      cleanupErrors.push(error);
+    }
+  }
+  let descriptorClosed = false;
+  try {
+    fs.closeSync(lock.fd);
+    descriptorClosed = true;
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  if (claim) {
+    if (!descriptorClosed) {
+      try {
+        restoreRegularClaimWithoutOverwriteSync(claim.claimPath, lock.lockPath, lock.identity);
+        removePrivateClaimDirectorySync(claim);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    } else {
+      try {
+        removeOwnedClaimSync(
+          claim,
+          lock.identity,
+          'MAINTENANCE_LOCK_RELEASE_FAILED',
+          'The claimed service maintenance lock could not be removed.'
+        );
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+  }
+  if (!primaryError && cleanupErrors.length > 0) {
+    const cleanupError = cleanupErrors.shift();
+    primaryError = cleanupError instanceof DataBackupError && cleanupError.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
+      ? cleanupError
+      : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock release cleanup failed.', cleanupError);
+  }
+  if (primaryError) throw attachCleanupErrors(primaryError, cleanupErrors);
+}
+
+function abandonServiceMaintenanceLock(lock) {
+  if (!lock || lock.released) return;
+  lock.released = true;
+  if (lock.heartbeatTimer) clearInterval(lock.heartbeatTimer);
+  runtimeServiceLocks.delete(lock.lockPath);
+  try { fs.closeSync(lock.fd); } catch (_) {}
+}
+
+function releaseRuntimeServiceLocksOnExit() {
+  let failureCount = 0;
+  for (const active of [...runtimeServiceLocks.values()]) {
+    try {
+      if (active.externalLeaseIssued) abandonServiceMaintenanceLock(active);
+      else releaseServiceMaintenanceLock(active);
+    } catch (_) {
+      failureCount += 1;
+    }
+  }
+  if (failureCount > 0) {
+    try {
+      fs.writeSync(2, `Maintenance guard cleanup failed for ${failureCount} lock(s); persistent evidence was retained.\n`);
+    } catch (_) {}
+  }
+}
+
+function createExternalMaintenanceLease(lock) {
+  const payload = lock?.payload;
+  if (
+    !lock || lock.released || lock.heartbeatError || !payload || payload.version !== MAINTENANCE_LOCK_VERSION ||
+    payload.operation !== 'service' || payload.contract !== MAINTENANCE_LOCK_CONTRACT ||
+    typeof payload.token !== 'string' || !/^[0-9a-f]{16}$/.test(payload.token) ||
+    typeof payload.ownerScope !== 'string' || !payload.ownerScope ||
+    !Number.isSafeInteger(payload.pid) || payload.pid <= 0
+  ) {
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'An active service maintenance guard is required.');
+  }
+  let descriptorStat;
+  try {
+    descriptorStat = fs.fstatSync(lock.fd, { bigint: true });
+  } catch (error) {
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard descriptor is unavailable.', error);
+  }
+  const identity = maintenanceLeaseFileIdentity(descriptorStat);
+  if (!sameMaintenanceLeaseFile(descriptorStat, lock.identity || identity)) {
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard descriptor identity changed.');
+  }
+  const lease = Object.freeze({
+    schema: EXTERNAL_MAINTENANCE_LEASE_SCHEMA,
+    contract: payload.contract,
+    device: identity.device,
+    inode: identity.inode,
+    ownerScope: payload.ownerScope,
+    pid: payload.pid,
+    token: payload.token,
+    version: payload.version,
+  });
+  const validatedLease = assertExternalMaintenanceLeaseState(lock.lockPath, lease);
+  lock.externalLeaseIssued = true;
+  return validatedLease;
 }
 
 function acquireServiceMaintenanceLockSync(options = {}) {
@@ -816,19 +1343,19 @@ function acquireServiceMaintenanceLockSync(options = {}) {
   }
   const lock = {
     fd,
+    identity: maintenanceLeaseFileIdentity(fs.fstatSync(fd, { bigint: true })),
     lockPath,
     payload,
     token,
     released: false,
+    abandon() { abandonServiceMaintenanceLock(lock); },
     release() { releaseServiceMaintenanceLock(lock); },
   };
   runtimeServiceLocks.set(lockPath, lock);
   startMaintenanceHeartbeat(lock, options);
   if (!runtimeExitHookInstalled) {
     runtimeExitHookInstalled = true;
-    process.once('exit', () => {
-      for (const active of [...runtimeServiceLocks.values()]) releaseServiceMaintenanceLock(active);
-    });
+    process.once('exit', releaseRuntimeServiceLocksOnExit);
   }
   return lock;
 }
@@ -1775,34 +2302,42 @@ async function createDataBackup(options) {
   }
 
   await fsp.mkdir(path.dirname(outputPath), { recursive: true });
-  await assertServiceStopped(options);
-  recoverInterruptedMaintenanceSync({
-    databasePath,
-    storagePath,
-    storySourcesPath,
-    log: options?.log,
-    ownerScope: options?.ownerScope,
-  });
+  const externalMaintenanceLease = options?.externalMaintenanceLease == null
+    ? null
+    : assertExternalMaintenanceLease(databasePath, options.externalMaintenanceLease);
   let maintenanceLock;
-  try {
-    maintenanceLock = await acquireMaintenanceLock(databasePath, 'backup', {
-      heartbeatIntervalMs: options?.heartbeatIntervalMs,
+  if (!externalMaintenanceLease) {
+    await assertServiceStopped(options);
+    recoverInterruptedMaintenanceSync({
+      databasePath,
+      storagePath,
+      storySourcesPath,
       log: options?.log,
       ownerScope: options?.ownerScope,
     });
-  } catch (error) {
-    if (error instanceof DataBackupError) throw error;
-    throw backupError('MAINTENANCE_LOCK_FAILED', 'Backup maintenance lock could not be acquired.', error);
+    try {
+      maintenanceLock = await acquireMaintenanceLock(databasePath, 'backup', {
+        heartbeatIntervalMs: options?.heartbeatIntervalMs,
+        log: options?.log,
+        ownerScope: options?.ownerScope,
+      });
+    } catch (error) {
+      if (error instanceof DataBackupError) throw error;
+      throw backupError('MAINTENANCE_LOCK_FAILED', 'Backup maintenance lock could not be acquired.', error);
+    }
   }
   let workDir = null;
   let snapshotPath = null;
+  let outputLinked = false;
+  let outputIdentity = null;
   const tempArchivePath = path.join(path.dirname(outputPath), `.${path.basename(outputPath)}.${randomSuffix()}.tmp`);
 
   try {
     workDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-backup-'));
     assertOperationNotAborted(options?.signal);
     snapshotPath = path.join(workDir, 'database.sqlite');
-    await assertServiceStopped(options);
+    if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
+    else await assertServiceStopped(options);
     const sourceDatabaseStat = await fsp.stat(databasePath);
     const snapshotWorkingBytes = sourceDatabaseStat.size * (options?.includeSecrets === true ? 1 : 2);
     if (!Number.isSafeInteger(snapshotWorkingBytes)) {
@@ -1903,19 +2438,52 @@ async function createDataBackup(options) {
     }
     await chmodPrivate(tempArchivePath);
     assertOperationNotAborted(options?.signal);
+    if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
     try {
       await fsp.link(tempArchivePath, outputPath);
+      outputLinked = true;
+      const outputStat = await fsp.lstat(outputPath, { bigint: true });
+      if (!outputStat.isFile() || outputStat.isSymbolicLink()) {
+        throw backupError('OUTPUT_COMMIT_FAILED', 'The backup output is not a regular file.');
+      }
+      outputIdentity = maintenanceLeaseFileIdentity(outputStat);
       await syncParentDirectories(outputPath);
     } catch (error) {
       if (error.code === 'EEXIST') throw backupError('OUTPUT_EXISTS', 'The requested backup output already exists.');
       throw backupError('OUTPUT_COMMIT_FAILED', 'The backup output could not be created atomically without overwrite.', error);
     }
+    await runFaultInjector(options, 'after-backup-output-linked');
+    if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
     await fsp.rm(tempArchivePath, { force: true });
     await chmodPrivate(outputPath);
+    if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
     return { outputPath, manifest, archiveBytes: archiveStat.size, security };
   } catch (error) {
-    if (error instanceof DataBackupError) throw error;
-    throw backupError('BACKUP_FAILED', 'The data backup could not be completed.', error);
+    const primaryError = error instanceof DataBackupError
+      ? error
+      : backupError('BACKUP_FAILED', 'The data backup could not be completed.', error);
+    if (outputLinked) {
+      try {
+        const claim = claimOwnedRegularPathSync(
+          outputPath,
+          outputIdentity,
+          'OUTPUT_CLEANUP_FAILED',
+          'The failed backup output could not be claimed without touching a replacement.'
+        );
+        removeOwnedClaimSync(
+          claim,
+          outputIdentity,
+          'OUTPUT_CLEANUP_FAILED',
+          'The claimed failed backup output could not be removed.'
+        );
+        outputLinked = false;
+      } catch (cleanupError) {
+        try {
+          attachCleanupErrors(primaryError, [cleanupError]);
+        } catch (_) {}
+      }
+    }
+    throw primaryError;
   } finally {
     await fsp.rm(tempArchivePath, { force: true }).catch(() => {});
     if (workDir) await fsp.rm(workDir, { recursive: true, force: true }).catch(() => {});
@@ -3134,6 +3702,8 @@ module.exports = {
   DEFAULT_LIMITS,
   DataBackupError,
   acquireServiceMaintenanceLockSync,
+  assertServiceStopped,
+  createExternalMaintenanceLease,
   createDataBackup,
   maintenancePaths,
   nativeMaintenanceOwnerScope,

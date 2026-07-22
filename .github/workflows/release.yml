@@ -213,9 +213,145 @@ jobs:
           stdout_log="$RUNNER_TEMP/rollback-drill.stdout.log"
           stderr_log="$RUNNER_TEMP/rollback-drill.stderr.log"
           stderr_pipe="$RUNNER_TEMP/rollback-drill.stderr.pipe"
-          rm -f "$stderr_pipe"
+          pipeline_script="$RUNNER_TEMP/rollback-drill.pipeline.sh"
+          pipeline_status_file="$RUNNER_TEMP/rollback-drill.pipeline.status"
+          rollback_control_dir="$(mktemp -d "$RUNNER_TEMP/rollback-container.XXXXXX")"
+          chmod 700 "$rollback_control_dir"
+          rollback_token="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(16).toString("hex"))')"
+          export LMD_ROLLBACK_CIDFILE="$rollback_control_dir/container.cid"
+          export LMD_ROLLBACK_CONTAINER_LABEL="localminidrama.rollback-drill.run=$rollback_token"
+          export LMD_ROLLBACK_CONTAINER_NAME="localminidrama-rollback-$rollback_token"
+          rollback_session_file="$rollback_control_dir/session.pid"
+          rm -f "$stderr_pipe" "$pipeline_script" "$pipeline_status_file"
           mkfifo "$stderr_pipe"
-          trap 'rm -f "$stderr_pipe"' EXIT
+
+          append_container_listing() {
+            local listing="$1" id existing count=0
+            [[ -z "$listing" ]] && return 0
+            while IFS= read -r id; do
+              [[ -z "$id" ]] && continue
+              [[ "$id" =~ ^[a-f0-9]{64}$ ]] || return 1
+              count=$((count + 1))
+              (( count <= 1 )) || return 1
+              for existing in "${container_candidates[@]}"; do
+                [[ "$existing" == "$id" ]] && continue 2
+              done
+              container_candidates+=("$id")
+            done <<<"$listing"
+          }
+
+          collect_owned_container_ids() {
+            local extra_id="${1:-}" label_listing name_listing cid_listing inspection remaining id
+            local recorded_id=""
+            local -a container_candidates=()
+            label_listing="$(timeout --signal=KILL 8s docker container ls --all --no-trunc --quiet --filter "label=$LMD_ROLLBACK_CONTAINER_LABEL")" || return 1
+            name_listing="$(timeout --signal=KILL 8s docker container ls --all --no-trunc --quiet --filter "name=^/$LMD_ROLLBACK_CONTAINER_NAME$")" || return 1
+            append_container_listing "$label_listing" || return 1
+            append_container_listing "$name_listing" || return 1
+            if [[ -e "$LMD_ROLLBACK_CIDFILE" || -L "$LMD_ROLLBACK_CIDFILE" ]]; then
+              [[ -f "$LMD_ROLLBACK_CIDFILE" && ! -L "$LMD_ROLLBACK_CIDFILE" ]] || return 1
+              recorded_id="$(tr -d '\r\n' <"$LMD_ROLLBACK_CIDFILE")" || return 1
+              [[ "$recorded_id" =~ ^[a-f0-9]{64}$ ]] || recorded_id=""
+            fi
+            if [[ -n "$recorded_id" ]]; then
+              cid_listing="$(timeout --signal=KILL 8s docker container ls --all --no-trunc --quiet --filter "id=$recorded_id")" || return 1
+              append_container_listing "$cid_listing" || return 1
+            fi
+            if [[ -n "$extra_id" ]]; then
+              [[ "$extra_id" =~ ^[a-f0-9]{64}$ ]] || return 1
+              cid_listing="$(timeout --signal=KILL 8s docker container ls --all --no-trunc --quiet --filter "id=$extra_id")" || return 1
+              append_container_listing "$cid_listing" || return 1
+            fi
+            for id in "${container_candidates[@]}"; do
+              if ! inspection="$(timeout --signal=KILL 8s docker container inspect --format '{{ index .Config.Labels "localminidrama.rollback-drill.run" }}' "$id")"; then
+                remaining="$(timeout --signal=KILL 8s docker container ls --all --no-trunc --quiet --filter "id=$id")" || return 1
+                [[ -z "$remaining" ]] && continue
+                return 1
+              fi
+              [[ "$inspection" == "$rollback_token" ]] || return 1
+              printf '%s\n' "$id"
+            done
+          }
+
+          remove_owned_containers() {
+            local listing id
+            listing="$(collect_owned_container_ids "${1:-}")" || return 1
+            while IFS= read -r id; do
+              [[ -z "$id" ]] && continue
+              timeout --signal=KILL 8s docker stop --time 3 "$id" >/dev/null 2>/dev/null || true
+              timeout --signal=KILL 8s docker kill "$id" >/dev/null 2>/dev/null || true
+              timeout --signal=KILL 8s docker rm --force "$id" >/dev/null 2>/dev/null || true
+            done <<<"$listing"
+          }
+
+          cleanup_rollback_container() {
+            local attempt sentinel_id create_status remaining
+            for attempt in {1..4}; do
+              remove_owned_containers || return 1
+              if sentinel_id="$(timeout --signal=KILL 8s docker create --pull never --name "$LMD_ROLLBACK_CONTAINER_NAME" --label "$LMD_ROLLBACK_CONTAINER_LABEL" node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 node -e 'process.exit(0)')"; then
+                [[ "$sentinel_id" =~ ^[a-f0-9]{64}$ ]] || return 1
+                timeout --signal=KILL 8s docker container inspect --format '{{ index .Config.Labels "localminidrama.rollback-drill.run" }}' "$sentinel_id" | grep -Fx -- "$rollback_token" >/dev/null || return 1
+                timeout --signal=KILL 8s docker rm --force "$sentinel_id" >/dev/null 2>/dev/null || true
+                remaining="$(collect_owned_container_ids "$sentinel_id")" || return 1
+                if [[ -z "$remaining" ]]; then
+                  rm -f "$LMD_ROLLBACK_CIDFILE"
+                  return 0
+                fi
+              else
+                create_status=$?
+                if (( create_status == 124 || create_status == 137 )); then return 1; fi
+              fi
+            done
+            return 1
+          }
+
+          terminate_rollback_session() {
+            local session_pid deadline
+            [[ -e "$rollback_session_file" ]] || return 0
+            [[ -f "$rollback_session_file" && ! -L "$rollback_session_file" ]] || return 1
+            session_pid="$(tr -d '\r\n' <"$rollback_session_file")" || return 1
+            [[ "$session_pid" =~ ^[1-9][0-9]*$ ]] || return 1
+            if kill -0 -- "-$session_pid" 2>/dev/null; then
+              kill -TERM -- "-$session_pid" 2>/dev/null || true
+              deadline=$((SECONDS + 30))
+              while kill -0 -- "-$session_pid" 2>/dev/null && (( SECONDS < deadline )); do sleep 0.1; done
+              if kill -0 -- "-$session_pid" 2>/dev/null; then
+                kill -KILL -- "-$session_pid" 2>/dev/null || true
+                deadline=$((SECONDS + 5))
+                while kill -0 -- "-$session_pid" 2>/dev/null && (( SECONDS < deadline )); do sleep 0.1; done
+              fi
+            fi
+            if kill -0 -- "-$session_pid" 2>/dev/null; then return 1; fi
+            rm -f "$rollback_session_file"
+          }
+
+          cleanup_on_exit() {
+            local original_status=$? session_status=0 cleanup_status=0
+            trap - EXIT INT TERM
+            set +e
+            terminate_rollback_session || session_status=$?
+            if (( session_status == 0 )); then
+              cleanup_rollback_container || cleanup_status=$?
+            else
+              printf 'rollback session cleanup failed; container cleanup was skipped and control evidence remains at %s\n' "$rollback_control_dir" >&2
+            fi
+            if (( cleanup_status != 0 )); then
+              printf 'rollback container cleanup failed; control evidence remains at %s\n' "$rollback_control_dir" >&2
+            fi
+            if (( original_status != 0 )); then
+              printf 'rollback execution did not complete normally; daemon completion is unproven and control evidence remains at %s\n' "$rollback_control_dir" >&2
+            fi
+            if (( original_status == 0 && session_status == 0 && cleanup_status == 0 )); then
+              rm -f "$stderr_pipe" "$pipeline_script" "$pipeline_status_file"
+              rmdir "$rollback_control_dir" 2>/dev/null || true
+            fi
+            if (( original_status == 0 && session_status != 0 )); then original_status=$session_status; fi
+            if (( original_status == 0 && cleanup_status != 0 )); then original_status=$cleanup_status; fi
+            exit "$original_status"
+          }
+          trap cleanup_on_exit EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
 
           node -e '
             const fs = require("node:fs")
@@ -227,7 +363,12 @@ jobs:
             process.stdin.on("data", (chunk) => {
               const keep = chunk.subarray(0, Math.max(0, limit - retained))
               if (keep.length > 0) {
-                fs.writeSync(log, keep)
+                let written = 0
+                while (( written < keep.length )) {
+                  const count = fs.writeSync(log, keep, written, keep.length - written)
+                  if (count <= 0) throw new Error("rollback stderr log write made no progress")
+                  written += count
+                }
                 process.stderr.write(keep)
                 retained += keep.length
               }
@@ -243,8 +384,35 @@ jobs:
           ' "$stderr_log" 262144 <"$stderr_pipe" &
           stderr_pid=$!
 
+          cat >"$pipeline_script" <<'ROLLBACK_PIPELINE'
+          set -uo pipefail
+          run_bounded_rollback() {
+            local session_pid drill_status session_deadline
+            : >"$rollback_session_file"
+            setsid --wait timeout --signal=TERM --kill-after=30s 720s npm run verify:rollback 2>"$stderr_pipe" &
+            session_pid=$!
+            printf '%s\n' "$session_pid" >"$rollback_session_file"
+            wait "$session_pid"
+            drill_status=$?
+            if kill -0 -- "-$session_pid" 2>/dev/null; then
+              kill -TERM -- "-$session_pid" 2>/dev/null || true
+              for _ in {1..10}; do
+                if ! kill -0 -- "-$session_pid" 2>/dev/null; then break; fi
+                sleep 0.1
+              done
+              if kill -0 -- "-$session_pid" 2>/dev/null; then
+                kill -KILL -- "-$session_pid" 2>/dev/null || true
+                session_deadline=$((SECONDS + 5))
+                while kill -0 -- "-$session_pid" 2>/dev/null && (( SECONDS < session_deadline )); do sleep 0.1; done
+              fi
+              drill_status=124
+            fi
+            if ! kill -0 -- "-$session_pid" 2>/dev/null; then rm -f "$rollback_session_file"; fi
+            return "$drill_status"
+          }
+
           set +e
-          npm run verify:rollback 2>"$stderr_pipe" \
+          run_bounded_rollback \
             | tee "$stdout_log" \
             | node scripts/rollback-drill-evidence.cjs \
                 --validate-result-stream \
@@ -252,15 +420,70 @@ jobs:
                 --expected-commit "$GITHUB_SHA" \
                 --expected-mode standalone
           pipeline_status=("${PIPESTATUS[@]}")
-          wait "$stderr_pid"
-          stderr_status=$?
-          rm -f "$stderr_pipe"
-          trap - EXIT
+          printf '%s\n' "${pipeline_status[@]}" >"$pipeline_status_file"
+          ROLLBACK_PIPELINE
+
+          export GITHUB_SHA pipeline_status_file rollback_session_file stderr_pipe stdout_log
+          set +e
+          setsid --wait timeout --signal=TERM --kill-after=30s 760s bash "$pipeline_script"
+          pipeline_guard_status=$?
+          pipeline_status=()
+          if (( pipeline_guard_status == 0 )) && [[ -s "$pipeline_status_file" ]]; then
+            mapfile -t pipeline_status <"$pipeline_status_file"
+            if (( ${#pipeline_status[@]} != 3 )); then pipeline_status=(1); fi
+          else
+            pipeline_status=("$pipeline_guard_status")
+          fi
+          stderr_status=0
+          stderr_deadline=$((SECONDS + 5))
+          while kill -0 "$stderr_pid" 2>/dev/null; do
+            if (( SECONDS >= stderr_deadline )); then
+              kill -TERM "$stderr_pid" 2>/dev/null || true
+              sleep 1
+              if kill -0 "$stderr_pid" 2>/dev/null; then
+                kill -KILL "$stderr_pid" 2>/dev/null || true
+              fi
+              wait "$stderr_pid" 2>/dev/null
+              stderr_status=124
+              break
+            fi
+            sleep 0.1
+          done
+          if (( stderr_status == 0 )); then
+            wait "$stderr_pid"
+            stderr_status=$?
+          fi
+          session_cleanup_status=0
+          terminate_rollback_session || session_cleanup_status=$?
+          container_cleanup_status=0
+          if (( session_cleanup_status == 0 )); then
+            cleanup_rollback_container || container_cleanup_status=$?
+          else
+            printf 'rollback session cleanup failed; container cleanup was skipped and control evidence remains at %s\n' "$rollback_control_dir" >&2
+          fi
+          if (( container_cleanup_status != 0 )); then
+            printf 'rollback container cleanup failed; control evidence remains at %s\n' "$rollback_control_dir" >&2
+          fi
+          rollback_execution_normal=1
+          if (( stderr_status != 0 )); then rollback_execution_normal=0; fi
+          for status in "${pipeline_status[@]}"; do
+            if (( status != 0 )); then rollback_execution_normal=0; fi
+          done
+          if (( rollback_execution_normal == 0 )); then
+            printf 'rollback execution did not complete normally; daemon completion is unproven and control evidence remains at %s\n' "$rollback_control_dir" >&2
+          fi
+          if (( rollback_execution_normal == 1 && session_cleanup_status == 0 && container_cleanup_status == 0 )); then
+            rm -f "$stderr_pipe" "$pipeline_script" "$pipeline_status_file"
+            rmdir "$rollback_control_dir" 2>/dev/null || true
+          fi
+          trap - EXIT INT TERM
           set -e
 
           for status in "${pipeline_status[@]}"; do
             if (( status != 0 )); then exit "$status"; fi
           done
+          if (( session_cleanup_status != 0 )); then exit "$session_cleanup_status"; fi
+          if (( container_cleanup_status != 0 )); then exit "$container_cleanup_status"; fi
           exit "$stderr_status"
       - name: Upload rollback evidence
         if: always()
@@ -271,6 +494,9 @@ jobs:
             artifacts/rollback-drill/
             ${{ runner.temp }}/rollback-drill.stdout.log
             ${{ runner.temp }}/rollback-drill.stderr.log
+            ${{ runner.temp }}/rollback-container.*
+            ${{ runner.temp }}/rollback-drill.pipeline.sh
+            ${{ runner.temp }}/rollback-drill.pipeline.status
           if-no-files-found: warn
           retention-days: 14
 
