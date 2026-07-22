@@ -180,6 +180,115 @@ function Get-ContainerBindSource {
   return Assert-RealDirectory -Path ([string]$mount.Source)
 }
 
+function Confirm-RollbackContainerBindAuthority {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)][string]$ContainerId,
+    [Parameter(Mandatory = $true)][string]$Destination,
+    [Parameter(Mandatory = $true)][string]$HostDirectory,
+    [Parameter(Mandatory = $true)]
+    [Microsoft.Win32.SafeHandles.SafeFileHandle]$DirectoryHandle
+  )
+  $markerName = ".localminidrama-bind-proof-$([Guid]::NewGuid().ToString('N')).tmp"
+  $markerPath = Join-Path $HostDirectory $markerName
+  $containerMarkerPath = "$($Destination.TrimEnd('/'))/$markerName"
+  $reader = "const fs=require('node:fs');const actual=fs.readFileSync(process.argv[1]);const expected=Buffer.from(process.argv[2],'hex');if(expected.length!==32)process.exit(51);if(actual.length!==expected.length)process.exit(52);if(!actual.equals(expected))process.exit(53);"
+  $markerStream = $null
+  $markerOwned = $false
+  $randomNumberGenerator = $null
+  $primaryError = $null
+  $cleanupErrors = [System.Collections.ArrayList]::new()
+  try {
+    $retainedIdentity = Get-RollbackPathIdentity -Handle $DirectoryHandle
+    Assert-RollbackPathIdentity -Path $HostDirectory -ExpectedIdentity $retainedIdentity -Label 'Rollback data root retained container bind proof' | Out-Null
+
+    $randomBytes = [byte[]]::new(32)
+    $randomNumberGenerator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $randomNumberGenerator.GetBytes($randomBytes)
+    $randomNumberGenerator.Dispose()
+    $randomNumberGenerator = $null
+    $expectedHex = ([BitConverter]::ToString($randomBytes)).Replace('-', '').ToLowerInvariant()
+
+    $markerStream = [System.IO.FileStream]::new(
+      $markerPath,
+      [System.IO.FileMode]::CreateNew,
+      [System.IO.FileAccess]::Write,
+      [System.IO.FileShare]::Read
+    )
+    $markerOwned = $true
+    $markerStream.Write($randomBytes, 0, $randomBytes.Length)
+    $markerStream.Flush($true)
+
+    $proofError = $null
+    for ($attempt = 1; $attempt -le 3; $attempt += 1) {
+      try {
+        Invoke-Checked -FilePath 'docker' -ArgumentList @('exec', $ContainerId, 'node', '-e', $reader, '--', $containerMarkerPath, $expectedHex) -Label 'Running container data bind byte proof' | Out-Null
+        $proofError = $null
+        break
+      } catch {
+        $proofError = $_
+        if ($attempt -lt 3) { Start-Sleep -Milliseconds 100 }
+      }
+    }
+    if ($null -ne $proofError) {
+      $primaryError = $proofError
+    }
+
+    if ($null -eq $primaryError) {
+      $containerJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $ContainerId, '--format', '{{json .}}') -Label 'Running container data bind reinspection'
+      try {
+        $container = ConvertFrom-Json -InputObject $containerJson
+      } catch {
+        throw 'Running container data bind reinspection returned invalid Docker JSON.'
+      }
+      $idProperty = $container.PSObject.Properties['Id']
+      if ($null -eq $idProperty -or $idProperty.Value -isnot [string] -or $idProperty.Value -cne $ContainerId) {
+        throw 'Running container data bind reinspection no longer represents the captured container.'
+      }
+      $mountsProperty = $container.PSObject.Properties['Mounts']
+      if ($null -eq $mountsProperty) {
+        throw 'Running container data bind reinspection did not contain mounts.'
+      }
+      $mounts = @($mountsProperty.Value | ForEach-Object { $_ })
+      $destinationMounts = @($mounts | Where-Object { Test-ContainerPathEqual -Expected ([string]$_.Destination) -Actual $Destination })
+      if ($destinationMounts.Count -ne 1) {
+        throw "The captured container must still have exactly one mount at $Destination."
+      }
+      $mount = $destinationMounts[0]
+      if ($mount.Type -cne 'bind' -or [string]::IsNullOrWhiteSpace([string]$mount.Source)) {
+        throw "The captured container mount at $Destination must remain a bind mount with a host source."
+      }
+      if ($mount.RW -isnot [bool] -or $mount.RW -ne $true) {
+        throw "The captured container bind mount at $Destination must remain read-write."
+      }
+      $reinspectedSource = Assert-RealDirectory -Path ([string]$mount.Source)
+      Assert-SamePath -Expected $HostDirectory -Actual $reinspectedSource -Label 'Captured container data bind reinspection'
+      Assert-RollbackPathIdentity -Path $HostDirectory -ExpectedIdentity $retainedIdentity -Label 'Rollback data root retained container bind proof' | Out-Null
+    }
+  } catch {
+    $primaryError = $_
+  } finally {
+    try {
+      if ($null -ne $randomNumberGenerator) { $randomNumberGenerator.Dispose() }
+    } catch {
+      [void]$cleanupErrors.Add($_)
+    }
+    try {
+      if ($null -ne $markerStream) { $markerStream.Dispose() }
+    } catch {
+      [void]$cleanupErrors.Add($_)
+    }
+    try {
+      if ($markerOwned -and (Test-Path -LiteralPath $markerPath)) {
+        Remove-Item -LiteralPath $markerPath -Force -ErrorAction Stop
+      }
+    } catch {
+      [void]$cleanupErrors.Add($_)
+    }
+  }
+  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
+}
+
 function Get-ImageRevision {
   param(
     [Parameter(Mandatory = $true)][string]$ImageReference,
@@ -550,6 +659,7 @@ try {
   $directoryLock = Open-RollbackDirectoryIdentityLock -Path $runtimeDataDirectory
   $capturedDataRootIdentity = Get-RollbackPathIdentity -Handle $directoryLock
   Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Captured rollback data root' | Out-Null
+  Confirm-RollbackContainerBindAuthority -ContainerId $backend.container_id -Destination '/app/data' -HostDirectory $runtimeDataDirectory -DirectoryHandle $directoryLock
   Set-DataSourceEnvironment -DataDirectory $runtimeDataDirectory
   $runtimeConfigDirectory = Get-ContainerBindSource -ContainerId $backend.container_id -Destination '/app/config-source'
   $runtimeConfigSource = Join-Path $runtimeConfigDirectory 'config.yaml'

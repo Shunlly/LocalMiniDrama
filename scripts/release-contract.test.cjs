@@ -2308,6 +2308,537 @@ test('release rollback checkpoint and restore consume shared native-lock v5 inte
   )
 })
 
+test('release rollback checkpoint container bind proof is retained, exact, and ordered before artifacts', () => {
+  assert.match(
+    checkpointScript,
+    /function Confirm-RollbackContainerBindAuthority[\s\S]*\[string\]\$ContainerId[\s\S]*\[string\]\$Destination[\s\S]*\[string\]\$HostDirectory[\s\S]*\[Microsoft\.Win32\.SafeHandles\.SafeFileHandle\]\$DirectoryHandle/,
+  )
+  assert.match(checkpointScript, /\.localminidrama-bind-proof-.*ToString\('N'\).*\.tmp/)
+  assert.match(checkpointScript, /\[System\.IO\.FileMode\]::CreateNew/)
+  assert.match(checkpointScript, /\[System\.IO\.FileShare\]::Read/)
+  assert.match(checkpointScript, /\[byte\[\]\]::new\(32\)/)
+  assert.match(checkpointScript, /RandomNumberGenerator/)
+  assert.match(checkpointScript, /\.Flush\(\$true\)/)
+  assert.match(
+    checkpointScript,
+    /@\('exec', \$ContainerId, 'node', '-e', \$reader, '--', \$containerMarkerPath, \$expectedHex\)/,
+  )
+  assert.doesNotMatch(checkpointScript, /@\('exec',[^\r\n]*(?:'sh'|'bash'|'cmd'|'powershell')/)
+  assert.match(checkpointScript, /Get-RollbackPathIdentity -Handle \$DirectoryHandle/)
+  assert.match(checkpointScript, /Assert-RollbackPathIdentity[\s\S]*retained container bind proof/)
+
+  const checkpointMain = checkpointScript.slice(checkpointScript.indexOf('$repoRoot ='))
+  const bindCapture = checkpointMain.indexOf(
+    "Get-ContainerBindSource -ContainerId $backend.container_id -Destination '/app/data' -RequireReadWrite",
+  )
+  const lockOpen = checkpointMain.indexOf('Open-RollbackDirectoryIdentityLock -Path $runtimeDataDirectory')
+  const identityCapture = checkpointMain.indexOf('Get-RollbackPathIdentity -Handle $directoryLock')
+  const proof = checkpointMain.indexOf(
+    "Confirm-RollbackContainerBindAuthority -ContainerId $backend.container_id -Destination '/app/data' -HostDirectory $runtimeDataDirectory -DirectoryHandle $directoryLock",
+  )
+  const checkpointCreation = checkpointMain.indexOf('New-Item -ItemType Directory -Path $checkpoint')
+  const imageSave = checkpointMain.indexOf("@('image', 'save'")
+  const shutdown = checkpointMain.indexOf("@('compose', 'down')")
+  const backup = checkpointMain.indexOf("'backup:data'")
+  const fingerprint = checkpointMain.indexOf("'verify:rollback'")
+  for (const [label, index] of [
+    ['bind capture', bindCapture],
+    ['directory lock', lockOpen],
+    ['identity capture', identityCapture],
+    ['container proof', proof],
+    ['checkpoint creation', checkpointCreation],
+    ['image save', imageSave],
+    ['shutdown', shutdown],
+    ['backup', backup],
+    ['fingerprint', fingerprint],
+  ]) assert.notEqual(index, -1, `${label} is missing from checkpoint creation`)
+  assert.ok(bindCapture < lockOpen)
+  assert.ok(lockOpen < identityCapture)
+  assert.ok(identityCapture < proof)
+  for (const later of [checkpointCreation, imageSave, shutdown, backup, fingerprint]) assert.ok(proof < later)
+  assert.doesNotMatch(rollbackRestoreScript, /Confirm-RollbackContainerBindAuthority/)
+})
+
+test('release rollback checkpoint proves the captured container sees exact locked-root bytes', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Checkpoint bind authority behavior requires Windows PowerShell')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'checkpoint bind authority must run under Node 20')
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-checkpoint-bind-proof-'))
+  const binPath = path.join(fixtureRoot, 'bin')
+  const eventLog = path.join(fixtureRoot, 'events.jsonl')
+  const summaryPath = path.join(root, 'artifacts', 'rollback-drill', 'summary.json')
+  const summaryExisted = fs.existsSync(summaryPath)
+  const previousSummary = summaryExisted ? fs.readFileSync(summaryPath) : null
+  fs.mkdirSync(binPath)
+  fs.mkdirSync(path.dirname(summaryPath), { recursive: true })
+  t.after(() => {
+    if (summaryExisted) fs.writeFileSync(summaryPath, previousSummary)
+    else fs.rmSync(summaryPath, { force: true })
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  })
+
+  const fakeToolPath = path.join(fixtureRoot, 'fake-bind-tool.cjs')
+  fs.writeFileSync(fakeToolPath, `
+'use strict'
+const crypto = require('node:crypto')
+const fs = require('node:fs')
+const path = require('node:path')
+const tool = process.argv[2]
+const args = process.argv.slice(3)
+const statePath = process.env.LMD_BIND_STATE
+const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+const saveState = () => fs.writeFileSync(statePath, JSON.stringify(state))
+const markers = (rootPath) => fs.existsSync(rootPath)
+  ? fs.readdirSync(rootPath).filter((name) => /^\\.localminidrama-bind-proof-/.test(name))
+  : []
+const record = (event, extra = {}) => fs.appendFileSync(
+  process.env.LMD_BIND_EVENT_LOG,
+  JSON.stringify({ event, tool, args, ...extra }) + '\\n',
+)
+const valueAfter = (name) => args[args.indexOf(name) + 1]
+const backendId = 'b'.repeat(64)
+const frontendId = 'c'.repeat(64)
+const mounts = ({ reinspection = false } = {}) => {
+  const dataMount = {
+    Type: reinspection && state.scenario === 'reinspect_type' ? 'volume' : 'bind',
+    Source: reinspection && state.scenario === 'reinspect_source' ? state.alternateRoot : state.dataRoot,
+    Destination: reinspection && state.scenario === 'reinspect_destination' ? '/app/not-data' : '/app/data',
+    RW: !(reinspection && state.scenario === 'reinspect_read_only'),
+  }
+  const result = [
+    dataMount,
+    { Type: 'bind', Source: state.configRoot, Destination: '/app/config-source', RW: false },
+  ]
+  if (reinspection && state.scenario === 'reinspect_duplicate') result.push({ ...dataMount })
+  return result
+}
+
+if (tool === 'git') {
+  if (args[0] === 'rev-parse') process.stdout.write(state.commit + '\\n')
+  process.exit(0)
+}
+if (tool === 'node') {
+  if (args[0] === '-p') process.stdout.write(state.version + '\\n')
+  else fs.writeFileSync(args[2], 'server:\\n  port: 5679\\n')
+  process.exit(0)
+}
+if (tool === 'docker') {
+  if (args[0] === 'compose' && args[1] === 'ps') {
+    process.stdout.write((args[3] === 'backend' ? backendId : frontendId) + '\\n')
+    process.exit(0)
+  }
+  if (args[0] === 'compose' && args[1] === 'config') process.exit(0)
+  if (args[0] === 'compose' && args[1] === 'down') {
+    record('shutdown', { markers: markers(state.dataRoot) })
+    process.exit(0)
+  }
+  if (args[0] === 'compose' && args[1] === 'up') {
+    record('recovery_up')
+    process.exit(0)
+  }
+  if (args[0] === 'inspect') {
+    const format = valueAfter('--format')
+    if (format === '{{.State.Status}}') process.stdout.write('running\\n')
+    else if (format.includes('.State.Health')) process.stdout.write('healthy\\n')
+    else if (format === '{{.Image}}') process.stdout.write('sha256:' + (args[1] === backendId ? '1' : '2').repeat(64) + '\\n')
+    else if (format === '{{json .Mounts}}') {
+      if (args[1] === backendId && !state.initialMountReported) {
+        state.initialMountReported = true
+        if (state.scenario === 'swap_before_lock') {
+          fs.renameSync(state.dataRoot, state.visibleRoot)
+          fs.mkdirSync(state.dataRoot)
+        } else {
+          state.visibleRoot = state.dataRoot
+        }
+        saveState()
+      }
+      process.stdout.write(JSON.stringify(mounts()) + '\\n')
+    } else if (format === '{{json .}}') {
+      const id = state.scenario === 'reinspect_container' ? 'd'.repeat(64) : backendId
+      record('reinspect', { id, mounts: mounts({ reinspection: true }) })
+      process.stdout.write(JSON.stringify({ Id: id, Mounts: mounts({ reinspection: true }) }) + '\\n')
+    } else process.exit(45)
+    process.exit(0)
+  }
+  if (args[0] === 'image' && args[1] === 'inspect') {
+    process.stdout.write(JSON.stringify({ 'org.opencontainers.image.revision': state.commit }) + '\\n')
+    process.exit(0)
+  }
+  if (args[0] === 'exec') {
+    state.execAttempts += 1
+    saveState()
+    const containerPath = args[6]
+    const expectedHex = args[7]
+    const markerPath = path.join(state.visibleRoot, path.posix.basename(containerPath || ''))
+    let actual = fs.existsSync(markerPath) ? fs.readFileSync(markerPath) : null
+    if (state.scenario === 'missing_marker') actual = null
+    if (actual && state.scenario === 'wrong_bytes') {
+      actual = Buffer.from(actual)
+      actual[0] ^= 0xff
+    }
+    record('docker_exec', {
+      actualHex: actual ? actual.toString('hex') : null,
+      containerPath,
+      expectedHex,
+      markerNames: markers(state.dataRoot),
+      reader: args[4],
+    })
+    if (state.scenario === 'transient_missing' && state.execAttempts === 1) process.exit(46)
+    if (!actual || actual.length !== 32 || !/^[a-f0-9]{64}$/.test(expectedHex) || actual.toString('hex') !== expectedHex) process.exit(47)
+    process.exit(0)
+  }
+  if (args[0] === 'image' && args[1] === 'save') {
+    record('image_save', { markers: markers(state.dataRoot) })
+    fs.writeFileSync(valueAfter('--output'), 'fake image archive')
+    process.exit(0)
+  }
+  if (args[0] === 'image' && args[1] === 'tag') process.exit(0)
+  process.exit(48)
+}
+if (tool === 'npm') {
+  if (args.includes('backup:data')) {
+    const dataRoot = valueAfter('--data-root')
+    record('backup', { markers: markers(dataRoot) })
+    fs.writeFileSync(valueAfter('--output'), 'fake retained rollback archive')
+    process.exit(0)
+  }
+  if (args[0] === 'run' && args[1] === 'verify:rollback') {
+    const dataRoot = valueAfter('--data-root')
+    const archivePath = valueAfter('--archive')
+    record('fingerprint', { markers: markers(dataRoot) })
+    const archiveHash = crypto.createHash('sha256').update(fs.readFileSync(archivePath)).digest('hex')
+    fs.writeFileSync(process.env.LMD_BIND_SUMMARY, JSON.stringify({
+      schema: 'localminidrama.rollback-drill.v3',
+      status: 'passed',
+      input_mode: 'checkpoint-bound',
+      source: { commit: state.commit, version: state.version, working_tree_dirty: false, data_root_sha256: 'd'.repeat(64) },
+      backup: { archive_retained: true, archive_sha256: archiveHash },
+      operations: { source_data_root_unchanged: true },
+    }) + '\\n')
+    process.exit(0)
+  }
+}
+process.exit(49)
+`, 'utf8')
+
+  const driverPath = path.join(fixtureRoot, 'bind-proof-driver.ps1')
+  fs.writeFileSync(driverPath, `
+[CmdletBinding()]
+param([Parameter(Mandatory = $true)][string]$CheckpointDirectory)
+$ErrorActionPreference = 'Stop'
+$requestedCheckpointDirectory = $CheckpointDirectory
+. ${powerShellLiteral(checkpointScriptPath)}
+$script:OriginalInvokeChecked = \${function:Invoke-Checked}
+$script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
+$script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
+$script:LastProofError = $null
+
+function Write-BindEvent {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [hashtable]$Details = @{}
+  )
+  $event = [ordered]@{ event = $Name; driver = 'bind-proof' }
+  foreach ($key in $Details.Keys) { $event[$key] = $Details[$key] }
+  $line = ConvertTo-Json -Compress -InputObject $event
+  [System.IO.File]::AppendAllText($env:LMD_BIND_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Invoke-Checked {
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string[]]$ArgumentList,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  try {
+    & $script:OriginalInvokeChecked @PSBoundParameters
+  } catch {
+    if ($FilePath -ceq 'docker' -and $ArgumentList.Count -gt 0 -and $ArgumentList[0] -ceq 'exec') {
+      $script:LastProofError = $_
+    }
+    throw
+  }
+}
+
+function Remove-Item {
+  [CmdletBinding(DefaultParameterSetName = 'Path')]
+  param(
+    [Parameter(ParameterSetName = 'Path', Position = 0)][string[]]$Path,
+    [Parameter(Mandatory = $true, ParameterSetName = 'LiteralPath')][string[]]$LiteralPath,
+    [switch]$Force,
+    [switch]$Recurse
+  )
+  $itemPaths = if ($PSCmdlet.ParameterSetName -ceq 'LiteralPath') { $LiteralPath } else { $Path }
+  foreach ($itemPath in @($itemPaths)) {
+    $name = [System.IO.Path]::GetFileName($itemPath)
+    if ($name -match '^\\.localminidrama-bind-proof-[a-f0-9]{32}\\.tmp$' -and $env:LMD_MARKER_CLEANUP_FAILURE -ceq 'true') {
+      Write-BindEvent -Name 'marker_cleanup_failed' -Details @{ marker = $name }
+      throw [System.IO.IOException]::new('Injected marker cleanup failure: ' + $name)
+    }
+  }
+  Microsoft.PowerShell.Management\\Remove-Item @PSBoundParameters
+  foreach ($itemPath in @($itemPaths)) {
+    $name = [System.IO.Path]::GetFileName($itemPath)
+    if ($name -match '^\\.localminidrama-bind-proof-') { Write-BindEvent -Name 'marker_removed' -Details @{ marker = $name } }
+  }
+}
+
+function Clear-DataSourceEnvironment {
+  Write-BindEvent -Name 'cleanup:data'
+  & $script:OriginalClearDataSourceEnvironment
+}
+function Clear-RuntimeConfigEnvironment {
+  Write-BindEvent -Name 'cleanup:config'
+  & $script:OriginalClearRuntimeConfigEnvironment
+}
+function Pop-Location {
+  Write-BindEvent -Name 'cleanup:location'
+  Microsoft.PowerShell.Management\\Pop-Location
+}
+
+try {
+  Invoke-ReleaseRollbackCheckpoint -CheckpointDirectory $requestedCheckpointDirectory
+} catch {
+  $cleanupDetails = @()
+  $attachedCleanupErrors = $_.Exception.Data['RollbackCleanupErrors']
+  if ($null -ne $attachedCleanupErrors) {
+    $cleanupDetails = @($attachedCleanupErrors) | ForEach-Object { $_.Exception.Message }
+  }
+  $sameProofException = $false
+  if ($null -ne $script:LastProofError) {
+    $sameProofException = [object]::ReferenceEquals($_.Exception, $script:LastProofError.Exception)
+  }
+  Write-BindEvent -Name 'driver_failure' -Details @{
+    cleanup_errors = @($cleanupDetails)
+    primary_error_id = $_.FullyQualifiedErrorId
+    primary_message = $_.Exception.Message
+    same_proof_exception = $sameProofException
+  }
+  throw
+}
+`, 'utf8')
+
+  for (const tool of ['git', 'docker', 'npm', 'node']) {
+    fs.writeFileSync(
+      path.join(binPath, `${tool}.cmd`),
+      `@echo off\r\n"${process.execPath}" "${fakeToolPath}" ${tool} %*\r\n`,
+      'utf8',
+    )
+  }
+
+  const commit = 'a'.repeat(40)
+  const version = backendPackage.version
+  let scenarioSequence = 0
+  const runScenario = (host, scenario, { cleanupFailure = false } = {}) => {
+    scenarioSequence += 1
+    const scenarioRoot = path.join(fixtureRoot, `${host.name}-${scenario}-${scenarioSequence}`)
+    const dataRoot = path.join(scenarioRoot, 'data')
+    const visibleRoot = path.join(scenarioRoot, 'container-visible-data')
+    const alternateRoot = path.join(scenarioRoot, 'alternate-data')
+    const configRoot = path.join(scenarioRoot, 'config')
+    const checkpointPath = path.join(scenarioRoot, 'checkpoint')
+    const statePath = path.join(scenarioRoot, 'state.json')
+    fs.mkdirSync(dataRoot, { recursive: true })
+    fs.mkdirSync(alternateRoot)
+    fs.mkdirSync(configRoot)
+    fs.writeFileSync(path.join(configRoot, 'config.yaml'), 'server:\n  port: 5679\n')
+    fs.writeFileSync(statePath, JSON.stringify({
+      alternateRoot,
+      commit,
+      configRoot,
+      dataRoot,
+      execAttempts: 0,
+      initialMountReported: false,
+      scenario,
+      version,
+      visibleRoot,
+    }))
+    const eventStart = fs.existsSync(eventLog)
+      ? fs.readFileSync(eventLog, 'utf8').trim().split(/\r?\n/).filter(Boolean).length
+      : 0
+    const result = spawnSync(host.executable, [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      driverPath,
+      '-CheckpointDirectory',
+      checkpointPath,
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+      windowsHide: true,
+      env: {
+        ...process.env,
+        PATH: `${binPath};${process.env.PATH}`,
+        LMD_BIND_EVENT_LOG: eventLog,
+        LMD_BIND_STATE: statePath,
+        LMD_BIND_SUMMARY: summaryPath,
+        LMD_MARKER_CLEANUP_FAILURE: String(cleanupFailure),
+      },
+    })
+    const events = fs.existsSync(eventLog)
+      ? fs.readFileSync(eventLog, 'utf8').trim().split(/\r?\n/).filter(Boolean).map(JSON.parse).slice(eventStart)
+      : []
+    return {
+      alternateRoot,
+      checkpointPath,
+      dataRoot,
+      events,
+      result,
+      visibleRoot: JSON.parse(fs.readFileSync(statePath, 'utf8')).visibleRoot,
+    }
+  }
+
+  const markerNames = (rootPath) => fs.existsSync(rootPath)
+    ? fs.readdirSync(rootPath).filter((name) => /^\.localminidrama-bind-proof-/.test(name))
+    : []
+  const assertNoLateOperations = (run) => {
+    const eventNames = run.events.map((event) => event.event)
+    for (const forbidden of ['image_save', 'shutdown', 'backup', 'fingerprint', 'recovery_up']) {
+      assert.equal(eventNames.includes(forbidden), false, `${forbidden} ran after bind proof rejection`)
+    }
+    assert.equal(fs.existsSync(run.checkpointPath), false, 'checkpoint directory was created before bind proof completed')
+  }
+  const assertMarkerRemoved = (run) => {
+    assert.deepEqual(markerNames(run.dataRoot), [])
+    assert.deepEqual(markerNames(run.visibleRoot), [])
+  }
+  const assertOuterCleanupRan = (run) => {
+    const eventNames = run.events.map((event) => event.event)
+    const dataCleanup = eventNames.indexOf('cleanup:data')
+    const configCleanup = eventNames.indexOf('cleanup:config')
+    const locationCleanup = eventNames.indexOf('cleanup:location')
+    assert.ok(dataCleanup >= 0 && dataCleanup < configCleanup)
+    assert.ok(configCleanup < locationCleanup)
+  }
+
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, async (t) => {
+      await t.test('rejects a source swapped after inspect while the container retains the original source', () => {
+        const run = runScenario(host, 'swap_before_lock')
+        assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+        assertNoLateOperations(run)
+        assertMarkerRemoved(run)
+        const execs = run.events.filter((event) => event.event === 'docker_exec')
+        assert.ok(
+          execs.length >= 1 && execs.length <= 3,
+          `container proof retry count was not short and bounded; events=${JSON.stringify(run.events)}; stderr=${run.result.stderr}; stdout=${run.result.stdout}`,
+        )
+        assert.ok(execs.every((event) => event.actualHex === null))
+      })
+
+      for (const scenario of ['missing_marker', 'wrong_bytes']) {
+        await t.test(`rejects ${scenario.replace('_', ' ')}, removes the marker, and leaves deployment running`, () => {
+          const run = runScenario(host, scenario)
+          assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+          assertNoLateOperations(run)
+          assertMarkerRemoved(run)
+          const execs = run.events.filter((event) => event.event === 'docker_exec')
+          assert.ok(
+            execs.length >= 1 && execs.length <= 3,
+            `container proof retry count was not short and bounded; events=${JSON.stringify(run.events)}; stderr=${run.result.stderr}; stdout=${run.result.stdout}`,
+          )
+          const first = execs[0]
+          assert.match(first.containerPath, /^\/app\/data\/\.localminidrama-bind-proof-[a-f0-9]{32}\.tmp$/)
+          if (scenario === 'missing_marker') assert.equal(first.actualHex, null)
+          else assert.notEqual(first.actualHex, first.expectedHex)
+        })
+      }
+
+      for (const scenario of [
+        'reinspect_source',
+        'reinspect_destination',
+        'reinspect_read_only',
+        'reinspect_duplicate',
+        'reinspect_type',
+        'reinspect_container',
+      ]) {
+        await t.test(`rejects ${scenario.replaceAll('_', ' ')} before shutdown`, () => {
+          const run = runScenario(host, scenario)
+          assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+          assertNoLateOperations(run)
+          assertMarkerRemoved(run)
+          assert.equal(
+            run.events.filter((event) => event.event === 'docker_exec').length,
+            1,
+            `container proof did not reach reinspection; events=${JSON.stringify(run.events)}; stderr=${run.result.stderr}; stdout=${run.result.stdout}`,
+          )
+          assert.equal(run.events.filter((event) => event.event === 'reinspect').length, 1)
+        })
+      }
+
+      await t.test('uses one unpredictable exact marker across retry and removes it before every consumer', () => {
+        const firstRun = runScenario(host, 'transient_missing')
+        assert.equal(firstRun.result.status, 0, firstRun.result.stderr || firstRun.result.stdout)
+        const firstExecs = firstRun.events.filter((event) => event.event === 'docker_exec')
+        assert.equal(firstExecs.length, 2, 'transient propagation failure was not retried exactly once')
+        const [firstExec, secondExec] = firstExecs
+        assert.equal(firstExec.args[0], 'exec')
+        assert.equal(firstExec.args[2], 'node')
+        assert.equal(firstExec.args[3], '-e')
+        assert.equal(firstExec.args[5], '--')
+        assert.equal(firstExec.containerPath, secondExec.containerPath)
+        assert.equal(firstExec.expectedHex, secondExec.expectedHex)
+        assert.equal(firstExec.reader, secondExec.reader)
+        assert.match(firstExec.containerPath, /^\/app\/data\/\.localminidrama-bind-proof-[a-f0-9]{32}\.tmp$/)
+        assert.match(firstExec.expectedHex, /^[a-f0-9]{64}$/)
+        assert.equal(secondExec.actualHex, secondExec.expectedHex)
+        assert.match(firstExec.reader, /readFileSync/)
+        assert.match(firstExec.reader, /Buffer\.from/)
+        assert.match(firstExec.reader, /\.equals/)
+        assert.equal(firstExec.args.some((arg) => /^(?:sh|bash|cmd|powershell)(?:\.exe)?$/i.test(arg)), false)
+        for (const event of firstRun.events.filter((entry) => ['image_save', 'shutdown', 'backup', 'fingerprint'].includes(entry.event))) {
+          assert.deepEqual(event.markers, [], `marker reached ${event.event} input`)
+        }
+        assertMarkerRemoved(firstRun)
+        const checkpointNames = fs.readdirSync(firstRun.checkpointPath, { recursive: true })
+        assert.equal(checkpointNames.some((name) => /^\.localminidrama-bind-proof-/.test(path.basename(name))), false)
+
+        const secondRun = runScenario(host, 'success')
+        assert.equal(secondRun.result.status, 0, secondRun.result.stderr || secondRun.result.stdout)
+        const repeatedExec = secondRun.events.find((event) => event.event === 'docker_exec')
+        assert.notEqual(repeatedExec.containerPath, firstExec.containerPath, 'marker basename was reused across invocations')
+        assert.notEqual(repeatedExec.expectedHex, firstExec.expectedHex, 'marker token was reused across invocations')
+        assert.equal(repeatedExec.reader, firstExec.reader, 'container reader must remain fixed')
+        assertMarkerRemoved(secondRun)
+      })
+
+      await t.test('surfaces marker cleanup failure and still runs every outer cleanup', () => {
+        const run = runScenario(host, 'success', { cleanupFailure: true })
+        assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+        assertNoLateOperations(run)
+        assertOuterCleanupRan(run)
+        const failure = run.events.find((event) => event.event === 'driver_failure')
+        assert.ok(failure)
+        assert.match(failure.primary_message, /Rollback cleanup failed: Injected marker cleanup failure/)
+        assert.equal(failure.same_proof_exception, false)
+        assert.equal(failure.cleanup_errors.length, 1)
+        assert.match(failure.cleanup_errors[0], /Injected marker cleanup failure/)
+        assert.equal(markerNames(run.dataRoot).length, 1)
+      })
+
+      await t.test('retains container read failure over marker cleanup failure and attaches cleanup detail', () => {
+        const run = runScenario(host, 'wrong_bytes', { cleanupFailure: true })
+        assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+        assertNoLateOperations(run)
+        assertOuterCleanupRan(run)
+        const failure = run.events.find((event) => event.event === 'driver_failure')
+        assert.ok(failure)
+        assert.match(failure.primary_message, /container data bind byte proof failed with exit code 47/i)
+        assert.doesNotMatch(failure.primary_message, /^Rollback cleanup failed:/)
+        assert.equal(failure.same_proof_exception, true)
+        assert.equal(failure.cleanup_errors.length, 1)
+        assert.match(failure.cleanup_errors[0], /Injected marker cleanup failure/)
+        assert.equal(markerNames(run.dataRoot).length, 1)
+      })
+    })
+  }
+})
+
 test('release rollback checkpoint fake toolchain retains locks through v5 metadata publication and failure recovery', async (t) => {
   if (process.platform !== 'win32') {
     t.skip('Checkpoint orchestration contract requires Windows PowerShell')
@@ -2349,6 +2880,10 @@ const dataRoot = process.env.LMD_DATA_ROOT
 const configRoot = process.env.LMD_CONFIG_ROOT
 const archivePath = process.env.LMD_ARCHIVE_PATH
 const summaryPath = process.env.LMD_SUMMARY_PATH
+const dockerMounts = [
+  { Type: 'bind', Source: dataRoot, Destination: '/app/data', RW: true },
+  { Type: 'bind', Source: configRoot, Destination: '/app/config-source', RW: false },
+]
 record(tool)
 if (tool === 'git') {
   if (args[0] === 'rev-parse') process.stdout.write(commit + '\\n')
@@ -2375,13 +2910,17 @@ if (tool === 'docker') {
   } else if (args[0] === 'inspect') {
     const format = valueAfter('--format')
     if (format === '{{json .Mounts}}') {
-      process.stdout.write(JSON.stringify([
-        { Type: 'bind', Source: dataRoot, Destination: '/app/data', RW: true },
-        { Type: 'bind', Source: configRoot, Destination: '/app/config-source', RW: false },
-      ]) + '\\n')
+      process.stdout.write(JSON.stringify(dockerMounts) + '\\n')
+    } else if (format === '{{json .}}') {
+      process.stdout.write(JSON.stringify({ Id: args[1], Mounts: dockerMounts }) + '\\n')
     } else if (format === '{{.State.Status}}') process.stdout.write('running\\n')
     else if (format.includes('.State.Health')) process.stdout.write('healthy\\n')
     else if (format === '{{.Image}}') process.stdout.write('sha256:' + (args[1][0] === 'b' ? '1' : '2').repeat(64) + '\\n')
+  } else if (args[0] === 'exec') {
+    const markerPath = path.join(dataRoot, path.posix.basename(args[6]))
+    const actualHex = fs.existsSync(markerPath) ? fs.readFileSync(markerPath).toString('hex') : null
+    record('bind_proof', { actualHex, expectedHex: args[7] })
+    if (actualHex !== args[7]) process.exit(30)
   } else if (args[0] === 'image' && args[1] === 'inspect') {
     process.stdout.write(JSON.stringify({ 'org.opencontainers.image.revision': commit }) + '\\n')
   } else if (args[0] === 'image' && args[1] === 'save') {
@@ -2690,6 +3229,7 @@ try {
   assert.equal(metadata.credential_reconfiguration_required, true)
   const events = readEvents().slice(validStart)
   const eventIndex = (name) => events.findIndex((entry) => entry.event === name)
+  assert.ok(eventIndex('bind_proof') < eventIndex('shutdown'))
   assert.ok(eventIndex('version') < eventIndex('shutdown'))
   assert.ok(eventIndex('shutdown') < eventIndex('backup'))
   assert.ok(eventIndex('backup') < eventIndex('drill'))
