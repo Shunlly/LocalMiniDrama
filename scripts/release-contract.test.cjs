@@ -127,17 +127,67 @@ function installNativeFakeDocker(binPath, fixtureRoot) {
   fs.copyFileSync(process.execPath, dockerPath)
   fs.writeFileSync(bootstrapPath, `
 'use strict'
-const { spawnSync } = require('node:child_process')
+const { spawn, spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 
-if (path.basename(process.execPath).toLowerCase() === 'docker.exe') {
+const executableName = path.basename(process.execPath).toLowerCase()
+if (executableName === 'taskkill.exe') {
+  fs.appendFileSync(
+    process.env.LMD_BIND_EVENT_LOG,
+    JSON.stringify({ event: 'taskkill_hang', args: process.argv.slice(1), pid: process.pid }) + '\\n',
+  )
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)
+}
+
+if (executableName === 'docker.exe') {
   const args = process.argv.slice(1)
   if (args.length > 0) args[0] = path.basename(args[0])
-  if (process.env.LMD_NATIVE_DOCKER_HANG === 'true' && args[0] === 'exec') {
+  const state = process.env.LMD_BIND_STATE
+    ? JSON.parse(fs.readFileSync(process.env.LMD_BIND_STATE, 'utf8'))
+    : null
+  const formatIndex = args.indexOf('--format')
+  const format = formatIndex >= 0 ? args[formatIndex + 1] : null
+  let hangEvent = null
+  if (args[0] === 'exec' && state && (
+    state.scenario === 'timeout' ||
+    state.scenario === 'termination_helper_error' ||
+    state.scenario === 'termination_helper_hang'
+  )) {
+    hangEvent = 'docker_exec_hang'
+  } else if (args[0] === 'exec' && state && state.scenario === 'transient_timeout') {
+    state.timeoutAttempts = Number(state.timeoutAttempts || 0) + 1
+    fs.writeFileSync(process.env.LMD_BIND_STATE, JSON.stringify(state))
+    if (state.timeoutAttempts === 1) hangEvent = 'docker_exec_hang'
+  } else if (args[0] === 'inspect' && format === '{{.Id}}' && state && state.scenario === 'id_resolution_timeout') {
+    hangEvent = 'docker_id_resolution_hang'
+  } else if (args[0] === 'inspect' && format === '{{json .}}' && state && state.scenario === 'reinspection_timeout') {
+    hangEvent = 'docker_reinspection_hang'
+  }
+  if (hangEvent) {
+    const descendantCode = [
+      "'use strict'",
+      "const fs = require('node:fs')",
+      "fs.appendFileSync(process.env.LMD_BIND_EVENT_LOG, JSON.stringify({ event: 'docker_hang_descendant_ready', pid: process.pid }) + '\\\\n')",
+      "process.stdout.write('descendant stdout held\\\\n')",
+      "process.stderr.write('descendant stderr held\\\\n')",
+      'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)',
+    ].join(';')
+    const descendant = spawn(process.env.LMD_NATIVE_DOCKER_NODE, ['-e', descendantCode], {
+      env: process.env,
+      stdio: ['ignore', 'inherit', 'inherit'],
+      windowsHide: true,
+    })
     fs.appendFileSync(
       process.env.LMD_BIND_EVENT_LOG,
-      JSON.stringify({ event: 'docker_exec_hang', tool: 'docker', args, pid: process.pid }) + '\\n',
+      JSON.stringify({
+        event: hangEvent,
+        tool: 'docker',
+        args,
+        descendantPid: descendant.pid,
+        parentPid: process.pid,
+        stdioInherited: true,
+      }) + '\\n',
     )
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)
   }
@@ -170,10 +220,20 @@ function isProcessRunning(pid) {
 }
 
 function terminateProcessTree(pid) {
-  spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+  spawnSync(path.join(process.env.SystemRoot, 'System32', 'taskkill.exe'), ['/PID', String(pid), '/T', '/F'], {
     encoding: 'utf8',
+    timeout: 5000,
     windowsHide: true,
   })
+}
+
+function waitForProcessExit(pid, timeout = 3000) {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    if (!isProcessRunning(pid)) return true
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+  }
+  return !isProcessRunning(pid)
 }
 
 function runPowerShellStatements(statements, { executable } = {}) {
@@ -2379,12 +2439,36 @@ test('release rollback checkpoint container bind proof is retained, exact, and o
     /\$dockerExecArguments\s*=\s*@\('exec', \$fullContainerId, 'node', '-e', \$reader, '--', \$containerMarkerPath, \$expectedHex\)/,
   )
   assert.match(checkpointScript, /function Invoke-NativeCommandWithTimeout/)
+  assert.match(checkpointScript, /function Stop-NativeProcessTreeBounded/)
   assert.match(checkpointScript, /\[System\.Diagnostics\.ProcessStartInfo\]::new\(\)/)
   assert.match(checkpointScript, /UseShellExecute\s*=\s*\$false/)
   assert.match(checkpointScript, /WaitForExit\(\$TimeoutMilliseconds\)/)
-  assert.match(checkpointScript, /\.Kill\(\)/)
+  assert.doesNotMatch(checkpointScript, /WaitForExit\(\s*\)/)
+  assert.doesNotMatch(checkpointScript, /\.Result\b/)
+  assert.doesNotMatch(checkpointScript, /ReadToEndAsync/)
+  assert.match(checkpointScript, /\$taskkillArguments\s*=\s*@\('\/PID', \[string\]\$Process\.Id, '\/T', '\/F'\)/)
+  assert.match(checkpointScript, /\[string\]\$TaskkillFilePath\s*=\s*'taskkill\.exe'/)
+  assert.match(checkpointScript, /FileName\s*=\s*\$TaskkillFilePath/)
+  assert.match(checkpointScript, /NativeProcessTreeTerminated/)
+  assert.match(checkpointScript, /\[byte\[\]\]::new\(\$MaximumOutputBytes\)/)
+  assert.match(checkpointScript, /RedirectStandardOutput\s*=\s*\$CaptureOutput/)
   assert.match(checkpointScript, /NativeExitCode/)
-  assert.match(checkpointScript, /\$dockerTransportRetryExitCode\s*=\s*125/)
+  assert.doesNotMatch(checkpointScript, /dockerTransportRetryExitCode/)
+  assert.match(checkpointScript, /\$dockerExecTimeoutMilliseconds\s*=\s*10000/)
+  assert.match(checkpointScript, /\$dockerExecMaximumAttempts\s*=\s*2/)
+  assert.match(checkpointScript, /NativeTimedOut[\s\S]*NativeProcessTreeTerminated/)
+  assert.match(
+    checkpointScript,
+    /Running container ID resolution[^\r\n]*-CaptureOutput/,
+  )
+  assert.match(
+    checkpointScript,
+    /Running container data bind reinspection[^\r\n]*-CaptureOutput/,
+  )
+  assert.match(
+    checkpointScript,
+    /Running container data bind byte proof[^\r\n]*TimeoutMilliseconds[^\r\n]*\| Out-Null/,
+  )
   assert.doesNotMatch(checkpointScript, /(?:cmd|sh|bash)(?:\.exe)?\s+\/c/i)
   assert.match(checkpointScript, /Get-RollbackPathIdentity -Handle \$DirectoryHandle/)
   assert.match(checkpointScript, /Assert-RollbackPathIdentity[\s\S]*retained container bind proof/)
@@ -2538,6 +2622,12 @@ if (tool === 'docker') {
     else if (format === '{{.Id}}') {
       const resolvedId = state.scenario === 'short_id_nonmatching' ? 'd'.repeat(64) : backendId
       record('container_id_resolution', { capturedId: args[1], resolvedId })
+      if (state.scenario === 'id_resolution_output_flood') {
+        record('container_id_resolution_output_flood', { bytes: 2 * 1024 * 1024 })
+        const chunk = Buffer.alloc(8192, 0x78)
+        for (let written = 0; written < 2 * 1024 * 1024; written += chunk.length) fs.writeSync(1, chunk)
+        process.exit(0)
+      }
       process.stdout.write(resolvedId + '\\n')
     }
     else if (format === '{{json .Mounts}}') {
@@ -2569,16 +2659,6 @@ if (tool === 'docker') {
     const containerPath = args[6]
     const expectedHex = args[7]
     const markerPath = path.join(state.visibleRoot, path.posix.basename(containerPath || ''))
-    if (state.scenario === 'transient_transport' && state.execAttempts === 1) {
-      record('docker_exec', {
-        containerPath,
-        expectedHex,
-        reader: args[4],
-        readerExecuted: false,
-        transportExitCode: 125,
-      })
-      process.exit(125)
-    }
     let readerMarkerPath = markerPath
     let readerExpectedHex = expectedHex
     let temporaryReaderPath = null
@@ -2662,6 +2742,7 @@ $requestedCheckpointDirectory = $CheckpointDirectory
 . ${powerShellLiteral(checkpointScriptPath)}
 $script:OriginalInvokeChecked = \${function:Invoke-Checked}
 $script:OriginalInvokeNativeCommandWithTimeout = \${function:Invoke-NativeCommandWithTimeout}
+$script:OriginalStopNativeProcessTreeBounded = \${function:Stop-NativeProcessTreeBounded}
 $script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
 $script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
 $script:LastProofError = $null
@@ -2694,13 +2775,33 @@ function Invoke-Checked {
   }
 }
 
+function Stop-NativeProcessTreeBounded {
+  param(
+    [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process,
+    [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds,
+    [string]$TaskkillFilePath = 'taskkill.exe'
+  )
+  if (-not [string]::IsNullOrWhiteSpace($env:LMD_TEST_TASKKILL_PATH)) {
+    $TaskkillFilePath = $env:LMD_TEST_TASKKILL_PATH
+  }
+  if ($env:LMD_TEST_TERMINATION_HELPER_ERROR -ceq 'true') {
+    throw [System.IO.IOException]::new('Injected termination helper failure')
+  }
+  & $script:OriginalStopNativeProcessTreeBounded -Process $Process -TimeoutMilliseconds $TimeoutMilliseconds -TaskkillFilePath $TaskkillFilePath
+}
+
 function Invoke-NativeCommandWithTimeout {
   param(
     [Parameter(Mandatory = $true)][string]$FilePath,
     [Parameter(Mandatory = $true)][string[]]$ArgumentList,
     [Parameter(Mandatory = $true)][string]$Label,
-    [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds
+    [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds,
+    [switch]$CaptureOutput,
+    [int]$MaximumOutputBytes = 262144,
+    [int]$TerminationTimeoutMilliseconds = 2000
   )
+  $PSBoundParameters['TimeoutMilliseconds'] = [int]$env:LMD_TEST_NATIVE_TIMEOUT_MS
+  $PSBoundParameters['TerminationTimeoutMilliseconds'] = [int]$env:LMD_TEST_TERMINATION_TIMEOUT_MS
   try {
     & $script:OriginalInvokeNativeCommandWithTimeout @PSBoundParameters
   } catch {
@@ -2730,6 +2831,9 @@ function Remove-Item {
     $name = [System.IO.Path]::GetFileName($itemPath)
     if ($name -match '^\\.localminidrama-bind-proof-') {
       Write-BindEvent -Name 'marker_removed' -Details @{ marker = $name }
+      if ($env:LMD_MARKER_CLEANUP_DETAIL -ceq 'true') {
+        throw [System.IO.IOException]::new('Injected marker cleanup detail after removal: ' + $name)
+      }
       if ($env:LMD_REPLACE_DATA_AFTER_PROOF -ceq 'true' -and -not $script:HostIdentityReplaced) {
         $state = Get-Content -LiteralPath $env:LMD_BIND_STATE -Raw | ConvertFrom-Json
         $originalPath = ([string]$state.dataRoot) + '.proof-original'
@@ -2781,9 +2885,12 @@ try {
   }
   Write-BindEvent -Name 'driver_failure' -Details @{
     cleanup_errors = @($cleanupDetails)
+    native_timed_out = $_.Exception.Data['NativeTimedOut']
+    process_tree_terminated = $_.Exception.Data['NativeProcessTreeTerminated']
     primary_error_id = $_.FullyQualifiedErrorId
     primary_message = $_.Exception.Message
     same_proof_exception = $sameProofException
+    termination_detail = $_.Exception.Data['NativeTerminationDetail']
   }
   throw
 }
@@ -2801,7 +2908,13 @@ try {
   const commit = 'a'.repeat(40)
   const version = backendPackage.version
   let scenarioSequence = 0
-  const runScenario = (host, scenario, { cleanupFailure = false, timeout = 30000 } = {}) => {
+  const runScenario = (host, scenario, {
+    cleanupDetail = false,
+    cleanupFailure = false,
+    nativeTimeout = 1000,
+    terminationTimeout = 1000,
+    timeout = 30000,
+  } = {}) => {
     scenarioSequence += 1
     const scenarioRoot = path.join(fixtureRoot, `${host.name}-${scenario}-${scenarioSequence}`)
     const dataRoot = path.join(scenarioRoot, 'data')
@@ -2809,6 +2922,7 @@ try {
     const alternateRoot = path.join(scenarioRoot, 'alternate-data')
     const configRoot = path.join(scenarioRoot, 'config')
     const checkpointPath = path.join(scenarioRoot, 'checkpoint')
+    const scenarioBinPath = path.join(scenarioRoot, 'bin')
     const statePath = path.join(scenarioRoot, 'state.json')
     fs.mkdirSync(dataRoot, { recursive: true })
     fs.mkdirSync(alternateRoot)
@@ -2822,9 +2936,14 @@ try {
       execAttempts: 0,
       initialMountReported: false,
       scenario,
+      timeoutAttempts: 0,
       version,
       visibleRoot,
     }))
+    if (scenario === 'termination_helper_hang') {
+      fs.mkdirSync(scenarioBinPath)
+      fs.copyFileSync(process.execPath, path.join(scenarioBinPath, 'taskkill.exe'))
+    }
     const eventStart = fs.existsSync(eventLog)
       ? fs.readFileSync(eventLog, 'utf8').trim().split(/\r?\n/).filter(Boolean).length
       : 0
@@ -2841,19 +2960,26 @@ try {
     ], {
       cwd: root,
       encoding: 'utf8',
+      stdio: ['termination_helper_error', 'termination_helper_hang'].includes(scenario) ? 'ignore' : 'pipe',
       timeout,
       windowsHide: true,
       env: {
         ...process.env,
-        PATH: `${binPath};${process.env.PATH}`,
+        PATH: `${scenario === 'termination_helper_hang' ? `${scenarioBinPath};` : ''}${binPath};${process.env.PATH}`,
         LMD_BIND_EVENT_LOG: eventLog,
         LMD_BIND_STATE: statePath,
         LMD_BIND_SUMMARY: summaryPath,
+        LMD_MARKER_CLEANUP_DETAIL: String(cleanupDetail),
         LMD_MARKER_CLEANUP_FAILURE: String(cleanupFailure),
-        LMD_NATIVE_DOCKER_HANG: String(scenario === 'timeout'),
         LMD_NATIVE_DOCKER_NODE: process.execPath,
         LMD_NATIVE_DOCKER_TOOL: fakeToolPath,
         LMD_REPLACE_DATA_AFTER_PROOF: String(scenario === 'replace_identity_after_proof'),
+        LMD_TEST_NATIVE_TIMEOUT_MS: String(nativeTimeout),
+        LMD_TEST_TASKKILL_PATH: scenario === 'termination_helper_hang'
+          ? path.join(scenarioBinPath, 'taskkill.exe')
+          : '',
+        LMD_TEST_TERMINATION_HELPER_ERROR: String(scenario === 'termination_helper_error'),
+        LMD_TEST_TERMINATION_TIMEOUT_MS: String(terminationTimeout),
         NODE_OPTIONS: nodeOptionsWithRequire(nativeDocker.bootstrapPath),
       },
     })
@@ -2995,31 +3121,35 @@ try {
         assert.match(run.result.stderr, /Rollback cleanup failed:/i)
       })
 
-      await t.test('uses one unpredictable exact marker across retry and removes it before every consumer', () => {
-        const firstRun = runScenario(host, 'transient_transport')
+      await t.test('uses one unpredictable exact marker across one confirmed timeout retry', () => {
+        const firstRun = runScenario(host, 'transient_timeout', { timeout: 7000 })
+        const hang = firstRun.events.find((event) => event.event === 'docker_exec_hang')
+        const leaked = hang ? [hang.parentPid, hang.descendantPid].filter(isProcessRunning) : []
+        if (hang && isProcessRunning(hang.parentPid)) terminateProcessTree(hang.parentPid)
         assert.equal(firstRun.result.status, 0, firstRun.result.stderr || firstRun.result.stdout)
         const firstExecs = firstRun.events.filter((event) => event.event === 'docker_exec')
-        assert.equal(firstExecs.length, 2, 'classified Docker transport failure was not retried exactly once')
-        const [firstExec, secondExec] = firstExecs
-        assert.equal(firstExec.args[0], 'exec')
-        assert.equal(firstExec.args[1], 'b'.repeat(64))
-        assert.equal(firstExec.args[2], 'node')
-        assert.equal(firstExec.args[3], '-e')
-        assert.equal(firstExec.args[5], '--')
-        assert.equal(firstExec.containerPath, secondExec.containerPath)
-        assert.equal(firstExec.expectedHex, secondExec.expectedHex)
-        assert.equal(firstExec.reader, secondExec.reader)
-        assert.match(firstExec.containerPath, /^\/app\/data\/\.localminidrama-bind-proof-[a-f0-9]{32}\.tmp$/)
-        assert.match(firstExec.expectedHex, /^[a-f0-9]{64}$/)
-        assert.equal(firstExec.readerExecuted, false)
-        assert.equal(firstExec.transportExitCode, 125)
-        assert.equal(secondExec.readerExecuted, true)
-        assert.equal(secondExec.readerExitCode, 0)
-        assert.equal(secondExec.actualHex, secondExec.expectedHex)
-        assert.match(firstExec.reader, /readFileSync/)
-        assert.match(firstExec.reader, /Buffer\.from/)
-        assert.match(firstExec.reader, /\.equals/)
-        assert.equal(firstExec.args.some((arg) => /^(?:sh|bash|cmd|powershell)(?:\.exe)?$/i.test(arg)), false)
+        assert.equal(firstExecs.length, 1, 'confirmed timeout was not retried exactly once')
+        const [successfulExec] = firstExecs
+        assert.ok(hang)
+        assert.equal(hang.args[0], 'exec')
+        assert.equal(hang.args[1], 'b'.repeat(64))
+        assert.equal(hang.args[2], 'node')
+        assert.equal(hang.args[3], '-e')
+        assert.equal(hang.args[5], '--')
+        assert.deepEqual(hang.args, successfulExec.args)
+        assert.equal(hang.stdioInherited, true)
+        assert.deepEqual(leaked, [])
+        assert.equal(waitForProcessExit(hang.parentPid), true)
+        assert.equal(waitForProcessExit(hang.descendantPid), true)
+        assert.match(successfulExec.containerPath, /^\/app\/data\/\.localminidrama-bind-proof-[a-f0-9]{32}\.tmp$/)
+        assert.match(successfulExec.expectedHex, /^[a-f0-9]{64}$/)
+        assert.equal(successfulExec.readerExecuted, true)
+        assert.equal(successfulExec.readerExitCode, 0)
+        assert.equal(successfulExec.actualHex, successfulExec.expectedHex)
+        assert.match(successfulExec.reader, /readFileSync/)
+        assert.match(successfulExec.reader, /Buffer\.from/)
+        assert.match(successfulExec.reader, /\.equals/)
+        assert.equal(successfulExec.args.some((arg) => /^(?:sh|bash|cmd|powershell)(?:\.exe)?$/i.test(arg)), false)
         for (const event of firstRun.events.filter((entry) => ['image_save', 'shutdown', 'backup', 'fingerprint'].includes(entry.event))) {
           assert.deepEqual(event.markers, [], `marker reached ${event.event} input`)
         }
@@ -3030,9 +3160,9 @@ try {
         const secondRun = runScenario(host, 'success')
         assert.equal(secondRun.result.status, 0, secondRun.result.stderr || secondRun.result.stdout)
         const repeatedExec = secondRun.events.find((event) => event.event === 'docker_exec')
-        assert.notEqual(repeatedExec.containerPath, firstExec.containerPath, 'marker basename was reused across invocations')
-        assert.notEqual(repeatedExec.expectedHex, firstExec.expectedHex, 'marker token was reused across invocations')
-        assert.equal(repeatedExec.reader, firstExec.reader, 'container reader must remain fixed')
+        assert.notEqual(repeatedExec.containerPath, successfulExec.containerPath, 'marker basename was reused across invocations')
+        assert.notEqual(repeatedExec.expectedHex, successfulExec.expectedHex, 'marker token was reused across invocations')
+        assert.equal(repeatedExec.reader, successfulExec.reader, 'container reader must remain fixed')
         assertMarkerRemoved(secondRun)
       })
 
@@ -3056,19 +3186,138 @@ try {
         assertMarkerRemoved(run)
       })
 
-      await t.test('hard-times out docker exec, kills and waits for the child, and prevents later work', () => {
-        const run = runScenario(host, 'timeout', { timeout: 8000 })
-        const hang = run.events.find((event) => event.event === 'docker_exec_hang')
-        assert.ok(hang, `native docker hang was not reached; stderr=${run.result.stderr}; stdout=${run.result.stdout}`)
-        const childStillRunning = isProcessRunning(hang.pid)
-        if (childStillRunning) terminateProcessTree(hang.pid)
+      await t.test('times out both exec attempts, kills both process trees, and retains cleanup detail', () => {
+        const run = runScenario(host, 'timeout', { cleanupDetail: true, timeout: 10000 })
+        const hangs = run.events.filter((event) => event.event === 'docker_exec_hang')
+        const leaked = hangs.flatMap((event) => [event.parentPid, event.descendantPid]).filter(isProcessRunning)
+        for (const event of hangs) {
+          if (isProcessRunning(event.parentPid)) terminateProcessTree(event.parentPid)
+        }
         assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
         assert.equal(run.result.signal, null, 'outer test timeout fired instead of the production timeout')
-        assert.ok(run.durationMs < 8000, `production timeout was not bounded: ${run.durationMs}ms`)
-        assert.equal(childStillRunning, false, `timed-out docker child ${hang.pid} leaked`)
+        assert.ok(run.durationMs < 10000, `production timeout was not bounded: ${run.durationMs}ms`)
+        assert.equal(hangs.length, 2, `timeout-only retry count was not one; events=${JSON.stringify(run.events)}`)
+        assert.deepEqual(leaked, [], `timed-out process tree leaked PIDs: ${leaked.join(', ')}`)
+        assert.ok(hangs.every((event) => event.stdioInherited === true))
         assert.match(run.result.stderr, /timed out after \d+ milliseconds/i)
         assertNoLateOperations(run)
+        assertOuterCleanupRan(run)
         assertMarkerRemoved(run)
+        const failure = run.events.find((event) => event.event === 'driver_failure')
+        assert.ok(failure)
+        assert.equal(failure.native_timed_out, true)
+        assert.equal(failure.process_tree_terminated, true)
+        assert.equal(failure.same_proof_exception, true)
+        assert.match(failure.primary_message, /timed out after \d+ milliseconds/i)
+        assert.equal(failure.cleanup_errors.length, 1)
+        assert.match(failure.cleanup_errors[0], /Injected marker cleanup detail after removal/)
+      })
+
+      for (const [scenario, hangEvent] of [
+        ['id_resolution_timeout', 'docker_id_resolution_hang'],
+        ['reinspection_timeout', 'docker_reinspection_hang'],
+      ]) {
+        await t.test(`bounds and cleans up ${scenario.replaceAll('_', ' ')}`, () => {
+          const run = runScenario(host, scenario, { timeout: 7000 })
+          const hang = run.events.find((event) => event.event === hangEvent)
+          assert.ok(hang, `bounded inspect hang was not reached; events=${JSON.stringify(run.events)}`)
+          const leaked = [hang.parentPid, hang.descendantPid].filter(isProcessRunning)
+          if (isProcessRunning(hang.parentPid)) terminateProcessTree(hang.parentPid)
+          assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+          assert.equal(run.result.signal, null)
+          assert.ok(run.durationMs < 7000, `${scenario} exceeded its outer bound: ${run.durationMs}ms`)
+          assert.deepEqual(leaked, [], `${scenario} leaked PIDs: ${leaked.join(', ')}`)
+          assert.match(run.result.stderr, /timed out after \d+ milliseconds/i)
+          assertNoLateOperations(run)
+          assertOuterCleanupRan(run)
+          assertMarkerRemoved(run)
+          if (scenario === 'id_resolution_timeout') {
+            assert.equal(run.events.filter((event) => event.event === 'docker_exec').length, 0)
+          } else {
+            assert.equal(run.events.filter((event) => event.event === 'docker_exec').length, 1)
+          }
+        })
+      }
+
+      await t.test('bounds inspect output in memory and fails closed on overflow', () => {
+        const run = runScenario(host, 'id_resolution_output_flood', { nativeTimeout: 5000, timeout: 10000 })
+        assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+        assert.equal(run.result.signal, null)
+        assert.ok(run.durationMs < 10000, `output flood exceeded its outer bound: ${run.durationMs}ms`)
+        assert.ok(run.events.some((event) => event.event === 'container_id_resolution_output_flood'))
+        assert.match(run.result.stderr, /output exceeded the 262144-byte bound/i)
+        assert.ok(Buffer.byteLength(run.result.stderr || '') < 65536, 'bounded diagnostic expanded unexpectedly')
+        assertNoLateOperations(run)
+        assertOuterCleanupRan(run)
+        assertMarkerRemoved(run)
+      })
+
+      await t.test('returns promptly when bounded tree termination cannot complete', () => {
+        const run = runScenario(host, 'termination_helper_hang', { timeout: 7000 })
+        const hang = run.events.find((event) => event.event === 'docker_exec_hang')
+        const taskkillHang = run.events.find((event) => event.event === 'taskkill_hang')
+        const dockerWasRunning = hang ? isProcessRunning(hang.parentPid) : false
+        const descendantWasRunning = hang ? isProcessRunning(hang.descendantPid) : false
+        const taskkillWasRunning = taskkillHang ? isProcessRunning(taskkillHang.pid) : false
+        try {
+          assert.ok(hang)
+          assert.ok(taskkillHang)
+          assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+          assert.equal(run.result.signal, null)
+          assert.ok(run.durationMs < 7000, `termination failure was not bounded: ${run.durationMs}ms`)
+          assert.equal(dockerWasRunning, true, 'fixture did not exercise failed tree termination')
+          assert.equal(descendantWasRunning, true, 'fixture descendant did not survive failed tree termination')
+          assert.equal(taskkillWasRunning, false, 'bounded termination helper leaked')
+          assertNoLateOperations(run)
+          assertOuterCleanupRan(run)
+          assertMarkerRemoved(run)
+          const failure = run.events.find((event) => event.event === 'driver_failure')
+          assert.ok(failure)
+          assert.equal(failure.native_timed_out, true)
+          assert.equal(failure.process_tree_terminated, false)
+          assert.match(failure.primary_message, /timed out after \d+ milliseconds/i)
+          assert.match(failure.termination_detail, /taskkill exceeded its bounded wait/i)
+        } finally {
+          if (hang && isProcessRunning(hang.parentPid)) terminateProcessTree(hang.parentPid)
+          if (hang) {
+            waitForProcessExit(hang.parentPid)
+            waitForProcessExit(hang.descendantPid)
+          }
+          if (taskkillHang && isProcessRunning(taskkillHang.pid)) terminateProcessTree(taskkillHang.pid)
+        }
+      })
+
+      await t.test('retains timeout as primary when the termination helper throws', () => {
+        const run = runScenario(host, 'termination_helper_error', { cleanupDetail: true, timeout: 7000 })
+        const hang = run.events.find((event) => event.event === 'docker_exec_hang')
+        const dockerWasRunning = hang ? isProcessRunning(hang.parentPid) : false
+        const descendantWasRunning = hang ? isProcessRunning(hang.descendantPid) : false
+        try {
+          assert.ok(hang)
+          assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+          assert.equal(run.result.signal, null)
+          assert.ok(run.durationMs < 7000, `termination helper failure was not bounded: ${run.durationMs}ms`)
+          assert.equal(dockerWasRunning, true, 'fixture did not exercise failed tree termination')
+          assert.equal(descendantWasRunning, true, 'fixture descendant did not survive failed tree termination')
+          assertNoLateOperations(run)
+          assertOuterCleanupRan(run)
+          assertMarkerRemoved(run)
+          const failure = run.events.find((event) => event.event === 'driver_failure')
+          assert.ok(failure)
+          assert.equal(failure.native_timed_out, true)
+          assert.equal(failure.process_tree_terminated, false)
+          assert.equal(failure.same_proof_exception, true)
+          assert.match(failure.primary_message, /timed out after \d+ milliseconds/i)
+          assert.match(failure.termination_detail, /termination helper failed: Injected termination helper failure/i)
+          assert.equal(failure.cleanup_errors.length, 1)
+          assert.match(failure.cleanup_errors[0], /Injected marker cleanup detail after removal/)
+        } finally {
+          if (hang && isProcessRunning(hang.parentPid)) terminateProcessTree(hang.parentPid)
+          if (hang) {
+            waitForProcessExit(hang.parentPid)
+            waitForProcessExit(hang.descendantPid)
+          }
+        }
       })
 
       await t.test('surfaces marker cleanup failure and still runs every outer cleanup', () => {

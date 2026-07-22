@@ -71,19 +71,110 @@ function ConvertTo-WindowsCommandLineArgument {
   return $builder.ToString()
 }
 
-function Get-BoundedNativeDiagnostic {
+function Get-RemainingNativeTimeoutMilliseconds {
   param(
-    [AllowEmptyString()][string]$StandardOutput,
-    [AllowEmptyString()][string]$StandardError,
-    [int]$MaximumLength = 4096
+    [Parameter(Mandatory = $true)][System.Diagnostics.Stopwatch]$Stopwatch,
+    [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds
   )
-  $diagnostic = (@($StandardOutput, $StandardError) |
-    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join [Environment]::NewLine
-  $diagnostic = $diagnostic.Trim()
-  if ($diagnostic.Length -le $MaximumLength) {
-    return $diagnostic
+  return [Math]::Max(0, $TimeoutMilliseconds - [int]$Stopwatch.ElapsedMilliseconds)
+}
+
+function Stop-NativeProcessTreeBounded {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process,
+    [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$TimeoutMilliseconds,
+    [string]$TaskkillFilePath = 'taskkill.exe'
+  )
+
+  $details = [System.Collections.ArrayList]::new()
+  $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+  $taskkill = [System.Diagnostics.Process]::new()
+  $taskkillStarted = $false
+  $taskkillCompleted = $false
+  $taskkillExitCode = $null
+  try {
+    $taskkillArguments = @('/PID', [string]$Process.Id, '/T', '/F')
+    $taskkillStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $taskkillStartInfo.FileName = $TaskkillFilePath
+    $taskkillStartInfo.Arguments = (@($taskkillArguments | ForEach-Object {
+      ConvertTo-WindowsCommandLineArgument -Argument $_
+    }) -join ' ')
+    $taskkillStartInfo.UseShellExecute = $false
+    $taskkillStartInfo.CreateNoWindow = $true
+    $taskkill.StartInfo = $taskkillStartInfo
+    try {
+      $taskkillStarted = $taskkill.Start()
+    } catch {
+      [void]$details.Add("taskkill could not start: $($_.Exception.Message)")
+    }
+
+    if ($taskkillStarted) {
+      $remaining = Get-RemainingNativeTimeoutMilliseconds -Stopwatch $stopwatch -TimeoutMilliseconds $TimeoutMilliseconds
+      if ($remaining -gt 0 -and $taskkill.WaitForExit($remaining)) {
+        $taskkillCompleted = $true
+        $taskkillExitCode = [int]$taskkill.ExitCode
+        if ($taskkillExitCode -ne 0) {
+          [void]$details.Add("taskkill exited with code $taskkillExitCode")
+        }
+      } else {
+        [void]$details.Add('taskkill exceeded its bounded wait')
+        try {
+          $taskkill.Kill()
+        } catch {
+          [void]$details.Add("taskkill termination failed: $($_.Exception.Message)")
+        }
+        $remaining = Get-RemainingNativeTimeoutMilliseconds -Stopwatch $stopwatch -TimeoutMilliseconds $TimeoutMilliseconds
+        if ($remaining -gt 0) {
+          $taskkillCompleted = $taskkill.WaitForExit([Math]::Min($remaining, 250))
+        }
+        if (-not $taskkillCompleted) {
+          [void]$details.Add('taskkill exit could not be confirmed within the deadline')
+        }
+      }
+    }
+
+    $parentExited = $false
+    try {
+      $parentExited = $Process.HasExited
+    } catch {
+      [void]$details.Add("parent status check failed: $($_.Exception.Message)")
+    }
+    if (-not $parentExited) {
+      $remaining = Get-RemainingNativeTimeoutMilliseconds -Stopwatch $stopwatch -TimeoutMilliseconds $TimeoutMilliseconds
+      if ($remaining -gt 0) {
+        try {
+          $parentExited = $Process.WaitForExit($remaining)
+        } catch {
+          [void]$details.Add("bounded parent wait failed: $($_.Exception.Message)")
+        }
+      }
+    }
+    if (-not $parentExited) {
+      [void]$details.Add('parent exit could not be confirmed within the deadline')
+    }
+
+    $confirmed = $taskkillCompleted -and $taskkillExitCode -eq 0 -and $parentExited
+    $detail = ($details -join '; ')
+    if ($detail.Length -gt 1024) { $detail = $detail.Substring(0, 1024) }
+    return [pscustomobject]@{
+      Confirmed = $confirmed
+      Detail = $detail
+    }
+  } finally {
+    if ($taskkillStarted) {
+      $taskkillExited = $false
+      try { $taskkillExited = $taskkill.HasExited } catch { }
+      if (-not $taskkillExited) {
+        try { $taskkill.Kill() } catch { }
+        $remaining = Get-RemainingNativeTimeoutMilliseconds -Stopwatch $stopwatch -TimeoutMilliseconds $TimeoutMilliseconds
+        if ($remaining -gt 0) {
+          try { [void]$taskkill.WaitForExit([Math]::Min($remaining, 100)) } catch { }
+        }
+      }
+    }
+    $taskkill.Dispose()
   }
-  return $diagnostic.Substring(0, $MaximumLength) + [Environment]::NewLine + '[diagnostic truncated]'
 }
 
 function Invoke-NativeCommandWithTimeout {
@@ -92,13 +183,16 @@ function Invoke-NativeCommandWithTimeout {
     [Parameter(Mandatory = $true)][string]$FilePath,
     [Parameter(Mandatory = $true)][string[]]$ArgumentList,
     [Parameter(Mandatory = $true)][string]$Label,
-    [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$TimeoutMilliseconds
+    [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$TimeoutMilliseconds,
+    [switch]$CaptureOutput,
+    [ValidateRange(1, 1048576)][int]$MaximumOutputBytes = 262144,
+    [ValidateRange(1, [int]::MaxValue)][int]$TerminationTimeoutMilliseconds = 2000
   )
 
   $process = [System.Diagnostics.Process]::new()
   $started = $false
-  $standardOutputTask = $null
-  $standardErrorTask = $null
+  $terminationAttempted = $false
+  $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
   try {
     $processStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $processStartInfo.FileName = $FilePath
@@ -107,8 +201,8 @@ function Invoke-NativeCommandWithTimeout {
     }) -join ' ')
     $processStartInfo.UseShellExecute = $false
     $processStartInfo.CreateNoWindow = $true
-    $processStartInfo.RedirectStandardOutput = $true
-    $processStartInfo.RedirectStandardError = $true
+    $processStartInfo.RedirectStandardOutput = $CaptureOutput
+    $processStartInfo.RedirectStandardError = $CaptureOutput
     $process.StartInfo = $processStartInfo
 
     try {
@@ -120,57 +214,114 @@ function Invoke-NativeCommandWithTimeout {
       throw [System.InvalidOperationException]::new("$Label could not execute: $($_.Exception.Message)", $_.Exception)
     }
 
-    $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
-    $standardErrorTask = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit($TimeoutMilliseconds)) {
-      $processId = $process.Id
-      $killError = $null
-      $waitError = $null
-      try {
-        $process.Kill()
-      } catch {
-        $killError = $_
+    $completed = $false
+    $outputTruncated = $false
+    $errorTruncated = $false
+    $outputCount = 0
+    $errorCount = 0
+    $outputBytes = $null
+    $errorBytes = $null
+    if ($CaptureOutput) {
+      $outputBytes = [byte[]]::new($MaximumOutputBytes)
+      $errorBytes = [byte[]]::new(4096)
+      $outputReadBuffer = [byte[]]::new(4096)
+      $errorReadBuffer = [byte[]]::new(4096)
+      $outputReadTask = $process.StandardOutput.BaseStream.ReadAsync($outputReadBuffer, 0, $outputReadBuffer.Length)
+      $errorReadTask = $process.StandardError.BaseStream.ReadAsync($errorReadBuffer, 0, $errorReadBuffer.Length)
+      $outputFinished = $false
+      $errorFinished = $false
+      while ($stopwatch.ElapsedMilliseconds -lt $TimeoutMilliseconds) {
+        $madeProgress = $false
+        if (-not $outputFinished -and $outputReadTask.IsCompleted) {
+          $readCount = [int]$outputReadTask.GetAwaiter().GetResult()
+          $madeProgress = $true
+          if ($readCount -eq 0) {
+            $outputFinished = $true
+          } else {
+            $copyCount = [Math]::Min($readCount, $MaximumOutputBytes - $outputCount)
+            if ($copyCount -gt 0) {
+              [Array]::Copy($outputReadBuffer, 0, $outputBytes, $outputCount, $copyCount)
+              $outputCount += $copyCount
+            }
+            if ($copyCount -lt $readCount) { $outputTruncated = $true }
+            $outputReadTask = $process.StandardOutput.BaseStream.ReadAsync($outputReadBuffer, 0, $outputReadBuffer.Length)
+          }
+        }
+        if (-not $errorFinished -and $errorReadTask.IsCompleted) {
+          $readCount = [int]$errorReadTask.GetAwaiter().GetResult()
+          $madeProgress = $true
+          if ($readCount -eq 0) {
+            $errorFinished = $true
+          } else {
+            $copyCount = [Math]::Min($readCount, $errorBytes.Length - $errorCount)
+            if ($copyCount -gt 0) {
+              [Array]::Copy($errorReadBuffer, 0, $errorBytes, $errorCount, $copyCount)
+              $errorCount += $copyCount
+            }
+            if ($copyCount -lt $readCount) { $errorTruncated = $true }
+            $errorReadTask = $process.StandardError.BaseStream.ReadAsync($errorReadBuffer, 0, $errorReadBuffer.Length)
+          }
+        }
+        if ($process.HasExited -and $outputFinished -and $errorFinished) {
+          $completed = $true
+          break
+        }
+        if (-not $madeProgress) { Start-Sleep -Milliseconds 10 }
       }
-      try {
-        $process.WaitForExit()
-      } catch {
-        $waitError = $_
-      }
-      $standardOutput = [string]$standardOutputTask.Result
-      $standardError = [string]$standardErrorTask.Result
-      $diagnostic = Get-BoundedNativeDiagnostic -StandardOutput $standardOutput -StandardError $standardError
-      $message = "$Label timed out after $TimeoutMilliseconds milliseconds."
-      if (-not [string]::IsNullOrWhiteSpace($diagnostic)) {
-        $message += [Environment]::NewLine + $diagnostic
-      }
-      $timeoutError = [System.TimeoutException]::new($message)
+    } else {
+      $completed = $process.WaitForExit($TimeoutMilliseconds)
+    }
+
+    if (-not $completed) {
+      $terminationAttempted = $true
+      $timeoutError = [System.TimeoutException]::new("$Label timed out after $TimeoutMilliseconds milliseconds.")
       $timeoutError.Data['NativeTimedOut'] = $true
-      $timeoutError.Data['NativeProcessId'] = $processId
-      if ($null -ne $killError) { $timeoutError.Data['NativeKillError'] = $killError }
-      if ($null -ne $waitError) { $timeoutError.Data['NativeWaitError'] = $waitError }
+      $timeoutError.Data['NativeProcessId'] = $process.Id
+      try {
+        $termination = Stop-NativeProcessTreeBounded -Process $process -TimeoutMilliseconds $TerminationTimeoutMilliseconds
+        $timeoutError.Data['NativeProcessTreeTerminated'] = [bool]$termination.Confirmed
+        $timeoutError.Data['NativeTerminationDetail'] = [string]$termination.Detail
+      } catch {
+        $terminationDetail = "Process-tree termination helper failed: $($_.Exception.Message)"
+        if ($terminationDetail.Length -gt 1024) { $terminationDetail = $terminationDetail.Substring(0, 1024) }
+        $timeoutError.Data['NativeProcessTreeTerminated'] = $false
+        $timeoutError.Data['NativeTerminationDetail'] = $terminationDetail
+      }
       throw $timeoutError
     }
 
-    $process.WaitForExit()
-    $standardOutput = [string]$standardOutputTask.Result
-    $standardError = [string]$standardErrorTask.Result
     $exitCode = [int]$process.ExitCode
-    $diagnostic = Get-BoundedNativeDiagnostic -StandardOutput $standardOutput -StandardError $standardError
+    if ($CaptureOutput -and $outputTruncated) {
+      throw [System.InvalidOperationException]::new("$Label output exceeded the $MaximumOutputBytes-byte bound.")
+    }
     if ($exitCode -ne 0) {
       $message = "$Label failed with exit code $exitCode."
-      if (-not [string]::IsNullOrWhiteSpace($diagnostic)) {
-        $message += [Environment]::NewLine + $diagnostic
+      if ($CaptureOutput -and $errorCount -gt 0) {
+        $diagnostic = [System.Text.Encoding]::UTF8.GetString($errorBytes, 0, $errorCount).Trim()
+        if ($errorTruncated) { $diagnostic += [Environment]::NewLine + '[diagnostic truncated]' }
+        if (-not [string]::IsNullOrWhiteSpace($diagnostic)) {
+          $message += [Environment]::NewLine + $diagnostic
+        }
       }
       $nativeError = [System.InvalidOperationException]::new($message)
       $nativeError.Data['NativeExitCode'] = $exitCode
       throw $nativeError
     }
-    return @($standardOutput -split "`r?`n" | Where-Object { $_.Length -gt 0 })
-  } finally {
-    if ($started -and -not $process.HasExited) {
-      try { $process.Kill() } catch { }
-      try { $process.WaitForExit() } catch { }
+    if ($CaptureOutput) {
+      return [System.Text.Encoding]::UTF8.GetString($outputBytes, 0, $outputCount)
     }
+  } catch {
+    if ($started -and -not $terminationAttempted) {
+      $running = $false
+      try { $running = -not $process.HasExited } catch { }
+      if ($running) {
+        $termination = Stop-NativeProcessTreeBounded -Process $process -TimeoutMilliseconds $TerminationTimeoutMilliseconds
+        $_.Exception.Data['NativeProcessTreeTerminated'] = [bool]$termination.Confirmed
+        $_.Exception.Data['NativeTerminationDetail'] = [string]$termination.Detail
+      }
+    }
+    throw
+  } finally {
     $process.Dispose()
   }
 }
@@ -337,8 +488,8 @@ function Confirm-RollbackContainerBindAuthority {
   $markerPath = Join-Path $HostDirectory $markerName
   $containerMarkerPath = "$($Destination.TrimEnd('/'))/$markerName"
   $reader = 'const fs = require("node:fs"); const expectedHex = process.argv[2]; if (typeof expectedHex !== "string" || !/^[a-f0-9]+$/.test(expectedHex)) process.exit(51); if (expectedHex.length !== 64) process.exit(52); const expected = Buffer.from(expectedHex, "hex"); let actual; try { actual = fs.readFileSync(process.argv[1]); } catch (error) { process.exit(error && error.code === "ENOENT" ? 53 : 54); } if (actual.length !== expected.length) process.exit(55); if (!actual.equals(expected)) process.exit(56);'
-  $dockerTransportRetryExitCode = 125
-  $dockerExecTimeoutMilliseconds = 1500
+  $dockerExecTimeoutMilliseconds = 10000
+  $dockerExecMaximumAttempts = 2
   $markerStream = $null
   $markerOwned = $false
   $randomNumberGenerator = $null
@@ -349,7 +500,7 @@ function Confirm-RollbackContainerBindAuthority {
     if ($ContainerId -cnotmatch '^[a-f0-9]{12,64}$') {
       throw 'The captured backend container ID must contain 12 to 64 lowercase hexadecimal characters.'
     }
-    $fullContainerId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $ContainerId, '--format', '{{.Id}}') -Label 'Running container ID resolution'
+    $fullContainerId = (Invoke-NativeCommandWithTimeout -FilePath 'docker.exe' -ArgumentList @('inspect', $ContainerId, '--format', '{{.Id}}') -Label 'Running container ID resolution' -TimeoutMilliseconds $dockerExecTimeoutMilliseconds -CaptureOutput).Trim()
     if ($fullContainerId -cnotmatch '^[a-f0-9]{64}$' -or
         -not $fullContainerId.StartsWith($ContainerId, [System.StringComparison]::Ordinal)) {
       throw 'Running container ID resolution did not match the captured backend container.'
@@ -377,15 +528,16 @@ function Confirm-RollbackContainerBindAuthority {
 
     $dockerExecArguments = @('exec', $fullContainerId, 'node', '-e', $reader, '--', $containerMarkerPath, $expectedHex)
     $proofError = $null
-    for ($attempt = 1; $attempt -le 3; $attempt += 1) {
+    for ($attempt = 1; $attempt -le $dockerExecMaximumAttempts; $attempt += 1) {
       try {
         Invoke-NativeCommandWithTimeout -FilePath 'docker.exe' -ArgumentList $dockerExecArguments -Label 'Running container data bind byte proof' -TimeoutMilliseconds $dockerExecTimeoutMilliseconds | Out-Null
         $proofError = $null
         break
       } catch {
         $proofError = $_
-        $nativeExitCode = $_.Exception.Data['NativeExitCode']
-        if ($nativeExitCode -ne $dockerTransportRetryExitCode -or $attempt -ge 3) {
+        $retryableTimeout = $_.Exception.Data['NativeTimedOut'] -eq $true -and
+          $_.Exception.Data['NativeProcessTreeTerminated'] -eq $true
+        if (-not $retryableTimeout -or $attempt -ge $dockerExecMaximumAttempts) {
           break
         }
         Start-Sleep -Milliseconds 100
@@ -396,7 +548,7 @@ function Confirm-RollbackContainerBindAuthority {
     }
 
     if ($null -eq $primaryError) {
-      $containerJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $fullContainerId, '--format', '{{json .}}') -Label 'Running container data bind reinspection'
+      $containerJson = (Invoke-NativeCommandWithTimeout -FilePath 'docker.exe' -ArgumentList @('inspect', $fullContainerId, '--format', '{{json .}}') -Label 'Running container data bind reinspection' -TimeoutMilliseconds $dockerExecTimeoutMilliseconds -CaptureOutput).Trim()
       try {
         $container = ConvertFrom-Json -InputObject $containerJson
       } catch {

@@ -380,3 +380,184 @@ behavior and bind propagation remain operational integration risks; the proof
 fails closed if three exit-125 attempts or any 1500 ms attempt bound is
 exceeded. The immutable resulting commit SHA is reported in the final handoff;
 embedding it in this tracked report would change that SHA.
+
+## Second Security-Review Fix: Timeout Hardening
+
+Date: 2026-07-22
+
+Timeout-hardening base SHA:
+`265d4db1ab50659605baace963d3d3c3b69321d1`
+
+Required subject: `fix: harden checkpoint proof timeouts`
+
+### Preserved Initial State
+
+```powershell
+git rev-parse HEAD
+git status --short
+git diff --numstat -- scripts/create-release-rollback-checkpoint.ps1 scripts/release-contract.test.cjs
+```
+
+Exit codes: `0`, `0`, `0`. HEAD matched the requested base. The worktree
+contained only the two stated uncommitted files and was preserved. Before this
+wave's edits, their combined diff was 467 insertions and 114 deletions:
+
+- `scripts/create-release-rollback-checkpoint.ps1`: 204 insertions, 59 deletions.
+- `scripts/release-contract.test.cjs`: 263 insertions, 55 deletions.
+
+The first authoritative run of the preserved worktree used pinned Node 20 and
+both PowerShell hosts:
+
+```powershell
+$env:LMD_PWSH_EXE = 'C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64\pwsh.exe'
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='checkpoint container bind proof is retained|checkpoint proves the captured container' scripts\release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 156 total, 56 passed, 0 failed, 100 skipped. No
+pre-existing focused failure was reproducible from the preserved changes.
+
+### RED Evidence
+
+No executable RED result from the previous agent was present in the report or
+recoverable from Git, so none is claimed. Static comparison against the base is
+still conclusive: `265d4db` used `ReadToEndAsync`, parameterless
+`WaitForExit()`, `Task.Result`, parent-only `Process.Kill()`, unbounded proof ID
+resolution and reinspection, and raw exit code 125 for retry. The preserved
+test diff rejects those exact patterns and adds dual-host process-tree,
+output-bound, proof-resolution, reinspection, timeout-only retry, cleanup, and
+no-late-operation coverage.
+
+The audit found one uncovered edge: a thrown termination helper replaced the
+timeout because the timeout object was created after the helper call. A new
+dual-host scenario was added before the production correction. A child-only
+name pattern exited `0` with all 102 tests skipped because Node does not enter a
+nonmatching parent; it was rejected as RED evidence. The narrowest executable
+behavior parent then failed as expected:
+
+```powershell
+$env:LMD_PWSH_EXE = 'C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64\pwsh.exe'
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='checkpoint proves the captured container' scripts\release-contract.test.cjs
+```
+
+Exit code: `1`. Tests: 158 total, 52 passed, 5 failed, 101 skipped. The two
+host leaves observed the injected termination-helper `IOException` as primary
+with `NativeTimedOut` unset; both host parents and the behavior parent also
+failed. The process returned within its outer bound and cleanup ran, isolating
+error precedence rather than another hang.
+
+### Design Decisions
+
+- Every proof native attempt has a 10,000 ms execution bound. Timeout cleanup
+  has its own 2,000 ms bound and contains no parameterless `WaitForExit()` or
+  `Task.Result` access.
+- Commands that need output use fixed 262,144-byte stdout and 4,096-byte stderr
+  storage plus fixed read buffers. Completed async reads are consumed only
+  after `IsCompleted`; excess bytes are discarded and reported as overflow.
+- Byte-proof exec does not redirect output. A timeout invokes
+  `taskkill.exe /PID <pid> /T /F` through `ProcessStartInfo` with shell execution
+  disabled, then performs only deadline-bounded status waits. This terminates
+  descendants that retain inherited stdout or stderr handles.
+- A timeout exception is now constructed before tree termination. A helper
+  exception records `NativeProcessTreeTerminated=false` and bounded
+  `NativeTerminationDetail`; it cannot replace the timeout primary error.
+- Proof retry is timeout-only, permits one retry, and requires the previous
+  tree to be confirmed terminated. Native exit codes no longer infer retry.
+- Captured ID resolution and full-object reinspection use the same bounded,
+  memory-limited runner. Both remain bound to the canonical captured ID.
+- Native inputs remain string arrays. The implementation uses no `cmd`, `sh`,
+  `bash`, PowerShell script shell, or command interpreter.
+
+### GREEN And Verification Evidence
+
+The behavior parent after the helper-error correction:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='checkpoint proves the captured container' scripts\release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 158 total, 57 passed, 0 failed, 101 skipped. All 27
+behavior leaves passed under Windows PowerShell 5.1 and PowerShell 7.
+
+Final Task 3 dual-host focus:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='checkpoint container bind proof is retained|checkpoint proves the captured container' scripts\release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 158 total, 58 passed, 0 failed, 100 skipped.
+
+Existing checkpoint-creation orchestration focus:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test --test-name-pattern='release rollback checkpoint fake toolchain' scripts\release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 104 total, 3 passed, 0 failed, 101 skipped. Both
+PowerShell hosts completed the existing success, publication conflict,
+recovery, lock-retention, and reader orchestration coverage.
+
+Parser and syntax checks:
+
+```powershell
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --check scripts\release-contract.test.cjs
+powershell.exe -NoLogo -NoProfile -NonInteractive -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path "scripts\create-release-rollback-checkpoint.ps1"), [ref]$tokens, [ref]$errors) | Out-Null; if($errors.Count -gt 0){$errors | ForEach-Object { Write-Error $_.Message }; exit 1}'
+& 'C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64\pwsh.exe' -NoLogo -NoProfile -NonInteractive -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path "scripts\create-release-rollback-checkpoint.ps1"), [ref]$tokens, [ref]$errors) | Out-Null; if($errors.Count -gt 0){$errors | ForEach-Object { Write-Error $_.Message }; exit 1}'
+```
+
+Exit codes: `0`, `0`, `0`.
+
+Complete release contract with pinned Node 20 and `pwsh.exe` on `PATH`:
+
+```powershell
+$env:PATH = 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64;C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64;' + $env:PATH
+$env:LMD_PWSH_EXE = 'C:\Users\33028\AppData\Local\Temp\powershell-7.6.4-win-x64\pwsh.exe'
+& 'C:\Users\33028\AppData\Local\Temp\node-v20.20.2-win-x64\node.exe' --test scripts\release-contract.test.cjs
+```
+
+Exit code: `0`. Tests: 196 passed, 0 failed, 0 skipped. Duration was 535.7
+seconds. No real Docker command was used.
+
+```powershell
+git diff --check
+```
+
+Exit code: `0`. Git emitted only the checkout's existing LF-to-CRLF warnings.
+
+### Changed Files
+
+- `scripts/create-release-rollback-checkpoint.ps1`
+- `scripts/release-contract.test.cjs`
+- `.superpowers/sdd/rollback-security-task-3-report.md`
+
+### Self-Review
+
+- Execution, output draining, taskkill, and parent confirmation all use finite
+  waits. Pending inherited pipe reads are never synchronously joined after a
+  timeout.
+- The timeout fixtures assert parent and descendant exit after successful tree
+  termination, outer environment and location cleanup, timeout primary error,
+  attached marker-cleanup detail, marker removal, and no checkpoint, image,
+  shutdown, backup, drill, fingerprint, or recovery operation.
+- Separate fixtures prove prompt return when taskkill hangs and when the
+  termination helper throws. Neither case retries an unconfirmed process tree;
+  both reach marker and outer cleanup.
+- A 2 MiB inspect response cannot grow retained output beyond the fixed buffers
+  and fails closed. ID resolution and reinspection hangs are independently
+  bounded and clean up their full fake process trees.
+- The proof marker, token, reader, canonical container ID, and argv remain
+  identical across the single permitted confirmed-timeout retry.
+- Source checks and behavior events confirm no shell command is introduced and
+  no retry decision depends on a raw native exit code.
+
+### Residual Risks
+
+The tests use native Windows processes, actual inherited handles, real
+filesystem sharing, Node 20.20.2, and both PowerShell hosts, but fake Docker.
+Live Docker Desktop timing and `taskkill` behavior remain operational risks.
+Successful `taskkill /T` plus parent exit is the production confirmation signal;
+the tests additionally verify the fixture descendant has exited. If termination
+cannot be confirmed, the command fails promptly without retry but the external
+process tree may require operator or OS cleanup. Fixed 10-second proof bounds
+can fail closed on unusually slow hosts, and Docker JSON is decoded as UTF-8.
+The resulting immutable commit SHA is reported in the final handoff rather than
+embedded in this tracked report.
