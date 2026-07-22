@@ -1533,3 +1533,56 @@ entry is preserved rather than deleted.
 The real rollback drill must be rerun from the follow-up clean commit with the
 project backend stopped. The failed precondition attempt did not mutate the
 source data and published no authoritative PASS result.
+
+## Final Windows Clean-SHA Runtime Closure
+
+Closure date: 2026-07-23
+
+The first stopped-backend clean-SHA rerun exposed two Windows namespace effects
+that the synthetic contract had not covered:
+
+1. the standalone backup's transient maintenance lock changed the data-root
+   directory `ctime`; and
+2. after retaining the external service lease, SQLite still created and removed
+   WAL/SHM control paths while opening the stopped WAL database.
+
+Both failures were fail-closed. No authoritative PASS was published and the
+source content fingerprint remained unchanged.
+
+The Windows launcher now acquires the external service lease before the drill's
+first source identity sample and retains it through final fingerprint and
+identity checks. For standalone WAL databases it also opens one retained normal
+SQLite connection, materializes and validates ordinary `-wal`/`-shm` control
+files before the drill starts, and closes that connection only after the drill
+returns. A control-handle close failure abandons the maintenance guard so the
+persistent lock remains for manual recovery. Launcher exports are published
+before CLI execution, removing the prior circular-load warning.
+
+Node 20 test cleanup was also made independent of `node:test` after-hook order:
+the two descriptor/replacement fault-injection cases now restore monkey patches,
+close handles, and remove owned paths in local `finally` blocks.
+
+Final verified commits:
+
+- `cd86a21` - retain the Windows rollback maintenance lease;
+- `7e1a96c` - make backup fault-injection cleanup independent of hook order;
+- `5b2bb1e` - retain Windows SQLite WAL/SHM controls across the drill.
+
+Final gates:
+
+- Node 20 complete root check: exit `0`; release contract `206` passed,
+  `0` failed, `1` Linux-only skip; rollback, example, OpenClaw, and local
+  contracts all passed.
+- Node 20 backend backup/restore focus: `58` passed, `0` failed.
+- Node 20 Windows rollback contract after WAL remediation: `128` passed,
+  `0` failed, `6` Linux-only skips (`134` total).
+- Clean-SHA `npm run verify:rollback`: exit `0` on
+  `5b2bb1ebbdfc84d47a251a7703e4a5948b7e5b52`.
+- Published diagnostic:
+  `summary-v3-5b2bb1ebbdfc84d47a251a7703e4a5948b7e5b52-4aac798369be0175312e16097298ee10.json`.
+  It is v3, standalone, passed, format 2, source unchanged, and workspace
+  cleanup verified.
+- Docker backend restarted and reported healthy on `127.0.0.1:5679`.
+
+The remaining Task 4 gate is one fresh independent review reporting
+`Critical/Important/Minor 0/0/0`. Runtime acceptance itself is complete.
