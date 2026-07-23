@@ -2134,7 +2134,13 @@ test('checkpoint native reader returns bounded separate bytes and ignores stderr
   assert.doesNotMatch(bridgeSource, /taskkill/i)
   assert.match(nativeSource, /catch\s*\{\s*\$primaryError\s*=\s*\$_/)
   assert.match(nativeSource, /try\s*\{[\s\S]*Stop-NativeProcessTreeBounded[\s\S]*catch\s*\{[\s\S]*\$cleanupErrors\.Add\(\$_\)/)
-  assert.match(nativeSource, /try\s*\{[\s\S]*\$nativeProcess\.Dispose\(\)[\s\S]*\$cleanupErrors\.Add\(\$_\)/)
+  for (const variable of ['outputStream', 'errorStream', 'inputStream', 'nativeProcess']) {
+    assert.match(
+      nativeSource,
+      new RegExp(`try\\s*\\{\\s*if \\(\\$null -ne \\$${variable}\\) \\{ \\$${variable}\\.Dispose\\(\\) \\}\\s*\\} catch \\{\\s*\\[void\\]\\$cleanupErrors\\.Add\\(\\$_\\)\\s*\\}`),
+      `${variable} cleanup is not independently exhaustive`,
+    )
+  }
   assert.match(nativeSource, /Complete-RollbackInvocation -PrimaryError \$primaryError -CleanupErrors \$cleanupErrors/)
   const orphanPidPath = path.join(os.tmpdir(), `lmd-native-orphan-${process.pid}-${crypto.randomBytes(8).toString('hex')}.pid`)
   t.after(() => {
@@ -3741,56 +3747,107 @@ test('rollback retained cleanup preserves the primary error and reports exhausti
     const statements = `
 . ${powerShellLiteral(rollbackPowerShellSupportScriptPath)}
 $events = [System.Collections.ArrayList]::new()
-$cleanupErrors = [System.Collections.ArrayList]::new()
-$primaryError = $null
-try { throw 'distinct primary failure' } catch { $primaryError = $_ }
-$actions = @(
-  { [void]$events.Add('first'); throw 'first cleanup failure' },
-  { [void]$events.Add('later') },
-  { [void]$events.Add('last'); throw 'last cleanup failure' }
-)
-foreach ($action in $actions) {
-  try { & $action } catch { [void]$cleanupErrors.Add($_) }
+function New-TestErrorRecord {
+  param(
+    [Parameter(Mandatory = $true)][string]$Message,
+    [Parameter(Mandatory = $true)][string]$Id,
+    [Parameter(Mandatory = $true)][System.Management.Automation.ErrorCategory]$Category,
+    [Parameter(Mandatory = $true)][object]$Target
+  )
+  return [System.Management.Automation.ErrorRecord]::new(
+    [System.InvalidOperationException]::new($Message),
+    $Id,
+    $Category,
+    $Target
+  )
 }
-if (($events -join ',') -cne 'first,later,last') { throw 'A cleanup failure skipped later cleanup actions.' }
+function Get-CaughtTestErrorRecord {
+  param([Parameter(Mandatory = $true)][System.Management.Automation.ErrorRecord]$Record)
+  try { throw $Record } catch { return $_ }
+}
+function Assert-SameErrorAuthority {
+  param(
+    [Parameter(Mandatory = $true)][System.Management.Automation.ErrorRecord]$Expected,
+    [Parameter(Mandatory = $true)][System.Management.Automation.ErrorRecord]$Actual,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  if (-not [object]::ReferenceEquals($Actual.Exception, $Expected.Exception) -or
+      $Actual.FullyQualifiedErrorId -cne $Expected.FullyQualifiedErrorId -or
+      $Actual.CategoryInfo.Category -ne $Expected.CategoryInfo.Category -or
+      -not [object]::Equals($Actual.TargetObject, $Expected.TargetObject) -or
+      $Actual.ScriptStackTrace -cne $Expected.ScriptStackTrace) {
+    throw "$Label changed the ErrorRecord authority."
+  }
+}
+
+$script:CapturedPrimary = $null
+function Invoke-TestPrimaryWithCleanup {
+  [CmdletBinding()]
+  param()
+  $primaryError = $null
+  $cleanupErrors = [System.Collections.ArrayList]::new()
+  try {
+    throw (New-TestErrorRecord -Message 'distinct primary failure' -Id 'PrimarySentinel' -Category InvalidOperation -Target 'primary-target')
+  } catch {
+    $primaryError = $_
+    $script:CapturedPrimary = $_
+    throw
+  } finally {
+    [void]$events.Add('first')
+    [void]$cleanupErrors.Add((Get-CaughtTestErrorRecord -Record (New-TestErrorRecord -Message 'first cleanup failure' -Id 'CleanupOne' -Category CloseError -Target 'cleanup-1')))
+    [void]$events.Add('later')
+    [void]$events.Add('last')
+    [void]$cleanupErrors.Add((Get-CaughtTestErrorRecord -Record (New-TestErrorRecord -Message 'last cleanup failure' -Id 'CleanupTwo' -Category CloseError -Target 'cleanup-2')))
+    Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
+  }
+}
 $caughtPrimary = $null
-try { Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors } catch { $caughtPrimary = $_ }
+try { Invoke-TestPrimaryWithCleanup } catch { $caughtPrimary = $_ }
+if (($events -join ',') -cne 'first,later,last') { throw 'A cleanup failure skipped later cleanup actions.' }
 if ($null -eq $caughtPrimary) { throw 'Primary failure was not rethrown.' }
-if ($caughtPrimary.Exception.Message -cne 'distinct primary failure') { throw "Cleanup masked the primary message: $($caughtPrimary.Exception.Message)" }
-if (-not [object]::ReferenceEquals($caughtPrimary.Exception, $primaryError.Exception)) { throw 'Cleanup replaced the primary exception authority.' }
-if ($caughtPrimary.FullyQualifiedErrorId -cne $primaryError.FullyQualifiedErrorId) { throw 'Cleanup replaced the primary ErrorRecord metadata.' }
+Assert-SameErrorAuthority -Expected $script:CapturedPrimary -Actual $caughtPrimary -Label 'Primary cleanup propagation'
 $attached = @($caughtPrimary.Exception.Data['RollbackCleanupErrors'])
 if ($attached.Count -ne 2 -or
     $attached[0].Exception.Message -cne 'first cleanup failure' -or
     $attached[1].Exception.Message -cne 'last cleanup failure') {
   throw 'Cleanup details were not attached in execution order.'
 }
+
+$cleanupOnlyErrors = [System.Collections.ArrayList]::new()
+$firstCleanup = Get-CaughtTestErrorRecord -Record (New-TestErrorRecord -Message 'first cleanup failure' -Id 'CleanupFirst' -Category CloseError -Target 'first-target')
+$laterCleanup = Get-CaughtTestErrorRecord -Record (New-TestErrorRecord -Message 'later cleanup failure' -Id 'CleanupLater' -Category CloseError -Target 'later-target')
+$lastCleanup = Get-CaughtTestErrorRecord -Record (New-TestErrorRecord -Message 'last cleanup failure' -Id 'CleanupLast' -Category CloseError -Target 'last-target')
+[void]$cleanupOnlyErrors.Add($firstCleanup)
+[void]$cleanupOnlyErrors.Add($laterCleanup)
+[void]$cleanupOnlyErrors.Add($lastCleanup)
 $cleanupOnly = $null
-try { Complete-RollbackInvocation -PrimaryError $null -CleanupErrors $cleanupErrors } catch { $cleanupOnly = $_ }
-if ($null -eq $cleanupOnly -or
-    $cleanupOnly.Exception.Message -notmatch 'first cleanup failure' -or
-    $cleanupOnly.Exception.Message -notmatch 'last cleanup failure') {
-  throw 'Cleanup-only invocation did not throw the cleanup failures.'
+try { Complete-RollbackInvocation -PrimaryError $null -CleanupErrors $cleanupOnlyErrors } catch { $cleanupOnly = $_ }
+if ($null -eq $cleanupOnly) { throw 'Cleanup-only invocation did not throw the first cleanup ErrorRecord.' }
+Assert-SameErrorAuthority -Expected $firstCleanup -Actual $cleanupOnly -Label 'Cleanup-only propagation'
+$cleanupOnlyAttached = @($cleanupOnly.Exception.Data['RollbackCleanupErrors'])
+if ($cleanupOnlyAttached.Count -ne 2 -or
+    $cleanupOnlyAttached[0].Exception.Message -cne 'later cleanup failure' -or
+    $cleanupOnlyAttached[1].Exception.Message -cne 'last cleanup failure') {
+  throw 'Cleanup-only propagation did not attach only later errors in order.'
 }
 
-$nestedPrimary = $null
-try { throw 'nested primary failure' } catch { $nestedPrimary = $_ }
-$nestedCleanup = [System.Collections.ArrayList]::new()
-try { throw 'nested cleanup failure' } catch { [void]$nestedCleanup.Add($_) }
-$nestedPrimary.Exception.Data['RollbackCleanupErrors'] = [object[]]@($nestedCleanup)
-$outerCleanup = [System.Collections.ArrayList]::new()
-try { throw 'outer cleanup failure' } catch { [void]$outerCleanup.Add($_) }
-$caughtNestedPrimary = $null
-try { Complete-RollbackInvocation -PrimaryError $nestedPrimary -CleanupErrors $outerCleanup } catch { $caughtNestedPrimary = $_ }
-if ($null -eq $caughtNestedPrimary -or
-    -not [object]::ReferenceEquals($caughtNestedPrimary.Exception, $nestedPrimary.Exception)) {
-  throw 'Nested cleanup merging replaced the primary exception.'
+$boundedPrimary = New-TestErrorRecord -Message 'bounded primary' -Id 'BoundedPrimary' -Category InvalidOperation -Target 'bounded-target'
+$existing = [System.Collections.ArrayList]::new()
+foreach ($index in 1..3) {
+  [void]$existing.Add((New-TestErrorRecord -Message "existing-$index" -Id "Existing$index" -Category CloseError -Target $index))
 }
-$mergedCleanup = @($caughtNestedPrimary.Exception.Data['RollbackCleanupErrors'])
-if ($mergedCleanup.Count -ne 2 -or
-    $mergedCleanup[0].Exception.Message -cne 'nested cleanup failure' -or
-    $mergedCleanup[1].Exception.Message -cne 'outer cleanup failure') {
-  throw 'Nested and outer cleanup failures were not merged in order.'
+$boundedPrimary.Exception.Data['RollbackCleanupErrors'] = [object[]]@($existing)
+$newCleanup = [System.Collections.ArrayList]::new()
+foreach ($index in 1..10) {
+  [void]$newCleanup.Add((New-TestErrorRecord -Message "new-$index" -Id "New$index" -Category CloseError -Target $index))
+}
+Add-RollbackCleanupErrorDetails -PrimaryError $boundedPrimary -CleanupErrors $newCleanup
+$bounded = @($boundedPrimary.Exception.Data['RollbackCleanupErrors'])
+$expectedBounded = @('existing-1', 'existing-2', 'existing-3', 'new-1', 'new-2', 'new-3', 'new-4', 'new-5')
+if ($bounded.Count -ne 8 -or
+    (($bounded | ForEach-Object { $_.Exception.Message }) -join ',') -cne ($expectedBounded -join ',') -or
+    $boundedPrimary.Exception.Data['RollbackCleanupErrorsTruncated'] -ne $true) {
+  throw 'Cleanup attachment was not bounded to eight ordered ErrorRecords with truncation.'
 }
 
 $script:DirectoryCloseEvents = [System.Collections.ArrayList]::new()
@@ -3813,11 +3870,20 @@ if (($script:DirectoryCloseEvents -join ',') -cne 'parent,handle') {
   throw "Directory authority handles were not closed exhaustively in reverse acquisition order: $($script:DirectoryCloseEvents -join ',')"
 }
 $directoryCleanupErrors = @($directoryCloseError.Exception.Data['RollbackCleanupErrors'])
-if ($directoryCleanupErrors.Count -ne 2 -or
-    $directoryCleanupErrors[0].Exception.Message -notmatch 'parent close failure' -or
-    $directoryCleanupErrors[1].Exception.Message -notmatch 'handle close failure') {
+if ($directoryCloseError.Exception.Message -notmatch 'parent close failure' -or
+    $directoryCleanupErrors.Count -ne 1 -or
+    $directoryCleanupErrors[0].Exception.Message -notmatch 'handle close failure') {
   throw 'Directory authority close failures were not retained in execution order.'
 }
+
+$script:OriginalAddRollbackCleanupErrorDetails = \${function:Add-RollbackCleanupErrorDetails}
+function Add-RollbackCleanupErrorDetails { throw 'injected attachment failure' }
+$attachmentPrimary = New-TestErrorRecord -Message 'attachment primary' -Id 'AttachmentPrimary' -Category InvalidOperation -Target 'attachment-target'
+$attachmentCleanup = [System.Collections.ArrayList]::new()
+[void]$attachmentCleanup.Add((New-TestErrorRecord -Message 'attachment cleanup' -Id 'AttachmentCleanup' -Category CloseError -Target 'cleanup-target'))
+$attachmentFailureEscaped = $null
+try { Complete-RollbackInvocation -PrimaryError $attachmentPrimary -CleanupErrors $attachmentCleanup } catch { $attachmentFailureEscaped = $_ }
+if ($null -ne $attachmentFailureEscaped) { throw 'Cleanup attachment failure escaped and could replace a primary error.' }
 `
     assertPowerShellStatements(statements, { executable: host.executable })
     })
@@ -4702,8 +4768,14 @@ try {
         assertNoLateOperations(run)
         assert.equal(run.events.filter((event) => event.event === 'docker_exec').length, 1)
         assert.equal(run.events.filter((event) => event.event === 'host_identity_replaced').length, 0)
-        assert.equal(run.events.filter((event) => event.event === 'host_identity_replacement_blocked').length, 1)
-        assert.match(run.result.stderr, /Rollback cleanup failed:/i)
+        const blocked = run.events.find((event) => event.event === 'host_identity_replacement_blocked')
+        const failure = run.events.find((event) => event.event === 'driver_failure')
+        assert.ok(blocked)
+        assert.ok(failure)
+        assert.equal(failure.primary_message, blocked.message)
+        assert.match(failure.primary_error_id, /IOException/)
+        assert.deepEqual(failure.cleanup_errors, [])
+        assert.doesNotMatch(failure.primary_message, /^Rollback cleanup failed:/i)
       })
 
       await t.test('uses one unpredictable exact marker across one confirmed timeout retry', () => {
@@ -4907,10 +4979,13 @@ try {
         assertOuterCleanupRan(run)
         const failure = run.events.find((event) => event.event === 'driver_failure')
         assert.ok(failure)
-        assert.match(failure.primary_message, /Rollback cleanup failed: Injected marker cleanup failure/)
+        assert.match(
+          failure.primary_message,
+          /^Injected marker cleanup failure: \.localminidrama-bind-proof-[a-f0-9]{32}\.tmp$/,
+        )
+        assert.equal(failure.primary_error_id, failure.primary_message)
         assert.equal(failure.same_proof_exception, false)
-        assert.equal(failure.cleanup_errors.length, 1)
-        assert.match(failure.cleanup_errors[0], /Injected marker cleanup failure/)
+        assert.deepEqual(failure.cleanup_errors, [])
         assert.equal(markerNames(run.dataRoot).length, 1)
       })
 
@@ -5403,6 +5478,14 @@ function Publish-RollbackUtf8FileAtomically {
     if ($Label -ceq 'Rollback checkpoint data hash') {
       Assert-TestLocks -Stage 'first_locked_hash'
     }
+    if ($isMetadata -and $env:LMD_CALLER_PRIMARY_FAILURE -ceq 'true') {
+      throw [System.Management.Automation.ErrorRecord]::new(
+        [System.InvalidOperationException]::new('Injected checkpoint primary sentinel.'),
+        'Task8CheckpointPrimary',
+        [System.Management.Automation.ErrorCategory]::InvalidOperation,
+        'task8-checkpoint-target'
+      )
+    }
     return $authority
   } catch {
     if ($null -ne $authority) { Close-RollbackFilePublicationAuthority -Authority $authority }
@@ -5410,8 +5493,11 @@ function Publish-RollbackUtf8FileAtomically {
       $script:PublicationError = $_
       $line = ConvertTo-Json -Compress -InputObject ([ordered]@{
         event = 'publication_failure'
+        primary_category = [string]$_.CategoryInfo.Category
         primary_message = $_.Exception.Message
         primary_error_id = $_.FullyQualifiedErrorId
+        primary_script_stack = $_.ScriptStackTrace
+        primary_target = [string]$_.TargetObject
       })
       [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
     }
@@ -5478,8 +5564,11 @@ try {
   }
   $line = ConvertTo-Json -Compress -InputObject ([ordered]@{
     event = 'driver_failure'
+    primary_category = [string]$_.CategoryInfo.Category
     primary_message = $_.Exception.Message
     primary_error_id = $_.FullyQualifiedErrorId
+    primary_script_stack = $_.ScriptStackTrace
+    primary_target = [string]$_.TargetObject
     same_publication_exception = $samePublicationException
     cleanup_errors = @($cleanupDetails)
   })
@@ -5526,6 +5615,7 @@ try {
     callerEnvironmentState = 'strings',
     callerCleanupFailure = false,
     callerRecoveryFailure = false,
+    callerPrimaryFailure = false,
   ) => {
     const archivePath = path.join(checkpointPath, 'data.zip')
     const caller = rollbackCallerEnvironment(callerEnvironmentState)
@@ -5549,6 +5639,7 @@ try {
         LMD_CALLER_BASE: callerBase,
         LMD_CALLER_CLEANUP_FAILURE: String(callerCleanupFailure),
         LMD_CALLER_CURRENT: callerCurrent,
+        LMD_CALLER_PRIMARY_FAILURE: String(callerPrimaryFailure),
         LMD_CALLER_RECOVERY_FAILURE: String(callerRecoveryFailure),
         LMD_COMMIT: commit,
         LMD_CONFIG_ROOT: configRoot,
@@ -5743,8 +5834,45 @@ try {
   fs.renameSync(movedMetadataPath, heldMetadataPath)
   assertNamespacesMovable(publishFailurePath)
 
+  const primaryCleanupPath = path.join(fixtureRoot, `${host.name}-primary-plus-cleanup-checkpoint`)
+  const primaryCleanupStart = readEvents().length
+  const primaryCleanup = runCheckpoint(
+    host,
+    primaryCleanupPath,
+    'passed',
+    version,
+    false,
+    false,
+    'valid',
+    'strings',
+    true,
+    false,
+    true,
+  )
+  assert.notEqual(primaryCleanup.status, 0, 'checkpoint primary plus cleanup failure must fail')
+  const primaryCleanupRecords = readEvents().slice(primaryCleanupStart)
+  const injectedPrimary = primaryCleanupRecords.find((entry) => entry.event === 'publication_failure')
+  const propagatedPrimary = primaryCleanupRecords.find((entry) => entry.event === 'driver_failure')
+  assert.ok(injectedPrimary && propagatedPrimary, `${host.name} did not record primary-plus-cleanup authority`)
+  assert.equal(propagatedPrimary.same_publication_exception, true)
+  for (const property of [
+    'primary_category', 'primary_message', 'primary_error_id', 'primary_script_stack', 'primary_target',
+  ]) {
+    assert.equal(propagatedPrimary[property], injectedPrimary[property], `${host.name} changed checkpoint ${property}`)
+  }
+  assert.deepEqual(propagatedPrimary.cleanup_errors, ['Injected caller-state cleanup failure.'])
+  assertRollbackCallerState(
+    primaryCleanupRecords,
+    rollbackCallerEnvironment('strings').expected,
+    callerBase,
+    callerCurrent,
+    `${host.name}/checkpoint/primary-plus-cleanup-authority`,
+  )
+  assertRollbackCallerCleanupOrder(primaryCleanupRecords, `${host.name}/checkpoint/primary-plus-cleanup-authority`)
+  assertNamespacesMovable(primaryCleanupPath)
+
   const failedCheckpointPath = path.join(fixtureRoot, `${host.name}-failed-checkpoint`)
-  const failedStart = afterPublishFailure.length
+  const failedStart = readEvents().length
   const failed = runCheckpoint(host, failedCheckpointPath, 'PASSED')
   assert.notEqual(failed.status, 0, 'case-invalid drill status must fail checkpoint creation')
   assert.equal(fs.existsSync(path.join(failedCheckpointPath, 'metadata.json')), false)
@@ -6225,6 +6353,7 @@ $script:LastAuthorityAssertion = $null
 $script:PendingRecoveryLabel = $null
 $script:InjectedFlushFailure = $false
 $script:CallerCleanupFailureInjected = $false
+$script:DirectPrimaryError = $null
 
 function Write-TestEvent {
   param([string]$Name)
@@ -6235,6 +6364,32 @@ function Write-TestRecord {
   param([Parameter(Mandatory = $true)][object]$Record)
   $line = ConvertTo-Json -Compress -Depth 4 -InputObject $Record
   [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+}
+function Write-Warning {
+  param([Parameter(Mandatory = $true)][string]$Message)
+  if ($env:LMD_CALLER_PRIMARY_FAILURE -ceq 'true') {
+    try {
+      throw [System.Management.Automation.ErrorRecord]::new(
+        [System.InvalidOperationException]::new('Injected restore primary sentinel.'),
+        'Task8RestorePrimary',
+        [System.Management.Automation.ErrorCategory]::InvalidOperation,
+        'task8-restore-target'
+      )
+    } catch {
+      $script:DirectPrimaryError = $_
+      Write-TestRecord -Record ([ordered]@{
+        event = 'direct-primary'
+        primary_category = [string]$_.CategoryInfo.Category
+        primary_message = $_.Exception.Message
+        primary_error_id = $_.FullyQualifiedErrorId
+        primary_script_stack = $_.ScriptStackTrace
+        primary_target = [string]$_.TargetObject
+        driver = 'restore'
+      })
+      throw
+    }
+  }
+  Microsoft.PowerShell.Utility\\Write-Warning -Message $Message
 }
 function Write-CallerState {
   $environment = @(
@@ -6445,6 +6600,7 @@ function Invoke-RollbackDescriptorBackup {
     }
   } catch {
     $primaryError = $_
+    throw
   } finally {
     if ($null -ne $primaryError -and $null -ne $authority) {
       if ($authority.Renamed -eq $true -or $authority.Published -eq $true) {
@@ -6453,8 +6609,8 @@ function Invoke-RollbackDescriptorBackup {
         try { Remove-RollbackUnpublishedFileAuthority -Authority $authority } catch { [void]$cleanupErrors.Add($_) }
       }
     }
+    Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
   }
-  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
 function Open-RollbackFileAuthority {
   param(
@@ -6660,9 +6816,15 @@ try {
   }
   $line = ConvertTo-Json -Compress -InputObject ([ordered]@{
     event = 'driver_failure'
+    primary_category = [string]$_.CategoryInfo.Category
     primary_message = $_.Exception.Message
     primary_detail = $_.Exception.ToString()
     primary_error_id = $_.FullyQualifiedErrorId
+    primary_script_stack = $_.ScriptStackTrace
+    primary_target = [string]$_.TargetObject
+    same_direct_primary_exception = if ($null -ne $script:DirectPrimaryError) {
+      [object]::ReferenceEquals($_.Exception, $script:DirectPrimaryError.Exception)
+    } else { $false }
     cleanup_errors = @($cleanupDetails)
   })
   [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
@@ -6787,6 +6949,7 @@ try {
         LMD_CALLER_BASE: callerBase,
         LMD_CALLER_CLEANUP_FAILURE: String(Boolean(options.callerCleanupFailure)),
         LMD_CALLER_CURRENT: callerCurrent,
+        LMD_CALLER_PRIMARY_FAILURE: String(Boolean(options.callerPrimaryFailure)),
         LMD_CHECKPOINT_PATH: fixture.checkpointPath,
         LMD_COMMIT: commit,
         LMD_CONFIG_ROOT: fixture.configRoot,
@@ -6994,6 +7157,34 @@ test('rollback restore caller environment and location stack survive success and
           })
         }
       }
+      await t.test('primary-authority/primary-plus-cleanup', () => {
+        const caller = rollbackCallerEnvironment('strings')
+        const run = runScenario(host, 'task8-direct-primary-plus-cleanup', {
+          callerCleanupFailure: true,
+          callerEnvironmentState: 'strings',
+          callerPrimaryFailure: true,
+          runtimeScenario: 'task8-success',
+        })
+        assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+        const injectedPrimary = run.events.find((entry) => entry.event === 'direct-primary')
+        const propagatedPrimary = run.events.find((entry) => entry.event === 'driver_failure')
+        assert.ok(injectedPrimary && propagatedPrimary, `${host.name} did not record restore primary authority`)
+        assert.equal(propagatedPrimary.same_direct_primary_exception, true)
+        for (const property of [
+          'primary_category', 'primary_message', 'primary_error_id', 'primary_script_stack', 'primary_target',
+        ]) {
+          assert.equal(propagatedPrimary[property], injectedPrimary[property], `${host.name} changed restore ${property}`)
+        }
+        assert.deepEqual(propagatedPrimary.cleanup_errors, ['Injected caller-state cleanup failure.'])
+        assertRollbackCallerState(
+          run.events,
+          caller.expected,
+          callerBase,
+          callerCurrent,
+          `${host.name}/restore/primary-plus-cleanup-authority`,
+        )
+        assertRollbackCallerCleanupOrder(run.events, `${host.name}/restore/primary-plus-cleanup-authority`)
+      })
     })
   }
 })
@@ -8122,7 +8313,7 @@ test('release rollback scripts fail closed and verify the retained backup before
   assert.match(rollbackRestoreScript, /Loaded rollback image IDs do not match/)
   assert.match(
     checkpointScript,
-    /Start-CapturedDeployment[\s\S]*\$cleanupErrors\.Add\(\$_\)[\s\S]*throw \$checkpointError/,
+    /Start-CapturedDeployment[\s\S]*\$cleanupErrors\.Add\(\$_\)[\s\S]*\}\s*throw\s*\}/,
   )
   assert.match(rollbackRestoreScript, /Get-ContainerBindSource[\s\S]*\/app\/config-source/)
   assert.match(rollbackRestoreScript, /forwardConfigDirectory[\s\S]*forwardConfigPath/)

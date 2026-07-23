@@ -42,6 +42,7 @@ const {
   validateEvidenceV3,
 } = require('./rollback-drill-evidence.cjs')
 const {
+  attachCleanupError,
   executeRollbackDrill,
   removeOwnedClaimWindows,
   renderThrownValue,
@@ -3443,8 +3444,61 @@ test('checkpoint close failure occurs before diagnostics and produces no authori
   assert.equal(publishCalls, 0)
 })
 
+test('attachCleanupError preserves hostile primary values and bounded nested cleanup identity', () => {
+  const cleanupFailure = new Error('cleanup failure')
+  for (const primary of [undefined, null, false, 0, NaN, '']) {
+    assert.equal(Object.is(attachCleanupError(primary, cleanupFailure), primary), true)
+  }
+
+  const ordinaryPrimary = new Error('ordinary primary')
+  assert.equal(attachCleanupError(ordinaryPrimary, cleanupFailure), ordinaryPrimary)
+  const singularDescriptor = Object.getOwnPropertyDescriptor(ordinaryPrimary, 'cleanupError')
+  const pluralDescriptor = Object.getOwnPropertyDescriptor(ordinaryPrimary, 'cleanupErrors')
+  assert.equal(singularDescriptor.value, cleanupFailure)
+  assert.equal(singularDescriptor.enumerable, false)
+  assert.equal(pluralDescriptor.enumerable, false)
+  assert.deepEqual(pluralDescriptor.value, [cleanupFailure])
+
+  const frozenPrimary = Object.freeze({ marker: 'frozen primary' })
+  assert.equal(attachCleanupError(frozenPrimary, cleanupFailure), frozenPrimary)
+  assert.equal(Object.hasOwn(frozenPrimary, 'cleanupError'), false)
+  assert.equal(Object.hasOwn(frozenPrimary, 'cleanupErrors'), false)
+
+  let proxyTrapCalls = 0
+  const proxyPrimary = new Proxy({}, {
+    defineProperty() { proxyTrapCalls += 1; throw new Error('proxy define trap executed') },
+    get() { proxyTrapCalls += 1; throw new Error('proxy get trap executed') },
+    getOwnPropertyDescriptor() { proxyTrapCalls += 1; throw new Error('proxy descriptor trap executed') },
+  })
+  assert.equal(attachCleanupError(proxyPrimary, cleanupFailure), proxyPrimary)
+  assert.equal(proxyTrapCalls, 0)
+
+  const accessorPrimary = new Error('accessor primary')
+  let accessorReads = 0
+  Object.defineProperty(accessorPrimary, 'cleanupError', {
+    configurable: true,
+    get() { accessorReads += 1; throw new Error('cleanup accessor executed') },
+  })
+  assert.equal(attachCleanupError(accessorPrimary, cleanupFailure), accessorPrimary)
+  assert.equal(accessorReads, 0)
+  assert.equal(Object.getOwnPropertyDescriptor(accessorPrimary, 'cleanupError').value, cleanupFailure)
+  assert.deepEqual(accessorPrimary.cleanupErrors, [cleanupFailure])
+
+  const nestedPrimary = new Error('nested primary')
+  const nestedCleanup = new Error('nested cleanup')
+  const nestedDetails = Array.from({ length: 10 }, (_, index) => new Error(`nested ${index}`))
+  Object.defineProperty(nestedCleanup, 'cleanupErrors', {
+    configurable: true,
+    enumerable: false,
+    value: nestedDetails,
+  })
+  assert.equal(attachCleanupError(nestedPrimary, nestedCleanup), nestedPrimary)
+  assert.equal(nestedPrimary.cleanupError, nestedCleanup)
+  assert.deepEqual(nestedPrimary.cleanupErrors, [nestedCleanup, ...nestedDetails.slice(0, 7)])
+})
+
 test('executor preserves every falsey operation, cleanup-only, and publication failure after cleanup', async (t) => {
-  const falseyValues = [undefined, null, 0, '']
+  const falseyValues = [undefined, null, false, 0, NaN, '']
   for (let index = 0; index < falseyValues.length; index += 1) {
     const value = falseyValues[index]
     await t.test(`operation-${index}`, async () => {
@@ -3514,6 +3568,80 @@ test('executor preserves every falsey operation, cleanup-only, and publication f
       assert.equal(caught, true)
       assert.equal(thrown, value)
       assert.equal(archiveClosed, true)
+    })
+  }
+})
+
+test('executor preserves primary precedence across workspace and archive cleanup failures', async (t) => {
+  const scenarios = [
+    { name: 'operation-only', operation: true, workspaceCleanup: false, archiveClose: false },
+    { name: 'operation-plus-workspace-cleanup', operation: true, workspaceCleanup: true, archiveClose: false },
+    { name: 'operation-plus-archive-close', operation: true, workspaceCleanup: false, archiveClose: true },
+    { name: 'operation-plus-both-cleanups', operation: true, workspaceCleanup: true, archiveClose: true },
+    { name: 'cleanup-only', operation: false, workspaceCleanup: true, archiveClose: true },
+  ]
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async () => {
+      const fixture = createExecutorFixture(t)
+      const operationFailure = new Error(`${scenario.name} operation`)
+      const workspaceCleanupFailure = new Error(`${scenario.name} workspace cleanup`)
+      const archiveCloseFailure = new Error(`${scenario.name} archive close`)
+      let archiveClosed = false
+      let workspaceCleanupAttempted = false
+      let published = false
+      if (scenario.operation) {
+        fixture.runtime.hooks = { afterRestore: () => { throw operationFailure } }
+      }
+      fixture.runtime.cleanupWorkspace = async (workspace) => {
+        workspaceCleanupAttempted = true
+        await fsp.rm(workspace, { recursive: true, force: true })
+        if (scenario.workspaceCleanup) throw workspaceCleanupFailure
+      }
+      fixture.runtime.closeRetainedHandle = async (handle, label) => {
+        await handle.close()
+        if (label === 'rollback archive') {
+          archiveClosed = true
+          if (scenario.archiveClose) throw archiveCloseFailure
+        }
+      }
+      fixture.runtime.publishEvidence = async () => {
+        published = true
+        throw new Error('diagnostic publication must not run after a failure')
+      }
+
+      let caught = false
+      let thrown = Symbol('not thrown')
+      try {
+        await executeRollbackDrill(fixture.options, fixture.runtime)
+      } catch (error) {
+        caught = true
+        thrown = error
+      }
+
+      const expectedPrimary = scenario.operation ? operationFailure : workspaceCleanupFailure
+      const expectedCleanupErrors = scenario.operation
+        ? [
+            ...(scenario.workspaceCleanup ? [workspaceCleanupFailure] : []),
+            ...(scenario.archiveClose ? [archiveCloseFailure] : []),
+          ]
+        : [archiveCloseFailure]
+      assert.equal(caught, true)
+      assert.equal(thrown, expectedPrimary)
+      assert.equal(workspaceCleanupAttempted, true)
+      assert.equal(archiveClosed, true)
+      assert.equal(published, false)
+      if (expectedCleanupErrors.length === 0) {
+        assert.equal(Object.hasOwn(thrown, 'cleanupError'), false)
+        assert.equal(Object.hasOwn(thrown, 'cleanupErrors'), false)
+      } else {
+        const singular = Object.getOwnPropertyDescriptor(thrown, 'cleanupError')
+        const plural = Object.getOwnPropertyDescriptor(thrown, 'cleanupErrors')
+        assert.equal(singular.value, expectedCleanupErrors[0])
+        assert.equal(singular.enumerable, false)
+        assert.equal(plural.enumerable, false)
+        assert.deepEqual(plural.value, expectedCleanupErrors)
+      }
     })
   }
 })

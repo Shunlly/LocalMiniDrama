@@ -980,6 +980,7 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
   Write-Output 'Provider credentials are excluded from the checkpoint and data backups; configure credentials and test again before using AI generation.'
 } catch {
   $primaryError = $_
+  throw
 } finally {
   try {
     if ($null -ne $compensationReadyMarkerAuthority) { Close-RollbackFilePublicationAuthority -Authority $compensationReadyMarkerAuthority }
@@ -1080,8 +1081,8 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
   } catch {
     [void]$cleanupErrors.Add($_)
   }
+  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
-Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

@@ -197,6 +197,61 @@ function Read-StrictRollbackJson {
   }
 }
 
+function Add-RollbackCleanupErrorDetails {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)][System.Management.Automation.ErrorRecord]$PrimaryError,
+    [Parameter(Mandatory = $true)][System.Collections.IList]$CleanupErrors,
+    [int]$CleanupStartIndex = 0
+  )
+
+  try {
+    $retainedCleanupErrors = [System.Collections.ArrayList]::new()
+    $truncated = $PrimaryError.Exception.Data['RollbackCleanupErrorsTruncated'] -eq $true
+    $attachedCleanupErrors = $PrimaryError.Exception.Data['RollbackCleanupErrors']
+    if ($attachedCleanupErrors -is [System.Collections.IList]) {
+      $existingCount = [int]$attachedCleanupErrors.Count
+      $existingLimit = [Math]::Min($existingCount, 8)
+      for ($index = 0; $index -lt $existingLimit; $index += 1) {
+        $cleanupError = $attachedCleanupErrors[$index]
+        if ($cleanupError -is [System.Management.Automation.ErrorRecord]) {
+          [void]$retainedCleanupErrors.Add($cleanupError)
+        } else {
+          $truncated = $true
+        }
+      }
+      if ($existingCount -gt $existingLimit) { $truncated = $true }
+    } elseif ($attachedCleanupErrors -is [System.Management.Automation.ErrorRecord]) {
+      [void]$retainedCleanupErrors.Add($attachedCleanupErrors)
+    } elseif ($null -ne $attachedCleanupErrors) {
+      $truncated = $true
+    }
+
+    $startIndex = [Math]::Max(0, $CleanupStartIndex)
+    for ($index = $startIndex; $index -lt $CleanupErrors.Count; $index += 1) {
+      if ($retainedCleanupErrors.Count -ge 8) {
+        $truncated = $true
+        break
+      }
+      $cleanupError = $CleanupErrors[$index]
+      if ($cleanupError -is [System.Management.Automation.ErrorRecord]) {
+        [void]$retainedCleanupErrors.Add($cleanupError)
+      } else {
+        $truncated = $true
+      }
+    }
+
+    if ($retainedCleanupErrors.Count -gt 0) {
+      $PrimaryError.Exception.Data['RollbackCleanupErrors'] = [object[]]@($retainedCleanupErrors)
+    }
+    if ($truncated) {
+      $PrimaryError.Exception.Data['RollbackCleanupErrorsTruncated'] = $true
+    }
+  } catch {
+    return
+  }
+}
+
 function Complete-RollbackInvocation {
   [CmdletBinding()]
   param(
@@ -204,39 +259,19 @@ function Complete-RollbackInvocation {
     [Parameter(Mandatory = $true)][System.Collections.IList]$CleanupErrors
   )
 
-  $mergedCleanupErrors = [System.Collections.ArrayList]::new()
   if ($null -ne $PrimaryError) {
-    $attachedCleanupErrors = $PrimaryError.Exception.Data['RollbackCleanupErrors']
-    if ($null -ne $attachedCleanupErrors) {
-      foreach ($cleanupError in @($attachedCleanupErrors)) {
-        [void]$mergedCleanupErrors.Add($cleanupError)
-      }
+    try { Add-RollbackCleanupErrorDetails -PrimaryError $PrimaryError -CleanupErrors $CleanupErrors } catch {}
+    return
+  }
+  if ($CleanupErrors.Count -gt 0) {
+    $firstCleanupError = $CleanupErrors[0]
+    if ($firstCleanupError -isnot [System.Management.Automation.ErrorRecord]) {
+      throw 'Rollback cleanup produced an invalid error record.'
     }
-  }
-  foreach ($cleanupError in @($CleanupErrors)) {
-    [void]$mergedCleanupErrors.Add($cleanupError)
-  }
-  $retainedCleanupErrors = [object[]]@($mergedCleanupErrors)
-  if ($null -ne $PrimaryError) {
-    if ($retainedCleanupErrors.Count -gt 0) {
-      $PrimaryError.Exception.Data['RollbackCleanupErrors'] = $retainedCleanupErrors
-    }
-    $PSCmdlet.ThrowTerminatingError($PrimaryError)
-  }
-
-  if ($retainedCleanupErrors.Count -gt 0) {
-    $messages = @($retainedCleanupErrors | ForEach-Object { $_.Exception.Message })
-    $exception = [System.InvalidOperationException]::new(
-      "Rollback cleanup failed: $($messages -join ' | ')"
-    )
-    $exception.Data['RollbackCleanupErrors'] = $retainedCleanupErrors
-    $errorRecord = [System.Management.Automation.ErrorRecord]::new(
-      $exception,
-      'RollbackCleanupFailed',
-      [System.Management.Automation.ErrorCategory]::CloseError,
-      $null
-    )
-    $PSCmdlet.ThrowTerminatingError($errorRecord)
+    try {
+      Add-RollbackCleanupErrorDetails -PrimaryError $firstCleanupError -CleanupErrors $CleanupErrors -CleanupStartIndex 1
+    } catch {}
+    throw $firstCleanupError
   }
 }
 
@@ -310,26 +345,28 @@ function Remove-RollbackFailedFilePublicationAuthority {
     $deleteDispositionSet = $true
   } catch {
     $primaryError = $_
+    throw
+  } finally {
+    try { $Authority.Stream.Dispose() } catch { [void]$cleanupErrors.Add($_) }
+    if ($deleteDispositionSet) {
+      try {
+        $deleteWait = [System.Diagnostics.Stopwatch]::StartNew()
+        while ((Test-RollbackPathExists -Path $Authority.Path) -and $deleteWait.ElapsedMilliseconds -lt 2000) {
+          Start-Sleep -Milliseconds 10
+        }
+        if (Test-RollbackPathExists -Path $Authority.Path) {
+          throw "$($Authority.Label) failed publication did not disappear after handle disposition."
+        }
+      } catch { [void]$cleanupErrors.Add($_) }
+      try {
+        Flush-RollbackHandle -Handle $Authority.ParentDirectoryHandle -Label "$($Authority.Label) failed publication parent directory"
+      } catch { [void]$cleanupErrors.Add($_) }
+    }
+    if ($Authority.OwnsParentDirectoryHandle -eq $true) {
+      try { $Authority.ParentDirectoryHandle.Dispose() } catch { [void]$cleanupErrors.Add($_) }
+    }
+    Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
   }
-  try { $Authority.Stream.Dispose() } catch { [void]$cleanupErrors.Add($_) }
-  if ($deleteDispositionSet) {
-    try {
-      $deleteWait = [System.Diagnostics.Stopwatch]::StartNew()
-      while ((Test-RollbackPathExists -Path $Authority.Path) -and $deleteWait.ElapsedMilliseconds -lt 2000) {
-        Start-Sleep -Milliseconds 10
-      }
-      if (Test-RollbackPathExists -Path $Authority.Path) {
-        throw "$($Authority.Label) failed publication did not disappear after handle disposition."
-      }
-    } catch { [void]$cleanupErrors.Add($_) }
-    try {
-      Flush-RollbackHandle -Handle $Authority.ParentDirectoryHandle -Label "$($Authority.Label) failed publication parent directory"
-    } catch { [void]$cleanupErrors.Add($_) }
-  }
-  if ($Authority.OwnsParentDirectoryHandle -eq $true) {
-    try { $Authority.ParentDirectoryHandle.Dispose() } catch { [void]$cleanupErrors.Add($_) }
-  }
-  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
 
 function Publish-RollbackUtf8FileAtomically {
@@ -354,6 +391,7 @@ function Publish-RollbackUtf8FileAtomically {
     $result = Publish-RollbackFileAuthority -Authority $authority
   } catch {
     $primaryError = $_
+    throw
   } finally {
     if ($null -ne $primaryError -and $null -ne $authority) {
       if ($authority.Published -eq $true) {
@@ -366,8 +404,8 @@ function Publish-RollbackUtf8FileAtomically {
         try { Remove-RollbackUnpublishedFileAuthority -Authority $authority } catch { [void]$cleanupErrors.Add($_) }
       }
     }
+    Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
   }
-  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
   return $result
 }
 
@@ -972,6 +1010,7 @@ function Invoke-RollbackDescriptorBackup {
     $authority = $null
   } catch {
     $primaryError = $_
+    throw
   } finally {
     if ($null -ne $primaryError -and $null -ne $invocation) {
       try {
@@ -990,7 +1029,7 @@ function Invoke-RollbackDescriptorBackup {
         try { Remove-RollbackUnpublishedFileAuthority -Authority $authority } catch { [void]$cleanupErrors.Add($_) }
       }
     }
+    Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
   }
-  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
   return $result
 }

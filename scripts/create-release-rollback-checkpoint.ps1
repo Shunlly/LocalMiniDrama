@@ -496,6 +496,7 @@ function Invoke-NativeCommandWithTimeout {
         $primaryError.Exception.Data['NativeTerminationDetail'] = 'Process-tree cleanup failed after the native stream error.'
       }
     }
+    throw
   } finally {
     if ($started -and $null -ne $StandardInputBytes -and -not $standardInputClosed) {
       try {
@@ -506,14 +507,26 @@ function Invoke-NativeCommandWithTimeout {
     }
     try {
       if ($null -ne $outputStream) { $outputStream.Dispose() }
+    } catch {
+      [void]$cleanupErrors.Add($_)
+    }
+    try {
       if ($null -ne $errorStream) { $errorStream.Dispose() }
+    } catch {
+      [void]$cleanupErrors.Add($_)
+    }
+    try {
       if ($null -ne $inputStream) { $inputStream.Dispose() }
+    } catch {
+      [void]$cleanupErrors.Add($_)
+    }
+    try {
       if ($null -ne $nativeProcess) { $nativeProcess.Dispose() }
     } catch {
       [void]$cleanupErrors.Add($_)
     }
+    Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
   }
-  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
   return $result
 }
 
@@ -765,24 +778,18 @@ function Confirm-RollbackContainerBindAuthority {
     $markerStream.Flush($true)
 
     $dockerExecArguments = @('exec', $fullContainerId, 'node', '-e', $reader, '--', $containerMarkerPath, $expectedHex)
-    $proofError = $null
     for ($attempt = 1; $attempt -le $dockerExecMaximumAttempts; $attempt += 1) {
       try {
         Invoke-NativeCommandWithTimeout -FilePath 'docker.exe' -ArgumentList $dockerExecArguments -Label 'Running container data bind byte proof' -TimeoutMilliseconds $dockerExecTimeoutMilliseconds | Out-Null
-        $proofError = $null
         break
       } catch {
-        $proofError = $_
         $retryableTimeout = $_.Exception.Data['NativeTimedOut'] -eq $true -and
           $_.Exception.Data['NativeProcessTreeTerminated'] -eq $true
         if (-not $retryableTimeout -or $attempt -ge $dockerExecMaximumAttempts) {
-          break
+          throw
         }
         Start-Sleep -Milliseconds 100
       }
-    }
-    if ($null -ne $proofError) {
-      $primaryError = $proofError
     }
 
     if ($null -eq $primaryError) {
@@ -821,6 +828,7 @@ function Confirm-RollbackContainerBindAuthority {
     }
   } catch {
     $primaryError = $_
+    throw
   } finally {
     try {
       if ($null -ne $randomNumberGenerator) { $randomNumberGenerator.Dispose() }
@@ -839,15 +847,11 @@ function Confirm-RollbackContainerBindAuthority {
     } catch {
       [void]$cleanupErrors.Add($_)
     }
+    Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
   }
-  if ($null -eq $primaryError -and $cleanupErrors.Count -eq 0 -and $null -ne $retainedIdentity) {
-    try {
-      Assert-RollbackPathIdentity -Path $HostDirectory -ExpectedIdentity $retainedIdentity -Label 'Rollback data root retained container bind proof after marker cleanup' | Out-Null
-    } catch {
-      $primaryError = $_
-    }
+  if ($null -ne $retainedIdentity) {
+    Assert-RollbackPathIdentity -Path $HostDirectory -ExpectedIdentity $retainedIdentity -Label 'Rollback data root retained container bind proof after marker cleanup' | Out-Null
   }
-  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
 
 function Get-ImageRevision {
@@ -915,6 +919,7 @@ function New-RollbackFileAuthorityFromBytes {
     }
   } catch {
     $primaryError = $_
+    throw
   } finally {
     if ($null -ne $primaryError -and $null -ne $stream) {
       try {
@@ -923,8 +928,8 @@ function New-RollbackFileAuthorityFromBytes {
         [void]$cleanupErrors.Add($_)
       }
     }
+    Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
   }
-  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
 
 function ConvertFrom-StrictRollbackJsonBytes {
@@ -946,6 +951,7 @@ function ConvertFrom-StrictRollbackJsonBytes {
     $result = Read-StrictRollbackJson -Authority $authority -Label $Label
   } catch {
     $primaryError = $_
+    throw
   } finally {
     try {
       if ($null -ne $authority) { $authority.Stream.Dispose() }
@@ -959,8 +965,8 @@ function ConvertFrom-StrictRollbackJsonBytes {
     } catch {
       [void]$cleanupErrors.Add($_)
     }
+    Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
   }
-  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
   return $result
 }
 
@@ -1565,7 +1571,6 @@ try {
     Write-Output "Rollback checkpoint ready: $checkpoint"
     Write-Output 'Provider credentials were excluded from the archived runtime config and must be configured and tested again after restore.'
   } catch {
-    $checkpointError = $_
     if ($dockerStopped) {
       try {
         Start-CapturedDeployment -Backend $backend -Frontend $frontend -Revision $commit -ConfigDirectory $runtimeConfigDirectory -ConfigPath $runtimeConfigSource -DataDirectory $runtimeDataDirectory -CheckpointDirectory $checkpoint
@@ -1573,10 +1578,11 @@ try {
         [void]$cleanupErrors.Add($_)
       }
     }
-    throw $checkpointError
+    throw
   }
 } catch {
   $primaryError = $_
+  throw
 } finally {
   try {
     if ($null -ne $metadataAuthority) { Close-RollbackFilePublicationAuthority -Authority $metadataAuthority }
@@ -1634,8 +1640,8 @@ try {
   } catch {
     [void]$cleanupErrors.Add($_)
   }
+  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
-Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

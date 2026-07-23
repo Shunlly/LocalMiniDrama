@@ -136,15 +136,64 @@ function attachCleanupErrors(primaryError, cleanupErrors) {
   } catch {}
 }
 
+function attachCleanupError(primaryError, cleanupError) {
+  if (
+    (typeof primaryError !== 'object' && typeof primaryError !== 'function') ||
+    primaryError === null ||
+    primaryError === cleanupError ||
+    utilTypes.isProxy(primaryError)
+  ) return primaryError
+
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(primaryError, 'cleanupError')
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+      Object.defineProperty(primaryError, 'cleanupError', {
+        value: cleanupError,
+        configurable: true,
+        enumerable: false,
+      })
+    }
+  } catch {}
+
+  const details = [cleanupError]
+  if (
+    (typeof cleanupError === 'object' || typeof cleanupError === 'function') &&
+    cleanupError !== null &&
+    !utilTypes.isProxy(cleanupError)
+  ) {
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(cleanupError, 'cleanupErrors')
+      if (descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+        details.push(...copyBoundedOwnArrayDataValues(
+          descriptor.value,
+          MAX_CLEANUP_ERROR_DETAILS - 1
+        ))
+      }
+    } catch {}
+  }
+  attachCleanupErrors(primaryError, details)
+  return primaryError
+}
+
+function attachCleanupErrorList(primaryError, cleanupErrors) {
+  for (const cleanupError of copyBoundedOwnArrayDataValues(
+    cleanupErrors,
+    MAX_CLEANUP_ERROR_DETAILS
+  )) {
+    attachCleanupError(primaryError, cleanupError)
+  }
+  return primaryError
+}
+
 function throwPrimaryOrCleanup(hasPrimaryError, primaryError, cleanupErrors) {
   if (hasPrimaryError) {
-    attachCleanupErrors(primaryError, cleanupErrors)
+    attachCleanupErrorList(primaryError, cleanupErrors)
     throw primaryError
   }
   if (cleanupErrors.length > 0) {
     const cleanupError = cleanupErrors[0]
     const laterCleanupErrors = cleanupErrors.slice(1, MAX_CLEANUP_ERROR_DETAILS + 1)
-    attachCleanupErrors(cleanupError, laterCleanupErrors)
+    attachCleanupErrorList(cleanupError, laterCleanupErrors)
     throw cleanupError
   }
 }
@@ -328,7 +377,7 @@ async function assertClaimOwnedOrPreserve(handle, claimPath, targetPath, expecte
     } catch (preservationError) {
       preservationErrors.push(preservationError)
     }
-    attachCleanupErrors(error, preservationErrors)
+    attachCleanupErrorList(error, preservationErrors)
     throw error
   }
 }
@@ -684,7 +733,7 @@ async function executeRollbackDrill(options, runtime) {
     } catch (error) {
       fallbackErrors.push(error)
     }
-    attachCleanupErrors(closeError, fallbackErrors)
+    attachCleanupErrorList(closeError, fallbackErrors)
     throw closeError
   }
 
@@ -1340,6 +1389,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  attachCleanupError,
   executeRollbackDrill,
   main,
   removeOwnedClaimWindows,
