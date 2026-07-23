@@ -1201,15 +1201,6 @@ function Set-DataSourceEnvironment {
   $env:LOCALMINIDRAMA_DATA_DIR = $DataDirectory
 }
 
-function Clear-RuntimeConfigEnvironment {
-  Remove-Item Env:LOCALMINIDRAMA_CONFIG_DIR -ErrorAction SilentlyContinue
-  Remove-Item Env:LOCALMINIDRAMA_CONFIG_PATH -ErrorAction SilentlyContinue
-}
-
-function Clear-DataSourceEnvironment {
-  Remove-Item Env:LOCALMINIDRAMA_DATA_DIR -ErrorAction SilentlyContinue
-}
-
 function Assert-OutsideDirectory {
   param(
     [Parameter(Mandatory = $true)][string]$Directory,
@@ -1388,6 +1379,13 @@ function Invoke-ReleaseRollbackCheckpoint {
 param([Parameter(Mandatory = $true)][string]$CheckpointDirectory)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$callerEnvironmentSnapshot = Get-RollbackEnvironmentSnapshot -Names @(
+  'LOCALMINIDRAMA_CONFIG_DIR',
+  'LOCALMINIDRAMA_CONFIG_PATH',
+  'LOCALMINIDRAMA_DATA_DIR',
+  'LOCALMINIDRAMA_IMAGE_TAG',
+  'LOCALMINIDRAMA_BUILD_REVISION'
+)
 $directoryLock = $null
 $checkpointDirectoryLock = $null
 $configDirectoryLock = $null
@@ -1407,9 +1405,9 @@ if (Test-Path -LiteralPath $checkpoint) {
   throw "Rollback checkpoint already exists: $checkpoint"
 }
 
-Push-Location $repoRoot
-$locationPushed = $true
 try {
+  Push-Location $repoRoot
+  $locationPushed = $true
   $dirty = Get-CheckedScalar -FilePath 'git' -ArgumentList @('status', '--porcelain', '--untracked-files=normal') -Label 'Git status'
   if (-not [string]::IsNullOrWhiteSpace($dirty)) {
     throw 'Rollback checkpoint requires a clean Git working tree.'
@@ -1606,7 +1604,9 @@ try {
     [void]$cleanupErrors.Add($_)
   }
   try {
-    if ($null -ne $configDirectoryLock) { $configDirectoryLock.Dispose() }
+    if ($null -ne $configDirectoryLock) {
+      Close-RollbackDirectoryIdentityLock -Handle $configDirectoryLock -Label 'Rollback checkpoint config directory'
+    }
   } catch {
     [void]$cleanupErrors.Add($_)
   }
@@ -1618,22 +1618,19 @@ try {
     [void]$cleanupErrors.Add($_)
   }
   try {
-    if ($null -ne $directoryLock) { $directoryLock.Dispose() }
-  } catch {
-    [void]$cleanupErrors.Add($_)
-  }
-  try {
-    Clear-DataSourceEnvironment
-  } catch {
-    [void]$cleanupErrors.Add($_)
-  }
-  try {
-    Clear-RuntimeConfigEnvironment
+    Restore-RollbackEnvironmentSnapshot -Snapshot $callerEnvironmentSnapshot
   } catch {
     [void]$cleanupErrors.Add($_)
   }
   try {
     if ($locationPushed) { Pop-Location }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $directoryLock) {
+      Close-RollbackDirectoryIdentityLock -Handle $directoryLock -Label 'Rollback data root'
+    }
   } catch {
     [void]$cleanupErrors.Add($_)
   }

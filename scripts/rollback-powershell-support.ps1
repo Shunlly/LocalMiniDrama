@@ -2,6 +2,157 @@ $script:RollbackJsonContractScriptPath = [System.IO.Path]::GetFullPath(
   (Join-Path $PSScriptRoot 'rollback-json-contract.cjs')
 )
 
+function Initialize-RollbackEnvironmentNative {
+  if ($null -ne ([System.Management.Automation.PSTypeName]'LocalMiniDrama.Rollback.ProcessEnvironmentNative').Type) {
+    return
+  }
+
+  Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+namespace LocalMiniDrama.Rollback
+{
+    public static class ProcessEnvironmentNative
+    {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetEnvironmentVariableW(string name, IntPtr value);
+
+        private static void ThrowLastError(string operation)
+        {
+            int error = Marshal.GetLastWin32Error();
+            throw new Win32Exception(error, operation + " failed (Win32 error " + error + ").");
+        }
+
+        public static void SetEmpty(string name)
+        {
+            IntPtr empty = Marshal.AllocHGlobal(2);
+            try
+            {
+                Marshal.WriteInt16(empty, 0, 0);
+                if (!SetEnvironmentVariableW(name, empty)) ThrowLastError("SetEnvironmentVariableW empty assignment");
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(empty);
+            }
+        }
+
+        public static void Remove(string name)
+        {
+            if (!SetEnvironmentVariableW(name, IntPtr.Zero)) ThrowLastError("SetEnvironmentVariableW removal");
+        }
+    }
+}
+'@
+}
+
+function Set-RollbackProcessEnvironmentVariable {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][bool]$Existed,
+    [Parameter(Mandatory = $true)][AllowNull()][object]$Value
+  )
+
+  if ([string]::IsNullOrEmpty($Name) -or $Name.IndexOf('=') -ge 0 -or $Name.IndexOf([char]0) -ge 0) {
+    throw 'Rollback environment variable name is invalid.'
+  }
+  if ($Existed -and $Value -isnot [string]) {
+    throw "Rollback environment variable $Name is present but has no string value."
+  }
+  if (-not $Existed -and $null -ne $Value) {
+    throw "Rollback environment variable $Name is absent but has a value."
+  }
+
+  if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+    if (-not $Existed) {
+      Initialize-RollbackEnvironmentNative
+      [LocalMiniDrama.Rollback.ProcessEnvironmentNative]::Remove($Name)
+      return
+    }
+    if ($Value.Length -eq 0) {
+      Initialize-RollbackEnvironmentNative
+      [LocalMiniDrama.Rollback.ProcessEnvironmentNative]::SetEmpty($Name)
+      return
+    }
+  }
+
+  $managedValue = if ($Existed) { $Value } else { $null }
+  [Environment]::SetEnvironmentVariable($Name, $managedValue, [EnvironmentVariableTarget]::Process)
+}
+
+function Get-RollbackEnvironmentSnapshot {
+  [CmdletBinding()]
+  param([Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Names)
+
+  $comparer = if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+    [StringComparer]::OrdinalIgnoreCase
+  } else {
+    [StringComparer]::Ordinal
+  }
+  $seen = [Collections.Generic.HashSet[string]]::new($comparer)
+  $entries = [System.Collections.ArrayList]::new()
+  $environment = [Environment]::GetEnvironmentVariables([EnvironmentVariableTarget]::Process)
+  foreach ($name in @($Names)) {
+    if ([string]::IsNullOrEmpty($name) -or $name.IndexOf('=') -ge 0 -or $name.IndexOf([char]0) -ge 0) {
+      throw 'Rollback environment snapshot contains an invalid variable name.'
+    }
+    if (-not $seen.Add($name)) {
+      throw "Rollback environment snapshot contains a duplicate variable name: $name"
+    }
+    $matchedName = $null
+    foreach ($candidate in @($environment.Keys)) {
+      if ($comparer.Equals([string]$candidate, $name)) {
+        $matchedName = [string]$candidate
+        break
+      }
+    }
+    $existed = $null -ne $matchedName
+    $value = if ($existed) { [string]$environment[$matchedName] } else { $null }
+    [void]$entries.Add([pscustomobject][ordered]@{
+      Name = $name
+      Existed = $existed
+      Value = $value
+    })
+  }
+  return [object[]]@($entries)
+}
+
+function Restore-RollbackEnvironmentSnapshot {
+  [CmdletBinding()]
+  param([Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Snapshot)
+
+  $entries = [object[]]@($Snapshot)
+  for ($index = $entries.Count - 1; $index -ge 0; $index -= 1) {
+    $entry = $entries[$index]
+    if ($null -eq $entry) { throw 'Rollback environment snapshot contains a null entry.' }
+    foreach ($member in @('Name', 'Existed', 'Value')) {
+      if ($null -eq $entry.PSObject.Properties[$member]) {
+        throw "Rollback environment snapshot entry is missing $member."
+      }
+    }
+    if ($entry.Name -isnot [string] -or $entry.Existed -isnot [bool] -or
+        ($entry.Existed -and $entry.Value -isnot [string]) -or
+        (-not $entry.Existed -and $null -ne $entry.Value)) {
+      throw 'Rollback environment snapshot entry has an invalid shape.'
+    }
+    Set-RollbackProcessEnvironmentVariable -Name $entry.Name -Existed $entry.Existed -Value $entry.Value
+  }
+}
+
+function Close-RollbackDirectoryIdentityLock {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)][Microsoft.Win32.SafeHandles.SafeFileHandle]$Handle,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Label
+  )
+
+  $Handle.Dispose()
+}
+
 function Read-StrictRollbackJson {
   [CmdletBinding()]
   param(

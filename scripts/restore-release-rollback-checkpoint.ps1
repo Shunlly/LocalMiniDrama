@@ -59,15 +59,6 @@ function Set-DataSourceEnvironment {
   $env:LOCALMINIDRAMA_DATA_DIR = $DataDirectory
 }
 
-function Clear-RuntimeConfigEnvironment {
-  Remove-Item Env:LOCALMINIDRAMA_CONFIG_DIR -ErrorAction SilentlyContinue
-  Remove-Item Env:LOCALMINIDRAMA_CONFIG_PATH -ErrorAction SilentlyContinue
-}
-
-function Clear-DataSourceEnvironment {
-  Remove-Item Env:LOCALMINIDRAMA_DATA_DIR -ErrorAction SilentlyContinue
-}
-
 function Assert-OutsideDirectory {
   param(
     [Parameter(Mandatory = $true)][string]$Directory,
@@ -638,6 +629,13 @@ function Invoke-ReleaseRollbackCheckpointRestore {
 param([Parameter(Mandatory = $true)][string]$CheckpointDirectory)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$callerEnvironmentSnapshot = Get-RollbackEnvironmentSnapshot -Names @(
+  'LOCALMINIDRAMA_CONFIG_DIR',
+  'LOCALMINIDRAMA_CONFIG_PATH',
+  'LOCALMINIDRAMA_DATA_DIR',
+  'LOCALMINIDRAMA_IMAGE_TAG',
+  'LOCALMINIDRAMA_BUILD_REVISION'
+)
 $checkpointDirectoryAuthority = $null
 $configDirectoryIdentityLock = $null
 $metadataAuthority = $null
@@ -1014,11 +1012,6 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
     [void]$cleanupErrors.Add($_)
   }
   try {
-    if ($null -ne $rootIdentityLock) { $rootIdentityLock.Dispose() }
-  } catch {
-    [void]$cleanupErrors.Add($_)
-  }
-  try {
     if ($null -ne $summaryAuthority) { $summaryAuthority.Stream.Dispose() }
   } catch {
     [void]$cleanupErrors.Add($_)
@@ -1059,7 +1052,9 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
     [void]$cleanupErrors.Add($_)
   }
   try {
-    if ($null -ne $configDirectoryIdentityLock) { $configDirectoryIdentityLock.Dispose() }
+    if ($null -ne $configDirectoryIdentityLock) {
+      Close-RollbackDirectoryIdentityLock -Handle $configDirectoryIdentityLock -Label 'Rollback checkpoint config directory'
+    }
   } catch {
     [void]$cleanupErrors.Add($_)
   }
@@ -1069,17 +1064,19 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
     [void]$cleanupErrors.Add($_)
   }
   try {
-    Clear-DataSourceEnvironment
-  } catch {
-    [void]$cleanupErrors.Add($_)
-  }
-  try {
-    Clear-RuntimeConfigEnvironment
+    Restore-RollbackEnvironmentSnapshot -Snapshot $callerEnvironmentSnapshot
   } catch {
     [void]$cleanupErrors.Add($_)
   }
   try {
     if ($locationPushed) { Pop-Location }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $rootIdentityLock) {
+      Close-RollbackDirectoryIdentityLock -Handle $rootIdentityLock -Label 'Rollback data root'
+    }
   } catch {
     [void]$cleanupErrors.Add($_)
   }

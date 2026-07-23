@@ -116,6 +116,86 @@ function powerShellLiteral(value) {
   return `'${String(value).replaceAll("'", "''")}'`
 }
 
+const rollbackCallerEnvironmentNames = [
+  'LOCALMINIDRAMA_CONFIG_DIR',
+  'LOCALMINIDRAMA_CONFIG_PATH',
+  'LOCALMINIDRAMA_DATA_DIR',
+  'LOCALMINIDRAMA_IMAGE_TAG',
+  'LOCALMINIDRAMA_BUILD_REVISION',
+]
+
+const powerShellTestEnvironmentStateHelper = `
+function Get-TestProcessEnvironmentState {
+  param([Parameter(Mandatory = $true)][string]$Name)
+  $environment = [Environment]::GetEnvironmentVariables([EnvironmentVariableTarget]::Process)
+  $comparer = if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+    [StringComparer]::OrdinalIgnoreCase
+  } else {
+    [StringComparer]::Ordinal
+  }
+  $matchedName = $null
+  foreach ($candidate in @($environment.Keys)) {
+    if ($comparer.Equals([string]$candidate, $Name)) {
+      $matchedName = [string]$candidate
+      break
+    }
+  }
+  if ($null -eq $matchedName) {
+    return [pscustomobject][ordered]@{ Existed = $false; Value = $null }
+  }
+  return [pscustomobject][ordered]@{ Existed = $true; Value = [string]$environment[$matchedName] }
+}
+`
+
+function rollbackCallerEnvironment(state) {
+  assert.ok(['strings', 'absent', 'empty'].includes(state), `unsupported caller environment state: ${state}`)
+  const env = { ...process.env }
+  for (const key of Object.keys(env)) {
+    if (rollbackCallerEnvironmentNames.some((name) => name.toLowerCase() === key.toLowerCase())) delete env[key]
+  }
+  const expected = {}
+  rollbackCallerEnvironmentNames.forEach((name, index) => {
+    const existed = state !== 'absent'
+    const value = state === 'strings' ? `caller:${index}:value=` : state === 'empty' ? '' : null
+    expected[name] = { existed, value }
+    if (existed) env[name] = value
+  })
+  return { env, expected }
+}
+
+function assertRollbackCallerState(events, expected, callerBase, callerCurrent, label) {
+  const records = events.filter((entry) => entry.event === 'caller-state')
+  assert.equal(records.length, 1, `${label} did not record exactly one caller state`)
+  const record = records[0]
+  assert.equal(record.current_location, callerCurrent, `${label} changed the caller's current location`)
+  assert.equal(record.location_stack_top, callerBase, `${label} changed the caller's location stack`)
+  assert.equal(record.location_error, null, `${label} could not inspect the restored location stack`)
+  assert.equal(record.environment.length, rollbackCallerEnvironmentNames.length)
+  for (const name of rollbackCallerEnvironmentNames) {
+    const actual = record.environment.find((entry) => entry.name === name)
+    assert.ok(actual, `${label} omitted caller environment ${name}`)
+    assert.equal(actual.existed, expected[name].existed, `${label} changed existence for ${name}`)
+    assert.equal(actual.value, expected[name].value, `${label} changed value for ${name}`)
+  }
+}
+
+function assertRollbackCallerCleanupOrder(events, label) {
+  const eventNames = events.map((entry) => entry.event)
+  const configLock = eventNames.indexOf('cleanup:identity:Rollback checkpoint config directory')
+  const checkpointRoot = eventNames.indexOf('cleanup:writable:Rollback checkpoint')
+  const environment = eventNames.indexOf('cleanup:environment')
+  const location = eventNames.indexOf('cleanup:location')
+  const liveDataRoot = eventNames.indexOf('cleanup:identity:Rollback data root')
+  assert.ok(
+    configLock >= 0
+      && configLock < checkpointRoot
+      && checkpointRoot < environment
+      && environment < location
+      && location < liveDataRoot,
+    `${label} cleanup order was not config, checkpoint, environment, location, live-root-last: ${eventNames.join(',')}`,
+  )
+}
+
 test('rollback JSON contract rejects duplicate decoded keys at every object depth', () => {
   const { parseJsonWithUniqueObjectKeys } = require(rollbackJsonContractPath)
   const accepted = parseJsonWithUniqueObjectKeys(
@@ -230,6 +310,161 @@ try {
       assert.equal(result.status, 0, result.stderr || result.stdout)
       assert.equal(result.stdout, '')
     })
+  }
+})
+
+test('rollback environment snapshots preserve strings, absence, empty values, nesting, and reverse order', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Exact rollback process-environment restoration requires Windows')
+    return
+  }
+  const names = {
+    absent: 'LMD_TASK8_ENV_ABSENT',
+    empty: 'LMD_TASK8_ENV_EMPTY',
+    nested: 'LMD_TASK8_ENV_NESTED',
+    second: 'LMD_TASK8_ENV_SECOND',
+    string: 'LMD_TASK8_ENV_STRING',
+  }
+  const childEnv = { ...process.env }
+  for (const key of Object.keys(childEnv)) {
+    if (Object.values(names).some((name) => name.toLowerCase() === key.toLowerCase())) delete childEnv[key]
+  }
+  childEnv[names.string] = 'seed:value=1'
+  childEnv[names.second] = 'seed:value=2'
+  childEnv[names.empty] = ''
+  childEnv[names.nested] = 'outer'
+
+  const statements = `
+. ${powerShellLiteral(rollbackIdentityScriptPath)}
+. ${powerShellLiteral(rollbackPowerShellSupportScriptPath)}
+${powerShellTestEnvironmentStateHelper}
+function Assert-ProcessEnvironment {
+  param([string]$Name, [bool]$Existed, [AllowNull()][string]$Value)
+  $actual = Get-TestProcessEnvironmentState -Name $Name
+  if ($Existed) {
+    if (-not $actual.Existed -or $actual.Value -cne $Value) { throw "Environment $Name was not restored exactly." }
+  } elseif ($actual.Existed) {
+    throw "Environment $Name should be absent."
+  }
+}
+$requestedNames = @(
+  ${powerShellLiteral(names.string)},
+  ${powerShellLiteral(names.second)},
+  ${powerShellLiteral(names.absent)},
+  ${powerShellLiteral(names.empty)}
+)
+$snapshot = Get-RollbackEnvironmentSnapshot -Names $requestedNames
+if ($snapshot.Count -ne 4) { throw 'Environment snapshot returned the wrong entry count.' }
+if ($snapshot[0].Name -cne ${powerShellLiteral(names.string)} -or $snapshot[0].Existed -ne $true -or $snapshot[0].Value -cne 'seed:value=1') { throw 'String snapshot entry changed.' }
+if ($snapshot[1].Name -cne ${powerShellLiteral(names.second)} -or $snapshot[1].Existed -ne $true -or $snapshot[1].Value -cne 'seed:value=2') { throw 'Second string snapshot entry changed.' }
+if ($snapshot[2].Name -cne ${powerShellLiteral(names.absent)} -or $snapshot[2].Existed -ne $false -or $null -ne $snapshot[2].Value) { throw 'Absent snapshot entry changed.' }
+if ($snapshot[3].Name -cne ${powerShellLiteral(names.empty)} -or $snapshot[3].Existed -ne $true -or $null -eq $snapshot[3].Value -or $snapshot[3].Value -cne '') { throw 'Present-empty snapshot entry changed.' }
+
+[Environment]::SetEnvironmentVariable(${powerShellLiteral(names.string)}, 'changed-1', [EnvironmentVariableTarget]::Process)
+[Environment]::SetEnvironmentVariable(${powerShellLiteral(names.second)}, 'changed-2', [EnvironmentVariableTarget]::Process)
+[Environment]::SetEnvironmentVariable(${powerShellLiteral(names.absent)}, 'created', [EnvironmentVariableTarget]::Process)
+[Environment]::SetEnvironmentVariable(${powerShellLiteral(names.empty)}, 'changed-empty', [EnvironmentVariableTarget]::Process)
+$originalSetter = \${function:Set-RollbackProcessEnvironmentVariable}
+$script:RestoreOrder = [System.Collections.ArrayList]::new()
+function Set-RollbackProcessEnvironmentVariable {
+  param([string]$Name, [bool]$Existed, [AllowNull()][object]$Value)
+  [void]$script:RestoreOrder.Add($Name)
+  & $originalSetter @PSBoundParameters
+}
+Restore-RollbackEnvironmentSnapshot -Snapshot $snapshot
+$expectedOrder = @(${powerShellLiteral(names.empty)}, ${powerShellLiteral(names.absent)}, ${powerShellLiteral(names.second)}, ${powerShellLiteral(names.string)})
+if (($script:RestoreOrder -join '|') -cne ($expectedOrder -join '|')) { throw 'Environment snapshot was not restored in reverse order.' }
+Assert-ProcessEnvironment -Name ${powerShellLiteral(names.string)} -Existed $true -Value 'seed:value=1'
+Assert-ProcessEnvironment -Name ${powerShellLiteral(names.second)} -Existed $true -Value 'seed:value=2'
+Assert-ProcessEnvironment -Name ${powerShellLiteral(names.absent)} -Existed $false -Value $null
+Assert-ProcessEnvironment -Name ${powerShellLiteral(names.empty)} -Existed $true -Value ''
+
+$outer = Get-RollbackEnvironmentSnapshot -Names @(${powerShellLiteral(names.nested)})
+[Environment]::SetEnvironmentVariable(${powerShellLiteral(names.nested)}, 'inner', [EnvironmentVariableTarget]::Process)
+$inner = Get-RollbackEnvironmentSnapshot -Names @(${powerShellLiteral(names.nested)})
+[Environment]::SetEnvironmentVariable(${powerShellLiteral(names.nested)}, 'deepest', [EnvironmentVariableTarget]::Process)
+Restore-RollbackEnvironmentSnapshot -Snapshot $inner
+Assert-ProcessEnvironment -Name ${powerShellLiteral(names.nested)} -Existed $true -Value 'inner'
+Restore-RollbackEnvironmentSnapshot -Snapshot $outer
+Assert-ProcessEnvironment -Name ${powerShellLiteral(names.nested)} -Existed $true -Value 'outer'
+
+$duplicateRejected = $false
+try { Get-RollbackEnvironmentSnapshot -Names @('LMD_TASK8_DUPLICATE', 'lmd_task8_duplicate') | Out-Null } catch { $duplicateRejected = $true }
+if (-not $duplicateRejected) { throw 'Case-variant environment names were accepted.' }
+`
+
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, () => {
+      assertPowerShellStatements(statements, { env: childEnv, executable: host.executable })
+    })
+  }
+})
+
+test('rollback scripts dot-source without changing caller environment or location stack', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Rollback caller-state contracts require Windows')
+    return
+  }
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-dot-source-state-'))
+  const callerBase = path.join(fixtureRoot, 'caller-base')
+  const callerCurrent = path.join(fixtureRoot, 'caller-current')
+  fs.mkdirSync(callerBase)
+  fs.mkdirSync(callerCurrent)
+  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
+
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, async (t) => {
+      for (const [scriptName, scriptPath] of [
+        ['create', checkpointScriptPath],
+        ['restore', rollbackRestoreScriptPath],
+      ]) {
+        for (const state of ['strings', 'absent', 'empty']) {
+          await t.test(`${scriptName}/${state}`, () => {
+            const caller = rollbackCallerEnvironment(state)
+            const statements = `
+${powerShellTestEnvironmentStateHelper}
+$names = @(${rollbackCallerEnvironmentNames.map(powerShellLiteral).join(', ')})
+$before = @{}
+foreach ($name in $names) {
+  $before[$name] = Get-TestProcessEnvironmentState -Name $name
+}
+Microsoft.PowerShell.Management\\Set-Location -LiteralPath ${powerShellLiteral(callerBase)}
+Microsoft.PowerShell.Management\\Push-Location -LiteralPath ${powerShellLiteral(callerCurrent)}
+. ${powerShellLiteral(scriptPath)}
+$current = (Get-Location).ProviderPath
+if ($current -cne ${powerShellLiteral(callerCurrent)}) { throw 'Dot-source changed the current provider location.' }
+Microsoft.PowerShell.Management\\Pop-Location
+if ((Get-Location).ProviderPath -cne ${powerShellLiteral(callerBase)}) { throw 'Dot-source changed the location stack.' }
+foreach ($name in $names) {
+  $after = Get-TestProcessEnvironmentState -Name $name
+  if ($after.Existed -ne $before[$name].Existed -or ($after.Existed -and $after.Value -cne $before[$name].Value)) {
+    throw "Dot-source changed caller environment $name."
+  }
+}
+`
+            assertPowerShellStatements(statements, { env: caller.env, executable: host.executable })
+          })
+        }
+      }
+    })
+  }
+})
+
+test('rollback caller cleanup restores environment and location before releasing the live data-root lock', () => {
+  const supportSource = fs.readFileSync(rollbackPowerShellSupportScriptPath, 'utf8')
+  assert.match(supportSource, /function Close-RollbackDirectoryIdentityLock/)
+  for (const [label, source, liveVariable] of [
+    ['checkpoint', checkpointScript, '$directoryLock'],
+    ['restore', rollbackRestoreScript, '$rootIdentityLock'],
+  ]) {
+    assert.doesNotMatch(source, /Clear-(?:DataSource|RuntimeConfig)Environment/)
+    const environment = source.indexOf('Restore-RollbackEnvironmentSnapshot -Snapshot $callerEnvironmentSnapshot')
+    const location = source.indexOf('if ($locationPushed) { Pop-Location }', environment)
+    const liveDataRoot = source.indexOf(
+      `Close-RollbackDirectoryIdentityLock -Handle ${liveVariable} -Label 'Rollback data root'`,
+      location,
+    )
+    assert.ok(environment >= 0 && environment < location && location < liveDataRoot, `${label} cleanup is not live-root-last`)
   }
 })
 
@@ -359,7 +594,7 @@ function waitForProcessExit(pid, timeout = 3000) {
   return !isProcessRunning(pid)
 }
 
-function runPowerShellStatements(statements, { executable, timeout } = {}) {
+function runPowerShellStatements(statements, { env, executable, timeout } = {}) {
   const shell = executable || (process.platform === 'win32' ? 'powershell.exe' : 'pwsh')
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-rollback-ps-probe-'))
   const probePath = path.join(fixtureRoot, 'probe.ps1')
@@ -375,6 +610,7 @@ function runPowerShellStatements(statements, { executable, timeout } = {}) {
     ], {
       cwd: root,
       encoding: 'utf8',
+      env: env || process.env,
       timeout,
       windowsHide: true,
     })
@@ -4064,12 +4300,12 @@ param([Parameter(Mandatory = $true)][string]$CheckpointDirectory)
 $ErrorActionPreference = 'Stop'
 $requestedCheckpointDirectory = $CheckpointDirectory
 . ${powerShellLiteral(checkpointScriptPath)}
+${powerShellTestEnvironmentStateHelper}
 $script:OriginalInvokeChecked = \${function:Invoke-Checked}
 $script:OriginalInvokeNativeCommandWithTimeout = \${function:Invoke-NativeCommandWithTimeout}
 $script:OriginalStopNativeProcessTreeBounded = \${function:Stop-NativeProcessTreeBounded}
 $script:OriginalPublishRollbackUtf8FileAtomically = \${function:Publish-RollbackUtf8FileAtomically}
-$script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
-$script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
+$script:OriginalRestoreRollbackEnvironmentSnapshot = \${function:Restore-RollbackEnvironmentSnapshot}
 $script:LastProofError = $null
 $script:HostIdentityReplaced = $false
 
@@ -4218,13 +4454,10 @@ function Remove-Item {
   }
 }
 
-function Clear-DataSourceEnvironment {
-  Write-BindEvent -Name 'cleanup:data'
-  & $script:OriginalClearDataSourceEnvironment
-}
-function Clear-RuntimeConfigEnvironment {
-  Write-BindEvent -Name 'cleanup:config'
-  & $script:OriginalClearRuntimeConfigEnvironment
+function Restore-RollbackEnvironmentSnapshot {
+  param([Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Snapshot)
+  Write-BindEvent -Name 'cleanup:environment'
+  & $script:OriginalRestoreRollbackEnvironmentSnapshot @PSBoundParameters
 }
 function Pop-Location {
   Write-BindEvent -Name 'cleanup:location'
@@ -4367,11 +4600,9 @@ try {
   }
   const assertOuterCleanupRan = (run) => {
     const eventNames = run.events.map((event) => event.event)
-    const dataCleanup = eventNames.indexOf('cleanup:data')
-    const configCleanup = eventNames.indexOf('cleanup:config')
+    const environmentCleanup = eventNames.indexOf('cleanup:environment')
     const locationCleanup = eventNames.indexOf('cleanup:location')
-    assert.ok(dataCleanup >= 0 && dataCleanup < configCleanup)
-    assert.ok(configCleanup < locationCleanup)
+    assert.ok(environmentCleanup >= 0 && environmentCleanup < locationCleanup)
   }
 
   for (const host of windowsPowerShellHosts()) {
@@ -4701,7 +4932,7 @@ try {
   }
 })
 
-test('release rollback checkpoint fake toolchain retains locks through v5 metadata publication and failure recovery', async (t) => {
+test('release rollback checkpoint fake toolchain retains locks, restores caller environment, and recovers failures', async (t) => {
   if (process.platform !== 'win32') {
     t.skip('Checkpoint orchestration contract requires Windows PowerShell')
     return
@@ -4711,6 +4942,8 @@ test('release rollback checkpoint fake toolchain retains locks through v5 metada
   const binPath = path.join(fixtureRoot, 'bin')
   const dataRoot = path.join(fixtureRoot, 'data')
   const configRoot = path.join(fixtureRoot, 'config')
+  const callerBase = path.join(fixtureRoot, 'caller-base')
+  const callerCurrent = path.join(fixtureRoot, 'caller-current')
   const logPath = path.join(fixtureRoot, 'events.jsonl')
   const summaryPath = path.join(root, 'artifacts', 'rollback-drill', 'summary.json')
   const summaryExisted = fs.existsSync(summaryPath)
@@ -4718,6 +4951,8 @@ test('release rollback checkpoint fake toolchain retains locks through v5 metada
   fs.mkdirSync(binPath)
   fs.mkdirSync(dataRoot)
   fs.mkdirSync(configRoot)
+  fs.mkdirSync(callerBase)
+  fs.mkdirSync(callerCurrent)
   fs.writeFileSync(path.join(configRoot, 'config.yaml'), 'server:\n  port: 5679\n')
   fs.mkdirSync(path.dirname(summaryPath), { recursive: true })
   t.after(() => {
@@ -4787,6 +5022,7 @@ if (tool === 'docker') {
     record('shutdown')
   } else if (args[0] === 'compose' && args[1] === 'up') {
     record('recovery_up')
+    if (process.env.LMD_CALLER_RECOVERY_FAILURE === 'true') process.exit(58)
   } else if (args[0] === 'inspect') {
     const format = valueAfter('--format')
     if (format === '{{json .Mounts}}') {
@@ -4977,23 +5213,84 @@ $ErrorActionPreference = 'Stop'
 $requestedCheckpointDirectory = $CheckpointDirectory
 . ${powerShellLiteral(checkpointScriptPath)}
 
+Microsoft.PowerShell.Management\\Set-Location -LiteralPath $env:LMD_CALLER_BASE
+Microsoft.PowerShell.Management\\Push-Location -LiteralPath $env:LMD_CALLER_CURRENT
+
 $script:OriginalInvokeChecked = \${function:Invoke-Checked}
 $script:OriginalInvokeNativeCommandWithTimeout = \${function:Invoke-NativeCommandWithTimeout}
+${powerShellTestEnvironmentStateHelper}
 $script:OriginalInvokeRollbackDescriptorBackup = \${function:Invoke-RollbackDescriptorBackup}
 $script:OriginalAssertCheckpointDrillEvidence = \${function:Assert-CheckpointDrillEvidence}
 $script:OriginalWriteUtf8File = \${function:Write-Utf8File}
 $script:OriginalPublishRollbackUtf8FileAtomically = \${function:Publish-RollbackUtf8FileAtomically}
 $script:OriginalNewRollbackFileAuthorityFromBytes = \${function:New-RollbackFileAuthorityFromBytes}
 $script:OriginalStartCapturedDeployment = \${function:Start-CapturedDeployment}
-$script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
-$script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
+$script:OriginalCloseRollbackWritableDirectoryAuthority = \${function:Close-RollbackWritableDirectoryAuthority}
+$script:OriginalCloseRollbackDirectoryIdentityLock = \${function:Close-RollbackDirectoryIdentityLock}
+$script:OriginalRestoreRollbackEnvironmentSnapshot = \${function:Restore-RollbackEnvironmentSnapshot}
 $script:MetadataConflictAuthority = $null
 $script:PublicationError = $null
+$script:CallerCleanupFailureInjected = $false
 
 function Write-TestEvent {
   param([Parameter(Mandatory = $true)][string]$Name)
   $line = ConvertTo-Json -Compress -InputObject ([ordered]@{ event = $Name; driver = 'checkpoint' })
   [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Write-TestRecord {
+  param([Parameter(Mandatory = $true)][object]$Record)
+  $line = ConvertTo-Json -Compress -Depth 5 -InputObject $Record
+  [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Write-CallerState {
+  $environment = @(
+    foreach ($name in @(${rollbackCallerEnvironmentNames.map(powerShellLiteral).join(', ')})) {
+      $state = Get-TestProcessEnvironmentState -Name $name
+      [pscustomobject][ordered]@{ name = $name; existed = $state.Existed; value = $state.Value }
+    }
+  )
+  $currentLocation = $null
+  $stackTop = $null
+  $locationError = $null
+  try {
+    $currentLocation = (Get-Location).ProviderPath
+    Microsoft.PowerShell.Management\\Pop-Location
+    $stackTop = (Get-Location).ProviderPath
+  } catch {
+    $locationError = $_.Exception.Message
+  }
+  Write-TestRecord -Record ([ordered]@{
+    event = 'caller-state'
+    environment = $environment
+    current_location = $currentLocation
+    location_stack_top = $stackTop
+    location_error = $locationError
+    driver = 'checkpoint'
+  })
+}
+
+function Close-RollbackWritableDirectoryAuthority {
+  param([Parameter(Mandatory = $true)][object]$Authority)
+  & $script:OriginalCloseRollbackWritableDirectoryAuthority @PSBoundParameters
+  Write-TestEvent -Name ('cleanup:writable:' + $Authority.Label)
+  if (-not $script:CallerCleanupFailureInjected -and
+      $env:LMD_CALLER_CLEANUP_FAILURE -ceq 'true' -and
+      $Authority.Label -ceq 'Rollback checkpoint') {
+    $script:CallerCleanupFailureInjected = $true
+    Write-TestEvent -Name 'injected-caller-cleanup-failure'
+    throw 'Injected caller-state cleanup failure.'
+  }
+}
+
+function Close-RollbackDirectoryIdentityLock {
+  param(
+    [Parameter(Mandatory = $true)][object]$Handle,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  & $script:OriginalCloseRollbackDirectoryIdentityLock @PSBoundParameters
+  Write-TestEvent -Name ('cleanup:identity:' + $Label)
 }
 
 function Assert-TestLocks {
@@ -5155,14 +5452,10 @@ function Start-CapturedDeployment {
   & $script:OriginalStartCapturedDeployment @PSBoundParameters
 }
 
-function Clear-DataSourceEnvironment {
-  Write-TestEvent -Name 'cleanup:data'
-  & $script:OriginalClearDataSourceEnvironment
-}
-
-function Clear-RuntimeConfigEnvironment {
-  Write-TestEvent -Name 'cleanup:config'
-  & $script:OriginalClearRuntimeConfigEnvironment
+function Restore-RollbackEnvironmentSnapshot {
+  param([Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Snapshot)
+  Write-TestEvent -Name 'cleanup:environment'
+  & $script:OriginalRestoreRollbackEnvironmentSnapshot @PSBoundParameters
 }
 
 function Pop-Location {
@@ -5197,6 +5490,7 @@ try {
     $script:MetadataConflictAuthority.Stream.Dispose()
     Write-TestEvent -Name 'metadata_authority_released'
   }
+  Write-CallerState
 }
 `, 'utf8')
   for (const tool of ['git', 'npm', 'node']) {
@@ -5229,8 +5523,12 @@ try {
     precreateMetadata = false,
     holdMetadataAuthority = false,
     markerMode = 'valid',
+    callerEnvironmentState = 'strings',
+    callerCleanupFailure = false,
+    callerRecoveryFailure = false,
   ) => {
     const archivePath = path.join(checkpointPath, 'data.zip')
+    const caller = rollbackCallerEnvironment(callerEnvironmentState)
     return spawnSync(host.executable, [
       '-NoProfile',
       '-NonInteractive',
@@ -5245,9 +5543,13 @@ try {
       encoding: 'utf8',
       windowsHide: true,
       env: {
-        ...process.env,
+        ...caller.env,
         PATH: `${binPath};${process.env.PATH}`,
         LMD_ARCHIVE_PATH: archivePath,
+        LMD_CALLER_BASE: callerBase,
+        LMD_CALLER_CLEANUP_FAILURE: String(callerCleanupFailure),
+        LMD_CALLER_CURRENT: callerCurrent,
+        LMD_CALLER_RECOVERY_FAILURE: String(callerRecoveryFailure),
         LMD_COMMIT: commit,
         LMD_CONFIG_ROOT: configRoot,
         LMD_DATA_ROOT: dataRoot,
@@ -5270,7 +5572,7 @@ try {
   }
 
   for (const host of windowsPowerShellHosts()) {
-  await t.test(host.name, () => {
+  await t.test(host.name, async (t) => {
   const validStart = readEvents().length
   const checkpointPath = path.join(fixtureRoot, `${host.name}-valid-checkpoint`)
   const valid = runCheckpoint(host, checkpointPath, 'passed')
@@ -5430,12 +5732,10 @@ try {
   assert.notEqual(publishFailureEvents.indexOf('failure_recovery'), -1)
   assert.notEqual(publishFailureEvents.indexOf('recovery_up'), -1, 'deployment recovery command did not execute')
   assert.ok(publishFailureEvents.indexOf('metadata_publish') < publishFailureEvents.indexOf('failure_recovery'))
-  const cleanupDataIndex = publishFailureEvents.indexOf('cleanup:data')
-  const cleanupConfigIndex = publishFailureEvents.indexOf('cleanup:config')
+  const cleanupEnvironmentIndex = publishFailureEvents.indexOf('cleanup:environment')
   const cleanupLocationIndex = publishFailureEvents.indexOf('cleanup:location')
   const authorityReleaseIndex = publishFailureEvents.indexOf('metadata_authority_released')
-  assert.ok(cleanupDataIndex >= 0 && cleanupDataIndex < cleanupConfigIndex)
-  assert.ok(cleanupConfigIndex < cleanupLocationIndex)
+  assert.ok(cleanupEnvironmentIndex >= 0 && cleanupEnvironmentIndex < cleanupLocationIndex)
   assert.ok(cleanupLocationIndex < authorityReleaseIndex)
   const heldMetadataPath = path.join(publishFailurePath, 'metadata.json')
   const movedMetadataPath = `${heldMetadataPath}.released`
@@ -5466,6 +5766,52 @@ try {
   fs.renameSync(renamedDataRoot, dataRoot)
   fs.rmdirSync(dataRoot)
   fs.mkdirSync(dataRoot)
+
+  const callerOutcomes = [
+    { name: 'success', summaryStatus: 'passed', succeeds: true },
+    { name: 'primary-failure', summaryStatus: 'PASSED', succeeds: false },
+    { name: 'recovery-failure', summaryStatus: 'PASSED', recoveryFailure: true, succeeds: false },
+    { name: 'cleanup-only-failure', summaryStatus: 'passed', cleanupFailure: true, succeeds: false },
+    { name: 'primary-plus-cleanup', summaryStatus: 'PASSED', cleanupFailure: true, succeeds: false },
+  ]
+  for (const callerState of ['strings', 'absent', 'empty']) {
+    for (const outcome of callerOutcomes) {
+      await t.test(`caller/${callerState}/${outcome.name}`, () => {
+        const caller = rollbackCallerEnvironment(callerState)
+        const callerStart = readEvents().length
+        const callerCheckpointPath = path.join(
+          fixtureRoot,
+          `${host.name}-caller-${callerState}-${outcome.name}-checkpoint`,
+        )
+        const callerRun = runCheckpoint(
+          host,
+          callerCheckpointPath,
+          outcome.summaryStatus,
+          version,
+          false,
+          false,
+          'valid',
+          callerState,
+          Boolean(outcome.cleanupFailure),
+          Boolean(outcome.recoveryFailure),
+        )
+        const callerEvents = readEvents().slice(callerStart)
+        assert.equal(callerRun.status === 0, outcome.succeeds, callerRun.stderr || callerRun.stdout)
+        assertRollbackCallerState(
+          callerEvents,
+          caller.expected,
+          callerBase,
+          callerCurrent,
+          `${host.name}/checkpoint/${callerState}/${outcome.name}`,
+        )
+        assertRollbackCallerCleanupOrder(
+          callerEvents,
+          `${host.name}/checkpoint/${callerState}/${outcome.name}`,
+        )
+        assertNamespacesMovable(callerCheckpointPath)
+      })
+    }
+  }
   })
   }
 })
@@ -5473,7 +5819,11 @@ try {
 function createRollbackRestoreHarness(t) {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-restore-orchestration-'))
   const binPath = path.join(fixtureRoot, 'bin')
+  const callerBase = path.join(fixtureRoot, 'caller-base')
+  const callerCurrent = path.join(fixtureRoot, 'caller-current')
   fs.mkdirSync(binPath)
+  fs.mkdirSync(callerBase)
+  fs.mkdirSync(callerCurrent)
   t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
   const hash = (value) => require('node:crypto').createHash('sha256').update(value).digest('hex')
   const commit = 'c'.repeat(40)
@@ -5850,6 +6200,10 @@ param([Parameter(Mandatory = $true)][string]$CheckpointDirectory)
 $ErrorActionPreference = 'Stop'
 $requestedCheckpointDirectory = $CheckpointDirectory
 . ${powerShellLiteral(rollbackRestoreScriptPath)}
+${powerShellTestEnvironmentStateHelper}
+
+Microsoft.PowerShell.Management\\Set-Location -LiteralPath $env:LMD_CALLER_BASE
+Microsoft.PowerShell.Management\\Push-Location -LiteralPath $env:LMD_CALLER_CURRENT
 $script:OriginalInvokeChecked = \${function:Invoke-Checked}
 $script:OriginalEvidenceBinding = \${function:Assert-RollbackEvidenceBinding}
 $script:OriginalRootGuard = \${function:Assert-CurrentRollbackRoot}
@@ -5861,14 +6215,16 @@ $script:OriginalAssertRollbackFileAuthorityHash = \${function:Assert-RollbackFil
 $script:OriginalOpenRollbackWritableDirectoryAuthority = \${function:Open-RollbackWritableDirectoryAuthority}
 $script:OriginalPublishRollbackUtf8FileAtomically = \${function:Publish-RollbackUtf8FileAtomically}
 $script:OriginalFlushRollbackHandle = \${function:Flush-RollbackHandle}
-$script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
-$script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
+$script:OriginalCloseRollbackWritableDirectoryAuthority = \${function:Close-RollbackWritableDirectoryAuthority}
+$script:OriginalCloseRollbackDirectoryIdentityLock = \${function:Close-RollbackDirectoryIdentityLock}
+$script:OriginalRestoreRollbackEnvironmentSnapshot = \${function:Restore-RollbackEnvironmentSnapshot}
 $script:EvidenceValidated = $false
 $script:AuthorityAssertionOrder = 0
 $script:AuthoritiesSinceBoundary = [System.Collections.ArrayList]::new()
 $script:LastAuthorityAssertion = $null
 $script:PendingRecoveryLabel = $null
 $script:InjectedFlushFailure = $false
+$script:CallerCleanupFailureInjected = $false
 
 function Write-TestEvent {
   param([string]$Name)
@@ -5879,6 +6235,52 @@ function Write-TestRecord {
   param([Parameter(Mandatory = $true)][object]$Record)
   $line = ConvertTo-Json -Compress -Depth 4 -InputObject $Record
   [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+}
+function Write-CallerState {
+  $environment = @(
+    foreach ($name in @(${rollbackCallerEnvironmentNames.map(powerShellLiteral).join(', ')})) {
+      $state = Get-TestProcessEnvironmentState -Name $name
+      [pscustomobject][ordered]@{ name = $name; existed = $state.Existed; value = $state.Value }
+    }
+  )
+  $currentLocation = $null
+  $stackTop = $null
+  $locationError = $null
+  try {
+    $currentLocation = (Get-Location).ProviderPath
+    Microsoft.PowerShell.Management\\Pop-Location
+    $stackTop = (Get-Location).ProviderPath
+  } catch {
+    $locationError = $_.Exception.Message
+  }
+  Write-TestRecord -Record ([ordered]@{
+    event = 'caller-state'
+    environment = $environment
+    current_location = $currentLocation
+    location_stack_top = $stackTop
+    location_error = $locationError
+    driver = 'restore'
+  })
+}
+function Close-RollbackWritableDirectoryAuthority {
+  param([Parameter(Mandatory = $true)][object]$Authority)
+  & $script:OriginalCloseRollbackWritableDirectoryAuthority @PSBoundParameters
+  Write-TestEvent -Name ('cleanup:writable:' + $Authority.Label)
+  if (-not $script:CallerCleanupFailureInjected -and
+      $env:LMD_CALLER_CLEANUP_FAILURE -ceq 'true' -and
+      $Authority.Label -ceq 'Rollback checkpoint') {
+    $script:CallerCleanupFailureInjected = $true
+    Write-TestEvent -Name 'injected-caller-cleanup-failure'
+    throw 'Injected caller-state cleanup failure.'
+  }
+}
+function Close-RollbackDirectoryIdentityLock {
+  param(
+    [Parameter(Mandatory = $true)][object]$Handle,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  & $script:OriginalCloseRollbackDirectoryIdentityLock @PSBoundParameters
+  Write-TestEvent -Name ('cleanup:identity:' + $Label)
 }
 function Open-RollbackWritableDirectoryAuthority {
   param(
@@ -6225,14 +6627,11 @@ function Invoke-Checked {
   }
   return $result
 }
-function Clear-DataSourceEnvironment {
-  Write-TestEvent -Name 'cleanup:data'
-  & $script:OriginalClearDataSourceEnvironment
+function Restore-RollbackEnvironmentSnapshot {
+  param([Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Snapshot)
+  Write-TestEvent -Name 'cleanup:environment'
+  & $script:OriginalRestoreRollbackEnvironmentSnapshot @PSBoundParameters
   if ($env:LMD_CLEANUP_FAILURE -ceq 'true') { throw 'injected cleanup failure' }
-}
-function Clear-RuntimeConfigEnvironment {
-  Write-TestEvent -Name 'cleanup:config'
-  & $script:OriginalClearRuntimeConfigEnvironment
 }
 function Pop-Location {
   Write-TestEvent -Name 'cleanup:location'
@@ -6268,6 +6667,8 @@ try {
   })
   [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
   throw
+} finally {
+  Write-CallerState
 }
 `, 'utf8')
 
@@ -6370,6 +6771,7 @@ try {
 
   const runScenario = (host, name, options = {}) => {
     const fixture = createScenario(`${host.name}-${name}`, options)
+    const caller = rollbackCallerEnvironment(options.callerEnvironmentState || 'strings')
     const result = spawnSync(host.executable, [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driverPath,
       '-CheckpointDirectory', fixture.checkpointPath,
@@ -6378,10 +6780,13 @@ try {
       encoding: 'utf8',
       windowsHide: true,
       env: {
-        ...process.env,
+        ...caller.env,
         PATH: `${binPath};${process.env.PATH}`,
         LMD_ALT_DATA_ROOT: fixture.alternateDataRoot,
         LMD_BACKEND_IMAGE: backendImageId,
+        LMD_CALLER_BASE: callerBase,
+        LMD_CALLER_CLEANUP_FAILURE: String(Boolean(options.callerCleanupFailure)),
+        LMD_CALLER_CURRENT: callerCurrent,
         LMD_CHECKPOINT_PATH: fixture.checkpointPath,
         LMD_COMMIT: commit,
         LMD_CONFIG_ROOT: fixture.configRoot,
@@ -6545,8 +6950,53 @@ process.stdout.write(JSON.stringify(result))
     return JSON.parse(result.stdout)
   }
 
-  return { runCompensationProbeFault, runScenario }
+  return { callerBase, callerCurrent, runCompensationProbeFault, runScenario }
 }
+
+test('rollback restore caller environment and location stack survive success and failure outcomes', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Rollback restore caller-state contracts require Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'restore caller-state matrix must run under Node 20')
+  const { callerBase, callerCurrent, runScenario } = createRollbackRestoreHarness(t)
+  const outcomes = [
+    { name: 'success', runtimeScenario: 'task8-success', succeeds: true },
+    { name: 'primary-failure', runtimeScenario: 'restore_failure', succeeds: false },
+    { name: 'recovery-failure', runtimeScenario: 'terminal_failure', succeeds: false },
+    { name: 'cleanup-only-failure', runtimeScenario: 'task8-success', callerCleanupFailure: true, succeeds: false },
+    { name: 'primary-plus-cleanup', runtimeScenario: 'restore_failure', callerCleanupFailure: true, succeeds: false },
+  ]
+
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(host.name, async (t) => {
+      for (const callerEnvironmentState of ['strings', 'absent', 'empty']) {
+        const caller = rollbackCallerEnvironment(callerEnvironmentState)
+        for (const outcome of outcomes) {
+          await t.test(`${callerEnvironmentState}/${outcome.name}`, () => {
+            const run = runScenario(host, `task8-caller-${callerEnvironmentState}-${outcome.name}`, {
+              callerCleanupFailure: Boolean(outcome.callerCleanupFailure),
+              callerEnvironmentState,
+              runtimeScenario: outcome.runtimeScenario,
+            })
+            assert.equal(run.result.status === 0, outcome.succeeds, run.result.stderr || run.result.stdout)
+            assertRollbackCallerState(
+              run.events,
+              caller.expected,
+              callerBase,
+              callerCurrent,
+              `${host.name}/restore/${callerEnvironmentState}/${outcome.name}`,
+            )
+            assertRollbackCallerCleanupOrder(
+              run.events,
+              `${host.name}/restore/${callerEnvironmentState}/${outcome.name}`,
+            )
+          })
+        }
+      }
+    })
+  }
+})
 
 function findUnsafeRestoreToolEvent(run, { allowImageLoad = false } = {}) {
   return run.events.find((entry) => {
@@ -7634,11 +8084,9 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     assert.match(driverFailure.primary_message, /Rollback startup failed;/)
     assert.deepEqual(driverFailure.cleanup_errors, ['injected cleanup failure'])
     assert.match(cleanupFailure.result.stderr, /Rollback startup failed;/)
-    const cleanupDataIndex = cleanupFailure.eventNames.indexOf('cleanup:data')
-    const cleanupConfigIndex = cleanupFailure.eventNames.indexOf('cleanup:config')
+    const cleanupEnvironmentIndex = cleanupFailure.eventNames.indexOf('cleanup:environment')
     const cleanupLocationIndex = cleanupFailure.eventNames.indexOf('cleanup:location')
-    assert.ok(cleanupDataIndex >= 0 && cleanupDataIndex < cleanupConfigIndex)
-    assert.ok(cleanupConfigIndex < cleanupLocationIndex)
+    assert.ok(cleanupEnvironmentIndex >= 0 && cleanupEnvironmentIndex < cleanupLocationIndex)
     }
     })
   }
