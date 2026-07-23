@@ -2042,6 +2042,102 @@ ${caseStatements}
   }
 })
 
+test('running image evidence resolves an OCI index through its immutable platform manifest on every Windows PowerShell host', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('OCI running image evidence contracts require Windows PowerShell')
+    return
+  }
+
+  const revision = 'd'.repeat(40)
+  const containerId = 'a'.repeat(64)
+  const runtimeConfigId = `sha256:${'1'.repeat(64)}`
+  const platformManifestId = `sha256:${'2'.repeat(64)}`
+  const archiveImageId = `sha256:${'3'.repeat(64)}`
+  const imageReference = `localminidrama-backend:${revision}`
+  const manifestDescriptor = JSON.stringify({
+    mediaType: 'application/vnd.oci.image.manifest.v1+json',
+    digest: platformManifestId,
+    size: 3709,
+    platform: { architecture: 'amd64', os: 'linux' },
+  })
+  const revisionLabels = JSON.stringify({ 'org.opencontainers.image.revision': revision })
+  const fakeDocker = `
+$script:EvidenceCommands = [System.Collections.Generic.List[string]]::new()
+$script:ValidManifestDescriptorJson = ${powerShellLiteral(manifestDescriptor)}
+$script:ManifestDescriptorJson = $script:ValidManifestDescriptorJson
+$script:SelectedPlatformManifestId = ${powerShellLiteral(platformManifestId)}
+function Get-CheckedScalar {
+  param([string]$FilePath, [string[]]$ArgumentList, [string]$Label)
+  if ($FilePath -cne 'docker') { throw ('Unexpected evidence executable: ' + $FilePath) }
+  [void]$script:EvidenceCommands.Add(($ArgumentList -join [char]31))
+  if ($ArgumentList[0] -ceq 'compose') { return ${powerShellLiteral(containerId)} }
+  $formatIndex = [Array]::IndexOf($ArgumentList, '--format')
+  $format = if ($formatIndex -ge 0) { $ArgumentList[$formatIndex + 1] } else { '' }
+  if ($ArgumentList[0] -ceq 'inspect') {
+    if ($format -ceq '{{.State.Status}}') { return 'running' }
+    if ($format -ceq '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}') { return 'healthy' }
+    if ($format -ceq '{{.Image}}') { return ${powerShellLiteral(runtimeConfigId)} }
+    if ($format -ceq '{{.Config.Image}}') { return ${powerShellLiteral(imageReference)} }
+    if ($format -ceq '{{json .ImageManifestDescriptor}}') { return $script:ManifestDescriptorJson }
+  }
+  if ($ArgumentList[0] -ceq 'image' -and $ArgumentList[1] -ceq 'inspect') {
+    $platformIndex = [Array]::IndexOf($ArgumentList, '--platform')
+    $platform = if ($platformIndex -ge 0) { $ArgumentList[$platformIndex + 1] } else { '' }
+    $referenceIndex = if ($platformIndex -ge 0) { $platformIndex + 2 } else { 2 }
+    $reference = $ArgumentList[$referenceIndex]
+    if ($platform.Length -eq 0 -and $reference -ceq ${powerShellLiteral(imageReference)} -and $format -ceq '{{.Id}}') {
+      return ${powerShellLiteral(archiveImageId)}
+    }
+    if ($platform -ceq 'linux/amd64' -and $reference -ceq ${powerShellLiteral(archiveImageId)} -and $format -ceq '{{.Id}}') {
+      return $script:SelectedPlatformManifestId
+    }
+    if ($platform -ceq 'linux/amd64' -and $reference -ceq ${powerShellLiteral(archiveImageId)} -and $format -ceq '{{json .Config.Labels}}') {
+      return ${powerShellLiteral(revisionLabels)}
+    }
+  }
+  throw ('Unexpected evidence command for ' + $Label + ': ' + ($ArgumentList -join ' '))
+}
+`
+  const assertions = `
+if ($evidence.image_id -cne ${powerShellLiteral(archiveImageId)}) { throw 'OCI archive image ID was not retained.' }
+if ($evidence.revision -cne ${powerShellLiteral(revision)}) { throw 'OCI image revision changed.' }
+if ($evidence.container_id -cne ${powerShellLiteral(containerId)}) { throw 'OCI container ID changed.' }
+if (-not ($script:EvidenceCommands -contains ('image' + [char]31 + 'inspect' + [char]31 + '--platform' + [char]31 + 'linux/amd64' + [char]31 + ${powerShellLiteral(archiveImageId)} + [char]31 + '--format' + [char]31 + '{{.Id}}'))) {
+  throw 'OCI archive ID was not bound through its immutable platform manifest.'
+}
+$script:SelectedPlatformManifestId = 'sha256:' + ('4' * 64)
+$mismatchRejected = $false
+try { & $evidenceProbe | Out-Null } catch { $mismatchRejected = $true }
+if (-not $mismatchRejected) { throw 'Mismatched OCI platform manifest evidence was accepted.' }
+$script:SelectedPlatformManifestId = ${powerShellLiteral(platformManifestId)}
+$script:ManifestDescriptorJson = '[' + $script:ValidManifestDescriptorJson + ']'
+$arrayRejected = $false
+try { & $evidenceProbe | Out-Null } catch { $arrayRejected = $true }
+if (-not $arrayRejected) { throw 'A top-level singleton descriptor array was accepted.' }
+`
+
+  for (const host of windowsPowerShellHosts()) {
+    await t.test(`${host.name}/checkpoint`, () => {
+      assertPowerShellStatements(`
+. ${powerShellLiteral(checkpointScriptPath)}
+${fakeDocker}
+$evidenceProbe = { Get-RunningServiceEvidence -Service 'backend' -ExpectedRevision ${powerShellLiteral(revision)} }
+$evidence = & $evidenceProbe
+${assertions}
+`, { executable: host.executable })
+    })
+    await t.test(`${host.name}/restore`, () => {
+      assertPowerShellStatements(`
+. ${powerShellLiteral(rollbackRestoreScriptPath)}
+${fakeDocker}
+$evidenceProbe = { Get-RunningServiceEvidence -Service 'backend' -ComposePrefix @('compose', '--project-directory', 'fixture') }
+$evidence = & $evidenceProbe
+${assertions}
+`, { executable: host.executable })
+    })
+  }
+})
+
 test('checkpoint summary is created and retained through one read-write authority', (t) => {
   if (process.platform !== 'win32') {
     t.skip('PowerShell checkpoint authority contracts require Windows')
@@ -4332,6 +4428,7 @@ if (tool === 'docker') {
     if (format === '{{.State.Status}}') process.stdout.write('running\\n')
     else if (format.includes('.State.Health')) process.stdout.write('healthy\\n')
     else if (format === '{{.Image}}') process.stdout.write('sha256:' + (isBackendId(args[1]) ? '1' : '2').repeat(64) + '\\n')
+    else if (format === '{{.Config.Image}}') process.stdout.write(\`localminidrama-\${isBackendId(args[1]) ? 'backend' : 'frontend'}:\${state.commit}\\n\`)
     else if (format === '{{.Id}}') {
       const resolvedId = state.scenario === 'short_id_nonmatching' ? 'd'.repeat(64) : backendId
       record('container_id_resolution', { capturedId: args[1], resolvedId })
@@ -4363,7 +4460,13 @@ if (tool === 'docker') {
     process.exit(0)
   }
   if (args[0] === 'image' && args[1] === 'inspect') {
-    process.stdout.write(JSON.stringify({ 'org.opencontainers.image.revision': state.commit }) + '\\n')
+    const format = valueAfter('--format')
+    const target = args[2]
+    if (format === '{{.Id}}') {
+      process.stdout.write('sha256:' + (target.includes('backend') ? '1' : '2').repeat(64) + '\\n')
+    } else {
+      process.stdout.write(JSON.stringify({ 'org.opencontainers.image.revision': state.commit }) + '\\n')
+    }
     process.exit(0)
   }
   if (args[0] === 'exec') {
@@ -5311,6 +5414,7 @@ if (tool === 'docker') {
     } else if (format === '{{.State.Status}}') process.stdout.write('running\\n')
     else if (format.includes('.State.Health')) process.stdout.write('healthy\\n')
     else if (format === '{{.Image}}') process.stdout.write('sha256:' + (args[1][0] === 'b' ? '1' : '2').repeat(64) + '\\n')
+    else if (format === '{{.Config.Image}}') process.stdout.write(\`localminidrama-\${args[1][0] === 'b' ? 'backend' : 'frontend'}:\${commit}\\n\`)
   } else if (args[0] === 'exec') {
     const markerPath = path.join(dataRoot, path.posix.basename(args[6]))
     const actualHex = fs.existsSync(markerPath) ? fs.readFileSync(markerPath).toString('hex') : null
@@ -5329,7 +5433,13 @@ if (tool === 'docker') {
     if (readerResult.error) process.exit(30)
     process.exit(readerResult.status == null ? 30 : readerResult.status)
   } else if (args[0] === 'image' && args[1] === 'inspect') {
-    process.stdout.write(JSON.stringify({ 'org.opencontainers.image.revision': commit }) + '\\n')
+    const format = valueAfter('--format')
+    const target = args[2]
+    if (format === '{{.Id}}') {
+      process.stdout.write('sha256:' + (target.includes('backend') ? '1' : '2').repeat(64) + '\\n')
+    } else {
+      process.stdout.write(JSON.stringify({ 'org.opencontainers.image.revision': commit }) + '\\n')
+    }
   } else if (args[0] === 'image' && args[1] === 'save') {
     fs.writeFileSync(valueAfter('--output'), 'fake image archive')
   }
@@ -6392,6 +6502,8 @@ if (tool === 'docker') {
     else if (format === '{{.Image}}') {
       const currentImageId = containerId[0] === 'f' ? process.env.LMD_CURRENT_FRONTEND_IMAGE : process.env.LMD_CURRENT_BACKEND_IMAGE
       process.stdout.write((mode === 'current-image-id-invalid' && containerId[0] === 'b' ? 'invalid' : currentImageId) + '\\n')
+    } else if (format === '{{.Config.Image}}') {
+      process.stdout.write(\`localminidrama-current-\${containerId[0] === 'f' ? 'frontend' : 'backend'}:\${process.env.LMD_FORWARD_COMMIT}\\n\`)
     }
   } else if (args[0] === 'image' && args[1] === 'load') {
     requireCheckpointFile('rollback image archive', valueAfter('--input'), 'images.tar')
@@ -6400,9 +6512,14 @@ if (tool === 'docker') {
     const target = args[2]
     const format = valueAfter('--format')
     if (format === '{{.Id}}') {
-      const expected = target.includes('frontend') ? process.env.LMD_FRONTEND_IMAGE : process.env.LMD_BACKEND_IMAGE
-      const mismatch = (mode === 'loaded-backend-image-id-mismatch' && target.includes('backend')) ||
+      const currentReference = target.includes('current-')
+      const expected = currentReference
+        ? (target.includes('frontend') ? process.env.LMD_CURRENT_FRONTEND_IMAGE : process.env.LMD_CURRENT_BACKEND_IMAGE)
+        : (target.includes('frontend') ? process.env.LMD_FRONTEND_IMAGE : process.env.LMD_BACKEND_IMAGE)
+      const mismatch = !currentReference && (
+        (mode === 'loaded-backend-image-id-mismatch' && target.includes('backend')) ||
         (mode === 'loaded-frontend-image-id-mismatch' && target.includes('frontend'))
+      )
       process.stdout.write((mismatch ? 'sha256:' + '9'.repeat(64) : expected) + '\\n')
     } else {
       const currentImage = target === process.env.LMD_CURRENT_BACKEND_IMAGE || target === process.env.LMD_CURRENT_FRONTEND_IMAGE

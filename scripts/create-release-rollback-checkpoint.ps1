@@ -871,9 +871,18 @@ function Confirm-RollbackContainerBindAuthority {
 function Get-ImageRevision {
   param(
     [Parameter(Mandatory = $true)][string]$ImageReference,
-    [Parameter(Mandatory = $true)][string]$Label
+    [Parameter(Mandatory = $true)][string]$Label,
+    [string]$Platform = ''
   )
-  $labelsJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $ImageReference, '--format', '{{json .Config.Labels}}') -Label $Label
+  $arguments = @('image', 'inspect')
+  if (-not [string]::IsNullOrWhiteSpace($Platform)) {
+    if ($Platform -cnotmatch '^[a-z0-9][a-z0-9._-]{0,63}/[a-z0-9][a-z0-9._-]{0,63}(?:/[a-z0-9][a-z0-9._-]{0,63})?$') {
+      throw "$Label received an invalid Docker platform."
+    }
+    $arguments += @('--platform', $Platform)
+  }
+  $arguments += @($ImageReference, '--format', '{{json .Config.Labels}}')
+  $labelsJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList $arguments -Label $Label
   try {
     $labels = $labelsJson | ConvertFrom-Json
   } catch {
@@ -1355,11 +1364,69 @@ function Get-RunningServiceEvidence {
     throw "The $Service service must be running and healthy before a rollback checkpoint is created."
   }
 
-  $imageId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.Image}}') -Label "$Service running image capture"
-  if ($imageId -cnotmatch '^sha256:[a-f0-9]{64}$') {
+  $runtimeImageId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.Image}}') -Label "$Service running image capture"
+  if ($runtimeImageId -cnotmatch '^sha256:[a-f0-9]{64}$') {
     throw "Docker did not return an immutable image ID for $Service."
   }
-  $revision = Get-ImageRevision -ImageReference $imageId -Label "$Service image revision capture"
+
+  $imageReference = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.Config.Image}}') -Label "$Service configured image reference capture"
+  if ($imageReference -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,511}$') {
+    throw "Docker did not return a safe configured image reference for $Service."
+  }
+  $imageId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $imageReference, '--format', '{{.Id}}') -Label "$Service archive image capture"
+  if ($imageId -cnotmatch '^sha256:[a-f0-9]{64}$') {
+    throw "Docker did not return an immutable archive image ID for $Service."
+  }
+
+  $platform = ''
+  if ($imageId -cne $runtimeImageId) {
+    $descriptorJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{json .ImageManifestDescriptor}}') -Label "$Service running image manifest capture"
+    # PowerShell 7 unwraps singleton JSON arrays, so validate the top-level token before parsing.
+    $descriptorText = $descriptorJson.Trim()
+    if ($descriptorText.Length -lt 2 -or
+        $descriptorText[0] -cne [char]'{' -or
+        $descriptorText[$descriptorText.Length - 1] -cne [char]'}') {
+      throw "$Service running image manifest capture must be a JSON object."
+    }
+    try {
+      $descriptor = ConvertFrom-Json -InputObject $descriptorText
+    } catch {
+      throw "$Service running image manifest capture returned invalid Docker JSON."
+    }
+    Assert-CheckpointEvidenceJsonObject -Value $descriptor -Message "$Service running image manifest capture must be a JSON object."
+    $digestProperty = Get-CheckpointEvidenceProperty -Object $descriptor -Name 'digest' -Context "$Service running image manifest"
+    $mediaTypeProperty = Get-CheckpointEvidenceProperty -Object $descriptor -Name 'mediaType' -Context "$Service running image manifest"
+    $platformProperty = Get-CheckpointEvidenceProperty -Object $descriptor -Name 'platform' -Context "$Service running image manifest"
+    Assert-CheckpointEvidenceStringPattern -Value $digestProperty.Value -Pattern '^sha256:[a-f0-9]{64}$' -Message "$Service running image manifest digest is invalid."
+    if ($mediaTypeProperty.Value -isnot [string] -or $mediaTypeProperty.Value -cnotin @(
+      'application/vnd.oci.image.manifest.v1+json',
+      'application/vnd.docker.distribution.manifest.v2+json'
+    )) {
+      throw "$Service running image manifest media type is invalid."
+    }
+    Assert-CheckpointEvidenceJsonObject -Value $platformProperty.Value -Message "$Service running image platform must be a JSON object."
+    $osProperty = Get-CheckpointEvidenceProperty -Object $platformProperty.Value -Name 'os' -Context "$Service running image platform"
+    $architectureProperty = Get-CheckpointEvidenceProperty -Object $platformProperty.Value -Name 'architecture' -Context "$Service running image platform"
+    foreach ($component in @($osProperty.Value, $architectureProperty.Value)) {
+      if ($component -isnot [string] -or $component -cnotmatch '^[a-z0-9][a-z0-9._-]{0,63}$') {
+        throw "$Service running image platform is invalid."
+      }
+    }
+    $platform = "$($osProperty.Value)/$($architectureProperty.Value)"
+    $variantProperty = $platformProperty.Value.PSObject.Properties['variant']
+    if ($null -ne $variantProperty) {
+      if ($variantProperty.Value -isnot [string] -or $variantProperty.Value -cnotmatch '^[a-z0-9][a-z0-9._-]{0,63}$') {
+        throw "$Service running image platform variant is invalid."
+      }
+      $platform += "/$($variantProperty.Value)"
+    }
+    $selectedManifestId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', '--platform', $platform, $imageId, '--format', '{{.Id}}') -Label "$Service archive platform manifest capture"
+    if ($selectedManifestId -cne $digestProperty.Value) {
+      throw "The immutable archive image for $Service does not contain the running platform manifest."
+    }
+  }
+
+  $revision = Get-ImageRevision -ImageReference $imageId -Label "$Service image revision capture" -Platform $platform
   if ($revision -cne $ExpectedRevision) {
     throw "The running $Service image revision $revision does not match Git commit $ExpectedRevision. Rebuild with npm run docker:up before creating a checkpoint."
   }

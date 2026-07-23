@@ -492,9 +492,18 @@ function Get-ContainerBindSource {
 function Get-ImageRevision {
   param(
     [Parameter(Mandatory = $true)][string]$ImageReference,
-    [Parameter(Mandatory = $true)][string]$Label
+    [Parameter(Mandatory = $true)][string]$Label,
+    [string]$Platform = ''
   )
-  $labelsJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $ImageReference, '--format', '{{json .Config.Labels}}') -Label $Label
+  $arguments = @('image', 'inspect')
+  if (-not [string]::IsNullOrWhiteSpace($Platform)) {
+    if ($Platform -cnotmatch '^[a-z0-9][a-z0-9._-]{0,63}/[a-z0-9][a-z0-9._-]{0,63}(?:/[a-z0-9][a-z0-9._-]{0,63})?$') {
+      throw "$Label received an invalid Docker platform."
+    }
+    $arguments += @('--platform', $Platform)
+  }
+  $arguments += @($ImageReference, '--format', '{{json .Config.Labels}}')
+  $labelsJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList $arguments -Label $Label
   try {
     $labels = $labelsJson | ConvertFrom-Json
   } catch {
@@ -520,9 +529,69 @@ function Get-RunningServiceEvidence {
   if ($status -cne 'running' -or $health -cne 'healthy') {
     Write-Warning "The current $Service container is $status with health $health; rollback will continue using its immutable image and configuration evidence."
   }
-  $imageId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.Image}}') -Label "$Service image capture"
-  $revision = Get-ImageRevision -ImageReference $imageId -Label "$Service image revision"
-  if ($imageId -cnotmatch '^sha256:[a-f0-9]{64}$' -or $revision -cnotmatch '^[a-f0-9]{40}$') {
+  $runtimeImageId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.Image}}') -Label "$Service image capture"
+  if ($runtimeImageId -cnotmatch '^sha256:[a-f0-9]{64}$') {
+    throw "The current $Service image lacks immutable ID or revision evidence."
+  }
+  $imageReference = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{.Config.Image}}') -Label "$Service configured image reference capture"
+  if ($imageReference -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,511}$') {
+    throw "The current $Service image reference is invalid."
+  }
+  $imageId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $imageReference, '--format', '{{.Id}}') -Label "$Service archive image capture"
+  if ($imageId -cnotmatch '^sha256:[a-f0-9]{64}$') {
+    throw "The current $Service archive image ID is invalid."
+  }
+
+  $platform = ''
+  if ($imageId -cne $runtimeImageId) {
+    $descriptorJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{json .ImageManifestDescriptor}}') -Label "$Service running image manifest capture"
+    # PowerShell 7 unwraps singleton JSON arrays, so validate the top-level token before parsing.
+    $descriptorText = $descriptorJson.Trim()
+    if ($descriptorText.Length -lt 2 -or
+        $descriptorText[0] -cne [char]'{' -or
+        $descriptorText[$descriptorText.Length - 1] -cne [char]'}') {
+      throw "$Service running image manifest capture must be a JSON object."
+    }
+    try {
+      $descriptor = ConvertFrom-Json -InputObject $descriptorText
+    } catch {
+      throw "$Service running image manifest capture returned invalid Docker JSON."
+    }
+    Assert-RollbackEvidenceJsonObject -Value $descriptor -Message "$Service running image manifest capture must be a JSON object."
+    $digestProperty = Get-RollbackEvidenceProperty -Object $descriptor -Name 'digest' -Context "$Service running image manifest"
+    $mediaTypeProperty = Get-RollbackEvidenceProperty -Object $descriptor -Name 'mediaType' -Context "$Service running image manifest"
+    $platformProperty = Get-RollbackEvidenceProperty -Object $descriptor -Name 'platform' -Context "$Service running image manifest"
+    Assert-RollbackEvidenceStringPattern -Value $digestProperty.Value -Pattern '^sha256:[a-f0-9]{64}$' -Message "$Service running image manifest digest is invalid."
+    if ($mediaTypeProperty.Value -isnot [string] -or $mediaTypeProperty.Value -cnotin @(
+      'application/vnd.oci.image.manifest.v1+json',
+      'application/vnd.docker.distribution.manifest.v2+json'
+    )) {
+      throw "$Service running image manifest media type is invalid."
+    }
+    Assert-RollbackEvidenceJsonObject -Value $platformProperty.Value -Message "$Service running image platform must be a JSON object."
+    $osProperty = Get-RollbackEvidenceProperty -Object $platformProperty.Value -Name 'os' -Context "$Service running image platform"
+    $architectureProperty = Get-RollbackEvidenceProperty -Object $platformProperty.Value -Name 'architecture' -Context "$Service running image platform"
+    foreach ($component in @($osProperty.Value, $architectureProperty.Value)) {
+      if ($component -isnot [string] -or $component -cnotmatch '^[a-z0-9][a-z0-9._-]{0,63}$') {
+        throw "$Service running image platform is invalid."
+      }
+    }
+    $platform = "$($osProperty.Value)/$($architectureProperty.Value)"
+    $variantProperty = $platformProperty.Value.PSObject.Properties['variant']
+    if ($null -ne $variantProperty) {
+      if ($variantProperty.Value -isnot [string] -or $variantProperty.Value -cnotmatch '^[a-z0-9][a-z0-9._-]{0,63}$') {
+        throw "$Service running image platform variant is invalid."
+      }
+      $platform += "/$($variantProperty.Value)"
+    }
+    $selectedManifestId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', '--platform', $platform, $imageId, '--format', '{{.Id}}') -Label "$Service archive platform manifest capture"
+    if ($selectedManifestId -cne $digestProperty.Value) {
+      throw "The immutable archive image for $Service does not contain the running platform manifest."
+    }
+  }
+
+  $revision = Get-ImageRevision -ImageReference $imageId -Label "$Service image revision" -Platform $platform
+  if ($revision -cnotmatch '^[a-f0-9]{40}$') {
     throw "The current $Service image lacks immutable ID or revision evidence."
   }
   return [ordered]@{
