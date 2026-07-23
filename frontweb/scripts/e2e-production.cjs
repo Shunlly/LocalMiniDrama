@@ -2561,7 +2561,9 @@ async function assertScreenshotSurfaceSafe(page) {
       url: visibleText.includes(protectedUrl) || inputValues.includes(protectedUrl),
       text_length: visibleText.trim().length,
       loading_masks: [...document.querySelectorAll('.el-loading-mask')].filter((element) => (
-        getComputedStyle(element).display !== 'none' && getComputedStyle(element).visibility !== 'hidden'
+        getComputedStyle(element).display !== 'none'
+        && getComputedStyle(element).visibility !== 'hidden'
+        && element.getClientRects().length > 0
       )).length,
     }
   }, { protectedToken: PROVIDER_TOKEN, protectedUrl: PROVIDER_BASE_URL })

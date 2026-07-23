@@ -1395,6 +1395,11 @@ test('acceptance capture preparation waits for mask-free expected surface state'
   assert.match(readiness, /service-readiness\.is-ready/)
   assert.doesNotMatch(readiness, /service-readiness:not/)
 
+  assert.match(
+    productionSource,
+    /async function assertScreenshotSurfaceSafe\(page\)[\s\S]*?element\.getClientRects\(\)\.length > 0[\s\S]*?capture surface still contains a loading mask/,
+  )
+
   assert.match(preparation, /fixture\.routes\.state\.freeCreateReadyImage = capture\.surface === 'free-create'/)
 
   assert.match(productionSource, /'project-list': `\$\{FRONTEND_URL\}\/`/)
