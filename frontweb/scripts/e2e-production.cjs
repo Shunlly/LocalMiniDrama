@@ -1520,14 +1520,28 @@ async function verifyAiConfigReturnUi(page, dramaId) {
   await configsMode.waitFor({ state: 'visible', timeout: 30000 })
   assert.equal(await configsMode.getAttribute('aria-selected'), 'true', 'service-specific AI config must open in config management')
   await page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 30000 })
+  const addDialog = page.getByRole('dialog', { name: '\u6dfb\u52a0\u914d\u7f6e', exact: true })
+  let autoAddDialogVisible = false
+  try {
+    await addDialog.waitFor({ state: 'visible', timeout: 3000 })
+    autoAddDialogVisible = true
+  } catch (error) {
+    if (error?.name !== 'TimeoutError') throw error
+  }
+  if (autoAddDialogVisible) {
+    await addDialog.getByRole('button', { name: '\u53d6\u6d88', exact: true }).click()
+    await addDialog.waitFor({ state: 'hidden', timeout: 10000 })
+  }
   const backButton = page.getByRole('button', { name: '\u8fd4\u56de\u539f\u9879\u76ee', exact: true })
   await backButton.waitFor({ state: 'visible', timeout: 10000 })
-  const navigationPromise = page.waitForURL(new RegExp(`/drama/${dramaId}#source-intake-workflow$`), { timeout: 30000 })
-  await backButton.click()
-  await navigationPromise
+  await Promise.all([
+    page.waitForURL(new RegExp(`/drama/${dramaId}#source-intake-workflow$`), { timeout: 30000 }),
+    backButton.click(),
+  ])
   const workflow = page.locator('#source-intake-workflow')
   await workflow.waitFor({ state: 'visible', timeout: 30000 })
   return {
+    auto_add_dialog_dismissed: autoAddDialogVisible,
     return_to_preserved: new URL(page.url()).hash === '#source-intake-workflow',
     workflow_visible: await workflow.isVisible(),
   }
