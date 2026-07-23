@@ -9471,6 +9471,9 @@ test('source secret scanning covers every tracked path and isolates worktree out
     'ececcdcb6b14f40b8d3fec42a38a2633593b4613:desktop/backend-app-secure/src/app.js:generic-api-key:1',
     '6b216ed727772ab794d5c0bfd6c717b3425d164a:frontweb/test/acceptanceReportVerifier.test.js:generic-api-key:396',
     'dcf6cc47fe3b526cf57c294e3a0b72a7719d1a45:backend-node/test/maintenanceRecoveryCli.test.js:generic-api-key:50',
+    '5fcc14cddb83b9faaa33f50c1d998861d9ef58df:backend-node/test/dataBackupService.test.js:generic-api-key:1907',
+    '5fcc14cddb83b9faaa33f50c1d998861d9ef58df:backend-node/test/dataBackupService.test.js:generic-api-key:1996',
+    '5fcc14cddb83b9faaa33f50c1d998861d9ef58df:scripts/rollback-drill-contract.test.cjs:generic-api-key:95',
   ])
 
   for (const secretScanJob of [

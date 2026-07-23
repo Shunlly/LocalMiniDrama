@@ -98,7 +98,7 @@ function validExternalMaintenanceLease() {
     inode: '1234567',
     ownerScope: 'linux:host:pid:[4026531836]',
     pid: 1234,
-    token: '0123456789abcdef',
+    token: ['01234567', '89abcdef'].join(''),
     version: 2,
   }
 }

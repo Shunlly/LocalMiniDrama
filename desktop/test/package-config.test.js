@@ -19,6 +19,7 @@ const {
   isAllowedBackendFile,
 } = require('../scripts/copy-backend');
 const releaseWorkflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
+const rebuildNativeSource = fs.readFileSync(path.join(desktopRoot, 'scripts', 'rebuild-native.js'), 'utf8');
 
 function listFiles(root) {
   const files = [];
@@ -66,6 +67,27 @@ test('desktop runtime dependencies cover the backend production dependency set',
   assert.equal(packageLock.packages['node_modules/@napi-rs/canvas-win32-x64-msvc'].version, '0.1.80');
   assert.equal(packageLock.packages['node_modules/pdfjs-dist'].version, '4.10.38');
   assert.equal(packageLock.packages['node_modules/buffer'].version, '6.0.3');
+});
+
+test('native rebuild accepts dependencies that do not export package.json', () => {
+  assert.doesNotThrow(() => require.resolve('sharp', { paths: [desktopRoot] }));
+  assert.throws(
+    () => require.resolve('sharp/package.json', { paths: [desktopRoot] }),
+    (error) => error?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED'
+  );
+  assert.doesNotMatch(rebuildNativeSource, /require\.resolve\(`\$\{name\}\/package\.json`/);
+  assert.match(
+    rebuildNativeSource,
+    /require\.resolve\(name,\s*\{\s*paths:\s*\[desktopRoot\]\s*\}\)/
+  );
+});
+
+test('sharp WASM leaf remains an exact development-only dependency for npm tree integrity', () => {
+  const sharpVersion = packageLock.packages['node_modules/sharp'].version;
+  assert.equal(packageJson.devDependencies['@img/sharp-wasm32'], sharpVersion);
+  assert.equal(Object.hasOwn(packageJson.dependencies, '@img/sharp-wasm32'), false);
+  assert.equal(packageLock.packages[''].devDependencies['@img/sharp-wasm32'], sharpVersion);
+  assert.equal(packageLock.packages['node_modules/@img/sharp-wasm32'].version, sharpVersion);
 });
 
 test('copied backend contains all and only allowlisted runtime resources', () => {

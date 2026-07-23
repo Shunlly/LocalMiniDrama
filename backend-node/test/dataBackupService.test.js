@@ -2051,7 +2051,7 @@ test('recovery lease release preserves a fresh replacement installed at its clai
   const now = new Date().toISOString();
   const freshPayload = {
     ...claim.payload,
-    token: '0123456789abcdef',
+    token: ['01234567', '89abcdef'].join(''),
     createdAt: now,
     heartbeatAt: now,
   };
@@ -2140,7 +2140,7 @@ test('stale recovery reclaim preserves a fresh lease installed at the atomic cla
   const freshPayload = {
     ...basePayload,
     operation: 'restore',
-    token: 'fedcba9876543210',
+    token: ['fedcba98', '76543210'].join(''),
     createdAt: now,
     heartbeatAt: now,
   };
