@@ -5,6 +5,7 @@ const { spawnSync } = require('node:child_process')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const { createRequire } = require('node:module')
+const net = require('node:net')
 const os = require('node:os')
 const path = require('node:path')
 const test = require('node:test')
@@ -48,6 +49,17 @@ const {
 const { sanitizeRuntimeConfig, sanitizeRuntimeConfigFile } = require('./runtime-config-policy.cjs')
 const { getTrustedMediaToolRelease } = require('../desktop/scripts/media-tool-policy')
 const { FUSE_POLICY } = require('../desktop/scripts/electron-fuses')
+
+async function unusedTcpPort() {
+  const server = net.createServer()
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const { port } = server.address()
+  await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
+  return port
+}
 
 const root = path.resolve(__dirname, '..')
 const checkpointScriptPath = path.join(root, 'scripts', 'create-release-rollback-checkpoint.ps1')
@@ -3079,8 +3091,9 @@ try {
   $retainedIdentity = Get-RollbackPathIdentity -Handle $lock.SafeFileHandle
   if ($retainedIdentity -cne ${powerShellLiteral(oracleIdentity)}) { throw "Archive identity oracle mismatch: $retainedIdentity" }
   Assert-RollbackPathIdentity -Path $archive -ExpectedIdentity $retainedIdentity -Label 'archive' | Out-Null
-  $firstHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-  $currentHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+  $authority = [pscustomobject][ordered]@{ Path = $archive; Label = 'archive'; Identity = $retainedIdentity; Stream = $lock }
+  $firstHash = Get-RollbackFileAuthoritySha256 -Authority $authority
+  $currentHash = Get-RollbackFileAuthoritySha256 -Authority $authority
   if ($currentHash -cne $firstHash) { throw 'Archive changed while locked.' }
   $readerOutput = & ${powerShellLiteral(process.execPath)} -e ${powerShellLiteral(readerProgram)} $archive
   if ($LASTEXITCODE -ne 0 -or ($readerOutput -join [Environment]::NewLine) -cne ${powerShellLiteral(payload)}) { throw 'Node 20 reader could not read the locked archive.' }
@@ -3926,16 +3939,22 @@ test('release rollback checkpoint and restore consume shared native-lock v5 inte
   assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v5/)
   assert.match(checkpointScript, /data_root_sha256\s*=\s*\$validatedEvidence\.data_root_sha256/)
   assert.match(checkpointScript, /data_root_identity\s*=\s*\$validatedEvidence\.data_root_identity/)
+  assert.doesNotMatch(checkpointScript, /Get-FileHash/)
   assert.match(
     checkpointScript,
-    /run-rollback-drill\.cjs'[\s\S]*'--archive', \$backupPath,[\s\S]*'--data-root', \$runtimeDataDirectory/,
+    /function Get-RollbackPathSha256[\s\S]*Open-RollbackFileAuthority[\s\S]*Get-RollbackFileAuthoritySha256[\s\S]*\.Stream\.Dispose\(\)/,
   )
+  assert.match(
+    checkpointScript,
+    /run-rollback-drill-launcher\.cjs'[\s\S]*'--archive', \$backupPath,[\s\S]*'--data-root', \$runtimeDataDirectory/,
+  )
+  assert.doesNotMatch(checkpointScript, /scripts\\run-rollback-drill\.cjs'/)
   assert.match(checkpointScript, /function Assert-CheckpointDrillEvidence/)
   assert.match(checkpointScript, /function ConvertFrom-RollbackResultOutput/)
   assert.match(checkpointScript, /LOCALMINIDRAMA_ROLLBACK_RESULT_V1=/)
   assert.match(
     checkpointScript,
-    /\$drillInvocation\s*=\s*Invoke-NativeCommandWithTimeout[\s\S]*-FilePath 'node'[\s\S]*run-rollback-drill\.cjs[\s\S]*-CaptureOutputBytes[\s\S]*-MaximumOutputBytes 2097152/,
+    /\$drillInvocation\s*=\s*Invoke-NativeCommandWithTimeout[\s\S]*-FilePath 'node'[\s\S]*run-rollback-drill-launcher\.cjs[\s\S]*-CaptureOutputBytes[\s\S]*-MaximumOutputBytes 2097152/,
   )
   assert.match(
     checkpointScript,
@@ -4052,7 +4071,7 @@ test('release rollback checkpoint container bind proof is retained, exact, and o
   const imageSave = checkpointMain.indexOf("@('image', 'save'")
   const shutdown = checkpointMain.indexOf("@('compose', 'down')")
   const backup = checkpointMain.indexOf('Invoke-RollbackDescriptorBackup')
-  const rollbackDrill = checkpointMain.indexOf('run-rollback-drill.cjs')
+  const rollbackDrill = checkpointMain.indexOf('run-rollback-drill-launcher.cjs')
   for (const [label, index] of [
     ['bind capture', bindCapture],
     ['directory lock', lockOpen],
@@ -4090,6 +4109,91 @@ test('release rollback checkpoint proves the captured container sees exact locke
     else fs.rmSync(summaryPath, { force: true })
     fs.rmSync(fixtureRoot, { recursive: true, force: true })
   })
+
+  const launcherDrillBootstrapPath = path.join(fixtureRoot, 'launcher-drill-bootstrap.cjs')
+  fs.writeFileSync(launcherDrillBootstrapPath, `
+'use strict'
+const Module = require('node:module')
+const { spawnSync } = require('node:child_process')
+const fs = require('node:fs')
+const path = require('node:path')
+
+const launcherPath = path.resolve(process.env.LMD_LAUNCHER_PATH)
+const drillPath = path.join(path.dirname(launcherPath), 'run-rollback-drill.cjs')
+const fakeToolPath = process.env.LMD_FAKE_TOOL
+const state = JSON.parse(fs.readFileSync(process.env.LMD_BIND_STATE, 'utf8'))
+const lockPath = path.join(state.dataRoot, 'drama_generator.db.maintenance.lock')
+const record = (event, extra = {}) => fs.appendFileSync(
+  process.env.LMD_BIND_EVENT_LOG,
+  JSON.stringify({ event, ...extra }) + '\\n',
+)
+
+async function waitForHeartbeat(initialHeartbeat) {
+  const deadline = Date.now() + 8000
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    try {
+      const current = JSON.parse(fs.readFileSync(lockPath, 'utf8'))
+      if (Date.parse(current.heartbeatAt) > Date.parse(initialHeartbeat)) return current
+    } catch (_) {}
+  }
+  throw new Error('launcher maintenance lease heartbeat did not advance')
+}
+
+async function defaultDrillMain({ externalMaintenanceLease }) {
+  if (externalMaintenanceLease?.schema !== 'localminidrama.maintenance-lease.v2') {
+    throw new Error('launcher did not provide the external maintenance lease')
+  }
+  const args = process.argv.slice(2)
+  const valueAfter = (name) => args[args.indexOf(name) + 1]
+  const archivePath = valueAfter('--archive')
+  const dataRoot = valueAfter('--data-root')
+  if (path.resolve(dataRoot || '') !== path.resolve(state.dataRoot)) {
+    throw new Error('launcher CLI did not preserve the checkpoint data root')
+  }
+  if (path.resolve(archivePath || '') !== path.resolve(state.checkpointPath, 'data.zip')) {
+    throw new Error('launcher CLI did not preserve the checkpoint archive')
+  }
+  const initial = JSON.parse(fs.readFileSync(lockPath, 'utf8'))
+  record('launcher_lease_acquired', {
+    schema: externalMaintenanceLease.schema,
+    operation: initial.operation,
+  })
+  const advanced = await waitForHeartbeat(initial.heartbeatAt)
+  record('launcher_lease_heartbeat', {
+    advanced: Date.parse(advanced.heartbeatAt) > Date.parse(initial.heartbeatAt),
+  })
+  if (state.scenario === 'launcher_cli_failure') {
+    throw new Error('injected production launcher default drill failure')
+  }
+  const childEnvironment = { ...process.env, NODE_OPTIONS: '' }
+  const drill = spawnSync(
+    process.execPath,
+    [fakeToolPath, 'npm', 'run', 'verify:rollback', '--', '--archive', archivePath, '--data-root', dataRoot],
+    { env: childEnvironment, stdio: 'inherit', windowsHide: true },
+  )
+  if (drill.error) throw drill.error
+  if (drill.status !== 0) throw new Error('injected checkpoint drill failed with status ' + drill.status)
+}
+
+let releaseRecorded = false
+process.on('beforeExit', () => {
+  if (releaseRecorded) return
+  releaseRecorded = true
+  record('launcher_lease_released', { released: !fs.existsSync(lockPath) })
+})
+
+const originalLoad = Module._load
+Module._load = function loadWithDrillProbe(request, parent, isMain) {
+  let resolved
+  try { resolved = Module._resolveFilename(request, parent, isMain) } catch (_) {}
+  if (resolved === drillPath && path.resolve(parent?.filename || '') === launcherPath) {
+    record('launcher_cli_default_drill_loaded', { argv: process.argv.slice(2), resolved })
+    return { main: defaultDrillMain }
+  }
+  return originalLoad.call(this, request, parent, isMain)
+}
+`, 'utf8')
 
   const fakeToolPath = path.join(fixtureRoot, 'fake-bind-tool.cjs')
   fs.writeFileSync(fakeToolPath, `
@@ -4164,13 +4268,37 @@ if (tool === 'git') {
 if (tool === 'node') {
   if (args[0] === '-p') {
     process.stdout.write(state.version + '\\n')
-  } else if (path.basename(args[0]) === 'run-rollback-drill.cjs') {
-    const drillResult = spawnSync(
-      process.execPath,
-      [__filename, 'npm', 'run', 'verify:rollback', '--', ...args.slice(1)],
-      { env: process.env, stdio: 'inherit', windowsHide: true },
-    )
+  } else if (path.basename(args[0]) === 'run-rollback-drill-launcher.cjs') {
+    const useProductionLauncher = ['launcher_lease', 'launcher_cli_failure'].includes(state.scenario)
+    const drillArgs = useProductionLauncher
+      ? [args[0], ...args.slice(1)]
+      : [__filename, 'npm', 'run', 'verify:rollback', '--', ...args.slice(1)]
+    const launcherEnvironment = useProductionLauncher
+      ? {
+          ...process.env,
+          HOST: '127.0.0.1',
+          LMD_LAUNCHER_PATH: path.resolve(args[0]),
+          NODE_OPTIONS: process.env.LMD_LAUNCHER_NODE_OPTIONS,
+          PORT: String(state.servicePort),
+        }
+      : process.env
+    if (useProductionLauncher) record('launcher_cli_spawn', { launcherArgs: args.slice(1) })
+    const drillResult = spawnSync(process.execPath, drillArgs, {
+      encoding: useProductionLauncher ? 'utf8' : undefined,
+      env: launcherEnvironment,
+      stdio: useProductionLauncher ? 'pipe' : 'inherit',
+      windowsHide: true,
+    })
     if (drillResult.error) process.exit(63)
+    if (useProductionLauncher) {
+      record('launcher_cli_exit', {
+        status: drillResult.status,
+        stderr: String(drillResult.stderr || ''),
+        stdout: String(drillResult.stdout || ''),
+      })
+      process.stdout.write(drillResult.stdout || '')
+      process.stderr.write(drillResult.stderr || '')
+    }
     process.exit(drillResult.status == null ? 64 : drillResult.status)
   } else if (path.basename(args[0]) === 'rollback-drill-evidence.cjs') {
     const validatorResult = spawnSync(
@@ -4181,7 +4309,7 @@ if (tool === 'node') {
     if (validatorResult.error) process.exit(65)
     process.exit(validatorResult.status == null ? 66 : validatorResult.status)
   } else {
-    fs.writeFileSync(args[2], 'server:\\n  port: 5679\\n')
+    fs.writeFileSync(args[2], 'app:\\n  name: LocalMiniDrama Test\\nserver:\\n  port: 5679\\n')
   }
   process.exit(0)
 }
@@ -4386,6 +4514,11 @@ function Write-BindEvent {
   [System.IO.File]::AppendAllText($env:LMD_BIND_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 }
 
+Write-BindEvent -Name 'driver_environment' -Details @{
+  ps_module_path = $env:PSModulePath
+  ps_version = $PSVersionTable.PSVersion.ToString()
+}
+
 function Invoke-Checked {
   param(
     [Parameter(Mandatory = $true)][string]$FilePath,
@@ -4566,6 +4699,30 @@ try {
 
   const commit = 'a'.repeat(40)
   const version = backendPackage.version
+  const launcherServicePort = await unusedTcpPort()
+  const powerShellHosts = windowsPowerShellHosts()
+  const powerShellSeven = powerShellHosts.find((host) => host.name === 'powershell-7')
+  const pollutedWindowsPowerShellModulePath = [
+    path.join(path.dirname(powerShellSeven.executable), 'Modules'),
+    path.join(process.env.WINDIR, 'System32', 'WindowsPowerShell', 'v1.0', 'Modules'),
+  ].join(path.delimiter)
+  const pollutedHashProbe = spawnSync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    '$env:PSModulePath; Get-Command Get-FileHash -ErrorAction Stop | Out-Null',
+  ], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, PSModulePath: pollutedWindowsPowerShellModulePath },
+    windowsHide: true,
+  })
+  assert.notEqual(pollutedHashProbe.status, 0, 'the deterministic PowerShell 7 module-path probe must hide the 5.1 Get-FileHash function')
+  assert.match(`${pollutedHashProbe.stderr}\n${pollutedHashProbe.stdout}`, /Get-FileHash/)
+  const normalizedPollutedWindowsPowerShellModulePath = String(pollutedHashProbe.stdout || '')
+    .split(/\r?\n/)
+    .find(Boolean)
+  assert.ok(normalizedPollutedWindowsPowerShellModulePath, 'Windows PowerShell did not report its normalized polluted module path')
   let scenarioSequence = 0
   const runScenario = (host, scenario, {
     cleanupDetail = false,
@@ -4585,15 +4742,17 @@ try {
     fs.mkdirSync(dataRoot, { recursive: true })
     fs.mkdirSync(alternateRoot)
     fs.mkdirSync(configRoot)
-    fs.writeFileSync(path.join(configRoot, 'config.yaml'), 'server:\n  port: 5679\n')
+    fs.writeFileSync(path.join(configRoot, 'config.yaml'), 'app:\n  name: LocalMiniDrama Test\nserver:\n  port: 5679\n')
     fs.writeFileSync(statePath, JSON.stringify({
       alternateRoot,
+      checkpointPath,
       commit,
       configRoot,
       dataRoot,
       execAttempts: 0,
       initialMountReported: false,
       scenario,
+      servicePort: launcherServicePort,
       timeoutAttempts: 0,
       version,
       visibleRoot,
@@ -4624,6 +4783,7 @@ try {
         LMD_BIND_STATE: statePath,
         LMD_BIND_SUMMARY: summaryPath,
         LMD_FAKE_TOOL: fakeToolPath,
+        LMD_LAUNCHER_NODE_OPTIONS: nodeOptionsWithRequire(launcherDrillBootstrapPath),
         LMD_MARKER_CLEANUP_DETAIL: String(cleanupDetail),
         LMD_MARKER_CLEANUP_FAILURE: String(cleanupFailure),
         LMD_NATIVE_DOCKER_NODE: process.execPath,
@@ -4634,6 +4794,9 @@ try {
         LMD_TEST_TERMINATION_HELPER_ERROR: String(scenario === 'termination_helper_error'),
         LMD_TEST_TERMINATION_TIMEOUT_MS: String(terminationTimeout),
         NODE_OPTIONS: nodeOptionsWithRequire(nativeDocker.bootstrapPath),
+        PSModulePath: host.name === 'windows-powershell-5.1'
+          ? pollutedWindowsPowerShellModulePath
+          : process.env.PSModulePath,
       },
     })
     const events = fs.existsSync(eventLog)
@@ -4671,7 +4834,7 @@ try {
     assert.ok(environmentCleanup >= 0 && environmentCleanup < locationCleanup)
   }
 
-  for (const host of windowsPowerShellHosts()) {
+  for (const host of powerShellHosts) {
     await t.test(host.name, async (t) => {
       await t.test('rejects a source swapped after inspect while the container retains the original source', () => {
         const run = runScenario(host, 'swap_before_lock')
@@ -4841,6 +5004,45 @@ try {
         })
         assert.equal(proof.actualHex, proof.expectedHex)
         assertMarkerRemoved(run)
+      })
+
+      await t.test('runs the production launcher CLI through its default drill with a retained maintenance lease', () => {
+        const run = runScenario(host, 'launcher_lease', { timeout: 45000 })
+        assert.equal(run.result.status, 0, run.result.stderr || run.result.stdout)
+        const environment = run.events.find((event) => event.event === 'driver_environment')
+        const spawned = run.events.find((event) => event.event === 'launcher_cli_spawn')
+        const defaultDrill = run.events.find((event) => event.event === 'launcher_cli_default_drill_loaded')
+        const exited = run.events.find((event) => event.event === 'launcher_cli_exit')
+        const acquired = run.events.find((event) => event.event === 'launcher_lease_acquired')
+        const heartbeat = run.events.find((event) => event.event === 'launcher_lease_heartbeat')
+        const released = run.events.find((event) => event.event === 'launcher_lease_released')
+        const expectedArguments = ['--archive', path.join(run.checkpointPath, 'data.zip'), '--data-root', run.dataRoot]
+        assert.deepEqual(spawned?.launcherArgs, expectedArguments)
+        assert.deepEqual(defaultDrill?.argv, expectedArguments)
+        assert.match(defaultDrill?.resolved || '', /run-rollback-drill\.cjs$/)
+        assert.equal(exited?.status, 0, exited?.stderr)
+        if (host.name === 'windows-powershell-5.1') {
+          assert.equal(environment?.ps_module_path, normalizedPollutedWindowsPowerShellModulePath)
+          assert.match(environment?.ps_version || '', /^5\.1\./)
+        }
+        assert.ok(acquired, `launcher lease was not acquired; events=${JSON.stringify(run.events)}`)
+        assert.equal(acquired.schema, 'localminidrama.maintenance-lease.v2')
+        assert.equal(heartbeat?.advanced, true)
+        assert.equal(released?.released, true)
+        assert.equal(fs.existsSync(path.join(run.dataRoot, 'drama_generator.db.maintenance.lock')), false)
+      })
+
+      await t.test('propagates the production launcher default-drill failure and still releases its lease', () => {
+        const run = runScenario(host, 'launcher_cli_failure', { timeout: 45000 })
+        assert.notEqual(run.result.status, 0, run.result.stderr || run.result.stdout)
+        const defaultDrill = run.events.find((event) => event.event === 'launcher_cli_default_drill_loaded')
+        const exited = run.events.find((event) => event.event === 'launcher_cli_exit')
+        const released = run.events.find((event) => event.event === 'launcher_lease_released')
+        assert.ok(defaultDrill, `production default drill was not loaded; events=${JSON.stringify(run.events)}`)
+        assert.equal(exited?.status, 1)
+        assert.match(exited?.stderr || '', /injected production launcher default drill failure/)
+        assert.equal(released?.released, true)
+        assert.equal(fs.existsSync(path.join(run.dataRoot, 'drama_generator.db.maintenance.lock')), false)
       })
 
       await t.test('times out both exec attempts, kills both process trees, and retains cleanup detail', () => {
@@ -5066,7 +5268,7 @@ if (tool === 'node') {
   if (args[0] === '-p') {
     record('version')
     process.stdout.write(version + '\\n')
-  } else if (path.basename(args[0]) === 'run-rollback-drill.cjs') {
+  } else if (path.basename(args[0]) === 'run-rollback-drill-launcher.cjs') {
     const drillResult = spawnSync(
       process.execPath,
       [__filename, 'npm', 'run', 'verify:rollback', '--', ...args.slice(1)],
@@ -8297,7 +8499,7 @@ test('release rollback scripts fail closed and verify the retained backup before
   assert.match(checkpointScript, /function Get-ImageRevision[\s\S]*\{\{json \.Config\.Labels\}\}/)
   assert.match(checkpointScript, /ConvertFrom-Json -InputObject \$mountJson[\s\S]*ForEach-Object/)
   assert.match(checkpointScript, /docker-compose\.yml[\s\S]*config\.yaml[\s\S]*composeHash[\s\S]*configHash/)
-  assert.match(checkpointScript, /Invoke-RollbackDescriptorBackup[\s\S]*Get-RollbackFileAuthoritySha256[\s\S]*run-rollback-drill\.cjs/)
+  assert.match(checkpointScript, /Invoke-RollbackDescriptorBackup[\s\S]*Get-RollbackFileAuthoritySha256[\s\S]*run-rollback-drill-launcher\.cjs/)
   assert.doesNotMatch(checkpointScript, /Invoke-Checked[^\r\n]*backup:data/)
   assert.match(checkpointScript, /localminidrama\.release-rollback-checkpoint\.v5/)
   assert.match(checkpointScript, /Get-ContainerBindSource[\s\S]*\/app\/config-source/)

@@ -565,6 +565,20 @@ function Assert-RegularFile {
   }
 }
 
+function Get-RollbackPathSha256 {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $authority = $null
+  try {
+    $authority = Open-RollbackFileAuthority -Path $Path -Label $Label
+    return Get-RollbackFileAuthoritySha256 -Authority $authority
+  } finally {
+    if ($null -ne $authority) { $authority.Stream.Dispose() }
+  }
+}
+
 function Get-HostPathComparison {
   param(
     [ValidateSet('Auto', 'Windows', 'Posix')]
@@ -1455,8 +1469,8 @@ try {
   Invoke-Checked -FilePath 'node' -ArgumentList @((Join-Path $repoRoot 'scripts\runtime-config-policy.cjs'), $runtimeConfigSource, $configArchive) -Label 'Runtime config sanitization' | Out-Null
   Assert-RegularFile -Path $configArchive
   Assert-RollbackFileAuthority -Authority $dataBindSourceAuthority | Out-Null
-  $composeHash = (Get-FileHash -LiteralPath $composeArchive -Algorithm SHA256).Hash.ToLowerInvariant()
-  $configHash = (Get-FileHash -LiteralPath $configArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+  $composeHash = Get-RollbackPathSha256 -Path $composeArchive -Label 'Archived Compose file'
+  $configHash = Get-RollbackPathSha256 -Path $configArchive -Label 'Archived runtime config'
   $dataBindSourceHash = Get-RollbackFileAuthoritySha256 -Authority $dataBindSourceAuthority
   $imageArchive = Join-Path $checkpoint 'images.tar'
   $rollbackTag = "rollback-checkpoint-$($commit.Substring(0, 12))"
@@ -1466,7 +1480,7 @@ try {
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'tag', $backend.image_id, $backendRollbackRef) -Label 'Backend checkpoint image tag' | Out-Null
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'tag', $frontend.image_id, $frontendRollbackRef) -Label 'Frontend checkpoint image tag' | Out-Null
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'save', '--output', $imageArchive, $backendRollbackRef, $frontendRollbackRef) -Label 'Checkpoint image archive' | Out-Null
-  $imageArchiveHash = (Get-FileHash -LiteralPath $imageArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+  $imageArchiveHash = Get-RollbackPathSha256 -Path $imageArchive -Label 'Archived Docker images'
   $backend['rollback_ref'] = $backendRollbackRef
   $frontend['rollback_ref'] = $frontendRollbackRef
 
@@ -1497,7 +1511,7 @@ try {
 
     Assert-RollbackPathIdentity -Path $runtimeDataDirectory -ExpectedIdentity $capturedDataRootIdentity -Label 'Rollback data root before drill' | Out-Null
     $drillInvocation = Invoke-NativeCommandWithTimeout -FilePath 'node' -ArgumentList @(
-      (Join-Path $repoRoot 'scripts\run-rollback-drill.cjs'),
+      (Join-Path $repoRoot 'scripts\run-rollback-drill-launcher.cjs'),
       '--archive', $backupPath,
       '--data-root', $runtimeDataDirectory
     ) -Label 'Rollback drill' -TimeoutMilliseconds 900000 -CaptureOutputBytes -MaximumOutputBytes 2097152 -MaximumErrorBytes 262144
