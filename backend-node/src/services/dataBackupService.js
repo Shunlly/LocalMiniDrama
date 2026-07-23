@@ -1005,22 +1005,20 @@ function releaseMaintenanceRecoveryClaimSync(claim) {
   let ownedClaim = null;
   let primaryError = null;
   const cleanupErrors = [];
+  let descriptorValidated = false;
   try {
     const descriptorStat = fs.fstatSync(claim.fd, { bigint: true });
     if (!claim.identity || !sameMaintenanceLeaseFile(descriptorStat, claim.identity)) {
       throw backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The maintenance recovery lease descriptor identity changed.');
     }
-    ownedClaim = claimOwnedRegularPathSync(
-      claim.lockPath,
-      claim.identity,
-      'MAINTENANCE_LOCK_RELEASE_FAILED',
-      'The maintenance recovery lease could not be claimed for release.'
-    );
+    descriptorValidated = true;
   } catch (error) {
     primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
       ? error
       : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The maintenance recovery lease could not be claimed for release.', error);
   }
+  // Windows-host Docker bind mounts defer renaming an open file. The atomic claim below
+  // still verifies the persisted file identity after this descriptor is closed.
   let descriptorClosed = false;
   try {
     fs.closeSync(claim.fd);
@@ -1028,25 +1026,30 @@ function releaseMaintenanceRecoveryClaimSync(claim) {
   } catch (error) {
     cleanupErrors.push(error);
   }
+  if (!primaryError && descriptorValidated && descriptorClosed) {
+    try {
+      ownedClaim = claimOwnedRegularPathSync(
+        claim.lockPath,
+        claim.identity,
+        'MAINTENANCE_LOCK_RELEASE_FAILED',
+        'The maintenance recovery lease could not be claimed for release.'
+      );
+    } catch (error) {
+      primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
+        ? error
+        : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The maintenance recovery lease could not be claimed for release.', error);
+    }
+  }
   if (ownedClaim) {
-    if (!descriptorClosed) {
-      try {
-        restoreRegularClaimWithoutOverwriteSync(ownedClaim.claimPath, claim.lockPath, claim.identity);
-        removePrivateClaimDirectorySync(ownedClaim);
-      } catch (error) {
-        cleanupErrors.push(error);
-      }
-    } else {
-      try {
-        removeOwnedClaimSync(
-          ownedClaim,
-          claim.identity,
-          'MAINTENANCE_LOCK_RELEASE_FAILED',
-          'The claimed maintenance recovery lease could not be removed.'
-        );
-      } catch (error) {
-        cleanupErrors.push(error);
-      }
+    try {
+      removeOwnedClaimSync(
+        ownedClaim,
+        claim.identity,
+        'MAINTENANCE_LOCK_RELEASE_FAILED',
+        'The claimed maintenance recovery lease could not be removed.'
+      );
+    } catch (error) {
+      cleanupErrors.push(error);
     }
   }
   if (!primaryError && cleanupErrors.length > 0) {
@@ -1188,6 +1191,7 @@ function releaseServiceMaintenanceLock(lock) {
     ? backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock lost its public path before release.', lock.heartbeatError)
     : null;
   const cleanupErrors = [];
+  let descriptorValidated = false;
   try {
     if (primaryError) throw primaryError;
     const descriptorStat = fs.fstatSync(lock.fd, { bigint: true });
@@ -1195,12 +1199,7 @@ function releaseServiceMaintenanceLock(lock) {
     if (!sameMaintenanceLeaseFile(descriptorStat, lock.identity) || current.token !== lock.token || Number(current.pid) !== process.pid) {
       throw backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock no longer belongs to this guard.');
     }
-    claim = claimOwnedRegularPathSync(
-      lock.lockPath,
-      lock.identity,
-      'MAINTENANCE_LOCK_RELEASE_FAILED',
-      'The service maintenance lock could not be claimed for release.'
-    );
+    descriptorValidated = true;
   } catch (error) {
     if (!primaryError) {
       primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
@@ -1210,6 +1209,7 @@ function releaseServiceMaintenanceLock(lock) {
       cleanupErrors.push(error);
     }
   }
+  // Keep the same close-before-claim order as the recovery lease for Docker bind mounts.
   let descriptorClosed = false;
   try {
     fs.closeSync(lock.fd);
@@ -1217,25 +1217,30 @@ function releaseServiceMaintenanceLock(lock) {
   } catch (error) {
     cleanupErrors.push(error);
   }
+  if (!primaryError && descriptorValidated && descriptorClosed) {
+    try {
+      claim = claimOwnedRegularPathSync(
+        lock.lockPath,
+        lock.identity,
+        'MAINTENANCE_LOCK_RELEASE_FAILED',
+        'The service maintenance lock could not be claimed for release.'
+      );
+    } catch (error) {
+      primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
+        ? error
+        : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock could not be claimed for release.', error);
+    }
+  }
   if (claim) {
-    if (!descriptorClosed) {
-      try {
-        restoreRegularClaimWithoutOverwriteSync(claim.claimPath, lock.lockPath, lock.identity);
-        removePrivateClaimDirectorySync(claim);
-      } catch (error) {
-        cleanupErrors.push(error);
-      }
-    } else {
-      try {
-        removeOwnedClaimSync(
-          claim,
-          lock.identity,
-          'MAINTENANCE_LOCK_RELEASE_FAILED',
-          'The claimed service maintenance lock could not be removed.'
-        );
-      } catch (error) {
-        cleanupErrors.push(error);
-      }
+    try {
+      removeOwnedClaimSync(
+        claim,
+        lock.identity,
+        'MAINTENANCE_LOCK_RELEASE_FAILED',
+        'The claimed service maintenance lock could not be removed.'
+      );
+    } catch (error) {
+      cleanupErrors.push(error);
     }
   }
   if (!primaryError && cleanupErrors.length > 0) {

@@ -1405,6 +1405,37 @@ test('service guard release preserves an identical replacement installed at its 
   assert.ok((await fsp.stat(displacedPath)).isFile());
 });
 
+test('service guard closes its descriptor before the atomic release claim', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+  });
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  const originalRenameSync = fs.renameSync;
+  let observedClosedDescriptor = false;
+  t.after(async () => {
+    fs.renameSync = originalRenameSync;
+    guard.abandon();
+    await fsp.rm(lockPath, { recursive: true, force: true });
+  });
+  fs.renameSync = (source, destination) => {
+    if (path.resolve(source) === path.resolve(lockPath)) {
+      assert.throws(
+        () => fs.fstatSync(guard.fd),
+        (error) => error?.code === 'EBADF'
+      );
+      observedClosedDescriptor = true;
+    }
+    return originalRenameSync(source, destination);
+  };
+
+  guard.release();
+
+  assert.equal(observedClosedDescriptor, true);
+  assert.equal(await fsp.stat(lockPath).catch(() => null), null);
+});
+
 test('service heartbeat and release fail closed when the public lock path is displaced', async (t) => {
   const workspace = await makeWorkspace(t);
   const guard = acquireServiceMaintenanceLockSync({
@@ -2094,6 +2125,36 @@ test('recovery lease release preserves a fresh replacement installed at its clai
   assert.equal(injected, true);
   assert.deepEqual(JSON.parse(await fsp.readFile(recoveryLockPath, 'utf8')), freshPayload);
   assert.ok((await fsp.stat(displacedPath)).isFile());
+});
+
+test('recovery lease closes its descriptor before the atomic release claim', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const claim = __testing.acquireMaintenanceRecoveryClaimSync(workspace.databasePath, {
+    ownerScope: 'localminidrama-docker-backend',
+  });
+  const { recoveryLockPath } = maintenancePaths(workspace.databasePath);
+  const originalRenameSync = fs.renameSync;
+  let observedClosedDescriptor = false;
+  t.after(async () => {
+    fs.renameSync = originalRenameSync;
+    try { fs.closeSync(claim.fd); } catch (_) {}
+    await fsp.rm(recoveryLockPath, { recursive: true, force: true });
+  });
+  fs.renameSync = (source, destination) => {
+    if (path.resolve(source) === path.resolve(recoveryLockPath)) {
+      assert.throws(
+        () => fs.fstatSync(claim.fd),
+        (error) => error?.code === 'EBADF'
+      );
+      observedClosedDescriptor = true;
+    }
+    return originalRenameSync(source, destination);
+  };
+
+  __testing.releaseMaintenanceRecoveryClaimSync(claim);
+
+  assert.equal(observedClosedDescriptor, true);
+  assert.equal(await fsp.stat(recoveryLockPath).catch(() => null), null);
 });
 
 test('stale same-scope recovery leases are atomically reclaimed', async (t) => {
