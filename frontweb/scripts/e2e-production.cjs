@@ -2947,8 +2947,9 @@ async function verifyFocusedDesktopAcceptance(browser, {
 
     const currentSteps = page.locator('#film-create-quick-nav [aria-current="step"]')
     const completedSteps = page.locator('#film-create-quick-nav .status-done:not(.is-current)')
+    const completedDistinctCount = await completedSteps.count()
     assert.equal(await currentSteps.count(), 1, 'FilmCreate must expose exactly one current navigation step')
-    assert.ok(await completedSteps.count() > 0, 'FilmCreate must expose a distinct completed navigation step')
+    assert.ok(completedDistinctCount > 0, 'FilmCreate must expose a distinct completed navigation step')
     const currentLabel = String(await currentSteps.first().innerText()).trim()
     assert.equal(await currentSteps.first().evaluate((element) => element.matches('.status-done:not(.is-current)')), false)
 
@@ -3155,7 +3156,7 @@ async function verifyFocusedDesktopAcceptance(browser, {
       navigation: {
         current_count: 1,
         current_label: currentLabel,
-        completed_distinct_count: await completedSteps.count(),
+        completed_distinct_count: completedDistinctCount,
       },
       pipeline: {
         initial_state: 'blocked',

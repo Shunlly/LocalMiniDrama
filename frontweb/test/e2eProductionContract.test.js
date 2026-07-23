@@ -1367,6 +1367,19 @@ test('focused coverage waits for the exact service-state matrix before each layo
   assert.doesNotMatch(coverageWait, /assertCoverageLayout/)
 })
 
+test('focused acceptance snapshots completed navigation before capture routes leave FilmCreate', () => {
+  const focused = sourceFunction('verifyFocusedDesktopAcceptance')
+
+  assertSourceOrder(focused, [
+    'const completedSteps = page.locator',
+    'const completedDistinctCount = await completedSteps.count()',
+    'assert.ok(completedDistinctCount > 0',
+    'captureAcceptanceReportScreenshots(page, {',
+    'completed_distinct_count: completedDistinctCount',
+  ])
+  assert.doesNotMatch(focused, /completed_distinct_count:\s*await completedSteps\.count\(\)/)
+})
+
 test('acceptance capture preparation waits for mask-free expected surface state', () => {
   const preparation = sourceFunction('prepareAcceptanceCaptureSurface')
   assert.match(preparation, /waitForAcceptanceCaptureReadiness\(page, capture, fixture\)/)
