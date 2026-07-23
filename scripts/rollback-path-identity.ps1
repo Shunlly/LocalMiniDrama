@@ -82,6 +82,15 @@ namespace LocalMiniDrama.Rollback
             return new Win32Exception(error, operation + " failed (Win32 error " + error + ").");
         }
 
+        public static string ToExtendedPath(string path)
+        {
+            if (String.IsNullOrWhiteSpace(path)) throw new ArgumentException("A path is required.", "path");
+            string fullPath = System.IO.Path.GetFullPath(path);
+            if (fullPath.StartsWith(@"\\?\", StringComparison.Ordinal)) return fullPath;
+            if (fullPath.StartsWith(@"\\", StringComparison.Ordinal)) return @"\\?\UNC\" + fullPath.Substring(2);
+            return @"\\?\" + fullPath;
+        }
+
         public static string GetFileSystemName(SafeFileHandle file)
         {
             if (file == null || file.IsInvalid || file.IsClosed) throw new ArgumentException("An open directory handle is required.", "file");
@@ -103,7 +112,7 @@ namespace LocalMiniDrama.Rollback
                 throw new ArgumentException("The destination path must be absolute.", "destinationPath");
             }
 
-            byte[] fileName = Encoding.Unicode.GetBytes(destinationPath);
+            byte[] fileName = Encoding.Unicode.GetBytes(ToExtendedPath(destinationPath));
             int rootOffset = IntPtr.Size == 8 ? 8 : 4;
             int lengthOffset = IntPtr.Size == 8 ? 16 : 8;
             int nameOffset = IntPtr.Size == 8 ? 20 : 12;
@@ -145,6 +154,50 @@ namespace LocalMiniDrama.Rollback
 '@ | Out-Null
 }
 
+function Get-RollbackPathInformation {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [string]$Label = 'Rollback path'
+  )
+  Initialize-RollbackPathNative
+  $handle = $null
+  try {
+    $backupSemantics = [uint32]0x02000000
+    $openReparsePoint = [uint32]0x00200000
+    $handle = [LocalMiniDrama.Rollback.NativeMethods]::CreateFileW(
+      [LocalMiniDrama.Rollback.NativeMethods]::ToExtendedPath([System.IO.Path]::GetFullPath($Path)),
+      [uint32]0,
+      [uint32]7,
+      [IntPtr]::Zero,
+      [uint32]3,
+      ($backupSemantics -bor $openReparsePoint),
+      [IntPtr]::Zero
+    )
+    if ($null -eq $handle -or $handle.IsInvalid) {
+      $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+      if ($null -ne $handle) { $handle.Dispose() }
+      $handle = $null
+      throw [ComponentModel.Win32Exception]::new($errorCode, "Could not open $Label information handle: $Path")
+    }
+    return Get-RollbackHandleInformation -Handle $handle
+  } finally {
+    if ($null -ne $handle) { $handle.Dispose() }
+  }
+}
+
+function Test-RollbackPathExists {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  try {
+    Get-RollbackPathInformation -Path $Path -Label 'rollback path existence' | Out-Null
+    return $true
+  } catch {
+    if ($_.Exception -is [ComponentModel.Win32Exception] -and $_.Exception.NativeErrorCode -in @(2, 3)) {
+      return $false
+    }
+    throw
+  }
+}
+
 function Get-RollbackPathIdentity {
   [CmdletBinding(DefaultParameterSetName = 'Path')]
   param(
@@ -152,39 +205,13 @@ function Get-RollbackPathIdentity {
     [Parameter(Mandatory = $true, ParameterSetName = 'Handle')]
     [Microsoft.Win32.SafeHandles.SafeFileHandle]$Handle
   )
-  Initialize-RollbackPathNative
-
-  $ownedHandle = $null
-  try {
-    if ($PSCmdlet.ParameterSetName -eq 'Path') {
-      $backupSemantics = [uint32]0x02000000
-      $openReparsePoint = [uint32]0x00200000
-      $ownedHandle = [LocalMiniDrama.Rollback.NativeMethods]::CreateFileW(
-        [System.IO.Path]::GetFullPath($Path),
-        [uint32]0,
-        [uint32]7,
-        [IntPtr]::Zero,
-        [uint32]3,
-        ($backupSemantics -bor $openReparsePoint),
-        [IntPtr]::Zero
-      )
-      if ($null -eq $ownedHandle -or $ownedHandle.IsInvalid) {
-        $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-        if ($null -ne $ownedHandle) { $ownedHandle.Dispose() }
-        $ownedHandle = $null
-        throw [ComponentModel.Win32Exception]::new($errorCode, "Could not open rollback path identity handle: $Path")
-      }
-      $Handle = $ownedHandle
-    }
-    if ($null -eq $Handle -or $Handle.IsInvalid -or $Handle.IsClosed) {
-      throw 'Rollback path identity requires an open valid handle.'
-    }
-
-    $information = Get-RollbackHandleInformation -Handle $Handle
-    return $information.Identity
-  } finally {
-    if ($null -ne $ownedHandle) { $ownedHandle.Dispose() }
+  if ($PSCmdlet.ParameterSetName -eq 'Path') {
+    return (Get-RollbackPathInformation -Path $Path -Label 'rollback path identity').Identity
   }
+  if ($null -eq $Handle -or $Handle.IsInvalid -or $Handle.IsClosed) {
+    throw 'Rollback path identity requires an open valid handle.'
+  }
+  return (Get-RollbackHandleInformation -Handle $Handle).Identity
 }
 
 function Get-RollbackHandleInformation {
@@ -240,7 +267,7 @@ function Open-RollbackFileAuthority {
     $openExisting = [uint32]3
     $openReparsePoint = [uint32]0x00200000
     $handle = [LocalMiniDrama.Rollback.NativeMethods]::CreateFileW(
-      $fullPath,
+      [LocalMiniDrama.Rollback.NativeMethods]::ToExtendedPath($fullPath),
       $genericRead,
       $fileShareRead,
       [IntPtr]::Zero,
@@ -362,8 +389,9 @@ function Assert-RollbackAbsolutePublicationPath {
   $relativeParent = $parentPath.Substring($rootPath.Length).TrimStart([char[]]@('\', '/'))
   foreach ($segment in @($relativeParent -split '[\\/]' | Where-Object { $_.Length -gt 0 })) {
     $currentPath = Join-Path $currentPath $segment
-    $item = Get-Item -LiteralPath $currentPath -Force
-    if (-not $item.PSIsContainer -or (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+    $information = Get-RollbackPathInformation -Path $currentPath -Label "$Label parent component"
+    if ((($information.Attributes -band [System.IO.FileAttributes]::Directory) -eq 0) -or
+        (($information.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
       throw "$Label parent must have only real non-reparse directory components."
     }
   }
@@ -385,7 +413,7 @@ function Open-RollbackWritableDirectoryHandle {
   $backupSemantics = [uint32]0x02000000
   $openReparsePoint = [uint32]0x00200000
   $handle = [LocalMiniDrama.Rollback.NativeMethods]::CreateFileW(
-    [System.IO.Path]::GetFullPath($Path),
+    [LocalMiniDrama.Rollback.NativeMethods]::ToExtendedPath([System.IO.Path]::GetFullPath($Path)),
     $genericReadWriteDelete,
     $fileShareReadWrite,
     [IntPtr]::Zero,
@@ -507,7 +535,7 @@ function New-RollbackFilePublicationAuthority {
     $createNew = [uint32]1
     $normal = [uint32]0x80
     $fileHandle = [LocalMiniDrama.Rollback.NativeMethods]::CreateFileW(
-      $temporaryPath,
+      [LocalMiniDrama.Rollback.NativeMethods]::ToExtendedPath($temporaryPath),
       $genericReadWriteDelete,
       $fileShareRead,
       [IntPtr]::Zero,
@@ -654,33 +682,68 @@ function Remove-RollbackUnpublishedFileAuthority {
 function Open-RollbackWritableDirectoryAuthority {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][string]$Label
+    [Parameter(Mandatory = $true)][string]$Label,
+    [AllowNull()][object]$ParentDirectoryAuthority = $null
   )
   $fullPath = [System.IO.Path]::GetFullPath($Path)
   $resolved = Assert-RollbackAbsolutePublicationPath -Path $fullPath -Label $Label
-  $item = Get-Item -LiteralPath $fullPath -Force
-  if (-not $item.PSIsContainer -or (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+  $information = Get-RollbackPathInformation -Path $fullPath -Label $Label
+  if ((($information.Attributes -band [System.IO.FileAttributes]::Directory) -eq 0) -or
+      (($information.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
     throw "$Label must be a real non-reparse directory."
   }
   $handle = $null
   $parentHandle = $null
+  $parentIdentity = $null
+  $ownsParentDirectoryHandle = $true
   try {
+    if ($null -ne $ParentDirectoryAuthority) {
+      foreach ($member in @('Path', 'Identity', 'Handle')) {
+        if ($null -eq $ParentDirectoryAuthority.PSObject.Properties[$member]) {
+          throw "$Label parent directory authority is missing $member."
+        }
+      }
+      if ($ParentDirectoryAuthority.Path -isnot [string] -or
+          -not ([System.IO.Path]::GetFullPath($ParentDirectoryAuthority.Path)).Equals($resolved.ParentPath, [StringComparison]::OrdinalIgnoreCase) -or
+          $ParentDirectoryAuthority.Handle -isnot [Microsoft.Win32.SafeHandles.SafeFileHandle] -or
+          $ParentDirectoryAuthority.Handle.IsInvalid -or
+          $ParentDirectoryAuthority.Handle.IsClosed) {
+        throw "$Label parent directory authority is invalid."
+      }
+      $parentHandle = $ParentDirectoryAuthority.Handle
+      $parentIdentity = Get-RollbackPathIdentity -Handle $parentHandle
+      if ($parentIdentity -cne $ParentDirectoryAuthority.Identity) {
+        throw "$Label parent directory handle does not match its retained identity."
+      }
+      Assert-RollbackPathIdentity -Path $resolved.ParentPath -ExpectedIdentity $parentIdentity -Label "$Label parent directory" | Out-Null
+      $fileSystemName = [LocalMiniDrama.Rollback.NativeMethods]::GetFileSystemName($parentHandle)
+      if ($fileSystemName -cne 'NTFS' -and $fileSystemName -cne 'ReFS') {
+        throw "$Label parent directory authority requires NTFS or ReFS."
+      }
+      $ownsParentDirectoryHandle = $false
+    }
     $handle = Open-RollbackWritableDirectoryHandle -Path $fullPath -Label $Label
-    $parentHandle = Open-RollbackWritableDirectoryHandle -Path $resolved.ParentPath -Label "$Label parent"
+    if ($null -eq $parentHandle) {
+      $parentHandle = Open-RollbackWritableDirectoryHandle -Path $resolved.ParentPath -Label "$Label parent"
+      $parentIdentity = Get-RollbackPathIdentity -Handle $parentHandle
+      Assert-RollbackPathIdentity -Path $resolved.ParentPath -ExpectedIdentity $parentIdentity -Label "$Label parent directory" | Out-Null
+    }
     $identity = Get-RollbackPathIdentity -Handle $handle
     Assert-RollbackPathIdentity -Path $fullPath -ExpectedIdentity $identity -Label $Label | Out-Null
     return [pscustomobject][ordered]@{
       Path = $fullPath
       ParentDirectoryPath = $resolved.ParentPath
+      ParentDirectoryIdentity = $parentIdentity
       Label = $Label
       Identity = $identity
       Handle = $handle
       ParentDirectoryHandle = $parentHandle
+      OwnsParentDirectoryHandle = $ownsParentDirectoryHandle
       Published = $false
     }
   } catch {
     if ($null -ne $handle) { $handle.Dispose() }
-    if ($null -ne $parentHandle) { $parentHandle.Dispose() }
+    if ($ownsParentDirectoryHandle -and $null -ne $parentHandle) { $parentHandle.Dispose() }
     throw
   }
 }
@@ -690,12 +753,20 @@ function Publish-RollbackDirectoryAuthority {
     [Parameter(Mandatory = $true)][object]$Authority,
     [Parameter(Mandatory = $true)][string]$Path
   )
+  foreach ($member in @('Path', 'ParentDirectoryPath', 'ParentDirectoryIdentity', 'Label', 'Identity', 'Handle', 'ParentDirectoryHandle', 'OwnsParentDirectoryHandle', 'Published')) {
+    if ($null -eq $Authority.PSObject.Properties[$member]) { throw "Rollback directory authority is missing $member." }
+  }
   if ($Authority.Published -eq $true) { throw "$($Authority.Label) directory authority was already published." }
   $destinationPath = [System.IO.Path]::GetFullPath($Path)
   $resolved = Assert-RollbackAbsolutePublicationPath -Path $destinationPath -Label $Authority.Label
   if (-not $resolved.ParentPath.Equals($Authority.ParentDirectoryPath, [StringComparison]::OrdinalIgnoreCase)) {
     throw "$($Authority.Label) directory publication left its retained parent."
   }
+  $parentHandleIdentity = Get-RollbackPathIdentity -Handle $Authority.ParentDirectoryHandle
+  if ($parentHandleIdentity -cne $Authority.ParentDirectoryIdentity) {
+    throw "$($Authority.Label) retained parent directory handle identity changed."
+  }
+  Assert-RollbackPathIdentity -Path $Authority.ParentDirectoryPath -ExpectedIdentity $parentHandleIdentity -Label "$($Authority.Label) parent directory" | Out-Null
   Assert-RollbackPathIdentity -Path $Authority.Path -ExpectedIdentity $Authority.Identity -Label $Authority.Label | Out-Null
   Flush-RollbackHandle -Handle $Authority.Handle -Label $Authority.Label
   $incompletePath = $Authority.Path
@@ -704,6 +775,7 @@ function Publish-RollbackDirectoryAuthority {
   try {
     Flush-RollbackHandle -Handle $Authority.Handle -Label $Authority.Label
     Flush-RollbackHandle -Handle $Authority.ParentDirectoryHandle -Label "$($Authority.Label) parent directory"
+    Assert-RollbackPathIdentity -Path $Authority.ParentDirectoryPath -ExpectedIdentity $parentHandleIdentity -Label "$($Authority.Label) parent directory" | Out-Null
     Assert-RollbackPathIdentity -Path $Authority.Path -ExpectedIdentity $Authority.Identity -Label $Authority.Label | Out-Null
   } catch {
     $primaryError = $_
@@ -730,8 +802,9 @@ function Open-RollbackDirectoryIdentityLock {
   $handle = $null
   try {
     $fullPath = [System.IO.Path]::GetFullPath($Path)
-    $item = Get-Item -LiteralPath $fullPath -Force
-    if (-not $item.PSIsContainer -or (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+    $information = Get-RollbackPathInformation -Path $fullPath -Label $Label
+    if ((($information.Attributes -band [System.IO.FileAttributes]::Directory) -eq 0) -or
+        (($information.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
       throw "$Label must be a real non-reparse directory: $fullPath"
     }
     Initialize-RollbackPathNative
@@ -742,7 +815,7 @@ function Open-RollbackDirectoryIdentityLock {
     $backupSemantics = [uint32]0x02000000
     $openReparsePoint = [uint32]0x00200000
     $handle = [LocalMiniDrama.Rollback.NativeMethods]::CreateFileW(
-      $fullPath,
+      [LocalMiniDrama.Rollback.NativeMethods]::ToExtendedPath($fullPath),
       $fileListDirectory,
       $fileShareReadWrite,
       [IntPtr]::Zero,

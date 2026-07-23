@@ -638,7 +638,7 @@ function Invoke-ReleaseRollbackCheckpointRestore {
 param([Parameter(Mandatory = $true)][string]$CheckpointDirectory)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$checkpointIdentityLock = $null
+$checkpointDirectoryAuthority = $null
 $configDirectoryIdentityLock = $null
 $metadataAuthority = $null
 $backupAuthority = $null
@@ -649,15 +649,19 @@ $dataBindSourceAuthority = $null
 $imageArchiveAuthority = $null
 $summaryAuthority = $null
 $rootIdentityLock = $null
-$compensationDirectoryLock = $null
+$compensationDirectoryAuthority = $null
 $compensationBackupAuthority = $null
+$compensationDataBindSourceAuthority = $null
+$compensationHashAuthority = $null
+$compensationMetadataAuthority = $null
+$compensationReadyMarkerAuthority = $null
 $locationPushed = $false
 $primaryError = $null
 $cleanupErrors = [System.Collections.ArrayList]::new()
 try {
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $checkpoint = Assert-RealDirectory -Path $CheckpointDirectory -Label 'Rollback checkpoint'
-$checkpointIdentityLock = Open-RollbackDirectoryIdentityLock -Path $checkpoint -Label 'Rollback checkpoint'
+$checkpointDirectoryAuthority = Open-RollbackWritableDirectoryAuthority -Path $checkpoint -Label 'Rollback checkpoint'
 $configDirectory = Join-Path $checkpoint 'configs'
 $metadataPath = Join-Path $checkpoint 'metadata.json'
 $backupPath = Join-Path $checkpoint 'data.zip'
@@ -767,19 +771,15 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'tag', $currentFrontend.image_id, "localminidrama-frontend:$forwardTag") -Label 'Current frontend compensation tag' | Out-Null
 
   Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before compensation publication'
-  $compensationRoot = Join-Path $checkpoint ("compensation-" + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + "-" + [Guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $compensationRoot | Out-Null
-  $compensationDirectoryLock = Open-RollbackDirectoryIdentityLock -Path $compensationRoot -Label 'Rollback compensation directory'
-  $probePath = Join-Path $compensationRoot '.write-probe'
-  Write-Utf8File -Path $probePath -Value "probe`n"
-  Remove-Item -LiteralPath $probePath
-  $compensationDataBindSourcePath = Join-Path $compensationRoot 'data-bind-source.txt'
-  Assert-RollbackFileAuthority -Authority $dataBindSourceAuthority | Out-Null
-  Copy-Item -LiteralPath $dataBindSourcePath -Destination $compensationDataBindSourcePath
-  Assert-RegularFile -Path $compensationDataBindSourcePath
-  Assert-FileHash -Path $compensationDataBindSourcePath -Expected $metadata.data_bind_source_sha256 -Label 'Compensation data bind source'
-
-  $compensationBackup = Join-Path $compensationRoot 'data.zip'
+  $bundleId = [Guid]::NewGuid().ToString('N')
+  $bundleTimestamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
+  $compensationIncompleteRoot = Join-Path $checkpoint ("compensation-incomplete-$bundleTimestamp-$bundleId")
+  $compensationReadyMarkerPath = Join-Path $checkpoint ("compensation-ready-$bundleTimestamp-$bundleId.json")
+  New-Item -ItemType Directory -Path $compensationIncompleteRoot | Out-Null
+  $compensationDirectoryAuthority = Open-RollbackWritableDirectoryAuthority -Path $compensationIncompleteRoot -Label 'Rollback compensation directory' -ParentDirectoryAuthority $checkpointDirectoryAuthority
+  $compensationRoot = $compensationIncompleteRoot
+  $compensationDataBindSourcePath = Join-Path $compensationIncompleteRoot 'data-bind-source.txt'
+  $compensationBackup = Join-Path $compensationIncompleteRoot 'data.zip'
   $compensationHash = $null
   $preRollbackError = $null
   try {
@@ -790,25 +790,58 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
     Set-RuntimeConfigEnvironment -ConfigDirectory $forwardConfigDirectory -ConfigPath $forwardConfigPath
     Set-DataSourceEnvironment -DataDirectory $forwardDataDirectory
     Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before compensation backup'
-    Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'backup:data', '--', '--output', $compensationBackup, '--data-root', $forwardDataDirectory) -Label 'Pre-rollback compensation backup' | Out-Null
-    $compensationBackupAuthority = Open-RollbackFileAuthority -Path $compensationBackup -Label 'Pre-rollback compensation backup'
+    $descriptorBackup = Invoke-RollbackDescriptorBackup -DestinationPath $compensationBackup -DataDirectory $forwardDataDirectory -RepositoryRoot $repoRoot -Label 'Pre-rollback compensation backup' -ParentDirectoryAuthority $compensationDirectoryAuthority
+    $compensationBackupAuthority = $descriptorBackup.Authority
     $compensationHash = Get-RollbackFileAuthoritySha256 -Authority $compensationBackupAuthority
-    Write-Utf8File -Path (Join-Path $compensationRoot 'data.sha256.txt') -Value "$compensationHash`n"
+    if ($compensationHash -cne $descriptorBackup.ArchiveSha256) {
+      throw 'Pre-rollback compensation archive differs from its descriptor publication result.'
+    }
+
+    Assert-RollbackFileAuthority -Authority $dataBindSourceAuthority | Out-Null
+    $compensationDataBindSourceAuthority = Publish-RollbackUtf8FileAtomically -Path $compensationDataBindSourcePath -Value $recordedDataBindSourceText -Label 'Rollback compensation data bind source' -ParentDirectoryAuthority $compensationDirectoryAuthority
+    $compensationDataBindSourceHash = Get-RollbackFileAuthoritySha256 -Authority $compensationDataBindSourceAuthority
+    if ($compensationDataBindSourceHash -cne $metadata.data_bind_source_sha256) {
+      throw 'Compensation data bind source differs from the retained checkpoint record.'
+    }
+
+    $compensationHashPath = Join-Path $compensationIncompleteRoot 'data.sha256.txt'
+    $compensationHashAuthority = Publish-RollbackUtf8FileAtomically -Path $compensationHashPath -Value "$compensationHash`n" -Label 'Rollback compensation data hash' -ParentDirectoryAuthority $compensationDirectoryAuthority
     $compensationMetadata = [ordered]@{
-      schema = 'localminidrama.rollback-compensation.v2'
+      schema = 'localminidrama.rollback-compensation.v3'
+      bundle_id = $bundleId
       created_at = [DateTime]::UtcNow.ToString('o')
       forward_revision = $currentBackend.revision
       backup_file = 'data.zip'
       backup_sha256 = $compensationHash
+      backup_bytes = $descriptorBackup.ArchiveBytes
+      backup_filesystem_identity = $descriptorBackup.FilesystemIdentity
       data_bind_type = 'bind'
       data_bind_destination = '/app/data'
       data_bind_read_write = $true
       data_bind_source = $forwardDataDirectory
       data_bind_source_file = 'data-bind-source.txt'
-      data_bind_source_sha256 = $metadata.data_bind_source_sha256
+      data_bind_source_sha256 = $compensationDataBindSourceHash
       credentials_excluded = $true
     }
-    Write-Utf8File -Path (Join-Path $compensationRoot 'metadata.json') -Value "$(ConvertTo-Json $compensationMetadata -Depth 4)`n"
+    $compensationMetadataPath = Join-Path $compensationIncompleteRoot 'metadata.json'
+    $compensationMetadataAuthority = Publish-RollbackUtf8FileAtomically -Path $compensationMetadataPath -Value "$(ConvertTo-Json $compensationMetadata -Depth 4)`n" -Label 'Rollback compensation metadata' -ParentDirectoryAuthority $compensationDirectoryAuthority
+
+    Assert-RollbackFileAuthority -Authority $compensationBackupAuthority | Out-Null
+    Assert-RollbackFileAuthority -Authority $compensationDataBindSourceAuthority | Out-Null
+    Assert-RollbackFileAuthority -Authority $compensationHashAuthority | Out-Null
+    Assert-RollbackFileAuthority -Authority $compensationMetadataAuthority | Out-Null
+    Flush-RollbackHandle -Handle $compensationDirectoryAuthority.Handle -Label 'Rollback compensation incomplete directory'
+    $compensationMetadataHash = Get-RollbackFileAuthoritySha256 -Authority $compensationMetadataAuthority
+    $compensationReadyMarker = [ordered]@{
+      schema = 'localminidrama.rollback-compensation-ready.v1'
+      bundle_id = $bundleId
+      created_at = [DateTime]::UtcNow.ToString('o')
+      payload_directory = [System.IO.Path]::GetFileName($compensationIncompleteRoot)
+      payload_directory_identity = $compensationDirectoryAuthority.Identity
+      metadata_file = 'metadata.json'
+      metadata_sha256 = $compensationMetadataHash
+    }
+    $compensationReadyMarkerAuthority = Publish-RollbackUtf8FileAtomically -Path $compensationReadyMarkerPath -Value "$(ConvertTo-Json $compensationReadyMarker -Depth 3)`n" -Label 'Rollback compensation ready marker' -ParentDirectoryAuthority $checkpointDirectoryAuthority -RemoveOnPublicationFailure
 
     Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
     Set-RuntimeConfigEnvironment -ConfigDirectory $configDirectory -ConfigPath $configPath
@@ -816,6 +849,8 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
     Assert-CurrentRollbackRoot -CheckpointDirectory $checkpoint -DataDirectory $forwardDataDirectory -RetainedIdentity $retainedDataRootIdentity -MetadataIdentity $metadata.data_root_identity -Label 'Rollback data root before rollback restore'
     Assert-RollbackFileAuthority -Authority $backupAuthority | Out-Null
     Assert-RollbackFileAuthority -Authority $configAuthority | Out-Null
+    Assert-RollbackFileAuthority -Authority $compensationReadyMarkerAuthority | Out-Null
+    Assert-RollbackFileAuthority -Authority $compensationBackupAuthority | Out-Null
     Invoke-Checked -FilePath 'npm' -ArgumentList @('--prefix', 'backend-node', 'run', 'restore:data', '--', '--input', $backupPath, '--yes', '--data-root', $forwardDataDirectory) -Label 'Rollback data restore' | Out-Null
   } catch {
     $preRollbackError = $_
@@ -943,18 +978,38 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
   }
 
   Write-Output "Rollback started from commit $($metadata.previous_commit) with tag $rollbackTag."
-  Write-Output "Pre-rollback compensation backup retained at $compensationRoot."
+  Write-Output "Pre-rollback compensation backup retained at $compensationRoot with ready marker $compensationReadyMarkerPath."
   Write-Output 'Provider credentials are excluded from the checkpoint and data backups; configure credentials and test again before using AI generation.'
 } catch {
   $primaryError = $_
 } finally {
   try {
-    if ($null -ne $compensationBackupAuthority) { $compensationBackupAuthority.Stream.Dispose() }
+    if ($null -ne $compensationReadyMarkerAuthority) { Close-RollbackFilePublicationAuthority -Authority $compensationReadyMarkerAuthority }
   } catch {
     [void]$cleanupErrors.Add($_)
   }
   try {
-    if ($null -ne $compensationDirectoryLock) { $compensationDirectoryLock.Dispose() }
+    if ($null -ne $compensationMetadataAuthority) { Close-RollbackFilePublicationAuthority -Authority $compensationMetadataAuthority }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $compensationHashAuthority) { Close-RollbackFilePublicationAuthority -Authority $compensationHashAuthority }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $compensationDataBindSourceAuthority) { Close-RollbackFilePublicationAuthority -Authority $compensationDataBindSourceAuthority }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $compensationBackupAuthority) { Close-RollbackFilePublicationAuthority -Authority $compensationBackupAuthority }
+  } catch {
+    [void]$cleanupErrors.Add($_)
+  }
+  try {
+    if ($null -ne $compensationDirectoryAuthority) { Close-RollbackWritableDirectoryAuthority -Authority $compensationDirectoryAuthority }
   } catch {
     [void]$cleanupErrors.Add($_)
   }
@@ -1009,7 +1064,7 @@ $currentFrontend = Get-RunningServiceEvidence -Service 'frontend' -ComposePrefix
     [void]$cleanupErrors.Add($_)
   }
   try {
-    if ($null -ne $checkpointIdentityLock) { $checkpointIdentityLock.Dispose() }
+    if ($null -ne $checkpointDirectoryAuthority) { Close-RollbackWritableDirectoryAuthority -Authority $checkpointDirectoryAuthority }
   } catch {
     [void]$cleanupErrors.Add($_)
   }

@@ -120,7 +120,9 @@ function Close-RollbackWritableDirectoryAuthority {
   $cleanupErrors = [System.Collections.ArrayList]::new()
   try {
     if ($null -ne $Authority.PSObject.Properties['ParentDirectoryHandle'] -and $null -ne $Authority.ParentDirectoryHandle) {
-      $Authority.ParentDirectoryHandle.Dispose()
+      if ($null -eq $Authority.PSObject.Properties['OwnsParentDirectoryHandle'] -or $Authority.OwnsParentDirectoryHandle -eq $true) {
+        $Authority.ParentDirectoryHandle.Dispose()
+      }
     }
   } catch {
     [void]$cleanupErrors.Add($_)
@@ -135,13 +137,58 @@ function Close-RollbackWritableDirectoryAuthority {
   Complete-RollbackInvocation -PrimaryError $null -CleanupErrors $cleanupErrors
 }
 
+function Remove-RollbackFailedFilePublicationAuthority {
+  [CmdletBinding()]
+  param([Parameter(Mandatory = $true)][object]$Authority)
+
+  foreach ($member in @('Path', 'Label', 'Identity', 'Stream', 'ParentDirectoryHandle', 'OwnsParentDirectoryHandle', 'Renamed', 'Published')) {
+    if ($null -eq $Authority.PSObject.Properties[$member]) {
+      throw "Rollback failed publication authority is missing $member."
+    }
+  }
+  if ($Authority.Renamed -ne $true -or $Authority.Published -eq $true) {
+    throw "$($Authority.Label) failed publication cleanup requires a renamed, unpublished authority."
+  }
+
+  $primaryError = $null
+  $cleanupErrors = [System.Collections.ArrayList]::new()
+  $deleteDispositionSet = $false
+  try {
+    Assert-RollbackPathIdentity -Path $Authority.Path -ExpectedIdentity $Authority.Identity -Label "$($Authority.Label) failed publication" | Out-Null
+    Set-RollbackHandleDeleteDisposition -Handle $Authority.Stream.SafeFileHandle -Label $Authority.Label
+    $deleteDispositionSet = $true
+  } catch {
+    $primaryError = $_
+  }
+  try { $Authority.Stream.Dispose() } catch { [void]$cleanupErrors.Add($_) }
+  if ($deleteDispositionSet) {
+    try {
+      $deleteWait = [System.Diagnostics.Stopwatch]::StartNew()
+      while ((Test-RollbackPathExists -Path $Authority.Path) -and $deleteWait.ElapsedMilliseconds -lt 2000) {
+        Start-Sleep -Milliseconds 10
+      }
+      if (Test-RollbackPathExists -Path $Authority.Path) {
+        throw "$($Authority.Label) failed publication did not disappear after handle disposition."
+      }
+    } catch { [void]$cleanupErrors.Add($_) }
+    try {
+      Flush-RollbackHandle -Handle $Authority.ParentDirectoryHandle -Label "$($Authority.Label) failed publication parent directory"
+    } catch { [void]$cleanupErrors.Add($_) }
+  }
+  if ($Authority.OwnsParentDirectoryHandle -eq $true) {
+    try { $Authority.ParentDirectoryHandle.Dispose() } catch { [void]$cleanupErrors.Add($_) }
+  }
+  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
+}
+
 function Publish-RollbackUtf8FileAtomically {
   [CmdletBinding()]
   param(
     [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Value,
     [string]$Label = 'Rollback UTF-8 record',
-    [AllowNull()][object]$ParentDirectoryAuthority = $null
+    [AllowNull()][object]$ParentDirectoryAuthority = $null,
+    [switch]$RemoveOnPublicationFailure
   )
 
   $authority = $null
@@ -158,7 +205,11 @@ function Publish-RollbackUtf8FileAtomically {
     $primaryError = $_
   } finally {
     if ($null -ne $primaryError -and $null -ne $authority) {
-      if ($authority.Renamed -eq $true -or $authority.Published -eq $true) {
+      if ($authority.Published -eq $true) {
+        try { Close-RollbackFilePublicationAuthority -Authority $authority } catch { [void]$cleanupErrors.Add($_) }
+      } elseif ($authority.Renamed -eq $true -and $RemoveOnPublicationFailure) {
+        try { Remove-RollbackFailedFilePublicationAuthority -Authority $authority } catch { [void]$cleanupErrors.Add($_) }
+      } elseif ($authority.Renamed -eq $true) {
         try { Close-RollbackFilePublicationAuthority -Authority $authority } catch { [void]$cleanupErrors.Add($_) }
       } else {
         try { Remove-RollbackUnpublishedFileAuthority -Authority $authority } catch { [void]$cleanupErrors.Add($_) }

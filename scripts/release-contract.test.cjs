@@ -2778,16 +2778,16 @@ $raceRoot = Join-Path ${powerShellLiteral(fixtureRoot)} 'final-object-race'
 $raceRenamed = Join-Path ${powerShellLiteral(fixtureRoot)} 'final-object-race-renamed'
 [System.IO.Directory]::CreateDirectory($raceRoot) | Out-Null
 $script:raceReplacementPerformed = $false
-function Get-Item {
-  param([string]$LiteralPath, [switch]$Force)
-  if (-not $script:raceReplacementPerformed -and $LiteralPath -ceq $raceRoot) {
-    $oldItem = Microsoft.PowerShell.Management\\Get-Item -LiteralPath $LiteralPath -Force:$Force
-    [System.IO.Directory]::Delete($LiteralPath)
-    [System.IO.File]::WriteAllText($LiteralPath, 'replacement file')
+$originalPathInformation = \${function:Get-RollbackPathInformation}
+function Get-RollbackPathInformation {
+  param([string]$Path, [string]$Label = 'Rollback path')
+  $information = & $originalPathInformation @PSBoundParameters
+  if (-not $script:raceReplacementPerformed -and $Path -ceq $raceRoot) {
+    [System.IO.Directory]::Delete($Path)
+    [System.IO.File]::WriteAllText($Path, 'replacement file')
     $script:raceReplacementPerformed = $true
-    return $oldItem
   }
-  return Microsoft.PowerShell.Management\\Get-Item @PSBoundParameters
+  return $information
 }
 $unexpectedRaceLock = $null
 $raceRejected = $false
@@ -2800,7 +2800,7 @@ try {
 } finally {
   if ($null -ne $unexpectedRaceLock) { $unexpectedRaceLock.Dispose() }
 }
-Remove-Item -LiteralPath Function:\\Get-Item
+Set-Item -LiteralPath Function:\\Get-RollbackPathInformation -Value $originalPathInformation
 if (-not $script:raceReplacementPerformed) { throw "Deterministic final-object race did not run: $raceError" }
 [System.IO.File]::Move($raceRoot, $raceRenamed)
 [System.IO.File]::Delete($raceRenamed)
@@ -2937,11 +2937,23 @@ test('rollback handle-bound publication retains identity and never overwrites de
       const conflictingReadyDirectory = path.join(fixtureRoot, 'conflict-ready')
       const preRenameFailurePath = path.join(fixtureRoot, 'pre-rename-failure.txt')
       const postRenameFlushFailurePath = path.join(fixtureRoot, 'post-rename-flush-failure.txt')
+      const postRenameCleanupFailurePath = path.join(fixtureRoot, 'post-rename-cleanup-failure.txt')
       const flushIncompleteDirectory = path.join(fixtureRoot, 'flush-incomplete')
       const flushReadyDirectory = path.join(fixtureRoot, 'flush-ready')
       const borrowedParentDirectory = path.join(fixtureRoot, 'borrowed-parent')
       const unrelatedParentDirectory = path.join(fixtureRoot, 'unrelated-parent')
       const borrowedPublicationPath = path.join(borrowedParentDirectory, 'bound.txt')
+      const borrowedChildDirectory = path.join(borrowedParentDirectory, 'child-directory')
+      const longPublicationDirectory = path.join(
+        fixtureRoot,
+        'long-publication-segment-a'.repeat(2),
+        'long-publication-segment-b'.repeat(2),
+        'long-publication-segment-c'.repeat(2),
+        'long-publication-segment-d'.repeat(2),
+      )
+      const longPublicationPath = path.join(longPublicationDirectory, 'data-bind-source.txt')
+      const retainedChildIncompleteDirectory = path.join(fixtureRoot, 'retained-child-incomplete')
+      const retainedChildReadyDirectory = path.join(fixtureRoot, 'retained-child-ready')
       const existingBytes = Buffer.from('pre-existing destination\n', 'utf8')
       fs.writeFileSync(existingPath, existingBytes)
       fs.mkdirSync(incompleteDirectory)
@@ -2954,6 +2966,10 @@ test('rollback handle-bound publication retains identity and never overwrites de
       fs.writeFileSync(path.join(flushIncompleteDirectory, 'retained.txt'), 'retained incomplete bytes')
       fs.mkdirSync(borrowedParentDirectory)
       fs.mkdirSync(unrelatedParentDirectory)
+      fs.mkdirSync(borrowedChildDirectory)
+      fs.mkdirSync(longPublicationDirectory, { recursive: true })
+      assert.ok(longPublicationPath.length > 260, 'long-path publication fixture did not exceed MAX_PATH')
+      fs.mkdirSync(retainedChildIncompleteDirectory)
 
       const statements = `
 . ${powerShellLiteral(rollbackIdentityScriptPath)}
@@ -3000,6 +3016,15 @@ try {
   Assert-NodeMutationBlocked -Operation 'rename' -Source $published.Path -Target ${powerShellLiteral(renamedProbePath)}
 } finally { Close-TestPublicationAuthority -Authority $published }
 
+$longPublication = $null
+try {
+  $longPublication = Publish-RollbackUtf8FileAtomically -Path ${powerShellLiteral(longPublicationPath)} -Value 'long path bytes' -Label 'Long-path UTF-8 fixture'
+  Assert-RollbackFileAuthority -Authority $longPublication | Out-Null
+  if ((Read-RollbackFileAuthorityUtf8 -Authority $longPublication) -cne 'long path bytes') {
+    throw 'Long-path publication bytes changed.'
+  }
+} finally { Close-TestPublicationAuthority -Authority $longPublication }
+
 $unpublished = New-RollbackFilePublicationAuthority -Path ${powerShellLiteral(unpublishedPath)} -Label 'Unpublished fixture'
 $temporaryPath = $unpublished.TemporaryPath
 try {
@@ -3035,6 +3060,14 @@ try {
       @([System.IO.Directory]::GetFiles(${powerShellLiteral(borrowedParentDirectory)}, '*.localminidrama-publish-*.tmp')).Count -ne 0) {
     throw 'Rejected borrowed parent authority leaked a publication file.'
   }
+  $borrowedChild = Open-RollbackWritableDirectoryAuthority -Path ${powerShellLiteral(borrowedChildDirectory)} -Label 'Borrowed child directory fixture' -ParentDirectoryAuthority $borrowedParent
+  try {
+    if ($borrowedChild.OwnsParentDirectoryHandle -ne $false) { throw 'Borrowed child directory claimed ownership of its parent handle.' }
+    if ($borrowedChild.ParentDirectoryHandle -ne $borrowedParent.Handle) { throw 'Borrowed child directory did not retain the supplied parent handle.' }
+  } finally {
+    Close-RollbackWritableDirectoryAuthority -Authority $borrowedChild
+  }
+  if ($borrowedParent.Handle.IsClosed -or $borrowedParent.Handle.IsInvalid) { throw 'Closing a borrowed child directory closed its parent authority.' }
 } finally {
   if ($null -ne $unrelatedParentHandle) { $unrelatedParentHandle.Dispose() }
   if ($null -ne $borrowedParent) { Close-RollbackWritableDirectoryAuthority -Authority $borrowedParent }
@@ -3052,7 +3085,29 @@ try {
   }
   if ([System.IO.File]::ReadAllText((Join-Path ${powerShellLiteral(readyDirectory)} 'child.txt')) -cne 'child bytes') { throw 'Directory child bytes changed.' }
   Assert-NodeMutationBlocked -Operation 'rename' -Source ${powerShellLiteral(readyDirectory)} -Target ${powerShellLiteral(incompleteDirectory)}
-} finally { Close-TestPublicationAuthority -Authority $directoryAuthority }
+} finally {
+  Close-TestPublicationAuthority -Authority $directoryAuthority
+}
+
+$retainedChildDirectoryAuthority = $null
+$retainedChildAuthority = $null
+try {
+  $retainedChildDirectoryAuthority = Open-RollbackWritableDirectoryAuthority -Path ${powerShellLiteral(retainedChildIncompleteDirectory)} -Label 'Retained child directory fixture'
+  $retainedChildAuthority = Publish-RollbackUtf8FileAtomically -Path (Join-Path ${powerShellLiteral(retainedChildIncompleteDirectory)} 'child.txt') -Value 'retained child bytes' -Label 'Retained child fixture' -ParentDirectoryAuthority $retainedChildDirectoryAuthority
+  $parentRenameRejected = $false
+  try {
+    Publish-RollbackDirectoryAuthority -Authority $retainedChildDirectoryAuthority -Path ${powerShellLiteral(retainedChildReadyDirectory)} | Out-Null
+  } catch { $parentRenameRejected = $true }
+  if (-not $parentRenameRejected) { throw 'Windows unexpectedly renamed a directory containing a retained child authority.' }
+  if (-not [System.IO.Directory]::Exists(${powerShellLiteral(retainedChildIncompleteDirectory)}) -or
+      [System.IO.Directory]::Exists(${powerShellLiteral(retainedChildReadyDirectory)})) {
+    throw 'Rejected retained-child directory rename did not preserve the incomplete directory.'
+  }
+  Assert-RollbackFileAuthority -Authority $retainedChildAuthority | Out-Null
+} finally {
+  Close-TestPublicationAuthority -Authority $retainedChildAuthority
+  Close-TestPublicationAuthority -Authority $retainedChildDirectoryAuthority
+}
 
 $conflictAuthority = $null
 try {
@@ -3094,6 +3149,11 @@ try {
     Publish-RollbackUtf8FileAtomically -Path ${powerShellLiteral(postRenameFlushFailurePath)} -Value 'retained after failed flush' -Label 'Post-rename flush fixture' | Out-Null
   } catch { $postRenameRejected = $true }
   if (-not $postRenameRejected) { throw 'Injected post-rename flush failure was accepted.' }
+  $postRenameCleanupRejected = $false
+  try {
+    Publish-RollbackUtf8FileAtomically -Path ${powerShellLiteral(postRenameCleanupFailurePath)} -Value 'removed after failed flush' -Label 'Post-rename cleanup fixture' -RemoveOnPublicationFailure | Out-Null
+  } catch { $postRenameCleanupRejected = $true }
+  if (-not $postRenameCleanupRejected) { throw 'Injected post-rename cleanup failure was accepted.' }
 } finally {
   Set-Item -LiteralPath Function:Flush-RollbackHandle -Value $originalFlush
 }
@@ -3102,6 +3162,9 @@ if (-not [System.IO.File]::Exists(${powerShellLiteral(postRenameFlushFailurePath
 }
 if ([System.IO.File]::ReadAllText(${powerShellLiteral(postRenameFlushFailurePath)}) -cne 'retained after failed flush') {
   throw 'Post-rename flush failure changed retained bytes.'
+}
+if (Test-RollbackPathExists -Path ${powerShellLiteral(postRenameCleanupFailurePath)}) {
+  throw 'Post-rename commit-marker failure retained an ambiguous final path.'
 }
 
 $flushAuthority = $null
@@ -3528,7 +3591,7 @@ if ($directoryCleanupErrors.Count -ne 2 -or
 test('rollback restore reasserts backup and config authorities at the archived Node boundary', () => {
   assert.match(
     rollbackRestoreScript,
-    /Assert-RollbackFileAuthority -Authority \$backupAuthority \| Out-Null\r?\n\s*Assert-RollbackFileAuthority -Authority \$configAuthority \| Out-Null\r?\n\s*Invoke-Checked -FilePath 'npm'[^\r\n]*'restore:data'[^\r\n]*\$backupPath/,
+    /Assert-RollbackFileAuthority -Authority \$backupAuthority \| Out-Null\r?\n\s*Assert-RollbackFileAuthority -Authority \$configAuthority \| Out-Null\r?\n\s*Assert-RollbackFileAuthority -Authority \$compensationReadyMarkerAuthority \| Out-Null\r?\n\s*Assert-RollbackFileAuthority -Authority \$compensationBackupAuthority \| Out-Null\r?\n\s*Invoke-Checked -FilePath 'npm'[^\r\n]*'restore:data'[^\r\n]*\$backupPath/,
   )
 })
 
@@ -3615,7 +3678,7 @@ test('release rollback checkpoint and restore consume shared native-lock v5 inte
   assert.doesNotMatch(rollbackRestoreScript, /localminidrama\.release-rollback-checkpoint\.v4/)
   assert.match(
     rollbackRestoreScript,
-    /Open-RollbackDirectoryIdentityLock -Path \$checkpoint -Label 'Rollback checkpoint'[\s\S]*Open-RollbackDirectoryIdentityLock -Path \$configDirectory -Label 'Rollback checkpoint config directory'[\s\S]*Open-RollbackFileAuthority -Path \$metadataPath[\s\S]*Open-RollbackFileAuthority -Path \$backupPath[\s\S]*Open-RollbackFileAuthority -Path \$hashPath[\s\S]*Open-RollbackFileAuthority -Path \$composePath[\s\S]*Open-RollbackFileAuthority -Path \$configPath[\s\S]*Open-RollbackFileAuthority -Path \$dataBindSourcePath[\s\S]*Open-RollbackFileAuthority -Path \$imageArchivePath[\s\S]*Open-RollbackFileAuthority -Path \$summaryPath[\s\S]*Read-RollbackFileAuthorityUtf8/,
+    /Open-RollbackWritableDirectoryAuthority -Path \$checkpoint -Label 'Rollback checkpoint'[\s\S]*Open-RollbackDirectoryIdentityLock -Path \$configDirectory -Label 'Rollback checkpoint config directory'[\s\S]*Open-RollbackFileAuthority -Path \$metadataPath[\s\S]*Open-RollbackFileAuthority -Path \$backupPath[\s\S]*Open-RollbackFileAuthority -Path \$hashPath[\s\S]*Open-RollbackFileAuthority -Path \$composePath[\s\S]*Open-RollbackFileAuthority -Path \$configPath[\s\S]*Open-RollbackFileAuthority -Path \$dataBindSourcePath[\s\S]*Open-RollbackFileAuthority -Path \$imageArchivePath[\s\S]*Open-RollbackFileAuthority -Path \$summaryPath[\s\S]*Read-RollbackFileAuthorityUtf8/,
   )
 })
 
@@ -4004,6 +4067,7 @@ $requestedCheckpointDirectory = $CheckpointDirectory
 $script:OriginalInvokeChecked = \${function:Invoke-Checked}
 $script:OriginalInvokeNativeCommandWithTimeout = \${function:Invoke-NativeCommandWithTimeout}
 $script:OriginalStopNativeProcessTreeBounded = \${function:Stop-NativeProcessTreeBounded}
+$script:OriginalPublishRollbackUtf8FileAtomically = \${function:Publish-RollbackUtf8FileAtomically}
 $script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
 $script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
 $script:LastProofError = $null
@@ -4077,6 +4141,32 @@ function Invoke-NativeCommandWithTimeout {
   } catch {
     $script:LastProofError = $_
     throw
+  }
+}
+
+function Invoke-RollbackDescriptorBackup {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)][string]$DestinationPath,
+    [Parameter(Mandatory = $true)][string]$DataDirectory,
+    [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+    [Parameter(Mandatory = $true)][string]$Label,
+    [string]$NodeExecutable = '',
+    [AllowNull()][object]$ParentDirectoryAuthority = $null,
+    [ValidateRange(1000, 3600000)][int]$TimeoutMilliseconds = 900000
+  )
+  $markerNames = @(
+    [System.IO.Directory]::GetFiles($DataDirectory, '.localminidrama-bind-proof-*') |
+      ForEach-Object { [System.IO.Path]::GetFileName($_) }
+  )
+  Write-BindEvent -Name 'backup' -Details @{ markers = @($markerNames) }
+  $authority = & $script:OriginalPublishRollbackUtf8FileAtomically -Path $DestinationPath -Value 'fake retained rollback archive' -Label $Label -ParentDirectoryAuthority $ParentDirectoryAuthority
+  $hash = Get-RollbackFileAuthoritySha256 -Authority $authority
+  return [pscustomobject][ordered]@{
+    Authority = $authority
+    ArchiveSha256 = $hash
+    ArchiveBytes = [long]$authority.Stream.Length
+    FilesystemIdentity = $authority.Identity
   }
 }
 
@@ -4239,6 +4329,7 @@ try {
         LMD_MARKER_CLEANUP_FAILURE: String(cleanupFailure),
         LMD_NATIVE_DOCKER_NODE: process.execPath,
         LMD_NATIVE_DOCKER_TOOL: fakeToolPath,
+        LMD_NODE_EXE: process.execPath,
         LMD_REPLACE_DATA_AFTER_PROOF: String(scenario === 'replace_identity_after_proof'),
         LMD_TEST_NATIVE_TIMEOUT_MS: String(nativeTimeout),
         LMD_TEST_TERMINATION_HELPER_ERROR: String(scenario === 'termination_helper_error'),
@@ -5728,14 +5819,20 @@ requireBlocked('archive write', () => fs.writeFileSync(archivePath, 'mutated'))
 requireBlocked('archive delete', () => fs.unlinkSync(archivePath))
 requireBlocked('archive rename', () => fs.renameSync(archivePath, archivePath + '.renamed'))
 fs.readFileSync(archivePath)
-const compensationDirectories = fs.readdirSync(checkpointPath)
-  .filter((entry) => entry.startsWith('compensation-'))
+const compensationEntries = fs.readdirSync(checkpointPath, { withFileTypes: true })
+const compensationDirectories = compensationEntries
+  .filter((entry) => entry.isDirectory() && entry.name.startsWith('compensation-incomplete-'))
+  .map((entry) => entry.name)
 if (compensationDirectories.length > 1) fail('multiple compensation directories were published')
 if (compensationDirectories.length === 1) {
   const compensationName = compensationDirectories[0]
   const compensationDirectory = path.join(checkpointPath, compensationName)
   probeCompensation(path.join(compensationDirectory, 'data.zip'), compensationDirectory, stage)
 }
+const compensationReadyMarkers = compensationEntries
+  .filter((entry) => entry.isFile() && /^compensation-ready-\d{8}T\d{6}Z-[a-f0-9]{32}\.json$/.test(entry.name))
+  .map((entry) => entry.name)
+if (compensationReadyMarkers.length > 1) fail('multiple compensation ready markers were published')
 requireBlocked('root rename', () => fs.renameSync(dataRoot, dataRoot + '.renamed'))
 requireBlocked('root delete', () => fs.rmdirSync(dataRoot))
 const child = path.join(dataRoot, 'lock-probe-child.txt')
@@ -5761,6 +5858,9 @@ $script:OriginalOpenRollbackFileAuthority = \${function:Open-RollbackFileAuthori
 $script:OriginalOpenRollbackDirectoryIdentityLock = \${function:Open-RollbackDirectoryIdentityLock}
 $script:OriginalAssertRollbackFileAuthority = \${function:Assert-RollbackFileAuthority}
 $script:OriginalAssertRollbackFileAuthorityHash = \${function:Assert-RollbackFileAuthorityHash}
+$script:OriginalOpenRollbackWritableDirectoryAuthority = \${function:Open-RollbackWritableDirectoryAuthority}
+$script:OriginalPublishRollbackUtf8FileAtomically = \${function:Publish-RollbackUtf8FileAtomically}
+$script:OriginalFlushRollbackHandle = \${function:Flush-RollbackHandle}
 $script:OriginalClearDataSourceEnvironment = \${function:Clear-DataSourceEnvironment}
 $script:OriginalClearRuntimeConfigEnvironment = \${function:Clear-RuntimeConfigEnvironment}
 $script:EvidenceValidated = $false
@@ -5768,6 +5868,7 @@ $script:AuthorityAssertionOrder = 0
 $script:AuthoritiesSinceBoundary = [System.Collections.ArrayList]::new()
 $script:LastAuthorityAssertion = $null
 $script:PendingRecoveryLabel = $null
+$script:InjectedFlushFailure = $false
 
 function Write-TestEvent {
   param([string]$Name)
@@ -5778,6 +5879,180 @@ function Write-TestRecord {
   param([Parameter(Mandatory = $true)][object]$Record)
   $line = ConvertTo-Json -Compress -Depth 4 -InputObject $Record
   [System.IO.File]::AppendAllText($env:LMD_EVENT_LOG, $line + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+}
+function Open-RollbackWritableDirectoryAuthority {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Label,
+    [AllowNull()][object]$ParentDirectoryAuthority = $null
+  )
+  $authority = & $script:OriginalOpenRollbackWritableDirectoryAuthority @PSBoundParameters
+  if ($Label -ceq 'Rollback compensation directory') {
+    Write-TestRecord -Record ([ordered]@{
+      event = 'compensation-directory-lock-opened'
+      path = [string]$authority.Path
+      identity = [string]$authority.Identity
+      driver = 'restore'
+    })
+  }
+  return $authority
+}
+function Flush-RollbackHandle {
+  param(
+    [Parameter(Mandatory = $true)][Microsoft.Win32.SafeHandles.SafeFileHandle]$Handle,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $faultLabel = switch ($env:LMD_FAKE_MODE) {
+    'compensation-metadata-flush-failure' { 'Rollback compensation metadata parent directory' }
+    'compensation-directory-flush-failure' { 'Rollback compensation incomplete directory' }
+    'compensation-ready-flush-failure' { 'Rollback compensation ready marker parent directory' }
+    default { $null }
+  }
+  if (-not $script:InjectedFlushFailure -and $null -ne $faultLabel -and $Label -ceq $faultLabel) {
+    $script:InjectedFlushFailure = $true
+    Write-TestEvent -Name ('injected-flush-failure:' + $Label)
+    throw "Injected flush failure: $Label"
+  }
+  & $script:OriginalFlushRollbackHandle @PSBoundParameters
+}
+function Publish-RollbackUtf8FileAtomically {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Value,
+    [string]$Label = 'Rollback UTF-8 record',
+    [AllowNull()][object]$ParentDirectoryAuthority = $null,
+    [switch]$RemoveOnPublicationFailure
+  )
+  $conflict =
+    ($env:LMD_FAKE_MODE -ceq 'compensation-metadata-conflict' -and $Label -ceq 'Rollback compensation metadata') -or
+    ($env:LMD_FAKE_MODE -ceq 'compensation-ready-conflict' -and $Label -ceq 'Rollback compensation ready marker')
+  if ($conflict) {
+    $conflictBytes = [System.Text.UTF8Encoding]::new($false).GetBytes('conflicting object retained')
+    [System.IO.File]::WriteAllBytes($Path, $conflictBytes)
+    Write-TestRecord -Record ([ordered]@{
+      event = 'compensation-conflict-created'
+      label = $Label
+      path = [System.IO.Path]::GetFullPath($Path)
+      bytes_base64 = [Convert]::ToBase64String($conflictBytes)
+      driver = 'restore'
+    })
+  }
+  if ($Label -like 'Rollback compensation *') {
+    $parentPath = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($Path))
+    Write-TestRecord -Record ([ordered]@{
+      event = 'compensation-publication-boundary'
+      label = $Label
+      path = [System.IO.Path]::GetFullPath($Path)
+      parent_path = $parentPath
+      parent_exists = [System.IO.Directory]::Exists($parentPath)
+      authority_path = if ($null -ne $ParentDirectoryAuthority) { [string]$ParentDirectoryAuthority.Path } else { $null }
+      authority_identity = if ($null -ne $ParentDirectoryAuthority) { [string]$ParentDirectoryAuthority.Identity } else { $null }
+      driver = 'restore'
+    })
+  }
+  try {
+    $authority = & $script:OriginalPublishRollbackUtf8FileAtomically @PSBoundParameters
+  } catch {
+    Write-TestRecord -Record ([ordered]@{
+      event = 'compensation-publisher-failure'
+      label = $Label
+      path = [System.IO.Path]::GetFullPath($Path)
+      detail = $_.Exception.ToString()
+      native_error_code = if ($null -ne $_.Exception.PSObject.Properties['NativeErrorCode']) { $_.Exception.NativeErrorCode } else { $null }
+      driver = 'restore'
+    })
+    throw
+  }
+  $event = switch ($Label) {
+    'Rollback compensation data bind source' { 'publication:source' }
+    'Rollback compensation data hash' { 'publication:hash' }
+    'Rollback compensation metadata' { 'publication:metadata' }
+    'Rollback compensation ready marker' { 'publication:ready' }
+    default { $null }
+  }
+  if ($null -ne $event) {
+    if ($Label -ceq 'Rollback compensation data bind source') {
+      $actualText = Read-RollbackFileAuthorityUtf8 -Authority $authority
+      $actualBytes = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false, $true).GetBytes($actualText))
+      if ($actualBytes -cne $env:LMD_EXPECTED_BIND_SOURCE_BASE64) {
+        throw 'Compensation data bind source publication bytes do not match the retained checkpoint record.'
+      }
+      Write-TestEvent -Name 'consumer:bind-source-copy'
+      Record-ProductionAuthorityBoundary -Label 'Compensation data bind source copy'
+    }
+    Write-TestRecord -Record ([ordered]@{
+      event = $event
+      label = $Label
+      path = [string]$authority.Path
+      identity = [string]$authority.Identity
+      driver = 'restore'
+    })
+  }
+  return $authority
+}
+function Invoke-RollbackDescriptorBackup {
+  param(
+    [Parameter(Mandatory = $true)][string]$DestinationPath,
+    [Parameter(Mandatory = $true)][string]$DataDirectory,
+    [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+    [Parameter(Mandatory = $true)][string]$Label,
+    [string]$NodeExecutable = '',
+    [AllowNull()][object]$ParentDirectoryAuthority = $null,
+    [ValidateRange(1000, 3600000)][int]$TimeoutMilliseconds = 900000
+  )
+  Write-TestRecord -Record ([ordered]@{
+    event = 'compensation-authority-attempt'
+    path = [System.IO.Path]::GetFullPath($DestinationPath)
+    driver = 'restore'
+  })
+  Write-TestEvent -Name $Label
+  Assert-TestLocks -Stage $Label
+  if ($env:LMD_FAKE_MODE -ceq 'compensation-backup-failure') {
+    throw 'Pre-rollback compensation backup failed: injected descriptor failure.'
+  }
+  if ($env:LMD_FAKE_MODE -ceq 'compensation-authority-invalid') {
+    [System.IO.Directory]::CreateDirectory($DestinationPath) | Out-Null
+  }
+  $authority = $null
+  $primaryError = $null
+  $cleanupErrors = [System.Collections.ArrayList]::new()
+  try {
+    $authority = New-RollbackFilePublicationAuthority -Path $DestinationPath -Label $Label -ParentDirectoryAuthority $ParentDirectoryAuthority
+    $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes('durable compensation bytes')
+    $authority.Stream.Write($bytes, 0, $bytes.Length)
+    $authority.Stream.Flush($true)
+    Publish-RollbackFileAuthority -Authority $authority | Out-Null
+    $archiveHash = Get-RollbackFileAuthoritySha256 -Authority $authority
+    Write-TestRecord -Record ([ordered]@{
+      event = 'compensation-authority-opened'
+      path = [string]$authority.Path
+      identity = [string]$authority.Identity
+      driver = 'restore'
+    })
+    Write-TestRecord -Record ([ordered]@{
+      event = 'publication:zip'
+      path = [string]$authority.Path
+      identity = [string]$authority.Identity
+      driver = 'restore'
+    })
+    return [pscustomobject][ordered]@{
+      Authority = $authority
+      ArchiveSha256 = if ($env:LMD_FAKE_MODE -ceq 'compensation-descriptor-mismatch') { [string]::new('0', 64) } else { $archiveHash }
+      ArchiveBytes = [long]$authority.Stream.Length
+      FilesystemIdentity = [string]$authority.Identity
+    }
+  } catch {
+    $primaryError = $_
+  } finally {
+    if ($null -ne $primaryError -and $null -ne $authority) {
+      if ($authority.Renamed -eq $true -or $authority.Published -eq $true) {
+        try { Close-RollbackFilePublicationAuthority -Authority $authority } catch { [void]$cleanupErrors.Add($_) }
+      } else {
+        try { Remove-RollbackUnpublishedFileAuthority -Authority $authority } catch { [void]$cleanupErrors.Add($_) }
+      }
+    }
+  }
+  Complete-RollbackInvocation -PrimaryError $primaryError -CleanupErrors $cleanupErrors
 }
 function Open-RollbackFileAuthority {
   param(
@@ -5987,6 +6262,7 @@ try {
   $line = ConvertTo-Json -Compress -InputObject ([ordered]@{
     event = 'driver_failure'
     primary_message = $_.Exception.Message
+    primary_detail = $_.Exception.ToString()
     primary_error_id = $_.FullyQualifiedErrorId
     cleanup_errors = @($cleanupDetails)
   })
@@ -6135,8 +6411,28 @@ try {
       ? fs.readFileSync(fixture.eventLog, 'utf8').trim().split(/\r?\n/).filter(Boolean).map(JSON.parse)
       : []
     const eventNames = events.map((entry) => entry.event)
-    const compensationDirectories = fs.readdirSync(fixture.checkpointPath)
-      .filter((entry) => entry.startsWith('compensation-'))
+    const compensationEntries = fs.readdirSync(fixture.checkpointPath, { withFileTypes: true })
+    const compensationDirectories = compensationEntries
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith('compensation-incomplete-'))
+      .map((entry) => entry.name)
+    const compensationReadyMarkers = compensationEntries
+      .filter((entry) => entry.isFile() && /^compensation-ready-\d{8}T\d{6}Z-[a-f0-9]{32}\.json$/.test(entry.name))
+      .map((entry) => {
+        const markerPath = path.join(fixture.checkpointPath, entry.name)
+        const markerBytes = fs.readFileSync(markerPath)
+        let marker = null
+        try { marker = JSON.parse(markerBytes.toString('utf8')) } catch {}
+        const movedMarkerPath = `${markerPath}.released`
+        fs.renameSync(markerPath, movedMarkerPath)
+        fs.renameSync(movedMarkerPath, markerPath)
+        return {
+          bytes: markerBytes,
+          marker,
+          name: entry.name,
+          path: markerPath,
+          releasedAfterExit: true,
+        }
+      })
     const compensationArtifacts = compensationDirectories.map((name) => {
       const directoryPath = path.join(fixture.checkpointPath, name)
       const archivePath = path.join(directoryPath, 'data.zip')
@@ -6145,21 +6441,48 @@ try {
         ? (fs.statSync(archivePath).isFile() ? 'file' : 'other')
         : 'missing'
       const archiveBytes = archiveType === 'file' ? fs.readFileSync(archivePath) : null
-      if (archiveExists) {
-        const movedArchivePath = archivePath + '.released'
-        fs.renameSync(archivePath, movedArchivePath)
-        fs.renameSync(movedArchivePath, archivePath)
+      const readChild = (childName) => {
+        const childPath = path.join(directoryPath, childName)
+        return fs.existsSync(childPath) && fs.statSync(childPath).isFile() ? fs.readFileSync(childPath) : null
       }
+      const bindSourceBytes = readChild('data-bind-source.txt')
+      const hashRecordBytes = readChild('data.sha256.txt')
+      const metadataBytes = readChild('metadata.json')
+      let metadata = null
+      if (metadataBytes) {
+        try { metadata = JSON.parse(metadataBytes.toString('utf8')) } catch {}
+      }
+      const childNames = ['data.zip', 'data-bind-source.txt', 'data.sha256.txt', 'metadata.json']
+      for (const childName of childNames) {
+        const childPath = path.join(directoryPath, childName)
+        if (!fs.existsSync(childPath)) continue
+        const movedChildPath = `${childPath}.released`
+        fs.renameSync(childPath, movedChildPath)
+        fs.renameSync(movedChildPath, childPath)
+      }
+      const identityOf = (targetPath) => {
+        const stat = fs.statSync(targetPath, { bigint: true })
+        return `${BigInt.asUintN(32, stat.dev).toString(16).padStart(8, '0')}:${BigInt.asUintN(64, stat.ino).toString(16).padStart(16, '0')}`
+      }
+      const expectedReadyName = name.replace(/^compensation-incomplete-/, 'compensation-ready-') + '.json'
+      const readyMarker = compensationReadyMarkers.find((entry) => entry.name === expectedReadyName) || null
       const movedDirectoryPath = directoryPath + '.released'
       fs.renameSync(directoryPath, movedDirectoryPath)
       fs.renameSync(movedDirectoryPath, directoryPath)
       return {
         archiveBytes,
+        archiveIdentity: archiveType === 'file' ? identityOf(archivePath) : null,
         archivePath,
         archiveType,
+        bindSourceBytes,
+        directoryIdentity: identityOf(directoryPath),
         directoryPath,
+        hashRecordBytes,
+        metadata,
+        metadataBytes,
         name,
-        nameIsUnpredictable: /^compensation-\d{8}T\d{6}Z-[a-f0-9]{32}$/.test(name),
+        nameIsUnpredictable: /^compensation-incomplete-\d{8}T\d{6}Z-[a-f0-9]{32}$/.test(name),
+        readyMarker,
         releasedAfterExit: true,
       }
     })
@@ -6183,7 +6506,15 @@ try {
     const renamedRoot = `${fixture.dataRoot}.released`
     fs.renameSync(fixture.dataRoot, renamedRoot)
     fs.rmdirSync(renamedRoot)
-    return { compensationArtifacts, compensationDirectories, eventNames, events, fixture, result }
+    return {
+      compensationArtifacts,
+      compensationDirectories,
+      compensationReadyMarkers,
+      eventNames,
+      events,
+      fixture,
+      result,
+    }
   }
 
   const runCompensationProbeFault = (fault) => {
@@ -6336,7 +6667,11 @@ function assertCheckpointPreparationAuthorityBoundaries(run, label, options = {}
       run,
       label,
       'Compensation data bind source copy',
-      ['Archived data bind source'],
+      [
+        'Archived data bind source',
+        'Pre-rollback compensation backup',
+        'Rollback compensation data bind source',
+      ],
     )
   }
   if (options.rollbackRestore) {
@@ -6344,7 +6679,15 @@ function assertCheckpointPreparationAuthorityBoundaries(run, label, options = {}
       run,
       label,
       'Rollback data restore',
-      ['Rollback data backup', 'Archived runtime config', 'Pre-rollback compensation backup'],
+      [
+        'Rollback data backup',
+        'Archived runtime config',
+        'Pre-rollback compensation backup',
+        'Rollback compensation data bind source',
+        'Rollback compensation data hash',
+        'Rollback compensation metadata',
+        'Rollback compensation ready marker',
+      ],
     )
   }
   if (options.rollbackStartup) {
@@ -6598,7 +6941,7 @@ function assertCompensationSharingProbe(run, label, stage, { archivePresent = tr
   assert.equal(record.directory_rename_blocked, true, `${label} allowed compensation directory replacement at ${stage}`)
   assert.match(
     path.basename(record.directory_path),
-    /^compensation-\d{8}T\d{6}Z-[a-f0-9]{32}$/,
+    /^compensation-incomplete-\d{8}T\d{6}Z-[a-f0-9]{32}$/,
     `${label} used a predictable compensation directory name`,
   )
   return record
@@ -6616,6 +6959,59 @@ function assertCompensationPublishedAndReleased(run, label, expectedArchiveType 
   return artifact
 }
 
+function assertReadyCompensationBundle(run, label, artifact) {
+  assert.equal(run.compensationReadyMarkers.length, 1, `${label} did not retain exactly one ready marker`)
+  assert.ok(artifact.metadata, `${label} did not publish valid compensation metadata`)
+  assert.ok(artifact.readyMarker?.marker, `${label} did not publish a valid ready marker`)
+  const metadata = artifact.metadata
+  const ready = artifact.readyMarker.marker
+  const archiveHash = crypto.createHash('sha256').update(artifact.archiveBytes).digest('hex')
+  const metadataHash = crypto.createHash('sha256').update(artifact.metadataBytes).digest('hex')
+  const bindSourceHash = crypto.createHash('sha256').update(artifact.bindSourceBytes).digest('hex')
+  assert.equal(metadata.schema, 'localminidrama.rollback-compensation.v3')
+  assert.match(metadata.bundle_id, /^[a-f0-9]{32}$/)
+  assert.equal(metadata.backup_file, 'data.zip')
+  assert.equal(metadata.backup_sha256, archiveHash)
+  assert.equal(metadata.backup_bytes, artifact.archiveBytes.length)
+  assert.equal(metadata.backup_filesystem_identity, artifact.archiveIdentity)
+  assert.equal(metadata.data_bind_source, run.fixture.dataRoot)
+  assert.equal(metadata.data_bind_source_file, 'data-bind-source.txt')
+  assert.equal(metadata.data_bind_source_sha256, bindSourceHash)
+  assert.equal(artifact.bindSourceBytes.toString('utf8'), `${run.fixture.dataRoot}\n`)
+  assert.equal(artifact.hashRecordBytes.toString('utf8'), `${archiveHash}\n`)
+  assert.equal(ready.schema, 'localminidrama.rollback-compensation-ready.v1')
+  assert.equal(ready.bundle_id, metadata.bundle_id)
+  assert.equal(ready.payload_directory, artifact.name)
+  assert.equal(ready.payload_directory_identity, artifact.directoryIdentity)
+  assert.equal(ready.metadata_file, 'metadata.json')
+  assert.equal(ready.metadata_sha256, metadataHash)
+  assert.equal(artifact.readyMarker.releasedAfterExit, true)
+
+  const requiredOrder = [
+    'publication:zip',
+    'publication:source',
+    'publication:hash',
+    'publication:metadata',
+    'publication:ready',
+    'Rollback data restore',
+  ]
+  let prior = -1
+  for (const event of requiredOrder) {
+    const current = run.eventNames.indexOf(event)
+    assert.ok(current > prior, `${label} did not preserve publication order at ${event}`)
+    prior = current
+  }
+}
+
+function assertCompensationPublicationStoppedBeforeRollback(run, label) {
+  assert.equal(run.eventNames.includes('Rollback data restore'), false, `${label} entered rollback restore`)
+  assert.equal(run.eventNames.includes('consumer:rollback-data-restore'), false, `${label} mutated rollback data`)
+  assert.ok(
+    run.eventNames.includes('recovery-complete:Preparation forward deployment recovery'),
+    `${label} did not complete forward recovery`,
+  )
+}
+
 function assertSingleCompensationAuthority(run, label, artifact) {
   const attempts = run.events.filter((entry) => entry.event === 'compensation-authority-attempt')
   const opened = run.events.filter((entry) => entry.event === 'compensation-authority-opened')
@@ -6626,6 +7022,7 @@ function assertSingleCompensationAuthority(run, label, artifact) {
   assert.equal(attempts[0].path, artifact.archivePath, `${label} acquired authority for the wrong archive path`)
   assert.equal(opened[0].path, artifact.archivePath, `${label} retained authority for the wrong archive path`)
   assert.equal(directoryLocks[0].path, artifact.directoryPath, `${label} locked the wrong compensation directory`)
+  assertReadyCompensationBundle(run, label, artifact)
 }
 
 function assertCompensationRestoreConsumer(run, label, boundary, artifact) {
@@ -6733,11 +7130,32 @@ test('rollback compensation authority retains the published archive across every
       await t.test('successful rollback retains locks through final health and releases them after exit', () => {
         const run = runScenario(host, 'task2-success')
         const label = `${host.name}/success`
-        assert.equal(run.result.status, 0, run.result.stderr || run.result.stdout)
+        const failure = run.events.find((entry) => entry.event === 'driver_failure')
+        const publisherFailure = run.events.find((entry) => entry.event === 'compensation-publisher-failure')
+        const publicationBoundaries = run.events.filter((entry) => entry.event === 'compensation-publication-boundary')
+        assert.equal(
+          run.result.status,
+          0,
+          [
+            run.result.stderr,
+            run.result.stdout,
+            JSON.stringify(publicationBoundaries),
+            publisherFailure && JSON.stringify(publisherFailure),
+            failure?.primary_detail,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        )
         assertCompensationSharingProbe(run, label, 'Pre-rollback compensation backup', { archivePresent: false })
         assertCompensationSharingProbe(run, label, 'health:Rollback container startup')
         const artifact = assertCompensationPublishedAndReleased(run, label)
         assertSingleCompensationAuthority(run, label, artifact)
+        assertCheckpointPreparationAuthorityBoundaries(run, label, {
+          rollbackRestore: true,
+          rollbackStartup: true,
+          rollbackBackendLookup: true,
+        })
+        assert.ok(run.eventNames.includes('consumer:bind-source-copy'))
       })
 
       await t.test('backup creation failure performs forward recovery without archive dereference', () => {
@@ -6749,12 +7167,10 @@ test('rollback compensation authority retains the published archive across every
         assertCompensationSharingProbe(run, label, 'Pre-rollback compensation backup', { archivePresent: false })
         assertCompensationSharingProbe(run, label, 'health:Preparation forward deployment recovery', { archivePresent: false })
         assertCompensationPublishedAndReleased(run, label, 'missing')
-        assert.equal(run.events.filter((entry) => entry.event === 'compensation-authority-attempt').length, 0)
+        assert.equal(run.events.filter((entry) => entry.event === 'compensation-authority-attempt').length, 1)
         assert.equal(run.events.filter((entry) => entry.event === 'compensation-authority-opened').length, 0)
         assert.equal(run.events.filter((entry) => entry.event === 'compensation-directory-lock-opened').length, 1)
-        assert.equal(run.eventNames.includes('Rollback data restore'), false)
-        assert.equal(run.eventNames.includes('consumer:rollback-data-restore'), false)
-        assert.ok(run.eventNames.includes('recovery-complete:Preparation forward deployment recovery'))
+        assertCompensationPublicationStoppedBeforeRollback(run, label)
         const failure = run.events.find((entry) => entry.event === 'driver_failure')
         assert.match(failure.primary_message, /Pre-rollback compensation backup failed/)
         assert.doesNotMatch(failure.primary_message, /null-valued expression|cannot bind.*authority/i)
@@ -6771,12 +7187,65 @@ test('rollback compensation authority retains the published archive across every
         assert.equal(run.events.filter((entry) => entry.event === 'compensation-authority-attempt').length, 1)
         assert.equal(run.events.filter((entry) => entry.event === 'compensation-authority-opened').length, 0)
         assert.equal(run.events.filter((entry) => entry.event === 'compensation-directory-lock-opened').length, 1)
-        assert.equal(run.eventNames.includes('Rollback data restore'), false)
-        assert.equal(run.eventNames.includes('consumer:rollback-data-restore'), false)
-        assert.ok(run.eventNames.includes('recovery-complete:Preparation forward deployment recovery'))
+        assertCompensationPublicationStoppedBeforeRollback(run, label)
         const failure = run.events.find((entry) => entry.event === 'driver_failure')
-        assert.match(failure.primary_message, /Pre-rollback compensation backup.*(?:authority|regular non-reparse file)/i)
+        assert.match(failure.primary_message, /Pre-rollback compensation backup.*(?:authority|overwrite|publication|regular non-reparse file)/i)
       })
+    })
+  }
+})
+
+test('rollback compensation publication failures retain incomplete evidence and recover forward', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Compensation publication failure contracts require Windows')
+    return
+  }
+  assert.equal(process.versions.node.split('.')[0], '20', 'compensation publication contracts must run under Node 20')
+  const hosts = windowsPowerShellHosts()
+  assert.ok(hosts.some((host) => host.name === 'powershell-7'), 'PowerShell 7 is required for compensation coverage')
+  const { runScenario } = createRollbackRestoreHarness(t)
+  const scenarios = [
+    { mode: 'compensation-descriptor-mismatch', readyMarkers: 0 },
+    { mode: 'compensation-metadata-conflict', readyMarkers: 0, conflictLabel: 'Rollback compensation metadata' },
+    { mode: 'compensation-metadata-flush-failure', readyMarkers: 0 },
+    { mode: 'compensation-directory-flush-failure', readyMarkers: 0 },
+    { mode: 'compensation-ready-conflict', readyMarkers: 1, conflictLabel: 'Rollback compensation ready marker' },
+    { mode: 'compensation-ready-flush-failure', readyMarkers: 0 },
+  ]
+
+  for (const host of hosts) {
+    await t.test(host.name, async (t) => {
+      for (const scenario of scenarios) {
+        await t.test(scenario.mode, () => {
+          const run = runScenario(host, `task7-${scenario.mode}`, { fakeMode: scenario.mode })
+          const label = `${host.name}/${scenario.mode}`
+          assert.notEqual(run.result.status, 0, `${label} unexpectedly succeeded`)
+          const artifact = assertCompensationPublishedAndReleased(run, label)
+          assert.equal(
+            run.compensationReadyMarkers.length,
+            scenario.readyMarkers,
+            `${label} retained the wrong ready-marker state`,
+          )
+          assertCompensationPublicationStoppedBeforeRollback(run, label)
+          assert.equal(run.eventNames.includes('publication:ready'), false, `${label} authorized a ready bundle`)
+          const failure = run.events.find((entry) => entry.event === 'driver_failure')
+          assert.ok(failure, `${label} did not preserve the primary failure`)
+
+          if (scenario.conflictLabel) {
+            const conflict = run.events.find((entry) =>
+              entry.event === 'compensation-conflict-created' && entry.label === scenario.conflictLabel)
+            assert.ok(conflict, `${label} did not record the conflicting object`)
+            const retainedBytes = scenario.conflictLabel === 'Rollback compensation metadata'
+              ? artifact.metadataBytes
+              : run.compensationReadyMarkers[0].bytes
+            assert.equal(
+              retainedBytes.toString('base64'),
+              conflict.bytes_base64,
+              `${label} changed the conflicting object's bytes`,
+            )
+          }
+        })
+      }
     })
   }
 })
@@ -6974,9 +7443,14 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     'consumer:rollback-data-restore',
     'consumer:config:npm-restore',
   ]
+  const matrixGroup = String(process.env.LMD_RESTORE_MATRIX_GROUP || 'all')
+  assert.ok(['all', 'validation', 'flows'].includes(matrixGroup), 'restore matrix group must be all, validation, or flows')
+  const runValidationMatrix = matrixGroup === 'all' || matrixGroup === 'validation'
+  const runFlowMatrix = matrixGroup === 'all' || matrixGroup === 'flows'
 
   for (const host of hosts) {
     await t.test(host.name, () => {
+    if (runValidationMatrix) {
     for (const [name, options] of [
       ...dockerTypedScenarios,
       ...gateScenarios,
@@ -6996,7 +7470,9 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
         'consumer:image-load',
       ])
     }
+    }
 
+    if (runFlowMatrix) {
     const success = runScenario(host, 'success')
     assert.equal(success.result.status, 0, success.result.stderr || success.result.stdout)
     assertRestoreAuthorityProbeCoverage(success, `${host.name}/success`)
@@ -7030,10 +7506,14 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     const shutdownFailure = runScenario(host, 'shutdown_failure')
     assert.notEqual(shutdownFailure.result.status, 0)
     assertRestoreAuthorityProbeCoverage(shutdownFailure, `${host.name}/shutdown_failure`)
-    assertCheckpointPreparationAuthorityBoundaries(shutdownFailure, `${host.name}/shutdown_failure`)
+    assertCheckpointPreparationAuthorityBoundaries(shutdownFailure, `${host.name}/shutdown_failure`, { bindSource: false })
     assert.ok(shutdownFailure.eventNames.indexOf('Current Docker shutdown') < shutdownFailure.eventNames.indexOf('Failed rollback preparation shutdown'))
     assert.ok(shutdownFailure.eventNames.includes('Preparation forward deployment recovery'))
-    assertRestoreConsumerEvents(shutdownFailure, `${host.name}/shutdown_failure`, preRestoreConsumers)
+    assertRestoreConsumerEvents(
+      shutdownFailure,
+      `${host.name}/shutdown_failure`,
+      preRestoreConsumers.filter((event) => event !== 'consumer:bind-source-copy'),
+    )
     assertInjectedAuthorityBoundary(shutdownFailure, `${host.name}/shutdown_failure`, 'Current Docker shutdown')
     assertFinalAuthorityProbe(
       shutdownFailure,
@@ -7159,6 +7639,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     const cleanupLocationIndex = cleanupFailure.eventNames.indexOf('cleanup:location')
     assert.ok(cleanupDataIndex >= 0 && cleanupDataIndex < cleanupConfigIndex)
     assert.ok(cleanupConfigIndex < cleanupLocationIndex)
+    }
     })
   }
 })
@@ -7319,18 +7800,19 @@ test('release rollback restore binds every data operation to the inspected sourc
   assert.doesNotMatch(rollbackRestoreScript, /Set-DataSourceEnvironment[^\r\n]*\$metadata\./)
   assert.equal(
     [...rollbackRestoreScript.matchAll(/'--data-root', \$forwardDataDirectory/g)].length,
-    4,
-    'checkpoint restore and all compensation operations must use the inspected data bind source',
+    3,
+    'checkpoint restore and both compensation restores must use the inspected data bind source',
   )
   assert.equal(
-    [...rollbackRestoreScript.matchAll(/Open-RollbackFileAuthority -Path \$compensationBackup -Label 'Pre-rollback compensation backup'/g)].length,
+    [...rollbackRestoreScript.matchAll(/Invoke-RollbackDescriptorBackup[^\r\n]*-DestinationPath \$compensationBackup/g)].length,
     1,
-    'the outer restore invocation must acquire exactly one compensation archive authority',
+    'the outer restore invocation must publish exactly one descriptor-owned compensation archive',
   )
+  assert.doesNotMatch(rollbackRestoreScript, /Invoke-Checked[^\r\n]*backup:data/)
   assert.equal(
     [...rollbackRestoreScript.matchAll(/Assert-RollbackFileAuthority -Authority \$compensationBackupAuthority \| Out-Null/g)].length,
-    2,
-    'both automatic compensation restores must assert the retained archive authority',
+    4,
+    'publication, rollback mutation, and both automatic compensation restores must assert the retained archive authority',
   )
   assert.equal(
     [...rollbackRestoreScript.matchAll(/Assert-RollbackFileAuthorityHash -Authority \$compensationBackupAuthority -Expected \$compensationHash/g)].length,
@@ -7346,40 +7828,75 @@ test('release rollback restore binds every data operation to the inspected sourc
   assert.doesNotMatch(rollbackRestoreScript, /Assert-FileHash -Path \$compensationBackup/)
   assert.match(
     rollbackRestoreScript,
-    /New-Item -ItemType Directory -Path \$compensationRoot \| Out-Null\r?\n\s*\$compensationDirectoryLock = Open-RollbackDirectoryIdentityLock -Path \$compensationRoot -Label 'Rollback compensation directory'/,
+    /New-Item -ItemType Directory -Path \$compensationIncompleteRoot \| Out-Null[\s\S]*Open-RollbackWritableDirectoryAuthority[^\r\n]*-ParentDirectoryAuthority \$checkpointDirectoryAuthority/,
   )
   assert.match(
     rollbackRestoreScript,
-    /\$compensationRoot = Join-Path \$checkpoint \("compensation-" \+ \[DateTime\]::UtcNow\.ToString\('yyyyMMddTHHmmssZ'\) \+ "-" \+ \[Guid\]::NewGuid\(\)\.ToString\('N'\)\)/,
+    /compensation-incomplete-[\s\S]*compensation-ready-/,
   )
   assert.match(
     rollbackRestoreScript,
-    /if \(\$null -ne \$compensationBackupAuthority\) \{ \$compensationBackupAuthority\.Stream\.Dispose\(\) \}[\s\S]*if \(\$null -ne \$compensationDirectoryLock\) \{ \$compensationDirectoryLock\.Dispose\(\) \}/,
+    /Close-RollbackFilePublicationAuthority -Authority \$compensationReadyMarkerAuthority[\s\S]*Close-RollbackFilePublicationAuthority -Authority \$compensationMetadataAuthority[\s\S]*Close-RollbackFilePublicationAuthority -Authority \$compensationHashAuthority[\s\S]*Close-RollbackFilePublicationAuthority -Authority \$compensationDataBindSourceAuthority[\s\S]*Close-RollbackFilePublicationAuthority -Authority \$compensationBackupAuthority[\s\S]*Close-RollbackWritableDirectoryAuthority -Authority \$compensationDirectoryAuthority/,
   )
   assert.match(
     rollbackRestoreScript,
     /function Set-DataSourceEnvironment[\s\S]*LOCALMINIDRAMA_DATA_DIR[\s\S]*Rollback container startup/,
   )
   assert.match(rollbackRestoreScript, /data_bind_source\s*=\s*\$forwardDataDirectory/)
-  assert.match(rollbackRestoreScript, /data_bind_source_sha256\s*=\s*\$metadata\.data_bind_source_sha256/)
+  assert.match(
+    rollbackRestoreScript,
+    /\$compensationDataBindSourceHash\s*=\s*Get-RollbackFileAuthoritySha256 -Authority \$compensationDataBindSourceAuthority/,
+  )
+  assert.match(
+    rollbackRestoreScript,
+    /if \(\$compensationDataBindSourceHash -cne \$metadata\.data_bind_source_sha256\)\s*\{[\s\S]*?throw 'Compensation data bind source differs from the retained checkpoint record\.'/,
+  )
+  assert.match(rollbackRestoreScript, /data_bind_source_sha256\s*=\s*\$compensationDataBindSourceHash/)
+  assert.doesNotMatch(rollbackRestoreScript, /data_bind_source_sha256\s*=\s*\$metadata\.data_bind_source_sha256/)
 
   const restoreMain = rollbackRestoreScript.slice(rollbackRestoreScript.indexOf('function Invoke-ReleaseRollbackCheckpointRestore'))
   const compensationBackup = restoreMain.indexOf('Pre-rollback compensation backup')
-  const compensationMetadata = restoreMain.indexOf("schema = 'localminidrama.rollback-compensation.v2'")
+  const compensationSource = restoreMain.indexOf("Label 'Rollback compensation data bind source'")
+  const compensationHash = restoreMain.indexOf("Label 'Rollback compensation data hash'")
+  const compensationMetadata = restoreMain.indexOf("schema = 'localminidrama.rollback-compensation.v3'")
+  const compensationReady = restoreMain.indexOf("Label 'Rollback compensation ready marker'")
   const rollbackRestore = restoreMain.indexOf('Rollback data restore')
   const currentDataCapture = restoreMain.indexOf("-Destination '/app/data' -RequireReadWrite")
   const currentShutdown = restoreMain.indexOf('Current Docker shutdown')
   assert.ok(
     compensationBackup >= 0
-      && compensationBackup < compensationMetadata
+      && compensationBackup < compensationSource
+      && compensationSource < compensationHash
+      && compensationHash < compensationMetadata
       && compensationMetadata < rollbackRestore,
     'forward compensation evidence must be durable before the rollback mutates live data',
   )
+  assert.ok(compensationMetadata < compensationReady && compensationReady < rollbackRestore)
   assert.ok(currentDataCapture >= 0 && currentDataCapture < currentShutdown)
   assert.match(
     restoreMain,
     /\$currentComposePrefix = \[string\[\]\]@\('compose', '--project-directory', \$repoRoot\)[\s\S]*Get-RunningServiceEvidence -Service 'backend' -ComposePrefix \$currentComposePrefix/,
   )
+})
+
+test('rollback compensation bundle uses an atomic ready marker and schema v3 binding', () => {
+  const supportScript = fs.readFileSync(rollbackPowerShellSupportScriptPath, 'utf8')
+  assert.match(rollbackRestoreScript, /\$bundleId\s*=\s*\[Guid\]::NewGuid\(\)\.ToString\('N'\)/)
+  assert.match(rollbackRestoreScript, /bundle_id\s*=\s*\$bundleId/)
+  assert.match(rollbackRestoreScript, /schema\s*=\s*'localminidrama\.rollback-compensation\.v3'/)
+  assert.match(rollbackRestoreScript, /backup_bytes\s*=\s*\$descriptorBackup\.ArchiveBytes/)
+  assert.match(rollbackRestoreScript, /backup_filesystem_identity\s*=\s*\$descriptorBackup\.FilesystemIdentity/)
+  assert.match(rollbackRestoreScript, /Publish-RollbackUtf8FileAtomically[^\r\n]*Rollback compensation data bind source/)
+  assert.match(rollbackRestoreScript, /Publish-RollbackUtf8FileAtomically[^\r\n]*Rollback compensation data hash/)
+  assert.match(rollbackRestoreScript, /Publish-RollbackUtf8FileAtomically[^\r\n]*Rollback compensation metadata/)
+  assert.match(rollbackRestoreScript, /schema\s*=\s*'localminidrama\.rollback-compensation-ready\.v1'/)
+  assert.match(rollbackRestoreScript, /payload_directory\s*=\s*\[System\.IO\.Path\]::GetFileName\(\$compensationIncompleteRoot\)/)
+  assert.match(rollbackRestoreScript, /payload_directory_identity\s*=\s*\$compensationDirectoryAuthority\.Identity/)
+  assert.match(rollbackRestoreScript, /Publish-RollbackUtf8FileAtomically[^\r\n]*Rollback compensation ready marker[^\r\n]*-RemoveOnPublicationFailure/)
+  assert.match(supportScript, /function Remove-RollbackFailedFilePublicationAuthority/)
+  assert.match(supportScript, /Set-RollbackHandleDeleteDisposition[\s\S]*failed publication parent directory/)
+  assert.doesNotMatch(rollbackRestoreScript, /Publish-RollbackDirectoryAuthority -Authority \$compensationDirectoryAuthority/)
+  assert.doesNotMatch(rollbackRestoreScript, /localminidrama\.rollback-compensation\.v2/)
 })
 
 test('rollback path contracts execute platform-aware host and case-sensitive container comparisons', () => {
@@ -7489,7 +8006,9 @@ test('rollback scripts revalidate physical boundaries before destructive data an
   ]) {
     const operation = rollbackRestoreScript.indexOf(`-Label '${label}'`)
     assert.ok(operation > 0, `${label} operation is missing`)
-    const command = rollbackRestoreScript.lastIndexOf('Invoke-Checked', operation)
+    const command = label === 'Pre-rollback compensation backup'
+      ? rollbackRestoreScript.lastIndexOf('Invoke-RollbackDescriptorBackup', operation)
+      : rollbackRestoreScript.lastIndexOf('Invoke-Checked', operation)
     const guard = rollbackRestoreScript.lastIndexOf('Assert-CurrentRollbackRoot', operation)
     const previousOperation = Math.max(
       rollbackRestoreScript.lastIndexOf("backup:data'", command - 1),
@@ -7497,6 +8016,7 @@ test('rollback scripts revalidate physical boundaries before destructive data an
       rollbackRestoreScript.lastIndexOf("'down')", command - 1),
       rollbackRestoreScript.lastIndexOf("image', 'load", command - 1),
       rollbackRestoreScript.lastIndexOf("image', 'tag", command - 1),
+      rollbackRestoreScript.lastIndexOf('Invoke-RollbackDescriptorBackup', command - 1),
     )
     assert.ok(
       guard > previousOperation && guard < command,
