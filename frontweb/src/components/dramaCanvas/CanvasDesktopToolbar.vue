@@ -122,6 +122,22 @@
       </div>
     </div>
 
+    <div class="free-canvas-controls">
+      <FreeCanvasToolbar
+        :mode="canvasMode"
+        :can-undo="canUndo"
+        :can-redo="canRedo"
+        :background-mode="backgroundMode"
+        @create-node="emit('create-node', $event)"
+        @undo="emit('undo')"
+        @redo="emit('redo')"
+        @fit-view="emit('fit-view')"
+        @set-background="emit('set-background', $event)"
+        @toggle-library="emit('toggle-library')"
+        @set-mode="emit('set-mode', $event)"
+      />
+    </div>
+
     <div v-if="workflowProgress || episodeGenProgress" class="toolbar-progress" aria-live="polite">
       <span v-if="workflowProgress">{{ workflowProgress }}</span>
       <span v-if="episodeGenProgress" class="episode-progress">{{ episodeGenProgress }}</span>
@@ -149,6 +165,7 @@ import { computed } from 'vue'
 import CanvasToolbarGroup from './CanvasToolbarGroup.vue'
 import CanvasWorkflowToolbarGroup from './CanvasWorkflowToolbarGroup.vue'
 import CanvasActionGate from './CanvasActionGate.vue'
+import FreeCanvasToolbar from './FreeCanvasToolbar.vue'
 
 const props = defineProps({
   selectedStoryboardCount: { type: Number, default: 0 },
@@ -163,6 +180,10 @@ const props = defineProps({
   actionConfigServices: { type: Object, default: () => ({}) },
   aligningNodes: { type: Boolean, default: false },
   isDark: { type: Boolean, default: false },
+  canvasMode: { type: String, default: 'production' },
+  canUndo: { type: Boolean, default: false },
+  canRedo: { type: Boolean, default: false },
+  backgroundMode: { type: String, default: 'dots' },
 })
 
 const emit = defineEmits([
@@ -179,6 +200,13 @@ const emit = defineEmits([
   'generate-storyboards',
   'batch-images',
   'batch-videos',
+  'create-node',
+  'undo',
+  'redo',
+  'fit-view',
+  'set-background',
+  'toggle-library',
+  'set-mode',
 ])
 
 const contentHelper = computed(() => (
@@ -262,6 +290,12 @@ const batchHelper = computed(() => (
 
 .episode-progress {
   color: var(--canvas-success-text, #34d399);
+}
+
+.free-canvas-controls {
+  display: flex;
+  min-width: 0;
+  padding-top: 8px;
 }
 
 @media (max-width: 1120px) {

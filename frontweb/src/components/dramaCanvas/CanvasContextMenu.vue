@@ -6,6 +6,7 @@
       :style="{ left: x + 'px', top: y + 'px' }"
       @mousedown.stop
       @contextmenu.prevent
+      @keydown.esc.prevent="close"
     >
       <div class="ctx-title">在此添加</div>
       <button type="button" class="ctx-item" @click="pick('storyboard')">分镜</button>
@@ -14,6 +15,15 @@
       <button type="button" class="ctx-item" @click="pick('prop')">道具</button>
       <div class="ctx-divider" />
       <button type="button" class="ctx-item" @click="pick('episode')">新集</button>
+      <template v-if="freeMode">
+        <div class="ctx-divider" />
+        <div class="ctx-title">自由节点</div>
+        <button type="button" class="ctx-item" @click="pickFree('text')">文本</button>
+        <button type="button" class="ctx-item" @click="pickFree('image')">图片</button>
+        <button type="button" class="ctx-item" @click="pickFree('video')">视频</button>
+        <button type="button" class="ctx-item" @click="pickFree('config')">配置</button>
+        <button type="button" class="ctx-item" @click="pickFree('reference')">引用</button>
+      </template>
     </div>
     <div v-if="visible" class="canvas-context-backdrop" @mousedown="close" @contextmenu.prevent="close" />
   </Teleport>
@@ -24,12 +34,18 @@ const props = defineProps({
   visible: { type: Boolean, default: false },
   x: { type: Number, default: 0 },
   y: { type: Number, default: 0 },
+  freeMode: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['select', 'close'])
+const emit = defineEmits(['select', 'free-node', 'close'])
 
 function pick(type) {
   emit('select', type)
+  emit('close')
+}
+
+function pickFree(type) {
+  emit('free-node', type)
   emit('close')
 }
 
