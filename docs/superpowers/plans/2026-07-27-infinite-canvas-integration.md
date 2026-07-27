@@ -8,6 +8,22 @@
 
 **Tech Stack:** Vue 3 `<script setup>`, Vue Flow 1.48, Element Plus, Node.js built-in test runner, Express, SQLite metadata JSON, Playwright production E2E, Docker Compose.
 
+## Execution Status (2026-07-27)
+
+This summary records delivered implementation separately from runtime release evidence. The original task checklists below remain as the execution recipe and are not mechanically checked off.
+
+| Scope | Status | Evidence boundary |
+| --- | --- | --- |
+| Tasks 1-5 | **Implementation complete** | Serializable state, validated persistence, graph/history behavior, free-mode presentation, same-route workbench integration, media handling, explicit production conversion, and import/export are implemented. |
+| Product acceptance | **8/8 implemented; `Spec PASS / Quality PASS`** | All eight findings passed three scoped review rounds. This is code/product-contract acceptance, not Docker runtime evidence. |
+| ZIP import/export | **`Spec PASS / Security PASS`** | Scoped safety review covers bounded validation, project/media identity, archive manifest integrity, and fail-closed import/export behavior. |
+| Task 6 code and contract | **Complete; `Spec PASS / Quality PASS`** | Browser workflow code, evidence manifest/verifier contract, cleanup contract, and serial production-gate wiring are present and reviewed. Tests do not call an external real Provider. |
+| Task 6 runtime matrix | **`UNVERIFIED`** | Docker production E2E has not been executed for 1280x720, 1366x768, and 1440x900 in light and dark themes. No fresh screenshot or runtime manifest is claimed. |
+| Task 7 documentation | **Complete** | User, package, operations, roadmap, changelog, and standalone report documentation are updated. |
+| Task 7 final release gate | **Pending** | Docker rebuild, production E2E, same-revision package/security/release gates, evidence inspection, and the release decision remain open. |
+
+The shipped scope is desktop only. Mobile/touch behavior, new real Provider routes, collaboration, and a complete Agent/MCP surface remain deferred.
+
 ## Global Constraints
 
 - Keep existing `canvas_layout` and `workflow_groups` data readable and writable.
@@ -367,7 +383,7 @@ Run backend/frontweb/desktop audits, the CI-configured Gitleaks scan, and the CI
 
 - [ ] **Step 4: Rebuild and verify Docker**
 
-Run `docker compose up -d --build --wait` after source changes, then `npm run verify:docker` from the repository root. Verify health/readiness, project isolation, metadata save/reload, and graceful failure when AI is unconfigured.
+Run `npm run docker:e2e:up` after source changes, then `npm run verify:docker` from the repository root. Verify health/readiness, project isolation, metadata save/reload, and graceful failure when AI is unconfigured.
 
 - [ ] **Step 5: Perform independent product, project, test, and security review**
 
@@ -390,4 +406,3 @@ git commit -m "docs(canvas): document hybrid workbench and acceptance"
 - [ ] Undo/redo, copy/paste, selection, keyboard and focus behavior are covered.
 - [ ] Light/dark desktop screenshots show no overlap or clipped text at all required viewports.
 - [ ] Backend/frontend/desktop checks, E2E, dependency audit, source/config security scans, Docker verification, and final review all pass on the same source revision.
-

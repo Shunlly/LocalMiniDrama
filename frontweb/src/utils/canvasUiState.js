@@ -37,6 +37,30 @@ export function reconcileCanvasEpisodeDraft(
   return createCanvasEpisodeDraft(episodes, selectedEpisodeId)
 }
 
+const STORYBOARD_SHOT_TYPE_LABELS = Object.freeze({
+  extreme_long_shot: '大远景',
+  extreme_wide: '大远景',
+  long_shot: '远景',
+  wide: '远景',
+  full_shot: '全景',
+  full: '全景',
+  medium_long_shot: '中全景',
+  medium_long: '中全景',
+  medium_shot: '中景',
+  medium: '中景',
+  medium_close_up: '近景',
+  close_up: '特写',
+  extreme_close_up: '大特写',
+})
+
+export function storyboardShotTypeLabel(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  if (/\p{Script=Han}/u.test(raw)) return raw
+  const normalized = raw.toLowerCase().replace(/[\s-]+/g, '_')
+  return STORYBOARD_SHOT_TYPE_LABELS[normalized] || '其他景别'
+}
+
 export function getStoryboardInspectorNavigation(episodes, episodeId, storyboardId) {
   const episode = episodeOptions(episodes)
     .find((item) => String(item.id) === String(episodeId))

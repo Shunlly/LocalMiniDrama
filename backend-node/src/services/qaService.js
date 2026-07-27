@@ -215,9 +215,9 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     return {
       score: 0,
       passed: false,
-      issues: [{ code: 'drama_missing', severity: 'error', message: 'Drama does not exist', target: { drama_id: dramaId } }],
+      issues: [{ code: 'drama_missing', severity: 'error', message: '项目不存在', target: { drama_id: dramaId } }],
       checks: [],
-      recommendations: ['Create or select a valid drama before running the workflow.'],
+      recommendations: ['请先创建或选择有效项目，再启动制作流程。'],
     };
   }
 
@@ -237,7 +237,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     : 0;
   const hasSource = sourceCount > 0 && sourceItemCount > 0;
   if (hasSource) score += 10;
-  else addIssue(issues, 'source_missing', 'error', 'No traceable story source and source items found', { drama_id: dramaId });
+  else addIssue(issues, 'source_missing', 'error', '缺少可追溯的故事素材及素材片段', { drama_id: dramaId });
   checks.push({ key: 'source_intake', passed: hasSource, weight: 10, source_count: sourceCount, source_item_count: sourceItemCount });
 
   const eventCount = count(db, 'SELECT COUNT(*) AS count FROM story_events WHERE drama_id = ?', dramaId);
@@ -246,14 +246,14 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
   const graphOk = eventCount <= 1 || edgeCount >= eventCount - 1;
   const hasStoryIr = eventCount > 0 && planCount > 0 && graphOk;
   if (hasStoryIr) score += 10;
-  else addIssue(issues, 'story_ir_missing', 'error', 'Story events, event graph edges, or adaptation plans are missing', { drama_id: dramaId });
+  else addIssue(issues, 'story_ir_missing', 'error', '故事事件、事件关系或改编计划不完整', { drama_id: dramaId });
   checks.push({ key: 'story_ir', passed: hasStoryIr, weight: 10, event_count: eventCount, event_edge_count: edgeCount, plan_count: planCount });
 
   const episodes = getEpisodes(db, dramaId, episodeId);
   const episodesWithScript = episodes.filter((ep) => hasText(ep.script_content));
   const episodesOk = episodes.length > 0 && episodesWithScript.length === episodes.length;
   if (episodesOk) score += 15;
-  else addIssue(issues, 'episodes_incomplete', 'error', 'Episodes are missing or some episodes have no script_content', { drama_id: dramaId, episode_id: episodeId });
+  else addIssue(issues, 'episodes_incomplete', 'error', '缺少分集，或部分分集还没有剧本内容', { drama_id: dramaId, episode_id: episodeId });
   checks.push({ key: 'episodes', passed: episodesOk, weight: 15, episode_count: episodes.length, scripted_count: episodesWithScript.length });
 
   const characterRows = db.prepare(
@@ -269,7 +269,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
   ));
   const characterOk = characterRows.length > 0 && charactersWithContinuity.length === characterRows.length;
   if (characterOk) score += 10;
-  else addIssue(issues, 'character_continuity_incomplete', 'warning', 'Characters need names, visual anchors, and at least one image/reference asset', { drama_id: dramaId });
+  else addIssue(issues, 'character_continuity_incomplete', 'warning', '角色需要名称、视觉锚点和至少一项图片或参考素材', { drama_id: dramaId });
   checks.push({ key: 'character_continuity', passed: characterOk, weight: 10, character_count: characterRows.length, complete_count: charactersWithContinuity.length });
 
   const sceneRows = db.prepare('SELECT * FROM scenes WHERE drama_id = ? AND deleted_at IS NULL ORDER BY id ASC').all(dramaId);
@@ -281,7 +281,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     : sceneRows.some((row) => firstRealAsset(row, ['local_path', 'image_url', 'ref_image'])) ||
       propRows.some((row) => firstRealAsset(row, ['local_path', 'image_url', 'ref_image']));
   if (assetLibraryOk) score += 10;
-  else addIssue(issues, 'asset_library_empty', 'warning', 'Scene or prop assets are missing', { drama_id: dramaId });
+  else addIssue(issues, 'asset_library_empty', 'warning', '缺少场景或道具资产', { drama_id: dramaId });
   checks.push({ key: 'asset_library', passed: assetLibraryOk, weight: 10, scene_count: sceneCount, prop_count: propCount });
 
   const episodeIds = episodes.map((ep) => ep.id);
@@ -305,8 +305,8 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     'storyboards_incomplete',
     'error',
     draftMode
-      ? 'Each storyboard needs visual action, duration, image prompt, and video prompt'
-      : 'Production storyboards require visual composition, movement, duration, subtitle or narration, image prompt, and video prompt',
+      ? '每个分镜都需要画面动作、时长、图片提示词和视频提示词'
+      : '正式制作分镜需要画面构图、运镜、时长、对白或旁白、图片提示词和视频提示词',
     { drama_id: dramaId, episode_id: episodeId, missing: missingStoryboardFields }
   );
   checks.push({
@@ -367,7 +367,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
       issues,
       'production_asset_references_invalid',
       'error',
-      'Production storyboard references must resolve to existing non-mock character, scene, and prop assets',
+      '正式制作分镜引用必须指向现有且非占位的角色、场景和道具资产',
       { drama_id: dramaId, failures: assetReferenceFailures }
     );
   }
@@ -456,8 +456,8 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     'media_timeline_incomplete',
     draftMode ? 'warning' : 'error',
     draftMode
-      ? 'Timeline plan is incomplete for draft workflow QA'
-      : 'Final QA requires non-mock generated media for every storyboard, not only placeholders',
+      ? '草稿流程的时间线计划不完整'
+      : '正式交付检查要求每个分镜都有非占位的真实生成媒体',
     mediaIssueTarget
   );
   checks.push({
@@ -486,7 +486,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     workflowOk = stepRows.length > 0 && stepRows.every((step) => (
       step.status === 'completed' || (step.step_key === 'qa_audit' && step.status === 'processing')
     ));
-    if (!workflowOk) addIssue(issues, 'workflow_steps_incomplete', 'error', 'Workflow has steps that are not completed', { run_id });
+    if (!workflowOk) addIssue(issues, 'workflow_steps_incomplete', 'error', '制作流程仍有未完成步骤', { run_id });
   }
   if (workflowOk) score += 10;
   checks.push({ key: 'workflow_integrity', passed: workflowOk, weight: 10, step_count: stepRows.length });
@@ -519,8 +519,8 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     'provider_audit_missing',
     draftMode ? 'warning' : 'error',
     draftMode
-      ? 'Provider generation audit records are missing or incomplete'
-      : 'Production QA requires successful non-mock provider audit records for text, asset image, storyboard image, video, TTS, and compositor outputs',
+      ? 'AI 服务生成审计记录缺失或不完整'
+      : '正式交付检查需要文本、素材图片、分镜图片、视频、语音和合成器的成功非占位审计记录',
     {
       run_id: run_id || null,
       provider_count: providerCount,
@@ -539,7 +539,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
   });
   if (run_id) {
     const skillOk = skillCount >= 4;
-    if (!skillOk) addIssue(issues, 'skill_audit_missing', 'warning', 'Skill invocation audit records are missing or incomplete', { run_id, skill_count: skillCount });
+    if (!skillOk) addIssue(issues, 'skill_audit_missing', 'warning', '技能调用审计记录缺失或不完整', { run_id, skill_count: skillCount });
     checks.push({ key: 'skill_registry_audit', passed: skillOk, weight: 0, skill_count: skillCount });
   }
 
@@ -548,7 +548,7 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
     const templates = skillRegistryService.getSkillTemplates();
     const missingTemplates = templates.filter((template) => !template.exists);
     const templatesOk = templates.length >= 6 && missingTemplates.length === 0;
-    if (!templatesOk) addIssue(issues, 'skill_templates_missing', 'warning', 'Local skill prompt templates are missing', { missing: missingTemplates.map((item) => item.template_path) });
+    if (!templatesOk) addIssue(issues, 'skill_templates_missing', 'warning', '缺少本地技能提示词模板', { missing: missingTemplates.map((item) => item.template_path) });
     checks.push({
       key: 'skill_template_audit',
       passed: templatesOk,
@@ -557,14 +557,14 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
       missing_count: missingTemplates.length,
     });
   } catch (err) {
-    addIssue(issues, 'skill_templates_missing', 'warning', err.message || 'Local skill prompt templates could not be audited', { drama_id: dramaId });
+    addIssue(issues, 'skill_templates_missing', 'warning', err.message || '无法审计本地技能提示词模板', { drama_id: dramaId });
     checks.push({ key: 'skill_template_audit', passed: false, weight: 0, error: err.message });
   }
 
   try {
     const asyncAuditService = require('./asyncAuditService');
     const asyncAudit = asyncAuditService.auditLegacyAsyncEntrypoints();
-    if (!asyncAudit.passed) addIssue(issues, 'legacy_async_audit_failed', 'warning', 'Untracked legacy setImmediate entrypoints were found', { issues: asyncAudit.issues });
+    if (!asyncAudit.passed) addIssue(issues, 'legacy_async_audit_failed', 'warning', '发现未纳入追踪的旧版后台任务入口', { issues: asyncAudit.issues });
     checks.push({
       key: 'legacy_async_audit',
       passed: asyncAudit.passed,
@@ -574,26 +574,26 @@ function evaluateDrama(db, { drama_id, episode_id, run_id, mode } = {}) {
       issue_count: asyncAudit.issues.length,
     });
   } catch (err) {
-    addIssue(issues, 'legacy_async_audit_failed', 'warning', err.message || 'Legacy async entrypoint audit failed', { drama_id: dramaId });
+    addIssue(issues, 'legacy_async_audit_failed', 'warning', err.message || '后台任务入口审计失败', { drama_id: dramaId });
     checks.push({ key: 'legacy_async_audit', passed: false, weight: 0, error: err.message });
   }
 
   if (!draftMode && issues.some((issue) => issue.severity === 'error')) score = Math.min(score, 79);
   const passed = score >= 80 && !issues.some((issue) => issue.severity === 'error');
   const recommendations = issues.map((issue) => {
-    if (issue.code === 'source_missing') return 'Import source material through Source Intake before production.';
-    if (issue.code === 'story_ir_missing') return 'Create or regenerate the adaptation plan from the source.';
-    if (issue.code === 'episodes_incomplete') return 'Apply the adaptation plan or fill missing episode scripts.';
-    if (issue.code === 'character_continuity_incomplete') return 'Add character anchors and reference images before image/video generation.';
-    if (issue.code === 'asset_library_empty') return 'Extract or add scenes and props for visual continuity.';
-    if (issue.code === 'storyboards_incomplete') return 'Generate storyboard draft fields before media generation.';
-    if (issue.code === 'production_asset_references_invalid') return 'Replace missing or mock storyboard asset references with existing production assets.';
-    if (issue.code === 'media_timeline_incomplete') return 'Generate media and timeline tracks before final acceptance.';
-    if (issue.code === 'workflow_steps_incomplete') return 'Retry failed workflow steps before final QA.';
-    if (issue.code === 'provider_audit_missing') return 'Run provider generation through the workflow provider SDK so image/video/audio/compositor calls are auditable.';
-    if (issue.code === 'skill_audit_missing') return 'Run workflow nodes through registered skills so creative and QA decisions are traceable.';
-    if (issue.code === 'skill_templates_missing') return 'Restore local skill prompt templates before workflow audit.';
-    if (issue.code === 'legacy_async_audit_failed') return 'Register or migrate legacy async entrypoints before adding more background work.';
+    if (issue.code === 'source_missing') return '请先在故事素材流程导入素材，再开始正式制作。';
+    if (issue.code === 'story_ir_missing') return '请根据已导入素材创建或重新生成改编计划。';
+    if (issue.code === 'episodes_incomplete') return '请应用改编计划，或补齐缺失的分集剧本。';
+    if (issue.code === 'character_continuity_incomplete') return '请在图片或视频生成前补齐角色锚点和参考图。';
+    if (issue.code === 'asset_library_empty') return '请提取或添加场景、道具，以保持画面连续性。';
+    if (issue.code === 'storyboards_incomplete') return '请在生成媒体前补齐分镜草稿字段。';
+    if (issue.code === 'production_asset_references_invalid') return '请用现有正式资产替换缺失或占位的分镜引用。';
+    if (issue.code === 'media_timeline_incomplete') return '请在最终验收前生成完整媒体和时间线轨道。';
+    if (issue.code === 'workflow_steps_incomplete') return '请在最终质量检查前重试失败的流程步骤。';
+    if (issue.code === 'provider_audit_missing') return '请通过统一制作流程调用 AI 服务，确保图片、视频、音频和合成记录可审计。';
+    if (issue.code === 'skill_audit_missing') return '请通过已注册技能运行流程节点，保留创作和质量决策记录。';
+    if (issue.code === 'skill_templates_missing') return '请在流程审计前恢复本地技能提示词模板。';
+    if (issue.code === 'legacy_async_audit_failed') return '请先登记或迁移旧版后台任务入口，再增加新的后台任务。';
     return issue.message;
   });
   const remediationActions = buildRemediationActionsV2(issues, {
@@ -628,15 +628,15 @@ function buildRemediationActionsV2(issues, context) {
 
   for (const issue of issues) {
     if (issue.code === 'source_missing') {
-      add('import_source', 'Import source material', false, 'A traceable source is required before automated remediation can run.');
+      add('import_source', '导入故事素材', false, '自动修复前必须先有可追溯的故事素材。');
       continue;
     }
     if (issue.code === 'story_ir_missing') {
       add(
         'start_or_retry_workflow',
-        'Start or retry workflow',
+        '启动或重试流程',
         context.source_count > 0 || !!context.run_id,
-        'Story IR or adaptation plan is missing and can be regenerated from the latest source.',
+        '故事结构或改编计划缺失，可根据最近导入的素材重新生成。',
         { drama_id: context.drama_id, run_id: context.run_id || null }
       );
       continue;
@@ -644,9 +644,9 @@ function buildRemediationActionsV2(issues, context) {
     if (issue.code === 'character_continuity_incomplete') {
       add(
         'refresh_asset_bible',
-        'Refresh asset bible',
+        '刷新资产设定',
         context.source_count > 0 || !!context.run_id,
-        'Character identity anchors, stages, or reference assets are incomplete.',
+        '角色身份锚点、阶段设定或参考资产不完整。',
         { drama_id: context.drama_id, run_id: context.run_id || null }
       );
       continue;
@@ -654,9 +654,9 @@ function buildRemediationActionsV2(issues, context) {
     if (issue.code === 'storyboards_incomplete') {
       add(
         'repair_storyboards',
-        'Repair storyboards',
+        '修复分镜草稿',
         context.source_count > 0 || !!context.run_id,
-        'Storyboard drafts can be rebuilt, then mock media, timeline, composite, and QA can be rerun.',
+        '可重建分镜草稿，然后重新运行媒体、时间线、合成和质量检查。',
         { drama_id: context.drama_id, run_id: context.run_id || null }
       );
       continue;
@@ -664,9 +664,9 @@ function buildRemediationActionsV2(issues, context) {
     if (issue.code === 'media_timeline_incomplete') {
       add(
         'repair_timeline',
-        'Repair timeline',
+        '修复时间线',
         context.source_count > 0 || !!context.run_id,
-        'Timeline tracks/items and mock composite outputs can be rebuilt.',
+        '可重建时间线轨道、条目和草稿合成产物。',
         { drama_id: context.drama_id, run_id: context.run_id || null }
       );
       continue;
@@ -674,9 +674,9 @@ function buildRemediationActionsV2(issues, context) {
     if (['episodes_incomplete', 'workflow_steps_incomplete'].includes(issue.code)) {
       add(
         'start_or_retry_workflow',
-        'Retry workflow',
+        '重试制作流程',
         context.source_count > 0 || !!context.run_id,
-        'Episodes or workflow steps are incomplete and should be repaired through the unified workflow.',
+        '分集或流程步骤不完整，应通过统一制作流程修复。',
         { drama_id: context.drama_id, run_id: context.run_id || null }
       );
       continue;
@@ -684,9 +684,9 @@ function buildRemediationActionsV2(issues, context) {
     if (['provider_audit_missing', 'skill_audit_missing'].includes(issue.code)) {
       add(
         'start_or_retry_workflow',
-        'Rerun workflow audit path',
+        '重跑流程审计',
         context.source_count > 0 || !!context.run_id,
-        'Provider or skill audit records should be produced by the unified workflow entrypoint.',
+        'AI 服务或技能审计记录应由统一制作流程生成。',
         { drama_id: context.drama_id, run_id: context.run_id || null }
       );
     }
@@ -775,7 +775,7 @@ function remediateQaReport(db, log, reportId, options = {}) {
   const report = getQaReportById(db, reportId);
   if (!report) return null;
   if (report.passed) {
-    return { report, skipped: true, reason: 'QA report already passed', actions_taken: [] };
+    return { report, skipped: true, reason: '质量检查已通过，无需修复', actions_taken: [] };
   }
 
   const actions = Array.isArray(report.report_json?.remediation_actions)
@@ -789,7 +789,7 @@ function remediateQaReport(db, log, reportId, options = {}) {
     return {
       report,
       skipped: true,
-      reason: 'No automated remediation is available',
+      reason: '当前问题没有可自动执行的修复方案',
       actions_taken: [],
       required_actions: actions,
     };
@@ -830,7 +830,7 @@ function remediateQaReport(db, log, reportId, options = {}) {
       return {
         report,
         skipped: true,
-        reason: `Workflow run is already ${run.status}`,
+        reason: `制作流程当前为${({ pending: '等待中', processing: '运行中', paused: '已暂停' })[run.status] || '活动状态'}`,
         actions_taken: [],
         workflow_run: run,
       };
@@ -842,7 +842,7 @@ function remediateQaReport(db, log, reportId, options = {}) {
     return {
       report,
       skipped: true,
-      reason: 'No story source exists for automated remediation',
+      reason: '缺少可用于自动修复的故事素材',
       actions_taken: [],
       required_actions: actions,
     };

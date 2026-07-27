@@ -9,7 +9,17 @@ import {
   getStoryboardInspectorMediaSummary,
   reconcileCanvasEpisodeDraft,
   resolveCanvasEpisodeId,
+  storyboardShotTypeLabel,
 } from '../src/utils/canvasUiState.js'
+
+test('storyboard shot types are localized without exposing storage enums', () => {
+  assert.equal(storyboardShotTypeLabel('medium'), '中景')
+  assert.equal(storyboardShotTypeLabel('close_up'), '特写')
+  assert.equal(storyboardShotTypeLabel('wide'), '远景')
+  assert.equal(storyboardShotTypeLabel('大远景'), '大远景')
+  assert.equal(storyboardShotTypeLabel('vendor_specific'), '其他景别')
+  assert.equal(storyboardShotTypeLabel(''), '')
+})
 
 test('storyboard inspector media summary never counts unusable cache records', () => {
   assert.deepEqual(getStoryboardInspectorMediaSummary({

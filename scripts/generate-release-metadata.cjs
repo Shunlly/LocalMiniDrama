@@ -7,11 +7,13 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { validateMediaToolMetadata } = require('../desktop/scripts/media-tool-policy')
 const { FUSE_POLICY } = require('../desktop/scripts/electron-fuses')
+const { validateDefenderSignatureDetails } = require('../desktop/scripts/defender-signature-policy')
 const { validatePackagedApplications } = require('./packaged-applications-contract.cjs')
 const { assertReleaseVersion } = require('./verify-release-version.cjs')
 const { validateSbomDocument } = require('./verify-release.cjs')
 
 const root = path.resolve(__dirname, '..')
+const releaseMetadataUsage = 'Usage: generate-release-metadata.cjs [--verify] [output-directory]'
 
 function sha256(filePath) {
   const descriptor = fs.openSync(filePath, 'r')
@@ -116,6 +118,34 @@ function releaseArtifactNames(output) {
     .sort((a, b) => a.localeCompare(b, 'en'))
 }
 
+function parseReleaseMetadataArguments(args = process.argv.slice(2)) {
+  assert.ok(Array.isArray(args), releaseMetadataUsage)
+  const verifyMode = args[0] === '--verify'
+  const remaining = verifyMode ? args.slice(1) : [...args]
+  if (remaining.length > 1 || remaining.some((argument) => (
+    typeof argument !== 'string' || !argument || argument.startsWith('-')
+  ))) {
+    assert.fail(releaseMetadataUsage)
+  }
+  return {
+    mode: verifyMode ? 'verify' : 'generate',
+    outputDirectory: remaining[0],
+  }
+}
+
+function assertNoUnexpectedTopLevelFiles(output, version) {
+  const allowedNames = new Set([
+    ...expectedReleaseArtifactNames(version),
+    'release-manifest.json',
+    'SHA256SUMS',
+  ])
+  for (const entry of fs.readdirSync(output, { withFileTypes: true })) {
+    if (entry.isFile() && !allowedNames.has(entry.name)) {
+      assert.fail(`unexpected top-level release file: ${entry.name}`)
+    }
+  }
+}
+
 function validateSboms(output, names, version) {
   const sbomNames = names.filter((name) => name.endsWith('.cdx.json'))
   assert.equal(sbomNames.length, 4, 'release bundle must contain exactly four CycloneDX SBOM files')
@@ -215,6 +245,10 @@ function validateArtifactSecurity(output, names, version) {
     'Trivy checks bundle downloaded_at is invalid',
   )
   assert.equal(evidence.scans.defender.scope, 'release bundle and extracted payloads', 'Defender release scope is invalid')
+  validateDefenderSignatureDetails({
+    antivirus_signature_last_updated: evidence.scans.defender.antivirus_signature_last_updated,
+    maximum_age_hours: evidence.scans.defender.maximum_age_hours,
+  })
   return evidence
 }
 
@@ -261,6 +295,7 @@ function generate(outputDirectory, { environment = process.env } = {}) {
     version,
     tag: releaseTag(version, environment),
     commit,
+    git_commit: commit,
     source_dirty: sourceDirty,
     generated_at: new Date().toISOString(),
     artifacts,
@@ -280,6 +315,7 @@ function verify(outputDirectory, { environment = process.env } = {}) {
   const output = path.resolve(root, outputDirectory || 'desktop/release')
   const version = releaseVersion()
   const names = validateReleaseArtifacts(output, version)
+  assertNoUnexpectedTopLevelFiles(output, version)
   const manifestPath = path.join(output, 'release-manifest.json')
   const checksumPath = path.join(output, 'SHA256SUMS')
   assert.ok(fs.statSync(manifestPath, { throwIfNoEntry: false })?.isFile(), 'release-manifest.json is missing')
@@ -292,12 +328,13 @@ function verify(outputDirectory, { environment = process.env } = {}) {
   assert.equal(manifest.source_dirty, false, 'release manifest records a dirty source tree')
   assert.match(String(manifest.commit || ''), /^[a-f0-9]{40,64}$/, 'release manifest commit is invalid')
   assert.equal(manifest.commit, currentCommit(environment), 'release manifest commit does not match Git HEAD')
+  assert.equal(manifest.git_commit, manifest.commit, 'release manifest git_commit does not match commit')
   assert.ok(Number.isFinite(Date.parse(manifest.generated_at)), 'release manifest generated_at is invalid')
   assert.ok(Array.isArray(manifest.artifacts), 'release manifest artifacts must be an array')
   assert.deepEqual(manifest.artifacts.map((artifact) => artifact.name), names, 'release manifest artifact order or names differ')
   assert.equal(
     validateArtifactSecurity(output, names, version).commit,
-    manifest.commit,
+    manifest.git_commit,
     'artifact security evidence commit does not match the release manifest'
   )
 
@@ -334,11 +371,12 @@ module.exports = {
   sha256,
   validateArtifactSecurity,
   validateReleaseArtifacts,
+  parseReleaseMetadataArguments,
   verify,
 }
 
 if (require.main === module) {
-  const args = process.argv.slice(2)
-  if (args[0] === '--verify') verify(args[1])
-  else generate(args[0])
+  const { mode, outputDirectory } = parseReleaseMetadataArguments()
+  if (mode === 'verify') verify(outputDirectory)
+  else generate(outputDirectory)
 }

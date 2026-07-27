@@ -37,6 +37,7 @@
               <el-form-item label="类型" class="type-field">
                 <el-select
                   v-model="form.role"
+                  :aria-label="`角色${form.name || '未命名角色'}类型`"
                   clearable
                   placeholder="类型"
                   teleported

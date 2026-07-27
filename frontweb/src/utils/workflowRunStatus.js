@@ -13,7 +13,7 @@ const STEP_LABELS = {
   source_intake: '素材导入',
   adaptation_plan: '改编计划',
   apply_episodes: '写入分集',
-  asset_bible: '资产 Bible',
+  asset_bible: '资产设定',
   storyboard_draft: '分镜草稿',
   image_generation: '分镜生图',
   video_generation: '分镜视频',
@@ -21,6 +21,12 @@ const STEP_LABELS = {
   timeline_plan: '时间线',
   post_composite: '成片合成',
   qa_audit: 'QA 审计',
+}
+
+export function workflowTypeLabel(value) {
+  return String(value || '').trim().toLowerCase().startsWith('novel2anime')
+    ? '故事转动画'
+    : '内容制作流程'
 }
 
 const MEDIA_STEP_KEYS = new Set([

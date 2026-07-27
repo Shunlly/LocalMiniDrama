@@ -309,12 +309,12 @@
       </el-tab-pane>
       <el-tab-pane label="高级设置（提示词）" name="prompts">
         <div class="tab-content">
-          <PromptEditor />
+          <PromptEditor ref="promptEditorRef" />
         </div>
       </el-tab-pane>
       <el-tab-pane label="高级设置（业务场景）" name="sceneModelMap">
         <div class="tab-content">
-          <SceneModelMap />
+          <SceneModelMap ref="sceneModelMapRef" />
         </div>
       </el-tab-pane>
       <el-tab-pane label="生成设置" name="generation">
@@ -420,16 +420,32 @@
     </el-tabs>
 
     <!-- 添加/编辑 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="dialogVisible"
       :title="vendorLock.enabled ? '修改 API Key / 默认模型' : (editingId ? '编辑配置' : '添加配置')"
       width="720px"
       top="4vh"
-      class="ai-config-dialog ai-config-overlay"
+      class="ai-config-dialog ai-config-form-dialog ai-config-overlay"
+      append-to-body
       :close-on-click-modal="false"
       :before-close="confirmConfigDialogClose"
       @closed="handleConfigDialogClosed"
     >
+      <div ref="configDialogScrollRef" class="ai-config-dialog-scroll">
+        <div
+          v-if="configValidationSummary.length"
+          class="ai-config-validation-summary"
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+        >
+          <strong>无法保存，请检查以下字段：</strong>
+          <ul>
+            <li v-for="item in configValidationSummary" :key="item.prop">
+              {{ item.label }}：{{ item.message }}
+            </li>
+          </ul>
+        </div>
       <!-- 锁定模式：只展示 api_key 和 default_model -->
       <template v-if="vendorLock.enabled">
         <el-descriptions :column="1" border style="margin-bottom: 16px">
@@ -437,23 +453,48 @@
           <el-descriptions-item label="类型">{{ serviceTypeLabel(form.service_type) }}</el-descriptions-item>
           <el-descriptions-item label="厂商">{{ form.provider }}</el-descriptions-item>
         </el-descriptions>
-        <el-form ref="formRef" :model="form" label-width="100px">
+        <el-form ref="formRef" :model="form" label-width="100px" @validate="handleConfigFieldValidated">
           <el-form-item prop="api_key" :rules="[{ required: true, message: '请输入 API Key', trigger: 'blur' }]">
             <template #label><span class="form-label-tip">API Key</span></template>
             <el-input
               ref="apiKeyInputRef"
               v-model="form.api_key"
+              data-ai-config-field="api_key"
               type="password"
               :placeholder="form.provider === 'jimeng_ai_api' ? '即梦 Session，多个用英文逗号分隔' : '输入你的 API 密钥'"
               show-password
+              :aria-invalid="isConfigFieldInvalid('api_key')"
+              :aria-describedby="configFieldDescriptionId('api_key')"
             />
+            <span :id="configFieldDescriptionId('api_key')" class="config-field-a11y-description">
+              {{ configFieldDescription('api_key') }}
+            </span>
           </el-form-item>
-          <el-form-item>
+          <el-form-item prop="default_model" :rules="defaultModelRules">
             <template #label><span class="form-label-tip">默认模型</span></template>
-            <el-select v-model="form.default_model" clearable style="width: 100%">
+            <el-select
+              v-model="form.default_model"
+              data-ai-config-field="default_model"
+              clearable
+              style="width: 100%"
+              :aria-invalid="isConfigFieldInvalid('default_model') || isDefaultModelUnavailable"
+              :aria-describedby="configFieldDescriptionId('default_model')"
+            >
+              <el-option
+                v-if="isDefaultModelUnavailable"
+                :label="`${form.default_model}（已失效）`"
+                :value="form.default_model"
+                disabled
+              />
               <el-option v-for="m in formModelList" :key="m" :label="m" :value="m" />
             </el-select>
-            <p class="field-tip">实际调用时使用的模型，可从预设列表中选择。</p>
+            <p v-if="isDefaultModelUnavailable" class="field-tip field-tip-warning" role="alert">
+              当前默认模型已不在模型列表中，请显式选择有效模型后保存。
+            </p>
+            <p v-else class="field-tip">实际调用时使用的模型，可从预设列表中选择。</p>
+            <span :id="configFieldDescriptionId('default_model')" class="config-field-a11y-description">
+              {{ configFieldDescription('default_model') }}
+            </span>
           </el-form-item>
           <el-form-item>
             <template #label>
@@ -475,7 +516,7 @@
       </template>
 
       <!-- 普通模式：完整表单 -->
-      <el-form v-else ref="formRef" :model="form" :rules="rules" label-width="100px">
+      <el-form v-else ref="formRef" :model="form" :rules="rules" label-width="100px" @validate="handleConfigFieldValidated">
         <section class="config-form-section">
           <div class="config-section-header">
             <div>
@@ -502,7 +543,15 @@
               </el-tooltip>
             </span>
           </template>
-          <el-select v-model="form.service_type" placeholder="选择类型" style="width: 100%" @change="onServiceTypeChange">
+          <el-select
+            v-model="form.service_type"
+            data-ai-config-field="service_type"
+            placeholder="选择类型"
+            style="width: 100%"
+            :aria-invalid="isConfigFieldInvalid('service_type')"
+            :aria-describedby="configFieldDescriptionId('service_type')"
+            @change="onServiceTypeChange"
+          >
             <el-option label="文本/对话" value="text" />
             <el-option label="文本生成图片" value="image" />
             <el-option label="分镜图片生成" value="storyboard_image" />
@@ -510,6 +559,9 @@
             <el-option label="语音合成 TTS" value="tts" />
             <el-option label="即梦2角色认证" value="jimeng2_character_auth" />
           </el-select>
+          <span :id="configFieldDescriptionId('service_type')" class="config-field-a11y-description">
+            {{ configFieldDescription('service_type') }}
+          </span>
         </el-form-item>
         <el-form-item prop="name">
           <template #label>
@@ -519,7 +571,16 @@
               </el-tooltip>
             </span>
           </template>
-          <el-input v-model="form.name" placeholder="如：OpenAI 图文，可自动生成" />
+          <el-input
+            v-model="form.name"
+            data-ai-config-field="name"
+            placeholder="如：OpenAI 图文，可自动生成"
+            :aria-invalid="isConfigFieldInvalid('name')"
+            :aria-describedby="configFieldDescriptionId('name')"
+          />
+          <span :id="configFieldDescriptionId('name')" class="config-field-a11y-description">
+            {{ configFieldDescription('name') }}
+          </span>
         </el-form-item>
         </section>
 
@@ -548,12 +609,15 @@
           </template>
           <el-select
             v-model="form.provider"
+            data-ai-config-field="provider"
             placeholder="选择预设厂商（自动填充 URL 和模型）"
             clearable
             filterable
             allow-create
             default-first-option
             style="width: 100%"
+            :aria-invalid="isConfigFieldInvalid('provider')"
+            :aria-describedby="configFieldDescriptionId('provider')"
             @change="onProviderChange"
           >
             <el-option
@@ -564,10 +628,13 @@
               :class="p.id === '__custom__' ? 'provider-custom-option' : ''"
             />
           </el-select>
+          <span :id="configFieldDescriptionId('provider')" class="config-field-a11y-description">
+            {{ configFieldDescription('provider') }}
+          </span>
         </el-form-item>
 
         <!-- 接口规范帮助 Dialog -->
-        <el-dialog v-model="showProtocolHelp" title="接口规范说明" width="700px" top="5vh" class="ai-config-overlay">
+        <AccessibleDialog v-model="showProtocolHelp" title="接口规范说明" width="700px" top="5vh" class="ai-config-overlay">
           <div class="protocol-help">
             <div class="ph-section-title">🖼 图片 / 分镜图 协议</div>
             <el-collapse accordion>
@@ -724,7 +791,7 @@ input_reference = (图片文件，可选)</pre>
           <template #footer>
             <el-button @click="showProtocolHelp = false">关闭</el-button>
           </template>
-        </el-dialog>
+        </AccessibleDialog>
         <el-form-item prop="api_key">
           <template #label>
             <span class="form-label-tip">{{ form.service_type === 'jimeng2_character_auth' ? 'Token' : 'API Key' }}
@@ -748,10 +815,16 @@ input_reference = (图片文件，可选)</pre>
           <el-input
             ref="apiKeyInputRef"
             v-model="form.api_key"
+            data-ai-config-field="api_key"
             type="password"
             :placeholder="form.service_type === 'jimeng2_character_auth' ? 'Bearer Token' : (form.provider === 'jimeng_ai_api' ? '即梦 Session，多个用英文逗号分隔' : 'API 密钥')"
             show-password
+            :aria-invalid="isConfigFieldInvalid('api_key')"
+            :aria-describedby="configFieldDescriptionId('api_key')"
           />
+          <span :id="configFieldDescriptionId('api_key')" class="config-field-a11y-description">
+            {{ configFieldDescription('api_key') }}
+          </span>
         </el-form-item>
         <el-form-item v-if="form.service_type === 'jimeng2_character_auth'">
           <template #label><span class="form-label-tip">素材列表</span></template>
@@ -891,7 +964,10 @@ input_reference = (图片文件，可选)</pre>
             </template>
             <div class="advanced-config-content">
               <!-- 接口规范：仅图片/分镜/视频类型显示，预设厂商自动填充；自定义厂商必选 -->
-              <el-form-item v-if="form.service_type !== 'text' && form.service_type !== 'tts' && form.service_type !== 'jimeng2_character_auth'">
+              <el-form-item
+                v-if="form.service_type !== 'text' && form.service_type !== 'tts' && form.service_type !== 'jimeng2_character_auth'"
+                prop="api_protocol"
+              >
                 <template #label>
                   <span class="form-label-tip">接口规范
                     <button type="button" class="tip-button" aria-label="查看接口规范说明" title="查看接口规范说明" @click.stop="showProtocolHelp = true">
@@ -899,7 +975,15 @@ input_reference = (图片文件，可选)</pre>
                     </button>
                   </span>
                 </template>
-                <el-select v-model="form.api_protocol" style="width: 100%" placeholder="选择接口规范（自定义厂商必选）" clearable>
+                <el-select
+                  v-model="form.api_protocol"
+                  data-ai-config-field="api_protocol"
+                  style="width: 100%"
+                  placeholder="选择接口规范（自定义厂商必选）"
+                  clearable
+                  :aria-invalid="isConfigFieldInvalid('api_protocol')"
+                  :aria-describedby="configFieldDescriptionId('api_protocol')"
+                >
                   <el-option label="OpenAI 兼容（大多数中转站默认）" value="openai" />
                   <el-option label="火山引擎（豆包 Seedream / Seedance）" value="volcengine" />
                   <el-option label="火山即梦 Seedance 全能（方舟多图参考，Seedance 2.0 等）" value="volcengine_omni" />
@@ -913,6 +997,9 @@ input_reference = (图片文件，可选)</pre>
                   <el-option label="NanoBanana" value="nano_banana" />
                   <el-option label="ComfyUI 本地工作流" value="comfyui" />
                 </el-select>
+                <span :id="configFieldDescriptionId('api_protocol')" class="config-field-a11y-description">
+                  {{ configFieldDescription('api_protocol') }}
+                </span>
               </el-form-item>
               <el-form-item prop="base_url">
                 <template #label>
@@ -935,8 +1022,14 @@ input_reference = (图片文件，可选)</pre>
                 </template>
                 <el-input
                   v-model="form.base_url"
+                  data-ai-config-field="base_url"
                   :placeholder="form.service_type === 'jimeng2_character_auth' ? '如 https://your-gateway.com' : '选择预设厂商后自动填充，可修改'"
+                  :aria-invalid="isConfigFieldInvalid('base_url')"
+                  :aria-describedby="configFieldDescriptionId('base_url')"
                 />
+                <span :id="configFieldDescriptionId('base_url')" class="config-field-a11y-description">
+                  {{ configFieldDescription('base_url') }}
+                </span>
               </el-form-item>
 
               <el-form-item v-if="isComfyUiForm" prop="comfy_workflow_json" label="Workflow JSON">
@@ -944,17 +1037,23 @@ input_reference = (图片文件，可选)</pre>
                   ref="workflowInputRef"
                   v-model="form.comfy_workflow_json"
                   class="comfy-workflow-input"
+                  data-ai-config-field="comfy_workflow_json"
                   type="textarea"
                   :rows="10"
                   resize="vertical"
                   spellcheck="false"
                   placeholder='{"1":{"class_type":"KSampler","inputs":{}}}'
+                  :aria-invalid="isConfigFieldInvalid('comfy_workflow_json')"
+                  :aria-describedby="configFieldDescriptionId('comfy_workflow_json')"
                 />
+                <span :id="configFieldDescriptionId('comfy_workflow_json')" class="config-field-a11y-description">
+                  {{ configFieldDescription('comfy_workflow_json') }}
+                </span>
               </el-form-item>
 
         <!-- 端点配置：视频必填（自定义厂商）；图片/分镜在使用代理或特殊厂商时填写 -->
         <template v-if="form.service_type !== 'text' && form.service_type !== 'tts' && form.service_type !== 'jimeng2_character_auth'">
-          <el-form-item>
+          <el-form-item prop="endpoint">
             <template #label>
               <span class="form-label-tip">提交端点
                 <el-tooltip placement="top" popper-class="cfg-tip-popper">
@@ -970,7 +1069,16 @@ input_reference = (图片文件，可选)</pre>
                 </el-tooltip>
               </span>
             </template>
-            <el-input v-model="form.endpoint" :placeholder="form.service_type === 'video' ? '自定义视频厂商必填，如 /v1/videos/generations；预设厂商留空' : '代理或特殊厂商时填写，如 /fal-ai/nano-banana；预设厂商留空'" />
+            <el-input
+              v-model="form.endpoint"
+              data-ai-config-field="endpoint"
+              :placeholder="form.service_type === 'video' ? '自定义视频厂商必填，如 /v1/videos/generations；预设厂商留空' : '代理或特殊厂商时填写，如 /fal-ai/nano-banana；预设厂商留空'"
+              :aria-invalid="isConfigFieldInvalid('endpoint')"
+              :aria-describedby="configFieldDescriptionId('endpoint')"
+            />
+            <span :id="configFieldDescriptionId('endpoint')" class="config-field-a11y-description">
+              {{ configFieldDescription('endpoint') }}
+            </span>
           </el-form-item>
           <el-form-item>
             <template #label>
@@ -1027,7 +1135,7 @@ input_reference = (图片文件，可选)</pre>
             <span class="config-section-index">03</span>
           </div>
         <template v-if="form.service_type !== 'jimeng2_character_auth'">
-        <el-form-item>
+        <el-form-item prop="modelText">
           <template #label>
             <span class="form-label-tip">模型列表
               <el-tooltip placement="top" popper-class="cfg-tip-popper">
@@ -1053,9 +1161,21 @@ input_reference = (图片文件，可选)</pre>
               <el-option v-for="m in availableModels" :key="m" :label="m" :value="m" />
             </el-select>
           </div>
-          <el-input ref="modelListInputRef" v-model="form.modelText" type="textarea" :rows="2" placeholder="选择预设厂商后自动填入，可编辑；多个用逗号或换行分隔" />
+          <el-input
+            ref="modelListInputRef"
+            v-model="form.modelText"
+            data-ai-config-field="model"
+            type="textarea"
+            :rows="2"
+            placeholder="选择预设厂商后自动填入，可编辑；多个用逗号或换行分隔"
+            :aria-invalid="isConfigFieldInvalid('model')"
+            :aria-describedby="configFieldDescriptionId('model')"
+          />
+          <span :id="configFieldDescriptionId('model')" class="config-field-a11y-description">
+            {{ configFieldDescription('model') }}
+          </span>
         </el-form-item>
-        <el-form-item>
+        <el-form-item prop="default_model">
           <template #label>
             <span class="form-label-tip">默认模型
               <el-tooltip content="有多个模型时，实际调用哪个进行生成。建议选响应快、效果好的那个。" placement="top" popper-class="cfg-tip-popper">
@@ -1065,13 +1185,28 @@ input_reference = (图片文件，可选)</pre>
           </template>
           <el-select
             v-model="form.default_model"
+            data-ai-config-field="default_model"
             :placeholder="formModelList.length ? '从上面模型列表中选一个作为生成时使用的默认' : '请先填写上方模型列表'"
             clearable
             style="width: 100%"
+            :aria-invalid="isConfigFieldInvalid('default_model') || isDefaultModelUnavailable"
+            :aria-describedby="configFieldDescriptionId('default_model')"
           >
+            <el-option
+              v-if="isDefaultModelUnavailable"
+              :label="`${form.default_model}（已失效）`"
+              :value="form.default_model"
+              disabled
+            />
             <el-option v-for="m in formModelList" :key="m" :label="m" :value="m" />
           </el-select>
-          <p class="field-tip">该配置被选为「默认」时，生成故事/图片/视频将使用此处指定的模型。</p>
+          <p v-if="isDefaultModelUnavailable" class="field-tip field-tip-warning" role="alert">
+            当前默认模型已不在模型列表中，请显式选择有效模型后保存。
+          </p>
+          <p v-else class="field-tip">该配置被选为「默认」时，生成故事/图片/视频将使用此处指定的模型。</p>
+          <span :id="configFieldDescriptionId('default_model')" class="config-field-a11y-description">
+            {{ configFieldDescription('default_model') }}
+          </span>
         </el-form-item>
         <el-form-item v-if="isDeepSeekOfficialForm">
           <template #label>
@@ -1175,19 +1310,21 @@ input_reference = (图片文件，可选)</pre>
         </el-form-item>
         </section>
       </el-form>
+      </div>
       <template #footer>
         <el-button @click="requestConfigDialogClose">取消</el-button>
         <el-button type="primary" :loading="saving" :disabled="configWriteLocked" @click="submit">确定</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 一键配置通义 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="oneKeyTongyiVisible"
       title="一键配置通义千问 / 万象（不推荐）"
       width="520px"
       class="ai-config-dialog ai-config-overlay"
       :close-on-click-modal="false"
+      :before-close="confirmOneKeyTongyiClose"
       @closed="oneKeyTongyiKey = ''"
     >
       <div class="one-key-help">
@@ -1224,20 +1361,21 @@ input_reference = (图片文件，可选)</pre>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="oneKeyTongyiVisible = false">取消</el-button>
+        <el-button @click="requestOneKeyTongyiClose">取消</el-button>
         <el-button type="success" :loading="oneKeyTongyiSaving" :disabled="configWriteLocked || !oneKeyTongyiKey.trim()" @click="submitOneKeyTongyi">
           确定，一键创建配置
         </el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 一键配置火山 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="oneKeyVolcVisible"
       title="一键配置火山引擎（方舟）"
       width="520px"
       class="ai-config-dialog ai-config-overlay"
       :close-on-click-modal="false"
+      :before-close="confirmOneKeyVolcClose"
       @closed="oneKeyVolcKey = ''"
     >
       <div class="one-key-help">
@@ -1274,20 +1412,21 @@ input_reference = (图片文件，可选)</pre>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="oneKeyVolcVisible = false">取消</el-button>
+        <el-button @click="requestOneKeyVolcClose">取消</el-button>
         <el-button type="success" :loading="oneKeyVolcSaving" :disabled="configWriteLocked || !oneKeyVolcKey.trim()" @click="submitOneKeyVolc">
           确定，一键创建配置
         </el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 一键配置 Agnes -->
-    <el-dialog
+    <AccessibleDialog
       v-model="oneKeyAgnesVisible"
       title="一键配置 Agnes AI"
       width="520px"
       class="ai-config-dialog ai-config-overlay"
       :close-on-click-modal="false"
+      :before-close="confirmOneKeyAgnesClose"
       @closed="oneKeyAgnesKey = ''"
     >
       <div class="one-key-help">
@@ -1323,15 +1462,15 @@ input_reference = (图片文件，可选)</pre>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="oneKeyAgnesVisible = false">取消</el-button>
+        <el-button @click="requestOneKeyAgnesClose">取消</el-button>
         <el-button type="success" :loading="oneKeyAgnesSaving" :disabled="configWriteLocked || !oneKeyAgnesKey.trim()" @click="submitOneKeyAgnes">
           确定，一键创建配置
         </el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 即梦2角色认证：素材列表 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="jimeng2AssetsDialogVisible"
       title="素材库列表（GET /api/business/v1/assets）"
       width="720px"
@@ -1365,10 +1504,10 @@ input_reference = (图片文件，可选)</pre>
       <template #footer>
         <el-button @click="jimeng2AssetsDialogVisible = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 测试连接 -->
-    <el-dialog v-model="testVisible" title="测试连接" width="420px" class="ai-config-overlay" @closed="restoreTestedCoverageCardFocus">
+    <AccessibleDialog v-model="testVisible" title="测试连接" width="420px" class="ai-config-overlay" @closed="restoreTestedCoverageCardFocus">
       <p class="test-result-announcement" role="status" aria-live="polite">{{ testResultAnnouncement }}</p>
       <p v-if="testResult === null">正在测试…</p>
       <template v-else-if="testResult">
@@ -1393,10 +1532,10 @@ input_reference = (图片文件，可选)</pre>
       <template #footer>
         <el-button @click="testVisible = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 一键换Key（锁定模式） -->
-    <el-dialog v-model="bulkKeyVisible" title="一键换Key" width="440px" class="ai-config-overlay" :close-on-click-modal="false">
+    <AccessibleDialog v-model="bulkKeyVisible" title="一键换Key" width="440px" class="ai-config-overlay" :close-on-click-modal="false" :before-close="confirmBulkKeyClose">
       <el-alert
         type="warning"
         :closable="false"
@@ -1416,10 +1555,10 @@ input_reference = (图片文件，可选)</pre>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="bulkKeyVisible = false">取消</el-button>
+        <el-button @click="requestBulkKeyClose">取消</el-button>
         <el-button type="primary" :loading="bulkKeySaving" :disabled="configWriteLocked || !bulkKeyInput.trim()" @click="submitBulkKey">确认替换</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
   </div>
 </template>
 
@@ -1437,12 +1576,18 @@ import {
 } from '@/utils/aiConfigConnectionStatusStore.js'
 import { runAiConfigCreateBatch } from '@/utils/aiConfigMutations.js'
 import { applyAiConfigRepairTarget } from '@/utils/aiConfigRepairTarget.js'
+import {
+  createAiConfigValidationSummary,
+  focusFirstInvalidAiConfigField,
+  getAiConfigFieldDescription,
+} from '@/utils/aiConfigValidationFocus.js'
 import { CUSTOM_PROVIDER_SENTINEL, getBaseUrlForProvider, getProviderEndpointDefaults, getProviderProtocol, isApiKeyOptionalProvider, providerConfigs } from '@/utils/aiProviderPresets.js'
 import { buildProviderPricing, parseSettingsObject, readProviderPricingForm } from '@/utils/providerPricing.js'
 import { getConfigWorkspaceKeyTarget, shouldApplyConfigWorkspaceRequest } from '@/utils/aiConfigWorkspace.js'
 import PromptEditor from '@/components/PromptEditor.vue'
 import SceneModelMap from '@/components/SceneModelMap.vue'
 import Sd2AssetManagement from '@/components/Sd2AssetManagement.vue'
+import { hasUnsavedAiConfigChanges } from '@/utils/aiConfigUnsavedGuard.js'
 
 const props = defineProps({
   initialServiceType: {
@@ -1465,6 +1610,8 @@ function normalizeInitialServiceType(value) {
 }
 
 const activeTab = ref('configs')
+const promptEditorRef = ref(null)
+const sceneModelMapRef = ref(null)
 const configWorkspaceView = ref(
   normalizeInitialServiceType(props.initialServiceType) ? 'configs' : 'coverage',
 )
@@ -1495,6 +1642,7 @@ const genConcurrencyInput = ref(null)
 const genVideoConcurrencyInput = ref(null)
 const genSettingSaving = ref(false)
 const genSettingSaved = ref(false)
+const generationSettingsBaseline = ref('')
 const generationSettingsLoadState = ref('loading')
 const generationSettingsLoadError = ref('')
 const generationSettingsWriteLocked = computed(() => generationSettingsLoadState.value !== 'ready' || genSettingSaving.value)
@@ -1511,6 +1659,7 @@ async function loadGenerationSettings() {
     }
     genConcurrencyInput.value = concurrency
     genVideoConcurrencyInput.value = videoConcurrency
+    generationSettingsBaseline.value = generationSettingsFingerprint()
     generationSettingsLoadError.value = ''
     generationSettingsLoadState.value = 'ready'
   } catch (error) {
@@ -1547,7 +1696,12 @@ async function saveGenerationSettings() {
   genSettingSaving.value = true
   genSettingSaved.value = false
   try {
-    await generationSettingsAPI.update({ concurrency: Math.round(n), video_concurrency: Math.round(nv) })
+    const concurrency = Math.round(n)
+    const videoConcurrency = Math.round(nv)
+    await generationSettingsAPI.update({ concurrency, video_concurrency: videoConcurrency })
+    genConcurrencyInput.value = concurrency
+    genVideoConcurrencyInput.value = videoConcurrency
+    generationSettingsBaseline.value = generationSettingsFingerprint()
     genSettingSaved.value = true
     setTimeout(() => { genSettingSaved.value = false }, 2000)
   } catch (e) {
@@ -1613,6 +1767,8 @@ const jimeng2AssetsRows = ref([])
 const jimeng2AssetsHasMore = ref(false)
 const jimeng2AssetsNextCursor = ref(null)
 const formRef = ref(null)
+const configDialogScrollRef = ref(null)
+const configValidationSummary = ref([])
 const apiKeyInputRef = ref(null)
 const modelListInputRef = ref(null)
 const workflowInputRef = ref(null)
@@ -1644,13 +1800,86 @@ const form = ref({
 const presetModelPick = ref('')
 
 const formModelList = computed(() => parseModelText(form.value.modelText))
+const DEFAULT_MODEL_VALIDATION_MESSAGE = '请选择模型列表中的有效默认模型'
+const isDefaultModelUnavailable = computed(() => {
+  const selected = String(form.value.default_model || '').trim()
+  return Boolean(selected && !formModelList.value.includes(selected))
+})
 
-// 保证「生成时默认使用」下拉有可选且选中值在列表内，否则会不显示或修改无效
+function isDefaultModelSelectionValid(value) {
+  const selected = String(value || '').trim()
+  if (isComfyUiForm.value && formModelList.value.length === 0 && !selected) return true
+  return Boolean(selected && formModelList.value.includes(selected))
+}
+
+const defaultModelRules = [
+  {
+    validator: (_rule, value, cb) => {
+      if (isDefaultModelSelectionValid(value)) return cb()
+      cb(new Error(DEFAULT_MODEL_VALIDATION_MESSAGE))
+    },
+    trigger: 'change',
+  },
+]
+
+function configFieldDescriptionId(field) {
+  return `ai-config-${field}-description`
+}
+
+function isConfigFieldInvalid(field) {
+  return configValidationSummary.value.some((item) => item.field === field)
+}
+
+function configFieldDescription(field) {
+  return configValidationSummary.value.find((item) => item.field === field)?.message
+    || (field === 'default_model' ? DEFAULT_MODEL_VALIDATION_MESSAGE : '')
+    || getAiConfigFieldDescription(field)
+}
+
+function clearConfigValidationSummary() {
+  configValidationSummary.value = []
+}
+
+function clearConfigFieldValidation(prop) {
+  configValidationSummary.value = configValidationSummary.value.filter(
+    (item) => item.prop !== prop && item.field !== prop,
+  )
+}
+
+function handleConfigFieldValidated(prop, isValid) {
+  if (isValid) clearConfigFieldValidation(prop)
+}
+
+function expandConfigValidationSection(section) {
+  if (!section || advancedFormSections.value.includes(section)) return
+  advancedFormSections.value = [...advancedFormSections.value, section]
+}
+
+async function handleConfigValidationFailure(invalidFields) {
+  const summary = createAiConfigValidationSummary(invalidFields)
+  if (invalidFields?.default_model) {
+    summary.push({
+      field: 'default_model',
+      prop: 'default_model',
+      label: '默认模型',
+      message: DEFAULT_MODEL_VALIDATION_MESSAGE,
+      section: null,
+    })
+  }
+  configValidationSummary.value = summary
+  await focusFirstInvalidAiConfigField(configValidationSummary.value, {
+    scrollContainer: configDialogScrollRef.value,
+    expandSection: expandConfigValidationSection,
+    nextTickFn: nextTick,
+  })
+}
+
+// 新增配置延续首项默认值；编辑时保留已失效的历史值，等待用户显式修正。
 watch(
   () => [formModelList.value, form.value.default_model],
   () => {
     const list = formModelList.value
-    if (list.length === 0) return
+    if (editingId.value || list.length === 0) return
     const current = form.value.default_model
     if (!current || !list.includes(current)) {
       form.value.default_model = list[0] || ''
@@ -1728,6 +1957,39 @@ const rules = computed(() => ({
       trigger: 'blur',
     },
   ],
+  api_protocol: [
+    {
+      validator: (_rule, value, cb) => {
+        const st = form.value.service_type
+        const protocolVisible = st !== 'text' && st !== 'tts' && st !== 'jimeng2_character_auth'
+        const presetProvider = (providerConfigs[st] || []).some((item) => item.id === form.value.provider)
+        if (!protocolVisible || presetProvider || String(value || '').trim()) return cb()
+        cb(new Error('自定义厂商请选择接口规范'))
+      },
+      trigger: 'change',
+    },
+  ],
+  endpoint: [
+    {
+      validator: (_rule, value, cb) => {
+        const st = form.value.service_type
+        const presetProvider = (providerConfigs[st] || []).some((item) => item.id === form.value.provider)
+        if (st !== 'video' || presetProvider || String(value || '').trim()) return cb()
+        cb(new Error('自定义视频厂商请输入提交端点'))
+      },
+      trigger: 'blur',
+    },
+  ],
+  modelText: [
+    {
+      validator: (_rule, value, cb) => {
+        if (form.value.service_type === 'jimeng2_character_auth' || isComfyUiForm.value || parseModelText(value).length > 0) return cb()
+        cb(new Error('请填写至少一个模型'))
+      },
+      trigger: 'blur',
+    },
+  ],
+  default_model: defaultModelRules,
   comfy_workflow_json: [
     {
       validator: (_rule, value, cb) => {
@@ -2315,6 +2577,7 @@ function resetForm() {
   editingId.value = null
   presetModelPick.value = ''
   advancedFormSections.value = []
+  clearConfigValidationSummary()
   form.value = {
     service_type: 'text',
     name: '',
@@ -2345,25 +2608,38 @@ function configFormFingerprint() {
   return JSON.stringify(form.value)
 }
 
+function generationSettingsFingerprint() {
+  return JSON.stringify([genConcurrencyInput.value, genVideoConcurrencyInput.value])
+}
+
 const configFormDirty = computed(() => (
   dialogVisible.value
   && Boolean(configFormBaseline.value)
   && configFormFingerprint() !== configFormBaseline.value
 ))
+const generationSettingsDirty = computed(() => (
+  generationSettingsLoadState.value === 'ready'
+  && Boolean(generationSettingsBaseline.value)
+  && generationSettingsFingerprint() !== generationSettingsBaseline.value
+))
+const credentialDraftDirty = computed(() => (
+  (oneKeyTongyiVisible.value && Boolean(oneKeyTongyiKey.value.trim()))
+  || (oneKeyVolcVisible.value && Boolean(oneKeyVolcKey.value.trim()))
+  || (oneKeyAgnesVisible.value && Boolean(oneKeyAgnesKey.value.trim()))
+  || (bulkKeyVisible.value && Boolean(bulkKeyInput.value.trim()))
+))
 
-function openConfigDialog() {
-  configDialogSaved.value = false
-  dialogVisible.value = true
-  nextTick(() => {
-    configFormBaseline.value = configFormFingerprint()
-  })
+function hasUnsavedChanges() {
+  return configFormDirty.value
+    || generationSettingsDirty.value
+    || credentialDraftDirty.value
+    || hasUnsavedAiConfigChanges([
+      promptEditorRef.value,
+      sceneModelMapRef.value,
+    ])
 }
 
-async function confirmConfigDialogClose(done) {
-  if (configDialogSaved.value || !configFormDirty.value) {
-    done()
-    return
-  }
+async function confirmDiscard() {
   try {
     await ElMessageBox.confirm(
       '当前 AI 配置尚未保存，关闭后本次修改会丢失。',
@@ -2375,15 +2651,57 @@ async function confirmConfigDialogClose(done) {
         distinguishCancelAndClose: true,
       },
     )
-    done()
-  } catch (_) {}
+    return true
+  } catch (_) {
+    return false
+  }
 }
 
-function requestConfigDialogClose() {
-  confirmConfigDialogClose(() => {
-    dialogVisible.value = false
+async function requestClose() {
+  if (!hasUnsavedChanges()) return true
+  if (!await confirmDiscard()) return false
+  return true
+}
+
+defineExpose({
+  hasUnsavedChanges,
+  requestClose,
+})
+
+function openConfigDialog() {
+  configDialogSaved.value = false
+  clearConfigValidationSummary()
+  dialogVisible.value = true
+  nextTick(() => {
+    configFormBaseline.value = configFormFingerprint()
+    if (configDialogScrollRef.value) configDialogScrollRef.value.scrollTop = 0
   })
 }
+
+async function confirmConfigDialogClose(done) {
+  if (configDialogSaved.value || !configFormDirty.value || await confirmDiscard()) done()
+}
+
+async function requestConfigDialogClose() {
+  if (configDialogSaved.value || !configFormDirty.value || await confirmDiscard()) dialogVisible.value = false
+}
+
+async function confirmCredentialDraftClose(input, done) {
+  if (!input.value.trim() || await confirmDiscard()) done()
+}
+
+async function requestCredentialDraftClose(input, visible) {
+  if (!input.value.trim() || await confirmDiscard()) visible.value = false
+}
+
+const confirmOneKeyTongyiClose = (done) => confirmCredentialDraftClose(oneKeyTongyiKey, done)
+const confirmOneKeyVolcClose = (done) => confirmCredentialDraftClose(oneKeyVolcKey, done)
+const confirmOneKeyAgnesClose = (done) => confirmCredentialDraftClose(oneKeyAgnesKey, done)
+const confirmBulkKeyClose = (done) => confirmCredentialDraftClose(bulkKeyInput, done)
+const requestOneKeyTongyiClose = () => requestCredentialDraftClose(oneKeyTongyiKey, oneKeyTongyiVisible)
+const requestOneKeyVolcClose = () => requestCredentialDraftClose(oneKeyVolcKey, oneKeyVolcVisible)
+const requestOneKeyAgnesClose = () => requestCredentialDraftClose(oneKeyAgnesKey, oneKeyAgnesVisible)
+const requestBulkKeyClose = () => requestCredentialDraftClose(bulkKeyInput, bulkKeyVisible)
 
 function handleConfigDialogClosed() {
   resetForm()
@@ -2412,7 +2730,7 @@ async function openEdit(row, { repairIssue = '' } = {}) {
   advancedFormSections.value = []
   const model = Array.isArray(row.model) ? row.model : (row.model ? [row.model] : [])
   const modelList = model.map((m) => String(m).trim()).filter(Boolean)
-  const defaultInList = row.default_model && modelList.includes(row.default_model)
+  const defaultModel = row.default_model == null ? '' : String(row.default_model).trim()
   // TTS / 可灵 Omni 等从 settings 解析
   let voice_id = row.voice_id || ''
   let group_id = row.group_id || ''
@@ -2450,7 +2768,7 @@ async function openEdit(row, { repairIssue = '' } = {}) {
     endpoint: row.endpoint || '',
     query_endpoint: row.query_endpoint || '',
     modelText: modelList.join('\n'),
-    default_model: defaultInList ? row.default_model : (modelList[0] || ''),
+    default_model: defaultModel,
     deepseek_thinking: deepseekSettings.thinking,
     deepseek_reasoning_effort: deepseekSettings.effort,
     priority: row.priority ?? 0,
@@ -2477,17 +2795,20 @@ async function openEdit(row, { repairIssue = '' } = {}) {
 
 async function submit() {
   if (configWriteLocked.value) return
-  const valid = await formRef.value?.validate?.().catch(() => false)
-  if (valid === false) return
+  try {
+    await formRef.value?.validate?.()
+  } catch (invalidFields) {
+    await handleConfigValidationFailure(invalidFields)
+    return
+  }
+  clearConfigValidationSummary()
   saving.value = true
   try {
     let modelList = parseModelText(form.value.modelText)
     if (form.value.service_type === 'jimeng2_character_auth' && modelList.length === 0) {
       modelList = ['-']
     }
-    const defaultModel = form.value.default_model && modelList.includes(form.value.default_model)
-      ? form.value.default_model
-      : modelList[0] || null
+    const defaultModel = form.value.default_model || null
     // TTS / 可灵 Omni 官方 AKSK / DeepSeek V4 / 成本单价统一打包进 settings。
     const previous = editingId.value ? list.value.find((row) => row.id === editingId.value) : null
     const settingsObject = parseSettingsObject(previous?.settings)
@@ -2925,6 +3246,19 @@ onMounted(async () => {
   font-style: italic;
 }
 
+.ai-config-form-dialog {
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ai-config-form-dialog > .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .ai-config-content,
 .ai-config-overlay {
   --ai-config-success-surface: #ecfdf5;
@@ -3061,6 +3395,47 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
 <style scoped>
 .ai-config-content {
   padding: 0;
+}
+.ai-config-dialog-scroll {
+  max-height: calc(92vh - 150px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 4px;
+  scrollbar-gutter: stable;
+}
+.ai-config-validation-summary {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--ai-config-danger-border, #fbc4c4);
+  border-radius: 6px;
+  background: var(--ai-config-danger-surface, #fef0f0);
+  color: var(--ai-config-danger-text, #b42318);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+.ai-config-validation-summary strong {
+  display: block;
+  font-size: 13px;
+  line-height: 20px;
+}
+.ai-config-validation-summary ul {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.config-field-a11y-description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .config-tabs {
   margin-top: -4px;
@@ -3710,6 +4085,10 @@ code {
   font-size: 12px;
   color: var(--el-text-color-secondary, #909399);
   line-height: 1.4;
+}
+.field-tip-warning {
+  color: var(--el-color-warning-dark-2, #b88230);
+  font-weight: 500;
 }
 .form-label-tip {
   display: inline-flex;

@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <AccessibleDialog
     v-model="visible"
     :title="dialogTitle"
     width="420px"
@@ -27,7 +27,7 @@
           <el-input v-model="form.name" placeholder="必填" />
         </el-form-item>
         <el-form-item label="角色类型">
-          <el-select v-model="form.role" placeholder="可选" clearable style="width: 100%">
+          <el-select v-model="form.role" aria-label="新建角色类型" placeholder="可选" clearable style="width: 100%">
             <el-option label="主角" value="main" />
             <el-option label="配角" value="supporting" />
           </el-select>
@@ -69,7 +69,7 @@
       <el-button @click="visible = false">取消</el-button>
       <el-button type="primary" :loading="submitting" @click="onSubmit">创建</el-button>
     </template>
-  </el-dialog>
+  </AccessibleDialog>
 </template>
 
 <script setup>

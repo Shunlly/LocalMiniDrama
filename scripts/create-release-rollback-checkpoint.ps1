@@ -1378,8 +1378,47 @@ function Get-RunningServiceEvidence {
     throw "Docker did not return an immutable archive image ID for $Service."
   }
 
+  $requiresPlatformBinding = $imageId -cne $runtimeImageId
+  if (-not $requiresPlatformBinding) {
+    $sourceDescriptorJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $imageId, '--format', '{{json .Descriptor}}') -Label "$Service source image descriptor capture"
+    $sourceDescriptorText = $sourceDescriptorJson.Trim()
+    if ($sourceDescriptorText -cne 'null') {
+      if ($sourceDescriptorText.Length -lt 2 -or
+          $sourceDescriptorText[0] -cne [char]'{' -or
+          $sourceDescriptorText[$sourceDescriptorText.Length - 1] -cne [char]'}') {
+        throw "$Service source image descriptor must be a JSON object."
+      }
+      try {
+        $sourceDescriptor = ConvertFrom-Json -InputObject $sourceDescriptorText
+      } catch {
+        throw "$Service source image descriptor returned invalid Docker JSON."
+      }
+      Assert-CheckpointEvidenceJsonObject -Value $sourceDescriptor -Message "$Service source image descriptor must be a JSON object."
+      $sourceMediaTypeProperty = $sourceDescriptor.PSObject.Properties['mediaType']
+      if ($null -ne $sourceMediaTypeProperty) {
+        $sourceDigestProperty = Get-CheckpointEvidenceProperty -Object $sourceDescriptor -Name 'digest' -Context "$Service source image descriptor"
+        Assert-CheckpointEvidenceStringPattern -Value $sourceDigestProperty.Value -Pattern '^sha256:[a-f0-9]{64}$' -Message "$Service source image descriptor digest is invalid."
+        if ($sourceDigestProperty.Value -cne $imageId) {
+          throw "$Service source image descriptor does not match its immutable image ID."
+        }
+        if ($sourceMediaTypeProperty.Value -cin @(
+          'application/vnd.oci.image.index.v1+json',
+          'application/vnd.docker.distribution.manifest.list.v2+json'
+        )) {
+          $requiresPlatformBinding = $true
+        } elseif ($sourceMediaTypeProperty.Value -cnotin @(
+          'application/vnd.oci.image.manifest.v1+json',
+          'application/vnd.docker.distribution.manifest.v2+json'
+        )) {
+          throw "$Service source image descriptor media type is invalid."
+        }
+      }
+    }
+  }
+
   $platform = ''
-  if ($imageId -cne $runtimeImageId) {
+  $manifestDigest = ''
+  if ($requiresPlatformBinding) {
     $descriptorJson = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('inspect', $containerId, '--format', '{{json .ImageManifestDescriptor}}') -Label "$Service running image manifest capture"
     # PowerShell 7 unwraps singleton JSON arrays, so validate the top-level token before parsing.
     $descriptorText = $descriptorJson.Trim()
@@ -1424,6 +1463,7 @@ function Get-RunningServiceEvidence {
     if ($selectedManifestId -cne $digestProperty.Value) {
       throw "The immutable archive image for $Service does not contain the running platform manifest."
     }
+    $manifestDigest = $digestProperty.Value
   }
 
   $revision = Get-ImageRevision -ImageReference $imageId -Label "$Service image revision capture" -Platform $platform
@@ -1431,12 +1471,68 @@ function Get-RunningServiceEvidence {
     throw "The running $Service image revision $revision does not match Git commit $ExpectedRevision. Rebuild with npm run docker:up before creating a checkpoint."
   }
 
-  return [ordered]@{
+  $evidence = [ordered]@{
     container_id = $containerId
     image_id = $imageId
     revision = $revision
     health = $health
   }
+  if ($requiresPlatformBinding) {
+    $evidence['source_index_digest'] = $imageId
+    $evidence['manifest_digest'] = $manifestDigest
+    $evidence['platform'] = $platform
+  }
+  return $evidence
+}
+
+function Set-RollbackArchiveImageEvidence {
+  param(
+    [Parameter(Mandatory = $true)][System.Collections.IDictionary]$Evidence,
+    [Parameter(Mandatory = $true)][string]$RollbackReference,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+
+  $sourceImageId = [string]$Evidence['image_id']
+  $revision = [string]$Evidence['revision']
+  if ($sourceImageId -cnotmatch '^sha256:[a-f0-9]{64}$' -or $revision -cnotmatch '^[a-f0-9]{40}$') {
+    throw "$Label lacks immutable source image evidence."
+  }
+
+  Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'tag', $sourceImageId, $RollbackReference) -Label $Label | Out-Null
+  $archiveImageId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', $RollbackReference, '--format', '{{.Id}}') -Label "$Label archive ID capture"
+  if ($archiveImageId -cnotmatch '^sha256:[a-f0-9]{64}$') {
+    throw "$Label did not produce an immutable archive image ID."
+  }
+
+  $bindingFields = @('source_index_digest', 'manifest_digest', 'platform')
+  $bindingFieldCount = @($bindingFields | Where-Object { $Evidence.Contains($_) }).Count
+  $platform = ''
+  if ($bindingFieldCount -gt 0) {
+    if ($bindingFieldCount -ne $bindingFields.Count) {
+      throw "$Label has incomplete OCI platform binding evidence."
+    }
+    $sourceIndexDigest = [string]$Evidence['source_index_digest']
+    $manifestDigest = [string]$Evidence['manifest_digest']
+    $platform = [string]$Evidence['platform']
+    if ($sourceIndexDigest -cne $sourceImageId -or
+        $manifestDigest -cnotmatch '^sha256:[a-f0-9]{64}$' -or
+        $platform -cnotmatch '^[a-z0-9][a-z0-9._-]{0,63}/[a-z0-9][a-z0-9._-]{0,63}(?:/[a-z0-9][a-z0-9._-]{0,63})?$') {
+      throw "$Label has invalid OCI platform binding evidence."
+    }
+    $sourceManifestId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', '--platform', $platform, $sourceIndexDigest, '--format', '{{.Id}}') -Label "$Label source platform verification"
+    $archiveManifestId = Get-CheckedScalar -FilePath 'docker' -ArgumentList @('image', 'inspect', '--platform', $platform, $RollbackReference, '--format', '{{.Id}}') -Label "$Label archive platform verification"
+    if ($sourceManifestId -cne $manifestDigest -or $archiveManifestId -cne $manifestDigest) {
+      throw "$Label changed its immutable platform manifest binding while tagging."
+    }
+  }
+
+  $archiveRevision = Get-ImageRevision -ImageReference $RollbackReference -Label "$Label archive revision verification" -Platform $platform
+  if ($archiveRevision -cne $revision) {
+    throw "$Label changed its immutable revision while tagging."
+  }
+  $Evidence['archive_image_id'] = $archiveImageId
+  $Evidence['rollback_ref'] = $RollbackReference
+  return $Evidence
 }
 
 function Start-CapturedDeployment {
@@ -1544,12 +1640,10 @@ try {
   $backendRollbackRef = "localminidrama-backend:$rollbackTag"
   $frontendRollbackRef = "localminidrama-frontend:$rollbackTag"
   Assert-SafeRollbackPaths -CheckpointDirectory $checkpoint -DataDirectory $runtimeDataDirectory
-  Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'tag', $backend.image_id, $backendRollbackRef) -Label 'Backend checkpoint image tag' | Out-Null
-  Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'tag', $frontend.image_id, $frontendRollbackRef) -Label 'Frontend checkpoint image tag' | Out-Null
+  $backend = Set-RollbackArchiveImageEvidence -Evidence $backend -RollbackReference $backendRollbackRef -Label 'Backend checkpoint image tag'
+  $frontend = Set-RollbackArchiveImageEvidence -Evidence $frontend -RollbackReference $frontendRollbackRef -Label 'Frontend checkpoint image tag'
   Invoke-Checked -FilePath 'docker' -ArgumentList @('image', 'save', '--output', $imageArchive, $backendRollbackRef, $frontendRollbackRef) -Label 'Checkpoint image archive' | Out-Null
   $imageArchiveHash = Get-RollbackPathSha256 -Path $imageArchive -Label 'Archived Docker images'
-  $backend['rollback_ref'] = $backendRollbackRef
-  $frontend['rollback_ref'] = $frontendRollbackRef
 
   $dockerStopped = $false
   try {

@@ -475,7 +475,7 @@
 
     <template v-if="isDramaReady">
     <!-- 制作角色 编辑 -->
-    <el-dialog v-model="editDramaCharVisible" title="编辑制作角色" width="500px" @close="editDramaCharForm = null">
+    <AccessibleDialog v-model="editDramaCharVisible" title="编辑制作角色" width="500px" @close="editDramaCharForm = null">
       <el-form v-if="editDramaCharForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -506,10 +506,10 @@
         <el-button @click="editDramaCharVisible = false">取消</el-button>
         <el-button type="primary" :loading="editDramaCharSaving" @click="saveDramaChar">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 制作场景 编辑 -->
-    <el-dialog v-model="editDramaSceneVisible" title="编辑制作场景" width="500px" @close="editDramaSceneForm = null">
+    <AccessibleDialog v-model="editDramaSceneVisible" title="编辑制作场景" width="500px" @close="editDramaSceneForm = null">
       <el-form v-if="editDramaSceneForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -533,10 +533,10 @@
         <el-button @click="editDramaSceneVisible = false">取消</el-button>
         <el-button type="primary" :loading="editDramaSceneSaving" @click="saveDramaScene">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 制作道具 编辑 -->
-    <el-dialog v-model="editDramaPropVisible" title="编辑制作道具" width="500px" @close="editDramaPropForm = null">
+    <AccessibleDialog v-model="editDramaPropVisible" title="编辑制作道具" width="500px" @close="editDramaPropForm = null">
       <el-form v-if="editDramaPropForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -560,10 +560,10 @@
         <el-button @click="editDramaPropVisible = false">取消</el-button>
         <el-button type="primary" :loading="editDramaPropSaving" @click="saveDramaProp">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 编辑角色 -->
-    <el-dialog v-model="editCharVisible" title="编辑角色库" width="480px" @close="editCharForm = null">
+    <AccessibleDialog v-model="editCharVisible" title="编辑角色库" width="480px" @close="editCharForm = null">
       <el-form v-if="editCharForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -587,10 +587,10 @@
         <el-button @click="editCharVisible = false">取消</el-button>
         <el-button type="primary" :loading="editCharSaving" @click="saveChar">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 编辑场景 -->
-    <el-dialog v-model="editSceneVisible" title="编辑场景库" width="480px" @close="editSceneForm = null">
+    <AccessibleDialog v-model="editSceneVisible" title="编辑场景库" width="480px" @close="editSceneForm = null">
       <el-form v-if="editSceneForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -615,10 +615,10 @@
         <el-button @click="editSceneVisible = false">取消</el-button>
         <el-button type="primary" :loading="editSceneSaving" @click="saveScene">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 编辑道具 -->
-    <el-dialog v-model="editPropVisible" title="编辑道具库" width="480px" @close="editPropForm = null">
+    <AccessibleDialog v-model="editPropVisible" title="编辑道具库" width="480px" @close="editPropForm = null">
       <el-form v-if="editPropForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -642,10 +642,10 @@
         <el-button @click="editPropVisible = false">取消</el-button>
         <el-button type="primary" :loading="editPropSaving" @click="saveProp">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 从素材库导入 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="importVisible"
       :title="`从素材库导入${importType === 'char' ? '角色' : importType === 'scene' ? '场景' : '道具'}`"
       width="760px"
@@ -693,7 +693,7 @@
       <template #footer>
         <el-button @click="importVisible = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <ImagePreviewDialog
       :model-value="Boolean(previewUrl)"
@@ -707,30 +707,46 @@
 
 <script setup>
 import { ref, reactive, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue'
-import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
+import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, VideoPlay, Plus, Delete, Sunny, Moon, PictureFilled, Grid, Loading, Refresh, WarningFilled } from '@element-plus/icons-vue'
 import EpisodeBatchImportDialog from '@/components/EpisodeBatchImportDialog.vue'
 import ProjectReadinessPanel from '@/components/ProjectReadinessPanel.vue'
 import SourceIntakeWorkflowPanel from '@/components/SourceIntakeWorkflowPanel.vue'
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import { useTheme } from '@/composables/useTheme'
-import { dramaAPI } from '@/api/drama'
-import { aiAPI } from '@/api/ai'
-import { sourceIntakeAPI } from '@/api/sourceIntake'
-import { characterLibraryAPI } from '@/api/characterLibrary'
-import { sceneLibraryAPI } from '@/api/sceneLibrary'
-import { propLibraryAPI } from '@/api/propLibrary'
-import { uploadAPI } from '@/api/upload'
-import { imagesAPI } from '@/api/images'
-import { taskAPI } from '@/api/task'
-import { characterAPI } from '@/api/characters'
-import { sceneAPI } from '@/api/scenes'
-import { propAPI } from '@/api/props'
+import { dramaAPI as rawDramaAPI } from '@/api/drama'
+import { aiAPI as rawAiAPI } from '@/api/ai'
+import { sourceIntakeAPI as rawSourceIntakeAPI } from '@/api/sourceIntake'
+import { characterLibraryAPI as rawCharacterLibraryAPI } from '@/api/characterLibrary'
+import { sceneLibraryAPI as rawSceneLibraryAPI } from '@/api/sceneLibrary'
+import { propLibraryAPI as rawPropLibraryAPI } from '@/api/propLibrary'
+import { uploadAPI as rawUploadAPI } from '@/api/upload'
+import { imagesAPI as rawImagesAPI } from '@/api/images'
+import { taskAPI as rawTaskAPI } from '@/api/task'
+import { characterAPI as rawCharacterAPI } from '@/api/characters'
+import { sceneAPI as rawSceneAPI } from '@/api/scenes'
+import { propAPI as rawPropAPI } from '@/api/props'
 import { stylePromptMetadataForSave, backfillDramaStylePromptMetadataIfNeeded } from '@/constants/styleOptions'
 import { buildProjectReadiness } from '@/utils/projectReadiness'
-import { normalizeProjectListReturnTo, resolveProjectEpisodeId } from '@/utils/projectListRoute'
+import { normalizeProjectListReturnTo, projectRouteInstanceKey, resolveProjectEpisodeId } from '@/utils/projectListRoute'
 import { scrollAndFocusSection } from '@/utils/sectionFocus.js'
+import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
+
+const projectLifecycle = createProjectInstanceLifecycle()
+const ElMessage = projectLifecycle.guardNotifier(RawElMessage)
+const dramaAPI = projectLifecycle.guardApi(rawDramaAPI)
+const aiAPI = projectLifecycle.guardApi(rawAiAPI)
+const sourceIntakeAPI = projectLifecycle.guardApi(rawSourceIntakeAPI)
+const characterLibraryAPI = projectLifecycle.guardApi(rawCharacterLibraryAPI)
+const sceneLibraryAPI = projectLifecycle.guardApi(rawSceneLibraryAPI)
+const propLibraryAPI = projectLifecycle.guardApi(rawPropLibraryAPI)
+const uploadAPI = projectLifecycle.guardApi(rawUploadAPI)
+const imagesAPI = projectLifecycle.guardApi(rawImagesAPI)
+const taskAPI = projectLifecycle.guardApi(rawTaskAPI)
+const characterAPI = projectLifecycle.guardApi(rawCharacterAPI)
+const sceneAPI = projectLifecycle.guardApi(rawSceneAPI)
+const propAPI = projectLifecycle.guardApi(rawPropAPI)
 
 const route = useRoute()
 const { isDark, toggle: toggleTheme } = useTheme()
@@ -1340,14 +1356,14 @@ async function requestCoreDrama(path, { method = 'GET', body, fetchImpl = global
   return payload?.data !== undefined ? payload.data : payload
 }
 
-const coreDramaAPI = {
+const coreDramaAPI = projectLifecycle.guardApi({
   get(id) {
     return requestCoreDrama(`/dramas/${encodeURIComponent(id)}`)
   },
   saveOutline(id, data) {
     return requestCoreDrama(`/dramas/${encodeURIComponent(id)}/outline`, { method: 'PUT', body: data })
   },
-}
+})
 
 function friendlyDramaLoadError(error) {
   const status = Number(error?.status || error?.response?.status)
@@ -1534,7 +1550,7 @@ function goEpisode(epId) {
 }
 
 function epStatusLabel(status) {
-  const map = { draft: '草稿', processing: '生成中', completed: '已完成', failed: '失败' }
+  const map = { draft: '草稿', processing: '生成中', completed: '剧本已就绪', failed: '失败' }
   return map[status] || status
 }
 
@@ -1596,9 +1612,9 @@ async function onAddEpisode() {
       duration: ep.duration ?? 0
     }))
     updated.push({ episode_number: nextNum, title: '第' + nextNum + '集', script_content: '', description: null, duration: 0 })
-    await dramaAPI.saveEpisodes(dramaId, updated)
+    await projectLifecycle.execute(() => dramaAPI.saveEpisodes(dramaId, updated))
     ElMessage.success('已添加第' + nextNum + '集')
-    await loadDrama()
+    await projectLifecycle.execute(() => loadDrama())
   } catch (e) {
     ElMessage.error(e.message || '添加失败')
   } finally {
@@ -1803,18 +1819,28 @@ watch(infoDraftFingerprint, () => {
 })
 
 onBeforeRouteLeave(() => confirmInfoLeave())
+onBeforeRouteUpdate((to, from) => {
+  if (projectRouteInstanceKey(to) === projectRouteInstanceKey(from)) return true
+  return confirmInfoLeave()
+})
+
+let dramaDetailUnmounted = false
 
 onMounted(async () => {
   await retryDramaLoad()
+  if (dramaDetailUnmounted) return
   window.addEventListener('beforeunload', handleInfoBeforeUnload)
   if (isDramaReady.value && route.query.importBatch) {
     setTimeout(() => {
+      if (dramaDetailUnmounted) return
       episodeBatchImportDialogRef.value?.openDialog?.()
     }, 0)
   }
 })
 
 onBeforeUnmount(() => {
+  dramaDetailUnmounted = true
+  projectLifecycle.dispose()
   clearInfoSaveTimer()
   window.removeEventListener('beforeunload', handleInfoBeforeUnload)
 })
@@ -2103,13 +2129,13 @@ html.light .dependency-status--error {
   border-top: 1px solid var(--border-color);
   background: transparent;
   font-size: 0.78rem;
-  color: var(--text-faint);
+  color: var(--el-color-primary);
   font-family: inherit;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 4px;
-  opacity: 0.7;
+  opacity: 1;
   transition: color 0.2s, opacity 0.2s;
 }
 .episode-enter:focus-visible {
@@ -2218,7 +2244,7 @@ html.light .dependency-status--error {
 html.light .episode-card { background: rgba(255, 255, 255, 0.85); border-color: rgba(139, 92, 246, 0.12); }
 html.light .episode-card:hover { background: rgba(245, 243, 255, 0.95); border-color: rgba(139, 92, 246, 0.4); box-shadow: 0 8px 24px rgba(139, 92, 246, 0.12); }
 html.light .episode-card::before { background: linear-gradient(135deg, rgba(139, 92, 246, 0.05), transparent 60%); }
-html.light .episode-enter { border-top-color: #e4e4e7; color: #a1a1aa; }
+html.light .episode-enter { border-top-color: #e4e4e7; color: var(--el-color-primary); }
 html.light .episode-card:hover .episode-enter { color: var(--el-color-primary); }
 html.light .episode-title { color: #18181b; }
 html.light .res-tab:hover { background: rgba(0,0,0,0.04); }

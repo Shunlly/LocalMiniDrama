@@ -1243,6 +1243,7 @@ async function downloadBufferViaNodeHttp(url, timeoutMs = 30000, redirectCount =
   }, {
     trustedOrigins: options.trustedOrigins,
     allowPrivateOrigins: options.allowPrivateOrigins,
+    requireHttpsForPublic: options.requireHttpsForPublic === true,
     lookup: options.lookup,
     timeoutMs,
     maxBytes,

@@ -6,41 +6,44 @@
 
 ## 目录
 
-- [运行方式一：下载 exe（推荐普通用户）](#运行方式一下载-exe推荐普通用户)
-- [运行方式二：开发模式（推荐开发者）](#运行方式二开发模式推荐开发者)
+- [当前发布状态与运行建议](#当前发布状态与运行建议)
+  - [自由画布集成状态](#自由画布集成状态2026-07-27)
+- [运行方式一：源码开发（当前建议）](#运行方式一源码开发当前建议)
   - [环境要求](#环境要求)
   - [启动后端](#1-启动后端)
   - [启动前端](#2-启动前端)
   - [一键启动脚本](#3-一键启动脚本)
-- [打包为 Windows exe](#打包为-windows-exe)
+- [本地构建 Windows 候选](#本地构建-windows-候选)
   - [正式发布顺序](#正式发布顺序)
 - [配置文件说明](#配置文件说明)
 - [数据库与数据目录](#数据库与数据目录)
-- [Docker 启动](#docker-启动)
+- [运行方式二：Docker（当前候选部署）](#运行方式二docker当前候选部署)
 - [常见问题 FAQ](#常见问题-faq)
 
 ---
 
-## 运行方式一：下载 exe（推荐普通用户）
+## 当前发布状态与运行建议
 
-1. 前往 **[Releases](https://github.com/Shunlly/LocalMiniDrama/releases)** 页面下载最新版本：
-   - `LocalMiniDrama-Setup-x.x.x-x64.exe` — NSIS 安装包（推荐，可选安装路径）
-   - `LocalMiniDrama-Portable-x.x.x-x64.exe` — 免安装便携版
+当前源码与三个包的版本为 `1.3.3` 发布候选。Git 目前只有 `v1.3.0`、`v1.3.1`、`v1.3.2` 标签，没有 `v1.3.3` 标签或正式 Release；[Releases](https://github.com/Shunlly/LocalMiniDrama/releases) 仅作为历史页，不能据此推断当前存在正式 Setup 或 Portable。
 
-2. 双击运行，软件会自动启动内置后端服务。
+当前建议按下文从源码运行，或使用 Docker 部署候选源码。本地源码、Docker 或自行构建的 Windows 候选即使运行通过，也不是 GitHub 正式发布。正式二进制必须等同一 Git SHA 的 CI、源码、Docker、Windows 制品、安全、回滚与产品验收全部通过，并在 draft Release 人工复核后正式发布。
 
-3. 首次运行会在以下路径生成配置文件：
-   ```
-   %APPDATA%\localminidrama-desktop\backend\configs\config.yaml
-   ```
+### 当前能力与延期边界
 
-4. 点击软件右上角「AI 配置」，填入你的 AI API Key，即可开始使用。
+- 素材中心当前支持本地图片/视频上传、搜索和类型筛选；网页 URL 入口只提取故事正文并写入项目。第三方图片/视频搜索、版权或授权来源核验、预览选择和下载入库不属于 `1.3.3` 桌面候选。
+- AI 配置当前支持厂商预设、自定义 OpenAI 兼容厂商和手工模型列表。连接测试会探测配置端点，但不会通过通用 `/v1/models` 自动发现或导入远端模型。
+- 外部真实 Provider 的厂商、账户、模型版本、额度、计费和长耗时行为仍需每个部署自行连接测试和非敏感样例验收；仓库测试不得使用真实凭据。
+- 移动端重排、触控行为和移动画布/列表降级后置；本候选只按桌面矩阵验收。
 
-> 💡 不知道去哪里申请 API Key？请看 → [AI 配置指南](configuration.md)
+### 自由画布集成状态（2026-07-27）
+
+同一路由中的「制作 + 自由」桌面工作台已经完成任务 1-5、8 项产品验收三轮复审（`Spec PASS / Quality PASS`）和 ZIP 导入导出安全复审（`Spec PASS / Security PASS`）。E2E 流程代码、证据校验契约及串行门禁接线也已完成 `Spec PASS / Quality PASS` 复审。
+
+上述结论不包含真实 Docker 运行证据。1280x720、1366x768、1440x900 的亮色/暗色生产 E2E 尚未执行，最终发布状态必须保持 **待验证 / UNVERIFIED**。测试只使用本地协议兼容测试服务，不调用外部真实 Provider。启动前端后可查看独立报告：`http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`。
 
 ---
 
-## 运行方式二：开发模式（推荐开发者）
+## 运行方式一：源码开发（当前建议）
 
 ### 环境要求
 
@@ -114,9 +117,9 @@ run_dev.bat
 
 ---
 
-## 打包为 Windows exe
+## 本地构建 Windows 候选
 
-> 打包前请先确保已完成后端和前端的 `npm install`。
+> 以下命令只生成本地未发布候选，不会创建 GitHub Release。打包前请先确保已完成后端和前端的 `npm install`。
 
 ```bash
 cd desktop
@@ -158,7 +161,7 @@ npm run dist:cn
 
 ## 配置文件说明
 
-配置文件位于 `backend-node/configs/config.yaml`（开发模式）或 `%APPDATA%\localminidrama-desktop\backend\configs\config.yaml`（exe 模式）。
+配置文件位于 `backend-node/configs/config.yaml`（后端源码模式）、`%APPDATA%\localminidrama-desktop-dev\backend\configs\config.yaml`（Electron 开发模式）或 `%APPDATA%\localminidrama-desktop\backend\configs\config.yaml`（Setup / Portable 模式）。
 
 主要配置项：
 
@@ -203,7 +206,7 @@ AI 服务配置通过软件内「AI 配置」页面管理，无需手动编辑 Y
 
 ---
 
-## Docker 启动
+## 运行方式二：Docker（当前候选部署）
 
 项目根目录已提供 `docker-compose.yml`，会同时启动后端和前端：
 
@@ -225,7 +228,7 @@ Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；�
 
 后端 Compose 不会让宿主机配置直接覆盖运行配置。`LOCALMINIDRAMA_CONFIG_DIR`（默认 `./backend-node/configs`）只读挂载到容器的 `/app/config-source`；入口脚本会在降权前通过 `runtime-config-policy.cjs` 将其净化到 `/tmp/localminidrama-config/config.yaml`，应用通过 `LOCALMINIDRAMA_CONFIG_PATH` 读取净化结果。自定义配置必须提供 `config.yaml`，每次启动都会重新净化。
 
-`npm run docker:up` 要求 Git 工作树干净，并把当前完整提交 SHA 写入后端和前端镜像的 OCI revision 标签。修改源码尚未提交时可直接执行 `docker compose up -d --build --wait` 做开发检查，但 revision 会是 `unknown`，不能用于发布证据或正式回滚检查点；提交后必须重新运行 `npm run docker:up`。
+`npm run docker:up` 要求 Git 工作树干净，并把当前完整提交 SHA 写入后端和前端镜像的 OCI revision 标签。修改源码尚未提交时可直接执行 `docker compose up -d --build --wait` 做开发检查，但 revision 会是 `unknown`，不能用于发布证据或正式回滚检查点；提交后必须重新运行 `npm run docker:up`。Docker 是当前候选的可用部署路径，但本地镜像构建、运行或验收结果不构成 GitHub 正式发布。
 
 Docker 默认只把 `5679` 和 `3013` 绑定到宿主机 `127.0.0.1`，不会向局域网公开无认证接口。确需远程访问时，请先增加反向代理、认证和 TLS，再显式调整端口绑定。
 
@@ -235,7 +238,7 @@ Docker 默认只把 `5679` 和 `3013` 绑定到宿主机 `127.0.0.1`，不会向
 npm run verify:docker
 ```
 
-单独运行 `npm run verify:e2e` 不会自动启动 Provider；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容 Provider。必须在干净工作树按顺序执行：
+单独运行 `npm run verify:e2e` 不会自动启动测试服务；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容测试服务。必须在干净工作树按顺序执行：
 
 ```bash
 npm run docker:e2e:up
@@ -243,7 +246,7 @@ npm run verify:e2e
 docker compose --profile e2e down --volumes --remove-orphans
 ```
 
-`docker:e2e:up` 等价于带可信 Git revision 的 `docker compose --profile e2e up -d --build --wait`。E2E 会真实调用本地文本、图片、视频和 TTS 协议端点，生成成片、验证两个桌面视口播放到结束、下载与项目导出，然后清理测试项目；它不等同于外部云 Provider 深度联调。
+`docker:e2e:up` 等价于带可信 Git revision 的 `docker compose --profile e2e up -d --build --wait`。E2E 会调用本地协议兼容的文本、图片、视频和 TTS 测试端点，生成成片、验证桌面视口播放、下载与项目导出，然后清理测试项目；测试不得调用外部真实 Provider，也不等同于外部云 Provider 深度联调。截至 2026-07-27，自由画布脚本与契约已复审，但上述真实 Docker 命令和六组亮/暗视口矩阵仍未执行，不能写入发布通过结论。
 
 该命令依次执行后端静态检查、测试与流程审计，以及前端静态检查、测试和生产构建。宿主机若使用 Node.js 24 等缺少 `better-sqlite3` 预编译产物的版本，可直接以 Docker/Node 20 作为权威验证路径。
 
@@ -402,7 +405,7 @@ npm run restore:rollback -- -CheckpointDirectory $checkpoint
 
 `restore:rollback` 只接受 v5 检查点。脚本在接触数据前核对固定位置的 metadata、`data-bind-source.txt`、数据 ZIP、Compose、净化后的运行配置、镜像归档和 v3 演练摘要及其 SHA-256，再从当前 existing backend 容器重新捕获 `/app/data`。当前挂载必须仍是唯一可写 bind，且当前检查到的宿主 source 必须与检查点记录的小写原生 `data_root_identity` 表示同一个物理目录；路径文本相同但目录身份不同会失败关闭。归档 metadata 中的路径只用于证据比对，不会被用来拼接归档文件或选择备份/恢复目标；检查点备份、旧数据恢复和所有前向补偿都显式使用重新 inspect 的同一 source。
 
-检查点创建后，当前实时数据根内的数据库、素材和原文等后代内容可以正常变化。恢复只比较 v3 摘要与 v5 metadata 之间保存的历史数据根摘要，不会重新散列当前实时字节并与该旧摘要比较；物理目录身份约束与历史内容摘要是两个不同的证明。每次启动回滚或前向部署前会先解析 Compose 确认 `/app/data` 指向该 source，启动后再 inspect 容器复核。旧版本启动失败时，脚本会尝试恢复补偿数据和升级后镜像；补偿也失败才会报告双重故障。安全归档和发布证据始终排除 Provider 凭据；成功后仍需复验一条已有媒体播放链路，并在「AI 配置」重新填写所有备份策略排除的 Provider 凭据。不可移动或重写 `v1.3.3` 等正式标签。
+检查点创建后，当前实时数据根内的数据库、素材和原文等后代内容可以正常变化。恢复只比较 v3 摘要与 v5 metadata 之间保存的历史数据根摘要，不会重新散列当前实时字节并与该旧摘要比较；物理目录身份约束与历史内容摘要是两个不同的证明。每次启动回滚或前向部署前会先解析 Compose 确认 `/app/data` 指向该 source，启动后再 inspect 容器复核。旧版本启动失败时，脚本会尝试恢复补偿数据和升级后镜像；补偿也失败才会报告双重故障。安全归档和发布证据始终排除 Provider 凭据；成功后仍需复验一条已有媒体播放链路，并在「AI 配置」重新填写所有备份策略排除的 Provider 凭据。`v1.3.3` 目前尚未创建；任何版本标签一旦按正式流程发布，都不可移动或重写。
 
 **源码离线目录副本**：只有在后端和 Docker 均已停止时，才可复制整个 `backend-node/data/`；不要在 SQLite 正在写入时直接拷贝。exe 数据必须使用上文 `%APPDATA%` 路径，不能用仓库目录替代。
 
@@ -410,7 +413,7 @@ npm run restore:rollback -- -CheckpointDirectory $checkpoint
 
 ### Q: 支持 Mac / Linux 吗？
 
-当前发布和验收矩阵仅包含 Windows x64 Setup、Portable 与 unpacked。后端和前端可在其他平台源码运行，但桌面 macOS 构建脚本会主动拒绝执行，Linux 桌面制品也不在本次支持范围。
+当前 `1.3.3` 候选验收矩阵仅包含 Windows x64 Setup、Portable 与 unpacked。后端和前端可在其他平台源码或 Docker 运行，但桌面 macOS 构建脚本会主动拒绝执行，Linux 桌面制品也不在本次支持范围。
 
 ---
 

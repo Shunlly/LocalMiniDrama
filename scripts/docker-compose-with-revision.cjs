@@ -34,6 +34,12 @@ function parseArguments(argv) {
   return profiles
 }
 
+function revisionServices(profiles) {
+  const services = ['backend', 'frontend']
+  if (profiles.includes('e2e')) services.push('e2e-provider')
+  return services
+}
+
 function main() {
   const profiles = parseArguments(process.argv.slice(2))
   const dirty = run('git', ['status', '--porcelain', '--untracked-files=normal'], { encoding: 'utf8' })
@@ -43,9 +49,9 @@ function main() {
   const imageTag = process.env.LOCALMINIDRAMA_IMAGE_TAG || revision
   assert.match(imageTag, /^[a-z0-9][a-z0-9_.-]{0,127}$/i, 'Docker image tag must be a safe value')
 
-  const composeArgs = ['compose']
-  for (const profile of profiles) composeArgs.push('--profile', profile)
-  composeArgs.push('up', '-d', '--build', '--wait')
+  const composePrefix = ['compose']
+  for (const profile of profiles) composePrefix.push('--profile', profile)
+  const composeArgs = [...composePrefix, 'up', '-d', '--build', '--wait']
   const result = spawnSync('docker', composeArgs, {
     cwd: root,
     stdio: 'inherit',
@@ -67,7 +73,7 @@ function main() {
     LOCALMINIDRAMA_BUILD_REVISION: revision,
     LOCALMINIDRAMA_IMAGE_TAG: imageTag,
   }
-  for (const service of ['backend', 'frontend']) {
+  for (const service of revisionServices(profiles)) {
     const image = `localminidrama-${service}:${imageTag}`
     const imageRevision = run(
       'docker',
@@ -75,6 +81,24 @@ function main() {
       { encoding: 'utf8', env: imageEnv },
     ).toLowerCase()
     assert.equal(imageRevision, revision, `${service} image revision must match the verified Git commit`)
+
+    const containerId = run(
+      'docker',
+      [...composePrefix, 'ps', '-q', service],
+      { encoding: 'utf8', env: imageEnv },
+    )
+    assert.match(containerId, /^[a-f0-9]{12,64}$/i, `${service} must have exactly one running container`)
+    const targetImageId = run(
+      'docker',
+      ['image', 'inspect', image, '--format', '{{.Id}}'],
+      { encoding: 'utf8', env: imageEnv },
+    )
+    const runningImageId = run(
+      'docker',
+      ['container', 'inspect', containerId, '--format', '{{.Image}}'],
+      { encoding: 'utf8', env: imageEnv },
+    )
+    assert.equal(runningImageId, targetImageId, `${service} container must run the verified tagged image`)
   }
   process.exitCode = 0
 }
@@ -88,4 +112,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { parseArguments }
+module.exports = { parseArguments, revisionServices }

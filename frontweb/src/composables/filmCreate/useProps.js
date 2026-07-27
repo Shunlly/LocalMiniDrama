@@ -1,8 +1,8 @@
 import { ref, reactive, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { propAPI } from '@/api/props'
-import { propLibraryAPI } from '@/api/propLibrary'
-import { uploadAPI } from '@/api/upload'
+import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
+import { propAPI as rawPropAPI } from '@/api/props'
+import { propLibraryAPI as rawPropLibraryAPI } from '@/api/propLibrary'
+import { uploadAPI as rawUploadAPI } from '@/api/upload'
 import { useGenerationTaskStore, GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { buildExtractTaskMeta, isEpisodeExtractRunning } from '@/composables/useGenerationTaskSync'
 
@@ -19,7 +19,20 @@ import { buildExtractTaskMeta, isEpisodeExtractRunning } from '@/composables/use
  * @param {Function} deps.hasAssetImage
  */
 export function useProps(deps) {
-  const { store, dramaId, currentEpisodeId, getSelectedStyle, loadDrama, pollTask, pollUntilResourceHasImage, hasAssetImage } = deps
+  const {
+    store,
+    dramaId,
+    currentEpisodeId,
+    getSelectedStyle,
+    loadDrama,
+    pollTask,
+    pollUntilResourceHasImage,
+    hasAssetImage,
+    ElMessage = RawElMessage,
+    propAPI = rawPropAPI,
+    propLibraryAPI = rawPropLibraryAPI,
+    uploadAPI = rawUploadAPI,
+  } = deps
   const genStore = useGenerationTaskStore()
 
   function buildPropImageMeta(prop) {

@@ -103,7 +103,7 @@ test('media library returnTo safely preserves the current film workspace', async
   assert.match(filmCreateSource, /returnTo: route\.fullPath/)
   assert.match(
     filmListSource,
-    /path: `\/drama\/\$\{drama\.id\}`,[\s\S]{0,100}query: \{ returnTo: projectListReturnTo\.value \},[\s\S]{0,100}hash: '#source-intake-workflow'/,
+    /router\.push\(projectCardDestination\(drama, sourceImportIntent\.value, projectListReturnTo\.value\)\)/,
   )
 })
 

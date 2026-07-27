@@ -64,6 +64,41 @@ test('media selection is limited to ids visible in the latest results', () => {
   )
 })
 
+test('initial media read failures preserve pure navigation while upload keeps it locked', () => {
+  assert.equal(typeof mediaLibrary.mediaLibraryAccessState, 'function')
+
+  assert.deepEqual(mediaLibrary.mediaLibraryAccessState({
+    loading: false,
+    uploading: false,
+    hasSuccessfulLoad: false,
+    loadError: 'offline',
+    itemCount: 0,
+  }), {
+    navigationLocked: false,
+    showEntryStrip: true,
+    writeLocked: true,
+  })
+  assert.deepEqual(mediaLibrary.mediaLibraryAccessState({
+    loading: false,
+    uploading: true,
+    hasSuccessfulLoad: true,
+    loadError: '',
+    itemCount: 2,
+  }), {
+    navigationLocked: true,
+    showEntryStrip: true,
+    writeLocked: false,
+  })
+})
+
+test('media entry navigation uses its own upload-only lock in the component', () => {
+  assert.match(mediaLibrarySource, /v-if="mediaAccessState\.showEntryStrip"\s+class="entry-strip"/)
+  assert.match(mediaLibrarySource, /<el-button[^>]*:disabled="mediaAccessState\.navigationLocked"[^>]*@click="goNewProject"[^>]*>[\s\S]*?新建项目/)
+  assert.match(mediaLibrarySource, /class="entry-action"[\s\S]*:disabled="mediaAccessState\.navigationLocked"[\s\S]*aria-label="选择项目后导入网页 URL"/)
+  assert.match(mediaLibrarySource, /function goNewProject\(\) \{\s*if \(mediaAccessState\.value\.navigationLocked\) return/)
+  assert.match(mediaLibrarySource, /function goSourceImport\(\) \{\s*if \(mediaAccessState\.value\.navigationLocked\) return/)
+})
+
 test('successful reloads reconcile selection and batch deletion snapshots visible ids', () => {
   assert.match(
     mediaLibrarySource,

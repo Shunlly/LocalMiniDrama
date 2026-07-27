@@ -89,9 +89,31 @@ function summarizeExternalUrl(value) {
   }
 }
 
+function buildStartupFailureDialogMessage(logPath) {
+  return `后端服务未能启动，请查看日志：\n${sanitizeMainLogString(logPath, 1024)}`;
+}
+
 const { app, BrowserWindow, Menu, dialog, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const IMPORT_IMAGE_VALIDATOR_FLAG = '--localminidrama-import-image-validator';
+const importImageValidatorIndex = process.argv.indexOf(IMPORT_IMAGE_VALIDATOR_FLAG);
+
+if (importImageValidatorIndex >= 0) {
+  const backendRoot = app.isPackaged
+    ? path.join(__dirname, 'backend-app')
+    : path.join(__dirname, '..', 'backend-node');
+  const { runImportImageValidatorCli } = require(
+    path.join(backendRoot, 'src', 'services', 'importImageValidator.js')
+  );
+  runImportImageValidatorCli(process.argv.slice(importImageValidatorIndex + 1)).then(
+    (exitCode) => app.exit(exitCode),
+    (error) => {
+      process.stderr.write(`${sanitizeMainLogString(error && error.stack ? error.stack : error)}\n`);
+      app.exit(1);
+    }
+  );
+} else {
 const {
   migrateLegacyUserData,
   resolveDesktopUserDataDir,
@@ -520,7 +542,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
     const { dialog } = require('electron');
     dialog.showErrorBox(
       '本地短剧助手启动失败',
-      `后端服务未能启动，请查看日志：\n${MAIN_STARTUP_LOG}\n\n${stack}`
+      buildStartupFailureDialogMessage(MAIN_STARTUP_LOG)
     );
     await shutdownController.requestShutdown('startup-failure', 1);
     return;
@@ -528,3 +550,4 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // startBackend 的 Promise 在 listen 回调中 resolve，服务器此时已就绪，直接建窗口
   createWindow(port);
 });
+}

@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { loadConfig } = require('../config');
+const uploadService = require('./uploadService');
+const storageLayout = require('./storageLayout');
 
 const ASSET_SELECT = `
   SELECT
@@ -69,18 +71,128 @@ function getById(db, id) {
   return r ? rowToItem(r) : null;
 }
 
-function create(db, log, req) {
+function badRequest(message) {
+  const error = new Error(message);
+  error.code = 'BAD_REQUEST';
+  return error;
+}
+
+function isPlainObject(value) {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function resolveDramaScope(db, value, options = {}) {
+  if (value === undefined || value === null) return null;
+  const normalized = options.strictDramaId
+    ? value
+    : (typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value);
+  if (!Number.isSafeInteger(normalized) || normalized <= 0) {
+    throw badRequest('drama_id 必须为正整数');
+  }
+  const drama = db.prepare(
+    'SELECT id, title, created_at, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL'
+  ).get(normalized);
+  if (!drama) throw badRequest('drama_id 对应的项目不存在');
+  return drama;
+}
+
+function normalizeLocalReference(value, field) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') throw badRequest(`${field} 必须为安全的本地媒体引用`);
+  try {
+    const relative = value.startsWith('/static/') ? value.slice('/static/'.length) : value;
+    return uploadService.normalizeStorageRelativeReference(relative);
+  } catch (_) {
+    throw badRequest(`${field} 必须为安全的本地媒体引用`);
+  }
+}
+
+function isLoopbackHostname(hostname) {
+  const host = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+  return host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host);
+}
+
+function normalizeAssetUrlReference(value, localPath) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') throw badRequest('url 必须为安全的媒体 URL 或本地媒体引用');
+  if (!/^https?:\/\//i.test(value)) {
+    return normalizeLocalReference(value, 'url');
+  }
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch (_) {
+    throw badRequest('url 必须为安全的媒体 URL 或本地媒体引用');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+    throw badRequest('url 必须为安全的媒体 URL 或本地媒体引用');
+  }
+  if (isLoopbackHostname(parsed.hostname)) {
+    const local = parsed.pathname.startsWith('/static/')
+      ? normalizeLocalReference(parsed.pathname, 'url')
+      : null;
+    if (!local || local !== localPath || parsed.search || parsed.hash) {
+      throw badRequest('url 不支持外部 localhost 媒体地址');
+    }
+    return local;
+  }
+  throw badRequest('远程素材 URL 需要完整的异步 DNS/私网校验，当前同步接口拒绝持久化');
+}
+
+function isAllowedProjectPath(drama, localPath) {
+  if (!localPath) return true;
+  if (localPath === 'library' || localPath.startsWith('library/')) return true;
+  if (!drama) return localPath === 'uploads' || localPath.startsWith('uploads/');
+  const currentPrefix = storageLayout.buildProjectRelativeDir(drama);
+  const legacyPrefix = `dramas/${Number(drama.id)}`;
+  return localPath === currentPrefix
+    || localPath.startsWith(`${currentPrefix}/`)
+    || localPath === legacyPrefix
+    || localPath.startsWith(`${legacyPrefix}/`);
+}
+
+function assertProjectPathScope(drama, localPath, field) {
+  if (!localPath) return localPath;
+  if (!isAllowedProjectPath(drama, localPath)) {
+    throw badRequest(`${field} 不属于当前项目或公共素材库`);
+  }
+  return localPath;
+}
+
+function normalizeAssetMedia(db, drama, req) {
+  void db;
+  const localPath = normalizeLocalReference(req.local_path, 'local_path');
+  const hasRemoteTransportUrl = localPath
+    && typeof req.url === 'string'
+    && /^https?:\/\//i.test(req.url.trim());
+  const urlPath = hasRemoteTransportUrl
+    ? null
+    : normalizeAssetUrlReference(req.url, localPath);
+  if (localPath && urlPath && localPath !== urlPath) {
+    throw badRequest('url 与 local_path 必须引用同一本地素材');
+  }
+  const canonicalPath = assertProjectPathScope(drama, localPath || urlPath, '媒体路径');
+  return {
+    localPath: canonicalPath,
+    url: canonicalPath ? `/static/${canonicalPath}` : '',
+  };
+}
+
+function create(db, log, req, options = {}) {
+  if (!isPlainObject(req)) throw badRequest('素材请求必须为对象');
+  const drama = resolveDramaScope(db, req.drama_id, options);
+  const media = normalizeAssetMedia(db, drama, req);
   const now = new Date().toISOString();
   const info = db.prepare(
     `INSERT INTO assets (drama_id, name, type, category, url, local_path, file_size, mime_type, width, height, duration, image_gen_id, video_gen_id, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    req.drama_id ?? null,
+    drama?.id ?? null,
     req.name || '未命名',
     req.type || 'image',
     req.category ?? null,
-    req.url || '',
-    req.local_path ?? null,
+    media.url,
+    media.localPath,
     req.file_size ?? null,
     req.mime_type ?? null,
     req.width ?? null,
@@ -95,16 +207,49 @@ function create(db, log, req) {
 }
 
 function update(db, log, id, req) {
-  const row = db.prepare('SELECT id FROM assets WHERE id = ? AND deleted_at IS NULL').get(Number(id));
+  if (!isPlainObject(req)) throw badRequest('素材请求必须为对象');
+  const row = db.prepare(
+    'SELECT id, drama_id, local_path FROM assets WHERE id = ? AND deleted_at IS NULL'
+  ).get(Number(id));
   if (!row) return null;
+  let isLegacyGlobalUpload = false;
+  if (Number(row.drama_id) === 0) {
+    try {
+      const relative = normalizeLocalReference(row.local_path, 'local_path');
+      isLegacyGlobalUpload = relative === 'uploads' || relative.startsWith('uploads/');
+    } catch (_) {}
+  }
+  const drama = row.drama_id == null || isLegacyGlobalUpload
+    ? null
+    : resolveDramaScope(db, Number(row.drama_id));
+  const hasMediaUpdate = req.url !== undefined || req.local_path !== undefined;
+  const media = hasMediaUpdate
+    ? normalizeAssetMedia(db, drama, {
+      ...(req.local_path !== undefined ? { local_path: req.local_path } : {}),
+      ...(req.url !== undefined ? { url: req.url } : {}),
+    })
+    : null;
   const updates = [];
   const params = [];
-  ['name', 'description', 'type', 'category', 'url', 'local_path', 'thumbnail_url', 'file_size', 'mime_type', 'width', 'height', 'duration', 'is_favorite'].forEach((key) => {
+  ['name', 'description', 'type', 'category', 'thumbnail_url', 'file_size', 'mime_type', 'width', 'height', 'duration', 'is_favorite'].forEach((key) => {
     if (req[key] !== undefined) {
       updates.push(key + ' = ?');
       params.push(req[key]);
     }
   });
+  if (media) {
+    updates.push('url = ?', 'local_path = ?');
+    params.push(media.url, media.localPath);
+    if (
+      row.drama_id != null
+      && Number(row.drama_id) === 0
+      && isLegacyGlobalUpload
+      && (media.localPath === 'library' || media.localPath?.startsWith('library/'))
+    ) {
+      updates.push('drama_id = ?');
+      params.push(null);
+    }
+  }
   if (updates.length === 0) return getById(db, id);
   params.push(new Date().toISOString(), id);
   db.prepare('UPDATE assets SET ' + updates.join(', ') + ', updated_at = ? WHERE id = ?').run(...params);
@@ -260,7 +405,7 @@ function importFromImage(db, log, imageGenId) {
   const img = db.prepare('SELECT * FROM image_generations WHERE id = ? AND deleted_at IS NULL').get(Number(imageGenId));
   if (!img) return null;
   return create(db, log, {
-    drama_id: img.drama_id,
+    drama_id: img.drama_id === 0 ? null : img.drama_id,
     name: `图片 ${imageGenId}`,
     type: 'image',
     url: img.image_url || '',
@@ -273,7 +418,7 @@ function importFromVideo(db, log, videoGenId) {
   const vid = db.prepare('SELECT * FROM video_generations WHERE id = ? AND deleted_at IS NULL').get(Number(videoGenId));
   if (!vid) return null;
   return create(db, log, {
-    drama_id: vid.drama_id,
+    drama_id: vid.drama_id === 0 ? null : vid.drama_id,
     name: `视频 ${videoGenId}`,
     type: 'video',
     url: vid.video_url || '',

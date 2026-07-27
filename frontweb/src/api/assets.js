@@ -19,4 +19,9 @@ export const assetsAPI = {
     const response = await request.get(`/assets/${id}`)
     return normalizeMediaItem(response || {})
   },
+
+  async create(data) {
+    const response = await request.post('/assets', data || {})
+    return normalizeMediaItem(response || {})
+  },
 }

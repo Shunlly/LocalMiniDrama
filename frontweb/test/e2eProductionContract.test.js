@@ -2570,14 +2570,14 @@ test('workflow cleanup drains both workers before provider restore and fixture p
   )
 })
 
-test('same-SHA acceptance captures reuse the final matrix and raw E2E chains the final verifier', () => {
+test('same-SHA acceptance captures reuse the final matrix and production E2E chains both final verifiers', () => {
   assert.equal(
     frontendPackage.scripts['e2e:production:raw'],
     'node scripts/e2e-production.cjs',
   )
   assert.equal(
     frontendPackage.scripts['e2e:production'],
-    'npm run e2e:production:raw && npm run verify:acceptance-report:final',
+    'npm run e2e:production:raw && npm run verify:acceptance-report:final && npm run e2e:free-canvas && npm run verify:free-canvas-evidence',
   )
 
   const captures = sourceFunction('captureAcceptanceReportScreenshots')

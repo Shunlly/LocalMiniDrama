@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <meta name="description" content="LocalMiniDrama 2026-07-10 桌面 Web 九项升级最终验收报告">
-  <title>LocalMiniDrama 九项升级最终验收报告</title>
+  <meta name="description" content="LocalMiniDrama 2026-07-10 桌面 Web 九项升级历史验收基线">
+  <title>LocalMiniDrama 九项升级历史验收基线</title>
   <style>
     :root {
       --page: #eef1f4;
@@ -71,6 +71,29 @@
       color: #fff;
     }
     .skip-link:focus { top: 12px; }
+
+    .historical-banner {
+      border-bottom: 4px solid #f5b700;
+      background: #8f1d14;
+      color: #fff;
+    }
+    .historical-banner-inner {
+      width: min(var(--content), calc(100% - 40px));
+      margin: 0 auto;
+      padding: 14px 0 15px;
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+    }
+    .historical-banner strong {
+      flex-shrink: 0;
+      font-size: 16px;
+    }
+    .historical-banner span { font-size: 14px; }
+    .historical-banner a {
+      color: #fff;
+      font-weight: 700;
+    }
 
     .topbar {
       position: sticky;
@@ -397,7 +420,8 @@
     }
 
     @media (max-width: 680px) {
-      .wrap, .topbar-inner { width: min(var(--content), calc(100% - 28px)); }
+      .wrap, .topbar-inner, .historical-banner-inner { width: min(var(--content), calc(100% - 28px)); }
+      .historical-banner-inner { flex-direction: column; gap: 3px; }
       .topbar-inner { min-height: 54px; gap: 10px; }
       .brand small { display: none; }
       .print-button { margin-left: auto; }
@@ -437,9 +461,16 @@
 <body>
   <a class="skip-link" href="#main">跳到报告正文</a>
 
+  <section class="historical-banner" role="status" aria-label="历史基线声明">
+    <div class="historical-banner-inner">
+      <strong>历史基线，非当前发布批准</strong>
+      <span>本报告仅记录 2026-07-10 基线。最终以 <a href="../product-acceptance/report.html">product-acceptance 报告</a>及同 SHA 的 CI、E2E、安全与制品证据为准。</span>
+    </div>
+  </section>
+
   <header class="topbar">
     <div class="topbar-inner">
-      <div class="brand">LocalMiniDrama <small>最终验收</small></div>
+      <div class="brand">LocalMiniDrama <small>2026-07-10 历史基线</small></div>
       <nav class="topnav" aria-label="报告目录">
         <a href="#verdict">结论</a>
         <a href="#upgrades">九项升级</a>
@@ -457,7 +488,7 @@
       <div class="wrap hero-inner">
         <div>
           <p class="eyebrow">Final acceptance · 2026-07-10</p>
-          <h1>桌面 Web 九项升级<br>最终验收报告</h1>
+          <h1>桌面 Web 九项升级<br>历史验收基线</h1>
           <p class="lede">从“能力很多但下一步不清楚”，收口为可扫描、可解释、可继续的桌面创作流程。自动化、Docker、E2E 与浏览器证据均已复核。</p>
           <div class="verdict-line">
             <span class="status conditional">有条件通过</span>
@@ -840,8 +871,8 @@
         </div>
 
         <div class="release-note">
-          <h3>发布建议</h3>
-          <p>允许合入并发布本轮<strong>桌面 Web 九项升级</strong>；发布说明固定 Node 20 / Docker 基线，并明确移动端仍为延期范围。主 chunk 拆分和 Node 24 原生模块兼容进入后续工程任务，不阻塞当前桌面功能交付。</p>
+          <h3>当时结论，仅供追溯</h3>
+          <p>2026-07-10 基线当时建议交付桌面 Web 九项升级。该结论不能作为当前版本的发布批准；当前版本必须使用同一最终 Git SHA 的 CI、Docker、E2E、安全、回滚与制品证据重新验收。</p>
         </div>
       </div>
     </section>
@@ -849,7 +880,7 @@
 
   <footer class="footer">
     <div class="wrap footer-inner">
-      <span>LocalMiniDrama · 桌面 Web 九项升级最终验收</span>
+      <span>LocalMiniDrama · 桌面 Web 九项升级历史验收基线</span>
       <span>报告生成：2026-07-10 · Asia/Shanghai</span>
     </div>
   </footer>

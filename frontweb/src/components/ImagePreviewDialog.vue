@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <AccessibleDialog
     :model-value="modelValue"
     class="image-preview-dialog"
     :title="title"
@@ -34,7 +34,7 @@
     <template #footer>
       <el-button type="primary" @click="close">关闭预览</el-button>
     </template>
-  </el-dialog>
+  </AccessibleDialog>
 </template>
 
 <script setup>

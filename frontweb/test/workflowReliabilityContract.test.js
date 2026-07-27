@@ -27,13 +27,14 @@ test('storyboard draft fingerprint distinguishes unsaved text and relation chang
   assert.equal(hasStoryboardDraftChanges(saved, { title: '镜头一（修改）', image_prompt: '雨夜', characterIds: [1, 2], sceneId: 4, propIds: [8] }), true)
 })
 
-test('batch import awaits an explicit parent import handler and keeps event fallback', () => {
+test('batch import routes the explicit parent handler and event fallback through its lifecycle', () => {
   assert.match(batchImportSource, /importHandler:\s*\{\s*type:\s*Function/)
-  assert.match(batchImportSource, /await props\.importHandler\(payload\)/)
+  assert.match(
+    batchImportSource,
+    /await batchImportLifecycle\.execute\(\(\) => \([\s\S]*props\.importHandler[\s\S]*props\.importHandler\(payload\)[\s\S]*emit\('import', payload\)/,
+  )
   assert.match(dramaDetailSource, /:import-handler="onBatchImportEpisodes"/)
-  assert.match(batchImportSource, /await emit\('import', payload\)/)
-  assert.doesNotMatch(batchImportSource, /await emit\('import', previewEpisodes\.value\.map/)
-  assert.match(dramaDetailSource, /:import-handler="onBatchImportEpisodes"/)
+  assert.doesNotMatch(batchImportSource, /emit\('import', previewEpisodes\.value\.map/)
 })
 
 test('source intake protects active upload and workflow operations before unload', () => {
@@ -80,7 +81,12 @@ test('teleported storyboard inspector keeps theme tokens outside the canvas scop
 })
 
 test('every canvas inspector exit uses the shared dirty guard', () => {
-  assert.match(dramaCanvasSource, /onBeforeRouteLeave\(\(\) => confirmFocusedNodeLeave\(\)\)/)
+  assert.match(
+    dramaCanvasSource,
+    /function runCanvasNavigationBarrier\(\)[\s\S]*?ensureFreeCanvasUploadFinished\(\)[\s\S]*?confirmFocusedNodeLeave\(\)[\s\S]*?flushCanvasSaveBeforeLeave\(projectId\)/,
+  )
+  assert.match(dramaCanvasSource, /onBeforeRouteLeave\(\(\) => runCanvasNavigationBarrier\(\)\)/)
+  assert.match(dramaCanvasSource, /onBeforeRouteUpdate\(async \(to\)[\s\S]*?return runCanvasNavigationBarrier\(\)/)
   assert.match(dramaCanvasSource, /window\.addEventListener\('beforeunload', handleCanvasBeforeUnload\)/)
   assert.match(dramaCanvasSource, /async function onPaneClick\(/)
   assert.match(dramaCanvasSource, /await setFocusedCanvasNode\(null, \{ restoreFocus: true \}\)/)
@@ -101,13 +107,23 @@ test('canvas inspector restores keyboard and selection context when closing or c
   assert.match(dramaCanvasSource, /if \(!changed\) \{[\s\S]*restoreFocusedNodeSelection\(\)/)
 })
 
+test('free canvas shortcuts ignore interactive controls and inspector content', () => {
+  assert.match(
+    dramaCanvasSource,
+    /function isEditableKeyTarget\(target\)[\s\S]*?input, textarea, select, button, video, audio,[\s\S]*?\.free-canvas-inspector-dock/,
+  )
+  assert.match(dramaCanvasSource, /if \(isEditableKeyTarget\(event\.target\)\) return/)
+})
+
 test('open inspector reserves canvas space so the minimap remains usable', () => {
-  assert.match(dramaCanvasSource, /:class="\{ 'inspector-open': focusedNodeId \}"/)
+  assert.match(dramaCanvasSource, /'inspector-open': focusedNodeId/)
   assert.match(dramaCanvasSource, /\.drama-canvas-page\.inspector-open \.canvas-main\s*\{[\s\S]*margin-right:\s*480px/)
+  assert.match(dramaCanvasSource, /'free-inspector-open': selectedFreeNodeId/)
+  assert.match(dramaCanvasSource, /\.drama-canvas-page\.free-inspector-open \.canvas-main\s*\{[\s\S]*margin-right:\s*380px/)
 })
 
 test('canvas keeps the focused teleported inspector mounted while panning', () => {
-  assert.match(dramaCanvasSource, /:only-render-visible-elements="!focusedNodeId"/)
+  assert.match(dramaCanvasSource, /:only-render-visible-elements="!focusedNodeId && !selectedFreeNodeId"/)
 })
 
 test('canvas saves an immutable draft snapshot and locks generation before persistence', () => {
@@ -119,7 +135,7 @@ test('canvas saves an immutable draft snapshot and locks generation before persi
 })
 
 test('canvas guards same-route project changes and carries project-list return context', () => {
-  assert.match(dramaCanvasSource, /onBeforeRouteUpdate\(async \(to\) => \{[\s\S]*confirmFocusedNodeLeave\(\)/)
+  assert.match(dramaCanvasSource, /onBeforeRouteUpdate\(async \(to\) => \{[\s\S]*runCanvasNavigationBarrier\(\)/)
   assert.match(dramaCanvasSource, /const projectListReturnTo = computed\(\(\) => normalizeProjectListReturnTo\(route\.query\.returnTo\)\)/)
   assert.match(dramaCanvasSource, /function goProjectList\(\)/)
   assert.match(dramaCanvasSource, /function goListMode\(\)[\s\S]*returnTo/)

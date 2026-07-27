@@ -8,6 +8,7 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const mediaSource = read('../src/composables/useCanvasStoryboardMedia.js')
 const canvasSource = read('../src/views/DramaCanvas.vue')
 const storyboardNodeSource = read('../src/components/dramaCanvas/CanvasStoryboardNode.vue')
+const storyboardPanelSource = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
 const mediaPanelSource = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
 const mediaNodeSource = read('../src/components/dramaCanvas/CanvasMediaNode.vue')
 
@@ -76,13 +77,49 @@ test('media query failure preserves cached storyboard media and marks only faile
   assert.match(result.nextMediaStatus[12].error, /offline/)
 })
 
+test('media query cancellation is forwarded to every request and is never downgraded to unknown', async () => {
+  const { fetchStoryboardMediaSnapshot } = await loadMediaSnapshotHelpers()
+  const controller = new AbortController()
+  const requestOptions = { signal: controller.signal, timeout: 15_000 }
+  const calls = []
+  const abort = new Error('stopped')
+  abort.name = 'AbortError'
+  const imagesAPIImpl = {
+    async list(params, options) {
+      calls.push(['image', params, options])
+      throw abort
+    },
+  }
+  const videosAPIImpl = {
+    async list(params, options) {
+      calls.push(['video', params, options])
+      return { items: [] }
+    },
+  }
+
+  await assert.rejects(
+    fetchStoryboardMediaSnapshot(
+      [{ id: 11 }],
+      { imagesAPIImpl, videosAPIImpl, requestOptions },
+    ),
+    (error) => error === abort,
+  )
+  assert.deepEqual(calls, [
+    ['image', { storyboard_id: 11, page: 1, page_size: 100 }, requestOptions],
+    ['video', { storyboard_id: 11, page: 1, page_size: 50 }, requestOptions],
+  ])
+})
+
 test('drama canvas exposes persistent load failure UI and media retry entry points', () => {
   assert.match(canvasSource, /v-if="canvasLoadState === 'error'"/)
   assert.match(canvasSource, /ref="canvasLoadFailureRef"/)
   assert.match(canvasSource, /role="alert"/)
   assert.match(canvasSource, /@click="retryCanvasProjectLoad"/)
   assert.match(canvasSource, /await loadCanvasProject\(\{ blocking: true, preserveOnError: false \}\)/)
-  assert.match(canvasSource, /coreCanvasDramaAPI\.get\(requestedDramaId\)/)
+  assert.match(canvasSource, /coreCanvasDramaAPI\.get\(requestedDramaId, requestOptions\)/)
+  assert.match(canvasSource, /loadForDrama\(drama\.value, filterEpisodeId\.value, requestOptions\)/)
+  assert.match(canvasSource, /loadProjectAssets\(requestedDramaId, requestOptions\)/)
+  assert.match(canvasSource, /if \(isCanvasAbortError\(error, requestOptions\.signal\)\) throw error/)
   assert.match(canvasSource, /canvasLoadFailureRef\.value\?\.focus\(\)/)
   assert.match(canvasSource, /getBillableMediaUnknownReason/)
   assert.match(canvasSource, /retryUnknownStoryboardMedia/)
@@ -114,4 +151,24 @@ test('media panel and media node gate regeneration behind the same unknown-media
   assert.match(mediaNodeSource, /showMediaQueryWarning/)
   assert.match(mediaNodeSource, /unknown-pill/)
   assert.match(mediaNodeSource, /媒体状态未知，可重试查询/)
+})
+
+test('both single-node generation panels register one cancellable run and forward its signal', () => {
+  for (const [name, source] of [
+    ['CanvasMediaPanel', mediaPanelSource],
+    ['CanvasStoryboardPanel', storyboardPanelSource],
+  ]) {
+    const parsed = parse(source, { filename: `${name}.vue` })
+    assert.deepEqual(parsed.errors, [])
+    assert.ok(source.includes('ctx?.beginNodeGeneration?.'))
+    assert.match(source, /runImageStep\([\s\S]*?\{ signal: generationRun\.signal \}/)
+    assert.match(source, /runVideoStep\([\s\S]*?\{ signal: generationRun\.signal \}/)
+    assert.match(source, /runAudioStep\([\s\S]*?\{ signal: generationRun\.signal \}/)
+    assert.match(source, /onBeforeUnmount\([\s\S]*?generationRun\?\.abort/)
+    assert.match(source, /audioOutcomeUnknown/)
+    assert.match(source, /刷新分镜状态/)
+  }
+  assert.match(canvasSource, /nodeGenerationCoordinator.hasActive()/)
+  assert.match(canvasSource, /ensureNodeGenerationFinished()/)
+  assert.match(canvasSource, /nodeGenerationCoordinator.stopWaiting/)
 })

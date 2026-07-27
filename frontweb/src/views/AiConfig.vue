@@ -15,19 +15,21 @@
     </header>
 
     <main class="main">
-      <AIConfigContent :initial-service-type="initialServiceType" />
+      <AIConfigContent ref="aiConfigContentRef" :initial-service-type="initialServiceType" />
     </main>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import AIConfigContent from '@/components/AIConfigContent.vue'
 
 const router = useRouter()
 const route = useRoute()
+const aiConfigContentRef = ref(null)
+let skipNextRouteGuard = false
 const filterableServiceTypes = new Set(['text', 'image', 'storyboard_image', 'video', 'tts'])
 const initialServiceType = computed(() => {
   const raw = Array.isArray(route.query.service_type)
@@ -50,9 +52,38 @@ const backButtonLabel = computed(() => {
   return returnTo.value ? '返回原项目' : '返回项目列表'
 })
 
-function goBack() {
-  router.replace(returnTo.value || { name: 'list' })
+async function requestAiConfigPageClose() {
+  return (await aiConfigContentRef.value?.requestClose?.()) !== false
 }
+
+async function goBack() {
+  if (!await requestAiConfigPageClose()) return
+  skipNextRouteGuard = true
+  try {
+    await router.replace(returnTo.value || { name: 'list' })
+  } finally {
+    skipNextRouteGuard = false
+  }
+}
+
+function handleBeforeUnload(event) {
+  if (!aiConfigContentRef.value?.hasUnsavedChanges?.()) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onBeforeRouteLeave(() => {
+  if (skipNextRouteGuard) return true
+  return requestAiConfigPageClose()
+})
+
+onMounted(() => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
 </script>
 
 <style scoped>

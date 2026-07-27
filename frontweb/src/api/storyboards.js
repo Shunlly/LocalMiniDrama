@@ -79,11 +79,11 @@ export const storyboardsAPI = {
   delete(id) {
     return request.delete(`/storyboards/${id}`)
   },
-  generateFramePrompt(id, data) {
-    return request.post(`/storyboards/${id}/frame-prompt`, data)
+  generateFramePrompt(id, data, options) {
+    return request.post(`/storyboards/${id}/frame-prompt`, data, options || {})
   },
-  getFramePrompts(id) {
-    return request.get(`/storyboards/${id}/frame-prompts`)
+  getFramePrompts(id, options) {
+    return request.get(`/storyboards/${id}/frame-prompts`, options || {})
   },
   /** 保存/覆盖首帧或尾帧提示词（用于用户手动编辑后保存） */
   saveFramePrompt(id, frameType, data) {

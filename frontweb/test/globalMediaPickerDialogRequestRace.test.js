@@ -226,6 +226,7 @@ const ElTooltipStub = defineComponent({
 })
 
 function registerElementStubs(app) {
+  app.component('AccessibleDialog', ElDialogStub)
   app.component('el-dialog', ElDialogStub)
   app.component('el-button', ElButtonStub)
   app.component('el-input', ElInputStub)

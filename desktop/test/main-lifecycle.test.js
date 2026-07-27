@@ -21,13 +21,24 @@ function loadMainLogHelpers() {
   assert.notEqual(electronImport, -1);
   const context = { URL };
   vm.runInNewContext(
-    `${mainSource.slice(0, electronImport)}\nthis.helpers = { sanitizeMainLogString, summarizeExternalUrl };`,
+    `${mainSource.slice(0, electronImport)}\nthis.helpers = {\n` +
+      '  sanitizeMainLogString,\n' +
+      '  summarizeExternalUrl,\n' +
+      '  buildStartupFailureDialogMessage:\n' +
+      "    typeof buildStartupFailureDialogMessage === 'function'\n" +
+      '      ? buildStartupFailureDialogMessage\n' +
+      '      : undefined,\n' +
+      '};',
     context
   );
   return context.helpers;
 }
 
-const { sanitizeMainLogString, summarizeExternalUrl } = loadMainLogHelpers();
+const {
+  buildStartupFailureDialogMessage,
+  sanitizeMainLogString,
+  summarizeExternalUrl,
+} = loadMainLogHelpers();
 
 test('main log redaction covers credentials, cookies, JWTs, and non-absolute URLs', () => {
   const jwt = [
@@ -69,6 +80,47 @@ test('main log redaction covers credentials, cookies, JWTs, and non-absolute URL
   assert.match(sanitized, /https:\/\/example\.test\/path\?access_token=\[REDACTED\]/);
   assert.match(sanitized, /\/\/cdn\.example\.test\/asset\?sig=\[REDACTED\]/);
   assert.match(sanitized, /\/callback\?api%5Fkey=\[REDACTED\]&page=2/);
+});
+
+test('startup failure dialog omits raw secrets and retains the log path', () => {
+  assert.equal(typeof buildStartupFailureDialogMessage, 'function');
+
+  const jwt = [
+    'eyJhbGciOiJIUzI1NiJ9',
+    'eyJzdWIiOiJzdGFydHVwLWRpYWxvZyJ9',
+    'syntheticStartupSignature',
+  ].join('.');
+  const secrets = [
+    'synthetic-startup-bearer',
+    'synthetic-url-user',
+    'synthetic-url-password',
+    'synthetic-query-secret',
+    'synthetic-custom-authorization',
+    'synthetic-startup-cookie',
+    jwt,
+    'sk-syntheticStartupSecret',
+  ];
+  const error = new Error([
+    `Bearer ${secrets[0]}`,
+    `https://${secrets[1]}:${secrets[2]}@example.test/start?access_token=${secrets[3]}`,
+    `X-Custom-Authorization: ${secrets[4]}`,
+    `Cookie: session=${secrets[5]}`,
+    jwt,
+    secrets[7],
+  ].join('\n'));
+  const logPath = 'C:\\Users\\synthetic\\LocalMiniDrama\\logs\\main.log';
+
+  const message = buildStartupFailureDialogMessage(logPath, error);
+
+  for (const secret of secrets) {
+    assert.equal(message.includes(secret), false, `startup dialog leaked ${secret}`);
+  }
+  assert.match(message, /后端服务未能启动/);
+  assert.ok(message.includes(logPath));
+  assert.doesNotMatch(
+    mainSource,
+    /showErrorBox\([\s\S]*?`[^`]*\$\{stack\}[^`]*`[\s\S]*?\)/
+  );
 });
 
 test('external-link failure logs retain only a safe origin/path summary', () => {
@@ -263,4 +315,15 @@ test('main process wires recovery handling and screen-constrained bounds through
   assert.match(mainSource, /recoveryController\.handleFailure\('did-fail-load'/);
   assert.match(mainSource, /recoveryController\.handleFailure\(\s*'render-process-gone'/);
   assert.match(mainSource, /recoveryController\.handleFailure\('unresponsive'/);
+});
+
+test('packaged image validation bypasses user data and single-instance startup', () => {
+  const helperDispatch = mainSource.indexOf('runImportImageValidatorCli');
+  const userDataResolution = mainSource.indexOf('resolveDesktopUserDataDir({');
+  const singleInstanceLock = mainSource.indexOf('acquireSingleInstanceLock(app');
+
+  assert.ok(helperDispatch >= 0, 'main process must expose the fixed image validator helper mode');
+  assert.ok(helperDispatch < userDataResolution, 'helper mode must run before user data initialization');
+  assert.ok(helperDispatch < singleInstanceLock, 'helper mode must run before the single-instance lock');
+  assert.match(mainSource, /--localminidrama-import-image-validator/);
 });

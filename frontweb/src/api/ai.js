@@ -1,8 +1,14 @@
 import request from '@/utils/request'
 
 export const aiAPI = {
-  list(serviceType) {
-    return request.get('/ai-configs', { params: serviceType ? { service_type: serviceType } : {} })
+  list(serviceType, options = {}) {
+    return request.get('/ai-configs', {
+      ...options,
+      params: {
+        ...(options.params || {}),
+        ...(serviceType ? { service_type: serviceType } : {}),
+      },
+    })
   },
   get(id) {
     return request.get(`/ai-configs/${id}`)

@@ -88,7 +88,8 @@ test('delivery stage consolidates composite readiness and user-facing export act
   assert.match(filmCreateSource, /@click="exportCurrentProjectPackage"/)
   assert.match(filmCreateSource, /const deliverySubtitleAvailable = computed\(\(\) => storyboards\.value\.some/)
   assert.match(filmCreateSource, /:disabled="!currentEpisodeId \|\| !deliverySubtitleAvailable"/)
-  assert.match(filmCreateSource, /import \{ timelinesAPI \} from '@\/api\/timelines'/)
+  assert.match(filmCreateSource, /import \{ timelinesAPI as rawTimelinesAPI \} from '@\/api\/timelines'/)
+  assert.match(filmCreateSource, /const timelinesAPI = projectLifecycle\.guardApi\(rawTimelinesAPI\)/)
 })
 
 test('storyboard video controls expose a focusable missing-prompt reason', () => {

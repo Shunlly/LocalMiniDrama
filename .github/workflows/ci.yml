@@ -197,11 +197,26 @@ jobs:
           readonly expected_version='0.64.1'
           readonly evidence_dir="$GITHUB_WORKSPACE/artifacts/source-security"
           readonly cache_dir="$RUNNER_TEMP/trivy-cache"
+          readonly scan_root="$RUNNER_TEMP/trivy-source-input"
+          readonly expected_lockfiles_json='["backend-node/package-lock.json","desktop/package-lock.json","frontweb/package-lock.json"]'
+          readonly expected_dockerfiles_json='["backend-node/Dockerfile","frontweb/Dockerfile","frontweb/Dockerfile.prod"]'
           mkdir -p "$evidence_dir" "$cache_dir"
+          test ! -e "$scan_root"
+          mkdir -p "$scan_root"
+
+          mapfile -t source_paths < <(
+            jq -r '.[]' <<< "$expected_lockfiles_json"
+            jq -r '.[]' <<< "$expected_dockerfiles_json"
+          )
+          test "${#source_paths[@]}" -eq 6
+          for source_path in "${source_paths[@]}"; do
+            install -D -m 0444 "$GITHUB_WORKSPACE/$source_path" "$scan_root/$source_path"
+          done
 
           run_trivy() {
             docker run --rm \
-              --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+              --volume "$scan_root:/workspace:ro" \
+              --volume "$GITHUB_WORKSPACE:/repository:ro" \
               --volume "$evidence_dir:/evidence" \
               --volume "$cache_dir:/root/.cache/trivy" \
               --workdir /workspace \
@@ -213,14 +228,48 @@ jobs:
           printf '%s\n' "$version" > "$evidence_dir/trivy-version.txt"
           run_trivy fs --skip-version-check --scanners vuln,misconfig --exit-code 1 \
             --severity HIGH,CRITICAL --ignore-unfixed --include-dev-deps \
-            --ignorefile backend-node/.trivyignore.yaml \
+            --ignorefile /repository/backend-node/.trivyignore.yaml \
             --format json --output /evidence/trivy-source.json .
-      - name: Upload source security evidence
+      - name: Verify source Trivy evidence inventory
+        id: verify_source_trivy_evidence
         if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          readonly evidence_dir="$GITHUB_WORKSPACE/artifacts/source-security"
+          readonly report="$evidence_dir/trivy-source.json"
+          readonly version_file="$evidence_dir/trivy-version.txt"
+          readonly expected_lockfiles_json='["backend-node/package-lock.json","desktop/package-lock.json","frontweb/package-lock.json"]'
+          readonly expected_dockerfiles_json='["backend-node/Dockerfile","frontweb/Dockerfile","frontweb/Dockerfile.prod"]'
+
+          test -s "$version_file"
+          test -s "$report"
+          jq -e \
+            --argjson expected_lockfiles "$expected_lockfiles_json" \
+            --argjson expected_dockerfiles "$expected_dockerfiles_json" \
+            '
+              ($expected_lockfiles + $expected_dockerfiles | sort) as $expected_targets
+              | (.Results | type == "array")
+                and (([.Results[].Target] | sort) == $expected_targets)
+                and (([
+                  .Results[]
+                  | select(.Class == "lang-pkgs" and .Type == "npm")
+                  | .Target
+                ] | sort) == ($expected_lockfiles | sort))
+                and (([
+                  .Results[]
+                  | select(.Class == "config" and .Type == "dockerfile")
+                  | .Target
+                ] | sort) == ($expected_dockerfiles | sort))
+            ' "$report"
+      - name: Upload source security evidence
+        if: always() && steps.verify_source_trivy_evidence.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: source-security-${{ github.sha }}
-          path: artifacts/source-security/
+          path: |
+            artifacts/source-security/trivy-version.txt
+            artifacts/source-security/trivy-source.json
           if-no-files-found: error
           retention-days: 14
 
@@ -569,7 +618,7 @@ jobs:
           test -z "$(git status --porcelain)"
           test "$(git rev-parse HEAD)" = "$LOCALMINIDRAMA_BUILD_REVISION"
       - name: Start production containers and local E2E provider
-        run: docker compose --profile e2e up -d --build --wait
+        run: npm run docker:e2e:up
       - name: Record and scan final production images with Trivy
         shell: bash
         run: |

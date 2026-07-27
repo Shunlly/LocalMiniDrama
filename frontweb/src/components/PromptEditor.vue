@@ -146,6 +146,14 @@ function markDirty(key) {
   isDirty.value[key] = editState.value[key] !== current
 }
 
+function hasUnsavedChanges() {
+  return Object.values(isDirty.value).some(Boolean)
+}
+
+defineExpose({
+  hasUnsavedChanges,
+})
+
 async function save(p) {
   const content = editState.value[p.key]
   if (!content?.trim()) {

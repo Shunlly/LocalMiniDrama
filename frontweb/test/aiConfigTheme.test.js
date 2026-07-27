@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 const source = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
 
 test('AI config dark theme covers page surfaces, teleported dialogs, controls, tables, and states', () => {
-  const dialogTags = [...source.matchAll(/<el-dialog\b[\s\S]*?>/g)].map((match) => match[0])
+  const dialogTags = [...source.matchAll(/<AccessibleDialog\b[\s\S]*?>/g)].map((match) => match[0])
   assert.ok(dialogTags.length >= 7, 'expected every AI config dialog to be part of the contract')
   assert.ok(
     dialogTags.every((tag) => /class="[^"]*\bai-config-overlay\b[^"]*"/.test(tag)),

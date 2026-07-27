@@ -379,7 +379,7 @@ function splitScriptIntoBeats(script, count) {
     .map((s) => s.trim())
     .filter(Boolean);
   const desired = Math.max(1, Math.min(8, Number(count) || Math.ceil(sentences.length / 2) || 3));
-  if (!sentences.length) return ['Story beat'];
+  if (!sentences.length) return ['故事节拍'];
   const beats = [];
   for (let i = 0; i < desired; i++) {
     const start = Math.floor((i * sentences.length) / desired);
@@ -387,7 +387,7 @@ function splitScriptIntoBeats(script, count) {
     const chunk = sentences.slice(start, Math.max(start + 1, end)).join('');
     if (chunk.trim()) beats.push(chunk.trim());
   }
-  return beats.length ? beats : [String(script).slice(0, 400)];
+  return beats.length ? beats : [String(script).slice(0, 400) || '故事节拍'];
 }
 
 function ensureAssetBible(db, log, dramaId, mode = 'draft') {
@@ -427,9 +427,9 @@ function ensureAssetBible(db, log, dramaId, mode = 'draft') {
       Number(dramaId),
       name,
       index === 0 ? 'main' : 'supporting',
-      `${name} from the source story.`,
-      'Keep motivation, voice, and visual identity consistent across episodes.',
-      `${name} has a locked visual identity for storyboard and media generation.`,
+      `${name}来自原始故事，角色信息已进入制作资产。`,
+      '跨集保持角色动机、说话方式和行为逻辑一致。',
+      `${name}的外观身份已锁定，分镜和媒体生成时保持一致。`,
       referencePath,
       referencePath,
       toJson({ locked_name: name, source: 'workflow_asset_bible', consistency_rule: 'do not rewrite identity anchors in downstream steps' }),
@@ -460,7 +460,7 @@ function ensureAssetBible(db, log, dramaId, mode = 'draft') {
       'SELECT id FROM scenes WHERE drama_id = ? AND location = ? AND deleted_at IS NULL'
     ).get(Number(dramaId), location);
     if (exists) return;
-    insertScene.run(Number(dramaId), location, 'day', `${location}, cinematic short-drama environment, continuity locked`, now, now);
+    insertScene.run(Number(dramaId), location, 'day', `${location}，短剧电影感环境，空间与光线连续性保持一致`, now, now);
     sceneCreated += 1;
   });
 
@@ -574,7 +574,7 @@ function ensureStoryboardDraft(db, log, dramaId) {
     const beats = splitScriptIntoBeats(episode.script_content, 4);
     beats.forEach((beat, index) => {
       const num = index + 1;
-      const title = `E${episode.episode_number || episode.id}-${num}`;
+      const title = `第 ${episode.episode_number || episode.id} 集 · 分镜 ${num}`;
       const referencedCharacters = characters.filter((character) => (
         String(character.name || '').trim() && beat.includes(String(character.name).trim())
       ));
@@ -588,16 +588,16 @@ function ensureStoryboardDraft(db, log, dramaId) {
         num,
         title,
         action,
-        'Stable composition with clear character blocking and readable action.',
+        '构图稳定，角色站位清楚，动作易于识别。',
         location,
         'day',
         5,
         '',
         action,
         action,
-        'dramatic, clear, production-ready',
-        `${action}, ${location || 'story location'}, consistent character design, clean cinematic anime frame`,
-        `${action}, camera movement follows the emotional beat, preserve character identity and scene continuity`,
+        '戏剧张力清晰，可直接进入制作',
+        `${action}，${location || '故事场景'}，角色造型一致，干净的电影感动画画面`,
+        `${action}，镜头运动跟随情绪节拍，保持角色身份与场景连续性`,
         index === 0 ? 'wide' : 'medium',
         'eye_level',
         index % 2 === 0 ? 'slow push in' : 'static hold',

@@ -87,6 +87,14 @@ function buildSourceEmptyState({ sourceCount, hasSourceInput, actionReasons }) {
   }
 }
 
+function hasWorkflowId(value) {
+  return value !== undefined && value !== null && value !== ''
+}
+
+function qaBelongsToRun(qa, run) {
+  return Boolean(qa?.id) && hasWorkflowId(run?.id) && qa.run_id === run.id
+}
+
 export function buildSourceWorkflowState({ sourceCount, hasSourceInput, run, qa, timeline, episodeCount, actionReasons } = {}) {
   const sources = Math.max(0, Number(sourceCount) || 0)
   const episodes = Math.max(0, Number(episodeCount) || 0)
@@ -95,8 +103,9 @@ export function buildSourceWorkflowState({ sourceCount, hasSourceInput, run, qa,
   const runCompleted = runStatus === 'completed'
   const runActive = runStatus === 'pending' || runStatus === 'processing' || runStatus === 'paused'
   const runError = runStatus === 'failed' || runStatus === 'cancelled'
-  const hasQa = Boolean(qa?.id)
-  const qaPassed = hasQa && Boolean(qa?.passed)
+  const currentQa = qaBelongsToRun(qa, run) ? qa : null
+  const hasQa = Boolean(currentQa)
+  const qaPassed = hasQa && Boolean(currentQa.passed)
   const qaFailed = hasQa && !qaPassed
   const deliveryReady = timelineEpisodes > 0 || episodes > 0
 
@@ -104,11 +113,11 @@ export function buildSourceWorkflowState({ sourceCount, hasSourceInput, run, qa,
     intake: sources > 0 ? 'done' : hasSourceInput ? 'active' : 'ready',
     process: runCompleted ? 'done' : runError ? 'error' : runActive ? 'active' : sources > 0 ? 'ready' : 'pending',
     qa: qaPassed ? 'done' : qaFailed ? 'error' : runCompleted ? 'ready' : 'pending',
-    remediation: qaPassed ? 'done' : qaFailed && qa?.canRemediate ? 'active' : qaFailed ? 'blocked' : 'pending',
+    remediation: !runCompleted ? 'pending' : qaPassed ? 'done' : qaFailed && currentQa.canRemediate ? 'active' : qaFailed ? 'blocked' : 'pending',
     delivery: deliveryReady ? 'done' : qaPassed || runCompleted ? 'ready' : 'pending',
   }
 
-  const context = { sources, hasSourceInput, run, qa, timeline, episodes }
+  const context = { sources, hasSourceInput, run, qa: currentQa, timeline, episodes }
   const steps = FLOW_STEPS.map((step, index) => ({
     ...step,
     number: index + 1,
@@ -149,12 +158,13 @@ export function getNewWorkflowRunReason(runState = {}) {
 export function getSourceWorkflowActionReasons({ hasSourceInput, runState, qa } = {}) {
   const state = runState || {}
   const report = qa || {}
+  const hasCurrentQa = qaBelongsToRun(report, state)
   const sourceInputReason = hasSourceInput
     ? ''
     : '请先粘贴网页 URL、选择本地文件或输入原始素材。'
 
   let qaReason = ''
-  if (!state.id) qaReason = '请先启动并完成素材处理。'
+  if (!hasWorkflowId(state.id)) qaReason = '请先启动并完成素材处理。'
   else if (state.active) qaReason = '素材处理仍在运行，完成后才能执行 QA。'
   else if (state.status === 'paused') qaReason = '请先恢复并完成当前处理。'
   else if (state.status === 'failed') qaReason = '请先重试失败步骤并完成处理。'
@@ -162,7 +172,13 @@ export function getSourceWorkflowActionReasons({ hasSourceInput, runState, qa } 
   else if (state.status !== 'completed') qaReason = '当前处理尚未完成。'
 
   let remediationReason = ''
-  if (!report.id) remediationReason = '请先执行 QA 审计。'
+  if (!hasWorkflowId(state.id)) remediationReason = '请先启动并完成素材处理。'
+  else if (state.active) remediationReason = '素材处理仍在运行，完成后才能自动修复。'
+  else if (state.status === 'paused') remediationReason = '请先恢复并完成当前处理。'
+  else if (state.status === 'failed') remediationReason = '请先重试失败步骤并完成处理。'
+  else if (state.status === 'cancelled') remediationReason = '当前处理已取消，请重新启动处理。'
+  else if (state.status !== 'completed') remediationReason = '当前处理尚未完成。'
+  else if (!hasCurrentQa) remediationReason = '请先执行当前运行的 QA 审计。'
   else if (report.passed) remediationReason = 'QA 已通过，无需自动修复。'
   else if (!report.canRemediate) remediationReason = '当前问题没有可自动执行的修复动作，请按 QA 建议人工处理。'
 

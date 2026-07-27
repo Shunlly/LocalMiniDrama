@@ -4,6 +4,7 @@ const DEFAULT_PROJECT_STATUS = 'all'
 const DEFAULT_PROJECT_SORT = 'updated-desc'
 const MAX_PROJECT_SEARCH_LENGTH = 200
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
+const PROJECT_ROUTE_NAMES = new Set(['drama-detail', 'film', 'film-canvas'])
 
 function firstQueryValue(value) {
   return Array.isArray(value) ? value[0] : value
@@ -80,4 +81,13 @@ export function resolveProjectEpisodeId(episodes = [], value) {
     return requestedId
   }
   return validEpisodeIds[0] ?? null
+}
+
+export function projectRouteInstanceKey(route = {}) {
+  const routeName = typeof route?.name === 'string' ? route.name.trim().toLowerCase() : ''
+  if (!PROJECT_ROUTE_NAMES.has(routeName)) return null
+
+  const projectId = Number(firstQueryValue(route?.params?.id))
+  if (!Number.isSafeInteger(projectId) || projectId <= 0) return null
+  return `${routeName}:${projectId}`
 }

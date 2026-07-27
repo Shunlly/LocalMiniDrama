@@ -10,7 +10,23 @@
 
 ## [Unreleased]
 
-- `1.3.3` 当前处于发布候选验证阶段；正式发布仅在 `v1.3.3` 标签指向 `main`、同提交 Release 工作流成功生成 draft GitHub Release，且该 draft 经人工复核并正式发布后成立。
+- `1.3.3` 当前处于发布候选验证阶段。Git 目前只有 `v1.3.0`、`v1.3.1`、`v1.3.2` 标签，没有 `v1.3.3` 标签或正式 Release；当前建议从源码或 Docker 运行。正式发布仅在 `v1.3.3` 标签指向 `main`、同提交 Release 工作流成功生成 draft GitHub Release，且该 draft 经人工复核并正式发布后成立。
+
+### 新增
+
+- **制作 + 自由双模式画布**：在原 `/film/:id/canvas` 路由保留生产流水线，并加入 `text`、`image`、`video`、`config`、`reference` 五类自由节点、自由连线、选择/框选、复制粘贴、删除、撤销重做与 `metadata.free_canvas` 持久化。
+- **自由素材与生产衔接**：素材侧栏支持搜索、图片/视频筛选、折叠、上传和拖入；符合资格的本地媒体可保存为素材，转换生产引用时必须明确选择目标且保留原自由节点。
+- **失败恢复与项目迁移**：保存失败持续显示净化后的具体原因并精确重试；项目 ZIP 导入/导出保留自由画布和未知 metadata，同时维持生产图。
+
+### 安全
+
+- **自由画布 ZIP 合同**：项目、媒体、引用、归档清单和身份重映射完成专项复审，结论为 `Spec PASS / Security PASS`；未复制参考站 AGPL 源码或资产，仅吸收通用工作流思想。
+
+### 验证
+
+- 8 项产品验收已实现并完成三轮复审，结论为 `Spec PASS / Quality PASS`。
+- 自由画布 E2E 代码、证据校验契约、清理合同与串行门禁接线已完成复审，结论为 `Spec PASS / Quality PASS`。
+- 真实 Docker 生产 E2E 尚未执行；1280x720、1366x768、1440x900 的亮色/暗色矩阵和同修订最终发布门禁仍为 `UNVERIFIED`，不得据此宣称 `v1.3.3` 已发布。
 
 ---
 
@@ -24,7 +40,7 @@
 - **路由并发与键盘焦点**：旧导航取消、重定向或报错不会提前清除新导航遮罩；无剧集时分集列表获得真实程序焦点，遮罩会阻止底层误操作。
 - **严格 SBOM 校验**：CycloneDX 1.4/1.5/1.6 使用版本对应的组件类型集合，字段类型、依赖根和 npm 根规范化均失败关闭。
 - **本地启动安全与就绪等待**：Windows BAT / PowerShell 启动器不再终止占用 5679/3013 的陌生进程；只复用带 LocalMiniDrama 产品标识的服务，新进程通过共享就绪探针后才打开浏览器，Vite 默认仅监听回环地址。
-- **桌面开发数据持久化**：Electron 开发与打包模式统一把数据库、配置、媒体和日志放入稳定的 `%APPDATA%\localminidrama-desktop\backend`，可重建的 `desktop/backend-app` 不再承担可变数据目录。
+- **桌面数据持久化与隔离**：Electron 开发模式默认把数据库、配置、媒体和日志放入稳定的 `%APPDATA%\localminidrama-desktop-dev\backend\`；Setup 与 Portable 使用稳定的 `%APPDATA%\localminidrama-desktop\backend\`。两种模式都不把可重建的 `desktop/backend-app` 当作可变数据目录，测试可通过 `LOCALMINIDRAMA_USER_DATA_DIR` 显式隔离。
 - **OpenClaw 生产路由对齐**：补回项目场景列表接口，技能改用逐分镜 `/images`、`/videos` 与 episode `finalize` 合成链路；错误上传、角色反向提取、AI 配置示例同步当前请求体，并禁止公网直接暴露未认证后端。
 - **旧生成端点失败关闭**：不会执行工作的图片/视频 batch、image-to-video 快捷入口和直接 merge 创建端点统一返回 `501 LEGACY_ENDPOINT_DISABLED`，不再返回空成功或永远 pending 的任务。
 - **Trivy 发布门禁**：不再依赖缺少 Windows 二进制附件的 `setup-trivy` 安装路径，改用固定 SHA-256 digest 的官方 GHCR Trivy 0.64.1 镜像，在 Ubuntu runner 扫描四份 CycloneDX SBOM 与三份生产 Dockerfile。
@@ -55,6 +71,7 @@
 
 - `v1.3.2` 标签保留为未产出 Release 附件的失败发布尝试，失败标签不移动、不重写。
 - `v1.3.3` 尚未发布；候选必须先完成同提交源码、Docker、Windows 制品、安全、回滚和产品验收，合入 `main` 后再创建标签、通过完整 Release 工作流，并人工发布其生成的 draft Release。
+- 本地源码、Docker、Setup、Portable 或 unpacked 的运行结果都只是候选证据，不构成 GitHub 正式发布。
 
 ---
 

@@ -346,7 +346,7 @@
       </div>
     </main>
 
-    <el-dialog
+    <AccessibleDialog
       v-model="showTrashDialog"
       title="项目回收站"
       width="680px"
@@ -410,10 +410,10 @@
       <template #footer>
         <el-button @click="showTrashDialog = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 新建项目：先填标题和描述 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="showNewDialog"
       title="新建项目"
       width="480px"
@@ -443,15 +443,21 @@
         <el-button @click="showNewDialog = false">取消</el-button>
         <el-button type="primary" :loading="newSaving" :disabled="listWriteLocked || !newForm.title?.trim()" @click="submitNew">确定</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- AI 配置弹窗 -->
-    <el-dialog v-model="showAiConfigDialog" title="AI 配置" width="90%" destroy-on-close>
-      <AIConfigContent v-if="showAiConfigDialog" />
-    </el-dialog>
+    <AccessibleDialog
+      v-model="showAiConfigDialog"
+      title="AI 配置"
+      width="90%"
+      destroy-on-close
+      :before-close="confirmAiConfigWorkspaceClose"
+    >
+      <AIConfigContent ref="aiConfigContentRef" v-if="showAiConfigDialog" />
+    </AccessibleDialog>
 
     <!-- 公共角色库 -->
-    <el-dialog v-model="showCharLibrary" title="素材库 · 角色" width="720px" destroy-on-close class="library-dialog" @open="loadCharLibraryList">
+    <AccessibleDialog v-model="showCharLibrary" title="素材库 · 角色" width="720px" destroy-on-close class="library-dialog" @open="loadCharLibraryList">
       <div class="library-toolbar">
         <el-input v-model="charLibraryKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadCharLibrary()" />
       </div>
@@ -484,9 +490,9 @@
         <el-pagination v-model:current-page="charLibraryPage" v-model:page-size="charLibraryPageSize" :total="charLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadCharLibraryList" @size-change="loadCharLibraryList" />
       </div>
       <template #footer><el-button @click="showCharLibrary = false">关闭</el-button></template>
-    </el-dialog>
+    </AccessibleDialog>
     <!-- 编辑公共角色 -->
-    <el-dialog v-model="showEditCharLibrary" title="编辑素材角色" width="480px" @close="editCharLibraryForm = null">
+    <AccessibleDialog v-model="showEditCharLibrary" title="编辑素材角色" width="480px" @close="editCharLibraryForm = null">
       <el-form v-if="editCharLibraryForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -518,10 +524,10 @@
         <el-button @click="showEditCharLibrary = false">取消</el-button>
         <el-button type="primary" :loading="editCharLibrarySaving" :disabled="listWriteLocked" @click="submitEditCharLibrary">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 公共场景库 -->
-    <el-dialog v-model="showSceneLibrary" title="素材库 · 场景" width="720px" destroy-on-close class="library-dialog" @open="loadSceneLibraryList">
+    <AccessibleDialog v-model="showSceneLibrary" title="素材库 · 场景" width="720px" destroy-on-close class="library-dialog" @open="loadSceneLibraryList">
       <div class="library-toolbar">
         <el-input v-model="sceneLibraryKeyword" placeholder="搜索地点或描述" clearable style="width: 200px" @input="debouncedLoadSceneLibrary()" />
       </div>
@@ -554,9 +560,9 @@
         <el-pagination v-model:current-page="sceneLibraryPage" v-model:page-size="sceneLibraryPageSize" :total="sceneLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadSceneLibraryList" @size-change="loadSceneLibraryList" />
       </div>
       <template #footer><el-button @click="showSceneLibrary = false">关闭</el-button></template>
-    </el-dialog>
+    </AccessibleDialog>
     <!-- 编辑公共场景 -->
-    <el-dialog v-model="showEditSceneLibrary" title="编辑素材场景" width="480px" @close="editSceneLibraryForm = null">
+    <AccessibleDialog v-model="showEditSceneLibrary" title="编辑素材场景" width="480px" @close="editSceneLibraryForm = null">
       <el-form v-if="editSceneLibraryForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -589,10 +595,10 @@
         <el-button @click="showEditSceneLibrary = false">取消</el-button>
         <el-button type="primary" :loading="editSceneLibrarySaving" :disabled="listWriteLocked" @click="submitEditSceneLibrary">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 公共道具库 -->
-    <el-dialog v-model="showPropLibrary" title="素材库 · 道具" width="720px" destroy-on-close class="library-dialog" @open="loadPropLibraryList">
+    <AccessibleDialog v-model="showPropLibrary" title="素材库 · 道具" width="720px" destroy-on-close class="library-dialog" @open="loadPropLibraryList">
       <div class="library-toolbar">
         <el-input v-model="propLibraryKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadPropLibrary()" />
       </div>
@@ -625,9 +631,9 @@
         <el-pagination v-model:current-page="propLibraryPage" v-model:page-size="propLibraryPageSize" :total="propLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadPropLibraryList" @size-change="loadPropLibraryList" />
       </div>
       <template #footer><el-button @click="showPropLibrary = false">关闭</el-button></template>
-    </el-dialog>
+    </AccessibleDialog>
     <!-- 编辑公共道具 -->
-    <el-dialog v-model="showEditPropLibrary" title="编辑素材道具" width="480px" @close="editPropLibraryForm = null">
+    <AccessibleDialog v-model="showEditPropLibrary" title="编辑素材道具" width="480px" @close="editPropLibraryForm = null">
       <el-form v-if="editPropLibraryForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -659,7 +665,7 @@
         <el-button @click="showEditPropLibrary = false">取消</el-button>
         <el-button type="primary" :loading="editPropLibrarySaving" :disabled="listWriteLocked" @click="submitEditPropLibrary">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <ImagePreviewDialog
       v-model="showImagePreview"
@@ -668,7 +674,7 @@
     />
 
     <!-- 编辑项目：修改标题和故事 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="showEditDialog"
       title="编辑项目"
       width="480px"
@@ -687,13 +693,13 @@
         <el-button @click="showEditDialog = false">取消</el-button>
         <el-button type="primary" :loading="editSaving" :disabled="listWriteLocked || !editForm.title?.trim()" @click="submitEdit">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
   </div>
 </template>
 
 <script setup>
 import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files, Collection, ArrowDown, MoreFilled, RefreshLeft, Search, ArrowRight } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
@@ -875,7 +881,28 @@ watch(
 )
 
 const showAiConfigDialog = ref(false)
+const aiConfigContentRef = ref(null)
 const vendorLockEnabled = ref(false)
+
+async function confirmAiConfigWorkspaceClose(done) {
+  const canClose = (await aiConfigContentRef.value?.requestClose?.()) !== false
+  if (canClose) done()
+}
+
+async function requestFilmListNavigation() {
+  if (!showAiConfigDialog.value) return true
+  return (await aiConfigContentRef.value?.requestClose?.()) !== false
+}
+
+function handleBeforeUnload(event) {
+  const hasUnsavedAiConfig = showAiConfigDialog.value
+    && aiConfigContentRef.value?.hasUnsavedChanges?.()
+  if (!hasUnsavedAiConfig) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onBeforeRouteLeave(requestFilmListNavigation)
 
 // 图片预览
 const showImagePreview = ref(false)
@@ -1330,11 +1357,7 @@ async function submitNew() {
     showNewDialog.value = false
     ElMessage.success('项目已创建')
     loadList()
-    router.push({
-      path: `/drama/${drama.id}`,
-      query: { returnTo: projectListReturnTo.value },
-      hash: '#source-intake-workflow',
-    })
+    router.push(projectCardDestination(drama, sourceImportIntent.value, projectListReturnTo.value))
   } catch (e) {
     ElMessage.error(e.message || '创建失败')
   } finally {
@@ -1583,6 +1606,7 @@ async function moveToTrash(d) {
 }
 
 onMounted(async () => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
   projectListMounted = true
   loadList()
   loadExamples()
@@ -1593,6 +1617,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
   projectListMounted = false
   if (projectReloadTimer) clearTimeout(projectReloadTimer)
 })

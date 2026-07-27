@@ -7,6 +7,26 @@ const request = axios.create({
   headers: { 'Content-Type': 'application/json' }
 })
 
+let requestErrorToastOwnerDepth = 0
+
+export function runWithOwnedRequestErrorToast(operation) {
+  requestErrorToastOwnerDepth += 1
+  try {
+    return operation()
+  } finally {
+    requestErrorToastOwnerDepth -= 1
+  }
+}
+
+request.interceptors.request.use(
+  (config) => {
+    if (requestErrorToastOwnerDepth > 0) config.suppressErrorToast = true
+    return config
+  },
+  undefined,
+  { synchronous: true },
+)
+
 export function shouldShowRequestErrorToast(error) {
   return error?.config?.suppressErrorToast !== true
     && error?.code !== 'ERR_CANCELED'

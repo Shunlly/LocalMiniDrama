@@ -58,5 +58,15 @@ export default defineConfig({
   },
   build: {
     manifest: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalizedId = id.replace(/\\/g, '/')
+          if (/\/src\/utils\/(?:canvasHistory|canvasLayout|canvasSaveCoordinator|canvasUiState|freeCanvasAdapter|freeCanvasConfigState|freeCanvasMedia|freeCanvasState)\.js$/.test(normalizedId)) {
+            return 'canvas-domain'
+          }
+        },
+      },
+    },
   }
 })

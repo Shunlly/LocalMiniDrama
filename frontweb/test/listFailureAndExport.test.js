@@ -184,7 +184,7 @@ test('material center preserves stale data and blocks upload and deletion on loa
 
   assert.match(
     mediaLibrarySource,
-    /const mediaWriteLocked = computed\(\(\) => loading\.value \|\| !hasSuccessfulMediaLoad\.value \|\| Boolean\(loadError\.value\)\)/,
+    /const mediaWriteLocked = computed\(\(\) => mediaAccessState\.value\.writeLocked\)/,
   )
   assert.match(
     mediaLibrarySource,

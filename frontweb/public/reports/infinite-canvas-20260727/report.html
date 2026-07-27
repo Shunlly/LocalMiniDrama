@@ -1,0 +1,826 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LocalMiniDrama 自由画布集成收尾报告</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f4f6f5;
+      --surface: #ffffff;
+      --ink: #18211f;
+      --muted: #626d69;
+      --line: #d8dfdc;
+      --strong-line: #bcc8c3;
+      --complete: #176b54;
+      --complete-bg: #e8f4ef;
+      --pending: #8a5208;
+      --pending-bg: #fff3dc;
+      --info: #315f86;
+      --info-bg: #eaf1f7;
+      --header: #14211d;
+      --header-muted: #b8c6c1;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.65;
+      letter-spacing: 0;
+    }
+
+    a {
+      color: inherit;
+      text-underline-offset: 4px;
+    }
+
+    .skip-link {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      z-index: 10;
+      padding: 8px 12px;
+      background: var(--surface);
+      color: var(--ink);
+      border: 1px solid var(--strong-line);
+      transform: translateY(-160%);
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    .report-header {
+      background: var(--header);
+      color: #ffffff;
+      border-bottom: 4px solid #d19a43;
+    }
+
+    .header-inner,
+    main,
+    .footer-inner {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .header-inner {
+      padding: 32px 0 28px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--header-muted);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+      font-size: 34px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      max-width: 780px;
+      margin-bottom: 22px;
+      color: var(--header-muted);
+    }
+
+    .headline-status {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      border: 1px solid #4a5b55;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .headline-status > div {
+      min-height: 86px;
+      padding: 16px 18px;
+    }
+
+    .headline-status > div + div {
+      border-left: 1px solid #4a5b55;
+    }
+
+    .headline-status strong,
+    .headline-status span {
+      display: block;
+    }
+
+    .headline-status strong {
+      margin-bottom: 4px;
+      font-size: 20px;
+      line-height: 1.35;
+    }
+
+    .headline-status span {
+      color: var(--header-muted);
+      font-size: 14px;
+    }
+
+    .headline-status .complete strong {
+      color: #82d8b8;
+    }
+
+    .headline-status .pending strong {
+      color: #f0c46e;
+    }
+
+    .report-nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .report-nav ul {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 22px;
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 12px 0;
+      list-style: none;
+    }
+
+    .report-nav a {
+      color: #34413d;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .report-nav a:hover,
+    .report-nav a:focus-visible {
+      text-decoration: underline;
+    }
+
+    main {
+      padding: 10px 0 54px;
+    }
+
+    section {
+      padding: 34px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    section:first-child {
+      border-top: 0;
+    }
+
+    h2 {
+      margin-bottom: 8px;
+      font-size: 25px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin-bottom: 8px;
+      font-size: 17px;
+      line-height: 1.4;
+      letter-spacing: 0;
+    }
+
+    .section-lead {
+      max-width: 830px;
+      margin-bottom: 22px;
+      color: var(--muted);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .summary-item {
+      min-height: 132px;
+      padding: 16px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .summary-item .value {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--complete);
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .summary-item.pending .value {
+      color: var(--pending);
+      font-size: 18px;
+    }
+
+    .summary-item p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .deliverable-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0 26px;
+    }
+
+    .deliverable {
+      padding: 18px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .deliverable:nth-child(-n + 3) {
+      border-top: 2px solid var(--strong-line);
+    }
+
+    .deliverable p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    code {
+      padding: 1px 4px;
+      background: #edf1ef;
+      border: 1px solid #d9e0dd;
+      border-radius: 3px;
+      color: #293632;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.9em;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
+    }
+
+    caption {
+      padding: 14px 16px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: left;
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      border-top: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #eef2f0;
+      color: #36423e;
+      font-size: 13px;
+    }
+
+    td {
+      font-size: 14px;
+    }
+
+    .status {
+      display: inline-block;
+      min-width: 94px;
+      padding: 3px 8px;
+      border: 1px solid currentColor;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .status.pass {
+      background: var(--complete-bg);
+      color: var(--complete);
+    }
+
+    .status.unverified {
+      background: var(--pending-bg);
+      color: var(--pending);
+    }
+
+    .review-list,
+    .scope-list,
+    .gate-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .review-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .review-list li {
+      padding: 16px;
+      background: var(--surface);
+      border-left: 4px solid var(--complete);
+    }
+
+    .review-list li.pending {
+      border-left-color: var(--pending);
+    }
+
+    .review-list strong,
+    .review-list span {
+      display: block;
+    }
+
+    .review-list span {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .scope-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 36px;
+    }
+
+    .scope-list li {
+      position: relative;
+      padding: 10px 0 10px 24px;
+      border-top: 1px solid var(--line);
+    }
+
+    .scope-list li::before {
+      position: absolute;
+      top: 16px;
+      left: 2px;
+      width: 9px;
+      height: 9px;
+      background: var(--info);
+      content: "";
+    }
+
+    .scope-list.deferred li::before {
+      background: var(--pending);
+    }
+
+    .gate-list {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .gate-list li {
+      display: grid;
+      grid-template-columns: 26px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+      padding: 13px 15px;
+      border-top: 1px solid var(--line);
+    }
+
+    .gate-list li:first-child {
+      border-top: 0;
+    }
+
+    .gate-marker {
+      display: grid;
+      width: 20px;
+      height: 20px;
+      place-items: center;
+      margin-top: 2px;
+      border: 2px solid var(--complete);
+      color: var(--complete);
+      font-size: 12px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .gate-list .pending .gate-marker {
+      border-color: var(--pending);
+      color: var(--pending);
+    }
+
+    .gate-copy strong,
+    .gate-copy span {
+      display: block;
+    }
+
+    .gate-copy span {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .gate-state {
+      color: var(--complete);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .gate-list .pending .gate-state {
+      color: var(--pending);
+    }
+
+    .boundary-note {
+      margin-top: 18px;
+      padding: 14px 16px;
+      background: var(--pending-bg);
+      border-left: 4px solid var(--pending);
+      color: #65420f;
+    }
+
+    .report-footer {
+      background: #e8ecea;
+      border-top: 1px solid var(--strong-line);
+    }
+
+    .footer-inner {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 20px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .footer-inner p {
+      margin: 0;
+    }
+
+    @media (max-width: 900px) {
+      .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .deliverable-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .deliverable:nth-child(-n + 3) {
+        border-top: 1px solid var(--line);
+      }
+
+      .deliverable:nth-child(-n + 2) {
+        border-top: 2px solid var(--strong-line);
+      }
+    }
+
+    @media (max-width: 640px) {
+      body {
+        font-size: 15px;
+      }
+
+      .header-inner,
+      main,
+      .footer-inner,
+      .report-nav ul {
+        width: min(100% - 28px, 1120px);
+      }
+
+      .header-inner {
+        padding: 24px 0 22px;
+      }
+
+      h1 {
+        font-size: 27px;
+      }
+
+      .headline-status,
+      .summary-grid,
+      .deliverable-grid,
+      .review-list,
+      .scope-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .headline-status > div + div {
+        border-top: 1px solid #4a5b55;
+        border-left: 0;
+      }
+
+      .deliverable:nth-child(-n + 2) {
+        border-top: 1px solid var(--line);
+      }
+
+      .deliverable:first-child {
+        border-top: 2px solid var(--strong-line);
+      }
+
+      .gate-list li {
+        grid-template-columns: 26px minmax(0, 1fr);
+      }
+
+      .gate-state {
+        grid-column: 2;
+      }
+
+      .footer-inner {
+        display: block;
+      }
+
+      .footer-inner p + p {
+        margin-top: 6px;
+      }
+    }
+
+    @media print {
+      body {
+        background: #ffffff;
+      }
+
+      .report-nav,
+      .skip-link {
+        display: none;
+      }
+
+      section {
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到报告正文</a>
+
+  <header class="report-header">
+    <div class="header-inner">
+      <p class="eyebrow">LocalMiniDrama · 2026-07-27 · 文档收尾</p>
+      <h1>自由画布集成收尾报告</h1>
+      <p class="subtitle">同一路由中的「制作 + 自由」桌面工作台。此报告区分实现与复审结论、真实运行证据和正式发布决策。</p>
+      <div class="headline-status" aria-label="总体状态">
+        <div class="complete">
+          <strong>实现已完成</strong>
+          <span>任务 1-5、产品验收、ZIP 安全和 E2E 代码/契约复审已收口</span>
+        </div>
+        <div class="pending">
+          <strong>最终 Docker 与生产 E2E 待验证</strong>
+          <span>尚无六组桌面视口/主题的真实运行证据，不构成发布批准</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <nav class="report-nav" aria-label="报告目录">
+    <ul>
+      <li><a href="#summary">状态摘要</a></li>
+      <li><a href="#deliverables">交付内容</a></li>
+      <li><a href="#acceptance">验收矩阵</a></li>
+      <li><a href="#reviews">复审结论</a></li>
+      <li><a href="#scope">范围边界</a></li>
+      <li><a href="#gates">最终门禁</a></li>
+    </ul>
+  </nav>
+
+  <main id="main">
+    <section id="summary" aria-labelledby="summary-title">
+      <h2 id="summary-title">状态摘要</h2>
+      <p class="section-lead">实现完成不等于发布完成。下面四项分别记录实现、产品复审、安全复审和真实运行证据。</p>
+      <div class="summary-grid">
+        <article class="summary-item">
+          <span class="value">5 / 5</span>
+          <h3>实现任务</h3>
+          <p>状态、持久化、图交互、自由模式 UI 与工作台集成均已完成。</p>
+        </article>
+        <article class="summary-item">
+          <span class="value">8 / 8</span>
+          <h3>产品验收项</h3>
+          <p>三轮复审结论均收口为 Spec PASS / Quality PASS。</p>
+        </article>
+        <article class="summary-item">
+          <span class="value">PASS</span>
+          <h3>ZIP 安全</h3>
+          <p>规格与安全专项复审通过，覆盖身份、媒体、清单和失败关闭。</p>
+        </article>
+        <article class="summary-item pending">
+          <span class="value">UNVERIFIED</span>
+          <h3>真实运行矩阵</h3>
+          <p>最终 Docker 构建与生产 E2E 尚未执行。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="deliverables" aria-labelledby="deliverables-title">
+      <h2 id="deliverables-title">交付内容</h2>
+      <p class="section-lead">自由层与生产层并存。自由节点不会替换生产图，只有明确的转换动作会写入生产引用。</p>
+      <div class="deliverable-grid">
+        <article class="deliverable">
+          <h3>同一路由双模式</h3>
+          <p>在原画布路由切换「制作 / 自由」。制作模式继续使用原生产图、工作流和动作门禁。</p>
+        </article>
+        <article class="deliverable">
+          <h3>五类自由节点</h3>
+          <p><code>text</code>、<code>image</code>、<code>video</code>、<code>config</code>、<code>reference</code>，数据写入 <code>metadata.free_canvas</code>。</p>
+        </article>
+        <article class="deliverable">
+          <h3>直接编辑</h3>
+          <p>单选、多选、框选、连线、复制粘贴、删除、撤销和重做共享一致选择状态。</p>
+        </article>
+        <article class="deliverable">
+          <h3>素材工作流</h3>
+          <p>支持搜索、图片/视频筛选、分组折叠、上传入口、拖入画布和符合资格的媒体保存。</p>
+        </article>
+        <article class="deliverable">
+          <h3>保存与恢复</h3>
+          <p>失败原因持续可见并经过净化；重试只覆盖仍未保存的变更，不清空当前编辑。</p>
+        </article>
+        <article class="deliverable">
+          <h3>转换与迁移</h3>
+          <p>明确选择目标后转换生产引用；项目 ZIP 导入/导出保留自由画布、生产图和未知 metadata。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="acceptance" aria-labelledby="acceptance-title">
+      <h2 id="acceptance-title">8 项产品验收矩阵</h2>
+      <p class="section-lead">以下状态表示实现与代码质量复审完成。视口布局和完整浏览器路径仍需最终 Docker 生产矩阵确认。</p>
+      <div class="table-wrap">
+        <table>
+          <caption>产品验收三轮复审结果</caption>
+          <thead>
+            <tr>
+              <th scope="col">编号</th>
+              <th scope="col">验收项</th>
+              <th scope="col">已交付行为</th>
+              <th scope="col">代码/质量状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>01</td>
+              <td>键盘选择与删除一致性</td>
+              <td>键盘激活、视觉选择、删除与撤销使用同一选择集合。</td>
+              <td><span class="status pass">PASS</span></td>
+            </tr>
+            <tr>
+              <td>02</td>
+              <td>自由模式空状态</td>
+              <td>提供文本、配置和媒体入口；生产节点在自由模式中只读且弱化。</td>
+              <td><span class="status pass">PASS</span></td>
+            </tr>
+            <tr>
+              <td>03</td>
+              <td>避让式节点放置</td>
+              <td>按桌面可见安全区域确定位置，避开工具栏、侧栏、检查器和已有节点。</td>
+              <td><span class="status pass">PASS</span></td>
+            </tr>
+            <tr>
+              <td>04</td>
+              <td>多选操作可见</td>
+              <td>显示已选数量，并提供与快捷键一致的复制和删除动作。</td>
+              <td><span class="status pass">PASS</span></td>
+            </tr>
+            <tr>
+              <td>05</td>
+              <td>保存失败与精确重试</td>
+              <td>持续显示净化后的原因；成功前保留脏状态，重试后按结果清理。</td>
+              <td><span class="status pass">PASS</span></td>
+            </tr>
+            <tr>
+              <td>06</td>
+              <td>保存为素材资格</td>
+              <td>仅允许符合本地媒体策略的图片/视频；其他节点显示具体禁用原因。</td>
+              <td><span class="status pass">PASS</span></td>
+            </tr>
+            <tr>
+              <td>07</td>
+              <td>可访问上传入口</td>
+              <td>可见按钮承担键盘入口，隐藏文件控件具备明确名称且不产生重复焦点。</td>
+              <td><span class="status pass">PASS</span></td>
+            </tr>
+            <tr>
+              <td>08</td>
+              <td>素材发现</td>
+              <td>关键词搜索、图片/视频筛选、折叠分组和项目素材聚焦保持一致。</td>
+              <td><span class="status pass">PASS</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="reviews" aria-labelledby="reviews-title">
+      <h2 id="reviews-title">复审结论</h2>
+      <p class="section-lead">静态合同与专项复审已经收口，真实运行门禁单独保留，避免把不同层级的证据混为一个结论。</p>
+      <ul class="review-list">
+        <li>
+          <strong>产品验收：Spec PASS / Quality PASS</strong>
+          <span>8 项实现经过三轮复审，没有把浏览器/Docker 证据纳入该结论。</span>
+        </li>
+        <li>
+          <strong>ZIP 导入导出：Spec PASS / Security PASS</strong>
+          <span>覆盖受控路径、媒体真实性、身份映射、清单一致性和失败关闭。</span>
+        </li>
+        <li>
+          <strong>E2E 代码/契约：Spec PASS / Quality PASS</strong>
+          <span>流程脚本、证据清单、校验器、清理合同和串行门禁接线已经复审。</span>
+        </li>
+        <li class="pending">
+          <strong>Docker 生产 E2E：UNVERIFIED</strong>
+          <span>真实容器、六组视口/主题、截图哈希与人工视觉检查尚无本轮证据。</span>
+        </li>
+      </ul>
+    </section>
+
+    <section id="scope" aria-labelledby="scope-title">
+      <h2 id="scope-title">范围与延期</h2>
+      <div class="scope-layout">
+        <div>
+          <h3>当前桌面交付</h3>
+          <ul class="scope-list">
+            <li>生产图与自由图在同一工作台中隔离管理。</li>
+            <li>部分 metadata 更新保留生产字段与未知字段。</li>
+            <li>测试使用本地协议兼容服务，不连接外部真实 Provider。</li>
+            <li>仅吸收节点化工作流思想，不复制参考站 AGPL 源码或资产。</li>
+          </ul>
+        </div>
+        <div>
+          <h3>明确延期</h3>
+          <ul class="scope-list deferred">
+            <li>移动端重排、触控手势和移动画布/列表降级。</li>
+            <li>新的真实 Provider 路由及第三方组合深度联调。</li>
+            <li>多人协作、冲突合并和在线共享。</li>
+            <li>完整 Agent/MCP 对话、工具编排和自动执行面板。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="gates" aria-labelledby="gates-title">
+      <h2 id="gates-title">最终门禁清单</h2>
+      <p class="section-lead">完成项与待验证项保持分离。所有待验证项必须绑定同一最终源码修订，才可进入发布决策。</p>
+      <ul class="gate-list">
+        <li>
+          <span class="gate-marker" aria-hidden="true">✓</span>
+          <span class="gate-copy"><strong>任务 1-5 实现</strong><span>状态、持久化、交互、界面和同路由集成完成。</span></span>
+          <span class="gate-state">完成</span>
+        </li>
+        <li>
+          <span class="gate-marker" aria-hidden="true">✓</span>
+          <span class="gate-copy"><strong>产品、ZIP 与 E2E 代码复审</strong><span>分别达到已记录的规格、质量和安全结论。</span></span>
+          <span class="gate-state">完成</span>
+        </li>
+        <li class="pending">
+          <span class="gate-marker" aria-hidden="true">!</span>
+          <span class="gate-copy"><strong>最终源码修订 Docker 重建</strong><span>需要健康/就绪检查，并记录与最终源码修订一致的运行身份。</span></span>
+          <span class="gate-state">待验证</span>
+        </li>
+        <li class="pending">
+          <span class="gate-marker" aria-hidden="true">!</span>
+          <span class="gate-copy"><strong>生产 E2E 六组矩阵</strong><span>1280x720、1366x768、1440x900，分别覆盖亮色与暗色。</span></span>
+          <span class="gate-state">待验证</span>
+        </li>
+        <li class="pending">
+          <span class="gate-marker" aria-hidden="true">!</span>
+          <span class="gate-copy"><strong>证据与视觉人工复核</strong><span>检查流程清单、清理结果、原始截图、摘要和无重叠/截断表现。</span></span>
+          <span class="gate-state">待验证</span>
+        </li>
+        <li class="pending">
+          <span class="gate-marker" aria-hidden="true">!</span>
+          <span class="gate-copy"><strong>同修订发布门禁与发布决策</strong><span>源码、容器、桌面制品、安全、回滚、CI 与人工复核均需完成。</span></span>
+          <span class="gate-state">待验证</span>
+        </li>
+      </ul>
+      <p class="boundary-note"><strong>结论边界：</strong>自由画布实现已完成；当前报告不是正式发布批准，也没有用静态合同替代真实 Docker 与生产 E2E。</p>
+    </section>
+  </main>
+
+  <footer class="report-footer">
+    <div class="footer-inner">
+      <p>LocalMiniDrama 自由画布集成 · 文档收尾</p>
+      <p>状态日期：2026-07-27 · 桌面范围</p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -551,7 +551,10 @@ async function callKlingImageApi(config, log, opts) {
           accept: 'application/json',
           maxBytes: IMAGE_POLL_RESPONSE_MAX_BYTES,
           maxRedirects: 2,
-          trustedOrigins: trustedProviderOrigins(config),
+          trustedOrigins: opts.provider_network_policy?.trustedOrigins,
+          allowPrivateOrigins: opts.provider_network_policy?.allowPrivateOrigins,
+          lookup: opts.provider_network_policy?.lookup,
+          requireHttpsForPublic: opts.provider_network_policy?.requireHttpsForPublic,
         }
       );
       const queryData = JSON.parse(queryRes.buffer.toString('utf8'));
@@ -762,7 +765,10 @@ async function callNanoBananaImageApi(config, log, opts) {
         accept: 'application/json',
         maxBytes: IMAGE_POLL_RESPONSE_MAX_BYTES,
         maxRedirects: 2,
-        trustedOrigins: trustedProviderOrigins(config),
+        trustedOrigins: opts.provider_network_policy?.trustedOrigins,
+        allowPrivateOrigins: opts.provider_network_policy?.allowPrivateOrigins,
+        lookup: opts.provider_network_policy?.lookup,
+        requireHttpsForPublic: opts.provider_network_policy?.requireHttpsForPublic,
       });
       const queryRaw = queryRes.buffer.toString('utf8');
       let queryData;
@@ -1483,12 +1489,12 @@ async function callImageApiInternal(db, log, opts) {
   const provider = (config.provider || '').toLowerCase();
   // api_protocol 显式指定接口规范，优先级高于 provider 推断；未设置时按 provider 自动判断
   const protocol = (config.api_protocol || '').toLowerCase() || inferProtocol(provider, model);
+  const providerNetworkPolicy = aiConfigService.getProviderNetworkOptions(config, {
+    lookup: opts.provider_dns_lookup,
+  });
   const requestContext = imageRequestContext.getStore();
   if (requestContext) {
-    requestContext.networkOptions = {
-      trustedOrigins: trustedProviderOrigins(config),
-      lookup: opts.provider_dns_lookup,
-    };
+    requestContext.networkOptions = providerNetworkPolicy;
   }
   const safeReferenceImageUrls = await prepareImageReferences(reference_image_urls, opts, config);
 
@@ -1548,6 +1554,7 @@ async function callImageApiInternal(db, log, opts) {
       reference_image_urls: safeReferenceImageUrls,
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
+      provider_network_policy: providerNetworkPolicy,
     });
   }
 
@@ -1557,6 +1564,7 @@ async function callImageApiInternal(db, log, opts) {
       reference_image_urls: safeReferenceImageUrls,
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
+      provider_network_policy: providerNetworkPolicy,
     });
   }
 
@@ -1586,6 +1594,8 @@ async function callImageApiInternal(db, log, opts) {
         poll_interval_ms: opts.poll_interval_ms,
         workflow_variables: opts.workflow_variables,
         idempotency_key: opts.idempotency_key,
+        fetch_impl: opts.fetch_impl,
+        provider_network_policy: providerNetworkPolicy,
       });
     } catch (error) {
       const safeError = imageProviderException(error, 'ComfyUI', 'image request');

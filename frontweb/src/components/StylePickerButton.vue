@@ -29,7 +29,7 @@
     </button>
 
     <!-- 选择弹窗 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="visible"
       title="选择生成风格"
       width="90vw"
@@ -87,7 +87,7 @@
         <el-button @click="clearAndClose">清除选择</el-button>
         <el-button type="primary" @click="visible = false">完成</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
   </div>
 </template>
 

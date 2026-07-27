@@ -2,7 +2,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const uploadService = require('./uploadService');
-const { redirectRequestOptions, secureHttpFetch } = require('./secureHttpFetch');
+const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
+const { redirectRequestOptions, secureHttpFetch, validateHttpRequestTarget } = require('./secureHttpFetch');
+const { isSensitiveFieldKey } = require('./sensitiveFieldPolicy');
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30 * 1000;
@@ -61,15 +63,27 @@ function numericSetting(value, fallback, minimum = 1) {
   return Number.isFinite(parsed) && parsed >= minimum ? parsed : fallback;
 }
 
+function normalizeHeaderValue(value) {
+  return value == null ? '' : String(value).trim();
+}
+
+function normalizeCustomHeaders(settings) {
+  const headers = {};
+  for (const [key, value] of Object.entries(settings?.headers || {})) {
+    const normalizedValue = normalizeHeaderValue(value);
+    if (normalizedValue) headers[key] = normalizedValue;
+  }
+  return headers;
+}
+
 function collectSecrets(config, settings) {
   const secrets = [];
-  if (config?.api_key) secrets.push(String(config.api_key));
-  for (const [key, value] of Object.entries(settings?.headers || {})) {
-    if (/authorization|api[-_]?key|token|secret|cookie/i.test(key) && value) {
-      secrets.push(String(value));
-    }
+  const apiKey = normalizeHeaderValue(config?.api_key);
+  if (apiKey) secrets.push(apiKey);
+  for (const [key, value] of Object.entries(normalizeCustomHeaders(settings))) {
+    if (isSensitiveFieldKey(key)) secrets.push(value);
   }
-  return secrets.filter((value) => value.length >= 3);
+  return [...new Set(secrets)];
 }
 
 function sanitizeProviderText(value, secrets = []) {
@@ -93,12 +107,13 @@ function sanitizeProviderText(value, secrets = []) {
 
 function buildHeaders(config, settings, json = false) {
   const headers = {};
-  for (const [key, value] of Object.entries(settings?.headers || {})) {
+  for (const [key, value] of Object.entries(normalizeCustomHeaders(settings))) {
     if (!json && key.toLowerCase() === 'content-type') continue;
-    if (value != null && String(value).trim()) headers[key] = String(value);
+    headers[key] = value;
   }
-  if (config?.api_key && !headers.Authorization && !headers.authorization) {
-    headers.Authorization = `Bearer ${config.api_key}`;
+  const apiKey = normalizeHeaderValue(config?.api_key);
+  if (apiKey && !headers.Authorization && !headers.authorization) {
+    headers.Authorization = `Bearer ${apiKey}`;
   }
   if (json) headers['Content-Type'] = 'application/json';
   return headers;
@@ -139,6 +154,7 @@ async function fetchWithLimits(url, options, context) {
         trustedOrigins: context.trustedOrigins,
         allowPrivateOrigins: context.allowPrivateOrigins,
         lookup: context.networkLookup,
+        requireHttpsForPublic: context.requireHttpsForPublic,
         timeoutMs: Math.min(context.requestTimeoutMs, remaining),
         maxBytes: context.maxResponseBytes || DEFAULT_MAX_IMAGE_BYTES,
         maxRedirects: 5,
@@ -147,6 +163,12 @@ async function fetchWithLimits(url, options, context) {
     let currentUrl = String(url);
     let currentOptions = { ...options };
     for (let redirects = 0; redirects <= 5; redirects += 1) {
+      await validateHttpRequestTarget(currentUrl, {
+        trustedOrigins: context.trustedOrigins,
+        allowPrivateOrigins: context.allowPrivateOrigins,
+        lookup: context.networkLookup,
+        requireHttpsForPublic: context.requireHttpsForPublic,
+      });
       const response = await context.fetchImpl(currentUrl, {
         ...currentOptions,
         redirect: 'manual',
@@ -589,6 +611,7 @@ async function cancelPrompt(baseUrl, config, settings, promptId, requestContext 
 async function generateComfyUiImage(config, log, opts = {}) {
   const settings = parseSettings(config);
   const baseUrl = normalizeBaseUrl(config?.base_url);
+  const networkPolicy = requireCompleteProviderNetworkPolicy(opts.provider_network_policy, baseUrl);
   const timeoutMs = numericSetting(opts.timeout_ms ?? settings.timeout_ms, DEFAULT_TIMEOUT_MS);
   const context = {
     fetchImpl: opts.fetch_impl || global.fetch,
@@ -599,10 +622,10 @@ async function generateComfyUiImage(config, log, opts = {}) {
     pollIntervalMs: numericSetting(opts.poll_interval_ms ?? settings.poll_interval_ms, DEFAULT_POLL_INTERVAL_MS),
     secrets: collectSecrets(config, settings),
     promptId: null,
-    trustedOrigins: Array.isArray(opts.trusted_origins) && opts.trusted_origins.length > 0
-      ? opts.trusted_origins
-      : [baseUrl],
-    networkLookup: opts.network_lookup,
+    trustedOrigins: networkPolicy.trustedOrigins,
+    allowPrivateOrigins: networkPolicy.allowPrivateOrigins,
+    networkLookup: networkPolicy.lookup,
+    requireHttpsForPublic: networkPolicy.requireHttpsForPublic,
     maxResponseBytes: numericSetting(settings.max_response_bytes, DEFAULT_MAX_IMAGE_BYTES),
   };
   if (typeof context.fetchImpl !== 'function') {
@@ -678,6 +701,7 @@ async function generateComfyUiImage(config, log, opts = {}) {
 async function probeComfyUiConnection(config, options = {}) {
   const settings = parseSettings(config);
   const baseUrl = normalizeBaseUrl(config?.base_url);
+  const networkPolicy = requireCompleteProviderNetworkPolicy(options.provider_network_policy, baseUrl);
   const context = {
     fetchImpl: options.fetch_impl || global.fetch,
     useSecureFetch: typeof options.fetch_impl !== 'function',
@@ -687,10 +711,10 @@ async function probeComfyUiConnection(config, options = {}) {
     pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
     secrets: collectSecrets(config, settings),
     promptId: null,
-    trustedOrigins: Array.isArray(options.trusted_origins) && options.trusted_origins.length > 0
-      ? options.trusted_origins
-      : [baseUrl],
-    networkLookup: options.network_lookup,
+    trustedOrigins: networkPolicy.trustedOrigins,
+    allowPrivateOrigins: networkPolicy.allowPrivateOrigins,
+    networkLookup: networkPolicy.lookup,
+    requireHttpsForPublic: networkPolicy.requireHttpsForPublic,
     maxResponseBytes: 2 * 1024 * 1024,
   };
   const endpoints = [settings.system_stats_endpoint || '/system_stats', '/prompt'];

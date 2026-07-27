@@ -10,7 +10,7 @@
 
 > 遇到问题或有功能建议，欢迎在 [GitHub Issues](https://github.com/Shunlly/LocalMiniDrama/issues) 或 [Gitee Issues](https://gitee.com/bi_shang_a/localminidrama/issues) 提交反馈。
 
-> **本包版本：** `1.3.3`（与仓库根目录 [CHANGELOG](../CHANGELOG.md)、前端与桌面 `package.json` 对齐）
+> **本包版本：** `1.3.3` 发布候选（与仓库根目录 [CHANGELOG](../CHANGELOG.md)、前端与桌面 `package.json` 对齐；不代表已有 `v1.3.3` 正式 Release）
 
 ---
 
@@ -220,9 +220,14 @@ style:
 | GET | `/dramas/:id` | 获取剧集详情（含集数、角色、场景等） |
 | PUT | `/dramas/:id` | 更新剧集信息 |
 | DELETE | `/dramas/:id` | 软删除剧集 |
+| PUT | `/dramas/:id/canvas-layout` | 分别保存生产布局、工作流组和/或验证后的 `free_canvas` 部分更新 |
 | GET | `/dramas/:id/export` | 导出工程 ZIP |
 | POST | `/dramas/import` | 导入工程 ZIP（multipart/form-data，字段名 `file`） |
 | GET | `/dramas/stats` | 统计信息 |
+
+自由画布只接受 `text`、`image`、`video`、`config`、`reference` 五类节点，并在 API 边界限制节点、连线、文本和嵌套数据规模。`free_canvas` 独立合并到 `drama.metadata`，不会替换现有 `canvas_layout`、`workflow_groups` 或未知 metadata。图片/视频引用继续执行项目隔离、素材身份和本地媒体策略；项目 ZIP 导出/导入会验证归档清单、媒体与引用并在导入时安全重映射身份。该 ZIP 合同已完成 `Spec PASS / Security PASS` 复审。
+
+自由画布的 E2E 代码和证据契约已完成 `Spec PASS / Quality PASS` 复审，但真实 Docker 生产 E2E 尚未执行，当前不能作为最终发布证据。自动化测试仅使用本地协议兼容测试服务，不调用外部真实 Provider。
 
 ### 集数（Episode）
 
@@ -293,6 +298,8 @@ style:
 | GET | `/assets` | 分页查询素材中心图片/视频 |
 | POST | `/assets/upload` | 上传图片或视频并写入素材中心（单文件最大 100MB；最多 2 个并发；保留磁盘空间；图片完整解码、视频 `ffprobe` 校验；失败清理） |
 | DELETE | `/assets/:id` | 软删除素材记录；无其他有效引用时同步删除受控 `uploads/` 文件 |
+
+素材 API 的 `drama_id` 必须是存在且未删除项目的正整数；本地 `local_path` 和 `/static/...` URL 仅可指向该项目目录、`library/` 或兼容的 `dramas/<id>/` 旧目录。无项目素材兼容根级 `uploads/` 旧目录。外部 HTTP(S) URL 必须是无凭据的公网地址，`localhost` 地址不会接受为素材来源。自由画布的 image/video 节点采用相同范围，并在提供素材引用时以素材记录的 canonical `local_path` 为准。
 
 ### 静态文件
 

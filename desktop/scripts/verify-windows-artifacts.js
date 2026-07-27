@@ -11,6 +11,12 @@ const { getPath7za } = require('app-builder-lib/out/toolsets/7zip');
 const { archive } = require('app-builder-lib/out/targets/archive');
 const packageJson = require('../package.json');
 const { FUSE_POLICY } = require('./electron-fuses');
+const mediaToolPolicy = require('./media-tool-policy');
+const {
+  DEFENDER_SIGNATURE_MAX_AGE_HOURS,
+  normalizeDefenderSignatureDetails,
+  validateDefenderSignatureDetails,
+} = require('./defender-signature-policy');
 const {
   EXPECTED_PACKAGED_APPLICATION_ROOTS,
   validatePackagedApplications,
@@ -127,6 +133,89 @@ function verifyPackagedExampleApplications(applications, scanRoot, expected = EX
   });
 }
 
+function assertPhysicalPathWithinRoot(root, candidate, label, expectedKind) {
+  const resolvedRoot = path.resolve(root);
+  const resolvedCandidate = path.resolve(candidate);
+  const lexicalRelative = path.relative(resolvedRoot, resolvedCandidate);
+  assert.ok(
+    lexicalRelative && !lexicalRelative.startsWith(`..${path.sep}`) && lexicalRelative !== '..' && !path.isAbsolute(lexicalRelative),
+    `${label} path escapes the scan root`
+  );
+
+  const pathsToInspect = [resolvedRoot];
+  let current = resolvedRoot;
+  for (const segment of lexicalRelative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment);
+    pathsToInspect.push(current);
+  }
+  for (const inspectedPath of pathsToInspect) {
+    const entry = fs.lstatSync(inspectedPath, { throwIfNoEntry: false });
+    assert.ok(entry, `${label} path is missing: ${inspectedPath}`);
+    assert.equal(
+      entry.isSymbolicLink(),
+      false,
+      `${label} path contains a symbolic link or reparse point: ${inspectedPath}`
+    );
+  }
+
+  const physicalRoot = fs.realpathSync.native(resolvedRoot);
+  const physicalCandidate = fs.realpathSync.native(resolvedCandidate);
+  const physicalRelative = path.relative(physicalRoot, physicalCandidate);
+  assert.ok(
+    physicalRelative && !physicalRelative.startsWith(`..${path.sep}`) && physicalRelative !== '..' && !path.isAbsolute(physicalRelative),
+    `${label} physical path escapes the scan root`
+  );
+  const candidateEntry = fs.lstatSync(resolvedCandidate);
+  if (expectedKind === 'directory') assert.equal(candidateEntry.isDirectory(), true, `${label} must be a directory`);
+  if (expectedKind === 'file') assert.equal(candidateEntry.isFile(), true, `${label} must be a regular file`);
+  return physicalCandidate;
+}
+
+function verifyPackagedMediaTools(applications, scanRoot, expectedExampleDrama = EXPECTED_EXAMPLE_DRAMA) {
+  validatePackagedApplications(applications, expectedExampleDrama);
+  const resolvedScanRoot = path.resolve(scanRoot);
+  const platform = 'win32';
+  const arch = 'x64';
+  const release = mediaToolPolicy.getTrustedMediaToolRelease(platform, arch);
+  const physicalResourcesRoots = new Set();
+  const physicalMediaRoots = new Set();
+
+  for (const application of applications) {
+    const resourcesRoot = path.resolve(resolvedScanRoot, path.dirname(application.asar));
+    const mediaRoot = path.join(resourcesRoot, 'ffmpeg');
+    const physicalResourcesRoot = assertPhysicalPathWithinRoot(
+      resolvedScanRoot,
+      resourcesRoot,
+      'Packaged resources',
+      'directory'
+    );
+    const physicalMediaRoot = assertPhysicalPathWithinRoot(
+      resolvedScanRoot,
+      mediaRoot,
+      'Packaged media directory',
+      'directory'
+    );
+    assert.equal(
+      physicalResourcesRoots.has(physicalResourcesRoot),
+      false,
+      'Packaged application resources roots must be physically distinct'
+    );
+    assert.equal(
+      physicalMediaRoots.has(physicalMediaRoot),
+      false,
+      'Packaged application media roots must be physically distinct'
+    );
+    physicalResourcesRoots.add(physicalResourcesRoot);
+    physicalMediaRoots.add(physicalMediaRoot);
+    for (const expectedName of ['ffmpeg', 'ffprobe']) {
+      const executable = path.join(mediaRoot, release.tools[expectedName].fileName);
+      assertPhysicalPathWithinRoot(resolvedScanRoot, executable, `Packaged ${expectedName}`, 'file');
+      mediaToolPolicy.assertTrustedMediaToolFile(expectedName, executable, platform, arch);
+    }
+  }
+  return applications;
+}
+
 function validateArtifactScanInventory(inventory, version = packageJson.version, options = {}) {
   assert.equal(inventory?.schema, 'localminidrama.artifact-scan-inventory.v1', 'Artifact scan inventory schema is invalid');
   assert.equal(inventory.version, version, 'Artifact scan inventory version is invalid');
@@ -149,6 +238,7 @@ function validateArtifactScanInventory(inventory, version = packageJson.version,
   }
   validatePackagedApplications(inventory.packaged_applications, options.expectedExampleDrama);
   if (options.scanRoot) {
+    verifyPackagedMediaTools(inventory.packaged_applications, options.scanRoot, options.expectedExampleDrama);
     assert.deepEqual(
       inventory.packaged_applications.map((application) => application.example_drama),
       verifyPackagedExampleApplications(inventory.packaged_applications, options.scanRoot, options.expectedExampleDrama),
@@ -340,6 +430,9 @@ function recordScanPass(scanner, version, versionMetadata, policyMetadata) {
   };
   if (scanner === 'trivy') {
     marker.details = normalizeTrivyScanDetails(versionMetadata, policyMetadata, normalizedVersion);
+  } else if (scanner === 'defender') {
+    assert.equal(policyMetadata, undefined, 'defender policy metadata is not supported');
+    marker.details = normalizeDefenderSignatureDetails(versionMetadata);
   } else {
     assert.equal(versionMetadata, undefined, `${scanner} scan metadata is not supported`);
     assert.equal(policyMetadata, undefined, `${scanner} policy metadata is not supported`);
@@ -348,10 +441,7 @@ function recordScanPass(scanner, version, versionMetadata, policyMetadata) {
   return marker;
 }
 
-function readScanPass(scanner, commit) {
-  const markerPath = path.join(scanEvidenceRoot, `${scanner}.json`);
-  assert.ok(fs.statSync(markerPath, { throwIfNoEntry: false })?.isFile(), `${scanner} scan pass marker is missing`);
-  const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
+function validateScanPassMarker(marker, scanner, commit, options = {}) {
   assert.equal(marker.schema, 'localminidrama.artifact-scan-pass.v1', `${scanner} marker schema is invalid`);
   assert.equal(marker.scanner, scanner, `${scanner} marker scanner is invalid`);
   assert.equal(marker.status, 'passed', `${scanner} scan did not pass`);
@@ -359,8 +449,16 @@ function readScanPass(scanner, commit) {
   assert.match(String(marker.version || ''), /^[A-Za-z0-9][A-Za-z0-9._+() /:-]{0,127}$/, `${scanner} version is invalid`);
   assert.ok(Number.isFinite(Date.parse(marker.generated_at)), `${scanner} marker timestamp is invalid`);
   if (scanner === 'trivy') validateTrivyScanDetails(marker.details, marker.version);
+  else if (scanner === 'defender') validateDefenderSignatureDetails(marker.details, options);
   else assert.equal(marker.details, undefined, `${scanner} marker contains unsupported metadata`);
   return marker;
+}
+
+function readScanPass(scanner, commit) {
+  const markerPath = path.join(scanEvidenceRoot, `${scanner}.json`);
+  assert.ok(fs.statSync(markerPath, { throwIfNoEntry: false })?.isFile(), `${scanner} scan pass marker is missing`);
+  const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
+  return validateScanPassMarker(marker, scanner, commit);
 }
 
 function recordArtifactSecurity() {
@@ -408,6 +506,8 @@ function recordArtifactSecurity() {
         version: scanPasses.defender.version,
         status: 'passed',
         generated_at: scanPasses.defender.generated_at,
+        antivirus_signature_last_updated: scanPasses.defender.details.antivirus_signature_last_updated,
+        maximum_age_hours: scanPasses.defender.details.maximum_age_hours,
         scope: 'release bundle and extracted payloads',
       },
     },
@@ -443,12 +543,17 @@ module.exports = {
   artifactNames,
   assertFusePolicy,
   createVerifiedZip,
+  DEFENDER_SIGNATURE_MAX_AGE_HOURS,
+  normalizeDefenderSignatureDetails,
   parseFuseReport,
   prepareArtifactScan,
   validatePackagedApplications,
   recordArtifactSecurity,
   recordScanPass,
   normalizeTrivyScanDetails,
+  validateDefenderSignatureDetails,
+  validateScanPassMarker,
   validateArtifactScanInventory,
   verifyPackagedExampleApplications,
+  verifyPackagedMediaTools,
 };

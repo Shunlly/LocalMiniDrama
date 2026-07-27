@@ -32,6 +32,7 @@
           v-if="actions.primaryAction === 'create-episode'"
           type="primary"
           native-type="button"
+          aria-label="新建第一集"
           @click="emit('create-episode')"
         >
           <el-icon><Plus /></el-icon>

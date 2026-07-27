@@ -16,6 +16,10 @@
         <el-button link size="small" @click.stop="closePanel">收起</el-button>
       </div>
     </div>
+    <div v-if="audioOutcomeUnknown" class="media-query-blocker" role="alert">
+      <span>上一次配音结果待确认，服务端可能仍在合成并产生费用。</span>
+      <el-button size="small" type="warning" plain @click.stop="refreshAfterUnknownAudio">刷新分镜状态</el-button>
+    </div>
 
     <el-form label-position="left" label-width="36px" size="small" class="panel-form compact-form">
       <el-form-item label="标题">
@@ -26,6 +30,7 @@
         <el-form-item label="角色" class="rel-item">
           <el-select
             v-model="characterIds"
+            :aria-label="storyboardControlLabel('角色')"
             multiple
             collapse-tags
             collapse-tags-tooltip
@@ -47,6 +52,7 @@
         <el-form-item label="场景" class="rel-item">
           <el-select
             v-model="sceneId"
+            :aria-label="storyboardControlLabel('场景')"
             clearable
             filterable
             placeholder="场景"
@@ -66,6 +72,7 @@
         <el-form-item label="道具" class="rel-item">
           <el-select
             v-model="propIds"
+            :aria-label="storyboardControlLabel('道具')"
             multiple
             collapse-tags
             collapse-tags-tooltip
@@ -86,9 +93,9 @@
         </el-form-item>
       </div>
       <div class="inline-add-row">
-        <el-button link type="primary" size="small" @click.stop="createAsset('character')">+角色</el-button>
-        <el-button link type="primary" size="small" @click.stop="createAsset('scene')">+场景</el-button>
-        <el-button link type="primary" size="small" @click.stop="createAsset('prop')">+道具</el-button>
+        <el-button link type="primary" size="small" :aria-label="storyboardControlLabel('添加角色')" @click.stop="createAsset('character')">+角色</el-button>
+        <el-button link type="primary" size="small" :aria-label="storyboardControlLabel('添加场景')" @click.stop="createAsset('scene')">+场景</el-button>
+        <el-button link type="primary" size="small" :aria-label="storyboardControlLabel('添加道具')" @click.stop="createAsset('prop')">+道具</el-button>
       </div>
 
       <div class="reference-row">
@@ -104,6 +111,7 @@
               circle
               size="small"
               title="移除自由参考图"
+              :aria-label="storyboardControlLabel(`移除自由参考图${slot.freeIndex + 1}`)"
               @click.stop="removeFreeReference(slot.freeIndex)"
             />
           </div>
@@ -114,7 +122,7 @@
               circle
               :loading="uploadingReference"
               :disabled="referenceSlots.length >= 10"
-              aria-label="上传自由参考图"
+              :aria-label="storyboardControlLabel('上传自由参考图')"
               @click.stop="openReferenceUpload"
             />
           </el-tooltip>
@@ -134,12 +142,12 @@
           <el-input v-model="form.shot_type" placeholder="特写" @blur="saveMeta" />
         </el-form-item>
         <el-form-item label="时长" class="meta-item narrow">
-          <el-input-number v-model="form.duration" :min="1" :max="120" controls-position="right" @change="saveMeta" />
+          <el-input-number v-model="form.duration" :aria-label="storyboardControlLabel('时长')" :min="1" :max="120" controls-position="right" @change="saveMeta" />
         </el-form-item>
       </div>
 
       <el-form-item v-if="gridImages.length" label="宫格">
-        <el-select v-model="form.video_reference_image_id" clearable placeholder="视频使用主图/首帧">
+        <el-select v-model="form.video_reference_image_id" :aria-label="storyboardControlLabel('视频参考图')" clearable placeholder="视频使用主图/首帧">
           <el-option
             v-for="image in gridImages"
             :key="image.id"
@@ -253,7 +261,7 @@
           size="small"
           type="warning"
           :loading="busyStep === 'audio'"
-          :disabled="Boolean(ttsAction.reason)"
+          :disabled="Boolean(ttsAction.reason) || audioOutcomeUnknown"
           @click.stop="runStep('audio')"
         >配音</el-button>
       </CanvasActionGate>
@@ -294,6 +302,7 @@ const ctx = useCanvasContext()
 const saving = ref(false)
 const busyStep = ref('')
 const uploadingReference = ref(false)
+const audioOutcomeUnknown = ref(false)
 const referenceFileInput = ref(null)
 const characterIds = ref([])
 const sceneId = ref(null)
@@ -301,6 +310,7 @@ const propIds = ref([])
 const savedDraftFingerprint = ref('')
 const savedDraftValue = ref(null)
 let leaveConfirmationOpen = false
+let generationRun = null
 const form = reactive({
   title: '',
   action: '',
@@ -324,6 +334,11 @@ const videoAction = computed(() => ctx?.productionActions?.value?.video || unava
 const ttsAction = computed(() => ctx?.productionActions?.value?.tts || unavailableProductionAction)
 const videoReasonId = computed(() => `canvas-storyboard-video-reason-${props.storyboard?.id || 'unknown'}`)
 const ttsReasonId = computed(() => `canvas-storyboard-tts-reason-${props.storyboard?.id || 'unknown'}`)
+
+function storyboardControlLabel(control) {
+  const number = props.storyboard?.storyboard_number ?? props.storyboard?.id ?? '未编号'
+  return `分镜${number}${control}`
+}
 
 const isUniversal = computed(() => props.storyboard?.creation_mode === 'universal')
 const characters = computed(() => ctx?.drama?.value?.characters || [])
@@ -438,6 +453,8 @@ onMounted(() => {
   unregisterFocusGuard = ctx?.registerFocusGuard?.(confirmStoryboardLeave, hasPendingStoryboardWork) || null
 })
 onBeforeUnmount(() => {
+  generationRun?.abort()
+  generationRun = null
   unregisterFocusGuard?.()
   unregisterFocusGuard = null
 })
@@ -449,7 +466,9 @@ function onSelectVisibleChange(open) {
 
 async function confirmStoryboardLeave() {
   if (!hasPendingStoryboardWork.value) return true
-  if (saving.value || busyStep.value || uploadingReference.value) {
+  const billableGenerationActive = ['image', 'video', 'audio'].includes(busyStep.value)
+    && ctx?.hasNodeGeneration?.()
+  if (saving.value || uploadingReference.value || (busyStep.value && !['image', 'video', 'audio'].includes(busyStep.value)) || billableGenerationActive) {
     ElMessage.warning('分镜正在保存或生成，请完成后再离开。')
     return false
   }
@@ -739,6 +758,10 @@ async function runStep(step) {
     ElMessage.warning('请先保存当前分镜修改，再生成配音。')
     return
   }
+  if (step === 'audio' && audioOutcomeUnknown.value) {
+    ElMessage.warning('请先刷新分镜状态，确认上一次配音结果后再重试')
+    return
+  }
 
   busyStep.value = step
   const statusMsg = CANVAS_NODE_STATUS_LABELS[step] || '处理中…'
@@ -756,13 +779,19 @@ async function runStep(step) {
       }
       markDraftSaved(draftSnapshot)
     }
+    const nextRun = ctx?.beginNodeGeneration?.({ nodeId: sbNodeId.value, step }) || null
+    if (!nextRun) {
+      ElMessage.warning('已有单节点生成正在执行，请等待完成后再试')
+      return
+    }
+    generationRun = nextRun
     const found = findStoryboardInDrama(drama, sbId)
     const sb = found?.storyboard || props.storyboard
     const genOpts = ctx?.getGenerationOptions?.() || getDramaGenerationOptions(drama)
-    if (step === 'image') await runImageStep(drama, sb, genOpts)
-    else if (step === 'video') await runVideoStep(drama, sb, genOpts)
+    if (step === 'image') await runImageStep(drama, sb, genOpts, { signal: generationRun.signal })
+    else if (step === 'video') await runVideoStep(drama, sb, genOpts, { signal: generationRun.signal })
     else if (step === 'audio') {
-      const res = await runAudioStep(sb)
+      const res = await runAudioStep(sb, { signal: generationRun.signal })
       if (res?.skipped) {
         ElMessage.info(res.reason || '已跳过')
         return
@@ -771,12 +800,27 @@ async function runStep(step) {
     ElMessage.success(step === 'image' ? '生图完成' : step === 'video' ? '视频生成完成' : '配音完成')
     await ctx?.refresh?.()
   } catch (e) {
-    ElMessage.error(e?.message || '生成失败')
+    if (e?.code === 'SUBMISSION_OUTCOME_UNKNOWN') audioOutcomeUnknown.value = true
+    if (e?.name !== 'AbortError' && !generationRun?.signal.aborted) {
+      ElMessage.error(e?.message || '生成失败')
+    }
   } finally {
+    generationRun?.finish()
+    generationRun = null
     busyStep.value = ''
     ctx?.nodeStatus?.clear(sbNodeId.value)
     if (step === 'image') ctx?.nodeStatus?.clear(`sbimg:${sbId}`)
     if (step === 'video') ctx?.nodeStatus?.clear(`sbvid:${sbId}`)
+  }
+}
+
+async function refreshAfterUnknownAudio() {
+  try {
+    await ctx?.refresh?.()
+    audioOutcomeUnknown.value = false
+    ElMessage.success('分镜状态已刷新')
+  } catch (error) {
+    ElMessage.error(error?.message || '刷新失败，请稍后重试')
   }
 }
 </script>

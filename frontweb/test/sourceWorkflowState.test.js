@@ -50,7 +50,7 @@ test('workflow state promotes process, qa, remediation and delivery in sequence'
     sourceCount: 1,
     hasSourceInput: false,
     run: { id: 'run-2', status: 'completed' },
-    qa: { id: 3, passed: false, issueCount: 2, canRemediate: true, remediationActions: [{ code: 'retry' }] },
+    qa: { id: 3, run_id: 'run-2', passed: false, issueCount: 2, canRemediate: true, remediationActions: [{ code: 'retry' }] },
     timeline: null,
     episodeCount: 1,
     actionReasons: {},
@@ -62,7 +62,7 @@ test('workflow state promotes process, qa, remediation and delivery in sequence'
     sourceCount: 1,
     hasSourceInput: false,
     run: { id: 'run-3', status: 'completed', mode: 'draft' },
-    qa: { id: 4, passed: true, score: 92, mode: 'draft', remediationActions: [] },
+    qa: { id: 4, run_id: 'run-3', passed: true, score: 92, mode: 'draft', remediationActions: [] },
     timeline: { episodeCount: 2, trackCount: 8 },
     episodeCount: 2,
     actionReasons: {},
@@ -70,6 +70,44 @@ test('workflow state promotes process, qa, remediation and delivery in sequence'
   assert.equal(delivered.activeStepId, 'delivery')
   assert.equal(delivered.complete, true)
   assert.equal(delivered.steps.find((step) => step.id === 'qa').summary, '草稿结构检查 通过，评分 92')
+})
+
+test('workflow state ignores an older QA report for processing, failed and completed runs', () => {
+  const oldQa = {
+    id: 10,
+    run_id: 'run-old',
+    passed: false,
+    score: 17,
+    issueCount: 3,
+    canRemediate: true,
+    remediationActions: [{ code: 'retry-old-step' }],
+  }
+  const cases = [
+    { status: 'processing', process: 'active', qa: 'pending' },
+    { status: 'failed', process: 'error', qa: 'pending' },
+    { status: 'completed', process: 'done', qa: 'ready' },
+  ]
+
+  for (const expected of cases) {
+    const state = buildSourceWorkflowState({
+      sourceCount: 1,
+      hasSourceInput: false,
+      run: { id: `run-new-${expected.status}`, status: expected.status },
+      qa: oldQa,
+      timeline: null,
+      episodeCount: 0,
+      actionReasons: {},
+    })
+    const processStep = state.steps.find((step) => step.id === 'process')
+    const qaStep = state.steps.find((step) => step.id === 'qa')
+    const remediationStep = state.steps.find((step) => step.id === 'remediation')
+
+    assert.equal(processStep.status, expected.process, expected.status)
+    assert.equal(qaStep.status, expected.qa, expected.status)
+    assert.equal(remediationStep.status, 'pending', expected.status)
+    assert.doesNotMatch(qaStep.summary, /17|3 个问题/, expected.status)
+    assert.equal(state.complete, false, expected.status)
+  }
 })
 
 test('workflow action reasons explain disabled controls', () => {
@@ -90,7 +128,7 @@ test('workflow action reasons explain disabled controls', () => {
   const qaPassed = getSourceWorkflowActionReasons({
     hasSourceInput: true,
     runState: { id: 'run-5', status: 'completed' },
-    qa: { id: 9, passed: true, canRemediate: false },
+    qa: { id: 9, run_id: 'run-5', passed: true, canRemediate: false },
   })
   assert.match(qaPassed.remediate, /无需自动修复/)
 
@@ -101,4 +139,48 @@ test('workflow action reasons explain disabled controls', () => {
   })
   assert.match(activeRun.start, /已有处理流程运行中/)
   assert.match(getNewWorkflowRunReason({ status: 'paused' }), /恢复或取消/)
+})
+
+test('automatic remediation requires a completed run and a matching QA owner', () => {
+  const matchingFailedQa = {
+    id: 12,
+    run_id: 'run-current',
+    passed: false,
+    canRemediate: true,
+  }
+
+  for (const runState of [
+    { id: 'run-current', status: 'processing', active: true },
+    { id: 'run-current', status: 'paused' },
+    { id: 'run-current', status: 'failed' },
+    { id: 'run-current', status: 'cancelled' },
+  ]) {
+    const reasons = getSourceWorkflowActionReasons({
+      hasSourceInput: true,
+      runState,
+      qa: matchingFailedQa,
+    })
+    assert.notEqual(reasons.remediate, '', runState.status)
+  }
+
+  const wrongOwner = getSourceWorkflowActionReasons({
+    hasSourceInput: true,
+    runState: { id: 'run-current', status: 'completed' },
+    qa: { ...matchingFailedQa, run_id: 'run-old' },
+  })
+  assert.match(wrongOwner.remediate, /当前运行/)
+
+  const idTypeMismatch = getSourceWorkflowActionReasons({
+    hasSourceInput: true,
+    runState: { id: 42, status: 'completed' },
+    qa: { ...matchingFailedQa, run_id: '42' },
+  })
+  assert.match(idTypeMismatch.remediate, /当前运行/)
+
+  const matchingOwner = getSourceWorkflowActionReasons({
+    hasSourceInput: true,
+    runState: { id: 'run-current', status: 'completed' },
+    qa: matchingFailedQa,
+  })
+  assert.equal(matchingOwner.remediate, '')
 })

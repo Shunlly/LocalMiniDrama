@@ -133,9 +133,10 @@ function graphId(value) {
   return String(value)
 }
 
-function appendNodes(source, blockedIds, nodes) {
+function appendNodes(source, blockedIds, nodes, includeNode = () => true) {
   const ids = new Map()
   for (const node of source) {
+    if (!includeNode(node)) continue
     const id = graphId(node?.id)
     if (!id || blockedIds.has(id) || ids.has(id)) continue
     ids.set(id, node.id)
@@ -167,7 +168,12 @@ export function mergeCanvasGraphs(productionGraph, freeGraph, mode = 'production
   const includesFree = mode === 'free' || mode === 'hybrid'
   const nodes = []
   const edges = []
-  const productionNodeIds = appendNodes(production.nodes, new Set(), nodes)
+  const productionNodeIds = appendNodes(
+    production.nodes,
+    new Set(),
+    nodes,
+    (node) => !(includesFree && node?.type === 'canvasAddButton'),
+  )
   const freeNodeIds = includesFree
     ? appendNodes(free.nodes, new Set(productionNodeIds.keys()), nodes)
     : new Map()

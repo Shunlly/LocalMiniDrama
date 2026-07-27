@@ -139,9 +139,12 @@ function parseJsonWithUniqueObjectKeys(text, { rejectCaseCollisions = false } = 
   }
 
   try {
+    skipWhitespace()
+    const rootToken = text[index]
     scanValue(0)
     skipWhitespace()
     if (index !== text.length) throw new JsonScanSyntaxError('unexpected trailing JSON content')
+    if (rootToken !== '{') throw new Error('rollback JSON must contain a top-level JSON object')
   } catch (error) {
     if (!(error instanceof JsonScanSyntaxError)) throw error
     JSON.parse(text)

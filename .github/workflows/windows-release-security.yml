@@ -65,13 +65,23 @@ jobs:
           $fallbackBinary = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
           $defender = if ($platformBinary) { $platformBinary } elseif (Test-Path -LiteralPath $fallbackBinary) { $fallbackBinary } else { $null }
           if (-not $defender) { throw 'Microsoft Defender command-line scanner is unavailable' }
+          & $defender -SignatureUpdate
+          if ($LASTEXITCODE -ne 0) { throw "Microsoft Defender signature update failed: $LASTEXITCODE" }
+          $status = Get-MpComputerStatus
+          if (-not $status.AMEngineVersion -or -not $status.AntivirusSignatureVersion -or -not $status.AntivirusSignatureLastUpdated) {
+            throw 'Microsoft Defender version or signature timestamp evidence is unavailable'
+          }
+          $nowUtc = [DateTimeOffset]::UtcNow
+          $signatureUpdated = ([DateTimeOffset]$status.AntivirusSignatureLastUpdated).ToUniversalTime()
+          $signatureAge = $nowUtc - $signatureUpdated
+          if ($signatureAge -lt [TimeSpan]::Zero) { throw 'Microsoft Defender signature timestamp is in the future' }
+          if ($signatureAge -gt [TimeSpan]::FromHours(72)) { throw 'Microsoft Defender signatures are older than 72 hours' }
+          $signatureUpdatedUtc = $signatureUpdated.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
           $scanPath = (Resolve-Path -LiteralPath 'desktop/release').Path
           & $defender -Scan -ScanType 3 -File $scanPath -DisableRemediation
           if ($LASTEXITCODE -ne 0) { throw "Microsoft Defender scan failed or detected a threat: $LASTEXITCODE" }
-          $status = Get-MpComputerStatus
-          if (-not $status.AMEngineVersion -or -not $status.AntivirusSignatureVersion) { throw 'Microsoft Defender version evidence is unavailable' }
           $version = "$($status.AMEngineVersion)-$($status.AntivirusSignatureVersion)"
-          node desktop/scripts/verify-windows-artifacts.js mark defender $version
+          node desktop/scripts/verify-windows-artifacts.js mark defender $version $signatureUpdatedUtc
 
       - name: Upload independently verified Windows scan evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

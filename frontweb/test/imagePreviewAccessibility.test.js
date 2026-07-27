@@ -12,7 +12,7 @@ const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
 
 test('shared image preview uses an accessible Element Plus dialog', () => {
-  assert.match(dialogSource, /<el-dialog/)
+  assert.match(dialogSource, /<AccessibleDialog/)
   assert.match(dialogSource, /:title="title"/)
   assert.match(dialogSource, /append-to-body/)
   assert.match(dialogSource, /:show-close="true"/)

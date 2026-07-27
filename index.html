@@ -16,7 +16,7 @@ var _hmt = _hmt || [];
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>本地短剧助手 - AI 驱动的短剧创作工具</title>
-    <meta name="description" content="LocalMiniDrama是一款基于AI的短剧创作工具，支持角色、场景、道具智能生成，分镜编辑，一键视频合成。免费开源，立即下载！">
+    <meta name="description" content="LocalMiniDrama是一款基于AI的本地短剧创作工具，支持角色、场景、道具智能生成，分镜编辑与视频合成。当前为1.3.3源码发布候选，建议从源码或Docker运行。">
     <meta name="keywords" content="AI视频生成,短剧创作,分镜工具,AI视频合成,开源视频工具">
     
     <!-- Fonts -->
@@ -177,7 +177,7 @@ var _hmt = _hmt || [];
                     <a href="#features" class="text-primary-700 hover:text-primary-500 transition-colors font-medium">功能特点</a>
                     <a href="#getting-started" class="text-primary-700 hover:text-primary-500 transition-colors font-medium">快速开始</a>
                     <a href="#ai-relay" class="text-primary-700 hover:text-primary-500 transition-colors font-medium">AI 与中转</a>
-                    <a href="#download" class="text-primary-700 hover:text-primary-500 transition-colors font-medium">下载</a>
+                    <a href="#download" class="text-primary-700 hover:text-primary-500 transition-colors font-medium">运行</a>
                     <a href="https://github.com/Shunlly/LocalMiniDrama" target="_blank" class="text-primary-700 hover:text-primary-500 transition-colors font-medium flex items-center gap-2">
                         <i data-lucide="git-branch" class="w-5 h-5"></i>
                         GitHub
@@ -197,7 +197,7 @@ var _hmt = _hmt || [];
                 <a href="#features" class="block text-primary-700 font-medium">功能特点</a>
                 <a href="#getting-started" class="block text-primary-700 font-medium">快速开始</a>
                 <a href="#ai-relay" class="block text-primary-700 font-medium">AI 与中转</a>
-                <a href="#download" class="block text-primary-700 font-medium">下载</a>
+                <a href="#download" class="block text-primary-700 font-medium">运行</a>
                 <a href="https://github.com/Shunlly/LocalMiniDrama" target="_blank" class="block text-primary-700 font-medium flex items-center gap-2">
                     <i data-lucide="git-branch" class="w-5 h-5"></i>
                     GitHub
@@ -241,8 +241,8 @@ var _hmt = _hmt || [];
                 <!-- CTA Buttons -->
                 <div class="flex flex-col sm:flex-row items-center justify-center gap-4 animate-fade-in-up delay-400">
                     <a href="#download" class="btn-primary px-8 py-4 rounded-xl text-white font-semibold text-lg flex items-center gap-3">
-                        <i data-lucide="download" class="w-6 h-6"></i>
-                        立即下载
+                        <i data-lucide="terminal" class="w-6 h-6"></i>
+                        查看运行方式
                     </a>
                     <a href="https://github.com/Shunlly/LocalMiniDrama" target="_blank" class="btn-secondary px-8 py-4 rounded-xl text-white font-semibold text-lg flex items-center gap-3">
                         <i data-lucide="git-branch" class="w-6 h-6"></i>
@@ -252,7 +252,7 @@ var _hmt = _hmt || [];
                 
                 <!-- Version Info -->
                 <p class="text-primary-300 text-sm mt-6 animate-fade-in-up delay-400">
-                    当前版本: v1.3.0 · 开源免费 · 持续更新
+                    源码 / 包版本: 1.3.3 发布候选 · v1.3.3 尚未发布
                     <span class="mx-2 opacity-50">·</span>
                     <a href="#ai-relay" class="text-primary-100 hover:text-white underline underline-offset-2">各大平台中转示例配置</a>
                     <span class="mx-2 opacity-50">·</span>
@@ -410,7 +410,7 @@ var _hmt = _hmt || [];
                     </div>
                     <h3 class="text-xl font-bold text-primary-900 mb-3">一键视频合成</h3>
                     <p class="text-primary-600">
-                        根据分镜脚本自动匹配素材，生成高质量短片。支持多种分辨率与导出格式。
+                        根据分镜脚本合成并下载 MP4 成片；项目另支持 ZIP 导入/导出、分镜表 HTML 和字幕 SRT。
                     </p>
                 </div>
                 
@@ -432,7 +432,7 @@ var _hmt = _hmt || [];
                     </div>
                     <h3 class="text-xl font-bold text-primary-900 mb-3">项目导入导出</h3>
                     <p class="text-primary-600">
-                        支持项目完整导出/导入，方便备份和分享。内置多种示例项目，快速上手体验。
+                        支持项目 ZIP 导出/导入，方便迁移和分享。仓库仅提供一个权威示例包：<code>example_drama/衣服设计天才302.zip</code>。
                     </p>
                 </div>
             </div>
@@ -459,7 +459,7 @@ var _hmt = _hmt || [];
                     </div>
                     <h3 class="text-lg font-bold text-primary-900 mb-2">创建项目</h3>
                     <p class="text-primary-600 text-sm">
-                        下载安装后，打开软件，点击「新建项目」，填写剧名与简介
+                        按源码或 Docker 指南启动后，点击「新建项目」，填写剧名与简介
                     </p>
                 </div>
                 
@@ -492,7 +492,7 @@ var _hmt = _hmt || [];
                     </div>
                     <h3 class="text-lg font-bold text-primary-900 mb-2">合成导出</h3>
                     <p class="text-primary-600 text-sm">
-                        一键生成视频，选择分辨率与格式后导出，分享你的作品
+                        合成并下载 MP4 成片；按需导出项目 ZIP、分镜表 HTML 或字幕 SRT
                     </p>
                 </div>
             </div>
@@ -564,35 +564,33 @@ var _hmt = _hmt || [];
         </div>
     </section>
 
-    <!-- Download Section -->
+    <!-- Candidate run section -->
     <section id="download" class="py-24 bg-gradient-to-br from-primary-600 to-primary-800">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="text-center">
-                <h2 class="text-4xl font-bold text-white mb-6">立即下载体验</h2>
+                <h2 class="text-4xl font-bold text-white mb-6">运行 1.3.3 源码候选</h2>
                 <p class="text-xl text-primary-100 mb-10 max-w-2xl mx-auto">
-                    完全免费，开源可用。当前提供经过验收的 Windows x64 安装版与便携版
+                    Git 目前只有 v1.3.0、v1.3.1、v1.3.2 标签，没有 v1.3.3 标签或正式 Release。当前建议从源码或 Docker 运行。
                 </p>
                 
-                <!-- Download Buttons -->
+                <!-- Candidate links -->
                 <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
-                    <a href="https://github.com/Shunlly/LocalMiniDrama/releases/download/v1.3.0/LocalMiniDrama-Setup-1.3.0-x64.exe"
-                       class="bg-white text-primary-700 px-8 py-4 rounded-xl font-semibold text-lg flex items-center gap-3 shadow-soft hover:shadow-soft-lg transition-all hover:-translate-y-1"
-                       download>
-                        <i data-lucide="monitor" class="w-6 h-6"></i>
-                        Windows 安装版
+                    <a href="docs/quickstart.md"
+                       class="bg-white text-primary-700 px-8 py-4 rounded-xl font-semibold text-lg flex items-center gap-3 shadow-soft hover:shadow-soft-lg transition-all hover:-translate-y-1">
+                        <i data-lucide="terminal" class="w-6 h-6"></i>
+                        源码 / Docker 指南
                     </a>
-                    <a href="https://github.com/Shunlly/LocalMiniDrama/releases/download/v1.3.0/LocalMiniDrama-Portable-1.3.0-x64.exe"
-                       class="bg-white text-primary-700 px-8 py-4 rounded-xl font-semibold text-lg flex items-center gap-3 shadow-soft hover:shadow-soft-lg transition-all hover:-translate-y-1"
-                       download>
-                        <i data-lucide="package" class="w-6 h-6"></i>
-                        Windows 便携版
+                    <a href="https://github.com/Shunlly/LocalMiniDrama/releases"
+                       class="bg-white text-primary-700 px-8 py-4 rounded-xl font-semibold text-lg flex items-center gap-3 shadow-soft hover:shadow-soft-lg transition-all hover:-translate-y-1">
+                        <i data-lucide="history" class="w-6 h-6"></i>
+                        Releases 历史
                     </a>
                 </div>
                 
-                <!-- Alternative Download -->
+                <!-- Release boundary -->
                 <div class="space-y-2">
                     <p class="text-primary-200 text-sm">
-                        当前 Windows 包未签名，首次运行可能触发 SmartScreen。请从 GitHub Releases 下载并核对 SHA-256 校验和。
+                        本地生成的 Setup、Portable 或 Docker 镜像都是候选，不是 GitHub 正式发布。正式二进制需等同一 Git SHA 的全部 CI 与验收门禁通过，并在 draft Release 人工复核后正式发布。
                     </p>
                 </div>
             </div>
@@ -658,9 +656,8 @@ var _hmt = _hmt || [];
                     <ul class="space-y-2 text-sm">
                         <li><a href="https://github.com/Shunlly/LocalMiniDrama" class="hover:text-white transition-colors">GitHub 仓库</a></li>
                         <li><a href="https://github.com/Shunlly/LocalMiniDrama/tree/main/%E5%90%84%E5%A4%A7%E5%B9%B3%E5%8F%B0%E4%B8%AD%E8%BD%AC%E7%AB%99%E9%85%8D%E7%BD%AE" class="hover:text-white transition-colors">各大平台中转站配置</a></li>
-                        <li><a href="https://github.com/Shunlly/LocalMiniDrama/releases" class="hover:text-white transition-colors">版本发布</a></li>
+                        <li><a href="https://github.com/Shunlly/LocalMiniDrama/releases" class="hover:text-white transition-colors">Releases 历史</a></li>
                         <li><a href="https://github.com/Shunlly/LocalMiniDrama/issues" class="hover:text-white transition-colors">问题反馈</a></li>
-                        <li><a href="https://github.com/Shunlly/LocalMiniDrama/discussions" class="hover:text-white transition-colors">社区讨论</a></li>
                     </ul>
                 </div>
                 

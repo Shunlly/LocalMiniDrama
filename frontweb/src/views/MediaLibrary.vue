@@ -12,7 +12,7 @@
         </div>
       </div>
       <div class="header-actions">
-        <el-button :disabled="mediaWriteLocked" @click="goNewProject">
+        <el-button :disabled="mediaAccessState.navigationLocked" @click="goNewProject">
           <el-icon><Plus /></el-icon>
           新建项目
         </el-button>
@@ -48,7 +48,7 @@
       </el-button>
     </section>
 
-    <section v-if="loading || mediaItems.length > 0" class="entry-strip" aria-label="素材入口说明">
+    <section v-if="mediaAccessState.showEntryStrip" class="entry-strip" aria-label="素材入口说明">
       <div class="entry-item">
         <span class="entry-label">上传到素材中心</span>
         <p class="entry-description">把不超过 100MB 的图片和视频放进全局素材，后续项目可以直接复用。</p>
@@ -58,9 +58,10 @@
         <span class="entry-label">网页 URL 导入</span>
         <p class="entry-description">网页 URL 导入会在选择项目后完成，本页不直接粘贴 URL。</p>
         <el-button
-          text
+          type="primary"
+          plain
           class="entry-action"
-          :disabled="mediaWriteLocked"
+          :disabled="mediaAccessState.navigationLocked"
           aria-label="选择项目后导入网页 URL"
           @click="goSourceImport"
         >进入项目选择后导入网页 URL</el-button>
@@ -74,7 +75,7 @@
 
     <!-- 筛选栏 -->
     <div class="filter-bar">
-      <el-radio-group v-model="mediaType" class="type-filter" @change="applyFilters">
+      <el-radio-group v-model="mediaType" class="type-filter" aria-label="素材类型筛选" @change="applyFilters">
         <el-radio-button value="all">全部</el-radio-button>
         <el-radio-button value="image">图片</el-radio-button>
         <el-radio-button value="video">视频</el-radio-button>
@@ -194,7 +195,8 @@
         <template v-if="!hasActiveFilters">
           <p class="empty-note">需要把角色、场景或道具沉淀到分类素材时，请先在项目内点“加入素材库”。</p>
           <el-button
-            text
+            type="primary"
+            plain
             class="empty-secondary-action"
             :disabled="mediaWriteLocked"
             aria-label="选择项目后导入网页 URL"
@@ -223,7 +225,7 @@
     </div>
 
     <!-- 预览弹窗 -->
-    <el-dialog v-model="showPreview" title="素材预览" width="800px" destroy-on-close>
+    <AccessibleDialog v-model="showPreview" title="素材预览" width="800px" destroy-on-close>
       <div class="preview-content">
         <video
           v-if="previewItem?.type === 'video'"
@@ -245,7 +247,7 @@
         <div class="meta-row"><span>大小：</span>{{ formatSize(previewItem?.size) }}</div>
         <div class="meta-row"><span>创建时间：</span>{{ previewItem?.created_at }}</div>
       </div>
-    </el-dialog>
+    </AccessibleDialog>
   </div>
 </template>
 
@@ -266,6 +268,7 @@ import {
   formatMediaSize as formatSize,
   getVisibleSelectedMediaIds,
   hasActiveMediaFilters,
+  mediaLibraryAccessState,
   normalizeMediaItem as normalizeItem,
 } from '@/utils/mediaLibrary'
 import {
@@ -295,7 +298,14 @@ const focusedCardId = ref(null)
 const hasActiveFilters = computed(() => hasActiveMediaFilters(mediaType.value, keyword.value))
 const returnTo = computed(() => normalizeMediaLibraryReturnTo(route.query.returnTo))
 const mediaIsStale = computed(() => Boolean(loadError.value) && hasSuccessfulMediaLoad.value)
-const mediaWriteLocked = computed(() => loading.value || !hasSuccessfulMediaLoad.value || Boolean(loadError.value))
+const mediaAccessState = computed(() => mediaLibraryAccessState({
+  loading: loading.value,
+  uploading: uploading.value,
+  hasSuccessfulLoad: hasSuccessfulMediaLoad.value,
+  loadError: loadError.value,
+  itemCount: mediaItems.value.length,
+}))
+const mediaWriteLocked = computed(() => mediaAccessState.value.writeLocked)
 const mediaRequestGuard = createLatestMediaRequestGuard()
 let keywordTimer = null
 
@@ -308,12 +318,12 @@ function goBack() {
 }
 
 function goNewProject() {
-  if (mediaWriteLocked.value) return
+  if (mediaAccessState.value.navigationLocked) return
   router.push({ path: '/', query: { new: '1' } })
 }
 
 function goSourceImport() {
-  if (mediaWriteLocked.value) return
+  if (mediaAccessState.value.navigationLocked) return
   router.push({ path: '/', query: { intent: 'source-import' } })
 }
 

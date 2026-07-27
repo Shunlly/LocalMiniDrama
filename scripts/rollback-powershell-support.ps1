@@ -190,6 +190,12 @@ function Read-StrictRollbackJson {
 
   Assert-RollbackFileAuthority -Authority $Authority | Out-Null
   $text = Read-RollbackFileAuthorityUtf8 -Authority $Authority
+  $documentText = $text.Trim()
+  if ($documentText.Length -lt 2 -or
+      $documentText[0] -cne [char]'{' -or
+      $documentText[$documentText.Length - 1] -cne [char]'}') {
+    throw "$Label must contain a top-level JSON object."
+  }
   try {
     return ConvertFrom-Json -InputObject $text
   } catch {

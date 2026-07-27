@@ -117,6 +117,7 @@
         <button
           type="button"
           class="nav-sub-toggle"
+          :aria-label="storyboardMenuExpanded ? '收起分镜列表' : '展开分镜列表'"
           :aria-expanded="storyboardMenuExpanded"
           aria-controls="storyboard-nav-list"
           @click="storyboardMenuExpanded = !storyboardMenuExpanded"
@@ -174,7 +175,7 @@
                 type="button"
                 class="atp-item-close"
                 title="取消任务"
-                aria-label="取消任务"
+                :aria-label="`取消任务${item.label || ''}`"
                 :disabled="item.kind === 'pipeline' && pipelineStopping"
                 @click.stop="cancelActiveTask(item)"
               >
@@ -310,13 +311,13 @@
                   class="story-textarea"
                 />
                 <div class="row gap" style="margin-top: 10px; flex-wrap: wrap;">
-                  <el-select v-model="storyStyle" placeholder="故事风格" clearable style="width: 120px" @change="() => saveProjectSettings(false)">
+                  <el-select v-model="storyStyle" aria-label="故事风格" placeholder="故事风格" clearable style="width: 120px" @change="() => saveProjectSettings(false)">
                     <el-option label="现代" value="modern" />
                     <el-option label="古风" value="ancient" />
                     <el-option label="奇幻" value="fantasy" />
                     <el-option label="日常" value="daily" />
                   </el-select>
-                  <el-select v-model="storyType" placeholder="剧本类型" clearable style="width: 120px" @change="() => saveProjectSettings(false)">
+                  <el-select v-model="storyType" aria-label="故事生成剧本类型" placeholder="剧本类型" clearable style="width: 120px" @change="() => saveProjectSettings(false)">
                     <el-option label="剧情" value="drama" />
                     <el-option label="喜剧" value="comedy" />
                     <el-option label="冒险" value="adventure" />
@@ -325,6 +326,7 @@
                     <span>集数</span>
                     <el-input-number
                       v-model="storyEpisodeCount"
+                      aria-label="故事生成集数"
                       :min="1"
                       :step="1"
                       :precision="0"
@@ -346,7 +348,7 @@
                 <h2 class="section-title">剧本</h2>
                 <div class="row gap" style="margin-bottom: 10px; flex-wrap: wrap;">
                   <el-input v-model="scriptTitle" placeholder="集标题" style="width: 150px" />
-                  <el-button v-if="dramaId" style="margin-left: auto" @click="onAddEpisode">
+                  <el-button v-if="dramaId" style="margin-left: auto" aria-label="添加一集" @click="onAddEpisode">
                     <el-icon><Plus /></el-icon>添加一集
                   </el-button>
                 </div>
@@ -430,7 +432,7 @@
         </el-tabs>
       </section>
 
-      <el-dialog
+      <AccessibleDialog
         v-model="showSelectScriptDialog"
         title="从剧本库导入"
         width="640px"
@@ -459,7 +461,7 @@
             <el-button type="primary" @click="returnToScriptCreation">返回创作剧本</el-button>
           </div>
         </div>
-      </el-dialog>
+      </AccessibleDialog>
 
       <!-- 资源管理：角色 / 道具 / 场景 -->
       <section class="section card resource-panel">
@@ -510,7 +512,7 @@
                         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ char.name }}</span>
                         <el-tag v-if="char.role" size="small" effect="plain" :type="char.role === 'main' ? 'danger' : char.role === 'supporting' ? 'warning' : 'info'" style="flex-shrink:0;padding:0 5px;font-size:11px;height:18px;line-height:18px">{{ charRoleLabel(char.role) }}</el-tag>
                       </span>
-                      <el-button type="danger" text size="small" class="btn-delete-icon" title="删除" @click="onDeleteCharacter(char)">
+                      <el-button type="danger" text size="small" class="btn-delete-icon" title="删除" :aria-label="`删除角色${char.name || '未命名角色'}`" @click="onDeleteCharacter(char)">
                         <el-icon><Delete /></el-icon>
                       </el-button>
                     </div>
@@ -618,14 +620,14 @@
                     </div>
                     <!-- 额外参考图条 -->
                     <div v-if="parseExtraImages(char).length" class="extra-images-strip">
-                      <div v-for="ep in parseExtraImages(char)" :key="ep" class="extra-thumb" :title="'点击设为主图（悬停左上角可放大预览）'">
-                        <button type="button" class="extra-thumb-primary" :aria-label="`将${char.name || '角色'}参考图设为主图`" @click="onSetPrimaryImage('character', char, ep)">
+                      <div v-for="(ep, imageIndex) in parseExtraImages(char)" :key="ep" class="extra-thumb" :title="'点击设为主图（悬停左上角可放大预览）'">
+                        <button type="button" class="extra-thumb-primary" :aria-label="`将${char.name || '角色'}参考图${imageIndex + 1}设为主图`" @click="onSetPrimaryImage('character', char, ep)">
                           <img :src="localPathToUrl(ep)" alt="" />
                         </button>
-                        <button class="thumb-preview-btn" title="放大预览" @click.stop="openImagePreview(localPathToUrl(ep))">
+                        <button type="button" class="thumb-preview-btn" title="放大预览" :aria-label="`预览${char.name || '角色'}参考图${imageIndex + 1}`" @click.stop="openImagePreview(localPathToUrl(ep))">
                           <el-icon :size="10"><ZoomIn /></el-icon>
                         </button>
-                        <button class="extra-thumb-remove" title="移除" @click.stop="onRemoveExtraImage('character', char, ep)">×</button>
+                        <button type="button" class="extra-thumb-remove" title="移除" :aria-label="`移除${char.name || '角色'}参考图${imageIndex + 1}`" @click.stop="onRemoveExtraImage('character', char, ep)">×</button>
                       </div>
                     </div>
                     <div class="asset-cover-actions">
@@ -677,7 +679,7 @@
                   <div class="asset-info">
                     <div class="asset-name">
                       <span>{{ prop.name }}</span>
-                      <el-button type="danger" text size="small" class="btn-delete-icon" title="删除" @click="onDeleteProp(prop)">
+                      <el-button type="danger" text size="small" class="btn-delete-icon" title="删除" :aria-label="`删除道具${prop.name || '未命名道具'}`" @click="onDeleteProp(prop)">
                         <el-icon><Delete /></el-icon>
                       </el-button>
                     </div>
@@ -735,14 +737,14 @@
                       <div v-if="dragOverResourceKey === 'prop-' + prop.id" class="asset-cover-drop-hint">松开上传</div>
                     </div>
                     <div v-if="parseExtraImages(prop).length" class="extra-images-strip">
-                      <div v-for="ep in parseExtraImages(prop)" :key="ep" class="extra-thumb" title="点击设为主图（悬停左上角可放大预览）">
-                        <button type="button" class="extra-thumb-primary" :aria-label="`将${prop.name || '道具'}参考图设为主图`" @click="onSetPrimaryImage('prop', prop, ep)">
+                      <div v-for="(ep, imageIndex) in parseExtraImages(prop)" :key="ep" class="extra-thumb" title="点击设为主图（悬停左上角可放大预览）">
+                        <button type="button" class="extra-thumb-primary" :aria-label="`将${prop.name || '道具'}参考图${imageIndex + 1}设为主图`" @click="onSetPrimaryImage('prop', prop, ep)">
                           <img :src="localPathToUrl(ep)" alt="" />
                         </button>
-                        <button class="thumb-preview-btn" title="放大预览" @click.stop="openImagePreview(localPathToUrl(ep))">
+                        <button type="button" class="thumb-preview-btn" title="放大预览" :aria-label="`预览${prop.name || '道具'}参考图${imageIndex + 1}`" @click.stop="openImagePreview(localPathToUrl(ep))">
                           <el-icon :size="10"><ZoomIn /></el-icon>
                         </button>
-                        <button class="extra-thumb-remove" title="移除" @click.stop="onRemoveExtraImage('prop', prop, ep)">×</button>
+                        <button type="button" class="extra-thumb-remove" title="移除" :aria-label="`移除${prop.name || '道具'}参考图${imageIndex + 1}`" @click.stop="onRemoveExtraImage('prop', prop, ep)">×</button>
                       </div>
                     </div>
                     <div class="asset-cover-actions">
@@ -798,7 +800,7 @@
                   <div class="asset-info">
                     <div class="asset-name">
                       <span>{{ scene.location }}</span>
-                      <el-button type="danger" text size="small" class="btn-delete-icon" title="删除" @click="onDeleteScene(scene)">
+                      <el-button type="danger" text size="small" class="btn-delete-icon" title="删除" :aria-label="`删除场景${scene.location || '未命名场景'}`" @click="onDeleteScene(scene)">
                         <el-icon><Delete /></el-icon>
                       </el-button>
                     </div>
@@ -856,14 +858,14 @@
                       <div v-if="dragOverResourceKey === 'scene-' + scene.id" class="asset-cover-drop-hint">松开上传</div>
                     </div>
                     <div v-if="parseExtraImages(scene).length" class="extra-images-strip">
-                      <div v-for="ep in parseExtraImages(scene)" :key="ep" class="extra-thumb" title="点击设为主图（悬停左上角可放大预览）">
-                        <button type="button" class="extra-thumb-primary" :aria-label="`将${scene.location || '场景'}参考图设为主图`" @click="onSetPrimaryImage('scene', scene, ep)">
+                      <div v-for="(ep, imageIndex) in parseExtraImages(scene)" :key="ep" class="extra-thumb" title="点击设为主图（悬停左上角可放大预览）">
+                        <button type="button" class="extra-thumb-primary" :aria-label="`将${scene.location || '场景'}参考图${imageIndex + 1}设为主图`" @click="onSetPrimaryImage('scene', scene, ep)">
                           <img :src="localPathToUrl(ep)" alt="" />
                         </button>
-                        <button class="thumb-preview-btn" title="放大预览" @click.stop="openImagePreview(localPathToUrl(ep))">
+                        <button type="button" class="thumb-preview-btn" title="放大预览" :aria-label="`预览${scene.location || '场景'}参考图${imageIndex + 1}`" @click.stop="openImagePreview(localPathToUrl(ep))">
                           <el-icon :size="10"><ZoomIn /></el-icon>
                         </button>
-                        <button class="extra-thumb-remove" title="移除" @click.stop="onRemoveExtraImage('scene', scene, ep)">×</button>
+                        <button type="button" class="extra-thumb-remove" title="移除" :aria-label="`移除${scene.location || '场景'}参考图${imageIndex + 1}`" @click.stop="onRemoveExtraImage('scene', scene, ep)">×</button>
                       </div>
                     </div>
                     <div class="asset-cover-actions">
@@ -896,19 +898,19 @@
         <div class="sb-config-row">
           <label class="sb-config-item">
             <span class="sb-config-label">分镜数量</span>
-            <el-input-number v-model="storyboardCount" :min="1" :max="200" :step="5" placeholder="自动" class="sb-config-input" />
+            <el-input-number v-model="storyboardCount" aria-label="分镜数量（生成设置）" :min="1" :max="200" :step="5" placeholder="自动" class="sb-config-input" />
             <span class="sb-config-hint sb-config-hint--estimate" :title="scriptEstimateStoryboardTitle">留空由 AI 决定{{ scriptEstimateStoryboardHint }}</span>
           </label>
           <span class="sb-config-divider">｜</span>
           <label class="sb-config-item">
             <span class="sb-config-label">视频总时长(秒)</span>
-            <el-input-number v-model="videoDuration" :min="10" :max="600" :step="5" placeholder="自动" class="sb-config-input" />
+            <el-input-number v-model="videoDuration" aria-label="分镜视频总时长（秒）" :min="10" :max="600" :step="5" placeholder="自动" class="sb-config-input" />
             <span class="sb-config-hint sb-config-hint--estimate" :title="scriptEstimateVideoDurationTitle">留空由 AI 决定{{ scriptEstimateVideoDurationHint }}</span>
           </label>
           <span class="sb-config-divider">｜</span>
           <label class="sb-config-item">
             <span class="sb-config-label">序列图模式</span>
-            <el-select v-model="gridMode" size="small" style="width:110px" :disabled="storyboardUseFirstLastFrame">
+            <el-select v-model="gridMode" aria-label="分镜序列图模式" size="small" style="width:110px" :disabled="storyboardUseFirstLastFrame">
               <el-option label="单张" value="single" />
               <el-option label="四宫格" value="quad_grid" />
               <el-option label="九宫格" value="nine_grid" />
@@ -1116,6 +1118,7 @@
               text
               size="small"
               :title="`删除分镜${i + 1}`"
+              :aria-label="`删除分镜${sb.storyboard_number || i + 1}`"
               @click="onDeleteSingleStoryboard(sb.id)"
             >
               <el-icon><Delete /></el-icon>
@@ -1127,6 +1130,7 @@
               <div class="sb-script-row sb-script-selects">
                 <el-select
                   :model-value="getSbCharacterIds(sb.id)"
+                  :aria-label="`分镜${sb.storyboard_number || i + 1}角色`"
                   placeholder="选择角色"
                   multiple
                   collapse-tags
@@ -1147,6 +1151,7 @@
                 </el-select>
                 <el-select
                   v-model="sbSceneId[sb.id]"
+                  :aria-label="`分镜${sb.storyboard_number || i + 1}场景`"
                   placeholder="选择场景"
                   clearable
                   size="small"
@@ -1162,6 +1167,7 @@
                 </el-select>
                 <el-select
                   :model-value="getSbPropIds(sb.id)"
+                  :aria-label="`分镜${sb.storyboard_number || i + 1}道具`"
                   placeholder="选择物品"
                   multiple
                   collapse-tags
@@ -1224,7 +1230,7 @@
                         type="button"
                         class="sb-thumb-item sb-thumb-avatar sb-thumb-add-char"
                         title="添加角色"
-                        aria-label="添加角色"
+                        :aria-label="`为分镜${sb.storyboard_number || i + 1}添加角色`"
                         @click.stop
                       >
                         <el-icon><Plus /></el-icon>
@@ -1300,7 +1306,7 @@
                     </el-button>
                   </ActionGate>
                   <el-tooltip v-if="sbNarrationAudioRelPath(sb)" content="播放解说旁白配音" placement="top">
-                    <el-button size="small" @click="playSbNarrationTts(sb)">
+                    <el-button size="small" :aria-label="`播放分镜${sb.storyboard_number || i + 1}解说旁白配音`" @click="playSbNarrationTts(sb)">
                       <el-icon><VideoPlay /></el-icon>
                     </el-button>
                   </el-tooltip>
@@ -1398,12 +1404,12 @@
                       <div class="sb-fl-slot-label">首帧</div>
                       <div class="sb-fl-slot-body">
                         <template v-if="getSbFirstImage(sb.id)">
-                          <button type="button" class="sb-generated-preview" aria-label="预览分镜首帧" @click="openImagePreview(assetImageUrl(getSbFirstImage(sb.id)))">
+                          <button type="button" class="sb-generated-preview" :aria-label="`预览分镜${sb.storyboard_number || i + 1}首帧`" @click="openImagePreview(assetImageUrl(getSbFirstImage(sb.id)))">
                             <img :src="assetImageUrl(getSbFirstImage(sb.id))" class="sb-generated-img" alt="分镜首帧" />
                           </button>
                         </template>
                         <template v-else-if="storyboardImageUrl(sb)">
-                          <button type="button" class="sb-generated-preview" aria-label="预览分镜首帧" @click="openImagePreview(storyboardImageUrl(sb))">
+                          <button type="button" class="sb-generated-preview" :aria-label="`预览分镜${sb.storyboard_number || i + 1}首帧`" @click="openImagePreview(storyboardImageUrl(sb))">
                             <img :src="storyboardImageUrl(sb)" class="sb-generated-img" alt="分镜首帧" />
                           </button>
                         </template>
@@ -1428,7 +1434,7 @@
                       <div class="sb-fl-slot-label">尾帧</div>
                       <div class="sb-fl-slot-body">
                         <template v-if="getSbLastImage(sb.id)">
-                          <button type="button" class="sb-generated-preview" aria-label="预览分镜尾帧" :title="getSbLastImage(sb.id).prompt || ''" @click="openImagePreview(assetImageUrl(getSbLastImage(sb.id)))">
+                          <button type="button" class="sb-generated-preview" :aria-label="`预览分镜${sb.storyboard_number || i + 1}尾帧`" :title="getSbLastImage(sb.id).prompt || ''" @click="openImagePreview(assetImageUrl(getSbLastImage(sb.id)))">
                             <img :src="assetImageUrl(getSbLastImage(sb.id))" class="sb-generated-img" alt="分镜尾帧" />
                           </button>
                         </template>
@@ -1459,20 +1465,20 @@
                       <el-icon class="sb-strip-hint-icon"><InfoFilled /></el-icon>
                     </el-tooltip>
                     <div
-                      v-for="item in getStripItems(sb.id)"
+                      v-for="(item, historyIndex) in getStripItems(sb.id)"
                       :key="item.key"
                       class="sb-img-thumb"
-                      :title="stripItemTitle(sb.id, item)"
+                      :title="stripItemTitle(sb.id, item, historyImageLabel(sb, i, item, historyIndex))"
                     >
-                      <button type="button" class="sb-img-thumb-primary" :aria-label="stripItemTitle(sb.id, item)" @click="onStripItemClick(sb, item)">
+                      <button type="button" class="sb-img-thumb-primary" :aria-label="stripItemTitle(sb.id, item, historyImageLabel(sb, i, item, historyIndex))" @click="onStripItemClick(sb, item)">
                         <img :src="item.src" alt="" />
                         <span v-if="item.frameBadge" class="sb-img-thumb-label">{{ item.frameBadge }}</span>
                         <span v-else-if="item.label" class="sb-img-thumb-label">{{ item.label }}</span>
                       </button>
-                      <button type="button" class="thumb-preview-btn" title="放大预览" aria-label="放大预览历史图" @click.stop="openImagePreview(item.src)">
+                      <button type="button" class="thumb-preview-btn" title="放大预览" :aria-label="`预览${historyImageLabel(sb, i, item, historyIndex)}`" @click.stop="openImagePreview(item.src)">
                         <el-icon :size="10"><ZoomIn /></el-icon>
                       </button>
-                      <button v-if="item.img?.id" type="button" class="extra-thumb-remove" title="删除历史图" aria-label="删除历史图" @click.stop="onRemoveSbHistoryImage(sb.id, item.img.id)">×</button>
+                      <button v-if="item.img?.id" type="button" class="extra-thumb-remove" title="删除历史图" :aria-label="`删除${historyImageLabel(sb, i, item, historyIndex)}`" @click.stop="onRemoveSbHistoryImage(sb.id, item.img.id)">×</button>
                     </div>
                   </div>
                 </template>
@@ -1480,13 +1486,13 @@
                 <template v-else>
                 <div class="sb-main-image-wrap">
                   <template v-if="getSbImage(sb.id)">
-                    <button type="button" class="sb-generated-preview" aria-label="预览分镜主图" :title="getSbImage(sb.id).prompt || ''" @click="openImagePreview(assetImageUrl(getSbImage(sb.id)))">
+                    <button type="button" class="sb-generated-preview" :aria-label="`预览分镜${sb.storyboard_number || i + 1}主图`" :title="getSbImage(sb.id).prompt || ''" @click="openImagePreview(assetImageUrl(getSbImage(sb.id)))">
                       <img :src="assetImageUrl(getSbImage(sb.id))" class="sb-generated-img" alt="分镜主图" />
                     </button>
                     <div v-if="getSbImage(sb.id).prompt" class="sb-main-img-prompt">{{ getSbImage(sb.id).prompt }}</div>
                   </template>
                   <template v-else-if="storyboardImageUrl(sb)">
-                    <button type="button" class="sb-generated-preview" aria-label="预览分镜主图" @click="openImagePreview(storyboardImageUrl(sb))">
+                    <button type="button" class="sb-generated-preview" :aria-label="`预览分镜${sb.storyboard_number || i + 1}主图`" @click="openImagePreview(storyboardImageUrl(sb))">
                       <img :src="storyboardImageUrl(sb)" class="sb-generated-img" alt="分镜主图" />
                     </button>
                   </template>
@@ -1522,19 +1528,19 @@
                     <el-icon class="sb-strip-hint-icon"><InfoFilled /></el-icon>
                   </el-tooltip>
                   <div
-                    v-for="item in getStripItems(sb.id)"
+                    v-for="(item, historyIndex) in getStripItems(sb.id)"
                     :key="item.key"
                     class="sb-img-thumb"
                     :title="[item.label, item.prompt].filter(Boolean).join('\n\n') || '点击设为主图'"
                   >
-                    <button type="button" class="sb-img-thumb-primary" :aria-label="[item.label, item.prompt].filter(Boolean).join('，') || '设为分镜主图'" @click="onSelectStripItem(sb, item)">
+                    <button type="button" class="sb-img-thumb-primary" :aria-label="`${historyImageLabel(sb, i, item, historyIndex)}，设为主图`" @click="onSelectStripItem(sb, item)">
                       <img :src="item.src" alt="" />
                       <span v-if="item.label" class="sb-img-thumb-label">{{ item.label }}</span>
                     </button>
-                    <button type="button" class="thumb-preview-btn" title="放大预览" aria-label="放大预览历史图" @click.stop="openImagePreview(item.src)">
+                    <button type="button" class="thumb-preview-btn" title="放大预览" :aria-label="`预览${historyImageLabel(sb, i, item, historyIndex)}`" @click.stop="openImagePreview(item.src)">
                       <el-icon :size="10"><ZoomIn /></el-icon>
                     </button>
-                    <button v-if="item.img?.id" type="button" class="extra-thumb-remove" title="删除历史图" aria-label="删除历史图" @click.stop="onRemoveSbHistoryImage(sb.id, item.img.id)">×</button>
+                    <button v-if="item.img?.id" type="button" class="extra-thumb-remove" title="删除历史图" :aria-label="`删除${historyImageLabel(sb, i, item, historyIndex)}`" @click.stop="onRemoveSbHistoryImage(sb.id, item.img.id)">×</button>
                   </div>
                 </div>
                 </template>
@@ -1648,7 +1654,7 @@
                   </el-button>
                 </ActionGate>
                 <el-tooltip v-if="sb.dialogue && sbDialogueAudioRelPath(sb)" content="播放对白配音" placement="top">
-                  <el-button size="small" @click="playSbDialogueTts(sb)">
+                  <el-button size="small" :aria-label="`播放分镜${sb.storyboard_number || i + 1}对白配音`" @click="playSbDialogueTts(sb)">
                     <el-icon><VideoPlay /></el-icon>
                   </el-button>
                 </el-tooltip>
@@ -1691,7 +1697,7 @@
         <h2 class="section-title">视频配置</h2>
         <div class="config-grid">
           <el-form-item label="分辨率">
-            <el-select v-model="videoResolution" style="width: 160px">
+            <el-select v-model="videoResolution" aria-label="成片分辨率" style="width: 160px">
               <el-option label="480p" value="480p" />
               <el-option label="720p" value="720p" />
               <el-option label="1080p" value="1080p" />
@@ -1852,7 +1858,7 @@
 
     <template v-if="projectLoadState === 'ready'">
     <!-- 添加道具弹窗 -->
-    <el-dialog v-model="showAddProp" title="添加道具" width="600px" @close="() => { addPropForm = { name: '', type: '', description: '', prompt: '' }; addPropAddRefImage = null }">
+    <AccessibleDialog v-model="showAddProp" title="添加道具" width="600px" @close="() => { addPropForm = { name: '', type: '', description: '', prompt: '' }; addPropAddRefImage = null }">
       <el-form label-width="90px">
         <el-form-item label="参考图">
           <div class="ref-image-zone">
@@ -1883,7 +1889,7 @@
         <el-button @click="showAddProp = false">取消</el-button>
         <el-button type="primary" :loading="addPropSaving" :disabled="!addPropForm.name.trim()" @click="submitAddProp">确定</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 隐藏的文件输入框（放在弹窗外层，避免 el-form-item 干扰） -->
     <input ref="addCharRefFileInput" type="file" accept="image/*" style="display:none" @change="onRefImageFileChange('character', $event)" />
@@ -1892,7 +1898,7 @@
     <input ref="addPropAddRefFileInput" type="file" accept="image/*" style="display:none" @change="onRefImageFileChange2('addProp', $event)" />
 
     <!-- 添加/编辑角色弹窗 -->
-    <el-dialog v-model="showEditCharacter" :title="editCharacterForm?.id ? '编辑角色' : '添加角色'" width="75%" @close="onCloseCharDialog">
+    <AccessibleDialog v-model="showEditCharacter" :title="editCharacterForm?.id ? '编辑角色' : '添加角色'" width="75%" @close="onCloseCharDialog">
       <el-form v-if="editCharacterForm" label-width="90px">
         <!-- 参考图上传区（新增/编辑均显示） -->
         <el-form-item label="参考图">
@@ -1929,7 +1935,7 @@
           <el-input v-model="editCharacterForm.name" placeholder="角色名称" />
         </el-form-item>
         <el-form-item label="身份/定位">
-          <el-select v-model="editCharacterForm.role" placeholder="请选择角色类型" style="width:200px">
+          <el-select v-model="editCharacterForm.role" :aria-label="`角色${editCharacterForm.name || '未命名角色'}身份定位`" placeholder="请选择角色类型" style="width:200px">
             <el-option value="main" label="主角" />
             <el-option value="supporting" label="配角" />
             <el-option value="minor" label="次要角色" />
@@ -2010,9 +2016,9 @@
         <el-button @click="showEditCharacter = false">取消</el-button>
         <el-button type="primary" :loading="editCharacterSaving" :disabled="!editCharacterForm?.name?.trim()" @click="submitEditCharacter">{{ editCharacterForm?.id ? '保存' : '添加' }}</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
-    <el-dialog
+    <AccessibleDialog
       v-model="showCharSd2Cert"
       title="SD2 认证详情"
       width="min(720px, 92vw)"
@@ -2041,10 +2047,10 @@
       <template #footer>
         <el-button @click="showCharSd2Cert = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 编辑道具弹窗 -->
-    <el-dialog v-model="showEditProp" :title="editPropForm?.id ? '编辑道具' : '添加道具'" width="75%" @close="onClosePropDialog">
+    <AccessibleDialog v-model="showEditProp" :title="editPropForm?.id ? '编辑道具' : '添加道具'" width="75%" @close="onClosePropDialog">
       <el-form v-if="editPropForm" label-width="90px">
         <!-- 参考图上传区（新增/编辑均显示） -->
         <el-form-item label="参考图">
@@ -2101,10 +2107,10 @@
         <el-button @click="showEditProp = false">取消</el-button>
         <el-button type="primary" :loading="editPropSaving" :disabled="!editPropForm?.name?.trim()" @click="submitEditProp">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 添加/编辑场景弹窗 -->
-    <el-dialog v-model="showEditScene" :title="editSceneForm?.id ? '编辑场景' : '添加场景'" width="75%" @close="onCloseSceneDialog">
+    <AccessibleDialog v-model="showEditScene" :title="editSceneForm?.id ? '编辑场景' : '添加场景'" width="75%" @close="onCloseSceneDialog">
       <el-form v-if="editSceneForm" label-width="90px">
         <!-- 参考图上传区（新增/编辑均显示） -->
         <el-form-item label="参考图">
@@ -2183,10 +2189,10 @@
         <el-button @click="showEditScene = false">取消</el-button>
         <el-button type="primary" :loading="editSceneSaving" :disabled="!editSceneForm?.location?.trim()" @click="submitEditScene">{{ editSceneForm?.id ? '保存' : '添加' }}</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 角色资源库（本剧库 / 本剧全部角色 / 团队库） -->
-    <el-dialog v-model="showCharLibrary" title="角色资源库" width="720px" destroy-on-close class="library-dialog" @open="onCharLibraryDialogOpen">
+    <AccessibleDialog v-model="showCharLibrary" title="角色资源库" width="720px" destroy-on-close class="library-dialog" @open="onCharLibraryDialogOpen">
       <el-tabs v-model="charLibraryTab" class="char-library-tabs" @tab-change="onCharLibraryTabChange">
         <el-tab-pane label="本剧角色库" name="library">
           <div class="library-toolbar">
@@ -2269,9 +2275,9 @@
       <template #footer>
         <el-button @click="showCharLibrary = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
     <!-- 编辑公共角色 -->
-    <el-dialog v-model="showEditCharLibrary" title="编辑公共角色" width="440px" @close="editCharLibraryForm = null">
+    <AccessibleDialog v-model="showEditCharLibrary" title="编辑公共角色" width="440px" @close="editCharLibraryForm = null">
       <el-form v-if="editCharLibraryForm" label-width="80px">
         <el-form-item label="名称">
           <el-input v-model="editCharLibraryForm.name" placeholder="角色名称" />
@@ -2290,10 +2296,10 @@
         <el-button @click="showEditCharLibrary = false">取消</el-button>
         <el-button type="primary" :loading="editCharLibrarySaving" @click="submitEditCharLibrary">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 道具资源库 -->
-    <el-dialog v-model="showPropLibrary" title="道具资源库" width="720px" destroy-on-close class="library-dialog" @open="onPropLibraryDialogOpen">
+    <AccessibleDialog v-model="showPropLibrary" title="道具资源库" width="720px" destroy-on-close class="library-dialog" @open="onPropLibraryDialogOpen">
       <el-tabs v-model="propLibraryTab" class="char-library-tabs" @tab-change="onPropLibraryTabChange">
         <el-tab-pane label="本剧道具库" name="library">
           <div class="library-toolbar">
@@ -2349,9 +2355,9 @@
       <template #footer>
         <el-button @click="showPropLibrary = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
     <!-- 编辑公共道具 -->
-    <el-dialog v-model="showEditPropLibrary" title="编辑公共道具" width="440px" @close="editPropLibraryForm = null">
+    <AccessibleDialog v-model="showEditPropLibrary" title="编辑公共道具" width="440px" @close="editPropLibraryForm = null">
       <el-form v-if="editPropLibraryForm" label-width="80px">
         <el-form-item label="名称">
           <el-input v-model="editPropLibraryForm.name" placeholder="道具名称" />
@@ -2370,10 +2376,10 @@
         <el-button @click="showEditPropLibrary = false">取消</el-button>
         <el-button type="primary" :loading="editPropLibrarySaving" @click="submitEditPropLibrary">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 场景资源库 -->
-    <el-dialog v-model="showSceneLibrary" title="场景资源库" width="720px" destroy-on-close class="library-dialog" @open="onSceneLibraryDialogOpen">
+    <AccessibleDialog v-model="showSceneLibrary" title="场景资源库" width="720px" destroy-on-close class="library-dialog" @open="onSceneLibraryDialogOpen">
       <el-tabs v-model="sceneLibraryTab" class="char-library-tabs" @tab-change="onSceneLibraryTabChange">
         <el-tab-pane label="本剧场景库" name="library">
           <div class="library-toolbar">
@@ -2429,9 +2435,9 @@
       <template #footer>
         <el-button @click="showSceneLibrary = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
     <!-- 编辑公共场景 -->
-    <el-dialog v-model="showEditSceneLibrary" title="编辑公共场景" width="440px" @close="editSceneLibraryForm = null">
+    <AccessibleDialog v-model="showEditSceneLibrary" title="编辑公共场景" width="440px" @close="editSceneLibraryForm = null">
       <el-form v-if="editSceneLibraryForm" label-width="80px">
         <el-form-item label="地点">
           <el-input v-model="editSceneLibraryForm.location" placeholder="场景地点" />
@@ -2453,10 +2459,10 @@
         <el-button @click="showEditSceneLibrary = false">取消</el-button>
         <el-button type="primary" :loading="editSceneLibrarySaving" @click="submitEditSceneLibrary">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 分镜提示词编辑弹窗 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="showSbPromptDialog"
       :title="`分镜 ${sbPromptTarget?.storyboard_number ?? ''} · 编辑提示词`"
       width="700px"
@@ -2511,10 +2517,10 @@
         <el-button @click="showSbPromptDialog = false">取消</el-button>
         <el-button type="primary" :loading="sbPromptSaving" @click="onSaveSbPromptDialog">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 首尾帧提示词编辑器（显示最终发给AI的完整提示词，支持编辑保存） -->
-    <el-dialog
+    <AccessibleDialog
       v-model="showFramePromptEditor"
       :title="`${editingFramePromptSlot === 'last' ? '尾帧' : '首帧'}图生提示词 · 编辑`"
       width="720px"
@@ -2545,10 +2551,10 @@
         <el-button :loading="editingFramePromptRegenerating" @click="regenerateEditingFramePrompt">重新生成</el-button>
         <el-button type="primary" :loading="editingFramePromptSaving" @click="saveEditingFramePrompt">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 分镜视频参数编辑弹窗 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="showVideoParamsDialog"
       :title="`分镜 ${videoParamsTarget?.storyboard_number ?? ''} · 视频参数`"
       width="860px"
@@ -2570,6 +2576,7 @@
         <el-form-item v-if="getSbGridImages(videoParamsTarget.id).length" label="视频参考图">
           <el-select
             v-model="sbVideoReferenceImageId[videoParamsTarget.id]"
+            :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}视频参考图`"
             clearable
             placeholder="默认使用主图/首帧"
             style="width:280px"
@@ -2653,12 +2660,12 @@
         <el-row :gutter="12">
           <el-col :span="6">
             <el-form-item label="时长(秒)">
-              <el-input-number v-model="sbDuration[videoParamsTarget.id]" :min="1" :max="60" style="width:100%" />
+              <el-input-number v-model="sbDuration[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}时长（秒）`" :min="1" :max="60" style="width:100%" />
             </el-form-item>
           </el-col>
           <el-col :span="6">
             <el-form-item label="景别">
-              <el-select v-model="sbShotType[videoParamsTarget.id]" placeholder="景别" style="width:100%">
+              <el-select v-model="sbShotType[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}景别`" placeholder="景别" style="width:100%">
                 <el-option label="大远景" value="大远景" />
                 <el-option label="远景" value="远景" />
                 <el-option label="中景" value="中景" />
@@ -2669,7 +2676,7 @@
           </el-col>
           <el-col :span="6">
             <el-form-item label="运镜">
-              <el-select v-model="sbMovement[videoParamsTarget.id]" placeholder="运镜（推荐动态）" style="width:100%" clearable filterable>
+              <el-select v-model="sbMovement[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}运镜`" placeholder="运镜（推荐动态）" style="width:100%" clearable filterable>
                 <el-option-group label="基础运镜">
                   <el-option label="固定（少用）" value="static" />
                   <el-option label="推镜" value="push" />
@@ -2708,18 +2715,18 @@
           <el-col :span="8">
             <el-form-item label="镜头视角">
               <div style="display:flex;gap:4px;flex-wrap:wrap">
-                <el-select v-model="sbAngleS[videoParamsTarget.id]" placeholder="景别" style="width:76px">
+                <el-select v-model="sbAngleS[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}镜头景别`" placeholder="景别" style="width:76px">
                   <el-option label="特写" value="close_up" />
                   <el-option label="中景" value="medium" />
                   <el-option label="远景" value="wide" />
                 </el-select>
-                <el-select v-model="sbAngleV[videoParamsTarget.id]" placeholder="俯仰" style="width:86px">
+                <el-select v-model="sbAngleV[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}镜头俯仰`" placeholder="俯仰" style="width:86px">
                   <el-option label="平视" value="eye_level" />
                   <el-option label="低角仰拍" value="low" />
                   <el-option label="高角俯拍" value="high" />
                   <el-option label="虫眼仰视" value="worm" />
                 </el-select>
-                <el-select v-model="sbAngleH[videoParamsTarget.id]" placeholder="方向" style="width:80px">
+                <el-select v-model="sbAngleH[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}镜头方向`" placeholder="方向" style="width:80px">
                   <el-option label="正面" value="front" />
                   <el-option label="前左45°" value="front_left" />
                   <el-option label="左侧" value="left" />
@@ -2738,7 +2745,7 @@
           </el-col>
           <el-col :span="8">
             <el-form-item label="灯光">
-              <el-select v-model="sbLighting[videoParamsTarget.id]" placeholder="灯光风格" style="width:100%" clearable>
+              <el-select v-model="sbLighting[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}灯光风格`" placeholder="灯光风格" style="width:100%" clearable>
                 <el-option label="自然光" value="natural" />
                 <el-option label="顺光" value="front" />
                 <el-option label="侧光" value="side" />
@@ -2756,7 +2763,7 @@
           </el-col>
           <el-col :span="8">
             <el-form-item label="景深">
-              <el-select v-model="sbDof[videoParamsTarget.id]" placeholder="景深" style="width:100%" clearable>
+              <el-select v-model="sbDof[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}景深`" placeholder="景深" style="width:100%" clearable>
                 <el-option label="极浅景深" value="extreme_shallow" />
                 <el-option label="浅景深" value="shallow" />
                 <el-option label="中景深" value="medium" />
@@ -2833,10 +2840,10 @@
         <el-button @click="showVideoParamsDialog = false">取消</el-button>
         <el-button type="primary" :loading="videoParamsSaving" @click="onSaveVideoParams">保存并更新</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- P1-2: 导入小说弹窗 -->
-    <el-dialog v-model="showNovelImport" title="导入小说/长文" width="600px" @close="novelImportReset">
+    <AccessibleDialog v-model="showNovelImport" title="导入小说/长文" width="600px" @close="novelImportReset">
       <div class="novel-import-dialog">
         <p style="color:#6b7280;font-size:13px;margin-bottom:12px">支持粘贴小说文本或上传 txt 文件，AI 自动识别章节并转换为剧本集数</p>
         <el-tabs v-model="novelImportMode">
@@ -2865,7 +2872,7 @@
         <div class="novel-import-options" style="margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <div style="display:flex;align-items:center;gap:6px;font-size:13px">
             <span>最多导入集数：</span>
-            <el-input-number v-model="novelMaxChapters" :min="1" :max="20" size="small" style="width:100px" />
+            <el-input-number v-model="novelMaxChapters" aria-label="最多导入集数" :min="1" :max="20" size="small" style="width:100px" />
           </div>
           <el-checkbox v-model="novelAiSummarize" size="small">AI 转换为剧本格式（会消耗 Token）</el-checkbox>
         </div>
@@ -2874,10 +2881,10 @@
         <el-button @click="showNovelImport = false">取消</el-button>
         <el-button type="primary" :loading="novelImporting" @click="onImportNovel">开始导入</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- AI 配置弹窗（不跳转，避免本页内容丢失） -->
-    <el-dialog
+    <AccessibleDialog
       v-model="showAiConfigDialog"
       title="AI 配置"
       width="90%"
@@ -2885,10 +2892,11 @@
       :show-close="true"
       destroy-on-close
       class="ai-config-workspace-dialog ai-config-overlay"
+      :before-close="confirmAiConfigWorkspaceClose"
     >
       <template #header="{ titleId, titleClass }">
         <div class="ai-config-dialog-header">
-          <el-button class="ai-config-dialog-back" text @click="returnToProductionFromAiConfig">
+          <el-button class="ai-config-dialog-back" text @click="requestAiConfigWorkspaceClose">
             <el-icon><ArrowLeft /></el-icon>
             <span>返回制作</span>
           </el-button>
@@ -2896,11 +2904,12 @@
         </div>
       </template>
       <AIConfigContent
+        ref="aiConfigContentRef"
         v-if="showAiConfigDialog"
         :initial-service-type="aiConfigInitialServiceType"
         @configuration-changed="onAiConfigurationChanged"
       />
-    </el-dialog>
+    </AccessibleDialog>
 
     <ImagePreviewDialog
       :model-value="Boolean(previewImageUrl)"
@@ -2924,26 +2933,26 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, reactive, nextTick } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Setting, Plus, Minus, Sunny, Moon, MagicStick, Upload, Delete, Check, Loading, WarningFilled, User, Box, Picture, Film, VideoCamera, Document, InfoFilled, Refresh, ZoomIn, QuestionFilled, DocumentAdd, Expand, Fold, VideoPlay, Grid, Close, Download } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import { useFilmStore } from '@/stores/film'
 import { useGenerationTaskStore, GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { syncGeneratingSetsFromStore, buildEpisodeContext, buildExtractTaskMeta, isEpisodeExtractRunning } from '@/composables/useGenerationTaskSync'
-import { dramaAPI } from '@/api/drama'
-import { timelinesAPI } from '@/api/timelines'
-import { generationAPI } from '@/api/generation'
-import { characterAPI } from '@/api/characters'
-import { propAPI } from '@/api/props'
-import { sceneAPI } from '@/api/scenes'
-import { taskAPI } from '@/api/task'
-import { imagesAPI } from '@/api/images'
-import { videosAPI } from '@/api/videos'
-import { storyboardsAPI } from '@/api/storyboards'
-import { uploadAPI } from '@/api/upload'
-import { characterLibraryAPI } from '@/api/characterLibrary'
-import { sceneLibraryAPI } from '@/api/sceneLibrary'
-import { propLibraryAPI } from '@/api/propLibrary'
+import { dramaAPI as rawDramaAPI } from '@/api/drama'
+import { timelinesAPI as rawTimelinesAPI } from '@/api/timelines'
+import { generationAPI as rawGenerationAPI } from '@/api/generation'
+import { characterAPI as rawCharacterAPI } from '@/api/characters'
+import { propAPI as rawPropAPI } from '@/api/props'
+import { sceneAPI as rawSceneAPI } from '@/api/scenes'
+import { taskAPI as rawTaskAPI } from '@/api/task'
+import { imagesAPI as rawImagesAPI } from '@/api/images'
+import { videosAPI as rawVideosAPI } from '@/api/videos'
+import { storyboardsAPI as rawStoryboardsAPI } from '@/api/storyboards'
+import { uploadAPI as rawUploadAPI } from '@/api/upload'
+import { characterLibraryAPI as rawCharacterLibraryAPI } from '@/api/characterLibrary'
+import { sceneLibraryAPI as rawSceneLibraryAPI } from '@/api/sceneLibrary'
+import { propLibraryAPI as rawPropLibraryAPI } from '@/api/propLibrary'
 import { parseScriptIntoEpisodes, episodesListToPlainScript } from '@/utils/scriptEpisodes'
 import { formatEpisodeContextLabel } from '@/utils/filmCreateContext'
 import {
@@ -3008,6 +3017,24 @@ import { runGenerateStoryFromPremise } from '@/composables/useStoryGeneration'
 import { useCharacters } from '@/composables/filmCreate/useCharacters'
 import { useProps as usePropsComposable } from '@/composables/filmCreate/useProps'
 import { useScenes } from '@/composables/filmCreate/useScenes'
+import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
+
+const projectLifecycle = createProjectInstanceLifecycle()
+const ElMessage = projectLifecycle.guardNotifier(RawElMessage)
+const dramaAPI = projectLifecycle.guardApi(rawDramaAPI)
+const timelinesAPI = projectLifecycle.guardApi(rawTimelinesAPI)
+const generationAPI = projectLifecycle.guardApi(rawGenerationAPI)
+const characterAPI = projectLifecycle.guardApi(rawCharacterAPI)
+const propAPI = projectLifecycle.guardApi(rawPropAPI)
+const sceneAPI = projectLifecycle.guardApi(rawSceneAPI)
+const taskAPI = projectLifecycle.guardApi(rawTaskAPI)
+const imagesAPI = projectLifecycle.guardApi(rawImagesAPI)
+const videosAPI = projectLifecycle.guardApi(rawVideosAPI)
+const storyboardsAPI = projectLifecycle.guardApi(rawStoryboardsAPI)
+const uploadAPI = projectLifecycle.guardApi(rawUploadAPI)
+const characterLibraryAPI = projectLifecycle.guardApi(rawCharacterLibraryAPI)
+const sceneLibraryAPI = projectLifecycle.guardApi(rawSceneLibraryAPI)
+const propLibraryAPI = projectLifecycle.guardApi(rawPropLibraryAPI)
 
 const route = useRoute()
 const router = useRouter()
@@ -3055,6 +3082,7 @@ function openMediaLibraryFromPicker() {
 
 
 const showAiConfigDialog = ref(false)
+const aiConfigContentRef = ref(null)
 const pipelinePanelRef = ref(null)
 const aiConfigInitialServiceType = ref('')
 const aiConfigChanged = ref(false)
@@ -3116,8 +3144,14 @@ function onAiConfigurationChanged() {
   aiConfigChanged.value = true
 }
 
-function returnToProductionFromAiConfig() {
-  showAiConfigDialog.value = false
+async function confirmAiConfigWorkspaceClose(done) {
+  const canClose = (await aiConfigContentRef.value?.requestClose?.()) !== false
+  if (canClose) done()
+}
+
+async function requestAiConfigWorkspaceClose() {
+  const canClose = (await aiConfigContentRef.value?.requestClose?.()) !== false
+  if (canClose) showAiConfigDialog.value = false
 }
 
 watch(showAiConfigDialog, async (open) => {
@@ -3701,7 +3735,22 @@ const {
   openEditCharLibrary, submitEditCharLibrary,
   onDeleteCharLibrary, onAddCharacterToLibrary, onAddCharacterToMaterialLibrary,
   onAddCharFromLibrary, onAddDramaCharToEpisode,
-} = useCharacters({ store, dramaId, currentEpisodeId, getSelectedStyle, loadDrama, pollTask, pollUntilResourceHasImage, hasAssetImage })
+} = useCharacters({
+  store,
+  dramaId,
+  currentEpisodeId,
+  getSelectedStyle,
+  loadDrama,
+  pollTask,
+  pollUntilResourceHasImage,
+  hasAssetImage,
+  ElMessage,
+  characterAPI,
+  characterLibraryAPI,
+  dramaAPI,
+  generationAPI,
+  uploadAPI,
+})
 
 // ── Composable: Props ──────────────────────────────────
 const {
@@ -3724,7 +3773,20 @@ const {
   onDeletePropLibrary, onAddPropToLibrary, onAddPropToMaterialLibrary,
   onAddPropFromLibrary, onAddDramaPropToEpisode,
   doExtractFromRef2,
-} = usePropsComposable({ store, dramaId, currentEpisodeId, getSelectedStyle, loadDrama, pollTask, pollUntilResourceHasImage, hasAssetImage })
+} = usePropsComposable({
+  store,
+  dramaId,
+  currentEpisodeId,
+  getSelectedStyle,
+  loadDrama,
+  pollTask,
+  pollUntilResourceHasImage,
+  hasAssetImage,
+  ElMessage,
+  propAPI,
+  propLibraryAPI,
+  uploadAPI,
+})
 
 // ── Composable: Scenes ─────────────────────────────────
 const {
@@ -3745,7 +3807,22 @@ const {
   openEditSceneLibrary, submitEditSceneLibrary,
   onDeleteSceneLibrary, onAddSceneToLibrary, onAddSceneToMaterialLibrary,
   onAddSceneFromLibrary, onAddDramaSceneToEpisode,
-} = useScenes({ store, dramaId, currentEpisodeId, getSelectedStyle, scriptLanguage, loadDrama, pollTask, pollUntilResourceHasImage, hasAssetImage, dramaAPI })
+} = useScenes({
+  store,
+  dramaId,
+  currentEpisodeId,
+  getSelectedStyle,
+  scriptLanguage,
+  loadDrama,
+  pollTask,
+  pollUntilResourceHasImage,
+  hasAssetImage,
+  dramaAPI,
+  ElMessage,
+  sceneAPI,
+  sceneLibraryAPI,
+  uploadAPI,
+})
 
 async function onGenerateCharacters() {
   trackFilmCreateAction('generate_characters_click')
@@ -3941,7 +4018,7 @@ async function cancelPipelineRun() {
   pipelineAbortRequested.value = true
   pipelinePaused.value = false
   pipelinePauseGate.release()
-  pipelineCurrentStep.value = '正在停止全流程并取消远端任务...'
+  pipelineCurrentStep.value = '正在停止本地执行并结束前端等待...'
 
   const runPromise = activePipelineRunPromise
 
@@ -3958,7 +4035,7 @@ async function cancelPipelineRun() {
         }
       },
       onCancelled: (taskId) => {
-        genStore.stopPollingTask(taskId, '全流程已取消')
+        genStore.stopPollingTask(taskId, '已停止本地等待')
         pipelineOwnedTaskIds.delete(taskId)
       },
     })
@@ -3967,9 +4044,9 @@ async function cancelPipelineRun() {
     }
     cancellationComplete = cancellation.complete
     if (cancellationComplete) {
-      ElMessage.success('全流程已停止')
+      ElMessage.warning('本地全流程已停止；已提交的供应商任务和计费可能继续，请稍后刷新任务状态')
     } else {
-      ElMessage.error(`全流程已停止本地执行，但仍有 ${cancellation.failedTaskIds.length} 个远端任务取消失败，请重试停止`)
+      ElMessage.error(`本地全流程已停止等待，但仍有 ${cancellation.failedTaskIds.length} 个任务状态未能标记为已停止；供应商任务和计费可能继续，请刷新后再处理`)
     }
   } catch (error) {
     ElMessage.error(error?.message || '停止全流程失败，请重试')
@@ -3982,10 +4059,10 @@ async function cancelPipelineRun() {
     if (cancellationComplete) {
       pipelineOwnedTaskIds.clear()
       pipelineRunning.value = false
-      pipelineCurrentStep.value = '全流程已停止'
+      pipelineCurrentStep.value = '本地全流程已停止；供应商任务可能继续'
     } else {
       pipelineRunning.value = true
-      pipelineCurrentStep.value = '停止未完成，请重试取消剩余远端任务'
+      pipelineCurrentStep.value = '停止未完成，请重试处理剩余本地任务'
     }
   }
   return cancellationComplete
@@ -5043,8 +5120,14 @@ function getStripItems(storyboardId) {
     }))
 }
 
-function stripItemTitle(sbId, item) {
-  const lines = [item.label, item.prompt].filter(Boolean)
+function historyImageLabel(sb, storyboardIndex, item, historyIndex) {
+  const storyboardNumber = sb?.storyboard_number || storyboardIndex + 1
+  const panelLabel = item?.label ? `${item.label}` : ''
+  return `分镜${storyboardNumber}${panelLabel}历史图${historyIndex + 1}`
+}
+
+function stripItemTitle(sbId, item, accessibleLabel = '') {
+  const lines = [accessibleLabel, item.label, item.prompt].filter(Boolean)
   if (storyboardUseFirstLastFrame.value) {
     lines.unshift('点击：设为首帧或尾帧')
   } else {
@@ -5745,14 +5828,14 @@ async function requestCoreJson(path, { method = 'GET', body, fetchImpl = globalT
   return payload?.data !== undefined ? payload.data : payload
 }
 
-const coreDramaAPI = {
+const coreDramaAPI = projectLifecycle.guardApi({
   get(id) {
     return requestCoreJson(`/dramas/${encodeURIComponent(id)}`)
   },
   saveOutline(id, data) {
     return requestCoreJson(`/dramas/${encodeURIComponent(id)}/outline`, { method: 'PUT', body: data })
   },
-}
+})
 
 async function loadDrama({
   blocking = projectLoadState.value !== 'ready',
@@ -6840,12 +6923,14 @@ async function onTtsSbDialogue(sb) {
   }
   ttsSbIds.add(sb.id)
   try {
-    const res = await fetch('/api/v1/audio/extract', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ storyboard_id: sb.id, text: sb.dialogue, tts_kind: 'dialogue' }),
+    const { res, data } = await projectLifecycle.execute(async () => {
+      const response = await fetch('/api/v1/audio/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storyboard_id: sb.id, text: sb.dialogue, tts_kind: 'dialogue' }),
+      })
+      return { res: response, data: await response.json() }
     })
-    const data = await res.json()
     const businessOk = data.success === true || Number(data.code) === 200
     if (!res.ok || !businessOk) {
       throw new Error(data.error?.message || data.message || '配音失败')
@@ -6877,12 +6962,14 @@ async function onTtsSbNarration(sb) {
   }
   ttsSbNarrationIds.add(sb.id)
   try {
-    const res = await fetch('/api/v1/audio/extract', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ storyboard_id: sb.id, text, tts_kind: 'narration' }),
+    const { res, data } = await projectLifecycle.execute(async () => {
+      const response = await fetch('/api/v1/audio/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storyboard_id: sb.id, text, tts_kind: 'narration' }),
+      })
+      return { res: response, data: await response.json() }
     })
-    const data = await res.json()
     const businessOk = data.success === true || Number(data.code) === 200
     if (!res.ok || !businessOk) {
       throw new Error(data.error?.message || data.message || '解说配音失败')
@@ -9713,9 +9800,16 @@ function hasActivePipelineWork() {
 }
 
 function handleBeforeUnload(event) {
-  if (!scriptDraftController.hasPendingChanges() && !hasActivePipelineWork()) return
+  const hasUnsavedAiConfig = showAiConfigDialog.value
+    && aiConfigContentRef.value?.hasUnsavedChanges?.()
+  if (!scriptDraftController.hasPendingChanges() && !hasActivePipelineWork() && !hasUnsavedAiConfig) return
   event.preventDefault()
   event.returnValue = ''
+}
+
+async function requestAiConfigWorkspaceNavigation() {
+  if (!showAiConfigDialog.value) return true
+  return (await aiConfigContentRef.value?.requestClose?.()) !== false
 }
 
 async function flushDraftBeforeNavigation() {
@@ -9749,7 +9843,7 @@ async function confirmPipelineNavigation() {
   }
   try {
     await ElMessageBox.confirm(
-      '离开制作页面会停止当前全流程，并取消本流程已经提交的远端生成任务。',
+      '离开制作页面会停止本地全流程和前端等待；已提交的供应商任务和计费可能继续。',
       '全流程仍在执行',
       {
         type: 'warning',
@@ -9764,6 +9858,7 @@ async function confirmPipelineNavigation() {
 }
 
 async function allowNavigationAfterDraftFlush() {
+  if (!await requestAiConfigWorkspaceNavigation()) return false
   const draftDecision = await flushDraftBeforeNavigation()
   if (!draftDecision.allowed) return false
   if (!await confirmPipelineNavigation()) return false
@@ -9775,6 +9870,9 @@ onBeforeRouteLeave(allowNavigationAfterDraftFlush)
 onBeforeRouteUpdate(allowNavigationAfterDraftFlush)
 
 onBeforeUnmount(() => {
+  projectLoadRequestId += 1
+  projectDependencyRequestId += 1
+  projectLifecycle.dispose()
   window.removeEventListener('beforeunload', handleBeforeUnload)
   scriptDraftController.dispose()
 })
@@ -9825,10 +9923,6 @@ onMounted(async () => {
       refreshProductionReadiness(),
     ])
   }
-})
-
-watch(() => route.params.id, () => {
-  applyRouteToStore()
 })
 
 // 剧本分集切换时同步 URL query 参数（?episode=<episode_id>），使刷新/分享页面仍保持当前选中集

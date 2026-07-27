@@ -160,7 +160,7 @@
     <el-input v-model="lastRawJson" type="textarea" :rows="6" readonly class="mono" />
 
     <!-- 新建资产组 -->
-    <el-dialog v-model="dlgGroupCreate" title="CreateAssetGroup" width="480px" destroy-on-close>
+    <AccessibleDialog v-model="dlgGroupCreate" title="CreateAssetGroup" width="480px" destroy-on-close>
       <el-form label-width="100px">
         <el-form-item label="Name" required>
           <el-input v-model="formGroupName" placeholder="资产组名称" />
@@ -173,10 +173,10 @@
         <el-button @click="dlgGroupCreate = false">取消</el-button>
         <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitCreateGroup">提交</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 编辑资产组 -->
-    <el-dialog v-model="dlgGroupEdit" title="UpdateAssetGroup" width="520px" destroy-on-close>
+    <AccessibleDialog v-model="dlgGroupEdit" title="UpdateAssetGroup" width="520px" destroy-on-close>
       <el-alert type="warning" :closable="false" title="按官方文档填写需更新的字段；以下为常用名称修改。" style="margin-bottom: 12px" />
       <el-form label-width="100px">
         <el-form-item label="Id" required>
@@ -193,10 +193,10 @@
         <el-button @click="dlgGroupEdit = false">取消</el-button>
         <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitUpdateGroup">提交</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 新建资产 -->
-    <el-dialog v-model="dlgAssetCreate" title="CreateAsset" width="520px" destroy-on-close>
+    <AccessibleDialog v-model="dlgAssetCreate" title="CreateAsset" width="520px" destroy-on-close>
       <el-form label-width="110px">
         <el-form-item label="GroupId" required>
           <el-input v-model="formAssetGroupId" placeholder="资产组 Id" />
@@ -222,10 +222,10 @@
         <el-button @click="dlgAssetCreate = false">取消</el-button>
         <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitCreateAsset">提交</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 编辑资产 -->
-    <el-dialog v-model="dlgAssetEdit" title="UpdateAsset" width="520px" destroy-on-close>
+    <AccessibleDialog v-model="dlgAssetEdit" title="UpdateAsset" width="520px" destroy-on-close>
       <el-form label-width="100px">
         <el-form-item label="Id" required>
           <el-input v-model="editAssetId" disabled />
@@ -241,15 +241,15 @@
         <el-button @click="dlgAssetEdit = false">取消</el-button>
         <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitUpdateAsset">提交</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 详情 JSON -->
-    <el-dialog v-model="dlgDetail" title="详情" width="640px" destroy-on-close>
+    <AccessibleDialog v-model="dlgDetail" title="详情" width="640px" destroy-on-close>
       <el-input :model-value="detailJson" type="textarea" :rows="16" readonly class="mono" />
       <template #footer>
         <el-button type="primary" @click="dlgDetail = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
   </div>
 </template>
 

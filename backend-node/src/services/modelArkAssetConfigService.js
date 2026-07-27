@@ -1,13 +1,14 @@
 'use strict';
 
 const { callModelArkAsset } = require('./modelArkAssetProxyService');
+const aiConfigService = require('./aiConfigService');
 
 function loadModelArkAssetRow(db) {
   if (!db) return null;
   try {
     return db
       .prepare(
-        `SELECT id, name, base_url, api_key, settings FROM ai_service_configs
+        `SELECT id, name, base_url, api_key, settings, provider, service_type FROM ai_service_configs
          WHERE deleted_at IS NULL AND service_type = ? AND is_active = 1
          ORDER BY is_default DESC, priority DESC, id ASC LIMIT 1`
       )
@@ -31,7 +32,7 @@ function parseSettingsJson(raw) {
 /**
  * @returns {{ ready: boolean, row?: object, settings?: object, callOpts?: object, assetGroupId?: string, diag?: object }}
  */
-function buildModelArkContext(db, log) {
+function buildModelArkContext(db, log, options = {}) {
   const row = loadModelArkAssetRow(db);
   if (!row) {
     return { ready: false, diag: { db_model_ark_row_found: false } };
@@ -41,12 +42,28 @@ function buildModelArkContext(db, log) {
   const baseUrl = (row.base_url || '').toString().trim();
   const assetGroupId = (settings.asset_group_id || '').toString().trim();
 
+  let networkPolicy;
+  try {
+    networkPolicy = aiConfigService.getProviderNetworkOptions(row, { lookup: options.lookup });
+  } catch (error) {
+    return {
+      ready: false,
+      row,
+      settings,
+      diag: {
+        db_model_ark_row_found: true,
+        network_policy_error: error?.code || 'INVALID_PROVIDER_URL',
+      },
+    };
+  }
+
   const callOpts = {
     base_url: baseUrl,
     path_mode: settings.path_mode || 'open_api_query',
     api_version: settings.api_version || '2024-01-01',
     auth_mode: authMode,
     project_name: settings.project_name || undefined,
+    network_policy: networkPolicy,
   };
 
   if (authMode === 'bearer') {

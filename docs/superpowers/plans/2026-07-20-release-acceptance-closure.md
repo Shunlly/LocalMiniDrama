@@ -233,7 +233,7 @@ git commit -m "test: cover main desktop surfaces in release evidence"
 - Verify only: repository source, Docker images, external data root, `artifacts/e2e-production`, and `desktop/release`.
 
 **Interfaces:**
-- Consumes: the clean final Git SHA, Docker Compose revision labels, production E2E evidence, rollback checkpoint schema v4, and release security scripts.
+- Consumes: the clean final Git SHA, Docker Compose revision labels, production E2E evidence, rollback checkpoint schema v5 with drill schema v3, and release security scripts.
 - Produces: passing final evidence, 28 screenshot descriptors, passing rollback evidence, scanned Windows artifacts, and a pushed branch whose remote SHA equals local HEAD.
 
 - [ ] **Step 1: Run source gates on Node 20**

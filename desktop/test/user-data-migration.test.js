@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { removeFixtureTree } = require('./fixture-fs');
 
 const {
   migrateLegacyDevelopmentData,
@@ -15,7 +16,7 @@ const {
 
 function createRoot(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-user-data-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeFixtureTree(root));
   return root;
 }
 

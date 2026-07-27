@@ -14,6 +14,11 @@ const { applyDeepSeekConnectivityOptions } = require('./deepseekConfig');
 const { probeComfyUiConnection, sanitizeProviderText } = require('./comfyUiClient');
 const uploadService = require('./uploadService');
 const { secureHttpFetch, validateHttpRequestTarget } = require('./secureHttpFetch');
+const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
+const {
+  fieldKeyWords: settingKeyWords,
+  isSensitiveFieldKey: isSensitiveSettingKey,
+} = require('./sensitiveFieldPolicy');
 const MASKED_SECRET = '********';
 
 const LOCAL_ONLY_PROVIDERS = new Set([
@@ -178,74 +183,6 @@ function hasSecret(value) {
 
 function maskSecretValue(value) {
   return hasSecret(value) ? MASKED_SECRET : '';
-}
-
-const SECRET_SETTING_WORDS = new Set([
-  'authorization',
-  'cookie',
-  'credential',
-  'credentials',
-  'key',
-  'keys',
-  'password',
-  'passwords',
-  'secret',
-  'secrets',
-  'sig',
-  'signature',
-  'signatures',
-  'token',
-  'tokens',
-]);
-
-const TOKEN_BUSINESS_WORDS = new Set([
-  'budget',
-  'cached',
-  'completion',
-  'cost',
-  'count',
-  'input',
-  'limit',
-  'max',
-  'min',
-  'output',
-  'price',
-  'prompt',
-  'rate',
-  'total',
-  'usage',
-]);
-
-function settingKeyWords(key) {
-  return String(key || '')
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-}
-
-function isTokenBusinessField(words) {
-  const compact = words.join('');
-  if (!compact.includes('token')) return false;
-  const hasSecretContext = [
-    'access', 'api', 'auth', 'authorization', 'bearer', 'client', 'credential',
-    'cookie', 'key', 'password', 'refresh', 'secret', 'session',
-  ].some((word) => compact.includes(word));
-  return !hasSecretContext && [...TOKEN_BUSINESS_WORDS].some((word) => compact.includes(word));
-}
-
-function isSensitiveSettingKey(key) {
-  const words = settingKeyWords(key);
-  if (isTokenBusinessField(words)) return false;
-  const compact = words.join('');
-  if (compact === 'auth' || compact === 'authentication' || compact === 'xauth' || compact.endsWith('authentication')) return true;
-  if (words.some((word) => word !== 'key' && word !== 'keys' && SECRET_SETTING_WORDS.has(word))) return true;
-  if (compact === 'sig' || /authorization|cookie|credential|secret|signature|token|password/.test(compact)) return true;
-  if (compact === 'key' || compact === 'keys') return true;
-  return compact.includes('key') && [
-    'access', 'api', 'auth', 'bearer', 'client', 'credential', 'encrypt',
-    'private', 'secret', 'session', 'signing', 'xapi',
-  ].some((context) => compact.includes(context));
 }
 
 const SAFE_RESPONSE_HEADER_NAMES = new Set([
@@ -865,11 +802,11 @@ async function probeOllamaConnection(baseUrl, apiKey, networkOptions) {
 }
 
 async function testConnectionUnsafe(opts) {
-  const providerNetwork = getProviderNetworkOptions(opts, {
-    lookup: opts.provider_dns_lookup,
-  });
-  const base = providerNetwork.baseUrl;
+  const base = normalizeProviderBaseUrl(opts.base_url, opts);
   if (!base) throw new Error('base_url 必填');
+  const providerNetwork = opts.provider_network_policy
+    ? requireCompleteProviderNetworkPolicy(opts.provider_network_policy, base)
+    : getProviderNetworkOptions(opts, { lookup: opts.provider_dns_lookup });
   const models = Array.isArray(opts.model) ? opts.model : opts.model != null ? [opts.model] : [];
   const model = models[0] || '';
   if (!model && (opts.provider === 'gemini' || opts.provider === 'google')) throw new Error('model 必填');
@@ -897,8 +834,7 @@ async function testConnectionUnsafe(opts) {
       settings: opts.settings,
     }, {
       fetch_impl: opts.fetch_impl,
-      network_lookup: opts.provider_dns_lookup,
-      trusted_origins: networkOptions.trustedOrigins,
+      provider_network_policy: providerNetwork,
     });
     return;
   }

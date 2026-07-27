@@ -1,6 +1,8 @@
 <template>
   <div class="app">
-    <router-view />
+    <router-view v-slot="{ Component, route: matchedRoute }">
+      <component :is="Component" :key="projectRouteInstanceKey(matchedRoute)" />
+    </router-view>
     <div v-if="routeLoading" class="route-loading" role="status" aria-live="assertive" aria-atomic="true" @click.stop @mousedown.stop>
       正在切换页面
     </div>
@@ -10,6 +12,7 @@
 <script setup>
 import { onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { projectRouteInstanceKey } from '@/utils/projectListRoute.js'
 import { createRouteLoadingState } from '@/utils/routeLoadingState.js'
 
 const router = useRouter()

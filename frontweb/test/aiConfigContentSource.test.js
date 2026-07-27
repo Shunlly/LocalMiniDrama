@@ -144,7 +144,7 @@ test('coverage testing restores the keyed service card and keeps results perceiv
   assert.match(source, /:ref="\(element\) => setCoverageCardRef\(item\.type, element\)"/)
   assert.match(source, /tabindex="-1"/)
   assert.match(source, /:aria-label="`\$\{item\.label\}，\$\{coverageStateLabel\(item\)\}，\$\{coverageTestLabel\(item\.test\)\}`"/)
-  assert.match(source, /<el-dialog v-model="testVisible"[\s\S]*@closed="restoreTestedCoverageCardFocus"/)
+  assert.match(source, /<AccessibleDialog v-model="testVisible"[\s\S]*@closed="restoreTestedCoverageCardFocus"/)
   assert.match(source, /role="status" aria-live="polite"[\s\S]*\{\{ testResultAnnouncement \}\}/)
   assert.match(source, /testResultAnnouncement\.value = '连接测试通过'/)
   assert.match(source, /testResultAnnouncement\.value = `连接测试失败：\$\{testError\.value\}`/)
@@ -167,7 +167,7 @@ test('coverage grid stays readable on desktop and identity columns retain toolti
 test('project readiness service links are consumed as an AI configuration filter', () => {
   assert.match(detailSource, /service_type:\s*action\.serviceType\s*\|\|\s*''/)
   assert.match(detailSource, /returnTo:\s*route\.fullPath/)
-  assert.match(pageSource, /<AIConfigContent\s+:initial-service-type="initialServiceType"\s*\/>/)
+  assert.match(pageSource, /<AIConfigContent\s+ref="aiConfigContentRef"\s+:initial-service-type="initialServiceType"\s*\/>/)
   assert.match(pageSource, /route\.query\.service_type/)
   assert.match(source, /activeServiceFilter\s*=\s*ref\(normalizeInitialServiceType\(props\.initialServiceType\)\)/)
   assert.match(source, /if \(activeServiceFilter\.value\) await applyRequestedService\(activeServiceFilter\.value\)/)

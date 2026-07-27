@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { removeFixtureTree } = require('./fixture-fs');
 const yaml = require('js-yaml');
 
 const {
@@ -20,7 +21,7 @@ function writeFixture(root, relativePath, contents = relativePath) {
 
 function createFixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-backend-copy-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeFixtureTree(root));
 
   const sourceRoot = path.join(root, 'backend-source');
   const destinationRoot = path.join(root, 'backend-app');

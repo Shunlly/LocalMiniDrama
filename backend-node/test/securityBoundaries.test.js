@@ -95,6 +95,25 @@ test('revalidates redirect targets and rejects a trusted origin redirect to meta
   );
 });
 
+test('download helper preserves the public HTTPS requirement before DNS resolution', async () => {
+  const origin = 'http://provider.example';
+  let lookupCalls = 0;
+
+  await assert.rejects(
+    uploadService.downloadBufferViaNodeHttp(`${origin}/media`, 2000, 0, {
+      trustedOrigins: [origin],
+      allowPrivateOrigins: [],
+      requireHttpsForPublic: true,
+      lookup: async () => {
+        lookupCalls += 1;
+        return [{ address: '127.0.0.1', family: 4 }];
+      },
+    }),
+    (error) => error?.code === 'UNSAFE_MEDIA_REFERENCE' && /HTTPS/.test(error.message)
+  );
+  assert.equal(lookupCalls, 0);
+});
+
 test('local references cannot use absolute paths, encoded traversal, or storage symlinks', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-media-boundary-'));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-media-outside-'));
@@ -181,10 +200,10 @@ test('provider network routes reject unsaved or inactive private origins', async
   runMigrationsAndEnsure(db);
   t.after(() => db.close());
   const insert = db.prepare(
-    'INSERT INTO ai_service_configs (service_type, provider, name, base_url, is_active) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO ai_service_configs (service_type, provider, name, base_url, settings, is_active) VALUES (?, ?, ?, ?, ?, ?)'
   );
-  const activeId = Number(insert.run('video', 'local', 'active', 'http://127.0.0.1:5688/v1', 1).lastInsertRowid);
-  const inactiveId = Number(insert.run('video', 'local', 'inactive', 'http://127.0.0.1:5689/v1', 0).lastInsertRowid);
+  const activeId = Number(insert.run('video', 'openai_compatible', 'active', 'http://127.0.0.1:5688/v1', '{"allow_local_http":true}', 1).lastInsertRowid);
+  const inactiveId = Number(insert.run('video', 'openai_compatible', 'inactive', 'http://127.0.0.1:5689/v1', '{"allow_local_http":true}', 0).lastInsertRowid);
   const boundary = createProviderNetworkBoundary(db);
 
   async function invoke(body) {

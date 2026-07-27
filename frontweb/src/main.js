@@ -8,6 +8,7 @@ import 'element-plus/es/components/message/style/css'
 import 'element-plus/es/components/message-box/style/css'
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import App from './App.vue'
+import AccessibleDialog from './components/AccessibleDialog.vue'
 import router from './router'
 
 const app = createApp({
@@ -29,6 +30,7 @@ const app = createApp({
 })
 const pinia = createPinia()
 
+app.component('AccessibleDialog', AccessibleDialog)
 app.use(pinia)
 app.use(router)
 app.mount('#app')

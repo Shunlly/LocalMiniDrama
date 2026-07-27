@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <AccessibleDialog
     v-model="innerVisible"
     :title="title"
     width="980px"
@@ -139,7 +139,7 @@
         </div>
       </div>
     </template>
-  </el-dialog>
+  </AccessibleDialog>
 </template>
 
 <script setup>

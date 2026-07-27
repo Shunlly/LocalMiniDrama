@@ -4,7 +4,7 @@
       <el-icon><Upload /></el-icon>批量导入剧集
     </el-button>
 
-    <el-dialog
+    <AccessibleDialog
       v-model="visible"
       title="批量导入剧集"
       width="920px"
@@ -89,14 +89,21 @@
           @click="confirmImport"
         >确认导入集数</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { onBeforeUnmount, ref } from 'vue'
+import { ElMessage as RawElMessage } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
+import {
+  createProjectInstanceLifecycle,
+  isProjectInstanceDisposedError,
+} from '@/utils/projectInstanceLifecycle.js'
+
+const batchImportLifecycle = createProjectInstanceLifecycle()
+const ElMessage = batchImportLifecycle.guardNotifier(RawElMessage)
 
 const props = defineProps({
   startEpisodeNumber: {
@@ -132,6 +139,10 @@ function openDialog() {
 
 defineExpose({
   openDialog,
+})
+
+onBeforeUnmount(() => {
+  batchImportLifecycle.dispose()
 })
 
 function resetState() {
@@ -259,17 +270,20 @@ async function confirmImport() {
       description: null,
       duration: 0,
     }))
-    if (props.importHandler) {
-      await props.importHandler(payload)
-    } else {
-      await emit('import', payload)
-    }
-    ElMessage.success(`已导入 ${previewEpisodes.value.length} 集`)
-    resetState()
+    await batchImportLifecycle.execute(() => (
+      props.importHandler
+        ? props.importHandler(payload)
+        : emit('import', payload)
+    ))
+    batchImportLifecycle.run(() => {
+      ElMessage.success(`已导入 ${previewEpisodes.value.length} 集`)
+      resetState()
+    })
   } catch (e) {
+    if (isProjectInstanceDisposedError(e)) return
     ElMessage.error(e.message || '批量导入失败')
   } finally {
-    importing.value = false
+    batchImportLifecycle.run(() => { importing.value = false })
   }
 }
 </script>

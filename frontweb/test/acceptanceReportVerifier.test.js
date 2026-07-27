@@ -529,6 +529,21 @@ test('tracked report labels every screenshot and historical run statement as ill
   assert.doesNotMatch(acceptanceReportSource, /截图证明|均无横向溢出|播放到 ended|干净提交生产 E2E 已|本轮实际运行/)
 })
 
+test('acceptance screenshot B claims only URL write success before refresh and leaves title provenance to C', () => {
+  const screenshotB = acceptanceReportSource.match(
+    /<img src="final-20260723\/06-source-url-import-success\.png"[\s\S]*?<\/figure>/,
+  )?.[0] || ''
+  const screenshotC = acceptanceReportSource.match(
+    /<img src="final-20260723\/07-source-origin-labels\.png"[\s\S]*?<\/figure>/,
+  )?.[0] || ''
+
+  assert.match(screenshotB, /公开网页 URL 写入成功/)
+  assert.match(screenshotB, /列表刷新前/)
+  assert.doesNotMatch(screenshotB, /网页标题|默认标题|来源可追溯|域名|草稿预演|媒体服务|导入后/)
+  assert.match(screenshotC, /网页素材使用真实页面标题/)
+  assert.match(screenshotC, /网页 · 域名/)
+})
+
 test('final verification accepts exactly 28 ignored and untracked captures from a clean full commit', () => {
   withTempDir('arv-final-pass-', (root) => {
     const fixture = writeFinalFixture(root)

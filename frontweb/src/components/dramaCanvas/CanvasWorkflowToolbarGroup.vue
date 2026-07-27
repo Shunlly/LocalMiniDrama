@@ -40,6 +40,7 @@
     >
       <el-button
         size="small"
+        aria-label="创建分组（工作流）"
         :disabled="Boolean(actionReasons.createWorkflow)"
         @click="emit('create-workflow')"
       >
@@ -51,6 +52,7 @@
     <template v-if="showManagementControls">
       <el-select
         :model-value="activeGroupId"
+        aria-label="当前工作流分组"
         size="small"
         placeholder="选择工作流"
         clearable

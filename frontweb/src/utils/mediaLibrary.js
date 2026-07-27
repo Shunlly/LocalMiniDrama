@@ -37,6 +37,20 @@ export function getVisibleSelectedMediaIds(selectedIds, visibleItems = []) {
   return Array.from(selected).filter((id) => visibleIds.has(id))
 }
 
+export function mediaLibraryAccessState({
+  loading = false,
+  uploading = false,
+  hasSuccessfulLoad = false,
+  loadError = '',
+  itemCount = 0,
+} = {}) {
+  return {
+    navigationLocked: Boolean(uploading),
+    showEntryStrip: Boolean(loading || loadError || Number(itemCount) > 0),
+    writeLocked: Boolean(loading || !hasSuccessfulLoad || loadError),
+  }
+}
+
 export function createLatestMediaRequestGuard() {
   let latestRequestId = 0
 

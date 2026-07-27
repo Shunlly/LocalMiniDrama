@@ -44,14 +44,84 @@ const {
 const {
   attachCleanupError,
   executeRollbackDrill,
+  renameOwnedPathWithRetry,
   removeOwnedClaimWindows,
   renderThrownValue,
   sha256FileHandle,
 } = require('./run-rollback-drill.cjs')
+const { parseJsonWithUniqueObjectKeys } = require('./rollback-json-contract.cjs')
 
 const HEX_64 = /^[a-f0-9]{64}$/
 const VERSION = '1.3.3'
 const COMMIT = 'a'.repeat(40)
+const REPO_ROOT = path.resolve(__dirname, '..')
+const CHECKPOINT_SCRIPT = path.join(__dirname, 'create-release-rollback-checkpoint.ps1')
+const RESTORE_SCRIPT = path.join(__dirname, 'restore-release-rollback-checkpoint.ps1')
+const ROLLBACK_JSON_CONTRACT = path.join(__dirname, 'rollback-json-contract.cjs')
+const ROLLBACK_POWERSHELL_SUPPORT = path.join(__dirname, 'rollback-powershell-support.ps1')
+
+test('Windows owned-path claims retry only transient rename failures with fixed bounds', async () => {
+  const attempts = []
+  const waits = []
+  await renameOwnedPathWithRetry('source', 'claim', {
+    platform: 'win32',
+    renamePath: async (...args) => {
+      attempts.push(args)
+      if (attempts.length < 3) throw Object.assign(new Error('temporarily busy'), { code: 'EPERM' })
+    },
+    wait: async (milliseconds) => { waits.push(milliseconds) },
+  })
+  assert.deepEqual(attempts, [['source', 'claim'], ['source', 'claim'], ['source', 'claim']])
+  assert.deepEqual(waits, [25, 50])
+
+  let nonTransientAttempts = 0
+  await assert.rejects(
+    renameOwnedPathWithRetry('source', 'claim', {
+      platform: 'win32',
+      renamePath: async () => {
+        nonTransientAttempts += 1
+        throw Object.assign(new Error('denied'), { code: 'EACCES' })
+      },
+      wait: async () => assert.fail('non-transient failures must not wait'),
+    }),
+    (error) => error?.code === 'EACCES',
+  )
+  assert.equal(nonTransientAttempts, 1)
+})
+
+function powerShellLiteral(value) {
+  return `'${String(value).replaceAll("'", "''")}'`
+}
+
+function findWindowsCommand(command) {
+  if (process.platform !== 'win32') return null
+  const result = spawnSync('where.exe', [command], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  if (result.status !== 0) return null
+  return String(result.stdout).split(/\r?\n/).find(Boolean) || null
+}
+
+function rollbackPowerShellHosts() {
+  if (process.platform !== 'win32') return []
+  return [
+    { name: 'windows-powershell-5.1', executable: findWindowsCommand('powershell.exe') },
+    { name: 'powershell-7', executable: String(process.env.LMD_PWSH_EXE || '').trim() || findWindowsCommand('pwsh.exe') },
+  ].filter(({ executable }) => executable)
+}
+
+function runPowerShellProbe(host, probePath, env = {}) {
+  return spawnSync(host.executable, [
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probePath,
+  ], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    windowsHide: true,
+    env: { ...process.env, ...env },
+  })
+}
 
 function tinyLimits(overrides = {}) {
   return {
@@ -383,6 +453,418 @@ function createExecutorFixture(t, inputMode = 'checkpoint-bound') {
     : { inputMode: 'standalone', archivePath: null, dataRoot: null }
   return { archivePath, calls, dataRoot, fixtureRoot, options, runtime }
 }
+
+test('strict rollback JSON accepts only a top-level object for metadata, summary, and result documents', (t) => {
+  const documents = [
+    ['metadata', '[{"schema":"localminidrama.release-rollback-checkpoint.v5"}]'],
+    ['summary', '[{"schema":"localminidrama.rollback-drill.v3"}]'],
+    ['result', '[{"schema":"localminidrama.rollback-result-envelope.v1"}]'],
+  ]
+
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-json-root-')
+  for (const [label, source] of documents) {
+    assert.throws(
+      () => parseJsonWithUniqueObjectKeys(source, { rejectCaseCollisions: true }),
+      /top-level JSON object/i,
+      `${label} singleton array was accepted by the strict parser`,
+    )
+
+    const documentPath = path.join(fixtureRoot, `${label}.json`)
+    fs.writeFileSync(documentPath, `${source}\n`)
+    const result = spawnSync(process.execPath, [ROLLBACK_JSON_CONTRACT, '--check', documentPath], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      windowsHide: true,
+    })
+    assert.notEqual(result.status, 0, `${label} singleton array was accepted by the strict checker CLI`)
+    assert.equal(result.stdout, '')
+    assert.match(result.stderr, /top-level JSON object/i)
+  }
+})
+
+test('PowerShell 5.1 and 7 reject singleton rollback arrays independently of ConvertFrom-Json result types', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('PowerShell rollback JSON contracts require Windows')
+    return
+  }
+  const hosts = rollbackPowerShellHosts()
+  assert.deepEqual(hosts.map(({ name }) => name), ['windows-powershell-5.1', 'powershell-7'])
+
+  const fixtureRoot = temporaryDirectory(t, 'lmd-rollback-json-powershell-root-')
+  const checkerPath = path.join(fixtureRoot, 'accept-all-json.cmd')
+  const probePath = path.join(fixtureRoot, 'probe.ps1')
+  fs.writeFileSync(checkerPath, '@echo off\r\nexit /b 0\r\n', 'ascii')
+  fs.writeFileSync(probePath, `
+$ErrorActionPreference = 'Stop'
+. ${powerShellLiteral(ROLLBACK_POWERSHELL_SUPPORT)}
+function Assert-RollbackFileAuthority { param([object]$Authority) }
+function Read-RollbackFileAuthorityUtf8 { param([object]$Authority) return [string]$Authority.Text }
+$documents = @(
+  [pscustomobject]@{ Label = 'Rollback checkpoint metadata'; Text = '[{"schema":"localminidrama.release-rollback-checkpoint.v5"}]' },
+  [pscustomobject]@{ Label = 'Rollback drill summary'; Text = '[{"schema":"localminidrama.rollback-drill.v3"}]' },
+  [pscustomobject]@{ Label = 'Rollback result envelope'; Text = '[{"schema":"localminidrama.rollback-result-envelope.v1"}]' }
+)
+foreach ($document in $documents) {
+  $accepted = $false
+  try {
+    Read-StrictRollbackJson -Authority ([pscustomobject]@{ Path = 'unused.json'; Text = $document.Text }) -Label $document.Label | Out-Null
+    $accepted = $true
+  } catch {
+    if ($_.Exception.Message -notmatch 'top-level JSON object') { throw }
+  }
+  if ($accepted) { throw ($document.Label + ' accepted a top-level singleton array.') }
+}
+`, 'ascii')
+
+  for (const host of hosts) {
+    await t.test(host.name, () => {
+      const result = runPowerShellProbe(host, probePath, { LMD_NODE_EXE: checkerPath })
+      assert.equal(result.status, 0, result.stderr || result.stdout)
+      assert.equal(result.stdout, '')
+    })
+  }
+})
+
+test('OCI running evidence retains the source index, selected manifest, platform, and revision on both scripts', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('OCI PowerShell evidence contracts require Windows')
+    return
+  }
+  const hosts = rollbackPowerShellHosts()
+  assert.deepEqual(hosts.map(({ name }) => name), ['windows-powershell-5.1', 'powershell-7'])
+
+  const revision = 'd'.repeat(40)
+  const containerId = 'a'.repeat(64)
+  const sourceIndexDigest = `sha256:${'1'.repeat(64)}`
+  const manifestDigest = `sha256:${'2'.repeat(64)}`
+  const imageReference = `localminidrama-backend:${revision}`
+  const sourceDescriptor = JSON.stringify({
+    mediaType: 'application/vnd.oci.image.index.v1+json',
+    digest: sourceIndexDigest,
+    size: 856,
+  })
+  const manifestDescriptor = JSON.stringify({
+    mediaType: 'application/vnd.oci.image.manifest.v1+json',
+    digest: manifestDigest,
+    size: 3709,
+    platform: { architecture: 'amd64', os: 'linux' },
+  })
+  const labels = JSON.stringify({ 'org.opencontainers.image.revision': revision })
+  const fakeDocker = `
+function Get-CheckedScalar {
+  param([string]$FilePath, [string[]]$ArgumentList, [string]$Label)
+  if ($FilePath -cne 'docker') { throw ('Unexpected executable: ' + $FilePath) }
+  if ($ArgumentList[0] -ceq 'compose') { return ${powerShellLiteral(containerId)} }
+  $formatIndex = [Array]::IndexOf($ArgumentList, '--format')
+  $format = if ($formatIndex -ge 0) { $ArgumentList[$formatIndex + 1] } else { '' }
+  if ($ArgumentList[0] -ceq 'inspect') {
+    if ($format -ceq '{{.State.Status}}') { return 'running' }
+    if ($format -ceq '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}') { return 'healthy' }
+    if ($format -ceq '{{.Image}}') { return ${powerShellLiteral(sourceIndexDigest)} }
+    if ($format -ceq '{{.Config.Image}}') { return ${powerShellLiteral(imageReference)} }
+    if ($format -ceq '{{json .ImageManifestDescriptor}}') { return ${powerShellLiteral(manifestDescriptor)} }
+  }
+  if ($ArgumentList[0] -ceq 'image' -and $ArgumentList[1] -ceq 'inspect') {
+    $platformIndex = [Array]::IndexOf($ArgumentList, '--platform')
+    $platform = if ($platformIndex -ge 0) { $ArgumentList[$platformIndex + 1] } else { '' }
+    $referenceIndex = if ($platformIndex -ge 0) { $platformIndex + 2 } else { 2 }
+    $reference = $ArgumentList[$referenceIndex]
+    if ($platform.Length -eq 0 -and $reference -ceq ${powerShellLiteral(imageReference)} -and $format -ceq '{{.Id}}') {
+      return ${powerShellLiteral(sourceIndexDigest)}
+    }
+    if ($platform.Length -eq 0 -and $reference -ceq ${powerShellLiteral(sourceIndexDigest)} -and $format -ceq '{{json .Descriptor}}') {
+      return ${powerShellLiteral(sourceDescriptor)}
+    }
+    if ($platform -ceq 'linux/amd64' -and $reference -ceq ${powerShellLiteral(sourceIndexDigest)} -and $format -ceq '{{.Id}}') {
+      return ${powerShellLiteral(manifestDigest)}
+    }
+    if ($platform -ceq 'linux/amd64' -and $reference -ceq ${powerShellLiteral(sourceIndexDigest)} -and $format -ceq '{{json .Config.Labels}}') {
+      return ${powerShellLiteral(labels)}
+    }
+    if ($platform.Length -eq 0 -and $reference -ceq ${powerShellLiteral(sourceIndexDigest)} -and $format -ceq '{{json .Config.Labels}}') {
+      return ${powerShellLiteral(labels)}
+    }
+  }
+  throw ('Unexpected Docker evidence command for ' + $Label + ': ' + ($ArgumentList -join ' '))
+}
+`
+  const assertions = `
+if ($evidence.image_id -cne ${powerShellLiteral(sourceIndexDigest)}) { throw 'Source index image ID changed.' }
+if ($evidence.source_index_digest -cne ${powerShellLiteral(sourceIndexDigest)}) { throw 'Source index digest was not retained.' }
+if ($evidence.manifest_digest -cne ${powerShellLiteral(manifestDigest)}) { throw 'Runtime manifest digest was not retained.' }
+if ($evidence.platform -cne 'linux/amd64') { throw 'Runtime platform was not retained.' }
+if ($evidence.revision -cne ${powerShellLiteral(revision)}) { throw 'Runtime revision changed.' }
+`
+
+  const cases = [
+    ['checkpoint', CHECKPOINT_SCRIPT, `Get-RunningServiceEvidence -Service 'backend' -ExpectedRevision ${powerShellLiteral(revision)}`],
+    ['restore', RESTORE_SCRIPT, "Get-RunningServiceEvidence -Service 'backend' -ComposePrefix @('compose')"],
+  ]
+  for (const host of hosts) {
+    for (const [driver, scriptPath, invocation] of cases) {
+      await t.test(`${host.name}/${driver}`, () => {
+        const fixtureRoot = temporaryDirectory(t, `lmd-oci-evidence-${driver}-`)
+        const probePath = path.join(fixtureRoot, 'probe.ps1')
+        fs.writeFileSync(probePath, `
+$ErrorActionPreference = 'Stop'
+. ${powerShellLiteral(scriptPath)}
+${fakeDocker}
+$evidence = ${invocation}
+${assertions}
+`, 'ascii')
+        const result = runPowerShellProbe(host, probePath)
+        assert.equal(result.status, 0, result.stderr || result.stdout)
+      })
+    }
+  }
+})
+
+test('rollback image mocks retain a distinct post-tag archive ID and restore compares that loaded ID', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('OCI PowerShell archive contracts require Windows')
+    return
+  }
+  const hosts = rollbackPowerShellHosts()
+  assert.deepEqual(hosts.map(({ name }) => name), ['windows-powershell-5.1', 'powershell-7'])
+
+  const revision = 'e'.repeat(40)
+  const sourceIndexDigest = `sha256:${'3'.repeat(64)}`
+  const manifestDigest = `sha256:${'4'.repeat(64)}`
+  const archiveImageId = `sha256:${'5'.repeat(64)}`
+  const rollbackReference = 'localminidrama-backend:rollback-checkpoint-eeeeeeeeeeee'
+
+  for (const host of hosts) {
+    await t.test(`${host.name}/checkpoint`, () => {
+      const fixtureRoot = temporaryDirectory(t, 'lmd-oci-archive-checkpoint-')
+      const probePath = path.join(fixtureRoot, 'probe.ps1')
+      fs.writeFileSync(probePath, `
+$ErrorActionPreference = 'Stop'
+. ${powerShellLiteral(CHECKPOINT_SCRIPT)}
+$script:TagObserved = $false
+function Invoke-Checked {
+  param([string]$FilePath, [string[]]$ArgumentList, [string]$Label)
+  if ($FilePath -cne 'docker' -or $ArgumentList[0] -cne 'image' -or $ArgumentList[1] -cne 'tag' -or
+      $ArgumentList[2] -cne ${powerShellLiteral(sourceIndexDigest)} -or $ArgumentList[3] -cne ${powerShellLiteral(rollbackReference)}) {
+    throw ('Unexpected tag command: ' + ($ArgumentList -join ' '))
+  }
+  $script:TagObserved = $true
+}
+function Get-CheckedScalar {
+  param([string]$FilePath, [string[]]$ArgumentList, [string]$Label)
+  if (-not $script:TagObserved) { throw 'Archive inspection ran before the rollback tag.' }
+  $platformIndex = [Array]::IndexOf($ArgumentList, '--platform')
+  if ($platformIndex -lt 0 -and $ArgumentList[2] -ceq ${powerShellLiteral(rollbackReference)}) { return ${powerShellLiteral(archiveImageId)} }
+  if ($platformIndex -ge 0 -and $ArgumentList[$platformIndex + 1] -ceq 'linux/amd64') { return ${powerShellLiteral(manifestDigest)} }
+  throw ('Unexpected scalar command: ' + ($ArgumentList -join ' '))
+}
+function Get-ImageRevision {
+  param([string]$ImageReference, [string]$Label, [string]$Platform = '')
+  if ($ImageReference -cne ${powerShellLiteral(rollbackReference)} -or $Platform -cne 'linux/amd64') {
+    throw 'Archive revision was not read through the rollback reference and retained platform.'
+  }
+  return ${powerShellLiteral(revision)}
+}
+$evidence = [ordered]@{
+  image_id = ${powerShellLiteral(sourceIndexDigest)}
+  source_index_digest = ${powerShellLiteral(sourceIndexDigest)}
+  manifest_digest = ${powerShellLiteral(manifestDigest)}
+  platform = 'linux/amd64'
+  revision = ${powerShellLiteral(revision)}
+}
+$result = Set-RollbackArchiveImageEvidence -Evidence $evidence -RollbackReference ${powerShellLiteral(rollbackReference)} -Label 'Backend checkpoint image'
+if ($result.image_id -cne ${powerShellLiteral(sourceIndexDigest)}) { throw 'Source index was overwritten by the archive ID.' }
+if ($result.archive_image_id -cne ${powerShellLiteral(archiveImageId)}) { throw 'Post-tag archive ID was not recorded.' }
+if ($result.manifest_digest -cne ${powerShellLiteral(manifestDigest)} -or $result.platform -cne 'linux/amd64' -or $result.revision -cne ${powerShellLiteral(revision)}) {
+  throw 'The immutable platform binding changed while tagging.'
+}
+`, 'ascii')
+      const result = runPowerShellProbe(host, probePath)
+      assert.equal(result.status, 0, result.stderr || result.stdout)
+    })
+
+    await t.test(`${host.name}/restore`, () => {
+      const fixtureRoot = temporaryDirectory(t, 'lmd-oci-archive-restore-')
+      const probePath = path.join(fixtureRoot, 'probe.ps1')
+      fs.writeFileSync(probePath, `
+$ErrorActionPreference = 'Stop'
+. ${powerShellLiteral(RESTORE_SCRIPT)}
+$script:LoadedImageId = ${powerShellLiteral(archiveImageId)}
+function Get-CheckedScalar {
+  param([string]$FilePath, [string[]]$ArgumentList, [string]$Label)
+  $platformIndex = [Array]::IndexOf($ArgumentList, '--platform')
+  if ($platformIndex -lt 0) { return $script:LoadedImageId }
+  if ($ArgumentList[$platformIndex + 1] -ceq 'linux/amd64') { return ${powerShellLiteral(manifestDigest)} }
+  throw ('Unexpected loaded image command: ' + ($ArgumentList -join ' '))
+}
+function Get-ImageRevision {
+  param([string]$ImageReference, [string]$Label, [string]$Platform = '')
+  if ($ImageReference -cne ${powerShellLiteral(rollbackReference)} -or $Platform -cne 'linux/amd64') {
+    throw 'Loaded revision was not read through the retained rollback binding.'
+  }
+  return ${powerShellLiteral(revision)}
+}
+$evidence = [pscustomobject]@{
+  image_id = ${powerShellLiteral(sourceIndexDigest)}
+  source_index_digest = ${powerShellLiteral(sourceIndexDigest)}
+  archive_image_id = ${powerShellLiteral(archiveImageId)}
+  manifest_digest = ${powerShellLiteral(manifestDigest)}
+  platform = 'linux/amd64'
+  revision = ${powerShellLiteral(revision)}
+}
+$loaded = Assert-LoadedRollbackImageEvidence -Evidence $evidence -ExpectedReference ${powerShellLiteral(rollbackReference)} -Label 'Backend rollback image'
+if ($loaded -cne ${powerShellLiteral(archiveImageId)}) { throw 'Loaded archive ID was not returned.' }
+$script:LoadedImageId = ${powerShellLiteral(sourceIndexDigest)}
+$sourceAccepted = $false
+try {
+  Assert-LoadedRollbackImageEvidence -Evidence $evidence -ExpectedReference ${powerShellLiteral(rollbackReference)} -Label 'Backend rollback image' | Out-Null
+  $sourceAccepted = $true
+} catch {
+  if ($_.Exception.Message -notmatch 'Loaded rollback image IDs do not match') { throw }
+}
+if ($sourceAccepted) { throw 'Restore compared the loaded image with the source index instead of archive_image_id.' }
+`, 'ascii')
+      const result = runPowerShellProbe(host, probePath)
+      assert.equal(result.status, 0, result.stderr || result.stdout)
+    })
+  }
+})
+
+test('real Docker BuildKit OCI index survives rollback tag, save, load, and bound inspection', {
+  timeout: 120_000,
+}, (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('The local Docker OCI integration contract currently targets Windows hosts')
+    return
+  }
+  const host = rollbackPowerShellHosts().find(({ name }) => name === 'powershell-7')
+    || rollbackPowerShellHosts()[0]
+  if (!host) {
+    t.skip('PowerShell is unavailable')
+    return
+  }
+  const dockerVersion = spawnSync('docker', ['version', '--format', '{{.Server.Version}}'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  const buildxVersion = spawnSync('docker', ['buildx', 'version'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  if (dockerVersion.status !== 0 || buildxVersion.status !== 0) {
+    t.skip('Docker Engine with Buildx is unavailable')
+    return
+  }
+
+  const fixtureRoot = temporaryDirectory(t, 'lmd-real-oci-rollback-')
+  const suffix = crypto.randomUUID().replaceAll('-', '')
+  const sourceReference = `localminidrama-rollback-contract-source:${suffix}`
+  const rollbackReference = `localminidrama-rollback-contract-archive:${suffix}`
+  const archivePath = path.join(fixtureRoot, 'images.tar')
+  const revision = 'f'.repeat(40)
+  const removeReferences = () => {
+    for (const reference of [rollbackReference, sourceReference]) {
+      spawnSync('docker', ['image', 'rm', '--force', reference], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        windowsHide: true,
+      })
+    }
+  }
+  t.after(removeReferences)
+
+  const runDocker = (args, options = {}) => {
+    const result = spawnSync('docker', args, {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      windowsHide: true,
+      maxBuffer: 16 * 1024 * 1024,
+      ...options,
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout || `docker ${args.join(' ')} failed`)
+    return String(result.stdout || '').trim()
+  }
+  const inspectId = (reference, platform = '') => runDocker([
+    'image', 'inspect', ...(platform ? ['--platform', platform] : []), reference, '--format', '{{.Id}}',
+  ])
+
+  const dockerfile = [
+    'FROM scratch',
+    'ARG TARGETARCH',
+    `LABEL org.opencontainers.image.revision="${revision}"`,
+    'LABEL localminidrama.rollback-contract.targetarch="$TARGETARCH"',
+    '',
+  ].join('\n')
+  runDocker([
+    'buildx', 'build',
+    '--platform', 'linux/amd64,linux/arm64',
+    '--provenance=false',
+    '--output', `type=image,name=${sourceReference},oci-mediatypes=true`,
+    '-',
+  ], { input: dockerfile })
+
+  const sourceIndexDigest = inspectId(sourceReference)
+  const manifestDigest = inspectId(sourceReference, 'linux/amd64')
+  assert.match(sourceIndexDigest, /^sha256:[a-f0-9]{64}$/)
+  assert.match(manifestDigest, /^sha256:[a-f0-9]{64}$/)
+  assert.notEqual(sourceIndexDigest, manifestDigest)
+  const sourceDescriptor = JSON.parse(runDocker([
+    'image', 'inspect', sourceReference, '--format', '{{json .Descriptor}}',
+  ]))
+  assert.equal(sourceDescriptor.mediaType, 'application/vnd.oci.image.index.v1+json')
+  assert.equal(sourceDescriptor.digest, sourceIndexDigest)
+
+  const checkpointProbePath = path.join(fixtureRoot, 'checkpoint-probe.ps1')
+  fs.writeFileSync(checkpointProbePath, `
+$ErrorActionPreference = 'Stop'
+. ${powerShellLiteral(CHECKPOINT_SCRIPT)}
+$evidence = [ordered]@{
+  image_id = ${powerShellLiteral(sourceIndexDigest)}
+  source_index_digest = ${powerShellLiteral(sourceIndexDigest)}
+  manifest_digest = ${powerShellLiteral(manifestDigest)}
+  platform = 'linux/amd64'
+  revision = ${powerShellLiteral(revision)}
+}
+$result = Set-RollbackArchiveImageEvidence -Evidence $evidence -RollbackReference ${powerShellLiteral(rollbackReference)} -Label 'BuildKit rollback contract image'
+$result | ConvertTo-Json -Compress
+`, 'ascii')
+  const checkpointProbe = runPowerShellProbe(host, checkpointProbePath)
+  assert.equal(checkpointProbe.status, 0, checkpointProbe.stderr || checkpointProbe.stdout)
+  const archiveEvidenceLine = checkpointProbe.stdout.trim().split(/\r?\n/).findLast(Boolean)
+  const archiveEvidence = JSON.parse(archiveEvidenceLine)
+  assert.equal(archiveEvidence.image_id, sourceIndexDigest)
+  assert.equal(archiveEvidence.source_index_digest, sourceIndexDigest)
+  assert.equal(archiveEvidence.manifest_digest, manifestDigest)
+  assert.equal(archiveEvidence.platform, 'linux/amd64')
+  assert.equal(archiveEvidence.revision, revision)
+  assert.match(archiveEvidence.archive_image_id, /^sha256:[a-f0-9]{64}$/)
+
+  runDocker(['image', 'save', '--output', archivePath, rollbackReference])
+  runDocker(['image', 'rm', rollbackReference])
+  runDocker(['image', 'rm', sourceReference])
+  runDocker(['image', 'load', '--input', archivePath])
+  assert.equal(inspectId(rollbackReference), archiveEvidence.archive_image_id)
+  assert.equal(inspectId(rollbackReference, 'linux/amd64'), manifestDigest)
+
+  const restoreProbePath = path.join(fixtureRoot, 'restore-probe.ps1')
+  fs.writeFileSync(restoreProbePath, `
+$ErrorActionPreference = 'Stop'
+. ${powerShellLiteral(RESTORE_SCRIPT)}
+$evidence = [pscustomobject]@{
+  image_id = ${powerShellLiteral(sourceIndexDigest)}
+  source_index_digest = ${powerShellLiteral(sourceIndexDigest)}
+  archive_image_id = ${powerShellLiteral(archiveEvidence.archive_image_id)}
+  manifest_digest = ${powerShellLiteral(manifestDigest)}
+  platform = 'linux/amd64'
+  revision = ${powerShellLiteral(revision)}
+}
+$loaded = Assert-LoadedRollbackImageEvidence -Evidence $evidence -ExpectedReference ${powerShellLiteral(rollbackReference)} -Label 'BuildKit loaded rollback image'
+if ($loaded -cne ${powerShellLiteral(archiveEvidence.archive_image_id)}) { throw 'Loaded archive ID changed.' }
+`, 'ascii')
+  const restoreProbe = runPowerShellProbe(host, restoreProbePath)
+  assert.equal(restoreProbe.status, 0, restoreProbe.stderr || restoreProbe.stdout)
+})
 
 test('strict rollback CLI accepts only standalone or paired absolute checkpoint inputs', () => {
   const archive = path.resolve('C:/rollback/data.zip')

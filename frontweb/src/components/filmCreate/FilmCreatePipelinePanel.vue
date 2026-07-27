@@ -62,6 +62,7 @@
               <span>画面比例</span>
               <el-select
                 :model-value="aspectRatio"
+                aria-label="生成设置：画面比例"
                 @update:model-value="updateSetting('aspectRatio', $event)"
               >
                 <el-option label="16:9 横屏" value="16:9" />
@@ -76,6 +77,7 @@
               <span>单镜时长</span>
               <el-select
                 :model-value="clipDuration"
+                aria-label="生成设置：单镜时长"
                 @update:model-value="updateSetting('clipDuration', $event)"
               >
                 <el-option label="4 秒" :value="4" />
@@ -90,6 +92,7 @@
               <span>分镜语言</span>
               <el-select
                 :model-value="scriptLanguage"
+                aria-label="生成设置：分镜语言"
                 clearable
                 @update:model-value="updateSetting('scriptLanguage', $event)"
               >

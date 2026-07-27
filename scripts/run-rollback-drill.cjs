@@ -12,6 +12,7 @@ const { types: utilTypes } = require('node:util')
 
 const MAX_CLEANUP_ERROR_DETAILS = 8
 const MAX_THROWN_DIAGNOSTIC_BYTES = 64 * 1024
+const WINDOWS_CLAIM_RETRY_DELAYS_MS = Object.freeze([25, 50, 100, 200, 400, 800])
 
 const root = path.resolve(__dirname, '..')
 const backendRoot = path.join(root, 'backend-node')
@@ -346,6 +347,24 @@ function privateCleanupClaimPath(targetPath) {
   return path.join(path.dirname(targetPath), claimName)
 }
 
+async function renameOwnedPathWithRetry(sourcePath, claimPath, options = {}) {
+  const renamePath = options.renamePath || fsp.rename
+  const wait = options.wait || ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)))
+  const platform = options.platform || process.platform
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await renamePath(sourcePath, claimPath)
+      return
+    } catch (error) {
+      const retryable = platform === 'win32'
+        && (error?.code === 'EPERM' || error?.code === 'EBUSY')
+        && attempt < WINDOWS_CLAIM_RETRY_DELAYS_MS.length
+      if (!retryable) throw error
+      await wait(WINDOWS_CLAIM_RETRY_DELAYS_MS[attempt])
+    }
+  }
+}
+
 async function assertPathEntryAbsent(targetPath, label) {
   try {
     await fsp.lstat(targetPath)
@@ -384,7 +403,7 @@ async function assertClaimOwnedOrPreserve(handle, claimPath, targetPath, expecte
 
 async function claimOwnedPath(handle, targetPath, expected, label) {
   const claimPath = privateCleanupClaimPath(targetPath)
-  await fsp.rename(targetPath, claimPath)
+  await renameOwnedPathWithRetry(targetPath, claimPath)
   await assertClaimOwnedOrPreserve(handle, claimPath, targetPath, expected, label)
   return claimPath
 }
@@ -1391,6 +1410,7 @@ if (require.main === module) {
 module.exports = {
   attachCleanupError,
   executeRollbackDrill,
+  renameOwnedPathWithRetry,
   main,
   removeOwnedClaimWindows,
   renderThrownValue,

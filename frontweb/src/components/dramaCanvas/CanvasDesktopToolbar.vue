@@ -1,7 +1,7 @@
 <template>
   <div class="canvas-desktop-toolbar">
     <div class="toolbar-main-row">
-      <CanvasToolbarGroup title="创建内容" aria-label="创建内容" :helper="contentHelper">
+      <CanvasToolbarGroup v-if="!isFreeMode" title="创建内容" aria-label="创建内容" :helper="contentHelper">
         <CanvasActionGate :reason="actionReasons.editScript" label="编辑剧本" description-id="canvas-reason-edit-script">
           <el-button
             size="small"
@@ -17,6 +17,7 @@
         <CanvasActionGate :reason="actionReasons.createStoryboard" label="新建分镜" description-id="canvas-reason-create-storyboard">
           <el-button
             size="small"
+            aria-label="新建分镜"
             :disabled="Boolean(actionReasons.createStoryboard)"
             @click="emit('create', 'storyboard')"
           >
@@ -47,6 +48,7 @@
       </CanvasToolbarGroup>
 
       <CanvasWorkflowToolbarGroup
+        v-if="!isFreeMode"
         class="workflow-group"
         :selected-storyboard-count="selectedStoryboardCount"
         :workflow-groups="workflowGroups"
@@ -62,7 +64,7 @@
         @delete-workflow="emit('delete-workflow')"
       />
 
-      <CanvasToolbarGroup title="批量生成" aria-label="本集批量生成" :helper="batchHelper">
+      <CanvasToolbarGroup v-if="!isFreeMode" title="批量生成" aria-label="本集批量生成" :helper="batchHelper">
         <CanvasActionGate :reason="actionReasons.generateStoryboards" label="AI 生成分镜" description-id="canvas-reason-generate-storyboards">
           <el-button
             size="small"
@@ -105,7 +107,21 @@
       </CanvasToolbarGroup>
 
       <div class="toolbar-utilities" aria-label="画布工具">
-        <el-tooltip content="自动对齐并适配全部节点" placement="bottom">
+        <div class="mode-switch" role="group" aria-label="画布模式">
+          <el-button
+            size="small"
+            :type="isFreeMode ? 'default' : 'primary'"
+            :aria-pressed="!isFreeMode"
+            @click="emit('set-mode', 'production')"
+          >制作</el-button>
+          <el-button
+            size="small"
+            :type="isFreeMode ? 'primary' : 'default'"
+            :aria-pressed="isFreeMode"
+            @click="emit('set-mode', 'free')"
+          >自由</el-button>
+        </div>
+        <el-tooltip v-if="!isFreeMode" content="自动对齐并适配全部节点" placement="bottom">
           <el-button size="small" :loading="aligningNodes" aria-label="对齐节点" @click="emit('align')">
             <el-icon><Grid /></el-icon>
           </el-button>
@@ -122,23 +138,7 @@
       </div>
     </div>
 
-    <div class="free-canvas-controls">
-      <FreeCanvasToolbar
-        :mode="canvasMode"
-        :can-undo="canUndo"
-        :can-redo="canRedo"
-        :background-mode="backgroundMode"
-        @create-node="emit('create-node', $event)"
-        @undo="emit('undo')"
-        @redo="emit('redo')"
-        @fit-view="emit('fit-view')"
-        @set-background="emit('set-background', $event)"
-        @toggle-library="emit('toggle-library')"
-        @set-mode="emit('set-mode', $event)"
-      />
-    </div>
-
-    <div v-if="workflowProgress || episodeGenProgress" class="toolbar-progress" aria-live="polite">
+    <div v-if="!isFreeMode && (workflowProgress || episodeGenProgress)" class="toolbar-progress" aria-live="polite">
       <span v-if="workflowProgress">{{ workflowProgress }}</span>
       <span v-if="episodeGenProgress" class="episode-progress">{{ episodeGenProgress }}</span>
     </div>
@@ -165,7 +165,6 @@ import { computed } from 'vue'
 import CanvasToolbarGroup from './CanvasToolbarGroup.vue'
 import CanvasWorkflowToolbarGroup from './CanvasWorkflowToolbarGroup.vue'
 import CanvasActionGate from './CanvasActionGate.vue'
-import FreeCanvasToolbar from './FreeCanvasToolbar.vue'
 
 const props = defineProps({
   selectedStoryboardCount: { type: Number, default: 0 },
@@ -181,9 +180,6 @@ const props = defineProps({
   aligningNodes: { type: Boolean, default: false },
   isDark: { type: Boolean, default: false },
   canvasMode: { type: String, default: 'production' },
-  canUndo: { type: Boolean, default: false },
-  canRedo: { type: Boolean, default: false },
-  backgroundMode: { type: String, default: 'dots' },
 })
 
 const emit = defineEmits([
@@ -200,12 +196,6 @@ const emit = defineEmits([
   'generate-storyboards',
   'batch-images',
   'batch-videos',
-  'create-node',
-  'undo',
-  'redo',
-  'fit-view',
-  'set-background',
-  'toggle-library',
   'set-mode',
 ])
 
@@ -222,6 +212,8 @@ const batchHelper = computed(() => (
   || props.actionReasons.batchVideos
   || ''
 ))
+
+const isFreeMode = computed(() => props.canvasMode === 'free')
 </script>
 
 <style scoped>
@@ -292,11 +284,13 @@ const batchHelper = computed(() => (
   color: var(--canvas-success-text, #34d399);
 }
 
-.free-canvas-controls {
-  display: flex;
-  min-width: 0;
-  padding-top: 8px;
+.mode-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
 }
+
+.mode-switch :deep(.el-button + .el-button) { margin-left: 0; }
 
 @media (max-width: 1120px) {
   .toolbar-main-row {

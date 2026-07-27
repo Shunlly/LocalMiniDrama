@@ -1,11 +1,16 @@
 // 项目导出服务：将剧集所有数据和媒体文件打包为 ZIP
 const fs = require('fs');
 const path = require('path');
+const { createHash } = require('crypto');
 const AdmZip = require('adm-zip');
 const uploadService = require('./uploadService');
+const storageLayout = require('./storageLayout');
+const { validateFreeCanvas } = require('./freeCanvasValidation');
+const { isSensitiveFieldKey } = require('./sensitiveFieldPolicy');
 
 const EXPORT_VERSION = '1.6';  // 1.6: 分镜自由参考图与宫格视频引用可随项目导入导出
 const SOURCE_INTAKE_MANIFEST_VERSION = 1;
+const FREE_CANVAS_IMPORT_MANIFEST_VERSION = 1;
 const MAX_SOURCE_METADATA_BYTES = 64 * 1024;
 const SENSITIVE_SOURCE_METADATA_KEY = /api[_-]?key|access[_-]?key|client[_-]?secret|secret|password|token|authorization|cookie|private[_-]?key|raw[_-]?text|full[_-]?text|extracted[_-]?text|ocr[_-]?text|transcript/i;
 const HTTP_URL_REFERENCE = /^https?:/i;
@@ -64,6 +69,11 @@ const DEFAULT_EXPORT_LIMITS = Object.freeze({
   maxMemoryBytes: 768 * 1024 * 1024,
 });
 const ZIP_ENTRY_MEMORY_OVERHEAD = 1024;
+const FREE_CANVAS_MEDIA_EXTENSIONS = Object.freeze({
+  images: new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']),
+  videos: new Set(['.mp4', '.mov', '.webm', '.mkv', '.avi']),
+});
+const FREE_CANVAS_VIDEO_STATUSES = new Set(['pending', 'processing', 'completed', 'failed', 'cancelled']);
 
 class DramaExportError extends Error {
   constructor(code, message, statusCode = 413, details = null, cause = null) {
@@ -205,7 +215,7 @@ class ExportArchiveBuilder {
     this.totalUncompressedBytes += buffer.length;
   }
 
-  addStorageFile(storagePath, localPath, archivePath) {
+  readStorageFile(storagePath, localPath, archivePath) {
     if (!localPath) return false;
     const reference = String(localPath).trim();
     if (/^(?:mock|placeholder):\/\//i.test(reference)) return false;
@@ -243,11 +253,17 @@ class ExportArchiveBuilder {
       if (after.size !== opened.stat.size || after.mtimeMs !== opened.stat.mtimeMs) {
         throw exportError('EXPORT_FILE_CHANGED', 'Project export source changed while being read.', null, 409);
       }
-      this.addBuffer(archivePath, buffer);
-      return true;
+      return buffer;
     } finally {
       fs.closeSync(opened.fd);
     }
+  }
+
+  addStorageFile(storagePath, localPath, archivePath) {
+    const buffer = this.readStorageFile(storagePath, localPath, archivePath);
+    if (!buffer) return false;
+    this.addBuffer(archivePath, buffer);
+    return true;
   }
 
   toBuffer() {
@@ -300,6 +316,10 @@ function isSensitiveExportKey(key) {
 function isSensitiveUrlQueryKey(key) {
   const compact = sensitiveKeyParts(key).join('');
   return isSensitiveExportKey(key) || SENSITIVE_URL_QUERY_KEYS.has(compact);
+}
+
+function normalizeHeaderAlias(key) {
+  return sensitiveKeyParts(key).join('');
 }
 
 function isRelativeUrlReference(value) {
@@ -377,6 +397,35 @@ function sanitizeStructuredJsonString(value, depth) {
   }
 }
 
+function sanitizeHeaderArray(value, depth) {
+  return value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return sanitizeProjectExport(entry, depth + 1);
+    }
+    const headerNames = Object.entries(entry)
+      .filter(([key, child]) => {
+        const alias = normalizeHeaderAlias(key);
+        return (alias === 'name' || alias === 'key') && typeof child === 'string';
+      })
+      .map(([, child]) => child);
+    if (headerNames.length === 0) return sanitizeProjectExport(entry, depth + 1);
+
+    const sensitiveHeader = headerNames.some((headerName) => isSensitiveFieldKey(headerName));
+    const sanitized = {};
+    for (const [key, child] of Object.entries(entry)) {
+      const alias = normalizeHeaderAlias(key);
+      if (alias === 'name' || alias === 'key') {
+        sanitized[key] = sanitizeProjectExport(child, depth + 1);
+        continue;
+      }
+      if (sensitiveHeader && (alias === 'value' || alias === 'values')) continue;
+      if (isSensitiveExportKey(key)) continue;
+      sanitized[key] = sanitizeProjectExport(child, depth + 1);
+    }
+    return sanitized;
+  });
+}
+
 function sanitizeProjectExport(value, depth = 0) {
   if (depth > MAX_EXPORT_SANITIZE_DEPTH) return null;
   if (typeof value === 'string') {
@@ -392,6 +441,11 @@ function sanitizeProjectExport(value, depth = 0) {
   const sanitized = {};
   for (const [key, child] of Object.entries(value)) {
     if (isSensitiveExportKey(key)) continue;
+    const alias = normalizeHeaderAlias(key);
+    if ((alias === 'headers' || alias === 'customheaders') && Array.isArray(child)) {
+      sanitized[key] = sanitizeHeaderArray(child, depth + 1);
+      continue;
+    }
     sanitized[key] = sanitizeProjectExport(child, depth + 1);
   }
   return sanitized;
@@ -544,6 +598,465 @@ function parseSbChars(raw) {
   } catch (_) { return []; }
 }
 
+function normalizeFreeCanvasExportPath(value, field) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw exportError(
+      'INVALID_FREE_CANVAS_REFERENCE',
+      `Project export rejected an invalid free_canvas ${field}.`,
+      { field },
+      400
+    );
+  }
+  const reference = value.trim().startsWith('/static/')
+    ? value.trim().slice('/static/'.length)
+    : value.trim();
+  try {
+    return uploadService.normalizeStorageRelativeReference(reference);
+  } catch (error) {
+    throw exportError(
+      'INVALID_FREE_CANVAS_REFERENCE',
+      `Project export rejected an unsafe free_canvas ${field}.`,
+      { field },
+      400,
+      error
+    );
+  }
+}
+
+function validateFreeCanvasForExport(db, dramaId, canvas) {
+  try {
+    return validateFreeCanvas(db, dramaId, canvas);
+  } catch (error) {
+    throw exportError(
+      'INVALID_FREE_CANVAS_REFERENCE',
+      `Project export rejected invalid free_canvas data: ${String(error?.message || 'validation failed')}`,
+      null,
+      400,
+      error
+    );
+  }
+}
+
+function detectedFreeCanvasMediaFormat(detected) {
+  const extension = String(detected?.extension || '').toLowerCase();
+  if (extension === '.jpg' || extension === '.jpeg') return 'jpeg';
+  return extension.startsWith('.') ? extension.slice(1) : '';
+}
+
+function assertFreeCanvasMediaExtension(sourcePath, detectedFormat) {
+  const extension = path.extname(sourcePath).toLowerCase();
+  const expected = extension === '.jpg' || extension === '.jpeg' ? 'jpeg' : extension.slice(1);
+  if (!expected || expected !== detectedFormat) {
+    throw exportError(
+      'INVALID_FREE_CANVAS_MEDIA',
+      'Project export rejected free_canvas media whose content does not match its extension.',
+      { source_path: sourcePath },
+      400
+    );
+  }
+}
+
+function assertFreeCanvasMediaScope(drama, sourcePath, allowedGlobalUploadPaths) {
+  if (sourcePath === 'library' || sourcePath.startsWith('library/')) return;
+  if (
+    (sourcePath === 'uploads' || sourcePath.startsWith('uploads/'))
+    && allowedGlobalUploadPaths.has(sourcePath)
+  ) {
+    return;
+  }
+  const prefixes = [
+    storageLayout.buildProjectRelativeDir(drama),
+    `dramas/${Number(drama.id)}`,
+  ];
+  if (prefixes.some((prefix) => sourcePath === prefix || sourcePath.startsWith(`${prefix}/`))) return;
+  throw exportError(
+    'INVALID_FREE_CANVAS_REFERENCE',
+    'Project export rejected cross-project free_canvas media.',
+    { source_path: sourcePath },
+    400
+  );
+}
+
+function inspectFreeCanvasMedia(buffer, sourcePath, category) {
+  let detected;
+  try {
+    detected = uploadService.assertAllowedUpload(
+      buffer,
+      category === 'videos' ? 'video' : 'image'
+    );
+  } catch (error) {
+    throw exportError(
+      'INVALID_FREE_CANVAS_MEDIA',
+      'Project export rejected invalid free_canvas media content.',
+      { source_path: sourcePath },
+      400,
+      error
+    );
+  }
+  const detectedFormat = detectedFreeCanvasMediaFormat(detected);
+  assertFreeCanvasMediaExtension(sourcePath, detectedFormat);
+  return {
+    sha256: createHash('sha256').update(buffer).digest('hex'),
+    size: buffer.length,
+    detected_format: detectedFormat,
+  };
+}
+
+function parseFreeCanvasExportReference(value, sourceDramaId, field, kind) {
+  let id = null;
+  if (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value))) {
+    id = Number(value);
+  } else if (typeof value === 'string') {
+    const direct = new RegExp(`^${kind}:(\\d+)$`).exec(value);
+    const scoped = new RegExp(`^project:(\\d+):${kind}:(\\d+)$`).exec(value);
+    if (direct) id = Number(direct[1]);
+    if (scoped) {
+      if (Number(scoped[1]) !== Number(sourceDramaId)) {
+        throw exportError(
+          'INVALID_FREE_CANVAS_REFERENCE',
+          `Project export rejected a cross-project free_canvas ${field}.`,
+          { field },
+          400
+        );
+      }
+      id = Number(scoped[2]);
+    }
+  }
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw exportError(
+      'INVALID_FREE_CANVAS_REFERENCE',
+      `Project export rejected an invalid free_canvas ${field}.`,
+      { field },
+      400
+    );
+  }
+  return id;
+}
+
+function collectFreeCanvasImportManifest({
+  db,
+  drama,
+  storagePath,
+  archive,
+  metadata,
+  episodes,
+  storyboardsByEp,
+  scenes,
+  sceneIdToIndex,
+  imageFilesToPack,
+  videosBySb,
+}) {
+  const canvas = metadata?.free_canvas;
+  if (
+    !canvas
+    || typeof canvas !== 'object'
+    || Array.isArray(canvas)
+    || canvas.version !== 1
+    || !Array.isArray(canvas.nodes)
+  ) {
+    return null;
+  }
+
+  const sourceDramaId = Number(drama.id);
+  const referencedAssetIds = new Set();
+  const assetMediaCategories = new Map();
+  const registerAssetCategory = (assetId, category) => {
+    const existing = assetMediaCategories.get(assetId);
+    if (existing && existing !== category) {
+      throw exportError(
+        'INVALID_FREE_CANVAS_REFERENCE',
+        'Project export rejected a free_canvas asset used as conflicting media types.',
+        { asset_id: assetId },
+        400
+      );
+    }
+    assetMediaCategories.set(assetId, category);
+  };
+
+  for (const node of canvas.nodes) {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) continue;
+    for (const field of ['assetId', 'asset_ref']) {
+      if (node[field] === undefined) continue;
+      const assetId = parseFreeCanvasExportReference(node[field], sourceDramaId, field, 'asset');
+      referencedAssetIds.add(assetId);
+      if (node.type === 'image') registerAssetCategory(assetId, 'images');
+      if (node.type === 'video') registerAssetCategory(assetId, 'videos');
+    }
+  }
+
+  const reusableMedia = new Map();
+  for (const item of imageFilesToPack) {
+    const sourcePath = normalizeFreeCanvasExportPath(item.localRelPath, 'media path');
+    if (!reusableMedia.has(sourcePath)) {
+      reusableMedia.set(sourcePath, {
+        archive_path: item.zipPath,
+        category: 'images',
+        image_generation_id: Number(item.sourceGenerationId),
+      });
+    }
+  }
+  for (const [storyboardId, video] of Object.entries(videosBySb)) {
+    if (!video.local_path) continue;
+    const sourcePath = normalizeFreeCanvasExportPath(video.local_path, 'media path');
+    if (!reusableMedia.has(sourcePath)) {
+      reusableMedia.set(sourcePath, {
+        archive_path: `media/videos/sb_${storyboardId}${extOf(video.local_path)}`,
+        category: 'videos',
+        video_generation_id: video.original_id || undefined,
+      });
+    }
+  }
+
+  const mediaByPath = new Map();
+  const addMedia = (value, category, field) => {
+    if (value == null || value === '') return null;
+    const sourcePath = normalizeFreeCanvasExportPath(value, field);
+    const extension = path.extname(sourcePath).toLowerCase();
+    if (!FREE_CANVAS_MEDIA_EXTENSIONS[category]?.has(extension)) {
+      throw exportError(
+        'INVALID_FREE_CANVAS_REFERENCE',
+        `Project export rejected an unsupported free_canvas ${field}.`,
+        { field },
+        400
+      );
+    }
+    const existing = mediaByPath.get(sourcePath);
+    if (existing) {
+      if (existing.category !== category) {
+        throw exportError(
+          'INVALID_FREE_CANVAS_REFERENCE',
+          'Project export rejected a free_canvas path used as conflicting media types.',
+          { field },
+          400
+        );
+      }
+      return sourcePath;
+    }
+
+    const reusable = reusableMedia.get(sourcePath);
+    const entry = {
+      source_path: sourcePath,
+      archive_path: reusable?.category === category
+        ? reusable.archive_path
+        : `media/free-canvas/media_${String(mediaByPath.size + 1).padStart(4, '0')}${extension}`,
+      category,
+    };
+    if (reusable?.category === category && reusable.image_generation_id) {
+      entry.image_generation_id = reusable.image_generation_id;
+    }
+    if (reusable?.category === category && reusable.video_generation_id) {
+      entry.video_generation_id = reusable.video_generation_id;
+    }
+    mediaByPath.set(sourcePath, entry);
+    return sourcePath;
+  };
+
+  const selectSourceAsset = db.prepare(
+    `SELECT id, name, type, category, local_path, file_size, mime_type, width, height,
+            duration, image_gen_id, video_gen_id, drama_id
+     FROM assets
+     WHERE id = ? AND deleted_at IS NULL`
+  );
+  const allowedGlobalUploadPaths = new Set();
+  const assets = [];
+  for (const sourceId of [...referencedAssetIds].sort((a, b) => a - b)) {
+    const asset = selectSourceAsset.get(sourceId);
+    if (!asset || (asset.drama_id != null && Number(asset.drama_id) !== sourceDramaId)) {
+      throw exportError(
+        'INVALID_FREE_CANVAS_REFERENCE',
+        'Project export rejected a missing or cross-project free_canvas asset.',
+        { asset_id: sourceId },
+        400
+      );
+    }
+    if (asset.drama_id == null && asset.local_path) {
+      const globalPath = normalizeFreeCanvasExportPath(asset.local_path, 'global asset local_path');
+      if (globalPath === 'uploads' || globalPath.startsWith('uploads/')) {
+        allowedGlobalUploadPaths.add(globalPath);
+      }
+    }
+    const mediaCategory = assetMediaCategories.get(sourceId)
+      || (String(asset.type || '').toLowerCase() === 'video' ? 'videos' : 'images');
+    const sourcePath = asset.local_path
+      ? addMedia(asset.local_path, mediaCategory, 'asset local_path')
+      : null;
+    if (assetMediaCategories.has(sourceId) && !sourcePath) {
+      throw exportError(
+        'INVALID_FREE_CANVAS_REFERENCE',
+        'Project export rejected a free_canvas media asset without a local file.',
+        { asset_id: sourceId },
+        400
+      );
+    }
+    assets.push({
+      source_id: sourceId,
+      name: asset.name || '导入素材',
+      type: asset.type || (mediaCategory === 'videos' ? 'video' : 'image'),
+      category: asset.category || null,
+      source_path: sourcePath,
+      file_size: asset.file_size || null,
+      mime_type: asset.mime_type || null,
+      width: asset.width || null,
+      height: asset.height || null,
+      duration: asset.duration || null,
+      image_gen_id: asset.image_gen_id || null,
+      video_gen_id: asset.video_gen_id || null,
+    });
+  }
+
+  const videoGenerationIds = [...new Set(
+    assets.map((asset) => Number(asset.video_gen_id)).filter((id) => Number.isSafeInteger(id) && id > 0)
+  )].sort((a, b) => a - b);
+  const selectVideoGeneration = db.prepare(
+    `SELECT id, storyboard_id, scene_id, provider, prompt, model, duration, aspect_ratio,
+            status, error_msg, local_path
+     FROM video_generations
+     WHERE id = ? AND drama_id = ? AND deleted_at IS NULL`
+  );
+  const exportedStoryboardIds = new Set(
+    episodes.flatMap((episode) =>
+      (storyboardsByEp[episode.id] || []).map((storyboard) => Number(storyboard.id))
+    )
+  );
+  const exportedSceneIds = new Set(scenes.map((scene) => Number(scene.id)));
+  const videoGenerations = videoGenerationIds.map((sourceId) => {
+    const generation = selectVideoGeneration.get(sourceId, sourceDramaId);
+    if (!generation) {
+      throw exportError(
+        'INVALID_FREE_CANVAS_REFERENCE',
+        'Project export rejected a missing or cross-project free_canvas video generation.',
+        { video_generation_id: sourceId },
+        400
+      );
+    }
+    if (generation.storyboard_id != null && !exportedStoryboardIds.has(Number(generation.storyboard_id))) {
+      throw exportError(
+        'INVALID_FREE_CANVAS_REFERENCE',
+        'Project export rejected a cross-project free_canvas video-generation storyboard.',
+        { video_generation_id: sourceId },
+        400
+      );
+    }
+    if (generation.scene_id != null && !exportedSceneIds.has(Number(generation.scene_id))) {
+      throw exportError(
+        'INVALID_FREE_CANVAS_REFERENCE',
+        'Project export rejected a cross-project free_canvas video-generation scene.',
+        { video_generation_id: sourceId },
+        400
+      );
+    }
+    const status = String(generation.status || 'completed');
+    if (!FREE_CANVAS_VIDEO_STATUSES.has(status)) {
+      throw exportError(
+        'INVALID_FREE_CANVAS_REFERENCE',
+        'Project export rejected an unsupported free_canvas video-generation status.',
+        { video_generation_id: sourceId },
+        400
+      );
+    }
+    const linkedPaths = new Set(
+      assets
+        .filter((asset) => Number(asset.video_gen_id) === sourceId && asset.source_path)
+        .map((asset) => asset.source_path)
+    );
+    if (linkedPaths.size !== 1) {
+      throw exportError(
+        'INVALID_FREE_CANVAS_REFERENCE',
+        'Project export rejected an ambiguous free_canvas video-generation media binding.',
+        { video_generation_id: sourceId },
+        400
+      );
+    }
+    const linkedPath = [...linkedPaths][0];
+    const generationPath = generation.local_path
+      ? normalizeFreeCanvasExportPath(generation.local_path, 'video generation local_path')
+      : linkedPath;
+    if (generationPath !== linkedPath) {
+      throw exportError(
+        'INVALID_FREE_CANVAS_REFERENCE',
+        'Project export rejected mismatched asset and video-generation media.',
+        { video_generation_id: sourceId },
+        400
+      );
+    }
+    const sourcePath = addMedia(generationPath, 'videos', 'video generation local_path');
+    if (!sourcePath) {
+      throw exportError(
+        'INVALID_FREE_CANVAS_REFERENCE',
+        'Project export rejected a referenced video generation without local media.',
+        { video_generation_id: sourceId },
+        400
+      );
+    }
+    return {
+      source_id: sourceId,
+      storyboard_id: generation.storyboard_id ?? null,
+      scene_id: generation.scene_id ?? null,
+      provider: generation.provider || 'imported',
+      prompt: generation.prompt || null,
+      model: generation.model || null,
+      duration: generation.duration ?? null,
+      aspect_ratio: generation.aspect_ratio || null,
+      status,
+      error_msg: generation.error_msg || null,
+      source_path: sourcePath,
+    };
+  });
+
+  for (const node of canvas.nodes) {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) continue;
+    const mediaCategory = node.type === 'image' ? 'images' : node.type === 'video' ? 'videos' : null;
+    if (!mediaCategory) continue;
+    for (const field of ['content', 'storageKey']) {
+      if (node[field] !== undefined) addMedia(node[field], mediaCategory, `node ${field}`);
+    }
+  }
+
+  const media = [...mediaByPath.values()];
+  const archivePaths = new Set();
+  for (const entry of media) {
+    const collisionKey = entry.archive_path.normalize('NFC').toLowerCase();
+    if (archivePaths.has(collisionKey)) {
+      throw exportError(
+        'EXPORT_DUPLICATE_PATH',
+        'Project export generated a duplicate free_canvas archive path.',
+        { archive_path: entry.archive_path },
+        500
+      );
+    }
+    archivePaths.add(collisionKey);
+    assertFreeCanvasMediaScope(drama, entry.source_path, allowedGlobalUploadPaths);
+    const buffer = archive.readStorageFile(storagePath, entry.source_path, entry.archive_path);
+    if (!buffer) {
+      throw exportError(
+        'FREE_CANVAS_MEDIA_MISSING',
+        'Project export could not archive referenced free_canvas media.',
+        { source_path: entry.source_path },
+        400
+      );
+    }
+    Object.assign(entry, inspectFreeCanvasMedia(buffer, entry.source_path, entry.category));
+    archive.addBuffer(entry.archive_path, buffer);
+  }
+
+  return {
+    manifest_version: FREE_CANVAS_IMPORT_MANIFEST_VERSION,
+    hash_algorithm: 'sha256',
+    source_drama_id: sourceDramaId,
+    episode_ids: episodes.map((episode) => Number(episode.id)),
+    storyboard_ids: episodes.flatMap((episode) =>
+      (storyboardsByEp[episode.id] || []).map((storyboard) => Number(storyboard.id))
+    ),
+    scene_refs: scenes.map((scene) => ({
+      source_id: Number(scene.id),
+      export_index: Number(sceneIdToIndex[scene.id]),
+    })),
+    assets,
+    video_generations: videoGenerations,
+    media,
+  };
+}
+
 /**
  * 导出一个剧集为 ZIP Buffer
  * @returns {Buffer}
@@ -559,6 +1072,13 @@ function exportDrama(db, cfg, log, dramaId, options = {}) {
 
   let metadata = {};
   try { metadata = drama.metadata ? (typeof drama.metadata === 'string' ? JSON.parse(drama.metadata) : drama.metadata) : {}; } catch (_) {}
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) metadata = {};
+  if (Object.prototype.hasOwnProperty.call(metadata, 'free_canvas')) {
+    metadata = {
+      ...metadata,
+      free_canvas: validateFreeCanvasForExport(db, Number(dramaId), metadata.free_canvas),
+    };
+  }
 
   // ---- 2. 读取所有剧集 ----
   const episodes = db.prepare(
@@ -588,16 +1108,24 @@ function exportDrama(db, cfg, log, dramaId, options = {}) {
     allImagesBySb[sbId] = igs.filter(Boolean);
 
     const vg = db.prepare(
-      `SELECT video_url, local_path FROM video_generations
+      `SELECT id, video_url, local_path FROM video_generations
        WHERE storyboard_id = ? AND status = 'completed' AND deleted_at IS NULL
        ORDER BY COALESCE(NULLIF(completed_at, ''), NULLIF(updated_at, ''), NULLIF(created_at, ''), '') DESC, id DESC
        LIMIT 1`
     ).get(sbId);
     const sb = storyboardsById.get(sbId);
     const storyboardVideoLocalPath = String(sb?.video_local_path || '').trim();
+    const selectedVideoLocalPath = storyboardVideoLocalPath || vg?.local_path || null;
+    const generationVideoLocalPath = String(vg?.local_path || '').trim();
+    const selectedVideoGenerationId = selectedVideoLocalPath && generationVideoLocalPath
+      && normalizeFreeCanvasExportPath(selectedVideoLocalPath, 'storyboard video_local_path')
+        === normalizeFreeCanvasExportPath(generationVideoLocalPath, 'video generation local_path')
+      ? vg.id
+      : null;
     const video = {
       video_url: sb?.video_url || vg?.video_url || null,
-      local_path: storyboardVideoLocalPath || vg?.local_path || null,
+      local_path: selectedVideoLocalPath,
+      original_id: selectedVideoGenerationId,
     };
     if (video.video_url || video.local_path) videosBySb[sbId] = video;
   }
@@ -609,7 +1137,7 @@ function exportDrama(db, cfg, log, dramaId, options = {}) {
     for (const ig of igs) {
       if (!ig.local_path) continue;
       const zipPath = `media/storyboards/sb_${sbId}_gen_${ig.id}${extOf(ig.local_path)}`;
-      imageFilesToPack.push({ localRelPath: ig.local_path, zipPath });
+      imageFilesToPack.push({ localRelPath: ig.local_path, zipPath, sourceGenerationId: ig.id });
     }
   }
 
@@ -639,34 +1167,27 @@ function exportDrama(db, cfg, log, dramaId, options = {}) {
 
   const sourceIntakeExport = collectSourceIntakeOriginals(db, storagePath, dramaId, archive);
 
-  // ---- 场景去重（数据库中可能存在同 location+time 的重复记录，导出时只保留第一条）----
-  const seenSceneKeys = new Set();
-  const dedupedScenes = [];
-  for (const s of scenes) {
-    const key = `${(s.location || '').trim()}|${(s.time || '').trim()}`;
-    if (seenSceneKeys.has(key)) continue;
-    seenSceneKeys.add(key);
-    dedupedScenes.push(s);
-  }
-  // 为去重后被丢弃的重复场景 ID 建立到保留场景的映射，确保分镜 scene_index 仍指向保留的场景
-  const sceneDedupeIdMap = new Map(); // 原 ID → 保留后的同 key 首个 ID
-  for (const s of scenes) {
-    const key = `${(s.location || '').trim()}|${(s.time || '').trim()}`;
-    const kept = dedupedScenes.find(d => `${(d.location||'').trim()}|${(d.time||'').trim()}` === key);
-    if (kept) sceneDedupeIdMap.set(s.id, kept.id);
-  }
-
   // ---- 构建 ID → 导出数组下标 的映射（用于分镜 characters/scene_id/prop_ids 跨项目还原） ----
   const charIdToIndex = {};
   characters.forEach((c, idx) => { charIdToIndex[c.id] = idx; });
   const sceneIdToIndex = {};
-  dedupedScenes.forEach((s, idx) => { sceneIdToIndex[s.id] = idx; });
-  // 去重丢弃的重复场景 ID 也指向保留场景的下标
-  for (const [origId, keptId] of sceneDedupeIdMap.entries()) {
-    if (!(origId in sceneIdToIndex)) sceneIdToIndex[origId] = sceneIdToIndex[keptId];
-  }
+  scenes.forEach((s, idx) => { sceneIdToIndex[s.id] = idx; });
   const propIdToIndex = {};
   props.forEach((p, idx) => { propIdToIndex[p.id] = idx; });
+
+  const freeCanvasImportManifest = collectFreeCanvasImportManifest({
+    db,
+    drama,
+    storagePath,
+    archive,
+    metadata,
+    episodes,
+    storyboardsByEp,
+    scenes,
+    sceneIdToIndex,
+    imageFilesToPack,
+    videosBySb,
+  });
 
   // ---- 读取所有分镜的道具关联（storyboard_props） ----
   const allSbIdsForProps = Object.values(storyboardsByEp).flat().map(s => s.id);
@@ -701,6 +1222,7 @@ function exportDrama(db, cfg, log, dramaId, options = {}) {
       metadata,
     },
     source_intake: sourceIntakeExport.manifest,
+    ...(freeCanvasImportManifest ? { free_canvas_import: freeCanvasImportManifest } : {}),
     episodes: episodes.map(ep => {
       const sbs = storyboardsByEp[ep.id] || [];
       return {
@@ -797,6 +1319,7 @@ function exportDrama(db, cfg, log, dramaId, options = {}) {
             last_frame_local_path: sb.last_frame_local_path || null,
             video_url: vg?.video_url || null,
             video_local_path: vg?.local_path || null,
+            video_generation_original_id: vg?.original_id || null,
             character_indices: characterIndices,
             scene_index: sceneIndex,
             prop_indices: propIndices,
@@ -850,7 +1373,7 @@ function exportDrama(db, cfg, log, dramaId, options = {}) {
         extra_image_files: extraFiles,
       };
     }),
-    scenes: dedupedScenes.map(s => {
+    scenes: scenes.map(s => {
       const epIdx = episodeIds.indexOf(s.episode_id);
       const extras = parseExtraImages(s.extra_images);
       const extraFiles = extras.map((relPath, i) => {
@@ -906,16 +1429,19 @@ function exportDrama(db, cfg, log, dramaId, options = {}) {
 
   // 分镜图片完整历史（含首尾帧 first/last 专用图 + 所有历史生成）
   for (const { localRelPath, zipPath } of imageFilesToPack) {
+    if (archive.archivePaths.has(zipPath)) continue;
     archive.addStorageFile(storagePath, localRelPath, zipPath);
   }
 
   // 分镜视频
   for (const [sbId, vg] of Object.entries(videosBySb)) {
     if (vg.local_path) {
+      const archivePath = `media/videos/sb_${sbId}${extOf(vg.local_path)}`;
+      if (archive.archivePaths.has(archivePath)) continue;
       archive.addStorageFile(
         storagePath,
         vg.local_path,
-        `media/videos/sb_${sbId}${extOf(vg.local_path)}`
+        archivePath
       );
     }
   }
@@ -952,7 +1478,7 @@ function exportDrama(db, cfg, log, dramaId, options = {}) {
   }
 
   // 场景主图
-  for (const s of dedupedScenes) {
+  for (const s of scenes) {
     if (s.local_path) {
       archive.addStorageFile(
         storagePath,
@@ -986,6 +1512,18 @@ function exportDrama(db, cfg, log, dramaId, options = {}) {
   // extra_images（角色/场景/道具的额外参考图）
   for (const { localRelPath, zipPath } of extraFilesToPack) {
     archive.addStorageFile(storagePath, localRelPath, zipPath);
+  }
+
+  // Every manifest descriptor was bound to and archived from the exact bytes before project.json.
+  for (const media of freeCanvasImportManifest?.media || []) {
+    if (!archive.archivePaths.has(media.archive_path)) {
+      throw exportError(
+        'FREE_CANVAS_MEDIA_MISSING',
+        'Project export lost referenced free_canvas media before finalizing the archive.',
+        { source_path: media.source_path },
+        500
+      );
+    }
   }
 
   log.info('Drama exported', {

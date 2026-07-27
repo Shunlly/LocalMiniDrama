@@ -145,3 +145,19 @@ test('free adapter drops cross-layer ID collisions and their free edges by canon
   assert.deepEqual(freeGraph.nodes.map((node) => node.id), ['7', 'free:text:kept'])
   assert.equal(freeGraph.edges.length, 3)
 })
+
+test('free mode hides production creation placeholders while retaining read-only context nodes', () => {
+  const graph = mergeCanvasGraphs({
+    nodes: [
+      { id: 'production:context', type: 'canvasStoryboard' },
+      { id: 'production:add', type: 'canvasAddButton' },
+    ],
+    edges: [{ id: 'production-edge', source: 'production:context', target: 'production:add' }],
+  }, {
+    nodes: [{ id: 'free:text:1', type: 'freeCanvas', data: { label: 'Idea' } }],
+    edges: [],
+  }, 'free')
+
+  assert.deepEqual(graph.nodes.map((node) => node.id), ['production:context', 'free:text:1'])
+  assert.deepEqual(graph.edges, [])
+})

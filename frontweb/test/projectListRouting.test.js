@@ -109,6 +109,28 @@ test('project detail resolves a valid current episode and falls back to the firs
   assert.equal(resolveProjectEpisodeId([], '22'), null)
 })
 
+test('project route instance keys normalize route names and rotate only for positive project ids', async () => {
+  const routeUtils = await loadProjectListRouteUtils()
+  assert.equal(typeof routeUtils.projectRouteInstanceKey, 'function')
+
+  const projectA = { name: ' Drama-Detail ', params: { id: '101' }, query: {}, hash: '' }
+  const projectAQuery = {
+    name: 'drama-detail',
+    params: { id: 101 },
+    query: { intake: 'source-url' },
+    hash: '#source-intake-workflow',
+  }
+  const projectB = { name: 'drama-detail', params: { id: '202' } }
+
+  assert.equal(routeUtils.projectRouteInstanceKey(projectA), 'drama-detail:101')
+  assert.equal(routeUtils.projectRouteInstanceKey(projectAQuery), 'drama-detail:101')
+  assert.equal(routeUtils.projectRouteInstanceKey(projectB), 'drama-detail:202')
+  assert.notEqual(routeUtils.projectRouteInstanceKey(projectA), routeUtils.projectRouteInstanceKey(projectB))
+  assert.equal(routeUtils.projectRouteInstanceKey({ name: 'film-canvas', params: { id: '9' } }), 'film-canvas:9')
+  assert.equal(routeUtils.projectRouteInstanceKey({ name: 'drama-detail', params: { id: '0' } }), null)
+  assert.equal(routeUtils.projectRouteInstanceKey({ name: 'list', params: { id: '7' } }), null)
+})
+
 test('project list and project workspaces wire safe return navigation through the route', () => {
   const filmListSource = read('../src/views/FilmList.vue')
   const filmCreateSource = read('../src/views/FilmCreate.vue')
@@ -121,7 +143,10 @@ test('project list and project workspaces wire safe return navigation through th
   assert.match(filmListSource, /const projectListReturnTo = computed\(\(\) => normalizeProjectListReturnTo\(route\.fullPath\) \|\| '\/'\)/)
   assert.match(filmListSource, /projectCardDestination\(d, sourceImportIntent, projectListReturnTo\)/)
   assert.match(filmListSource, /选择已有项目后导入网页 URL/)
-  assert.match(filmListSource, /path: `\/drama\/\$\{drama\.id\}`,[\s\S]{0,100}returnTo: projectListReturnTo\.value/)
+  assert.match(
+    filmListSource,
+    /router\.push\(projectCardDestination\(drama, sourceImportIntent\.value, projectListReturnTo\.value\)\)/,
+  )
 
   for (const source of [filmCreateSource, dramaDetailSource]) {
     assert.match(source, /normalizeProjectListReturnTo\(route\.query\.returnTo\)/)

@@ -120,7 +120,7 @@ jobs:
           test -z "$(git status --porcelain)"
           test "$(git rev-parse HEAD)" = "$LOCALMINIDRAMA_BUILD_REVISION"
       - name: Start production containers and local protocol-compatible provider
-        run: docker compose --profile e2e up -d --build --wait
+        run: npm run docker:e2e:up
       - name: Record and scan final production images with Trivy
         shell: bash
         run: |
@@ -683,6 +683,83 @@ jobs:
       - name: Create draft GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          body: |
+            ## Windows security notice
+
+            **Setup and Portable are not Authenticode signed.** Windows may show `Unknown Publisher` or a SmartScreen warning. Download only from the official `Shunlly/LocalMiniDrama` GitHub Release. Do not run a file when its source is unknown, its SHA-256 or manifest differs, or GitHub artifact attestation verification fails.
+
+            Release tag: `${{ github.ref_name }}`
+            Expected Git SHA: `${{ github.sha }}`
+
+            Verify the official download in Windows PowerShell before running it:
+
+            ```powershell
+            $repo = 'Shunlly/LocalMiniDrama'
+            $tag = '${{ github.ref_name }}'
+            $expectedGitSha = '${{ github.sha }}'
+            $downloadDir = Join-Path $PWD "LocalMiniDrama-$tag"
+            if (Test-Path -LiteralPath $downloadDir) { throw "Refusing to reuse existing directory: $downloadDir" }
+            New-Item -ItemType Directory -Path $downloadDir | Out-Null
+            gh release download $tag --repo $repo --dir $downloadDir
+            if ($LASTEXITCODE -ne 0) { throw 'Official GitHub Release download failed' }
+            $attestationArgs = @(
+              '--repo', $repo,
+              '--signer-workflow', "$repo/.github/workflows/release.yml",
+              '--source-ref', "refs/tags/$tag",
+              '--source-digest', $expectedGitSha,
+              '--deny-self-hosted-runners'
+            )
+
+            Push-Location $downloadDir
+            $manifestPath = Join-Path $PWD 'release-manifest.json'
+            gh attestation verify $manifestPath @attestationArgs
+            if ($LASTEXITCODE -ne 0) { throw 'Release manifest attestation mismatch' }
+            $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+            if ($manifest.tag -ne $tag -or $manifest.git_commit -ne $expectedGitSha) { throw 'Release manifest tag or git_commit mismatch' }
+            $manifestArtifacts = @($manifest.artifacts)
+            if ($manifestArtifacts.Count -eq 0) { throw 'Release manifest contains no artifacts' }
+            $seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            $expectedChecksumRows = @()
+            foreach ($artifact in $manifestArtifacts) {
+              $name = [string]$artifact.name
+              if ([string]::IsNullOrWhiteSpace($name) -or [IO.Path]::GetFileName($name) -ne $name -or -not $seenNames.Add($name)) { throw "Unsafe or duplicate manifest artifact name: $name" }
+              $expectedBytes = 0L
+              if (-not [long]::TryParse([string]$artifact.bytes, [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$expectedBytes) -or $expectedBytes -le 0) { throw "Invalid manifest byte count: $name" }
+              $expectedSha = [string]$artifact.sha256
+              if ($expectedSha -cnotmatch '^[a-f0-9]{64}$') { throw "Invalid manifest SHA-256: $name" }
+              $artifactPath = Join-Path $PWD $name
+              $file = Get-Item -LiteralPath $artifactPath -Force -ErrorAction Stop
+              if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Unsafe release artifact: $name" }
+              if ($file.Length -ne $expectedBytes) { throw "Manifest byte count mismatch: $name" }
+              $actualSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $artifactPath).Hash.ToLowerInvariant()
+              if ($actualSha -cne $expectedSha) { throw "Manifest SHA-256 mismatch: $name" }
+              $expectedChecksumRows += "$expectedSha  $name"
+            }
+            $expectedReleaseFiles = @($manifestArtifacts | ForEach-Object { [string]$_.name }) + @('release-manifest.json', 'SHA256SUMS')
+            $actualReleaseFiles = @(Get-ChildItem -LiteralPath $PWD -File | ForEach-Object { $_.Name })
+            if (Compare-Object ($expectedReleaseFiles | Sort-Object) ($actualReleaseFiles | Sort-Object)) { throw 'Downloaded Release file set does not match the attested manifest' }
+            $manifestSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $manifestPath).Hash.ToLowerInvariant()
+            $expectedChecksumRows += "$manifestSha  release-manifest.json"
+            $actualChecksumRows = @(Get-Content -LiteralPath 'SHA256SUMS')
+            if ($actualChecksumRows.Count -ne $expectedChecksumRows.Count) { throw 'SHA256SUMS does not exactly match the attested manifest' }
+            for ($index = 0; $index -lt $expectedChecksumRows.Count; $index += 1) {
+              if ($actualChecksumRows[$index] -cne $expectedChecksumRows[$index]) { throw 'SHA256SUMS does not exactly match the attested manifest' }
+            }
+            Pop-Location
+
+            $sourceDir = Join-Path $downloadDir 'source'
+            git clone --branch $tag --depth 1 "https://github.com/$repo.git" $sourceDir
+            if ($LASTEXITCODE -ne 0) { throw 'Official tagged source download failed' }
+            $sourceSha = (& git -C $sourceDir rev-parse HEAD).Trim()
+            if ($sourceSha -ne $expectedGitSha) { throw 'Downloaded source does not match the expected Git SHA' }
+
+            Get-ChildItem -LiteralPath $downloadDir -File |
+              Where-Object { $_.Name -match '\.(exe|zip)$' -or $_.Name -eq 'artifact-security.json' } |
+              ForEach-Object {
+                gh attestation verify $_.FullName @attestationArgs
+                if ($LASTEXITCODE -ne 0) { throw "Artifact attestation mismatch: $($_.Name)" }
+              }
+            ```
           files: |
             desktop/release/*.exe
             desktop/release/*.exe.blockmap

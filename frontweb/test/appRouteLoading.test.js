@@ -5,7 +5,10 @@ import { readFileSync } from 'node:fs'
 const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
 test('app keeps the active route visible while accessible route loading is pending', () => {
-  assert.match(source, /<router-view \/>/)
+  assert.match(
+    source,
+    /<router-view(?![^>]*v-if)[^>]*>[\s\S]*?<component[^>]*:key="projectRouteInstanceKey\(matchedRoute\)"[^>]*\/>[\s\S]*?<\/router-view>\s*<div v-if="routeLoading"/,
+  )
   assert.match(source, /v-if="routeLoading"[\s\S]*?role="status"[\s\S]*?aria-live="assertive"/)
   assert.match(source, /createRouteLoadingState/)
   assert.match(source, /const navigationTokens = new WeakMap\(\)/)

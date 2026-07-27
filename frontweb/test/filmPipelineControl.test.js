@@ -236,3 +236,21 @@ test('FilmCreate protects navigation and unload while pipeline work is active', 
     /function handleBeforeUnload\(event\)[\s\S]*hasActivePipelineWork\(\)/,
   )
 })
+
+test('FilmCreate describes pipeline stop as local-only and discloses provider billing risk', () => {
+  const cancelRunSource = sourceBetween(
+    filmCreateSource,
+    'async function cancelPipelineRun',
+    'async function cancelActiveTask',
+  )
+  const navigationSource = sourceBetween(
+    filmCreateSource,
+    'async function confirmPipelineNavigation',
+    'async function allowNavigationAfterDraftFlush',
+  )
+
+  assert.doesNotMatch(cancelRunSource, /取消远端任务|远端任务取消失败|取消剩余远端任务/)
+  assert.doesNotMatch(navigationSource, /取消本流程已经提交的远端生成任务/)
+  assert.match(cancelRunSource, /停止本地执行/)
+  assert.match(navigationSource, /已提交的供应商任务和计费可能继续/)
+})

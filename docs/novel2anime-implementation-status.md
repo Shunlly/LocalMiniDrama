@@ -14,7 +14,7 @@ The production E2E uses a deterministic local OpenAI-compatible provider harness
 1. Project Readiness exposes one next action across AI configuration, source, script/episodes, assets, storyboards, and media.
 2. Source Intake presents `Import source -> Start processing -> QA -> Repair -> Episodes / Timeline` with executable empty and failure states.
 3. Film Create and Canvas share project data, action prerequisites, task progress, failure recovery, reference media, first/last frames, and composition output.
-4. Media Library supports validated local upload, search, type filtering, URL intake boundaries, preview, download, and cleanup.
+4. Media Library supports validated local media upload, search, type filtering, preview, download, and cleanup. The URL intake imports story text from a public web page into a project; it is not a third-party media search or download service.
 5. Production QA requires real local media plus successful non-mock provider audit records for text/image/video/TTS/compositor stages.
 
 ## Production Provider Execution
@@ -63,6 +63,14 @@ npm run verify:release:artifacts
 The Trivy vulnerability gate runs the official 0.64.1 OCI image pinned by digest on Ubuntu and reads the backend, frontend, desktop, and release CycloneDX SBOMs separately. Its configuration gate scans the three real Dockerfiles rather than the extracted application tree. Windows Gitleaks, Defender, extraction, and Fuse evidence records the SHA-256 of Setup, Portable, and Unpacked; each package must contribute exactly one Electron application and its Fuse state to the final evidence. The Ubuntu job recomputes source hashes before producing the manifest, and exact-set validation rejects unlisted ZIP attachments. The backend bind-mount ownership exception is path-scoped in `backend-node/.trivyignore.yaml`, recorded in artifact security evidence, and expires on 2027-07-17 for review.
 
 ## Deferred Boundaries
+
+### Network Asset Discovery And Rights Sources
+
+The current Media Library works with locally uploaded image/video assets and project-scoped search and filtering. Public web URLs are accepted only as story-text sources. Third-party image/video discovery, rights or license-source verification, remote preview selection, and download-to-library workflows are deferred and must not be inferred from the URL intake UI or acceptance screenshots.
+
+### Remote Model Discovery
+
+AI Configuration provides vendor presets, custom OpenAI-compatible providers, and manually maintained model lists. Connection testing may probe a configured endpoint, but the release does not implement generic `/v1/models` discovery or automatically import a provider's remote model catalog.
 
 ### Mobile Web
 

@@ -33,8 +33,8 @@
       </div>
       <div class="title">{{ data.storyboard?.title || '分镜' }}</div>
       <div class="chips">
-        <span v-if="data.storyboard?.shot_type">{{ data.storyboard.shot_type }}</span>
-        <span v-if="data.storyboard?.duration">{{ data.storyboard.duration }}s</span>
+        <span v-if="data.storyboard?.shot_type">{{ storyboardShotTypeLabel(data.storyboard.shot_type) }}</span>
+        <span v-if="data.storyboard?.duration">{{ data.storyboard.duration }} 秒</span>
         <span :class="'st-' + statusState.key">{{ statusState.label }}</span>
       </div>
       <div class="hint">
@@ -123,7 +123,11 @@ import { Handle, Position } from '@vue-flow/core'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { useCanvasContext } from '@/composables/useCanvasContext'
-import { getStoryboardInspectorMediaSummary, getStoryboardInspectorNavigation } from '@/utils/canvasUiState'
+import {
+  getStoryboardInspectorMediaSummary,
+  getStoryboardInspectorNavigation,
+  storyboardShotTypeLabel,
+} from '@/utils/canvasUiState'
 import CanvasStoryboardPanel from './CanvasStoryboardPanel.vue'
 import CanvasNodeStatusOverlay from './CanvasNodeStatusOverlay.vue'
 

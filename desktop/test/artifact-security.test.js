@@ -6,12 +6,18 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { removeFixtureTree } = require('./fixture-fs');
 const { FUSE_POLICY } = require('../scripts/electron-fuses');
+const mediaToolPolicy = require('../scripts/media-tool-policy');
 const {
   artifactNames,
   createVerifiedZip,
+  DEFENDER_SIGNATURE_MAX_AGE_HOURS,
   normalizeTrivyScanDetails,
+  normalizeDefenderSignatureDetails,
   parseFuseReport,
+  validateDefenderSignatureDetails,
+  validateScanPassMarker,
   validateArtifactScanInventory,
   verifyPackagedExampleApplications,
 } = require('../scripts/verify-windows-artifacts');
@@ -21,6 +27,16 @@ const EXAMPLE_DRAMA_DESCRIPTOR = Object.freeze({
   bytes: 82156132,
   sha256: 'f2aa6ec793270761b295e5ccc1fa5adb367dd36937db99e0b064667d8bb592f9',
 });
+const FIXTURE_MEDIA_CONTENTS = Object.freeze({
+  ffmpeg: Buffer.from('trusted ffmpeg fixture\n'),
+  ffprobe: Buffer.from('trusted ffprobe fixture\n'),
+});
+const FIXTURE_MEDIA_SHA256 = Object.freeze(Object.fromEntries(
+  Object.entries(FIXTURE_MEDIA_CONTENTS).map(([name, contents]) => [
+    name,
+    crypto.createHash('sha256').update(contents).digest('hex'),
+  ])
+));
 
 function fuseStates() {
   return Object.fromEntries(
@@ -45,6 +61,75 @@ function scanInventory(version = '1.3.0') {
       fuses: fuseStates(),
     })),
   };
+}
+
+function writeFixtureMediaTools(resourcesDirectory, mediaFiles = []) {
+  const release = mediaToolPolicy.getTrustedMediaToolRelease('win32', 'x64');
+  const mediaDirectory = path.join(resourcesDirectory, 'ffmpeg');
+  fs.mkdirSync(mediaDirectory, { recursive: true });
+  for (const expectedName of ['ffmpeg', 'ffprobe']) {
+    const filePath = path.join(mediaDirectory, release.tools[expectedName].fileName);
+    fs.writeFileSync(filePath, FIXTURE_MEDIA_CONTENTS[expectedName]);
+    mediaFiles.push({ expectedName, filePath });
+  }
+  return mediaFiles;
+}
+
+function extractedArtifactFixture(t) {
+  const scanRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-media-artifact-scan-'));
+  t.after(() => removeFixtureTree(scanRoot));
+
+  const exampleContents = Buffer.from('tiny verified example drama\n');
+  const expectedExampleDrama = {
+    relativePath: 'example_drama/example.zip',
+    fileName: 'example.zip',
+    bytes: exampleContents.length,
+    sha256: crypto.createHash('sha256').update(exampleContents).digest('hex'),
+  };
+  const applicationDirectories = {
+    setup: 'setup/installed',
+    portable: 'portable/extracted',
+    unpacked: 'unpacked',
+  };
+  const mediaFiles = [];
+  const applications = Object.values(applicationDirectories).map((applicationDirectory) => {
+    const resourcesDirectory = path.join(scanRoot, ...applicationDirectory.split('/'), 'resources');
+    const examplePath = path.join(resourcesDirectory, expectedExampleDrama.relativePath);
+    fs.mkdirSync(path.dirname(examplePath), { recursive: true });
+    fs.writeFileSync(examplePath, exampleContents);
+    writeFixtureMediaTools(resourcesDirectory, mediaFiles);
+
+    return {
+      executable: `${applicationDirectory}/LocalMiniDrama.exe`,
+      asar: `${applicationDirectory}/resources/app.asar`,
+      example_drama: {
+        path: `${applicationDirectory}/resources/${expectedExampleDrama.relativePath}`,
+        bytes: expectedExampleDrama.bytes,
+        sha256: expectedExampleDrama.sha256,
+      },
+      fuses: fuseStates(),
+    };
+  });
+  const inventory = scanInventory();
+  inventory.packaged_applications = applications;
+  return { inventory, mediaFiles, scanRoot, expectedExampleDrama };
+}
+
+function installFixtureMediaTrust(t) {
+  const calls = [];
+  t.mock.method(
+    mediaToolPolicy,
+    'assertTrustedMediaToolFile',
+    (expectedName, filePath, platform, arch) => {
+      calls.push({ expectedName, filePath, platform, arch });
+      return mediaToolPolicy.assertTrustedSha256(
+        filePath,
+        FIXTURE_MEDIA_SHA256[expectedName],
+        `${expectedName} for ${platform}-${arch}`
+      );
+    }
+  );
+  return calls;
 }
 
 test('release fuse report recognizes every Electron 43 fuse and its required state', () => {
@@ -156,7 +241,8 @@ test('cross-run release inventory rejects invalid bundled example drama descript
 
 test('bundled example drama evidence is independently re-hashed from every extracted application', (t) => {
   const scanRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-example-drama-scan-'));
-  t.after(() => fs.rmSync(scanRoot, { recursive: true, force: true }));
+  t.after(() => removeFixtureTree(scanRoot));
+  installFixtureMediaTrust(t);
   const contents = Buffer.from('tiny verified example drama\n');
   const expected = {
     relativePath: 'example_drama/example.zip',
@@ -169,6 +255,7 @@ test('bundled example drama evidence is independently re-hashed from every extra
     const examplePath = path.join(resources, expected.relativePath);
     fs.mkdirSync(path.dirname(examplePath), { recursive: true });
     fs.writeFileSync(examplePath, contents);
+    writeFixtureMediaTools(resources);
     return {
       executable: `${kind}/LocalMiniDrama.exe`,
       asar: `${kind}/resources/app.asar`,
@@ -220,9 +307,79 @@ test('bundled example drama evidence is independently re-hashed from every extra
   );
 });
 
+test('Setup, Portable, and Unpacked media tools are re-hashed through the trusted policy', (t) => {
+  const fixture = extractedArtifactFixture(t);
+  const calls = installFixtureMediaTrust(t);
+
+  validateArtifactScanInventory(fixture.inventory, fixture.inventory.version, {
+    scanRoot: fixture.scanRoot,
+    expectedExampleDrama: fixture.expectedExampleDrama,
+  });
+
+  assert.deepEqual(
+    calls.map(({ expectedName, filePath, platform, arch }) => ({
+      expectedName,
+      path: path.relative(fixture.scanRoot, filePath).replace(/\\/g, '/'),
+      platform,
+      arch,
+    })),
+    fixture.mediaFiles.map(({ expectedName, filePath }) => ({
+      expectedName,
+      path: path.relative(fixture.scanRoot, filePath).replace(/\\/g, '/'),
+      platform: 'win32',
+      arch: 'x64',
+    }))
+  );
+});
+
+test('a one-byte change to any packaged ffmpeg or ffprobe fails artifact validation', (t) => {
+  const fixture = extractedArtifactFixture(t);
+  installFixtureMediaTrust(t);
+
+  for (const { filePath } of fixture.mediaFiles) {
+    const original = fs.readFileSync(filePath);
+    const tampered = Buffer.from(original);
+    tampered[0] ^= 0x01;
+    fs.writeFileSync(filePath, tampered);
+    assert.throws(
+      () => validateArtifactScanInventory(fixture.inventory, fixture.inventory.version, {
+        scanRoot: fixture.scanRoot,
+        expectedExampleDrama: fixture.expectedExampleDrama,
+      }),
+      /does not match trusted SHA-256/,
+      path.relative(fixture.scanRoot, filePath)
+    );
+    fs.writeFileSync(filePath, original);
+  }
+});
+
+test('packaged media validation rejects a junction or symlink outside the scan root', (t) => {
+  const fixture = extractedArtifactFixture(t);
+  installFixtureMediaTrust(t);
+  const externalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-external-media-'));
+  t.after(() => removeFixtureTree(externalRoot));
+  writeFixtureMediaTools(externalRoot);
+
+  const packagedMediaDirectory = path.dirname(fixture.mediaFiles[0].filePath);
+  removeFixtureTree(packagedMediaDirectory);
+  fs.symlinkSync(
+    path.join(externalRoot, 'ffmpeg'),
+    packagedMediaDirectory,
+    process.platform === 'win32' ? 'junction' : 'dir'
+  );
+
+  assert.throws(
+    () => validateArtifactScanInventory(fixture.inventory, fixture.inventory.version, {
+      scanRoot: fixture.scanRoot,
+      expectedExampleDrama: fixture.expectedExampleDrama,
+    }),
+    /symbolic link|reparse point|physical path escapes the scan root/
+  );
+});
+
 test('cross-run release inventory rejects source artifact bytes changed after Windows scans', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-scan-inventory-'));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeFixtureTree(directory));
   const inventory = scanInventory();
   for (const name of inventory.source_artifacts) {
     const content = `verified:${name}\n`;
@@ -267,9 +424,63 @@ test('Trivy scan evidence records the vulnerability database and checks bundle i
   );
 });
 
+test('Defender signature evidence is UTC-normalized and bounded to 72 hours', () => {
+  const now = new Date('2026-07-24T12:00:00.000Z');
+  assert.equal(DEFENDER_SIGNATURE_MAX_AGE_HOURS, 72);
+  assert.deepEqual(
+    normalizeDefenderSignatureDetails('2026-07-21T12:00:00Z', { now }),
+    {
+      antivirus_signature_last_updated: '2026-07-21T12:00:00.000Z',
+      maximum_age_hours: 72,
+    }
+  );
+
+  for (const [label, value, pattern] of [
+    ['absent', undefined, /is required/],
+    ['malformed', 'July sometime', /valid UTC/],
+    ['future', '2026-07-24T12:00:00.001Z', /future/],
+    ['stale', '2026-07-21T11:59:59.999Z', /older than 72 hours/],
+    ['offset', '2026-07-21T12:00:00+00:00', /valid UTC/],
+  ]) {
+    assert.throws(() => normalizeDefenderSignatureDetails(value, { now }), pattern, label);
+  }
+});
+
+test('Defender marker validation requires fresh signature metadata', () => {
+  const now = new Date('2026-07-24T12:00:00.000Z');
+  const commit = 'a'.repeat(40);
+  const marker = {
+    schema: 'localminidrama.artifact-scan-pass.v1',
+    scanner: 'defender',
+    version: '1.1.25060.6-1.437.42.0',
+    status: 'passed',
+    commit,
+    generated_at: '2026-07-24T11:30:00.000Z',
+    details: {
+      antivirus_signature_last_updated: '2026-07-24T10:00:00.000Z',
+      maximum_age_hours: 72,
+    },
+  };
+
+  assert.deepEqual(
+    validateScanPassMarker(marker, 'defender', commit, { now }).details,
+    validateDefenderSignatureDetails(marker.details, { now })
+  );
+  for (const details of [
+    undefined,
+    { maximum_age_hours: 72 },
+    { antivirus_signature_last_updated: 'invalid', maximum_age_hours: 72 },
+    { antivirus_signature_last_updated: '2026-07-24T13:00:00.000Z', maximum_age_hours: 72 },
+    { antivirus_signature_last_updated: '2026-07-20T00:00:00.000Z', maximum_age_hours: 72 },
+    { antivirus_signature_last_updated: '2026-07-24T10:00:00.000Z', maximum_age_hours: 96 },
+  ]) {
+    assert.throws(() => validateScanPassMarker({ ...marker, details }, 'defender', commit, { now }));
+  }
+});
+
 test('Unpacked ZIP packaging retries a failed CRC test and accepts only a verified archive', async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-archive-test-'));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeFixtureTree(directory));
   const output = path.join(directory, 'candidate.zip');
   let writes = 0;
   let checks = 0;
@@ -294,7 +505,7 @@ test('Unpacked ZIP packaging retries a failed CRC test and accepts only a verifi
 
 test('Unpacked ZIP packaging removes an archive that fails CRC validation twice', async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-archive-failure-'));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeFixtureTree(directory));
   const output = path.join(directory, 'candidate.zip');
 
   await assert.rejects(

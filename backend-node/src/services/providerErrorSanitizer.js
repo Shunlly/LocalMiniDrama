@@ -1,5 +1,7 @@
 'use strict';
 
+const { isSensitiveFieldKey } = require('./sensitiveFieldPolicy');
+
 const MAX_LOG_STRING_CHARS = 2000;
 const MAX_LOG_ARRAY_ITEMS = 20;
 const MAX_LOG_OBJECT_KEYS = 50;
@@ -103,6 +105,13 @@ function extractProviderCode(value) {
   return null;
 }
 
+function extractProviderCodeFromMessage(value) {
+  const match = String(value?.message || value || '').match(
+    /(?:^|[;(]\s*)code\s+([A-Za-z0-9][A-Za-z0-9_.:/-]{0,79})(?=\s*(?:;|\)|$))/i
+  );
+  return safeProviderCode(match?.[1]);
+}
+
 function extractHttpStatus(value) {
   if (value && typeof value === 'object') {
     for (const candidate of [value.status, value.statusCode, value.httpStatus, value.http_status]) {
@@ -158,25 +167,6 @@ function statusAction(status, responseFormat) {
   if (status >= 500) return 'provider temporarily unavailable; retry later';
   if (responseFormat === 'non_json') return 'provider returned an unreadable error response';
   return 'provider reported an error; check provider configuration and retry';
-}
-
-function isGeneratedProviderErrorMessage(value) {
-  const message = String(value || '');
-  if (!/^[A-Za-z0-9][A-Za-z0-9 ._/-]{0,63} [A-Za-z0-9][A-Za-z0-9 ._/-]{0,63} failed(?: \([^\r\n]{1,160}\))?: [^\r\n]{1,180}\.$/.test(message)) {
-    return false;
-  }
-  return [
-    'request rejected; check the selected model and request parameters',
-    'authentication rejected; check the provider credentials',
-    'request forbidden; check provider permissions and content policy',
-    'endpoint, model, or task not found; check the provider configuration',
-    'provider timed out; retry the request',
-    'provider reported a request conflict; retry with a new request',
-    'provider rate limit or quota reached; retry later or check quota',
-    'provider temporarily unavailable; retry later',
-    'provider returned an unreadable error response',
-    'provider reported an error; check provider configuration and retry',
-  ].some((action) => message.endsWith(`: ${action}.`));
 }
 
 function buildProviderErrorMessage(options = {}) {
@@ -241,12 +231,12 @@ function toSafeProviderErrorMessage(error, options = {}) {
   if (error?.[SAFE_PROVIDER_ERROR]) return error.message;
   if (isUnsafeMediaError(error)) return sanitizeString(error.message || 'Unsafe media reference.');
   const source = typeof error === 'string' ? error : error?.message || error;
-  if (isGeneratedProviderErrorMessage(source)) return source;
   const status = extractHttpStatus(error) || extractHttpStatus(source) || extractHttpStatus(options.status);
   const code = safeProviderCode(error?.providerCode)
     || safeProviderCode(error?.code)
     || safeProviderCode(options.code)
-    || extractProviderCode(source);
+    || extractProviderCode(source)
+    || extractProviderCodeFromMessage(source);
   return buildProviderErrorMessage({
     ...options,
     status,
@@ -273,8 +263,7 @@ function isLengthOnlyKey(key) {
 
 function isSecretKey(key) {
   if (!key || isLengthOnlyKey(key)) return false;
-  return /(?:^|_)(?:authorization|api_?key|access_?key|secret(?:_?key)?|token|credential|password)(?:$|_)/.test(normalizeKey(key))
-    || normalizeKey(key) === 'x_goog_api_key';
+  return isSensitiveFieldKey(key);
 }
 
 function isPromptKey(key) {

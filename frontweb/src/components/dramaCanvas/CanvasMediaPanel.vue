@@ -16,6 +16,11 @@
         <el-button link size="small" @click.stop="closePanel">收起</el-button>
       </div>
     </div>
+    <div v-if="audioOutcomeUnknown" class="media-query-blocker" role="alert">
+      <p class="media-query-title">配音结果待确认</p>
+      <p class="media-query-note">服务端可能仍在合成并产生费用，请刷新分镜状态后再决定是否重试。</p>
+      <el-button size="small" type="warning" plain @click.stop="refreshAfterUnknownAudio">刷新分镜状态</el-button>
+    </div>
 
     <div
       v-if="showMediaQueryBlocker"
@@ -109,7 +114,7 @@
             size="small"
             type="warning"
             :loading="busy"
-            :disabled="Boolean(ttsAction.reason)"
+            :disabled="Boolean(ttsAction.reason) || audioOutcomeUnknown"
             @click.stop="runStep('audio')"
           >重新配音</el-button>
         </CanvasActionGate>
@@ -119,7 +124,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useCanvasContext } from '@/composables/useCanvasContext'
 import { CANVAS_NODE_STATUS_LABELS } from '@/composables/useCanvasNodeStatus'
@@ -140,6 +145,13 @@ const props = defineProps({
 const ctx = useCanvasContext()
 const busy = ref(false)
 const retryingMedia = ref(false)
+const audioOutcomeUnknown = ref(false)
+let generationRun = null
+
+onBeforeUnmount(() => {
+  generationRun?.abort()
+  generationRun = null
+})
 
 const sbNodeId = computed(() => (props.storyboard?.id ? `sb:${props.storyboard.id}` : ''))
 const unavailableProductionAction = Object.freeze({
@@ -193,6 +205,16 @@ async function runStep(step) {
       return
     }
   }
+  if (step === 'audio' && audioOutcomeUnknown.value) {
+    ElMessage.warning('请先刷新分镜状态，确认上一次配音结果后再重试')
+    return
+  }
+  const nextRun = ctx?.beginNodeGeneration?.({ nodeId: props.nodeId || sbNodeId.value, step }) || null
+  if (!nextRun) {
+    ElMessage.warning('已有单节点生成正在执行，请等待完成后再试')
+    return
+  }
+  generationRun = nextRun
   busy.value = true
   const statusMsg = CANVAS_NODE_STATUS_LABELS[step] || '处理中...'
   ctx?.nodeStatus?.set(props.nodeId, { step, message: statusMsg })
@@ -201,11 +223,16 @@ async function runStep(step) {
     const found = findStoryboardInDrama(drama, sbId)
     const sb = found?.storyboard || props.storyboard
     const genOpts = ctx?.getGenerationOptions?.() || getDramaGenerationOptions(drama)
-    if (step === 'image' && props.frameKind) await runFrameImageStep(drama, sb, genOpts, props.frameKind)
-    else if (step === 'image') await runImageStep(drama, sb, genOpts)
-    else if (step === 'video') await runVideoStep(drama, sb, genOpts)
+    if (step === 'image' && props.frameKind) {
+      await runFrameImageStep(drama, sb, genOpts, props.frameKind, {
+        signal: generationRun.signal,
+        onWarning: (warning) => ElMessage.warning(warning?.message || '已改用本地帧提示词'),
+      })
+    }
+    else if (step === 'image') await runImageStep(drama, sb, genOpts, { signal: generationRun.signal })
+    else if (step === 'video') await runVideoStep(drama, sb, genOpts, { signal: generationRun.signal })
     else if (step === 'audio') {
-      const res = await runAudioStep(sb)
+      const res = await runAudioStep(sb, { signal: generationRun.signal })
       if (res?.skipped) {
         ElMessage.info(res.reason || '已跳过')
         return
@@ -214,11 +241,26 @@ async function runStep(step) {
     ElMessage.success('生成完成')
     await ctx?.refresh?.()
   } catch (error) {
-    ElMessage.error(error?.message || '生成失败')
+    if (error?.code === 'SUBMISSION_OUTCOME_UNKNOWN') audioOutcomeUnknown.value = true
+    if (error?.name !== 'AbortError' && !generationRun?.signal.aborted) {
+      ElMessage.error(error?.message || '生成失败')
+    }
   } finally {
+    generationRun?.finish()
+    generationRun = null
     busy.value = false
     ctx?.nodeStatus?.clear(props.nodeId)
     ctx?.nodeStatus?.clear(sbNodeId.value)
+  }
+}
+
+async function refreshAfterUnknownAudio() {
+  try {
+    await ctx?.refresh?.()
+    audioOutcomeUnknown.value = false
+    ElMessage.success('分镜状态已刷新')
+  } catch (error) {
+    ElMessage.error(error?.message || '刷新失败，请稍后重试')
   }
 }
 

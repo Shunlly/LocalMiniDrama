@@ -81,7 +81,7 @@ function createDb() {
       local_path TEXT,
       deleted_at TEXT
     );
-    CREATE TABLE assets (id INTEGER PRIMARY KEY, drama_id INTEGER, deleted_at TEXT);
+    CREATE TABLE assets (id INTEGER PRIMARY KEY, drama_id INTEGER, local_path TEXT, deleted_at TEXT);
   `);
   return db;
 }

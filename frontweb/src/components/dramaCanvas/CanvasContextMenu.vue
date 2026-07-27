@@ -11,13 +11,15 @@
       @contextmenu.prevent
       @keydown.esc.prevent="close"
     >
-      <div class="ctx-title">在此添加</div>
-      <button type="button" class="ctx-item" @click="pick('storyboard')">分镜</button>
-      <button type="button" class="ctx-item" @click="pick('character')">角色</button>
-      <button type="button" class="ctx-item" @click="pick('scene')">场景</button>
-      <button type="button" class="ctx-item" @click="pick('prop')">道具</button>
-      <div class="ctx-divider" />
-      <button type="button" class="ctx-item" @click="pick('episode')">新集</button>
+      <template v-if="!freeMode">
+        <div class="ctx-title">在此添加</div>
+        <button type="button" class="ctx-item" @click="pick('storyboard')">分镜</button>
+        <button type="button" class="ctx-item" @click="pick('character')">角色</button>
+        <button type="button" class="ctx-item" @click="pick('scene')">场景</button>
+        <button type="button" class="ctx-item" @click="pick('prop')">道具</button>
+        <div class="ctx-divider" />
+        <button type="button" class="ctx-item" @click="pick('episode')">新集</button>
+      </template>
       <template v-if="freeMode">
         <div class="ctx-divider" />
         <div class="ctx-title">自由节点</div>

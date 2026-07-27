@@ -320,6 +320,32 @@ test('asset database failure removes both temporary and persisted files', async 
   }
 });
 
+test('asset BAD_REQUEST returns 400 and removes temporary and persisted files', async () => {
+  const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-bad-request-'));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-upload-temp-'));
+  const tempPath = path.join(tempDir, 'upload.tmp');
+  fs.writeFileSync(tempPath, PNG_BYTES);
+  const db = createDb();
+  const handlers = uploadRoutes.routes({ storage: { local_path: storagePath } }, createLog(), db);
+  const res = createResponseCapture();
+
+  try {
+    await handlers.uploadAsset({
+      body: { drama_id: '0' },
+      file: { path: tempPath, originalname: 'image.png', mimetype: 'image/png', size: PNG_BYTES.length },
+    }, res);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error.code, 'BAD_REQUEST');
+    assert.equal(fs.existsSync(tempPath), false);
+    assert.deepEqual(filesUnder(storagePath), []);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM assets').get().count, 0);
+  } finally {
+    db.close();
+    fs.rmSync(storagePath, { recursive: true, force: true });
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('disk middleware rejects over-limit uploads without leaving temporary files', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-limit-'));
   const middleware = uploadRoutes.createMediaUploadMiddleware({

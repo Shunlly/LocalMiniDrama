@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="localminidrama-evidence-authority" content="machine-artifact">
-  <title>LocalMiniDrama 1.3.3 桌面验收说明 - 2026-07-20</title>
+  <title>LocalMiniDrama 1.3.3 桌面验收说明 - 2026-07-24</title>
   <style>
     :root {
       color-scheme: light;
@@ -205,6 +205,7 @@
       <nav aria-label="报告导航">
         <a href="#summary">结论</a>
         <a href="#acceptance">联合验收</a>
+        <a href="#current">当前源码</a>
         <a href="#flow">流程证据</a>
         <a href="#quality">质量门禁</a>
         <a href="#risk">边界与风险</a>
@@ -215,9 +216,9 @@
   <main>
     <div class="intro" id="summary">
       <div>
-        <p class="eyebrow">Desktop release candidate acceptance / 2026-07-20</p>
+        <p class="eyebrow">Desktop release candidate acceptance / 2026-07-24</p>
         <h1>LocalMiniDrama 产品体验与发布验收</h1>
-        <p class="lede">以实际桌面工作流为准，覆盖项目入口、AI 服务、素材、剧集就绪度、制作台、画布和自由创作。移动端、代码签名和外部真实 Provider 深度接入按已确认范围后置。</p>
+        <p class="lede">以实际桌面工作流为准，覆盖项目入口、AI 服务、本地素材、网页正文导入、剧集就绪度、制作台、画布和自由创作。移动端、代码签名、外部真实 Provider 深度联调、网络媒体搜索/版权来源和通用模型自动发现按已确认范围后置。</p>
       </div>
       <div class="verdict">
         <strong>1.3.3 桌面验收说明性材料</strong>
@@ -246,7 +247,7 @@
       </div>
       <div class="gate">
         <span class="status info">按约后置</span>
-        <p>移动端与 touch 重排、Authenticode 签名、外部真实 Provider 深度联调。未配置的视频与语音服务会在产品中明确阻断正式制作，并提供返回上下文完整的配置入口。</p>
+        <p>移动端与 touch 重排、Authenticode 签名、外部真实 Provider 深度联调、第三方图片/视频搜索与版权来源集成，以及通用 `/v1/models` 自动模型发现。未配置的视频与语音服务会在产品中明确阻断正式制作，并提供返回上下文完整的配置入口。</p>
       </div>
       <div class="gate">
         <span class="status info">机器证据决定发布</span>
@@ -269,11 +270,13 @@
             <li>素材选择器已阻止旧请求覆盖新请求，加载、错误、空态和确认操作保持一致。</li>
             <li>项目包导入失败改为持久页内反馈，提供安全文件名、可操作原因、重新选择和关闭入口。</li>
             <li>素材选择器空态可直接清除筛选或前往素材中心上传，并通过受限返回地址回到原制作台。</li>
+            <li>QA 报告与当前处理运行严格绑定；新运行尚无 QA 时不会回退显示或执行旧报告的自动修复。</li>
+            <li>素材写入成功与列表刷新失败分开反馈；恢复动作只读刷新列表，并用请求代次阻止旧失败或旧成功覆盖更新结果。</li>
             <li>AI 配置把“服务状态”和“配置管理”分开，左右方向键同步迁移选中态与焦点；服务直达链接落在正确工作区。</li>
             <li>AI 可用状态同时校验默认配置、凭据、模型/工作流和最近连接结果；修复入口会展开并聚焦缺失字段，配置变更后旧测试结果立即失效。</li>
             <li>素材中心的“导入网页 URL”可选择已有项目并直接打开、聚焦 URL 输入；已完成过工作流的项目也无需先手动展开历史步骤。</li>
             <li>制作台在 769px 展开 180px 导航时把头部操作分行排列，保留全部命令且无控件重叠或横向滚动。</li>
-            <li>历史手工检查与生产 E2E 仅作为桌面布局、中文路径媒体和播放流程的说明性上下文；当前结论必须由最终同一提交的 machine artifacts 重新给出。</li>
+            <li>2026-07-23 当前源码手工验收覆盖 AI 校验、网页导入、来源标识、画布、1024px 制作台和项目列表；这些结果仍只提供产品上下文，正式结论必须由最终同一提交的 machine artifacts 给出。</li>
           </ul>
         </div>
         <div class="plain-panel">
@@ -286,6 +289,66 @@
             <li>任何同一提交门禁失败都回到开发阶段，不允许用本页或人工说明替代通过记录。</li>
           </ul>
         </div>
+      </div>
+    </section>
+
+    <section id="current" aria-labelledby="current-title">
+      <div class="section-head">
+        <h2 id="current-title">当前源码桌面验收</h2>
+        <p class="muted">2026-07-23 · 同源开发实例 · 桌面范围 · 说明性证据</p>
+      </div>
+      <div class="gate">
+        <span class="status good">手工流程通过</span>
+        <p>在当前源码的同源实例中复核项目入口、AI 配置校验、公开网页导入、素材来源、制作台和画布。应用控制台无错误，1024px 桌面视口无横向溢出；移动端与真实云 Provider 深度联调继续按范围后置。</p>
+      </div>
+      <div class="flow">
+        <figure>
+          <img src="final-20260723/02-ai-config-validation.png" alt="AI 配置弹窗显示完整错误摘要并聚焦首个必填字段">
+          <figcaption>
+            <div class="step-title"><span class="step-number">A</span><h3>AI 配置校验与焦点</h3><span class="step-health">说明性</span></div>
+            <p class="step-notes">空配置保存后一次列出名称、厂商、凭据、Base URL 与模型缺口，并把焦点移动到首个错误字段；弹窗保持固定标题、唯一滚动区和可见操作栏。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260723/06-source-url-import-success.png" alt="公开网页 URL 写入成功，列表刷新前显示成功反馈">
+          <figcaption>
+            <div class="step-title"><span class="step-number">B</span><h3>公开网页真实导入</h3><span class="step-health">说明性</span></div>
+            <p class="step-notes">公开网页 URL 写入成功，画面记录列表刷新前的成功反馈。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260723/07-source-origin-labels.png" alt="已导入素材分别显示网页域名、本地文件和粘贴文本来源">
+          <figcaption>
+            <div class="step-title"><span class="step-number">C</span><h3>素材来源可追溯</h3><span class="step-health">说明性</span></div>
+            <p class="step-notes">来源列表区分“网页 · 域名”“本地文件”和“粘贴文本”；网页素材使用真实页面标题，解决多次导入后同名且难以判断来源的问题。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260723/08-canvas-workspace.png" alt="画布工作区显示素材、分镜、脚本摘要、小地图和列表模式入口">
+          <figcaption>
+            <div class="step-title"><span class="step-number">D</span><h3>画布工作区</h3><span class="step-health">说明性</span></div>
+            <p class="step-notes">素材节点、分镜节点、脚本摘要与小地图保持稳定布局；画布和列表模式可互相切换，媒体缺失在节点内就地提示，不遮挡相邻内容。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260723/09-film-workspace-1024.png" alt="1024 像素宽桌面制作台显示唯一下一步和配置缺失服务入口">
+          <figcaption>
+            <div class="step-title"><span class="step-number">E</span><h3>1024px 制作台</h3><span class="step-health">说明性</span></div>
+            <p class="step-notes">能力缺口收敛为“配置缺失服务”这一条可执行下一步；导航、流水线、剧本编辑和主要操作在 1024px 桌面宽度内无重叠或横向滚动。</p>
+          </figcaption>
+        </figure>
+
+        <figure>
+          <img src="final-20260723/10-project-list-current-source.png" alt="当前源码项目列表显示项目卡片、筛选、素材入口和继续制作操作">
+          <figcaption>
+            <div class="step-title"><span class="step-number">F</span><h3>项目入口收口</h3><span class="step-health">说明性</span></div>
+            <p class="step-notes">项目列表保留筛选、素材和继续制作三类高频动作，已移除“微信我”等无关入口；卡片信息、状态和操作区保持稳定扫描层级。</p>
+          </figcaption>
+        </figure>
       </div>
     </section>
 
@@ -307,7 +370,7 @@
           <img src="assets/02-ai-config-20260717.jpg" alt="AI 配置页，显示五类服务的配置和测试状态">
           <figcaption>
             <div class="step-title"><span class="step-number">2</span><h3>AI 服务配置与模型</h3><span class="step-health">说明性</span></div>
-            <p class="step-notes">五类服务状态、默认模型、连接测试和缺口集中展示；支持多厂商预设与 OpenAI 兼容协议。当前视频和语音未配置属于已确认的外部接入后置范围。</p>
+            <p class="step-notes">五类服务状态、默认模型、连接测试和缺口集中展示；支持多厂商预设、自定义 OpenAI 兼容厂商和手工模型。通用 `/v1/models` 自动发现与真实厂商深度联调后置；当前视频和语音未配置属于已确认的外部接入边界。</p>
           </figcaption>
         </figure>
 
@@ -354,8 +417,8 @@
         <figure>
           <img src="assets/09-media-library-1366x768-20260717.jpg" alt="素材中心空状态和上传、网页 URL 入口">
           <figcaption>
-            <div class="step-title"><span class="step-number">8</span><h3>素材中心与网络来源</h3><span class="step-health">说明性</span></div>
-            <p class="step-notes">空状态提供本地上传和“新建项目后导入网页 URL”两条路径；图片与视频可跨项目复用，角色、场景和道具继续通过分类素材库管理。</p>
+            <div class="step-title"><span class="step-number">8</span><h3>素材中心与网页正文</h3><span class="step-health">说明性</span></div>
+            <p class="step-notes">空状态提供本地素材上传和“新建项目后导入网页 URL”两条路径；图片与视频可跨项目复用，网页 URL 只导入故事正文。第三方媒体搜索、版权来源核验和下载入库不在当前范围。</p>
           </figcaption>
         </figure>
 
@@ -523,7 +586,7 @@
           <img src="final-20260718/29-ai-config-providers-final-1440.jpg" alt="AI 配置添加弹窗展示更多文本厂商和可编辑模型列表">
           <figcaption>
             <div class="step-title"><span class="step-number">29</span><h3>更多厂商与模型</h3><span class="step-health">说明性</span></div>
-            <p class="step-notes">文本、素材图、分镜图、视频和 TTS 分类型提供厂商预设、模型预设与自定义兼容入口；高级接口设置默认收起，首屏先完成服务类型、名称和厂商选择。</p>
+            <p class="step-notes">文本、素材图、分镜图、视频和 TTS 分类型提供厂商预设、模型预设、自定义兼容入口与手工模型；高级接口设置默认收起，首屏先完成服务类型、名称和厂商选择。报告不宣称已支持通用 `/v1/models` 自动发现。</p>
           </figcaption>
         </figure>
 
@@ -583,7 +646,7 @@
         <thead><tr><th>门禁</th><th>结果</th><th>证据</th></tr></thead>
         <tbody>
           <tr><td>后端</td><td><span class="status info">机器证据</span></td><td>源码检查、流程审计、当前工作流合成所有权、最终媒体 ffprobe、ZIP/凭据/备份边界以最终提交的验证日志为准，本页不保留可过期的测试计数。</td></tr>
-          <tr><td>前端</td><td><span class="status info">机器证据</span></td><td>请求与路由竞态、AI 状态恢复、URL 导入、769px 几何、键盘焦点、离开保护、生产构建和包体预算由最终提交的前端验证记录判定。</td></tr>
+          <tr><td>前端</td><td><span class="status info">机器证据</span></td><td>请求与路由竞态、QA 运行所有权、素材写入后只读刷新恢复、AI 状态恢复、URL 导入、769px 几何、键盘焦点、离开保护、生产构建和包体预算由最终提交的前端验证记录判定。</td></tr>
           <tr><td>桌面</td><td><span class="status info">机器证据</span></td><td>Electron 生命周期、原生 ABI、URL 安全和媒体工具信任由同一提交的桌面验证记录判定；Authenticode 仍属延期范围。</td></tr>
           <tr><td>Docker</td><td><span class="status info">机器证据</span></td><td>Node 20 镜像边界、容器验证、运行时净化、镜像 revision 和镜像安全结果必须来自最终提交重新构建的 artifacts。</td></tr>
           <tr><td>生产 E2E</td><td><span class="status info">机器证据</span></td><td>UI 创建、制作、媒体、下载、导出和清理闭环由 ignored evidence 与 acceptance manifest 记录，并须与最终提交完全一致。正式矩阵固定为 28 张原始 viewport PNG，包含项目列表、素材中心、画布和自由创作的浅色与深色 1280×720 证据。</td></tr>
@@ -614,6 +677,7 @@
             <li>连接测试状态按非敏感运行实例隔离，删除陈旧配置记录；缺凭据、模型或工作流时始终优先给出具体修复动作。</li>
             <li>并发路由使用单调令牌保持最新加载遮罩，旧导航取消、重定向或报错不会提前恢复底层交互。</li>
             <li>网页 URL 导入意图贯穿项目选择、完成态工作流展开、输入框聚焦和安全返回上下文。</li>
+            <li>旧 QA 不再串入新运行；素材创建成功后的刷新异常明确标记“已导入”，禁止重复提交并提供只读恢复。</li>
             <li>核心界面统一为中文生产术语。</li>
           </ul>
         </div>
@@ -651,6 +715,8 @@
           <ul>
             <li>截图不能单独证明完整屏幕阅读器兼容；结论结合自动化语义契约。</li>
             <li>真实云 Provider 的计费、限流和长耗时行为按范围后置。</li>
+            <li>素材截图只证明本地上传/筛选和网页正文导入，不证明第三方媒体搜索、版权授权来源或下载入库。</li>
+            <li>AI 配置截图只证明预设厂商、自定义兼容厂商和手工模型，不证明通用 `/v1/models` 自动发现。</li>
             <li>恢复后不会携带密钥，管理员必须重新录入并执行连接测试。</li>
             <li>GitHub CI 是推送后的远端独立复验；机器发布结论以同一源码提交的安全证据、manifest 和离线校验为准。</li>
           </ul>
@@ -662,7 +728,7 @@
   <footer>
     <div class="footer-inner">
       <strong>LocalMiniDrama 1.3.3 桌面验收说明性报告</strong>
-      <span>报告更新：2026-07-20 · 正式发布仅以最终干净提交的 machine artifacts 与 GitHub checks 为准</span>
+      <span>报告更新：2026-07-24 · 正式发布仅以最终干净提交的 machine artifacts 与 GitHub checks 为准</span>
     </div>
   </footer>
 </body>

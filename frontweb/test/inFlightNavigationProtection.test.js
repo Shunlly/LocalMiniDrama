@@ -66,7 +66,7 @@ test('existing-source workflow launch is checked before unsaved source input', (
   assert.ok(activeIndex >= 0, 'route guard must check active source operations')
   assert.ok(unsavedIndex >= 0, 'route guard must check unsaved source input')
   assert.ok(activeIndex < unsavedIndex, 'active workflow launch must be checked before the clean-input fast path')
-  assert.match(leaveGuard, /sourceOperationActive\.value[\s\S]*ElMessage\.warning\([\s\S]*return false/)
+  assert.match(leaveGuard, /sourceOperationActive\.value[\s\S]*showWorkflowMessage\('warning',[\s\S]*return false/)
   assert.match(
     sourceWorkflowSource,
     /const sourceOperationActive = computed\(\(\) => Boolean\([\s\S]*workflowStarting\.value[\s\S]*readinessChecking\.value/,

@@ -291,7 +291,7 @@ function buildStoryEvents(dramaId, sourceType, items) {
       drama_id: Number(dramaId),
       source_item_id: null,
       event_no: index + 1,
-      title: item.title || `${sourceType} event ${index + 1}`,
+      title: item.title || `素材事件 ${index + 1}`,
       detail: trimText(item.raw_text, 800),
       characters: extractCharacters(item.raw_text),
       location: extractLocation(item.raw_text),
@@ -305,7 +305,7 @@ function summarizeEpisodeBeats(bucketItems, bucketEvents) {
   const beats = bucketEvents.length ? bucketEvents : bucketItems;
   return beats.map((item, index) => ({
     beat_no: index + 1,
-    title: trimText(item.title || `Beat ${index + 1}`, 120),
+    title: trimText(item.title || `情节点 ${index + 1}`, 120),
     summary: trimText(item.detail || item.summary || item.raw_text || '', 260),
     tension: item.tension || undefined,
     hook_score: item.hook_score || undefined,
@@ -334,7 +334,7 @@ function buildAdaptationPlan({ dramaId, sourceId, sourceType, title, items, even
     const locations = Array.from(new Set(bucketEvents.map((event) => event.location).filter(Boolean)));
     episodes.push({
       episode_number: i + 1,
-      title: first.title || `Episode ${i + 1}`,
+      title: first.title || `第 ${i + 1} 集`,
       source_item_ids: bucketItems.map((item) => item.id).filter(Boolean),
       story_event_ids: bucketEvents.map((event) => event.id).filter(Boolean),
       source_trace: bucketItems.map((item) => ({ id: item.id, item_no: item.item_no, title: item.title })).filter((item) => item.id),
@@ -678,7 +678,7 @@ function insertEpisodesAppendOnly(db, dramaId, episodes) {
     const info = insert.run(
       Number(dramaId),
       nextNo,
-      episode.title || `Episode ${nextNo}`,
+      episode.title || `第 ${nextNo} 集`,
       episode.script_content || '',
       episode.description || null,
       now,
@@ -715,10 +715,10 @@ function applyAdaptationPlanToEpisodes(db, log, planId, options = {}) {
   const episodes = Array.isArray(plan.plan_json?.episodes) ? plan.plan_json.episodes : [];
   const savePayload = episodes.map((episode, index) => ({
     episode_number: Number(episode.episode_number) || index + 1,
-    title: episode.title || `Episode ${index + 1}`,
+    title: episode.title || `第 ${index + 1} 集`,
     script_content: [
       episode.beat_summary || '',
-      episode.hook ? `\nHook: ${episode.hook}` : '',
+      episode.hook ? `\n悬念：${episode.hook}` : '',
     ].join('').trim(),
   }));
 

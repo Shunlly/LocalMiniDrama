@@ -35,3 +35,17 @@ export function formatDuration(seconds) {
   const sec = total % 60
   return `${min}:${String(sec).padStart(2, '0')}`
 }
+
+const TIMELINE_TRACK_TYPE_LABELS = Object.freeze({
+  video: '视频',
+  subtitle: '字幕',
+  voice: '旁白',
+  dialogue: '对白',
+  effect: '音效',
+  bgm: '背景音乐',
+  transition: '转场',
+})
+
+export function timelineTrackTypeLabel(value) {
+  return TIMELINE_TRACK_TYPE_LABELS[String(value || '').trim().toLowerCase()] || '其他轨道'
+}

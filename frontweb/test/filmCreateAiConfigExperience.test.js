@@ -74,17 +74,17 @@ test('FilmCreate readiness refreshes use independent latest-request generation g
 test('FilmCreate AI config dialog fixes its header and tabs around one content scroller', () => {
   assert.match(
     filmCreateSource,
-    /<el-dialog\s+v-model="showAiConfigDialog"[^>]*top="5vh"[^>]*class="ai-config-workspace-dialog ai-config-overlay"/,
+    /<AccessibleDialog\s+v-model="showAiConfigDialog"[^>]*top="5vh"[^>]*class="ai-config-workspace-dialog ai-config-overlay"/,
   )
   assert.doesNotMatch(aiConfigSource, /max-height:\s*calc\(100vh\s*-\s*320px\)/)
   assert.match(mainSource, /import ['"]\.\/styles\/theme\.css['"]/)
 
   const homeAiDialog = sourceBetween(
     filmListSource,
-    '<el-dialog v-model="showAiConfigDialog"',
-    '</el-dialog>',
+    '<AccessibleDialog\n      v-model="showAiConfigDialog"'.replace('\\n', '\n'),
+    '</AccessibleDialog>',
   )
-  assert.match(homeAiDialog, /<AIConfigContent v-if="showAiConfigDialog"\s*\/>/)
+  assert.match(homeAiDialog, /<AIConfigContent ref="aiConfigContentRef" v-if="showAiConfigDialog"\s*\/>/)
   assert.doesNotMatch(homeAiDialog, /ai-config-workspace-dialog/)
 
   const dialog = cssRule(themeSource, aiDialogHostSelector)
@@ -132,18 +132,18 @@ test('FilmCreate generic AI config entry resets a prior service-specific filter'
 test('FilmCreate AI config returns to production and refreshes changed readiness through the close watcher', () => {
   const dialogModelIndex = filmCreateSource.indexOf('v-model="showAiConfigDialog"')
   assert.ok(dialogModelIndex >= 0, 'missing AI config dialog')
-  const dialogStart = filmCreateSource.lastIndexOf('<el-dialog', dialogModelIndex)
-  const dialogEnd = filmCreateSource.indexOf('</el-dialog>', dialogModelIndex)
+  const dialogStart = filmCreateSource.lastIndexOf('<AccessibleDialog', dialogModelIndex)
+  const dialogEnd = filmCreateSource.indexOf('</AccessibleDialog>', dialogModelIndex)
   const dialog = filmCreateSource.slice(dialogStart, dialogEnd)
   assert.match(dialog, /:show-close="true"/)
   assert.match(dialog, /<template #header="\{ titleId, titleClass \}">[\s\S]*<ArrowLeft \/>[\s\S]*返回制作[\s\S]*<\/template>/)
   assert.match(dialog, /<strong :id="titleId" :class="\[titleClass, 'ai-config-dialog-title'\]">AI 配置<\/strong>/)
-  assert.match(dialog, /@click="returnToProductionFromAiConfig"/)
+  assert.match(dialog, /@click="requestAiConfigWorkspaceClose"/)
   assert.match(dialog, /@configuration-changed="onAiConfigurationChanged"/)
 
   assert.match(filmCreateSource, /const aiConfigChanged = ref\(false\)/)
   assert.match(filmCreateSource, /function onAiConfigurationChanged\(\) \{\s*aiConfigChanged\.value = true\s*\}/)
-  assert.match(filmCreateSource, /function returnToProductionFromAiConfig\(\) \{\s*showAiConfigDialog\.value = false\s*\}/)
+  assert.match(filmCreateSource, /async function requestAiConfigWorkspaceClose\(\) \{[\s\S]*await aiConfigContentRef\.value\?\.requestClose\?\.\(\)[\s\S]*showAiConfigDialog\.value = false/)
 
   const closeWatcher = sourceBetween(
     filmCreateSource,

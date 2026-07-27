@@ -29,18 +29,19 @@ const workflowRoutes = require('./workflows');
 const storySourceRoutes = require('./storySources');
 const qaReportRoutes = require('./qaReports');
 const timelineRoutes = require('./timelines');
+const aiConfigService = require('../services/aiConfigService');
+const { validateHttpRequestTarget } = require('../services/secureHttpFetch');
 
-function createProviderNetworkBoundary(db) {
+function createProviderNetworkBoundary(db, options = {}) {
   return async (req, res, next) => {
     const body = req.body || {};
     const rawId = body.id ?? body.config_id;
     let saved = null;
-    let trustedOrigins = [];
     if (rawId != null && /^\d+$/.test(String(rawId))) {
       saved = db.prepare(
-        'SELECT base_url, is_active FROM ai_service_configs WHERE id = ? AND deleted_at IS NULL'
+        `SELECT base_url, is_active, provider, service_type, settings
+         FROM ai_service_configs WHERE id = ? AND deleted_at IS NULL`
       ).get(Number(rawId));
-      if (saved?.is_active) trustedOrigins = [saved.base_url].filter(Boolean);
     }
     const requestedBaseUrl = String(body.base_url || saved?.base_url || '').trim();
     if (!requestedBaseUrl) return next();
@@ -61,9 +62,12 @@ function createProviderNetworkBoundary(db) {
     }
 
     try {
-      const uploadService = require('../services/uploadService');
-      await uploadService.validatePublicHttpUrl(requestedBaseUrl, { trustedOrigins });
-      req.providerNetworkTrustedOrigins = trustedOrigins;
+      const providerNetworkPolicy = aiConfigService.getProviderNetworkOptions(saved, {
+        lookup: options.lookup,
+      });
+      await validateHttpRequestTarget(requestedBaseUrl, providerNetworkPolicy);
+      req.providerNetworkPolicy = providerNetworkPolicy;
+      req.providerNetworkTrustedOrigins = providerNetworkPolicy.trustedOrigins;
       return next();
     } catch (error) {
       return response.error(

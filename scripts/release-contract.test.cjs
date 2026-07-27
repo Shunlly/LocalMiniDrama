@@ -1,7 +1,7 @@
 'use strict'
 
 const assert = require('node:assert/strict')
-const { spawnSync } = require('node:child_process')
+const { spawn, spawnSync } = require('node:child_process')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const { createRequire } = require('node:module')
@@ -15,6 +15,8 @@ const {
   expectedChecksumText,
   expectedReleaseArtifactNames,
   isReleaseArtifact,
+  parseReleaseMetadataArguments,
+  validateArtifactSecurity,
   verify,
 } = require('./generate-release-metadata.cjs')
 const { validatePackagedApplications } = require('./packaged-applications-contract.cjs')
@@ -113,6 +115,8 @@ const rootPackage = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 
 const backendPackage = JSON.parse(fs.readFileSync(path.join(root, 'backend-node', 'package.json'), 'utf8'))
 const frontendPackage = JSON.parse(fs.readFileSync(path.join(root, 'frontweb', 'package.json'), 'utf8'))
 const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'))
+const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8')
+const desktopReadme = fs.readFileSync(path.join(root, 'desktop', 'README.md'), 'utf8')
 const ciWorkflowDocument = parseYaml(ciWorkflow)
 const releaseWorkflowDocument = parseYaml(workflow)
 const gitHeadResult = spawnSync('git', ['rev-parse', 'HEAD'], {
@@ -604,6 +608,22 @@ function waitForProcessExit(pid, timeout = 3000) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
   }
   return !isProcessRunning(pid)
+}
+
+function renameReleasedPathSync(sourcePath, targetPath, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs
+  while (true) {
+    try {
+      fs.renameSync(sourcePath, targetPath)
+      return
+    } catch (error) {
+      const retryable = process.platform === 'win32'
+        && ['EPERM', 'EACCES', 'UNKNOWN'].includes(error?.code)
+        && Date.now() < deadline
+      if (!retryable) throw error
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+    }
+  }
 }
 
 function runPowerShellStatements(statements, { env, executable, timeout } = {}) {
@@ -1221,6 +1241,7 @@ function trustedMediaMetadata() {
 }
 
 function passedArtifactSecurity(version, output, commit = gitHead) {
+  const defenderSignatureUpdated = new Date(Date.now() - 60 * 60 * 1000).toISOString()
   const sourceArtifacts = [
     `LocalMiniDrama-Portable-${version}-x64.exe`,
     `LocalMiniDrama-Setup-${version}-x64.exe`,
@@ -1282,7 +1303,9 @@ function passedArtifactSecurity(version, output, commit = gitHead) {
       defender: {
         version: '1.1.25060.6-1.437.42.0',
         status: 'passed',
-        generated_at: '2026-07-17T00:00:00.000Z',
+        generated_at: new Date().toISOString(),
+        antivirus_signature_last_updated: defenderSignatureUpdated,
+        maximum_age_hours: 72,
         scope: 'release bundle and extracted payloads',
       },
     },
@@ -1312,7 +1335,7 @@ function createReleaseFixture(t, { commit = gitHead } = {}) {
     } else if (name.endsWith('.cdx.json')) {
       const packageDirectory = releaseSbomPackages(version).get(name)
       assert.ok(packageDirectory, `release fixture has no package mapping for ${name}`)
-      fs.writeFileSync(filePath, `${JSON.stringify(completeDirectDependencySbom(packageDirectory), null, 2)}\n`)
+      fs.writeFileSync(filePath, `${JSON.stringify(completePackageLockSbom(packageDirectory), null, 2)}\n`)
     } else {
       fs.writeFileSync(filePath, `fixture:${name}\n`)
     }
@@ -1328,6 +1351,7 @@ function createReleaseFixture(t, { commit = gitHead } = {}) {
     version,
     tag: `v${version}`,
     commit,
+    git_commit: commit,
     source_dirty: false,
     generated_at: '2026-07-17T00:00:00.000Z',
     artifacts,
@@ -1336,6 +1360,98 @@ function createReleaseFixture(t, { commit = gitHead } = {}) {
   fs.writeFileSync(path.join(output, 'SHA256SUMS'), expectedChecksumText(output, artifacts))
   return { artifacts, output, version }
 }
+
+test('unsigned Windows release guidance and draft body require official-source verification', () => {
+  for (const [label, source] of [['root README', readme], ['desktop README', desktopReadme]]) {
+    assert.match(source, /not Authenticode signed|未(?:进行|做) Authenticode 签名/i, label)
+    assert.match(source, /Unknown Publisher/, label)
+    assert.match(source, /SmartScreen/, label)
+    assert.match(source, /github\.com\/Shunlly\/LocalMiniDrama\/releases/, label)
+    assert.match(source, /Get-FileHash[\s\S]*SHA256/, label)
+    assert.match(source, /SHA256SUMS/, label)
+    assert.match(source, /release-manifest\.json[\s\S]*git_commit/, label)
+    assert.match(source, /gh attestation verify/, label)
+    assert.match(source, /expectedGitSha/, label)
+    assert.match(source, /gh attestation verify \$manifestPath @attestationArgs[\s\S]*ConvertFrom-Json/, `${label}: manifest must be attested before it is trusted`)
+    assert.match(source, /attestationArgs[\s\S]*--signer-workflow[\s\S]*\$repo\/.github\/workflows\/release\.yml/, `${label}: signer workflow must be exact`)
+    assert.match(source, /attestationArgs[\s\S]*--source-ref[\s\S]*refs\/tags\/\$tag/, `${label}: attestation source ref must match the release tag`)
+    assert.match(source, /attestationArgs[\s\S]*--source-digest[\s\S]*\$expectedGitSha/, `${label}: attestation source digest must match the release commit`)
+    assert.match(source, /attestationArgs[\s\S]*--deny-self-hosted-runners/, `${label}: release provenance must reject self-hosted signers`)
+    assert.match(source, /gh attestation verify \$manifestPath @attestationArgs/, `${label}: manifest verification must use strict provenance arguments`)
+    assert.match(source, /gh attestation verify \$_.FullName @attestationArgs/, `${label}: artifact verification must use strict provenance arguments`)
+    assert.match(source, /manifestArtifacts[\s\S]*GetFileName[\s\S]*artifact.bytes/, `${label}: manifest must bind safe names and byte counts`)
+    assert.match(source, /foreach \(\$artifact in \$manifestArtifacts\)[\s\S]*\$expectedSha = \[string\]\$artifact.sha256/, `${label}: manifest must supply artifact hashes`)
+    assert.match(source, /Get-FileHash[\s\S]*\$actualSha -cne \$expectedSha/, `${label}: downloaded artifacts must match manifest hashes`)
+    assert.match(source, /expectedChecksumRows[\s\S]*actualChecksumRows[\s\S]*SHA256SUMS does not exactly match/, `${label}: checksum rows must derive from the attested manifest`)
+  }
+
+  const publishStep = releaseWorkflowDocument.jobs['publish-release'].steps
+    .find((step) => step.name === 'Create draft GitHub release')
+  assert.equal(publishStep.with.generate_release_notes, true)
+  const body = publishStep.with.body
+  assert.equal(typeof body, 'string')
+  for (const claim of [
+    'not Authenticode signed',
+    'Unknown Publisher',
+    'SmartScreen',
+    'SHA256SUMS',
+    'release-manifest.json',
+    'gh attestation verify',
+    '${{ github.ref_name }}',
+    '${{ github.sha }}',
+    'Shunlly/LocalMiniDrama',
+  ]) assert.ok(body.includes(claim), `draft release body is missing: ${claim}`)
+  assert.match(body, /gh attestation verify \$manifestPath @attestationArgs[\s\S]*ConvertFrom-Json/, 'draft body must attest the manifest before parsing it')
+  assert.match(body, /attestationArgs[\s\S]*--signer-workflow[\s\S]*\$repo\/.github\/workflows\/release\.yml/, 'draft body must enforce the exact signer workflow')
+  assert.match(body, /attestationArgs[\s\S]*--source-ref[\s\S]*refs\/tags\/\$tag/, 'draft body must enforce the release tag ref')
+  assert.match(body, /attestationArgs[\s\S]*--source-digest[\s\S]*\$expectedGitSha/, 'draft body must enforce the release commit')
+  assert.match(body, /attestationArgs[\s\S]*--deny-self-hosted-runners/, 'draft body must reject self-hosted provenance')
+  assert.match(body, /gh attestation verify \$manifestPath @attestationArgs/, 'draft body manifest verification must use strict provenance arguments')
+  assert.match(body, /gh attestation verify \$_.FullName @attestationArgs/, 'draft body artifact verification must use strict provenance arguments')
+  assert.match(body, /manifestArtifacts[\s\S]*GetFileName[\s\S]*artifact.bytes/, 'draft body must bind safe names and byte counts to the manifest')
+  assert.match(body, /foreach \(\$artifact in \$manifestArtifacts\)[\s\S]*\$expectedSha = \[string\]\$artifact.sha256/, 'draft body must read artifact hashes from the manifest')
+  assert.match(body, /Get-FileHash[\s\S]*\$actualSha -cne \$expectedSha/, 'draft body must bind downloaded artifact hashes to the manifest')
+  assert.match(body, /expectedChecksumRows[\s\S]*actualChecksumRows[\s\S]*SHA256SUMS does not exactly match/, 'draft body must derive checksums from the attested manifest')
+})
+
+test('Defender workflow updates signatures and passes UTC freshness metadata into the marker', () => {
+  const signatureUpdate = windowsReleaseSecurityWorkflow.indexOf('& $defender -SignatureUpdate')
+  const scan = windowsReleaseSecurityWorkflow.indexOf('& $defender -Scan')
+  assert.ok(signatureUpdate >= 0 && scan > signatureUpdate)
+  assert.match(windowsReleaseSecurityWorkflow, /SignatureUpdate[\s\S]*LASTEXITCODE[\s\S]*throw/)
+  assert.match(windowsReleaseSecurityWorkflow, /AntivirusSignatureLastUpdated/)
+  assert.match(windowsReleaseSecurityWorkflow, /FromHours\(72\)/)
+  assert.match(windowsReleaseSecurityWorkflow, /ToUniversalTime\(\)/)
+  assert.match(windowsReleaseSecurityWorkflow, /mark defender \$version \$signatureUpdatedUtc/)
+  assert.match(windowsArtifactVerifierSource, /DEFENDER_SIGNATURE_MAX_AGE_HOURS/)
+  assert.match(windowsArtifactVerifierSource, /antivirus_signature_last_updated/)
+})
+
+test('final artifact security validation rejects absent malformed future and stale Defender signature evidence', (t) => {
+  const fixture = createReleaseFixture(t)
+  const evidencePath = path.join(fixture.output, 'artifact-security.json')
+  const original = JSON.parse(fs.readFileSync(evidencePath, 'utf8'))
+  const names = fs.readdirSync(fixture.output)
+  assert.doesNotThrow(() => validateArtifactSecurity(fixture.output, names, desktopPackage.version))
+
+  const cases = [
+    ['absent', (value) => { delete value.scans.defender.antivirus_signature_last_updated }],
+    ['malformed', (value) => { value.scans.defender.antivirus_signature_last_updated = 'invalid' }],
+    ['future', (value) => { value.scans.defender.antivirus_signature_last_updated = new Date(Date.now() + 60_000).toISOString() }],
+    ['stale', (value) => { value.scans.defender.antivirus_signature_last_updated = new Date(Date.now() - (73 * 60 * 60 * 1000)).toISOString() }],
+    ['wrong bound', (value) => { value.scans.defender.maximum_age_hours = 96 }],
+  ]
+  for (const [label, mutate] of cases) {
+    const changed = structuredClone(original)
+    mutate(changed)
+    fs.writeFileSync(evidencePath, `${JSON.stringify(changed, null, 2)}\n`)
+    assert.throws(
+      () => validateArtifactSecurity(fixture.output, names, desktopPackage.version),
+      /Defender.*(?:signature|maximum age)/i,
+      label,
+    )
+  }
+})
 
 function createSbomFixture(t) {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-sbom-contract-'))
@@ -1362,6 +1478,7 @@ function createSbomFixture(t) {
         devDependencies: { ...packageJson.devDependencies },
       },
       'node_modules/alpha': { version: '1.4.0' },
+      'node_modules/alpha/node_modules/gamma': { version: '3.2.1' },
       'node_modules/beta': { version: '2.1.0', dev: true },
     },
   }
@@ -1378,25 +1495,97 @@ function createSbomFixture(t) {
         type: 'application',
         name: packageJson.name,
         version: packageJson.version,
+        purl: 'pkg:npm/fixture-app@1.0.0',
       },
     },
     components: [
-      { 'bom-ref': 'alpha@1.4.0', type: 'library', name: 'alpha', version: '1.4.0' },
-      { 'bom-ref': 'beta@2.1.0', type: 'library', name: 'beta', version: '2.1.0' },
+      {
+        'bom-ref': 'alpha@1.4.0',
+        type: 'library',
+        name: 'alpha',
+        version: '1.4.0',
+        purl: 'pkg:npm/alpha@1.4.0',
+        scope: 'required',
+        properties: [{ name: 'cdx:npm:package:path', value: 'node_modules/alpha' }],
+      },
+      {
+        'bom-ref': 'beta@2.1.0',
+        type: 'library',
+        name: 'beta',
+        version: '2.1.0',
+        purl: 'pkg:npm/beta@2.1.0',
+        scope: 'optional',
+        properties: [{ name: 'cdx:npm:package:path', value: 'node_modules/beta' }],
+      },
+      {
+        'bom-ref': 'gamma@3.2.1',
+        type: 'library',
+        name: 'gamma',
+        version: '3.2.1',
+        purl: 'pkg:npm/gamma@3.2.1',
+        scope: 'required',
+        properties: [{
+          name: 'cdx:npm:package:path',
+          value: 'node_modules/alpha/node_modules/gamma',
+        }],
+      },
     ],
     dependencies: [
       { ref: rootRef, dependsOn: ['alpha@1.4.0', 'beta@2.1.0'] },
-      { ref: 'alpha@1.4.0', dependsOn: [] },
+      { ref: 'alpha@1.4.0', dependsOn: ['gamma@3.2.1'] },
       { ref: 'beta@2.1.0', dependsOn: [] },
+      { ref: 'gamma@3.2.1', dependsOn: [] },
     ],
   }
   return { outputDirectory, packageDirectory, packageLock, sbom }
 }
 
-function completeDirectDependencySbom(packageDirectory) {
+function npmPackageNameFromLockPath(packagePath) {
+  const marker = 'node_modules/'
+  const markerIndex = packagePath.lastIndexOf(marker)
+  assert.ok(markerIndex >= 0, `lock package path has no node_modules segment: ${packagePath}`)
+  const segments = packagePath.slice(markerIndex + marker.length).split('/')
+  const name = segments[0].startsWith('@') ? segments.slice(0, 2).join('/') : segments[0]
+  assert.ok(name && !name.endsWith('/undefined'), `lock package path has no package name: ${packagePath}`)
+  return name
+}
+
+function npmPackagePurl(name, version) {
+  const encodedName = name.startsWith('@')
+    ? `${encodeURIComponent(name.split('/')[0])}/${encodeURIComponent(name.split('/')[1])}`
+    : encodeURIComponent(name)
+  return `pkg:npm/${encodedName}@${encodeURIComponent(version)}`
+}
+
+function npmLockPackageEntries(packageLock) {
+  return Object.entries(packageLock.packages || {})
+    .filter(([packagePath, packageRecord]) => (
+      packagePath
+      && packageRecord?.link !== true
+      && packagePath.split('/').includes('node_modules')
+    ))
+    .map(([packagePath, packageRecord]) => {
+      const installName = npmPackageNameFromLockPath(packagePath)
+      return {
+        name: String(packageRecord.name || installName),
+        packagePath,
+        scope: packageRecord.dev === true
+          || packageRecord.optional === true
+          || packageRecord.devOptional === true
+          ? 'optional'
+          : 'required',
+        version: String(packageRecord.version || ''),
+      }
+    })
+    .sort((left, right) => left.packagePath.localeCompare(right.packagePath, 'en'))
+}
+
+function completePackageLockSbom(packageDirectory) {
   const packageRoot = path.join(root, packageDirectory)
   const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'))
   const packageLock = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package-lock.json'), 'utf8'))
+  const lockEntries = npmLockPackageEntries(packageLock)
+  const lockEntriesByPath = new Map(lockEntries.map((entry) => [entry.packagePath, entry]))
   const directNames = [...new Set([
     ...Object.keys(packageJson.dependencies || {}),
     ...Object.keys(packageJson.devDependencies || {}),
@@ -1404,9 +1593,31 @@ function completeDirectDependencySbom(packageDirectory) {
     ...Object.keys(packageJson.peerDependencies || {}),
   ])].sort((a, b) => a.localeCompare(b, 'en'))
   const rootRef = `${packageJson.name}@${packageJson.version}`
-  const components = directNames.map((name) => {
-    const version = packageLock.packages[`node_modules/${name}`].version
-    return { 'bom-ref': `${name}@${version}`, type: 'library', name, version }
+  const componentsByIdentity = new Map()
+  for (const entry of lockEntries) {
+    const identity = JSON.stringify([entry.name, entry.version])
+    let component = componentsByIdentity.get(identity)
+    if (!component) {
+      component = {
+        'bom-ref': `${entry.name}@${entry.version}`,
+        type: 'library',
+        name: entry.name,
+        version: entry.version,
+        purl: npmPackagePurl(entry.name, entry.version),
+        scope: entry.scope,
+        properties: [],
+      }
+      componentsByIdentity.set(identity, component)
+    }
+    if (entry.scope === 'required') component.scope = 'required'
+    component.properties.push({ name: 'cdx:npm:package:path', value: entry.packagePath })
+  }
+  const components = [...componentsByIdentity.values()]
+    .sort((left, right) => left['bom-ref'].localeCompare(right['bom-ref'], 'en'))
+  const directRefs = directNames.map((name) => {
+    const entry = lockEntriesByPath.get(`node_modules/${name}`)
+    assert.ok(entry, `release fixture has no lock package for direct dependency ${name}`)
+    return componentsByIdentity.get(JSON.stringify([entry.name, entry.version]))['bom-ref']
   })
   return {
     bomFormat: 'CycloneDX',
@@ -1417,11 +1628,12 @@ function completeDirectDependencySbom(packageDirectory) {
         type: 'application',
         name: packageJson.name,
         version: packageJson.version,
+        purl: npmPackagePurl(packageJson.name, packageJson.version),
       },
     },
     components,
     dependencies: [
-      { ref: rootRef, dependsOn: components.map((component) => component['bom-ref']) },
+      { ref: rootRef, dependsOn: directRefs },
       ...components.map((component) => ({ ref: component['bom-ref'], dependsOn: [] })),
     ],
   }
@@ -1510,14 +1722,21 @@ test('only the two Windows build jobs hydrate and verify the production LFS exam
 })
 
 test('verified Docker startup binds images to a clean full Git revision', () => {
+  const { parseArguments, revisionServices } = require('./docker-compose-with-revision.cjs')
   assert.equal(rootPackage.scripts['docker:up'], 'node scripts/docker-compose-with-revision.cjs')
   assert.equal(rootPackage.scripts['docker:e2e:up'], 'node scripts/docker-compose-with-revision.cjs --profile e2e')
   assert.match(dockerComposeRevisionScript, /git[\s\S]*status[\s\S]*clean Git working tree/)
   assert.match(dockerComposeRevisionScript, /rev-parse[\s\S]*LOCALMINIDRAMA_BUILD_REVISION: revision/)
   assert.match(dockerComposeRevisionScript, /LOCALMINIDRAMA_IMAGE_TAG: imageTag/)
   assert.match(dockerComposeRevisionScript, /'docker',\s*\['image',\s*'inspect'[\s\S]*org\.opencontainers\.image\.revision/)
-  assert.deepEqual(require('./docker-compose-with-revision.cjs').parseArguments(['--profile', 'e2e']), ['e2e'])
-  assert.throws(() => require('./docker-compose-with-revision.cjs').parseArguments(['--profile', '../bad']))
+  assert.match(dockerComposeRevisionScript, /'docker',\s*\[\.\.\.composePrefix,\s*'ps',\s*'-q',\s*service\]/)
+  assert.match(dockerComposeRevisionScript, /'docker',\s*\['image',\s*'inspect',[\s\S]*'\{\{\.Id\}\}'/)
+  assert.match(dockerComposeRevisionScript, /'docker',\s*\['container',\s*'inspect',[\s\S]*'\{\{\.Image\}\}'/)
+  assert.match(dockerComposeRevisionScript, /assert\.equal\(runningImageId,\s*targetImageId/)
+  assert.deepEqual(parseArguments(['--profile', 'e2e']), ['e2e'])
+  assert.throws(() => parseArguments(['--profile', '../bad']))
+  assert.deepEqual(revisionServices([]), ['backend', 'frontend'])
+  assert.deepEqual(revisionServices(['e2e']), ['backend', 'frontend', 'e2e-provider'])
 })
 
 test('source release verification uses the clean revision-bound Docker launcher', () => {
@@ -1555,12 +1774,16 @@ test('production containers and tag releases bind, harden, and scan final images
   const releaseProduction = jobBlock('production-e2e')
   assert.match(releaseProduction, /LOCALMINIDRAMA_BUILD_REVISION: \$\{\{ github\.sha \}\}/)
   assert.match(releaseProduction, /git merge-base --is-ancestor "\$GITHUB_SHA" refs\/remotes\/origin\/main/)
+  assert.match(releaseProduction, /run: npm run docker:e2e:up/)
+  assert.doesNotMatch(releaseProduction, /docker compose --profile e2e up/)
   assert.match(releaseProduction, /docker image inspect[\s\S]*org\.opencontainers\.image\.revision/)
   assert.match(releaseProduction, /trivy-backend\.json[\s\S]*trivy-frontend\.json/)
   assert.match(releaseProduction, /--severity HIGH,CRITICAL/)
 
   const ciProduction = jobBlock('docker-production-e2e', ciWorkflow)
   assert.match(ciProduction, /LOCALMINIDRAMA_BUILD_REVISION: \$\{\{ github\.sha \}\}/)
+  assert.match(ciProduction, /run: npm run docker:e2e:up/)
+  assert.doesNotMatch(ciProduction, /docker compose --profile e2e up/)
   assert.match(ciProduction, /docker-image-ids\.txt/)
   assert.match(ciProduction, /trivy-backend\.json[\s\S]*trivy-frontend\.json/)
 })
@@ -6283,6 +6506,748 @@ function createRollbackRestoreHarness(t) {
     'rollback-drill-summary.json',
   ]
 
+  const jobSupervisorSource = String.raw`
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+
+internal static class BoundedJobSupervisor {
+  private const uint CREATE_SUSPENDED = 0x00000004;
+  private const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
+  private const uint CREATE_NO_WINDOW = 0x08000000;
+  private const uint STARTF_USESTDHANDLES = 0x00000100;
+  private const uint DUPLICATE_SAME_ACCESS = 0x00000002;
+  private const uint GENERIC_READ = 0x80000000;
+  private const uint FILE_SHARE_READ = 0x00000001;
+  private const uint FILE_SHARE_WRITE = 0x00000002;
+  private const uint OPEN_EXISTING = 3;
+  private const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
+  private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+  private const uint ERROR_CANCELLED = 1223;
+  private const uint SYNCHRONIZE = 0x00100000;
+  private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x00001000;
+  private const uint WAIT_OBJECT_0 = 0;
+  private const uint WAIT_TIMEOUT = 258;
+  private const uint INFINITE = 0xffffffff;
+  private const uint PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002;
+  private const int STD_INPUT_HANDLE = -10;
+  private const int STD_OUTPUT_HANDLE = -11;
+  private const int STD_ERROR_HANDLE = -12;
+  private const int JobObjectExtendedLimitInformation = 9;
+
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  private struct STARTUPINFO {
+    public int cb;
+    public IntPtr lpReserved;
+    public IntPtr lpDesktop;
+    public IntPtr lpTitle;
+    public int dwX;
+    public int dwY;
+    public int dwXSize;
+    public int dwYSize;
+    public int dwXCountChars;
+    public int dwYCountChars;
+    public int dwFillAttribute;
+    public uint dwFlags;
+    public short wShowWindow;
+    public short cbReserved2;
+    public IntPtr lpReserved2;
+    public IntPtr hStdInput;
+    public IntPtr hStdOutput;
+    public IntPtr hStdError;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct STARTUPINFOEX {
+    public STARTUPINFO StartupInfo;
+    public IntPtr lpAttributeList;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct PROCESS_INFORMATION {
+    public IntPtr hProcess;
+    public IntPtr hThread;
+    public int dwProcessId;
+    public int dwThreadId;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct JOBOBJECT_BASIC_LIMIT_INFORMATION {
+    public long PerProcessUserTimeLimit;
+    public long PerJobUserTimeLimit;
+    public uint LimitFlags;
+    public UIntPtr MinimumWorkingSetSize;
+    public UIntPtr MaximumWorkingSetSize;
+    public uint ActiveProcessLimit;
+    public UIntPtr Affinity;
+    public uint PriorityClass;
+    public uint SchedulingClass;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct IO_COUNTERS {
+    public ulong ReadOperationCount;
+    public ulong WriteOperationCount;
+    public ulong OtherOperationCount;
+    public ulong ReadTransferCount;
+    public ulong WriteTransferCount;
+    public ulong OtherTransferCount;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+    public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+    public IO_COUNTERS IoInfo;
+    public UIntPtr ProcessMemoryLimit;
+    public UIntPtr JobMemoryLimit;
+    public UIntPtr PeakProcessMemoryUsed;
+    public UIntPtr PeakJobMemoryUsed;
+  }
+
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  private static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool SetInformationJobObject(
+    IntPtr job,
+    int informationClass,
+    ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION information,
+    int informationLength);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool IsProcessInJob(
+    IntPtr process,
+    IntPtr job,
+    [MarshalAs(UnmanagedType.Bool)] out bool result);
+
+  [DllImport("kernel32.dll", EntryPoint = "QueryInformationJobObject", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool QueryInformationJobObjectLimits(
+    IntPtr job,
+    int informationClass,
+    out JOBOBJECT_EXTENDED_LIMIT_INFORMATION information,
+    int informationLength,
+    IntPtr returnedLength);
+
+  [DllImport("kernel32.dll")]
+  private static extern IntPtr GetCurrentProcess();
+
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  private static extern IntPtr CreateFile(
+    string fileName,
+    uint desiredAccess,
+    uint shareMode,
+    IntPtr securityAttributes,
+    uint creationDisposition,
+    uint flagsAndAttributes,
+    IntPtr templateFile);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool DuplicateHandle(
+    IntPtr sourceProcess,
+    IntPtr sourceHandle,
+    IntPtr targetProcess,
+    out IntPtr targetHandle,
+    uint access,
+    [MarshalAs(UnmanagedType.Bool)] bool inheritHandle,
+    uint options);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool InitializeProcThreadAttributeList(
+    IntPtr attributeList,
+    int attributeCount,
+    uint flags,
+    ref UIntPtr size);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool UpdateProcThreadAttribute(
+    IntPtr attributeList,
+    uint flags,
+    IntPtr attribute,
+    IntPtr value,
+    IntPtr size,
+    IntPtr previousValue,
+    IntPtr returnSize);
+
+  [DllImport("kernel32.dll")]
+  private static extern void DeleteProcThreadAttributeList(IntPtr attributeList);
+
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "CreateProcessW")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool CreateProcess(
+    string applicationName,
+    StringBuilder commandLine,
+    IntPtr processAttributes,
+    IntPtr threadAttributes,
+    [MarshalAs(UnmanagedType.Bool)] bool inheritHandles,
+    uint creationFlags,
+    IntPtr environment,
+    string currentDirectory,
+    ref STARTUPINFOEX startupInfo,
+    out PROCESS_INFORMATION processInformation);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern uint ResumeThread(IntPtr thread);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern IntPtr OpenProcess(
+    uint desiredAccess,
+    [MarshalAs(UnmanagedType.Bool)] bool inheritHandle,
+    int processId);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool CloseHandle(IntPtr handle);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern IntPtr GetStdHandle(int standardHandle);
+
+  private static Exception LastError(string operation) {
+    int error = Marshal.GetLastWin32Error();
+    return new Win32Exception(error, operation + " failed (Win32 error " + error + ").");
+  }
+
+  private static void CloseRaw(ref IntPtr handle) {
+    if (handle != IntPtr.Zero && handle != new IntPtr(-1)) CloseHandle(handle);
+    handle = IntPtr.Zero;
+  }
+
+  private static string QuoteArgument(string argument) {
+    if (argument.Length > 0 && argument.IndexOfAny(new char[] { ' ', '\t', '\n', '\v', '"' }) < 0) return argument;
+    StringBuilder quoted = new StringBuilder("\"");
+    int backslashes = 0;
+    foreach (char character in argument) {
+      if (character == '\\') {
+        backslashes++;
+      } else if (character == '"') {
+        quoted.Append('\\', backslashes * 2 + 1);
+        quoted.Append('"');
+        backslashes = 0;
+      } else {
+        quoted.Append('\\', backslashes);
+        quoted.Append(character);
+        backslashes = 0;
+      }
+    }
+    quoted.Append('\\', backslashes * 2);
+    quoted.Append('"');
+    return quoted.ToString();
+  }
+
+  private static StringBuilder BuildCommandLine(string applicationName, string[] arguments, int firstArgument) {
+    StringBuilder commandLine = new StringBuilder(QuoteArgument(applicationName));
+    for (int index = firstArgument; index < arguments.Length; index++) {
+      commandLine.Append(' ');
+      commandLine.Append(QuoteArgument(arguments[index]));
+    }
+    return commandLine;
+  }
+
+  private static bool CloseJobAndWaitForRoot(ref IntPtr job, IntPtr process, uint timeoutMilliseconds) {
+    IntPtr closingJob = job;
+    job = IntPtr.Zero;
+    if (closingJob != IntPtr.Zero && closingJob != new IntPtr(-1)
+        && !CloseHandle(closingJob)) throw LastError("CloseHandle(Job)");
+    uint waitResult = WaitForSingleObject(process, timeoutMilliseconds);
+    if (waitResult == WAIT_OBJECT_0) return true;
+    if (waitResult == WAIT_TIMEOUT) return false;
+    throw LastError("WaitForSingleObject(root after Job close)");
+  }
+
+  private static bool WaitForRetainedWriter(IntPtr writerProcess, uint timeoutMilliseconds) {
+    if (writerProcess == IntPtr.Zero || writerProcess == new IntPtr(-1)) return true;
+    uint waitResult = WaitForSingleObject(writerProcess, timeoutMilliseconds);
+    if (waitResult == WAIT_OBJECT_0) return true;
+    if (waitResult == WAIT_TIMEOUT) return false;
+    throw LastError("WaitForSingleObject(writer after Job close)");
+  }
+
+  private static bool WaitForWriterAndRecord(
+      IntPtr writerProcess,
+      string identityPath,
+      uint timeoutMilliseconds) {
+    if (writerProcess == IntPtr.Zero || writerProcess == new IntPtr(-1)) return true;
+    bool writerExited = WaitForRetainedWriter(writerProcess, timeoutMilliseconds);
+    File.AppendAllText(
+      identityPath,
+      "writer_exited_after_job_close=" + writerExited.ToString().ToLowerInvariant() + Environment.NewLine,
+      new UTF8Encoding(false));
+    return writerExited;
+  }
+
+  private static bool TryReadPositiveIntShared(string filePath, out int value) {
+    value = 0;
+    try {
+      using (FileStream stream = new FileStream(
+          filePath,
+          FileMode.Open,
+          FileAccess.Read,
+          FileShare.ReadWrite | FileShare.Delete))
+      using (StreamReader reader = new StreamReader(stream, new UTF8Encoding(false, true))) {
+        int parsed;
+        if (!Int32.TryParse(reader.ReadToEnd().Trim(), out parsed) || parsed <= 0) return false;
+        value = parsed;
+        return true;
+      }
+    } catch (IOException) {
+      return false;
+    } catch (UnauthorizedAccessException) {
+      return false;
+    }
+  }
+
+  public static int Main(string[] arguments) {
+    if (arguments.Length == 3 && String.Equals(arguments[0], "--wait-process-exit", StringComparison.Ordinal)) {
+      int processId;
+      uint timeoutMilliseconds;
+      if (!Int32.TryParse(arguments[1], out processId) || processId <= 0
+          || !UInt32.TryParse(arguments[2], out timeoutMilliseconds)) return 65;
+      IntPtr observedProcess = OpenProcess(SYNCHRONIZE, false, processId);
+      if (observedProcess == IntPtr.Zero || observedProcess == new IntPtr(-1)) {
+        return Marshal.GetLastWin32Error() == 87 ? 0 : 66;
+      }
+      try {
+        uint observedWait = WaitForSingleObject(observedProcess, timeoutMilliseconds);
+        if (observedWait == WAIT_OBJECT_0) return 0;
+        if (observedWait == WAIT_TIMEOUT) return 1;
+        return 67;
+      } finally {
+        CloseRaw(ref observedProcess);
+      }
+    }
+    if (arguments.Length < 9) {
+      Console.Error.WriteLine("usage: bounded-job-supervisor.exe <control-path> <identity-path> <driver-pid-path> <descendant-driver-ack-path> <writer-pid-path> <writer-ack-path> <fault> <application> <working-directory> [arguments...]");
+      return 64;
+    }
+    if (!Path.IsPathRooted(arguments[0]) || !Path.IsPathRooted(arguments[1])) {
+      Console.Error.WriteLine("bounded-job-supervisor: control and identity paths must be absolute.");
+      return 64;
+    }
+    string controlPath = Path.GetFullPath(arguments[0]);
+    string identityPath = Path.GetFullPath(arguments[1]);
+    string driverPidPath = arguments[2].Length == 0 ? "" : Path.GetFullPath(arguments[2]);
+    string descendantDriverAckPath = arguments[3].Length == 0 ? "" : Path.GetFullPath(arguments[3]);
+    string writerPidPath = arguments[4].Length == 0 ? "" : Path.GetFullPath(arguments[4]);
+    string writerAckPath = arguments[5].Length == 0 ? "" : Path.GetFullPath(arguments[5]);
+    string fault = arguments[6];
+    if (arguments[2].Length > 0 && !Path.IsPathRooted(arguments[2])) {
+      Console.Error.WriteLine("bounded-job-supervisor: driver PID path must be absolute.");
+      return 64;
+    }
+    if (arguments[3].Length > 0 && !Path.IsPathRooted(arguments[3])) {
+      Console.Error.WriteLine("bounded-job-supervisor: descendant driver acknowledgement path must be absolute.");
+      return 64;
+    }
+    if (arguments[4].Length > 0 && !Path.IsPathRooted(arguments[4])) {
+      Console.Error.WriteLine("bounded-job-supervisor: writer PID path must be absolute.");
+      return 64;
+    }
+    if (arguments[5].Length > 0 && !Path.IsPathRooted(arguments[5])) {
+      Console.Error.WriteLine("bounded-job-supervisor: writer acknowledgement path must be absolute.");
+      return 64;
+    }
+    if ((writerPidPath.Length == 0) != (writerAckPath.Length == 0)) {
+      Console.Error.WriteLine("bounded-job-supervisor: writer PID and acknowledgement paths must be configured together.");
+      return 64;
+    }
+    if (File.Exists(controlPath) || File.Exists(identityPath) || File.Exists(writerAckPath)) {
+      Console.Error.WriteLine("bounded-job-supervisor: control, identity, or writer acknowledgement path already exists.");
+      return 64;
+    }
+    IntPtr job = IntPtr.Zero;
+    IntPtr process = IntPtr.Zero;
+    IntPtr writerProcess = IntPtr.Zero;
+    IntPtr thread = IntPtr.Zero;
+    IntPtr childInput = IntPtr.Zero;
+    IntPtr childOutput = IntPtr.Zero;
+    IntPtr childError = IntPtr.Zero;
+    IntPtr childJob = IntPtr.Zero;
+    IntPtr targetInputSource = IntPtr.Zero;
+    IntPtr handleList = IntPtr.Zero;
+    IntPtr attributeList = IntPtr.Zero;
+    bool assigned = false;
+    try {
+      IntPtr currentProcess = GetCurrentProcess();
+      targetInputSource = CreateFile(
+        "NUL",
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        IntPtr.Zero,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        IntPtr.Zero);
+      if (targetInputSource == IntPtr.Zero || targetInputSource == new IntPtr(-1)) throw LastError("CreateFileW(NUL)");
+      if (!DuplicateHandle(
+        currentProcess,
+        targetInputSource,
+        currentProcess,
+        out childInput,
+        0,
+        true,
+        DUPLICATE_SAME_ACCESS)) throw LastError("DuplicateHandle(stdin)");
+      if (!DuplicateHandle(
+        currentProcess,
+        GetStdHandle(STD_OUTPUT_HANDLE),
+        currentProcess,
+        out childOutput,
+        0,
+        true,
+        DUPLICATE_SAME_ACCESS)) throw LastError("DuplicateHandle(stdout)");
+      if (!DuplicateHandle(
+        currentProcess,
+        GetStdHandle(STD_ERROR_HANDLE),
+        currentProcess,
+        out childError,
+        0,
+        true,
+        DUPLICATE_SAME_ACCESS)) throw LastError("DuplicateHandle(stderr)");
+
+      job = CreateJobObject(IntPtr.Zero, null);
+      if (job == IntPtr.Zero || job == new IntPtr(-1)) throw LastError("CreateJobObject");
+      JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+      limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+      if (!SetInformationJobObject(
+        job,
+        JobObjectExtendedLimitInformation,
+        ref limits,
+        Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION)))) throw LastError("SetInformationJobObject");
+      if (writerPidPath.Length > 0 && !DuplicateHandle(
+          currentProcess,
+          job,
+          currentProcess,
+          out childJob,
+          0,
+          true,
+          DUPLICATE_SAME_ACCESS)) throw LastError("DuplicateHandle(Job)");
+
+      UIntPtr attributeBytes = UIntPtr.Zero;
+      InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref attributeBytes);
+      if (attributeBytes == UIntPtr.Zero || attributeBytes.ToUInt64() > Int32.MaxValue) {
+        throw LastError("InitializeProcThreadAttributeList(size)");
+      }
+      attributeList = Marshal.AllocHGlobal((int)attributeBytes.ToUInt64());
+      if (!InitializeProcThreadAttributeList(attributeList, 1, 0, ref attributeBytes)) {
+        throw LastError("InitializeProcThreadAttributeList");
+      }
+      int inheritedHandleCount = childJob == IntPtr.Zero ? 3 : 4;
+      handleList = Marshal.AllocHGlobal(IntPtr.Size * inheritedHandleCount);
+      Marshal.WriteIntPtr(handleList, 0, childInput);
+      Marshal.WriteIntPtr(handleList, IntPtr.Size, childOutput);
+      Marshal.WriteIntPtr(handleList, IntPtr.Size * 2, childError);
+      if (childJob != IntPtr.Zero) Marshal.WriteIntPtr(handleList, IntPtr.Size * 3, childJob);
+      if (!UpdateProcThreadAttribute(
+        attributeList,
+        0,
+        new IntPtr((long)PROC_THREAD_ATTRIBUTE_HANDLE_LIST),
+        handleList,
+        new IntPtr(IntPtr.Size * inheritedHandleCount),
+        IntPtr.Zero,
+        IntPtr.Zero)) throw LastError("UpdateProcThreadAttribute(PROC_THREAD_ATTRIBUTE_HANDLE_LIST)");
+
+      STARTUPINFOEX startup = new STARTUPINFOEX();
+      startup.StartupInfo.cb = Marshal.SizeOf(typeof(STARTUPINFOEX));
+      startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+      startup.StartupInfo.hStdInput = childInput;
+      startup.StartupInfo.hStdOutput = childOutput;
+      startup.StartupInfo.hStdError = childError;
+      startup.lpAttributeList = attributeList;
+      PROCESS_INFORMATION information;
+      StringBuilder commandLine = BuildCommandLine(arguments[7], arguments, 9);
+      Environment.SetEnvironmentVariable(
+        "LMD_INHERITED_JOB_HANDLE",
+        childJob == IntPtr.Zero ? null : childJob.ToInt64().ToString());
+      if (!CreateProcess(
+        arguments[7],
+        commandLine,
+        IntPtr.Zero,
+        IntPtr.Zero,
+        true,
+        CREATE_SUSPENDED | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
+        IntPtr.Zero,
+        arguments[8],
+        ref startup,
+        out information)) throw LastError("CreateProcessW");
+      process = information.hProcess;
+      thread = information.hThread;
+      CloseRaw(ref childInput);
+      CloseRaw(ref childOutput);
+      CloseRaw(ref childError);
+      CloseRaw(ref childJob);
+      CloseRaw(ref targetInputSource);
+      if (!AssignProcessToJobObject(job, process)) throw LastError("AssignProcessToJobObject");
+      assigned = true;
+      bool belongsToJob;
+      if (!IsProcessInJob(process, job, out belongsToJob)) throw LastError("IsProcessInJob");
+      if (!belongsToJob) throw new InvalidOperationException("Assigned process is not a member of the supervisor Job.");
+      JOBOBJECT_EXTENDED_LIMIT_INFORMATION effectiveLimits;
+      if (!QueryInformationJobObjectLimits(
+        job,
+        JobObjectExtendedLimitInformation,
+        out effectiveLimits,
+        Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION)),
+        IntPtr.Zero)) throw LastError("QueryInformationJobObject(limits)");
+      if ((effectiveLimits.BasicLimitInformation.LimitFlags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE) == 0) {
+        throw new InvalidOperationException("Supervisor Job is missing JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.");
+      }
+      if (ResumeThread(thread) == 0xffffffff) throw LastError("ResumeThread");
+      CloseRaw(ref thread);
+      File.WriteAllText(
+        identityPath,
+        "root_pid=" + information.dwProcessId + Environment.NewLine
+          + "root_is_in_job=" + belongsToJob.ToString().ToLowerInvariant() + Environment.NewLine,
+        new UTF8Encoding(false));
+
+      uint waitResult;
+      bool driverIdentityRecorded = false;
+      bool descendantAcknowledged = descendantDriverAckPath.Length == 0;
+      bool writerAcknowledged = writerPidPath.Length == 0;
+      bool postRetentionFaultRaised = false;
+      while (true) {
+        if (!driverIdentityRecorded && driverPidPath.Length > 0 && File.Exists(driverPidPath)) {
+          int driverPid;
+          if (TryReadPositiveIntShared(driverPidPath, out driverPid)) {
+            IntPtr driverProcess = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, false, driverPid);
+            if (driverProcess != IntPtr.Zero && driverProcess != new IntPtr(-1)) {
+              try {
+                bool driverIsInJob;
+                if (!IsProcessInJob(driverProcess, job, out driverIsInJob)) throw LastError("IsProcessInJob(driver)");
+                File.AppendAllText(
+                  identityPath,
+                  "driver_pid=" + driverPid + Environment.NewLine
+                    + "driver_is_in_job=" + driverIsInJob.ToString().ToLowerInvariant() + Environment.NewLine,
+                  new UTF8Encoding(false));
+                driverIdentityRecorded = true;
+              } finally {
+                CloseRaw(ref driverProcess);
+              }
+            }
+          }
+        }
+        if (!descendantAcknowledged && File.Exists(descendantDriverAckPath)) {
+          descendantAcknowledged = true;
+          File.AppendAllText(
+            identityPath,
+            "descendant_driver_acknowledged=true" + Environment.NewLine,
+            new UTF8Encoding(false));
+        }
+        if (!writerAcknowledged && File.Exists(writerPidPath)) {
+          int writerPid;
+          if (TryReadPositiveIntShared(writerPidPath, out writerPid)) {
+            IntPtr candidateWriter = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, false, writerPid);
+            if (candidateWriter == IntPtr.Zero || candidateWriter == new IntPtr(-1)) {
+              int writerOpenError = Marshal.GetLastWin32Error();
+              if (writerOpenError != 87) throw new Win32Exception(writerOpenError, "OpenProcess(writer) failed.");
+            } else {
+              try {
+                bool writerIsInJob;
+                writerProcess = candidateWriter;
+                candidateWriter = IntPtr.Zero;
+                if (!IsProcessInJob(writerProcess, job, out writerIsInJob)) throw LastError("IsProcessInJob(writer)");
+                if (!writerIsInJob) {
+                  throw new InvalidOperationException("Root-created writer is not a member of the supervisor Job.");
+                }
+                File.AppendAllText(
+                  identityPath,
+                  "writer_pid=" + writerPid + Environment.NewLine
+                    + "writer_is_in_job=true" + Environment.NewLine
+                    + "writer_supervisor_acknowledged=true" + Environment.NewLine,
+                  new UTF8Encoding(false));
+                File.WriteAllText(
+                  writerAckPath,
+                  "{\"writer_is_in_job\":true,\"writer_pid\":" + writerPid + "}" + Environment.NewLine,
+                  new UTF8Encoding(false));
+                writerAcknowledged = true;
+              } finally {
+                CloseRaw(ref candidateWriter);
+              }
+            }
+          }
+        }
+        bool retentionHandshakeComplete = descendantAcknowledged && writerAcknowledged;
+        if (retentionHandshakeComplete && !postRetentionFaultRaised
+            && String.Equals(fault, "post-retention-error", StringComparison.Ordinal)) {
+          postRetentionFaultRaised = true;
+          throw new InvalidOperationException("Injected post-retention supervisor failure.");
+        }
+        if (retentionHandshakeComplete
+            && String.Equals(fault, "unresponsive-after-retention", StringComparison.Ordinal)) {
+          while (true) Thread.Sleep(1000);
+        }
+        if (File.Exists(controlPath)) {
+          if (!CloseJobAndWaitForRoot(ref job, process, 5000)) {
+            Console.Error.WriteLine("Requested Job close did not terminate the root within 5000ms.");
+            return 125;
+          }
+          if (!WaitForWriterAndRecord(writerProcess, identityPath, 5000)) {
+            Console.Error.WriteLine("Requested Job close did not terminate the retained writer within 5000ms.");
+            return 125;
+          }
+          return 124;
+        }
+        waitResult = WaitForSingleObject(process, 25);
+        if (waitResult == WAIT_OBJECT_0) {
+          if (descendantAcknowledged && writerAcknowledged) break;
+          Thread.Sleep(10);
+          continue;
+        }
+        if (waitResult != WAIT_TIMEOUT) throw LastError("WaitForSingleObject");
+      }
+      uint exitCode;
+      if (!GetExitCodeProcess(process, out exitCode)) throw LastError("GetExitCodeProcess");
+      if (!CloseJobAndWaitForRoot(ref job, process, 5000)) {
+        Console.Error.WriteLine("Job close did not preserve the observed root exit within 5000ms.");
+        return 125;
+      }
+      if (!WaitForWriterAndRecord(writerProcess, identityPath, 5000)) {
+        Console.Error.WriteLine("Job close did not terminate the retained writer within 5000ms.");
+        return 125;
+      }
+      return unchecked((int)exitCode);
+    } catch (Exception error) {
+      Console.Error.WriteLine("bounded-job-supervisor: " + error.Message);
+      if (assigned && job != IntPtr.Zero && process != IntPtr.Zero) {
+        try {
+          if (!CloseJobAndWaitForRoot(ref job, process, 5000)) {
+            Console.Error.WriteLine("bounded-job-supervisor cleanup: root remained active after Job close.");
+          }
+          if (!WaitForWriterAndRecord(writerProcess, identityPath, 5000)) {
+            Console.Error.WriteLine("bounded-job-supervisor cleanup: writer remained active after Job close.");
+          }
+        } catch (Exception cleanupError) {
+          Console.Error.WriteLine("bounded-job-supervisor cleanup: " + cleanupError.Message);
+        }
+      }
+      return 126;
+    } finally {
+      if (process != IntPtr.Zero && !assigned) TerminateProcess(process, ERROR_CANCELLED);
+      if (attributeList != IntPtr.Zero) DeleteProcThreadAttributeList(attributeList);
+      if (handleList != IntPtr.Zero) Marshal.FreeHGlobal(handleList);
+      if (attributeList != IntPtr.Zero) Marshal.FreeHGlobal(attributeList);
+      CloseRaw(ref childInput);
+      CloseRaw(ref childOutput);
+      CloseRaw(ref childError);
+      CloseRaw(ref childJob);
+      CloseRaw(ref targetInputSource);
+      CloseRaw(ref thread);
+      CloseRaw(ref writerProcess);
+      CloseRaw(ref process);
+      CloseRaw(ref job);
+    }
+  }
+}
+`
+  const jobSupervisorSourcePath = path.join(fixtureRoot, 'bounded-job-supervisor.cs')
+  const jobSupervisorPath = path.join(fixtureRoot, 'bounded-job-supervisor.exe')
+  const cscPath = [
+    path.join(process.env.WINDIR || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe'),
+    path.join(process.env.WINDIR || 'C:\\Windows', 'Microsoft.NET', 'Framework', 'v4.0.30319', 'csc.exe'),
+  ].find((candidate) => fs.existsSync(candidate))
+  assert.ok(cscPath, 'Windows .NET Framework C# compiler is required for the bounded Job Object supervisor')
+  fs.writeFileSync(jobSupervisorSourcePath, jobSupervisorSource, 'utf8')
+  const supervisorCompile = spawnSync(cscPath, [
+    '/nologo',
+    '/target:exe',
+    `/out:${jobSupervisorPath}`,
+    jobSupervisorSourcePath,
+  ], {
+    cwd: fixtureRoot,
+    encoding: 'utf8',
+    timeout: 30000,
+    windowsHide: true,
+  })
+  assert.equal(supervisorCompile.status, 0, supervisorCompile.stderr || supervisorCompile.stdout)
+
+  const descendantOwnerScriptPath = path.join(fixtureRoot, 'descendant-owner.cjs')
+  fs.writeFileSync(descendantOwnerScriptPath, `
+'use strict'
+const fs = require('node:fs')
+
+const [requestPath, ownerAckPath, descendantRequestToken, mode, delayText] = process.argv.slice(2)
+const delayMs = Number(delayText)
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+
+async function main() {
+  while (!fs.existsSync(requestPath)) await sleep(10)
+  const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'))
+  if (request.descendant_request_token !== descendantRequestToken) {
+    throw new Error('Descendant request token mismatch.')
+  }
+  if (mode === 'withhold-ack') {
+    setInterval(() => {}, 1000)
+    return
+  }
+  if (!Number.isInteger(delayMs) || delayMs < 0 || delayMs > 10000) {
+    throw new Error('Invalid descendant acknowledgement delay.')
+  }
+  if (delayMs > 0) await sleep(delayMs)
+  fs.writeFileSync(ownerAckPath, JSON.stringify({
+    authority_source: 'direct-descendant-child-handle',
+    descendant_ack_token: descendantRequestToken,
+    owner_pid: process.pid,
+  }) + '\\n', { flag: 'wx' })
+  setInterval(() => {}, 1000)
+}
+
+main().catch((error) => {
+  process.stderr.write('descendant-owner: ' + error.message + '\\n')
+  process.exitCode = 70
+})
+`, 'utf8')
+
+  const jobWriterScriptPath = path.join(fixtureRoot, 'job-inherited-writer.cjs')
+  fs.writeFileSync(jobWriterScriptPath, `
+'use strict'
+const fs = require('node:fs')
+
+const [token, readyPath] = process.argv.slice(2)
+if (!/^[a-f0-9]{64}$/.test(token || '')) throw new Error('Invalid inherited writer token.')
+if (!readyPath) throw new Error('Inherited writer readiness path is required.')
+fs.writeSync(1, 'LMD_JOB_WRITER_STDOUT:' + token + '\\n')
+fs.writeSync(2, 'LMD_JOB_WRITER_STDERR:' + token + '\\n')
+fs.writeFileSync(readyPath, String(process.pid), { flag: 'wx' })
+setTimeout(() => process.exit(71), 20000)
+setInterval(() => {}, 1000)
+`, 'utf8')
+
+  const observeProcessExit = (pid, timeoutMs = 0) => {
+    const observation = spawnSync(jobSupervisorPath, [
+      '--wait-process-exit', String(pid), String(timeoutMs),
+    ], {
+      stdio: 'ignore',
+      timeout: timeoutMs + 1000,
+      windowsHide: true,
+    })
+    return {
+      confirmedExited: observation.status === 0,
+      error: observation.error || null,
+      running: observation.status === 1 ? true : observation.status === 0 ? false : null,
+      status: observation.status,
+    }
+  }
+
   const compensationProbePath = path.join(fixtureRoot, 'compensation-sharing-probe.cjs')
   fs.writeFileSync(compensationProbePath, `
 'use strict'
@@ -6646,6 +7611,281 @@ if (failures.length > 0) fail(failures.join('; '))
 param([Parameter(Mandatory = $true)][string]$CheckpointDirectory)
 $ErrorActionPreference = 'Stop'
 $requestedCheckpointDirectory = $CheckpointDirectory
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class JobInheritedWriter {
+  private const uint CREATE_SUSPENDED = 0x00000004;
+  private const uint CREATE_NO_WINDOW = 0x08000000;
+  private const uint HANDLE_FLAG_INHERIT = 0x00000001;
+  private const uint STARTF_USESTDHANDLES = 0x00000100;
+  private const int STD_INPUT_HANDLE = -10;
+  private const int STD_OUTPUT_HANDLE = -11;
+  private const int STD_ERROR_HANDLE = -12;
+
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  private struct STARTUPINFO {
+    public int cb;
+    public IntPtr lpReserved;
+    public IntPtr lpDesktop;
+    public IntPtr lpTitle;
+    public int dwX;
+    public int dwY;
+    public int dwXSize;
+    public int dwYSize;
+    public int dwXCountChars;
+    public int dwYCountChars;
+    public int dwFillAttribute;
+    public uint dwFlags;
+    public short wShowWindow;
+    public short cbReserved2;
+    public IntPtr lpReserved2;
+    public IntPtr hStdInput;
+    public IntPtr hStdOutput;
+    public IntPtr hStdError;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct PROCESS_INFORMATION {
+    public IntPtr hProcess;
+    public IntPtr hThread;
+    public int dwProcessId;
+    public int dwThreadId;
+  }
+
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "CreateProcessW")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool CreateProcess(
+    string applicationName,
+    StringBuilder commandLine,
+    IntPtr processAttributes,
+    IntPtr threadAttributes,
+    [MarshalAs(UnmanagedType.Bool)] bool inheritHandles,
+    uint creationFlags,
+    IntPtr environment,
+    string currentDirectory,
+    ref STARTUPINFO startupInfo,
+    out PROCESS_INFORMATION processInformation);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern IntPtr GetStdHandle(int standardHandle);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool CloseHandle(IntPtr handle);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool IsProcessInJob(
+    IntPtr process,
+    IntPtr job,
+    [MarshalAs(UnmanagedType.Bool)] out bool result);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern uint ResumeThread(IntPtr thread);
+
+  private static string QuoteArgument(string argument) {
+    if (argument == null || argument.IndexOf((char)34) >= 0) {
+      throw new ArgumentException("Writer arguments must be non-null and contain no quote characters.");
+    }
+    string quote = ((char)34).ToString();
+    return quote + argument + quote;
+  }
+
+  public static int Start(string applicationName, string[] arguments) {
+    if (String.IsNullOrWhiteSpace(applicationName)) throw new ArgumentException("Writer application is required.");
+    long inheritedJobValue;
+    if (!Int64.TryParse(Environment.GetEnvironmentVariable("LMD_INHERITED_JOB_HANDLE"), out inheritedJobValue)
+        || inheritedJobValue == 0) throw new InvalidOperationException("Inherited supervisor Job handle is required.");
+    IntPtr inheritedJob = new IntPtr(inheritedJobValue);
+    if (!SetHandleInformation(inheritedJob, HANDLE_FLAG_INHERIT, 0)) {
+      throw new Win32Exception(Marshal.GetLastWin32Error(), "SetHandleInformation(Job writer) failed.");
+    }
+    STARTUPINFO startup = new STARTUPINFO();
+    startup.cb = Marshal.SizeOf(typeof(STARTUPINFO));
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    StringBuilder commandLine = new StringBuilder(QuoteArgument(applicationName));
+    foreach (string argument in arguments) {
+      commandLine.Append(' ');
+      commandLine.Append(QuoteArgument(argument));
+    }
+    PROCESS_INFORMATION information;
+    if (!CreateProcess(
+      applicationName,
+      commandLine,
+      IntPtr.Zero,
+      IntPtr.Zero,
+      true,
+      CREATE_SUSPENDED | CREATE_NO_WINDOW,
+      IntPtr.Zero,
+      Environment.CurrentDirectory,
+      ref startup,
+      out information)) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcessW(Job writer) failed.");
+    try {
+      bool writerIsInJob;
+      if (!IsProcessInJob(information.hProcess, inheritedJob, out writerIsInJob)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error(), "IsProcessInJob(Job writer) failed.");
+      }
+      if (!writerIsInJob && !AssignProcessToJobObject(inheritedJob, information.hProcess)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject(Job writer) failed.");
+      }
+      if (!IsProcessInJob(information.hProcess, inheritedJob, out writerIsInJob)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error(), "IsProcessInJob(Job writer verification) failed.");
+      }
+      if (!writerIsInJob) throw new InvalidOperationException("Job writer assignment verification failed.");
+      if (ResumeThread(information.hThread) == 0xffffffff) {
+        throw new Win32Exception(Marshal.GetLastWin32Error(), "ResumeThread(Job writer) failed.");
+      }
+      return information.dwProcessId;
+    } finally {
+      if (information.hThread != IntPtr.Zero) CloseHandle(information.hThread);
+      if (information.hProcess != IntPtr.Zero) CloseHandle(information.hProcess);
+      CloseHandle(inheritedJob);
+      Environment.SetEnvironmentVariable("LMD_INHERITED_JOB_HANDLE", null);
+    }
+  }
+}
+'@
+
+function Start-TestJobWriter {
+  if (
+    [string]::IsNullOrWhiteSpace($env:LMD_JOB_WRITER_ACK_PATH) -or
+    [string]::IsNullOrWhiteSpace($env:LMD_JOB_WRITER_PID_PATH) -or
+    [string]::IsNullOrWhiteSpace($env:LMD_JOB_WRITER_READY_PATH) -or
+    [string]::IsNullOrWhiteSpace($env:LMD_JOB_WRITER_SCRIPT_PATH) -or
+    [string]::IsNullOrWhiteSpace($env:LMD_JOB_WRITER_TOKEN) -or
+    [string]::IsNullOrWhiteSpace($env:LMD_NODE_EXE)
+  ) { throw 'Job writer configuration is incomplete.' }
+
+  $writerPid = [JobInheritedWriter]::Start($env:LMD_NODE_EXE, [string[]]@(
+    $env:LMD_JOB_WRITER_SCRIPT_PATH,
+    $env:LMD_JOB_WRITER_TOKEN,
+    $env:LMD_JOB_WRITER_READY_PATH
+  ))
+  $utf8 = [System.Text.UTF8Encoding]::new($false)
+  $readyDeadline = [DateTime]::UtcNow.AddSeconds(10)
+  while ([DateTime]::UtcNow -lt $readyDeadline -and -not [System.IO.File]::Exists($env:LMD_JOB_WRITER_READY_PATH)) {
+    Start-Sleep -Milliseconds 10
+  }
+  if (-not [System.IO.File]::Exists($env:LMD_JOB_WRITER_READY_PATH)) {
+    throw 'Job writer readiness timed out.'
+  }
+  $readyPid = 0
+  if (
+    -not [int]::TryParse([System.IO.File]::ReadAllText($env:LMD_JOB_WRITER_READY_PATH, $utf8).Trim(), [ref]$readyPid) -or
+    $readyPid -ne $writerPid
+  ) { throw 'Job writer readiness PID mismatch.' }
+  [System.IO.File]::WriteAllText($env:LMD_JOB_WRITER_PID_PATH, [string]$writerPid, $utf8)
+
+  $ackDeadline = [DateTime]::UtcNow.AddSeconds(10)
+  $writerAck = $null
+  while ([DateTime]::UtcNow -lt $ackDeadline) {
+    if ([System.IO.File]::Exists($env:LMD_JOB_WRITER_ACK_PATH)) {
+      try {
+        $candidate = [System.IO.File]::ReadAllText($env:LMD_JOB_WRITER_ACK_PATH, $utf8) | ConvertFrom-Json
+        if ([int]$candidate.writer_pid -eq $writerPid -and $candidate.writer_is_in_job -eq $true) {
+          $writerAck = $candidate
+          break
+        }
+      } catch {}
+    }
+    Start-Sleep -Milliseconds 10
+  }
+  if ($null -eq $writerAck) { throw 'Job writer supervisor acknowledgement timed out.' }
+}
+
+function Start-TestDescendantHandshake {
+  if (
+    [string]::IsNullOrWhiteSpace($env:LMD_DESCENDANT_REQUEST_PATH) -or
+    [string]::IsNullOrWhiteSpace($env:LMD_DESCENDANT_OWNER_ACK_PATH) -or
+    [string]::IsNullOrWhiteSpace($env:LMD_DESCENDANT_DRIVER_ACK_PATH) -or
+    [string]::IsNullOrWhiteSpace($env:LMD_DESCENDANT_REQUEST_TOKEN) -or
+    [string]::IsNullOrWhiteSpace($env:LMD_OUTER_HANG_DESCENDANT_PID_PATH)
+  ) { throw 'Descendant handshake configuration is incomplete.' }
+
+  $utf8 = [System.Text.UTF8Encoding]::new($false)
+  $request = ConvertTo-Json -Compress -InputObject ([ordered]@{
+    descendant_request_token = $env:LMD_DESCENDANT_REQUEST_TOKEN
+  })
+  [System.IO.File]::WriteAllText($env:LMD_DESCENDANT_REQUEST_PATH, $request + [Environment]::NewLine, $utf8)
+
+  $ownerAck = $null
+  $ackDeadline = [DateTime]::UtcNow.AddSeconds(15)
+  while ([DateTime]::UtcNow -lt $ackDeadline) {
+    if ([System.IO.File]::Exists($env:LMD_DESCENDANT_OWNER_ACK_PATH)) {
+      try {
+        $candidate = [System.IO.File]::ReadAllText($env:LMD_DESCENDANT_OWNER_ACK_PATH, $utf8) | ConvertFrom-Json
+        if (
+          [string]$candidate.descendant_ack_token -ceq $env:LMD_DESCENDANT_REQUEST_TOKEN -and
+          [int]$candidate.owner_pid -gt 0 -and
+          [string]$candidate.authority_source -ceq 'direct-descendant-child-handle'
+        ) {
+          $ownerAck = $candidate
+          break
+        }
+      } catch {}
+    }
+    Start-Sleep -Milliseconds 10
+  }
+  if ($null -eq $ownerAck) { throw 'Descendant owner acknowledgement timed out.' }
+
+  $publishedPid = [int]$ownerAck.owner_pid
+  if (-not [string]::IsNullOrWhiteSpace($env:LMD_DESCENDANT_PUBLISHED_PID)) {
+    $publishedPid = [int]$env:LMD_DESCENDANT_PUBLISHED_PID
+  }
+  [System.IO.File]::WriteAllText($env:LMD_OUTER_HANG_DESCENDANT_PID_PATH, [string]$publishedPid, $utf8)
+  $driverAck = ConvertTo-Json -Compress -InputObject ([ordered]@{
+    descendant_ack_token = $env:LMD_DESCENDANT_REQUEST_TOKEN
+    owner_pid = [int]$ownerAck.owner_pid
+    published_pid = $publishedPid
+  })
+  [System.IO.File]::WriteAllText($env:LMD_DESCENDANT_DRIVER_ACK_PATH, $driverAck + [Environment]::NewLine, $utf8)
+}
+if ($env:LMD_SCENARIO -ceq 'outer_process_tree_hang') {
+  [System.IO.File]::WriteAllText($env:LMD_OUTER_HANG_PARENT_PID_PATH, [string]$PID)
+  Start-TestDescendantHandshake
+  [Console]::Out.Write(('o' * 131072))
+  [Console]::Error.Write(('e' * 60000))
+  while ($true) { Start-Sleep -Seconds 1 }
+}
+if ($env:LMD_SCENARIO -ceq 'outer_process_tree_exit') {
+  Start-Sleep -Milliseconds 300
+  exit 0
+}
+if ($env:LMD_SCENARIO -ceq 'outer_process_tree_exit_with_inherited_stdio') {
+  [System.IO.File]::WriteAllText($env:LMD_OUTER_HANG_PARENT_PID_PATH, [string]$PID)
+  Start-TestDescendantHandshake
+  Start-TestJobWriter
+  [System.IO.File]::WriteAllText($env:LMD_OUTER_HANG_PARENT_EXIT_PATH, 'exiting')
+  exit 0
+}
+if ($env:LMD_SCENARIO -ceq 'outer_invalid_utf8_output') {
+  [byte[]]$stdoutBytes = [byte[]]::new(65536)
+  [byte[]]$stderrBytes = [byte[]]::new(65536)
+  [System.Buffer]::BlockCopy([System.Text.Encoding]::ASCII.GetBytes(('a' * 65535)), 0, $stdoutBytes, 0, 65535)
+  $stdoutBytes[65535] = 0xf0
+  [System.Buffer]::BlockCopy([System.Text.Encoding]::ASCII.GetBytes(('b' * 65532)), 0, $stderrBytes, 0, 65532)
+  $stderrBytes[65532] = 0xe2
+  $stderrBytes[65533] = 0x82
+  $stderrBytes[65534] = 0xac
+  $stderrBytes[65535] = 0xf0
+  [Console]::OpenStandardOutput().Write($stdoutBytes, 0, $stdoutBytes.Length)
+  [Console]::OpenStandardError().Write($stderrBytes, 0, $stderrBytes.Length)
+}
 . ${powerShellLiteral(rollbackRestoreScriptPath)}
 ${powerShellTestEnvironmentStateHelper}
 
@@ -7250,10 +8490,594 @@ try {
     }
   }
 
-  const runScenario = (host, name, options = {}) => {
+  const defaultScenarioTimeoutMs = 120000
+  const maxScenarioStreamBytes = 64 * 1024
+
+  const captureScenarioStream = () => {
+    const chunks = []
+    let capturedBytes = 0
+    return {
+      append(chunk) {
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        if (capturedBytes >= maxScenarioStreamBytes) return
+        const retained = bytes.subarray(0, maxScenarioStreamBytes - capturedBytes)
+        chunks.push(retained)
+        capturedBytes += retained.length
+      },
+      value() {
+        const decoded = Buffer.concat(chunks).toString('utf8')
+        if (Buffer.byteLength(decoded, 'utf8') <= maxScenarioStreamBytes) return decoded
+        const bounded = []
+        let encodedBytes = 0
+        for (const character of decoded) {
+          const characterBytes = Buffer.byteLength(character, 'utf8')
+          if (encodedBytes + characterBytes > maxScenarioStreamBytes) break
+          bounded.push(character)
+          encodedBytes += characterBytes
+        }
+        return bounded.join('')
+      },
+    }
+  }
+
+  const runBoundedScenario = (host, name, args, spawnOptions, {
+    descendantAckDelayMs = 0,
+    descendantOwnerMode = 'ack',
+    descendantPublishedPid = null,
+    finalDeadlineMs,
+    forceCloseGraceMs,
+    jobWriterAckPath = '',
+    jobWriterPidPath = '',
+    jobWriterReadyPath = '',
+    knownProcessPidPaths = [],
+    startupTimeoutMs,
+    supervisorFault = '',
+    terminationHelper,
+    timeoutMs,
+  }) => new Promise((resolve) => {
+    const controlPath = path.join(fixtureRoot, `bounded-job-control-${crypto.randomUUID()}`)
+    const identityPath = path.join(fixtureRoot, `bounded-job-identity-${crypto.randomUUID()}.txt`)
+    const descendantRequestPath = path.join(fixtureRoot, `bounded-descendant-request-${crypto.randomUUID()}.json`)
+    const descendantOwnerAckPath = path.join(fixtureRoot, `bounded-descendant-owner-ack-${crypto.randomUUID()}.json`)
+    const descendantDriverAckPath = path.join(fixtureRoot, `bounded-descendant-driver-ack-${crypto.randomUUID()}.json`)
+    const descendantRequestToken = crypto.randomBytes(32).toString('hex')
+    const hasDescendantOwner = knownProcessPidPaths.length === 2
+    const hasJobWriter = Boolean(jobWriterAckPath || jobWriterPidPath || jobWriterReadyPath)
+    const jobWriterToken = crypto.randomBytes(32).toString('hex')
+    assert.equal(path.isAbsolute(controlPath), true)
+    assert.equal(path.dirname(controlPath), fixtureRoot)
+    assert.equal(fs.existsSync(controlPath), false)
+    assert.equal(path.isAbsolute(identityPath), true)
+    assert.equal(path.dirname(identityPath), fixtureRoot)
+    assert.equal(fs.existsSync(identityPath), false)
+    for (const handshakePath of [descendantRequestPath, descendantOwnerAckPath, descendantDriverAckPath]) {
+      assert.equal(path.isAbsolute(handshakePath), true)
+      assert.equal(path.dirname(handshakePath), fixtureRoot)
+      assert.equal(fs.existsSync(handshakePath), false)
+    }
+    assert.equal(
+      [jobWriterAckPath, jobWriterPidPath, jobWriterReadyPath].filter(Boolean).length,
+      hasJobWriter ? 3 : 0,
+      'Job writer PID, acknowledgement, and readiness paths must be configured together',
+    )
+    for (const writerPath of [jobWriterAckPath, jobWriterPidPath, jobWriterReadyPath].filter(Boolean)) {
+      assert.equal(path.isAbsolute(writerPath), true, 'Job writer handshake paths must be absolute')
+      assert.equal(fs.existsSync(writerPath), false, 'Job writer handshake paths must not already exist')
+    }
+    const stdout = captureScenarioStream()
+    const stderr = captureScenarioStream()
+    let child
+    let descendantOwner
+    let descendantOwnerClosed = !hasDescendantOwner
+    let descendantOwnerExitStatus = null
+    let descendantOwnerExitSignal = null
+    let descendantOwnerSpawnError = null
+    const descendantOwnerTerminationAttempts = []
+    let spawnError = null
+    let closed = false
+    let exitStatus = null
+    let exitSignal = null
+    let finalDeadlineTimer = null
+    let finalDeadlineReached = false
+    let finished = false
+    let forceKillTimer = null
+    let hardDeadlineReached = false
+    let hardDeadlineTimer = null
+    const helperAbortController = new AbortController()
+    let helperSettled = false
+    const identityFallbackAttempts = []
+    let timedOut = false
+    let terminationDetail = null
+    let terminationStarted = false
+    let settlementForce = false
+    let settlementRequested = false
+    const spawnedAt = Date.now()
+    let readyAt = knownProcessPidPaths.length === 0 ? spawnedAt : null
+    let startupDeadlineTimer = null
+    let startupPollTimer = null
+    let startupTimedOut = false
+    let supervisorStderrEof = false
+    let supervisorStdoutEof = false
+    let timeoutTimer = null
+    const supervisorIdentity = () => {
+      if (!fs.existsSync(identityPath)) return null
+      const fields = Object.fromEntries(fs.readFileSync(identityPath, 'utf8')
+        .trim().split(/\r?\n/).filter(Boolean).map((line) => {
+          const separator = line.indexOf('=')
+          return separator < 0 ? [line, ''] : [line.slice(0, separator), line.slice(separator + 1)]
+        }))
+      return {
+        descendant_driver_acknowledged: fields.descendant_driver_acknowledged === undefined
+          ? null
+          : fields.descendant_driver_acknowledged === 'true',
+        driver_is_in_job: fields.driver_is_in_job === undefined ? null : fields.driver_is_in_job === 'true',
+        driver_pid: fields.driver_pid === undefined ? null : Number(fields.driver_pid),
+        root_is_in_job: fields.root_is_in_job === 'true',
+        root_pid: Number(fields.root_pid),
+        writer_exited_after_job_close: fields.writer_exited_after_job_close === undefined
+          ? null
+          : fields.writer_exited_after_job_close === 'true',
+        writer_is_in_job: fields.writer_is_in_job === undefined ? null : fields.writer_is_in_job === 'true',
+        writer_pid: fields.writer_pid === undefined ? null : Number(fields.writer_pid),
+        writer_supervisor_acknowledged: fields.writer_supervisor_acknowledged === undefined
+          ? null
+          : fields.writer_supervisor_acknowledged === 'true',
+      }
+    }
+    const readJsonFile = (filePath) => {
+      try { return JSON.parse(fs.readFileSync(filePath, 'utf8')) } catch { return null }
+    }
+    const publishedDescendantPid = () => {
+      if (!hasDescendantOwner) return null
+      try { return Number(fs.readFileSync(knownProcessPidPaths[1], 'utf8')) || null } catch { return null }
+    }
+    const descendantOwnerDetail = () => {
+      const ownerAck = readJsonFile(descendantOwnerAckPath)
+      const driverAck = readJsonFile(descendantDriverAckPath)
+      const ownerPid = descendantOwner?.pid || null
+      const publishedPid = publishedDescendantPid()
+      const ownerAckValid = Boolean(
+        ownerAck
+        && ownerAck.authority_source === 'direct-descendant-child-handle'
+        && ownerAck.descendant_ack_token === descendantRequestToken
+        && ownerAck.owner_pid === ownerPid,
+      )
+      const driverAckValid = Boolean(
+        driverAck
+        && driverAck.descendant_ack_token === descendantRequestToken
+        && driverAck.owner_pid === ownerPid
+        && driverAck.published_pid === publishedPid,
+      )
+      return {
+        acknowledged_before_root_exit: ownerAckValid && driverAckValid,
+        authority_rejected: publishedPid !== null && ownerPid !== null && publishedPid !== ownerPid,
+        authority_source: 'direct-descendant-child-handle',
+        cleanup_attempts: descendantOwnerTerminationAttempts,
+        cleanup_confirmed: descendantOwnerClosed,
+        driver_ack_valid: driverAckValid,
+        owner_ack_valid: ownerAckValid,
+        owner_exit_signal: descendantOwnerExitSignal,
+        owner_exit_status: descendantOwnerExitStatus,
+        owner_pid: ownerPid,
+        owner_spawn_error: descendantOwnerSpawnError
+          ? { code: descendantOwnerSpawnError.code || null, message: descendantOwnerSpawnError.message }
+          : null,
+        primary_preserved: exitStatus === 126 && /bounded-job-supervisor:/.test(stderr.value()),
+        published_pid: publishedPid,
+        published_pid_matches_owner: publishedPid !== null && publishedPid === ownerPid,
+      }
+    }
+    const processStates = () => {
+      const pidPaths = knownProcessPidPaths.length > 0 ? [...knownProcessPidPaths] : [null]
+      if (hasJobWriter) pidPaths.push(jobWriterPidPath)
+      return pidPaths.map((pidPath) => {
+        let pid = child?.pid || null
+        if (pidPath) {
+          try { pid = Number(fs.readFileSync(pidPath, 'utf8')) || null } catch { pid = null }
+        }
+        return {
+          path: pidPath,
+          pid,
+          running: pid === null ? null : observeProcessExit(pid).running,
+        }
+      })
+    }
+    const startupSnapshot = () => ({
+      descendant_owner: descendantOwnerDetail(),
+      identity: supervisorIdentity(),
+      known_process_pids: knownProcessPidPaths.map((pidPath) => {
+        let pid = null
+        try { pid = Number(fs.readFileSync(pidPath, 'utf8')) || null } catch {}
+        return { path: pidPath, pid }
+      }),
+      writer_ack: hasJobWriter ? readJsonFile(jobWriterAckPath) : null,
+      writer_pid: hasJobWriter
+        ? (() => { try { return Number(fs.readFileSync(jobWriterPidPath, 'utf8')) || null } catch { return null } })()
+        : null,
+      writer_ready_exists: hasJobWriter ? fs.existsSync(jobWriterReadyPath) : false,
+    })
+    const result = () => {
+      const capturedStdout = stdout.value()
+      const capturedStderr = stderr.value()
+      const captured = {
+        output: [null, capturedStdout, capturedStderr],
+        pid: child?.pid,
+        signal: exitSignal,
+        status: exitStatus,
+        stderr: capturedStderr,
+        stdout: capturedStdout,
+      }
+      if (spawnError) captured.error = spawnError
+      return captured
+    }
+    const terminateDescendantOwner = (reason) => {
+      const attempt = {
+        accepted: false,
+        method: 'direct-descendant-child-handle',
+        reason,
+      }
+      if (!descendantOwner || descendantOwnerClosed) {
+        attempt.already_closed = true
+      } else {
+        try {
+          attempt.accepted = descendantOwner.kill()
+        } catch (error) {
+          attempt.error = { code: error.code || null, message: error.message }
+        }
+      }
+      descendantOwnerTerminationAttempts.push(attempt)
+      return attempt
+    }
+    const releaseChild = (force) => {
+      clearTimeout(timeoutTimer)
+      clearTimeout(finalDeadlineTimer)
+      clearTimeout(forceKillTimer)
+      clearTimeout(hardDeadlineTimer)
+      clearTimeout(startupDeadlineTimer)
+      clearInterval(startupPollTimer)
+      if (terminationStarted && !helperSettled && !helperAbortController.signal.aborted) {
+        terminationDetail = { kind: 'aborted-at-settlement' }
+      }
+      if (!helperAbortController.signal.aborted) helperAbortController.abort()
+      if (!child) return
+      child.removeListener('exit', onExit)
+      child.removeListener('close', onClose)
+      child.removeListener('error', onError)
+      child.stdout?.removeListener('data', onStdout)
+      child.stdout?.removeListener('end', onSupervisorStdoutEnd)
+      child.stderr?.removeListener('data', onStderr)
+      child.stderr?.removeListener('end', onSupervisorStderrEnd)
+      child.stdin?.destroy()
+      if (force) {
+        child.unref()
+        child.stdout?.destroy()
+        child.stderr?.destroy()
+      }
+    }
+    const finish = (force = false) => {
+      if (finished) return
+      settlementRequested = true
+      settlementForce = settlementForce || force
+      if (hasDescendantOwner && !descendantOwnerClosed) {
+        terminateDescendantOwner(force ? 'forced-settlement' : 'supervisor-settlement')
+        return
+      }
+      finished = true
+      const settledAt = Date.now()
+      releaseChild(settlementForce)
+      const captured = result()
+      const cleanup = {
+        descendant_owner: descendantOwnerDetail(),
+        supervisor_identity: supervisorIdentity(),
+        supervisor_stdio: {
+          stderr_eof: supervisorStderrEof,
+          stdout_eof: supervisorStdoutEof,
+        },
+      }
+      if (!timedOut) {
+        resolve({ cleanup, result: captured })
+        return
+      }
+      const effectiveTimeoutMs = startupTimedOut ? startupTimeoutMs : timeoutMs
+      const startupDetail = startupTimedOut ? `; startup=${JSON.stringify(startupSnapshot())}` : ''
+      const error = new Error(
+        `rollback restore scenario${startupTimedOut ? ' startup' : ''} timed out: host=${host.name}; scenario=${name}; timeout=${effectiveTimeoutMs}ms${startupDetail}`,
+      )
+      error.code = 'ERR_LMD_RESTORE_SCENARIO_TIMEOUT'
+      error.host = host.name
+      error.result = captured
+      error.scenario = name
+      error.phase = startupTimedOut ? 'startup' : 'scenario'
+      error.termination = {
+        final_deadline_reached: finalDeadlineReached,
+        hard_deadline_reached: hardDeadlineReached,
+        helper: terminationDetail || { kind: terminationStarted ? 'pending' : 'not-configured' },
+        identity_fallback: {
+          attempts: identityFallbackAttempts,
+          close_observed: closed,
+          control_path: controlPath,
+          method: 'exclusive-control-file/ChildProcess.kill',
+          supervisor_pid: child?.pid || null,
+        },
+        descendant_owner: cleanup.descendant_owner,
+        processes: processStates(),
+        supervisor_identity: cleanup.supervisor_identity,
+        supervisor_stdio: cleanup.supervisor_stdio,
+      }
+      error.timing = {
+        scenario_ms: readyAt === null ? null : settledAt - readyAt,
+        startup_ms: (readyAt || settledAt) - spawnedAt,
+        total_ms: settledAt - spawnedAt,
+      }
+      if (startupTimedOut) error.startup = startupSnapshot()
+      error.timeoutMs = effectiveTimeoutMs
+      resolve({ cleanup, result: captured, timeoutError: error })
+    }
+    const onStdout = (chunk) => stdout.append(chunk)
+    const onStderr = (chunk) => stderr.append(chunk)
+    const onSupervisorStdoutEnd = () => { supervisorStdoutEof = true }
+    const onSupervisorStderrEnd = () => { supervisorStderrEof = true }
+    const onError = (error) => { spawnError = error }
+    const onExit = (status, signal) => {
+      exitStatus = status
+      exitSignal = signal
+    }
+    const onClose = (status, signal) => {
+      closed = true
+      exitStatus = status
+      exitSignal = signal
+      finish()
+    }
+    const onDescendantOwnerError = (error) => { descendantOwnerSpawnError = error }
+    const onDescendantOwnerClose = (status, signal) => {
+      descendantOwnerClosed = true
+      descendantOwnerExitStatus = status
+      descendantOwnerExitSignal = signal
+      if (settlementRequested) finish(settlementForce)
+    }
+    const requestSupervisorTermination = (reason) => {
+      const attempt = { method: 'exclusive-control-file', reason, requested: false }
+      if (!child || closed) {
+        attempt.already_closed = true
+      } else {
+        let controlHandle = null
+        try {
+          controlHandle = fs.openSync(controlPath, 'wx')
+          fs.closeSync(controlHandle)
+          controlHandle = null
+          attempt.requested = true
+        } catch (error) {
+          if (controlHandle !== null) {
+            try { fs.closeSync(controlHandle) } catch (closeError) {
+              attempt.close_error = { code: closeError.code || null, message: closeError.message }
+            }
+          }
+          if (error.code === 'EEXIST') {
+            attempt.already_requested = true
+            attempt.requested = true
+          } else {
+            attempt.error = { code: error.code || null, message: error.message }
+          }
+        }
+      }
+      identityFallbackAttempts.push(attempt)
+    }
+    const forceTerminateSupervisor = (reason) => {
+      const attempt = { accepted: false, method: 'ChildProcess.kill', reason }
+      if (!child || closed) {
+        attempt.already_closed = true
+      } else {
+        try {
+          attempt.accepted = child.kill()
+        } catch (error) {
+          attempt.error = { code: error.code || null, message: error.message }
+        }
+      }
+      identityFallbackAttempts.push(attempt)
+    }
+    const startTerminationHelper = () => {
+      if (!terminationHelper || terminationStarted) return
+      terminationStarted = true
+      Promise.resolve().then(() => terminationHelper({
+        signal: helperAbortController.signal,
+        supervisor: child,
+      })).then((detail) => {
+        helperSettled = true
+        terminationDetail = detail || { kind: 'empty-termination-result' }
+        if (!closed) requestSupervisorTermination('termination-helper-settled')
+      }).catch((error) => {
+        helperSettled = true
+        terminationDetail = {
+          error: { code: error.code || null, message: error.message },
+          kind: 'termination-helper-error',
+        }
+        if (!closed) requestSupervisorTermination('termination-helper-settled')
+      })
+    }
+    const beginFinalFallback = (reason) => {
+      terminateDescendantOwner(reason)
+      requestSupervisorTermination(reason)
+      if (forceKillTimer) return
+      forceKillTimer = setTimeout(() => {
+        forceTerminateSupervisor('force-close-grace-expired')
+        hardDeadlineTimer = setTimeout(() => {
+          hardDeadlineReached = true
+          finish(true)
+        }, forceCloseGraceMs)
+      }, forceCloseGraceMs)
+    }
+    const armScenarioDeadlines = () => {
+      if (finished || timeoutTimer) return
+      clearTimeout(startupDeadlineTimer)
+      clearInterval(startupPollTimer)
+      readyAt = Date.now()
+      timeoutTimer = setTimeout(() => {
+        timedOut = true
+        terminateDescendantOwner('scenario-timeout')
+        startTerminationHelper()
+        if (!terminationHelper) requestSupervisorTermination('scenario-timeout')
+      }, timeoutMs)
+      finalDeadlineTimer = setTimeout(() => {
+        timedOut = true
+        finalDeadlineReached = true
+        beginFinalFallback('final-deadline')
+      }, finalDeadlineMs)
+    }
+    const scenarioIsReady = () => {
+      const pids = knownProcessPidPaths.map((pidPath) => {
+        try { return Number(fs.readFileSync(pidPath, 'utf8')) || null } catch { return null }
+      })
+      if (pids.some((pid) => pid === null)) return false
+      const identity = supervisorIdentity()
+      if (!identity
+          || identity.root_pid !== pids[0]
+          || identity.driver_pid !== pids[0]
+          || identity.root_is_in_job !== true
+          || identity.driver_is_in_job !== true) return false
+      if (hasJobWriter) {
+        let writerPid = null
+        try { writerPid = Number(fs.readFileSync(jobWriterPidPath, 'utf8')) || null } catch {}
+        const writerAck = readJsonFile(jobWriterAckPath)
+        if (!writerPid
+            || identity.writer_pid !== writerPid
+            || identity.writer_is_in_job !== true
+            || identity.writer_supervisor_acknowledged !== true
+            || !writerAck
+            || writerAck.writer_pid !== writerPid
+            || writerAck.writer_is_in_job !== true) return false
+      }
+      if (pids.length < 2) return true
+      const owner = descendantOwnerDetail()
+      return identity.descendant_driver_acknowledged === true
+        && owner.acknowledged_before_root_exit
+        && owner.published_pid_matches_owner
+        && !owner.authority_rejected
+    }
+    const armStartupHandshake = () => {
+      if (knownProcessPidPaths.length === 0 && !hasJobWriter) {
+        armScenarioDeadlines()
+        return
+      }
+      const poll = () => {
+        if (finished || !scenarioIsReady()) return
+        armScenarioDeadlines()
+      }
+      poll()
+      if (readyAt !== null) return
+      startupPollTimer = setInterval(poll, 25)
+      startupDeadlineTimer = setTimeout(() => {
+        if (finished || readyAt !== null) return
+        timedOut = true
+        startupTimedOut = true
+        beginFinalFallback('startup-timeout')
+      }, startupTimeoutMs)
+    }
+    try {
+      assert.ok(knownProcessPidPaths.length <= 2, 'bounded supervisor supports one retained descendant identity')
+      assert.ok(Number.isInteger(descendantAckDelayMs) && descendantAckDelayMs >= 0, 'descendant acknowledgement delay must be a non-negative integer')
+      assert.ok(['ack', 'withhold-ack'].includes(descendantOwnerMode), 'unsupported descendant owner mode')
+      if (hasDescendantOwner) {
+        descendantOwner = spawn(process.execPath, [
+          descendantOwnerScriptPath,
+          descendantRequestPath,
+          descendantOwnerAckPath,
+          descendantRequestToken,
+          descendantOwnerMode,
+          String(descendantAckDelayMs),
+        ], {
+          cwd: root,
+          env: process.env,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+        })
+        descendantOwner.stdout.on('data', onStdout)
+        descendantOwner.stderr.on('data', onStderr)
+        descendantOwner.once('error', onDescendantOwnerError)
+        descendantOwner.once('close', onDescendantOwnerClose)
+      }
+      child = spawn(jobSupervisorPath, [
+        controlPath,
+        identityPath,
+        knownProcessPidPaths[0] || '',
+        hasDescendantOwner ? descendantDriverAckPath : '',
+        hasJobWriter ? jobWriterPidPath : '',
+        hasJobWriter ? jobWriterAckPath : '',
+        supervisorFault,
+        host.executable,
+        spawnOptions.cwd,
+        ...args,
+      ], {
+        ...spawnOptions,
+        env: {
+          ...spawnOptions.env,
+          LMD_DESCENDANT_DRIVER_ACK_PATH: hasDescendantOwner ? descendantDriverAckPath : '',
+          LMD_DESCENDANT_OWNER_ACK_PATH: hasDescendantOwner ? descendantOwnerAckPath : '',
+          LMD_DESCENDANT_PUBLISHED_PID: descendantPublishedPid === null ? '' : String(descendantPublishedPid),
+          LMD_DESCENDANT_REQUEST_PATH: hasDescendantOwner ? descendantRequestPath : '',
+          LMD_DESCENDANT_REQUEST_TOKEN: hasDescendantOwner ? descendantRequestToken : '',
+          LMD_JOB_WRITER_ACK_PATH: hasJobWriter ? jobWriterAckPath : '',
+          LMD_JOB_WRITER_PID_PATH: hasJobWriter ? jobWriterPidPath : '',
+          LMD_JOB_WRITER_READY_PATH: hasJobWriter ? jobWriterReadyPath : '',
+          LMD_JOB_WRITER_SCRIPT_PATH: hasJobWriter ? jobWriterScriptPath : '',
+          LMD_JOB_WRITER_TOKEN: hasJobWriter ? jobWriterToken : '',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    } catch (error) {
+      spawnError = error
+      if (!descendantOwner) descendantOwnerClosed = true
+      closed = true
+      finish(true)
+      return
+    }
+    child.stdout.on('data', onStdout)
+    child.stdout.once('end', onSupervisorStdoutEnd)
+    child.stderr.on('data', onStderr)
+    child.stderr.once('end', onSupervisorStderrEnd)
+    child.once('error', onError)
+    child.once('exit', onExit)
+    child.once('close', onClose)
+    armStartupHandshake()
+  })
+
+  const runScenario = async (host, name, options = {}) => {
     const fixture = createScenario(`${host.name}-${name}`, options)
     const caller = rollbackCallerEnvironment(options.callerEnvironmentState || 'strings')
-    const result = spawnSync(host.executable, [
+    const hostExecutable = path.isAbsolute(host.executable)
+      ? host.executable
+      : findPowerShell(host.executable)
+    assert.ok(hostExecutable, `PowerShell host executable was not found: ${host.executable}`)
+    const timeoutMs = options.scenarioTimeoutMs === undefined
+      ? defaultScenarioTimeoutMs
+      : options.scenarioTimeoutMs
+    assert.ok(Number.isInteger(timeoutMs) && timeoutMs > 0, 'scenario timeout must be a positive integer')
+    const terminationGraceMs = options.scenarioTerminationGraceMs === undefined
+      ? 15000
+      : options.scenarioTerminationGraceMs
+    const finalDeadlineMs = options.scenarioFinalDeadlineMs === undefined
+      ? timeoutMs + terminationGraceMs
+      : options.scenarioFinalDeadlineMs
+    assert.ok(Number.isInteger(finalDeadlineMs) && finalDeadlineMs > timeoutMs, 'scenario final deadline must exceed the timeout')
+    const forceCloseGraceMs = options.scenarioForceCloseGraceMs === undefined
+      ? 1000
+      : options.scenarioForceCloseGraceMs
+    assert.ok(Number.isInteger(forceCloseGraceMs) && forceCloseGraceMs > 0, 'scenario force-close grace must be positive')
+    const startupTimeoutMs = options.scenarioStartupTimeoutMs === undefined
+      ? 30000
+      : options.scenarioStartupTimeoutMs
+    assert.ok(Number.isInteger(startupTimeoutMs) && startupTimeoutMs > 0, 'scenario startup timeout must be positive')
+    const runtimeScenario = options.runtimeScenario || name
+    const requiresJobWriter = runtimeScenario === 'outer_process_tree_exit_with_inherited_stdio'
+    const jobWriterAckPath = requiresJobWriter
+      ? (options.outerJobWriterAckPath || path.join(fixtureRoot, `job-writer-ack-${crypto.randomUUID()}.json`))
+      : ''
+    const jobWriterPidPath = requiresJobWriter
+      ? (options.outerJobWriterPidPath || path.join(fixtureRoot, `job-writer-pid-${crypto.randomUUID()}.txt`))
+      : ''
+    const jobWriterReadyPath = requiresJobWriter
+      ? (options.outerJobWriterReadyPath || path.join(fixtureRoot, `job-writer-ready-${crypto.randomUUID()}.txt`))
+      : ''
+    const bounded = await runBoundedScenario({ ...host, executable: hostExecutable }, name, [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driverPath,
       '-CheckpointDirectory', fixture.checkpointPath,
     ], {
@@ -7288,13 +9112,34 @@ try {
         LMD_FRONTEND_IMAGE: frontendImageId,
         LMD_LOCK_PROBE: lockProbePath,
         LMD_NODE_EXE: process.execPath,
+        LMD_OUTER_HANG_DESCENDANT_PID_PATH: options.outerHangDescendantPidPath || '',
+        LMD_OUTER_HANG_PARENT_EXIT_PATH: options.outerHangParentExitPath || '',
+        LMD_OUTER_HANG_PARENT_PID_PATH: options.outerHangParentPidPath || '',
         LMD_CLEANUP_FAILURE: String(Boolean(options.cleanupFailure)),
         LMD_COMPENSATION_PROBE: compensationProbePath,
-        LMD_SCENARIO: options.runtimeScenario || name,
+        LMD_SCENARIO: runtimeScenario,
         LMD_SUPPRESS_AUTHORITY_LABEL: options.suppressAuthorityLabel || '',
       },
+    }, {
+      descendantAckDelayMs: options.descendantAckDelayMs,
+      descendantOwnerMode: options.descendantOwnerMode,
+      descendantPublishedPid: options.descendantPublishedPid,
+      finalDeadlineMs,
+      forceCloseGraceMs,
+      jobWriterAckPath,
+      jobWriterPidPath,
+      jobWriterReadyPath,
+      knownProcessPidPaths: options.knownProcessPidPaths,
+      startupTimeoutMs,
+      supervisorFault: options.supervisorFault,
+      terminationHelper: options.terminationHelper,
+      timeoutMs,
     })
-    const events = fs.existsSync(fixture.eventLog)
+    const { result } = bounded
+    const timeoutError = bounded.timeoutError
+    try {
+      if (options.deleteCheckpointBeforeDiagnostics) fs.rmSync(fixture.checkpointPath, { recursive: true, force: true })
+      const events = fs.existsSync(fixture.eventLog)
       ? fs.readFileSync(fixture.eventLog, 'utf8').trim().split(/\r?\n/).filter(Boolean).map(JSON.parse)
       : []
     const eventNames = events.map((entry) => entry.event)
@@ -7310,8 +9155,8 @@ try {
         let marker = null
         try { marker = JSON.parse(markerBytes.toString('utf8')) } catch {}
         const movedMarkerPath = `${markerPath}.released`
-        fs.renameSync(markerPath, movedMarkerPath)
-        fs.renameSync(movedMarkerPath, markerPath)
+        renameReleasedPathSync(markerPath, movedMarkerPath)
+        renameReleasedPathSync(movedMarkerPath, markerPath)
         return {
           bytes: markerBytes,
           marker,
@@ -7344,8 +9189,8 @@ try {
         const childPath = path.join(directoryPath, childName)
         if (!fs.existsSync(childPath)) continue
         const movedChildPath = `${childPath}.released`
-        fs.renameSync(childPath, movedChildPath)
-        fs.renameSync(movedChildPath, childPath)
+        renameReleasedPathSync(childPath, movedChildPath)
+        renameReleasedPathSync(movedChildPath, childPath)
       }
       const identityOf = (targetPath) => {
         const stat = fs.statSync(targetPath, { bigint: true })
@@ -7354,8 +9199,8 @@ try {
       const expectedReadyName = name.replace(/^compensation-incomplete-/, 'compensation-ready-') + '.json'
       const readyMarker = compensationReadyMarkers.find((entry) => entry.name === expectedReadyName) || null
       const movedDirectoryPath = directoryPath + '.released'
-      fs.renameSync(directoryPath, movedDirectoryPath)
-      fs.renameSync(movedDirectoryPath, directoryPath)
+      renameReleasedPathSync(directoryPath, movedDirectoryPath)
+      renameReleasedPathSync(movedDirectoryPath, directoryPath)
       return {
         archiveBytes,
         archiveIdentity: archiveType === 'file' ? identityOf(archivePath) : null,
@@ -7376,24 +9221,25 @@ try {
     for (const relativePath of fixedCheckpointFiles) {
       const originalPath = path.join(fixture.checkpointPath, ...relativePath.split('/'))
       const movedPath = `${originalPath}.released`
-      fs.renameSync(originalPath, movedPath)
-      fs.renameSync(movedPath, originalPath)
+      renameReleasedPathSync(originalPath, movedPath)
+      renameReleasedPathSync(movedPath, originalPath)
     }
     const checkpointConfigPath = path.join(fixture.checkpointPath, 'configs')
     const movedCheckpointConfigPath = path.join(fixture.checkpointPath, 'configs.released')
-    fs.renameSync(checkpointConfigPath, movedCheckpointConfigPath)
-    fs.renameSync(movedCheckpointConfigPath, checkpointConfigPath)
+    renameReleasedPathSync(checkpointConfigPath, movedCheckpointConfigPath)
+    renameReleasedPathSync(movedCheckpointConfigPath, checkpointConfigPath)
     const movedCheckpointPath = `${fixture.checkpointPath}.released`
-    fs.renameSync(fixture.checkpointPath, movedCheckpointPath)
-    fs.renameSync(movedCheckpointPath, fixture.checkpointPath)
+    renameReleasedPathSync(fixture.checkpointPath, movedCheckpointPath)
+    renameReleasedPathSync(movedCheckpointPath, fixture.checkpointPath)
     const renamedArchive = path.join(path.dirname(fixture.checkpointPath), 'released-data.zip')
     fs.writeFileSync(path.join(fixture.checkpointPath, 'data.zip'), 'released archive')
-    fs.renameSync(path.join(fixture.checkpointPath, 'data.zip'), renamedArchive)
+    renameReleasedPathSync(path.join(fixture.checkpointPath, 'data.zip'), renamedArchive)
     fs.unlinkSync(renamedArchive)
     const renamedRoot = `${fixture.dataRoot}.released`
-    fs.renameSync(fixture.dataRoot, renamedRoot)
+    renameReleasedPathSync(fixture.dataRoot, renamedRoot)
     fs.rmdirSync(renamedRoot)
-    return {
+    const run = {
+      cleanup: bounded.cleanup,
       compensationArtifacts,
       compensationDirectories,
       compensationReadyMarkers,
@@ -7401,6 +9247,24 @@ try {
       events,
       fixture,
       result,
+    }
+    if (timeoutError) {
+      timeoutError.fixtureRoot = fixtureRoot
+      timeoutError.run = run
+      throw timeoutError
+    }
+    return run
+    } catch (error) {
+      if (timeoutError && error !== timeoutError) {
+        timeoutError.fixtureRoot = fixtureRoot
+        timeoutError.fixture_diagnostic = {
+          code: error.code || null,
+          message: error.message || String(error),
+        }
+        timeoutError.run = { fixture, result }
+        throw timeoutError
+      }
+      throw error
     }
   }
 
@@ -7432,8 +9296,633 @@ process.stdout.write(JSON.stringify(result))
     return JSON.parse(result.stdout)
   }
 
-  return { callerBase, callerCurrent, runCompensationProbeFault, runScenario }
+  return { callerBase, callerCurrent, observeProcessExit, runCompensationProbeFault, runScenario }
 }
+
+test('rollback restore root-created inherited writer remains Job-contained until pipe EOF', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Rollback restore inherited writer regressions require Windows')
+    return
+  }
+  assert.equal(process.versions.node, '20.20.2', 'inherited writer regressions must run under Node 20.20.2')
+  const hosts = windowsPowerShellHosts()
+  assert.ok(hosts.some((host) => host.name === 'windows-powershell-5.1'), 'Windows PowerShell 5.1 is required')
+  assert.ok(hosts.some((host) => host.name === 'powershell-7'), 'PowerShell 7 is required')
+  const { observeProcessExit, runScenario } = createRollbackRestoreHarness(t)
+  const processFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-job-writer-authority-'))
+  t.after(() => fs.rmSync(processFixtureRoot, { recursive: true, force: true }))
+
+  await t.test('writer structure inherits the root handles without breakaway or PID termination', () => {
+    const source = createRollbackRestoreHarness.toString()
+    const writerStart = source.indexOf('public static class JobInheritedWriter')
+    const writerEnd = source.indexOf('function Start-TestDescendantHandshake', writerStart)
+    assert.ok(writerStart >= 0 && writerEnd > writerStart, 'root-created writer implementation is missing')
+    const writerSource = source.slice(writerStart, writerEnd)
+    assert.match(writerSource, /CreateProcessW/)
+    assert.match(writerSource, /STARTF_USESTDHANDLES/)
+    assert.match(writerSource, /GetStdHandle\(STD_OUTPUT_HANDLE\)/)
+    assert.match(writerSource, /GetStdHandle\(STD_ERROR_HANDLE\)/)
+    assert.match(writerSource, /if \(!CreateProcess\([\s\S]*?\n\s*true,\s*\n\s*CREATE_SUSPENDED \| CREATE_NO_WINDOW/)
+    assert.match(writerSource, /AssignProcessToJobObject\(inheritedJob, information\.hProcess\)/)
+    assert.match(writerSource, /IsProcessInJob\(information\.hProcess, inheritedJob/)
+    assert.match(writerSource, /ResumeThread\(information\.hThread\)/)
+    assert.match(writerSource, /SetHandleInformation\(inheritedJob, HANDLE_FLAG_INHERIT, 0\)/)
+    assert.doesNotMatch(writerSource, /CREATE_BREAKAWAY_FROM_JOB/)
+    assert.doesNotMatch(writerSource, /stdio:\s*\[/)
+    assert.match(writerSource, /writer_is_in_job[\s\S]*Job writer supervisor acknowledgement timed out/)
+
+    const inheritedExitStart = source.indexOf("if ($env:LMD_SCENARIO -ceq 'outer_process_tree_exit_with_inherited_stdio')")
+    const inheritedExitEnd = source.indexOf("if ($env:LMD_SCENARIO -ceq 'outer_invalid_utf8_output')", inheritedExitStart)
+    assert.ok(inheritedExitStart >= 0 && inheritedExitEnd > inheritedExitStart)
+    assert.match(
+      source.slice(inheritedExitStart, inheritedExitEnd),
+      /Start-TestJobWriter[\s\S]*LMD_OUTER_HANG_PARENT_EXIT_PATH/,
+    )
+
+    const outerOwnerStart = source.indexOf('descendantOwner = spawn(process.execPath')
+    const outerOwnerEnd = source.indexOf('child = spawn(jobSupervisorPath', outerOwnerStart)
+    assert.ok(outerOwnerStart >= 0 && outerOwnerEnd > outerOwnerStart)
+    assert.doesNotMatch(source.slice(outerOwnerStart, outerOwnerEnd), /jobWriter|JOB_WRITER/)
+
+    const supervisorStart = source.indexOf('const jobSupervisorSource')
+    const supervisorEnd = source.indexOf('const jobSupervisorSourcePath', supervisorStart)
+    const supervisorSource = source.slice(supervisorStart, supervisorEnd)
+    assert.match(supervisorSource, /OpenProcess\(SYNCHRONIZE \| PROCESS_QUERY_LIMITED_INFORMATION, false, writerPid\)/)
+    assert.match(supervisorSource, /IsProcessInJob\(writerProcess, job, out writerIsInJob\)/)
+    assert.match(supervisorSource, /WaitForRetainedWriter/)
+    assert.match(supervisorSource, /FileShare\.ReadWrite \| FileShare\.Delete/)
+    assert.match(supervisorSource, /bool retentionHandshakeComplete = descendantAcknowledged && writerAcknowledged/)
+    assert.doesNotMatch(supervisorSource, /OpenProcess\([^\n]*PROCESS_TERMINATE[^\n]*writerPid/)
+    assert.doesNotMatch(supervisorSource, /TerminateProcess\(writerProcess/)
+  })
+
+  const waitForPath = (filePath, timeoutMs = 3000) => {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (fs.existsSync(filePath)) return true
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+    }
+    return fs.existsSync(filePath)
+  }
+
+  for (const host of hosts) {
+    await t.test(host.name, async () => {
+      const scenarioRoot = path.join(processFixtureRoot, host.name)
+      fs.mkdirSync(scenarioRoot, { recursive: true })
+      const descendantPidPath = path.join(scenarioRoot, 'owner.pid')
+      const parentExitPath = path.join(scenarioRoot, 'root-exit')
+      const parentPidPath = path.join(scenarioRoot, 'root.pid')
+      const writerAckPath = path.join(scenarioRoot, 'writer-ack.json')
+      const writerPidPath = path.join(scenarioRoot, 'writer.pid')
+      const writerReadyPath = path.join(scenarioRoot, 'writer-ready')
+      const run = await runScenario(host, `root-created-inherited-writer-${host.name}`, {
+        knownProcessPidPaths: [parentPidPath, descendantPidPath],
+        outerHangDescendantPidPath: descendantPidPath,
+        outerHangParentExitPath: parentExitPath,
+        outerHangParentPidPath: parentPidPath,
+        outerJobWriterAckPath: writerAckPath,
+        outerJobWriterPidPath: writerPidPath,
+        outerJobWriterReadyPath: writerReadyPath,
+        runtimeScenario: 'outer_process_tree_exit_with_inherited_stdio',
+        scenarioFinalDeadlineMs: 7000,
+        scenarioStartupTimeoutMs: 5000,
+        scenarioTimeoutMs: 5500,
+      })
+
+      assert.equal(run.result.status, 0, run.result.stderr || run.result.stdout)
+      assert.equal(waitForPath(writerPidPath), true, `${host.name} root did not publish the writer PID`)
+      assert.equal(waitForPath(writerAckPath), true, `${host.name} supervisor did not acknowledge the writer`)
+      assert.equal(waitForPath(writerReadyPath), true, `${host.name} writer did not publish readiness`)
+      const rootPid = Number(fs.readFileSync(parentPidPath, 'utf8'))
+      const ownerPid = Number(fs.readFileSync(descendantPidPath, 'utf8'))
+      const writerPid = Number(fs.readFileSync(writerPidPath, 'utf8'))
+      const writerAck = JSON.parse(fs.readFileSync(writerAckPath, 'utf8'))
+      assert.ok([rootPid, ownerPid, writerPid].every(Number.isInteger))
+      assert.notEqual(writerPid, rootPid)
+      assert.notEqual(writerPid, ownerPid, `${host.name} outer sibling owner was substituted for the Job writer`)
+      assert.equal(Number(fs.readFileSync(writerReadyPath, 'utf8')), writerPid)
+      assert.deepEqual(writerAck, { writer_is_in_job: true, writer_pid: writerPid })
+      assert.equal(fs.readFileSync(parentExitPath, 'utf8'), 'exiting')
+      assert.match(run.result.stdout, /LMD_JOB_WRITER_STDOUT:/)
+      assert.match(run.result.stderr, /LMD_JOB_WRITER_STDERR:/)
+      assert.equal(run.cleanup.supervisor_identity.writer_pid, writerPid)
+      assert.equal(run.cleanup.supervisor_identity.writer_is_in_job, true)
+      assert.equal(run.cleanup.supervisor_identity.writer_supervisor_acknowledged, true)
+      assert.equal(run.cleanup.supervisor_identity.writer_exited_after_job_close, true)
+      assert.equal(run.cleanup.supervisor_stdio.stdout_eof, true)
+      assert.equal(run.cleanup.supervisor_stdio.stderr_eof, true)
+      assert.equal(run.cleanup.descendant_owner.cleanup_confirmed, true)
+      for (const pid of [rootPid, writerPid, ownerPid]) {
+        const observation = observeProcessExit(pid, 3000)
+        assert.equal(observation.confirmedExited, true, `${host.name} left fixture PID ${pid}: ${JSON.stringify(observation)}`)
+      }
+    })
+  }
+})
+
+test('rollback restore descendant authority survives adversarial lifecycle interleavings', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Rollback restore descendant authority regressions require Windows')
+    return
+  }
+  assert.equal(process.versions.node, '20.20.2', 'descendant authority regressions must run under Node 20.20.2')
+  const hosts = windowsPowerShellHosts()
+  const powershell7 = hosts.find((host) => host.name === 'powershell-7')
+  assert.ok(powershell7, 'PowerShell 7 is required')
+  const { observeProcessExit, runScenario } = createRollbackRestoreHarness(t)
+  const processFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-descendant-authority-'))
+  t.after(() => fs.rmSync(processFixtureRoot, { recursive: true, force: true }))
+
+  const waitForPath = (filePath, timeoutMs = 2000) => {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (fs.existsSync(filePath)) return true
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+    }
+    return fs.existsSync(filePath)
+  }
+  const stopChild = async (child) => {
+    if (!child || child.exitCode !== null || child.signalCode !== null) return
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 3000)
+      child.once('close', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+      child.kill()
+    })
+  }
+  const spawnSentinel = (label) => {
+    const readyPath = path.join(processFixtureRoot, `${label}-sentinel-ready`)
+    const child = spawn(process.execPath, [
+      '-e',
+      "require('node:fs').writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},1000)",
+      readyPath,
+    ], { stdio: 'ignore', windowsHide: true })
+    assert.equal(waitForPath(readyPath), true, `${label} sentinel did not start`)
+    assert.equal(Number(fs.readFileSync(readyPath, 'utf8')), child.pid)
+    return child
+  }
+  const scenarioPaths = (label) => {
+    const scenarioRoot = path.join(processFixtureRoot, label)
+    fs.mkdirSync(scenarioRoot, { recursive: true })
+    return {
+      descendantPidPath: path.join(scenarioRoot, 'descendant.pid'),
+      parentExitPath: path.join(scenarioRoot, 'parent-exit'),
+      parentPidPath: path.join(scenarioRoot, 'parent.pid'),
+      scenarioRoot,
+    }
+  }
+  const fixturePids = (paths, outcome) => {
+    const pids = [paths.parentPidPath, paths.descendantPidPath].flatMap((pidPath) => {
+      try { return [Number(fs.readFileSync(pidPath, 'utf8'))].filter(Number.isInteger) } catch { return [] }
+    })
+    const cleanup = outcome?.run?.cleanup || outcome?.error?.termination?.descendant_owner
+    if (Number.isInteger(cleanup?.owner_pid)) pids.push(cleanup.owner_pid)
+    return [...new Set(pids)]
+  }
+  const assertFixtureExited = (paths, outcome, label) => {
+    for (const pid of fixturePids(paths, outcome)) {
+      const observation = observeProcessExit(pid, 3000)
+      assert.equal(observation.confirmedExited, true, `${label} left fixture PID ${pid}: ${JSON.stringify(observation)}`)
+    }
+    fs.rmSync(paths.scenarioRoot, { recursive: true, force: true })
+  }
+  const execute = async (host, label, paths, options) => {
+    return runScenario(host, label, {
+      knownProcessPidPaths: [paths.parentPidPath, paths.descendantPidPath],
+      outerHangDescendantPidPath: paths.descendantPidPath,
+      outerHangParentExitPath: paths.parentExitPath,
+      outerHangParentPidPath: paths.parentPidPath,
+      scenarioFinalDeadlineMs: 2500,
+      scenarioForceCloseGraceMs: 300,
+      scenarioStartupTimeoutMs: 2500,
+      scenarioTerminationGraceMs: 500,
+      scenarioTimeoutMs: 1200,
+      ...options,
+    }).then((run) => ({ run }), (error) => ({ error }))
+  }
+
+  await t.test('termination authority is a direct child handle, never a PID reopen', () => {
+    const source = createRollbackRestoreHarness.toString()
+    assert.doesNotMatch(source, /OpenProcess\([\s\S]{0,200}PROCESS_TERMINATE[\s\S]{0,200}descendantPid/)
+    assert.match(source, /direct-descendant-child-handle/)
+    assert.match(source, /descendantOwner\.kill\(\)/)
+    assert.match(source, /descendant_request_token/)
+    assert.match(source, /descendant_ack_token/)
+  })
+
+  for (const mode of ['timeout', 'natural-exit']) {
+    await t.test(`PID identity mismatch never terminates a sentinel during ${mode}`, async (t) => {
+      for (const host of hosts) {
+        await t.test(host.name, async () => {
+          const label = `identity-mismatch-${mode}-${host.name}`
+          const sentinel = spawnSentinel(label)
+          const paths = scenarioPaths(label)
+          let outcome
+          try {
+            outcome = await execute(host, label, paths, {
+              descendantPublishedPid: sentinel.pid,
+              runtimeScenario: mode === 'timeout'
+                ? 'outer_process_tree_hang'
+                : 'outer_process_tree_exit_with_inherited_stdio',
+            })
+            assert.equal(observeProcessExit(sentinel.pid).running, true, `${label} terminated the unrelated sentinel`)
+            const authority = outcome.error?.termination?.descendant_owner || outcome.run?.cleanup?.descendant_owner
+            assert.ok(authority, `${label} did not report descendant authority`)
+            assert.equal(authority.authority_source, 'direct-descendant-child-handle')
+            assert.equal(authority.published_pid_matches_owner, false)
+            assert.equal(authority.authority_rejected, true)
+          } finally {
+            await stopChild(sentinel)
+            assertFixtureExited(paths, outcome, label)
+          }
+        })
+      }
+    })
+  }
+
+  await t.test('root exit waits for the creator-retention acknowledgement', async () => {
+    const paths = scenarioPaths('root-exit-ack')
+    let outcome
+    try {
+      outcome = await execute(powershell7, 'root-exit-ack', paths, {
+        descendantAckDelayMs: 400,
+        runtimeScenario: 'outer_process_tree_exit_with_inherited_stdio',
+        scenarioStartupTimeoutMs: 2000,
+      })
+      assert.ok(outcome.run, outcome.error?.message)
+      assert.equal(outcome.run.result.status, 0, outcome.run.result.stderr)
+      assert.equal(outcome.run.cleanup.descendant_owner.acknowledged_before_root_exit, true)
+      assert.equal(outcome.run.cleanup.descendant_owner.cleanup_confirmed, true)
+    } finally {
+      assertFixtureExited(paths, outcome, 'root-exit-ack')
+    }
+  })
+
+  await t.test('post-retention supervisor error preserves primary and cleanup detail', async () => {
+    const paths = scenarioPaths('post-retention-error')
+    let outcome
+    try {
+      outcome = await execute(powershell7, 'post-retention-error', paths, {
+        runtimeScenario: 'outer_process_tree_hang',
+        supervisorFault: 'post-retention-error',
+      })
+      assert.ok(outcome.run, outcome.error?.message)
+      assert.equal(outcome.run.result.status, 126)
+      assert.match(outcome.run.result.stderr, /Injected post-retention supervisor failure/)
+      assert.equal(outcome.run.cleanup.descendant_owner.cleanup_confirmed, true)
+      assert.equal(outcome.run.cleanup.descendant_owner.primary_preserved, true)
+    } finally {
+      assertFixtureExited(paths, outcome, 'post-retention-error')
+    }
+  })
+
+  await t.test('startup timeout closes the direct descendant owner', async () => {
+    const paths = scenarioPaths('startup-timeout')
+    let outcome
+    try {
+      outcome = await execute(powershell7, 'startup-timeout', paths, {
+        descendantOwnerMode: 'withhold-ack',
+        runtimeScenario: 'outer_process_tree_hang',
+        scenarioStartupTimeoutMs: 700,
+      })
+      assert.ok(outcome.error, 'withheld acknowledgement did not time out')
+      assert.equal(outcome.error.phase, 'startup')
+      assert.equal(outcome.error.termination.descendant_owner.cleanup_confirmed, true)
+    } finally {
+      assertFixtureExited(paths, outcome, 'startup-timeout')
+    }
+  })
+
+  await t.test('hard deadline retains direct descendant authority when the supervisor is unresponsive', async () => {
+    const paths = scenarioPaths('unresponsive-supervisor')
+    let outcome
+    try {
+      outcome = await execute(powershell7, 'unresponsive-supervisor', paths, {
+        runtimeScenario: 'outer_process_tree_hang',
+        scenarioFinalDeadlineMs: 1800,
+        scenarioStartupTimeoutMs: 5000,
+        supervisorFault: 'unresponsive-after-retention',
+      })
+      assert.ok(outcome.error, 'unresponsive supervisor did not time out')
+      assert.equal(outcome.error.termination.final_deadline_reached, true)
+      assert.equal(outcome.error.termination.descendant_owner.authority_source, 'direct-descendant-child-handle')
+      assert.equal(outcome.error.termination.descendant_owner.cleanup_confirmed, true)
+      assert.ok(outcome.error.termination.identity_fallback.attempts.some((attempt) => (
+        attempt.method === 'ChildProcess.kill' && attempt.reason === 'force-close-grace-expired'
+      )))
+    } finally {
+      assertFixtureExited(paths, outcome, 'unresponsive-supervisor')
+    }
+  })
+})
+
+test('rollback restore scenario runner bounds and accounts for Windows process trees', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Rollback restore process-tree timeout requires Windows')
+    return
+  }
+  assert.equal(process.versions.node, '20.20.2', 'process-tree timeout regression must run under Node 20.20.2')
+  const hosts = windowsPowerShellHosts()
+  assert.ok(hosts.some((host) => host.name === 'windows-powershell-5.1'), 'Windows PowerShell 5.1 is required')
+  assert.ok(hosts.some((host) => host.name === 'powershell-7'), 'PowerShell 7 is required')
+  const { observeProcessExit, runScenario } = createRollbackRestoreHarness(t)
+  const processFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-restore-timeout-processes-'))
+  t.after(() => fs.rmSync(processFixtureRoot, { recursive: true, force: true }))
+
+  await t.test('uses a suspended identity-bound Job Object supervisor instead of PID termination', () => {
+    const harnessSource = createRollbackRestoreHarness.toString()
+    const runnerSource = harnessSource.slice(
+      harnessSource.indexOf('const jobSupervisorSource'),
+      harnessSource.indexOf('const runCompensationProbeFault'),
+    )
+    assert.match(runnerSource, /CREATE_SUSPENDED/)
+    assert.match(runnerSource, /AssignProcessToJobObject/)
+    assert.match(runnerSource, /JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE/)
+    assert.match(runnerSource, /DuplicateHandle/)
+    assert.match(runnerSource, /PROC_THREAD_ATTRIBUTE_HANDLE_LIST/)
+    assert.match(runnerSource, /CreateFile[\s\S]*"NUL"/)
+    assert.match(runnerSource, /File\.Exists\(controlPath\)/)
+    assert.match(runnerSource, /fs\.openSync\(controlPath, 'wx'\)/)
+    assert.match(runnerSource, /CloseJobAndWaitForRoot\(ref job, process, 5000\)/)
+    assert.match(runnerSource, /job = IntPtr\.Zero;[\s\S]*CloseHandle\(closingJob\)[\s\S]*WaitForSingleObject\(process, timeoutMilliseconds\)/)
+    assert.match(runnerSource, /authority_source: 'direct-descendant-child-handle'/)
+    assert.match(runnerSource, /descendantOwner\.kill\(\)/)
+    assert.doesNotMatch(runnerSource, /OpenProcess\([\s\S]{0,200}PROCESS_TERMINATE[\s\S]{0,200}descendantPid/)
+    assert.doesNotMatch(runnerSource, /TerminateJobObject/)
+    assert.doesNotMatch(runnerSource, /taskkill|\/PID/i)
+  })
+
+  const releaseProcessFixture = (scenarioRoot) => {
+    const releasedRoot = `${scenarioRoot}.released`
+    fs.renameSync(scenarioRoot, releasedRoot)
+    fs.rmSync(releasedRoot, { recursive: true })
+  }
+
+  const waitForFile = (filePath, timeoutMs = 1000) => {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (fs.existsSync(filePath)) return true
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+    }
+    return fs.existsSync(filePath)
+  }
+
+  const runHangingScenario = async (host, terminationHelper = null) => {
+    const helperName = terminationHelper ? terminationHelper.name : 'job-close'
+    const scenarioRoot = path.join(processFixtureRoot, host.name, helperName)
+    fs.mkdirSync(scenarioRoot, { recursive: true })
+    const parentPidPath = path.join(scenarioRoot, 'parent.pid')
+    const descendantPidPath = path.join(scenarioRoot, 'descendant.pid')
+    let diagnostic
+    const startedAt = Date.now()
+    const outcome = await runScenario(host, `outer-process-tree-hang-${helperName}`, {
+        knownProcessPidPaths: [parentPidPath, descendantPidPath],
+        outerHangDescendantPidPath: descendantPidPath,
+        outerHangParentPidPath: parentPidPath,
+        runtimeScenario: 'outer_process_tree_hang',
+        scenarioFinalDeadlineMs: 3500,
+        scenarioForceCloseGraceMs: 500,
+        scenarioStartupTimeoutMs: 5000,
+        scenarioTerminationGraceMs: 700,
+        scenarioTimeoutMs: 2000,
+        terminationHelper,
+      }).then((run) => ({ run }), (error) => ({ error }))
+    assert.ok(
+      outcome.error,
+      `${host.name} supervisor exited before timeout: ${JSON.stringify(outcome.run?.result)}`,
+    )
+    diagnostic = outcome.error
+    assert.match(
+      diagnostic.message,
+      new RegExp(`host=${host.name}; scenario=outer-process-tree-hang-${helperName}; timeout=2000ms`),
+      `unexpected scenario failure: ${JSON.stringify(diagnostic.result || diagnostic.run?.result || null)}`,
+    )
+    assert.equal(waitForFile(parentPidPath), true, `${host.name} driver did not write parent.pid`)
+    assert.equal(waitForFile(descendantPidPath), true, `${host.name} driver did not write descendant.pid`)
+    const pids = [parentPidPath, descendantPidPath].map((pidPath) => Number(fs.readFileSync(pidPath, 'utf8')))
+    const supervisorIdentity = diagnostic.termination.supervisor_identity
+    assert.ok(supervisorIdentity, `${host.name} supervisor did not publish process identity`)
+    assert.equal(supervisorIdentity.root_is_in_job, true, `${host.name} CreateProcess root was not in the Job`)
+    assert.equal(supervisorIdentity.root_pid, pids[0], `${host.name} driver replaced the supervised root PID`)
+    assert.equal(supervisorIdentity.driver_pid, pids[0], `${host.name} supervisor did not observe the driver PID`)
+    assert.equal(supervisorIdentity.driver_is_in_job, true, `${host.name} actual driver PID was not in the Job`)
+    assert.equal(supervisorIdentity.descendant_driver_acknowledged, true, `${host.name} supervisor missed the descendant driver acknowledgement`)
+    const descendantOwner = diagnostic.termination.descendant_owner
+    assert.equal(descendantOwner.authority_source, 'direct-descendant-child-handle')
+    assert.equal(descendantOwner.owner_pid, pids[1], `${host.name} runner did not retain the descendant identity`)
+    assert.equal(descendantOwner.owner_ack_valid, true, `${host.name} owner acknowledgement was not valid`)
+    assert.equal(descendantOwner.driver_ack_valid, true, `${host.name} driver acknowledgement was not valid`)
+    assert.equal(descendantOwner.published_pid_matches_owner, true, `${host.name} published descendant PID changed identity`)
+    assert.equal(descendantOwner.cleanup_confirmed, true, `${host.name} direct descendant owner did not close`)
+    const timingDiagnostic = JSON.stringify({
+      identity: diagnostic.termination.identity_fallback,
+      supervisor_identity: supervisorIdentity,
+      result: {
+        signal: diagnostic.result.signal,
+        status: diagnostic.result.status,
+        stderr: diagnostic.result.stderr,
+      },
+      timing: diagnostic.timing,
+    })
+    assert.ok(diagnostic.timing.startup_ms < 5000, `${host.name} exceeded the startup handshake deadline: ${timingDiagnostic}`)
+    assert.ok(diagnostic.timing.scenario_ms < 4800, `${host.name} exceeded the internal scenario hard deadline: ${timingDiagnostic}`)
+    assert.ok(Date.now() - startedAt < 9800, `${host.name} exceeded all internal deadlines`)
+    assert.ok(diagnostic.result)
+    assert.ok(Buffer.byteLength(diagnostic.result.stdout, 'utf8') <= 64 * 1024)
+    assert.ok(Buffer.byteLength(diagnostic.result.stderr, 'utf8') <= 64 * 1024)
+    assert.deepEqual(diagnostic.termination.processes.map((entry) => entry.pid), pids)
+    assert.equal(diagnostic.termination.identity_fallback.method, 'exclusive-control-file/ChildProcess.kill')
+    assert.ok(diagnostic.termination.identity_fallback.attempts.some((attempt) => (
+      attempt.requested || attempt.accepted
+    )))
+    for (const pid of pids) {
+      const observation = observeProcessExit(pid, 3000)
+      assert.equal(
+        observation.confirmedExited,
+        true,
+        `Job Object left PID ${pid} active: ${JSON.stringify({
+          observation,
+          supervisor: {
+            signal: diagnostic.result.signal,
+            status: diagnostic.result.status,
+            stderr_tail: diagnostic.result.stderr.slice(-2048),
+          },
+        })}`,
+      )
+    }
+    releaseProcessFixture(scenarioRoot)
+    return { diagnostic, pids }
+  }
+
+  const injectedEnoent = async () => {
+    throw Object.assign(new Error('injected termination helper ENOENT'), { code: 'ENOENT' })
+  }
+  Object.defineProperty(injectedEnoent, 'name', { value: 'injected-enoent' })
+  const injectedNonzero = async () => ({ code: 1, kind: 'injected-nonzero', signal: null })
+  Object.defineProperty(injectedNonzero, 'name', { value: 'injected-nonzero' })
+
+  await t.test('powershell-7/permanently hung termination helper is aborted before bounded settlement', async () => {
+    const host = hosts.find((candidate) => candidate.name === 'powershell-7')
+    let abortObserved = false
+    let helperInterval = null
+    const hungHelper = ({ signal } = {}) => new Promise(() => {
+      helperInterval = setInterval(() => {}, 1000)
+      signal?.addEventListener('abort', () => {
+        abortObserved = true
+        clearInterval(helperInterval)
+        helperInterval = null
+      }, { once: true })
+    })
+    Object.defineProperty(hungHelper, 'name', { value: 'injected-hung' })
+    try {
+      const { diagnostic } = await runHangingScenario(host, hungHelper)
+      assert.equal(abortObserved, true, 'runner left the permanently hung termination helper active')
+      assert.equal(diagnostic.termination.helper.kind, 'aborted-at-settlement')
+      assert.equal(diagnostic.termination.final_deadline_reached, true)
+      assert.ok(diagnostic.termination.identity_fallback.attempts.some((attempt) => (
+        attempt.reason === 'final-deadline' && attempt.requested
+      )))
+    } finally {
+      if (helperInterval) clearInterval(helperInterval)
+    }
+  })
+
+  for (const host of hosts) {
+    await t.test(`${host.name}/real-job-object-tree`, async () => {
+      await runHangingScenario(host)
+    })
+  }
+  for (const terminationHelper of [injectedEnoent, injectedNonzero]) {
+    await t.test(`powershell-7/${terminationHelper.name}`, async () => {
+      const host = hosts.find((candidate) => candidate.name === 'powershell-7')
+      const { diagnostic } = await runHangingScenario(host, terminationHelper)
+      if (terminationHelper === injectedEnoent) {
+        assert.equal(diagnostic.termination.helper.kind, 'termination-helper-error')
+        assert.equal(diagnostic.termination.helper.error.code, 'ENOENT')
+      } else {
+        assert.equal(diagnostic.termination.helper.kind, 'injected-nonzero')
+        assert.equal(diagnostic.termination.helper.code, 1)
+      }
+    })
+  }
+
+  await t.test('natural exit never invokes timeout termination', async (t) => {
+    for (const host of hosts) {
+      await t.test(host.name, async () => {
+        let terminationCalls = 0
+        const result = await runScenario(host, `outer-process-tree-exit-${host.name}`, {
+          runtimeScenario: 'outer_process_tree_exit',
+          scenarioFinalDeadlineMs: 6500,
+          scenarioTimeoutMs: 5000,
+          terminationHelper: async () => {
+            terminationCalls++
+            throw new Error('termination helper was called after natural exit')
+          },
+        })
+        assert.equal(result.result.status, 0, result.result.stderr || result.result.stdout)
+        assert.equal(terminationCalls, 0)
+      })
+    }
+  })
+
+  await t.test('inherited stdio owner is closed when the root exits', async (t) => {
+    for (const host of hosts) {
+      await t.test(host.name, async () => {
+        const scenarioRoot = path.join(processFixtureRoot, host.name, 'inherited-stdio-after-exit')
+        fs.mkdirSync(scenarioRoot, { recursive: true })
+        const parentPidPath = path.join(scenarioRoot, 'parent.pid')
+        const parentExitPath = path.join(scenarioRoot, 'parent-exit')
+        const descendantPidPath = path.join(scenarioRoot, 'descendant.pid')
+        const writerAckPath = path.join(scenarioRoot, 'writer-ack.json')
+        const writerPidPath = path.join(scenarioRoot, 'writer.pid')
+        const writerReadyPath = path.join(scenarioRoot, 'writer-ready')
+        let terminationCalls = 0
+        const startedAt = Date.now()
+        const run = await runScenario(host, `inherited-stdio-after-exit-${host.name}`, {
+          knownProcessPidPaths: [parentPidPath, descendantPidPath],
+          outerHangDescendantPidPath: descendantPidPath,
+          outerHangParentExitPath: parentExitPath,
+          outerHangParentPidPath: parentPidPath,
+          outerJobWriterAckPath: writerAckPath,
+          outerJobWriterPidPath: writerPidPath,
+          outerJobWriterReadyPath: writerReadyPath,
+          runtimeScenario: 'outer_process_tree_exit_with_inherited_stdio',
+          scenarioFinalDeadlineMs: 6500,
+          scenarioTimeoutMs: 5000,
+          terminationHelper: async () => { terminationCalls++ },
+        })
+        assert.ok(Date.now() - startedAt < 5000, `${host.name} inherited stdio remained open until timeout`)
+        assert.equal(run.result.status, 0, run.result.stderr || run.result.stdout)
+        assert.equal(fs.readFileSync(parentExitPath, 'utf8'), 'exiting')
+        assert.equal(terminationCalls, 0, `${host.name} natural completion invoked the timeout helper`)
+        assert.equal(run.cleanup.descendant_owner.acknowledged_before_root_exit, true)
+        assert.equal(run.cleanup.descendant_owner.cleanup_confirmed, true)
+        const writerPid = Number(fs.readFileSync(writerPidPath, 'utf8'))
+        const writerAck = JSON.parse(fs.readFileSync(writerAckPath, 'utf8'))
+        assert.equal(Number(fs.readFileSync(writerReadyPath, 'utf8')), writerPid)
+        assert.deepEqual(writerAck, { writer_is_in_job: true, writer_pid: writerPid })
+        assert.match(run.result.stdout, /LMD_JOB_WRITER_STDOUT:/)
+        assert.match(run.result.stderr, /LMD_JOB_WRITER_STDERR:/)
+        assert.equal(run.cleanup.supervisor_identity.writer_pid, writerPid)
+        assert.equal(run.cleanup.supervisor_identity.writer_is_in_job, true)
+        assert.equal(run.cleanup.supervisor_identity.writer_supervisor_acknowledged, true)
+        assert.equal(run.cleanup.supervisor_identity.writer_exited_after_job_close, true)
+        assert.equal(run.cleanup.supervisor_stdio.stdout_eof, true)
+        assert.equal(run.cleanup.supervisor_stdio.stderr_eof, true)
+        const pids = [parentPidPath, descendantPidPath]
+          .map((pidPath) => Number(fs.readFileSync(pidPath, 'utf8')))
+        pids.push(writerPid)
+        assert.equal(new Set(pids).size, 3, `${host.name} did not create three independent fixture processes`)
+        for (const pid of pids) {
+          const observation = observeProcessExit(pid, 3000)
+          assert.equal(observation.confirmedExited, true, `${host.name} natural completion left PID ${pid}: ${JSON.stringify(observation)}`)
+        }
+        releaseProcessFixture(scenarioRoot)
+      })
+    }
+  })
+
+  await t.test('powershell-7/timeout diagnostic survives fixture cleanup failure', async () => {
+    const host = hosts.find((candidate) => candidate.name === 'powershell-7')
+    let diagnostic
+    await assert.rejects(
+      runScenario(host, 'timeout-fixture-failure', {
+        deleteCheckpointBeforeDiagnostics: true,
+        runtimeScenario: 'outer_process_tree_hang',
+        scenarioFinalDeadlineMs: 2500,
+        scenarioTimeoutMs: 700,
+      }),
+      (error) => {
+        diagnostic = error
+        return (
+          /host=powershell-7; scenario=timeout-fixture-failure; timeout=700ms/.test(error.message)
+          && Boolean(error.result)
+          && Boolean(error.termination)
+        )
+      },
+    )
+    assert.match(diagnostic.fixture_diagnostic.message, /ENOENT/)
+  })
+
+  const normal = await runScenario(hosts.find((host) => host.name === 'powershell-7'), 'normal-result-shape')
+  assert.deepEqual(Object.keys(normal.result).sort(), ['output', 'pid', 'signal', 'status', 'stderr', 'stdout'])
+  assert.equal(normal.result.status, 0, normal.result.stderr || normal.result.stdout)
+  assert.equal(normal.result.signal, null)
+  assert.equal(normal.result.output[1], normal.result.stdout)
+  assert.equal(normal.result.output[2], normal.result.stderr)
+
+  await t.test('re-encoded invalid UTF-8 diagnostics stay within the 64 KiB byte bound', async () => {
+    const host = hosts.find((candidate) => candidate.name === 'powershell-7')
+    const run = await runScenario(host, 'invalid-utf8-output', {
+      runtimeScenario: 'outer_invalid_utf8_output',
+    })
+    assert.ok(Buffer.byteLength(run.result.stdout, 'utf8') <= 64 * 1024)
+    assert.ok(Buffer.byteLength(run.result.stderr, 'utf8') <= 64 * 1024)
+    assert.match(run.result.stderr, /\u20ac/)
+  })
+})
 
 test('rollback restore caller environment and location stack survive success and failure outcomes', async (t) => {
   if (process.platform !== 'win32') {
@@ -7455,8 +9944,8 @@ test('rollback restore caller environment and location stack survive success and
       for (const callerEnvironmentState of ['strings', 'absent', 'empty']) {
         const caller = rollbackCallerEnvironment(callerEnvironmentState)
         for (const outcome of outcomes) {
-          await t.test(`${callerEnvironmentState}/${outcome.name}`, () => {
-            const run = runScenario(host, `task8-caller-${callerEnvironmentState}-${outcome.name}`, {
+          await t.test(`${callerEnvironmentState}/${outcome.name}`, async () => {
+            const run = await runScenario(host, `task8-caller-${callerEnvironmentState}-${outcome.name}`, {
               callerCleanupFailure: Boolean(outcome.callerCleanupFailure),
               callerEnvironmentState,
               runtimeScenario: outcome.runtimeScenario,
@@ -7476,9 +9965,9 @@ test('rollback restore caller environment and location stack survive success and
           })
         }
       }
-      await t.test('primary-authority/primary-plus-cleanup', () => {
+      await t.test('primary-authority/primary-plus-cleanup', async () => {
         const caller = rollbackCallerEnvironment('strings')
-        const run = runScenario(host, 'task8-direct-primary-plus-cleanup', {
+        const run = await runScenario(host, 'task8-direct-primary-plus-cleanup', {
           callerCleanupFailure: true,
           callerEnvironmentState: 'strings',
           callerPrimaryFailure: true,
@@ -7757,8 +10246,8 @@ test('rollback restore real-authority oracle rejects a suppressed production ass
   assert.equal(process.versions.node.split('.')[0], '20', 'restore authority oracle must run under Node 20')
   const { runScenario } = createRollbackRestoreHarness(t)
   for (const host of windowsPowerShellHosts()) {
-    await t.test(host.name, () => {
-      const baseline = runScenario(host, 'real-authority-oracle-baseline')
+    await t.test(host.name, async () => {
+      const baseline = await runScenario(host, 'real-authority-oracle-baseline')
       assert.equal(baseline.result.status, 0, baseline.result.stderr || baseline.result.stdout)
       assertProductionAuthorityEventOrder(baseline, `${host.name}/real-authority-oracle-baseline`)
       assertProductionAuthorityBoundary(
@@ -7768,7 +10257,7 @@ test('rollback restore real-authority oracle rejects a suppressed production ass
         ['Archived Docker images'],
       )
 
-      const mutation = runScenario(host, 'real-authority-oracle-mutation', {
+      const mutation = await runScenario(host, 'real-authority-oracle-mutation', {
         suppressAuthorityLabel: 'Archived Docker images',
       })
       assert.equal(mutation.result.status, 0, mutation.result.stderr || mutation.result.stdout)
@@ -7793,8 +10282,8 @@ test('rollback restore recovery-completion oracle rejects post-up verification f
   assert.equal(process.versions.node.split('.')[0], '20', 'restore recovery oracle must run under Node 20')
   const { runScenario } = createRollbackRestoreHarness(t)
   for (const host of windowsPowerShellHosts()) {
-    await t.test(host.name, () => {
-      const baseline = runScenario(host, 'recovery-completion-oracle-baseline', {
+    await t.test(host.name, async () => {
+      const baseline = await runScenario(host, 'recovery-completion-oracle-baseline', {
         runtimeScenario: 'shutdown_failure',
       })
       assert.notEqual(baseline.result.status, 0)
@@ -7805,7 +10294,7 @@ test('rollback restore recovery-completion oracle rejects post-up verification f
         'Preparation forward backend',
       )
 
-      const mutation = runScenario(host, 'recovery-completion-oracle-mutation', {
+      const mutation = await runScenario(host, 'recovery-completion-oracle-mutation', {
         runtimeScenario: 'shutdown_failure',
         failAfterRecoveryUp: true,
       })
@@ -7833,7 +10322,7 @@ test('rollback restore archived-down oracle rejects missing exact-byte success e
   const { runScenario } = createRollbackRestoreHarness(t)
   for (const host of windowsPowerShellHosts()) {
     await t.test(host.name, async (t) => {
-      const baseline = runScenario(host, 'archived-down-oracle-baseline', {
+      const baseline = await runScenario(host, 'archived-down-oracle-baseline', {
         runtimeScenario: 'startup_failure',
       })
       assert.notEqual(baseline.result.status, 0)
@@ -7842,8 +10331,8 @@ test('rollback restore archived-down oracle rejects missing exact-byte success e
         'consumer:config:docker-compose:down',
       ])
 
-      await t.test('rejects archived Compose down byte mismatch', () => {
-        const mutation = runScenario(host, 'archived-down-compose-oracle-mutation', {
+      await t.test('rejects archived Compose down byte mismatch', async () => {
+        const mutation = await runScenario(host, 'archived-down-compose-oracle-mutation', {
           runtimeScenario: 'startup_failure',
           fakeMode: 'archived-down-compose-bytes-mismatch',
         })
@@ -7859,8 +10348,8 @@ test('rollback restore archived-down oracle rejects missing exact-byte success e
         assert.equal(mutation.eventNames.includes('consumer:config:docker-compose:down'), false)
       })
 
-      await t.test('rejects archived config down byte mismatch after Compose success', () => {
-        const mutation = runScenario(host, 'archived-down-config-oracle-mutation', {
+      await t.test('rejects archived config down byte mismatch after Compose success', async () => {
+        const mutation = await runScenario(host, 'archived-down-config-oracle-mutation', {
           runtimeScenario: 'startup_failure',
           fakeMode: 'archived-down-config-bytes-mismatch',
         })
@@ -8005,7 +10494,7 @@ test('rollback compensation mutation oracle rejects destructive partial success'
   assert.equal(process.versions.node.split('.')[0], '20', 'compensation mutation oracle must run under Node 20')
   const { runCompensationProbeFault } = createRollbackRestoreHarness(t)
 
-  await t.test('reports delete/recreate unblocked when unlink succeeds before recreate fails', () => {
+  await t.test('reports delete/recreate unblocked when unlink succeeds before recreate fails', async () => {
     const probe = runCompensationProbeFault('fail-after-delete')
     assert.equal(
       probe.mutations.delete_recreate_blocked,
@@ -8014,7 +10503,7 @@ test('rollback compensation mutation oracle rejects destructive partial success'
     )
   })
 
-  await t.test('reports swap unblocked when displacement succeeds before replacement fails', () => {
+  await t.test('reports swap unblocked when displacement succeeds before replacement fails', async () => {
     const probe = runCompensationProbeFault('fail-after-displace')
     assert.equal(
       probe.mutations.swap_before_open_blocked,
@@ -8036,8 +10525,8 @@ test('rollback compensation authority retains the published archive across every
 
   for (const host of hosts) {
     await t.test(host.name, async (t) => {
-      await t.test('restore_failure rejects every archive mutation before preparation compensation', () => {
-        const run = runScenario(host, 'task2-restore-failure', { runtimeScenario: 'restore_failure' })
+      await t.test('restore_failure rejects every archive mutation before preparation compensation', async () => {
+        const run = await runScenario(host, 'task2-restore-failure', { runtimeScenario: 'restore_failure' })
         const label = `${host.name}/restore_failure`
         assert.notEqual(run.result.status, 0)
         assertCompensationSharingProbe(run, label, 'consumer:restore_failure')
@@ -8047,8 +10536,8 @@ test('rollback compensation authority retains the published archive across every
         assert.ok(run.eventNames.includes('recovery-complete:Preparation forward deployment recovery'))
       })
 
-      await t.test('startup_failure rejects every archive mutation before failed-startup compensation', () => {
-        const run = runScenario(host, 'task2-startup-failure', { runtimeScenario: 'startup_failure' })
+      await t.test('startup_failure rejects every archive mutation before failed-startup compensation', async () => {
+        const run = await runScenario(host, 'task2-startup-failure', { runtimeScenario: 'startup_failure' })
         const label = `${host.name}/startup_failure`
         assert.notEqual(run.result.status, 0)
         assertCompensationSharingProbe(run, label, 'consumer:startup_failure')
@@ -8058,8 +10547,8 @@ test('rollback compensation authority retains the published archive across every
         assert.ok(run.eventNames.includes('recovery-complete:Forward deployment recovery'))
       })
 
-      await t.test('terminal_failure retains authority after the compensation restore fails', () => {
-        const run = runScenario(host, 'task2-terminal-failure', {
+      await t.test('terminal_failure retains authority after the compensation restore fails', async () => {
+        const run = await runScenario(host, 'task2-terminal-failure', {
           fakeMode: 'compensation-restore-failure',
           runtimeScenario: 'startup_failure',
         })
@@ -8073,8 +10562,8 @@ test('rollback compensation authority retains the published archive across every
         assert.equal(run.eventNames.some((event) => event.startsWith('recovery-complete:')), false)
       })
 
-      await t.test('preparation terminal shutdown retains the same archive authority', () => {
-        const run = runScenario(host, 'task2-preparation-terminal-failure', {
+      await t.test('preparation terminal shutdown retains the same archive authority', async () => {
+        const run = await runScenario(host, 'task2-preparation-terminal-failure', {
           failAfterRecoveryUp: true,
           runtimeScenario: 'restore_failure',
         })
@@ -8087,8 +10576,8 @@ test('rollback compensation authority retains the published archive across every
         assert.ok(run.eventNames.includes('Preparation compensation failure shutdown'))
       })
 
-      await t.test('successful rollback retains locks through final health and releases them after exit', () => {
-        const run = runScenario(host, 'task2-success')
+      await t.test('successful rollback retains locks through final health and releases them after exit', async () => {
+        const run = await runScenario(host, 'task2-success')
         const label = `${host.name}/success`
         const failure = run.events.find((entry) => entry.event === 'driver_failure')
         const publisherFailure = run.events.find((entry) => entry.event === 'compensation-publisher-failure')
@@ -8118,8 +10607,8 @@ test('rollback compensation authority retains the published archive across every
         assert.ok(run.eventNames.includes('consumer:bind-source-copy'))
       })
 
-      await t.test('backup creation failure performs forward recovery without archive dereference', () => {
-        const run = runScenario(host, 'task2-backup-failure', {
+      await t.test('backup creation failure performs forward recovery without archive dereference', async () => {
+        const run = await runScenario(host, 'task2-backup-failure', {
           fakeMode: 'compensation-backup-failure',
         })
         const label = `${host.name}/backup-failure`
@@ -8136,8 +10625,8 @@ test('rollback compensation authority retains the published archive across every
         assert.doesNotMatch(failure.primary_message, /null-valued expression|cannot bind.*authority/i)
       })
 
-      await t.test('authority acquisition failure performs forward recovery before rollback mutation', () => {
-        const run = runScenario(host, 'task2-authority-failure', {
+      await t.test('authority acquisition failure performs forward recovery before rollback mutation', async () => {
+        const run = await runScenario(host, 'task2-authority-failure', {
           fakeMode: 'compensation-authority-invalid',
         })
         const label = `${host.name}/authority-failure`
@@ -8176,8 +10665,8 @@ test('rollback compensation publication failures retain incomplete evidence and 
   for (const host of hosts) {
     await t.test(host.name, async (t) => {
       for (const scenario of scenarios) {
-        await t.test(scenario.mode, () => {
-          const run = runScenario(host, `task7-${scenario.mode}`, { fakeMode: scenario.mode })
+        await t.test(scenario.mode, async () => {
+          const run = await runScenario(host, `task7-${scenario.mode}`, { fakeMode: scenario.mode })
           const label = `${host.name}/${scenario.mode}`
           assert.notEqual(run.result.status, 0, `${label} unexpectedly succeeded`)
           const artifact = assertCompensationPublishedAndReleased(run, label)
@@ -8409,7 +10898,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
   const runFlowMatrix = matrixGroup === 'all' || matrixGroup === 'flows'
 
   for (const host of hosts) {
-    await t.test(host.name, () => {
+    await t.test(host.name, async () => {
     if (runValidationMatrix) {
     for (const [name, options] of [
       ...dockerTypedScenarios,
@@ -8418,11 +10907,11 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
       ...metadataTypedScenarios,
       ...preservedPreMutationScenarios,
     ]) {
-      const run = runScenario(host, name, options)
+      const run = await runScenario(host, name, options)
       assertRestoreStoppedBeforeMutation(run, `${host.name}/${name}`)
     }
     for (const [name, options] of postImageValidationScenarios) {
-      const run = runScenario(host, name, options)
+      const run = await runScenario(host, name, options)
       assertRestoreStoppedAfterImageValidation(run, `${host.name}/${name}`)
       assertRestoreConsumerEvents(run, `${host.name}/${name}`, [
         'consumer:compose:config',
@@ -8433,7 +10922,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
     }
 
     if (runFlowMatrix) {
-    const success = runScenario(host, 'success')
+    const success = await runScenario(host, 'success')
     assert.equal(success.result.status, 0, success.result.stderr || success.result.stdout)
     assertRestoreAuthorityProbeCoverage(success, `${host.name}/success`)
     assertProductionAuthorityEventOrder(success, `${host.name}/success`)
@@ -8463,7 +10952,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
       composeCommand('up', true),
     )
 
-    const shutdownFailure = runScenario(host, 'shutdown_failure')
+    const shutdownFailure = await runScenario(host, 'shutdown_failure')
     assert.notEqual(shutdownFailure.result.status, 0)
     assertRestoreAuthorityProbeCoverage(shutdownFailure, `${host.name}/shutdown_failure`)
     assertCheckpointPreparationAuthorityBoundaries(shutdownFailure, `${host.name}/shutdown_failure`, { bindSource: false })
@@ -8488,7 +10977,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
       'Preparation forward backend',
     )
 
-    const restoreFailure = runScenario(host, 'restore_failure')
+    const restoreFailure = await runScenario(host, 'restore_failure')
     assert.notEqual(restoreFailure.result.status, 0)
     assertRestoreAuthorityProbeCoverage(restoreFailure, `${host.name}/restore_failure`)
     assertCheckpointPreparationAuthorityBoundaries(restoreFailure, `${host.name}/restore_failure`, {
@@ -8504,7 +10993,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
       'Preparation forward backend',
     )
 
-    const identityFailure = runScenario(host, 'identity_after_mutation')
+    const identityFailure = await runScenario(host, 'identity_after_mutation')
     assert.notEqual(identityFailure.result.status, 0)
     assertRestoreAuthorityProbeCoverage(identityFailure, `${host.name}/identity_after_mutation`)
     assertCheckpointPreparationAuthorityBoundaries(identityFailure, `${host.name}/identity_after_mutation`)
@@ -8518,7 +11007,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
       'Preparation forward backend',
     )
 
-    const startupFailure = runScenario(host, 'startup_failure')
+    const startupFailure = await runScenario(host, 'startup_failure')
     assert.notEqual(startupFailure.result.status, 0)
     assertRestoreAuthorityProbeCoverage(startupFailure, `${host.name}/startup_failure`)
     assertCheckpointPreparationAuthorityBoundaries(startupFailure, `${host.name}/startup_failure`, {
@@ -8551,7 +11040,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
       'Forward backend',
     )
 
-    const terminalFailure = runScenario(host, 'terminal_failure')
+    const terminalFailure = await runScenario(host, 'terminal_failure')
     assert.notEqual(terminalFailure.result.status, 0)
     assertRestoreAuthorityProbeCoverage(terminalFailure, `${host.name}/terminal_failure`)
     assertCheckpointPreparationAuthorityBoundaries(terminalFailure, `${host.name}/terminal_failure`, {
@@ -8583,7 +11072,7 @@ test('rollback restore fake toolchain keeps evidence locks through success and c
       `${host.name}/terminal_failure reported false recovery completion`,
     )
 
-    const cleanupFailure = runScenario(host, 'cleanup_failure', {
+    const cleanupFailure = await runScenario(host, 'cleanup_failure', {
       cleanupFailure: true,
       runtimeScenario: 'startup_failure',
     })
@@ -9161,8 +11650,36 @@ test('CI scans source dependencies and configuration with pinned Trivy before re
   assert.match(sourceSecurity, /--severity HIGH,CRITICAL/)
   assert.match(sourceSecurity, /--ignore-unfixed/)
   assert.match(sourceSecurity, /--include-dev-deps/)
-  assert.match(sourceSecurity, /--ignorefile backend-node\/\.trivyignore\.yaml/)
+  assert.match(sourceSecurity, /--ignorefile \/repository\/backend-node\/\.trivyignore\.yaml/)
   assert.match(sourceSecurity, /trivy-source\.json/)
+
+  const expectedLockfiles = [
+    'backend-node/package-lock.json',
+    'desktop/package-lock.json',
+    'frontweb/package-lock.json',
+  ]
+  const expectedDockerfiles = [
+    'backend-node/Dockerfile',
+    'frontweb/Dockerfile',
+    'frontweb/Dockerfile.prod',
+  ]
+  const lockfileMatches = [...sourceSecurity.matchAll(/readonly expected_lockfiles_json='([^'\r\n]+)'/g)]
+  const dockerfileMatches = [...sourceSecurity.matchAll(/readonly expected_dockerfiles_json='([^'\r\n]+)'/g)]
+  assert.equal(lockfileMatches.length, 2, 'source Trivy scan and validator must share the exact lockfile inventory')
+  assert.equal(dockerfileMatches.length, 2, 'source Trivy scan and validator must share the exact Dockerfile inventory')
+  for (const match of lockfileMatches) assert.deepEqual(JSON.parse(match[1]), expectedLockfiles)
+  for (const match of dockerfileMatches) assert.deepEqual(JSON.parse(match[1]), expectedDockerfiles)
+  assert.match(sourceSecurity, /readonly scan_root="\$RUNNER_TEMP\/trivy-source-input"/)
+  assert.match(sourceSecurity, /install -D -m 0444 "\$GITHUB_WORKSPACE\/\$source_path" "\$scan_root\/\$source_path"/)
+  assert.match(sourceSecurity, /--volume "\$scan_root:\/workspace:ro"/)
+  assert.doesNotMatch(sourceSecurity, /--volume "\$GITHUB_WORKSPACE:\/workspace:ro"/)
+  assert.match(sourceSecurity, /test -s "\$report"/)
+  assert.match(sourceSecurity, /jq -e[\s\S]*\.Results[\s\S]*\.Target/)
+  assert.match(sourceSecurity, /steps\.verify_source_trivy_evidence\.outcome == 'success'/)
+  assert.match(
+    sourceSecurity,
+    /path: \|\r?\n\s+artifacts\/source-security\/trivy-version\.txt\r?\n\s+artifacts\/source-security\/trivy-source\.json/,
+  )
 })
 
 test('backend Trivy exception covers direct and repository-root scan targets', () => {
@@ -9722,7 +12239,7 @@ test('Docker artifact boundaries are checked before production bind mounts chang
 
   for (const source of [jobBlock('docker-production-e2e', ciWorkflow), jobBlock('production-e2e', workflow)]) {
     const artifact = source.indexOf('npm run verify:docker:artifact')
-    const start = source.indexOf('docker compose --profile e2e up')
+    const start = source.indexOf('npm run docker:e2e:up')
     const containers = source.indexOf('npm run verify:docker:containers')
     assert.ok(artifact >= 0 && artifact < start, 'Docker artifact boundary check must run before production startup')
     assert.ok(start >= 0 && start < containers, 'container verification must run after production startup')
@@ -9833,6 +12350,56 @@ test('release metadata generation rejects GITHUB_SHA values that differ from Git
   )
 })
 
+test('release metadata commands accept zero or one output directory and preserve the default', () => {
+  assert.equal(rootPackage.scripts['release:manifest'], 'node scripts/generate-release-metadata.cjs')
+  assert.equal(
+    rootPackage.scripts['verify:release:artifacts'],
+    'node scripts/generate-release-metadata.cjs --verify',
+  )
+  assert.deepEqual(parseReleaseMetadataArguments([]), {
+    mode: 'generate',
+    outputDirectory: undefined,
+  })
+  assert.deepEqual(parseReleaseMetadataArguments(['custom/release']), {
+    mode: 'generate',
+    outputDirectory: 'custom/release',
+  })
+  assert.deepEqual(parseReleaseMetadataArguments(['--verify']), {
+    mode: 'verify',
+    outputDirectory: undefined,
+  })
+  assert.deepEqual(parseReleaseMetadataArguments(['--verify', 'custom/release']), {
+    mode: 'verify',
+    outputDirectory: 'custom/release',
+  })
+})
+
+test('release metadata CLI rejects unknown options and extra directories instead of ignoring them', (t) => {
+  const fixture = createReleaseFixture(t)
+  const scriptPath = path.join(root, 'scripts', 'generate-release-metadata.cjs')
+  const accepted = spawnSync(process.execPath, [scriptPath, '--verify', fixture.output], {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true,
+  })
+  assert.equal(accepted.status, 0, accepted.stderr)
+
+  for (const args of [
+    ['--verify', fixture.output, 'ignored-directory'],
+    [fixture.output, 'ignored-directory'],
+    ['--unknown'],
+    ['--verify', '--unknown'],
+  ]) {
+    const result = spawnSync(process.execPath, [scriptPath, ...args], {
+      cwd: root,
+      encoding: 'utf8',
+      windowsHide: true,
+    })
+    assert.notEqual(result.status, 0, `unexpectedly accepted: ${args.join(' ')}`)
+    assert.match(result.stderr, /usage: generate-release-metadata/i)
+  }
+})
+
 test('offline artifact verification rejects a manifest and evidence from an older commit', (t) => {
   const oldCommit = gitHead === 'a'.repeat(40) ? 'b'.repeat(40) : 'a'.repeat(40)
   const fixture = createReleaseFixture(t, { commit: oldCommit })
@@ -9845,7 +12412,7 @@ test('offline artifact verification rejects a manifest and evidence from an olde
 for (const [sbomName, packageDirectory] of releaseSbomPackages(desktopPackage.version)) {
   test(`offline artifact verification rejects an empty ${sbomName}`, (t) => {
     const fixture = createReleaseFixture(t)
-    const emptySbom = completeDirectDependencySbom(packageDirectory)
+    const emptySbom = completePackageLockSbom(packageDirectory)
     emptySbom.components = []
     emptySbom.dependencies = []
     fs.writeFileSync(path.join(fixture.output, sbomName), `${JSON.stringify(emptySbom, null, 2)}\n`)
@@ -9875,6 +12442,15 @@ test('release verification rejects missing or failed artifact security evidence'
   evidence.scans.gitleaks.status = 'failed'
   fs.writeFileSync(securityPath, `${JSON.stringify(evidence, null, 2)}\n`)
   assert.throws(() => verify(fixture.output, { environment: {} }), /gitleaks artifact scan did not pass/)
+})
+
+test('offline artifact verification rejects every unknown top-level regular file', (t) => {
+  const fixture = createReleaseFixture(t)
+  fs.writeFileSync(path.join(fixture.output, 'release-notes.txt'), 'not part of the release contract\n')
+  assert.throws(
+    () => verify(fixture.output, { environment: {} }),
+    /unexpected top-level release file: release-notes\.txt/,
+  )
 })
 
 test('offline artifact verification detects changed bytes and checksum rows', (t) => {
@@ -10010,6 +12586,267 @@ test('SBOM validation rejects package-lock root version drift', (t) => {
   )
 })
 
+test('SBOM validation binds every lock package to its npm path, installed name, and version', (t) => {
+  const fixture = createSbomFixture(t)
+  const nestedPath = 'node_modules/alpha/node_modules/gamma'
+  assert.doesNotThrow(() => validateSbomDocument(fixture.packageDirectory, fixture.sbom))
+
+  for (const [field, value, expected] of [
+    ['name', 'not-gamma', /package path .* name does not match package-lock/],
+    ['version', '9.9.9', /package path .* version does not match package-lock/],
+  ]) {
+    const changed = structuredClone(fixture.sbom)
+    const component = changed.components.find((candidate) => (
+      candidate.properties?.some((property) => (
+        property.name === 'cdx:npm:package:path' && property.value === nestedPath
+      ))
+    ))
+    assert.ok(component)
+    component[field] = value
+    assert.throws(() => validateSbomDocument(fixture.packageDirectory, changed), expected)
+  }
+
+  const wrongPath = structuredClone(fixture.sbom)
+  const pathProperty = wrongPath.components
+    .flatMap((component) => component.properties || [])
+    .find((property) => property.name === 'cdx:npm:package:path' && property.value === nestedPath)
+  assert.ok(pathProperty)
+  pathProperty.value = 'node_modules/alpha/node_modules/not-gamma'
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, wrongPath),
+    /unexpected npm package path node_modules\/alpha\/node_modules\/not-gamma|SBOM is missing npm package path node_modules\/alpha\/node_modules\/gamma/,
+  )
+})
+
+test('SBOM validation binds root and component npm PURLs to package-lock identities', (t) => {
+  const fixture = createSbomFixture(t)
+  const missingPurl = structuredClone(fixture.sbom)
+  delete missingPurl.components[0].purl
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, missingPurl),
+    /component .* npm PURL/,
+  )
+
+  for (const purl of [
+    'pkg:pypi/alpha@1.4.0',
+    'pkg:npm/unrelated@1.4.0',
+    'pkg:npm/alpha@9.9.9',
+  ]) {
+    const wrongPurl = structuredClone(fixture.sbom)
+    wrongPurl.components[0].purl = purl
+    assert.throws(
+      () => validateSbomDocument(fixture.packageDirectory, wrongPurl),
+      /component .* npm PURL/,
+    )
+  }
+
+  const wrongRootPurl = structuredClone(fixture.sbom)
+  wrongRootPurl.metadata.component.purl = 'pkg:npm/unrelated@1.0.0'
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, wrongRootPurl),
+    /root component npm PURL does not match package.json/,
+  )
+})
+
+test('SBOM validation resolves a workspace link to its locked source identity', (t) => {
+  const fixture = createSbomFixture(t)
+  fixture.packageLock.packages['node_modules/fixture-workspace'] = {
+    resolved: 'packages/fixture-workspace',
+    link: true,
+  }
+  fixture.packageLock.packages['packages/fixture-workspace'] = {
+    name: 'fixture-workspace',
+    version: '1.0.0',
+  }
+  fs.writeFileSync(
+    path.join(fixture.packageDirectory, 'package-lock.json'),
+    `${JSON.stringify(fixture.packageLock, null, 2)}\n`,
+  )
+  fixture.sbom.components.push({
+    'bom-ref': 'fixture-workspace@1.0.0',
+    type: 'library',
+    name: 'fixture-workspace',
+    version: '1.0.0',
+    purl: 'pkg:npm/fixture-workspace@1.0.0',
+    scope: 'required',
+    properties: [
+      { name: 'cdx:npm:package:path', value: 'node_modules/fixture-workspace' },
+      { name: 'cdx:npm:package:path', value: 'packages/fixture-workspace' },
+    ],
+  })
+  fixture.sbom.dependencies.find((dependency) => dependency.ref === 'alpha@1.4.0')
+    .dependsOn.push('fixture-workspace@1.0.0')
+  fixture.sbom.dependencies.push({ ref: 'fixture-workspace@1.0.0', dependsOn: [] })
+
+  assert.doesNotThrow(() => validateSbomDocument(fixture.packageDirectory, fixture.sbom))
+
+  const generated = structuredClone(fixture.sbom)
+  const workspaceComponent = generated.components.find((component) => (
+    component['bom-ref'] === 'fixture-workspace@1.0.0'
+  ))
+  workspaceComponent.properties = workspaceComponent.properties.filter((property) => (
+    property.value !== 'node_modules/fixture-workspace'
+  ))
+  const outputName = 'workspace-generated.cdx.json'
+  writeSbomOutput(fixture.packageDirectory, outputName, JSON.stringify(generated), {
+    normalizeGeneratedRoot: true,
+    outputDirectory: fixture.outputDirectory,
+  })
+  const written = JSON.parse(fs.readFileSync(path.join(fixture.outputDirectory, outputName), 'utf8'))
+  const writtenWorkspace = written.components.find((component) => (
+    component['bom-ref'] === 'fixture-workspace@1.0.0'
+  ))
+  assert.deepEqual(
+    writtenWorkspace.properties
+      .filter((property) => property.name === 'cdx:npm:package:path')
+      .map((property) => property.value)
+      .sort(),
+    ['node_modules/fixture-workspace', 'packages/fixture-workspace'],
+  )
+})
+
+test('SBOM validation rejects unsafe, missing, and chained workspace link targets', (t) => {
+  const cases = [
+    ['parent traversal', '../outside', null],
+    ['absolute path', '/outside', null],
+    ['drive path', 'C:/outside', null],
+    ['backslash path', 'packages\\fixture-workspace', null],
+    ['missing target', 'packages/missing', null],
+    ['chained target', 'packages/fixture-workspace', {
+      link: true,
+      resolved: 'packages/other',
+    }],
+  ]
+
+  for (const [label, resolved, targetRecord] of cases) {
+    const fixture = createSbomFixture(t)
+    fixture.packageLock.packages['node_modules/fixture-workspace'] = { link: true, resolved }
+    if (targetRecord) fixture.packageLock.packages['packages/fixture-workspace'] = targetRecord
+    fs.writeFileSync(
+      path.join(fixture.packageDirectory, 'package-lock.json'),
+      `${JSON.stringify(fixture.packageLock, null, 2)}\n`,
+    )
+    assert.throws(
+      () => validateSbomDocument(fixture.packageDirectory, fixture.sbom),
+      /package-lock\.json link .* (unsafe|absolute|escapes|no locked source|resolves to another link)/,
+      label,
+    )
+  }
+})
+
+test('SBOM validation accepts two install aliases folded into one real npm component', (t) => {
+  const fixture = createSbomFixture(t)
+  const packageJsonPath = path.join(fixture.packageDirectory, 'package.json')
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'))
+  packageJson.dependencies['alias-one'] = 'npm:lodash@4.17.21'
+  packageJson.dependencies['alias-two'] = 'npm:lodash@4.17.21'
+  fixture.packageLock.packages[''].dependencies['alias-one'] = 'npm:lodash@4.17.21'
+  fixture.packageLock.packages[''].dependencies['alias-two'] = 'npm:lodash@4.17.21'
+  fixture.packageLock.packages['node_modules/alias-one'] = { name: 'lodash', version: '4.17.21' }
+  fixture.packageLock.packages['node_modules/alias-two'] = { name: 'lodash', version: '4.17.21' }
+  fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
+  fs.writeFileSync(
+    path.join(fixture.packageDirectory, 'package-lock.json'),
+    `${JSON.stringify(fixture.packageLock, null, 2)}\n`,
+  )
+
+  fixture.sbom.components.push({
+    'bom-ref': 'lodash@4.17.21',
+    type: 'library',
+    name: 'lodash',
+    version: '4.17.21',
+    purl: 'pkg:npm/lodash@4.17.21',
+    scope: 'required',
+    properties: [
+      { name: 'cdx:npm:package:path', value: 'node_modules/alias-one' },
+      { name: 'cdx:npm:package:path', value: 'node_modules/alias-two' },
+    ],
+  })
+  fixture.sbom.dependencies[0].dependsOn.push('lodash@4.17.21')
+  fixture.sbom.dependencies.push({ ref: 'lodash@4.17.21', dependsOn: [] })
+
+  assert.doesNotThrow(() => validateSbomDocument(fixture.packageDirectory, fixture.sbom))
+
+  const generated = structuredClone(fixture.sbom)
+  generated.components = generated.components.filter((component) => component['bom-ref'] !== 'lodash@4.17.21')
+  generated.components.push(
+    {
+      'bom-ref': 'lodash@4.17.21',
+      type: 'library',
+      name: 'alias-one',
+      version: '4.17.21',
+      purl: 'pkg:npm/lodash@4.17.21',
+      scope: 'required',
+      properties: [{ name: 'cdx:npm:package:path', value: 'node_modules/alias-one' }],
+    },
+    {
+      'bom-ref': 'lodash@4.17.21',
+      type: 'library',
+      name: 'alias-two',
+      version: '4.17.21',
+      purl: 'pkg:npm/lodash@4.17.21',
+      scope: 'required',
+      properties: [{ name: 'cdx:npm:package:path', value: 'node_modules/alias-two' }],
+    },
+  )
+  generated.dependencies[0].dependsOn.push('lodash@4.17.21')
+  const outputName = 'aliases-generated.cdx.json'
+  writeSbomOutput(fixture.packageDirectory, outputName, JSON.stringify(generated), {
+    normalizeGeneratedRoot: true,
+    outputDirectory: fixture.outputDirectory,
+  })
+  const written = JSON.parse(fs.readFileSync(path.join(fixture.outputDirectory, outputName), 'utf8'))
+  const writtenAliases = written.components.filter((component) => component['bom-ref'] === 'lodash@4.17.21')
+  assert.equal(writtenAliases.length, 1)
+  assert.equal(writtenAliases[0].name, 'lodash')
+  assert.deepEqual(
+    writtenAliases[0].properties
+      .filter((property) => property.name === 'cdx:npm:package:path')
+      .map((property) => property.value)
+      .sort(),
+    ['node_modules/alias-one', 'node_modules/alias-two'],
+  )
+  assert.equal(written.dependencies[0].dependsOn.filter((ref) => ref === 'lodash@4.17.21').length, 1)
+})
+
+test('SBOM validation rejects excluded, missing, or incorrect component scope', (t) => {
+  const fixture = createSbomFixture(t)
+  for (const scope of [undefined, 'excluded', 'optional']) {
+    const changed = structuredClone(fixture.sbom)
+    if (scope === undefined) delete changed.components[0].scope
+    else changed.components[0].scope = scope
+    assert.throws(
+      () => validateSbomDocument(fixture.packageDirectory, changed),
+      /component .* scope/,
+    )
+  }
+})
+
+test('SBOM validation rejects deletion of a nested lock dependency', (t) => {
+  const fixture = createSbomFixture(t)
+  const nestedPath = 'node_modules/alpha/node_modules/gamma'
+  const missingNested = structuredClone(fixture.sbom)
+  const nestedComponent = missingNested.components.find((candidate) => (
+    candidate.properties?.some((property) => (
+      property.name === 'cdx:npm:package:path' && property.value === nestedPath
+    ))
+  ))
+  assert.ok(nestedComponent)
+  const nestedRef = nestedComponent['bom-ref']
+  missingNested.components = missingNested.components.filter((component) => component !== nestedComponent)
+  missingNested.dependencies = missingNested.dependencies
+    .filter((dependency) => dependency.ref !== nestedRef)
+    .map((dependency) => ({
+      ...dependency,
+      dependsOn: dependency.dependsOn.filter((dependencyRef) => dependencyRef !== nestedRef),
+    }))
+
+  assert.throws(
+    () => validateSbomDocument(fixture.packageDirectory, missingNested),
+    /SBOM is missing npm package path node_modules\/alpha\/node_modules\/gamma/,
+  )
+})
+
 test('SBOM output rejects empty generator output without creating an artifact', (t) => {
   const fixture = createSbomFixture(t)
   const outputName = 'fixture.cdx.json'
@@ -10095,7 +12932,7 @@ test('release SBOM generation validates every package before publishing any arti
   const documents = Object.fromEntries(
     ['backend-node', 'frontweb', 'desktop'].map((packageDirectory) => [
       packageDirectory,
-      completeDirectDependencySbom(packageDirectory),
+      completePackageLockSbom(packageDirectory),
     ]),
   )
   documents.desktop.dependencies[0].dependsOn.pop()
@@ -10125,7 +12962,7 @@ test('release SBOM generation rejects a numeric specVersion before publishing ar
   const documents = Object.fromEntries(
     ['backend-node', 'frontweb', 'desktop'].map((packageDirectory) => [
       packageDirectory,
-      completeDirectDependencySbom(packageDirectory),
+      completePackageLockSbom(packageDirectory),
     ]),
   )
   documents['backend-node'].specVersion = 1.5
@@ -10153,7 +12990,7 @@ test('release SBOM generation normalizes npm-shaped roots before strict validati
   t.after(() => fs.rmSync(outputDirectory, { recursive: true, force: true }))
   const documents = Object.fromEntries(
     ['backend-node', 'frontweb', 'desktop'].map((packageDirectory) => {
-      const document = completeDirectDependencySbom(packageDirectory)
+      const document = completePackageLockSbom(packageDirectory)
       document.metadata.component.name = path.basename(packageDirectory)
       document.metadata.component.type = 'library'
       return [packageDirectory, document]
@@ -10184,10 +13021,16 @@ test('release SBOM generation normalizes npm-shaped roots before strict validati
 
 test('SBOM output canonicalizes duplicate npm refs without losing install paths', (t) => {
   const fixture = createSbomFixture(t)
-  fixture.sbom.components[0].properties = [{
+  fixture.packageLock.packages['node_modules/first/node_modules/alpha'] = { version: '1.4.0' }
+  fixture.packageLock.packages['node_modules/second/node_modules/alpha'] = { version: '1.4.0' }
+  fs.writeFileSync(
+    path.join(fixture.packageDirectory, 'package-lock.json'),
+    `${JSON.stringify(fixture.packageLock, null, 2)}\n`,
+  )
+  fixture.sbom.components[0].properties.push({
     name: 'cdx:npm:package:path',
     value: 'node_modules/first/node_modules/alpha',
-  }]
+  })
   fixture.sbom.components[0].scope = 'required'
   fixture.sbom.components[0].externalReferences = [{
     type: 'distribution',
@@ -10221,6 +13064,7 @@ test('SBOM output canonicalizes duplicate npm refs without losing install paths'
   assert.deepEqual(
     alphaComponents[0].properties.map((property) => property.value).sort(),
     [
+      'node_modules/alpha',
       'node_modules/first/node_modules/alpha',
       'node_modules/second/node_modules/alpha',
     ],

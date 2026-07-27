@@ -4,7 +4,7 @@
 
 **A local-first AI short drama & comic generator — bring your own local or hosted providers, fully open source**
 
-[![version](https://img.shields.io/badge/version-1.3.3-blue?style=flat-square)](https://github.com/Shunlly/LocalMiniDrama/releases)
+[![version](https://img.shields.io/badge/version-1.3.3%20RC-orange?style=flat-square)](#release-candidate-status)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](../LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](#)
 [![stack](https://img.shields.io/badge/Vue3%20%2B%20Node.js%20%2B%20Electron-informational?style=flat-square)](#)
@@ -20,6 +20,12 @@ LocalMiniDrama keeps projects and generated files on your machine by default whi
 This project is built entirely in JavaScript from scratch. Review each provider's privacy policy before sending sensitive material.
 
 > ✅ No mandatory subscription · ✅ Projects stored locally by default · ✅ Multiple AI providers · ✅ Fully open source
+
+---
+
+## Release Candidate Status
+
+The source and package version is `1.3.3`, currently a release candidate. Git contains only the `v1.3.0`, `v1.3.1`, and `v1.3.2` tags; there is no `v1.3.3` tag or formally published Release. The [Releases page](https://github.com/Shunlly/LocalMiniDrama/releases) is history only. Run the current candidate from source or Docker. Official binaries require every source, Docker, Windows artifact, security, rollback, product-acceptance, and CI gate to pass for the same Git SHA, followed by review and publication of the draft Release. A successful local build or run is not a GitHub release.
 
 ---
 
@@ -73,6 +79,16 @@ This project is built entirely in JavaScript from scratch. Review each provider'
 - **Video Prompt**: Edit the full prompt text, or expand the composition panel to edit individual fields (scene / duration / action / mood / camera / shot type) — auto-reassembled on save
 - **Image Management**: AI generation, manual upload, drag-and-drop; replace at any time
 
+### Dual-mode Canvas Workbench
+
+- The existing `/film/:id/canvas` route now switches between **Production** and **Free** modes. Production nodes and workflow gates remain intact; Free mode adds `text`, `image`, `video`, `config`, and `reference` nodes stored under `metadata.free_canvas`.
+- Free mode supports single/multi/marquee selection, connections, copy/paste, delete, undo/redo, asset search and type filters, collapsible groups, uploads, and drag-in placement.
+- Save failures keep a sanitized reason and retry only unsaved changes. Eligible local media can be saved as an asset, while conversion to a production reference always requires an explicit target and keeps the free node.
+- Project ZIP export/import preserves the free canvas while validating archive, media, project, and reference boundaries. Existing production graph data and unknown metadata remain preserved.
+- Scope is desktop keyboard/mouse only. Mobile/touch, new real Provider routes, collaboration, and the complete Agent/MCP surface are deferred. Automated tests use a local protocol-compatible test service and never call an external real Provider.
+
+Tasks 1-5, all eight product-acceptance findings, ZIP security review, and E2E code/contract review are complete. The real Docker production E2E matrix has **not** run, so the final release gate remains **UNVERIFIED**. Local report: `http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`.
+
 ### 🤖 AI Configuration
 
 - Coverage summary for five core services: **text**, **asset image**, **storyboard image**, **video**, and **TTS**
@@ -91,18 +107,7 @@ This project is built entirely in JavaScript from scratch. Review each provider'
 
 ## 🚀 Quick Start
 
-### Option A — Download exe (recommended)
-
-Go to **[Releases](https://github.com/Shunlly/LocalMiniDrama/releases)** and download the latest:
-- `LocalMiniDrama-Setup-x.x.x-x64.exe` — Windows x64 NSIS installer
-- `LocalMiniDrama-Portable-x.x.x-x64.exe` — Windows x64 portable build
-
-Double-click → open **AI Config** → enter your API key → start creating.
-
-> On first launch a config file is created at:  
-> `%APPDATA%\localminidrama-desktop\backend\configs\config.yaml`
-
-### Option B — Development Mode
+### Option A — Source (recommended for the current candidate)
 
 > Requires Node.js >= 20. Release and Docker verification use Node.js 20.
 
@@ -127,6 +132,17 @@ Open `http://localhost:3013`, then add provider URLs, models, and API keys on th
 
 You can also double-click `run_dev.bat` at the project root to **start both servers at once**.
 
+### Option B — Docker (candidate deployment)
+
+From a clean worktree at the repository root:
+
+```bash
+npm run docker:up
+docker compose ps
+```
+
+Open `http://localhost:3013`. Docker is a supported deployment path for the current source candidate and records the Git SHA in clean-tree images. A local image build, successful startup, or local acceptance result is not a formally published GitHub release.
+
 📖 Full developer guide, packaging, and FAQ → **[Quickstart Guide](quickstart.md)**
 
 ---
@@ -142,6 +158,8 @@ You can also double-click `run_dev.bat` at the project root to **start both serv
 | Other OpenAI-compatible APIs | ✅ | ✅ | — |
 
 📖 API key registration and configuration → **[Configuration Guide](configuration.md)**
+
+The common adapters and routing are implemented, but deep validation of every real provider, account, model revision, quota, and billing combination is deferred; test each deployment locally with non-sensitive content. Mobile Web reflow, touch behavior, and the mobile Canvas/list fallback are also deferred and are not covered by the current desktop acceptance matrix.
 
 ---
 
@@ -185,7 +203,7 @@ LocalMiniDrama/
 
 Full version history → **[CHANGELOG](changelog.md)**
 
-**Latest v1.3.3 highlights:**
+**v1.3.3 release-candidate highlights:**
 
 - The release gate runs Trivy 0.64.1 from an official digest-pinned OCI image on Ubuntu, rejects unlisted ZIP attachments, binds Windows scan evidence to the final Setup, Portable, and Unpacked bytes with SHA-256, and proves Fuse coverage for each package separately.
 - Media search now cancels stale requests, guarantees latest-request-wins behavior, shows a safe localized retry state, and exposes full truncated names on hover; project import failures remain visible with a safe filename, reason, retry action, and dismiss action.
@@ -193,6 +211,7 @@ Full version history → **[CHANGELOG](changelog.md)**
 - `npm run docker:up` requires a clean tree and embeds the full Git SHA in both OCI image revisions. Production E2E requires `npm run docker:e2e:up` before `npm run verify:e2e`; the latter does not start its protocol-compatible Provider automatically.
 - `npm run verify:rollback` runs the focused backup/restore suite and a clean-commit drill against current local data in an isolated restore target; PR, main, and tag workflows also run a Node 20 isolated drill. `checkpoint:rollback` captures the actual bind-mounted runtime config and running image IDs before shutdown, tags and saves both images to a SHA-256-verified `images.tar`, and archives Compose, config, hashes, and same-SHA evidence. `restore:rollback` can capture immutable compensation evidence from existing unhealthy or stopped containers, verifies and loads the archived images before data changes, retains a forward-data compensation backup, and attempts to restore the forward deployment if rollback startup fails.
 - 🆕 **Closed-loop desktop workflow** — project readiness exposes one next action, while source intake, processing, QA, repair, episodes, and timeline remain recoverable
+- 🆕 **Dual-mode canvas workbench** — keep the production graph and add a persisted free-creation layer with five node types, asset workflows, precise save recovery, explicit production conversion, and secure project transfer; final Docker production E2E is still unverified
 - 🆕 **Multi-provider AI configuration** — configure and test text, source-image, storyboard-image, video, and TTS models across local and hosted providers
 - 🆕 **Novel2Anime production path** — PDF/image OCR, audio/video transcription, image/video/TTS generation, and FFmpeg composition in one auditable workflow
 - 🔧 **Film and canvas ergonomics** — consistent action gates, failure feedback, draft protection, panorama/reference media, timeline composition, and batch workflows
@@ -247,8 +266,8 @@ This project focuses on **local-first project storage, a friendly UI, and easy c
 
 All contributions are welcome!
 
-- 🐛 **Report a bug** → [New Issue](https://github.com/Shunlly/LocalMiniDrama/issues/new)
-- 💡 **Suggest a feature** → [New Issue](https://github.com/Shunlly/LocalMiniDrama/issues/new)
+- 🐛 **Report a bug** → [GitHub Issues](https://github.com/Shunlly/LocalMiniDrama/issues)
+- 💡 **Suggest a feature** → [GitHub Issues](https://github.com/Shunlly/LocalMiniDrama/issues)
 - 🔧 **Submit code** → Fork → Edit → Pull Request
 - ⭐ **Star the project** → Help others discover it
 

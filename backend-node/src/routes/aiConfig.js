@@ -196,11 +196,17 @@ function testConnection(db, log) {
         service_type: opts.service_type,
         settings: opts.settings,
         trusted_origins: req.providerNetworkTrustedOrigins,
+        provider_network_policy: req.providerNetworkPolicy,
       });
       response.success(res, { message: '连接测试成功' });
     } catch (err) {
-      log.error('AI config test connection failed', { error: err.message });
-      response.badRequest(res, '连接测试失败: ' + (err.message || '未知错误'));
+      const { toSafeProviderErrorMessage } = require('../services/providerErrorSanitizer');
+      const safeMessage = toSafeProviderErrorMessage(err, {
+        provider: opts.provider || 'AI provider',
+        operation: 'connection test',
+      });
+      log.error('AI config test connection failed', { error: safeMessage });
+      response.badRequest(res, '连接测试失败: ' + safeMessage);
     }
   };
 }
@@ -229,7 +235,7 @@ function modelArkAsset(db, log) {
           sign_service: opts.sign_service,
           session_token: opts.session_token,
           project_name: opts.project_name,
-          trusted_origins: req.providerNetworkTrustedOrigins,
+          network_policy: req.providerNetworkPolicy,
         },
         log
       );
@@ -244,7 +250,7 @@ function modelArkAsset(db, log) {
   };
 }
 
-/** 即梦2角色认证：代理 GET 素材列表（表单未保存也可用当前填写的网关与 Token） */
+/** 即梦2角色认证：仅使用已保存并启用配置的完整网络策略代理素材列表。 */
 function listJimeng2MaterialAssets(db, log) {
   return async (req, res) => {
     const body = req.body || {};
@@ -263,7 +269,7 @@ function listJimeng2MaterialAssets(db, log) {
       return response.badRequest(res, '请先填写网关 URL 与 Token');
     }
     const jimengMaterialHubService = require('../services/jimengMaterialHubService');
-    const ctx = { baseUrl: base_url, token: api_key };
+    const ctx = { baseUrl: base_url, token: api_key, networkPolicy: req.providerNetworkPolicy };
     const r = await jimengMaterialHubService.listAssets(ctx, { limit: body.limit, cursor: body.cursor }, log);
     if (!r.ok) {
       return response.badRequest(res, String(r.error || '列出素材失败').slice(0, 800));
