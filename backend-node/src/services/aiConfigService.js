@@ -56,6 +56,14 @@ function providerUrlValidationError(message) {
   return error;
 }
 
+function aiConfigValidationError(message, details) {
+  const error = new Error(message);
+  error.code = 'INVALID_AI_CONFIG';
+  error.status = 400;
+  error.details = details;
+  return error;
+}
+
 function normalizedProviderId(value) {
   return String(value || '').trim().toLowerCase().replace(/-/g, '_');
 }
@@ -451,11 +459,50 @@ function configForResponse(config) {
   };
 }
 
+function normalizeModelList(model) {
+  const source = Array.isArray(model) ? model : (model == null ? [] : [model]);
+  const seen = new Set();
+  const normalized = [];
+  for (const item of source) {
+    const value = String(item ?? '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
+function normalizeDefaultModel(defaultModel) {
+  const normalized = String(defaultModel ?? '').trim();
+  return normalized || null;
+}
+
+function normalizeConfigModels(config = {}) {
+  return {
+    model: normalizeModelList(config.model),
+    default_model: normalizeDefaultModel(config.default_model),
+  };
+}
+
+function assertDefaultModelMembership(config = {}) {
+  const normalized = normalizeConfigModels(config);
+  if (normalized.default_model && !normalized.model.includes(normalized.default_model)) {
+    throw aiConfigValidationError(
+      '默认模型不在可用模型列表中，请在 AI 配置中重新选择默认模型',
+      { field: 'default_model', issue: 'not_in_model_list' }
+    );
+  }
+  return normalized;
+}
+
+function normalizeWritableConfigModels(config = {}) {
+  const inactive = config.is_active === false || config.is_active === 0;
+  return inactive ? normalizeConfigModels(config) : assertDefaultModelMembership(config);
+}
+
 function modelToDb(model) {
   if (model == null) return null;
-  if (Array.isArray(model)) return JSON.stringify(model);
-  if (typeof model === 'string') return JSON.stringify([model]);
-  return JSON.stringify([]);
+  return JSON.stringify(normalizeModelList(model));
 }
 
 function modelFromDb(val) {
@@ -499,7 +546,12 @@ function getConfig(db, id) {
 
 function createConfig(db, log, req) {
   const now = new Date().toISOString();
-  const model = modelToDb(req.model);
+  const normalizedModels = normalizeWritableConfigModels({
+    model: req.model,
+    default_model: req.default_model,
+    is_active: true,
+  });
+  const model = modelToDb(normalizedModels.model);
   let endpoint = req.endpoint || '';
   let queryEndpoint = req.query_endpoint || '';
   if (!endpoint && req.provider) {
@@ -541,7 +593,7 @@ function createConfig(db, log, req) {
       }
     }
   }
-  const defaultModel = req.default_model != null ? String(req.default_model).trim() || null : null;
+  const defaultModel = normalizedModels.default_model;
   const normalizedBaseUrl = normalizeProviderBaseUrl(req.base_url, req);
   endpoint = normalizeProviderEndpoint(endpoint, 'endpoint');
   queryEndpoint = normalizeProviderEndpoint(queryEndpoint, 'query_endpoint');
@@ -602,6 +654,11 @@ function updateConfig(db, log, id, req) {
   if (originChanged && new URL(normalizedBaseUrl).protocol === 'http:' && hasStoredCredentials(candidate)) {
     throw providerUrlValidationError('Stored credentials cannot be moved automatically to a new HTTP provider origin');
   }
+  const normalizedModels = normalizeWritableConfigModels({
+    model: req.model != null ? req.model : existing.model,
+    default_model: req.default_model !== undefined ? req.default_model : existing.default_model,
+    is_active: typeof req.is_active === 'boolean' ? req.is_active : existing.is_active,
+  });
   const updates = [];
   const params = [];
   if (req.name != null) {
@@ -627,11 +684,11 @@ function updateConfig(db, log, id, req) {
   }
   if (req.model != null) {
     updates.push('model = ?');
-    params.push(modelToDb(req.model));
+    params.push(modelToDb(normalizedModels.model));
   }
   if (req.default_model !== undefined) {
     updates.push('default_model = ?');
-    params.push(req.default_model != null ? String(req.default_model).trim() || null : null);
+    params.push(normalizedModels.default_model);
   }
   if (req.priority != null) {
     updates.push('priority = ?');
@@ -1081,6 +1138,11 @@ function normalizeVendorConfig(item, index) {
     throw new Error(`config at index ${index} must be an object`);
   }
   const serviceType = String(item.service_type || 'text').trim() || 'text';
+  const normalizedModels = normalizeWritableConfigModels({
+    model: item.model,
+    default_model: item.default_model,
+    is_active: true,
+  });
   const config = {
     service_type: serviceType,
     provider: String(item.provider || '').trim(),
@@ -1088,8 +1150,8 @@ function normalizeVendorConfig(item, index) {
     name: String(item.name || ''),
     base_url: String(item.base_url || ''),
     api_key: normalizeApiKeyForService(serviceType, String(item.api_key || '')),
-    model: modelToDb(item.model) || '[]',
-    default_model: item.default_model != null ? String(item.default_model).trim() || null : null,
+    model: modelToDb(normalizedModels.model) || '[]',
+    default_model: normalizedModels.default_model,
     endpoint: String(item.endpoint || ''),
     query_endpoint: String(item.query_endpoint || ''),
     priority: item.priority ?? 0,
@@ -1316,6 +1378,8 @@ module.exports = {
   bulkUpdateApiKey,
   configForResponse,
   hasStoredCredentials,
+  normalizeConfigModels,
+  assertDefaultModelMembership,
   getProviderNetworkOptions,
   isExplicitLocalProviderConfig,
   isExplicitLocalProviderHost,

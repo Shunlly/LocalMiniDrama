@@ -45,7 +45,9 @@ function create(db, log, cfg) {
       response.created(res, aiConfigService.configForResponse(config));
     } catch (err) {
       log.errorw('Create AI config failed', { error: err.message });
-      if (err.status === 400) return response.badRequest(res, err.message);
+      if (err.status === 400) {
+        return response.error(res, 400, err.code || 'BAD_REQUEST', err.message, err.details);
+      }
       response.internalError(res, '创建失败');
     }
   };
@@ -72,7 +74,9 @@ function update(db, log, cfg) {
       response.success(res, aiConfigService.configForResponse(config));
     } catch (err) {
       log.errorw('Update AI config failed', { error: err.message, config_id: id });
-      if (err.status === 400) return response.badRequest(res, err.message);
+      if (err.status === 400) {
+        return response.error(res, 400, err.code || 'BAD_REQUEST', err.message, err.details);
+      }
       response.internalError(res, '更新失败');
     }
   };

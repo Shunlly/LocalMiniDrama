@@ -169,6 +169,34 @@ test('production readiness rejects an enabled default with no usable model', (t)
   assert.equal(serviceConfigReadiness({ service_type: 'video', model: [], default_model: '' }).ready, false);
 });
 
+test('production readiness reports an actionable reason for a historical invalid default model', (t) => {
+  const db = createWorkflowDb(t);
+  for (const serviceType of ['text', 'image', 'storyboard_image', 'video', 'tts']) addConfig(db, serviceType);
+  db.prepare(
+    'UPDATE ai_service_configs SET model = ?, default_model = ? WHERE service_type = ?'
+  ).run(JSON.stringify(['current-video-model']), 'retired-video-model', 'video');
+
+  const direct = serviceConfigReadiness({
+    service_type: 'video',
+    provider: 'openai',
+    api_key: 'LMD_SYNTHETIC_READINESS_CREDENTIAL',
+    model: [' current-video-model ', '', 'current-video-model'],
+    default_model: ' retired-video-model ',
+  });
+  assert.equal(direct.ready, false);
+  assert.equal(direct.issue, 'invalid_default_model');
+
+  const result = checkNovel2AnimeReadiness(db, { drama_id: 1, qa_mode: 'production' }, {
+    validateMediaTools: () => ({ ok: true, ffmpeg: { ok: true }, ffprobe: { ok: true } }),
+  });
+  const video = result.capabilities.find((item) => item.key === 'video');
+  assert.equal(result.ready, false);
+  assert.equal(video.ready, false);
+  assert.equal(video.issue, 'invalid_default_model');
+  assert.match(video.detail, /默认模型.*可用模型列表.*重新选择/);
+  assert.equal(JSON.stringify(result).includes('LMD_SYNTHETIC_READINESS_CREDENTIAL'), false);
+});
+
 test('production readiness rejects remote provider configs without credentials', (t) => {
   const db = createWorkflowDb(t);
   for (const serviceType of ['text', 'image', 'storyboard_image', 'video', 'tts']) {

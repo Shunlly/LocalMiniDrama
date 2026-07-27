@@ -52,17 +52,14 @@ function workflowMode(params = {}) {
 
 function configModel(config) {
   if (!config) return '';
-  if (String(config.default_model || '').trim()) return String(config.default_model).trim();
-  const models = Array.isArray(config.model) ? config.model : [config.model];
-  return String(models.find((model) => String(model || '').trim()) || '').trim();
+  const normalized = aiConfigService.normalizeConfigModels(config);
+  return normalized.default_model || normalized.model[0] || '';
 }
 
 function configModels(config) {
   if (!config) return [];
-  const models = Array.isArray(config.model) ? config.model : [config.model];
-  return [...models, config.default_model]
-    .map((model) => String(model || '').trim())
-    .filter(Boolean);
+  const normalized = aiConfigService.normalizeConfigModels(config);
+  return [...normalized.model, normalized.default_model].filter(Boolean);
 }
 
 function selectedWorkflowOption(params, key) {
@@ -130,6 +127,9 @@ function serviceConfigReadiness(config) {
     };
   }
   const model = configModel(config);
+  const normalizedModels = aiConfigService.normalizeConfigModels(config);
+  const defaultModelReady = !normalizedModels.default_model
+    || normalizedModels.model.includes(normalizedModels.default_model);
   const modelOptional = isModelOptionalServiceConfig(config);
   const credentialOptional = aiConfigService.isApiKeyOptionalConnection(config);
   const credentialSet = aiConfigService.hasStoredCredentials(config);
@@ -137,10 +137,12 @@ function serviceConfigReadiness(config) {
   const modelReady = Boolean(model) || modelOptional;
   const credentialReady = credentialOptional || credentialSet;
   return {
-    ready: protocolReady && modelReady && credentialReady,
+    ready: protocolReady && defaultModelReady && modelReady && credentialReady,
     issue: !protocolReady
       ? 'missing_workflow'
-      : (!modelReady ? 'missing_model' : (!credentialReady ? 'missing_credentials' : '')),
+      : (!defaultModelReady
+          ? 'invalid_default_model'
+          : (!modelReady ? 'missing_model' : (!credentialReady ? 'missing_credentials' : ''))),
     model,
     modelOptional,
     credentialOptional,
@@ -286,6 +288,8 @@ function checkNovel2AnimeReadiness(db, params = {}, options = {}) {
           : `已选择 ${selected}`
         : configReadiness.issue === 'missing_model'
           ? `${definition.label}配置存在，但未选择可用模型`
+          : configReadiness.issue === 'invalid_default_model'
+            ? `${definition.label}配置的默认模型不在可用模型列表中，请在 AI 配置中重新选择默认模型`
           : configReadiness.issue === 'missing_workflow'
             ? `${definition.label}配置缺少 ComfyUI workflow 模板`
           : configReadiness.issue === 'missing_credentials'
