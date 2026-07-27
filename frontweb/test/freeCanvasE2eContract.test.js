@@ -121,8 +121,22 @@ function createValidFlowEvidence() {
     image_node_id: 'free:image:5',
     video_node_id: 'free:video:6',
     reference_node_id: 'free:reference:7',
-    keyboard_activated_node_id: 'free:image:5',
-    keyboard_activation_key: 'Enter',
+    keyboard_activations: [
+      {
+        key: 'Enter',
+        node_id: 'free:image:5',
+        focus_retained: true,
+        exact_selection_verified: true,
+        inspector_open_verified: true,
+      },
+      {
+        key: 'Space',
+        node_id: 'free:image:5',
+        focus_retained: true,
+        exact_selection_verified: true,
+        inspector_open_verified: true,
+      },
+    ],
     marquee_selected_node_ids: ['free:text:1', 'free:config:2'],
     clone_node_ids: ['free:text:3', 'free:config:4'],
     edge_endpoints: [
@@ -144,8 +158,6 @@ function createValidFlowEvidence() {
     upload_failure_verified: true,
     image_interaction_verified: true,
     video_interaction_verified: true,
-    keyboard_focus_verified: true,
-    keyboard_selection_verified: true,
     conversion_verified: true,
     storyboard_conversion_verified: true,
     isolation_verified: true,
@@ -383,18 +395,70 @@ test('browser flow evidence requires unique image and video node identities', ()
   )
 })
 
-test('browser flow evidence requires keyboard activation focus and exact selection semantics', () => {
+test('browser flow evidence rejects legacy Enter-only evidence that omits Space', () => {
   const valid = createValidFlowEvidence()
-  for (const field of ['keyboard_focus_verified', 'keyboard_selection_verified']) {
+  const enterOnly = valid.keyboard_activations[0]
+  assert.throws(
+    () => e2e.assertBrowserFlowResult({
+      ...valid,
+      keyboard_activations: [enterOnly],
+      keyboard_activated_node_id: enterOnly.node_id,
+      keyboard_activation_key: enterOnly.key,
+      keyboard_focus_verified: true,
+      keyboard_selection_verified: true,
+    }),
+    /Enter|Space|keyboard|complete|unique/i,
+  )
+})
+
+test('browser flow evidence requires exactly one Enter and one Space activation result', () => {
+  const valid = createValidFlowEvidence()
+  assert.equal(e2e.assertBrowserFlowResult(valid), valid)
+  const enter = valid.keyboard_activations[0]
+  const space = valid.keyboard_activations[1]
+  for (const keyboardActivations of [
+    [enter],
+    [enter, { ...enter }],
+    [enter, { ...space, key: 'Escape' }],
+  ]) {
     assert.throws(
-      () => e2e.assertBrowserFlowResult({ ...valid, [field]: false }),
-      /keyboard|incomplete/i,
+      () => e2e.assertBrowserFlowResult({ ...valid, keyboard_activations: keyboardActivations }),
+      /Enter|Space|keyboard|complete|unique|unknown/i,
     )
   }
-  assert.throws(
-    () => e2e.assertBrowserFlowResult({ ...valid, keyboard_activated_node_id: 'free:missing' }),
-    /keyboard|node/i,
-  )
+})
+
+test('browser flow evidence requires per-key focus, selection, inspector, and node semantics', () => {
+  const valid = createValidFlowEvidence()
+  for (const [index, patch] of [
+    [0, { focus_retained: false }],
+    [1, { focus_retained: false }],
+    [0, { exact_selection_verified: false }],
+    [1, { inspector_open_verified: false }],
+    [0, { node_id: 'free:missing' }],
+  ]) {
+    const keyboardActivations = valid.keyboard_activations.map((entry, entryIndex) => (
+      entryIndex === index ? { ...entry, ...patch } : entry
+    ))
+    assert.throws(
+      () => e2e.assertBrowserFlowResult({ ...valid, keyboard_activations: keyboardActivations }),
+      /keyboard|focus|selection|inspector|node|incomplete/i,
+    )
+  }
+})
+
+test('evidence manifest preserves complete per-key keyboard activation results without a scalar fallback', () => {
+  const flow = createValidFlowEvidence()
+  const manifest = e2e.buildEvidenceManifest({
+    status: 'passed',
+    sourceBinding: CLEAN_SOURCE_BINDING,
+    services: e2e.resolveServiceUrls({}),
+    canvasUrl: 'http://127.0.0.1:3013/film/41/canvas',
+    flow,
+    cleanup: { status: 'passed', fixtures: [], failures: [] },
+  })
+  assert.deepEqual(manifest.flow.keyboard_activations, flow.keyboard_activations)
+  assert.equal(Object.hasOwn(manifest.flow, 'keyboard_activation_key'), false)
 })
 
 test('browser implementation uses exact free-node IDs and never soft-deletes fixtures', () => {
@@ -492,16 +556,42 @@ test('free canvas verifier accepts six real original PNG files with matching has
   }
 })
 
-test('free canvas verifier requires image, video, and keyboard browser evidence', async () => {
+test('free canvas verifier requires image and video browser evidence', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'free-canvas-evidence-interactions-'))
   try {
     const manifest = await writeValidEvidence(root)
     delete manifest.flow.image_node_id
-    manifest.flow.keyboard_focus_verified = false
     await writeFile(path.join(root, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
-    await assert.rejects(verifyEvidence(root), /image|keyboard|browser flow/i)
+    await assert.rejects(verifyEvidence(root), /image|browser flow/i)
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('free canvas verifier rejects missing, duplicate, and unknown keyboard activation keys', async () => {
+  const valid = createValidFlowEvidence()
+  const enter = valid.keyboard_activations[0]
+  const space = valid.keyboard_activations[1]
+  const cases = [
+    ['missing Space', [enter]],
+    ['duplicate Enter', [enter, { ...enter }]],
+    ['unknown Escape', [enter, { ...space, key: 'Escape' }]],
+    ['failed Space semantics', [enter, { ...space, inspector_open_verified: false }]],
+  ]
+  for (const [name, keyboardActivations] of cases) {
+    const root = await mkdtemp(path.join(tmpdir(), 'free-canvas-evidence-keyboard-'))
+    try {
+      const manifest = await writeValidEvidence(root)
+      manifest.flow.keyboard_activations = keyboardActivations
+      manifest.flow.keyboard_activated_node_id = enter.node_id
+      manifest.flow.keyboard_activation_key = enter.key
+      manifest.flow.keyboard_focus_verified = true
+      manifest.flow.keyboard_selection_verified = true
+      await writeFile(path.join(root, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+      await assert.rejects(verifyEvidence(root), /Enter|Space|keyboard|complete|unique|unknown|inspector/i, name)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   }
 })
 

@@ -312,8 +312,13 @@ function normalizeFlowEvidence(flow) {
     image_node_id: sanitizeEvidenceText(flow.image_node_id, 160),
     video_node_id: sanitizeEvidenceText(flow.video_node_id, 160),
     reference_node_id: sanitizeEvidenceText(flow.reference_node_id, 160),
-    keyboard_activated_node_id: sanitizeEvidenceText(flow.keyboard_activated_node_id, 160),
-    keyboard_activation_key: sanitizeEvidenceText(flow.keyboard_activation_key, 20),
+    keyboard_activations: (Array.isArray(flow.keyboard_activations) ? flow.keyboard_activations : []).map((entry) => ({
+      key: sanitizeEvidenceText(entry.key, 20),
+      node_id: sanitizeEvidenceText(entry.node_id, 160),
+      focus_retained: entry.focus_retained === true,
+      exact_selection_verified: entry.exact_selection_verified === true,
+      inspector_open_verified: entry.inspector_open_verified === true,
+    })),
     marquee_selected_node_ids: (Array.isArray(flow.marquee_selected_node_ids) ? flow.marquee_selected_node_ids : [])
       .map((id) => sanitizeEvidenceText(id, 160)),
     clone_node_ids: (Array.isArray(flow.clone_node_ids) ? flow.clone_node_ids : [])
@@ -342,8 +347,6 @@ function normalizeFlowEvidence(flow) {
     upload_failure_verified: flow.upload_failure_verified === true,
     image_interaction_verified: flow.image_interaction_verified === true,
     video_interaction_verified: flow.video_interaction_verified === true,
-    keyboard_focus_verified: flow.keyboard_focus_verified === true,
-    keyboard_selection_verified: flow.keyboard_selection_verified === true,
     conversion_verified: flow.conversion_verified === true,
     storyboard_conversion_verified: flow.storyboard_conversion_verified === true,
     isolation_verified: flow.isolation_verified === true,
@@ -419,6 +422,20 @@ function assertUniqueStringIds(values, label, minimum) {
   assert.equal(new Set(values).size, values.length, `${label} must be unique`)
 }
 
+function assertKeyboardActivationEvidence(activations, nodeIds) {
+  assert.equal(Array.isArray(activations), true, 'browser flow keyboard activation evidence is incomplete')
+  assert.equal(activations.length, 2, 'browser flow keyboard evidence must contain exactly Enter and Space')
+  const keys = activations.map((entry) => entry?.key)
+  assert.equal(new Set(keys).size, 2, 'browser flow keyboard activation keys must be unique')
+  assert.deepEqual([...keys].sort(), ['Enter', 'Space'], 'browser flow keyboard evidence must contain exactly Enter and Space')
+  for (const entry of activations) {
+    assert.equal(nodeIds.has(entry?.node_id), true, `browser flow ${entry?.key || 'unknown'} keyboard node is missing`)
+    assert.equal(entry?.focus_retained, true, `browser flow ${entry.key} keyboard focus evidence is incomplete`)
+    assert.equal(entry?.exact_selection_verified, true, `browser flow ${entry.key} keyboard selection evidence is incomplete`)
+    assert.equal(entry?.inspector_open_verified, true, `browser flow ${entry.key} keyboard inspector evidence is incomplete`)
+  }
+}
+
 function assertBrowserFlowResult(result) {
   assert.equal(result?.completed, true, 'Free canvas browser flow result is incomplete')
   assert.ok(Number.isSafeInteger(result.primary_drama_id) && result.primary_drama_id > 0, 'primary fixture identity is incomplete')
@@ -441,12 +458,7 @@ function assertBrowserFlowResult(result) {
     assert.equal(nodeIds.has(id), true, 'browser flow role node is missing from the exact node set')
   }
   assert.equal(new Set(roleNodeIds).size, roleNodeIds.length, 'browser flow role node IDs must be unique')
-  assert.equal(nodeIds.has(result.keyboard_activated_node_id), true, 'browser flow keyboard node is missing from the exact node set')
-  assert.equal(
-    ['Enter', 'Space'].includes(result.keyboard_activation_key),
-    true,
-    'browser flow keyboard activation key is incomplete',
-  )
+  assertKeyboardActivationEvidence(result.keyboard_activations, nodeIds)
   assertExactIdSet(
     result.marquee_selected_node_ids,
     [result.text_node_id, result.config_node_id],
@@ -474,8 +486,6 @@ function assertBrowserFlowResult(result) {
     'upload_failure_verified',
     'image_interaction_verified',
     'video_interaction_verified',
-    'keyboard_focus_verified',
-    'keyboard_selection_verified',
     'conversion_verified',
     'storyboard_conversion_verified',
     'isolation_verified',
@@ -1353,25 +1363,35 @@ async function exerciseFreeCanvas({
     await closeInspector(page)
     recordStep('created_image_and_video_nodes')
 
-    await imageNode.focus()
-    assert.equal(
-      await imageNode.evaluate((element) => document.activeElement === element),
-      true,
-      'image node did not receive browser focus before keyboard activation',
-    )
-    await page.keyboard.press('Enter')
-    await assertExactSelectedFreeNodeIds(page, [imageNodeId])
-    assert.equal(
-      await imageNode.evaluate((element) => document.activeElement === element),
-      true,
-      'keyboard activation did not retain focus on the exact free node',
-    )
-    await assertUniqueLocator(
-      page.getByRole('complementary', { name: '自由节点检查器', exact: true }),
-      'keyboard-activated image node inspector',
-    )
+    const keyboardActivations = []
+    for (const key of ['Enter', 'Space']) {
+      await imageNode.focus()
+      assert.equal(
+        await imageNode.evaluate((element) => document.activeElement === element),
+        true,
+        `image node did not receive browser focus before ${key} activation`,
+      )
+      await page.keyboard.press(key)
+      await assertExactSelectedFreeNodeIds(page, [imageNodeId])
+      assert.equal(
+        await imageNode.evaluate((element) => document.activeElement === element),
+        true,
+        `${key} activation did not retain focus on the exact free node`,
+      )
+      await assertUniqueLocator(
+        page.getByRole('complementary', { name: '自由节点检查器', exact: true }),
+        `${key}-activated image node inspector`,
+      )
+      keyboardActivations.push({
+        key,
+        node_id: imageNodeId,
+        focus_retained: true,
+        exact_selection_verified: true,
+        inspector_open_verified: true,
+      })
+      await closeInspector(page)
+    }
     recordStep('keyboard_activated_free_node')
-    await closeInspector(page)
 
     await waitForUiSaveSettled(page)
     const savePattern = `**/api/v1/dramas/${primaryId}/canvas-layout`
@@ -1662,8 +1682,7 @@ async function exerciseFreeCanvas({
       image_node_id: imageNodeId,
       video_node_id: videoNodeId,
       reference_node_id: referenceNodeId,
-      keyboard_activated_node_id: imageNodeId,
-      keyboard_activation_key: 'Enter',
+      keyboard_activations: keyboardActivations,
       marquee_selected_node_ids: [textNodeId, configNodeId],
       clone_node_ids: cloneNodeIds,
       edge_endpoints: finalEdges,
@@ -1686,8 +1705,6 @@ async function exerciseFreeCanvas({
       upload_failure_verified: true,
       image_interaction_verified: true,
       video_interaction_verified: true,
-      keyboard_focus_verified: true,
-      keyboard_selection_verified: true,
       conversion_verified: true,
       storyboard_conversion_verified: true,
       isolation_verified: true,

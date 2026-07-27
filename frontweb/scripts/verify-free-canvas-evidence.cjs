@@ -135,8 +135,6 @@ function assertFlowComplete(flow) {
   if (
     !roleNodeIds.every((id) => nodeIds.has(id))
     || new Set(roleNodeIds).size !== roleNodeIds.length
-    || !nodeIds.has(flow.keyboard_activated_node_id)
-    || !['Enter', 'Space'].includes(flow.keyboard_activation_key)
     || !Array.isArray(flow.marquee_selected_node_ids)
     || flow.marquee_selected_node_ids.length !== 2
     || new Set(flow.marquee_selected_node_ids).size !== 2
@@ -151,6 +149,26 @@ function assertFlowComplete(flow) {
     || flow.edge_endpoints.length !== flow.edge_ids.length
   ) {
     throw new Error('Free canvas browser flow node and edge identity evidence is incomplete')
+  }
+  if (!Array.isArray(flow.keyboard_activations) || flow.keyboard_activations.length !== 2) {
+    throw new Error('Free canvas keyboard evidence must contain exactly one Enter and one Space activation')
+  }
+  const keyboardKeys = flow.keyboard_activations.map((entry) => entry?.key)
+  if (new Set(keyboardKeys).size !== 2) {
+    throw new Error('Free canvas keyboard activation keys must be unique')
+  }
+  if ([...keyboardKeys].sort().join(',') !== 'Enter,Space') {
+    throw new Error('Free canvas keyboard evidence must contain exactly one Enter and one Space activation')
+  }
+  for (const entry of flow.keyboard_activations) {
+    if (
+      !nodeIds.has(entry?.node_id)
+      || entry?.focus_retained !== true
+      || entry?.exact_selection_verified !== true
+      || entry?.inspector_open_verified !== true
+    ) {
+      throw new Error(`Free canvas ${entry?.key || 'unknown'} keyboard activation evidence is incomplete`)
+    }
   }
   for (const edge of flow.edge_endpoints) {
     if (!edgeIds.has(edge?.id) || !nodeIds.has(edge?.source) || !nodeIds.has(edge?.target)) {
@@ -178,8 +196,6 @@ function assertFlowComplete(flow) {
     'upload_failure_verified',
     'image_interaction_verified',
     'video_interaction_verified',
-    'keyboard_focus_verified',
-    'keyboard_selection_verified',
     'conversion_verified',
     'storyboard_conversion_verified',
     'isolation_verified',
