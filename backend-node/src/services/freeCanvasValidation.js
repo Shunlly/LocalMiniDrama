@@ -184,6 +184,29 @@ function canonicalAssetMediaReference(db, dramaId, asset, field) {
   });
 }
 
+function normalizeFreeCanvasAssetReferences(input, dramaId) {
+  if (!isPlainObject(input)) throw badRequest('free_canvas 节点必须为对象');
+  const assetId = optionalPositiveId(input.assetId, 'assetId');
+  const assetRefId = scopedReferenceId(input.asset_ref, dramaId, 'asset_ref', 'asset');
+  if (assetId != null && assetRefId != null && assetId !== assetRefId) {
+    throw badRequest('assetId 和 asset_ref 必须引用同一素材');
+  }
+  return { assetId, assetRefId, resolvedId: assetId ?? assetRefId };
+}
+
+function isFreeCanvasAssetInScope(db, dramaId, assetId) {
+  try {
+    return Boolean(assertAssetScope(db, dramaId, assetId, 'asset'));
+  } catch (error) {
+    if (error?.code === 'BAD_REQUEST') return false;
+    throw error;
+  }
+}
+
+function normalizeFreeCanvasMediaReference(db, dramaId, value, options = {}) {
+  return normalizeMediaReference(db, dramaId, value, 'free_canvas node media', options);
+}
+
 function validateNode(db, dramaId, input, nodeIds) {
   if (!isPlainObject(input)) throw badRequest('free_canvas 节点必须为对象');
   const id = requiredString(input.id, 'free_canvas node id');
@@ -195,11 +218,7 @@ function validateNode(db, dramaId, input, nodeIds) {
   }
 
   const node = { id, type: input.type, position: { x: input.position.x, y: input.position.y } };
-  const assetId = optionalPositiveId(input.assetId, 'assetId');
-  const assetRefId = scopedReferenceId(input.asset_ref, dramaId, 'asset_ref', 'asset');
-  if (assetId != null && assetRefId != null && assetId !== assetRefId) {
-    throw badRequest('assetId 和 asset_ref 必须引用同一素材');
-  }
+  const { assetId, assetRefId, resolvedId: resolvedAssetId } = normalizeFreeCanvasAssetReferences(input, dramaId);
   const storyboardId = optionalPositiveId(input.storyboardId, 'storyboardId');
   const storyboardRefId = scopedReferenceId(input.storyboard_ref, dramaId, 'storyboard_ref', 'storyboard');
   if (storyboardId != null && storyboardRefId != null && storyboardId !== storyboardRefId) {
@@ -207,7 +226,7 @@ function validateNode(db, dramaId, input, nodeIds) {
   }
   const episodeId = optionalPositiveId(input.episodeId, 'episodeId');
   const sceneId = optionalPositiveId(input.sceneId, 'sceneId');
-  const asset = assertAssetScope(db, dramaId, assetId ?? assetRefId, assetId != null ? 'asset' : 'asset_ref');
+  const asset = assertAssetScope(db, dramaId, resolvedAssetId, assetId != null ? 'asset' : 'asset_ref');
   assertStoryboardScope(db, dramaId, storyboardId, 'storyboard');
   assertStoryboardScope(db, dramaId, storyboardRefId, 'storyboard_ref');
   assertEpisodeScope(db, dramaId, episodeId, 'episode');
@@ -362,4 +381,10 @@ function validateFreeCanvas(db, dramaId, input) {
   return result;
 }
 
-module.exports = { validateFreeCanvas, badRequest };
+module.exports = {
+  validateFreeCanvas,
+  badRequest,
+  normalizeFreeCanvasAssetReferences,
+  isFreeCanvasAssetInScope,
+  normalizeFreeCanvasMediaReference,
+};

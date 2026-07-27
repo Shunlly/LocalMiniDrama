@@ -3,6 +3,11 @@ const path = require('path');
 const { loadConfig } = require('../config');
 const uploadService = require('./uploadService');
 const storageLayout = require('./storageLayout');
+const {
+  normalizeFreeCanvasAssetReferences,
+  isFreeCanvasAssetInScope,
+  normalizeFreeCanvasMediaReference,
+} = require('./freeCanvasValidation');
 
 const ASSET_SELECT = `
   SELECT
@@ -335,14 +340,99 @@ function storyboardReferencesForAsset(db, asset) {
   return storyboardIds;
 }
 
-function assetInUseError(storyboardIds) {
-  const error = new Error(`素材正在被 ${storyboardIds.length} 个分镜引用，请先从分镜中移除后再删除`);
+function freeCanvasReferencesForAsset(db, asset, controlledPath) {
+  const assetId = Number(asset?.id);
+  const controlledPathKey = localPathReferenceKey(controlledPath);
+  const allowLegacyGlobalUploads = asset?.drama_id == null || Number(asset.drama_id) === 0;
+  const rows = db.prepare(
+    `SELECT id, metadata
+       FROM dramas
+      WHERE deleted_at IS NULL
+        AND metadata IS NOT NULL`
+  ).all();
+  const dramaIds = [];
+
+  for (const row of rows) {
+    let metadata;
+    try {
+      metadata = JSON.parse(row.metadata);
+    } catch (_) {
+      dramaIds.push(Number(row.id));
+      continue;
+    }
+    if (!isPlainObject(metadata)) {
+      dramaIds.push(Number(row.id));
+      continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(metadata, 'free_canvas')) continue;
+    const canvas = metadata.free_canvas;
+    if (!isPlainObject(canvas) || canvas.version !== 1 || !Array.isArray(canvas.nodes)) {
+      dramaIds.push(Number(row.id));
+      continue;
+    }
+
+    let matched = false;
+    let malformed = false;
+    for (const node of canvas.nodes) {
+      if (!isPlainObject(node)) {
+        malformed = true;
+        continue;
+      }
+
+      let assetReference;
+      try {
+        assetReference = normalizeFreeCanvasAssetReferences(node, Number(row.id));
+      } catch (error) {
+        if (error?.code !== 'BAD_REQUEST') throw error;
+        malformed = true;
+        continue;
+      }
+      if (
+        assetReference.resolvedId === assetId
+        && isFreeCanvasAssetInScope(db, Number(row.id), assetId)
+      ) {
+        matched = true;
+        break;
+      }
+
+      if (!controlledPathKey || !['image', 'video'].includes(node.type)) continue;
+      for (const field of ['content', 'storageKey']) {
+        if (node[field] === undefined) continue;
+        let candidate;
+        try {
+          candidate = normalizeFreeCanvasMediaReference(db, Number(row.id), node[field], {
+            allowLegacyGlobalUploads,
+          });
+        } catch (error) {
+          if (error?.code !== 'BAD_REQUEST') throw error;
+          continue;
+        }
+        if (localPathReferenceKey(candidate) === controlledPathKey) {
+          matched = true;
+          break;
+        }
+      }
+      if (matched) break;
+    }
+    if (matched || malformed) dramaIds.push(Number(row.id));
+  }
+  return dramaIds;
+}
+
+function assetInUseError(storyboardIds, freeCanvasDramaIds = []) {
+  const referenceCount = storyboardIds.length + freeCanvasDramaIds.length;
+  const error = freeCanvasDramaIds.length
+    ? new Error(`素材正在被 ${referenceCount} 处引用，请先移除引用后再删除`)
+    : new Error(`素材正在被 ${storyboardIds.length} 个分镜引用，请先从分镜中移除后再删除`);
   error.code = 'ASSET_IN_USE';
   error.statusCode = 409;
   error.details = {
-    reference_count: storyboardIds.length,
+    reference_count: referenceCount,
     storyboard_ids: storyboardIds.slice(0, 20),
   };
+  if (freeCanvasDramaIds.length) {
+    error.details.free_canvas_drama_ids = freeCanvasDramaIds.slice(0, 20);
+  }
   return error;
 }
 
@@ -352,20 +442,23 @@ function deleteById(db, log, id, options = {}) {
   let removablePath = null;
   const performDelete = db.transaction(() => {
     const row = db.prepare(
-      'SELECT id, local_path FROM assets WHERE id = ? AND deleted_at IS NULL'
+      'SELECT id, drama_id, local_path FROM assets WHERE id = ? AND deleted_at IS NULL'
     ).get(assetId);
     if (!row) return false;
 
     const storyboardIds = storyboardReferencesForAsset(db, row);
-    if (storyboardIds.length) throw assetInUseError(storyboardIds);
+    const storageRoot = configuredStorageRoot(options);
+    const controlled = resolveControlledUploadPath(storageRoot, row.local_path);
+    const freeCanvasDramaIds = freeCanvasReferencesForAsset(db, row, controlled?.normalizedPath);
+    if (storyboardIds.length || freeCanvasDramaIds.length) {
+      throw assetInUseError(storyboardIds, freeCanvasDramaIds);
+    }
 
     const result = db.prepare(
       'UPDATE assets SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL'
     ).run(new Date().toISOString(), assetId);
     if (result.changes === 0) return false;
 
-    const storageRoot = configuredStorageRoot(options);
-    const controlled = resolveControlledUploadPath(storageRoot, row.local_path);
     if (!controlled) return true;
 
     const sharedRows = db.prepare(
