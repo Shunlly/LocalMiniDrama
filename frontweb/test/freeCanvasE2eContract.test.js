@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
-import { mkdtemp, mkdir, readFile, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rename, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +10,7 @@ import { deflateSync } from 'node:zlib'
 
 const require = createRequire(import.meta.url)
 const e2e = require('../scripts/e2e-free-canvas.cjs')
+const { removeFixtureTree } = require('../scripts/fixture-cleanup.cjs')
 const verifier = require('../scripts/verify-free-canvas-evidence.cjs')
 const frontendPackage = require('../package.json')
 
@@ -361,7 +362,7 @@ test('main rejects an injected empty browser flow and still hard-purges both gua
     )
     assert.deepEqual(purged.sort((a, b) => a - b), [41, 42])
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await removeFixtureTree(root, { force: true })
   }
 })
 
@@ -552,7 +553,7 @@ test('free canvas verifier accepts six real original PNG files with matching has
     const result = await verifyEvidence(root)
     assert.deepEqual(result, { status: 'passed', screenshots: 6, gitRevision: 'a'.repeat(40) })
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await removeFixtureTree(root, { force: true })
   }
 })
 
@@ -564,7 +565,7 @@ test('free canvas verifier requires image and video browser evidence', async () 
     await writeFile(path.join(root, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
     await assert.rejects(verifyEvidence(root), /image|browser flow/i)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await removeFixtureTree(root, { force: true })
   }
 })
 
@@ -590,7 +591,7 @@ test('free canvas verifier rejects missing, duplicate, and unknown keyboard acti
       await writeFile(path.join(root, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
       await assert.rejects(verifyEvidence(root), /Enter|Space|keyboard|complete|unique|unknown|inspector/i, name)
     } finally {
-      await rm(root, { recursive: true, force: true })
+      await removeFixtureTree(root, { force: true })
     }
   }
 })
@@ -605,7 +606,7 @@ test('free canvas verifier rejects an evidence root symbolic link', async () => 
     await assert.rejects(verifyEvidence(linkedRoot), /symbolic link|symlink|outside|escape/i)
   } finally {
     await unlink(linkedRoot).catch(() => {})
-    await rm(parent, { recursive: true, force: true })
+    await removeFixtureTree(parent, { force: true })
   }
 })
 
@@ -621,8 +622,8 @@ test('free canvas verifier rejects a screenshots directory symbolic link that es
     await assert.rejects(verifyEvidence(root), /symbolic link|symlink|outside|escape/i)
   } finally {
     await unlink(screenshotRoot).catch(() => {})
-    await rm(root, { recursive: true, force: true })
-    await rm(outside, { recursive: true, force: true })
+    await removeFixtureTree(root, { force: true })
+    await removeFixtureTree(outside, { force: true })
   }
 })
 
@@ -633,7 +634,7 @@ test('free canvas verifier rejects a missing real screenshot file', async () => 
     await unlink(path.join(root, ...manifest.screenshots[0].path.split('/')))
     await assert.rejects(verifyEvidence(root), /missing screenshot/i)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await removeFixtureTree(root, { force: true })
   }
 })
 
@@ -648,7 +649,7 @@ test('free canvas verifier rejects a real PNG whose bytes no longer match its ma
     await writeFile(path.join(root, ...first.path.split('/')), changed)
     await assert.rejects(verifyEvidence(root), /SHA-256 mismatch/)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await removeFixtureTree(root, { force: true })
   }
 })
 
@@ -660,7 +661,7 @@ test('free canvas verifier rejects a manifest with a required browser step missi
     await writeFile(path.join(root, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
     await assert.rejects(verifyEvidence(root), /required.*step|recovered_canvas_save/i)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await removeFixtureTree(root, { force: true })
   }
 })
 
@@ -672,7 +673,7 @@ test('free canvas verifier rejects cleanup evidence that does not match both flo
     await writeFile(path.join(root, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
     await assert.rejects(verifyEvidence(root), /cleanup.*fixture|flow fixture/i)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await removeFixtureTree(root, { force: true })
   }
 })
 
@@ -698,7 +699,7 @@ test('clean source binding and verifier fail closed for dirty or different trees
       /dirty source tree/i,
     )
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await removeFixtureTree(root, { force: true })
   }
 })
 
@@ -717,7 +718,7 @@ test('six captures require inspector-open geometry at every required viewport', 
     await writeFile(path.join(root, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
     await assert.rejects(verifyEvidence(root), /inspector|geometry/i)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await removeFixtureTree(root, { force: true })
   }
 })
 
@@ -734,7 +735,7 @@ test('evidence reset rejects an external production evidence directory without d
     assert.match(e2eSource, /fs\.realpath\(/)
     assert.match(e2eSource, /path\.relative\(/)
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await removeFixtureTree(root, { force: true })
   }
 })
 

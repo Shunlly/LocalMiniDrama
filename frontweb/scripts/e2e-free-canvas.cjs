@@ -7,6 +7,7 @@ const { chromium } = require('playwright')
 
 const smokeHelpers = require('./e2e-smoke.cjs')
 const { inspectPng } = require('./acceptance-report-contract.cjs')
+const { removeFixtureTree } = require('./fixture-cleanup.cjs')
 const { REQUIRED_CAPTURES } = require('./verify-free-canvas-evidence.cjs')
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..')
@@ -1779,7 +1780,7 @@ async function resetEvidenceRoot(evidenceRoot) {
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
   }
-  await fs.rm(root, { recursive: true, force: true })
+  await removeFixtureTree(root, { force: true })
   await fs.mkdir(root)
   return root
 }

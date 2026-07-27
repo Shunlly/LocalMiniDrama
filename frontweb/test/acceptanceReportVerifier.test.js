@@ -7,7 +7,6 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -19,6 +18,7 @@ import { deflateSync } from 'node:zlib'
 
 const require = createRequire(import.meta.url)
 const contract = require('../scripts/acceptance-report-contract.cjs')
+const { removeFixtureTreeSync } = require('../scripts/fixture-cleanup.cjs')
 
 const {
   REQUIRED_FINAL_CAPTURES,
@@ -130,7 +130,7 @@ function withTempDir(prefix, callback) {
   try {
     return callback(directory)
   } finally {
-    rmSync(directory, { recursive: true, force: true })
+    removeFixtureTreeSync(directory, { force: true })
   }
 }
 

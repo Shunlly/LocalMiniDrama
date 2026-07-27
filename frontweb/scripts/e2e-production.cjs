@@ -6,6 +6,7 @@ const path = require('node:path')
 const zlib = require('node:zlib')
 const { version: PACKAGE_VERSION } = require('../package.json')
 const { REQUIRED_FINAL_CAPTURES, inspectPng } = require('./acceptance-report-contract.cjs')
+const { removeFixtureTree } = require('./fixture-cleanup.cjs')
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..')
 const DEFAULT_EVIDENCE_ROOT = path.join(PROJECT_ROOT, 'artifacts', 'e2e-production')
@@ -1380,7 +1381,7 @@ async function resetAcceptanceReportArtifacts(evidenceRoot) {
     relativeTarget && !relativeTarget.startsWith(`..${path.sep}`) && relativeTarget !== '..' && !path.isAbsolute(relativeTarget),
     'acceptance report directory escapes the evidence root',
   )
-  await fs.rm(acceptanceRoot, { recursive: true })
+  await removeFixtureTree(acceptanceRoot)
 }
 
 async function verifyProjectReadinessDisclosureUi(page) {

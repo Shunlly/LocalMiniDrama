@@ -4,6 +4,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const { promisify } = require('node:util')
 const { chromium } = require('playwright')
+const { removeFixtureTree } = require('./fixture-cleanup.cjs')
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3013'
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5679'
@@ -79,7 +80,7 @@ async function removeSourceFixtureDirectory(dramaId) {
   if (stat.isSymbolicLink()) {
     throw new Error(`Refusing to remove symlinked story source directory: ${directory}`)
   }
-  await fs.rm(directory, { recursive: true, force: true })
+  await removeFixtureTree(directory, { force: true })
 }
 
 function parsePurgeResult(stdout) {

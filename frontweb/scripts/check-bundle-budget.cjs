@@ -1,6 +1,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const zlib = require('node:zlib')
+const { removeFixtureTreeSync } = require('./fixture-cleanup.cjs')
 
 const DIST_ROOT = path.resolve(__dirname, '..', 'dist')
 const MANIFEST_PATH = path.join(DIST_ROOT, '.vite', 'manifest.json')
@@ -77,7 +78,7 @@ function main() {
   if (!fs.existsSync(MANIFEST_PATH)) throw new Error(`Vite manifest not found: ${MANIFEST_PATH}`)
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'))
   const result = verifyBundleBudget(manifest)
-  fs.rmSync(path.dirname(MANIFEST_PATH), { recursive: true, force: true })
+  removeFixtureTreeSync(path.dirname(MANIFEST_PATH), { force: true })
   console.log(JSON.stringify({ bundle_budget: 'passed', ...result }))
 }
 

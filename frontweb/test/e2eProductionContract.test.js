@@ -3,13 +3,14 @@ import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 const require = createRequire(import.meta.url)
 const { createProviderServer } = require('../../backend-node/scripts/e2e-provider.js')
 const { REQUIRED_FINAL_CAPTURES } = require('../scripts/acceptance-report-contract.cjs')
+const { removeFixtureTree } = require('../scripts/fixture-cleanup.cjs')
 const productionE2e = require('../scripts/e2e-production.cjs')
 const {
   AI_TWO_COLUMN_VIEWPORT,
@@ -358,7 +359,7 @@ test('E2E provider stats require authorization, count real calls, and retain no 
     assert.equal(stats.events.find((event) => event.endpoint === 'tts').input_chars, secrets.tts.length)
   } finally {
     await close(server)
-    await rm(fixtureRoot, { recursive: true, force: true })
+    await removeFixtureTree(fixtureRoot, { force: true })
   }
 })
 
@@ -540,7 +541,7 @@ test('production evidence persists identity, media hashes, failure state, logs, 
       assert.doesNotMatch(output, /authorization|api[_ -]?key|credentials?|base[_ -]?url|private\.invalid/i)
     }
   } finally {
-    await rm(fixtureRoot, { recursive: true, force: true })
+    await removeFixtureTree(fixtureRoot, { force: true })
   }
 })
 
@@ -690,7 +691,7 @@ test('production evidence can seal a complete successful acceptance package', as
       /four columns/,
     )
   } finally {
-    await rm(fixtureRoot, { recursive: true, force: true })
+    await removeFixtureTree(fixtureRoot, { force: true })
   }
 })
 
@@ -728,7 +729,7 @@ test('production E2E entrypoint seals evidence when browser startup fails', asyn
     assert.equal(logText.includes(protectedValue), false)
     assert.doesNotMatch(`${evidenceText}\n${logText}`, /authorization|credentials?/i)
   } finally {
-    await rm(fixtureRoot, { recursive: true, force: true })
+    await removeFixtureTree(fixtureRoot, { force: true })
   }
 })
 
@@ -2663,7 +2664,7 @@ test('evidence reruns remove only the exact confined acceptance-report child', a
     await assert.rejects(lstat(acceptanceRoot), { code: 'ENOENT' })
     assert.equal(await readFile(path.join(outsideRoot, 'outside.txt'), 'utf8'), 'keep outside')
   } finally {
-    await rm(fixtureRoot, { recursive: true, force: true })
+    await removeFixtureTree(fixtureRoot, { force: true })
   }
 })
 
