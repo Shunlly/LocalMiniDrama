@@ -93,6 +93,7 @@ function seedDb(db) {
     VALUES (?, ?, ?, ?, ?)
   `).run(1, 'First project', JSON.stringify({
     canvas_layout: { nodes: { existing: { x: 10, y: 20 } } },
+    workflow_groups: [{ id: 'existing-group', label: 'Existing workflow group' }],
     unknown_metadata_key: { keep: true },
   }), now, now);
   db.prepare(`
@@ -165,6 +166,7 @@ test('free canvas partial update preserves canvas layout and unknown project met
     });
 
     assert.deepEqual(saved.metadata.canvas_layout, { nodes: { existing: { x: 10, y: 20 } } });
+    assert.deepEqual(saved.metadata.workflow_groups, [{ id: 'existing-group', label: 'Existing workflow group' }]);
     assert.deepEqual(saved.metadata.unknown_metadata_key, { keep: true });
     assert.equal(saved.metadata.free_canvas.nodes[0].assetId, 1000);
     assert.equal(saved.metadata.free_canvas.nodes[0].storyboardId, 100);
@@ -211,6 +213,24 @@ for (const probe of [
       })),
     }),
     message: /node|节点/i,
+  },
+  {
+    name: 'more than 1000 free edges',
+    canvas: validFreeCanvas({
+      edges: Array.from({ length: 1001 }, (_, index) => ({
+        id: `free:edge:${index}`,
+        source: 'free:text:one',
+        target: 'free:text:one',
+      })),
+    }),
+    message: /edge|边/i,
+  },
+  {
+    name: 'text longer than 50000 characters',
+    canvas: validFreeCanvas({
+      nodes: [{ ...validFreeCanvas().nodes[0], content: 'x'.repeat(50001) }],
+    }),
+    message: /content/i,
   },
 ]) {
   test(`free canvas rejects ${probe.name}`, () => {
