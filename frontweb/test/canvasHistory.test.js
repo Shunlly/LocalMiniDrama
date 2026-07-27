@@ -43,3 +43,30 @@ test('canvas history keeps snapshots isolated, clears redo after commit, and res
   assert.equal(history.canUndo(), false)
   assert.equal(history.canRedo(), false)
 })
+
+test('canvas history does not coalesce text commits after its clock moves backward', () => {
+  let timestamp = 100
+  const history = createCanvasHistory({ content: '' }, { coalesceMs: 1000, now: () => timestamp })
+
+  history.commit({ content: 'A' }, 'text:free:text:1')
+  timestamp = 90
+  history.commit({ content: 'AB' }, 'text:free:text:1')
+
+  assert.deepEqual(history.undo(), { content: 'A' })
+  assert.deepEqual(history.undo(), { content: '' })
+})
+
+test('canvas history rejects cyclic and unsupported snapshots with a stable error', () => {
+  const cyclic = { nodes: [] }
+  cyclic.self = cyclic
+  const history = createCanvasHistory({ nodes: [] })
+
+  assert.throws(
+    () => createCanvasHistory(cyclic),
+    /Canvas history snapshots must be JSON-compatible and acyclic\./
+  )
+  assert.throws(
+    () => history.commit({ value: 1n }, 'move'),
+    /Canvas history snapshots must be JSON-compatible and acyclic\./
+  )
+})

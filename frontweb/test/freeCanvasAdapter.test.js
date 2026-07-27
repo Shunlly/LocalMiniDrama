@@ -118,3 +118,30 @@ test('free adapter merges visible graphs by mode without mutating graph fixtures
   free.nodes[0].data.title = 'Changed only in output'
   assert.equal(productionGraph.nodes[0].data.title, 'Production')
 })
+
+test('free adapter drops cross-layer ID collisions and their free edges by canonical ID', () => {
+  const productionGraph = {
+    nodes: [{ id: 7, type: 'canvasStoryboard' }],
+    edges: [],
+  }
+  const freeGraph = {
+    nodes: [
+      { id: '7', type: 'freeCanvas' },
+      { id: 'free:text:kept', type: 'freeCanvas' },
+    ],
+    edges: [
+      { id: 'free-edge:collision-string', source: 'free:text:kept', target: '7' },
+      { id: 'free-edge:collision-number', source: 'free:text:kept', target: 7 },
+      { id: 'free-edge:self', source: 'free:text:kept', target: 'free:text:kept' },
+    ],
+  }
+
+  const graph = mergeCanvasGraphs(productionGraph, freeGraph, 'free')
+
+  assert.deepEqual(graph.nodes.map((node) => node.id), [7, 'free:text:kept'])
+  assert.deepEqual(graph.edges.map((edge) => edge.id), ['free-edge:self'])
+  assert.equal(graph.edges.every((edge) => edge.source !== 7 && edge.target !== 7), true)
+  assert.equal(graph.edges.every((edge) => edge.source !== '7' && edge.target !== '7'), true)
+  assert.deepEqual(freeGraph.nodes.map((node) => node.id), ['7', 'free:text:kept'])
+  assert.equal(freeGraph.edges.length, 3)
+})

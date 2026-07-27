@@ -1,6 +1,37 @@
+const SNAPSHOT_ERROR = 'Canvas history snapshots must be JSON-compatible and acyclic.'
+
+function snapshotError() {
+  return new TypeError(SNAPSHOT_ERROR)
+}
+
+function cloneSnapshotValue(value, ancestors) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
+  if (typeof value === 'number') {
+    if (Number.isFinite(value)) return value
+    throw snapshotError()
+  }
+  if (typeof value !== 'object' || ancestors.has(value)) throw snapshotError()
+
+  const isArray = Array.isArray(value)
+  const prototype = Object.getPrototypeOf(value)
+  if (!isArray && prototype !== Object.prototype && prototype !== null) throw snapshotError()
+  if (Object.getOwnPropertySymbols(value).length) throw snapshotError()
+
+  ancestors.add(value)
+  try {
+    if (isArray) return value.map((entry) => cloneSnapshotValue(entry, ancestors))
+    const copy = {}
+    for (const [key, entry] of Object.entries(value)) {
+      copy[key] = cloneSnapshotValue(entry, ancestors)
+    }
+    return copy
+  } finally {
+    ancestors.delete(value)
+  }
+}
+
 function cloneSnapshot(value) {
-  if (value === undefined) return undefined
-  return JSON.parse(JSON.stringify(value))
+  return cloneSnapshotValue(value, new WeakSet())
 }
 
 function snapshotsEqual(first, second) {
@@ -47,10 +78,13 @@ export function createCanvasHistory(initial, options = {}) {
     if (snapshotsEqual(current, snapshot)) return present()
 
     const timestamp = Number(now())
+    const delta = timestamp - lastCommit?.timestamp
     const coalesced = isTextReason(reason)
       && lastCommit?.reason === reason
       && Number.isFinite(timestamp)
-      && timestamp - lastCommit.timestamp <= coalesceMs
+      && Number.isFinite(delta)
+      && delta >= 0
+      && delta <= coalesceMs
       && past.length > 0
     if (!coalesced) rememberCurrent()
     current = snapshot

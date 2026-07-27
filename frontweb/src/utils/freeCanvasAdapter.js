@@ -128,6 +128,36 @@ function graphParts(graph) {
   }
 }
 
+function graphId(value) {
+  if ((typeof value !== 'string' && typeof value !== 'number') || value === '') return null
+  return String(value)
+}
+
+function appendNodes(source, blockedIds, nodes) {
+  const ids = new Map()
+  for (const node of source) {
+    const id = graphId(node?.id)
+    if (!id || blockedIds.has(id) || ids.has(id)) continue
+    ids.set(id, node.id)
+    nodes.push(clonePlain(node))
+  }
+  return ids
+}
+
+function appendEdges(source, endpointIds, edgeIds, edges) {
+  for (const edge of source) {
+    const id = graphId(edge?.id)
+    const sourceId = graphId(edge?.source)
+    const targetId = graphId(edge?.target)
+    if (!id || edgeIds.has(id) || !endpointIds.has(sourceId) || !endpointIds.has(targetId)) continue
+    edgeIds.add(id)
+    const copied = clonePlain(edge)
+    copied.source = endpointIds.get(sourceId)
+    copied.target = endpointIds.get(targetId)
+    edges.push(copied)
+  }
+}
+
 /**
  * Returns an isolated graph for the active canvas mode without changing either source graph.
  */
@@ -135,23 +165,14 @@ export function mergeCanvasGraphs(productionGraph, freeGraph, mode = 'production
   const production = graphParts(productionGraph)
   const free = graphParts(freeGraph)
   const includesFree = mode === 'free' || mode === 'hybrid'
-  const sourceNodes = includesFree ? [...production.nodes, ...free.nodes] : production.nodes
   const nodes = []
-  const nodeIds = new Set()
-  for (const node of sourceNodes) {
-    if (!node?.id || nodeIds.has(node.id)) continue
-    nodeIds.add(node.id)
-    nodes.push(clonePlain(node))
-  }
-
-  const sourceEdges = includesFree ? [...production.edges, ...free.edges] : production.edges
   const edges = []
+  const productionNodeIds = appendNodes(production.nodes, new Set(), nodes)
+  const freeNodeIds = includesFree
+    ? appendNodes(free.nodes, new Set(productionNodeIds.keys()), nodes)
+    : new Map()
   const edgeIds = new Set()
-  for (const edge of sourceEdges) {
-    if (!edge?.id || edgeIds.has(edge.id)) continue
-    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue
-    edgeIds.add(edge.id)
-    edges.push(clonePlain(edge))
-  }
+  appendEdges(production.edges, productionNodeIds, edgeIds, edges)
+  if (includesFree) appendEdges(free.edges, freeNodeIds, edgeIds, edges)
   return { nodes, edges }
 }
