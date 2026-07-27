@@ -21,7 +21,7 @@
 
     <div class="toolbar-divider" aria-hidden="true" />
 
-    <el-dropdown trigger="click" @command="createNode">
+    <el-dropdown v-if="isFreeMode" trigger="click" @command="createNode">
       <el-tooltip content="新建自由节点" placement="bottom">
         <el-button size="small" circle aria-label="新建自由节点" title="新建自由节点">
           <el-icon><Plus /></el-icon>
@@ -79,6 +79,7 @@ import {
   Setting,
   VideoPlay,
 } from '@element-plus/icons-vue'
+import { computed } from 'vue'
 
 const props = defineProps({
   mode: { type: String, default: 'production' },
@@ -98,8 +99,10 @@ const emit = defineEmits([
 ])
 
 const backgroundModes = ['dots', 'lines', 'none']
+const isFreeMode = computed(() => props.mode === 'free')
 
 function createNode(type) {
+  if (!isFreeMode.value) return
   emit('create-node', type)
 }
 

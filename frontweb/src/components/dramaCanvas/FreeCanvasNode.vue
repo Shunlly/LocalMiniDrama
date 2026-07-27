@@ -4,7 +4,7 @@
     <header class="node-header">
       <span class="node-kind">{{ typeLabel }}</span>
       <span v-if="isLoading" class="node-state" role="status">加载中</span>
-      <span v-else-if="hasError" class="node-state error">加载失败</span>
+      <span v-else-if="hasError" class="node-state error" role="alert" aria-live="assertive">加载失败</span>
     </header>
 
     <h3 class="node-title">{{ displayTitle }}</h3>
@@ -79,10 +79,10 @@ function updateContent(content) {
 <style scoped>
 .free-canvas-node {
   box-sizing: border-box;
-  display: flex;
+  display: grid;
   width: 280px;
-  height: 180px;
-  flex-direction: column;
+  height: 208px;
+  grid-template-rows: 24px 20px minmax(72px, 1fr) 24px;
   gap: 8px;
   overflow: hidden;
   padding: 12px;
@@ -100,7 +100,7 @@ function updateContent(content) {
 .node-header,
 .node-footer {
   display: flex;
-  min-height: 24px;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
@@ -127,7 +127,6 @@ function updateContent(content) {
 
 .node-content {
   display: -webkit-box;
-  flex: 1;
   min-height: 0;
   margin: 0;
   overflow: hidden;
@@ -139,7 +138,6 @@ function updateContent(content) {
 }
 
 .node-editor {
-  flex: 1;
   min-height: 0;
 }
 

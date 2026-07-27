@@ -17,6 +17,8 @@ test('free canvas toolbar names every icon-only action and exposes mode selectio
   }
   assert.match(toolbarSource, /:aria-pressed="mode === 'free'"/)
   assert.match(toolbarSource, /:aria-pressed="mode === 'production'"/)
+  assert.match(toolbarSource, /v-if="isFreeMode"/)
+  assert.match(toolbarSource, /if \(!isFreeMode\.value\) return/)
   for (const event of ['create-node', 'undo', 'redo', 'fit-view', 'set-background', 'toggle-library']) {
     assert.match(toolbarSource, new RegExp(`'${event}'`))
   }
@@ -30,6 +32,10 @@ test('free mode node renders text safely and protects editor gestures from the c
   assert.match(nodeSource, /<Handle[^>]+v-if="isFreeMode"[^>]+type="source"/)
   assert.match(nodeSource, /nodrag nopan/)
   assert.match(nodeSource, /'update-content', 'request-convert', 'request-delete', 'request-retry'/)
+  assert.match(nodeSource, /height: 208px;/)
+  assert.match(nodeSource, /grid-template-rows: 24px 20px minmax\(72px, 1fr\) 24px;/)
+  assert.match(nodeSource, /role="alert"/)
+  assert.match(nodeSource, /aria-live="assertive"/)
 })
 
 test('free canvas inspector exposes an explicit production conversion target', () => {
@@ -46,4 +52,13 @@ test('desktop toolbar and context menu expose free mode entry points without rep
   assert.match(contextMenuSource, /free-node/)
   assert.match(contextMenuSource, /'text'/)
   assert.match(contextMenuSource, /'image'/)
+})
+
+test('context menu moves focus into the menu and restores it on close', () => {
+  assert.match(contextMenuSource, /ref="menuRef"/)
+  assert.match(contextMenuSource, /tabindex="-1"/)
+  assert.match(contextMenuSource, /@keydown\.esc\.prevent="close"/)
+  assert.match(contextMenuSource, /menuRef\.value\?\.focus\(\)/)
+  assert.match(contextMenuSource, /returnFocus\?\.focus\(\)/)
+  assert.match(contextMenuSource, /watch\(\(\) => props\.visible/)
 })

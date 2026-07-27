@@ -2,8 +2,11 @@
   <Teleport to="body">
     <div
       v-if="visible"
+      ref="menuRef"
       class="canvas-context-menu"
       :style="{ left: x + 'px', top: y + 'px' }"
+      tabindex="-1"
+      aria-label="画布操作菜单"
       @mousedown.stop
       @contextmenu.prevent
       @keydown.esc.prevent="close"
@@ -30,6 +33,8 @@
 </template>
 
 <script setup>
+import { nextTick, ref, watch } from 'vue'
+
 const props = defineProps({
   visible: { type: Boolean, default: false },
   x: { type: Number, default: 0 },
@@ -38,6 +43,21 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['select', 'free-node', 'close'])
+const menuRef = ref(null)
+let returnFocus = null
+
+watch(() => props.visible, async (visible, wasVisible) => {
+  if (visible) {
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    await nextTick()
+    menuRef.value?.focus()
+    return
+  }
+  if (wasVisible) {
+    returnFocus?.focus()
+    returnFocus = null
+  }
+})
 
 function pick(type) {
   emit('select', type)
@@ -69,6 +89,10 @@ function close() {
   border: 1px solid var(--border-muted, #3f3f46);
   background: var(--bg-card, #18181b);
   box-shadow: var(--shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
+}
+.canvas-context-menu:focus-visible {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 2px;
 }
 .ctx-title {
   padding: 4px 12px 6px;
