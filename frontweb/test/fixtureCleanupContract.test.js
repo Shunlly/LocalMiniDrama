@@ -5,34 +5,131 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { auditCleanupSources } from '../scripts/fixture-cleanup-policy.js'
+
 const require = createRequire(import.meta.url)
 const fs = require('node:fs')
 const fsPromises = require('node:fs/promises')
 const cleanupHelperPath = fileURLToPath(new URL('../scripts/fixture-cleanup.cjs', import.meta.url))
+const frontwebRoot = fileURLToPath(new URL('..', import.meta.url))
 
-const CLEANUP_CONSUMERS = [
-  ['acceptance report verifier fixtures', './acceptanceReportVerifier.test.js', 'removeFixtureTreeSync', 1],
-  ['production E2E contract fixtures', './e2eProductionContract.test.js', 'removeFixtureTree', 5],
-  ['free canvas E2E contract fixtures', './freeCanvasE2eContract.test.js', 'removeFixtureTree', 14],
-  ['smoke E2E source fixtures', '../scripts/e2e-smoke.cjs', 'removeFixtureTree', 1],
-  ['production E2E evidence fixtures', '../scripts/e2e-production.cjs', 'removeFixtureTree', 1],
-  ['free canvas E2E evidence fixtures', '../scripts/e2e-free-canvas.cjs', 'removeFixtureTree', 1],
-  ['bundle budget build fixtures', '../scripts/check-bundle-budget.cjs', 'removeFixtureTreeSync', 1],
-]
-
-const DIRECT_RECURSIVE_REMOVE = /\b(?:fs\.)?rm(?:Sync)?\s*\([\s\S]{0,300}?\brecursive\s*:\s*true/g
-
-for (const [label, relativePath, helperName, expectedCalls] of CLEANUP_CONSUMERS) {
-  test(`${label} use the shared bounded cleanup policy`, () => {
-    const source = fs.readFileSync(new URL(relativePath, import.meta.url), 'utf8')
-    const directCalls = source.match(DIRECT_RECURSIVE_REMOVE) || []
-    const helperCalls = source.match(new RegExp(`\\b${helperName}\\s*\\(`, 'g')) || []
-
-    assert.equal(directCalls.length, 0, `${relativePath} still calls recursive fs.rm directly`)
-    assert.match(source, /fixture-cleanup\.cjs/, `${relativePath} must import the shared cleanup policy`)
-    assert.equal(helperCalls.length, expectedCalls, `${relativePath} cleanup call count changed`)
+function createPolicyFixture(t) {
+  const root = fs.mkdtempSync(path.join(tmpdir(), 'frontweb-cleanup-policy-'))
+  fs.mkdirSync(path.join(root, 'test'), { recursive: true })
+  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'scripts', 'fixture-cleanup.cjs'), '// Shared policy implementation.\n')
+  t.after(() => {
+    delete require.cache[require.resolve(cleanupHelperPath)]
+    require(cleanupHelperPath).removeFixtureTreeSync(root, { force: true })
   })
+  return root
 }
+
+function writePolicySource(root, relativePath, source) {
+  const target = path.join(root, ...relativePath.split('/'))
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  fs.writeFileSync(target, source)
+}
+
+function formatPolicyViolations(violations) {
+  return violations.map(({ file, line, column, method }) => (
+    `${file}:${line}:${column} calls recursive fs.${method} directly`
+  )).join('\n')
+}
+
+test('automatic discovery rejects a new test file using an imported recursive rm alias', (t) => {
+  const root = createPolicyFixture(t)
+  writePolicySource(root, 'test/newCleanup.test.js', [
+    "import { rm as removeTree } from 'node:fs/promises'",
+    "await removeTree('fixture', { recursive: true, force: true })",
+    '',
+  ].join('\n'))
+
+  const result = auditCleanupSources(root)
+
+  assert.deepEqual(result.files, ['test/newCleanup.test.js'])
+  assert.deepEqual(
+    result.violations.map(({ file, line, method }) => ({ file, line, method })),
+    [{ file: 'test/newCleanup.test.js', line: 2, method: 'rm' }],
+  )
+})
+
+test('automatic discovery permits additional shared cleanup helper calls', (t) => {
+  const root = createPolicyFixture(t)
+  writePolicySource(root, 'test/additionalCleanup.test.js', [
+    "const { removeFixtureTreeSync: cleanup } = require('../scripts/fixture-cleanup.cjs')",
+    "cleanup('first-fixture', { force: true })",
+    "cleanup('second-fixture', { force: true })",
+    '',
+  ].join('\n'))
+
+  const result = auditCleanupSources(root)
+
+  assert.deepEqual(result.files, ['test/additionalCleanup.test.js'])
+  assert.deepEqual(result.violations, [])
+})
+
+test('cleanup policy scans only authored test and script sources in deterministic order', (t) => {
+  const root = createPolicyFixture(t)
+  writePolicySource(root, 'scripts/e2e/nested-runner.mjs', 'export const runner = true\n')
+  writePolicySource(root, 'test/z-last.test.js', 'export const last = true\n')
+  writePolicySource(root, 'test/a-first.test.js', 'export const first = true\n')
+  writePolicySource(root, 'src/ignored.js', "require('node:fs').rmSync('src', { recursive: true })\n")
+  writePolicySource(root, 'browser-fixtures/ignored.cjs', "require('node:fs').rmSync('profile', { recursive: true })\n")
+  writePolicySource(root, 'test/node_modules/vendor.cjs', "require('node:fs').rmSync('vendor', { recursive: true })\n")
+  writePolicySource(root, 'test/coverage/generated.js', "require('node:fs').rmSync('coverage', { recursive: true })\n")
+  writePolicySource(root, 'scripts/dist/generated.js', "require('node:fs').rmSync('dist', { recursive: true })\n")
+
+  const result = auditCleanupSources(root)
+
+  assert.deepEqual(result.files, [
+    'scripts/e2e/nested-runner.mjs',
+    'test/a-first.test.js',
+    'test/z-last.test.js',
+  ])
+  assert.deepEqual(result.violations, [])
+})
+
+test('cleanup policy resolves common fs namespaces, destructuring, aliases, and static options', (t) => {
+  const root = createPolicyFixture(t)
+  writePolicySource(root, 'scripts/alias-cleanup.cjs', [
+    "const disk = require('node:fs')",
+    "const { rmSync: removeNow } = require('fs')",
+    "const promiseDisk = disk.promises",
+    'const removeLater = promiseDisk.rm',
+    'const recursive = true',
+    'const baseOptions = { force: true }',
+    'const cleanupOptions = { ...baseOptions, recursive }',
+    "disk['rmSync']('namespace-fixture', { recursive: true })",
+    "removeNow('destructured-fixture', { recursive: true })",
+    "removeLater('member-alias-fixture', cleanupOptions)",
+    '',
+  ].join('\n'))
+
+  const result = auditCleanupSources(root)
+
+  assert.deepEqual(
+    result.violations.map(({ line, method }) => ({ line, method })),
+    [
+      { line: 8, method: 'rmSync' },
+      { line: 9, method: 'rmSync' },
+      { line: 10, method: 'rm' },
+    ],
+  )
+})
+
+test('authored frontend tests and scripts reject direct recursive removal', () => {
+  const result = auditCleanupSources(frontwebRoot)
+
+  assert.ok(result.files.some((file) => file.startsWith('test/')))
+  assert.ok(result.files.some((file) => file.startsWith('scripts/')))
+  assert.equal(result.files.includes('scripts/fixture-cleanup.cjs'), false)
+  assert.deepEqual(
+    result.violations,
+    [],
+    `Use scripts/fixture-cleanup.cjs for recursive fixture removal:\n${formatPolicyViolations(result.violations)}`,
+  )
+})
 
 test('shared cleanup passes finite native retries and surfaces terminal errors', async (t) => {
   assert.equal(fs.existsSync(cleanupHelperPath), true, 'shared cleanup helper must exist')
