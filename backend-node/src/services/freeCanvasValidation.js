@@ -194,15 +194,6 @@ function normalizeFreeCanvasAssetReferences(input, dramaId) {
   return { assetId, assetRefId, resolvedId: assetId ?? assetRefId };
 }
 
-function isFreeCanvasAssetInScope(db, dramaId, assetId) {
-  try {
-    return Boolean(assertAssetScope(db, dramaId, assetId, 'asset'));
-  } catch (error) {
-    if (error?.code === 'BAD_REQUEST') return false;
-    throw error;
-  }
-}
-
 function normalizeFreeCanvasMediaReference(db, dramaId, value, options = {}) {
   return normalizeMediaReference(db, dramaId, value, 'free_canvas node media', options);
 }
@@ -385,6 +376,5 @@ module.exports = {
   validateFreeCanvas,
   badRequest,
   normalizeFreeCanvasAssetReferences,
-  isFreeCanvasAssetInScope,
   normalizeFreeCanvasMediaReference,
 };

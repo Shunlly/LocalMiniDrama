@@ -5,7 +5,6 @@ const uploadService = require('./uploadService');
 const storageLayout = require('./storageLayout');
 const {
   normalizeFreeCanvasAssetReferences,
-  isFreeCanvasAssetInScope,
   normalizeFreeCanvasMediaReference,
 } = require('./freeCanvasValidation');
 
@@ -262,24 +261,26 @@ function update(db, log, id, req) {
 }
 
 function normalizeLocalPath(localPath) {
-  const raw = String(localPath || '').trim().replace(/\\/g, '/');
-  if (!raw || raw.includes('\0')) return null;
-  const normalized = path.posix.normalize(raw).replace(/^\.\//, '');
-  if (
-    !normalized
-    || normalized === '..'
-    || normalized.startsWith('../')
-    || path.posix.isAbsolute(normalized)
-    || /^[a-zA-Z]:\//.test(normalized)
-  ) {
+  if (typeof localPath !== 'string') return null;
+  const raw = localPath.trim();
+  if (!raw) return null;
+  const relative = raw.startsWith('/static/') ? raw.slice('/static/'.length) : raw;
+  try {
+    return uploadService.normalizeStorageRelativeReference(relative);
+  } catch (_) {
     return null;
   }
-  return normalized;
 }
 
 function localPathReferenceKey(localPath) {
   const normalized = normalizeLocalPath(localPath);
   return process.platform === 'win32' && normalized ? normalized.toLowerCase() : normalized;
+}
+
+function physicalPathKey(filePath) {
+  if (typeof filePath !== 'string' || !filePath) return null;
+  const resolved = path.resolve(filePath);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
 function isWithinRoot(rootPath, candidatePath) {
@@ -294,21 +295,45 @@ function configuredStorageRoot(options = {}) {
   return path.isAbsolute(rawStorage) ? rawStorage : path.join(process.cwd(), rawStorage);
 }
 
-function resolveControlledUploadPath(storageRoot, localPath) {
+function controlledUploadReference(localPath) {
   const normalized = normalizeLocalPath(localPath);
   if (!normalized) return null;
   const segments = normalized.split('/');
   if (segments.length < 2 || segments[segments.length - 2] !== 'uploads') return null;
+  return normalized;
+}
+
+function resolveControlledUploadPath(storageRoot, localPath) {
+  const normalized = controlledUploadReference(localPath);
+  if (!normalized) return null;
+  const segments = normalized.split('/');
 
   const root = path.resolve(storageRoot);
   const candidate = path.resolve(root, ...segments);
   if (!isWithinRoot(root, candidate)) return null;
-  if (fs.existsSync(candidate)) {
+  try {
     const realRoot = fs.realpathSync.native(root);
     const realCandidate = fs.realpathSync.native(candidate);
     if (!isWithinRoot(realRoot, realCandidate)) return null;
+    const candidateStat = fs.statSync(candidate);
+    const realCandidateStat = fs.statSync(realCandidate);
+    if (
+      !candidateStat.isFile()
+      || candidateStat.dev !== realCandidateStat.dev
+      || candidateStat.ino !== realCandidateStat.ino
+    ) {
+      return null;
+    }
+    return {
+      absolutePath: candidate,
+      normalizedPath: normalized,
+      realPath: realCandidate,
+      identity: `${candidateStat.dev}:${candidateStat.ino}`,
+    };
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
   }
-  return { absolutePath: candidate, normalizedPath: normalized };
 }
 
 function storyboardReferencesForAsset(db, asset) {
@@ -340,83 +365,90 @@ function storyboardReferencesForAsset(db, asset) {
   return storyboardIds;
 }
 
-function freeCanvasReferencesForAsset(db, asset, controlledPath) {
+function nodeAssetIdMatches(node, dramaId, assetId) {
+  for (const field of ['assetId', 'asset_ref']) {
+    if (node[field] === undefined) continue;
+    try {
+      const reference = normalizeFreeCanvasAssetReferences({ [field]: node[field] }, dramaId);
+      if (reference.resolvedId === assetId) return true;
+    } catch (error) {
+      if (error?.code !== 'BAD_REQUEST') throw error;
+    }
+  }
+  return false;
+}
+
+function freeCanvasReferencesForAsset(db, asset) {
   const assetId = Number(asset?.id);
-  const controlledPathKey = localPathReferenceKey(controlledPath);
-  const allowLegacyGlobalUploads = asset?.drama_id == null || Number(asset.drama_id) === 0;
+  const assetPath = normalizeLocalPath(asset?.local_path);
+  const assetPathKey = localPathReferenceKey(assetPath);
+  const isLegacyGlobalUpload = Number(asset?.drama_id) === 0
+    && (assetPath === 'uploads' || assetPath?.startsWith('uploads/'));
+  const isGlobalAsset = asset?.drama_id == null || isLegacyGlobalUpload;
+  const ownerDramaId = Number(asset?.drama_id);
   const rows = db.prepare(
     `SELECT id, metadata
        FROM dramas
       WHERE deleted_at IS NULL
-        AND metadata IS NOT NULL`
+        AND metadata IS NOT NULL
+      ORDER BY id`
   ).all();
   const dramaIds = [];
 
   for (const row of rows) {
+    const dramaId = Number(row.id);
+    if (!isGlobalAsset && dramaId !== ownerDramaId) continue;
+
     let metadata;
     try {
       metadata = JSON.parse(row.metadata);
     } catch (_) {
-      dramaIds.push(Number(row.id));
       continue;
     }
-    if (!isPlainObject(metadata)) {
-      dramaIds.push(Number(row.id));
-      continue;
-    }
+    if (!isPlainObject(metadata)) continue;
     if (!Object.prototype.hasOwnProperty.call(metadata, 'free_canvas')) continue;
     const canvas = metadata.free_canvas;
-    if (!isPlainObject(canvas) || canvas.version !== 1 || !Array.isArray(canvas.nodes)) {
-      dramaIds.push(Number(row.id));
-      continue;
-    }
+    if (!isPlainObject(canvas) || !Array.isArray(canvas.nodes)) continue;
 
     let matched = false;
-    let malformed = false;
     for (const node of canvas.nodes) {
-      if (!isPlainObject(node)) {
-        malformed = true;
-        continue;
-      }
-
-      let assetReference;
-      try {
-        assetReference = normalizeFreeCanvasAssetReferences(node, Number(row.id));
-      } catch (error) {
-        if (error?.code !== 'BAD_REQUEST') throw error;
-        malformed = true;
-        continue;
-      }
-      if (
-        assetReference.resolvedId === assetId
-        && isFreeCanvasAssetInScope(db, Number(row.id), assetId)
-      ) {
+      if (!isPlainObject(node)) continue;
+      if (nodeAssetIdMatches(node, dramaId, assetId)) {
         matched = true;
         break;
       }
 
-      if (!controlledPathKey || !['image', 'video'].includes(node.type)) continue;
-      for (const field of ['content', 'storageKey']) {
+      if (!assetPathKey) continue;
+      const mediaFields = ['storageKey'];
+      if (['image', 'video'].includes(node.type)) mediaFields.unshift('content');
+      for (const field of mediaFields) {
         if (node[field] === undefined) continue;
         let candidate;
         try {
-          candidate = normalizeFreeCanvasMediaReference(db, Number(row.id), node[field], {
-            allowLegacyGlobalUploads,
+          candidate = normalizeFreeCanvasMediaReference(db, dramaId, node[field], {
+            allowLegacyGlobalUploads: isGlobalAsset,
           });
         } catch (error) {
           if (error?.code !== 'BAD_REQUEST') throw error;
           continue;
         }
-        if (localPathReferenceKey(candidate) === controlledPathKey) {
+        if (localPathReferenceKey(candidate) === assetPathKey) {
           matched = true;
           break;
         }
       }
       if (matched) break;
     }
-    if (matched || malformed) dramaIds.push(Number(row.id));
+    if (matched) dramaIds.push(dramaId);
   }
   return dramaIds;
+}
+
+function sameControlledFile(left, right) {
+  if (!left || !right) return false;
+  return localPathReferenceKey(left.normalizedPath) === localPathReferenceKey(right.normalizedPath)
+    && physicalPathKey(left.realPath) === physicalPathKey(right.realPath)
+    && left.identity === right.identity;
 }
 
 function assetInUseError(storyboardIds, freeCanvasDramaIds = []) {
@@ -439,7 +471,8 @@ function assetInUseError(storyboardIds, freeCanvasDramaIds = []) {
 function deleteById(db, log, id, options = {}) {
   const assetId = Number(id);
   let removedPath = null;
-  let removablePath = null;
+  let removableReference = null;
+  const storageRoot = configuredStorageRoot(options);
   const performDelete = db.transaction(() => {
     const row = db.prepare(
       'SELECT id, drama_id, local_path FROM assets WHERE id = ? AND deleted_at IS NULL'
@@ -447,9 +480,7 @@ function deleteById(db, log, id, options = {}) {
     if (!row) return false;
 
     const storyboardIds = storyboardReferencesForAsset(db, row);
-    const storageRoot = configuredStorageRoot(options);
-    const controlled = resolveControlledUploadPath(storageRoot, row.local_path);
-    const freeCanvasDramaIds = freeCanvasReferencesForAsset(db, row, controlled?.normalizedPath);
+    const freeCanvasDramaIds = freeCanvasReferencesForAsset(db, row);
     if (storyboardIds.length || freeCanvasDramaIds.length) {
       throw assetInUseError(storyboardIds, freeCanvasDramaIds);
     }
@@ -459,30 +490,36 @@ function deleteById(db, log, id, options = {}) {
     ).run(new Date().toISOString(), assetId);
     if (result.changes === 0) return false;
 
-    if (!controlled) return true;
+    const cleanupReference = controlledUploadReference(row.local_path);
+    if (!cleanupReference) return true;
 
     const sharedRows = db.prepare(
       'SELECT local_path FROM assets WHERE id <> ? AND deleted_at IS NULL AND local_path IS NOT NULL'
     ).all(assetId);
     const hasSharedReference = sharedRows.some(
-      (candidate) => localPathReferenceKey(candidate.local_path) === localPathReferenceKey(controlled.normalizedPath)
+      (candidate) => localPathReferenceKey(candidate.local_path) === localPathReferenceKey(cleanupReference)
     );
     if (hasSharedReference) return true;
 
-    removablePath = controlled.absolutePath;
+    removableReference = cleanupReference;
     return true;
   });
 
   const deleted = performDelete();
-  if (deleted && removablePath) {
+  if (deleted && removableReference) {
     try {
-      fs.unlinkSync(removablePath);
-      removedPath = removablePath;
+      const eligible = resolveControlledUploadPath(storageRoot, removableReference);
+      const revalidated = eligible
+        ? resolveControlledUploadPath(storageRoot, removableReference)
+        : null;
+      if (sameControlledFile(eligible, revalidated)) {
+        fs.unlinkSync(revalidated.absolutePath);
+        removedPath = revalidated.absolutePath;
+      }
     } catch (err) {
       if (err.code !== 'ENOENT') {
         log?.warn?.('Asset file cleanup failed after database commit', {
           asset_id: assetId,
-          path: removablePath,
           error: err.message,
         });
       }
