@@ -70,3 +70,16 @@ test('canvas history rejects cyclic and unsupported snapshots with a stable erro
     /Canvas history snapshots must be JSON-compatible and acyclic\./
   )
 })
+
+test('canvas history preserves nested own __proto__ keys as snapshot data', () => {
+  const initial = JSON.parse('{"node":{"__proto__":{"approved":true}}}')
+  const history = createCanvasHistory(initial)
+  const snapshot = history.present()
+
+  assert.equal(Object.getPrototypeOf(snapshot.node), Object.prototype)
+  assert.equal(Object.hasOwn(snapshot.node, '__proto__'), true)
+  assert.deepEqual(snapshot.node.__proto__, { approved: true })
+
+  snapshot.node.__proto__.approved = false
+  assert.deepEqual(history.present().node.__proto__, { approved: true })
+})

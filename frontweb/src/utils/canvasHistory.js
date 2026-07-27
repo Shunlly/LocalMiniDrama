@@ -22,7 +22,12 @@ function cloneSnapshotValue(value, ancestors) {
     if (isArray) return value.map((entry) => cloneSnapshotValue(entry, ancestors))
     const copy = {}
     for (const [key, entry] of Object.entries(value)) {
-      copy[key] = cloneSnapshotValue(entry, ancestors)
+      Object.defineProperty(copy, key, {
+        value: cloneSnapshotValue(entry, ancestors),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      })
     }
     return copy
   } finally {
