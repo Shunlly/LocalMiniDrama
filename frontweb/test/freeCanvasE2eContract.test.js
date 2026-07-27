@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
-import { mkdtemp, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,7 +20,6 @@ const EXPECTED_EVIDENCE_ROOT = path.join(
   PROJECT_ROOT,
   'artifacts',
   'e2e-production',
-  'acceptance-report',
   'free-canvas',
 )
 const CAPTURES = [
@@ -37,6 +36,8 @@ const REQUIRED_STEP_NAMES = [
   'opened_existing_project_canvas',
   'switched_to_free_mode',
   'created_and_edited_text_node',
+  'created_image_and_video_nodes',
+  'keyboard_activated_free_node',
   'created_config_node_and_connection',
   'marquee_selected_exact_nodes',
   'copied_and_pasted_subgraph',
@@ -100,6 +101,57 @@ function sha256(buffer) {
   return createHash('sha256').update(buffer).digest('hex')
 }
 
+function createValidFlowEvidence() {
+  return {
+    completed: true,
+    primary_drama_id: 41,
+    isolation_drama_id: 42,
+    node_ids: [
+      'free:text:1',
+      'free:config:2',
+      'free:text:3',
+      'free:config:4',
+      'free:image:5',
+      'free:video:6',
+      'free:reference:7',
+    ],
+    edge_ids: ['free:edge:1', 'free:edge:2'],
+    text_node_id: 'free:text:1',
+    config_node_id: 'free:config:2',
+    image_node_id: 'free:image:5',
+    video_node_id: 'free:video:6',
+    reference_node_id: 'free:reference:7',
+    keyboard_activated_node_id: 'free:image:5',
+    keyboard_activation_key: 'Enter',
+    marquee_selected_node_ids: ['free:text:1', 'free:config:2'],
+    clone_node_ids: ['free:text:3', 'free:config:4'],
+    edge_endpoints: [
+      { id: 'free:edge:1', source: 'free:text:1', target: 'free:config:2' },
+      { id: 'free:edge:2', source: 'free:text:3', target: 'free:config:4' },
+    ],
+    text_sha256: 'd'.repeat(64),
+    mode: 'free',
+    background: 'lines',
+    viewport: { x: 24, y: 32, zoom: 1.1 },
+    config_status: 'idle',
+    config_runtime_status: 'blocked',
+    storyboard_target_id: 9,
+    storyboard_description_sha256: 'e'.repeat(64),
+    marquee_selection_verified: true,
+    copy_paste_verified: true,
+    delete_undo_redo_verified: true,
+    save_recovery_verified: true,
+    upload_failure_verified: true,
+    image_interaction_verified: true,
+    video_interaction_verified: true,
+    keyboard_focus_verified: true,
+    keyboard_selection_verified: true,
+    conversion_verified: true,
+    storyboard_conversion_verified: true,
+    isolation_verified: true,
+  }
+}
+
 async function writeValidEvidence(root) {
   const screenshotRoot = path.join(root, 'screenshots')
   await mkdir(screenshotRoot, { recursive: true })
@@ -119,7 +171,7 @@ async function writeValidEvidence(root) {
       step: 'acceptance_capture',
       inspector_open: inspectorOpen,
       geometry: {
-        node_count: 5,
+        node_count: 7,
         toolbar_visible: true,
         minimap_visible: true,
         sidebar_visible: true,
@@ -144,38 +196,7 @@ async function writeValidEvidence(root) {
       status: 'passed',
       at: '2026-07-27T00:00:00.000Z',
     })),
-    flow: {
-      completed: true,
-      primary_drama_id: 41,
-      isolation_drama_id: 42,
-      node_ids: ['free:text:1', 'free:config:2', 'free:text:3', 'free:config:4', 'free:reference:5'],
-      edge_ids: ['free:edge:1', 'free:edge:2'],
-      text_node_id: 'free:text:1',
-      config_node_id: 'free:config:2',
-      reference_node_id: 'free:reference:5',
-      marquee_selected_node_ids: ['free:text:1', 'free:config:2'],
-      clone_node_ids: ['free:text:3', 'free:config:4'],
-      edge_endpoints: [
-        { id: 'free:edge:1', source: 'free:text:1', target: 'free:config:2' },
-        { id: 'free:edge:2', source: 'free:text:3', target: 'free:config:4' },
-      ],
-      text_sha256: 'd'.repeat(64),
-      mode: 'free',
-      background: 'lines',
-      viewport: { x: 24, y: 32, zoom: 1.1 },
-      config_status: 'idle',
-      config_runtime_status: 'blocked',
-      storyboard_target_id: 9,
-      storyboard_description_sha256: 'e'.repeat(64),
-      marquee_selection_verified: true,
-      copy_paste_verified: true,
-      delete_undo_redo_verified: true,
-      save_recovery_verified: true,
-      upload_failure_verified: true,
-      conversion_verified: true,
-      storyboard_conversion_verified: true,
-      isolation_verified: true,
-    },
+    flow: createValidFlowEvidence(),
     cleanup: {
       status: 'passed',
       fixtures: [
@@ -349,6 +370,33 @@ test('browser flow evidence rejects duplicate IDs and missing fixture identity',
   )
 })
 
+test('browser flow evidence requires unique image and video node identities', () => {
+  const valid = createValidFlowEvidence()
+  assert.equal(e2e.assertBrowserFlowResult(valid), valid)
+  assert.throws(
+    () => e2e.assertBrowserFlowResult({ ...valid, image_node_id: undefined }),
+    /image|role node/i,
+  )
+  assert.throws(
+    () => e2e.assertBrowserFlowResult({ ...valid, video_node_id: valid.image_node_id }),
+    /video|unique|role node/i,
+  )
+})
+
+test('browser flow evidence requires keyboard activation focus and exact selection semantics', () => {
+  const valid = createValidFlowEvidence()
+  for (const field of ['keyboard_focus_verified', 'keyboard_selection_verified']) {
+    assert.throws(
+      () => e2e.assertBrowserFlowResult({ ...valid, [field]: false }),
+      /keyboard|incomplete/i,
+    )
+  }
+  assert.throws(
+    () => e2e.assertBrowserFlowResult({ ...valid, keyboard_activated_node_id: 'free:missing' }),
+    /keyboard|node/i,
+  )
+})
+
 test('browser implementation uses exact free-node IDs and never soft-deletes fixtures', () => {
   assert.doesNotMatch(e2eSource, /\.first\s*\(/)
   assert.doesNotMatch(e2eSource, /method:\s*['"]DELETE['"]/)
@@ -441,6 +489,50 @@ test('free canvas verifier accepts six real original PNG files with matching has
     assert.deepEqual(result, { status: 'passed', screenshots: 6, gitRevision: 'a'.repeat(40) })
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('free canvas verifier requires image, video, and keyboard browser evidence', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'free-canvas-evidence-interactions-'))
+  try {
+    const manifest = await writeValidEvidence(root)
+    delete manifest.flow.image_node_id
+    manifest.flow.keyboard_focus_verified = false
+    await writeFile(path.join(root, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+    await assert.rejects(verifyEvidence(root), /image|keyboard|browser flow/i)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('free canvas verifier rejects an evidence root symbolic link', async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), 'free-canvas-evidence-root-link-'))
+  const realRoot = path.join(parent, 'real')
+  const linkedRoot = path.join(parent, 'linked')
+  try {
+    await writeValidEvidence(realRoot)
+    await symlink(realRoot, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir')
+    await assert.rejects(verifyEvidence(linkedRoot), /symbolic link|symlink|outside|escape/i)
+  } finally {
+    await unlink(linkedRoot).catch(() => {})
+    await rm(parent, { recursive: true, force: true })
+  }
+})
+
+test('free canvas verifier rejects a screenshots directory symbolic link that escapes its root', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'free-canvas-evidence-screenshot-link-'))
+  const outside = await mkdtemp(path.join(tmpdir(), 'free-canvas-evidence-screenshot-outside-'))
+  const screenshotRoot = path.join(root, 'screenshots')
+  const outsideScreenshots = path.join(outside, 'screenshots')
+  try {
+    await writeValidEvidence(root)
+    await rename(screenshotRoot, outsideScreenshots)
+    await symlink(outsideScreenshots, screenshotRoot, process.platform === 'win32' ? 'junction' : 'dir')
+    await assert.rejects(verifyEvidence(root), /symbolic link|symlink|outside|escape/i)
+  } finally {
+    await unlink(screenshotRoot).catch(() => {})
+    await rm(root, { recursive: true, force: true })
+    await rm(outside, { recursive: true, force: true })
   }
 })
 
@@ -539,7 +631,7 @@ test('six captures require inspector-open geometry at every required viewport', 
   }
 })
 
-test('evidence reset rejects an external acceptance-report directory without deleting it', async () => {
+test('evidence reset rejects an external production evidence directory without deleting it', async () => {
   assert.equal(typeof e2e.resetEvidenceRoot, 'function')
   const root = await mkdtemp(path.join(tmpdir(), 'free-canvas-reset-'))
   const outside = path.join(root, 'acceptance-report')
@@ -556,9 +648,19 @@ test('evidence reset rejects an external acceptance-report directory without del
   }
 })
 
-test('free canvas evidence is retained under the production acceptance artifact tree', () => {
+test('free canvas evidence is retained beside rather than inside the strict acceptance-report tree', () => {
   assert.equal(e2e.ACCEPTANCE_ROOT, EXPECTED_EVIDENCE_ROOT)
   assert.equal(verifier.DEFAULT_EVIDENCE_ROOT, EXPECTED_EVIDENCE_ROOT)
+  assert.equal(
+    path.relative(path.join(PROJECT_ROOT, 'artifacts', 'e2e-production', 'acceptance-report'), EXPECTED_EVIDENCE_ROOT)
+      .startsWith('..'),
+    true,
+  )
+})
+
+test('browser and verifier require the same complete interaction step set', () => {
+  assert.deepEqual([...e2e.REQUIRED_STEP_NAMES], REQUIRED_STEP_NAMES)
+  assert.deepEqual([...verifier.REQUIRED_STEPS], REQUIRED_STEP_NAMES)
 })
 
 test('production E2E gate serially runs free canvas E2E and its verifier after production evidence', () => {

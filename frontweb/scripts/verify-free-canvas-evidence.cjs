@@ -10,7 +10,6 @@ const DEFAULT_EVIDENCE_ROOT = path.join(
   PROJECT_ROOT,
   'artifacts',
   'e2e-production',
-  'acceptance-report',
   'free-canvas',
 )
 const EVIDENCE_SCHEMA = 'localminidrama.free-canvas-e2e-evidence.v1'
@@ -29,6 +28,8 @@ const REQUIRED_STEPS = Object.freeze([
   'opened_existing_project_canvas',
   'switched_to_free_mode',
   'created_and_edited_text_node',
+  'created_image_and_video_nodes',
+  'keyboard_activated_free_node',
   'created_config_node_and_connection',
   'marquee_selected_exact_nodes',
   'copied_and_pasted_subgraph',
@@ -114,7 +115,7 @@ function assertFlowComplete(flow) {
     || flow.isolation_drama_id <= 0
     || flow.primary_drama_id === flow.isolation_drama_id
     || !Array.isArray(flow.node_ids)
-    || flow.node_ids.length < 5
+    || flow.node_ids.length < 7
     || new Set(flow.node_ids).size !== flow.node_ids.length
     || !Array.isArray(flow.edge_ids)
     || flow.edge_ids.length < 2
@@ -124,8 +125,18 @@ function assertFlowComplete(flow) {
   }
   const nodeIds = new Set(flow.node_ids)
   const edgeIds = new Set(flow.edge_ids)
+  const roleNodeIds = [
+    flow.text_node_id,
+    flow.config_node_id,
+    flow.image_node_id,
+    flow.video_node_id,
+    flow.reference_node_id,
+  ]
   if (
-    ![flow.text_node_id, flow.config_node_id, flow.reference_node_id].every((id) => nodeIds.has(id))
+    !roleNodeIds.every((id) => nodeIds.has(id))
+    || new Set(roleNodeIds).size !== roleNodeIds.length
+    || !nodeIds.has(flow.keyboard_activated_node_id)
+    || !['Enter', 'Space'].includes(flow.keyboard_activation_key)
     || !Array.isArray(flow.marquee_selected_node_ids)
     || flow.marquee_selected_node_ids.length !== 2
     || new Set(flow.marquee_selected_node_ids).size !== 2
@@ -165,6 +176,10 @@ function assertFlowComplete(flow) {
     'delete_undo_redo_verified',
     'save_recovery_verified',
     'upload_failure_verified',
+    'image_interaction_verified',
+    'video_interaction_verified',
+    'keyboard_focus_verified',
+    'keyboard_selection_verified',
     'conversion_verified',
     'storyboard_conversion_verified',
     'isolation_verified',
@@ -176,6 +191,10 @@ function assertFlowComplete(flow) {
 async function readJson(file) {
   let text
   try {
+    const stat = await fs.lstat(file)
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new Error(`Evidence manifest must be a regular file: ${file}`)
+    }
     text = await fs.readFile(file, 'utf8')
   } catch (error) {
     if (error?.code === 'ENOENT') throw new Error(`Missing evidence manifest: ${file}`)
@@ -188,10 +207,49 @@ async function readJson(file) {
   }
 }
 
-async function readScreenshot(root, relativePath) {
-  const expectedRoot = path.resolve(root)
-  const target = path.resolve(expectedRoot, ...relativePath.split('/'))
-  if (path.dirname(target) !== path.join(expectedRoot, 'screenshots')) {
+function normalizedPath(value) {
+  const resolved = path.resolve(value)
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+function samePath(left, right) {
+  return normalizedPath(left) === normalizedPath(right)
+}
+
+async function inspectEvidenceLayout(evidenceRoot) {
+  const root = path.resolve(evidenceRoot)
+  let rootStat
+  try {
+    rootStat = await fs.lstat(root)
+  } catch (error) {
+    if (error?.code === 'ENOENT') throw new Error(`Missing evidence root: ${root}`)
+    throw error
+  }
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error(`Evidence root must be a regular directory, not a symbolic link: ${root}`)
+  }
+  const rootReal = await fs.realpath(root)
+  const screenshotRoot = path.join(root, 'screenshots')
+  let screenshotRootStat
+  try {
+    screenshotRootStat = await fs.lstat(screenshotRoot)
+  } catch (error) {
+    if (error?.code === 'ENOENT') throw new Error(`Missing screenshots directory: ${screenshotRoot}`)
+    throw error
+  }
+  if (!screenshotRootStat.isDirectory() || screenshotRootStat.isSymbolicLink()) {
+    throw new Error(`Screenshots directory must be a regular directory, not a symbolic link: ${screenshotRoot}`)
+  }
+  const screenshotRootReal = await fs.realpath(screenshotRoot)
+  if (!samePath(path.dirname(screenshotRootReal), rootReal) || path.basename(screenshotRootReal) !== 'screenshots') {
+    throw new Error('Screenshots directory resolves outside the evidence root')
+  }
+  return { root, rootReal, screenshotRoot, screenshotRootReal }
+}
+
+async function readScreenshot(layout, relativePath) {
+  const target = path.resolve(layout.root, ...relativePath.split('/'))
+  if (!samePath(path.dirname(target), layout.screenshotRoot)) {
     throw new Error(`Screenshot path escapes the canonical screenshots directory: ${relativePath}`)
   }
   let stat
@@ -202,14 +260,18 @@ async function readScreenshot(root, relativePath) {
     throw error
   }
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Screenshot must be a regular file: ${relativePath}`)
+  const targetReal = await fs.realpath(target)
+  if (!samePath(path.dirname(targetReal), layout.screenshotRootReal)) {
+    throw new Error(`Screenshot path resolves outside the evidence root: ${relativePath}`)
+  }
   return { target, stat, buffer: await fs.readFile(target) }
 }
 
 async function verifyFreeCanvasEvidence(evidenceRoot = DEFAULT_EVIDENCE_ROOT, {
   sourceBindingProvider = getCleanSourceBinding,
 } = {}) {
-  const root = path.resolve(evidenceRoot)
-  const manifest = await readJson(path.join(root, 'manifest.json'))
+  const layout = await inspectEvidenceLayout(evidenceRoot)
+  const manifest = await readJson(path.join(layout.root, 'manifest.json'))
   assertEvidenceSafe(manifest)
   if (manifest.schema !== EVIDENCE_SCHEMA) throw new Error('Free canvas evidence schema is invalid')
   if (manifest.status !== 'passed') throw new Error(`Free canvas E2E status is not passed: ${manifest.status || 'missing'}`)
@@ -300,7 +362,7 @@ async function verifyFreeCanvasEvidence(evidenceRoot = DEFAULT_EVIDENCE_ROOT, {
     ) {
       throw new Error(`Screenshot inspector geometry is invalid: ${capture.id}`)
     }
-    const file = await readScreenshot(root, entry.path)
+    const file = await readScreenshot(layout, entry.path)
     if (file.buffer.length !== entry.bytes || file.stat.size !== entry.bytes) {
       throw new Error(`Screenshot byte count mismatch: ${capture.id}`)
     }

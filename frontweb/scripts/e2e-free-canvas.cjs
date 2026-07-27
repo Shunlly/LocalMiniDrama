@@ -10,8 +10,8 @@ const { inspectPng } = require('./acceptance-report-contract.cjs')
 const { REQUIRED_CAPTURES } = require('./verify-free-canvas-evidence.cjs')
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..')
-const PRODUCTION_ACCEPTANCE_ROOT = path.join(PROJECT_ROOT, 'artifacts', 'e2e-production', 'acceptance-report')
-const ACCEPTANCE_ROOT = path.join(PRODUCTION_ACCEPTANCE_ROOT, 'free-canvas')
+const PRODUCTION_EVIDENCE_ROOT = path.join(PROJECT_ROOT, 'artifacts', 'e2e-production')
+const ACCEPTANCE_ROOT = path.join(PRODUCTION_EVIDENCE_ROOT, 'free-canvas')
 const E2E_TITLE_PREFIX = smokeHelpers.E2E_TITLE_PREFIX
 const E2E_SUITE = 'free-canvas'
 const DEFAULT_TIMEOUT_MS = Number(process.env.E2E_FREE_CANVAS_TIMEOUT_MS) || 30000
@@ -22,6 +22,8 @@ const REQUIRED_STEP_NAMES = Object.freeze([
   'opened_existing_project_canvas',
   'switched_to_free_mode',
   'created_and_edited_text_node',
+  'created_image_and_video_nodes',
+  'keyboard_activated_free_node',
   'created_config_node_and_connection',
   'marquee_selected_exact_nodes',
   'copied_and_pasted_subgraph',
@@ -307,7 +309,11 @@ function normalizeFlowEvidence(flow) {
     edge_ids: (Array.isArray(flow.edge_ids) ? flow.edge_ids : []).map((id) => sanitizeEvidenceText(id, 160)),
     text_node_id: sanitizeEvidenceText(flow.text_node_id, 160),
     config_node_id: sanitizeEvidenceText(flow.config_node_id, 160),
+    image_node_id: sanitizeEvidenceText(flow.image_node_id, 160),
+    video_node_id: sanitizeEvidenceText(flow.video_node_id, 160),
     reference_node_id: sanitizeEvidenceText(flow.reference_node_id, 160),
+    keyboard_activated_node_id: sanitizeEvidenceText(flow.keyboard_activated_node_id, 160),
+    keyboard_activation_key: sanitizeEvidenceText(flow.keyboard_activation_key, 20),
     marquee_selected_node_ids: (Array.isArray(flow.marquee_selected_node_ids) ? flow.marquee_selected_node_ids : [])
       .map((id) => sanitizeEvidenceText(id, 160)),
     clone_node_ids: (Array.isArray(flow.clone_node_ids) ? flow.clone_node_ids : [])
@@ -334,6 +340,10 @@ function normalizeFlowEvidence(flow) {
     delete_undo_redo_verified: flow.delete_undo_redo_verified === true,
     save_recovery_verified: flow.save_recovery_verified === true,
     upload_failure_verified: flow.upload_failure_verified === true,
+    image_interaction_verified: flow.image_interaction_verified === true,
+    video_interaction_verified: flow.video_interaction_verified === true,
+    keyboard_focus_verified: flow.keyboard_focus_verified === true,
+    keyboard_selection_verified: flow.keyboard_selection_verified === true,
     conversion_verified: flow.conversion_verified === true,
     storyboard_conversion_verified: flow.storyboard_conversion_verified === true,
     isolation_verified: flow.isolation_verified === true,
@@ -414,15 +424,29 @@ function assertBrowserFlowResult(result) {
   assert.ok(Number.isSafeInteger(result.primary_drama_id) && result.primary_drama_id > 0, 'primary fixture identity is incomplete')
   assert.ok(Number.isSafeInteger(result.isolation_drama_id) && result.isolation_drama_id > 0, 'isolation fixture identity is incomplete')
   assert.notEqual(result.primary_drama_id, result.isolation_drama_id, 'browser flow fixtures must be distinct')
-  assertUniqueStringIds(result.node_ids, 'browser flow node IDs', 5)
+  assertUniqueStringIds(result.node_ids, 'browser flow node IDs', 7)
   assertUniqueStringIds(result.edge_ids, 'browser flow edge IDs', 2)
   assertUniqueStringIds(result.clone_node_ids, 'browser flow clone node IDs', 2)
   assertUniqueStringIds(result.marquee_selected_node_ids, 'browser flow marquee-selected node IDs', 2)
   const nodeIds = new Set(result.node_ids)
   const edgeIds = new Set(result.edge_ids)
-  for (const id of [result.text_node_id, result.config_node_id, result.reference_node_id, ...result.clone_node_ids]) {
+  const roleNodeIds = [
+    result.text_node_id,
+    result.config_node_id,
+    result.image_node_id,
+    result.video_node_id,
+    result.reference_node_id,
+  ]
+  for (const id of [...roleNodeIds, ...result.clone_node_ids]) {
     assert.equal(nodeIds.has(id), true, 'browser flow role node is missing from the exact node set')
   }
+  assert.equal(new Set(roleNodeIds).size, roleNodeIds.length, 'browser flow role node IDs must be unique')
+  assert.equal(nodeIds.has(result.keyboard_activated_node_id), true, 'browser flow keyboard node is missing from the exact node set')
+  assert.equal(
+    ['Enter', 'Space'].includes(result.keyboard_activation_key),
+    true,
+    'browser flow keyboard activation key is incomplete',
+  )
   assertExactIdSet(
     result.marquee_selected_node_ids,
     [result.text_node_id, result.config_node_id],
@@ -448,6 +472,10 @@ function assertBrowserFlowResult(result) {
     'delete_undo_redo_verified',
     'save_recovery_verified',
     'upload_failure_verified',
+    'image_interaction_verified',
+    'video_interaction_verified',
+    'keyboard_focus_verified',
+    'keyboard_selection_verified',
     'conversion_verified',
     'storyboard_conversion_verified',
     'isolation_verified',
@@ -1061,6 +1089,10 @@ function assertPersistedCanvasState(state, expected) {
   assert.equal(text?.content, expected.textContent, 'persisted browser-edited text is incorrect')
   const config = state.nodes.find((node) => String(node.id) === String(expected.configNodeId))
   assert.equal(config?.status, 'idle', 'persisted config node status is incorrect')
+  for (const [nodeId, type] of [[expected.imageNodeId, 'image'], [expected.videoNodeId, 'video']]) {
+    const mediaNode = state.nodes.find((node) => String(node.id) === String(nodeId))
+    assert.equal(mediaNode?.type, type, `persisted ${type} node type is incorrect`)
+  }
   for (const expectedEdge of expected.edges) {
     const edge = state.edges.find((item) => String(item.id) === String(expectedEdge.id))
     assert.deepEqual(
@@ -1283,6 +1315,64 @@ async function exerciseFreeCanvas({
     assertExactIdSet(restored.edges.map((edge) => edge.id), fullEdgeIds, 'restored state edges')
     recordStep('verified_delete_undo_redo')
 
+    const imageCreated = await createNodeAndResolve({
+      page,
+      apiRequest,
+      dramaId: primaryId,
+      type: 'image',
+      action: () => createFreeNodeFromMenu(page, '图片'),
+    })
+    const imageNodeId = String(imageCreated.node.id)
+    const imageNode = await exactFreeNode(page, imageNodeId)
+    assert.equal(
+      String(await imageNode.getAttribute('aria-label')).startsWith('图片：'),
+      true,
+      'created image node does not expose its accessible type and name',
+    )
+
+    const videoCreated = await createNodeAndResolve({
+      page,
+      apiRequest,
+      dramaId: primaryId,
+      type: 'video',
+      action: () => createFreeNodeFromMenu(page, '视频'),
+    })
+    const videoNodeId = String(videoCreated.node.id)
+    const videoNode = await exactFreeNode(page, videoNodeId)
+    assert.equal(
+      String(await videoNode.getAttribute('aria-label')).startsWith('视频：'),
+      true,
+      'created video node does not expose its accessible type and name',
+    )
+    await videoNode.click()
+    await assertExactSelectedFreeNodeIds(page, [videoNodeId])
+    await assertUniqueLocator(
+      page.getByRole('complementary', { name: '自由节点检查器', exact: true }),
+      'selected video node inspector',
+    )
+    await closeInspector(page)
+    recordStep('created_image_and_video_nodes')
+
+    await imageNode.focus()
+    assert.equal(
+      await imageNode.evaluate((element) => document.activeElement === element),
+      true,
+      'image node did not receive browser focus before keyboard activation',
+    )
+    await page.keyboard.press('Enter')
+    await assertExactSelectedFreeNodeIds(page, [imageNodeId])
+    assert.equal(
+      await imageNode.evaluate((element) => document.activeElement === element),
+      true,
+      'keyboard activation did not retain focus on the exact free node',
+    )
+    await assertUniqueLocator(
+      page.getByRole('complementary', { name: '自由节点检查器', exact: true }),
+      'keyboard-activated image node inspector',
+    )
+    recordStep('keyboard_activated_free_node')
+    await closeInspector(page)
+
     await waitForUiSaveSettled(page)
     const savePattern = `**/api/v1/dramas/${primaryId}/canvas-layout`
     let saveFailureCount = 0
@@ -1470,7 +1560,7 @@ async function exerciseFreeCanvas({
     const finalBeforeIsolation = await waitForPersistedFreeCanvas(
       apiRequest,
       primaryId,
-      (state) => state.nodes.length === 5 && state.edges.length === 2 && state.background === 'lines',
+      (state) => state.nodes.length === 7 && state.edges.length === 2 && state.background === 'lines',
       'final populated free canvas',
     )
     const finalNodeIds = finalBeforeIsolation.nodes.map((node) => String(node.id))
@@ -1487,6 +1577,8 @@ async function exerciseFreeCanvas({
       textNodeId,
       textContent,
       configNodeId,
+      imageNodeId,
+      videoNodeId,
     })
     assert.ok(
       viewportWithinTolerance(finalBeforeIsolation.viewport, viewportState.viewport, { position: 0.001, zoom: 0.001 }),
@@ -1523,6 +1615,8 @@ async function exerciseFreeCanvas({
       textNodeId,
       textContent,
       configNodeId,
+      imageNodeId,
+      videoNodeId,
     })
     recordStep('verified_project_isolation')
 
@@ -1539,6 +1633,8 @@ async function exerciseFreeCanvas({
         textNodeId,
         textContent,
         configNodeId,
+        imageNodeId,
+        videoNodeId,
       },
     })
     recordStep('verified_persistence_after_refresh')
@@ -1563,7 +1659,11 @@ async function exerciseFreeCanvas({
       edge_ids: finalEdgeIds,
       text_node_id: textNodeId,
       config_node_id: configNodeId,
+      image_node_id: imageNodeId,
+      video_node_id: videoNodeId,
       reference_node_id: referenceNodeId,
+      keyboard_activated_node_id: imageNodeId,
+      keyboard_activation_key: 'Enter',
       marquee_selected_node_ids: [textNodeId, configNodeId],
       clone_node_ids: cloneNodeIds,
       edge_endpoints: finalEdges,
@@ -1584,6 +1684,10 @@ async function exerciseFreeCanvas({
       delete_undo_redo_verified: true,
       save_recovery_verified: true,
       upload_failure_verified: true,
+      image_interaction_verified: true,
+      video_interaction_verified: true,
+      keyboard_focus_verified: true,
+      keyboard_selection_verified: true,
       conversion_verified: true,
       storyboard_conversion_verified: true,
       isolation_verified: true,
@@ -1628,8 +1732,7 @@ async function resetEvidenceRoot(evidenceRoot) {
   const projectReal = await fs.realpath(PROJECT_ROOT)
   const ownedParents = [
     path.join(PROJECT_ROOT, 'artifacts'),
-    path.join(PROJECT_ROOT, 'artifacts', 'e2e-production'),
-    PRODUCTION_ACCEPTANCE_ROOT,
+    PRODUCTION_EVIDENCE_ROOT,
   ]
   for (const ownedParent of ownedParents) {
     try {
@@ -1641,14 +1744,14 @@ async function resetEvidenceRoot(evidenceRoot) {
       await fs.mkdir(ownedParent)
     }
   }
-  const ownerReal = await fs.realpath(PRODUCTION_ACCEPTANCE_ROOT)
+  const ownerReal = await fs.realpath(PRODUCTION_EVIDENCE_ROOT)
   const ownerRelative = path.relative(projectReal, ownerReal)
   assert.equal(path.isAbsolute(ownerRelative), false, 'repository evidence parent resolves outside the project')
   assert.equal(ownerRelative.startsWith(`..${path.sep}`) || ownerRelative === '..', false, 'repository evidence parent resolves outside the project')
   assert.equal(
     ownerRelative.toLowerCase(),
-    path.join('artifacts', 'e2e-production', 'acceptance-report').toLowerCase(),
-    'repository evidence parent is not the canonical production acceptance directory',
+    path.join('artifacts', 'e2e-production').toLowerCase(),
+    'repository evidence parent is not the canonical production evidence directory',
   )
   try {
     const stat = await fs.lstat(root)
