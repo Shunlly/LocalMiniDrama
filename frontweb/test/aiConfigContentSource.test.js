@@ -2,10 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const source = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
-const pageSource = readFileSync(new URL('../src/views/AiConfig.vue', import.meta.url), 'utf8')
-const detailSource = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
-const viteSource = readFileSync(new URL('../vite.config.js', import.meta.url), 'utf8')
+function readSource(url) {
+  return readFileSync(url, 'utf8').replace(/\r\n?/g, '\n')
+}
+
+const source = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const pageSource = readSource(new URL('../src/views/AiConfig.vue', import.meta.url))
+const detailSource = readSource(new URL('../src/views/DramaDetail.vue', import.meta.url))
+const viteSource = readSource(new URL('../vite.config.js', import.meta.url))
 
 function sourceBetween(sourceText, start, end) {
   const startIndex = sourceText.indexOf(start)

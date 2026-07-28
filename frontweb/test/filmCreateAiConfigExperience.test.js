@@ -2,12 +2,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
-const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
-const aiConfigSource = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
-const pipelinePanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url), 'utf8')
-const themeSource = readFileSync(new URL('../src/styles/theme.css', import.meta.url), 'utf8')
-const mainSource = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+function readSource(url) {
+  return readFileSync(url, 'utf8').replace(/\r\n?/g, '\n')
+}
+
+const filmCreateSource = readSource(new URL('../src/views/FilmCreate.vue', import.meta.url))
+const filmListSource = readSource(new URL('../src/views/FilmList.vue', import.meta.url))
+const aiConfigSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const pipelinePanelSource = readSource(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url))
+const themeSource = readSource(new URL('../src/styles/theme.css', import.meta.url))
+const mainSource = readSource(new URL('../src/main.js', import.meta.url))
 const aiDialogHostSelector = ':is(.el-dialog.ai-config-workspace-dialog, .el-dialog:has(> .el-dialog__body > .ai-config-content))'
 
 function sourceBetween(source, start, end) {

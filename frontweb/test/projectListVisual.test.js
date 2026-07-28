@@ -7,7 +7,10 @@ import {
   getProjectCover,
 } from '../src/utils/projectList.js'
 
-const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
+const filmListSource = readFileSync(
+  new URL('../src/views/FilmList.vue', import.meta.url),
+  'utf8',
+).replace(/\r\n?/g, '\n')
 
 function sourceBetween(source, start, end, label) {
   const startIndex = source.indexOf(start)

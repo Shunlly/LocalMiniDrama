@@ -46,7 +46,12 @@ const {
   waitForProjectTitle,
   waitForWorkflowWorkerDrain,
 } = productionE2e
-const productionSource = readFileSync(new URL('../scripts/e2e-production.cjs', import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
+
+function normalizeNewlines(value) {
+  return value.replace(/\r\n?/g, '\n')
+}
+
+const productionSource = normalizeNewlines(readFileSync(new URL('../scripts/e2e-production.cjs', import.meta.url), 'utf8'))
 const frontendPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const verificationDockerfile = readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8')
 const productionDockerfile = readFileSync(new URL('../Dockerfile.prod', import.meta.url), 'utf8')
@@ -62,7 +67,7 @@ const pipelinePanelSource = readFileSync(new URL('../src/components/filmCreate/F
 function sourceFunction(name) {
   const value = productionE2e[name]
   assert.equal(typeof value, 'function', `missing exported production E2E function: ${name}`)
-  return Function.prototype.toString.call(value)
+  return normalizeNewlines(Function.prototype.toString.call(value))
 }
 
 function assertSourceOrder(source, snippets) {
