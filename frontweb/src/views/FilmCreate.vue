@@ -5860,8 +5860,8 @@ async function loadDrama({
       || (expectedContext && !storyboardMediaStateController.isCurrentContext(expectedContext))
     ) return { stale: true }
     store.setDrama(d)
-    // 恢复「故事生成」框的梗概（项目 description 存的是故事梗概）
-    storyInput.value = (d.description || '').toString().trim()
+    // 项目描述仅用于项目说明；生成草稿独立存储，不能隐式触发生成语义。
+    storyInput.value = (d.metadata?.story_generation_draft || '').toString().trim()
     storyStyle.value = (d.metadata && d.metadata.story_style) ? d.metadata.story_style : ''
     storyType.value = d.genre || ''
     generationStyle.value = d.style || ''
@@ -6208,12 +6208,13 @@ async function saveScriptToBackend(content) {
   if (!dramaId) {
     const drama = await dramaAPI.create({
       title: scriptTitle.value || '新故事',
-      description: storyInput.value?.trim() || trimmed.slice(0, 200),
+      description: '',
       genre: storyType.value || undefined,
       style: generationStyle.value || undefined,
       metadata: {
         ...projectStylePromptMetadata(),
         story_style: storyStyle.value || undefined,
+        story_generation_draft: storyInput.value?.trim() || undefined,
         aspect_ratio: projectAspectRatio.value || '16:9',
       },
     })
@@ -6227,7 +6228,7 @@ async function saveScriptToBackend(content) {
           {
             episode_number: 1,
             title: scriptTitle.value || first.title || '第1集',
-            script_content: first.script_content || trimmed,
+            script_content: trimmed,
           },
         ]
     await dramaAPI.saveEpisodes(dramaId, episodes)
@@ -6246,12 +6247,12 @@ async function saveScriptToBackend(content) {
     await dramaAPI.saveEpisodes(dramaId, payload)
     if (storyInput.value?.trim()) {
       await dramaAPI.saveOutline(dramaId, {
-        summary: storyInput.value.trim(),
         genre: storyType.value || undefined,
         style: generationStyle.value || undefined,
         metadata: {
           ...projectStylePromptMetadata(),
           story_style: storyStyle.value || undefined,
+          story_generation_draft: storyInput.value?.trim() || undefined,
           aspect_ratio: projectAspectRatio.value || '16:9',
         },
       }).catch(() => {})
@@ -6265,15 +6266,12 @@ async function saveScriptToBackend(content) {
   const updated = episodes.map((ep, i) => {
     const num = ep.episode_number ?? i + 1
     const isCurrent = curEp && Number(ep.id) === Number(curEp.id)
-    const first = parsed.episodes[0]
-    const singleBody = first?.script_content ?? trimmed
-    const singleTitle = first?.title && String(first.title).trim()
     return {
       episode_number: num,
       title: isCurrent
-        ? scriptTitle.value || singleTitle || '第' + num + '集'
+        ? scriptTitle.value || ep.title || '第' + num + '集'
         : ep.title || '',
-      script_content: isCurrent ? (parsed.episodes.length === 1 && singleTitle ? singleBody : trimmed) : (ep.script_content || ''),
+      script_content: isCurrent ? trimmed : (ep.script_content || ''),
       description: ep.description,
       duration: ep.duration,
     }
@@ -6284,12 +6282,12 @@ async function saveScriptToBackend(content) {
   await dramaAPI.saveEpisodes(dramaId, updated)
   if (storyInput.value?.trim()) {
     await dramaAPI.saveOutline(dramaId, {
-      summary: storyInput.value.trim(),
       genre: storyType.value || undefined,
       style: generationStyle.value || undefined,
       metadata: {
         ...projectStylePromptMetadata(),
         story_style: storyStyle.value || undefined,
+        story_generation_draft: storyInput.value?.trim() || undefined,
         aspect_ratio: projectAspectRatio.value || '16:9',
       },
     }).catch(() => {})
@@ -6306,6 +6304,7 @@ async function saveProjectSettings(includeGenerationStyle = false) {
   if (!store.dramaId) return
   const metadata = {
     story_style: storyStyle.value || undefined,
+    story_generation_draft: storyInput.value?.trim() || undefined,
     aspect_ratio: projectAspectRatio.value || '16:9',
     video_clip_duration: videoClipDuration.value || 5,
     storyboard_include_narration: !!storyboardIncludeNarration.value,
@@ -9818,21 +9817,31 @@ async function flushDraftBeforeNavigation() {
     await flushScriptDraft()
     return { allowed: true, discard: false }
   } catch (_) {
-    try {
-      await ElMessageBox.confirm(
-        '自动保存失败。继续离开会丢失本次剧本修改。',
-        '剧本尚未保存',
-        {
-          type: 'warning',
-          confirmButtonText: '仍然离开',
-          cancelButtonText: '留在本页',
-        },
-      )
-      return { allowed: true, discard: true }
-    } catch (_) {
-      return { allowed: false, discard: false }
-    }
+    // The dialog is only reached after a real flush failure; successful autosaves leave silently.
   }
+
+  try {
+    await ElMessageBox.confirm(
+      '自动保存失败。可先重试保存，或仍然离开并丢弃本次剧本修改。关闭此对话框将继续编辑。',
+      '剧本尚未保存',
+      {
+        type: 'warning',
+        confirmButtonText: '保存并离开',
+        cancelButtonText: '仍然离开',
+        distinguishCancelAndClose: true,
+      },
+    )
+  } catch (reason) {
+    if (reason === 'cancel') return { allowed: true, discard: true }
+    return { allowed: false, discard: false }
+  }
+
+  try {
+    await flushScriptDraft()
+    if (!scriptDraftController.hasPendingChanges()) return { allowed: true, discard: false }
+  } catch (_) {}
+  ElMessage.error('自动保存仍未完成，请重试保存或选择仍然离开。')
+  return { allowed: false, discard: false }
 }
 
 async function confirmPipelineNavigation() {
