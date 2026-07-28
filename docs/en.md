@@ -109,7 +109,7 @@ Tasks 1-5, all eight product-acceptance findings, ZIP security review, and E2E c
 
 ### Option A — Source (recommended for the current candidate)
 
-> Requires Node.js >= 20. Release and Docker verification use Node.js 20.
+> The root workspace, backend, frontend, Docker, and common PR/branch gates are fixed to Node.js 20. Desktop installation, native rebuilds, packaging, and Windows artifact security scans are fixed to Node.js 22.12.0 with `engine-strict`; Electron 43.1.1 embeds Node.js 24 at application runtime.
 
 ```bash
 # 1. Clone

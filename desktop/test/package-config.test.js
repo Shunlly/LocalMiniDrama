@@ -20,6 +20,8 @@ const {
 } = require('../scripts/copy-backend');
 const releaseWorkflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
 const rebuildNativeSource = fs.readFileSync(path.join(desktopRoot, 'scripts', 'rebuild-native.js'), 'utf8');
+const desktopNpmrc = fs.readFileSync(path.join(desktopRoot, '.npmrc'), 'utf8');
+const electronRuntimeVerifier = fs.readFileSync(path.join(desktopRoot, 'scripts', 'verify-electron-runtime.js'), 'utf8');
 
 function listFiles(root) {
   const files = [];
@@ -67,6 +69,16 @@ test('desktop runtime dependencies cover the backend production dependency set',
   assert.equal(packageLock.packages['node_modules/@napi-rs/canvas-win32-x64-msvc'].version, '0.1.80');
   assert.equal(packageLock.packages['node_modules/pdfjs-dist'].version, '4.10.38');
   assert.equal(packageLock.packages['node_modules/buffer'].version, '6.0.3');
+});
+
+test('desktop tooling enforces Electron 43 host and embedded runtime contracts', () => {
+  assert.equal(packageJson.engines.node, '>=22.12.0 <23');
+  assert.equal(packageJson.devDependencies.electron, '43.1.1');
+  assert.equal(packageLock.packages['node_modules/electron'].engines.node, '>= 22.12.0');
+  assert.match(desktopNpmrc, /^engine-strict=true$/m);
+  assert.equal(packageJson.scripts['verify:electron-runtime'], 'electron scripts/verify-electron-runtime.js');
+  assert.match(packageJson.scripts.verify, /npm run verify:electron-runtime/);
+  assert.match(electronRuntimeVerifier, /process\.exit\(0\)/);
 });
 
 test('native rebuild accepts dependencies that do not export package.json', () => {

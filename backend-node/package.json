@@ -16,7 +16,7 @@
     "verify": "npm run check && npm run test && npm run audit"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.0.0 <21"
   },
   "dependencies": {
     "@napi-rs/canvas": "0.1.80",

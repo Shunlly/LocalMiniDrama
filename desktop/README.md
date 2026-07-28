@@ -232,7 +232,8 @@ AI 相关配置需在软件「AI 配置」页面填写并保存，数据写入 `
 
 ## 依赖
 
-- Node.js 20
+- Node.js 22.12.0（桌面工具链；`engine-strict` 已启用）
+- Electron 43.1.1 内嵌的 Node.js 24（应用运行时）
 - FFmpeg 与 FFprobe（通过环境变量、仓库工具目录或系统 PATH 提供，打包时会实际执行 `-version`）
 - 本仓库中的 `backend-node`（打包时通过 `prepare-backend` 复制到 `backend-app`）
 - 前端需先在 `frontweb` 目录执行 `npm run build`，再打包或开发运行

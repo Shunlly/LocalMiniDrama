@@ -115,6 +115,7 @@ const rootPackage = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 
 const backendPackage = JSON.parse(fs.readFileSync(path.join(root, 'backend-node', 'package.json'), 'utf8'))
 const frontendPackage = JSON.parse(fs.readFileSync(path.join(root, 'frontweb', 'package.json'), 'utf8'))
 const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'package.json'), 'utf8'))
+const desktopPackageLock = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'package-lock.json'), 'utf8'))
 const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8')
 const desktopReadme = fs.readFileSync(path.join(root, 'desktop', 'README.md'), 'utf8')
 const ciWorkflowDocument = parseYaml(ciWorkflow)
@@ -11716,8 +11717,8 @@ test('Windows artifact recording re-extracts physical applications after scanner
   const record = jobBlock('record-windows-artifacts', windowsReleaseSecurityWorkflow)
   assert.match(record, /runs-on: windows-latest/)
   assert.match(record, /needs: \[scan-windows-artifacts, scan-trivy-artifacts\]/)
-  assert.match(record, /node-version: '20'/)
-  assert.match(record, /npm --prefix desktop ci --ignore-scripts/)
+  assert.match(record, /node-version: '22\.12\.0'/)
+  assert.match(record, /npm --prefix desktop ci --ignore-scripts --engine-strict/)
   assert.match(
     record,
     /windows-release-unverified-[\s\S]*path: desktop\/release[\s\S]*windows-release-security-evidence-[\s\S]*path: desktop\/security-evidence\/windows[\s\S]*windows-release-trivy-evidence-[\s\S]*path: desktop\/security-evidence\/trivy/,
@@ -12166,15 +12167,67 @@ test('third-party workflow actions are pinned to full commit digests', () => {
   }
 })
 
-test('release workflow uses the Node 20 baseline from CI', () => {
-  for (const source of [ciWorkflow, workflow, windowsReleaseSecurityWorkflow]) {
+test('runtime contracts isolate Node 22 desktop tooling from the Node 20 application gates', () => {
+  const electronTooling = desktopPackageLock.packages['node_modules/electron']
+  assert.equal(electronTooling.version, '43.1.1')
+  assert.equal(electronTooling.engines.node, '>= 22.12.0')
+  assert.match(
+    jobBlock('desktop', ciWorkflow),
+    /node-version: '22\.12\.0'/,
+    'Electron 43.1.1 tooling requires Node >=22.12.0, so desktop CI must pin Node 22.12.0',
+  )
+
+  assert.equal(rootPackage.engines.node, '>=20.0.0 <21')
+  assert.equal(backendPackage.engines.node, '>=20.0.0 <21')
+  assert.equal(frontendPackage.engines.node, '>=20.0.0 <21')
+  assert.equal(desktopPackage.engines.node, '>=22.12.0 <23')
+  assert.equal(desktopPackage.devDependencies.electron, '43.1.1')
+  assert.match(desktopPackage.scripts.verify, /npm run verify:electron-runtime/)
+  assert.match(fs.readFileSync(path.join(root, 'desktop', '.npmrc'), 'utf8'), /^engine-strict=true$/m)
+
+  for (const [name, source] of [
+    ['CI', ciWorkflow],
+    ['release', workflow],
+    ['Windows release security', windowsReleaseSecurityWorkflow],
+  ]) {
     const setupNodeActions = [...source.matchAll(/^\s*- uses: actions\/setup-node@[a-f0-9]{40}/gm)]
-    const nodeVersions = [...source.matchAll(/^\s+node-version:\s*['"]?(\d+)['"]?\s*$/gm)]
+    const nodeVersions = [...source.matchAll(/^\s+node-version:\s*['"]?([\d.]+)['"]?\s*$/gm)]
       .map((match) => match[1])
 
-    assert.ok(setupNodeActions.length > 0)
-    assert.equal(nodeVersions.length, setupNodeActions.length, 'every setup-node action must declare a Node version')
-    assert.deepEqual([...new Set(nodeVersions)], ['20'])
+    assert.ok(setupNodeActions.length > 0, `${name} must set up Node explicitly`)
+    assert.equal(nodeVersions.length, setupNodeActions.length, `${name} must pin every setup-node action`)
+  }
+
+  for (const [jobName, source] of [
+    ['CI release contract', jobBlock('release-contract', ciWorkflow)],
+    ['CI backend', jobBlock('backend', ciWorkflow)],
+    ['CI frontend', jobBlock('frontend', ciWorkflow)],
+    ['release production E2E', jobBlock('production-e2e', workflow)],
+    ['release rollback drill', jobBlock('rollback-drill', workflow)],
+    ['release artifact verification', jobBlock('verify-artifacts', workflow)],
+    ['release publishing', jobBlock('publish-release', workflow)],
+  ]) {
+    assert.match(source, /node-version: '20'/, `${jobName} must remain on Node 20`)
+    assert.doesNotMatch(source, /node-version: '22\.12\.0'/, `${jobName} must not drift to the desktop toolchain`)
+  }
+
+  for (const [jobName, source] of [
+    ['CI desktop', jobBlock('desktop', ciWorkflow)],
+    ['release Windows build', jobBlock('build-windows', workflow)],
+    ['Windows artifact scan', jobBlock('scan-windows-artifacts', windowsReleaseSecurityWorkflow)],
+    ['Windows Trivy scan', jobBlock('scan-trivy-artifacts', windowsReleaseSecurityWorkflow)],
+    ['Windows artifact record', jobBlock('record-windows-artifacts', windowsReleaseSecurityWorkflow)],
+  ]) {
+    assert.match(source, /node-version: '22\.12\.0'/, `${jobName} must pin the Electron toolchain to Node 22.12.0`)
+  }
+
+  for (const source of [
+    jobBlock('desktop', ciWorkflow),
+    jobBlock('build-windows', workflow),
+    windowsReleaseSecurityWorkflow,
+  ]) {
+    assert.match(source, /npm(?:\s+--prefix desktop)? ci(?:\s+--ignore-scripts)?/, 'desktop installs must remain explicit')
+    assert.match(source, /engine-strict/, 'desktop installs must enforce package engine contracts')
   }
 })
 

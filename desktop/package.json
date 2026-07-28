@@ -6,6 +6,9 @@
   "main": "main.js",
   "author": "LocalMiniDrama",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0 <23"
+  },
   "scripts": {
     "prestart": "node scripts/copy-backend.js",
     "start": "electron .",
@@ -18,6 +21,7 @@
     "stage:media": "node scripts/verify-native-deps.js --stage-media-tools",
     "verify:media": "node scripts/media-tool-policy.js verify-tools",
     "verify:native": "electron scripts/verify-native-deps.js",
+    "verify:electron-runtime": "electron scripts/verify-electron-runtime.js",
     "verify:deps": "node scripts/verify-dependency-tree.js",
     "smoke:unpacked": "node scripts/smoke-windows.js unpacked",
     "smoke:portable": "node scripts/smoke-windows.js portable",
@@ -27,7 +31,7 @@
     "prepare:artifact-scan": "node scripts/verify-windows-artifacts.js prepare",
     "record:artifact-security": "node scripts/verify-windows-artifacts.js record",
     "verify:fuses": "node scripts/verify-windows-artifacts.js fuses",
-    "verify": "npm run test && node --check main.js && node --check scripts/copy-backend.js && node --check scripts/clean-win-unpacked.js && node --check scripts/electron-fuses.js && node --check scripts/media-tool-policy.js && node --check scripts/rebuild-native.js && node --check scripts/shutdown-controller.js && node --check scripts/single-instance.js && node --check scripts/user-data-migration.js && node --check scripts/verify-windows-artifacts.js && node --check scripts/window-shell.js && node --check scripts/verify-dependency-tree.js && node --check scripts/verify-native-deps.js && node --check scripts/smoke-windows.js && npm run verify:deps && npm run stage:media && npm run verify:native",
+    "verify": "npm run test && node --check main.js && node --check scripts/copy-backend.js && node --check scripts/clean-win-unpacked.js && node --check scripts/electron-fuses.js && node --check scripts/media-tool-policy.js && node --check scripts/rebuild-native.js && node --check scripts/shutdown-controller.js && node --check scripts/single-instance.js && node --check scripts/user-data-migration.js && node --check scripts/verify-windows-artifacts.js && node --check scripts/window-shell.js && node --check scripts/verify-dependency-tree.js && node --check scripts/verify-native-deps.js && node --check scripts/verify-electron-runtime.js && node --check scripts/smoke-windows.js && npm run verify:deps && npm run stage:media && npm run verify:native && npm run verify:electron-runtime",
     "pack": "npm run prepare-backend && npm run rebuild:native && npm run build:front && npm run copy-front && npm run clean:release && npm run verify:media && npm run stage:media && electron-builder --dir --publish never",
     "dist": "npm run prepare-backend && npm run rebuild:native && npm run build:front && npm run copy-front && npm run clean:release && npm run verify:media && npm run stage:media && electron-builder --win --publish never",
     "dist:cn": "node scripts/dist-cn.js",

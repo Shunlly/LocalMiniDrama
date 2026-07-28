@@ -518,7 +518,6 @@ jobs:
           cache-dependency-path: |
             backend-node/package-lock.json
             frontweb/package-lock.json
-            desktop/package-lock.json
 
       - name: Verify Git LFS example source
         run: |
@@ -580,10 +579,16 @@ jobs:
         working-directory: backend-node
         run: npm run verify
 
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
       - name: Install and verify Electron runtime
         working-directory: desktop
         run: |
-          npm ci
+          npm ci --engine-strict
           npm run verify
 
       - name: Build NSIS and portable artifacts without publishing
