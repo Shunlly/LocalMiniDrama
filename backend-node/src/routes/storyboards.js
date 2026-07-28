@@ -5,6 +5,7 @@ const storyboardService = require('../services/storyboardService');
 const episodeStoryboardService = require('../services/episodeStoryboardService');
 const framePromptService = require('../services/framePromptService');
 const aiClient = require('../services/aiClient');
+const uploadService = require('../services/uploadService');
 const promptI18n = require('../services/promptI18n');
 const angleService = require('../services/angleService');
 const { buildUniversalSegmentUserPromptBundle } = require('../services/universalSegmentPromptBundle');
@@ -206,15 +207,16 @@ function formatClassicVideoNeighborBlock(label, row) {
 
 /**
  * 分镜主图路径：storyboards.local_path 常与图生记录不同步（图在 image_generations），按存在性解析。
- * @returns {string|null} storage 相对路径
+ * @returns {{ relativePath: string, absolutePath: string }|null} storage 内的安全图片路径
  */
 function resolveStoryboardImageLocalPath(db, storageBase, storyboardId, sbRow) {
-  const normalizeRel = (rel) => (rel && String(rel).trim() ? String(rel).trim().replace(/^\//, '') : '');
   const tryRel = (rel) => {
-    const r = normalizeRel(rel);
-    if (!r) return null;
-    const abs = path.join(storageBase, r);
-    return fs.existsSync(abs) ? r : null;
+    if (!rel || !String(rel).trim()) return null;
+    try {
+      return uploadService.resolveStorageReference(storageBase, rel);
+    } catch (_) {
+      return null;
+    }
   };
   const fromSb = tryRel(sbRow?.local_path);
   if (fromSb) return fromSb;
@@ -1039,28 +1041,40 @@ function routes(db, log) {
         const storageBase = path.isAbsolute(cfg.storage?.local_path)
           ? cfg.storage.local_path
           : path.join(process.cwd(), cfg.storage?.local_path || './data/storage');
-        const localPath = resolveStoryboardImageLocalPath(db, storageBase, id, row);
-        if (!localPath) return response.badRequest(res, '分镜没有本地图片，无法超分');
-        const srcFile = path.join(storageBase, localPath);
+        const localImage = resolveStoryboardImageLocalPath(db, storageBase, id, row);
+        if (!localImage) return response.badRequest(res, '分镜没有可用的本地图片，无法超分');
         let sharp; try { sharp = require('sharp'); } catch (_) { sharp = null; }
         if (!sharp) return response.badRequest(res, 'sharp 模块不可用，无法超分');
-        const info = await sharp(srcFile).metadata();
+        const opened = uploadService.openStorageFile(storageBase, localImage.relativePath);
+        let sourceBuffer;
+        try {
+          sourceBuffer = fs.readFileSync(opened.fd);
+        } finally {
+          fs.closeSync(opened.fd);
+        }
+        const image = sharp(sourceBuffer);
+        const info = await image.metadata();
         const scale = 2;
         const newW = (info.width || 512) * scale;
         const newH = (info.height || 512) * scale;
-        const ext = path.extname(localPath) || '.jpg';
-        const baseName = path.basename(localPath, ext);
-        const dirName = path.dirname(localPath);
-        const newRelPath = path.join(dirName, baseName + '_2x' + ext).replace(/\\/g, '/');
-        const newFile = path.join(storageBase, newRelPath);
-        await sharp(srcFile).resize(newW, newH, { kernel: 'lanczos3' }).toFile(newFile);
+        const ext = path.extname(localImage.relativePath) || '.jpg';
+        const baseName = path.basename(localImage.relativePath, ext);
+        const dirName = path.posix.dirname(localImage.relativePath);
+        const newRelPath = uploadService.normalizeStorageRelativeReference(
+          `${dirName === '.' ? '' : `${dirName}/`}${baseName}_2x${ext}`
+        );
+        const outputBuffer = await image.resize(newW, newH, { kernel: 'lanczos3' }).toBuffer();
+        uploadService.writeStorageBuffer(storageBase, newRelPath, outputBuffer);
         const now = new Date().toISOString();
         db.prepare('UPDATE storyboards SET local_path = ?, updated_at = ? WHERE id = ?').run(newRelPath, now, id);
         log.info('storyboard upscale done', { id, newRelPath, newW, newH });
         response.success(res, { local_path: newRelPath, width: newW, height: newH });
       } catch (err) {
         log.error('storyboards upscale', { error: err.message });
-        response.internalError(res, err.message);
+        if (err?.code === 'UNSAFE_MEDIA_REFERENCE') {
+          return response.badRequest(res, '分镜本地图片路径无效，无法超分');
+        }
+        response.internalError(res, '分镜超分失败');
       }
     },
 

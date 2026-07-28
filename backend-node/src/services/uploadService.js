@@ -543,6 +543,53 @@ function openStorageFile(storagePath, value) {
   }
 }
 
+function writeStorageBuffer(storagePath, value, buffer) {
+  if (!Buffer.isBuffer(buffer)) {
+    throw new TypeError('Local storage output must be a Buffer.');
+  }
+  const relativePath = normalizeStorageRelativeReference(value);
+  const segments = relativePath.split('/');
+  const filename = segments.pop();
+  const parent = segments.length
+    ? ensureStorageDirectory(storagePath, segments.join('/'))
+    : inspectStorageRoot(storagePath, { create: true });
+  const absolutePath = path.join(parent.directory || parent.root, filename);
+  const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+  let fd;
+  try {
+    try {
+      const existing = fs.lstatSync(absolutePath);
+      if (existing.isSymbolicLink() || !existing.isFile()) {
+        throw new UnsafeMediaReferenceError('Local media output is not a regular file.', 'OUTPUT_TYPE');
+      }
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+
+    fd = fs.openSync(
+      absolutePath,
+      fs.constants.O_CREAT | fs.constants.O_WRONLY | fs.constants.O_TRUNC | noFollow,
+      0o600
+    );
+    const openedStat = fs.fstatSync(fd);
+    if (!openedStat.isFile()) {
+      throw new UnsafeMediaReferenceError('Local media output is not a regular file.', 'OUTPUT_TYPE');
+    }
+    fs.writeFileSync(fd, buffer);
+    fs.fsyncSync(fd);
+
+    const verified = resolveStorageReference(storagePath, relativePath);
+    const verifiedStat = fs.statSync(verified.absolutePath);
+    const finalizedStat = fs.fstatSync(fd);
+    if (!sameFileIdentity(finalizedStat, verifiedStat)) {
+      throw new UnsafeMediaReferenceError('Local media output changed during secure write.', 'CHANGED');
+    }
+    return verified;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 async function validateMediaReference(value, options = {}) {
   const text = String(value || '').trim();
   if (!text || text.startsWith('data:') || text.startsWith('file:')) {
@@ -1595,6 +1642,7 @@ module.exports = {
   ensureStorageDirectory,
   normalizeStorageRelativeReference,
   openStorageFile,
+  writeStorageBuffer,
   resolveStorageReference,
   validateMediaReference,
   downloadBufferViaNodeHttp,
