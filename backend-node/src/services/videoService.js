@@ -104,12 +104,7 @@ function parseConfigSettings(config) {
 }
 
 function configuredVideoModel(config, preferredModel) {
-  const preferred = String(preferredModel || '').trim();
-  if (preferred) return preferred;
-  const direct = String(config?.default_model || '').trim();
-  if (direct) return direct;
-  const models = Array.isArray(config?.model) ? config.model : [config?.model];
-  return String(models.find((item) => String(item || '').trim()) || '').trim();
+  return aiConfigService.resolveConfiguredModel(config, preferredModel, '');
 }
 
 function videoConfigSupportsGridReference(config, preferredModel) {
@@ -368,6 +363,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { randomUUID } = require('crypto');
 const videoClient = require('./videoClient');
+const aiConfigService = require('./aiConfigService');
 const taskService = require('./taskService');
 const storageLayout = require('./storageLayout');
 const uploadService = require('./uploadService');

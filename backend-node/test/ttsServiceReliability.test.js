@@ -144,6 +144,7 @@ describe('TTS request reliability', () => {
             provider: 'openai_compatible',
             api_key: 'test-key',
             base_url: `${baseUrl}/v1`,
+            model: ['tts-test'],
             default_model: 'tts-test',
             settings: JSON.stringify({ allow_local_http: true }),
           },
@@ -173,6 +174,7 @@ describe('TTS request reliability', () => {
         config: {
           api_key: 'stored-secret-must-not-be-sent',
           base_url: `${baseUrl}/v1`,
+          model: ['tts-test'],
           default_model: 'tts-test',
         },
       };

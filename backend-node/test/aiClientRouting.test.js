@@ -8,6 +8,7 @@ const { PassThrough } = require('node:stream');
 const aiClient = require('../src/services/aiClient');
 const aiConfigService = require('../src/services/aiConfigService');
 const imageClient = require('../src/services/imageClient');
+const videoClient = require('../src/services/videoClient');
 const uploadService = require('../src/services/uploadService');
 
 const originalListConfigs = aiConfigService.listConfigs;
@@ -121,6 +122,48 @@ describe('AI production routing', () => {
     assert.equal(imageClient.getDefaultImageConfig(fakeDb(), 'same-name', null, 'image'), null);
   });
 
+  it('normalizes preferred model names before selecting text, image, and video configs', () => {
+    const configs = {
+      text: [
+        config({ id: 10, is_default: true }),
+        config({ id: 20, provider: 'custom-text', model: ['custom-model'], default_model: 'custom-model' }),
+      ],
+      image: [
+        config({ id: 30, service_type: 'image', is_default: true, model: ['image-default'], default_model: 'image-default' }),
+        config({ id: 31, service_type: 'image', provider: 'custom-image', model: ['image-model'], default_model: 'image-model' }),
+      ],
+      video: [
+        config({ id: 40, service_type: 'video', is_default: true, model: ['video-default'], default_model: 'video-default' }),
+        config({ id: 41, service_type: 'video', provider: 'custom-video', model: ['video-model'], default_model: 'video-model' }),
+      ],
+    };
+    aiConfigService.listConfigs = (_db, serviceType) => configs[serviceType] || [];
+
+    const textRoute = aiClient.resolveTextRoute(fakeDb(), 'text', { model: ' custom-model ' });
+    assert.equal(textRoute.config.id, 20);
+    assert.equal(aiClient.getModelFromConfig(textRoute.config, ' custom-model '), 'custom-model');
+    assert.equal(imageClient.getDefaultImageConfig(fakeDb(), ' image-model ', null, 'image').id, 31);
+    assert.equal(videoClient.getDefaultVideoConfig(fakeDb(), ' video-model ', null).id, 41);
+  });
+
+  it('keeps the default video config available so an invalid preferred model fails through the shared policy', () => {
+    const defaultVideo = config({
+      id: 40,
+      service_type: 'video',
+      is_default: true,
+      model: ['video-default'],
+      default_model: 'video-default',
+    });
+    aiConfigService.listConfigs = () => [defaultVideo];
+
+    const selected = videoClient.getDefaultVideoConfig(fakeDb(), 'retired-video-model', null);
+    assert.equal(selected.id, 40);
+    assert.throws(
+      () => aiConfigService.resolveConfiguredModel(selected, 'retired-video-model'),
+      { code: 'INVALID_AI_CONFIG' },
+    );
+  });
+
   it('routes Ollama through its OpenAI-compatible /v1 endpoint without an empty Authorization header', async () => {
     let received = null;
     const baseUrl = await startServer(async (req, res) => {
@@ -154,7 +197,7 @@ describe('AI production routing', () => {
     })];
 
     const text = await aiClient.generateText(fakeDb(), log, 'text', 'hello', 'system', {
-      model: 'not-installed',
+      model: 'qwen3:8b',
       temperature: 0.2,
     });
 
@@ -162,7 +205,7 @@ describe('AI production routing', () => {
     assert.equal(received.method, 'POST');
     assert.equal(received.path, '/v1/chat/completions');
     assert.equal(received.authorization, undefined);
-    assert.equal(received.body.model, 'qwen3:8b', 'an unavailable preferred model falls back to default_model');
+    assert.equal(received.body.model, 'qwen3:8b');
     assert.equal(received.body.stream, true);
   });
 

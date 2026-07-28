@@ -471,9 +471,7 @@ function localMediaExists(value) {
 }
 
 function configuredModel(config, preferred, fallback) {
-  const normalized = aiConfigService.assertDefaultModelMembership(config);
-  if (preferred) return preferred;
-  return normalized.default_model || normalized.model[0] || fallback;
+  return aiConfigService.resolveConfiguredModel(config, preferred, fallback);
 }
 
 function getActiveTtsConfig(db, preferredModel, preferredProvider) {

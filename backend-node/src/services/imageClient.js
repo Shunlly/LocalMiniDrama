@@ -159,6 +159,7 @@ function inferProtocol(provider, model) {
  */
 function getDefaultImageConfig(db, preferredModel, preferredProvider, imageServiceType) {
   const serviceType = imageServiceType || 'image';
+  const selectedModel = String(preferredModel ?? '').trim();
   let configs = aiConfigService.listConfigs(db, serviceType);
   if (configs.length === 0 && serviceType === 'storyboard_image') {
     configs = aiConfigService.listConfigs(db, 'image');
@@ -171,10 +172,10 @@ function getDefaultImageConfig(db, preferredModel, preferredProvider, imageServi
     if (byProvider.length === 0) return null;
     active = byProvider;
   }
-  if (preferredModel) {
+  if (selectedModel) {
     const matches = active.filter((c) => {
-      const models = Array.isArray(c.model) ? c.model : (c.model != null ? [c.model] : []);
-      return models.includes(preferredModel);
+      const models = aiConfigService.normalizeConfigModels(c).model;
+      return models.includes(selectedModel);
     });
     if (matches.length === 1) return matches[0];
     if (matches.length > 1) {
@@ -200,10 +201,7 @@ function buildImageUrl(config) {
 }
 
 function getModelFromConfig(config, preferredModel) {
-  const models = Array.isArray(config.model) ? config.model : (config.model != null ? [config.model] : []);
-  if (preferredModel && models.includes(preferredModel)) return preferredModel;
-  if (config.default_model && models.includes(config.default_model)) return config.default_model;
-  return models[0] || 'dall-e-3';
+  return aiConfigService.resolveConfiguredModel(config, preferredModel, 'dall-e-3');
 }
 
 // 通义万象 size：格式 "宽*高"，总像素须在 589824(768*768)～1638400(1280*1280) 之间

@@ -5,6 +5,7 @@ const { spawn } = require('node:child_process');
 const { TextDecoder } = require('node:util');
 const { createCanvas } = require('@napi-rs/canvas');
 const sharp = require('sharp');
+const aiConfigService = require('./aiConfigService');
 const { secureHttpFetch } = require('./secureHttpFetch');
 const { getFfmpegPath, getFfprobePath } = require('../utils/ffmpegPath');
 
@@ -245,8 +246,6 @@ function selectActiveConfig(db, serviceType) {
 }
 
 function configuredModel(config) {
-  const direct = String(config?.default_model || '').trim();
-  if (direct) return direct.slice(0, 300);
   let models = config?.model;
   if (typeof models === 'string') {
     try {
@@ -255,8 +254,7 @@ function configuredModel(config) {
       models = [models];
     }
   }
-  const first = Array.isArray(models) ? models.find((value) => String(value || '').trim()) : models;
-  const model = String(first || '').trim();
+  const model = aiConfigService.resolveConfiguredModel({ ...config, model: models });
   if (!model) throw actionableError(`The active service_type=${config?.service_type || 'unknown'} configuration has no model.`);
   if (/\r|\n|\0/.test(model)) throw actionableError('The configured model name is invalid.');
   return model.slice(0, 300);

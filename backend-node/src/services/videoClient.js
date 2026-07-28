@@ -938,6 +938,7 @@ function parseKlingOmniPollVideoUrl(data) {
 // ??????????????????listConfigs ?? is_default DESC, priority DESC ??
 function getDefaultVideoConfig(db, preferredModel, preferredProvider) {
   const configs = aiConfigService.listConfigs(db, 'video');
+  const selectedModel = String(preferredModel ?? '').trim();
   let active = configs.filter((c) => c.is_active);
   if (active.length === 0) return null;
   if (preferredProvider && String(preferredProvider).trim()) {
@@ -948,15 +949,11 @@ function getDefaultVideoConfig(db, preferredModel, preferredProvider) {
     if (matchingProvider.length === 0) return null;
     active = matchingProvider;
   }
-  if (preferredModel) {
+  if (selectedModel) {
     for (const c of active) {
-      const models = [
-        ...(Array.isArray(c.model) ? c.model : (c.model != null ? [c.model] : [])),
-        c.default_model,
-      ].filter(Boolean);
-      if (models.includes(preferredModel)) return c;
+      const models = aiConfigService.normalizeConfigModels(c).model;
+      if (models.includes(selectedModel)) return c;
     }
-    return null;
   }
   const defaultOne = active.find((c) => c.is_default);
   return defaultOne != null ? defaultOne : active[0];
@@ -1030,10 +1027,7 @@ function normalizeVolcModel(name) {
 }
 
 function getModelFromConfig(config, preferredModel) {
-  const models = Array.isArray(config.model) ? config.model : (config.model != null ? [config.model] : []);
-  if (preferredModel && models.includes(preferredModel)) return preferredModel;
-  if (config.default_model && models.includes(config.default_model)) return config.default_model;
-  return models[0] || '';
+  return aiConfigService.resolveConfiguredModel(config, preferredModel, '');
 }
 
 /** 仅把 http(s) 当作可下载直链，避免方舟/中转让 result_url 填入错误文案 */

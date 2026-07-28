@@ -305,9 +305,10 @@ function selectDefaultConfig(configs) {
 
 function resolveConfigForModel(configs, modelName, preferredProvider) {
   const active = filterActiveConfigs(configs, preferredProvider);
+  const selectedModel = String(modelName ?? '').trim();
   const matches = active.filter((config) => {
-    const models = Array.isArray(config.model) ? config.model : [config.model];
-    return models.includes(modelName);
+    const models = aiConfigService.normalizeConfigModels(config).model;
+    return selectedModel && models.includes(selectedModel);
   });
   if (matches.length <= 1) return { config: matches[0] || null, ambiguous: false };
   const defaultMatch = matches.find((config) => config.is_default);
@@ -342,10 +343,7 @@ function buildChatUrl(config) {
 }
 
 function getModelFromConfig(config, preferredModel) {
-  const models = Array.isArray(config.model) ? config.model : (config.model != null ? [config.model] : []);
-  if (preferredModel && models.includes(preferredModel)) return preferredModel;
-  if (config.default_model && models.includes(config.default_model)) return config.default_model;
-  return models[0] || 'gpt-3.5-turbo';
+  return aiConfigService.resolveConfiguredModel(config, preferredModel, 'gpt-3.5-turbo');
 }
 
 function buildAuthHeaders(config) {
@@ -380,7 +378,7 @@ function getConfigFromModelMap(db, sceneKey, expectedServiceType) {
 
 function resolveTextRoute(db, serviceType, options = {}) {
   const requestedServiceType = String(serviceType || 'text').trim().toLowerCase() || 'text';
-  const preferredModel = options.model;
+  const preferredModel = String(options.model ?? '').trim();
   const preferredProvider = options.provider ?? options.preferred_provider ?? options.preferredProvider;
   if (options.scene_key) {
     const mapped = getConfigFromModelMap(db, options.scene_key, requestedServiceType);

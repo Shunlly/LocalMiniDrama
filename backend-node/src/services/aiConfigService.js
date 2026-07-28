@@ -495,6 +495,21 @@ function assertDefaultModelMembership(config = {}) {
   return normalized;
 }
 
+function resolveConfiguredModel(config = {}, preferredModel, fallback) {
+  const normalized = assertDefaultModelMembership(config);
+  const preferred = String(preferredModel ?? '').trim();
+  if (preferred && !normalized.model.includes(preferred)) {
+    throw aiConfigValidationError(
+      '请求的模型不在可用模型列表中，请在 AI 配置中重新选择模型',
+      { field: 'model', issue: 'not_in_model_list' }
+    );
+  }
+  return preferred
+    || normalized.default_model
+    || normalized.model[0]
+    || String(fallback ?? '').trim();
+}
+
 function normalizeWritableConfigModels(config = {}) {
   const inactive = config.is_active === false || config.is_active === 0;
   return inactive ? normalizeConfigModels(config) : assertDefaultModelMembership(config);
@@ -1380,6 +1395,7 @@ module.exports = {
   hasStoredCredentials,
   normalizeConfigModels,
   assertDefaultModelMembership,
+  resolveConfiguredModel,
   getProviderNetworkOptions,
   isExplicitLocalProviderConfig,
   isExplicitLocalProviderHost,

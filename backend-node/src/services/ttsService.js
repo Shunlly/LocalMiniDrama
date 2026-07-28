@@ -164,9 +164,7 @@ async function synthesize(db, log, {
   }
   const voiceId = voice_id || ttsConfig.voice_id || ttsSettings.voice_id || '';
   const groupId = ttsConfig.group_id || ttsSettings.group_id || '';
-  const ttsModel = ttsConfig.default_model
-    || (Array.isArray(ttsConfig.model) ? ttsConfig.model[0] : ttsConfig.model)
-    || '';
+  const ttsModel = aiConfigService.resolveConfiguredModel(ttsConfig, null, '');
   const finalSpeed = speed || ttsSettings.speed || 1.0;
   const timeoutMs = normalizeTtsTimeoutMs(ttsSettings.timeout_ms || ttsSettings.timeout);
   const idempotencyKey = normalizeIdempotencyKey(idempotency_key);
