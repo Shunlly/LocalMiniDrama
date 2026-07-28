@@ -118,6 +118,92 @@ test('cleanup policy resolves common fs namespaces, destructuring, aliases, and 
   )
 })
 
+test('cleanup policy resolves recursive options assigned after declaration', (t) => {
+  const root = createPolicyFixture(t)
+  writePolicySource(root, 'test/assigned-options.test.js', [
+    "const { rmSync } = require('node:fs')",
+    'let options',
+    'options = { recursive: true }',
+    "rmSync('assigned-fixture', options)",
+    '',
+  ].join('\n'))
+
+  const result = auditCleanupSources(root)
+
+  assert.deepEqual(
+    result.violations.map(({ line, method }) => ({ line, method })),
+    [{ line: 4, method: 'rmSync' }],
+  )
+})
+
+test('cleanup policy resolves same-name option bindings in their lexical scopes', (t) => {
+  const root = createPolicyFixture(t)
+  writePolicySource(root, 'test/shadowed-options.test.js', [
+    "const { rmSync } = require('node:fs')",
+    'function removeSafeFixture() {',
+    '  const recursive = false',
+    "  rmSync('safe-fixture', { recursive })",
+    '}',
+    '{',
+    '  const recursive = true',
+    "  rmSync('recursive-fixture', { recursive })",
+    '}',
+    '',
+  ].join('\n'))
+
+  const result = auditCleanupSources(root)
+
+  assert.deepEqual(
+    result.violations.map(({ line, method }) => ({ line, method })),
+    [{ line: 8, method: 'rmSync' }],
+  )
+})
+
+test('cleanup policy applies last-property-wins to statically known recursive options', (t) => {
+  const root = createPolicyFixture(t)
+  writePolicySource(root, 'test/overridden-options.test.js', [
+    "const { rmSync } = require('node:fs')",
+    'const trueDefaults = { recursive: true }',
+    "rmSync('safe-fixture', { ...trueDefaults, recursive: false })",
+    "rmSync('recursive-fixture', { recursive: false, ...trueDefaults })",
+    '',
+  ].join('\n'))
+
+  const result = auditCleanupSources(root)
+
+  assert.deepEqual(
+    result.violations.map(({ line, method }) => ({ line, method })),
+    [{ line: 4, method: 'rmSync' }],
+  )
+})
+
+test('cleanup policy fails closed for member mutation and closure-late options', (t) => {
+  const root = createPolicyFixture(t)
+  writePolicySource(root, 'test/dynamic-options.test.js', [
+    "const { rmSync } = require('node:fs')",
+    'const mutated = { recursive: false }',
+    'mutated.recursive = true',
+    "rmSync('mutated-fixture', mutated)",
+    'let closureOptions',
+    'function removeLater() {',
+    "  rmSync('closure-fixture', closureOptions)",
+    '}',
+    'closureOptions = { recursive: true }',
+    'removeLater()',
+    '',
+  ].join('\n'))
+
+  const result = auditCleanupSources(root)
+
+  assert.deepEqual(
+    result.violations.map(({ line, method }) => ({ line, method })),
+    [
+      { line: 4, method: 'rmSync' },
+      { line: 7, method: 'rmSync' },
+    ],
+  )
+})
+
 test('authored frontend tests and scripts reject direct recursive removal', () => {
   const result = auditCleanupSources(frontwebRoot)
 
