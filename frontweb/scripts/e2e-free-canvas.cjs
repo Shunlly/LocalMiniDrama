@@ -635,6 +635,7 @@ async function createNodeAndResolve({ page, apiRequest, dramaId, type, action })
   assert.equal(createdIds.length, 1, `${type} creation must add exactly one API node ID`)
   const node = persisted.nodes.find((item) => String(item.id) === createdIds[0])
   assert.equal(node?.type, type, `created API node ${createdIds[0]} has the wrong type`)
+  await clickUniqueButton(page, '适配视图')
   await exactFreeNode(page, createdIds[0])
   return { node, state: persisted, before }
 }
