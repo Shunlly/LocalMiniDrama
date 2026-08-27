@@ -1306,7 +1306,6 @@ async function exerciseFreeCanvas({
         composed: true,
       }))
     })
-    await page.keyboard.press('Delete')
     const deleted = await waitForPersistedFreeCanvas(
       apiRequest,
       primaryId,
