@@ -396,7 +396,7 @@
       v-if="selectedFreeNode"
       :key="`${dramaId}:${selectedFreeNode.id}`"
       class="free-canvas-inspector-dock"
-      :data-free-node-id="String(selectedFreeNode.id)"
+      :data-free-inspector-node-id="String(selectedFreeNode.id)"
       :node="selectedFreeNode"
       :readonly="canvasMode !== 'free' || freeCanvasReadOnly"
       :busy="freeInspectorBusy"

@@ -578,7 +578,7 @@ async function assertUniqueLocator(locator, label) {
 }
 
 function freeNodeLocator(page, nodeId) {
-  return page.locator(`[data-free-node-id=${JSON.stringify(String(nodeId))}]`)
+  return page.locator(`.free-canvas-node[data-free-node-id=${JSON.stringify(String(nodeId))}]`)
 }
 
 async function exactFreeNode(page, nodeId) {
@@ -1060,7 +1060,7 @@ async function captureAcceptanceScreenshots({
     }
     await waitForUiSaveSettled(page)
     await assertPageFixtureIdentity({ page, fixture, verifyFixture, services })
-    assert.equal(await page.locator('[data-free-node-id]').count(), expectedNodeIds.length, 'capture node count is incomplete')
+    assert.equal(await page.locator('.free-canvas-node[data-free-node-id]').count(), expectedNodeIds.length, 'capture node count is incomplete')
     for (const nodeId of expectedNodeIds) await exactFreeNode(page, nodeId)
     const geometry = await assertCaptureGeometry({ page, capture, expectedNodeIds })
     const buffer = await page.screenshot({
@@ -1120,7 +1120,7 @@ async function assertReloadedBrowserState({ page, apiRequest, dramaId, expected 
   assertPersistedCanvasState(persisted, expected)
   const modeSwitch = page.getByRole('group', { name: '画布模式' })
   await expectPressed(modeSwitch.getByRole('button', { name: '自由', exact: true }), 'true')
-  assert.equal(await page.locator('[data-free-node-id]').count(), expected.nodeIds.length, 'reloaded browser node count is incorrect')
+  assert.equal(await page.locator('.free-canvas-node[data-free-node-id]').count(), expected.nodeIds.length, 'reloaded browser node count is incorrect')
   for (const nodeId of expected.nodeIds) await exactFreeNode(page, nodeId)
   for (const edgeId of expected.edgeIds) {
     const edge = page.locator(`.vue-flow__edge[data-id=${JSON.stringify(String(edgeId))}]`)
@@ -1618,7 +1618,7 @@ async function exerciseFreeCanvas({
       'isolation fixture free canvas',
     )
     assert.equal(isolationState.nodes.length, 0, 'isolation fixture unexpectedly contains primary nodes')
-    assert.equal(await page.locator('[data-free-node-id]').count(), 0, 'isolation browser contains primary free nodes')
+    assert.equal(await page.locator('.free-canvas-node[data-free-node-id]').count(), 0, 'isolation browser contains primary free nodes')
     for (const nodeId of finalNodeIds) assert.equal(await freeNodeLocator(page, nodeId).count(), 0, `primary node ${nodeId} leaked into isolation fixture`)
 
     await verifyFixture(primaryFixture)
