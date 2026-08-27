@@ -3116,7 +3116,13 @@ function currentVisualFreeCanvasSelection() {
   const edgeIds = edges.value
     .filter((edge) => edge.selected && freeEdgeIds.has(String(edge.id)))
     .map((edge) => edge.id)
-  return { nodeIds, edgeIds }
+  if (nodeIds.length || edgeIds.length) return { nodeIds, edgeIds }
+  const existingNodes = new Set(freeCanvas.value.nodes.map((node) => String(node.id)))
+  const existingEdges = new Set(freeCanvas.value.edges.map((edge) => String(edge.id)))
+  return {
+    nodeIds: selectedFreeNodeIds.value.filter((id) => existingNodes.has(String(id))),
+    edgeIds: selectedFreeEdgeIds.value.filter((id) => existingEdges.has(String(id))),
+  }
 }
 
 function syncVisualFreeCanvasSelection() {

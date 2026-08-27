@@ -528,6 +528,20 @@ test('delete shortcut uses current visual selection even when internal ids are e
   assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), [])
 })
 
+
+test('delete shortcut falls back to internal ids when the flow has not marked selected flags', () => {
+  const harness = keyboardControllerHarness()
+  harness.nodes.value = harness.nodes.value.map((node) => ({ ...node, selected: false }))
+  harness.selectedFreeNodeIds.value = ['text-b']
+  harness.selectedFreeEdgeIds.value = []
+  harness.selectedFreeNodeId.value = 'text-b'
+
+  const deletion = harness.keyEvent('Delete')
+  harness.handleFreeCanvasKeydown(deletion)
+  assert.equal(deletion.defaultPrevented, true)
+  assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), ['config-a'])
+})
+
 test('node creation aborts when the visible safe area has no open position', async () => {
   let createCalls = 0
   let commitCalls = 0
