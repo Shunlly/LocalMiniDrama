@@ -1108,9 +1108,6 @@ async function captureAcceptanceScreenshots({
     await setEvidenceTheme(page, capture.theme)
     await closeInspector(page)
     await clickUniqueButton(page, '适配视图')
-    await clickUniqueButton(page, '缩小画布')
-    await clickUniqueButton(page, '缩小画布')
-    await delay(220)
     if (capture.inspectorOpen) {
       const inspectorNode = await exactFreeNode(page, inspectorNodeId)
       await inspectorNode.locator('.node-header').click({ force: true })
@@ -1120,15 +1117,22 @@ async function captureAcceptanceScreenshots({
       )
       await delay(250)
       await clickUniqueButton(page, '适配视图')
-      await clickUniqueButton(page, '缩小画布')
-      await clickUniqueButton(page, '缩小画布')
-      await delay(220)
     }
     await waitForUiSaveSettled(page)
     await assertPageFixtureIdentity({ page, fixture, verifyFixture, services })
     assert.equal(await page.locator('.free-canvas-node[data-free-node-id]').count(), expectedNodeIds.length, 'capture node count is incomplete')
     for (const nodeId of expectedNodeIds) await exactFreeNode(page, nodeId)
-    const geometry = await assertCaptureGeometry({ page, capture, expectedNodeIds })
+    let geometry = null
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        geometry = await assertCaptureGeometry({ page, capture, expectedNodeIds })
+        break
+      } catch (error) {
+        if (attempt === 7) throw error
+        await clickUniqueButton(page, '缩小画布')
+        await delay(200)
+      }
+    }
     const buffer = await page.screenshot({
       fullPage: false,
       animations: 'disabled',
