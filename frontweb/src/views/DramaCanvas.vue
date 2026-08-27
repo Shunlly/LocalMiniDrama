@@ -1927,6 +1927,7 @@ function onSelectionChange({ nodes: selectedNodes = [], edges: selectedEdges = [
 function onViewportChange(viewport) {
   currentViewport.value = { x: viewport.x, y: viewport.y, zoom: viewport.zoom }
   if (canvasMode.value === 'production') productionViewport.value = { ...currentViewport.value }
+  scheduleLayoutSave()
 }
 
 function syncProductionGraphPositions() {
