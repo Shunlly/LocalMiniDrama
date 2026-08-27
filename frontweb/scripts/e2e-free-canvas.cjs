@@ -1207,6 +1207,9 @@ async function exerciseFreeCanvas({
       'in-place text edit',
     )
     recordStep('created_and_edited_text_node')
+    await closeInspector(page)
+    await clickUniqueButton(page, '适配视图')
+    await waitForUiSaveSettled(page)
 
     const configCreated = await createNodeAndResolve({
       page,
