@@ -3108,6 +3108,14 @@ function deleteFreeCanvasNode(nodeId) {
   removeFreeCanvasItems([nodeId])
 }
 
+function readDomSelectedFreeNodeIds() {
+  if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return []
+  return [...document.querySelectorAll('.vue-flow__node.selected [data-free-node-id], .free-canvas-node[data-free-node-id]')]
+    .filter((element) => element.closest?.('.vue-flow__node.selected'))
+    .map((element) => element.getAttribute('data-free-node-id'))
+    .filter((id) => isFreeCanvasNodeId(id))
+}
+
 function currentVisualFreeCanvasSelection() {
   const nodeIds = nodes.value
     .filter((node) => node.selected && isFreeCanvasNodeId(node.id))
@@ -3119,9 +3127,15 @@ function currentVisualFreeCanvasSelection() {
   if (nodeIds.length || edgeIds.length) return { nodeIds, edgeIds }
   const existingNodes = new Set(freeCanvas.value.nodes.map((node) => String(node.id)))
   const existingEdges = new Set(freeCanvas.value.edges.map((edge) => String(edge.id)))
+  const internalNodeIds = selectedFreeNodeIds.value.filter((id) => existingNodes.has(String(id)))
+  const internalEdgeIds = selectedFreeEdgeIds.value.filter((id) => existingEdges.has(String(id)))
+  if (internalNodeIds.length || internalEdgeIds.length) {
+    return { nodeIds: internalNodeIds, edgeIds: internalEdgeIds }
+  }
+  const domNodeIds = [...new Set(readDomSelectedFreeNodeIds())].filter((id) => existingNodes.has(String(id)))
   return {
-    nodeIds: selectedFreeNodeIds.value.filter((id) => existingNodes.has(String(id))),
-    edgeIds: selectedFreeEdgeIds.value.filter((id) => existingEdges.has(String(id))),
+    nodeIds: domNodeIds.map((id) => freeCanvas.value.nodes.find((node) => String(node.id) === String(id))?.id).filter(Boolean),
+    edgeIds: [],
   }
 }
 
