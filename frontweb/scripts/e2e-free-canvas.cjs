@@ -1363,7 +1363,7 @@ async function exerciseFreeCanvas({
       true,
       'created video node does not expose its accessible type and name',
     )
-    await videoNode.click()
+    await videoNode.locator('.node-header').click()
     await assertExactSelectedFreeNodeIds(page, [videoNodeId])
     await assertUniqueLocator(
       page.getByRole('complementary', { name: '自由节点检查器', exact: true }),
