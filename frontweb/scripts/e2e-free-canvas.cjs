@@ -978,7 +978,11 @@ async function assertPageFixtureIdentity({ page, fixture, verifyFixture, service
   assert.equal(current.hash, '', 'fixture canvas URL must not contain fragment evidence')
   const title = page.locator('.page-title')
   await assertUniqueLocator(title, 'fixture page title')
-  assert.equal((await title.textContent())?.trim(), fixture.title, 'browser fixture title does not match the guarded identity')
+  await waitForValue(
+    () => title.textContent().then((text) => String(text || '').trim()),
+    (text) => text === fixture.title,
+    'fixture page title',
+  )
 }
 
 async function openFixtureCanvas({ page, fixture, verifyFixture, services = SERVICES }) {
