@@ -288,7 +288,14 @@ function parseByteRange(value, size) {
 function createStorageStaticMiddleware(storageRoot, log = logger, db = null) {
   return (req, res, next) => {
     if (!['GET', 'HEAD'].includes(req.method)) return next();
-    const rawPath = String(req.url || '').split('?')[0].replace(/^\/+/, '');
+    const encodedPath = String(req.url || '').split('?')[0].replace(/^\/+/, '');
+    if (!encodedPath) return res.status(404).send('Not Found');
+    let rawPath;
+    try {
+      rawPath = uploadService.decodeReferencePath(encodedPath).replace(/\\/g, '/').replace(/^\/+/, '');
+    } catch (_) {
+      return res.status(400).send('Not Found');
+    }
     if (!rawPath) return res.status(404).send('Not Found');
 
     if (db) {

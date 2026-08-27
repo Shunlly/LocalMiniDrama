@@ -168,6 +168,39 @@ test('static storage serves regular files but never follows a directory symlink'
   assert.equal(rejectedBody.includes('outside-secret'), false);
 });
 
+test('percent-encoded unicode static paths remain readable when the file is registered', async (t) => {
+  const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-static-unicode-db-'));
+  const db = new Database(':memory:');
+  runMigrationsAndEnsure(db);
+  t.after(() => {
+    db.close();
+    fs.rmSync(storagePath, { recursive: true, force: true });
+  });
+  const relativePath = 'projects/0001_E2E_Novel2Anime_中文路径/images/ig_fixture.png';
+  fs.mkdirSync(path.join(storagePath, path.dirname(relativePath)), { recursive: true });
+  fs.writeFileSync(path.join(storagePath, relativePath), PNG_BYTES);
+  const now = '2026-08-27T12:00:00.000Z';
+  db.prepare(
+    `INSERT INTO dramas (id, title, status, metadata, created_at, updated_at)
+     VALUES (1, 'Unicode static', 'draft', '{}', ?, ?)`
+  ).run(now, now);
+  db.prepare(
+    `INSERT INTO characters (drama_id, name, local_path, sort_order, created_at, updated_at)
+     VALUES (1, 'Aria', ?, 0, ?, ?)`
+  ).run(relativePath, now, now);
+
+  const app = express();
+  app.use('/static', createStorageStaticMiddleware(storagePath, log, db));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const encoded = relativePath.split('/').map(encodeURIComponent).join('/');
+  const response = await fetch(`${origin}/static/${encoded}`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), PNG_BYTES);
+});
+
 test('project export enforces every configured budget with structured route errors', (t) => {
   const fixture = makeExportFixture(t);
   const baseConfig = { storage: { local_path: fixture.storagePath } };

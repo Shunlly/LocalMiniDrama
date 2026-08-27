@@ -1757,6 +1757,7 @@ module.exports = {
   isGloballyRoutableIp,
   ensureStorageDirectory,
   normalizeStorageRelativeReference,
+  decodeReferencePath,
   openStorageFile,
   writeStorageBuffer,
   writeFileAtomically,
