@@ -1030,7 +1030,7 @@ async function fitCanvasView() {
   const flowApi = canvasFlowApi.value
   if (!flowApi?.fitView) return
   await flowApi.fitView({
-    padding: 0.12,
+    padding: canvasMode.value === 'free' ? 0.28 : 0.12,
     minZoom: canvasMode.value === 'free' ? 0.25 : MIN_READABLE_CANVAS_ZOOM,
     maxZoom: canvasMode.value === 'free' ? 1.2 : 1,
     duration: 250,

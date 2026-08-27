@@ -1109,6 +1109,7 @@ async function captureAcceptanceScreenshots({
     await closeInspector(page)
     await clickUniqueButton(page, '适配视图')
     await clickUniqueButton(page, '缩小画布')
+    await clickUniqueButton(page, '缩小画布')
     await delay(220)
     if (capture.inspectorOpen) {
       const inspectorNode = await exactFreeNode(page, inspectorNodeId)
@@ -1119,6 +1120,7 @@ async function captureAcceptanceScreenshots({
       )
       await delay(250)
       await clickUniqueButton(page, '适配视图')
+      await clickUniqueButton(page, '缩小画布')
       await clickUniqueButton(page, '缩小画布')
       await delay(220)
     }
