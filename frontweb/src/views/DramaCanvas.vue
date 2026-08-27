@@ -1903,7 +1903,10 @@ async function refreshFreeCanvasVideoCapability() {
   }
 }
 
+let ignoreEmptyFreeSelectionUntil = 0
+
 function onSelectionChange({ nodes: selectedNodes = [], edges: selectedEdges = [] }) {
+  if (!selectedNodes.length && Date.now() < ignoreEmptyFreeSelectionUntil) return
   selectedStoryboardIds.value = canvasMode.value === 'production'
     ? selectedNodes
       .filter((node) => node.type === 'canvasStoryboard' && node.data?.storyboard?.id)
@@ -3420,6 +3423,7 @@ function pasteFreeCanvasSelection() {
   selectedFreeNodeIds.value = copiedNodes.map((node) => node.id)
   selectedFreeEdgeIds.value = copiedEdges.map((edge) => edge.id)
   selectedFreeNodeId.value = copiedNodes.length === 1 ? copiedNodes[0].id : null
+  ignoreEmptyFreeSelectionUntil = Date.now() + 1500
   commitFreeCanvasState({
     ...freeCanvas.value,
     nodes: [...freeCanvas.value.nodes, ...copiedNodes],

@@ -378,6 +378,7 @@ function keyboardControllerHarness() {
     dramaId: { value: 7 },
     freeClipboard: null,
     freePasteCount: 0,
+    ignoreEmptyFreeSelectionUntil: 0,
     cloneFreeSelection,
     serializeFreeCanvas,
     normalizeFreeCanvas,

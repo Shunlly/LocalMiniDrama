@@ -1296,6 +1296,16 @@ async function exerciseFreeCanvas({
 
     const fullNodeIds = pasted.nodes.map((node) => String(node.id))
     const fullEdgeIds = pasted.edges.map((edge) => String(edge.id))
+    await page.bringToFront()
+    await page.evaluate(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Delete',
+        code: 'Delete',
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+      }))
+    })
     await page.keyboard.press('Delete')
     const deleted = await waitForPersistedFreeCanvas(
       apiRequest,
