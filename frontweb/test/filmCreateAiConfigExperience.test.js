@@ -163,7 +163,7 @@ test('FilmCreate AI config returns to production and refreshes changed readiness
   const nextTickIndex = closeWatcher.indexOf('await nextTick()')
   const focusIndex = closeWatcher.indexOf('pipelinePanelRef.value?.focusSummary()')
   const awaitRefreshIndex = closeWatcher.indexOf('await refreshPromise')
-  assert.ok(refreshIndex < nextTickIndex && nextTickIndex < focusIndex && focusIndex < awaitRefreshIndex)
+  assert.ok(refreshIndex < awaitRefreshIndex && awaitRefreshIndex < nextTickIndex && nextTickIndex < focusIndex)
   assert.match(closeWatcher, /if \(restorePipelineSummaryFocus\)/)
 })
 

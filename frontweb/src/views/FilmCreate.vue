@@ -3169,11 +3169,11 @@ watch(showAiConfigDialog, async (open) => {
     refreshVideoGenerationCapability(),
     refreshProductionReadiness(),
   ])
+  await refreshPromise
   if (restorePipelineSummaryFocus) {
     await nextTick()
     pipelinePanelRef.value?.focusSummary()
   }
-  await refreshPromise
 })
 const storyInput = ref('')
 const storyStyle = ref('')
