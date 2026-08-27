@@ -885,10 +885,15 @@ async function findBlankPanePoint(page, paneBox) {
 async function openLabeledSelect(page, root, name) {
   const combobox = root.getByRole('combobox', { name, exact: true })
   await assertUniqueLocator(combobox, `${name} combobox`)
-  const select = root.locator('.el-select').filter({ has: combobox }).first()
-  await select.waitFor({ state: 'visible', timeout: DEFAULT_TIMEOUT_MS })
-  await select.click({ force: true })
-  await page.getByRole('listbox').waitFor({ state: 'visible', timeout: DEFAULT_TIMEOUT_MS })
+  await combobox.click({ force: true })
+  const listbox = page.getByRole('listbox')
+  try {
+    await listbox.waitFor({ state: 'visible', timeout: 2500 })
+  } catch (_) {
+    const suffix = root.locator('.el-select__wrapper, .el-select__suffix, .el-select__caret').last()
+    await suffix.click({ force: true })
+    await listbox.waitFor({ state: 'visible', timeout: DEFAULT_TIMEOUT_MS })
+  }
   return combobox
 }
 
