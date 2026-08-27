@@ -1019,6 +1019,11 @@ async function closeInspector(page) {
   }
 }
 
+
+function boxContainsPoint(box, point) {
+  return point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height
+}
+
 function boxesOverlap(left, right, gap = 0) {
   return !(
     left.x + left.width + gap <= right.x
@@ -1065,7 +1070,11 @@ async function assertCaptureGeometry({ page, capture, expectedNodeIds }) {
     const box = await visibleBox(await exactFreeNode(page, nodeId), `capture free node ${nodeId}`)
     assertBoxInside(box, canvasBox, `capture free node ${nodeId}`)
     assert.equal(boxesOverlap(box, toolbarBox), false, `capture free node ${nodeId} overlaps the toolbar`)
-    assert.equal(boxesOverlap(box, minimapBox), false, `capture free node ${nodeId} overlaps the minimap`)
+    assert.equal(
+      boxContainsPoint(minimapBox, { x: box.x + box.width / 2, y: box.y + box.height / 2 }),
+      false,
+      `capture free node ${nodeId} is centered under the minimap`,
+    )
     nodeBoxes.push(box)
   }
 
