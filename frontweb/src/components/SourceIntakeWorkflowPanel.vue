@@ -561,9 +561,12 @@ import {
   sourceTypeLabel,
 } from '@/utils/sourceIntakeAdapter'
 import {
+  SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE,
   assertSourceWorkflowLifecycleActive,
   createSourceImportController,
+  createSourceWorkflowSnapshotController,
   createSourceWorkflowLifecycleGuard,
+  extractCreatedStorySource,
   runGatedQaRemediation,
   selectQaReportForRun,
 } from '@/utils/sourceImportOutcome'
@@ -672,6 +675,7 @@ const pollState = ref('idle')
 const pollError = ref('')
 let pollTimer = null
 let leaveConfirmationOpen = false
+let activeLoadCount = 0
 
 const rawSourceUrl = computed(() => String(form.source_url || '').trim())
 const sourceUrlValidationMessage = computed(() => {
@@ -761,10 +765,17 @@ const flowState = computed(() => buildSourceWorkflowState({
   episodeCount: props.drama?.episodes?.length || 0,
   actionReasons: actionReasons.value,
 }))
+const workflowSnapshotController = createSourceWorkflowSnapshotController({
+  fetchSnapshot: fetchWorkflowSnapshot,
+  applySnapshot: applyWorkflowSnapshot,
+})
 const sourceImportController = createSourceImportController({
-  createSource: () => createSourceFromForm(),
-  fetchSources: () => sourceIntakeAPI.listForDrama(props.dramaId),
-  applySources: (nextSources) => { sources.value = nextSources },
+  createSource: async () => extractCreatedStorySource(await createSourceFromForm()),
+  fetchSources: () => refreshWorkflowSnapshot(),
+  applySources: () => {},
+  confirmCreated: (source, snapshot) => snapshot?.sources?.some(
+    (item) => String(item?.id) === String(source?.id),
+  ),
   clearInput: () => resetSourceInput(),
   onImportStarted: () => {
     sourceOperationMessage.value = ''
@@ -1041,7 +1052,7 @@ async function refreshSelectedRun() {
     pollError.value = ''
     if (!normalizeWorkflowRun(run).active) {
       stopPoll()
-      await Promise.all([loadReports(), loadSources(), loadTimeline()])
+      await refreshWorkflowSnapshot()
       if (!sourceWorkflowLifecycle.isActive()) return
       emitRefresh()
     }
@@ -1066,7 +1077,7 @@ async function resumePolling() {
       return
     }
     pollState.value = 'idle'
-    await Promise.all([loadReports(), loadSources(), loadTimeline()])
+    await refreshWorkflowSnapshot()
     if (!sourceWorkflowLifecycle.isActive()) return
     emitRefresh()
   } catch (error) {
@@ -1080,40 +1091,79 @@ async function loadSources() {
   return sourceImportController.loadSources()
 }
 
-async function loadRuns() {
-  const nextRuns = await workflowRunsAPI.list({ drama_id: props.dramaId, type: 'novel2anime', limit: 10 })
-  if (!sourceWorkflowLifecycle.isActive()) return
+async function fetchWorkflowSnapshot({ generation }) {
+  const dramaId = props.dramaId
+  const readinessPayload = {
+    drama_id: dramaId,
+    qa_mode: 'production',
+    target_episode_count: form.target_episode_count,
+    style: props.drama?.style || '',
+  }
+  const [nextSources, nextRuns, nextReports, nextReadiness, nextTimeline] = await Promise.all([
+    sourceIntakeAPI.listForDrama(dramaId),
+    workflowRunsAPI.list({ drama_id: dramaId, type: 'novel2anime', limit: 10 }),
+    qaReportsAPI.list({ drama_id: dramaId, limit: 10 }),
+    workflowRunsAPI.getNovel2AnimeReadiness(readinessPayload),
+    timelinesAPI.getDramaTimeline(dramaId).catch(() => null),
+  ])
   const latest = nextRuns[0]
   const nextSelectedRun = latest ? await workflowRunsAPI.get(latest.id) : null
-  if (!sourceWorkflowLifecycle.isActive()) return
-  runs.value = nextRuns
-  selectedRun.value = nextSelectedRun
-  startPoll()
-}
-
-async function loadReports() {
-  reports.value = await qaReportsAPI.list({ drama_id: props.dramaId, limit: 10 })
-}
-
-async function loadTimeline() {
-  try {
-    timeline.value = await timelinesAPI.getDramaTimeline(props.dramaId)
-  } catch (_) {
-    timeline.value = null
+  return {
+    dramaId,
+    generation,
+    sources: nextSources,
+    runs: nextRuns,
+    reports: nextReports,
+    readiness: normalizeProductionReadiness(nextReadiness),
+    selectedRun: nextSelectedRun,
+    timeline: nextTimeline,
   }
 }
 
+function applyWorkflowSnapshot(snapshot) {
+  if (!sourceWorkflowLifecycle.isActive() || snapshot.dramaId !== props.dramaId) return
+  sources.value = snapshot.sources
+  runs.value = snapshot.runs
+  reports.value = snapshot.reports
+  productionReadiness.value = snapshot.readiness
+  selectedRun.value = snapshot.selectedRun
+  timeline.value = snapshot.timeline
+  workflowDataError.value = ''
+  startPoll()
+}
+
+async function refreshWorkflowSnapshot() {
+  return workflowSnapshotController.refresh({ dramaId: props.dramaId })
+}
+
+async function refreshAndConfirmRun(runId) {
+  try {
+    const outcome = await refreshWorkflowSnapshot()
+    return outcome.status === 'applied'
+      && outcome.data?.runs?.some((run) => String(run?.id) === String(runId))
+  } catch (_) {
+    return false
+  }
+}
+
+function markWorkflowRefreshUnconfirmed() {
+  sourceImportController.markRefreshUnconfirmed(SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE)
+  sourceOperationMessage.value = SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE
+}
+
 async function loadData() {
-  if (!props.dramaId || loading.value) return
+  if (!props.dramaId) return
+  activeLoadCount += 1
   loading.value = true
   workflowDataError.value = ''
   try {
-    await Promise.all([loadSources(), loadRuns(), loadReports(), loadTimeline()])
-    workflowDataError.value = ''
+    return await refreshWorkflowSnapshot()
   } catch (e) {
     workflowDataError.value = e.message || '加载素材流程状态失败，请稍后重试。'
+    return { status: 'failed', error: e }
   } finally {
-    loading.value = false
+    activeLoadCount -= 1
+    loading.value = activeLoadCount > 0
   }
 }
 
@@ -1239,18 +1289,19 @@ async function startWorkflow() {
       },
     })
     if (!sourceWorkflowLifecycle.isActive()) return
-    selectedRun.value = result.run
-    selectedFlowStepId.value = 'process'
-    if (result.readiness) productionReadiness.value = result.readiness
-    showWorkflowMessage('success', `${workflowModeShortLabel.value} 流程已启动`)
     resetSourceInput()
+    const refreshConfirmed = await refreshAndConfirmRun(result.run.id)
+    if (!sourceWorkflowLifecycle.isActive()) return
+    if (!refreshConfirmed) {
+      markWorkflowRefreshUnconfirmed()
+      return
+    }
+    selectedFlowStepId.value = 'process'
     sourceOperationMessage.value = uploadedFilename
       ? `${uploadedFilename} 上传解析完成，${workflowModeShortLabel.value} 流程已启动。`
       : `${workflowModeShortLabel.value} 流程已启动。`
-    await Promise.all([loadSources(), loadRuns()])
-    if (!sourceWorkflowLifecycle.isActive()) return
+    showWorkflowMessage('success', `${workflowModeShortLabel.value} 流程已启动`)
     emitRefresh()
-    startPoll()
   } catch (e) {
     if (!sourceWorkflowLifecycle.isActive()) return
     if (e?.readiness) productionReadiness.value = e.readiness
@@ -1288,9 +1339,6 @@ async function startWorkflowFromSource(source) {
     },
   })
   assertSourceWorkflowLifecycleActive(sourceWorkflowLifecycle)
-  selectedRun.value = result.run
-  selectedFlowStepId.value = 'process'
-  if (result.readiness) productionReadiness.value = result.readiness
   return result.run
 }
 
@@ -1301,13 +1349,15 @@ async function startExistingSource(source) {
   startingSourceId.value = source.id
   workflowStarting.value = true
   try {
-    await startWorkflowFromSource(source)
+    const run = await startWorkflowFromSource(source)
     if (!sourceWorkflowLifecycle.isActive()) return
+    if (!await refreshAndConfirmRun(run.id)) {
+      markWorkflowRefreshUnconfirmed()
+      return
+    }
+    selectedFlowStepId.value = 'process'
     showWorkflowMessage('success', `已从素材启动 ${workflowModeShortLabel.value} 流程`)
-    await loadRuns()
-    if (!sourceWorkflowLifecycle.isActive()) return
     emitRefresh()
-    startPoll()
   } catch (e) {
     if (!sourceWorkflowLifecycle.isActive()) return
     if (e?.readiness) productionReadiness.value = e.readiness
@@ -1402,7 +1452,7 @@ async function runQaAudit() {
       mode: runState.value.mode,
     })
     if (!sourceWorkflowLifecycle.isActive()) return
-    await loadReports()
+    await refreshWorkflowSnapshot()
     if (!sourceWorkflowLifecycle.isActive()) return
     showWorkflowMessage('success', 'QA 审计已完成')
   } catch (e) {
@@ -1429,16 +1479,30 @@ async function remediateQa() {
     onSucceeded: async (result) => {
       if (!sourceWorkflowLifecycle.isActive()) return
       if (result.workflow_run) {
-        selectedRun.value = result.workflow_run
+        if (!await refreshAndConfirmRun(result.workflow_run.id)) {
+          markWorkflowRefreshUnconfirmed()
+          remediationStatus.value = SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE
+          return
+        }
         const action = result.actions_taken?.[0]?.code || 'workflow'
         remediationStatus.value = `已启动修复：${action}`
         showWorkflowMessage('success', '已启动自动修复流程')
-        startPoll()
       } else {
+        try {
+          const refreshOutcome = await refreshWorkflowSnapshot()
+          if (refreshOutcome.status !== 'applied') {
+            markWorkflowRefreshUnconfirmed()
+            remediationStatus.value = SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE
+            return
+          }
+        } catch (_) {
+          markWorkflowRefreshUnconfirmed()
+          remediationStatus.value = SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE
+          return
+        }
         remediationStatus.value = result.reason || '当前 QA 报告没有可自动执行的修复动作'
         showWorkflowMessage('warning', remediationStatus.value)
       }
-      await Promise.all([loadRuns(), loadReports()])
     },
     onFailed: (error) => {
       if (!sourceWorkflowLifecycle.isActive()) return
@@ -1477,6 +1541,7 @@ async function openSourceDetail(source) {
 
 watch(() => props.drama, syncDefaults, { immediate: true })
 watch(() => props.dramaId, () => {
+  workflowSnapshotController.reset()
   sourceImportController.reset()
   loadData()
 })
@@ -1500,6 +1565,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   sourceWorkflowLifecycle.dispose()
   stopPoll()
+  workflowSnapshotController.reset()
   sourceImportController.reset()
   window.removeEventListener('beforeunload', handleBeforeUnload)
 })

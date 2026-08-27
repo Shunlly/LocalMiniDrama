@@ -122,6 +122,7 @@ export const providerProtocolMap = {
   grok: 'xai',
   jimeng_ai_api: 'jimeng_ai_api',
   jimeng_material_api: '',
+  minimax: 'minimax',
   comfyui: 'comfyui',
 }
 
@@ -150,6 +151,9 @@ export function getProviderProtocol(provider, serviceType = '') {
   if (!provider) return ''
   const p = String(provider).toLowerCase()
   const st = String(serviceType || '').toLowerCase()
+  if (st === 'video' && p === 'openai') return 'sora'
+  if (st === 'video' && (p === 'minimax' || p === 'hailuo')) return 'minimax'
+  if (st === 'video' && (p === 'agnes')) return 'agnes'
   if (st === 'text') return 'openai'
   if ((st === 'image' || st === 'storyboard_image') && openAiCompatibleProviders.has(p)) return 'openai'
   if (st === 'tts' && (p === 'openai' || p === 'openai_compatible')) return 'openai'
@@ -213,6 +217,9 @@ export function getProviderEndpointDefaults(provider, serviceType = '', protocol
   }
   if (st === 'video' && p === 'agnes') {
     return { endpoint: '/videos', query_endpoint: '/videos/{taskId}' }
+  }
+  if (st === 'video' && (p === 'minimax' || proto === 'minimax')) {
+    return { endpoint: '/video_generation', query_endpoint: '/query/video_generation/{taskId}' }
   }
   if (st === 'video' && proto === 'sora') {
     return { endpoint: '/v1/videos', query_endpoint: '/v1/videos/{taskId}' }

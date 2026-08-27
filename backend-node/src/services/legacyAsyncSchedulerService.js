@@ -47,7 +47,9 @@ function createLegacyAsyncScheduler(options = {}) {
   const taskContext = new AsyncLocalStorage();
   const resourceOwners = new Map();
   const setTimeoutFn = options.setTimeoutFn || setTimeout;
+  const clearTimeoutFn = options.clearTimeoutFn || clearTimeout;
   const queueTask = options.queueTask || queueMicrotask;
+  const delayedTimers = new Map();
   const maxHistory = Math.max(20, Number(options.maxHistory) || 200);
 
   let accepting = true;
@@ -246,8 +248,22 @@ function createLegacyAsyncScheduler(options = {}) {
       updateJob(id, { status: 'completed', completed_at: completedAt });
     }
     activeJobs.delete(id);
+    delayedTimers.delete(id);
     trimHistory();
     maybeFinishDrain();
+  }
+
+  function cancel(id) {
+    const timer = delayedTimers.get(id);
+    const current = scheduledJobs.get(id);
+    if (!timer || !current || current.status !== 'queued') return false;
+    clearTimeoutFn(timer);
+    delayedTimers.delete(id);
+    activeJobs.delete(id);
+    updateJob(id, { status: 'cancelled', completed_at: nowIso() });
+    trimHistory();
+    maybeFinishDrain();
+    return true;
   }
 
   function invokeJob(log, id, fn) {
@@ -298,19 +314,32 @@ function createLegacyAsyncScheduler(options = {}) {
 
   function scheduleDelayed(log, label, delayMs, fn, meta = {}) {
     validateTask(fn, 'scheduleDelayedBackgroundTask');
+    assertAccepting();
     const normalizedDelay = Number(delayMs);
     if (!Number.isFinite(normalizedDelay) || normalizedDelay < 0) {
       throw new Error('scheduleDelayedBackgroundTask requires a non-negative delay');
     }
-    return schedule(log, label, () => new Promise((resolve, reject) => {
-      setTimeoutFn(() => {
-        Promise.resolve().then(fn).then(resolve, reject);
+    const normalizedLabel = label || 'delayed_async';
+    const id = registerJob(normalizedLabel, meta, 'queued');
+    try {
+      const timer = setTimeoutFn(() => {
+        delayedTimers.delete(id);
+        if (!activeJobs.has(id)) return;
+        invokeJob(log, id, fn);
       }, normalizedDelay);
-    }), meta);
+      delayedTimers.set(id, timer);
+    } catch (error) {
+      activeJobs.delete(id);
+      scheduledJobs.delete(id);
+      maybeFinishDrain();
+      throw error;
+    }
+    return id;
   }
 
   function shutdown() {
     accepting = false;
+    for (const id of [...delayedTimers.keys()]) cancel(id);
     if (!drainPromise) {
       drainPromise = new Promise((resolve) => {
         resolveDrain = resolve;
@@ -322,6 +351,7 @@ function createLegacyAsyncScheduler(options = {}) {
 
   return {
     assertAccepting,
+    cancel,
     getState,
     runTracked,
     schedule,
@@ -341,6 +371,7 @@ module.exports = {
   getBackgroundTasksState: backgroundTasks.getState,
   runTrackedBackgroundTask: backgroundTasks.runTracked,
   scheduleBackgroundTask: backgroundTasks.schedule,
+  cancelBackgroundTask: backgroundTasks.cancel,
   scheduleDelayedBackgroundTask: backgroundTasks.scheduleDelayed,
   shutdownBackgroundTasks: backgroundTasks.shutdown,
   getLegacyAsyncSchedulerState: backgroundTasks.getState,

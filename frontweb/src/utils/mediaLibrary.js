@@ -1,4 +1,17 @@
 const VIDEO_EXTENSION = /\.(mp4|webm|mov)$/i
+const NETWORK_LIBRARY_MODES = new Set(['local', 'network'])
+const NETWORK_MEDIA_TYPES = new Set(['all', 'image', 'video'])
+const UNKNOWN_LICENSE_VALUES = new Set([
+  'unknown',
+  'unspecified',
+  'unlicensed',
+  '未知',
+  '未注明',
+  '未注明许可',
+  '无许可信息',
+])
+const MAX_NETWORK_KEYWORD_LENGTH = 200
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
 
 function cleanMediaPath(url) {
   return String(url || '').split(/[?#]/, 1)[0]
@@ -48,6 +61,140 @@ export function mediaLibraryAccessState({
     navigationLocked: Boolean(uploading),
     showEntryStrip: Boolean(loading || loadError || Number(itemCount) > 0),
     writeLocked: Boolean(loading || !hasSuccessfulLoad || loadError),
+  }
+}
+
+export function getMediaLibraryDramaId(returnTo = '') {
+  const match = String(returnTo).match(/^\/film\/([1-9]\d*)(?:\/canvas)?(?:[?#]|$)/)
+  if (!match) return null
+  const dramaId = Number(match[1])
+  return Number.isSafeInteger(dramaId) ? dramaId : null
+}
+
+function firstQueryValue(value) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+function normalizeNetworkChoice(value, allowedValues, fallback) {
+  const candidate = firstQueryValue(value)
+  return typeof candidate === 'string' && allowedValues.has(candidate) ? candidate : fallback
+}
+
+function normalizeNetworkKeyword(value) {
+  const candidate = firstQueryValue(value)
+  if (typeof candidate !== 'string' || CONTROL_CHARACTERS.test(candidate)) return ''
+  return candidate.trim().slice(0, MAX_NETWORK_KEYWORD_LENGTH)
+}
+
+export function normalizeMediaLibraryNetworkRoute(query = {}) {
+  return {
+    mode: normalizeNetworkChoice(query?.source, NETWORK_LIBRARY_MODES, 'local'),
+    keyword: normalizeNetworkKeyword(query?.network_q),
+    type: normalizeNetworkChoice(query?.network_type, NETWORK_MEDIA_TYPES, 'all'),
+  }
+}
+
+export function mergeMediaLibraryNetworkRoute(query = {}, state = {}) {
+  const nextQuery = query && typeof query === 'object' ? { ...query } : {}
+  delete nextQuery.source
+  delete nextQuery.network_q
+  delete nextQuery.network_type
+
+  const normalized = normalizeMediaLibraryNetworkRoute({
+    source: state.mode,
+    network_q: state.keyword,
+    network_type: state.type,
+  })
+  if (normalized.mode === 'network') nextQuery.source = 'network'
+  if (normalized.keyword) nextQuery.network_q = normalized.keyword
+  if (normalized.type !== 'all') nextQuery.network_type = normalized.type
+  return nextQuery
+}
+
+function isAuditableHttpsUrl(value) {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && !url.username && !url.password
+  } catch (_) {
+    return false
+  }
+}
+
+export function getNetworkAssetImportability(item = {}) {
+  if (!isAuditableHttpsUrl(item?.source_url)) {
+    return { allowed: false, reason: '缺少可审计的 HTTPS 来源链接' }
+  }
+
+  const license = String(item?.license || '').trim()
+  if (!license || UNKNOWN_LICENSE_VALUES.has(license.toLowerCase())) {
+    return { allowed: false, reason: '许可信息未知，禁止导入' }
+  }
+  if (!isAuditableHttpsUrl(item?.license_url)) {
+    return { allowed: false, reason: '缺少可审计的 HTTPS 许可链接' }
+  }
+  return { allowed: true, reason: '' }
+}
+
+export function hasPendingMediaLibraryOperations(uploading = false, activeNetworkImports = null) {
+  return Boolean(uploading) || Number(activeNetworkImports?.size || 0) > 0
+}
+
+export function getNetworkAssetCardImageUrl(item = {}) {
+  return String(item?.thumbnail_url || item?.download_url || '').trim()
+}
+
+export function getNetworkAssetPreviewUrl(item = {}) {
+  if (item?.media_type === 'video') return String(item?.download_url || '').trim()
+  return String(item?.download_url || item?.thumbnail_url || '').trim()
+}
+
+export async function importNetworkAssetAndConfirm({
+  item,
+  dramaId = null,
+  importAsset,
+  confirmAsset,
+  reload,
+} = {}) {
+  const importability = getNetworkAssetImportability(item)
+  if (!importability.allowed) {
+    const error = new Error(importability.reason)
+    error.code = 'NETWORK_ASSET_NOT_AUDITABLE'
+    throw error
+  }
+  const payload = Number.isSafeInteger(dramaId) && dramaId > 0
+    ? { ...(item || {}), drama_id: dramaId }
+    : { ...(item || {}) }
+  const asset = await importAsset(payload)
+  let confirmation
+  try {
+    confirmation = Number.isSafeInteger(Number(asset?.id))
+      ? await confirmAsset(asset.id)
+      : null
+  } catch (error) {
+    confirmation = { error }
+  }
+  let refresh
+  try {
+    refresh = await reload()
+  } catch (error) {
+    refresh = { status: 'failed', error }
+  }
+  return {
+    asset,
+    confirmation,
+    refresh,
+    confirmed: Number.isSafeInteger(Number(asset?.id))
+      && Number(confirmation?.id) === Number(asset.id),
+  }
+}
+
+export async function runMediaOperationOnce(activeKeys, key, operation) {
+  if (!key || activeKeys.has(key)) return { started: false }
+  activeKeys.add(key)
+  try {
+    return { started: true, value: await operation() }
+  } finally {
+    activeKeys.delete(key)
   }
 }
 

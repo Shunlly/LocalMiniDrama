@@ -420,6 +420,29 @@ describe('aiConfigService secret handling', () => {
       db.prepare('SELECT id FROM ai_service_configs WHERE deleted_at IS NULL AND is_default = 1').all(),
       [{ id: first.id }]
     );
+
+    db.exec(`
+      CREATE TRIGGER reject_default_update
+      BEFORE UPDATE ON ai_service_configs
+      WHEN NEW.name = 'forced-update-failure'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced update failure');
+      END;
+    `);
+    assert.throws(
+      () => aiConfigService.updateConfig(db, log, second.id, {
+        name: 'forced-update-failure',
+        is_default: true,
+      }),
+      /forced update failure/
+    );
+    db.exec('DROP TRIGGER reject_default_update');
+    assert.deepEqual(
+      db.prepare('SELECT id FROM ai_service_configs WHERE deleted_at IS NULL AND is_default = 1').all(),
+      [{ id: first.id }]
+    );
+    assert.equal(db.prepare('SELECT is_default FROM ai_service_configs WHERE id = ?').get(second.id).is_default, 0);
+
     assert.throws(
       () => db.prepare('UPDATE ai_service_configs SET is_default = 1 WHERE id = ?').run(second.id),
       /UNIQUE constraint failed/

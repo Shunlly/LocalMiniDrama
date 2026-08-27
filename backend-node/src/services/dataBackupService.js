@@ -541,7 +541,17 @@ function assertMaintenanceLockRecoverable(lock, lockStat, options = {}) {
     return true;
   }
 
-  if (currentScope.explicit && LEGACY_DOCKER_OWNER_SCOPE_PATTERN.test(lock.ownerScope)) {
+  // 过期的 linux:<hex>:pid:[...] 锁只能由操作员确认后回收。
+  // Docker 默认显式作用域不得把容器 hostname 形态的 native 锁当成可自动迁移对象，
+  // 否则暂停中的旧容器仍可能与新实例双写同一数据目录。
+
+  // 操作员显式确认后，允许回收过期的跨命名空间服务/恢复租约；自动启动路径仍失败关闭。
+  if (
+    typeof options.expectedOwnerScope === 'string' && options.expectedOwnerScope &&
+    Number.isInteger(options.expectedPid) && options.expectedPid > 0 &&
+    lock.ownerScope === options.expectedOwnerScope &&
+    Number(lock.pid) === options.expectedPid
+  ) {
     return true;
   }
 
@@ -936,6 +946,7 @@ function acquireMaintenanceRecoveryClaimSync(databasePath, options = {}) {
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const token = randomSuffix();
+    // 必须传未解析的 ownerScope。原生 Linux pid 命名空间含方括号，不能当作显式作用域。
     const payload = maintenanceLockPayload('restore', token, new Date(), options.ownerScope);
     let fd;
     try {
@@ -971,7 +982,14 @@ function acquireMaintenanceRecoveryClaimSync(databasePath, options = {}) {
         throw backupError('MAINTENANCE_LOCK_INVALID', 'Maintenance recovery lease is not a regular file.');
       }
       const current = readJsonFileSync(recoveryLockPath, 'MAINTENANCE_LOCK_INVALID');
-      assertMaintenanceLockRecoverable(current, claimStat, options);
+      // 回收恢复租约时不得把原生 pid 命名空间当作显式作用域；过期租约按自身 owner/pid 确认。
+      assertMaintenanceLockRecoverable(current, claimStat, {
+        ownerScope: options.ownerScope,
+        expectedOwnerScope: current?.ownerScope,
+        expectedPid: Number(current?.pid),
+        lockStaleMs: options.lockStaleMs,
+        nowMs: options.nowMs,
+      });
 
       const staleIdentity = maintenanceLeaseFileIdentity(claimStat);
       let staleClaim;
@@ -1277,7 +1295,7 @@ function releaseRuntimeServiceLocksOnExit() {
   }
 }
 
-function createExternalMaintenanceLease(lock) {
+function serviceMaintenanceLease(lock) {
   const payload = lock?.payload;
   if (
     !lock || lock.released || lock.heartbeatError || !payload || payload.version !== MAINTENANCE_LOCK_VERSION ||
@@ -1288,6 +1306,7 @@ function createExternalMaintenanceLease(lock) {
   ) {
     throw backupError('MAINTENANCE_LEASE_INVALID', 'An active service maintenance guard is required.');
   }
+  assertServiceMaintenanceLockPath(lock);
   let descriptorStat;
   try {
     descriptorStat = fs.fstatSync(lock.fd, { bigint: true });
@@ -1308,7 +1327,15 @@ function createExternalMaintenanceLease(lock) {
     token: payload.token,
     version: payload.version,
   });
-  const validatedLease = assertExternalMaintenanceLeaseState(lock.lockPath, lease);
+  return assertExternalMaintenanceLeaseState(lock.lockPath, lease);
+}
+
+function assertServiceMaintenanceLockActiveSync(lock) {
+  return serviceMaintenanceLease(lock);
+}
+
+function createExternalMaintenanceLease(lock) {
+  const validatedLease = serviceMaintenanceLease(lock);
   lock.externalLeaseIssued = true;
   return validatedLease;
 }
@@ -3984,6 +4011,7 @@ module.exports = {
   DEFAULT_LIMITS,
   DataBackupError,
   acquireServiceMaintenanceLockSync,
+  assertServiceMaintenanceLockActiveSync,
   assertServiceStopped,
   createExternalMaintenanceLease,
   createDataBackup,

@@ -1,4 +1,7 @@
 function list(db, query) {
+  if (query.drama_id && !require('./dramaWriteGuard').canReadDrama(db, Number(query.drama_id))) {
+    return { items: [], total: 0, page: 1, pageSize: Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20)) };
+  }
   let sql = 'FROM image_generations WHERE deleted_at IS NULL';
   const params = [];
   if (query.drama_id) {
@@ -17,13 +20,12 @@ function list(db, query) {
     sql += ' AND status = ?';
     params.push(query.status);
   }
-  const countRow = db.prepare('SELECT COUNT(*) as total ' + sql).get(...params);
-  const total = countRow.total || 0;
   const page = Math.max(1, parseInt(query.page, 10) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20));
   const offset = (page - 1) * pageSize;
-  const rows = db.prepare('SELECT * ' + sql + ' ORDER BY created_at DESC LIMIT ? OFFSET ?').all(...params, pageSize, offset);
-  return { items: rows.map(rowToItem), total, page, pageSize };
+  const rows = db.prepare('SELECT * ' + sql + ' ORDER BY created_at DESC, id DESC').all(...params);
+  const visible = rows.filter((row) => require('./dramaWriteGuard').canReadResource(db, 'image_generations', row.id));
+  return { items: visible.slice(offset, offset + pageSize).map(rowToItem), total: visible.length, page, pageSize };
 }
 
 function rowToItem(r) {
@@ -49,6 +51,12 @@ function rowToItem(r) {
 }
 
 function getById(db, id) {
+  if (!require('./dramaWriteGuard').canReadResource(db, 'image_generations', id)) return null;
+  const r = db.prepare('SELECT * FROM image_generations WHERE id = ? AND deleted_at IS NULL').get(Number(id));
+  return r ? rowToItem(r) : null;
+}
+
+function getByIdAfterScopeValidation(db, id) {
   const r = db.prepare('SELECT * FROM image_generations WHERE id = ? AND deleted_at IS NULL').get(Number(id));
   return r ? rowToItem(r) : null;
 }
@@ -64,6 +72,58 @@ const promptI18n = require('./promptI18n');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 
 const LAST_FRAME_TYPES = new Set(['last', 'storyboard_last', 'tail', 'last_frame']);
+
+function imageTaskCancelled(error, signal) {
+  return signal?.aborted || error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
+}
+
+function removeUncommittedImage(storagePath, localPath, log) {
+  if (!storagePath || !localPath) return;
+  try {
+    const resolved = uploadService.resolveStorageReference(storagePath, localPath, { allowMissing: true });
+    if (resolved?.absolutePath) uploadService.removeFile(resolved.absolutePath, log);
+  } catch (error) {
+    log?.warn?.('[图生] 清理未提交图片失败', { local_path: localPath, error: error.message });
+  }
+}
+
+async function persistImageFailure(db, row, message) {
+  const errorMessage = String(message || '图片生成失败').slice(0, 500);
+  const mutation = (now) => {
+    db.prepare(
+      `UPDATE image_generations SET status = 'failed', error_msg = ?, updated_at = ?
+        WHERE id = ? AND status IN ('pending', 'processing')`
+    ).run(errorMessage, now, row.id);
+    if (row.scene_id != null) {
+      try { db.prepare('UPDATE scenes SET error_msg = ?, updated_at = ? WHERE id = ?').run(errorMessage, now, row.scene_id); } catch (_) {}
+    }
+    if (row.storyboard_id != null) {
+      try { db.prepare('UPDATE storyboards SET error_msg = ?, updated_at = ? WHERE id = ?').run(errorMessage, now, row.storyboard_id); } catch (_) {}
+    }
+  };
+  if (row.task_id) {
+    return taskService.failTaskAfterCancellationDecision(db, row.task_id, errorMessage, mutation);
+  }
+  const now = new Date().toISOString();
+  db.transaction(() => mutation(now))();
+  return true;
+}
+
+function runImageTaskMutation(db, row, signal, mutation) {
+  if (row.task_id) return taskService.runTaskMutation(db, row.task_id, signal, mutation);
+  return db.transaction(mutation)();
+}
+
+function assertImageTaskActive(db, row, signal) {
+  if (row.task_id) return taskService.throwIfTaskInactive(db, row.task_id, signal);
+  if (signal?.aborted) {
+    const error = new Error('操作已取消');
+    error.name = 'AbortError';
+    error.code = 'OPERATION_CANCELLED';
+    throw error;
+  }
+  return null;
+}
 
 function isLastFrameType(frameType) {
   if (frameType == null || frameType === '') return false;
@@ -127,6 +187,7 @@ async function splitQuadGridToImages(db, log, originalRow, absLocalPath, storage
     const base = path.basename(absLocalPath, ext);
     const now = new Date().toISOString();
     for (const q of quadrants) {
+      let publishedPanelPath = null;
       try {
         const panelFilename = `${base}_panel${q.idx}${ext}`;
         // 绝对路径（文件写入）
@@ -143,7 +204,8 @@ async function splitQuadGridToImages(db, log, originalRow, absLocalPath, storage
           .composite([{ input: Buffer.from(labelSvg, 'utf8'), top: 0, left: 0 }])
           .jpeg({ quality: 92 })
           .toBuffer();
-        fs.writeFileSync(absPanelPath, panelBuf);
+        uploadService.writeStorageBuffer(storagePath, relPanelPath, panelBuf);
+        publishedPanelPath = absPanelPath;
         // 推导远端 URL（与原图同目录，只替换文件名）
         const panelImageUrl = imageUrl_
           ? imageUrl_.replace(/[^/\\]+$/, panelFilename)
@@ -167,6 +229,7 @@ async function splitQuadGridToImages(db, log, originalRow, absLocalPath, storage
         );
         log.info(`[四宫格拆分] 面板 ${q.idx}(${labels[q.idx]}) 已保存`, { rel_path: relPanelPath });
       } catch (panelErr) {
+        if (publishedPanelPath) uploadService.removeFile(publishedPanelPath, log);
         log.warn(`[四宫格拆分] 面板 ${q.idx} 失败`, { error: panelErr.message });
       }
     }
@@ -180,7 +243,7 @@ async function splitQuadGridToImages(db, log, originalRow, absLocalPath, storage
  * 四宫格模式：用 AI 生成 4 个帧提示词，拼成四宫格格式的单张图片提示词
  * 让 AI 图片生成模型直接输出一张 2×2 四格序列图
  */
-async function buildQuadGridPrompt(db, log, cfg, storyboardId, model) {
+async function buildQuadGridPrompt(db, log, cfg, storyboardId, model, signal) {
   // 在函数内部 require，避免循环依赖
   const framePromptService = require('./framePromptService');
   const sb = framePromptService.loadStoryboard(db, storyboardId);
@@ -203,10 +266,10 @@ async function buildQuadGridPrompt(db, log, cfg, storyboardId, model) {
     angles: QUAD_PANEL_ANGLES,
   });
   const [first, key1, key2, last] = await Promise.all([
-    framePromptService.generateSingleFrameExported(db, log, cfg, sbFirst, scene, characterNames, model || undefined, 'first'),
-    framePromptService.generateSingleFrameExported(db, log, cfg, sbKey1, scene, characterNames, model || undefined, 'key'),
-    framePromptService.generateSingleFrameExported(db, log, cfg, sbKey2, scene, characterNames, model || undefined, 'key'),
-    framePromptService.generateSingleFrameExported(db, log, cfg, sbLast, scene, characterNames, model || undefined, 'last'),
+    framePromptService.generateSingleFrameExported(db, log, cfg, sbFirst, scene, characterNames, model || undefined, 'first', { signal }),
+    framePromptService.generateSingleFrameExported(db, log, cfg, sbKey1, scene, characterNames, model || undefined, 'key', { signal }),
+    framePromptService.generateSingleFrameExported(db, log, cfg, sbKey2, scene, characterNames, model || undefined, 'key', { signal }),
+    framePromptService.generateSingleFrameExported(db, log, cfg, sbLast, scene, characterNames, model || undefined, 'last', { signal }),
   ]);
   log.info('[四宫格] 4帧提示词生成完成', { storyboard_id: storyboardId });
   log.info('[四宫格] first.prompt:\n' + first.prompt);
@@ -243,7 +306,7 @@ CRITICAL LAYOUT RULES: The image MUST be divided into 4 equal quadrants in a 2x2
  * 九宫格模式：用 AI 生成 9 个帧提示词，拼成 3×3 格序列图提示词
  * 9 个面板各用一种不同相机角度，覆盖常见电影视角，供用户挑选最佳构图
  */
-async function buildNineGridPrompt(db, log, cfg, storyboardId, model) {
+async function buildNineGridPrompt(db, log, cfg, storyboardId, model, signal) {
   const framePromptService = require('./framePromptService');
   const sb = framePromptService.loadStoryboard(db, storyboardId);
   if (!sb) return null;
@@ -270,7 +333,7 @@ async function buildNineGridPrompt(db, log, cfg, storyboardId, model) {
   log.info('[九宫格] 开始生成9帧提示词（九种相机角度）', { storyboard_id: storyboardId, angles: NINE_PANEL_ANGLES });
   const frames = await Promise.all(
     sbVariants.map((sbv, i) =>
-      framePromptService.generateSingleFrameExported(db, log, cfg, sbv, scene, characterNames, model || undefined, frameKinds[i])
+      framePromptService.generateSingleFrameExported(db, log, cfg, sbv, scene, characterNames, model || undefined, frameKinds[i], { signal })
     )
   );
   log.info('[九宫格] 9帧提示词生成完成', { storyboard_id: storyboardId });
@@ -348,6 +411,7 @@ async function splitNineGridToImages(db, log, originalRow, absLocalPath, storage
     const base = path.basename(absLocalPath, ext);
     const now = new Date().toISOString();
     for (const c of cells) {
+      let publishedPanelPath = null;
       try {
         const panelFilename = `${base}_panel${c.idx}${ext}`;
         const absPanelPath = path.join(absDir, panelFilename);
@@ -361,7 +425,8 @@ async function splitNineGridToImages(db, log, originalRow, absLocalPath, storage
           .composite([{ input: Buffer.from(labelSvg, 'utf8'), top: 0, left: 0 }])
           .jpeg({ quality: 92 })
           .toBuffer();
-        fs.writeFileSync(absPanelPath, panelBuf);
+        uploadService.writeStorageBuffer(storagePath, relPanelPath, panelBuf);
+        publishedPanelPath = absPanelPath;
         const panelImageUrl = imageUrl_ ? imageUrl_.replace(/[^/\\]+$/, panelFilename) : null;
         db.prepare(
           `INSERT INTO image_generations (storyboard_id, drama_id, scene_id, provider, prompt, model, frame_type, image_url, local_path, status, created_at, updated_at, completed_at)
@@ -380,6 +445,7 @@ async function splitNineGridToImages(db, log, originalRow, absLocalPath, storage
         );
         log.info(`[九宫格拆分] 面板 ${c.idx}(${labels[c.idx]}) 已保存`, { rel_path: relPanelPath });
       } catch (panelErr) {
+        if (publishedPanelPath) uploadService.removeFile(publishedPanelPath, log);
         log.warn(`[九宫格拆分] 面板 ${c.idx} 失败`, { error: panelErr.message });
       }
     }
@@ -454,7 +520,9 @@ async function normalizeLocalImageToTargetSize(absPath, sizeStr, log, meta) {
     } else {
       buf = await pipeline.jpeg({ quality: 92 }).toBuffer();
     }
-    fs.writeFileSync(absPath, buf);
+    uploadService.writeFileAtomically(absPath, (stagedPath) => {
+      fs.writeFileSync(stagedPath, buf, { flag: 'wx' });
+    });
     log.info('[图生] 已对齐输出尺寸', {
       ...meta,
       target: `${dim.w}x${dim.h}`,
@@ -508,8 +576,8 @@ async function normalizeSavedImageToTargetPixels(absPath, sizeStr, log, ctx) {
     } else {
       await pipeline.jpeg({ quality: 92, mozjpeg: true }).toFile(tmp);
     }
-    fs.unlinkSync(absPath);
-    fs.renameSync(tmp, absPath);
+    const publication = uploadService.publishStagedFile(tmp, absPath);
+    publication.commit();
     log.info('[图生] letterbox 校正完成', { ...ctx });
   } catch (e) {
     log.warn('[图生] 输出尺寸校正失败（保留原图）', { ...ctx, error: e.message });
@@ -615,7 +683,7 @@ function create(db, log, req) {
         db.prepare('UPDATE image_generations SET drama_id = ?, updated_at = ? WHERE id = ?')
           .run(existingScope.dramaId, now, existing.id);
       }
-      return { ...getById(db, existing.id), idempotent_reuse: true };
+      return { ...getByIdAfterScopeValidation(db, existing.id), idempotent_reuse: true };
     }
   }
   const task = taskService.createTask(db, log, 'image_generation', String(dramaId || ''));
@@ -667,7 +735,7 @@ function create(db, log, req) {
       processImageGeneration(db, log, imageGenId);
     }, { image_generation_id: imageGenId, task_id: taskId, drama_id: dramaId });
   }
-  return { id: imageGenId, task_id: taskId, status: 'pending', ...getById(db, imageGenId) };
+  return { id: imageGenId, task_id: taskId, status: 'pending', ...getByIdAfterScopeValidation(db, imageGenId) };
 }
 
 async function createAndProcessImage(db, log, req) {
@@ -744,6 +812,12 @@ async function processImageGeneration(db, log, imageGenId) {
     log.info('[图生] 已被处理，跳过', { id: imageGenId, status: row.status });
     return;
   }
+  const signal = row.task_id ? taskService.ensureTaskOperation(row.task_id).signal : null;
+  let uncommittedStoragePath = null;
+  let uncommittedLocalPath = null;
+  let stagedStoryboardCharacters = null;
+  let stagedPolishedPrompt = null;
+  let stagedContinuitySnapshot = null;
 
   log.info('[图生] ▶ 开始', {
     id: imageGenId,
@@ -756,7 +830,12 @@ async function processImageGeneration(db, log, imageGenId) {
 
   const now = new Date().toISOString();
   try {
-    db.prepare('UPDATE image_generations SET status = ?, updated_at = ? WHERE id = ?').run('processing', now, imageGenId);
+    runImageTaskMutation(db, row, signal, () => {
+      const changed = db.prepare(
+        "UPDATE image_generations SET status = 'processing', updated_at = ? WHERE id = ? AND status = 'pending'"
+      ).run(now, imageGenId);
+      if (changed.changes !== 1) throw new Error('图片生成状态已发生变化');
+    });
     const imageServiceType = row.storyboard_id ? 'storyboard_image' : 'image';
 
     // ── 四宫格模式：先生成4帧提示词，再拼装组合提示词 ──────────────────
@@ -785,18 +864,17 @@ async function processImageGeneration(db, log, imageGenId) {
           if (cachedRow?.prompt) {
             log.info('[图生] 旧版单一角度缓存已作废，重新生成多角度提示词', { id: imageGenId });
           }
-          quadPrompt = await buildQuadGridPrompt(db, log, cfg, row.storyboard_id, row.model);
+          quadPrompt = await buildQuadGridPrompt(db, log, cfg, row.storyboard_id, row.model, signal);
           if (quadPrompt) {
             log.info('[图生] 四宫格提示词已生成（新）', { id: imageGenId, prompt_len: quadPrompt.length });
           }
         }
 
         if (quadPrompt) {
-          db.prepare('UPDATE image_generations SET prompt = ?, updated_at = ? WHERE id = ?')
-            .run(quadPrompt, new Date().toISOString(), imageGenId);
           row.prompt = quadPrompt;
         }
       } catch (quadErr) {
+        if (imageTaskCancelled(quadErr, signal)) throw quadErr;
         log.warn('[图生] 四宫格提示词生成失败，使用原始提示词', { id: imageGenId, error: quadErr.message });
       }
     }
@@ -825,18 +903,17 @@ async function processImageGeneration(db, log, imageGenId) {
           if (cachedRow?.prompt) {
             log.info('[图生] 旧版九宫格缓存已作废，重新生成多角度提示词', { id: imageGenId });
           }
-          ninePrompt = await buildNineGridPrompt(db, log, cfg, row.storyboard_id, row.model);
+          ninePrompt = await buildNineGridPrompt(db, log, cfg, row.storyboard_id, row.model, signal);
           if (ninePrompt) {
             log.info('[图生] 九宫格提示词已生成（新）', { id: imageGenId, prompt_len: ninePrompt.length });
           }
         }
 
         if (ninePrompt) {
-          db.prepare('UPDATE image_generations SET prompt = ?, updated_at = ? WHERE id = ?')
-            .run(ninePrompt, new Date().toISOString(), imageGenId);
           row.prompt = ninePrompt;
         }
       } catch (nineErr) {
+        if (imageTaskCancelled(nineErr, signal)) throw nineErr;
         log.warn('[图生] 九宫格提示词生成失败，使用原始提示词', { id: imageGenId, error: nineErr.message });
       }
     }
@@ -845,10 +922,7 @@ async function processImageGeneration(db, log, imageGenId) {
     const config = imageClient.getDefaultImageConfig(db, row.model, null, imageServiceType);
     if (!config) {
       log.error('[图生] ✗ 未找到图片 AI 配置', { id: imageGenId, imageServiceType, elapsed: elapsed() });
-      db.prepare('UPDATE image_generations SET status = ?, error_msg = ?, updated_at = ? WHERE id = ?').run(
-        'failed', '未配置图片模型', new Date().toISOString(), imageGenId
-      );
-      if (row.task_id) taskService.updateTaskError(db, row.task_id, '未配置图片模型');
+      await persistImageFailure(db, row, '未配置图片模型');
       return;
     }
     log.info('[图生] Step1 AI配置', {
@@ -1137,9 +1211,8 @@ async function processImageGeneration(db, log, imageGenId) {
                   try { charList = JSON.parse(sbCharRow?.characters || '[]'); } catch (_) { charList = []; }
                   if (!charList.find((c) => Number(typeof c === 'object' && c != null ? c.id : c) === dChar.id)) {
                     charList.push({ id: dChar.id, name: dChar.name });
-                    db.prepare('UPDATE storyboards SET characters = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
-                      .run(JSON.stringify(charList), new Date().toISOString(), Number(row.storyboard_id));
-                    log.info('[图生] Step2.1 已将角色写入 storyboards.characters', { id: imageGenId, name: dChar.name });
+                    stagedStoryboardCharacters = JSON.stringify(charList);
+                    log.info('[图生] Step2.1 已暂存角色关联，待图片成功后提交', { id: imageGenId, name: dChar.name });
                   }
                 } catch (_) {}
               }
@@ -1411,19 +1484,11 @@ async function processImageGeneration(db, log, imageGenId) {
             scene_key: 'image_polish',
             max_tokens: 300,
             temperature: 0.3,
+            signal,
           });
           if (polishedPrompt && polishedPrompt.trim().length > 10) {
             finalPrompt = polishedPrompt.trim();
-            const nowIso = new Date().toISOString();
-            db.prepare('UPDATE image_generations SET prompt = ?, updated_at = ? WHERE id = ?').run(
-              finalPrompt, nowIso, imageGenId
-            );
-            // 回写到 storyboards.polished_prompt（原始 image_prompt 保持不变，供对比查看）
-            try {
-              db.prepare('UPDATE storyboards SET polished_prompt = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL').run(
-                finalPrompt, nowIso, Number(row.storyboard_id)
-              );
-            } catch (_) {}
+            stagedPolishedPrompt = finalPrompt;
             log.info('[图生] Step3.5 prompt 优化完成', {
               id: imageGenId,
               original_len: row.prompt.length,
@@ -1435,33 +1500,36 @@ async function processImageGeneration(db, log, imageGenId) {
               elapsed: elapsed(),
             });
 
-            // 异步提取本镜头连戏状态快照，存入 continuity_snapshot（不阻塞图生主流程）
+            // 连戏快照先暂存，和最终图片绑定在同一事务中提交，避免取消留下半成品。
             if (row.storyboard_id) {
-              const sbIdForCont = Number(row.storyboard_id);
               const snapshotPrompt = promptI18n.getContinuitySnapshotPrompt();
               const snapshotUserPrompt = [`PROMPT: ${finalPrompt}`, `ASSETS: ${assetNames || 'none'}`].join('\n');
-              aiClient.generateText(db, log, 'text', snapshotUserPrompt, snapshotPrompt, {
-                scene_key: 'image_polish',
-                max_tokens: 200,
-                temperature: 0.1,
-              }).then((snapshotJson) => {
-                if (!snapshotJson?.trim()) return;
-                // 清理可能的 markdown 代码块包裹
-                const cleaned = snapshotJson.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-                try {
-                  JSON.parse(cleaned); // 验证合法 JSON
-                  db.prepare('UPDATE storyboards SET continuity_snapshot = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL').run(
-                    cleaned, new Date().toISOString(), sbIdForCont
-                  );
-                  log.info('[图生] Step3.5 连戏快照已保存', { id: imageGenId, storyboard_id: sbIdForCont });
-                } catch (_) {
-                  log.warn('[图生] Step3.5 连戏快照 JSON 解析失败，跳过', { id: imageGenId, preview: cleaned.slice(0, 100) });
+              try {
+                const snapshotJson = await aiClient.generateText(db, log, 'text', snapshotUserPrompt, snapshotPrompt, {
+                  scene_key: 'image_polish',
+                  max_tokens: 200,
+                  temperature: 0.1,
+                  signal,
+                });
+                if (snapshotJson?.trim()) {
+                  const cleaned = snapshotJson.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+                  try {
+                    JSON.parse(cleaned);
+                    stagedContinuitySnapshot = cleaned;
+                    log.info('[图生] Step3.5 连戏快照已暂存', { id: imageGenId, storyboard_id: row.storyboard_id });
+                  } catch (_) {
+                    log.warn('[图生] Step3.5 连戏快照 JSON 解析失败，跳过', { id: imageGenId, preview: cleaned.slice(0, 100) });
+                  }
                 }
-              }).catch(() => {});
+              } catch (snapshotError) {
+                if (imageTaskCancelled(snapshotError, signal)) throw snapshotError;
+                log.warn('[图生] Step3.5 连戏快照生成失败，跳过', { id: imageGenId, error: snapshotError.message });
+              }
             }
           }
         }
       } catch (polishErr) {
+        if (imageTaskCancelled(polishErr, signal)) throw polishErr;
         log.warn('[图生] Step3.5 prompt 优化失败，使用原始 prompt', { id: imageGenId, error: polishErr.message });
       }
     }
@@ -1540,22 +1608,14 @@ async function processImageGeneration(db, log, imageGenId) {
       negative_prompt: row.negative_prompt || undefined,
       frame_identity_lock: isFrameIdentityLock,
       idempotency_key: row.idempotency_key || undefined,
+      signal,
     });
     log.info('[图生] Step4 图生 API 返回', { id: imageGenId, api_ms: Date.now() - tApi, has_error: !!result.error, elapsed: elapsed() });
 
     const now2 = new Date().toISOString();
     if (result.error) {
-      db.prepare('UPDATE image_generations SET status = ?, error_msg = ?, updated_at = ? WHERE id = ?').run(
-        'failed', (result.error || '').slice(0, 500), now2, imageGenId
-      );
-      if (row.task_id) taskService.updateTaskError(db, row.task_id, result.error);
+      await persistImageFailure(db, row, result.error);
       log.error('[图生] ✗ API返回错误', { id: imageGenId, error: result.error, total_elapsed: elapsed() });
-      if (row.scene_id != null) {
-        try { db.prepare('UPDATE scenes SET error_msg = ?, updated_at = ? WHERE id = ?').run(result.error, now2, row.scene_id); } catch (_) {}
-      }
-      if (row.storyboard_id != null) {
-        try { db.prepare('UPDATE storyboards SET error_msg = ?, updated_at = ? WHERE id = ?').run(result.error, now2, row.storyboard_id); } catch (_) {}
-      }
       return;
     }
 
@@ -1563,21 +1623,27 @@ async function processImageGeneration(db, log, imageGenId) {
     log.info('[图生] Step5 保存到本地 →', { id: imageGenId, elapsed: elapsed() });
     const tSave = Date.now();
     let localPath = null;
+    let storagePath = null;
     try {
-      const storagePath = path.isAbsolute(cfg.storage?.local_path)
+      storagePath = path.isAbsolute(cfg.storage?.local_path)
         ? cfg.storage.local_path
         : path.join(process.cwd(), cfg.storage?.local_path || './data/storage');
       const category =
         row.scene_id != null ? 'scenes' : row.character_id != null ? 'characters' : 'images';
       const projectSubdir = storageLayout.getProjectStorageSubdir(db, row.drama_id);
-      localPath = await uploadService.downloadImageToLocal(
+      localPath = await imageClient.downloadImageToLocalAbortable(
         storagePath,
         result.image_url,
         category,
         log,
         'ig',
-        projectSubdir
+        projectSubdir,
+        signal
       );
+      if (!localPath) throw new Error('图片下载到本地失败');
+      uncommittedStoragePath = storagePath;
+      uncommittedLocalPath = localPath;
+      assertImageTaskActive(db, row, signal);
       if (localPath && imageSize) {
         const absImg = path.join(storagePath, localPath);
         await normalizeLocalImageToTargetSize(absImg, imageSize, log, { id: imageGenId });
@@ -1595,7 +1661,8 @@ async function processImageGeneration(db, log, imageGenId) {
         await normalizeSavedImageToTargetPixels(absNorm, imageSize, log, { id: imageGenId, size: imageSize });
       }
     } catch (saveErr) {
-      log.warn('[图生] Step5 保存失败（不影响结果）', { id: imageGenId, err: saveErr.message, elapsed: elapsed() });
+      if (imageTaskCancelled(saveErr, signal)) throw saveErr;
+      throw new Error(`图片持久化失败: ${saveErr.message}`);
     }
 
     // 入库的 image_url：优先指向本地静态路径，避免前端仍用 Gemini 返回的 data URL
@@ -1605,24 +1672,7 @@ async function processImageGeneration(db, log, imageGenId) {
     }
 
     // ── Step 6: 写库 & 任务完成 ──────────────────────────────────────
-    db.prepare(
-      'UPDATE image_generations SET status = ?, image_url = ?, local_path = ?, completed_at = ?, updated_at = ? WHERE id = ?'
-    ).run('completed', persistedImageUrl, localPath, now2, now2, imageGenId);
-    const sceneBinding = bindCompletedSceneImage(db, row, persistedImageUrl, localPath, now2);
-    if (row.task_id) {
-      taskService.updateTaskResult(db, row.task_id, {
-        image_generation_id: imageGenId,
-        image_url: persistedImageUrl,
-        frame_type: row.frame_type || null,
-        scene_binding: sceneBinding.target || null,
-        status: 'completed',
-      });
-    }
-    log.info('[图生] ✓ 完成', { id: imageGenId, local_path: localPath, total_elapsed: elapsed() });
-
-    // ── 首尾帧绑定决策 ─────────────────────────────────────────────
-    // 优先信任 image_generations 行自身保存的 frame_type（前端点击“尾帧生成”会正确传 'storyboard_last'）。
-    // 仅当该记录的 frame_type 为空或非首/尾帧特型时，才回退到“最近一次 frame_prompts”作为推断（兼容旧数据/历史创建路径）。
+    let sceneBinding = { bound: false };
     let effectiveFrameTypeForBind = row.frame_type;
     const rowFt = String(row.frame_type || '').toLowerCase();
     const rowIsSpecificFirstLast = ['first', 'last', 'storyboard_first', 'storyboard_last'].includes(rowFt);
@@ -1631,32 +1681,51 @@ async function processImageGeneration(db, log, imageGenId) {
         const fp = db.prepare(
           'SELECT frame_type FROM frame_prompts WHERE storyboard_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1'
         ).get(Number(row.storyboard_id));
-        if (fp && fp.frame_type && ['first', 'last', 'storyboard_first', 'storyboard_last'].includes(String(fp.frame_type))) {
+        if (fp?.frame_type && ['first', 'last', 'storyboard_first', 'storyboard_last'].includes(String(fp.frame_type))) {
           effectiveFrameTypeForBind = fp.frame_type;
-          log.info('[图生] 绑定决策：image 自身无明确首/尾帧类型，回退使用最近的 frame_prompts', {
-            id: imageGenId,
-            inferred: effectiveFrameTypeForBind
-          });
         }
       } catch (_) {}
     }
-
-    if (row.storyboard_id && effectiveFrameTypeForBind !== 'quad_grid' && effectiveFrameTypeForBind !== 'nine_grid') {
-      try {
-        const { bindStoryboardFrameImage } = require('./storyboardFrameBinding');
-        bindStoryboardFrameImage(
-          db,
-          row.storyboard_id,
-          effectiveFrameTypeForBind,
-          imageGenId,
-          persistedImageUrl,
-          localPath
-        );
-      } catch (bindErr) {
-        log.warn('[图生] 分镜首尾帧绑定失败', { id: imageGenId, error: bindErr.message });
+    runImageTaskMutation(db, row, signal, () => {
+      const completed = db.prepare(
+        `UPDATE image_generations SET status = 'completed', prompt = ?, image_url = ?, local_path = ?, error_msg = NULL, completed_at = ?, updated_at = ?
+          WHERE id = ? AND status = 'processing'`
+      ).run(finalPrompt, persistedImageUrl, localPath, now2, now2, imageGenId);
+      if (completed.changes !== 1) throw new Error('图片生成完成状态提交发生并发冲突');
+      if (stagedStoryboardCharacters && row.storyboard_id) {
+        db.prepare('UPDATE storyboards SET characters = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+          .run(stagedStoryboardCharacters, now2, Number(row.storyboard_id));
       }
-    }
+      if (stagedPolishedPrompt && row.storyboard_id) {
+        db.prepare('UPDATE storyboards SET polished_prompt = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+          .run(stagedPolishedPrompt, now2, Number(row.storyboard_id));
+      }
+      if (stagedContinuitySnapshot && row.storyboard_id) {
+        db.prepare('UPDATE storyboards SET continuity_snapshot = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+          .run(stagedContinuitySnapshot, now2, Number(row.storyboard_id));
+      }
+      sceneBinding = bindCompletedSceneImage(db, row, persistedImageUrl, localPath, now2);
+      if (row.storyboard_id && effectiveFrameTypeForBind !== 'quad_grid' && effectiveFrameTypeForBind !== 'nine_grid') {
+        const { bindStoryboardFrameImage } = require('./storyboardFrameBinding');
+        bindStoryboardFrameImage(db, row.storyboard_id, effectiveFrameTypeForBind, imageGenId, persistedImageUrl, localPath);
+      }
+      if (row.task_id) {
+        const taskCompleted = taskService.updateTaskResult(db, row.task_id, {
+          image_generation_id: imageGenId,
+        image_url: persistedImageUrl,
+        frame_type: row.frame_type || null,
+        scene_binding: sceneBinding.target || null,
+        status: 'completed',
+        });
+        if (!taskCompleted) throw new Error('图片任务完成状态提交发生并发冲突');
+      }
+    });
+    uncommittedLocalPath = null;
+    log.info('[图生] ✓ 完成', { id: imageGenId, local_path: localPath, total_elapsed: elapsed() });
 
+    // ── 首尾帧绑定决策 ─────────────────────────────────────────────
+    // 优先信任 image_generations 行自身保存的 frame_type（前端点击“尾帧生成”会正确传 'storyboard_last'）。
+    // 仅当该记录的 frame_type 为空或非首/尾帧特型时，才回退到“最近一次 frame_prompts”作为推断（兼容旧数据/历史创建路径）。
     // ── Step 7（四宫格）：自动拆分为 4 张子图，创建独立记录 ────────────
     if (row.frame_type === 'quad_grid' && localPath) {
       const storagePath2 = path.isAbsolute(cfg.storage?.local_path)
@@ -1680,18 +1749,13 @@ async function processImageGeneration(db, log, imageGenId) {
     }
 
   } catch (err) {
-    const now2 = new Date().toISOString();
-    db.prepare('UPDATE image_generations SET status = ?, error_msg = ?, updated_at = ? WHERE id = ?').run(
-      'failed', (err.message || '').slice(0, 500), now2, imageGenId
-    );
-    if (row.task_id) taskService.updateTaskError(db, row.task_id, err.message);
+    removeUncommittedImage(uncommittedStoragePath, uncommittedLocalPath, log);
+    if (imageTaskCancelled(err, signal)) {
+      log.info('[图生] 已取消，未提交生成结果', { id: imageGenId, total_elapsed: elapsed() });
+      return;
+    }
+    await persistImageFailure(db, row, err.message);
     log.error('[图生] ✗ 异常', { id: imageGenId, error: err.message, stack: (err.stack || '').slice(0, 400), total_elapsed: elapsed() });
-    if (row.scene_id != null) {
-      try { db.prepare('UPDATE scenes SET error_msg = ?, updated_at = ? WHERE id = ?').run(err.message, now2, row.scene_id); } catch (_) {}
-    }
-    if (row.storyboard_id != null) {
-      try { db.prepare('UPDATE storyboards SET error_msg = ?, updated_at = ? WHERE id = ?').run(err.message, now2, row.storyboard_id); } catch (_) {}
-    }
   }
 }
 
@@ -1715,6 +1779,7 @@ function deleteById(db, log, id) {
 }
 
 function getBackgroundsForEpisode(db, episodeId) {
+  if (!require('./dramaWriteGuard').canReadResource(db, 'episodes', episodeId)) return [];
   const rows = db.prepare(
     `SELECT s.id as scene_id, s.location, s.time, s.prompt, s.image_url, s.local_path, s.status
      FROM storyboards sb

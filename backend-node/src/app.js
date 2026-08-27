@@ -10,6 +10,7 @@ const logger = require('./logger.js');
 const response = require('./response.js');
 const { setupRouter } = require('./routes/index.js');
 const uploadService = require('./services/uploadService.js');
+const dramaWriteGuard = require('./services/dramaWriteGuard.js');
 const { backgroundTasks } = require('./services/legacyAsyncSchedulerService.js');
 const {
   createRuntimeInstanceId,
@@ -54,8 +55,8 @@ const CONTENT_SECURITY_POLICY = [
   "form-action 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "media-src 'self' data: blob:",
+  "img-src 'self' data: blob: https://upload.wikimedia.org",
+  "media-src 'self' data: blob: https://upload.wikimedia.org",
   "font-src 'self' data:",
   "connect-src 'self'",
   "worker-src 'self' blob:",
@@ -185,10 +186,15 @@ function createRequestOriginPolicy(serverConfig = {}, options = {}) {
   const configuredValues = Array.isArray(serverConfig.cors_origins)
     ? serverConfig.cors_origins
     : [serverConfig.cors_origins].filter(Boolean);
+  const runtimeValues = String(options.additionalOrigins ?? process.env.LOCALMINIDRAMA_CORS_ORIGINS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 32);
   const configuredOrigins = new Set();
   const trustedHostnames = new Set();
 
-  for (const value of configuredValues) {
+  for (const value of [...configuredValues, ...runtimeValues]) {
     const parsed = parseHttpOrigin(value);
     if (!parsed) continue;
     configuredOrigins.add(parsed.origin);
@@ -279,11 +285,27 @@ function parseByteRange(value, size) {
   return { start, end: Math.min(end, size - 1) };
 }
 
-function createStorageStaticMiddleware(storageRoot, log = logger) {
+function createStorageStaticMiddleware(storageRoot, log = logger, db = null) {
   return (req, res, next) => {
     if (!['GET', 'HEAD'].includes(req.method)) return next();
     const rawPath = String(req.url || '').split('?')[0].replace(/^\/+/, '');
     if (!rawPath) return res.status(404).send('Not Found');
+
+    if (db) {
+      try {
+        dramaWriteGuard.assertMediaPathReadable(db, rawPath);
+      } catch (error) {
+        if (error?.code === 'UNSAFE_STORAGE_PATH') {
+          return res.status(403).json({
+            success: false,
+            error: { code: 'UNSAFE_STORAGE_PATH', message: 'Static storage path is not allowed' },
+            request_id: req.requestId,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        return res.status(404).send('Not Found');
+      }
+    }
 
     let opened;
     try {
@@ -354,16 +376,30 @@ function createStorageStaticMiddleware(storageRoot, log = logger) {
   };
 }
 
-function createAppCloseHandler(maintenanceGuard, closeDatabase = closeDb) {
+function createAppCloseHandler(maintenanceGuard, closeDatabase = closeDb, beforeDatabaseClose = []) {
   let closed = false;
   return () => {
     if (closed) return false;
     closed = true;
+    let firstError = null;
+    for (const closeResource of beforeDatabaseClose) {
+      try {
+        closeResource?.();
+      } catch (error) {
+        firstError ||= error;
+      }
+    }
     try {
       closeDatabase();
-    } finally {
-      maintenanceGuard?.release?.();
+    } catch (error) {
+      firstError ||= error;
     }
+    try {
+      maintenanceGuard?.release?.();
+    } catch (error) {
+      firstError ||= error;
+    }
+    if (firstError) throw firstError;
     return true;
   };
 }
@@ -377,11 +413,20 @@ function createNotFoundHandler() {
   };
 }
 
-function initializeWithMaintenanceGuard(maintenanceGuard, initialize) {
+function initializeWithMaintenanceGuard(maintenanceGuard, initialize, closeDatabase) {
   try {
     return initialize();
   } catch (error) {
-    maintenanceGuard?.release?.();
+    try {
+      closeDatabase?.();
+    } catch (_) {
+      // 保留原始启动错误，同时继续释放维护锁。
+    }
+    try {
+      maintenanceGuard?.release?.();
+    } catch (_) {
+      // 保留原始启动错误，避免清理异常掩盖根因。
+    }
     throw error;
   }
 }
@@ -503,10 +548,13 @@ function createApp() {
   const log = logger;
 
   const taskService = require('./services/taskService');
+  const assetService = require('./services/assetService');
+  assetService.cleanupNetworkImportOrphans(db, log, { schedule: false });
   taskService.failOrphanedAsyncTasksOnStartup(db, log);
 
   const { resumeProcessingVideoGenerations } = require('./services/videoService');
   resumeProcessingVideoGenerations(db, log);
+  require('./services/dramaService').recoverInterruptedTrashOperations(db, log);
 
   const workflowService = require('./services/workflowService');
   workflowService.resumeActiveWorkflowRunsOnStartup(db, log);
@@ -532,7 +580,7 @@ function createApp() {
   // 静态资源目录：统一转为绝对路径（打包 exe 下相对路径可能解析异常）
   try {
     if (!fs.existsSync(storageRoot)) fs.mkdirSync(storageRoot, { recursive: true });
-    app.use('/static', createStorageStaticMiddleware(storageRoot, log));
+    app.use('/static', createStorageStaticMiddleware(storageRoot, log, db));
   } catch (e) {
     console.warn('Static storage mount skipped:', e.message);
   }
@@ -547,7 +595,9 @@ function createApp() {
   });
 
   app.get('/ready', (req, res) => {
-    const readiness = require('./services/readinessService').checkReadiness(db, storageRoot);
+    const readiness = require('./services/readinessService').checkReadiness(db, storageRoot, {
+      maintenanceGuard,
+    });
     res.status(readiness.ready ? 200 : 503).json({
       status: readiness.ready ? 'ready' : 'not_ready',
       checks: readiness.checks,
@@ -555,6 +605,17 @@ function createApp() {
   });
 
   app.use('/api/v1', createBackgroundTaskContextMiddleware(backgroundTasks, log));
+  app.use('/api/v1', (req, res, next) => {
+    if (req.method !== 'GET') return next();
+    const pathname = String(req.path || '');
+    const storyboardId = /^\/storyboards\/(\d+)$/.exec(pathname)?.[1];
+    const episodeId = /^\/episodes\/(\d+)\/storyboards$/.exec(pathname)?.[1];
+    if ((storyboardId && !dramaWriteGuard.canReadResource(db, 'storyboards', storyboardId))
+      || (episodeId && !dramaWriteGuard.canReadResource(db, 'episodes', episodeId))) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '资源不存在' } });
+    }
+    return next();
+  });
   app.use('/api/v1', setupRouter(config, db, log));
 
   // 前端静态资源（sxy：web/dist）；Electron 打包时可设 WEB_DIST_PATH
@@ -590,7 +651,10 @@ function createApp() {
 
   app.use(createErrorHandler(log));
 
-  const closeResources = createAppCloseHandler(maintenanceGuard);
+  const networkCleanupController = assetService.startNetworkImportOrphanCleanup(db, log);
+  const closeResources = createAppCloseHandler(maintenanceGuard, closeDb, [
+    () => networkCleanupController.close(),
+  ]);
   const closeOnExit = () => closeResources();
   process.prependOnceListener('exit', closeOnExit);
   const detachExitClose = () => process.removeListener('exit', closeOnExit);
@@ -608,7 +672,7 @@ function createApp() {
     close,
     detachExitClose,
   };
-  });
+  }, closeDb);
 }
 
 module.exports = {

@@ -13,6 +13,9 @@ const {
   checkNovel2AnimeReadiness,
   serviceConfigReadiness,
 } = require('../src/services/readinessService');
+const {
+  acquireServiceMaintenanceLockSync,
+} = require('../src/services/dataBackupService');
 
 const log = {
   info() {},
@@ -72,32 +75,101 @@ function mockResponse() {
   };
 }
 
-test('readiness requires both a queryable database and writable storage', (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-ready-'));
+function makeReadinessWorkspace(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-ready-workspace-'));
   const storage = path.join(root, 'storage');
+  const storySources = path.join(root, 'story_sources');
+  const databasePath = path.join(root, 'drama_generator.db');
   fs.mkdirSync(storage);
-  const db = new Database(':memory:');
-  t.after(() => {
-    db.close();
-    fs.rmSync(root, { recursive: true, force: true });
+  fs.mkdirSync(storySources);
+  const db = new Database(databasePath);
+  runMigrationsAndEnsure(db);
+  const maintenanceGuard = acquireServiceMaintenanceLockSync({
+    databasePath,
+    storagePath: storage,
+    storySourcesPath: storySources,
+    ownerScope: 'readiness-test-' + process.pid,
   });
+  t.after(() => {
+    try {
+      if (db.open) db.close();
+    } finally {
+      try { maintenanceGuard.release(); } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+  return { root, storage, storySources, databasePath, db, maintenanceGuard };
+}
 
-  const result = checkReadiness(db, storage);
+test('readiness requires both a queryable database and writable storage', (t) => {
+  const workspace = makeReadinessWorkspace(t);
+  const before = workspace.db.prepare('SELECT COUNT(*) AS count FROM dramas').get().count;
+  const result = checkReadiness(workspace.db, workspace.storage, {
+    maintenanceGuard: workspace.maintenanceGuard,
+  });
+  const after = workspace.db.prepare('SELECT COUNT(*) AS count FROM dramas').get().count;
   assert.equal(result.ready, true);
   assert.equal(result.checks.database.ok, true);
   assert.equal(result.checks.storage.ok, true);
+  assert.equal(result.checks.maintenance.ok, true);
+  assert.equal(after, before);
 });
 
-test('readiness fails without exposing filesystem details', () => {
-  const db = new Database(':memory:');
-  try {
-    const result = checkReadiness(db, path.join(os.tmpdir(), 'missing-readiness-directory'));
-    assert.equal(result.ready, false);
-    assert.deepEqual(result.checks.storage, { ok: false, error: 'storage unavailable' });
-    assert.equal(JSON.stringify(result).includes(os.tmpdir()), false);
-  } finally {
-    db.close();
-  }
+test('readiness performs a real file write and fsync, then removes the probe', (t) => {
+  const workspace = makeReadinessWorkspace(t);
+  const calls = [];
+  const fileSystem = Object.create(fs);
+  fileSystem.writeSync = (...args) => {
+    calls.push('write');
+    return fs.writeSync(...args);
+  };
+  fileSystem.fsyncSync = (...args) => {
+    calls.push('fsync');
+    return fs.fsyncSync(...args);
+  };
+  fileSystem.unlinkSync = (...args) => {
+    calls.push('unlink');
+    return fs.unlinkSync(...args);
+  };
+
+  const result = checkReadiness(workspace.db, workspace.storage, {
+    fs: fileSystem,
+    maintenanceGuard: workspace.maintenanceGuard,
+  });
+
+  assert.equal(result.ready, true);
+  assert.ok(calls.includes('write'));
+  assert.ok(calls.includes('fsync'));
+  assert.ok(calls.includes('unlink'));
+  assert.deepEqual(fs.readdirSync(workspace.storage), []);
+});
+
+test('readiness fails without exposing filesystem details or allowing a missing maintenance lease', (t) => {
+  const workspace = makeReadinessWorkspace(t);
+  fs.rmSync(workspace.storage, { recursive: true, force: true });
+  const secretPath = path.join(workspace.root, 'private', 'lease.json');
+  const result = checkReadiness(workspace.db, workspace.storage, {
+    assertMaintenanceLease() {
+      throw new Error('敏感路径 ' + secretPath);
+    },
+  });
+  assert.equal(result.ready, false);
+  assert.deepEqual(result.checks.storage, { ok: false, error: 'storage unavailable' });
+  assert.deepEqual(result.checks.maintenance, { ok: false, error: 'maintenance lease unavailable' });
+  assert.equal(JSON.stringify(result).includes(secretPath), false);
+});
+
+test('readiness refuses a closed database even when storage and lease are healthy', (t) => {
+  const workspace = makeReadinessWorkspace(t);
+  workspace.db.close();
+  const result = checkReadiness(workspace.db, workspace.storage, {
+    maintenanceGuard: workspace.maintenanceGuard,
+  });
+  assert.equal(result.ready, false);
+  assert.equal(result.checks.database.ok, false);
+  assert.equal(result.checks.storage.ok, true);
+  assert.equal(result.checks.maintenance.ok, true);
 });
 
 test('production workflow readiness reports concrete missing capabilities without secrets or local paths', (t) => {

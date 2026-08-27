@@ -81,23 +81,25 @@ function runNpm(args, options = {}) {
   run(invocation.command, invocation.args, options)
 }
 
-function verifySourceAndContainers() {
+function verifySourceAndContainers(runtime = {}) {
+  const executeNpm = runtime.runNpm || runNpm
+  const execute = runtime.run || run
   let composeAttempted = false
   let primaryError = null
   try {
-    runNpm(['run', 'verify'])
-    runNpm(['run', 'verify:docker:artifact'])
+    executeNpm(['run', 'verify:source'])
+    executeNpm(['run', 'verify:docker:artifact'])
     composeAttempted = true
-    runNpm(['run', 'docker:e2e:up'])
-    runNpm(['run', 'verify:docker:containers'])
-    runNpm(['run', 'verify:e2e'])
+    executeNpm(['run', 'docker:e2e:up'])
+    executeNpm(['run', 'verify:docker:containers'])
+    executeNpm(['run', 'verify:e2e'])
   } catch (error) {
     primaryError = error
     throw error
   } finally {
     if (composeAttempted) {
       try {
-        run(dockerCommand, ['compose', '--profile', 'e2e', 'down', '--remove-orphans'])
+        execute(dockerCommand, ['compose', '--profile', 'e2e', 'down', '--remove-orphans'])
       } catch (cleanupError) {
         if (!primaryError) throw cleanupError
         console.error(`Release verification cleanup failed: ${cleanupError.message}`)

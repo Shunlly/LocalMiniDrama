@@ -14,6 +14,15 @@ const { validateSbomDocument } = require('./verify-release.cjs')
 
 const root = path.resolve(__dirname, '..')
 const releaseMetadataUsage = 'Usage: generate-release-metadata.cjs [--verify] [output-directory]'
+const BACKEND_RUNTIME_BASE =
+  'node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0'
+const BACKEND_CONTAINER_USER_EXCEPTION_RATIONALE =
+  'Trivy evaluates Dockerfile Config.User before the reviewed entrypoint transition. The pinned Node runtime maps node to UID 1000; after a same-filesystem one-time ownership migration, the entrypoint replaces PID 1 with the requested command under that account. Release evidence validation rejects any change to this source contract.'
+const BACKEND_CONTAINER_USER_SOURCE_SHA256_LF = Object.freeze({
+  'backend-node/Dockerfile': 'be1f4f77bff7fd9a094772041a04cace503fb48fbca2cc1775d5c55dc84270e4',
+  'backend-node/docker-entrypoint.sh': 'e1bc2719bf21da00095f0380576092dcc590838fd8e02c88455dc98a2a79d972',
+  'backend-node/.trivyignore.yaml': '97f051b0f207fd354177c36671085f974f6d1a481b438e247889df58609485e4',
+})
 
 function sha256(filePath) {
   const descriptor = fs.openSync(filePath, 'r')
@@ -43,6 +52,50 @@ function currentCommit(environment = process.env) {
     assert.equal(fromEnvironment.toLowerCase(), commit, 'GITHUB_SHA does not match Git HEAD')
   }
   return commit
+}
+
+function normalizedSourceSha256(source, label) {
+  assert.equal(typeof source, 'string', `${label} source is unavailable`)
+  const normalized = source.replace(/\r\n/g, '\n')
+  assert.doesNotMatch(normalized, /\r/, `${label} contains unsupported carriage returns`)
+  return crypto.createHash('sha256').update(normalized, 'utf8').digest('hex')
+}
+
+function validateBackendContainerUserException(exception, {
+  dockerfileSource = fs.readFileSync(path.join(root, 'backend-node', 'Dockerfile'), 'utf8'),
+  entrypointSource = fs.readFileSync(path.join(root, 'backend-node', 'docker-entrypoint.sh'), 'utf8'),
+  ignorePolicySource = fs.readFileSync(path.join(root, 'backend-node', '.trivyignore.yaml'), 'utf8'),
+} = {}) {
+  const sourceSha256Lf = {
+    'backend-node/Dockerfile': normalizedSourceSha256(dockerfileSource, 'backend-node/Dockerfile'),
+    'backend-node/docker-entrypoint.sh': normalizedSourceSha256(
+      entrypointSource,
+      'backend-node/docker-entrypoint.sh',
+    ),
+    'backend-node/.trivyignore.yaml': normalizedSourceSha256(
+      ignorePolicySource,
+      'backend-node/.trivyignore.yaml',
+    ),
+  }
+  assert.deepEqual(
+    sourceSha256Lf,
+    BACKEND_CONTAINER_USER_SOURCE_SHA256_LF,
+    'backend container user source contract changed; review or remove the Trivy exception',
+  )
+  assert.deepEqual(exception, {
+    id: 'AVD-DS-0002',
+    path: 'backend-node/Dockerfile',
+    review_by: '2027-07-17',
+    rationale: BACKEND_CONTAINER_USER_EXCEPTION_RATIONALE,
+    source_contract: {
+      runtime_base: BACKEND_RUNTIME_BASE,
+      process_user: 'node',
+      process_uid: 1000,
+      privilege_transition: 'setpriv --reuid=node --regid=node --init-groups',
+      source_sha256_lf: sourceSha256Lf,
+    },
+  }, 'Trivy configuration exception is invalid')
+  return exception
 }
 
 function assertCleanSourceTree(environment = process.env) {
@@ -216,12 +269,12 @@ function validateArtifactSecurity(output, names, version) {
     'frontweb/Dockerfile',
     'frontweb/Dockerfile.prod',
   ], 'Trivy configuration inventory is invalid')
-  assert.deepEqual(evidence.scans.trivy.configuration_exceptions, [{
-    id: 'AVD-DS-0002',
-    path: 'backend-node/Dockerfile',
-    review_by: '2027-07-17',
-    rationale: 'The entrypoint repairs bind-mounted data ownership before immediately executing as node via setpriv.',
-  }], 'Trivy configuration exceptions are invalid')
+  assert.equal(
+    evidence.scans.trivy.configuration_exceptions?.length,
+    1,
+    'Trivy configuration exceptions are invalid',
+  )
+  validateBackendContainerUserException(evidence.scans.trivy.configuration_exceptions[0])
   assert.ok(
     Number.isInteger(evidence.scans.trivy.vulnerability_database?.schema_version)
       && evidence.scans.trivy.vulnerability_database.schema_version > 0,
@@ -369,6 +422,7 @@ module.exports = {
   readJson,
   releaseTag,
   sha256,
+  validateBackendContainerUserException,
   validateArtifactSecurity,
   validateReleaseArtifacts,
   parseReleaseMetadataArguments,

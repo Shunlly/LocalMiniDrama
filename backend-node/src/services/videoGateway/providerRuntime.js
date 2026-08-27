@@ -1,7 +1,7 @@
 'use strict';
 
-const uploadService = require('../uploadService');
-const { secureHttpFetch } = require('../secureHttpFetch');
+const { secureHttpFetch, validateHttpRequestTarget } = require('../secureHttpFetch');
+const { requireCompleteProviderNetworkPolicy } = require('../providerNetworkPolicy');
 
 const DEFAULT_TIMEOUTS_MS = Object.freeze({
   request: 120000,
@@ -78,10 +78,7 @@ function combineAbortSignals(signals) {
   return controller.signal;
 }
 
-/**
- * Keeps both the request and response-body stream bounded. The timeout signal is
- * intentionally not cleared when headers arrive, so a stalled body is aborted too.
- */
+/** 请求头和响应体共用同一超时信号，响应体停滞时也会被中止。 */
 async function fetchVideoWithTimeout(
   url,
   options = {},
@@ -93,19 +90,19 @@ async function fetchVideoWithTimeout(
   const signal = options.signal
     ? combineAbortSignals([options.signal, timeoutSignal])
     : timeoutSignal;
-  if (typeof networkOptions.fetchImpl === 'function') {
-    await uploadService.validatePublicHttpUrl(url, {
-      trustedOrigins: networkOptions.trustedOrigins,
-      lookup: networkOptions.lookup,
-    });
-    return networkOptions.fetchImpl(url, { ...options, signal });
+  const policy = requireCompleteProviderNetworkPolicy(networkOptions, url);
+  if (typeof policy.fetchImpl === 'function') {
+    await validateHttpRequestTarget(url, policy);
+    return policy.fetchImpl(url, { ...options, signal });
   }
   return secureHttpFetch(url, { ...options, signal }, {
-    trustedOrigins: networkOptions.trustedOrigins,
-    lookup: networkOptions.lookup,
+    trustedOrigins: policy.trustedOrigins,
+    allowPrivateOrigins: policy.allowPrivateOrigins,
+    requireHttpsForPublic: policy.requireHttpsForPublic,
+    lookup: policy.lookup,
     timeoutMs: boundedTimeoutMs,
-    maxBytes: networkOptions.maxBytes || 128 * 1024 * 1024,
-    maxRedirects: networkOptions.maxRedirects,
+    maxBytes: policy.maxBytes || 128 * 1024 * 1024,
+    maxRedirects: policy.maxRedirects,
   });
 }
 

@@ -1,19 +1,36 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const {
   E2E_TITLE_PREFIX,
   main,
   parsePurgeResult,
+  requireE2eDataDirectory,
   registerCleanup,
-  resolveSourceFixtureDirectory,
   runDockerFixturePurge,
   runCleanup,
+  verifyE2eContainerDataMount,
 } = require('../scripts/e2e-smoke.cjs')
+const { validateE2eDataDirectory } = require('../../scripts/docker-compose-with-revision.cjs')
+const { removeFixtureTreeSync } = require('../scripts/fixture-cleanup.cjs')
 const scriptSource = readFileSync(new URL('../scripts/e2e-smoke.cjs', import.meta.url), 'utf8')
+const repositoryRoot = path.resolve(
+  process.env.LOCALMINIDRAMA_REPOSITORY_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..'),
+)
+const e2eDataDirectory = mkdtempSync(path.join(os.tmpdir(), 'localminidrama-e2e-smoke-test-'))
+const previousDataDirectory = process.env.LOCALMINIDRAMA_DATA_DIR
+process.env.LOCALMINIDRAMA_DATA_DIR = e2eDataDirectory
+test.after(() => {
+  if (previousDataDirectory === undefined) delete process.env.LOCALMINIDRAMA_DATA_DIR
+  else process.env.LOCALMINIDRAMA_DATA_DIR = previousDataDirectory
+  removeFixtureTreeSync(e2eDataDirectory, { force: true })
+})
 
 function quietLogger(warnings = []) {
   return {
@@ -88,6 +105,7 @@ test('an intermediate failure still cleans every tracked fixture without masking
   await assert.rejects(
     main({
       apiRequest,
+      containerMountVerifier: async () => {},
       launchBrowser: async () => ({
         async newPage() {
           throw primaryError
@@ -111,16 +129,11 @@ test('an intermediate failure still cleans every tracked fixture without masking
     (error) => error === primaryError,
   )
 
-  assert.deepEqual(events, [
-    'close browser',
-    'remove source directory',
-    'delete /dramas/77',
-    'hard purge',
-  ])
-  assert.equal(warnings.length, 4)
+  assert.deepEqual(events, ['close browser', 'delete /dramas/77', 'hard purge'])
+  assert.equal(warnings.length, 3)
 })
 
-test('a failed source import response still removes its pre-registered directory and database fixture', async () => {
+test('源素材导入失败时仍清理数据库夹具', async () => {
   const primaryError = new Error('source response lost')
   const events = []
   const apiRequest = async (pathname, options = {}) => {
@@ -136,11 +149,9 @@ test('a failed source import response still removes its pre-registered directory
   await assert.rejects(
     main({
       apiRequest,
+      containerMountVerifier: async () => {},
       launchBrowser: async () => {
         throw new Error('browser must not launch after source failure')
-      },
-      sourceDirectoryRemover: async (dramaId) => {
-        events.push(`remove directory ${dramaId}`)
       },
       fixturePurger: async ({ dramaId, expectedTitle }) => {
         events.push(`hard purge ${dramaId}`)
@@ -153,7 +164,7 @@ test('a failed source import response still removes its pre-registered directory
     (error) => error === primaryError,
   )
 
-  assert.deepEqual(events, ['remove directory 79', 'api delete', 'hard purge 79'])
+  assert.deepEqual(events, ['api delete', 'hard purge 79'])
 })
 
 test('cleanup failure fails an otherwise successful smoke run while preserving UI assertions', async () => {
@@ -177,11 +188,11 @@ test('cleanup failure fails an otherwise successful smoke run while preserving U
   await assert.rejects(
     main({
       apiRequest,
+      containerMountVerifier: async () => {},
       launchBrowser: async () => ({
         newPage: async () => successfulPage(seenLabels),
         close: async () => {},
       }),
-      sourceDirectoryRemover: async () => cleanupEvents.push('source directory'),
       fixturePurger: async () => {
         cleanupEvents.push('hard purge')
         return { verified: true, residual: {} }
@@ -192,7 +203,7 @@ test('cleanup failure fails an otherwise successful smoke run while preserving U
     (error) => error instanceof AggregateError && /drama 88/.test(error.message),
   )
 
-  assert.deepEqual(cleanupEvents, ['source directory', 'api delete', 'hard purge'])
+  assert.deepEqual(cleanupEvents, ['api delete', 'hard purge'])
 
   for (const label of [
     '项目就绪度',
@@ -221,7 +232,7 @@ test('quick smoke targets the default draft-preview source launch command', () =
   )
 })
 
-test('fixture creation calls stay inside the guarded try and register cleanup before assertions', () => {
+test('夹具创建位于保护范围内且清理在断言前登记', () => {
   const mainStart = scriptSource.indexOf('async function main(')
   const mainSource = scriptSource.slice(mainStart)
   const tryStart = mainSource.indexOf('\n  try {')
@@ -236,18 +247,67 @@ test('fixture creation calls stay inside the guarded try and register cleanup be
     mainSource.indexOf('registerCleanup(cleanupActions, `drama') <
       mainSource.indexOf("assert.ok(drama?.id, 'created drama id is required')"),
   )
-  assert.ok(
-    mainSource.indexOf('registerCleanup(cleanupActions, `story source directory') < sourceCreate,
-  )
+  assert.equal(mainSource.includes('sourceDirectoryRemover'), false)
+  assert.equal(mainSource.includes('removeSourceFixtureDirectory'), false)
+  assert.ok(mainSource.indexOf('await containerMountVerifier()') < dramaCreate)
   assert.ok(mainSource.indexOf('registerCleanup(cleanupActions, `hard purge drama') < sourceCreate)
 })
 
-test('story source directory cleanup is restricted to a numeric fixture directory', () => {
-  assert.throws(() => resolveSourceFixtureDirectory('../README.md'), /positive integer drama id/)
-  assert.throws(() => resolveSourceFixtureDirectory(0), /positive integer drama id/)
-  assert.match(
-    resolveSourceFixtureDirectory(77),
-    /[\\/]story_sources[\\/]77$/,
+test('Docker E2E only accepts an explicit absolute empty directory outside the repository', () => {
+  assert.equal(requireE2eDataDirectory(), e2eDataDirectory)
+  assert.throws(() => validateE2eDataDirectory('backend-node/data'), /必须是绝对路径/)
+  assert.throws(() => validateE2eDataDirectory(path.join(repositoryRoot, 'backend-node', 'data')), /默认 backend-node\/data/)
+
+  const nonEmptyDirectory = mkdtempSync(path.join(os.tmpdir(), 'localminidrama-e2e-non-empty-'))
+  try {
+    writeFileSync(path.join(nonEmptyDirectory, 'fixture.txt'), 'fixture', 'utf8')
+    assert.throws(() => validateE2eDataDirectory(nonEmptyDirectory), /必须保持为空/)
+  } finally {
+    removeFixtureTreeSync(nonEmptyDirectory, { force: true })
+  }
+  assert.throws(() => validateE2eDataDirectory(path.join(repositoryRoot, 'artifacts')), /危险重叠/)
+})
+
+test('Docker E2E verifies the running backend data mount before creating fixtures', async () => {
+  const calls = []
+  const runner = async (executable, args, options) => {
+    calls.push({ executable, args, options })
+    if (args[0] === 'compose') return { stdout: 'a'.repeat(64) + '\n', stderr: '' }
+    return {
+      stdout: JSON.stringify([{
+        Mounts: [{
+          Destination: '/app/data',
+          Type: 'bind',
+          RW: true,
+          Source: e2eDataDirectory,
+        }],
+      }]),
+      stderr: '',
+    }
+  }
+  const verified = await verifyE2eContainerDataMount(runner)
+  assert.equal(verified.dataDirectory, e2eDataDirectory)
+  assert.equal(calls.length, 2)
+  assert.deepEqual(calls[0].args, ['compose', 'ps', '-q', 'backend'])
+  assert.deepEqual(calls[1].args, ['container', 'inspect', 'a'.repeat(64)])
+  assert.equal(calls[0].options.env.LOCALMINIDRAMA_DATA_DIR, e2eDataDirectory)
+
+  await assert.rejects(
+    verifyE2eContainerDataMount(async (_executable, args) => {
+      if (args[0] === 'compose') return { stdout: 'b'.repeat(64), stderr: '' }
+      return {
+        stdout: JSON.stringify([{
+          Mounts: [{
+            Destination: '/app/data',
+            Type: 'bind',
+            RW: true,
+          Source: repositoryRoot,
+          }],
+        }]),
+        stderr: '',
+      }
+    }),
+    /挂载源与 LOCALMINIDRAMA_DATA_DIR 不一致/,
   )
 })
 
@@ -288,6 +348,7 @@ test('Docker purge invocation carries an exact fixture identity and explicit con
   ])
   assert.ok(calls[0].args.includes('--confirm-local-e2e'))
   assert.equal(calls[0].args.at(-1), expectedTitle)
+  assert.equal(calls[0].options.env.LOCALMINIDRAMA_DATA_DIR, e2eDataDirectory)
   assert.equal(calls[0].options.windowsHide, true)
 })
 

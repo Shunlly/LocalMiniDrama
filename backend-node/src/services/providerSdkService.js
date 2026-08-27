@@ -11,6 +11,8 @@ const imageClient = require('./imageClient');
 const videoClient = require('./videoClient');
 const aiConfigService = require('./aiConfigService');
 const providerCostService = require('./providerCostService');
+const dramaService = require('./dramaService');
+const dramaWriteGuard = require('./dramaWriteGuard');
 const { getFfmpegPath, validateFfmpegTools } = require('../utils/ffmpegPath');
 
 function nowIso() {
@@ -107,12 +109,14 @@ function findCompletedVideo(db, storyboardId) {
 }
 
 function generateStoryboardImagesMock(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const storyboards = getStoryboards(db, params.drama_id);
   const now = nowIso();
   let created = 0;
   let reused = 0;
 
   for (const sb of storyboards) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     const existing = findCompletedImage(db, sb.id);
     if (existing) {
       reused += 1;
@@ -156,12 +160,14 @@ function generateStoryboardImagesMock(db, log, params) {
 }
 
 function generateStoryboardVideosMock(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const storyboards = getStoryboards(db, params.drama_id);
   const now = nowIso();
   let created = 0;
   let reused = 0;
 
   for (const sb of storyboards) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     const existing = findCompletedVideo(db, sb.id);
     if (existing) {
       reused += 1;
@@ -209,11 +215,13 @@ function generateStoryboardVideosMock(db, log, params) {
 }
 
 function generateStoryboardAudioMock(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const storyboards = getStoryboards(db, params.drama_id);
   const now = nowIso();
   let updated = 0;
 
   for (const sb of storyboards) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     const voicePath = `mock://dramas/${params.drama_id}/storyboards/${sb.id}/voice.wav`;
     const narrationPath = `mock://dramas/${params.drama_id}/storyboards/${sb.id}/narration.wav`;
     db.prepare(
@@ -260,14 +268,18 @@ function updateCompositorTaskResult(db, taskId, result) {
 
 function persistOwnedCompositorMerge(db, log, params) {
   const persist = db.transaction(() => {
-    const task = taskService.createTask(db, log, 'video_merge', String(params.episode_id));
+    // episode_id 是合成结果的真实归属键，不能信任调用方单独传入的 drama_id。
+    const episode = dramaWriteGuard.assertEpisodeWritable(db, params.episode_id, params.drama_id);
+    const episodeId = Number(episode.id);
+    const dramaId = Number(episode.drama_id);
+    const task = taskService.createTask(db, log, 'video_merge', String(episodeId));
     const info = db.prepare(
       `INSERT INTO video_merges
        (episode_id, drama_id, title, provider, model, status, scenes, merge_options, task_id, merged_url, duration, completed_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      Number(params.episode_id),
-      Number(params.drama_id),
+      episodeId,
+      dramaId,
       params.title ?? null,
       params.provider,
       params.model ?? null,
@@ -284,7 +296,7 @@ function persistOwnedCompositorMerge(db, log, params) {
     const episodeUpdated = videoMergeService.updateCurrentMergeEpisodeOutput(
       db,
       mergeId,
-      params.episode_id,
+      episodeId,
       params.merged_url,
       params.status,
       params.now
@@ -329,6 +341,7 @@ function stageCurrentCompositorMerge(db, merge, status, now, mode) {
 
 function compositeEpisodesMock(db, log, params) {
   const compose = db.transaction(() => {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const episodes = db.prepare(
     `SELECT id, episode_number, title
        FROM episodes
@@ -840,6 +853,7 @@ async function generateAssetBibleImagesProduction(db, log, params) {
 }
 
 async function generateStoryboardImagesProduction(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const readiness = assertProductionReadiness(db, params);
   const config = readiness.imageConfig;
   const provider = config.provider || params.image_provider || 'openai';
@@ -848,6 +862,7 @@ async function generateStoryboardImagesProduction(db, log, params) {
   let reused = 0;
 
   for (const storyboard of readiness.storyboards) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     let image = findReusableImage(db, storyboard.id);
     const wasReused = Boolean(image);
     try {
@@ -867,6 +882,7 @@ async function generateStoryboardImagesProduction(db, log, params) {
         });
         created += 1;
       }
+      dramaService.assertDramaWritable(db, params.drama_id);
       db.prepare(
         `UPDATE storyboards
             SET image_url = ?, local_path = ?, first_frame_image_id = COALESCE(first_frame_image_id, ?), updated_at = ?
@@ -899,6 +915,7 @@ async function generateStoryboardImagesProduction(db, log, params) {
 }
 
 async function generateStoryboardVideosProduction(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const readiness = assertProductionReadiness(db, params);
   const config = readiness.videoConfig;
   const provider = config.provider || params.video_provider || 'openai';
@@ -907,6 +924,7 @@ async function generateStoryboardVideosProduction(db, log, params) {
   let reused = 0;
 
   for (const storyboard of readiness.storyboards) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     let video = findReusableVideo(db, storyboard.id);
     const wasReused = Boolean(video);
     try {
@@ -932,6 +950,7 @@ async function generateStoryboardVideosProduction(db, log, params) {
         });
         created += 1;
       }
+      dramaService.assertDramaWritable(db, params.drama_id);
       db.prepare(
         `UPDATE storyboards SET video_url = ?, video_local_path = ?, status = 'media_ready', updated_at = ? WHERE id = ?`
       ).run(video.video_url, video.local_path, nowIso(), storyboard.id);
@@ -962,6 +981,7 @@ async function generateStoryboardVideosProduction(db, log, params) {
 }
 
 async function generateStoryboardAudioProduction(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const readiness = assertProductionReadiness(db, params);
   if (!readiness.needsTts) {
     return { storyboard_count: readiness.storyboards.length, audio_created: 0, audio_reused: 0, audio_skipped: readiness.storyboards.length, mode: 'production' };
@@ -975,6 +995,7 @@ async function generateStoryboardAudioProduction(db, log, params) {
   let skipped = 0;
 
   for (const storyboard of readiness.storyboards) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     const dialogue = String(storyboard.dialogue || '').trim();
     const narration = String(storyboard.narration || '').trim();
     if (!dialogue && !narration) {
@@ -1014,6 +1035,7 @@ async function generateStoryboardAudioProduction(db, log, params) {
       if ((dialogue && !localMediaExists(dialoguePath)) || (narration && !localMediaExists(narrationPath))) {
         throw new Error('TTS output was not persisted locally');
       }
+      dramaService.assertDramaWritable(db, params.drama_id);
       db.prepare(
         `UPDATE storyboards SET audio_local_path = ?, narration_audio_local_path = ?, updated_at = ? WHERE id = ?`
       ).run(dialoguePath, narrationPath, nowIso(), storyboard.id);
@@ -1053,6 +1075,7 @@ async function generateStoryboardAudioProduction(db, log, params) {
 }
 
 async function compositeEpisodesProduction(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   assertProductionReadiness(db, params);
   const episodes = db.prepare(
     `SELECT id, episode_number, title FROM episodes
@@ -1062,6 +1085,7 @@ async function compositeEpisodesProduction(db, log, params) {
   let reused = 0;
 
   for (const episode of episodes) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     const compositePlan = buildProductionTimelineCompositePlan(db, episode.id);
     const scenes = compositePlan.scenes;
     let merge = db.prepare(

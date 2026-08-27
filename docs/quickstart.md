@@ -30,16 +30,14 @@
 
 ### 当前能力与延期边界
 
-- 素材中心当前支持本地图片/视频上传、搜索和类型筛选；网页 URL 入口只提取故事正文并写入项目。第三方图片/视频搜索、版权或授权来源核验、预览选择和下载入库不属于 `1.3.3` 桌面候选。
-- AI 配置当前支持厂商预设、自定义 OpenAI 兼容厂商和手工模型列表。连接测试会探测配置端点，但不会通过通用 `/v1/models` 自动发现或导入远端模型。
+- 素材中心支持本地图片/视频上传，以及从 Wikimedia Commons 搜索公开图片/视频、查看作者和许可来源、预览并安全下载到项目或全局素材库；网页 URL 入口用于提取故事正文并写入项目。使用者仍需自行确认素材许可是否满足具体用途，其他第三方素材平台暂未接入。
+- AI 配置当前支持厂商预设、自定义 OpenAI 兼容厂商和手工模型列表；Google Gemini 文本使用官方 Gemini OpenAI 兼容端点 `https://generativelanguage.googleapis.com/v1beta/openai`。连接测试会探测配置端点，但不会通过通用 `/v1/models` 自动发现或导入远端模型，真实 Google 账号、模型和额度仍需单独连接测试。
 - 外部真实 Provider 的厂商、账户、模型版本、额度、计费和长耗时行为仍需每个部署自行连接测试和非敏感样例验收；仓库测试不得使用真实凭据。
 - 移动端重排、触控行为和移动画布/列表降级后置；本候选只按桌面矩阵验收。
 
 ### 自由画布集成状态（2026-07-27）
 
-同一路由中的「制作 + 自由」桌面工作台已经完成任务 1-5、8 项产品验收三轮复审（`Spec PASS / Quality PASS`）和 ZIP 导入导出安全复审（`Spec PASS / Security PASS`）。E2E 流程代码、证据校验契约及串行门禁接线也已完成 `Spec PASS / Quality PASS` 复审。
-
-上述结论不包含真实 Docker 运行证据。1280x720、1366x768、1440x900 的亮色/暗色生产 E2E 尚未执行，最终发布状态必须保持 **待验证 / UNVERIFIED**。测试只使用本地协议兼容测试服务，不调用外部真实 Provider。启动前端后可查看独立报告：`http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`。
+同一路由中的「制作 + 自由」桌面工作台，源码、合同复审和 ZIP 安全复审只能证明对应历史范围；**当前工作树运行验收仍为 UNVERIFIED**。1280x720、1366x768、1440x900 的亮色/暗色生产 E2E、当前 Docker Compose 运行态以及真实浏览器创建项目链路，都必须在当前未提交工作树上重新执行后才能作为发布证据。测试只使用本地协议兼容测试服务，不调用外部真实 Provider。历史报告仅供对照：`http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`。
 
 ---
 
@@ -49,7 +47,9 @@
 
 | 依赖 | 版本要求 |
 |------|----------|
-| Node.js | >= 20；发布与 Docker 验证使用 20.x |
+| Node.js（源码、后端、前端、Docker、通用门禁） | 20.x |
+| Node.js（桌面依赖、原生重建、打包、Windows 安全扫描） | 22.12.0（`desktop/.npmrc` 启用 `engine-strict`） |
+| Electron 运行时 | Electron 43.1.1 自带 Node.js 24 |
 | npm | 随 Node.js 附带 |
 | Git | 任意版本 |
 
@@ -141,6 +141,16 @@ npm run dist:cn
 
 正式候选必须从仓库根目录运行 `npm run verify:release:source` 和 Windows 上的 `npm run verify:release:windows`。Windows 验证在冒烟通过后追加已校验的 `LocalMiniDrama-Unpacked-x.x.x-x64.zip`、四个 CycloneDX SBOM 文件和 `media-tools.json`；四个 SBOM 文件实际覆盖后端、前端、桌面三个独立依赖图，桌面依赖图同时使用版本化发布文件名和内部扫描文件名。CI 与 Release 共用同一套 Gitleaks、Trivy、Microsoft Defender、Electron Fuse、制品清单与 `SHA256SUMS` 安全工作流；`artifact-security.json`、`release-manifest.json` 和 `SHA256SUMS` 仅在这些独立扫描完成后生成。已有候选可用 `npm run verify:release:artifacts` 离线复核。
 
+依赖审计必须在后端、前端和桌面三个独立 lockfile 上使用官方 npm registry，并设置高危级别门禁：
+
+```bash
+npm --prefix backend-node audit --audit-level=high --registry=https://registry.npmjs.org
+npm --prefix frontweb audit --audit-level=high --registry=https://registry.npmjs.org
+npm --prefix desktop audit --audit-level=high --registry=https://registry.npmjs.org
+```
+
+根目录没有对应 lockfile，不执行根目录 `npm audit`；任何已有审计 JSON 若未绑定当前候选的完整 Git SHA，只能作为历史上下文，不能单独写成当前发布通过。
+
 后端容器入口只在启动时以 root 修正绑定数据目录的属主，随后立即通过 `setpriv` 以 `node` 用户执行服务。对应 Trivy `AVD-DS-0002` 例外仅作用于 `backend-node/Dockerfile`，记录在 `backend-node/.trivyignore.yaml`，并于 2027-07-17 到期复审。
 
 **打包原理：**
@@ -202,7 +212,7 @@ AI 服务配置通过软件内「AI 配置」页面管理，无需手动编辑 Y
 | `%APPDATA%\localminidrama-desktop\backend\configs\` | exe 模式的运行配置 |
 | `%APPDATA%\localminidrama-desktop-dev\backend\` | Electron 开发模式的独立可变数据与配置 |
 
-源码或 Docker 模式升级前，先停止后端服务，再执行 `npm --prefix backend-node run backup:data`。该命令只备份仓库的 `backend-node/data/`，会校验数据库和媒体引用，并默认排除 AI Key、URL 签名等凭据；它不会自动备份 exe 的 `%APPDATA%` 数据。数据库会在启动时自动执行迁移脚本，一般无需手动操作。
+源码或 Docker 模式升级前，先停止后端服务，再执行 `npm --prefix backend-node run backup:data`。未传 `--data-root` 时，命令按当前配置解析数据库、`storage` 和故事原文路径，不一定等于仓库里的 `backend-node/data/`；传入 `--data-root` 才会强制使用该目录下的 `drama_generator.db`、`storage/` 和 `story_sources/`。备份会校验数据库和媒体引用，并默认排除 AI Key、URL 签名等凭据；它不会自动备份 exe 的 `%APPDATA%` 数据。服务启动会自动执行 SQL migration 并补齐兼容表/列，`npm run migrate` 主要用于手动初始化或显式迁移验证。
 
 ---
 
@@ -232,23 +242,35 @@ Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；�
 
 Docker 默认只把 `5679` 和 `3013` 绑定到宿主机 `127.0.0.1`，不会向局域网公开无认证接口。确需远程访问时，请先增加反向代理、认证和 TLS，再显式调整端口绑定。
 
-容器内完整验证：
+镜像边界与容器内测试验证：
 
 ```bash
 npm run verify:docker
 ```
 
-单独运行 `npm run verify:e2e` 不会自动启动测试服务；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容测试服务。必须在干净工作树按顺序执行：
+该命令在临时验证容器中运行前后端检查，不验证当前正在运行的 Compose 服务。运行态验收还必须执行 `docker compose up -d --build --wait`，探测前端 `/healthz`、后端 `/health` 与 `/ready`，并完成下述生产 E2E。前端 `/healthz` 会代理后端 `/ready`，因此返回 200 同时证明 Nginx 和后端依赖已就绪。前后端均使用 `unless-stopped` 自动恢复策略；人工停止后不会自行重启。
 
-```bash
-npm run docker:e2e:up
-npm run verify:e2e
-docker compose --profile e2e down --volumes --remove-orphans
+单独运行 `npm run verify:e2e` 不会自动启动测试服务；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容测试服务。它还要求 `LOCALMINIDRAMA_DATA_DIR` 指向仓库外新建的绝对空目录，以免 E2E 污染开发数据。必须在干净工作树按顺序执行：
+
+```powershell
+$e2eDataDir = Join-Path ([IO.Path]::GetTempPath()) ("localminidrama-e2e-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $e2eDataDir | Out-Null
+try {
+  $env:LOCALMINIDRAMA_DATA_DIR = $e2eDataDir
+  npm run docker:e2e:up
+  if ($LASTEXITCODE -ne 0) { throw '隔离 Docker E2E 服务启动失败' }
+  npm run verify:e2e
+  if ($LASTEXITCODE -ne 0) { throw '生产 E2E 未通过' }
+} finally {
+  docker compose --profile e2e down --volumes --remove-orphans
+  Remove-Item -LiteralPath $e2eDataDir -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item Env:LOCALMINIDRAMA_DATA_DIR -ErrorAction SilentlyContinue
+}
 ```
 
-`docker:e2e:up` 等价于带可信 Git revision 的 `docker compose --profile e2e up -d --build --wait`。E2E 会调用本地协议兼容的文本、图片、视频和 TTS 测试端点，生成成片、验证桌面视口播放、下载与项目导出，然后清理测试项目；测试不得调用外部真实 Provider，也不等同于外部云 Provider 深度联调。截至 2026-07-27，自由画布脚本与契约已复审，但上述真实 Docker 命令和六组亮/暗视口矩阵仍未执行，不能写入发布通过结论。
+`docker:e2e:up` 等价于带可信 Git revision 的 `docker compose --profile e2e up -d --build --wait`，并会拒绝默认 `backend-node/data`、非空目录、符号链接目录和与仓库危险重叠的路径。E2E 会调用本地协议兼容的文本、图片、视频和 TTS 测试端点，生成成片、验证桌面视口播放、下载与项目导出，然后清理测试项目；测试不得调用外部真实 Provider，也不等同于外部云 Provider 深度联调。2026-07-27 的自由画布历史运行曾出现来源 403、节点点击被画布拦截、刷新文本不保留和画布平移保存超时；截至当前未提交工作树，隔离 Docker 命令和亮/暗视口矩阵仍未重新执行，不能写入发布通过结论。
 
-该命令依次执行后端静态检查、测试与流程审计，以及前端静态检查、测试和生产构建。宿主机若使用 Node.js 24 等缺少 `better-sqlite3` 预编译产物的版本，可直接以 Docker/Node 20 作为权威验证路径。
+`npm run verify:docker` 依次检查镜像边界，并在临时验证容器内运行后端验证和前端验证；它不验证当前 Compose 服务。宿主机若使用 Node.js 24 等缺少 `better-sqlite3` 预编译产物的版本，可直接以 Docker/Node 20 作为权威容器验证路径。
 
 停止服务：
 
@@ -333,6 +355,17 @@ npm --prefix backend-node run backup:data -- --output D:\backup\localminidrama.z
 
 # 恢复同样要求后端与 Docker 已停止，且目标端口和数据库未被占用
 npm --prefix backend-node run restore:data -- --input D:\backup\localminidrama.zip --yes
+```
+
+使用 `LOCALMINIDRAMA_DATA_DIR` 自定义 Docker 数据目录时，必须先从实际后端容器读取 bind source，再停止服务并把该目录显式传给备份和恢复命令，不能省略 `--data-root`：
+
+```powershell
+$backend = docker compose ps -q backend
+$dataRoot = docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' $backend
+if (-not $dataRoot) { throw '无法确认后端 /app/data 的实际 bind source' }
+docker compose stop
+npm --prefix backend-node run backup:data -- --data-root $dataRoot --output D:\backup\localminidrama.zip
+npm --prefix backend-node run restore:data -- --data-root $dataRoot --input D:\backup\localminidrama.zip --yes
 ```
 
 恢复会先校验归档清单、大小、路径和 SQLite 完整性，并为目标数据保留恢复前回滚副本。安全备份不会携带 Provider 凭据，恢复后需要在「AI 配置」重新填写 Key 并执行连接测试。

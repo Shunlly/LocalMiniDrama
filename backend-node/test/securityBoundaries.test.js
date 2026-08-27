@@ -193,6 +193,27 @@ test('private provider dispatch requires an exact enabled saved origin', async (
     ),
     (error) => error?.code === 'UNSAFE_MEDIA_REFERENCE'
   );
+  await assert.rejects(
+    videoClient.validateProviderRequestUrl(
+      'https://other-provider:5688/v1/videos',
+      activeProvider,
+      { lookup: lanLookup }
+    ),
+    (error) => error?.code === 'UNSAFE_MEDIA_REFERENCE'
+  );
+  await assert.rejects(
+    videoClient.validateProviderRequestUrl(
+      'http://e2e-provider:5688/v1/videos',
+      {
+        ...activeProvider,
+        provider: 'openai_compatible',
+        settings: JSON.stringify({ allow_local_http: true }),
+        is_active: undefined,
+      },
+      { lookup: lanLookup }
+    ),
+    (error) => error?.code === 'UNSAFE_MEDIA_REFERENCE'
+  );
 });
 
 test('provider network routes reject unsaved or inactive private origins', async (t) => {

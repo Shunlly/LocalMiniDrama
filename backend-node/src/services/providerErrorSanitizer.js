@@ -219,6 +219,7 @@ function sanitizeProviderException(error, options = {}) {
     code: errorCode,
     responseBody,
   });
+  if (error?.retryable === true) safeError.retryable = true;
   if (/timeout|abort/i.test(String(error?.name || '')) || /(?:^|_)TIME(?:D)?OUT$/i.test(errorCode || '')) {
     safeError.message = `${safeLabel(options.provider, 'Provider')} ${safeLabel(options.operation, 'request')} timed out${errorCode ? ` (code ${errorCode})` : ''}; retry the request.`;
   } else if (errorCode && /^(?:EAI_AGAIN|ECONNREFUSED|ECONNRESET|ENETUNREACH|ENOTFOUND|EPIPE)$/i.test(errorCode)) {

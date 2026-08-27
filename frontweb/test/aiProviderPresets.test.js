@@ -55,6 +55,12 @@ test('provider defaults are service-type aware', () => {
   assert.equal(getBaseUrlForProvider('ollama', 'text'), 'http://127.0.0.1:11434/v1')
   assert.equal(getProviderProtocol('comfyui', 'image'), 'comfyui')
   assert.equal(getBaseUrlForProvider('comfyui', 'image'), 'http://127.0.0.1:8188')
+  assert.equal(getProviderProtocol('openai', 'video'), 'sora')
+  assert.equal(getProviderProtocol('minimax', 'video'), 'minimax')
+  assert.deepEqual(getProviderEndpointDefaults('minimax', 'video'), {
+    endpoint: '/video_generation',
+    query_endpoint: '/query/video_generation/{taskId}',
+  })
 })
 
 test('endpoint defaults prevent provider switching residue', () => {

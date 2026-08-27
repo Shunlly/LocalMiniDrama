@@ -598,6 +598,7 @@
       <li><a href="#deliverables">交付内容</a></li>
       <li><a href="#acceptance">验收矩阵</a></li>
       <li><a href="#reviews">复审结论</a></li>
+      <li><a href="#history">历史失败</a></li>
       <li><a href="#scope">范围边界</a></li>
       <li><a href="#gates">最终门禁</a></li>
     </ul>
@@ -649,7 +650,7 @@
         </article>
         <article class="deliverable">
           <h3>素材工作流</h3>
-          <p>支持搜索、图片/视频筛选、分组折叠、上传入口、拖入画布和符合资格的媒体保存。</p>
+          <p>支持本地媒体搜索、图片/视频筛选、分组折叠、上传入口、拖入画布和符合资格的媒体保存；素材中心已接入 Wikimedia Commons 搜索、作者与许可展示、预览和安全下载入库。</p>
         </article>
         <article class="deliverable">
           <h3>保存与恢复</h3>
@@ -722,7 +723,7 @@
             <tr>
               <td>08</td>
               <td>素材发现</td>
-              <td>关键词搜索、图片/视频筛选、折叠分组和项目素材聚焦保持一致。</td>
+              <td>关键词搜索、图片/视频筛选、折叠分组、项目素材聚焦和 Wikimedia Commons 来源展示保持一致；更多平台与用途许可判断后置。</td>
               <td><span class="status pass">PASS</span></td>
             </tr>
           </tbody>
@@ -753,6 +754,26 @@
       </ul>
     </section>
 
+    <section id="history" aria-labelledby="history-title">
+      <h2 id="history-title">历史失败与候选重验</h2>
+      <p class="section-lead">历史运行记录用于定位回归线索，不是当前候选的通过证明。当前候选仍须在同一干净源码修订上重新执行隔离 Docker E2E。</p>
+      <div class="table-wrap">
+        <table>
+          <caption>2026-07-27 自由画布历史失败记录</caption>
+          <thead>
+            <tr><th scope="col">历史现象</th><th scope="col">证据边界</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>API `/dramas` 返回 `REQUEST_SOURCE_NOT_ALLOWED` 403</td><td>来源/Origin 配置导致的历史运行失败；不能推断当前候选已通过。</td></tr>
+            <tr><td>点击「生成配置」时被画布容器拦截</td><td>浏览器交互失败记录；需要在候选运行中重新验证点击路径。</td></tr>
+            <tr><td>刷新后文本节点未保留浏览器编辑内容</td><td>持久化回归失败记录；代码复审不能替代刷新、恢复和断言重跑。</td></tr>
+            <tr><td>画布平移保存超时，浏览器与 API 数值当时一致</td><td>运行时等待/状态收敛失败记录；仍需候选重验保存完成和重新加载。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>2026-07-23 的生产 E2E 曾在旧源码 SHA <code>7079fd9fe0d4f62f61430a13a90bd5f49779e6d6</code> 上报告通过并生成 28 张正式机器截图，但当前源码修订不同，不能继承该结果。候选重验命令为：在仓库外新建空的 <code>LOCALMINIDRAMA_DATA_DIR</code>，执行 <code>npm run docker:e2e:up</code>、<code>npm run verify:e2e</code>，完成截图哈希/清理检查后再作发布判断。</p>
+    </section>
+
     <section id="scope" aria-labelledby="scope-title">
       <h2 id="scope-title">范围与延期</h2>
       <div class="scope-layout">
@@ -760,8 +781,9 @@
           <h3>当前桌面交付</h3>
           <ul class="scope-list">
             <li>生产图与自由图在同一工作台中隔离管理。</li>
+            <li>源码、后端、前端和 Docker 门禁使用 Node 20.x；桌面依赖安装、原生重建和打包使用 Node 22.12.0。</li>
             <li>部分 metadata 更新保留生产字段与未知字段。</li>
-            <li>测试使用本地协议兼容服务，不连接外部真实 Provider。</li>
+            <li>测试使用本地协议兼容服务，不连接外部真实 Provider；依赖审计必须显式指定官方 `https://registry.npmjs.org`。</li>
             <li>仅吸收节点化工作流思想，不复制参考站 AGPL 源码或资产。</li>
           </ul>
         </div>
@@ -770,6 +792,7 @@
           <ul class="scope-list deferred">
             <li>移动端重排、触控手势和移动画布/列表降级。</li>
             <li>新的真实 Provider 路由及第三方组合深度联调。</li>
+            <li>Wikimedia Commons 以外的网络素材平台，以及针对具体用途的自动许可兼容判断。</li>
             <li>多人协作、冲突合并和在线共享。</li>
             <li>完整 Agent/MCP 对话、工具编排和自动执行面板。</li>
           </ul>
@@ -798,7 +821,7 @@
         </li>
         <li class="pending">
           <span class="gate-marker" aria-hidden="true">!</span>
-          <span class="gate-copy"><strong>生产 E2E 六组矩阵</strong><span>1280x720、1366x768、1440x900，分别覆盖亮色与暗色。</span></span>
+          <span class="gate-copy"><strong>生产 E2E 六组矩阵</strong><span>1280x720、1366x768、1440x900，分别覆盖亮色与暗色；必须使用隔离空数据目录启动 Docker E2E。</span></span>
           <span class="gate-state">待验证</span>
         </li>
         <li class="pending">

@@ -120,8 +120,7 @@ jobs:
         working-directory: desktop
         run: npm ci --engine-strict
       - name: Verify Electron runtime and packaging contract
-        working-directory: desktop
-        run: npm run verify
+        run: npm run verify:desktop
       - name: Build, smoke and verify Windows release candidate
         run: npm run verify:release:windows
       - name: Upload Windows release candidate
@@ -620,6 +619,15 @@ jobs:
           set -euo pipefail
           test -z "$(git status --porcelain)"
           test "$(git rev-parse HEAD)" = "$LOCALMINIDRAMA_BUILD_REVISION"
+      - name: 准备隔离的 Docker E2E 数据目录
+        shell: bash
+        run: |
+          set -euo pipefail
+          data_dir="$(mktemp -d "$RUNNER_TEMP/localminidrama-e2e-data.XXXXXX")"
+          chmod 0777 "$data_dir"
+          test -d "$data_dir"
+          test -z "$(find "$data_dir" -mindepth 1 -print -quit)"
+          printf 'LOCALMINIDRAMA_DATA_DIR=%s\n' "$data_dir" >> "$GITHUB_ENV"
       - name: Start production containers and local E2E provider
         run: npm run docker:e2e:up
       - name: Record and scan final production images with Trivy

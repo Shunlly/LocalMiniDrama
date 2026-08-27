@@ -394,7 +394,9 @@
     />
     <FreeCanvasInspector
       v-if="selectedFreeNode"
+      :key="`${dramaId}:${selectedFreeNode.id}`"
       class="free-canvas-inspector-dock"
+      :data-free-node-id="String(selectedFreeNode.id)"
       :node="selectedFreeNode"
       :readonly="canvasMode !== 'free' || freeCanvasReadOnly"
       :busy="freeInspectorBusy"
@@ -625,6 +627,8 @@ let canvasReadyFrame = null
 let readinessRequestId = 0
 let freeCanvasCapabilityRequestId = 0
 let canvasLoadRequestId = 0
+let canvasEntityFocusRevision = 0
+let canvasRouteSynchronization = Promise.resolve(true)
 let workflowRunSequence = 0
 let freeCanvasHistory = createCanvasHistory(freeCanvas.value)
 let freeClipboard = null
@@ -837,6 +841,8 @@ const canvasStartMode = computed(() => getCanvasStartMode(drama.value, filterEpi
 
 const MIN_READABLE_CANVAS_ZOOM = 0.9
 const FOCUSED_NODE_MIN_ZOOM = 0.9
+const FREE_INSPECTOR_FOCUS_TIMEOUT_MS = 800
+const FREE_INSPECTOR_FOCUS_POLL_MS = 10
 const initialViewport = computed(() => {
   if (canvasMode.value === 'free') return { ...freeCanvas.value.viewport }
   const v = resolveViewport(savedLayout.value)
@@ -982,7 +988,7 @@ async function loadCanvasProject({
     productionViewport.value = vp
     if (!preserveFreeState) hydrateFreeCanvasState(drama.value.metadata)
     currentViewport.value = canvasMode.value === 'free' ? { ...freeCanvas.value.viewport } : vp
-    if (route.query.episode) filterEpisodeId.value = Number(route.query.episode)
+    filterEpisodeId.value = routeEpisodeId()
     await Promise.all([
       loadForDrama(drama.value, filterEpisodeId.value, requestOptions),
       loadProjectAssets(requestedDramaId, requestOptions),
@@ -1015,7 +1021,9 @@ async function loadCanvasProject({
 }
 
 async function retryCanvasProjectLoad() {
-  await loadCanvasProject({ blocking: true, preserveOnError: false })
+  const ownership = claimRouteEntityFocus()
+  const loaded = await loadCanvasProject({ blocking: true, preserveOnError: false })
+  if (loaded) await synchronizeRouteFocusedEntity(ownership)
 }
 
 async function fitCanvasView() {
@@ -1196,12 +1204,22 @@ function runCanvasNavigationBarrier() {
 }
 
 onBeforeRouteLeave(() => runCanvasNavigationBarrier())
-onBeforeRouteUpdate(async (to) => {
-  if (String(to.params.id) !== String(route.params.id)) {
+async function guardCanvasRouteUpdate(to) {
+  const currentContext = canvasRouteContext(route)
+  const nextContext = canvasRouteContext(to)
+  if (currentContext.projectId !== nextContext.projectId) {
+    return runCanvasNavigationBarrier()
+  }
+  if (
+    currentContext.focusNodeId !== nextContext.focusNodeId
+    || currentContext.episodeId !== nextContext.episodeId
+  ) {
     return runCanvasNavigationBarrier()
   }
   return true
-})
+}
+
+onBeforeRouteUpdate(guardCanvasRouteUpdate)
 
 async function setFocusedCanvasNode(nodeId, { force = false, restoreFocus = false } = {}) {
   const currentId = focusedNodeId.value || null
@@ -1241,21 +1259,151 @@ function registerFocusGuard(guard, isDirty = null) {
 }
 
 async function requestEpisodeFilterChange(value) {
-  const episodeId = value == null || value === '' ? null : Number(value)
-  if (String(filterEpisodeId.value ?? '') === String(episodeId ?? '')) return true
-  const changed = await setFocusedCanvasNode(null, { restoreFocus: false })
-  if (!changed) {
-    restoreFocusedNodeSelection()
+  const numericEpisodeId = Number(value)
+  const episodeId = value == null || value === ''
+    ? null
+    : (Number.isSafeInteger(numericEpisodeId) && numericEpisodeId > 0 ? numericEpisodeId : null)
+  const routeHasEpisodeQuery = Object.prototype.hasOwnProperty.call(route.query || {}, 'episode')
+  const routeEpisodeMatches = episodeId == null
+    ? !routeHasEpisodeQuery
+    : routeEpisodeId() === episodeId
+  if (
+    String(filterEpisodeId.value ?? '') === String(episodeId ?? '')
+    && routeEpisodeMatches
+  ) return await canvasRouteSynchronization
+  const query = { ...route.query }
+  if (episodeId != null) query.episode = String(episodeId)
+  else delete query.episode
+  delete query.focus
+  try {
+    const navigationFailure = await router.replace({ query })
+    if (navigationFailure) return false
+    return await canvasRouteSynchronization
+  } catch (_) {
     return false
   }
-  filterEpisodeId.value = episodeId
-  return true
 }
 
-function routeFocusNodeId() {
-  const raw = Array.isArray(route.query.focus) ? route.query.focus[0] : route.query.focus
+function routeFocusNodeId(routeLike = route) {
+  const raw = Array.isArray(routeLike?.query?.focus) ? routeLike.query.focus[0] : routeLike?.query?.focus
   const value = String(raw || '').trim()
   return /^[A-Za-z0-9:_-]{1,128}$/.test(value) ? value : ''
+}
+
+function routeEpisodeId(routeLike = route) {
+  const raw = Array.isArray(routeLike?.query?.episode) ? routeLike.query.episode[0] : routeLike?.query?.episode
+  if (raw == null || raw === '') return null
+  const rawValue = String(raw).trim()
+  if (!/^[1-9]\d*$/.test(rawValue)) return null
+  const value = Number(rawValue)
+  return Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+function canvasRouteContext(routeLike = route) {
+  return {
+    projectId: String(routeLike?.params?.id || ''),
+    focusNodeId: routeFocusNodeId(routeLike),
+    episodeId: routeEpisodeId(routeLike),
+  }
+}
+
+function claimCanvasEntityFocus(nodeId, { routeOwned = false } = {}) {
+  return {
+    revision: ++canvasEntityFocusRevision,
+    projectId: Number(canvasProjectId.value),
+    nodeId: String(nodeId || ''),
+    episodeId: routeEpisodeId(),
+    routeOwned,
+  }
+}
+
+function claimRouteEntityFocus() {
+  return claimCanvasEntityFocus(routeFocusNodeId(), { routeOwned: true })
+}
+
+function ownsCanvasEntityFocus(ownership, { requireSelection = false } = {}) {
+  if (
+    !ownership
+    || ownership.revision !== canvasEntityFocusRevision
+    || !canvasInstanceActive.value
+    || ownership.projectId !== Number(canvasProjectId.value)
+    || ownership.projectId !== Number(drama.value?.id)
+  ) return false
+  if (ownership.routeOwned && ownership.nodeId !== routeFocusNodeId()) return false
+  if (ownership.routeOwned && ownership.episodeId !== routeEpisodeId()) return false
+  return !requireSelection || String(selectedFreeNodeId.value || '') === ownership.nodeId
+}
+
+async function waitForFreeCanvasInspectorFocus(ownership, timeoutMs = FREE_INSPECTOR_FOCUS_TIMEOUT_MS) {
+  const deadline = Date.now() + Math.max(0, timeoutMs)
+  while (ownsCanvasEntityFocus(ownership, { requireSelection: true })) {
+    await nextTick()
+    if (!ownsCanvasEntityFocus(ownership, { requireSelection: true })) return false
+    const inspector = document.querySelector('.free-canvas-inspector-dock')
+    const inspectorNodeId = String(inspector?.dataset?.freeNodeId || '')
+    const focusTarget = inspectorNodeId === ownership.nodeId
+      ? inspector.querySelector('input:not([disabled]), textarea:not([disabled]), button:not([disabled])')
+      : null
+    if (focusTarget) {
+      focusTarget.focus({ preventScroll: true })
+      if (document.activeElement === focusTarget) return true
+    }
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) return false
+    await new Promise((resolve) => setTimeout(resolve, Math.min(FREE_INSPECTOR_FOCUS_POLL_MS, remaining)))
+  }
+  return false
+}
+
+async function synchronizeRouteFocusedEntity(ownership = claimRouteEntityFocus()) {
+  if (!ownsCanvasEntityFocus(ownership)) return false
+  const targetId = ownership.nodeId
+  const freeTarget = freeCanvas.value.nodes.find((node) => String(node.id) === targetId)
+  if (freeTarget) {
+    await setFocusedCanvasNode(null, { force: true, restoreFocus: false })
+    if (!ownsCanvasEntityFocus(ownership)) return false
+    if (canvasMode.value !== 'free') await setCanvasMode('free')
+    if (!ownsCanvasEntityFocus(ownership) || canvasMode.value !== 'free') return false
+    activateFreeCanvasNode(freeTarget.id, { focusInspector: false, ownership })
+    return waitForFreeCanvasInspectorFocus(ownership)
+  }
+
+  closeFreeCanvasInspector({ restoreFocus: false, invalidateFocus: false })
+  selectedFreeNodeIds.value = []
+  selectedFreeEdgeIds.value = []
+  if (!ownsCanvasEntityFocus(ownership)) return false
+  if (!targetId || !nodes.value.some((node) => String(node.id) === targetId)) {
+    return setFocusedCanvasNode(null, { force: true, restoreFocus: false })
+  }
+  if (canvasMode.value !== 'production') {
+    await setCanvasMode('production', { preserveRouteFocusOwnership: true })
+  }
+  if (!ownsCanvasEntityFocus(ownership) || canvasMode.value !== 'production') return false
+  return setFocusedCanvasNode(targetId, { force: true })
+}
+
+async function synchronizeCanvasRouteFocus({ resetProject = false } = {}) {
+  if (resetProject) resetCanvasProjectForRoute()
+  const ownership = claimRouteEntityFocus()
+
+  const projectAlreadyLoaded = Number(drama.value?.id) === ownership.projectId
+  const loaded = projectAlreadyLoaded || await loadCanvasProject({
+    blocking: true,
+    preserveOnError: false,
+  })
+  if (!loaded || !ownsCanvasEntityFocus(ownership)) return false
+  if (filterEpisodeId.value !== ownership.episodeId) {
+    filterEpisodeId.value = ownership.episodeId
+    await loadForDrama(drama.value, ownership.episodeId)
+    if (!ownsCanvasEntityFocus(ownership)) return false
+    rebuildGraph()
+  }
+  return synchronizeRouteFocusedEntity(ownership)
+}
+
+function startCanvasRouteSynchronization(options = {}) {
+  canvasRouteSynchronization = synchronizeCanvasRouteFocus(options).catch(() => false)
+  return canvasRouteSynchronization
 }
 
 function zoomCanvasIn() {
@@ -1273,9 +1421,9 @@ function toggleCanvasInteractive() {
 
 async function onCanvasNodesInitialized() {
   const requestedFocus = routeFocusNodeId()
-  if (requestedFocus && nodes.value.some((node) => node.id === requestedFocus)) {
+  if (requestedFocus && nodes.value.some((node) => String(node.id) === requestedFocus)) {
     initialFitDone.value = true
-    await setFocusedCanvasNode(requestedFocus)
+    await synchronizeRouteFocusedEntity(claimRouteEntityFocus())
     return
   }
   if (hasSavedViewport.value || initialFitDone.value) return
@@ -1404,7 +1552,7 @@ async function applyFreeCanvasHistoryState(nextState) {
   scheduleLayoutSave()
 }
 
-async function setCanvasMode(mode) {
+async function setCanvasMode(mode, { preserveRouteFocusOwnership = false } = {}) {
   const nextMode = mode === 'free' ? 'free' : 'production'
   if (nextMode === canvasMode.value) return
   if (nextMode === 'free' && freeCanvasReadOnly.value) {
@@ -1430,7 +1578,10 @@ async function setCanvasMode(mode) {
   canvasMode.value = nextMode
   if (nextMode === 'production') {
     finishFreeCanvasNodeEditing()
-    closeFreeCanvasInspector({ restoreFocus: false })
+    closeFreeCanvasInspector({
+      restoreFocus: false,
+      invalidateFocus: !preserveRouteFocusOwnership,
+    })
   }
   freeHistoryRevision.value += 1
   mergeActiveCanvasGraphs()
@@ -1620,17 +1771,26 @@ function getCanvasGenerationOptions() {
   }
 }
 
-function openAiConfig(serviceType) {
+function buildCanvasReturnTo(focusNodeId = '') {
   const returnQuery = { ...route.query }
-  if (filterEpisodeId.value != null) returnQuery.episode = String(filterEpisodeId.value)
+  const returnEpisodeId = routeEpisodeId()
+  if (returnEpisodeId != null) returnQuery.episode = String(returnEpisodeId)
   else delete returnQuery.episode
-  if (focusedNodeId.value) returnQuery.focus = focusedNodeId.value
+  const selectedFocusId = focusNodeId
+    || (canvasMode.value === 'free' ? selectedFreeNodeId.value : focusedNodeId.value)
+    || routeFocusNodeId()
+  const returnFocusId = routeFocusNodeId({ query: { focus: selectedFocusId } })
+  if (returnFocusId) returnQuery.focus = returnFocusId
   else delete returnQuery.focus
-  const returnTo = router.resolve({
+  return router.resolve({
     name: 'film-canvas',
     params: { id: String(dramaId.value) },
     query: returnQuery,
   }).fullPath
+}
+
+function openAiConfig(serviceType, focusNodeId = '') {
+  const returnTo = buildCanvasReturnTo(focusNodeId)
   router.push(buildAiConfigLocation({
     dramaId: dramaId.value,
     serviceType,
@@ -2379,7 +2539,7 @@ async function loadDrama(silent = false) {
     syncWorkflowFromDrama()
     const vp = resolveViewport(layoutCache.value)
     currentViewport.value = vp
-    if (route.query.episode) filterEpisodeId.value = Number(route.query.episode)
+    filterEpisodeId.value = routeEpisodeId()
     await loadForDrama(drama.value, filterEpisodeId.value)
     rebuildGraph()
   } catch (e) {
@@ -2647,16 +2807,8 @@ async function onNodeClick({ node, event }) {
   if (sbId) activeGroupId.value = workflowGroups.value.find((g) => (g.storyboard_ids || []).includes(sbId))?.id || activeGroupId.value
 }
 
-watch(filterEpisodeId, async (val) => {
-  if (drama.value) await loadForDrama(drama.value, val)
-  rebuildGraph()
-  const query = { ...route.query }
-  if (val != null) query.episode = String(val)
-  else delete query.episode
-  router.replace({ query }).catch(() => {})
-})
-
-watch(() => route.params.id, () => {
+function resetCanvasProjectForRoute() {
+  canvasEntityFocusRevision += 1
   cancelScheduledCanvasSave()
   layoutDirty.value = false
   failedCanvasSaveOperation.value = null
@@ -2670,7 +2822,11 @@ watch(() => route.params.id, () => {
   activeGroupId.value = null
   workflowOutcomeUnknown.value = false
   selectedStoryboardIds.value = []
-  void setFocusedCanvasNode(null, { force: true })
+  focusedNodeId.value = null
+  selectedFreeNodeId.value = null
+  selectedFreeNodeIds.value = []
+  selectedFreeEdgeIds.value = []
+  editingFreeNodeId.value = null
   initialFitDone.value = false
   canvasInteractive.value = true
   for (const key of Object.keys(mediaValidity)) delete mediaValidity[key]
@@ -2678,8 +2834,21 @@ watch(() => route.params.id, () => {
   freeCanvasVideoCapability.value = getVideoGenerationCapability([], { loading: true })
   refreshProductionReadiness()
   refreshFreeCanvasVideoCapability()
-  loadCanvasProject({ blocking: true, preserveOnError: false })
-}, { immediate: true })
+}
+
+watch(
+  () => [String(route.params.id || ''), routeFocusNodeId(), routeEpisodeId()],
+  ([projectId, focusNodeId, episodeId], previousIntent) => {
+    const resetProject = !previousIntent || projectId !== previousIntent[0]
+    const contextChanged = previousIntent && (
+      previousIntent[1] !== focusNodeId
+      || (previousIntent[2] ?? null) !== episodeId
+    )
+    if (!resetProject && !contextChanged) return
+    void startCanvasRouteSynchronization({ resetProject })
+  },
+  { immediate: true, flush: 'sync' },
+ )
 
 watch(drama, () => startStatusPoll())
 
@@ -2774,7 +2943,7 @@ function freeCanvasConfigRuntime(node) {
 
 function configureFreeCanvasNode(nodeId) {
   if (!isFreeCanvasNodeId(nodeId)) return
-  openAiConfig(freeCanvasConfigRuntimeById.value.get(String(nodeId))?.serviceType || 'video')
+  openAiConfig(freeCanvasConfigRuntimeById.value.get(String(nodeId))?.serviceType || 'video', nodeId)
 }
 
 function setFreeCanvasConfigOperationState(nodeId, status, metadata = {}) {
@@ -2869,8 +3038,10 @@ function updateFreeNodeContent(payload = {}) {
   commitFreeCanvasState({ ...freeCanvas.value, nodes: nextNodes }, `text:${nodeId}`)
 }
 
-function activateFreeCanvasNode(nodeId, { focusInspector = true } = {}) {
+function activateFreeCanvasNode(nodeId, { focusInspector = true, ownership = null } = {}) {
   if (!isFreeCanvasNodeId(nodeId)) return
+  const focusOwnership = ownership || (focusInspector ? claimCanvasEntityFocus(nodeId) : null)
+  if (focusOwnership && !ownsCanvasEntityFocus(focusOwnership)) return
   const selection = synchronizeFreeCanvasSelection(nodes.value, nodeId)
   nodes.value = selection.nodes
   edges.value = edges.value.map((edge) => ({ ...edge, selected: false }))
@@ -2878,10 +3049,7 @@ function activateFreeCanvasNode(nodeId, { focusInspector = true } = {}) {
   selectedFreeEdgeIds.value = selection.edgeIds
   selectedFreeNodeId.value = selection.focusedNodeId
   if (!focusInspector) return
-  void nextTick(() => {
-    document.querySelector('.free-canvas-inspector-dock input, .free-canvas-inspector-dock textarea, .free-canvas-inspector-dock button')
-      ?.focus({ preventScroll: true })
-  })
+  void waitForFreeCanvasInspectorFocus(focusOwnership)
 }
 
 function openFreeCanvasInspectorFor(nodeId) {
@@ -2914,8 +3082,9 @@ async function focusFreeCanvasNodeTrigger(nodeId) {
   nodeElement?.querySelector('.free-canvas-node')?.focus({ preventScroll: true })
 }
 
-function closeFreeCanvasInspector({ restoreFocus = true } = {}) {
+function closeFreeCanvasInspector({ restoreFocus = true, invalidateFocus = true } = {}) {
   const previousId = selectedFreeNodeId.value
+  if (invalidateFocus) canvasEntityFocusRevision += 1
   selectedFreeNodeId.value = null
   if (restoreFocus && previousId) void focusFreeCanvasNodeTrigger(previousId)
 }
@@ -3152,7 +3321,7 @@ function onFreeCanvasDrop(event) {
 }
 
 function goMediaLibrary() {
-  router.push({ name: 'media-library', query: { returnTo: route.fullPath } })
+  router.push({ name: 'media-library', query: { returnTo: buildCanvasReturnTo() } })
 }
 
 function isEditableKeyTarget(target) {

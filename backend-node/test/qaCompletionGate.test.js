@@ -481,3 +481,38 @@ test('mock compositor rolls back a new merge when the episode update fails', asy
   assert.equal(fixture.db.prepare('SELECT COUNT(*) AS count FROM video_merges').get().count, 0);
   assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM async_tasks WHERE type = 'video_merge'").get().count, 0);
 });
+
+test('historical compositor metadata cannot move a new merge into another project', async (t) => {
+  const fixture = createProductionQaFixture(t);
+  const now = new Date().toISOString();
+  fixture.db.prepare(
+    `INSERT INTO dramas (id, title, status, created_at, updated_at)
+     VALUES (2, 'Other project', 'draft', ?, ?)`
+  ).run(now, now);
+  fixture.db.prepare('DELETE FROM video_merges').run();
+  fixture.db.prepare(
+    `INSERT INTO video_merges
+       (episode_id, drama_id, provider, status, scenes, merge_options, merged_url, duration, completed_at, created_at)
+     VALUES (?, 2, 'mock-compositor', 'completed', '[]', '{}', 'mock://historical-cross-project.mp4', 5, ?, ?)`
+  ).run(fixture.episodeId, now, now);
+  fixture.db.prepare(
+    `INSERT INTO video_merges
+       (episode_id, drama_id, provider, status, scenes, merge_options, merged_url, duration, completed_at, created_at, deleted_at)
+     VALUES (?, 1, 'ffmpeg', 'completed', '[]', '{}', 'videos/newer-deleted.mp4', 5, ?, ?, ?)`
+  ).run(fixture.episodeId, now, now, now);
+
+  const result = await providerSdkService.compositeEpisodes(fixture.db, log, {
+    drama_id: 1,
+    run_id: fixture.runId,
+    workflow_step_id: fixture.qaStepId,
+    call_key: `${fixture.runId}:cross-project-history`,
+    mode: 'mock',
+    defer_qa_completion: true,
+  });
+
+  assert.equal(result.composite_reused, 1);
+  const current = fixture.db.prepare(
+    'SELECT episode_id, drama_id, status FROM video_merges ORDER BY id DESC LIMIT 1'
+  ).get();
+  assert.deepEqual(current, { episode_id: fixture.episodeId, drama_id: 1, status: 'qa_pending' });
+});

@@ -32,6 +32,14 @@ const completionVisibilityGateTokens = [
   ['pollError', /\bpollError\.value\b/],
 ]
 
+test('素材创建响应只使用真实 source 记录参与写后确认', () => {
+  const extractCreatedStorySource = requireWorkflowHelper('extractCreatedStorySource')
+  const sourceRecord = { id: 17, title: '已导入素材' }
+  assert.equal(extractCreatedStorySource({ source: sourceRecord, items: [] }), sourceRecord)
+  assert.equal(extractCreatedStorySource({ id: 17 }), null)
+  assert.equal(source.includes('extractCreatedStorySource(await createSourceFromForm())'), true)
+})
+
 function extractComputedBooleanBody(sourceText, identifier) {
   const declaration = `const ${identifier} = computed(() => Boolean(`
   const start = sourceText.indexOf(declaration)
@@ -604,7 +612,7 @@ test('disposed source workflow lifecycle rejects launches instead of returning a
   )
 })
 
-test('post-create UI failure shows a no-retry warning and offers read-only recovery', async () => {
+test('post-create refresh failure blocks the success callback and offers read-only recovery', async () => {
   const createSourceImportController = requireWorkflowHelper('createSourceImportController')
   let input = '待导入素材'
   let refreshFails = true
@@ -612,6 +620,7 @@ test('post-create UI failure shows a no-retry warning and offers read-only recov
   let createCalls = 0
   let refreshCalls = 0
   let refreshEmits = 0
+  let successCallbacks = 0
   const controller = createSourceImportController({
     createSource: async () => {
       createCalls += 1
@@ -623,7 +632,7 @@ test('post-create UI failure shows a no-retry warning and offers read-only recov
       return [{ id: 'source-created' }]
     },
     clearInput: () => { input = '' },
-    onCreated: async () => { throw new Error('页面状态更新失败') },
+    onCreated: async () => { successCallbacks += 1 },
     setRefreshAlert: (message) => { refreshAlert = message },
     emitRefresh: () => { refreshEmits += 1 },
   })
@@ -632,15 +641,15 @@ test('post-create UI failure shows a no-retry warning and offers read-only recov
   await assert.doesNotReject(async () => {
     outcome = await controller.importSource()
   })
-  assert.equal(outcome.status, 'post_create_failed')
-  assert.equal(outcome.refreshStatus, 'refresh_failed')
+  assert.equal(outcome.status, 'refresh_failed')
   assert.equal(input, '')
-  assert.equal(refreshAlert, sourceWorkflowController.SOURCE_POST_CREATE_FAILED_MESSAGE)
-  assert.match(refreshAlert, /已导入/)
+  assert.equal(refreshAlert, sourceWorkflowController.SOURCE_LIST_REFRESH_FAILED_MESSAGE)
+  assert.match(refreshAlert, /服务端完成导入/)
   assert.match(refreshAlert, /请勿重复导入/)
   assert.equal(createCalls, 1)
   assert.equal(refreshCalls, 1)
   assert.equal(refreshEmits, 0)
+  assert.equal(successCallbacks, 0)
 
   refreshFails = false
   const recoveryOutcome = await controller.refreshSources()
@@ -649,6 +658,47 @@ test('post-create UI failure shows a no-retry warning and offers read-only recov
   assert.equal(createCalls, 1)
   assert.equal(refreshCalls, 2)
   assert.equal(refreshEmits, 1)
+})
+
+test('post-create UI failure after a confirmed refresh remains a no-retry warning', async () => {
+  const createSourceImportController = requireWorkflowHelper('createSourceImportController')
+  let createCalls = 0
+  let refreshAlert = ''
+  const controller = createSourceImportController({
+    createSource: async () => {
+      createCalls += 1
+      return { id: 'source-created' }
+    },
+    fetchSources: async () => [{ id: 'source-created' }],
+    onCreated: async () => { throw new Error('页面状态更新失败') },
+    setRefreshAlert: (message) => { refreshAlert = message },
+  })
+
+  const outcome = await controller.importSource()
+  assert.equal(outcome.status, 'post_create_failed')
+  assert.equal(outcome.refreshStatus, 'refreshed')
+  assert.equal(refreshAlert, sourceWorkflowController.SOURCE_POST_CREATE_FAILED_MESSAGE)
+  assert.equal(createCalls, 1)
+})
+
+test('workflow snapshots commit only the newest complete generation', async () => {
+  const createSourceWorkflowSnapshotController = requireWorkflowHelper('createSourceWorkflowSnapshotController')
+  const releases = []
+  const applied = []
+  const controller = createSourceWorkflowSnapshotController({
+    fetchSnapshot: ({ generation }) => new Promise((resolve) => {
+      releases[generation] = () => resolve({ generation, sources: [generation], runs: [generation], reports: [generation] })
+    }),
+    applySnapshot: async (snapshot) => { applied.push(snapshot) },
+  })
+
+  const older = controller.refresh({ dramaId: 1 })
+  const newer = controller.refresh({ dramaId: 1 })
+  releases[2]()
+  assert.equal((await newer).status, 'applied')
+  releases[1]()
+  assert.equal((await older).status, 'stale')
+  assert.deepEqual(applied.map((snapshot) => snapshot.generation), [2])
 })
 
 test('source workflow component wires the executable controller and keeps the alert accessible', () => {

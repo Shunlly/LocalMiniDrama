@@ -3,6 +3,9 @@ const assetService = require('../services/assetService');
 
 function handleError(res, log, operation, err) {
   if (err?.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
+  if (Number.isInteger(err?.statusCode) && err.statusCode >= 400 && err.statusCode < 600) {
+    return response.error(res, err.statusCode, err.code || 'NETWORK_MEDIA_ERROR', err.message);
+  }
   log.error(operation, { error: err?.message });
   return response.internalError(res);
 }
@@ -24,6 +27,22 @@ function routes(db, log) {
         response.created(res, item);
       } catch (err) {
         handleError(res, log, 'assets create', err);
+      }
+    },
+    networkSearch: async (req, res) => {
+      try {
+        const result = await assetService.searchNetwork(req.query || {});
+        response.success(res, result);
+      } catch (err) {
+        handleError(res, log, 'assets network search', err);
+      }
+    },
+    networkImport: async (req, res) => {
+      try {
+        const item = await assetService.importFromNetwork(db, log, req.body || {});
+        response.created(res, item);
+      } catch (err) {
+        handleError(res, log, 'assets network import', err);
       }
     },
     get: (req, res) => {

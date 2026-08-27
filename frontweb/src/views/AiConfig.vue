@@ -194,4 +194,54 @@ html.light .main {
   border-color: rgba(139, 92, 246, 0.15);
   box-shadow: 0 4px 20px rgba(139, 92, 246, 0.08);
 }
+@media (max-width: 760px) {
+  .ai-config {
+    overflow-x: clip;
+  }
+  .header-inner {
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 10px 16px;
+  }
+  .main {
+    width: calc(100% - 24px);
+    margin: 12px auto;
+    padding: 16px;
+    box-sizing: border-box;
+    border-radius: 10px;
+    overflow-x: hidden;
+  }
+}
+@media (max-width: 520px) {
+  .header-inner {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+  .page-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .logo {
+    min-width: 0;
+    margin-right: auto;
+  }
+  .logo-main {
+    font-size: 1rem;
+  }
+  .btn-back {
+    flex: 0 0 auto;
+    margin-left: 0;
+  }
+  .main {
+    width: calc(100% - 16px);
+    margin-top: 8px;
+    padding: 12px;
+  }
+}
 </style>

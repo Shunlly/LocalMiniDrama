@@ -244,6 +244,7 @@ function createWorkflowRun(db, log, params) {
     err.code = 'BAD_REQUEST';
     throw err;
   }
+  dramaService.assertDramaWritable(db, dramaId);
   const type = String(params.type || 'novel2anime').trim();
   const steps = params.steps && params.steps.length ? params.steps : NOVEL2ANIME_STEPS;
   const id = uuidv4();
@@ -284,6 +285,7 @@ function createWorkflowRun(db, log, params) {
   };
 
   const tx = db.transaction(() => {
+    dramaService.assertDramaWritable(db, dramaId);
     db.prepare(
       `INSERT INTO workflow_runs
        (id, drama_id, episode_id, type, status, progress, current_step, input_json, created_at, updated_at)
@@ -860,6 +862,7 @@ async function requestProductionAdaptationText(db, log, run, step, sourceId, pla
 }
 
 async function executeStep(db, log, run, step, allSteps) {
+  dramaService.assertDramaWritable(db, run.drama_id);
   const executionMode = run.input_json?.qa_mode === 'production' ? 'production' : 'draft';
   const providerOptions = run.input_json?.options || {};
   if (step.step_key === 'source_intake') {
@@ -1186,6 +1189,7 @@ async function processWorkflowRunInner(db, log, runId, options = {}) {
   if (!run) return null;
   if (RUN_TERMINAL_STATUSES.has(run.status)) return getWorkflowRunDetail(db, runId);
   if (run.status === 'paused') return getWorkflowRunDetail(db, runId);
+  dramaService.assertDramaWritable(db, run.drama_id);
 
   setRunStatus(db, runId, 'processing', {
     progress: run.progress || 0,
@@ -1197,6 +1201,7 @@ async function processWorkflowRunInner(db, log, runId, options = {}) {
     run = getWorkflowRun(db, runId);
     if (!run || RUN_TERMINAL_STATUSES.has(run.status)) return getWorkflowRunDetail(db, runId);
     if (run.status === 'paused') return getWorkflowRunDetail(db, runId);
+    dramaService.assertDramaWritable(db, run.drama_id);
     const steps = getWorkflowSteps(db, runId);
     const failedStep = steps.find((step) => step.status === 'failed');
     if (failedStep) {
@@ -1287,6 +1292,10 @@ async function processWorkflowRunInner(db, log, runId, options = {}) {
         error: null,
       });
     } catch (err) {
+      const cancelledRun = getWorkflowRun(db, runId);
+      if (!cancelledRun || RUN_TERMINAL_STATUSES.has(cancelledRun.status) || cancelledRun.status === 'paused') {
+        return getWorkflowRunDetail(db, runId);
+      }
       if (err?.workflow_process_crash === true) {
         log?.warn?.('Workflow process interrupted during step commit', {
           run_id: runId,
@@ -1502,6 +1511,7 @@ function retryWorkflowRun(db, log, runId, options = {}) {
     err.code = 'BAD_REQUEST';
     throw err;
   }
+  dramaService.assertDramaWritable(db, run.drama_id);
   assertProductionRunReadiness(db, run);
   defaultBackgroundTasks.assertAccepting();
   const now = nowIso();
@@ -1561,6 +1571,7 @@ function resumeWorkflowRun(db, log, runId) {
     err.code = 'BAD_REQUEST';
     throw err;
   }
+  dramaService.assertDramaWritable(db, run.drama_id);
   assertProductionRunReadiness(db, run);
   defaultBackgroundTasks.assertAccepting();
   setRunStatus(db, run.id, 'pending', { error: null, completed_at: null });
@@ -1580,9 +1591,12 @@ function assertProductionRunReadiness(db, run) {
 
 function resumeActiveWorkflowRunsOnStartup(db, log) {
   const runs = db.prepare(
-    `SELECT id FROM workflow_runs
-     WHERE status IN ('pending', 'processing') AND deleted_at IS NULL
-     ORDER BY created_at ASC`
+    `SELECT run.id FROM workflow_runs run
+       JOIN dramas drama ON drama.id = run.drama_id
+     WHERE run.status IN ('pending', 'processing') AND run.deleted_at IS NULL
+       AND drama.deleted_at IS NULL
+       AND (drama.trash_state IS NULL OR drama.trash_state = '')
+     ORDER BY run.created_at ASC`
   ).all();
   if (runs.length) defaultBackgroundTasks.assertAccepting();
   for (const row of runs) {
@@ -1597,6 +1611,39 @@ function resumeActiveWorkflowRunsOnStartup(db, log) {
   return runs.length;
 }
 
+async function cancelAndDrainDramaWorkflows(db, log, dramaId, reason = '项目移入回收站') {
+  let rows;
+  try {
+    rows = db.prepare(
+      `SELECT id FROM workflow_runs
+        WHERE drama_id = ? AND status IN ('pending', 'processing', 'paused') AND deleted_at IS NULL`
+    ).all(Number(dramaId));
+  } catch (error) {
+    if (/no such table/i.test(error?.message || '')) return { cancelled_run_ids: [] };
+    throw error;
+  }
+  const cancelledRunIds = [];
+  for (const row of rows) {
+    const result = cancelWorkflowRun(db, log, row.id, reason);
+    if (result) cancelledRunIds.push(String(row.id));
+  }
+  const timeoutAt = Date.now() + 30_000;
+  while (cancelledRunIds.some((id) => processingRunIds.has(id))) {
+    if (Date.now() >= timeoutAt) {
+      const error = new Error('工作流取消后未能在限定时间内退出，项目保持回收锁定');
+      error.code = 'WORKFLOW_DRAIN_TIMEOUT';
+      error.statusCode = 409;
+      error.details = {
+        active_workflow_run_ids: cancelledRunIds.filter((id) => processingRunIds.has(id)),
+        project_remains_locked: true,
+      };
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return { cancelled_run_ids: cancelledRunIds };
+}
+
 module.exports = {
   NOVEL2ANIME_STEPS,
   createWorkflowRun,
@@ -1609,6 +1656,7 @@ module.exports = {
   pauseWorkflowRun,
   resumeWorkflowRun,
   assertProductionRunReadiness,
+  cancelAndDrainDramaWorkflows,
   resumeActiveWorkflowRunsOnStartup,
   getWorkflowRun,
   getWorkflowSteps,

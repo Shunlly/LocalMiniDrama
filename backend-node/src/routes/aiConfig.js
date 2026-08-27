@@ -65,6 +65,7 @@ function update(db, log, cfg) {
       if (body.api_key !== undefined) allowed.api_key = body.api_key;
       if (body.default_model !== undefined) allowed.default_model = body.default_model;
       if (body.is_default !== undefined) allowed.is_default = body.is_default;
+      if (body.expected_updated_at !== undefined) allowed.expected_updated_at = body.expected_updated_at;
       body = allowed;
     }
 
@@ -74,8 +75,8 @@ function update(db, log, cfg) {
       response.success(res, aiConfigService.configForResponse(config));
     } catch (err) {
       log.errorw('Update AI config failed', { error: err.message, config_id: id });
-      if (err.status === 400) {
-        return response.error(res, 400, err.code || 'BAD_REQUEST', err.message, err.details);
+      if (err.status === 400 || err.status === 409) {
+        return response.error(res, err.status, err.code || 'BAD_REQUEST', err.message, err.details);
       }
       response.internalError(res, '更新失败');
     }
@@ -105,8 +106,11 @@ function bulkUpdateKey(db, log, cfg) {
       return response.badRequest(res, '请提供新的 API Key');
     }
     try {
-      const count = aiConfigService.bulkUpdateApiKey(db, log, api_key.trim());
-      response.success(res, { updated: count, message: `已更新 ${count} 条配置的 API Key` });
+      const result = aiConfigService.bulkUpdateApiKey(db, log, api_key.trim());
+      response.success(res, {
+        ...result,
+        message: `已更新 ${result.updated} 条配置的 API Key`,
+      });
     } catch (err) {
       log.error('Bulk update api_key failed', { error: err.message });
       response.internalError(res, '批量换Key失败');

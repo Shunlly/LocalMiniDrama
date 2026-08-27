@@ -23,6 +23,9 @@ function setVideoGenFailed(db, videoGenId, errorMsg, now) {
 }
 
 function list(db, query) {
+  if (query.drama_id && !require('./dramaWriteGuard').canReadDrama(db, Number(query.drama_id))) {
+    return { items: [], total: 0, page: 1, pageSize: Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20)) };
+  }
   let sql = 'FROM video_generations WHERE deleted_at IS NULL';
   const params = [];
   if (query.drama_id) {
@@ -41,13 +44,12 @@ function list(db, query) {
     sql += ' AND status = ?';
     params.push(query.status);
   }
-  const countRow = db.prepare('SELECT COUNT(*) as total ' + sql).get(...params);
-  const total = countRow.total || 0;
   const page = Math.max(1, parseInt(query.page, 10) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20));
   const offset = (page - 1) * pageSize;
-  const rows = db.prepare('SELECT * ' + sql + ' ORDER BY created_at DESC LIMIT ? OFFSET ?').all(...params, pageSize, offset);
-  return { items: rows.map(rowToItem), total, page, pageSize };
+  const rows = db.prepare('SELECT * ' + sql + ' ORDER BY created_at DESC, id DESC').all(...params);
+  const visible = rows.filter((row) => require('./dramaWriteGuard').canReadResource(db, 'video_generations', row.id));
+  return { items: visible.slice(offset, offset + pageSize).map(rowToItem), total: visible.length, page, pageSize };
 }
 
 function rowToItem(r) {
@@ -82,6 +84,7 @@ function rowToItem(r) {
 }
 
 function getById(db, id) {
+  if (!require('./dramaWriteGuard').canReadResource(db, 'video_generations', id)) return null;
   const r = db.prepare('SELECT * FROM video_generations WHERE id = ? AND deleted_at IS NULL').get(Number(id));
   return r ? rowToItem(r) : null;
 }
@@ -90,6 +93,207 @@ function badRequest(message) {
   const error = new Error(message);
   error.code = 'BAD_REQUEST';
   return error;
+}
+
+function isTaskCancellation(error) {
+  return error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
+}
+
+function runVideoTaskMutation(db, row, signal, mutation) {
+  if (row.task_id) return taskService.runTaskMutation(db, row.task_id, signal, mutation);
+  if (signal?.aborted) throw signal.reason;
+  return db.transaction(mutation)();
+}
+
+async function persistVideoFailure(db, row, errorMessage) {
+  const message = String(errorMessage || '视频生成失败').slice(0, 500);
+  if (!row.task_id) {
+    const now = new Date().toISOString();
+    db.transaction(() => setVideoGenFailed(db, row.id, message, now))();
+    return true;
+  }
+  return taskService.failTaskAfterCancellationDecision(db, row.task_id, message, (now) => {
+    setVideoGenFailed(db, row.id, message, now);
+  });
+}
+
+function persistProviderTaskId(db, row, providerTaskId, now) {
+  const persist = db.transaction(() => {
+    const current = db.prepare(
+      'SELECT task_id, deleted_at FROM video_generations WHERE id = ?'
+    ).get(row.id);
+    if (!current || current.deleted_at || String(current.task_id || '') !== String(row.task_id || '')) {
+      throw new Error('视频任务归属已变化，拒绝写入 Provider 任务 ID');
+    }
+    const updated = db.prepare(
+      `UPDATE video_generations
+          SET provider_task_id = ?,
+              status = CASE WHEN status IN ('pending', 'processing') THEN 'processing' ELSE status END,
+              updated_at = ?
+        WHERE id = ?`
+    ).run(String(providerTaskId), now, row.id);
+    if (updated.changes !== 1) throw new Error('Provider 任务 ID 持久化失败');
+  });
+  persist();
+}
+
+function localCancellationError(message) {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  error.code = 'OPERATION_CANCELLED';
+  return error;
+}
+
+function scheduleVideoCancellationReconciliation(db, log, videoGenId, delayMs = 2_000) {
+  const timer = setTimeout(() => {
+    resumePollForVideoGeneration(db, log, videoGenId).catch((error) => {
+      log.error('Video cancellation reconciliation failed', {
+        videoGenId,
+        error: error.message,
+      });
+    });
+  }, delayMs);
+  timer.unref?.();
+}
+
+function replaceFailedIdempotentTask(db, log, videoGeneration) {
+  const retry = db.transaction(() => {
+    const current = db.prepare(
+      `SELECT id, drama_id, status, task_id
+         FROM video_generations
+        WHERE id = ? AND deleted_at IS NULL`
+    ).get(videoGeneration.id);
+    if (!current || current.status !== 'failed') return getById(db, videoGeneration.id);
+    assertDramaAcceptsVideoWrites(db, Number(current.drama_id) || 0);
+    const previousTask = current.task_id ? taskService.getTask(db, current.task_id) : null;
+    if (previousTask && !['failed', 'cancelled', 'completed'].includes(previousTask.status)) {
+      throw badRequest('幂等视频记录与活动任务状态不一致，请稍后重试');
+    }
+    const nextTask = taskService.createTask(
+      db,
+      log,
+      'video_generation',
+      String(Number(current.drama_id) || '')
+    );
+    const now = new Date().toISOString();
+    const updated = db.prepare(
+      `UPDATE video_generations
+          SET status = 'processing', task_id = ?, provider_task_id = NULL,
+              video_url = NULL, local_path = NULL, error_msg = NULL, completed_at = NULL, updated_at = ?
+        WHERE id = ? AND status = 'failed' AND task_id IS ?`
+    ).run(nextTask.id, now, current.id, current.task_id);
+    if (updated.changes !== 1) throw new Error('失败视频重试状态已变化');
+    return getById(db, current.id);
+  });
+  return typeof retry.immediate === 'function' ? retry.immediate() : retry();
+}
+
+function waitForAbortable(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(promise).then(resolve, reject).finally(() => {
+      signal.removeEventListener('abort', onAbort);
+    });
+  });
+}
+
+function normalizeScopeId(rawValue, field, allowZero) {
+  let value;
+  if (typeof rawValue === 'number') {
+    value = rawValue;
+  } else if (typeof rawValue === 'string' && /^\d+$/.test(rawValue.trim())) {
+    value = Number(rawValue.trim());
+  } else {
+    throw badRequest(`${field} 无效`);
+  }
+  if (!Number.isSafeInteger(value) || (allowZero ? value < 0 : value <= 0)) {
+    throw badRequest(`${field} 无效`);
+  }
+  return value;
+}
+
+function assertDramaAcceptsVideoWrites(db, dramaId) {
+  if (!(dramaId > 0)) return;
+  require('./dramaWriteGuard').assertDramaWritable(db, dramaId);
+}
+
+/**
+ * 解析视频生成的真实作用域。分镜作用域以其未删除的 episode/drama 链路为准，
+ * 不信任请求或历史任务行中可被污染的 drama_id。
+ */
+function resolveVideoGenerationScope(db, body) {
+  const hasDramaId = Object.prototype.hasOwnProperty.call(body, 'drama_id');
+  const rawDramaId = body.drama_id;
+  const explicitGlobalEmpty = rawDramaId === null
+    || (typeof rawDramaId === 'string' && rawDramaId.trim() === '');
+  let dramaId = 0;
+  if (hasDramaId && !explicitGlobalEmpty) {
+    dramaId = normalizeScopeId(rawDramaId, 'drama_id', true);
+    assertDramaAcceptsVideoWrites(db, dramaId);
+  }
+
+  const storyboardId = body.storyboard_id != null
+    ? normalizeScopeId(body.storyboard_id, 'storyboard_id', false)
+    : null;
+  if (storyboardId == null) return { dramaId, storyboardId };
+
+  const scope = db.prepare(
+    `SELECT e.drama_id
+       FROM storyboards s
+       JOIN episodes e ON e.id = s.episode_id AND e.deleted_at IS NULL
+     JOIN dramas d ON d.id = e.drama_id AND d.deleted_at IS NULL
+      WHERE s.id = ? AND s.deleted_at IS NULL`
+  ).get(storyboardId);
+  if (!scope || (dramaId > 0 && Number(scope.drama_id) !== dramaId)) {
+    throw badRequest('storyboard_id 不存在或不属于当前 drama_id');
+  }
+  assertDramaAcceptsVideoWrites(db, Number(scope.drama_id));
+  return { dramaId: Number(scope.drama_id), storyboardId };
+}
+
+function normalizeStoredDramaId(value) {
+  if (value == null || value === '') return 0;
+  return normalizeScopeId(value, '历史 video_generations.drama_id', true);
+}
+
+function findIdempotentVideoGeneration(db, idempotencyKey, scope, now) {
+  const existing = db.prepare(
+    `SELECT id, drama_id, storyboard_id, deleted_at
+       FROM video_generations
+      WHERE idempotency_key = ?`
+  ).get(idempotencyKey);
+  if (!existing) return null;
+
+  let existingScope;
+  let storedDramaId;
+  try {
+    storedDramaId = normalizeStoredDramaId(existing.drama_id);
+    existingScope = resolveVideoGenerationScope(db, {
+      drama_id: existing.drama_id,
+      storyboard_id: existing.storyboard_id,
+    });
+  } catch (_) {
+    throw badRequest('idempotency_key 属于其他 drama 或 storyboard');
+  }
+
+  // 仅兼容旧数据将分镜任务的 drama_id 留为 0；其他不一致均为历史脏归属。
+  const legacyZeroDrama = storedDramaId === 0 && existing.storyboard_id != null;
+  if ((!legacyZeroDrama && storedDramaId !== existingScope.dramaId)
+    || existingScope.dramaId !== scope.dramaId
+    || existingScope.storyboardId !== scope.storyboardId) {
+    throw badRequest('idempotency_key 属于其他 drama 或 storyboard');
+  }
+  if (existing.deleted_at) {
+    throw badRequest('idempotency_key 引用了已删除的视频记录，请使用新 key');
+  }
+  if (storedDramaId !== existingScope.dramaId) {
+    db.prepare('UPDATE video_generations SET drama_id = ?, updated_at = ? WHERE id = ?')
+      .run(existingScope.dramaId, now, existing.id);
+  }
+  return { ...getById(db, existing.id), idempotent_reuse: true };
 }
 
 function parseConfigSettings(config) {
@@ -184,6 +388,7 @@ function loadVideoReferenceImage(db, storyboardId, dramaId, value) {
        FROM image_generations ig
        JOIN storyboards s ON s.id = ig.storyboard_id AND s.deleted_at IS NULL
        JOIN episodes e ON e.id = s.episode_id AND e.deleted_at IS NULL
+       JOIN dramas d ON d.id = e.drama_id AND d.deleted_at IS NULL
       WHERE ig.id = ? AND ig.storyboard_id = ? AND ig.status = 'completed'
         AND ig.deleted_at IS NULL AND ig.frame_type IN ('quad_grid', 'nine_grid')`
   ).get(imageId, storyboardId);
@@ -214,21 +419,7 @@ function normalizeReferenceUrls(value) {
 
 function createVideoGeneration(db, log, body, options = {}) {
   const now = new Date().toISOString();
-  let dramaId = Number(body.drama_id) || 0;
-  const storyboardId = body.storyboard_id != null ? Number(body.storyboard_id) : null;
-  if (storyboardId != null) {
-    if (!Number.isInteger(storyboardId) || storyboardId <= 0) throw badRequest('storyboard_id 无效');
-    const scope = db.prepare(
-      `SELECT e.drama_id
-         FROM storyboards s
-         JOIN episodes e ON e.id = s.episode_id AND e.deleted_at IS NULL
-        WHERE s.id = ? AND s.deleted_at IS NULL`
-    ).get(storyboardId);
-    if (!scope || (dramaId > 0 && Number(scope.drama_id) !== dramaId)) {
-      throw badRequest('分镜不存在或不属于当前剧集');
-    }
-    dramaId = Number(scope.drama_id);
-  }
+  const { dramaId, storyboardId } = resolveVideoGenerationScope(db, body);
   const provider = String(body.provider || '').trim() || null;
   let prompt = body.prompt || '';
   const style = String(body.style || '').trim();
@@ -288,60 +479,73 @@ function createVideoGeneration(db, log, body, options = {}) {
   const refImagesJson = referenceUrls.length ? JSON.stringify(referenceUrls) : null;
   const idempotencyKey = String(body.idempotency_key || '').trim() || null;
   if (idempotencyKey) {
-    const existing = db.prepare(
-      `SELECT id FROM video_generations
-        WHERE idempotency_key = ? AND drama_id = ? AND deleted_at IS NULL`
-    ).get(idempotencyKey, dramaId);
-    if (existing) return { ...getById(db, existing.id), idempotent_reuse: true };
+    const reused = findIdempotentVideoGeneration(db, idempotencyKey, { dramaId, storyboardId }, now);
+    if (reused) return reused;
   }
   const providerConfig = videoClient.getDefaultVideoConfig(db, body.model, provider);
   if (!providerConfig) throw badRequest('缺少已启用的视频生成配置');
   if (!configuredVideoModel(providerConfig, body.model)) {
     throw badRequest('视频生成配置尚未选择可用模型');
   }
-  const task = taskService.createTask(db, log, 'video_generation', String(body.drama_id || ''));
-  const info = db.prepare(
-    `INSERT INTO video_generations
-     (drama_id, storyboard_id, provider, prompt, model, duration, aspect_ratio, resolution, seed,
-      camera_fixed, watermark, image_url, first_frame_url, last_frame_url, reference_image_urls,
-       status, task_id, idempotency_key, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing', ?, ?, ?, ?)`
-  ).run(
-    dramaId,
-    storyboardId,
-    provider,
-    prompt,
-    body.model ?? null,
-    body.duration ?? null,
-    aspectRatio,
-    body.resolution ?? null,
-    body.seed != null ? Number(body.seed) : null,
-    body.camera_fixed != null ? (body.camera_fixed ? 1 : 0) : null,
-    body.watermark != null ? (body.watermark ? 1 : 0) : 0,
-    imageUrl,
-    firstFrameUrl,
-    lastFrameUrl,
-    refImagesJson,
-    task.id,
-    idempotencyKey,
-    now,
-    now
-  );
-  const videoGenId = Number(info.lastInsertRowid);
+  // 复查与两条写入必须在同一个写事务内，避免并发相同 key 留下孤立 async_tasks。
+  const persist = db.transaction(() => {
+    assertDramaAcceptsVideoWrites(db, dramaId);
+    if (idempotencyKey) {
+      const racedReuse = findIdempotentVideoGeneration(
+        db,
+        idempotencyKey,
+        { dramaId, storyboardId },
+        now
+      );
+      if (racedReuse) return { reused: racedReuse };
+    }
+
+    const task = taskService.createTask(db, log, 'video_generation', String(dramaId || ''));
+    const info = db.prepare(
+      `INSERT INTO video_generations
+       (drama_id, storyboard_id, provider, prompt, model, duration, aspect_ratio, resolution, seed,
+        camera_fixed, watermark, image_url, first_frame_url, last_frame_url, reference_image_urls,
+         status, task_id, idempotency_key, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing', ?, ?, ?, ?)`
+    ).run(
+      dramaId,
+      storyboardId,
+      provider,
+      prompt,
+      body.model ?? null,
+      body.duration ?? null,
+      aspectRatio,
+      body.resolution ?? null,
+      body.seed != null ? Number(body.seed) : null,
+      body.camera_fixed != null ? (body.camera_fixed ? 1 : 0) : null,
+      body.watermark != null ? (body.watermark ? 1 : 0) : 0,
+      imageUrl,
+      firstFrameUrl,
+      lastFrameUrl,
+      refImagesJson,
+      task.id,
+      idempotencyKey,
+      now,
+      now
+    );
+    return { videoGenId: Number(info.lastInsertRowid), taskId: task.id };
+  });
+  const persisted = typeof persist.immediate === 'function' ? persist.immediate() : persist();
+  if (persisted.reused) return persisted.reused;
+  const { videoGenId, taskId } = persisted;
   if (options.defer_processing !== true) {
     scheduleLegacyAsync(log, 'video_generation_route', () => {
       processVideoGeneration(db, log, videoGenId);
-    }, { video_generation_id: videoGenId, task_id: task.id, drama_id: dramaId });
+    }, { video_generation_id: videoGenId, task_id: taskId, drama_id: dramaId });
   }
-  return getById(db, videoGenId) || { id: videoGenId, task_id: task.id, status: 'processing' };
+  return getById(db, videoGenId) || { id: videoGenId, task_id: taskId, status: 'processing' };
 }
 
 async function createAndProcessVideo(db, log, body) {
-  const created = createVideoGeneration(db, log, body, { defer_processing: true });
+  let created = createVideoGeneration(db, log, body, { defer_processing: true });
   if (created.status === 'completed') return created;
   if (created.idempotent_reuse && created.status === 'failed') {
-    db.prepare("UPDATE video_generations SET status = 'processing', error_msg = NULL, updated_at = ? WHERE id = ?")
-      .run(new Date().toISOString(), created.id);
+    created = replaceFailedIdempotentTask(db, log, created);
   }
   await processVideoGeneration(db, log, created.id);
   const completed = getById(db, created.id);
@@ -387,24 +591,50 @@ function resolveVideosDir(storagePath, projectSubdir) {
 async function downloadVideoToLocal(storagePath, videoUrl, videoGenId, log, projectSubdir = null, networkOptions = {}) {
   if (!videoUrl || typeof videoUrl !== 'string') return null;
   const { dir, relPrefix } = resolveVideosDir(storagePath, projectSubdir);
+  let filePath = null;
   try {
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const ext = (videoUrl.split('?')[0].match(/\.(mp4|webm|mov)$/i) || [])[1] || 'mp4';
     const name = `vg_${videoGenId}_${randomUUID().slice(0, 8)}.${ext}`;
-    const filePath = path.join(dir, name);
+    filePath = path.join(dir, name);
+    const relativePath = `${relPrefix}/${name}`.replace(/\\/g, '/');
     const result = await uploadService.downloadBufferViaNodeHttp(videoUrl, 120000, 0, {
       maxBytes: 512 * 1024 * 1024,
       accept: 'video/*,application/octet-stream',
       trustedOrigins: networkOptions.trustedOrigins,
+      signal: networkOptions.signal,
     });
+    if (networkOptions.signal?.aborted) throw networkOptions.signal.reason;
     uploadService.assertUploadDiskCapacity(storagePath, result.buffer.length);
-    fs.writeFileSync(filePath, result.buffer, { flag: 'wx' });
-    const relativePath = `${relPrefix}/${name}`.replace(/\\/g, '/');
+    uploadService.writeStorageBuffer(storagePath, relativePath, result.buffer);
     log.info('Video saved to local', { videoGenId, local_path: relativePath, projectSubdir: projectSubdir || '(root)' });
     return relativePath;
   } catch (e) {
+    if (filePath) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (cleanupError) {
+        if (cleanupError.code !== 'ENOENT') {
+          log.warn('Cleanup incomplete video failed', { videoGenId, path: filePath, error: cleanupError.message });
+        }
+      }
+    }
     log.warn('Download video error', { videoGenId, error: e.message });
+    if (isTaskCancellation(e) || networkOptions.signal?.aborted) throw e;
     return null;
+  }
+}
+
+function removeUncommittedVideo(storagePath, localPath, videoGenId, log) {
+  if (!localPath) return;
+  const absolutePath = path.resolve(storagePath, localPath);
+  const storageRoot = path.resolve(storagePath);
+  if (absolutePath !== storageRoot && !absolutePath.startsWith(storageRoot + path.sep)) return;
+  try {
+    fs.unlinkSync(absolutePath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      log.warn('Cleanup uncommitted video failed', { videoGenId, local_path: localPath, error: error.message });
+    }
   }
 }
 
@@ -486,9 +716,14 @@ function normalizeVideoFileToTargetPixels(absPath, tw, th, log, videoGenId) {
     } catch (_) {}
     return false;
   }
+  if (r.status === 0 && (!fs.existsSync(tmpOut) || fs.statSync(tmpOut).size <= 0)) {
+    log.warn('[视频] 画幅归一化输出为空（保留原文件）', { videoGenId });
+    try { fs.unlinkSync(tmpOut); } catch (_) {}
+    return false;
+  }
   try {
-    fs.unlinkSync(absPath);
-    fs.renameSync(tmpOut, absPath);
+    const publication = uploadService.publishStagedFile(tmpOut, absPath);
+    publication.commit();
     log.info('[视频] 已统一画幅尺寸', { videoGenId, w: tw, h: th });
     return true;
   } catch (e) {
@@ -538,35 +773,70 @@ function persistCompletedVideo(db, videoGenId, row, videoUrl, localPath, now) {
   persist();
 }
 
-async function finalizeSuccessfulVideo(db, log, videoGenId, row, rowForAspect, videoUrl, logLabel, providerConfig) {
+async function finalizeSuccessfulVideo(
+  db,
+  log,
+  videoGenId,
+  row,
+  rowForAspect,
+  videoUrl,
+  logLabel,
+  providerConfig,
+  signal
+) {
+  if (row.task_id) {
+    await taskService.waitForTaskCancellationDecision(db, row.task_id, signal);
+  }
   const now = new Date().toISOString();
   const providerEnabled = providerConfig?.is_active === true
     || providerConfig?.is_active === 1
     || providerConfig?.is_active === '1';
   const trustedOrigins = providerEnabled ? [providerConfig?.base_url].filter(Boolean) : [];
   const validatedVideo = await uploadService.validatePublicHttpUrl(videoUrl, { trustedOrigins });
+  if (row.task_id) {
+    await taskService.waitForTaskCancellationDecision(db, row.task_id, signal);
+  }
   videoUrl = validatedVideo.url;
   let localPath = null;
+  let storagePath = null;
   try {
     const cfg = require('../config').loadConfig();
-    const storagePath = resolveStoragePath(cfg);
+    storagePath = resolveStoragePath(cfg);
     const projectSubdir = storageLayout.getProjectStorageSubdir(db, row.drama_id);
-    localPath = await downloadVideoToLocal(storagePath, videoUrl, videoGenId, log, projectSubdir, { trustedOrigins });
+    localPath = await downloadVideoToLocal(storagePath, videoUrl, videoGenId, log, projectSubdir, {
+      trustedOrigins,
+      signal,
+    });
+    if (row.task_id) {
+      await taskService.waitForTaskCancellationDecision(db, row.task_id, signal);
+    }
     maybeNormalizeVideoAfterDownload(storagePath, localPath, rowForAspect, videoGenId, log);
-  } catch (_) {}
-  persistCompletedVideo(db, videoGenId, row, videoUrl, localPath, now);
+  } catch (error) {
+    if (isTaskCancellation(error) || signal?.aborted) {
+      removeUncommittedVideo(storagePath, localPath, videoGenId, log);
+      throw error;
+    }
+  }
+  try {
+    runVideoTaskMutation(db, row, signal, () => {
+      persistCompletedVideo(db, videoGenId, row, videoUrl, localPath, now);
+      if (row.task_id) {
+        taskService.updateTaskResult(db, row.task_id, {
+          video_generation_id: videoGenId,
+          video_url: videoUrl,
+          status: 'completed',
+        });
+      }
+    });
+  } catch (error) {
+    removeUncommittedVideo(storagePath, localPath, videoGenId, log);
+    throw error;
+  }
   if (row.storyboard_id) {
     log.info('Updated storyboard video' + (logLabel ? ` (${logLabel})` : ''), {
       storyboard_id: row.storyboard_id,
       video_url: videoUrl,
       video_local_path: localPath,
-    });
-  }
-  if (row.task_id) {
-    taskService.updateTaskResult(db, row.task_id, {
-      video_generation_id: videoGenId,
-      video_url: videoUrl,
-      status: 'completed',
     });
   }
   log.info('Video generation completed' + (logLabel ? ` (${logLabel})` : ''), {
@@ -576,7 +846,16 @@ async function finalizeSuccessfulVideo(db, log, videoGenId, row, rowForAspect, v
   });
 }
 
-async function pollProviderTaskAndFinalize(db, log, videoGenId, row, rowForAspect, providerTaskId, config) {
+async function pollProviderTaskAndFinalize(
+  db,
+  log,
+  videoGenId,
+  row,
+  rowForAspect,
+  providerTaskId,
+  config,
+  signal
+) {
   const cfg = require('../config').loadConfig();
   const POLL_INTERVAL_MS = 10000;
   const { resolveVideoGenerationTimeoutMinutes } = require('../config/videoGeneration');
@@ -585,22 +864,30 @@ async function pollProviderTaskAndFinalize(db, log, videoGenId, row, rowForAspec
     1,
     Math.ceil((generationTimeoutMinutes * 60 * 1000) / POLL_INTERVAL_MS)
   );
-  const pollResult = await videoClient.pollVideoTask(
+  const pollResult = await waitForAbortable(videoClient.pollVideoTask(
     db,
     log,
     videoGenId,
     providerTaskId,
     config,
     pollMaxAttempts,
-    POLL_INTERVAL_MS
-  );
+    POLL_INTERVAL_MS,
+    signal
+  ), signal);
+  if (row.task_id) {
+    await taskService.waitForTaskCancellationDecision(db, row.task_id, signal);
+  }
   const now = new Date().toISOString();
   const polledVideo = resolveRemoteVideoUrl(pollResult.video_url, pollResult.error);
   if (polledVideo.ok) {
-    await finalizeSuccessfulVideo(db, log, videoGenId, row, rowForAspect, polledVideo.video_url, 'after poll', config);
+    await finalizeSuccessfulVideo(
+      db, log, videoGenId, row, rowForAspect, polledVideo.video_url, 'after poll', config, signal
+    );
   } else {
-    setVideoGenFailed(db, videoGenId, polledVideo.error, now);
-    if (row.task_id) taskService.updateTaskError(db, row.task_id, polledVideo.error);
+    runVideoTaskMutation(db, row, signal, () => {
+      setVideoGenFailed(db, videoGenId, polledVideo.error, now);
+      if (row.task_id) taskService.updateTaskError(db, row.task_id, polledVideo.error);
+    });
     log.error('Video generation failed (after poll)', { id: videoGenId, error: polledVideo.error });
   }
 }
@@ -620,13 +907,49 @@ async function resumePollForVideoGeneration(db, log, videoGenId) {
 
   const config = videoClient.getDefaultVideoConfig(db, row.model, row.provider);
   if (!config) {
-    const now = new Date().toISOString();
-    setVideoGenFailed(db, videoGenId, '未配置视频模型', now);
-    if (row.task_id) taskService.updateTaskError(db, row.task_id, '未配置视频模型');
+    if (row.task_id) {
+      await taskService.failTaskAfterCancellationDecision(
+        db,
+        row.task_id,
+        '未配置视频模型',
+        (now) => setVideoGenFailed(db, videoGenId, '未配置视频模型', now)
+      );
+    } else {
+      setVideoGenFailed(db, videoGenId, '未配置视频模型', new Date().toISOString());
+    }
     return;
   }
 
   activeVideoPolls.add(videoGenId);
+  const operation = row.task_id ? taskService.ensureTaskOperation(row.task_id) : null;
+  const signal = operation?.signal;
+  const pollController = new AbortController();
+  const forwardOperationAbort = () => {
+    if (!pollController.signal.aborted) pollController.abort(signal.reason);
+  };
+  if (signal?.aborted) forwardOperationAbort();
+  else signal?.addEventListener('abort', forwardOperationAbort, { once: true });
+  const pollSignal = pollController.signal;
+  const taskBeforeResume = row.task_id ? taskService.getTask(db, row.task_id) : null;
+  const protocol = videoClient.resolveVideoProtocol(config, row.model);
+  const supportsRestoredCancellation = protocol === 'sora' || protocol === 'minimax';
+  const resumedConfig = supportsRestoredCancellation && row.task_id
+    ? {
+        ...config,
+        register_remote_cancel(remoteCancel) {
+          taskService.registerRemoteCancel(row.task_id, remoteCancel);
+        },
+      }
+    : config;
+  if (operation) {
+    operation.markRemoteCancelPending({ timeout_ms: 15_000, reset: true });
+    if (!supportsRestoredCancellation) {
+      operation.closeRemoteCancelWindow({
+        outcome: 'failed',
+        error: `当前 Provider 协议 ${protocol} 不支持重启后恢复远端取消`,
+      });
+    }
+  }
   log.info('Resuming video generation poll after restart', {
     videoGenId,
     provider_task_id: providerTaskId,
@@ -638,13 +961,45 @@ async function resumePollForVideoGeneration(db, log, videoGenId) {
       if (n) aspectForVideo = n;
     }
     const rowForAspect = { ...row, aspect_ratio: aspectForVideo || row.aspect_ratio };
-    await pollProviderTaskAndFinalize(db, log, videoGenId, row, rowForAspect, providerTaskId, config);
+    const polling = pollProviderTaskAndFinalize(
+      db, log, videoGenId, row, rowForAspect, providerTaskId, resumedConfig, pollSignal
+    );
+    if (taskBeforeResume?.status === 'cancelling') {
+      const cancellation = await taskService.cancelTask(
+        db, log, row.task_id, taskBeforeResume.error || '恢复未确认的取消请求'
+      );
+      if (cancellation.ok) {
+        await polling.catch((error) => {
+          if (!isTaskCancellation(error) && !signal?.aborted) throw error;
+        });
+        return;
+      }
+      if (cancellation.reason === 'remote_cancel_uncertain') {
+        log.warn('Resumed video cancellation remains uncertain; continuing reconciliation poll', {
+          videoGenId,
+          task_id: row.task_id,
+          provider_task_id: providerTaskId,
+        });
+        pollController.abort(localCancellationError('远端取消结果仍不确定，等待下一轮对账'));
+        await polling.catch((error) => {
+          if (!isTaskCancellation(error) && !pollSignal.aborted) throw error;
+        });
+        scheduleVideoCancellationReconciliation(db, log, videoGenId);
+        return;
+      }
+    }
+    await polling;
   } catch (err) {
+    if (isTaskCancellation(err) || signal?.aborted) {
+      log.info('Video generation resume poll cancelled', { id: videoGenId });
+      return;
+    }
     const now = new Date().toISOString();
     setVideoGenFailed(db, videoGenId, err.message, now);
     if (row.task_id) taskService.updateTaskError(db, row.task_id, err.message);
     log.error('Video generation resume poll error', { id: videoGenId, error: err.message });
   } finally {
+    signal?.removeEventListener('abort', forwardOperationAbort);
     activeVideoPolls.delete(videoGenId);
   }
 }
@@ -685,7 +1040,7 @@ function resumeProcessingVideoGenerations(db, log) {
   }
 }
 
-async function processVideoGeneration(db, log, videoGenId) {
+async function processVideoGeneration(db, log, videoGenId, options = {}) {
   if (activeVideoPolls.has(videoGenId)) {
     log.info('Video generation already in progress, skip duplicate', { videoGenId });
     return;
@@ -699,8 +1054,19 @@ async function processVideoGeneration(db, log, videoGenId) {
     return;
   }
   const now = new Date().toISOString();
+  const operation = row.task_id ? taskService.ensureTaskOperation(row.task_id) : null;
+  const signal = operation?.signal || options.signal;
+  if (operation) operation.markRemoteCancelPending();
+  const registerRemoteCancel = (remoteCancel) => {
+    if (typeof remoteCancel !== 'function') return;
+    if (row.task_id) taskService.registerRemoteCancel(row.task_id, remoteCancel);
+    options.register_remote_cancel?.(remoteCancel);
+  };
   try {
-    db.prepare('UPDATE video_generations SET status = ?, updated_at = ? WHERE id = ?').run('processing', now, videoGenId);
+    runVideoTaskMutation(db, row, signal, () => {
+      db.prepare('UPDATE video_generations SET status = ?, updated_at = ? WHERE id = ?')
+        .run('processing', now, videoGenId);
+    });
     const loadConfig = require('../config').loadConfig;
     const cfg = loadConfig();
     const filesBaseUrl = (cfg.storage && cfg.storage.base_url) ? String(cfg.storage.base_url).replace(/\/$/, '') : '';
@@ -776,48 +1142,100 @@ async function processVideoGeneration(db, log, videoGenId) {
       files_base_url: filesBaseUrl,
       storage_local_path: storageLocalPath,
       video_gen_id: videoGenId,
-      idempotency_key: row.idempotency_key || undefined,
+      idempotency_key: row.idempotency_key || `video-generation-${videoGenId}`,
+      signal,
+      register_remote_cancel: registerRemoteCancel,
     });
     const now2 = new Date().toISOString();
+    if (result.task_id) {
+      // 远端创建可能与取消超时交错，先保留可对账的远端 ID，再处理取消决议。
+      persistProviderTaskId(db, row, result.task_id, now2);
+      const currentTask = row.task_id ? taskService.getTask(db, row.task_id) : null;
+      if (currentTask?.status === 'cancelling') {
+        const cancellation = await taskService.cancelTask(
+          db, log, row.task_id, currentTask.error || '补偿取消迟到的 Provider 任务'
+        );
+        if (cancellation.ok) return;
+        if (cancellation.reason === 'remote_cancel_uncertain') {
+          scheduleVideoCancellationReconciliation(db, log, videoGenId);
+          return;
+        }
+      }
+    }
     if (result.error) {
-      setVideoGenFailed(db, videoGenId, result.error, now2);
-      if (row.task_id) taskService.updateTaskError(db, row.task_id, result.error);
+      if (row.task_id) taskService.closeRemoteCancelWindow(row.task_id, { outcome: 'unsupported' });
+      await persistVideoFailure(db, row, result.error);
       log.error('Video generation failed', { id: videoGenId, error: result.error });
       return;
     }
     const directVideo = resolveRemoteVideoUrl(result.video_url, result.error);
-    if (directVideo.ok) {
-      await finalizeSuccessfulVideo(db, log, videoGenId, row, rowForAspect, directVideo.video_url, '', config);
-      return;
-    }
-    if (result.video_url) {
-      setVideoGenFailed(db, videoGenId, directVideo.error, now2);
-      if (row.task_id) taskService.updateTaskError(db, row.task_id, directVideo.error);
+    if (result.video_url && !directVideo.ok) {
+      if (row.task_id) taskService.closeRemoteCancelWindow(row.task_id, { outcome: 'unsupported' });
+      await persistVideoFailure(db, row, directVideo.error);
       log.error('Video generation failed', { id: videoGenId, error: directVideo.error });
       return;
     }
-    if (result.task_id) {
-      db.prepare(
-        'UPDATE video_generations SET status = ?, provider_task_id = ?, updated_at = ? WHERE id = ?'
-      ).run('processing', result.task_id, now2, videoGenId);
-      await pollProviderTaskAndFinalize(db, log, videoGenId, row, rowForAspect, result.task_id, config);
+    if (!directVideo.ok && !result.task_id) {
+      if (row.task_id) taskService.closeRemoteCancelWindow(row.task_id, { outcome: 'unsupported' });
+      await persistVideoFailure(db, row, '未返回 task_id 或 video_url');
       return;
     }
-    setVideoGenFailed(db, videoGenId, '未返回 task_id 或 video_url', now2);
-    if (row.task_id) taskService.updateTaskError(db, row.task_id, '未返回 task_id 或 video_url');
+    if (row.task_id) {
+      await taskService.waitForTaskCancellationDecision(db, row.task_id, signal);
+    }
+    if (directVideo.ok) {
+      if (row.task_id) taskService.closeRemoteCancelWindow(row.task_id, { outcome: 'unsupported' });
+      await finalizeSuccessfulVideo(
+        db, log, videoGenId, row, rowForAspect, directVideo.video_url, '', config, signal
+      );
+      return;
+    }
+    if (result.task_id) {
+      if (row.task_id && !operation.hasRemoteCancel()) {
+        taskService.closeRemoteCancelWindow(row.task_id, {
+          outcome: 'failed',
+          error: 'Provider 已返回任务 ID，但未注册远端取消函数',
+        });
+      }
+      await pollProviderTaskAndFinalize(
+        db, log, videoGenId, row, rowForAspect, result.task_id, config, signal
+      );
+      return;
+    }
   } catch (err) {
-    const now2 = new Date().toISOString();
-    setVideoGenFailed(db, videoGenId, err.message, now2);
-    if (row && row.task_id) taskService.updateTaskError(db, row.task_id, err.message);
+    if (isTaskCancellation(err) || signal?.aborted) {
+      log.info('Video generation cancelled; skipping late writes', { id: videoGenId });
+      return;
+    }
+    await persistVideoFailure(db, row, err.message);
     log.error('Video generation error', { id: videoGenId, error: err.message });
   } finally {
     activeVideoPolls.delete(videoGenId);
   }
 }
 
-function deleteById(db, log, id) {
+async function deleteById(db, log, id) {
+  const row = db.prepare(
+    'SELECT id, task_id, status FROM video_generations WHERE id = ? AND deleted_at IS NULL'
+  ).get(Number(id));
+  if (!row) return false;
+  const task = row.task_id ? taskService.getTask(db, row.task_id) : null;
+  if (task && ['pending', 'processing', 'cancelling'].includes(task.status)) {
+    const cancelled = await taskService.cancelTask(db, log, row.task_id, '删除视频生成记录');
+    if (!cancelled.ok) {
+      const error = new Error(cancelled.error || '任务取消失败，视频记录未删除');
+      error.code = cancelled.reason === 'task_scope_conflict'
+        ? 'TASK_SCOPE_CONFLICT'
+        : cancelled.reason === 'remote_cancel_uncertain'
+          ? 'REMOTE_CANCEL_UNCERTAIN'
+          : 'REMOTE_CANCEL_FAILED';
+      throw error;
+    }
+  }
   const now = new Date().toISOString();
-  const result = db.prepare('UPDATE video_generations SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL').run(now, Number(id));
+  const result = db.prepare(
+    'UPDATE video_generations SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL'
+  ).run(now, Number(id));
   return result.changes > 0;
 }
 
@@ -826,10 +1244,12 @@ module.exports = {
   getById,
   createVideoGeneration,
   createAndProcessVideo,
+  finalizeSuccessfulVideo,
   persistCompletedVideo,
   targetVideoPixelsForAspect,
   videoConfigSupportsGridReference,
   deleteById,
   processVideoGeneration,
+  resumePollForVideoGeneration,
   resumeProcessingVideoGenerations,
 };

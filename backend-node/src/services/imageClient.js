@@ -34,6 +34,42 @@ function normalizeIdempotencyKey(value) {
   return String(value || '').trim().slice(0, 200);
 }
 
+function operationCancelledError(reason) {
+  if (reason instanceof Error && reason.code === 'OPERATION_CANCELLED') return reason;
+  const error = new Error(reason instanceof Error ? reason.message : String(reason || '操作已取消'));
+  error.name = 'AbortError';
+  error.code = 'OPERATION_CANCELLED';
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw operationCancelledError(signal.reason);
+}
+
+function isOperationCancelled(error, signal) {
+  return signal?.aborted || error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
+}
+
+function abortableDelay(ms, signal) {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(finish, ms);
+    function cleanup() {
+      signal?.removeEventListener('abort', abort);
+    }
+    function finish() {
+      cleanup();
+      resolve();
+    }
+    function abort() {
+      clearTimeout(timer);
+      cleanup();
+      reject(operationCancelledError(signal.reason));
+    }
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
 function postJSONWithTimeout(url, headers, body, timeoutMs, networkOptions = {}) {
   const context = imageRequestContext.getStore() || {};
   const idempotencyKey = normalizeIdempotencyKey(context.idempotencyKey);
@@ -202,6 +238,76 @@ function buildImageUrl(config) {
 
 function getModelFromConfig(config, preferredModel) {
   return aiConfigService.resolveConfiguredModel(config, preferredModel, 'dall-e-3');
+}
+
+async function downloadImageToLocalAbortable(
+  storagePath, imageUrl, category, log, prefix = '', projectSubdir = null, signal
+) {
+  if (!imageUrl || typeof imageUrl !== 'string') return null;
+  let localPath = null;
+  try {
+    throwIfAborted(signal);
+    let buffer;
+    if (imageUrl.startsWith('data:')) {
+      const match = imageUrl.match(/^data:image\/([a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i);
+      if (!match) throw new uploadService.UnsafeMediaReferenceError('图片 data URL 无效');
+      buffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+      if (buffer.length === 0 || buffer.length > uploadService.DEFAULT_REMOTE_MEDIA_MAX_BYTES) {
+        throw new uploadService.UnsafeMediaReferenceError('图片数据超过大小限制');
+      }
+    } else {
+      let lastError;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          const result = await uploadService.downloadBufferViaNodeHttp(imageUrl, 30000, 0, {
+            maxBytes: uploadService.DEFAULT_REMOTE_MEDIA_MAX_BYTES,
+            accept: 'image/*',
+            signal,
+          });
+          buffer = result.buffer;
+          break;
+        } catch (error) {
+          if (isOperationCancelled(error, signal)) throw operationCancelledError(signal?.reason || error);
+          lastError = error;
+          log.warn('downloadImageToLocal: 下载失败，准备重试', {
+            category, attempt, error: error.message, url: imageUrl.slice(0, 100),
+          });
+          if (attempt < 3) await abortableDelay(1500 * attempt, signal);
+        }
+      }
+      if (!buffer) throw lastError || new Error('图片下载失败');
+    }
+
+    throwIfAborted(signal);
+    const detected = await uploadService.validateAllowedUpload(buffer, 'image');
+    throwIfAborted(signal);
+    uploadService.assertUploadDiskCapacity(storagePath, buffer.length);
+    const extension = detected.extension.replace(/^\./, '');
+    const filename = `${prefix}${prefix ? '_' : ''}${crypto.randomUUID().slice(0, 8)}.${extension}`;
+    const relativeParts = [projectSubdir, category, filename]
+      .filter((part) => part != null && String(part).trim() !== '')
+      .map((part) => String(part).replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''));
+    localPath = relativeParts.join('/');
+    uploadService.writeStorageBuffer(storagePath, localPath, buffer);
+    throwIfAborted(signal);
+    log.info('Image saved to local', { category, local_path: localPath, projectSubdir: projectSubdir || '(root)' });
+    return localPath;
+  } catch (error) {
+    removeDownloadedImage(storagePath, localPath, log);
+    if (isOperationCancelled(error, signal)) throw operationCancelledError(signal?.reason || error);
+    log.warn('downloadImageToLocal error', { category, error: error.message });
+    return null;
+  }
+}
+
+function removeDownloadedImage(storagePath, localPath, log) {
+  if (!localPath) return;
+  try {
+    const resolved = uploadService.resolveStorageReference(storagePath, localPath, { allowMissing: true });
+    if (resolved?.absolutePath) uploadService.removeFile(resolved.absolutePath, log);
+  } catch (error) {
+    log?.warn?.('取消图片生成时清理临时文件失败', { local_path: localPath, error: error.message });
+  }
 }
 
 // 通义万象 size：格式 "宽*高"，总像素须在 589824(768*768)～1638400(1280*1280) 之间
@@ -538,7 +644,7 @@ async function callKlingImageApi(config, log, opts) {
   const maxAttempts = 60;
   const intervalMs = 4000;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    await new Promise((r) => setTimeout(r, intervalMs));
+    await abortableDelay(intervalMs, opts.signal);
     try {
       const queryRes = await uploadService.downloadBufferViaNodeHttp(
         buildKlingQueryUrl(taskId),
@@ -553,6 +659,7 @@ async function callKlingImageApi(config, log, opts) {
           allowPrivateOrigins: opts.provider_network_policy?.allowPrivateOrigins,
           lookup: opts.provider_network_policy?.lookup,
           requireHttpsForPublic: opts.provider_network_policy?.requireHttpsForPublic,
+          signal: opts.signal,
         }
       );
       const queryData = JSON.parse(queryRes.buffer.toString('utf8'));
@@ -755,7 +862,7 @@ async function callNanoBananaImageApi(config, log, opts) {
   const maxAttempts = 60;
   const intervalMs = 3000;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    await new Promise((r) => setTimeout(r, intervalMs));
+    await abortableDelay(intervalMs, opts.signal);
     const pollUrl = buildQueryUrl(taskId);
     try {
       const queryRes = await uploadService.downloadBufferViaNodeHttp(pollUrl, 30000, 0, {
@@ -767,6 +874,7 @@ async function callNanoBananaImageApi(config, log, opts) {
         allowPrivateOrigins: opts.provider_network_policy?.allowPrivateOrigins,
         lookup: opts.provider_network_policy?.lookup,
         requireHttpsForPublic: opts.provider_network_policy?.requireHttpsForPublic,
+        signal: opts.signal,
       });
       const queryRaw = queryRes.buffer.toString('utf8');
       let queryData;
@@ -909,6 +1017,7 @@ async function loadImageReference(value, opts, config) {
     accept: 'image/*',
     trustedOrigins: trustedProviderOrigins(config),
     lookup: opts.media_dns_lookup,
+    signal: opts.signal,
   });
   return validateImageReferenceBuffer(downloaded.buffer);
 }
@@ -1489,6 +1598,7 @@ async function callImageApiInternal(db, log, opts) {
   const protocol = (config.api_protocol || '').toLowerCase() || inferProtocol(provider, model);
   const providerNetworkPolicy = aiConfigService.getProviderNetworkOptions(config, {
     lookup: opts.provider_dns_lookup,
+    signal: opts.signal,
   });
   const requestContext = imageRequestContext.getStore();
   if (requestContext) {
@@ -1543,6 +1653,7 @@ async function callImageApiInternal(db, log, opts) {
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
       negative_prompt: mergedNegativePrompt,
+      signal: opts.signal,
     });
   }
 
@@ -1553,6 +1664,7 @@ async function callImageApiInternal(db, log, opts) {
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
       provider_network_policy: providerNetworkPolicy,
+      signal: opts.signal,
     });
   }
 
@@ -1563,6 +1675,7 @@ async function callImageApiInternal(db, log, opts) {
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
       provider_network_policy: providerNetworkPolicy,
+      signal: opts.signal,
     });
   }
 
@@ -1573,6 +1686,7 @@ async function callImageApiInternal(db, log, opts) {
       files_base_url: opts.files_base_url,
       storage_local_path: opts.storage_local_path,
       system_prompt: opts.system_prompt,
+      signal: opts.signal,
     });
   }
 
@@ -1703,12 +1817,20 @@ async function callImageApiInternal(db, log, opts) {
 
 async function callImageApi(db, log, opts = {}) {
   const idempotencyKey = normalizeIdempotencyKey(opts.idempotency_key);
-  return imageRequestContext.run({ idempotencyKey }, async () => {
+  return imageRequestContext.run({
+    idempotencyKey,
+    networkOptions: opts.signal ? { signal: opts.signal } : {},
+  }, async () => {
     const provider = opts.preferred_provider || opts.preferredProvider || 'Image provider';
     try {
+      throwIfAborted(opts.signal);
       const result = await callImageApiInternal(db, log, opts);
+      throwIfAborted(opts.signal);
       return sanitizeProviderResult(result, { provider, operation: 'image generation' });
     } catch (error) {
+      if (isOperationCancelled(error, opts.signal)) {
+        throw operationCancelledError(opts.signal?.reason || error);
+      }
       throw sanitizeProviderException(error, { provider, operation: 'image generation' });
     }
   });
@@ -1778,9 +1900,78 @@ function createAndGenerateImage(db, log, opts) {
   }
 
   scheduleLegacyAsync(log, 'legacy_image_client_generation', async () => {
+    const signal = taskService.ensureTaskOperation(taskId).signal;
+    let storagePath = null;
+    let localPath = null;
+    let committed = false;
+
+    const updateGenerationCompleted = (imageUrl, completedAt) => {
+      try {
+        db.prepare(
+          'UPDATE image_generations SET status = ?, image_url = ?, local_path = ?, error_msg = NULL, completed_at = ?, updated_at = ? WHERE id = ?'
+        ).run('completed', imageUrl, localPath, completedAt, completedAt, imageGenId);
+      } catch (error) {
+        if (!String(error.message || '').includes('completed_at')) throw error;
+        db.prepare(
+          'UPDATE image_generations SET status = ?, image_url = ?, local_path = ?, error_msg = NULL, updated_at = ? WHERE id = ?'
+        ).run('completed', imageUrl, localPath, completedAt, imageGenId);
+      }
+    };
+
+    const updateCharacterImage = (imageUrl, completedAt) => {
+      if (charIdNum == null) return;
+      try {
+        const oldChar = db
+          .prepare('SELECT local_path, image_url, extra_images, seedance2_asset FROM characters WHERE id = ?')
+          .get(charIdNum);
+        const oldPath = oldChar?.local_path || oldChar?.image_url || '';
+        let extras = [];
+        try { extras = oldChar?.extra_images ? JSON.parse(oldChar.extra_images) : []; } catch (_) {}
+        if (!Array.isArray(extras)) extras = [];
+        if (oldPath && !extras.includes(oldPath)) extras.push(oldPath);
+        const extraJson = extras.length ? JSON.stringify(extras) : null;
+        seedance2AssetGuards.markStaleOnCharacterMainImageDrift(db, log, { ...oldChar, id: charIdNum }, {
+          image_url: imageUrl,
+          local_path: localPath,
+        });
+        db.prepare(
+          'UPDATE characters SET image_url = ?, local_path = ?, extra_images = ?, error_msg = NULL, updated_at = ? WHERE id = ?'
+        ).run(imageUrl, localPath, extraJson, completedAt, charIdNum);
+      } catch (error) {
+        if (!/local_path|extra_images|error_msg/.test(String(error.message || ''))) throw error;
+        db.prepare('UPDATE characters SET image_url = ?, updated_at = ? WHERE id = ?')
+          .run(imageUrl, completedAt, charIdNum);
+      }
+    };
+
+    const updateSceneImage = (imageUrl, completedAt) => {
+      if (sceneIdNum == null) return;
+      try {
+        const oldScene = db.prepare('SELECT local_path, image_url, extra_images FROM scenes WHERE id = ?').get(sceneIdNum);
+        const oldPath = oldScene?.local_path || oldScene?.image_url || '';
+        let extras = [];
+        try { extras = oldScene?.extra_images ? JSON.parse(oldScene.extra_images) : []; } catch (_) {}
+        if (!Array.isArray(extras)) extras = [];
+        if (oldPath && !extras.includes(oldPath)) extras.push(oldPath);
+        const extraJson = extras.length ? JSON.stringify(extras) : null;
+        db.prepare(
+          'UPDATE scenes SET image_url = ?, local_path = ?, extra_images = ?, error_msg = NULL, updated_at = ? WHERE id = ?'
+        ).run(imageUrl, localPath, extraJson, completedAt, sceneIdNum);
+      } catch (error) {
+        if (!/local_path|extra_images|error_msg/.test(String(error.message || ''))) throw error;
+        db.prepare('UPDATE scenes SET image_url = ?, updated_at = ? WHERE id = ?')
+          .run(imageUrl, completedAt, sceneIdNum);
+      }
+    };
+
     try {
-      db.prepare('UPDATE image_generations SET status = ? WHERE id = ?').run('processing', imageGenId);
-      const result = await callImageApi(db, log, {
+      taskService.runTaskMutation(db, taskId, signal, () => {
+        db.prepare('UPDATE image_generations SET status = ?, updated_at = ? WHERE id = ?')
+          .run('processing', new Date().toISOString(), imageGenId);
+        taskService.updateTaskStatus(db, taskId, 'processing', 10, '正在生成图片');
+      });
+
+      const result = await module.exports.callImageApi(db, log, {
         prompt,
         model,
         size,
@@ -1789,150 +1980,95 @@ function createAndGenerateImage(db, log, opts) {
         character_id: character_id,
         image_type,
         image_gen_id: imageGenId,
+        preferred_provider: provider,
         user_negative_prompt: user_negative_prompt || undefined,
+        signal,
       });
-      const now2 = new Date().toISOString();
+      throwIfAborted(signal);
       if (result.error) {
-        const persistedError = toSafeProviderErrorMessage(result.error, {
+        throw new Error(toSafeProviderErrorMessage(result.error, {
           provider: provider || 'Image provider',
           operation: 'image generation',
+        }));
+      }
+      if (!result.image_url) throw new Error('图片 Provider 未返回图片地址');
+
+      const cfg = require('../config').loadConfig();
+      storagePath = path.isAbsolute(cfg.storage?.local_path)
+        ? cfg.storage.local_path
+        : path.join(process.cwd(), cfg.storage?.local_path || './data/storage');
+      const category = sceneIdNum != null ? 'scenes' : (charIdNum != null ? 'characters' : 'images');
+      const projectSubdir = storageLayout.getProjectStorageSubdir(db, dramaIdNum);
+      localPath = await module.exports.downloadImageToLocalAbortable(
+        storagePath,
+        result.image_url,
+        category,
+        log,
+        'ig',
+        projectSubdir,
+        signal
+      );
+      if (!localPath) throw new Error('图片下载失败，未生成可提交的本地文件');
+
+      const completedAt = new Date().toISOString();
+      taskService.runTaskMutation(db, taskId, signal, () => {
+        updateGenerationCompleted(result.image_url, completedAt);
+        updateCharacterImage(result.image_url, completedAt);
+        updateSceneImage(result.image_url, completedAt);
+        const taskCompleted = taskService.updateTaskResult(db, taskId, {
+          image_generation_id: imageGenId,
+          image_url: result.image_url,
+          local_path: localPath,
+          status: 'completed',
         });
-        db.prepare(
-          'UPDATE image_generations SET status = ?, error_msg = ?, updated_at = ? WHERE id = ?'
-        ).run('failed', persistedError, now2, imageGenId);
-        taskService.updateTaskError(db, taskId, persistedError);
-        if (charIdNum != null) {
-          try {
-            db.prepare('UPDATE characters SET error_msg = ?, updated_at = ? WHERE id = ?').run(persistedError, now2, charIdNum);
-          } catch (_) {}
-        }
-        if (sceneIdNum != null) {
-          try {
-            db.prepare('UPDATE scenes SET error_msg = ?, updated_at = ? WHERE id = ?').run(persistedError, now2, sceneIdNum);
-          } catch (_) {}
-        }
-        log.error('Image generation failed', { image_gen_id: imageGenId, error: persistedError });
-        return;
-      }
-      let localPath = null;
-      try {
-        const loadConfig = require('../config').loadConfig;
-        const cfg = loadConfig();
-        const storagePath = path.isAbsolute(cfg.storage?.local_path)
-          ? cfg.storage.local_path
-          : path.join(process.cwd(), cfg.storage?.local_path || './data/storage');
-        const category = sceneIdNum != null ? 'scenes' : (charIdNum != null ? 'characters' : 'images');
-        const projectSubdir = storageLayout.getProjectStorageSubdir(db, dramaIdNum);
-        localPath = await uploadService.downloadImageToLocal(
-          storagePath,
-          result.image_url,
-          category,
-          log,
-          'ig',
-          projectSubdir
-        );
-      } catch (_) {}
-      // 兼容旧库无 completed_at：先试完整 UPDATE，失败则只更新必有列
-      try {
-        db.prepare(
-          'UPDATE image_generations SET status = ?, image_url = ?, local_path = ?, completed_at = ?, updated_at = ? WHERE id = ?'
-        ).run('completed', result.image_url, localPath, now2, now2, imageGenId);
-      } catch (e) {
-        if ((e.message || '').includes('completed_at')) {
-          db.prepare(
-            'UPDATE image_generations SET status = ?, image_url = ?, local_path = ?, updated_at = ? WHERE id = ?'
-          ).run('completed', result.image_url, localPath, now2, imageGenId);
-        } else {
-          throw e;
-        }
-      }
-      taskService.updateTaskResult(db, taskId, { image_generation_id: imageGenId, image_url: result.image_url, local_path: localPath, status: 'completed' });
+        if (!taskCompleted) throw operationCancelledError('任务已结束，拒绝提交迟到的图片结果');
+      });
+      committed = true;
       if (charIdNum != null) {
-        try {
-          // 旧图追加到 extra_images，与上传逻辑保持一致
-          const oldChar = db
-            .prepare('SELECT local_path, image_url, extra_images, seedance2_asset FROM characters WHERE id = ?')
-            .get(charIdNum);
-          const oldPath = oldChar?.local_path || oldChar?.image_url || '';
-          let extras = [];
-          try { extras = oldChar?.extra_images ? JSON.parse(oldChar.extra_images) : []; } catch (_) {}
-          if (!Array.isArray(extras)) extras = [];
-          if (oldPath && !extras.includes(oldPath)) extras.push(oldPath);
-          const extraJson = extras.length ? JSON.stringify(extras) : null;
-          seedance2AssetGuards.markStaleOnCharacterMainImageDrift(db, log, { ...oldChar, id: charIdNum }, {
-            image_url: result.image_url,
-            local_path: localPath,
-          });
-          db.prepare('UPDATE characters SET image_url = ?, local_path = ?, extra_images = ?, updated_at = ? WHERE id = ?').run(
-            result.image_url,
-            localPath,
-            extraJson,
-            now2,
-            charIdNum
-          );
-        } catch (e) {
-          if ((e.message || '').includes('local_path') || (e.message || '').includes('extra_images')) {
-            db.prepare('UPDATE characters SET image_url = ?, updated_at = ? WHERE id = ?').run(result.image_url, now2, charIdNum);
-          } else {
-            throw e;
-          }
-        }
         log.info('Character image updated', { character_id: charIdNum, image_url: result.image_url, local_path: localPath });
       }
       if (sceneIdNum != null) {
-        try {
-          // 旧图追加到 extra_images，与上传逻辑保持一致
-          const oldScene = db.prepare('SELECT local_path, image_url, extra_images FROM scenes WHERE id = ?').get(sceneIdNum);
-          const oldPath = oldScene?.local_path || oldScene?.image_url || '';
-          let extras = [];
-          try { extras = oldScene?.extra_images ? JSON.parse(oldScene.extra_images) : []; } catch (_) {}
-          if (!Array.isArray(extras)) extras = [];
-          if (oldPath && !extras.includes(oldPath)) extras.push(oldPath);
-          const extraJson = extras.length ? JSON.stringify(extras) : null;
-          db.prepare('UPDATE scenes SET image_url = ?, local_path = ?, extra_images = ?, updated_at = ? WHERE id = ?').run(
-            result.image_url,
-            localPath,
-            extraJson,
-            now2,
-            sceneIdNum
-          );
-        } catch (e) {
-          if ((e.message || '').includes('local_path') || (e.message || '').includes('extra_images')) {
-            db.prepare('UPDATE scenes SET image_url = ?, updated_at = ? WHERE id = ?').run(result.image_url, now2, sceneIdNum);
-          } else {
-            throw e;
-          }
-        }
         log.info('Scene image updated', { scene_id: sceneIdNum, image_url: result.image_url, local_path: localPath });
       }
       log.info('Image generation completed', { image_gen_id: imageGenId, local_path: localPath });
     } catch (err) {
-      const now2 = new Date().toISOString();
+      if (!committed) removeDownloadedImage(storagePath, localPath, log);
+      if (isOperationCancelled(err, signal)) {
+        try {
+          await taskService.waitForTaskCancellationDecision(db, taskId, signal);
+        } catch (_) {}
+        log.info('Image generation cancelled', { image_gen_id: imageGenId, task_id: taskId });
+        return;
+      }
+
       const errMsg = toSafeProviderErrorMessage(err, {
         provider: provider || 'Image provider',
         operation: 'image generation',
       });
       try {
-        db.prepare(
-          'UPDATE image_generations SET status = ?, error_msg = ?, updated_at = ? WHERE id = ?'
-        ).run('failed', errMsg, now2, imageGenId);
-      } catch (e) {
-        log.error('Image generation: failed to update image_generations', { image_gen_id: imageGenId, error: e.message });
-      }
-      try {
-        taskService.updateTaskError(db, taskId, errMsg);
-      } catch (e) {
-        log.error('Image generation: failed to update task status', { task_id: taskId, error: e.message });
-      }
-      if (charIdNum != null) {
-        try {
-          db.prepare('UPDATE characters SET error_msg = ?, updated_at = ? WHERE id = ?').run(errMsg, now2, charIdNum);
-        } catch (_) {}
-      }
-      if (sceneIdNum != null) {
-        try {
-          db.prepare('UPDATE scenes SET error_msg = ?, updated_at = ? WHERE id = ?').run(errMsg, now2, sceneIdNum);
-        } catch (_) {}
+        await taskService.failTaskAfterCancellationDecision(db, taskId, errMsg, (failedAt) => {
+          db.prepare(
+            'UPDATE image_generations SET status = ?, error_msg = ?, updated_at = ? WHERE id = ?'
+          ).run('failed', errMsg, failedAt, imageGenId);
+          if (charIdNum != null) {
+            try {
+              db.prepare('UPDATE characters SET error_msg = ?, updated_at = ? WHERE id = ?')
+                .run(errMsg, failedAt, charIdNum);
+            } catch (_) {}
+          }
+          if (sceneIdNum != null) {
+            try {
+              db.prepare('UPDATE scenes SET error_msg = ?, updated_at = ? WHERE id = ?')
+                .run(errMsg, failedAt, sceneIdNum);
+            } catch (_) {}
+          }
+        });
+      } catch (persistError) {
+        log.error('Image generation: failed to persist atomic failure', {
+          image_gen_id: imageGenId,
+          task_id: taskId,
+          error: persistError.message,
+        });
       }
       log.error('Image generation error', { image_gen_id: imageGenId, task_id: taskId, error: errMsg });
     }
@@ -2024,6 +2160,8 @@ module.exports = {
   getDefaultImageConfig,
   callImageApi,
   createAndGenerateImage,
+  downloadImageToLocalAbortable,
+  removeDownloadedImage,
   resolveAssetUserNegativeForApi,
   getStoryboardReferenceLimits,
   canAddStoryboardCharacterRef,

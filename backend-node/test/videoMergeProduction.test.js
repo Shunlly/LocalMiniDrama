@@ -4,10 +4,13 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { EventEmitter } = require('node:events');
 const Database = require('better-sqlite3');
 
 const configModule = require('../src/config');
 const ffmpegPath = require('../src/utils/ffmpegPath');
+const operationRegistry = require('../src/services/operationRegistry');
+const uploadService = require('../src/services/uploadService');
 
 const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-video-merge-'));
 const storageRoot = path.join(testRoot, 'storage');
@@ -202,7 +205,14 @@ function createDb() {
       created_at TEXT,
       updated_at TEXT,
       completed_at TEXT,
-      deleted_at TEXT
+      deleted_at TEXT,
+      cancel_context TEXT,
+      cancel_operation_id TEXT,
+      cancel_state TEXT,
+      cancel_attempt INTEGER DEFAULT 0,
+      cancel_next_retry_at TEXT,
+      cancel_requested_at TEXT,
+      cancel_confirmed_at TEXT
     );
   `);
   const now = new Date().toISOString();
@@ -252,6 +262,90 @@ function createMergeFixture({ scenes, strict = true, mergeOptions = {}, narratio
   return { db, mergeId: created.merge_id, taskId: created.task_id };
 }
 
+function installNonStrictPostHarness(t, { onPost, writePostFiles = true } = {}) {
+  const childProcess = require('node:child_process');
+  const postProcess = require('../src/services/mergedEpisodePostProcess');
+  const originalSpawn = childProcess.spawn;
+  const originalPostProcess = postProcess.runMergedEpisodePostProcess;
+  let concatOutputPath = null;
+  let postOutputPath = null;
+  let postSrtPath = null;
+  let resolvePostProbeStarted;
+  const postProbeStarted = new Promise((resolve) => { resolvePostProbeStarted = resolve; });
+
+  childProcess.spawn = (_command, args) => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.exitCode = null;
+    child.signalCode = null;
+    child.kill = (signal) => {
+      child.signalCode = signal;
+      queueMicrotask(() => child.emit('close', null, signal));
+      return true;
+    };
+
+    if (args.includes('-version')) {
+      queueMicrotask(() => {
+        child.stdout.emit('data', 'ffmpeg version fake-test\n');
+        child.exitCode = 0;
+        child.emit('close', 0, null);
+      });
+    } else if (args.includes('-f') && args.includes('concat')) {
+      concatOutputPath = args[args.length - 1];
+      fs.mkdirSync(path.dirname(concatOutputPath), { recursive: true });
+      fs.writeFileSync(concatOutputPath, 'valid concat fixture');
+      queueMicrotask(() => {
+        child.exitCode = 0;
+        child.emit('close', 0, null);
+      });
+    } else if (args.includes('-show_entries')) {
+      const target = args[args.length - 1];
+      if (postOutputPath && path.resolve(target) === path.resolve(postOutputPath)) {
+        queueMicrotask(resolvePostProbeStarted);
+      } else {
+        queueMicrotask(() => {
+          child.stdout.emit('data', JSON.stringify({
+            streams: [{ codec_type: 'video', width: 320, height: 180, duration: '1' }],
+            format: { duration: '1' },
+          }));
+          child.exitCode = 0;
+          child.emit('close', 0, null);
+        });
+      }
+    } else {
+      throw new Error(`测试桩收到未预期的媒体进程参数：${args.join(' ')}`);
+    }
+    return child;
+  };
+
+  postProcess.runMergedEpisodePostProcess = async (_db, _log, options) => {
+    postOutputPath = path.join(path.dirname(options.mergedAbsPath), 'non-strict-post.mp4');
+    postSrtPath = path.join(path.dirname(options.mergedAbsPath), 'non-strict-post_narration.srt');
+    if (writePostFiles) {
+      fs.writeFileSync(postOutputPath, 'new post output');
+      fs.writeFileSync(postSrtPath, '\uFEFF1\n00:00:00,000 --> 00:00:01,000\n测试旁白\n');
+    }
+    if (onPost) return onPost({ options, postOutputPath, postSrtPath });
+    return {
+      ok: true,
+      relativePath: path.relative(storageRoot, postOutputPath).replace(/\\/g, '/'),
+      srtRelativePath: path.relative(storageRoot, postSrtPath).replace(/\\/g, '/'),
+    };
+  };
+  t.after(() => {
+    childProcess.spawn = originalSpawn;
+    postProcess.runMergedEpisodePostProcess = originalPostProcess;
+    for (const filePath of [concatOutputPath, postOutputPath, postSrtPath]) {
+      if (filePath) fs.rmSync(filePath, { force: true });
+    }
+  });
+  return {
+    postProbeStarted,
+    getPaths() { return { concatOutputPath, postOutputPath, postSrtPath }; },
+  };
+}
+
 function assertStrictFailureState(db, mergeId, taskId) {
   const merge = db.prepare('SELECT * FROM video_merges WHERE id = ?').get(mergeId);
   const task = db.prepare('SELECT * FROM async_tasks WHERE id = ?').get(taskId);
@@ -263,7 +357,260 @@ function assertStrictFailureState(db, mergeId, taskId) {
   assert.ok(merge.error_msg);
 }
 
+function strictScenes() {
+  return [
+    { storyboard_id: 101, video_url: clipWithoutAudio, duration: 0.65, order: 0 },
+    { storyboard_id: 102, video_url: clipWithAudio, duration: 0.85, order: 1 },
+  ];
+}
+
+function installPublicationInterceptor(t, intercept) {
+  const originalPublish = uploadService.publishStagedFile;
+  uploadService.publishStagedFile = (stagedPath, finalPath) => (
+    intercept({ stagedPath, finalPath, publish: originalPublish })
+  );
+  t.after(() => { uploadService.publishStagedFile = originalPublish; });
+}
+
 describe('videoMergeService strict production mode', { concurrency: false }, () => {
+  it('rename 失败时清理暂存 MP4 且不留下错误最终文件', async (t) => {
+    if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+    const fixture = createMergeFixture({ scenes: strictScenes() });
+    t.after(() => fixture.db.close());
+    let publicationPaths = null;
+    installPublicationInterceptor(t, ({ stagedPath, finalPath, publish }) => {
+      publicationPaths = { stagedPath, finalPath };
+      const originalRename = fs.renameSync;
+      fs.renameSync = (source, destination) => {
+        if (path.resolve(source) === path.resolve(stagedPath) && path.resolve(destination) === path.resolve(finalPath)) {
+          throw new Error('模拟 rename 失败');
+        }
+        return originalRename(source, destination);
+      };
+      try {
+        return publish(stagedPath, finalPath);
+      } finally {
+        fs.renameSync = originalRename;
+      }
+    });
+
+    await assert.rejects(
+      videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, ''),
+      /模拟 rename 失败/
+    );
+
+    assert.ok(publicationPaths);
+    assert.equal(fs.existsSync(publicationPaths.stagedPath), false);
+    assert.equal(fs.existsSync(publicationPaths.finalPath), false);
+    assertStrictFailureState(fixture.db, fixture.mergeId, fixture.taskId);
+  });
+
+  it('目标已存在且数据库提交失败时恢复既有正确产物', async (t) => {
+    if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+    const fixture = createMergeFixture({ scenes: strictScenes() });
+    t.after(() => fixture.db.close());
+    const taskService = require('../src/services/taskService');
+    const originalUpdateTaskResult = taskService.updateTaskResult;
+    taskService.updateTaskResult = () => false;
+    t.after(() => { taskService.updateTaskResult = originalUpdateTaskResult; });
+    let publicationPaths = null;
+    installPublicationInterceptor(t, ({ stagedPath, finalPath, publish }) => {
+      publicationPaths = { stagedPath, finalPath };
+      fs.writeFileSync(finalPath, '既有正确产物');
+      return publish(stagedPath, finalPath);
+    });
+
+    await assert.rejects(videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, ''));
+
+    assert.equal(fs.readFileSync(publicationPaths.finalPath, 'utf8'), '既有正确产物');
+    assert.equal(fs.existsSync(publicationPaths.stagedPath), false);
+    assert.deepEqual(
+      fs.readdirSync(path.dirname(publicationPaths.finalPath)).filter((name) => name.includes('.backup.')),
+      []
+    );
+    t.after(() => fs.rmSync(publicationPaths.finalPath, { force: true }));
+    assertStrictFailureState(fixture.db, fixture.mergeId, fixture.taskId);
+  });
+
+  it('数据库提交成功后发布确认失败不得回滚已就位成品', async (t) => {
+    if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+    const fixture = createMergeFixture({ scenes: strictScenes() });
+    t.after(() => fixture.db.close());
+    let publicationPaths = null;
+    installPublicationInterceptor(t, ({ stagedPath, finalPath, publish }) => {
+      publicationPaths = { stagedPath, finalPath };
+      fs.writeFileSync(finalPath, '将被替换的旧成品');
+      const publication = publish(stagedPath, finalPath);
+      const originalCommit = publication.commit.bind(publication);
+      publication.commit = () => {
+        originalCommit();
+        throw new Error('模拟发布确认失败');
+      };
+      return publication;
+    });
+
+    const result = await videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, '');
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'completed');
+    assert.notEqual(fs.readFileSync(publicationPaths.finalPath, 'utf8'), '将被替换的旧成品');
+    assert.equal(fs.existsSync(publicationPaths.stagedPath), false);
+    assert.deepEqual(
+      fs.readdirSync(path.dirname(publicationPaths.finalPath)).filter((name) => name.includes('.backup.')),
+      []
+    );
+    t.after(() => fs.rmSync(publicationPaths.finalPath, { force: true }));
+    const merge = fixture.db.prepare('SELECT status, merged_url FROM video_merges WHERE id = ?').get(fixture.mergeId);
+    const task = fixture.db.prepare('SELECT status FROM async_tasks WHERE id = ?').get(fixture.taskId);
+    assert.equal(merge.status, 'completed');
+    assert.ok(merge.merged_url);
+    assert.equal(task.status, 'completed');
+  });
+
+  for (const phase of ['rename 前', 'rename 后']) {
+    it(`取消发生在${phase}时回滚发布并保留既有正确产物`, async (t) => {
+      if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+      const fixture = createMergeFixture({ scenes: strictScenes() });
+      t.after(() => fixture.db.close());
+      const controller = new AbortController();
+      let publicationPaths = null;
+      installPublicationInterceptor(t, ({ stagedPath, finalPath, publish }) => {
+        publicationPaths = { stagedPath, finalPath };
+        fs.writeFileSync(finalPath, '取消前的正确产物');
+        if (phase === 'rename 前') controller.abort(new Error('rename 前取消'));
+        const publication = publish(stagedPath, finalPath);
+        if (phase === 'rename 后') controller.abort(new Error('rename 后取消'));
+        return publication;
+      });
+
+      const result = await videoMergeService.processVideoMerge(
+        fixture.db,
+        log,
+        fixture.mergeId,
+        '',
+        { signal: controller.signal }
+      );
+
+      assert.equal(result.cancelled, true);
+      assert.equal(fs.readFileSync(publicationPaths.finalPath, 'utf8'), '取消前的正确产物');
+      assert.equal(fs.existsSync(publicationPaths.stagedPath), false);
+      assert.deepEqual(
+        fs.readdirSync(path.dirname(publicationPaths.finalPath)).filter((name) => name.includes('.backup.')),
+        []
+      );
+      t.after(() => fs.rmSync(publicationPaths.finalPath, { force: true }));
+      assert.equal(fixture.db.prepare('SELECT status FROM video_merges WHERE id = ?').get(fixture.mergeId).status, 'cancelled');
+    });
+  }
+
+  it('后处理文件生成后数据库提交失败会清理新 MP4 与 SRT', async (t) => {
+    if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+    const fixture = createMergeFixture({
+      scenes: strictScenes(),
+      mergeOptions: { burn_narration_subtitles: true },
+    });
+    t.after(() => fixture.db.close());
+    const mergedDir = path.join(storageRoot, 'videos', 'merged');
+    fs.mkdirSync(mergedDir, { recursive: true });
+    const existingOutput = path.join(mergedDir, 'existing-correct-output.mp4');
+    fs.writeFileSync(existingOutput, '必须保留');
+    t.after(() => fs.rmSync(existingOutput, { force: true }));
+    const postProcess = require('../src/services/mergedEpisodePostProcess');
+    const taskService = require('../src/services/taskService');
+    const originalPostProcess = postProcess.runMergedEpisodePostProcess;
+    const originalUpdateTaskResult = taskService.updateTaskResult;
+    let observed = null;
+    postProcess.runMergedEpisodePostProcess = async (_db, _log, options) => {
+      fs.copyFileSync(options.mergedAbsPath, options.outputPath);
+      fs.writeFileSync(options.srtOutputPath, '\uFEFF1\n00:00:00,000 --> 00:00:01,000\n故障注入旁白\n');
+      observed = {
+        mp4: options.outputPath,
+        srt: options.srtOutputPath,
+        mp4Existed: fs.existsSync(options.outputPath),
+        srtExisted: fs.existsSync(options.srtOutputPath),
+      };
+      return {
+        ok: true,
+        relativePath: path.relative(storageRoot, options.outputPath).replace(/\\/g, '/'),
+        srtRelativePath: path.relative(storageRoot, options.srtOutputPath).replace(/\\/g, '/'),
+      };
+    };
+    taskService.updateTaskResult = () => false;
+    t.after(() => {
+      postProcess.runMergedEpisodePostProcess = originalPostProcess;
+      taskService.updateTaskResult = originalUpdateTaskResult;
+    });
+
+    await assert.rejects(videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, ''));
+
+    assert.deepEqual({ mp4: observed?.mp4Existed, srt: observed?.srtExisted }, { mp4: true, srt: true });
+    assert.equal(fs.existsSync(observed.mp4), false);
+    assert.equal(fs.existsSync(observed.srt), false);
+    assert.equal(fs.readFileSync(existingOutput, 'utf8'), '必须保留');
+    assert.deepEqual(
+      fs.readdirSync(mergedDir).filter((name) => name.includes('.tmp.mp4') || name.includes('.backup.')),
+      []
+    );
+    assertStrictFailureState(fixture.db, fixture.mergeId, fixture.taskId);
+  });
+
+  it('forces external process cancellation to settle when SIGKILL produces no close event', async (t) => {
+    const childProcess = require('node:child_process');
+    const originalSpawn = childProcess.spawn;
+    let killSignal = null;
+    childProcess.spawn = () => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.exitCode = null;
+      child.signalCode = null;
+      child.kill = (signal) => {
+        killSignal = signal;
+        return false;
+      };
+      return child;
+    };
+    t.after(() => { childProcess.spawn = originalSpawn; });
+    const controller = new AbortController();
+    const running = videoMergeService.__test.runExternalProcess('never-closes', [], {
+      signal: controller.signal,
+      timeoutMs: 5_000,
+      terminationGraceMs: 20,
+    });
+    controller.abort(new Error('测试取消'));
+
+    await assert.rejects(running, (error) => error.code === 'OPERATION_CANCELLED');
+    assert.equal(killSignal, 'SIGKILL');
+  });
+
+  it('forces an external process timeout to settle when SIGKILL produces no close event', async (t) => {
+    const childProcess = require('node:child_process');
+    const originalSpawn = childProcess.spawn;
+    let killSignal = null;
+    childProcess.spawn = () => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.exitCode = null;
+      child.signalCode = null;
+      child.kill = (signal) => {
+        killSignal = signal;
+        return false;
+      };
+      return child;
+    };
+    t.after(() => { childProcess.spawn = originalSpawn; });
+
+    const result = await videoMergeService.__test.runExternalProcess('never-closes', [], {
+      timeoutMs: 10,
+      timeoutLabel: '测试进程',
+      terminationGraceMs: 20,
+    });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /执行超时/);
+    assert.equal(killSignal, 'SIGKILL');
+  });
+
   it('accepts storyboard_id and legacy scene_id while normalizing heterogeneous local clips', async (t) => {
     if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
     const fixture = createMergeFixture({
@@ -442,6 +789,12 @@ describe('videoMergeService strict production mode', { concurrency: false }, () 
     const merge = fixture.db.prepare('SELECT * FROM video_merges WHERE id = ?').get(fixture.mergeId);
     assert.equal(merge.status, 'completed');
     assert.match(merge.merged_url, /_post\.mp4$/);
+    const srtPath = path.join(
+      storageRoot,
+      merge.merged_url.replace(/_post\.mp4$/, '_narration.srt').replace(/\//g, path.sep)
+    );
+    assert.equal(fs.existsSync(srtPath), true, '成功后旁白 SRT 必须真实落盘');
+    assert.match(fs.readFileSync(srtPath, 'utf8'), /First narration/);
   });
 
   it('keeps the newest completed episode output when an older merge fails later', async (t) => {
@@ -544,6 +897,242 @@ describe('videoMergeService strict production mode', { concurrency: false }, () 
     assert.equal(episode.video_url, null);
     assert.equal(task.status, 'failed');
     assert.ok(task.error);
+  });
+
+  it('fails closed and removes output when a non-strict enforced QA gate rejects the merge', async (t) => {
+    if (!mediaSupport.ok) return t.skip(mediaSupport.reason);
+    const fixture = createMergeFixture({
+      strict: false,
+      scenes: [
+        { scene_id: 101, video_url: clipWithoutAudio, duration: 0.65, order: 0 },
+        { scene_id: 102, video_url: clipWithAudio, duration: 0.85, order: 1 },
+      ],
+      mergeOptions: { enforce_qa_gate: true },
+    });
+    t.after(() => fixture.db.close());
+    const qaService = require('../src/services/qaService');
+    const originalAuditDrama = qaService.auditDrama;
+    qaService.auditDrama = () => ({ passed: false, score: 42 });
+    t.after(() => { qaService.auditDrama = originalAuditDrama; });
+    const mergedDir = path.join(storageRoot, 'videos', 'merged');
+    const before = new Set(fs.existsSync(mergedDir) ? fs.readdirSync(mergedDir) : []);
+
+    const result = await videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, '');
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'failed');
+    assert.match(result.error, /Production QA failed/);
+    assertStrictFailureState(fixture.db, fixture.mergeId, fixture.taskId);
+    const after = fs.existsSync(mergedDir) ? fs.readdirSync(mergedDir) : [];
+    assert.deepEqual(after.filter((name) => !before.has(name)), []);
+  });
+
+  it('converges a merge to cancelled when its task was cancelled before the worker starts', async (t) => {
+    const input = path.join(inputRoot, 'cancel-before-worker.mp4');
+    fs.writeFileSync(input, 'fixture');
+    t.after(() => fs.rmSync(input, { force: true }));
+    const fixture = createMergeFixture({
+      strict: false,
+      scenes: [{ scene_id: 101, video_url: input, duration: 1, order: 0 }],
+    });
+    t.after(() => fixture.db.close());
+    const taskService = require('../src/services/taskService');
+
+    const cancelled = await taskService.cancelTask(fixture.db, log, fixture.taskId, '启动前取消');
+    assert.equal(cancelled.ok, true);
+    const activeBeforeWorker = operationRegistry.getOperationRegistryState().active;
+    let ensureCalls = 0;
+    let remoteCancelRegistrationCalls = 0;
+    const originalEnsureTaskOperation = taskService.ensureTaskOperation;
+    const originalRegisterRemoteCancel = taskService.registerRemoteCancel;
+    taskService.ensureTaskOperation = (...args) => {
+      ensureCalls += 1;
+      return originalEnsureTaskOperation(...args);
+    };
+    taskService.registerRemoteCancel = (...args) => {
+      remoteCancelRegistrationCalls += 1;
+      return originalRegisterRemoteCancel(...args);
+    };
+    t.after(() => {
+      taskService.ensureTaskOperation = originalEnsureTaskOperation;
+      taskService.registerRemoteCancel = originalRegisterRemoteCancel;
+    });
+
+    const result = await videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, '');
+
+    assert.deepEqual(result, {
+      ok: false,
+      merge_id: fixture.mergeId,
+      status: 'cancelled',
+      cancelled: true,
+    });
+    assert.equal(fixture.db.prepare('SELECT status FROM video_merges WHERE id = ?').get(fixture.mergeId).status, 'cancelled');
+    assert.equal(fixture.db.prepare('SELECT status FROM async_tasks WHERE id = ?').get(fixture.taskId).status, 'cancelled');
+    assert.equal(fixture.db.prepare('SELECT status FROM episodes WHERE id = 1').get().status, 'draft');
+    assert.equal(ensureCalls, 0, 'worker 未启动时不应创建 operation');
+    assert.equal(remoteCancelRegistrationCalls, 0, 'worker 未启动时不应注册远端取消');
+    assert.equal(operationRegistry.getOperationRegistryState().active, activeBeforeWorker);
+  });
+
+  it('非严格后处理 MP4 的 ffprobe 期间取消会清理新 MP4 与 SRT', async (t) => {
+    const input = path.join(inputRoot, 'non-strict-ffprobe-cancel-input.mp4');
+    fs.writeFileSync(input, 'fixture');
+    t.after(() => fs.rmSync(input, { force: true }));
+    const fixture = createMergeFixture({
+      strict: false,
+      scenes: [{ scene_id: 101, video_url: input, duration: 1, order: 0 }],
+      mergeOptions: { watermark_text: '触发后处理' },
+    });
+    t.after(() => fixture.db.close());
+    const controller = new AbortController();
+    const harness = installNonStrictPostHarness(t);
+
+    const pending = videoMergeService.processVideoMerge(
+      fixture.db,
+      log,
+      fixture.mergeId,
+      '',
+      { signal: controller.signal }
+    );
+    let probeTimeout;
+    try {
+      await Promise.race([
+        harness.postProbeStarted,
+        new Promise((_, reject) => {
+          probeTimeout = setTimeout(() => reject(new Error('后处理 ffprobe 未启动')), 1000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(probeTimeout);
+    }
+    controller.abort(new Error('ffprobe 期间取消'));
+    const result = await pending;
+
+    assert.deepEqual(result, {
+      ok: false,
+      merge_id: fixture.mergeId,
+      status: 'cancelled',
+      cancelled: true,
+    });
+    const generated = harness.getPaths();
+    assert.equal(fs.existsSync(generated.concatOutputPath), false);
+    assert.equal(fs.existsSync(generated.postOutputPath), false);
+    assert.equal(fs.existsSync(generated.postSrtPath), false);
+    assert.equal(fixture.db.prepare('SELECT status FROM video_merges WHERE id = ?').get(fixture.mergeId).status, 'cancelled');
+    assert.equal(fixture.db.prepare('SELECT status FROM async_tasks WHERE id = ?').get(fixture.taskId).status, 'cancelled');
+    assert.equal(fixture.db.prepare('SELECT status FROM episodes WHERE id = 1').get().status, 'draft');
+  });
+
+  it('活跃合成取消由 token 状态机提交终态且不会被自身回调判定为过期', async (t) => {
+    const input = path.join(inputRoot, 'active-merge-cancellation-race.mp4');
+    fs.writeFileSync(input, 'fixture');
+    t.after(() => fs.rmSync(input, { force: true }));
+    const fixture = createMergeFixture({
+      strict: false,
+      scenes: [{ scene_id: 101, video_url: input, duration: 1, order: 0 }],
+      mergeOptions: { watermark_text: '触发后处理' },
+    });
+    t.after(() => fixture.db.close());
+    fixture.db.transaction(() => {
+      fixture.db.prepare('UPDATE episodes SET id = 7 WHERE id = 1').run();
+      fixture.db.prepare('UPDATE storyboards SET episode_id = 7 WHERE episode_id = 1').run();
+      fixture.db.prepare('UPDATE video_merges SET episode_id = 7 WHERE id = ?').run(fixture.mergeId);
+      fixture.db.prepare('UPDATE async_tasks SET resource_id = ? WHERE id = ?').run('7', fixture.taskId);
+    })();
+    const taskService = require('../src/services/taskService');
+    const harness = installNonStrictPostHarness(t);
+    const mergePromise = videoMergeService.processVideoMerge(fixture.db, log, fixture.mergeId, '');
+
+    let probeTimeout;
+    try {
+      await Promise.race([
+        harness.postProbeStarted,
+        new Promise((_, reject) => {
+          probeTimeout = setTimeout(() => reject(new Error('活跃合成未进入可取消的 ffprobe 阶段')), 1000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(probeTimeout);
+    }
+
+    const cancellationPromise = taskService.cancelTask(fixture.db, log, fixture.taskId, '竞态取消');
+    const [cancellation, mergeResult] = await Promise.all([cancellationPromise, mergePromise]);
+
+    assert.equal(cancellation.ok, true);
+    assert.notEqual(cancellation.reason, 'cancel_superseded');
+    assert.deepEqual(mergeResult, {
+      ok: false,
+      merge_id: fixture.mergeId,
+      status: 'cancelled',
+      cancelled: true,
+    });
+    const task = fixture.db.prepare(
+      `SELECT status, error, cancel_operation_id, cancel_state, cancel_confirmed_at
+         FROM async_tasks WHERE id = ?`
+    ).get(fixture.taskId);
+    const merge = fixture.db.prepare(
+      'SELECT status, merged_url, duration, error_msg FROM video_merges WHERE id = ?'
+    ).get(fixture.mergeId);
+    assert.equal(task.status, 'cancelled');
+    assert.equal(task.error, '竞态取消');
+    assert.ok(task.cancel_operation_id, '取消终态必须保留 operation token');
+    assert.equal(task.cancel_state, 'confirmed');
+    assert.ok(task.cancel_confirmed_at);
+    assert.deepEqual(merge, {
+      status: 'cancelled',
+      merged_url: null,
+      duration: null,
+      error_msg: '竞态取消',
+    });
+    assert.equal(fixture.db.prepare('SELECT status FROM episodes WHERE id = 7').get().status, 'draft');
+    const generated = harness.getPaths();
+    assert.equal(fs.existsSync(generated.concatOutputPath), false);
+    assert.equal(fs.existsSync(generated.postOutputPath), false);
+    assert.equal(fs.existsSync(generated.postSrtPath), false);
+  });
+
+  it('后处理普通错误与取消同时发生时优先收敛为取消', async (t) => {
+    const input = path.join(inputRoot, 'non-strict-post-error-cancel-input.mp4');
+    fs.writeFileSync(input, 'fixture');
+    t.after(() => fs.rmSync(input, { force: true }));
+    const fixture = createMergeFixture({
+      strict: false,
+      scenes: [{ scene_id: 101, video_url: input, duration: 1, order: 0 }],
+      mergeOptions: { watermark_text: '触发后处理' },
+    });
+    t.after(() => fixture.db.close());
+    const controller = new AbortController();
+    let ordinaryPostFailureWarnings = 0;
+    const raceLog = {
+      ...log,
+      warn(message) {
+        if (message === 'Video merge: post-process skipped') ordinaryPostFailureWarnings += 1;
+      },
+    };
+    installNonStrictPostHarness(t, {
+      writePostFiles: false,
+      onPost() {
+        controller.abort(new Error('竞态中的取消'));
+        return { ok: false, error: '不应持久化的普通后处理错误' };
+      },
+    });
+
+    const result = await videoMergeService.processVideoMerge(
+      fixture.db,
+      raceLog,
+      fixture.mergeId,
+      '',
+      { signal: controller.signal }
+    );
+
+    assert.equal(result.cancelled, true);
+    assert.equal(ordinaryPostFailureWarnings, 0, '取消信号必须先于普通后处理错误分支处理');
+    const merge = fixture.db.prepare('SELECT status, error_msg FROM video_merges WHERE id = ?').get(fixture.mergeId);
+    const task = fixture.db.prepare('SELECT status, error FROM async_tasks WHERE id = ?').get(fixture.taskId);
+    assert.equal(merge.status, 'cancelled');
+    assert.doesNotMatch(merge.error_msg || '', /普通后处理错误/);
+    assert.equal(task.status, 'cancelled');
+    assert.doesNotMatch(task.error || '', /普通后处理错误/);
   });
 
   it('fails a non-strict merge when any requested clip cannot be resolved', async (t) => {
@@ -672,18 +1261,48 @@ describe('videoMergeService strict production mode', { concurrency: false }, () 
   ]) {
     it(`rejects ${invalidOutput.name} non-strict output after FFmpeg reports success`, async (t) => {
       const childProcess = require('child_process');
+      const originalSpawn = childProcess.spawn;
       const originalSpawnSync = childProcess.spawnSync;
       const originalHasLocalFfmpeg = ffmpegPath.hasLocalFfmpeg;
       const originalGetFfmpegPath = ffmpegPath.getFfmpegPath;
       const originalGetFfprobePath = ffmpegPath.getFfprobePath;
       let fakeOutputPath = null;
-      childProcess.spawnSync = (command, args) => {
-        if (command === 'fake-ffmpeg') {
+      childProcess.spawn = (command, args) => {
+        if (command !== 'fake-ffmpeg' && command !== 'fake-ffprobe') {
+          return originalSpawn(command, args);
+        }
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.exitCode = null;
+        child.signalCode = null;
+        child.kill = () => {
+          child.signalCode = 'SIGKILL';
+          queueMicrotask(() => child.emit('close', null, 'SIGKILL'));
+          return true;
+        };
+        queueMicrotask(() => {
+          if (command === 'fake-ffprobe') {
+            child.stderr.emit('data', 'invalid media');
+            child.exitCode = 1;
+            child.emit('close', 1, null);
+            return;
+          }
+          if (args.includes('-version')) {
+            child.stdout.emit('data', 'ffmpeg version fake-test\n');
+            child.exitCode = 0;
+            child.emit('close', 0, null);
+            return;
+          }
           fakeOutputPath = args[args.length - 1];
           fs.mkdirSync(path.dirname(fakeOutputPath), { recursive: true });
           fs.writeFileSync(fakeOutputPath, invalidOutput.bytes);
-          return { status: 0, stdout: '', stderr: '' };
-        }
+          child.exitCode = 0;
+          child.emit('close', 0, null);
+        });
+        return child;
+      };
+      childProcess.spawnSync = (command, args) => {
         if (command === 'fake-ffprobe') {
           return { status: 1, stdout: '', stderr: 'invalid media' };
         }
@@ -695,6 +1314,7 @@ describe('videoMergeService strict production mode', { concurrency: false }, () 
       delete require.cache[require.resolve('../src/services/videoMergeService')];
       const isolatedVideoMergeService = require('../src/services/videoMergeService');
       t.after(() => {
+        childProcess.spawn = originalSpawn;
         childProcess.spawnSync = originalSpawnSync;
         ffmpegPath.hasLocalFfmpeg = originalHasLocalFfmpeg;
         ffmpegPath.getFfmpegPath = originalGetFfmpegPath;

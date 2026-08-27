@@ -30,7 +30,11 @@ function createDb() {
       metadata TEXT,
       created_at TEXT,
       updated_at TEXT,
-      deleted_at TEXT
+      deleted_at TEXT,
+      trash_state TEXT,
+      recycle_operation_id TEXT,
+      recycle_phase TEXT,
+      recycle_started_at TEXT
     );
     CREATE TABLE episodes (
       id INTEGER PRIMARY KEY,

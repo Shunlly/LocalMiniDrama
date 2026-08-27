@@ -12,6 +12,27 @@ const {
   sanitizeFramePrompt,
 } = require('../utils/framePromptSanitize');
 
+function waitForTaskWork(work, signal) {
+  if (!signal) return Promise.resolve(work);
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback) => (value) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      callback(value);
+    };
+    const onAbort = finish(reject);
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(work).then(finish(resolve), finish(reject));
+  });
+}
+
+function taskWasCancelled(signal, error) {
+  return signal?.aborted || error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
+}
+
 /**
  * 将分镜角度值扩展为带透视含义的完整描述，注入图像提示词上下文
  * 优先使用结构化三元组（angle_h/angle_v/angle_s），降级到旧文本解析
@@ -446,11 +467,13 @@ async function generateSingleFrame(db, log, cfg, sb, scene, characterNames, mode
 
   let aiResponse;
   try {
-    aiResponse = await aiClient.generateText(db, log, 'text', userPrompt, systemPrompt, {
+    aiResponse = await waitForTaskWork(aiClient.generateText(db, log, 'text', userPrompt, systemPrompt, {
       model: model || undefined,
       max_tokens: 2400,
-    });
+      signal: sanitizeOpts.signal,
+    }), sanitizeOpts.signal);
   } catch (err) {
+    if (taskWasCancelled(sanitizeOpts.signal, err)) throw err;
     log.warn('Frame prompt AI failed, using fallback', { error: err.message });
     const prompt = buildFallbackPrompt(cfg, scene, frameKind);
     const desc =
@@ -482,6 +505,8 @@ async function generateSingleFrame(db, log, cfg, sb, scene, characterNames, mode
 }
 
 async function processFramePromptGeneration(db, log, taskId, storyboardId, frameType, panelCount, model) {
+  const signal = taskService.ensureTaskOperation(taskId).signal;
+  taskService.throwIfTaskInactive(db, taskId, signal);
   let cfg = loadConfig();
   taskService.updateTaskStatus(db, taskId, 'processing', 0, '正在生成帧提示词...');
 
@@ -517,7 +542,7 @@ async function processFramePromptGeneration(db, log, taskId, storyboardId, frame
   const scene = loadScene(db, sb.scene_id);
   const characterNames = loadStoryboardCharacterNames(db, storyboardId);
   const allDramaNames = loadDramaCharacterNamesForStoryboard(db, storyboardId);
-  const sanitizeOpts = { allDramaNames };
+  const sanitizeOpts = { allDramaNames, signal };
 
   // 强调试日志：确认角色视觉锚点是否成功加载（用于排查“黑发扎马尾”等脑补问题）
   log.info('[帧提示词] 角色视觉锚点加载结果', {
@@ -535,7 +560,6 @@ async function processFramePromptGeneration(db, log, taskId, storyboardId, frame
     if (frameType === 'first' || frameType === 'key' || frameType === 'last') {
       const frameKind = frameType;
       const single = await generateSingleFrame(db, log, cfg, sb, scene, characterNames, model, frameKind, sanitizeOpts);
-      saveFramePrompt(db, log, storyboardId, frameType, single.prompt, single.description, '');
       combinedPrompt = single.prompt;
       description = single.description;
     } else if (frameType === 'panel') {
@@ -564,7 +588,6 @@ async function processFramePromptGeneration(db, log, taskId, storyboardId, frame
         description = '分镜板组合提示词';
       }
       combinedPrompt = prompts.join('\n---\n');
-      saveFramePrompt(db, log, storyboardId, frameType, combinedPrompt, description, layout);
     } else if (frameType === 'action') {
       layout = 'horizontal_5';
       const first = await generateSingleFrame(db, log, cfg, sb, scene, characterNames, model, 'first', sanitizeOpts);
@@ -574,20 +597,26 @@ async function processFramePromptGeneration(db, log, taskId, storyboardId, frame
       const last = await generateSingleFrame(db, log, cfg, sb, scene, characterNames, model, 'last', sanitizeOpts);
       combinedPrompt = [first.prompt, key1.prompt, key2.prompt, key3.prompt, last.prompt].join('\n---\n');
       description = '动作序列组合提示词';
-      saveFramePrompt(db, log, storyboardId, frameType, combinedPrompt, description, layout);
     } else {
       taskService.updateTaskError(db, taskId, '不支持的帧类型');
       log.error('Frame prompt: unsupported frame_type', { frame_type: frameType });
       return;
     }
 
-    taskService.updateTaskResult(db, taskId, {
-      storyboard_id: storyboardIdStr,
-      frame_type: frameType,
-      response: { frame_type: frameType, single_frame: combinedPrompt ? { prompt: combinedPrompt, description } : undefined, layout: layout || undefined },
+    taskService.runTaskMutation(db, taskId, signal, () => {
+      saveFramePrompt(db, log, storyboardId, frameType, combinedPrompt, description, layout);
+      taskService.updateTaskResult(db, taskId, {
+        storyboard_id: storyboardIdStr,
+        frame_type: frameType,
+        response: { frame_type: frameType, single_frame: combinedPrompt ? { prompt: combinedPrompt, description } : undefined, layout: layout || undefined },
+      });
     });
     log.info('Frame prompt generation completed', { task_id: taskId, storyboard_id: storyboardId, frame_type: frameType });
   } catch (err) {
+    if (taskWasCancelled(signal, err)) {
+      log.info('Frame prompt generation cancelled; skipping late writes', { task_id: taskId, storyboard_id: storyboardId });
+      return;
+    }
     log.error('Frame prompt generation error', { task_id: taskId, error: err.message });
     taskService.updateTaskError(db, taskId, err.message || '生成失败');
   }
@@ -613,6 +642,7 @@ function generateFramePrompt(db, log, storyboardId, frameType, panelCount, model
 
 module.exports = {
   generateFramePrompt,
+  processFramePromptGeneration,
   saveFramePrompt,
   loadStoryboard,
   loadStoryboardCharacterNames,

@@ -1,7 +1,12 @@
 import { runWithOwnedRequestErrorToast } from './request.js'
 
-export const SOURCE_LIST_REFRESH_FAILED_MESSAGE = '素材已导入，但列表刷新失败'
+export const SOURCE_LIST_REFRESH_FAILED_MESSAGE = '素材已在服务端完成导入，但列表尚未确认。请勿重复导入，请刷新列表确认。'
 export const SOURCE_POST_CREATE_FAILED_MESSAGE = '素材已导入，但页面状态更新未完成。请勿重复导入，请刷新列表确认。'
+export const SOURCE_WORKFLOW_REFRESH_UNCONFIRMED_MESSAGE = '服务端已完成操作，但列表尚未确认。请勿重复操作，请刷新列表确认。'
+
+export function extractCreatedStorySource(result) {
+  return result?.source && typeof result.source === 'object' ? result.source : null
+}
 
 export function createSourceWorkflowLifecycleGuard() {
   let active = true
@@ -83,6 +88,38 @@ export function selectQaReportForRun(reports, runId) {
   return (Array.isArray(reports) ? reports : []).find((report) => report?.run_id === runId) || null
 }
 
+export function createSourceWorkflowSnapshotController({ fetchSnapshot, applySnapshot } = {}) {
+  let generation = 0
+
+  async function refresh(context = {}) {
+    const requestGeneration = ++generation
+    const requestContext = { ...context, generation: requestGeneration }
+    let snapshot
+    try {
+      snapshot = await fetchSnapshot(requestContext)
+    } catch (error) {
+      if (requestGeneration !== generation) {
+        return { status: 'stale', data: null, generation: requestGeneration }
+      }
+      throw error
+    }
+    if (requestGeneration !== generation) {
+      return { status: 'stale', data: null, generation: requestGeneration }
+    }
+    await applySnapshot(snapshot, requestContext)
+    if (requestGeneration !== generation) {
+      return { status: 'stale', data: null, generation: requestGeneration }
+    }
+    return { status: 'applied', data: snapshot, generation: requestGeneration }
+  }
+
+  function reset() {
+    generation += 1
+  }
+
+  return { refresh, reset }
+}
+
 export async function runGatedQaRemediation({
   report,
   blockedReason,
@@ -112,14 +149,15 @@ export async function runGatedQaRemediation({
 
 export async function refreshSourceImportList(loadSources) {
   try {
-    await loadSources()
-    return { status: 'refreshed', error: null }
+    const result = await loadSources()
+    if (result?.status === 'stale') return { status: 'stale', error: null }
+    return { status: 'refreshed', error: null, data: result?.data ?? result }
   } catch (error) {
     return { status: 'refresh_failed', error }
   }
 }
 
-export async function runSourceImport({ createSource, onCreated, loadSources }) {
+export async function runSourceImport({ createSource, onServerCreated, onCreated, loadSources, confirmCreated }) {
   let source
   try {
     source = await createSource()
@@ -129,7 +167,7 @@ export async function runSourceImport({ createSource, onCreated, loadSources }) 
 
   let postCreateError = null
   try {
-    await onCreated?.(source)
+    await onServerCreated?.(source)
   } catch (error) {
     postCreateError = error
   }
@@ -144,6 +182,26 @@ export async function runSourceImport({ createSource, onCreated, loadSources }) 
       refreshError: refreshOutcome.error,
     }
   }
+  if (refreshOutcome.status !== 'refreshed') return { ...refreshOutcome, source }
+  if (confirmCreated && !confirmCreated(source, refreshOutcome.data)) {
+    return {
+      status: 'refresh_unconfirmed',
+      source,
+      error: new Error('刷新结果中未找到刚导入的素材。'),
+    }
+  }
+
+  try {
+    await onCreated?.(source)
+  } catch (error) {
+    return {
+      status: 'post_create_failed',
+      source,
+      postCreateError: error,
+      refreshStatus: refreshOutcome.status,
+      refreshError: refreshOutcome.error,
+    }
+  }
   return { ...refreshOutcome, source }
 }
 
@@ -154,6 +212,7 @@ export function createSourceImportController({
   clearInput,
   onImportStarted,
   onCreated,
+  confirmCreated,
   onCreateFailed,
   setRefreshAlert,
   emitRefresh,
@@ -172,12 +231,17 @@ export function createSourceImportController({
 
   async function loadSources() {
     const requestGeneration = ++sourceListRequestGeneration
-    const loadedSources = await fetchSources()
-    if (requestGeneration !== sourceListRequestGeneration) return undefined
-    await applySources?.(loadedSources)
-    if (requestGeneration !== sourceListRequestGeneration) return undefined
+    const loadedSources = await fetchSources({ generation: requestGeneration })
+    if (requestGeneration !== sourceListRequestGeneration) return { status: 'stale', data: null }
+    if (loadedSources?.status === 'stale') return { status: 'stale', data: null }
+    await applySources?.(loadedSources, { generation: requestGeneration })
+    if (requestGeneration !== sourceListRequestGeneration) return { status: 'stale', data: null }
     updateRefreshAlert('')
-    return loadedSources
+    return {
+      status: 'applied',
+      data: loadedSources?.data ?? loadedSources,
+      generation: requestGeneration,
+    }
   }
 
   async function importSource(context) {
@@ -190,23 +254,13 @@ export function createSourceImportController({
 
     const outcome = await runSourceImport({
       createSource: () => createSource(context),
-      onCreated: async (source) => {
+      onServerCreated: async (source) => {
         if (!isCurrentImport()) return
-        let postCreateError = null
-        try {
-          await clearInput?.(source, context)
-        } catch (error) {
-          postCreateError = error
-        }
-        try {
-          if (!isCurrentImport()) return
-          await onCreated?.(source, context)
-        } catch (error) {
-          postCreateError ||= error
-        }
-        if (postCreateError) throw postCreateError
+        await clearInput?.(source, context)
       },
+      onCreated: (source) => (isCurrentImport() ? onCreated?.(source, context) : undefined),
       loadSources: () => (isCurrentImport() ? loadSources() : undefined),
+      confirmCreated,
     })
 
     if (!isCurrentImport()) return { status: 'stale', source: outcome.source || null }
@@ -220,7 +274,13 @@ export function createSourceImportController({
       if (outcome.refreshStatus === 'refreshed') await emitRefresh?.()
       return outcome
     }
-    if (outcome.status === 'refresh_failed') {
+    if (outcome.status === 'refresh_failed' || outcome.status === 'refresh_unconfirmed') {
+      if (refreshAlertRevision === importAlertRevision) {
+        updateRefreshAlert(SOURCE_LIST_REFRESH_FAILED_MESSAGE)
+      }
+      return outcome
+    }
+    if (outcome.status === 'stale') {
       if (refreshAlertRevision === importAlertRevision) {
         updateRefreshAlert(SOURCE_LIST_REFRESH_FAILED_MESSAGE)
       }
@@ -242,6 +302,7 @@ export function createSourceImportController({
       }
       return outcome
     }
+    if (outcome.status === 'stale') return outcome
     if (requestContextGeneration !== contextGeneration) return { status: 'stale', error: null }
     await emitRefresh?.()
     return outcome
@@ -254,9 +315,14 @@ export function createSourceImportController({
     updateRefreshAlert('')
   }
 
+  function markRefreshUnconfirmed(message = SOURCE_LIST_REFRESH_FAILED_MESSAGE) {
+    updateRefreshAlert(message)
+  }
+
   return {
     importSource,
     loadSources,
+    markRefreshUnconfirmed,
     refreshSources,
     reset,
   }

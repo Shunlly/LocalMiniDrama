@@ -39,11 +39,27 @@ test('request context accepts only bounded safe correlation ids', () => {
 
 test('app initialization releases its maintenance guard when startup fails', () => {
   let releases = 0;
+  let databaseCloses = 0;
   const startupError = new Error('database startup failed');
   assert.throws(
     () => initializeWithMaintenanceGuard({ release() { releases += 1; } }, () => {
       throw startupError;
-    }),
+    }, () => { databaseCloses += 1; }),
+    (error) => error === startupError
+  );
+  assert.equal(databaseCloses, 1);
+  assert.equal(releases, 1);
+});
+
+test('app initialization preserves the startup error when cleanup also fails', () => {
+  const startupError = new Error('startup root cause');
+  let releases = 0;
+  assert.throws(
+    () => initializeWithMaintenanceGuard(
+      { release() { releases += 1; throw new Error('lock release failed'); } },
+      () => { throw startupError; },
+      () => { throw new Error('database close failed'); }
+    ),
     (error) => error === startupError
   );
   assert.equal(releases, 1);

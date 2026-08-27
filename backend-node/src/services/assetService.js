@@ -3,6 +3,9 @@ const path = require('path');
 const { loadConfig } = require('../config');
 const uploadService = require('./uploadService');
 const storageLayout = require('./storageLayout');
+const networkMediaService = require('./networkMediaService');
+const networkCleanupTimers = new WeakMap();
+const dramaWriteGuard = require('./dramaWriteGuard');
 const {
   normalizeFreeCanvasAssetReferences,
   normalizeFreeCanvasMediaReference,
@@ -20,6 +23,9 @@ const ASSET_FROM = `
 `;
 
 function list(db, query) {
+  if (query.drama_id && !dramaWriteGuard.canReadDrama(db, Number(query.drama_id))) {
+    return { items: [], total: 0, page: 1, pageSize: Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20)) };
+  }
   let sql = 'WHERE a.deleted_at IS NULL';
   const params = [];
   if (query.drama_id) {
@@ -35,24 +41,29 @@ function list(db, query) {
     sql += ' AND a.name LIKE ?';
     params.push(`%${keyword}%`);
   }
-  const countRow = db.prepare('SELECT COUNT(*) as total ' + ASSET_FROM + ' ' + sql).get(...params);
-  const total = countRow.total || 0;
   const page = Math.max(1, parseInt(query.page, 10) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20));
   const offset = (page - 1) * pageSize;
   const rows = db.prepare(
-    ASSET_SELECT + ' ' + ASSET_FROM + ' ' + sql + ' ORDER BY a.created_at DESC LIMIT ? OFFSET ?'
-  ).all(...params, pageSize, offset);
-  return { items: rows.map(rowToItem), total, page, pageSize };
+    ASSET_SELECT + ' ' + ASSET_FROM + ' ' + sql + ' ORDER BY a.created_at DESC, a.id DESC'
+  ).all(...params);
+  const visible = rows.filter((row) => dramaWriteGuard.canReadResource(db, 'assets', row.id));
+  return {
+    items: visible.slice(offset, offset + pageSize).map(rowToItem),
+    total: visible.length,
+    page,
+    pageSize,
+  };
 }
 
 function rowToItem(r) {
+  const sourceMetadata = parseNetworkSourceMetadata(r.category);
   return {
     id: r.id,
     drama_id: r.drama_id,
     name: r.name,
     type: r.type,
-    category: r.category,
+    category: sourceMetadata ? 'network' : r.category,
     url: r.url,
     local_path: r.local_path,
     file_size: r.file_size,
@@ -63,12 +74,64 @@ function rowToItem(r) {
     image_gen_id: r.image_gen_id,
     video_gen_id: r.video_gen_id,
     source_drama_title: r.source_drama_title || null,
+    ...(sourceMetadata ? {
+      source_provider: sourceMetadata.source_provider,
+      source_url: sourceMetadata.source_url,
+      author: sourceMetadata.author,
+      license: sourceMetadata.license,
+      license_url: sourceMetadata.license_url,
+      source_metadata: sourceMetadata,
+    } : {}),
     created_at: r.created_at,
     updated_at: r.updated_at,
   };
 }
 
+function parseNetworkSourceMetadata(value) {
+  if (typeof value !== 'string' || !value.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (
+      parsed?.kind !== 'wikimedia_commons'
+      || parsed.source_provider !== 'Wikimedia Commons'
+      || typeof parsed.source_url !== 'string'
+      || typeof parsed.commons_title !== 'string'
+    ) return null;
+    const source = new URL(parsed.source_url);
+    if (source.protocol !== 'https:' || source.origin !== 'https://commons.wikimedia.org') return null;
+    return parsed;
+  } catch (_) {
+    return null;
+  }
+}
+
+function encodeNetworkSourceMetadata(item) {
+  return JSON.stringify({
+    kind: 'wikimedia_commons',
+    source_provider: 'Wikimedia Commons',
+    source_url: item.source_url,
+    author: item.author,
+    license: item.license,
+    license_url: item.license_url || '',
+    commons_title: item.commons_title,
+    commons_page_id: item.commons_page_id || null,
+    commons_revision_timestamp: item.commons_revision_timestamp || '',
+    commons_sha1: item.commons_sha1 || '',
+    resolved_download_url: item.resolved_download_url || '',
+    content_sha256: item.content_sha256 || '',
+  });
+}
+
+function findNetworkAssetBySource(db, dramaId, sourceUrl) {
+  const rows = dramaId == null
+    ? db.prepare('SELECT id, category FROM assets WHERE drama_id IS NULL AND deleted_at IS NULL').all()
+    : db.prepare('SELECT id, category FROM assets WHERE drama_id = ? AND deleted_at IS NULL').all(dramaId);
+  const match = rows.find((row) => parseNetworkSourceMetadata(row.category)?.source_url === sourceUrl);
+  return match ? getById(db, match.id) : null;
+}
+
 function getById(db, id) {
+  if (!dramaWriteGuard.canReadResource(db, 'assets', id)) return null;
   const r = db.prepare(
     ASSET_SELECT + ' ' + ASSET_FROM + ' WHERE a.id = ? AND a.deleted_at IS NULL'
   ).get(Number(id));
@@ -93,9 +156,18 @@ function resolveDramaScope(db, value, options = {}) {
   if (!Number.isSafeInteger(normalized) || normalized <= 0) {
     throw badRequest('drama_id 必须为正整数');
   }
-  const drama = db.prepare(
-    'SELECT id, title, created_at, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL'
-  ).get(normalized);
+  dramaWriteGuard.assertDramaWritable(db, normalized);
+  let drama;
+  try {
+    drama = db.prepare(
+      'SELECT id, title, created_at, metadata, trash_state FROM dramas WHERE id = ? AND deleted_at IS NULL'
+    ).get(normalized);
+  } catch (error) {
+    if (!/no such column: trash_state/i.test(error?.message || '')) throw error;
+    drama = db.prepare(
+      'SELECT id, title, created_at, metadata, NULL AS trash_state FROM dramas WHERE id = ? AND deleted_at IS NULL'
+    ).get(normalized);
+  }
   if (!drama) throw badRequest('drama_id 对应的项目不存在');
   return drama;
 }
@@ -184,6 +256,9 @@ function normalizeAssetMedia(db, drama, req) {
 
 function create(db, log, req, options = {}) {
   if (!isPlainObject(req)) throw badRequest('素材请求必须为对象');
+  if (parseNetworkSourceMetadata(req.category) && options.allowNetworkMetadata !== true) {
+    throw badRequest('category 包含保留的网络素材来源元数据');
+  }
   const drama = resolveDramaScope(db, req.drama_id, options);
   const media = normalizeAssetMedia(db, drama, req);
   const now = new Date().toISOString();
@@ -212,52 +287,58 @@ function create(db, log, req, options = {}) {
 
 function update(db, log, id, req) {
   if (!isPlainObject(req)) throw badRequest('素材请求必须为对象');
-  const row = db.prepare(
-    'SELECT id, drama_id, local_path FROM assets WHERE id = ? AND deleted_at IS NULL'
-  ).get(Number(id));
-  if (!row) return null;
-  let isLegacyGlobalUpload = false;
-  if (Number(row.drama_id) === 0) {
-    try {
-      const relative = normalizeLocalReference(row.local_path, 'local_path');
-      isLegacyGlobalUpload = relative === 'uploads' || relative.startsWith('uploads/');
-    } catch (_) {}
-  }
-  const drama = row.drama_id == null || isLegacyGlobalUpload
-    ? null
-    : resolveDramaScope(db, Number(row.drama_id));
-  const hasMediaUpdate = req.url !== undefined || req.local_path !== undefined;
-  const media = hasMediaUpdate
-    ? normalizeAssetMedia(db, drama, {
-      ...(req.local_path !== undefined ? { local_path: req.local_path } : {}),
-      ...(req.url !== undefined ? { url: req.url } : {}),
-    })
-    : null;
-  const updates = [];
-  const params = [];
-  ['name', 'description', 'type', 'category', 'thumbnail_url', 'file_size', 'mime_type', 'width', 'height', 'duration', 'is_favorite'].forEach((key) => {
-    if (req[key] !== undefined) {
-      updates.push(key + ' = ?');
-      params.push(req[key]);
+  return dramaWriteGuard.runResourceWrite(db, 'assets', id, (row) => {
+    if (parseNetworkSourceMetadata(row.category)) {
+      const allowedNetworkUpdates = new Set(['name', 'description', 'is_favorite']);
+      const protectedFields = Object.keys(req).filter((key) => !allowedNetworkUpdates.has(key));
+      if (protectedFields.length > 0) {
+        throw badRequest('网络素材的来源、内容和媒体属性不能通过通用更新接口修改');
+      }
     }
+    let isLegacyGlobalUpload = false;
+    if (Number(row.drama_id) === 0) {
+      try {
+        const relative = normalizeLocalReference(row.local_path, 'local_path');
+        isLegacyGlobalUpload = relative === 'uploads' || relative.startsWith('uploads/');
+      } catch (_) {}
+    }
+    const drama = row.drama_id == null || isLegacyGlobalUpload
+      ? null
+      : resolveDramaScope(db, Number(row.drama_id));
+    const hasMediaUpdate = req.url !== undefined || req.local_path !== undefined;
+    const media = hasMediaUpdate
+      ? normalizeAssetMedia(db, drama, {
+        ...(req.local_path !== undefined ? { local_path: req.local_path } : {}),
+        ...(req.url !== undefined ? { url: req.url } : {}),
+      })
+      : null;
+    const updates = [];
+    const params = [];
+    ['name', 'description', 'type', 'category', 'thumbnail_url', 'file_size', 'mime_type', 'width', 'height', 'duration', 'is_favorite'].forEach((key) => {
+      if (req[key] !== undefined) {
+        updates.push(key + ' = ?');
+        params.push(req[key]);
+      }
+    });
+    if (media) {
+      updates.push('url = ?', 'local_path = ?');
+      params.push(media.url, media.localPath);
+      if (
+        row.drama_id != null
+        && Number(row.drama_id) === 0
+        && isLegacyGlobalUpload
+        && (media.localPath === 'library' || media.localPath?.startsWith('library/'))
+      ) {
+        updates.push('drama_id = ?');
+        params.push(null);
+      }
+    }
+    if (updates.length === 0) return getById(db, id);
+    params.push(new Date().toISOString(), row.id);
+    db.prepare('UPDATE assets SET ' + updates.join(', ') + ', updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+      .run(...params);
+    return getById(db, row.id);
   });
-  if (media) {
-    updates.push('url = ?', 'local_path = ?');
-    params.push(media.url, media.localPath);
-    if (
-      row.drama_id != null
-      && Number(row.drama_id) === 0
-      && isLegacyGlobalUpload
-      && (media.localPath === 'library' || media.localPath?.startsWith('library/'))
-    ) {
-      updates.push('drama_id = ?');
-      params.push(null);
-    }
-  }
-  if (updates.length === 0) return getById(db, id);
-  params.push(new Date().toISOString(), id);
-  db.prepare('UPDATE assets SET ' + updates.join(', ') + ', updated_at = ? WHERE id = ?').run(...params);
-  return getById(db, id);
 }
 
 function normalizeLocalPath(localPath) {
@@ -474,9 +555,8 @@ function deleteById(db, log, id, options = {}) {
   let removableReference = null;
   const storageRoot = configuredStorageRoot(options);
   const performDelete = db.transaction(() => {
-    const row = db.prepare(
-      'SELECT id, drama_id, local_path FROM assets WHERE id = ? AND deleted_at IS NULL'
-    ).get(assetId);
+    const row = dramaWriteGuard.assertResourceWritable(db, 'assets', assetId);
+    if (!row || row.deleted_at) return false;
     if (!row) return false;
 
     const storyboardIds = storyboardReferencesForAsset(db, row);
@@ -557,6 +637,118 @@ function importFromVideo(db, log, videoGenId) {
   });
 }
 
+async function searchNetwork(query, options = {}) {
+  return networkMediaService.search(query, options.network || options);
+}
+
+async function importFromNetwork(db, log, req, options = {}) {
+  if (!isPlainObject(req)) throw badRequest('素材请求必须为对象');
+  const drama = resolveDramaScope(db, req.drama_id, { strictDramaId: true });
+  const prepared = await networkMediaService.prepareImport(req, options.network || options);
+  try {
+    let reused = false;
+    const persist = db.transaction(() => {
+      if (drama) resolveDramaScope(db, drama.id, { strictDramaId: true });
+      const existing = findNetworkAssetBySource(db, drama?.id ?? null, prepared.item.source_url);
+      if (existing) {
+        const previous = existing.source_metadata || {};
+        const unchanged = previous.commons_revision_timestamp === prepared.item.commons_revision_timestamp
+          && previous.commons_sha1 === prepared.item.commons_sha1
+          && previous.content_sha256 === prepared.item.content_sha256;
+        if (!unchanged) {
+          const error = new Error('该 Commons 来源已有本地素材，但远端修订或内容已经变化，请删除旧素材后重新导入');
+          error.code = 'NETWORK_MEDIA_SOURCE_CHANGED';
+          error.statusCode = 409;
+          throw error;
+        }
+        reused = true;
+        return existing;
+      }
+      prepared.finalize();
+      return create(db, log, {
+        drama_id: drama?.id ?? null,
+        name: prepared.item.title,
+        type: prepared.item.media_type,
+        category: encodeNetworkSourceMetadata(prepared.item),
+        local_path: prepared.localPath,
+        file_size: prepared.item.file_size,
+        mime_type: prepared.item.mime_type,
+        width: prepared.item.width,
+        height: prepared.item.height,
+      }, { allowNetworkMetadata: true, strictDramaId: true });
+    });
+    const asset = persist();
+    if (reused) prepared.cleanup();
+    log?.info?.('Network asset imported', {
+      asset_id: asset.id,
+      source_provider: 'Wikimedia Commons',
+      local_path: asset.local_path,
+      reused,
+    });
+    return asset;
+  } catch (error) {
+    try {
+      prepared.cleanup();
+    } catch (cleanupError) {
+      log?.warn?.('Network asset cleanup failed', { error: cleanupError.message });
+    }
+    throw error;
+  }
+}
+
+function cleanupNetworkImportOrphans(db, log, options = {}) {
+  let rows;
+  try {
+    rows = db.prepare(
+      `SELECT local_path FROM assets
+        WHERE local_path GLOB 'library/uploads/network_*'
+          AND deleted_at IS NULL`
+    ).all();
+  } catch (error) {
+    if (/no such table/i.test(error?.message || '')) return { removed: [], skipped: [] };
+    throw error;
+  }
+  const result = networkMediaService.cleanupOrphans(
+    rows.map((row) => row.local_path),
+    options.network || options
+  );
+  if (result.removed.length) {
+    log?.warn?.('Cleaned stale network media import files', {
+      count: result.removed.length,
+      files: result.removed,
+    });
+  }
+  if (options.schedule !== false && !networkCleanupTimers.has(db)) {
+    startNetworkImportOrphanCleanup(db, log, options);
+  }
+  return result;
+}
+
+function startNetworkImportOrphanCleanup(db, log, options = {}) {
+  const existing = networkCleanupTimers.get(db);
+  if (existing) return existing.controller;
+  const intervalMs = Math.max(1000, Number(options.intervalMs) || networkMediaService.ORPHAN_CLEANUP_INTERVAL_MS);
+  const timer = setInterval(() => {
+    try {
+      cleanupNetworkImportOrphans(db, log, { ...options, schedule: false });
+    } catch (error) {
+      log?.warn?.('Periodic network media cleanup failed', { error: error.message });
+    }
+  }, intervalMs);
+  timer.unref?.();
+  const controller = {
+    isReferenced() {
+      return timer.hasRef?.() ?? false;
+    },
+    close() {
+      clearInterval(timer);
+      networkCleanupTimers.delete(db);
+    },
+  };
+  networkCleanupTimers.set(db, { timer, controller });
+  return controller;
+}
+
 module.exports = {
   list,
   getById,
@@ -565,5 +757,9 @@ module.exports = {
   deleteById,
   importFromImage,
   importFromVideo,
+  searchNetwork,
+  importFromNetwork,
+  cleanupNetworkImportOrphans,
+  startNetworkImportOrphanCleanup,
   storyboardReferencesForAsset,
 };

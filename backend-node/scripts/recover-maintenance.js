@@ -6,7 +6,6 @@ const { loadConfig } = require('../src/config');
 const {
   DataBackupError,
   maintenancePaths,
-  nativeMaintenanceOwnerScope,
   recoverInterruptedMaintenanceSync,
 } = require('../src/services/dataBackupService');
 
@@ -14,10 +13,10 @@ const PACKAGE_ROOT = path.resolve(__dirname, '..');
 
 function usage() {
   console.log([
-    'Inspect: npm run maintenance:recover -- --inspect',
-    'Recover: npm run maintenance:recover -- --owner-scope <scope> --pid <pid> --yes',
+    '检查：npm run maintenance:recover -- --inspect [--data-root <绝对路径>]',
+    '恢复：npm run maintenance:recover -- --data-root <绝对路径> --owner-scope <scope> --pid <pid> --yes',
     '',
-    'Stop every LocalMiniDrama backend before recovery. Inspect first, then pass the exact owner scope and PID.',
+    '恢复前必须停止所有 LocalMiniDrama 后端。先检查，再传入完全匹配的作用域和 PID。',
   ].join('\n'));
 }
 
@@ -30,28 +29,44 @@ function takeValue(argv, index, flag) {
 }
 
 function parseArguments(argv) {
-  const parsed = { confirmed: false, inspect: false };
+  const parsed = { confirmed: false, inspect: false, dataRoot: null };
+  const seen = new Set();
+  const markSeen = (flag) => {
+    if (seen.has(flag)) throw new DataBackupError('INVALID_ARGUMENT', flag + ' 不能重复指定。');
+    seen.add(flag);
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--help' || arg === '-h') {
+      markSeen(arg);
       parsed.help = true;
       continue;
     }
     if (arg === '--inspect') {
+      markSeen(arg);
       parsed.inspect = true;
       continue;
     }
     if (arg === '--yes') {
+      markSeen(arg);
       parsed.confirmed = true;
       continue;
     }
     if (arg === '--owner-scope') {
+      markSeen(arg);
       parsed.expectedOwnerScope = takeValue(argv, index, arg);
       index += 1;
       continue;
     }
     if (arg === '--pid') {
+      markSeen(arg);
       parsed.expectedPid = Number(takeValue(argv, index, arg));
+      index += 1;
+      continue;
+    }
+    if (arg === '--data-root') {
+      markSeen(arg);
+      parsed.dataRoot = takeValue(argv, index, arg);
       index += 1;
       continue;
     }
@@ -63,6 +78,34 @@ function parseArguments(argv) {
 function resolveConfiguredPath(value, fallback) {
   const configured = value || fallback;
   return path.isAbsolute(configured) ? configured : path.resolve(PACKAGE_ROOT, configured);
+}
+
+function resolveDataRoot(value) {
+  if (typeof value !== 'string' || value.trim() === '' || !path.isAbsolute(value.trim())) {
+    throw new DataBackupError('INVALID_DATA_ROOT', '数据根目录必须是已存在的绝对路径。');
+  }
+  const resolved = path.resolve(value.trim());
+  if (resolved === path.parse(resolved).root) {
+    throw new DataBackupError('INVALID_DATA_ROOT', '数据根目录不能是文件系统根目录。');
+  }
+  let stat;
+  try {
+    stat = fs.lstatSync(resolved);
+  } catch (error) {
+    throw new DataBackupError('INVALID_DATA_ROOT', '数据根目录不存在或不可读取。', error);
+  }
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new DataBackupError('INVALID_DATA_ROOT', '数据根目录必须是非符号链接目录。');
+  }
+  const realPath = path.resolve(fs.realpathSync(resolved));
+  const normalize = (pathValue) => {
+    const normalized = path.normalize(pathValue);
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  };
+  if (normalize(realPath) !== normalize(resolved)) {
+    throw new DataBackupError('INVALID_DATA_ROOT', '数据根目录不能通过符号链接或联接访问。');
+  }
+  return realPath;
 }
 
 function readMaintenanceLock(databasePath) {
@@ -135,9 +178,6 @@ function recoverMaintenanceLock(options = {}) {
     expectedOwnerScope: inspected.ownerScope,
     expectedPid: inspected.pid,
   };
-  if (inspected.ownerScope !== nativeMaintenanceOwnerScope()) {
-    recoveryOptions.ownerScope = inspected.ownerScope;
-  }
   const recovered = recoverInterruptedMaintenanceSync(recoveryOptions);
   return {
     ...recovered,
@@ -146,7 +186,16 @@ function recoverMaintenanceLock(options = {}) {
   };
 }
 
-function configuredPaths() {
+function configuredPaths(dataRoot = null) {
+  if (dataRoot !== null && dataRoot !== undefined) {
+    const root = resolveDataRoot(dataRoot);
+    return {
+      dataRoot: root,
+      databasePath: path.join(root, 'drama_generator.db'),
+      storagePath: path.join(root, 'storage'),
+      storySourcesPath: path.join(root, 'story_sources'),
+    };
+  }
   const config = loadConfig();
   return {
     databasePath: resolveConfiguredPath(config.database?.path, './data/drama_generator.db'),
@@ -157,13 +206,13 @@ function configuredPaths() {
 
 function printInspection(inspected) {
   if (!inspected.present) {
-    console.log('No maintenance lock found.');
+    console.log('未找到维护租约。');
     return;
   }
-  console.log(`Owner scope: ${inspected.ownerScope}`);
-  console.log(`PID: ${inspected.pid}`);
-  console.log(`Operation: ${inspected.operation}`);
-  console.log(`Heartbeat: ${inspected.heartbeatAt}`);
+  console.log('作用域：' + inspected.ownerScope);
+  console.log('PID：' + inspected.pid);
+  console.log('操作：' + inspected.operation);
+  console.log('心跳：' + inspected.heartbeatAt);
 }
 
 function main() {
@@ -172,16 +221,16 @@ function main() {
     usage();
     return;
   }
-  const paths = configuredPaths();
+  const paths = configuredPaths(args.dataRoot);
   if (args.inspect) {
     printInspection(inspectMaintenanceLock(paths.databasePath));
     return;
   }
   const result = recoverMaintenanceLock({ ...paths, ...args });
-  console.log('Stale maintenance state recovered.');
-  console.log(`Owner scope: ${result.ownerScope}`);
-  console.log(`PID: ${result.pid}`);
-  console.log(`Restore journal recovered: ${result.recovered ? 'yes' : 'no'}`);
+  console.log('已恢复过期维护状态。');
+  console.log('作用域：' + result.ownerScope);
+  console.log('PID：' + result.pid);
+  console.log('恢复还原日志：' + (result.recovered ? '是' : '否'));
 }
 
 if (require.main === module) {
@@ -200,5 +249,7 @@ if (require.main === module) {
 module.exports = {
   inspectMaintenanceLock,
   parseArguments,
+  configuredPaths,
+  resolveDataRoot,
   recoverMaintenanceLock,
 };

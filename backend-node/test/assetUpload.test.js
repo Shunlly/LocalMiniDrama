@@ -446,6 +446,72 @@ test('disk capacity check accounts for the requested bytes and configured reserv
   );
 });
 
+test('原子写入在暂存异常时保留旧成品并清理暂存文件', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-atomic-write-'));
+  const finalPath = path.join(root, 'image.jpg');
+  fs.writeFileSync(finalPath, 'old-image');
+  try {
+    assert.throws(
+      () => uploadService.writeFileAtomically(finalPath, (stagedPath) => {
+        fs.writeFileSync(stagedPath, 'partial-image');
+        throw new Error('模拟进程异常');
+      }),
+      /模拟进程异常/
+    );
+    assert.equal(fs.readFileSync(finalPath, 'utf8'), 'old-image');
+    assert.deepEqual(fs.readdirSync(root), ['image.jpg']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('原子发布 rename 失败时恢复旧成品且不暴露半成品', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-atomic-rename-'));
+  const finalPath = path.join(root, 'video.mp4');
+  const stagedPath = path.join(root, '.video.mp4.staged');
+  fs.writeFileSync(finalPath, 'old-video');
+  fs.writeFileSync(stagedPath, 'new-video');
+  const originalRenameSync = fs.renameSync;
+  fs.renameSync = (sourcePath, destinationPath) => {
+    if (path.resolve(sourcePath) === path.resolve(stagedPath)
+      && path.resolve(destinationPath) === path.resolve(finalPath)) {
+      const error = new Error('模拟发布中断');
+      error.code = 'EIO';
+      throw error;
+    }
+    return originalRenameSync(sourcePath, destinationPath);
+  };
+  try {
+    assert.throws(
+      () => uploadService.publishStagedFile(stagedPath, finalPath),
+      /模拟发布中断/
+    );
+    assert.equal(fs.readFileSync(finalPath, 'utf8'), 'old-video');
+    assert.equal(fs.existsSync(stagedPath), false);
+    assert.equal(fs.readdirSync(root).length, 1);
+  } finally {
+    fs.renameSync = originalRenameSync;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('原子发布成功后只留下已验证的新成品', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-atomic-success-'));
+  const finalPath = path.join(root, 'audio.mp3');
+  const stagedPath = path.join(root, '.audio.mp3.staged');
+  fs.writeFileSync(finalPath, 'old-audio');
+  fs.writeFileSync(stagedPath, 'new-audio');
+  try {
+    const publication = uploadService.publishStagedFile(stagedPath, finalPath);
+    publication.commit();
+    assert.equal(fs.readFileSync(finalPath, 'utf8'), 'new-audio');
+    assert.equal(fs.existsSync(stagedPath), false);
+    assert.equal(fs.readdirSync(root).length, 1);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('image proxy upload is skipped until an upload URL is explicitly configured', async () => {
   const originalFetch = global.fetch;
   let fetchCalls = 0;

@@ -6,6 +6,10 @@ const Database = require('better-sqlite3');
 
 const imageRoutes = require('../src/routes/images');
 
+const TEST_DRAMA_ID = 2;
+const TEST_EPISODE_ID = 20;
+const TEST_STORYBOARD_ID = 200;
+
 function createDb() {
   const db = new Database(':memory:');
   db.exec(`
@@ -48,9 +52,9 @@ function createDb() {
     CREATE UNIQUE INDEX idx_image_generations_idempotency_key
       ON image_generations(idempotency_key)
       WHERE idempotency_key IS NOT NULL;
-    INSERT INTO episodes (id, drama_id) VALUES (20, 2);
-    INSERT INTO storyboards (id, episode_id) VALUES (200, 20);
-    INSERT INTO storyboards (id, episode_id) VALUES (201, 20);
+    INSERT INTO episodes (id, drama_id) VALUES (${TEST_EPISODE_ID}, ${TEST_DRAMA_ID});
+    INSERT INTO storyboards (id, episode_id) VALUES (${TEST_STORYBOARD_ID}, ${TEST_EPISODE_ID});
+    INSERT INTO storyboards (id, episode_id) VALUES (201, ${TEST_EPISODE_ID});
   `);
   return db;
 }
@@ -179,14 +183,14 @@ test('image generation does not reuse an idempotency key for another storyboard 
 test('image generation reuses an idempotency key for the same normalized scope', () => {
   const db = createDb();
   db.prepare(
-    'INSERT INTO image_generations (storyboard_id, drama_id, idempotency_key) VALUES (200, 2, ?)'
-  ).run('same-scope-key');
+    'INSERT INTO image_generations (storyboard_id, drama_id, idempotency_key) VALUES (?, ?, ?)'
+  ).run(TEST_STORYBOARD_ID, TEST_DRAMA_ID, 'same-scope-key');
   try {
     const res = responseRecorder();
     imageRoutes(db, {}, { error() {}, info() {}, warn() {} }).create({
       body: {
-        drama_id: 2,
-        storyboard_id: 200,
+        drama_id: TEST_DRAMA_ID,
+        storyboard_id: TEST_STORYBOARD_ID,
         idempotency_key: 'same-scope-key',
         prompt: 'test',
       },
@@ -194,8 +198,8 @@ test('image generation reuses an idempotency key for the same normalized scope',
 
     assert.equal(res.statusCode, 201);
     assert.equal(res.body.data.idempotent_reuse, true);
-    assert.equal(res.body.data.drama_id, 2);
-    assert.equal(res.body.data.storyboard_id, 200);
+    assert.equal(res.body.data.drama_id, TEST_DRAMA_ID);
+    assert.equal(res.body.data.storyboard_id, TEST_STORYBOARD_ID);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM async_tasks').get().count, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM image_generations').get().count, 1);
   } finally {
@@ -262,13 +266,13 @@ for (const probe of [
 test('image generation safely backfills a legacy zero drama scope before reuse', () => {
   const db = createDb();
   db.prepare(
-    'INSERT INTO image_generations (storyboard_id, drama_id, idempotency_key) VALUES (200, 0, ?)'
-  ).run('legacy-scope-key');
+    'INSERT INTO image_generations (storyboard_id, drama_id, idempotency_key) VALUES (?, 0, ?)'
+  ).run(TEST_STORYBOARD_ID, 'legacy-scope-key');
   try {
     const res = responseRecorder();
     imageRoutes(db, {}, { error() {}, info() {}, warn() {} }).create({
       body: {
-        storyboard_id: 200,
+        storyboard_id: TEST_STORYBOARD_ID,
         idempotency_key: 'legacy-scope-key',
         prompt: 'test',
       },
@@ -276,9 +280,12 @@ test('image generation safely backfills a legacy zero drama scope before reuse',
 
     assert.equal(res.statusCode, 201);
     assert.equal(res.body.data.idempotent_reuse, true);
-    assert.equal(res.body.data.drama_id, 2);
-    assert.equal(res.body.data.storyboard_id, 200);
-    assert.equal(db.prepare('SELECT drama_id FROM image_generations WHERE idempotency_key = ?').get('legacy-scope-key').drama_id, 2);
+    assert.equal(res.body.data.drama_id, TEST_DRAMA_ID);
+    assert.equal(res.body.data.storyboard_id, TEST_STORYBOARD_ID);
+    assert.equal(
+      db.prepare('SELECT drama_id FROM image_generations WHERE idempotency_key = ?').get('legacy-scope-key').drama_id,
+      TEST_DRAMA_ID
+    );
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM async_tasks').get().count, 0);
   } finally {
     db.close();
@@ -450,7 +457,7 @@ test('fresh positive-integer project image scope remains valid without a storybo
     const res = responseRecorder();
     imageRoutes(db, {}, { error() {}, info() {}, warn() {} }).create({
       body: {
-        drama_id: 2,
+        drama_id: TEST_DRAMA_ID,
         idempotency_key: 'fresh-project-key',
         prompt: 'project image',
         __defer_processing: true,
@@ -458,8 +465,14 @@ test('fresh positive-integer project image scope remains valid without a storybo
     }, res);
 
     assert.equal(res.statusCode, 201);
-    assert.equal(res.body.data.drama_id, 2);
+    assert.equal(res.body.data.drama_id, TEST_DRAMA_ID);
     assert.equal(res.body.data.storyboard_id, null);
+
+    const readRes = responseRecorder();
+    imageRoutes(db, {}, { error() {}, info() {}, warn() {} }).get({
+      params: { id: res.body.data.id },
+    }, readRes);
+    assert.equal(readRes.statusCode, 404);
   } finally {
     db.close();
   }

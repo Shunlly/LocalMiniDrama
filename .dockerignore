@@ -29,3 +29,8 @@ desktop/backend-app-secure
 desktop/frontweb-dist
 desktop/release
 desktop/release-*
+
+# Local junk and credential-adjacent files that must never enter the build context.
+-version
+backend-node/-version
+docs/new-api-ui-concept.html

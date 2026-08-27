@@ -333,7 +333,7 @@ async function load() {
     
     // 合并配置名称
     list.value = (mapsData || []).map(item => {
-      const config = configs.value.find(c => c.id === item.config_id)
+      const config = configs.value.find(c => String(c.id) === String(item.config_id))
       return {
         ...item,
         config_name: config?.name || null

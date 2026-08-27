@@ -16,6 +16,7 @@ const {
   expectedReleaseArtifactNames,
   isReleaseArtifact,
   parseReleaseMetadataArguments,
+  validateBackendContainerUserException,
   validateArtifactSecurity,
   verify,
 } = require('./generate-release-metadata.cjs')
@@ -45,6 +46,7 @@ const {
   npmInvocation,
   validateSbomDocument,
   verifyRemoteReleaseTag,
+  verifySourceAndContainers,
   writeReleaseSboms,
   writeSbomOutput,
 } = require('./verify-release.cjs')
@@ -87,10 +89,12 @@ const rollbackEvidencePlan = fs.readFileSync(rollbackEvidencePlanPath, 'utf8')
 const quickstart = fs.readFileSync(quickstartPath, 'utf8')
 const rollbackTaskFourReport = fs.readFileSync(rollbackTaskFourReportPath, 'utf8')
 const dockerComposeRevisionScript = fs.readFileSync(path.join(root, 'scripts', 'docker-compose-with-revision.cjs'), 'utf8')
+const e2eSmokeScript = fs.readFileSync(path.join(root, 'frontweb', 'scripts', 'e2e-smoke.cjs'), 'utf8')
 const backendTrivyIgnore = fs.readFileSync(path.join(root, 'backend-node', '.trivyignore.yaml'), 'utf8')
 const backendDockerfile = fs.readFileSync(path.join(root, 'backend-node', 'Dockerfile'), 'utf8')
 const backendEntrypoint = fs.readFileSync(path.join(root, 'backend-node', 'docker-entrypoint.sh'), 'utf8')
 const frontendDockerfile = fs.readFileSync(path.join(root, 'frontweb', 'Dockerfile.prod'), 'utf8')
+const frontendNginxConfig = fs.readFileSync(path.join(root, 'frontweb', 'nginx.conf'), 'utf8')
 const dockerCompose = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8')
 const ciWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'ci.yml'), 'utf8')
 const windowsReleaseSecurityWorkflowPath = path.join(
@@ -128,6 +132,39 @@ const gitHeadResult = spawnSync('git', ['rev-parse', 'HEAD'], {
 assert.equal(gitHeadResult.status, 0, gitHeadResult.stderr || 'unable to read fixture Git HEAD')
 const gitHead = String(gitHeadResult.stdout || '').trim().toLowerCase()
 assert.match(gitHead, /^[a-f0-9]{40,64}$/)
+
+const BACKEND_RUNTIME_BASE =
+  'node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0'
+const BACKEND_CONTAINER_USER_EXCEPTION_RATIONALE =
+  'Trivy evaluates Dockerfile Config.User before the reviewed entrypoint transition. The pinned Node runtime maps node to UID 1000; after a same-filesystem one-time ownership migration, the entrypoint replaces PID 1 with the requested command under that account. Release evidence validation rejects any change to this source contract.'
+
+function normalizedSourceSha256(source) {
+  return crypto.createHash('sha256').update(source.replace(/\r\n/g, '\n'), 'utf8').digest('hex')
+}
+
+function backendContainerUserExceptionFixture({
+  dockerfileSource = backendDockerfile,
+  entrypointSource = backendEntrypoint,
+  ignorePolicySource = backendTrivyIgnore,
+} = {}) {
+  return {
+    id: 'AVD-DS-0002',
+    path: 'backend-node/Dockerfile',
+    review_by: '2027-07-17',
+    rationale: BACKEND_CONTAINER_USER_EXCEPTION_RATIONALE,
+    source_contract: {
+      runtime_base: BACKEND_RUNTIME_BASE,
+      process_user: 'node',
+      process_uid: 1000,
+      privilege_transition: 'setpriv --reuid=node --regid=node --init-groups',
+      source_sha256_lf: {
+        'backend-node/Dockerfile': normalizedSourceSha256(dockerfileSource),
+        'backend-node/docker-entrypoint.sh': normalizedSourceSha256(entrypointSource),
+        'backend-node/.trivyignore.yaml': normalizedSourceSha256(ignorePolicySource),
+      },
+    },
+  }
+}
 
 function powerShellLiteral(value) {
   return `'${String(value).replaceAll("'", "''")}'`
@@ -1285,12 +1322,7 @@ function passedArtifactSecurity(version, output, commit = gitHead) {
           'frontweb/Dockerfile',
           'frontweb/Dockerfile.prod',
         ],
-        configuration_exceptions: [{
-          id: 'AVD-DS-0002',
-          path: 'backend-node/Dockerfile',
-          review_by: '2027-07-17',
-          rationale: 'The entrypoint repairs bind-mounted data ownership before immediately executing as node via setpriv.',
-        }],
+        configuration_exceptions: [backendContainerUserExceptionFixture()],
         vulnerability_database: {
           schema_version: 2,
           updated_at: '2026-07-17T13:09:25.875519042Z',
@@ -1741,7 +1773,7 @@ test('verified Docker startup binds images to a clean full Git revision', () => 
 })
 
 test('source release verification uses the clean revision-bound Docker launcher', () => {
-  assert.match(releaseVerifierSource, /runNpm\(\['run', 'docker:e2e:up'\]\)/)
+  assert.match(releaseVerifierSource, /executeNpm\(\['run', 'docker:e2e:up'\]\)/)
   assert.doesNotMatch(
     releaseVerifierSource,
     /run\(dockerCommand, \['compose', '--profile', 'e2e', 'up', '-d', '--build', '--wait'\]\)/,
@@ -1765,12 +1797,17 @@ test('production containers and tag releases bind, harden, and scan final images
   }
   assert.match(dockerCompose, /LOCALMINIDRAMA_BUILD_REVISION: \$\{LOCALMINIDRAMA_BUILD_REVISION:-unknown\}/)
   assert.match(dockerCompose, /read_only: true/)
+  assert.equal((dockerCompose.match(/restart: unless-stopped/g) || []).length, 2)
   assert.match(dockerCompose, /no-new-privileges:true/)
   assert.match(dockerCompose, /cap_drop:\s*\r?\n\s*- ALL/)
   assert.match(dockerCompose, /source: \$\{LOCALMINIDRAMA_CONFIG_DIR:-\.\/backend-node\/configs\}/)
   assert.match(dockerCompose, /target: \/app\/config-source/)
   assert.match(dockerCompose, /LOCALMINIDRAMA_CONFIG_SOURCE: \/app\/config-source\/config\.yaml/)
   assert.match(backendEntrypoint, /runtime-config-policy\.cjs "\$config_source" "\$config_target"/)
+  assert.match(backendEntrypoint, /find \/app\/data -xdev/)
+  assert.match(backendEntrypoint, /\.localminidrama-owner-v1/)
+  assert.doesNotMatch(backendEntrypoint, /chown -R node:node \/app\/data/)
+  assert.match(frontendNginxConfig, /location = \/healthz[\s\S]*proxy_pass http:\/\/backend:5679\/ready/)
 
   const releaseProduction = jobBlock('production-e2e')
   assert.match(releaseProduction, /LOCALMINIDRAMA_BUILD_REVISION: \$\{\{ github\.sha \}\}/)
@@ -11684,7 +11721,70 @@ test('CI scans source dependencies and configuration with pinned Trivy before re
 })
 
 test('backend Trivy exception covers direct and repository-root scan targets', () => {
-  assert.match(backendTrivyIgnore, /paths:\s*\r?\n\s*- Dockerfile\r?\n\s*- backend-node\/Dockerfile/)
+  const policy = parseYaml(backendTrivyIgnore)
+  assert.deepEqual(policy.misconfigurations.map(({ id, paths, statement, expired_at }) => ({
+    id,
+    paths,
+    statement,
+    expired_at: new Date(expired_at).toISOString().slice(0, 10),
+  })), [{
+    id: 'AVD-DS-0002',
+    paths: ['Dockerfile', 'backend-node/Dockerfile'],
+    statement: BACKEND_CONTAINER_USER_EXCEPTION_RATIONALE,
+    expired_at: '2027-07-17',
+  }])
+})
+
+test('backend Trivy exception is bound to the reviewed UID 1000 source contract', () => {
+  assert.equal(typeof validateBackendContainerUserException, 'function')
+  const exception = backendContainerUserExceptionFixture()
+  assert.equal(
+    validateBackendContainerUserException(exception, {
+      dockerfileSource: backendDockerfile,
+      entrypointSource: backendEntrypoint,
+      ignorePolicySource: backendTrivyIgnore,
+    }),
+    exception,
+  )
+
+  const staleRationale = structuredClone(exception)
+  staleRationale.rationale = 'Legacy root entrypoint exception.'
+  assert.throws(
+    () => validateBackendContainerUserException(staleRationale),
+    /Trivy configuration exception is invalid/,
+  )
+
+  for (const [label, sources] of [
+    ['runtime base drift', {
+      dockerfileSource: backendDockerfile.replace(BACKEND_RUNTIME_BASE, 'node:20-bookworm-slim@sha256:' + '0'.repeat(64)),
+    }],
+    ['Dockerfile USER drift', {
+      dockerfileSource: `${backendDockerfile}\nUSER node\n`,
+    }],
+    ['privilege transition drift', {
+      entrypointSource: backendEntrypoint.replace(
+        'exec setpriv --reuid=node --regid=node --init-groups -- "$@"',
+        'exec "$@"',
+      ),
+    }],
+    ['ignore policy drift', {
+      ignorePolicySource: backendTrivyIgnore.replace(
+        BACKEND_CONTAINER_USER_EXCEPTION_RATIONALE,
+        'Legacy root entrypoint exception.',
+      ),
+    }],
+  ]) {
+    assert.throws(
+      () => validateBackendContainerUserException(exception, {
+        dockerfileSource: backendDockerfile,
+        entrypointSource: backendEntrypoint,
+        ignorePolicySource: backendTrivyIgnore,
+        ...sources,
+      }),
+      /backend container user source contract/i,
+      label,
+    )
+  }
 })
 
 test('CI and release reuse one complete Windows artifact security workflow', () => {
@@ -11822,10 +11922,10 @@ test('release workflow separates read-only build, artifact verification and publ
   }
   assert.doesNotMatch(trivyScan, /--scanners misconfig desktop\/release\/\.artifact-scan/)
   assert.doesNotMatch(trivyScan, /--scanners vuln,misconfig desktop\/release\/\.artifact-scan/)
-  assert.match(backendTrivyIgnore, /id:\s*AVD-DS-0002/)
-  assert.match(backendTrivyIgnore, /paths:\s*\r?\n\s*- Dockerfile/)
-  assert.match(backendTrivyIgnore, /expired_at:\s*2027-07-17/)
-  assert.match(backendTrivyIgnore, /setpriv/)
+  assert.deepEqual(parseYaml(backendTrivyIgnore).misconfigurations[0].paths, [
+    'Dockerfile',
+    'backend-node/Dockerfile',
+  ])
   assert.match(trivyScan, /windows-release-unverified-[\s\S]*path: desktop\/release/)
   assert.match(trivyScan, /run_trivy --version --format json/)
   assert.match(trivyScan, /cat \/root\/\.cache\/trivy\/policy\/metadata\.json/)
@@ -12184,6 +12284,14 @@ test('runtime contracts isolate Node 22 desktop tooling from the Node 20 applica
   assert.equal(desktopPackage.devDependencies.electron, '43.1.1')
   assert.match(desktopPackage.scripts.verify, /npm run verify:electron-runtime/)
   assert.match(fs.readFileSync(path.join(root, 'desktop', '.npmrc'), 'utf8'), /^engine-strict=true$/m)
+  assert.equal(rootPackage.scripts.verify, 'npm run verify:source')
+  assert.equal(
+    rootPackage.scripts['verify:source'],
+    'npm run check && npm run verify:version && npm run verify:backend && npm run verify:frontend',
+  )
+  assert.equal(rootPackage.scripts['verify:desktop'], 'npm --prefix desktop run verify')
+  assert.doesNotMatch(rootPackage.scripts.verify, /desktop/)
+  assert.doesNotMatch(rootPackage.scripts['verify:source'], /desktop/)
 
   for (const [name, source] of [
     ['CI', ciWorkflow],
@@ -12229,6 +12337,47 @@ test('runtime contracts isolate Node 22 desktop tooling from the Node 20 applica
     assert.match(source, /npm(?:\s+--prefix desktop)? ci(?:\s+--ignore-scripts)?/, 'desktop installs must remain explicit')
     assert.match(source, /engine-strict/, 'desktop installs must enforce package engine contracts')
   }
+
+  const desktopSteps = ciWorkflowDocument.jobs.desktop.steps
+  const desktopNodeIndex = desktopSteps.findIndex((step) => step.with?.['node-version'] === '22.12.0')
+  const desktopInstallIndex = desktopSteps.findIndex((step) => (
+    step['working-directory'] === 'desktop' && step.run === 'npm ci --engine-strict'
+  ))
+  const desktopVerifyIndex = desktopSteps.findIndex((step) => step.run === 'npm run verify:desktop')
+  const windowsReleaseIndex = desktopSteps.findIndex((step) => step.run === 'npm run verify:release:windows')
+  assert.ok(desktopNodeIndex >= 0 && desktopNodeIndex < desktopInstallIndex)
+  assert.ok(desktopInstallIndex < desktopVerifyIndex)
+  assert.ok(desktopVerifyIndex < windowsReleaseIndex)
+})
+
+test('source-only release verification dispatches only Node 20 source and container gates', () => {
+  const npmCalls = []
+  const commandCalls = []
+  verifySourceAndContainers({
+    runNpm(args) {
+      npmCalls.push(args)
+    },
+    run(command, args) {
+      commandCalls.push([command, ...args])
+    },
+  })
+
+  assert.deepEqual(npmCalls, [
+    ['run', 'verify:source'],
+    ['run', 'verify:docker:artifact'],
+    ['run', 'docker:e2e:up'],
+    ['run', 'verify:docker:containers'],
+    ['run', 'verify:e2e'],
+  ])
+  assert.equal(npmCalls.flat().includes('verify:desktop'), false)
+  assert.deepEqual(commandCalls, [[
+    process.platform === 'win32' ? 'docker.exe' : 'docker',
+    'compose',
+    '--profile',
+    'e2e',
+    'down',
+    '--remove-orphans',
+  ]])
 })
 
 test('package test scripts use Node discovery instead of shell-expanded globs', () => {
@@ -12315,6 +12464,22 @@ test('Docker artifact boundaries are checked before production bind mounts chang
     productionStartup < containerVerification,
     'release verification must run container tests after production startup'
   )
+})
+
+test('Docker E2E 数据目录必须隔离且 artifact verifier 不得写入默认目录', () => {
+  assert.match(dockerComposeRevisionScript, /validateE2eDataDirectory\(process\.env\.LOCALMINIDRAMA_DATA_DIR\)/)
+  assert.match(dockerComposeRevisionScript, /requireEmpty = true/)
+  assert.match(dockerComposeRevisionScript, /backend-node', 'data/)
+  assert.match(dockerComposeRevisionScript, /LOCALMINIDRAMA_DATA_DIR: e2eDataDirectory/)
+  assert.match(e2eSmokeScript, /requireE2eDataDirectory\(\)/)
+  assert.doesNotMatch(e2eSmokeScript, /removeFixtureTree|removeSourceFixtureDirectory|STORY_SOURCE_ROOT/)
+  assert.doesNotMatch(dockerArtifactVerifierSource, /path\.join\(root, 'backend-node', 'data'/)
+  assert.match(dockerArtifactVerifierSource, /mkdtempSync\(path\.join\(os\.tmpdir\(\)/)
+
+  for (const source of [jobBlock('docker-production-e2e', ciWorkflow), jobBlock('production-e2e')]) {
+    assert.match(source, /mktemp -d [^\n]*localminidrama-e2e-data/)
+    assert.match(source, /LOCALMINIDRAMA_DATA_DIR=.*GITHUB_ENV/)
+  }
 })
 
 test('artifact secret scanning excludes only pass markers and raw ASAR containers', () => {

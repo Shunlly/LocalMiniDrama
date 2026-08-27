@@ -7,7 +7,7 @@ const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
 const { safeParseAIJSON } = require('../utils/safeJson');
 const loadConfig = require('../config').loadConfig;
 
-async function generateStory(db, log, body) {
+async function generateStory(db, log, body, options = {}) {
   const premise = (body.premise || body.prompt || body.text || '').trim();
   if (!premise) {
     throw new Error('请提供故事梗概');
@@ -31,6 +31,7 @@ async function generateStory(db, log, body) {
     model: body.model || undefined,
     temperature: 0.8,
     min_max_tokens: minTokensNeeded,
+    signal: options.signal,
   });
 
   log && log.info && log.info('Story raw response', {
@@ -94,9 +95,14 @@ async function generateStory(db, log, body) {
 }
 
 async function processStoryGeneration(db, log, taskId, req) {
-  taskService.updateTaskStatus(db, taskId, 'processing', 10, '正在生成剧本...');
+  const operation = taskService.ensureTaskOperation(taskId);
+  const { signal } = operation;
   try {
-    const result = await generateStory(db, log, req);
+    taskService.throwIfTaskInactive(db, taskId, signal);
+    taskService.updateTaskStatus(db, taskId, 'processing', 10, '正在生成剧本...');
+    taskService.throwIfTaskInactive(db, taskId, signal);
+    const result = await generateStory(db, log, req, { signal });
+    taskService.throwIfTaskInactive(db, taskId, signal);
     const episodes = result?.episodes || [];
     if (episodes.length === 0) {
       taskService.updateTaskError(db, taskId, 'AI 未能生成剧本');
@@ -106,34 +112,37 @@ async function processStoryGeneration(db, log, taskId, req) {
     const dramaId = Number(req.drama_id);
     taskService.updateTaskStatus(db, taskId, 'processing', 75, '正在保存剧本...');
 
-    const saved = dramaService.saveEpisodes(db, log, dramaId, {
-      episodes: episodes.map((ep, i) => ({
-        episode_number: ep.episode ?? i + 1,
-        title: ep.title || `第${ep.episode ?? i + 1}集`,
-        script_content: ep.content || '',
-      })),
-    });
-    if (!saved) {
-      taskService.updateTaskError(db, taskId, '保存剧本失败：项目不存在');
-      return;
-    }
-
-    if (req.summary || req.genre || req.drama_style || req.metadata || req.title) {
-      dramaService.saveOutline(db, log, dramaId, {
-        title: req.title,
-        summary: req.summary,
-        genre: req.genre,
-        style: req.drama_style,
-        metadata: req.metadata,
+    taskService.runTaskMutation(db, taskId, signal, () => {
+      const saved = dramaService.saveEpisodes(db, log, dramaId, {
+        episodes: episodes.map((ep, i) => ({
+          episode_number: ep.episode ?? i + 1,
+          title: ep.title || `第${ep.episode ?? i + 1}集`,
+          script_content: ep.content || '',
+        })),
       });
-    }
+      if (!saved) throw new Error('保存剧本失败：项目不存在');
 
-    taskService.updateTaskResult(db, taskId, {
-      drama_id: dramaId,
-      episode_count: episodes.length,
+      if (req.summary || req.genre || req.drama_style || req.metadata || req.title) {
+        dramaService.saveOutline(db, log, dramaId, {
+          title: req.title,
+          summary: req.summary,
+          genre: req.genre,
+          style: req.drama_style,
+          metadata: req.metadata,
+        });
+      }
+
+      if (!taskService.updateTaskResult(db, taskId, {
+        drama_id: dramaId,
+        episode_count: episodes.length,
+      })) {
+        taskService.throwIfTaskInactive(db, taskId, signal);
+        throw new Error('剧本生成任务无法提交完成状态');
+      }
     });
     log.info('Story generation completed and saved', { task_id: taskId, drama_id: dramaId, episode_count: episodes.length });
   } catch (err) {
+    if (err?.code === 'OPERATION_CANCELLED' || signal.aborted) return;
     log.error('processStoryGeneration failed', { task_id: taskId, error: err.message });
     taskService.updateTaskError(db, taskId, err.message || '故事生成失败');
   }

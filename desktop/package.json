@@ -47,7 +47,7 @@
     "buffer": "6.0.3",
     "cors": "^2.8.5",
     "express": "^4.22.2",
-    "js-yaml": "^4.3.0",
+    "js-yaml": "^4.3.2",
     "jsonrepair": "^3.13.3",
     "jsonwebtoken": "^9.0.3",
     "multer": "^1.4.5-lts.1",
@@ -63,10 +63,14 @@
     "node-gyp": "12.4.0"
   },
   "overrides": {
-    "brace-expansion": "5.0.8",
-    "fast-uri": "3.1.4",
+    "brace-expansion": "5.0.9",
+    "fast-uri": "3.1.6",
     "path-to-regexp": "0.1.13",
     "tar": "7.5.22",
+    "undici": "7.29.0",
+    "node-gyp": {
+      "undici": "6.28.0"
+    },
     "@volcengine/openapi": {
       "axios": "^1.18.1",
       "form-data": "^3.0.5",

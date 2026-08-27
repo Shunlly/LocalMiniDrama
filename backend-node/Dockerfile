@@ -16,8 +16,7 @@ COPY scripts/runtime-config-policy.cjs /policy/runtime-config-policy.cjs
 COPY backend-node/configs/config.yaml /policy/config.yaml
 RUN node /policy/runtime-config-policy.cjs /policy/config.yaml /app/config.runtime.yaml
 
-# The entrypoint needs root only to repair ownership on the bind-mounted data directory,
-# then immediately execs the requested process as node via setpriv.
+# 入口仅在首次挂载时修复同一文件系统内的历史数据权限，随后通过 setpriv 以 node 身份运行。
 FROM node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS runtime
 
 WORKDIR /app

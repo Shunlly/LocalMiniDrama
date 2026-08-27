@@ -191,8 +191,123 @@ function createSingleImageExport(t, options = {}) {
     now,
     now,
   );
+  if (options.category != null) {
+    source.db.prepare('UPDATE assets SET category = ? WHERE id = ?')
+      .run(options.category, ids.asset);
+  }
   return { source, ids, imagePath, exported: exportProject(source, ids.drama) };
 }
+
+function commonsCategory(
+  contentSha256 = createHash('sha256').update(VALID_PNG_BYTES).digest('hex'),
+  overrides = {},
+) {
+  return JSON.stringify({
+    kind: 'wikimedia_commons',
+    source_provider: 'Wikimedia Commons',
+    source_url: 'https://commons.wikimedia.org/wiki/File%3APortable_Test.png',
+    author: '用于验证长元数据可恢复性的作者名称'.repeat(8),
+    license: 'CC BY-SA 4.0',
+    license_url: 'https://creativecommons.org/licenses/by-sa/4.0/',
+    commons_title: 'File:Portable Test.png',
+    commons_page_id: 42,
+    commons_revision_timestamp: '2026-08-02T00:00:00Z',
+    commons_sha1: createHash('sha1').update(VALID_PNG_BYTES).digest('hex'),
+    resolved_download_url: 'https://upload.wikimedia.org/wikipedia/commons/a/ab/Portable_Test.png',
+    content_sha256: contentSha256,
+    ...overrides,
+  });
+}
+
+test('Commons 网络素材元数据可随项目包完整导出并恢复', (t) => {
+  const category = commonsCategory();
+  assert.ok(category.length > 128);
+  const fixture = createSingleImageExport(t, { category });
+  const target = createWorkspace(t, 'lmd-canvas-commons-target-');
+
+  const imported = dramaImportService.importDrama(
+    target.db,
+    { storage: { local_path: target.storage } },
+    log,
+    fixture.exported.buffer,
+  );
+  const restored = target.db.prepare(
+    'SELECT category FROM assets WHERE drama_id = ? AND deleted_at IS NULL'
+  ).get(imported.drama_id);
+  assert.equal(restored.category, category);
+});
+
+test('项目导入拒绝 Commons 内容哈希与归档媒体不一致', (t) => {
+  const fixture = createSingleImageExport(t, { category: commonsCategory() });
+  const target = createWorkspace(t, 'lmd-canvas-commons-hash-import-target-');
+  const tampered = rewriteProjectArchive(fixture.exported.buffer, ({ manifest }) => {
+    const metadata = JSON.parse(manifest.assets[0].category);
+    metadata.content_sha256 = 'c'.repeat(64);
+    manifest.assets[0].category = JSON.stringify(metadata);
+  });
+
+  assertImportBadRequestRollback(target, tampered, /网络素材内容哈希|SHA-256|hash/i);
+});
+
+test('项目导入拒绝 Commons SHA-1 与归档媒体不一致', (t) => {
+  const fixture = createSingleImageExport(t, { category: commonsCategory() });
+  const target = createWorkspace(t, 'lmd-canvas-commons-sha1-import-target-');
+  const tampered = rewriteProjectArchive(fixture.exported.buffer, ({ manifest }) => {
+    const metadata = JSON.parse(manifest.assets[0].category);
+    metadata.commons_sha1 = 'd'.repeat(40);
+    manifest.assets[0].category = JSON.stringify(metadata);
+  });
+
+  assertImportBadRequestRollback(target, tampered, /Commons SHA-1|网络素材/i);
+});
+
+test('项目导入拒绝缺少可验证字段或标题错配的 Commons 证据', async (t) => {
+  for (const [label, mutate] of [
+    ['missing-license', (metadata) => { delete metadata.license; }],
+    ['missing-revision', (metadata) => { delete metadata.commons_revision_timestamp; }],
+    ['mismatched-title', (metadata) => { metadata.commons_title = 'File:Different.png'; }],
+  ]) {
+    await t.test(label, (subtest) => {
+      const fixture = createSingleImageExport(subtest, { category: commonsCategory() });
+      const target = createWorkspace(subtest, `lmd-canvas-commons-evidence-${label}-`);
+      const tampered = rewriteProjectArchive(fixture.exported.buffer, ({ manifest }) => {
+        const metadata = JSON.parse(manifest.assets[0].category);
+        mutate(metadata);
+        manifest.assets[0].category = JSON.stringify(metadata);
+      });
+      assertImportBadRequestRollback(target, tampered, /网络素材元数据/);
+    });
+  }
+});
+
+test('项目导出拒绝 Commons 证据哈希与当前本地媒体不一致', async (t) => {
+  const fixture = createSingleImageExport(t, { category: commonsCategory() });
+  const replacement = await sharp({
+    create: { width: 2, height: 2, channels: 3, background: '#654321' },
+  }).png().toBuffer();
+  writeStorageMedia(fixture.source.storage, fixture.imagePath, replacement);
+
+  assert.throws(
+    () => exportProject(fixture.source, fixture.ids.drama),
+    (error) => error?.code === 'NETWORK_MEDIA_CONTENT_HASH_MISMATCH'
+      && error?.statusCode === 400,
+  );
+});
+
+test('项目导入拒绝伪装成长分类的非 Commons 元数据', (t) => {
+  const fixture = createSingleImageExport(t);
+  const target = createWorkspace(t, 'lmd-canvas-category-reject-');
+  const tampered = rewriteProjectArchive(fixture.exported.buffer, ({ manifest }) => {
+    manifest.assets[0].category = JSON.stringify({
+      kind: 'wikimedia_commons',
+      source_provider: 'Wikimedia Commons',
+      source_url: 'https://attacker.example/file',
+      commons_title: `File:${'x'.repeat(200)}`,
+    });
+  });
+
+  assertImportBadRequestRollback(target, tampered, /网络素材元数据/);
+});
 
 function createTwoImageExport(t, options = {}) {
   const source = createWorkspace(t, options.prefix || 'lmd-canvas-two-images-source-');

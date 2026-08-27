@@ -4,12 +4,16 @@ const sourceIntakeService = require('../services/sourceIntakeService');
 const sourceMediaExtractionService = require('../services/sourceMediaExtractionService');
 const uploadService = require('../services/uploadService');
 const webSourceImportService = require('../services/webSourceImportService');
+const dramaWriteGuard = require('../services/dramaWriteGuard');
 
 const MAX_UPLOAD_METADATA_BYTES = 64 * 1024;
 const SENSITIVE_UPLOAD_METADATA_KEY = /api[_-]?key|access[_-]?key|secret|password|token|raw[_-]?text|full[_-]?text|extracted[_-]?text|ocr[_-]?text|transcript/i;
 
 function badRequestOrInternal(res, err) {
   if (err && err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
+  if (dramaWriteGuard.isBoundaryError(err)) {
+    return response.error(res, err.statusCode || 409, err.code, err.message, err.details);
+  }
   if (uploadService.isUploadStorageError(err)) {
     return response.error(
       res,

@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const { AsyncLocalStorage } = require('async_hooks');
 const aiConfigService = require('./aiConfigService');
+const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
+const { validateHttpRequestTarget } = require('./secureHttpFetch');
 let sharp; try { sharp = require('sharp'); } catch (_) { sharp = null; }
 const uploadService = require('./uploadService');
 const { uploadLocalImageToProxy, uploadToImageProxy } = uploadService;
@@ -24,6 +26,14 @@ const {
   fetchVideoWithTimeout: runtimeFetchVideoWithTimeout,
   resolveVideoTimeoutMs,
 } = require('./videoGateway/providerRuntime');
+const {
+  createMinimaxVideo,
+  pollMinimaxVideo,
+} = require('./videoGateway/minimaxVideoAdapter');
+const {
+  createSoraVideo,
+  pollSoraVideo,
+} = require('./videoGateway/openAiSoraAdapter');
 const {
   createSafeProviderLogger,
   providerFailure,
@@ -68,6 +78,7 @@ function videoProviderException(error, provider, operation) {
  */
 function inferVideoProtocol(provider) {
   const p = String(provider || '').toLowerCase();
+  if (p === 'minimax' || p === 'hailuo') return 'minimax';
   if (p === 'dashscope') return 'dashscope';
   if (p === 'gemini' || p === 'google') return 'gemini';
   if (p === 'volces' || p === 'volcengine' || p === 'volc') return 'volcengine';
@@ -94,8 +105,79 @@ function resolveVideoProtocol(config, modelHint) {
     if (/api\.x\.ai(\/|$)/.test(baseLower)) protocol = 'xai';
     else if (/grok-imagine|grok.*video/.test(modelLower)) protocol = 'xai';
     else if (provider === 'agnes' || /agnes-video|apihub\.agnes-ai\.com/i.test(baseLower)) protocol = 'agnes';
+    else if (provider === 'openai' && (/\bsora(?:-|$)/.test(modelLower) || /api\.openai\.com/.test(baseLower))) protocol = 'sora';
   }
   return protocol;
+}
+
+function createAdapterRuntime(config, opts, log) {
+  const requestContext = videoRequestContext.getStore();
+  const networkOptions = opts.provider_network_policy
+    || requestContext?.networkOptions
+    || createProviderNetworkOptions(config, opts);
+  return {
+    signal: opts.signal,
+    idempotency_key: normalizeIdempotencyKey(opts.idempotency_key),
+    register_remote_cancel: opts.register_remote_cancel,
+    logger: log,
+    networkOptions,
+  };
+}
+
+function videoInputError(message) {
+  const error = new Error(message);
+  error.name = 'VideoInputError';
+  error.code = 'VIDEO_INPUT_INVALID';
+  return error;
+}
+
+async function normalizeSoraInputReference(image, size, log, videoGenId) {
+  if (!image || !Buffer.isBuffer(image.buffer)) return null;
+  if (!sharp) throw videoInputError('Sora 参考图处理不可用：缺少 Sharp');
+  try {
+    const [targetWidth, targetHeight] = String(size).split('x').map(Number);
+    if (!targetWidth || !targetHeight) return image;
+    const metadata = await sharp(image.buffer).metadata();
+    if (metadata.width === targetWidth && metadata.height === targetHeight) return image;
+    const buffer = await sharp(image.buffer)
+      .resize(targetWidth, targetHeight, { fit: 'cover', position: 'centre' })
+      .jpeg({ quality: 92 })
+      .toBuffer();
+    log.info('[Sora] 参考图已匹配目标视频尺寸', {
+      video_gen_id: videoGenId,
+      from: `${metadata.width}x${metadata.height}`,
+      to: size,
+    });
+    return { buffer, mimeType: 'image/jpeg', filename: 'reference.jpg' };
+  } catch (error) {
+    log.warn('[Sora] 参考图尺寸归一化失败', {
+      video_gen_id: videoGenId,
+      error: error.message,
+    });
+    throw videoInputError('Sora 参考图无法解码或归一化');
+  }
+}
+
+function pickSoraReference(opts) {
+  const entries = [
+    ['image_url', opts.image_url],
+    ['first_frame_url', opts.first_frame_url],
+    ...(Array.isArray(opts.reference_urls)
+      ? opts.reference_urls.map((value, index) => [`reference_urls[${index}]`, value])
+      : []),
+  ].filter(([, value]) => String(value || '').trim());
+  const unique = new Map();
+  for (const [field, value] of entries) {
+    const normalized = String(value).trim();
+    if (!unique.has(normalized)) unique.set(normalized, field);
+  }
+  if (String(opts.last_frame_url || '').trim()) {
+    throw videoInputError('Sora 当前不支持尾帧参考，请移除 last_frame_url');
+  }
+  if (unique.size > 1) {
+    throw videoInputError('Sora 当前只支持一张参考图，请仅保留主图、首帧或参考图列表中的一项');
+  }
+  return unique.size === 1 ? unique.keys().next().value : null;
 }
 
 /** 可灵 Omni / 多图生视频（飞儿 ffir.cn 等中转）：可用环境变量临时覆盖配置 */
@@ -2278,19 +2360,76 @@ async function validateVideoMediaReferences(opts = {}) {
   return out;
 }
 
-function trustedProviderOrigins(config) {
-  const baseUrl = String(config?.base_url || '').trim();
-  const enabled = config?.is_active === true || config?.is_active === 1 || config?.is_active === '1';
-  return baseUrl && enabled ? [baseUrl] : [];
+function isEnabledSavedProvider(config) {
+  return Boolean(String(config?.base_url || '').trim())
+    && (config?.is_active === true || config?.is_active === 1 || config?.is_active === '1');
+}
+
+function normalizeSavedProviderOrigin(config) {
+  const raw = String(config?.base_url || '').trim();
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch (_) {
+    throw new uploadService.UnsafeMediaReferenceError('Provider URL is invalid.');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)
+    || parsed.username
+    || parsed.password
+    || parsed.search
+    || parsed.hash) {
+    throw new uploadService.UnsafeMediaReferenceError('Provider URL must be a credential-free HTTP(S) origin.');
+  }
+  return parsed.toString().replace(/\/$/, '');
+}
+
+function createProviderNetworkOptions(config, options = {}) {
+  const existing = options.provider_network_policy || options.networkOptions || {};
+  const networkOptions = {
+    ...existing,
+    fetchImpl: existing.fetchImpl || options.fetchImpl || options.fetch_impl || config?.fetch_impl,
+    lookup: existing.lookup || options.lookup || options.provider_dns_lookup || config?.provider_dns_lookup,
+    signal: options.signal || existing.signal,
+  };
+  let policy;
+  try {
+    policy = aiConfigService.getProviderNetworkOptions(config, networkOptions);
+  } catch (error) {
+    // 兼容已保存的历史私有配置；来源仍只信任这一条已启用的精确 origin。
+    if (error?.code !== 'INVALID_PROVIDER_URL'
+      || error.message !== 'Private or local provider URLs require an explicitly recognized local provider mode'
+      || !isEnabledSavedProvider(config)) {
+      throw error;
+    }
+    const baseUrl = normalizeSavedProviderOrigin(config);
+    policy = {
+      ...networkOptions,
+      baseUrl,
+      trustedOrigins: [baseUrl],
+      allowPrivateOrigins: [baseUrl],
+      requireHttpsForPublic: true,
+    };
+  }
+  return requireCompleteProviderNetworkPolicy(policy, config?.base_url);
 }
 
 async function validateProviderRequestUrl(url, config, options = {}) {
   const value = String(url || '').trim();
   if (!value) throw new uploadService.UnsafeMediaReferenceError('Provider URL is not configured.');
-  return uploadService.validatePublicHttpUrl(value, {
-    trustedOrigins: trustedProviderOrigins(config),
-    lookup: options.lookup,
-  });
+  if (config?.is_active === false || config?.is_active === 0 || config?.is_active === '0') {
+    throw new uploadService.UnsafeMediaReferenceError('Provider configuration must be saved and enabled.');
+  }
+  const policy = options.provider_network_policy
+    || options.networkOptions
+    || createProviderNetworkOptions(config, options);
+  const completePolicy = requireCompleteProviderNetworkPolicy(policy, config?.base_url);
+  const validated = await validateHttpRequestTarget(value, completePolicy);
+  const privateOnly = validated.addresses.length > 0
+    && validated.addresses.every((record) => !uploadService.isGloballyRoutableIp(record.address));
+  if (privateOnly && !isEnabledSavedProvider(config)) {
+    throw new uploadService.UnsafeMediaReferenceError('Private provider configuration must be saved and enabled.');
+  }
+  return validated;
 }
 
 async function validateProviderDispatch(config, options = {}) {
@@ -3455,15 +3594,16 @@ async function callVideoApiInternal(db, log, opts) {
   if (!config) {
     throw new Error('???????????AI ?????? video ?????????');
   }
+  const providerNetworkOptions = createProviderNetworkOptions(config, {
+    fetch_impl: opts.fetch_impl,
+    provider_dns_lookup: opts.provider_dns_lookup,
+    signal: opts.signal,
+  });
   const requestContext = videoRequestContext.getStore();
   if (requestContext) {
-    requestContext.networkOptions = {
-      fetchImpl: opts.fetch_impl,
-      lookup: opts.provider_dns_lookup || config.provider_dns_lookup,
-      trustedOrigins: trustedProviderOrigins(config),
-    };
+    requestContext.networkOptions = providerNetworkOptions;
   }
-  await validateProviderDispatch(config, { lookup: opts.provider_dns_lookup });
+  await validateProviderDispatch(config, { provider_network_policy: providerNetworkOptions });
   const model = getModelFromConfig(config, preferredModel);
   const provider = (config.provider || '').toLowerCase();
   const protocol = resolveVideoProtocol(config, preferredModel);
@@ -3611,9 +3751,8 @@ async function callVideoApiInternal(db, log, opts) {
 
   if (protocol === 'kling_omni') {
     const effectiveConfig = applyKlingOmniEnvOverrides(config);
-    await uploadService.validatePublicHttpUrl(effectiveConfig.base_url, {
-      trustedOrigins: [config.base_url],
-      lookup: opts.provider_dns_lookup,
+    await validateProviderRequestUrl(effectiveConfig.base_url, config, {
+      provider_network_policy: providerNetworkOptions,
     });
     return callKlingOmniVideoApi(effectiveConfig, log, {
       prompt,
@@ -3662,16 +3801,48 @@ async function callVideoApiInternal(db, log, opts) {
 
   // Sora protocol (api_protocol = 'sora')
   if (protocol === 'sora') {
-    return callSoraVideoApi(config, log, {
-      prompt, model,
+    const sizeMap = {
+      '9:16': '720x1280',
+      '16:9': '1280x720',
+    };
+    const normalizedAspectRatio = aspect_ratio || '9:16';
+    const soraSize = sizeMap[normalizedAspectRatio];
+    if (!soraSize) {
+      throw videoInputError(`Sora 当前不支持项目画幅 ${normalizedAspectRatio}，请选择 16:9 或 9:16`);
+    }
+    let inputReference = null;
+    const reference = pickSoraReference(opts);
+    if (reference) {
+      const image = await loadReferenceImageBuffer(reference, opts.storage_local_path);
+      if (!image) throw videoInputError('Sora 参考图不存在或无法读取');
+      const extension = image.mimeType === 'image/png'
+        ? 'png'
+        : image.mimeType === 'image/webp' ? 'webp' : 'jpg';
+      inputReference = await normalizeSoraInputReference({
+        buffer: image.buffer,
+        mimeType: image.mimeType,
+        filename: `reference.${extension}`,
+      }, soraSize, log, opts.video_gen_id);
+    }
+    const requestedDuration = opts.duration ? Number(opts.duration) : 4;
+    const soraDuration = requestedDuration <= 4 ? 4 : requestedDuration <= 8 ? 8 : 12;
+    return createSoraVideo(config, {
+      prompt,
+      model,
+      duration: soraDuration,
+      size: soraSize,
+      input_reference: inputReference,
+    }, createAdapterRuntime(config, opts, log));
+  }
+
+  if (protocol === 'minimax') {
+    return createMinimaxVideo(config, {
+      prompt,
+      model,
       duration: opts.duration,
-      aspect_ratio,
-      image_url: opts.image_url,
       resolution: opts.resolution,
-      files_base_url: opts.files_base_url,
-      storage_local_path: opts.storage_local_path,
-      video_gen_id: opts.video_gen_id,
-    });
+      image_url: opts.image_url || opts.first_frame_url,
+    }, createAdapterRuntime(config, opts, log));
   }
 
   // Agnes Video V2.0 (api_protocol = 'agnes')
@@ -3846,6 +4017,7 @@ async function callVideoApi(db, log, opts = {}) {
       const result = await callVideoApiInternal(db, log, opts);
       return sanitizeProviderResult(result, { provider, operation: 'video generation' });
     } catch (error) {
+      if (error?.code === 'VIDEO_INPUT_INVALID') throw error;
       throw sanitizeProviderException(error, { provider, operation: 'video generation' });
     }
   });
@@ -3854,14 +4026,21 @@ async function callVideoApi(db, log, opts = {}) {
 /**
  * ??????????????????/ChatFire ? ???? DashScope?
  */
-async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAttempts = 300, intervalMs = 10000) {
+async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAttempts = 300, intervalMs = 10000, signal) {
   log = createSafeVideoLogger(log);
+  const providerNetworkOptions = createProviderNetworkOptions(config, {
+    fetch_impl: config.fetch_impl,
+    provider_dns_lookup: config.provider_dns_lookup,
+    signal,
+  });
+  await validateProviderDispatch(config, { provider_network_policy: providerNetworkOptions });
   const provider = (config.provider || '').toLowerCase();
   const protocol = resolveVideoProtocol(config);
   const isDashScope = protocol === 'dashscope';
   const isGemini = protocol === 'gemini';
   const isVidu = protocol === 'vidu';
   const isSora = protocol === 'sora';
+  const isMinimax = protocol === 'minimax';
   const isAgnes = protocol === 'agnes';
   const isKling = protocol === 'kling';
   const isKlingOmni = protocol === 'kling_omni' || (typeof taskId === 'string' && taskId.startsWith('omni:'));
@@ -3879,8 +4058,35 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
   const queryUrl = () => buildQueryUrl(config, taskId);
   log.info('[poll] ????', { video_gen_id: videoGenId, task_id: taskId, protocol, poll_url: queryUrl() });
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    await new Promise((r) => setTimeout(r, intervalMs));
+    if (signal?.aborted) throw signal.reason;
+    await new Promise((resolve, reject) => {
+      const finish = () => {
+        signal?.removeEventListener('abort', abort);
+        resolve();
+      };
+      const abort = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', abort);
+        reject(signal.reason);
+      };
+      const timer = setTimeout(finish, intervalMs);
+      signal?.addEventListener('abort', abort, { once: true });
+    });
     try {
+      if (isSora || isMinimax) {
+        const runtime = createAdapterRuntime(config, {
+          signal,
+          fetch_impl: config.fetch_impl,
+          provider_dns_lookup: config.provider_dns_lookup,
+          register_remote_cancel: config.register_remote_cancel,
+          provider_network_policy: providerNetworkOptions,
+        }, log);
+        const result = isSora
+          ? await pollSoraVideo(config, taskId, runtime)
+          : await pollMinimaxVideo(config, taskId, runtime);
+        if (result.status === 'pending') continue;
+        return result;
+      }
       let url, headers;
       if (isKling) {
         // task_id 编码格式：`t2v:xxx` / `i2v:xxx` / `mc:xxx`
@@ -3930,17 +4136,15 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
         headers = { Authorization: 'Bearer ' + (config.api_key || '') };
       }
       const pollRound = attempt + 1;
-      await validateProviderRequestUrl(url, config, { lookup: config.provider_dns_lookup });
+      await validateProviderRequestUrl(url, config, {
+        provider_network_policy: providerNetworkOptions,
+      });
       log.info('[poll] 发起查询', { video_gen_id: videoGenId, round: pollRound, url });
       const res = await fetchVideoWithTimeout(
         url,
         { method: 'GET', headers },
         resolveVideoTimeoutMs('poll'),
-        {
-          fetchImpl: config.fetch_impl,
-          lookup: config.provider_dns_lookup,
-          trustedOrigins: trustedProviderOrigins(config),
-        }
+        providerNetworkOptions
       );
       const raw = await res.text();
       log.info('[poll] 查询 HTTP 结果', {
@@ -4177,13 +4381,14 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
         return videoProviderFailure(provider || 'Video provider', 'video task', res.status, data, data?.error?.code);
       }
     } catch (e) {
+      if (signal?.aborted) throw signal.reason;
       log.warn('Video poll request failed', { attempt, error: e.message });
     }
   }
   return { error: '??????' };
 }
 
-async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 300, intervalMs = 10000) {
+async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 300, intervalMs = 10000, signal) {
   const provider = config?.provider || 'Video provider';
   try {
     const result = await pollVideoTaskInternal(
@@ -4193,7 +4398,8 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
       taskId,
       config,
       maxAttempts,
-      intervalMs
+      intervalMs,
+      signal
     );
     return sanitizeProviderResult(result, { provider, operation: 'video task' });
   } catch (error) {

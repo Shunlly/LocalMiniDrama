@@ -82,7 +82,7 @@ function imageNode(overrides = {}) {
   };
 }
 
-test('POST /assets rejects non-numeric, nonexistent, and deleted drama ids with a stable 400 response', async () => {
+test('POST /assets distinguishes invalid drama ids from inaccessible projects', async () => {
   const db = createDb();
   const app = express();
   app.use(express.json());
@@ -95,15 +95,20 @@ test('POST /assets rejects non-numeric, nonexistent, and deleted drama ids with 
       server.once('error', reject);
     });
     const baseUrl = `http://127.0.0.1:${server.address().port}/api/v1/assets`;
-    for (const dramaId of ['1', {}, 999, 3]) {
+    for (const { dramaId, status, code } of [
+      { dramaId: '1', status: 400, code: 'BAD_REQUEST' },
+      { dramaId: {}, status: 400, code: 'BAD_REQUEST' },
+      { dramaId: 999, status: 404, code: 'DRAMA_NOT_FOUND' },
+      { dramaId: 3, status: 404, code: 'DRAMA_NOT_FOUND' },
+    ]) {
       const response = await fetch(baseUrl, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ drama_id: dramaId, name: 'unsafe' }),
       });
       const body = await response.json();
-      assert.equal(response.status, 400);
-      assert.equal(body.error.code, 'BAD_REQUEST');
+      assert.equal(response.status, status);
+      assert.equal(body.error.code, code);
       assert.doesNotMatch(body.error.message, /sqlite|bind|sql/i);
     }
 

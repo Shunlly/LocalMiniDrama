@@ -218,7 +218,7 @@
       <div>
         <p class="eyebrow">Desktop release candidate acceptance / 2026-07-24</p>
         <h1>LocalMiniDrama 产品体验与发布验收</h1>
-        <p class="lede">以实际桌面工作流为准，覆盖项目入口、AI 服务、本地素材、网页正文导入、剧集就绪度、制作台、画布和自由创作。移动端、代码签名、外部真实 Provider 深度联调、网络媒体搜索/版权来源和通用模型自动发现按已确认范围后置。</p>
+        <p class="lede">以实际桌面工作流为准，覆盖项目入口、AI 服务、本地素材、Wikimedia Commons 网络媒体、网页正文导入、剧集就绪度、制作台、画布和自由创作。移动端、代码签名、外部真实 Provider 深度联调、更多网络媒体平台与用途许可判断，以及通用模型自动发现按已确认范围后置。</p>
       </div>
       <div class="verdict">
         <strong>1.3.3 桌面验收说明性材料</strong>
@@ -247,7 +247,7 @@
       </div>
       <div class="gate">
         <span class="status info">按约后置</span>
-        <p>移动端与 touch 重排、Authenticode 签名、外部真实 Provider 深度联调、第三方图片/视频搜索与版权来源集成，以及通用 `/v1/models` 自动模型发现。未配置的视频与语音服务会在产品中明确阻断正式制作，并提供返回上下文完整的配置入口。</p>
+        <p>移动端与 touch 重排、Authenticode 签名、外部真实 Provider 深度联调、更多第三方图片/视频平台与用途许可判断，以及通用 `/v1/models` 自动模型发现。Wikimedia Commons 的搜索、作者与许可来源展示、预览和安全下载已实现；使用者仍需自行核对实际用途许可。未配置的视频与语音服务会在产品中明确阻断正式制作，并提供返回上下文完整的配置入口。</p>
       </div>
       <div class="gate">
         <span class="status info">机器证据决定发布</span>
@@ -355,7 +355,7 @@
     <section id="flow" aria-labelledby="flow-title">
       <div class="section-head">
         <h2 id="flow-title">流程证据</h2>
-        <p class="muted">以下 tracked 截图均为历史或说明性界面材料，不是最终同一提交的原始 viewport 机器证据</p>
+        <p class="muted">以下 34 张 tracked 截图均为历史或说明性界面材料，不是最终同一提交的原始 viewport 机器证据</p>
       </div>
       <div class="flow">
         <figure>
@@ -370,7 +370,7 @@
           <img src="assets/02-ai-config-20260717.jpg" alt="AI 配置页，显示五类服务的配置和测试状态">
           <figcaption>
             <div class="step-title"><span class="step-number">2</span><h3>AI 服务配置与模型</h3><span class="step-health">说明性</span></div>
-            <p class="step-notes">五类服务状态、默认模型、连接测试和缺口集中展示；支持多厂商预设、自定义 OpenAI 兼容厂商和手工模型。通用 `/v1/models` 自动发现与真实厂商深度联调后置；当前视频和语音未配置属于已确认的外部接入边界。</p>
+            <p class="step-notes">五类服务状态、默认模型、连接测试和缺口集中展示；支持多厂商预设、自定义 OpenAI 兼容厂商和手工模型，Google Gemini 文本使用官方 Gemini OpenAI 兼容端点。通用 `/v1/models` 自动发现与真实厂商深度联调后置；当前视频和语音未配置属于已确认的外部接入边界。</p>
           </figcaption>
         </figure>
 
@@ -418,7 +418,7 @@
           <img src="assets/09-media-library-1366x768-20260717.jpg" alt="素材中心空状态和上传、网页 URL 入口">
           <figcaption>
             <div class="step-title"><span class="step-number">8</span><h3>素材中心与网页正文</h3><span class="step-health">说明性</span></div>
-            <p class="step-notes">空状态提供本地素材上传和“新建项目后导入网页 URL”两条路径；图片与视频可跨项目复用，网页 URL 只导入故事正文。第三方媒体搜索、版权来源核验和下载入库不在当前范围。</p>
+            <p class="step-notes">空状态提供本地素材上传、Wikimedia Commons 网络媒体搜索和“新建项目后导入网页 URL”路径；图片与视频可跨项目复用，网页 URL 只导入故事正文。更多第三方平台和具体用途许可兼容判断后置。</p>
           </figcaption>
         </figure>
 
@@ -630,13 +630,6 @@
           </figcaption>
         </figure>
 
-        <figure>
-          <img src="final-20260718/35-ai-config-management-1280.png" alt="AI 配置页的服务状态与配置管理工作区，以及配置管理操作栏">
-          <figcaption>
-            <div class="step-title"><span class="step-number">35</span><h3>AI 配置工作区</h3><span class="step-health">说明性</span></div>
-            <p class="step-notes">这张 1280×376 tracked 裁剪图用于说明双工作区与操作栏，并止于表头；它不包含 Provider 地址或凭据，也不是最终完整 viewport 证据。</p>
-          </figcaption>
-        </figure>
       </div>
     </section>
 
@@ -648,10 +641,10 @@
           <tr><td>后端</td><td><span class="status info">机器证据</span></td><td>源码检查、流程审计、当前工作流合成所有权、最终媒体 ffprobe、ZIP/凭据/备份边界以最终提交的验证日志为准，本页不保留可过期的测试计数。</td></tr>
           <tr><td>前端</td><td><span class="status info">机器证据</span></td><td>请求与路由竞态、QA 运行所有权、素材写入后只读刷新恢复、AI 状态恢复、URL 导入、769px 几何、键盘焦点、离开保护、生产构建和包体预算由最终提交的前端验证记录判定。</td></tr>
           <tr><td>桌面</td><td><span class="status info">机器证据</span></td><td>Electron 生命周期、原生 ABI、URL 安全和媒体工具信任由同一提交的桌面验证记录判定；Authenticode 仍属延期范围。</td></tr>
-          <tr><td>Docker</td><td><span class="status info">机器证据</span></td><td>Node 20 镜像边界、容器验证、运行时净化、镜像 revision 和镜像安全结果必须来自最终提交重新构建的 artifacts。</td></tr>
-          <tr><td>生产 E2E</td><td><span class="status info">机器证据</span></td><td>UI 创建、制作、媒体、下载、导出和清理闭环由 ignored evidence 与 acceptance manifest 记录，并须与最终提交完全一致。正式矩阵固定为 28 张原始 viewport PNG，包含项目列表、素材中心、画布和自由创作的浅色与深色 1280×720 证据。</td></tr>
+          <tr><td>Docker / 桌面</td><td><span class="status info">机器证据</span></td><td>Node 20 镜像边界、容器验证、运行时净化、镜像 revision 和镜像安全结果必须来自最终提交重新构建的 artifacts；桌面依赖、原生重建、打包和 Windows 安全扫描使用 Node 22.12.0。生产 E2E 需在仓库外新建空数据目录后依次执行 `npm run docker:e2e:up`、`npm run verify:e2e`，当前候选尚无重验结果。</td></tr>
+          <tr><td>生产 E2E</td><td><span class="status info">机器证据</span></td><td>本页流程证据保留 34 张 tracked 说明性截图，另有 6 张当前源码说明图；UI 创建、制作、媒体、下载、导出和清理闭环由 ignored evidence 与 acceptance manifest 记录，并须与最终提交完全一致。正式机器矩阵仍由代码合同固定为 28 张原始 viewport PNG，包含项目列表、素材中心、画布和自由创作的浅色与深色 1280×720 证据，当前候选未重新执行。</td></tr>
           <tr><td>备份与回滚</td><td><span class="status info">机器证据</span></td><td>隔离恢复、SQLite 完整性、凭据排除和回滚副本由最终提交的演练记录判定；正式升级仍须建立仓库外真实回退检查点。</td></tr>
-          <tr><td>依赖安全</td><td><span class="status info">机器证据</span></td><td>生产依赖审计和秘密扫描须在最终提交上重新运行，并以该次运行的结构化结果为准。</td></tr>
+          <tr><td>依赖安全</td><td><span class="status info">机器证据</span></td><td>生产依赖审计和秘密扫描须在最终提交上重新运行；后端、前端、桌面审计必须显式使用官方 `https://registry.npmjs.org`，并以该次运行的结构化结果为准。</td></tr>
           <tr><td>发布制品</td><td><span class="status info">远端门禁</span></td><td>Setup、Portable、Unpacked ZIP、SBOM、媒体工具元数据和发布清单由 Release workflow 生成后执行离线复核。</td></tr>
           <tr><td>制品安全</td><td><span class="status info">远端门禁</span></td><td>Docker 与 Windows 制品须通过同一提交的 Gitleaks、Trivy、Defender、Electron Fuse 和校验和门禁。</td></tr>
         </tbody>
@@ -715,7 +708,7 @@
           <ul>
             <li>截图不能单独证明完整屏幕阅读器兼容；结论结合自动化语义契约。</li>
             <li>真实云 Provider 的计费、限流和长耗时行为按范围后置。</li>
-            <li>素材截图只证明本地上传/筛选和网页正文导入，不证明第三方媒体搜索、版权授权来源或下载入库。</li>
+            <li>素材截图只提供本地上传/筛选、Wikimedia Commons 来源展示和网页正文导入的说明性上下文；更多第三方平台、具体用途许可兼容性和当前候选下载结果仍需单独验证。</li>
             <li>AI 配置截图只证明预设厂商、自定义兼容厂商和手工模型，不证明通用 `/v1/models` 自动发现。</li>
             <li>恢复后不会携带密钥，管理员必须重新录入并执行连接测试。</li>
             <li>GitHub CI 是推送后的远端独立复验；机器发布结论以同一源码提交的安全证据、manifest 和离线校验为准。</li>

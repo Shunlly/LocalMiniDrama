@@ -37,7 +37,7 @@ const mutationHandlers = [
 test('AI config writes fail closed until the list and vendor lock dependencies are ready', () => {
   assert.match(
     source,
-    /const configWriteLocked = computed\(\(\) => \(\s*configLoadState\.value !== 'ready'\s*\|\| !vendorLockResolved\.value\s*\)\)/,
+    /const configWriteLocked = computed\(\(\) => \(\s*configLoadState\.value !== 'ready'\s*\|\| !vendorLockResolved\.value[\s\S]*saving\.value[\s\S]*bulkKeySaving\.value[\s\S]*\)\)/,
   )
   assert.match(source, /v-if="configDependencyError"[\s\S]*@click="retryConfigDependencies"/)
   assert.match(source, /function isCoverageActionDisabled\(item, action\)/)

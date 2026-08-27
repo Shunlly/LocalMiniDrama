@@ -11,6 +11,7 @@ const { FUSE_POLICY } = require('../scripts/electron-fuses');
 const mediaToolPolicy = require('../scripts/media-tool-policy');
 const {
   artifactNames,
+  createBackendContainerUserException,
   createVerifiedZip,
   DEFENDER_SIGNATURE_MAX_AGE_HOURS,
   normalizeTrivyScanDetails,
@@ -21,6 +22,19 @@ const {
   validateArtifactScanInventory,
   verifyPackagedExampleApplications,
 } = require('../scripts/verify-windows-artifacts');
+
+const repoRoot = path.resolve(__dirname, '..', '..');
+const backendDockerfile = fs.readFileSync(path.join(repoRoot, 'backend-node', 'Dockerfile'), 'utf8');
+const backendEntrypoint = fs.readFileSync(path.join(repoRoot, 'backend-node', 'docker-entrypoint.sh'), 'utf8');
+const backendTrivyIgnore = fs.readFileSync(path.join(repoRoot, 'backend-node', '.trivyignore.yaml'), 'utf8');
+const BACKEND_RUNTIME_BASE =
+  'node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0';
+const BACKEND_CONTAINER_USER_EXCEPTION_RATIONALE =
+  'Trivy evaluates Dockerfile Config.User before the reviewed entrypoint transition. The pinned Node runtime maps node to UID 1000; after a same-filesystem one-time ownership migration, the entrypoint replaces PID 1 with the requested command under that account. Release evidence validation rejects any change to this source contract.';
+
+function normalizedSourceSha256(source) {
+  return crypto.createHash('sha256').update(source.replace(/\r\n/g, '\n'), 'utf8').digest('hex');
+}
 
 const EXAMPLE_DRAMA_DESCRIPTOR = Object.freeze({
   path: 'resources/example_drama/衣服设计天才302.zip',
@@ -422,6 +436,57 @@ test('Trivy scan evidence records the vulnerability database and checks bundle i
     () => normalizeTrivyScanDetails({ Version: '0.64.1', VulnerabilityDB: {} }, { Digest: 'latest' }, '0.64.1'),
     /Trivy DB schema version is invalid/
   );
+});
+
+test('Windows evidence records the reviewed backend process UID and fails closed on source drift', () => {
+  assert.equal(typeof createBackendContainerUserException, 'function');
+  const sources = {
+    dockerfileSource: backendDockerfile,
+    entrypointSource: backendEntrypoint,
+    ignorePolicySource: backendTrivyIgnore,
+  };
+  assert.deepEqual(createBackendContainerUserException(sources), {
+    id: 'AVD-DS-0002',
+    path: 'backend-node/Dockerfile',
+    review_by: '2027-07-17',
+    rationale: BACKEND_CONTAINER_USER_EXCEPTION_RATIONALE,
+    source_contract: {
+      runtime_base: BACKEND_RUNTIME_BASE,
+      process_user: 'node',
+      process_uid: 1000,
+      privilege_transition: 'setpriv --reuid=node --regid=node --init-groups',
+      source_sha256_lf: {
+        'backend-node/Dockerfile': normalizedSourceSha256(backendDockerfile),
+        'backend-node/docker-entrypoint.sh': normalizedSourceSha256(backendEntrypoint),
+        'backend-node/.trivyignore.yaml': normalizedSourceSha256(backendTrivyIgnore),
+      },
+    },
+  });
+
+  for (const [label, changedSources] of [
+    ['runtime base', {
+      dockerfileSource: backendDockerfile.replace(BACKEND_RUNTIME_BASE, 'node:20-bookworm-slim@sha256:' + '0'.repeat(64)),
+    }],
+    ['Dockerfile USER', { dockerfileSource: `${backendDockerfile}\nUSER node\n` }],
+    ['entrypoint privilege transition', {
+      entrypointSource: backendEntrypoint.replace(
+        'exec setpriv --reuid=node --regid=node --init-groups -- "$@"',
+        'exec "$@"'
+      ),
+    }],
+    ['Trivy ignore policy', {
+      ignorePolicySource: backendTrivyIgnore.replace(
+        BACKEND_CONTAINER_USER_EXCEPTION_RATIONALE,
+        'Legacy root entrypoint exception.'
+      ),
+    }],
+  ]) {
+    assert.throws(
+      () => createBackendContainerUserException({ ...sources, ...changedSources }),
+      /backend container user source contract/i,
+      label
+    );
+  }
 });
 
 test('Defender signature evidence is UTC-normalized and bounded to 72 hours', () => {

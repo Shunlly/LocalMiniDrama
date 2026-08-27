@@ -1942,6 +1942,29 @@ test('fresh and foreign-namespace maintenance leases are never reclaimed by PID 
   assert.ok(await fsp.stat(lockPath));
 });
 
+test('startup recovery still fails closed on a stale foreign Docker lock', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  const stale = new Date(Date.now() - 120000);
+  const payload = {
+    version: 2,
+    pid: 7,
+    ownerScope: 'localminidrama-docker-backend',
+    operation: 'service',
+    token: 'c'.repeat(16),
+    createdAt: stale.toISOString(),
+    heartbeatAt: stale.toISOString(),
+    contract: 'exclusive-lease-owner-scope-and-heartbeat-required',
+  };
+  await fsp.writeFile(lockPath, `${JSON.stringify(payload)}\n`, { flag: 'wx' });
+  await fsp.utimes(lockPath, stale, stale);
+  assert.throws(
+    () => recoverInterruptedMaintenanceSync(workspace),
+    expectCode('MAINTENANCE_LOCK_FOREIGN')
+  );
+  assert.ok(await fsp.stat(lockPath));
+});
+
 test('explicit maintenance scopes persist and reclaim stale same-scope container leases', async (t) => {
   const workspace = await makeWorkspace(t);
   const ownerScope = 'localminidrama-docker-backend';
@@ -1966,7 +1989,7 @@ test('explicit maintenance scopes persist and reclaim stale same-scope container
   assert.equal(await fsp.stat(lockPath).catch(() => null), null);
 });
 
-test('explicit maintenance scopes only migrate stale legacy Docker owner scopes', async (t) => {
+test('explicit maintenance scopes fail closed on stale legacy Docker owner scopes', async (t) => {
   const workspace = await makeWorkspace(t);
   const { lockPath } = maintenancePaths(workspace.databasePath);
   const ownerScope = 'localminidrama-docker-backend';
@@ -1993,8 +2016,18 @@ test('explicit maintenance scopes only migrate stale legacy Docker owner scopes'
   legacyDockerLock.heartbeatAt = stale.toISOString();
   await fsp.writeFile(lockPath, `${JSON.stringify(legacyDockerLock)}\n`);
   await fsp.utimes(lockPath, stale, stale);
+  assert.throws(
+    () => recoverInterruptedMaintenanceSync({ ...workspace, ownerScope }),
+    expectCode('MAINTENANCE_LOCK_FOREIGN')
+  );
+  assert.ok(await fsp.stat(lockPath));
   assert.deepEqual(
-    recoverInterruptedMaintenanceSync({ ...workspace, ownerScope }),
+    recoverInterruptedMaintenanceSync({
+      ...workspace,
+      ownerScope,
+      expectedOwnerScope: legacyDockerLock.ownerScope,
+      expectedPid: legacyDockerLock.pid,
+    }),
     { recovered: false }
   );
   assert.equal(await fsp.stat(lockPath).catch(() => null), null);

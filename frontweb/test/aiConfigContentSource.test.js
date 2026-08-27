@@ -59,7 +59,7 @@ test('coverage copy defines usable readiness and names missing credentials', () 
 })
 
 test('AI config mutations emit one reliable change notification only after real successes', () => {
-  assert.match(source, /import \{ runAiConfigCreateBatch \} from '@\/utils\/aiConfigMutations\.js'/)
+  assert.match(source, /import \{[\s\S]*runAiConfigCreateBatch,[\s\S]*\} from '@\/utils\/aiConfigMutations\.js'/)
   assert.match(source, /const emit = defineEmits\(\['configuration-changed'\]\)/)
   assert.equal((source.match(/emit\('configuration-changed'\)/g) || []).length, 1)
   assert.match(source, /function notifyConfigurationChanged\(\) \{\s*emit\('configuration-changed'\)\s*\}/)
@@ -67,9 +67,19 @@ test('AI config mutations emit one reliable change notification only after real 
   const submit = sourceBetween(source, 'async function submit()', 'function openBulkKey')
   assert.equal((submit.match(/notifyConfigurationChanged\(\)/g) || []).length, 1)
   assert.match(submit, /await aiAPI\.update[\s\S]*await aiAPI\.create[\s\S]*notifyConfigurationChanged\(\)/)
+  assert.match(submit, /const listConfirmed = await loadList\(\)/)
+  assert.match(submit, /confirmAiConfigMutationResult\(mutationResult, payload, previous \|\| \{\}\)/)
+  assert.match(submit, /confirmAiConfigMutationInList\(serverConfirmation, list\.value\)/)
+  assert.match(submit, /服务端返回的配置快照与本次提交不一致/)
+  assert.ok(submit.indexOf('await loadList()') < submit.indexOf('dialogVisible.value = false'))
+  assert.ok(submit.indexOf('configDialogSaved.value = true') < submit.indexOf('dialogVisible.value = false'))
 
   const bulkKey = sourceBetween(source, 'async function submitBulkKey', 'function onJimeng2AssetsDialogClosed')
   assert.equal((bulkKey.match(/notifyConfigurationChanged\(\)/g) || []).length, 1)
+  assert.match(bulkKey, /const listConfirmed = await loadList\(\)/)
+  assert.match(bulkKey, /isAiConfigBulkKeyResult\(res\)/)
+  assert.match(bulkKey, /confirmAiConfigBulkKeyResult\(res, list\.value\)/)
+  assert.ok(bulkKey.indexOf('await loadList()') < bulkKey.indexOf('bulkKeyVisible.value = false'))
   assert.match(bulkKey, /if \(Number\(res\?\.updated\) > 0\) \{[\s\S]*notifyConfigurationChanged\(\)[\s\S]*\}/)
 
   const singleDelete = sourceBetween(source, 'async function onDelete', 'function onSelectionChange')
@@ -83,9 +93,12 @@ test('AI config mutations emit one reliable change notification only after real 
   const presetHandler = sourceBetween(source, 'async function submitPresetConfigs', 'async function submitOneKeyTongyi')
   assert.equal((presetHandler.match(/notifyConfigurationChanged\(\)/g) || []).length, 1)
   assert.match(presetHandler, /runAiConfigCreateBatch\(configs, createOne\)/)
-  assert.match(presetHandler, /if \(result\.success > 0\) \{[\s\S]*notifyConfigurationChanged\(\)[\s\S]*\}/)
+  assert.match(presetHandler, /const listConfirmed = await loadList\(\)/)
+  assert.match(presetHandler, /createdIds\.every\(\(id\) => list\.value\.some/)
+  assert.match(presetHandler, /预设配置已写入但列表尚未确认，请勿重复提交。请点击“重试”刷新列表。/)
+  assert.ok(presetHandler.indexOf('await loadList()') < presetHandler.indexOf('closeDialog()'))
+  assert.match(presetHandler, /if \(result\.success > 0\) \{[\s\S]*notifyConfigurationChanged\(\)[\s\S]*closeDialog\(\)/)
   assert.match(presetHandler, /预设配置完成：\$\{result\.success\} 条成功，\$\{result\.failed\} 条失败/)
-  assert.match(presetHandler, /if \(result\.success > 0\) \{[\s\S]*?\n  \} else \{[\s\S]*?\n  \}\n  await loadList\(\)/)
 
   const presetBoundaries = [
     ['submitOneKeyTongyi', 'function openOneKeyVolc'],
@@ -99,8 +112,13 @@ test('AI config mutations emit one reliable change notification only after real 
 
   const importHandler = sourceBetween(source, 'async function importConfigs', 'async function loadVendorLock')
   assert.equal((importHandler.match(/notifyConfigurationChanged\(\)/g) || []).length, 1)
-  assert.match(importHandler, /if \(result\.success > 0\) \{[\s\S]*notifyConfigurationChanged\(\)[\s\S]*\}/)
-  assert.match(importHandler, /if \(result\.success > 0\) ElMessage\.success\(message\)\n    else ElMessage\.error\(message\)\n    await loadList\(\)/)
+  assert.match(importHandler, /const listConfirmed = await loadList\(\)[\s\S]*createdIds\.every/)
+  assert.match(importHandler, /if \(listConfirmed && \(result\.success === 0 \|\| createdVisible\)\)/)
+  assert.match(importHandler, /配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。/)
+  assert.ok(importHandler.indexOf('await loadList()') < importHandler.indexOf('ElMessage.success(message)'))
+  const retryHandler = sourceBetween(source, 'async function retryConfigDependencies', 'onMounted(async () =>')
+  assert.match(retryHandler, /Promise\.all\(\[loadVendorLock\(\), loadList\(\)\]\)/)
+  assert.doesNotMatch(retryHandler, /importConfigs|runAiConfigCreateBatch|aiAPI\.create/)
 
   const connectionTest = sourceBetween(source, 'async function openTest', 'async function onDelete')
   const exportHandler = sourceBetween(source, 'async function exportConfigs', 'function triggerImport')
@@ -210,11 +228,73 @@ test('AI config list preserves prior data on load failure and blocks auto-open w
   assert.match(source, /configLoadState\.value = list\.value\.length \? 'refreshing' : 'loading'/)
   assert.match(source, /configLoadError\.value = error\?\.message \|\| '暂时无法读取 AI 配置，请稍后重试。'/)
   assert.match(source, /configLoadState\.value = 'error'/)
+  assert.match(source, /configLoadState\.value = 'ready'\n    return true/)
+  assert.match(source, /configLoadState\.value = 'error'\n    return false/)
   assert.match(source, /const canAutoOpenMissingService = computed\(\(\) => \(\s*configLoadState\.value === 'ready' && vendorLockResolved\.value/s)
   assert.match(source, /function shouldAutoOpenRequestedService\(coverageItem\)/)
   assert.match(source, /if \(shouldAutoOpenRequestedService\(coverageItem\)\)/)
   assert.match(source, /if \(shouldAutoOpenRequestedService\(item\)\)/)
   assert.doesNotMatch(source, /async function loadList\(\)[\s\S]*catch \([^)]+\) \{\s*list\.value = \[\]/)
+})
+
+test('AI config import keeps a successful server import unconfirmed until list refresh succeeds', async () => {
+  const importImplementation = sourceBetween(source, 'async function importConfigs', 'async function loadVendorLock')
+  const harnessSource = `
+    const calls = []
+    const configWriteLocked = { value: false }
+    const configLoadError = { value: '' }
+    let listResult = true
+    const batchResult = { success: 2, failed: 1, created: [{ id: 41 }, { id: 42 }] }
+    const list = { value: [] }
+    const aiAPI = { create: async () => ({}) }
+    const ElMessage = {
+      success(message) { calls.push('success:' + message) },
+      error(message) { calls.push('error:' + message) },
+    }
+    const runAiConfigCreateBatch = async () => batchResult
+    const isMaskedSecret = () => false
+    const stripMaskedSecretsFromSettings = (settings) => settings
+    const invalidateConnectionTestResults = () => calls.push('invalidate')
+    const notifyConfigurationChanged = () => calls.push('notify')
+    async function loadList() {
+      calls.push('load-list')
+      if (!listResult) configLoadError.value = '读取列表失败'
+      else list.value = [{ id: 41 }, { id: 42 }]
+      return listResult
+    }
+    ${importImplementation}
+    export async function runImport(confirmed) {
+      calls.length = 0
+      listResult = confirmed
+      configLoadError.value = ''
+      const target = {
+        value: 'selected',
+        files: [{ text: async () => JSON.stringify([{ name: '测试配置' }]) }],
+      }
+      await importConfigs({ target })
+      return { calls: [...calls], error: configLoadError.value, inputValue: target.value }
+    }
+  `
+  const harness = await import(`data:text/javascript;charset=utf-8,${encodeURIComponent(harnessSource)}`)
+
+  const confirmed = await harness.runImport(true)
+  assert.deepEqual(confirmed.calls.slice(-4), [
+    'load-list',
+    'invalidate',
+    'notify',
+    'success:导入完成：2 条成功，1 条失败',
+  ])
+  assert.equal(confirmed.error, '')
+  assert.equal(confirmed.inputValue, '')
+
+  const unconfirmed = await harness.runImport(false)
+  assert.equal(unconfirmed.calls.includes('success:导入完成：2 条成功，1 条失败'), false)
+  assert.equal(
+    unconfirmed.calls.at(-1),
+    'error:配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。',
+  )
+  assert.match(unconfirmed.error, /^配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。 读取列表失败$/)
+  assert.equal(unconfirmed.inputValue, '')
 })
 
 test('coverage repair actions open and focus the concrete missing configuration field', () => {
@@ -254,4 +334,16 @@ test('AI configuration workspace modes expose a visible keyboard focus state', (
     source,
     /\.config-workspace-mode:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--accent-text\);[\s\S]*?outline-offset:\s*2px;/,
   )
+})
+
+test('AI 配置在 760px 和 520px 下重排且不会被固定双列撑宽', () => {
+  assert.match(source, /@media \(max-width: 760px\) \{[\s\S]*?\.ai-config-content,[\s\S]*?max-width: 100%;[\s\S]*?min-width: 0;/)
+  assert.match(source, /@media \(max-width: 760px\) \{[\s\S]*?\.coverage-grid,[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
+  assert.match(source, /@media \(max-width: 760px\) \{[\s\S]*?\.content-actions,[\s\S]*?flex-direction: column;/)
+  assert.match(source, /@media \(max-width: 760px\) \{[\s\S]*?\.config-workspace-mode \{[\s\S]*?min-width: 0;/)
+  assert.match(source, /@media \(max-width: 520px\) \{[\s\S]*?\.config-workspace-switch \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
+  assert.match(source, /@media \(max-width: 760px\) \{[\s\S]*?:deep\(\.el-form-item__content\),[\s\S]*?max-width: 100%;/)
+  assert.match(pageSource, /@media \(max-width: 760px\) \{[\s\S]*?\.ai-config \{[\s\S]*?overflow-x: clip;/)
+  assert.match(pageSource, /@media \(max-width: 760px\) \{[\s\S]*?\.main \{[\s\S]*?width: calc\(100% - 24px\);[\s\S]*?overflow-x: hidden;/)
+  assert.match(pageSource, /@media \(max-width: 520px\) \{[\s\S]*?\.page-title \{[\s\S]*?position: absolute;[\s\S]*?clip: rect\(0, 0, 0, 0\);/)
 })

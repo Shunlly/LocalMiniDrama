@@ -3,12 +3,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const childProcess = require('node:child_process');
 const { performance } = require('node:perf_hooks');
 const Database = require('better-sqlite3');
 
 const configModule = require('../src/config');
 const ffmpegPath = require('../src/utils/ffmpegPath');
-const storageLayout = require('../src/services/storageLayout');
+const uploadService = require('../src/services/uploadService');
 const { writeFixtureVideoFile } = require('./mediaFixture');
 
 const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-finalize-'));
@@ -108,7 +109,14 @@ function createDb() {
       created_at TEXT,
       updated_at TEXT,
       completed_at TEXT,
-      deleted_at TEXT
+      deleted_at TEXT,
+      cancel_context TEXT,
+      cancel_operation_id TEXT,
+      cancel_state TEXT,
+      cancel_attempt INTEGER DEFAULT 0,
+      cancel_next_retry_at TEXT,
+      cancel_requested_at TEXT,
+      cancel_confirmed_at TEXT
     );
   `);
   const now = new Date().toISOString();
@@ -192,14 +200,14 @@ test('finalize rejects an episode with no composable video clips', () => {
   }
 });
 
-test('finalize fails closed when FFmpeg cannot write the merged output', async (t) => {
+test('finalize fails closed when the random FFmpeg staging output cannot be published', async (t) => {
   const unavailableReason = productionFfmpegUnavailableReason();
   if (unavailableReason) return t.skip(unavailableReason);
 
   const db = createDb();
-  const fixedNow = 1_800_000_000_000;
-  const originalDateNow = Date.now;
   let mergeId;
+  let stagedOutputPath = null;
+  let finalOutputPath = null;
   try {
     const clipPath = path.join(storageRoot, 'inputs', 'clip.mp4');
     writeFixtureVideoFile(ffmpegPath.getFfmpegPath(), clipPath);
@@ -212,16 +220,27 @@ test('finalize fails closed when FFmpeg cannot write the merged output', async (
        VALUES (101, 1, 1, 0.2, ?, ?)`
     ).run('inputs/clip.mp4', new Date().toISOString());
 
-    const projectSubdir = storageLayout.getProjectStorageSubdir(db, 1);
-    Date.now = () => fixedNow;
+    const originalSpawn = childProcess.spawn;
+    t.mock.method(childProcess, 'spawn', function spawnTrackingConcat(command, args, options) {
+      const outputPath = args[args.length - 1];
+      if (args.includes('concat') && /\.tmp\.mp4$/i.test(outputPath)) {
+        stagedOutputPath = outputPath;
+      }
+      return originalSpawn.call(this, command, args, options);
+    });
+    t.mock.method(uploadService, 'publishStagedFile', (stagedPath, finalPath) => {
+      assert.equal(stagedPath, stagedOutputPath);
+      assert.equal(fs.statSync(stagedPath).isFile(), true);
+      assert.ok(fs.statSync(stagedPath).size > 0);
+      finalOutputPath = finalPath;
+      throw new Error('测试模拟发布失败');
+    });
+
     const res = finalize(dramaRoutes(db, { storage: { base_url: '' } }, log).finalizeEpisode);
     assert.equal(res.statusCode, 200);
     mergeId = Number(res.body.data.merge_id);
     assert.ok(mergeId > 0);
 
-    const mergedDir = path.join(storageRoot, projectSubdir, 'videos', 'merged');
-    fs.mkdirSync(path.join(mergedDir, `merged_${fixedNow}.mp4`), { recursive: true });
-    fs.mkdirSync(path.join(mergedDir, `merged_${mergeId}_${fixedNow}.mp4`), { recursive: true });
     const tempBefore = tempMergeDirectories(mergeId);
 
     const merge = await waitForTerminalMerge(db, mergeId);
@@ -230,19 +249,24 @@ test('finalize fails closed when FFmpeg cannot write the merged output', async (
     const task = db.prepare('SELECT status, error, result FROM async_tasks WHERE id = ?').get(res.body.data.task_id);
     const options = JSON.parse(merge.merge_options || '{}');
 
+    assert.match(path.basename(stagedOutputPath), /^\.merged_.+\.tmp\.mp4$/);
+    assert.ok(finalOutputPath, '测试桩应拦截随机暂存输出的发布');
     assert.equal(merge.status, 'failed');
     assert.equal(merge.merged_url, null);
-    assert.match(merge.error_msg, /FFmpeg concat/);
+    assert.match(merge.error_msg, /测试模拟发布失败/);
     assert.equal(episode.status, 'failed');
     assert.equal(episode.video_url, null);
     assert.equal(task.status, 'failed');
     assert.ok(task.error);
     assert.equal(task.result, null);
     assert.equal(options.mode, 'strict_production');
+    assert.equal(fs.existsSync(stagedOutputPath), false);
+    assert.equal(fs.existsSync(finalOutputPath), false);
     assert.deepEqual(tempMergeDirectories(mergeId), tempBefore);
   } finally {
-    Date.now = originalDateNow;
     if (getLegacyAsyncSchedulerState().active > 0) await waitForBackgroundIdle();
+    if (stagedOutputPath) fs.rmSync(stagedOutputPath, { recursive: true, force: true });
+    if (finalOutputPath) fs.rmSync(finalOutputPath, { recursive: true, force: true });
     db.close();
   }
 });

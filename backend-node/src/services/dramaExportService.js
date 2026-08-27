@@ -313,6 +313,65 @@ function isSensitiveExportKey(key) {
   return SENSITIVE_KEY_COMPOUNDS.some((term) => compact.includes(term));
 }
 
+function declaredCommonsEvidence(category, sourcePath) {
+  if (typeof category !== 'string' || !category.startsWith('{')) return null;
+  let metadata;
+  try {
+    metadata = JSON.parse(category);
+  } catch (_) {
+    return null;
+  }
+  if (metadata?.kind !== 'wikimedia_commons') return null;
+  let source;
+  let resolvedDownload;
+  try {
+    source = new URL(metadata.source_url);
+    resolvedDownload = new URL(metadata.resolved_download_url);
+  } catch (_) {
+    source = null;
+  }
+  const sourceMatch = source?.pathname.match(/^\/wiki\/(.+)$/);
+  let sourceTitle = '';
+  try {
+    sourceTitle = sourceMatch
+      ? decodeURIComponent(sourceMatch[1]).replace(/_/g, ' ').normalize('NFC')
+      : '';
+  } catch (_) {
+    sourceTitle = '';
+  }
+  if (
+    metadata.source_provider !== 'Wikimedia Commons'
+    || source?.protocol !== 'https:'
+    || source?.origin !== 'https://commons.wikimedia.org'
+    || source?.username
+    || source?.password
+    || typeof metadata.commons_title !== 'string'
+    || sourceTitle !== metadata.commons_title.normalize('NFC')
+    || typeof metadata.license !== 'string'
+    || !metadata.license.trim()
+    || metadata.license === '未注明'
+    || !Number.isSafeInteger(metadata.commons_page_id)
+    || metadata.commons_page_id <= 0
+    || !Number.isFinite(Date.parse(metadata.commons_revision_timestamp))
+    || !/^[a-f0-9]{40}$/i.test(String(metadata.commons_sha1 || ''))
+    || !/^[a-f0-9]{64}$/i.test(String(metadata.content_sha256 || ''))
+    || resolvedDownload?.protocol !== 'https:'
+    || resolvedDownload?.username
+    || resolvedDownload?.password
+  ) {
+    throw exportError(
+      'INVALID_NETWORK_MEDIA_EVIDENCE',
+      'Project export rejected incomplete or inconsistent network media evidence.',
+      { source_path: sourcePath },
+      400
+    );
+  }
+  return {
+    contentSha256: metadata.content_sha256.toLowerCase(),
+    commonsSha1: metadata.commons_sha1.toLowerCase(),
+  };
+}
+
 function isSensitiveUrlQueryKey(key) {
   const compact = sensitiveKeyParts(key).join('');
   return isSensitiveExportKey(key) || SENSITIVE_URL_QUERY_KEYS.has(compact);
@@ -858,6 +917,7 @@ function collectFreeCanvasImportManifest({
      WHERE id = ? AND deleted_at IS NULL`
   );
   const allowedGlobalUploadPaths = new Set();
+  const commonsEvidenceByPath = new Map();
   const assets = [];
   for (const sourceId of [...referencedAssetIds].sort((a, b) => a - b)) {
     const asset = selectSourceAsset.get(sourceId);
@@ -887,6 +947,22 @@ function collectFreeCanvasImportManifest({
         { asset_id: sourceId },
         400
       );
+    }
+    const evidence = declaredCommonsEvidence(asset.category, sourcePath);
+    if (evidence && sourcePath) {
+      const existingEvidence = commonsEvidenceByPath.get(sourcePath);
+      if (existingEvidence && (
+        existingEvidence.contentSha256 !== evidence.contentSha256
+        || existingEvidence.commonsSha1 !== evidence.commonsSha1
+      )) {
+        throw exportError(
+          'INVALID_NETWORK_MEDIA_EVIDENCE',
+          'Project export rejected conflicting network media content hashes.',
+          { source_path: sourcePath },
+          400
+        );
+      }
+      commonsEvidenceByPath.set(sourcePath, evidence);
     }
     assets.push({
       source_id: sourceId,
@@ -1036,6 +1112,16 @@ function collectFreeCanvasImportManifest({
       );
     }
     Object.assign(entry, inspectFreeCanvasMedia(buffer, entry.source_path, entry.category));
+    const evidence = commonsEvidenceByPath.get(entry.source_path);
+    const actualSha1 = evidence ? createHash('sha1').update(buffer).digest('hex') : null;
+    if (evidence && (evidence.contentSha256 !== entry.sha256 || evidence.commonsSha1 !== actualSha1)) {
+      throw exportError(
+        'NETWORK_MEDIA_CONTENT_HASH_MISMATCH',
+        'Project export rejected network media whose evidence does not match the local file.',
+        { source_path: entry.source_path },
+        400
+      );
+    }
     archive.addBuffer(entry.archive_path, buffer);
   }
 

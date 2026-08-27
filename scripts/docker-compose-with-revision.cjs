@@ -2,9 +2,12 @@
 
 const assert = require('node:assert/strict')
 const { spawnSync } = require('node:child_process')
+const fs = require('node:fs')
 const path = require('node:path')
 
-const root = path.resolve(__dirname, '..')
+const root = path.resolve(
+  process.env.LOCALMINIDRAMA_REPOSITORY_ROOT || path.join(__dirname, '..'),
+)
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -40,8 +43,73 @@ function revisionServices(profiles) {
   return services
 }
 
+function pathsOverlap(left, right) {
+  const normalize = (value) => {
+    const resolved = path.resolve(value)
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+  }
+  const leftPath = normalize(left)
+  const rightPath = normalize(right)
+  const relative = path.relative(leftPath, rightPath)
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+}
+
+function validateE2eDataDirectory(value, { requireEmpty = true } = {}) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error('Docker E2E 必须显式设置 LOCALMINIDRAMA_DATA_DIR')
+  }
+  const requestedPath = value.trim()
+  if (!path.isAbsolute(requestedPath)) {
+    throw new Error('Docker E2E 的 LOCALMINIDRAMA_DATA_DIR 必须是绝对路径')
+  }
+
+  const resolvedPath = path.resolve(requestedPath)
+  const repositoryPath = fs.realpathSync(root)
+  const defaultDataPath = path.resolve(root, 'backend-node', 'data')
+  const defaultDataRealPath = fs.existsSync(defaultDataPath)
+    ? fs.realpathSync(defaultDataPath)
+    : defaultDataPath
+  for (const protectedDataPath of [defaultDataPath, defaultDataRealPath]) {
+    if (pathsOverlap(resolvedPath, protectedDataPath) || pathsOverlap(protectedDataPath, resolvedPath)) {
+      throw new Error('Docker E2E 拒绝使用默认 backend-node/data 数据目录或其重叠路径')
+    }
+  }
+  if (pathsOverlap(resolvedPath, repositoryPath) || pathsOverlap(repositoryPath, resolvedPath)) {
+    throw new Error('Docker E2E 的 LOCALMINIDRAMA_DATA_DIR 不得与仓库目录发生危险重叠')
+  }
+  let stat
+  try {
+    stat = fs.lstatSync(resolvedPath)
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      throw new Error('Docker E2E 的 LOCALMINIDRAMA_DATA_DIR 必须是已创建的全新空目录')
+    }
+    throw error
+  }
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error('Docker E2E 的 LOCALMINIDRAMA_DATA_DIR 必须是非符号链接目录')
+  }
+
+  const realDataPath = fs.realpathSync(resolvedPath)
+  for (const protectedDataPath of [defaultDataPath, defaultDataRealPath]) {
+    if (pathsOverlap(realDataPath, protectedDataPath) || pathsOverlap(protectedDataPath, realDataPath)) {
+      throw new Error('Docker E2E 拒绝使用默认 backend-node/data 数据目录或其重叠路径')
+    }
+  }
+  if (pathsOverlap(realDataPath, repositoryPath) || pathsOverlap(repositoryPath, realDataPath)) {
+    throw new Error('Docker E2E 的 LOCALMINIDRAMA_DATA_DIR 不得与仓库目录发生危险重叠')
+  }
+  if (requireEmpty && fs.readdirSync(realDataPath).length > 0) {
+    throw new Error('Docker E2E 的 LOCALMINIDRAMA_DATA_DIR 必须保持为空后再启动')
+  }
+  return realDataPath
+}
+
 function main() {
   const profiles = parseArguments(process.argv.slice(2))
+  const e2eDataDirectory = profiles.includes('e2e')
+    ? validateE2eDataDirectory(process.env.LOCALMINIDRAMA_DATA_DIR)
+    : null
   const dirty = run('git', ['status', '--porcelain', '--untracked-files=normal'], { encoding: 'utf8' })
   assert.equal(dirty, '', 'verified Docker startup requires a clean Git working tree')
   const revision = run('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).toLowerCase()
@@ -59,6 +127,7 @@ function main() {
       ...process.env,
       LOCALMINIDRAMA_BUILD_REVISION: revision,
       LOCALMINIDRAMA_IMAGE_TAG: imageTag,
+      ...(e2eDataDirectory ? { LOCALMINIDRAMA_DATA_DIR: e2eDataDirectory } : {}),
     },
     windowsHide: true,
   })
@@ -72,6 +141,7 @@ function main() {
     ...process.env,
     LOCALMINIDRAMA_BUILD_REVISION: revision,
     LOCALMINIDRAMA_IMAGE_TAG: imageTag,
+    ...(e2eDataDirectory ? { LOCALMINIDRAMA_DATA_DIR: e2eDataDirectory } : {}),
   }
   for (const service of revisionServices(profiles)) {
     const image = `localminidrama-${service}:${imageTag}`
@@ -112,4 +182,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { parseArguments, revisionServices }
+module.exports = { parseArguments, pathsOverlap, revisionServices, validateE2eDataDirectory }

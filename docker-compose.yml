@@ -9,7 +9,16 @@ services:
       args:
         LOCALMINIDRAMA_BUILD_REVISION: ${LOCALMINIDRAMA_BUILD_REVISION:-unknown}
     container_name: localminidrama-backend
-    restart: "on-failure:10"
+    restart: unless-stopped
+    init: true
+    pids_limit: 512
+    cpus: "4.0"
+    mem_limit: 8g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     stop_grace_period: 60s
     read_only: true
     security_opt:
@@ -19,6 +28,7 @@ services:
     cap_add:
       - CHOWN
       - DAC_READ_SEARCH
+      - KILL
       - SETGID
       - SETUID
     tmpfs:
@@ -27,6 +37,7 @@ services:
       NODE_ENV: production
       PORT: "5679"
       HOST: "0.0.0.0"
+      LOCALMINIDRAMA_CORS_ORIGINS: "http://localhost:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013},http://127.0.0.1:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013}"
       LOCALMINIDRAMA_MAINTENANCE_SCOPE: localminidrama-docker-backend
       LOCALMINIDRAMA_CONFIG_SOURCE: /app/config-source/config.yaml
       LOCALMINIDRAMA_CONFIG_PATH: /tmp/localminidrama-config/config.yaml
@@ -59,6 +70,16 @@ services:
       args:
         LOCALMINIDRAMA_BUILD_REVISION: ${LOCALMINIDRAMA_BUILD_REVISION:-unknown}
     container_name: localminidrama-frontend
+    restart: unless-stopped
+    init: true
+    pids_limit: 128
+    cpus: "1.0"
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -67,7 +88,7 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=1g,mode=1777
     ports:
-      - "127.0.0.1:3013:3013"
+      - "127.0.0.1:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013}:3013"
     depends_on:
       backend:
         condition: service_healthy
@@ -111,6 +132,15 @@ services:
       args:
         LOCALMINIDRAMA_BUILD_REVISION: ${LOCALMINIDRAMA_BUILD_REVISION:-unknown}
     user: node
+    init: true
+    pids_limit: 128
+    cpus: "1.0"
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
     read_only: true
     security_opt:
       - no-new-privileges:true

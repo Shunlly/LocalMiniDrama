@@ -548,6 +548,7 @@
             data-ai-config-field="service_type"
             placeholder="选择类型"
             style="width: 100%"
+            :disabled="Boolean(editingId)"
             :aria-invalid="isConfigFieldInvalid('service_type')"
             :aria-describedby="configFieldDescriptionId('service_type')"
             @change="onServiceTypeChange"
@@ -1030,6 +1031,11 @@ input_reference = (图片文件，可选)</pre>
                 <span :id="configFieldDescriptionId('base_url')" class="config-field-a11y-description">
                   {{ configFieldDescription('base_url') }}
                 </span>
+              </el-form-item>
+
+              <el-form-item v-if="canConfigureLocalHttp" label="本地 HTTP">
+                <el-switch v-model="form.allow_local_http" />
+                <p class="field-tip">仅用于明确选择的本地或内网网关；公网服务仍需使用 HTTPS。</p>
               </el-form-item>
 
               <el-form-item v-if="isComfyUiForm" prop="comfy_workflow_json" label="Workflow JSON">
@@ -1574,7 +1580,13 @@ import {
   createAiConfigConnectionStatusStore,
   resolveAiConfigConnectionStatusScope,
 } from '@/utils/aiConfigConnectionStatusStore.js'
-import { runAiConfigCreateBatch } from '@/utils/aiConfigMutations.js'
+import {
+  confirmAiConfigBulkKeyResult,
+  confirmAiConfigMutationInList,
+  confirmAiConfigMutationResult,
+  isAiConfigBulkKeyResult,
+  runAiConfigCreateBatch,
+} from '@/utils/aiConfigMutations.js'
 import { applyAiConfigRepairTarget } from '@/utils/aiConfigRepairTarget.js'
 import {
   createAiConfigValidationSummary,
@@ -1714,6 +1726,7 @@ const loading = ref(false)
 const configLoadState = ref('idle')
 const configLoadError = ref('')
 const list = ref([])
+let configListLoadSequence = 0
 const activeServiceFilter = ref(normalizeInitialServiceType(props.initialServiceType))
 const configListSectionRef = ref(null)
 watch(
@@ -1754,6 +1767,7 @@ const vendorLockLoading = ref(false)
 const vendorLockError = ref('')
 const dialogVisible = ref(false)
 const editingId = ref(null)
+const editingUpdatedAt = ref('')
 const saving = ref(false)
 const configFormBaseline = ref('')
 const configDialogSaved = ref(false)
@@ -2061,6 +2075,12 @@ const filteredList = computed(() => {
 const configWriteLocked = computed(() => (
   configLoadState.value !== 'ready'
   || !vendorLockResolved.value
+  || saving.value
+  || bulkKeySaving.value
+  || batchDeleting.value
+  || oneKeyTongyiSaving.value
+  || oneKeyVolcSaving.value
+  || oneKeyAgnesSaving.value
 ))
 
 const configDependencyError = computed(() => (
@@ -2422,7 +2442,7 @@ const endpointPreviewInfo = computed(() => {
     } else if (proto === 'kling' || p === 'kling' || p === 'klingai') {
       queryPath = '/v1/videos/{videoType}/{taskId}（自动按任务类型选择）'
     } else if (p === 'minimax') {
-      queryPath = '/query/video_generation?task_id={taskId}'  // minimax base_url 已含 /v1
+      queryPath = '/query/video_generation/{taskId}'  // minimax base_url 已含 /v1
     } else if (proto !== 'gemini' && p !== 'gemini') {
       queryPath = '/v1/video/query?id={taskId}'
     }
@@ -2550,18 +2570,24 @@ async function handleSd2AssetSaved() {
 }
 
 async function loadList() {
+  const requestId = ++configListLoadSequence
   loading.value = true
   configLoadState.value = list.value.length ? 'refreshing' : 'loading'
   try {
-    list.value = await aiAPI.list()
+    const nextList = await aiAPI.list()
+    if (requestId !== configListLoadSequence) return false
+    list.value = nextList
     sessionTestStatusById.value = connectionStatusStore.forConfigs(list.value)
     configLoadError.value = ''
     configLoadState.value = 'ready'
+    return true
   } catch (error) {
+    if (requestId !== configListLoadSequence) return false
     configLoadError.value = error?.message || '暂时无法读取 AI 配置，请稍后重试。'
     configLoadState.value = 'error'
+    return false
   } finally {
-    loading.value = false
+    if (requestId === configListLoadSequence) loading.value = false
   }
 }
 
@@ -2575,6 +2601,7 @@ function parseModelText(text) {
 
 function resetForm() {
   editingId.value = null
+  editingUpdatedAt.value = ''
   presetModelPick.value = ''
   advancedFormSections.value = []
   clearConfigValidationSummary()
@@ -2727,6 +2754,7 @@ function openAddForService(serviceType) {
 async function openEdit(row, { repairIssue = '' } = {}) {
   if (configWriteLocked.value) return
   editingId.value = row.id
+  editingUpdatedAt.value = String(row.updated_at || '')
   advancedFormSections.value = []
   const model = Array.isArray(row.model) ? row.model : (row.model ? [row.model] : [])
   const modelList = model.map((m) => String(m).trim()).filter(Boolean)
@@ -2810,7 +2838,9 @@ async function submit() {
     }
     const defaultModel = form.value.default_model || null
     // TTS / 可灵 Omni 官方 AKSK / DeepSeek V4 / 成本单价统一打包进 settings。
-    const previous = editingId.value ? list.value.find((row) => row.id === editingId.value) : null
+    const previous = editingId.value
+      ? list.value.find((row) => String(row.id) === String(editingId.value))
+      : null
     const settingsObject = parseSettingsObject(previous?.settings)
     if (isComfyUiForm.value) settingsObject.workflow = parseComfyWorkflowJson(form.value.comfy_workflow_json)
     else {
@@ -2856,22 +2886,34 @@ async function submit() {
       priority: form.value.priority,
       is_default: form.value.is_default,
       settings,
+      ...(editingId.value && editingUpdatedAt.value
+        ? { expected_updated_at: editingUpdatedAt.value }
+        : {}),
     }
-    if (editingId.value) {
-      await aiAPI.update(editingId.value, payload)
-      ElMessage.success('保存成功')
-    } else {
-      await aiAPI.create(payload)
-      ElMessage.success('添加成功')
+    const wasEditing = Boolean(editingId.value)
+    const mutationResult = wasEditing
+      ? await aiAPI.update(editingId.value, payload)
+      : await aiAPI.create(payload)
+    const serverConfirmation = confirmAiConfigMutationResult(mutationResult, payload, previous || {})
+    if (!serverConfirmation) {
+      await loadList()
+      ElMessage.error('服务端返回的配置快照与本次提交不一致，未确认保存结果，请重新打开配置核对。')
+      return
     }
+    const listConfirmed = await loadList()
+    const listMatches = listConfirmed && confirmAiConfigMutationInList(serverConfirmation, list.value)
     invalidateConnectionTestResults()
     notifyConfigurationChanged()
     configDialogSaved.value = true
     configFormBaseline.value = configFormFingerprint()
     dialogVisible.value = false
-    await loadList()
+    if (listMatches) ElMessage.success(wasEditing ? '保存成功' : '添加成功')
+    else ElMessage.warning('服务端已确认保存，但配置列表刷新或并发校验未完全一致，请刷新后复核。')
   } catch (e) {
-    // request 已统一报错
+    if (e?.response?.status === 409) {
+      await loadList()
+      ElMessage.warning('配置已被其他操作更新，本次修改未覆盖现有配置，请重新打开后再保存。')
+    }
   } finally {
     saving.value = false
   }
@@ -2890,13 +2932,20 @@ async function submitBulkKey() {
   bulkKeySaving.value = true
   try {
     const res = await aiAPI.bulkUpdateKey(key)
-    ElMessage.success(res?.message || '所有配置的 API Key 已更新')
+    if (!isAiConfigBulkKeyResult(res)) {
+      await loadList()
+      ElMessage.error('服务端未返回完整的批量换 Key 确认结果，请刷新后复核。')
+      return
+    }
+    const listConfirmed = await loadList()
+    const listMatches = listConfirmed && confirmAiConfigBulkKeyResult(res, list.value)
     if (Number(res?.updated) > 0) {
       invalidateConnectionTestResults()
       notifyConfigurationChanged()
     }
     bulkKeyVisible.value = false
-    await loadList()
+    if (listMatches) ElMessage.success(res?.message || '所有配置的 API Key 已更新')
+    else ElMessage.warning('服务端已确认批量换 Key，但配置列表刷新或并发校验未完全一致，请刷新后复核。')
   } catch (_) {
   } finally {
     bulkKeySaving.value = false
@@ -3073,18 +3122,27 @@ async function submitPresetConfigs(configs, apiKey, closeDialog) {
     })
   }
   const result = await runAiConfigCreateBatch(configs, createOne)
+  const message = `预设配置完成：${result.success} 条成功，${result.failed} 条失败`
+  const createdIds = result.created.map((item) => Number(item?.id)).filter(Number.isFinite)
+  const listConfirmed = await loadList()
+  const createdVisible = createdIds.length === result.success
+    && createdIds.every((id) => list.value.some((item) => Number(item.id) === id))
+  if (result.success > 0 && (!listConfirmed || !createdVisible)) {
+    const unconfirmedMessage = '预设配置已写入但列表尚未确认，请勿重复提交。请点击“重试”刷新列表。'
+    configLoadError.value = configLoadError.value
+      ? `${unconfirmedMessage} ${configLoadError.value}`
+      : unconfirmedMessage
+    ElMessage.error(unconfirmedMessage)
+    return result
+  }
   if (result.success > 0) {
     invalidateConnectionTestResults()
     notifyConfigurationChanged()
-  }
-  const message = `预设配置完成：${result.success} 条成功，${result.failed} 条失败`
-  if (result.success > 0) {
     closeDialog()
     ElMessage.success(message)
   } else {
     ElMessage.error(message)
   }
-  await loadList()
   return result
 }
 
@@ -3196,14 +3254,26 @@ async function importConfigs(event) {
         settings: stripMaskedSecretsFromSettings(cfg.settings) || null,
       })
     })
-    if (result.success > 0) {
-      invalidateConnectionTestResults()
-      notifyConfigurationChanged()
-    }
+    const listConfirmed = await loadList()
+    const createdIds = result.created.map((item) => Number(item?.id)).filter(Number.isFinite)
+    const createdVisible = createdIds.length === result.success
+      && createdIds.every((id) => list.value.some((item) => Number(item.id) === id))
     const message = `导入完成：${result.success} 条成功，${result.failed} 条失败`
-    if (result.success > 0) ElMessage.success(message)
-    else ElMessage.error(message)
-    await loadList()
+    if (listConfirmed && (result.success === 0 || createdVisible)) {
+      if (result.success > 0) {
+        invalidateConnectionTestResults()
+        notifyConfigurationChanged()
+        ElMessage.success(message)
+      }
+      else ElMessage.error(message)
+    } else if (result.success > 0) {
+      const refreshError = configLoadError.value
+      const unconfirmedMessage = '配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。'
+      configLoadError.value = refreshError ? `${unconfirmedMessage} ${refreshError}` : unconfirmedMessage
+      ElMessage.error(unconfirmedMessage)
+    } else {
+      ElMessage.error(message)
+    }
   } catch (e) {
     ElMessage.error('导入失败：' + (e.message || '文件解析错误'))
   } finally {
@@ -4354,6 +4424,99 @@ code {
 @media (max-width: 1120px) {
   .coverage-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .ai-config-content,
+  .tab-content,
+  .config-workspace-panel {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .coverage-grid,
+  .coverage-summary-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .coverage-header,
+  .content-actions,
+  .vendor-lock-bar,
+  .generation-settings-load-state {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .coverage-header {
+    gap: 8px;
+  }
+  .coverage-test-note {
+    max-width: none;
+    text-align: left;
+  }
+  .config-workspace-switch {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .config-workspace-mode {
+    min-width: 0;
+  }
+  .actions-right,
+  .config-empty-actions,
+  .pricing-field-row,
+  .gs-row {
+    flex-wrap: wrap;
+  }
+  .actions-right {
+    flex-shrink: 1;
+    max-width: 100%;
+  }
+  .config-filter-bar,
+  .config-section-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .pricing-help {
+    margin-left: 0;
+  }
+  :deep(.el-tabs__content),
+  :deep(.el-tab-pane),
+  :deep(.el-form-item__content),
+  :deep(.el-input),
+  :deep(.el-select) {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+@media (max-width: 520px) {
+  .coverage-panel,
+  .config-form-section {
+    padding: 12px;
+  }
+  .config-workspace-switch {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .config-empty-actions,
+  .actions-right {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+  .actions-right :deep(.el-button),
+  .config-empty-actions :deep(.el-button) {
+    margin-left: 0;
+    width: 100%;
+  }
+  .advanced-config-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .ep-row {
+    flex-direction: column;
+  }
+  .ep-label {
+    min-width: 0;
   }
 }
 </style>

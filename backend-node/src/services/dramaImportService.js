@@ -1374,6 +1374,118 @@ function freeCanvasManifestString(value, field, maxLength, fallback = null) {
   return value;
 }
 
+function freeCanvasAssetCategory(value, field) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') {
+    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为受限字符串`);
+  }
+  if (value.length > 4096) {
+    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为受限字符串`);
+  }
+  if (!value.trimStart().startsWith('{')) {
+    if (value.length <= 128) return value;
+    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为受限字符串`);
+  }
+  let metadata;
+  try {
+    metadata = JSON.parse(value);
+  } catch (_) {
+    throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+  }
+  const allowed = new Set([
+    'kind',
+    'source_provider',
+    'source_url',
+    'author',
+    'license',
+    'license_url',
+    'commons_title',
+    'commons_page_id',
+    'commons_revision_timestamp',
+    'commons_sha1',
+    'resolved_download_url',
+    'content_sha256',
+  ]);
+  if (metadata?.kind !== 'wikimedia_commons' && value.length <= 128) return value;
+  if (
+    !metadata
+    || typeof metadata !== 'object'
+    || Array.isArray(metadata)
+    || Object.keys(metadata).some((key) => !allowed.has(key))
+    || metadata.kind !== 'wikimedia_commons'
+    || metadata.source_provider !== 'Wikimedia Commons'
+    || typeof metadata.commons_title !== 'string'
+    || !metadata.commons_title.startsWith('File:')
+    || typeof metadata.license !== 'string'
+    || !metadata.license.trim()
+    || metadata.license === '未注明'
+    || !Number.isSafeInteger(metadata.commons_page_id)
+    || metadata.commons_page_id <= 0
+    || typeof metadata.commons_revision_timestamp !== 'string'
+    || !metadata.commons_revision_timestamp
+    || !Number.isFinite(Date.parse(metadata.commons_revision_timestamp))
+    || !/^[a-f0-9]{40}$/i.test(String(metadata.commons_sha1 || ''))
+    || !/^[a-f0-9]{64}$/i.test(String(metadata.content_sha256 || ''))
+    || typeof metadata.resolved_download_url !== 'string'
+    || !metadata.resolved_download_url
+  ) {
+    throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+  }
+  const boundedStrings = [
+    ['source_url', 4096],
+    ['author', 500],
+    ['license', 200],
+    ['license_url', 2048],
+    ['commons_title', 600],
+    ['commons_revision_timestamp', 64],
+    ['commons_sha1', 40],
+    ['resolved_download_url', 4096],
+    ['content_sha256', 64],
+  ];
+  if (boundedStrings.some(([key, limit]) => (
+    metadata[key] != null
+    && (typeof metadata[key] !== 'string' || metadata[key].length > limit)
+  ))) {
+    throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+  }
+  try {
+    const source = new URL(metadata.source_url);
+    if (
+      source.protocol !== 'https:'
+      || source.origin !== 'https://commons.wikimedia.org'
+      || source.username
+      || source.password
+    ) throw new Error('unsafe source');
+    const sourceMatch = source.pathname.match(/^\/wiki\/(.+)$/);
+    const sourceTitle = sourceMatch
+      ? decodeURIComponent(sourceMatch[1]).replace(/_/g, ' ').normalize('NFC')
+      : '';
+    if (sourceTitle !== metadata.commons_title.normalize('NFC')) throw new Error('mismatched title');
+    for (const key of ['license_url', 'resolved_download_url']) {
+      if (!metadata[key]) continue;
+      const url = new URL(metadata[key]);
+      if (url.protocol !== 'https:' || url.username || url.password) throw new Error('unsafe URL');
+    }
+  } catch (_) {
+    throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+  }
+  return value;
+}
+
+function freeCanvasCommonsEvidence(category) {
+  if (typeof category !== 'string' || !category.startsWith('{')) return null;
+  try {
+    const metadata = JSON.parse(category);
+    if (metadata?.kind !== 'wikimedia_commons') return null;
+    return {
+      contentSha256: metadata.content_sha256.toLowerCase(),
+      commonsSha1: metadata.commons_sha1.toLowerCase(),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
 function freeCanvasManifestNumber(value, field, options = {}) {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
@@ -1562,7 +1674,7 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
       sourceId,
       name: freeCanvasManifestString(entry.name, `assets[${index}].name`, 500, '导入素材'),
       type: freeCanvasManifestString(entry.type, `assets[${index}].type`, 64, mediaCategory === 'videos' ? 'video' : 'image'),
-      category: freeCanvasManifestString(entry.category, `assets[${index}].category`, 128),
+      category: freeCanvasAssetCategory(entry.category, `assets[${index}].category`),
       sourcePath,
       fileSize: freeCanvasManifestNumber(entry.file_size, `assets[${index}].file_size`, { integer: true }),
       mimeType: freeCanvasManifestString(entry.mime_type, `assets[${index}].mime_type`, 256),
@@ -1695,6 +1807,19 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
   }
   if ([...expectedMediaCategories].some(([sourcePath]) => !mediaByPath.has(sourcePath))) {
     throw freeCanvasBadRequest('free_canvas_import 缺少画布引用的媒体归档');
+  }
+  for (const asset of assets) {
+    if (!asset.sourcePath) continue;
+    const evidence = freeCanvasCommonsEvidence(asset.category);
+    if (!evidence) continue;
+    const archivedMedia = mediaByPath.get(asset.sourcePath);
+    if (evidence.contentSha256 !== archivedMedia?.sha256?.toLowerCase()) {
+      throw freeCanvasBadRequest('free_canvas_import 网络素材内容哈希与媒体归档不一致');
+    }
+    if (archivedMedia.commonsSha1 && archivedMedia.commonsSha1 !== evidence.commonsSha1) {
+      throw freeCanvasBadRequest('free_canvas_import 同一媒体包含冲突的 Commons SHA-1');
+    }
+    archivedMedia.commonsSha1 = evidence.commonsSha1;
   }
 
   return {
@@ -1870,6 +1995,12 @@ function verifyFreeCanvasArchiveMedia(files, media) {
   const actualHash = createHash('sha256').update(buffer).digest('hex');
   if (actualHash !== media.sha256) {
     throw freeCanvasBadRequest('free_canvas_import media SHA-256 hash 校验失败');
+  }
+  if (media.commonsSha1) {
+    const actualSha1 = createHash('sha1').update(buffer).digest('hex');
+    if (actualSha1 !== media.commonsSha1) {
+      throw freeCanvasBadRequest('free_canvas_import media Commons SHA-1 校验失败');
+    }
   }
 
   let detected;

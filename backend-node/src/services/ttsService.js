@@ -6,6 +6,7 @@ const path = require('path');
 const { createHash, randomUUID } = require('crypto');
 const aiConfigService = require('./aiConfigService');
 const { secureHttpFetch } = require('./secureHttpFetch');
+const uploadService = require('./uploadService');
 
 const DEFAULT_TTS_TIMEOUT_MS = 120000;
 const MAX_TTS_TIMEOUT_MS = 5 * 60 * 1000;
@@ -33,6 +34,7 @@ async function postTtsRequest(url, body, headers, timeoutMs, providerName, netwo
       method: 'POST',
       headers,
       body,
+      signal: networkOptions.signal,
       redirect: 'error',
     }, {
       ...networkOptions,
@@ -146,7 +148,9 @@ async function synthesize(db, log, {
   speed,
   idempotency_key,
   provider_dns_lookup,
+  signal,
 }) {
+  if (signal?.aborted) throw signal.reason;
   if (!text || !text.trim()) throw badRequest('text cannot be empty');
   const ttsConfig = config || (() => {
     const configs = aiConfigService.listConfigs(db, 'tts');
@@ -170,6 +174,7 @@ async function synthesize(db, log, {
   const idempotencyKey = normalizeIdempotencyKey(idempotency_key);
   const networkOptions = aiConfigService.getProviderNetworkOptions(ttsConfig, {
     lookup: provider_dns_lookup,
+    signal,
   });
 
   const audioDir = path.join(storage_base, 'audio');
@@ -213,7 +218,24 @@ async function synthesize(db, log, {
     throw new Error(`Unsupported TTS provider: ${provider}`);
   }
 
-  fs.writeFileSync(filePath, audioBuffer);
+  if (signal?.aborted) throw signal.reason;
+  const temporaryPath = path.join(audioDir, `.${filename}.${randomUUID()}.tmp`);
+  let publication = null;
+  try {
+    fs.writeFileSync(temporaryPath, audioBuffer, { flag: 'wx' });
+    if (signal?.aborted) throw signal.reason;
+    publication = uploadService.publishStagedFile(temporaryPath, filePath);
+    if (signal?.aborted) {
+      publication.rollback();
+      publication = null;
+      throw signal.reason;
+    }
+    publication.commit();
+  } catch (error) {
+    publication?.rollback();
+    try { fs.rmSync(temporaryPath, { force: true }); } catch (_) {}
+    throw error;
+  }
   log.info('[TTS] synthesis complete', { storyboard_id, local_path: localPath, provider });
   try { const cloudService = require('./cloudService'); cloudService.reportUsage('tts', ttsModel || '', '', 0); } catch (_) {}
   return { local_path: localPath };

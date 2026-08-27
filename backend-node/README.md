@@ -2,6 +2,8 @@
 
 **Node.js + Express + SQLite · 纯 JavaScript · 无 TypeScript**
 
+> **当前工作树运行验收：UNVERIFIED。** 文档中的历史报告、代码/契约复审和旧提交结果不能证明当前未提交工作树通过运行验收。
+
 → [项目主页](../README.md) | [快速开始](../docs/quickstart.md) | [AI 配置](../docs/configuration.md) | [版本历史](../docs/changelog.md) | [作者故事](../docs/story.md) | [English](../docs/en.md)
 
 **官方仓库：**
@@ -86,12 +88,7 @@ backend-node/
 │   ├── drama_generator.db      # SQLite 数据库
 │   ├── story_sources/          # 原始故事素材
 │   ├── backups/                # 默认备份归档
-│   └── storage/                # 生成的图片/视频本地文件
-│       ├── images/             # 分镜生成图
-│       ├── characters/         # 角色图
-│       ├── scenes/             # 场景图
-│       ├── videos/             # 生成的视频片段
-│       └── merged/             # 合成后的完整视频
+│   └── storage/                # 项目媒体 projects/、公共素材 library/ 及兼容旧目录
 ├── migrations/
 │   ├── 01_init.sql             # 初始建表
 │   └── 02_add_default_model.sql ... 35_storyboard_order_integrity.sql
@@ -231,20 +228,26 @@ style:
 
 ### 集数（Episode）
 
+当前没有独立的 Episode CRUD。集数通过项目详情读取，批量保存走 `PUT /dramas/:id/episodes`。
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/episodes/:id` | 获取集数详情 |
-| PUT | `/episodes/:id` | 更新集数（剧本内容、标题等） |
-| POST | `/dramas/:id/episodes` | 新增集数 |
-| DELETE | `/episodes/:id` | 删除集数 |
+| PUT | `/dramas/:id/episodes` | 批量保存项目集数 |
+| POST | `/episodes/:episode_id/finalize` | 从本集已完成分镜创建并启动 FFmpeg 合成 |
+| GET | `/episodes/:episode_id/download` | 获取最终视频地址 |
+| GET | `/episodes/:episode_id/timeline` | 读取本集时间线 |
+| GET | `/episodes/:episode_id/timeline/srt` | 导出本集字幕 |
 
 ### 分镜（Storyboard）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/episodes/:id/storyboards` | 获取集数所有分镜 |
-| POST | `/episodes/:id/generate-storyboard` | 触发分镜生成任务 |
+| GET | `/episodes/:episode_id/storyboards` | 获取集数所有分镜 |
+| POST | `/episodes/:episode_id/storyboards` | 触发分镜生成任务 |
+| GET | `/storyboards/:id` | 获取单个分镜 |
 | PUT | `/storyboards/:id` | 更新分镜字段 |
+| DELETE | `/storyboards/:id` | 删除分镜 |
+| POST | `/images/upload` | 上传图片生成记录；没有独立的 `/storyboards/:id/images` 上传接口 |
 
 ### 图片生成（Image）
 
@@ -252,8 +255,8 @@ style:
 |------|------|------|
 | POST | `/images` | 创建图片生成任务 |
 | GET | `/images/:id` | 查询任务状态 |
-| GET | `/storyboards/:id/images` | 获取分镜所有图片 |
-| POST | `/storyboards/:id/images/upload` | 手动上传图片 |
+| GET | `/images` | 查询图片生成记录；可按接口支持的条件筛选 |
+| POST | `/images/upload` | 手动上传图片生成记录 |
 
 ### 视频生成（Video）
 
@@ -282,24 +285,27 @@ style:
 |------|------|------|
 | GET | `/tasks/:id` | 查询任务状态与进度 |
 | GET | `/tasks` | 获取任务列表 |
+| POST | `/tasks/:task_id/cancel` | 请求取消排队中或运行中的任务；重复请求保持幂等 |
 
 ### 角色与素材库
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/dramas/:id/characters` | 获取剧集角色 |
-| POST | `/dramas/:id/characters/extract` | 从剧本提取角色（触发任务） |
+| POST | `/episodes/:episode_id/characters/extract` | 从本集剧本提取角色 |
 | POST | `/characters/:id/generate-image` | 生成角色图片 |
 | GET | `/dramas/:id/scenes` | 获取剧集场景 |
-| POST | `/episodes/:id/extract-backgrounds` | 提取场景背景（触发任务） |
+| POST | `/images/episode/:episode_id/backgrounds/extract` | 提取场景背景（触发任务） |
 | GET | `/dramas/:id/props` | 获取剧集道具 |
-| POST | `/episodes/:id/extract-props` | 从剧本提取道具（触发任务） |
-| POST | `/props/:id/generate-image` | 生成道具图片 |
+| POST | `/episodes/:episode_id/props/extract` | 从本集剧本提取道具（触发任务） |
+| POST | `/props/:id/generate` | 生成道具图片 |
 | GET | `/assets` | 分页查询素材中心图片/视频 |
+| GET | `/assets/network-search` | 搜索 Wikimedia Commons 公开图片/视频并返回作者、许可和预览信息 |
+| POST | `/assets/network-import` | 校验远端来源并安全下载到项目或全局素材库；同项目同来源幂等复用 |
 | POST | `/assets/upload` | 上传图片或视频并写入素材中心（单文件最大 100MB；最多 2 个并发；保留磁盘空间；图片完整解码、视频 `ffprobe` 校验；失败清理） |
-| DELETE | `/assets/:id` | 软删除素材记录；无其他有效引用时同步删除受控 `uploads/` 文件 |
+| DELETE | `/assets/:id` | 软删除素材记录；无其他有效引用时同步删除受控素材文件 |
 
-素材 API 的 `drama_id` 必须是存在且未删除项目的正整数；本地 `local_path` 和 `/static/...` URL 仅可指向该项目目录、`library/` 或兼容的 `dramas/<id>/` 旧目录。无项目素材兼容根级 `uploads/` 旧目录。外部 HTTP(S) URL 必须是无凭据的公网地址，`localhost` 地址不会接受为素材来源。自由画布的 image/video 节点采用相同范围，并在提供素材引用时以素材记录的 canonical `local_path` 为准。
+素材 API 的 `drama_id` 必须是存在且未删除项目的正整数。当前项目媒体位于 `storage/projects/<固化项目目录>/...`，公共素材位于 `storage/library/...`，网络素材下载到 `storage/library/uploads/...`；`storage/dramas/<id>/...` 与根级 `storage/uploads/...` 仅为兼容旧数据。本地 `local_path` 和 `/static/...` URL 必须落在对应允许范围。外部 HTTP(S) URL 必须是无凭据的公网地址，`localhost` 地址不会接受为素材来源。自由画布的 image/video 节点采用相同范围，并在提供素材引用时以素材记录的 canonical `local_path` 为准。
 
 ### 静态文件
 
@@ -341,6 +347,7 @@ style:
 **数据库迁移：**
 - 每次服务启动时自动执行 `runMigrationsAndEnsure()`：先应用 `migrations/` SQL 文件，再执行表/列兼容性补齐（支持旧数据库升级）
 - `npm run migrate` — 手动运行同一迁移流程；通常用于首次手动初始化或显式迁移验证
+- 当前迁移序列到 `37_task_cancellation_state.sql`；迁移 37 为 `async_tasks` 增加取消状态、操作 ID、重试和确认时间字段及索引。迁移由服务启动自动执行，不应把“文件存在”写成某个现有数据库已经升级的证据；以目标实例启动成功和迁移记录/字段检查为准
 
 ---
 
@@ -355,6 +362,7 @@ style:
 **支持的图片 API：**
 - DashScope（通义万象）：`POST /api/v1/services/aigc/text2image/image-synthesis`
 - Volcengine（豆包）：`POST /api/v3/images/generations`（OpenAI 兼容格式）
+- Google Gemini 图片：`generateContent` 原生图片模型（如 `gemini-2.5-flash-image`），不是 Imagen API
 
 ### 即梦（Seedream）Volcengine 图生图与文生图
 
@@ -396,7 +404,7 @@ style:
 
 ### 提示词国际化
 
-`promptI18n.js` 管理所有提示词模板，支持中文（zh）和英文（en）两套模板，通过 `config.yaml` 中的 `app.language` 字段切换。
+`promptI18n.js` 管理中文（`zh`）和英文（`en`）提示词模板。`config.yaml` 中的 `app.language` 是后端提示词默认语言，并可通过 `GET/PUT /api/v1/settings/language` 读取或持久化；部分制作入口会显式传入项目/脚本语言覆盖该默认值。它不是 Vue 界面语言开关，不能据此宣称整个界面已经国际化。
 
 ---
 

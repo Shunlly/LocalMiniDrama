@@ -23,8 +23,20 @@ const VISION_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const VISION_IMAGE_TIMEOUT_MS = 30000;
 const VISION_IMAGE_MAX_REDIRECTS = 3;
 
-function providerNetworkOptions(config, lookup) {
-  return aiConfigService.getProviderNetworkOptions(config, { lookup });
+function providerNetworkOptions(config, lookup, signal) {
+  return aiConfigService.getProviderNetworkOptions(config, { lookup, signal });
+}
+
+function createAbortError(signal) {
+  if (signal?.reason?.name === 'AbortError') return signal.reason;
+  const error = new Error(signal?.reason?.message || 'AI request was aborted.');
+  error.name = 'AbortError';
+  if (signal?.reason !== undefined) error.cause = signal.reason;
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw createAbortError(signal);
 }
 
 async function pinnedRequestTarget(url, networkOptions = {}) {
@@ -84,7 +96,10 @@ function safeRequestError(error, operation) {
  * 用于视觉分析等短请求，兼容 o-series 推理模型和各种第三方代理。
  */
 async function postJSONNonStream(url, headers, body, timeoutMs = 120000, networkOptions = {}) {
+  const signal = networkOptions.signal;
+  throwIfAborted(signal);
   const target = await pinnedRequestTarget(url, networkOptions);
+  throwIfAborted(signal);
   return new Promise((resolve, reject) => {
     const mod = target.parsed.protocol === 'https:' ? https : http;
     const bodyStr = JSON.stringify(body);
@@ -100,10 +115,28 @@ async function postJSONNonStream(url, headers, body, timeoutMs = 120000, network
       headers: reqHeaders,
     };
 
-    const req = mod.request(options, (res) => {
+    let settled = false;
+    let timer = null;
+    let req = null;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      callback(value);
+    };
+    const succeed = (value) => finish(resolve, value);
+    const fail = (error) => finish(reject, error);
+    const onAbort = () => {
+      const error = createAbortError(signal);
+      req?.destroy(error);
+      fail(error);
+    };
+
+    req = mod.request(options, (res) => {
       collectResponse(res, networkOptions.maxResponseBytes || TEXT_RESPONSE_MAX_BYTES, (raw) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
-          return reject(createProviderHttpError({
+          return fail(createProviderHttpError({
             provider: 'AI provider',
             operation: 'vision request',
             status: res.statusCode,
@@ -116,16 +149,28 @@ async function postJSONNonStream(url, headers, body, timeoutMs = 120000, network
           const content = json.choices?.[0]?.message?.content
             || json.choices?.[0]?.message?.reasoning_content
             || null;
-          resolve({ status: res.statusCode, body: content, raw });
+          succeed({ status: res.statusCode, body: content, raw });
         } catch (_) {
-          resolve({ status: res.statusCode, body: null, raw });
+          succeed({ status: res.statusCode, body: null, raw });
         }
-      }, (error) => reject(safeRequestError(error, 'vision request')));
+      }, (error) => fail(safeRequestError(error, 'vision request')));
     });
 
-    const timer = setTimeout(() => { req.destroy(); reject(new Error(`Vision request timeout after ${timeoutMs}ms`)); }, timeoutMs);
-    req.on('error', (e) => { clearTimeout(timer); reject(safeRequestError(e, 'vision request')); });
-    req.on('close', () => clearTimeout(timer));
+    req.on('error', (error) => {
+      fail(signal?.aborted ? createAbortError(signal) : safeRequestError(error, 'vision request'));
+    });
+    signal?.addEventListener('abort', onAbort, { once: true });
+    timer = setTimeout(() => {
+      const error = new Error(`Vision request timeout after ${timeoutMs}ms`);
+      error.name = 'TimeoutError';
+      req.destroy(error);
+      fail(error);
+    }, timeoutMs);
+    if (typeof timer.unref === 'function') timer.unref();
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
     req.write(bodyStr);
     req.end();
   });
@@ -183,7 +228,10 @@ async function postJSONWithTimeout(url, headers, body, timeoutMs = 600000, netwo
  * silenceTimeoutMs：连续多少毫秒无任何数据才判定超时（默认 60 秒）。
  */
 async function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onProgress = null, networkOptions = {}) {
+  const signal = networkOptions.signal;
+  throwIfAborted(signal);
   const target = await pinnedRequestTarget(url, networkOptions);
+  throwIfAborted(signal);
   return new Promise((resolve, reject) => {
     const mod = target.parsed.protocol === 'https:' ? https : http;
     // 强制开启流式输出
@@ -201,28 +249,47 @@ async function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onPr
       headers: reqHeaders,
     };
 
+    let settled = false;
     let silenceTimer = null;
+    let req = null;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      if (silenceTimer) clearTimeout(silenceTimer);
+      signal?.removeEventListener('abort', onAbort);
+      callback(value);
+    };
+    const succeed = (value) => finish(resolve, value);
+    const fail = (error) => finish(reject, error);
+    const onAbort = () => {
+      const error = createAbortError(signal);
+      req?.destroy(error);
+      fail(error);
+    };
     const resetSilenceTimer = () => {
+      if (settled) return;
       if (silenceTimer) clearTimeout(silenceTimer);
       silenceTimer = setTimeout(() => {
-        req.destroy();
-        reject(new Error(`AI stream silence timeout after ${silenceTimeoutMs}ms`));
+        const error = new Error(`AI stream silence timeout after ${silenceTimeoutMs}ms`);
+        error.name = 'TimeoutError';
+        req.destroy(error);
+        fail(error);
       }, silenceTimeoutMs);
+      if (typeof silenceTimer.unref === 'function') silenceTimer.unref();
     };
 
-    const req = mod.request(options, (res) => {
+    req = mod.request(options, (res) => {
       const statusCode = res.statusCode;
       // 非 2xx 时先读完整 body 再报错（可能是 JSON 错误信息）
       if (statusCode < 200 || statusCode >= 300) {
         collectResponse(res, networkOptions.maxErrorBytes || TEXT_RESPONSE_MAX_BYTES, (raw) => {
-          clearTimeout(silenceTimer);
-          reject(createProviderHttpError({
+          fail(createProviderHttpError({
             provider: 'AI provider',
             operation: 'stream request',
             status: statusCode,
             responseBody: raw,
           }));
-        }, (error) => reject(safeRequestError(error, 'stream request')));
+        }, (error) => fail(safeRequestError(error, 'stream request')));
         return;
       }
 
@@ -234,6 +301,7 @@ async function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onPr
       resetSilenceTimer();
 
       res.on('data', (chunk) => {
+        if (settled) return;
         receivedBytes += chunk.length;
         if (receivedBytes > (networkOptions.maxResponseBytes || STREAM_RESPONSE_MAX_BYTES)) {
           res.destroy(new uploadService.UnsafeMediaReferenceError('AI stream response exceeds the size limit.'));
@@ -267,19 +335,27 @@ async function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onPr
       });
 
       res.on('end', () => {
-        clearTimeout(silenceTimer);
         if (!accumulated && rawResponse.trim()) {
           try {
             const payload = JSON.parse(rawResponse);
             accumulated = payload.choices?.[0]?.message?.content || payload.choices?.[0]?.text || '';
           } catch (_) {}
         }
-        resolve({ status: statusCode, body: accumulated });
+        succeed({ status: statusCode, body: accumulated });
       });
-      res.on('error', (e) => { clearTimeout(silenceTimer); reject(safeRequestError(e, 'stream request')); });
+      res.on('error', (error) => {
+        fail(signal?.aborted ? createAbortError(signal) : safeRequestError(error, 'stream request'));
+      });
     });
 
-    req.on('error', (e) => { clearTimeout(silenceTimer); reject(safeRequestError(e, 'stream request')); });
+    req.on('error', (error) => {
+      fail(signal?.aborted ? createAbortError(signal) : safeRequestError(error, 'stream request'));
+    });
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
     resetSilenceTimer(); // 连接建立阶段也需要计时
     req.write(bodyStr);
     req.end();
@@ -399,6 +475,7 @@ function resolveTextRoute(db, serviceType, options = {}) {
 }
 
 async function generateText(db, log, serviceType, userPrompt, systemPrompt, options = {}) {
+  throwIfAborted(options.signal);
   log = createSafeProviderLogger(log);
   const { model: preferredModel, temperature = 0.7, json_mode = false, min_max_tokens = null, streamCallback = null, scene_key = null } = options;
 
@@ -480,7 +557,7 @@ async function generateText(db, log, serviceType, userPrompt, systemPrompt, opti
     }
     // 调用者提供的流式回调（如分镜增量解析），传入当前已积累的完整文本
     if (streamCallback && accumulated) streamCallback(accumulated);
-  }, providerNetworkOptions(config, options.provider_dns_lookup));
+  }, providerNetworkOptions(config, options.provider_dns_lookup, options.signal));
   // 流式模式下 res.body 已是拼接好的完整文本内容（非 JSON）
   const content = res.body;
   const elapsedMs = Date.now() - startMs;
@@ -496,6 +573,7 @@ async function generateText(db, log, serviceType, userPrompt, systemPrompt, opti
  * @param {(delta: string) => void} onDelta 仅增量片段（UTF-8 字符串）
  */
 async function streamGenerateText(db, log, serviceType, userPrompt, systemPrompt, options = {}, onDelta) {
+  throwIfAborted(options.signal);
   log = createSafeProviderLogger(log);
   const { model: preferredModel, temperature = 0.7, json_mode = false, min_max_tokens = null, scene_key = null } = options;
   const route = resolveTextRoute(db, serviceType, options);
@@ -577,7 +655,7 @@ async function streamGenerateText(db, log, serviceType, userPrompt, systemPrompt
       lastLen = accumulated.length;
       if (onDelta && delta) onDelta(delta);
     },
-    providerNetworkOptions(config, options.provider_dns_lookup)
+    providerNetworkOptions(config, options.provider_dns_lookup, options.signal)
   );
   const content = res.body;
   if (!content) {
@@ -635,7 +713,8 @@ async function validateVisionImageBuffer(buffer) {
 }
 
 async function loadVisionImage(imageSource, config, options = {}) {
-  const providerNetwork = providerNetworkOptions(config, options.media_dns_lookup);
+  const providerNetwork = providerNetworkOptions(config, options.media_dns_lookup, options.signal);
+  throwIfAborted(options.signal);
   if (!imageSource || typeof imageSource !== 'object') {
     throw new uploadService.UnsafeMediaReferenceError('Vision reference image is required.');
   }
@@ -675,7 +754,9 @@ async function loadVisionImage(imageSource, config, options = {}) {
     trustedOrigins: providerNetwork.trustedOrigins,
     allowPrivateOrigins: providerNetwork.allowPrivateOrigins,
     lookup: providerNetwork.lookup,
+    signal: options.signal,
   });
+  throwIfAborted(options.signal);
   const validated = await validateVisionImageBuffer(downloaded.buffer);
   return { ...validated, sourceType: 'remote', reference: downloaded.finalUrl };
 }
@@ -686,6 +767,7 @@ async function loadVisionImage(imageSource, config, options = {}) {
  * 使用 OpenAI vision 消息格式（兼容 GPT-4o / Gemini openai-compat / Qwen-VL 等）。
  */
 async function generateTextWithVision(db, log, serviceType, userPrompt, systemPrompt, imageSource, options = {}) {
+  throwIfAborted(options.signal);
   log = createSafeProviderLogger(log);
   // 复用 generateText 的配置查找逻辑
   const { model: preferredModel, temperature = 0.3, max_tokens = 500 } = options;
@@ -748,7 +830,7 @@ async function generateTextWithVision(db, log, serviceType, userPrompt, systemPr
   try {
     // 使用非流式请求：视觉分析响应短，且流式对推理模型（o1/o3/o4）和部分代理兼容性差
     res = await postJSONNonStream(url, buildAuthHeaders(config), body, 120000, {
-      ...providerNetworkOptions(config, options.provider_dns_lookup),
+      ...providerNetworkOptions(config, options.provider_dns_lookup, options.signal),
     });
   } catch (httpErr) {
     log.error('[Vision] HTTP 请求失败', { model, url: url.slice(0, 80), error: httpErr.message });

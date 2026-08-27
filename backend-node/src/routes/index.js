@@ -508,6 +508,8 @@ function setupRouter(cfg, db, log) {
 
   // ---------- assets ----------
   r.get('/assets', assets.list);
+  r.get('/assets/network-search', assets.networkSearch);
+  r.post('/assets/network-import', assets.networkImport);
   r.post('/assets/upload', uploadModule.multerMediaSingle, uploadHandlers.uploadAsset);
   r.post('/assets', assets.create);
   r.post('/assets/import/image/:image_gen_id', assets.importImage);

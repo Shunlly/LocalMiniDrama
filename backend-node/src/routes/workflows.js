@@ -1,6 +1,7 @@
 const response = require('../response');
 const workflowService = require('../services/workflowService');
 const readinessService = require('../services/readinessService');
+const { canReadDrama } = require('../services/dramaWriteGuard');
 
 function badRequestOrInternal(res, err) {
   if (err && err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
@@ -10,11 +11,72 @@ function badRequestOrInternal(res, err) {
   return response.internalError(res, err.message || 'Workflow operation failed');
 }
 
+function positiveInteger(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function isWorkflowRunReadable(db, run) {
+  const dramaId = positiveInteger(run?.drama_id);
+  if (!dramaId || !canReadDrama(db, dramaId)) return false;
+  if (run.episode_id == null) return true;
+
+  const episodeId = positiveInteger(run.episode_id);
+  if (!episodeId) return false;
+  const episode = db.prepare(
+    'SELECT drama_id, deleted_at FROM episodes WHERE id = ?'
+  ).get(episodeId);
+  return Boolean(
+    episode
+    && episode.deleted_at == null
+    && positiveInteger(episode.drama_id) === dramaId
+  );
+}
+
+function getReadableWorkflowRun(db, runId) {
+  const run = workflowService.getWorkflowRun(db, runId);
+  return run && isWorkflowRunReadable(db, run) ? run : null;
+}
+
+function listReadableWorkflowRuns(db, query) {
+  let sql = `SELECT run.*
+    FROM workflow_runs run
+    JOIN dramas drama ON drama.id = run.drama_id
+    LEFT JOIN episodes episode ON episode.id = run.episode_id
+   WHERE run.deleted_at IS NULL
+     AND drama.deleted_at IS NULL
+     AND LOWER(TRIM(COALESCE(drama.status, ''))) NOT IN ('trash', 'deleted', 'recycling', 'manual_intervention')
+     AND TRIM(COALESCE(drama.trash_state, '')) = ''
+     AND TRIM(COALESCE(drama.recycle_phase, '')) = ''
+     AND (run.episode_id IS NULL OR (
+       episode.id IS NOT NULL
+       AND episode.deleted_at IS NULL
+       AND episode.drama_id = run.drama_id
+     ))`;
+  const params = [];
+  if (query.drama_id != null) {
+    sql += ' AND run.drama_id = ?';
+    params.push(Number(query.drama_id));
+  }
+  if (query.type) {
+    sql += ' AND run.type = ?';
+    params.push(String(query.type));
+  }
+  if (query.status) {
+    sql += ' AND run.status = ?';
+    params.push(String(query.status));
+  }
+  const limit = Math.max(1, Math.min(100, Number(query.limit) || 20));
+  sql += ' ORDER BY run.created_at DESC LIMIT ?';
+  params.push(limit);
+  return db.prepare(sql).all(...params).map(workflowService.rowToRun);
+}
+
 module.exports = function workflowRoutes(db, log) {
   return {
     list(req, res) {
       try {
-        const runs = workflowService.listWorkflowRuns(db, req.query || {});
+        const runs = listReadableWorkflowRuns(db, req.query || {});
         response.success(res, runs);
       } catch (err) {
         log.error('workflows list', { error: err.message });
@@ -24,6 +86,9 @@ module.exports = function workflowRoutes(db, log) {
 
     get(req, res) {
       try {
+        if (!getReadableWorkflowRun(db, req.params.run_id)) {
+          return response.notFound(res, 'Workflow run not found');
+        }
         const run = workflowService.getWorkflowRunDetail(db, req.params.run_id);
         if (!run) return response.notFound(res, 'Workflow run not found');
         response.success(res, run);
@@ -59,6 +124,9 @@ module.exports = function workflowRoutes(db, log) {
 
     retry(req, res) {
       try {
+        if (!getReadableWorkflowRun(db, req.params.run_id)) {
+          return response.notFound(res, 'Workflow run not found');
+        }
         const run = workflowService.retryWorkflowRun(db, log, req.params.run_id, req.body || {});
         if (!run) return response.notFound(res, 'Workflow run not found');
         response.success(res, run);
@@ -70,6 +138,9 @@ module.exports = function workflowRoutes(db, log) {
 
     cancel(req, res) {
       try {
+        if (!getReadableWorkflowRun(db, req.params.run_id)) {
+          return response.notFound(res, 'Workflow run not found');
+        }
         const run = workflowService.cancelWorkflowRun(db, log, req.params.run_id, req.body?.reason);
         if (!run) return response.notFound(res, 'Workflow run not found');
         response.success(res, run);
@@ -81,6 +152,9 @@ module.exports = function workflowRoutes(db, log) {
 
     pause(req, res) {
       try {
+        if (!getReadableWorkflowRun(db, req.params.run_id)) {
+          return response.notFound(res, 'Workflow run not found');
+        }
         const run = workflowService.pauseWorkflowRun(db, log, req.params.run_id, req.body?.reason);
         if (!run) return response.notFound(res, 'Workflow run not found');
         response.success(res, run);
@@ -92,6 +166,9 @@ module.exports = function workflowRoutes(db, log) {
 
     resume(req, res) {
       try {
+        if (!getReadableWorkflowRun(db, req.params.run_id)) {
+          return response.notFound(res, 'Workflow run not found');
+        }
         const run = workflowService.resumeWorkflowRun(db, log, req.params.run_id);
         if (!run) return response.notFound(res, 'Workflow run not found');
         response.success(res, run);

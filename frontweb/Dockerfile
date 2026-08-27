@@ -5,6 +5,7 @@ WORKDIR /app
 ENV NODE_ENV=development
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV LOCALMINIDRAMA_REPOSITORY_ROOT=/app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
@@ -31,6 +32,7 @@ COPY backend-node/scripts/e2e-provider.js /backend-node/scripts/e2e-provider.js
 COPY backend-node/Dockerfile /backend-node/Dockerfile
 COPY backend-node/docker-entrypoint.sh /backend-node/docker-entrypoint.sh
 COPY docker-compose.yml /docker-compose.yml
+COPY scripts/docker-compose-with-revision.cjs /scripts/docker-compose-with-revision.cjs
 COPY .github/workflows/ci.yml /.github/workflows/ci.yml
 COPY .github/workflows/release.yml /.github/workflows/release.yml
 COPY .gitignore /.gitignore

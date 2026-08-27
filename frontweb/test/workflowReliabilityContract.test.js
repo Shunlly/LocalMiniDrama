@@ -86,7 +86,8 @@ test('every canvas inspector exit uses the shared dirty guard', () => {
     /function runCanvasNavigationBarrier\(\)[\s\S]*?ensureFreeCanvasUploadFinished\(\)[\s\S]*?confirmFocusedNodeLeave\(\)[\s\S]*?flushCanvasSaveBeforeLeave\(projectId\)/,
   )
   assert.match(dramaCanvasSource, /onBeforeRouteLeave\(\(\) => runCanvasNavigationBarrier\(\)\)/)
-  assert.match(dramaCanvasSource, /onBeforeRouteUpdate\(async \(to\)[\s\S]*?return runCanvasNavigationBarrier\(\)/)
+  assert.match(dramaCanvasSource, /async function guardCanvasRouteUpdate\(to\)[\s\S]*?return runCanvasNavigationBarrier\(\)/)
+  assert.match(dramaCanvasSource, /onBeforeRouteUpdate\(guardCanvasRouteUpdate\)/)
   assert.match(dramaCanvasSource, /window\.addEventListener\('beforeunload', handleCanvasBeforeUnload\)/)
   assert.match(dramaCanvasSource, /async function onPaneClick\(/)
   assert.match(dramaCanvasSource, /await setFocusedCanvasNode\(null, \{ restoreFocus: true \}\)/)
@@ -96,7 +97,7 @@ test('every canvas inspector exit uses the shared dirty guard', () => {
   assert.match(dramaCanvasSource, /:model-value="filterEpisodeId"/)
   assert.match(dramaCanvasSource, /@update:model-value="requestEpisodeFilterChange"/)
   assert.match(dramaCanvasSource, /async function requestEpisodeFilterChange\(/)
-  assert.match(dramaCanvasSource, /await setFocusedCanvasNode\(null, \{ restoreFocus: true \}\)/)
+  assert.match(dramaCanvasSource, /delete query\.focus[\s\S]*?await router\.replace\(\{ query \}\)[\s\S]*?await canvasRouteSynchronization/)
 })
 
 test('canvas inspector restores keyboard and selection context when closing or cancelling', () => {
@@ -134,10 +135,15 @@ test('canvas saves an immutable draft snapshot and locks generation before persi
   assert.match(storyboardPanelSource, /async function runStep\(step\) \{[\s\S]*busyStep\.value = step[\s\S]*await persistForm\(true, draftSnapshot\)/)
 })
 
-test('canvas guards same-route project changes and carries project-list return context', () => {
-  assert.match(dramaCanvasSource, /onBeforeRouteUpdate\(async \(to\) => \{[\s\S]*runCanvasNavigationBarrier\(\)/)
+test('canvas guards same-route context changes and carries all return context', () => {
+  assert.match(dramaCanvasSource, /async function guardCanvasRouteUpdate\(to\)[\s\S]*canvasRouteContext\(route\)[\s\S]*canvasRouteContext\(to\)/)
+  assert.match(dramaCanvasSource, /currentContext\.focusNodeId !== nextContext\.focusNodeId[\s\S]*currentContext\.episodeId !== nextContext\.episodeId[\s\S]*return runCanvasNavigationBarrier\(\)/)
+  assert.match(dramaCanvasSource, /onBeforeRouteUpdate\(guardCanvasRouteUpdate\)/)
+  assert.match(dramaCanvasSource, /routeFocusNodeId\(\), routeEpisodeId\(\)[\s\S]*startCanvasRouteSynchronization\(\{ resetProject \}\)/)
   assert.match(dramaCanvasSource, /const projectListReturnTo = computed\(\(\) => normalizeProjectListReturnTo\(route\.query\.returnTo\)\)/)
   assert.match(dramaCanvasSource, /function goProjectList\(\)/)
   assert.match(dramaCanvasSource, /function goListMode\(\)[\s\S]*returnTo/)
   assert.match(dramaCanvasSource, /function navigateToStoryboard\([\s\S]*returnTo/)
+  assert.match(dramaCanvasSource, /function buildCanvasReturnTo\([\s\S]*routeEpisodeId\(\)[\s\S]*routeFocusNodeId\(\)[\s\S]*name: 'film-canvas'/)
+  assert.match(dramaCanvasSource, /function goMediaLibrary\(\)[\s\S]*returnTo: buildCanvasReturnTo\(\)/)
 })

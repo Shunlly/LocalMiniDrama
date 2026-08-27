@@ -543,6 +543,135 @@ function openStorageFile(storagePath, value) {
   }
 }
 
+function createSiblingStagingPath(finalPath, label = 'tmp') {
+  const resolved = path.resolve(finalPath);
+  return path.join(
+    path.dirname(resolved),
+    `.${path.basename(resolved)}.${randomUUID()}.${label}`
+  );
+}
+
+function fsyncFile(filePath) {
+  let fd;
+  try {
+    try {
+      fd = fs.openSync(filePath, fs.constants.O_RDWR);
+    } catch (_) {
+      fd = fs.openSync(filePath, fs.constants.O_RDONLY);
+    }
+    fs.fsyncSync(fd);
+  } catch (error) {
+    if (process.platform !== 'win32' || !['EINVAL', 'EPERM', 'ENOTSUP'].includes(error?.code)) {
+      throw error;
+    }
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+function fsyncDirectory(directoryPath) {
+  let fd;
+  try {
+    fd = fs.openSync(directoryPath, fs.constants.O_RDONLY);
+    fs.fsyncSync(fd);
+  } catch (error) {
+    // Windows 不支持对目录句柄执行 fsync；文件 fsync 和同盘 rename 仍然必须成功。
+    if (process.platform !== 'win32' || !['EINVAL', 'EPERM', 'EISDIR', 'ENOTSUP'].includes(error?.code)) {
+      throw error;
+    }
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+function removeFileQuietly(filePath) {
+  if (!filePath) return;
+  try {
+    fs.rmSync(filePath, { force: true });
+  } catch (_) {}
+}
+
+/**
+ * 发布一个已完整写入的同盘暂存文件。调用方在数据库提交后调用 commit；提交失败则调用 rollback。
+ */
+function publishStagedFile(stagedPath, finalPath) {
+  const staged = path.resolve(stagedPath);
+  const final = path.resolve(finalPath);
+  const finalDirectory = path.dirname(final);
+  const stagedDirectory = path.dirname(staged);
+  if (fs.statSync(stagedDirectory).dev !== fs.statSync(finalDirectory).dev) {
+    throw new Error('暂存文件必须与最终文件位于同一文件系统');
+  }
+  const stagedStat = fs.statSync(staged);
+  if (!stagedStat.isFile() || stagedStat.size <= 0) {
+    throw new Error('暂存文件为空或不是普通文件');
+  }
+
+  fsyncFile(staged);
+  let backupPath = null;
+  let published = false;
+  try {
+    if (fs.existsSync(final)) {
+      const finalStat = fs.lstatSync(final);
+      if (finalStat.isSymbolicLink() || !finalStat.isFile()) {
+        throw new UnsafeMediaReferenceError('Local media output is not a regular file.', 'OUTPUT_TYPE');
+      }
+      backupPath = createSiblingStagingPath(final, 'backup');
+      try {
+        fs.linkSync(final, backupPath);
+      } catch (_) {
+        fs.copyFileSync(final, backupPath, fs.constants.COPYFILE_EXCL);
+        fsyncFile(backupPath);
+      }
+    }
+    fs.renameSync(staged, final);
+    published = true;
+    fsyncDirectory(stagedDirectory);
+    fsyncDirectory(finalDirectory);
+  } catch (error) {
+    if (published) removeFileQuietly(final);
+    if (backupPath && fs.existsSync(backupPath)) {
+      try { fs.renameSync(backupPath, final); } catch (_) {}
+    }
+    removeFileQuietly(staged);
+    removeFileQuietly(backupPath);
+    throw error;
+  }
+
+  let settled = false;
+  return {
+    finalPath: final,
+    commit() {
+      if (settled) return;
+      settled = true;
+      removeFileQuietly(backupPath);
+      fsyncDirectory(finalDirectory);
+    },
+    rollback() {
+      if (settled) return;
+      settled = true;
+      removeFileQuietly(final);
+      if (backupPath && fs.existsSync(backupPath)) fs.renameSync(backupPath, final);
+      fsyncDirectory(finalDirectory);
+    },
+  };
+}
+
+function writeFileAtomically(finalPath, writeStagedFile) {
+  const stagedPath = createSiblingStagingPath(finalPath);
+  let publication = null;
+  try {
+    writeStagedFile(stagedPath);
+    publication = publishStagedFile(stagedPath, finalPath);
+    publication.commit();
+    return finalPath;
+  } catch (error) {
+    publication?.rollback();
+    removeFileQuietly(stagedPath);
+    throw error;
+  }
+}
+
 function writeStorageBuffer(storagePath, value, buffer) {
   if (!Buffer.isBuffer(buffer)) {
     throw new TypeError('Local storage output must be a Buffer.');
@@ -554,40 +683,21 @@ function writeStorageBuffer(storagePath, value, buffer) {
     ? ensureStorageDirectory(storagePath, segments.join('/'))
     : inspectStorageRoot(storagePath, { create: true });
   const absolutePath = path.join(parent.directory || parent.root, filename);
-  const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
-  let fd;
-  try {
-    try {
-      const existing = fs.lstatSync(absolutePath);
-      if (existing.isSymbolicLink() || !existing.isFile()) {
-        throw new UnsafeMediaReferenceError('Local media output is not a regular file.', 'OUTPUT_TYPE');
-      }
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
-    }
-
-    fd = fs.openSync(
-      absolutePath,
-      fs.constants.O_CREAT | fs.constants.O_WRONLY | fs.constants.O_TRUNC | noFollow,
+  writeFileAtomically(absolutePath, (stagedPath) => {
+    const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+    const fd = fs.openSync(
+      stagedPath,
+      fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | noFollow,
       0o600
     );
-    const openedStat = fs.fstatSync(fd);
-    if (!openedStat.isFile()) {
-      throw new UnsafeMediaReferenceError('Local media output is not a regular file.', 'OUTPUT_TYPE');
+    try {
+      fs.writeFileSync(fd, buffer);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
     }
-    fs.writeFileSync(fd, buffer);
-    fs.fsyncSync(fd);
-
-    const verified = resolveStorageReference(storagePath, relativePath);
-    const verifiedStat = fs.statSync(verified.absolutePath);
-    const finalizedStat = fs.fstatSync(fd);
-    if (!sameFileIdentity(finalizedStat, verifiedStat)) {
-      throw new UnsafeMediaReferenceError('Local media output changed during secure write.', 'CHANGED');
-    }
-    return verified;
-  } finally {
-    if (fd !== undefined) fs.closeSync(fd);
-  }
+  });
+  return resolveStorageReference(storagePath, relativePath);
 }
 
 async function validateMediaReference(value, options = {}) {
@@ -972,21 +1082,21 @@ function persistStorySourceOriginal(storagePath, dramaIdValue, sourceIdValue, so
   const absolutePath = path.join(originalDirectory.directory, serverFilename);
   const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
   const flags = fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | noFollow;
-  let fd;
   try {
-    fd = fs.openSync(absolutePath, flags, 0o600);
-    fs.writeFileSync(fd, source.buffer);
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
-    fd = undefined;
+    writeFileAtomically(absolutePath, (stagedPath) => {
+      const fd = fs.openSync(stagedPath, flags, 0o600);
+      try {
+        fs.writeFileSync(fd, source.buffer);
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+    });
     const written = fs.lstatSync(absolutePath);
     if (written.isSymbolicLink() || !written.isFile() || written.size !== source.buffer.length) {
       throw new StorySourceStorageError('SOURCE_ORIGINAL_WRITE_FAILED', 'The source original was not written safely.');
     }
   } catch (error) {
-    if (fd !== undefined) {
-      try { fs.closeSync(fd); } catch (_) {}
-    }
     try { fs.unlinkSync(absolutePath); } catch (cleanupError) {
       if (cleanupError.code !== 'ENOENT') throw cleanupError;
     }
@@ -1387,7 +1497,9 @@ function uploadFile(
     category,
     projectSubdir,
     detected,
-    (filePath) => fs.writeFileSync(filePath, fileBuffer, { flag: 'wx' })
+    (filePath) => writeFileAtomically(filePath, (stagedPath) => {
+      fs.writeFileSync(stagedPath, fileBuffer, { flag: 'wx' });
+    })
   );
 }
 
@@ -1427,7 +1539,9 @@ function uploadFileFromPath(
     category,
     projectSubdir,
     detected,
-    (filePath) => fs.copyFileSync(sourcePath, filePath, fs.constants.COPYFILE_EXCL)
+    (filePath) => writeFileAtomically(filePath, (stagedPath) => {
+      fs.copyFileSync(sourcePath, stagedPath, fs.constants.COPYFILE_EXCL);
+    })
   );
 }
 
@@ -1490,7 +1604,9 @@ async function downloadImageToLocal(storagePath, imageUrl, category, log, prefix
     assertUploadDiskCapacity(storagePath, buffer.length);
     const name = `${prefix}${prefix ? '_' : ''}${randomUUID().slice(0, 8)}.${ext}`;
     const filePath = path.join(categoryPath, name);
-    fs.writeFileSync(filePath, buffer, { flag: 'wx' });
+    writeFileAtomically(filePath, (stagedPath) => {
+      fs.writeFileSync(stagedPath, buffer, { flag: 'wx' });
+    });
     writtenFilePath = filePath;
     const relativePath = `${relPrefix}/${name}`.replace(/\\/g, '/');
     const opened = openStorageFile(storagePath, relativePath);
@@ -1643,6 +1759,10 @@ module.exports = {
   normalizeStorageRelativeReference,
   openStorageFile,
   writeStorageBuffer,
+  writeFileAtomically,
+  publishStagedFile,
+  fsyncFile,
+  fsyncDirectory,
   resolveStorageReference,
   validateMediaReference,
   downloadBufferViaNodeHttp,

@@ -15,16 +15,16 @@ function sourceBetween(source, startMarker, endMarker) {
   return source.slice(start, end)
 }
 
-test('media library upload participates in route and browser leave protection', () => {
+test('media library uploads and network imports participate in route and browser leave protection', () => {
   assert.match(mediaLibrarySource, /import \{ onBeforeRouteLeave, useRoute, useRouter \} from 'vue-router'/)
   assert.match(
     mediaLibrarySource,
-    /function confirmMediaLibraryLeave\(\) \{[\s\S]*if \(!uploading\.value\) return true[\s\S]*ElMessage\.warning\([\s\S]*return false/,
+    /function confirmMediaLibraryLeave\(\) \{[\s\S]*if \(!hasPendingMediaLibraryOperations\(uploading\.value, networkImportingKeys\)\) return true[\s\S]*ElMessage\.warning\([\s\S]*return false/,
   )
   assert.match(mediaLibrarySource, /onBeforeRouteLeave\(\(\) => confirmMediaLibraryLeave\(\)\)/)
   assert.match(
     mediaLibrarySource,
-    /function handleBeforeUnload\(event\) \{\s*if \(!uploading\.value\) return[\s\S]*event\.preventDefault\(\)[\s\S]*event\.returnValue = ''/,
+    /function handleBeforeUnload\(event\) \{\s*if \(!hasPendingMediaLibraryOperations\(uploading\.value, networkImportingKeys\)\) return[\s\S]*event\.preventDefault\(\)[\s\S]*event\.returnValue = ''/,
   )
   assert.match(mediaLibrarySource, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
   assert.match(mediaLibrarySource, /window\.removeEventListener\('beforeunload', handleBeforeUnload\)/)

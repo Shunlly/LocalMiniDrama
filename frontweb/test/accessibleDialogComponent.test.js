@@ -146,13 +146,15 @@ const ElDialogStub = defineComponent({
       onRequestModelUpdate: (value) => emit('update:modelValue', value),
       onTriggerOpen: () => emit('open'),
       onTriggerOpened: () => emit('opened'),
+      onTriggerClose: (event) => emit('close', event),
       onTriggerClosed: () => emit('closed'),
-      onTriggerOpenAutoFocus: () => {
-        emit('openAutoFocus')
+      onTriggerOpenAutoFocus: (event) => {
+        emit('openAutoFocus', event)
         nextTick(() => {
           globalThis.document.activeElement = focusTrapContainer
         })
       },
+      onTriggerCloseAutoFocus: (event) => emit('closeAutoFocus', event),
       onInvokeBeforeClose: (done) => props.beforeClose?.(done),
     }, [
       h('default-slot', {}, slots.default?.()),
@@ -189,8 +191,10 @@ async function mountDialog() {
         class: 'business-dialog',
         onOpen: () => events.push('open'),
         onOpened: () => events.push('opened'),
-        onClosed: () => events.push('closed'),
-        onOpenAutoFocus: () => events.push('open-auto-focus'),
+        onClose: (event) => events.push(['close', event]),
+        onClosed: (event) => events.push(event === undefined ? 'closed' : ['closed', event]),
+        onOpenAutoFocus: (event) => events.push(event === undefined ? 'open-auto-focus' : ['open-auto-focus', event]),
+        onCloseAutoFocus: (event) => events.push(['close-auto-focus', event]),
       }, {
         default: () => h('main-content', {}, 'Body content'),
         header: ({ titleId, titleClass }) => h('heading-content', {
@@ -283,4 +287,43 @@ test('unmount unregisters an open dialog exactly once', async () => {
   assert.equal(globalThis.__accessibleDialogCalls.filter(([name]) => name === 'unregister').length, 1)
   delete globalThis.__accessibleDialogCalls
   delete globalThis.document
+})
+
+test('包装器完整透传自动聚焦和关闭事件参数', async () => {
+  globalThis.__accessibleDialogCalls = []
+  globalThis.__accessibleDialogFocusTarget = managedFocusTarget
+  globalThis.document = { activeElement: { id: 'launch-button' } }
+  const harness = await mountDialog()
+  try {
+    const [dialog] = findAll(harness.root, 'dialog-stub')
+    const openFocusEvent = { type: 'open-auto-focus' }
+    const closeEvent = { type: 'close' }
+    const closeFocusEvent = { type: 'close-auto-focus' }
+
+    dialog.props.onTriggerOpen()
+    dialog.props.onTriggerOpenAutoFocus(openFocusEvent)
+    dialog.props.onTriggerClose(closeEvent)
+    dialog.props.onTriggerCloseAutoFocus(closeFocusEvent)
+    await nextTick()
+    await nextTick()
+
+    assert.deepEqual(harness.events, [
+      'open',
+      ['open-auto-focus', openFocusEvent],
+      ['close', closeEvent],
+      ['close-auto-focus', closeFocusEvent],
+    ])
+  } finally {
+    harness.app.unmount()
+    delete globalThis.__accessibleDialogCalls
+    delete globalThis.__accessibleDialogFocusTarget
+    delete globalThis.document
+  }
+})
+
+test('520px 视口下弹窗外壳和内容都受视口宽度约束', () => {
+  assert.match(componentSource, /\.accessible-dialog\.el-dialog \{[\s\S]*?box-sizing: border-box;[\s\S]*?max-width: calc\(100vw - 24px\);/)
+  assert.match(componentSource, /@media \(max-width: 520px\) \{[\s\S]*?display: flex;[\s\S]*?width: calc\(100vw - 24px\) !important;[\s\S]*?flex-direction: column;/)
+  assert.match(componentSource, /\.accessible-dialog\.el-dialog > \.el-dialog__body[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;/)
+  assert.match(componentSource, /\.accessible-dialog\.el-dialog > \.el-dialog__body \{[\s\S]*?min-height: 0;[\s\S]*?flex: 1 1 auto;[\s\S]*?overflow-x: auto;[\s\S]*?overflow-y: auto;/)
 })

@@ -41,7 +41,7 @@
 
 ## 📌 v1.3.3 候选动态
 
-> 当前源码与包版本为 `1.3.3` 发布候选。Git 目前只有 `v1.3.0`、`v1.3.1`、`v1.3.2` 标签，没有 `v1.3.3` 标签或正式 Release；[Releases](https://github.com/Shunlly/LocalMiniDrama/releases) 仅作为历史页。当前建议从源码或 Docker 运行。正式二进制必须在同一 Git SHA 的源码、Docker、Windows 制品、安全、回滚、产品验收与 CI 全绿，并且 draft Release 经人工复核后正式发布，届时才可作为下载版本。
+> 当前源码与包版本为 `1.3.3` 发布候选。**当前工作树运行验收：UNVERIFIED**；未提交工作树不能引用历史提交、旧截图或旧报告证明当前候选通过。Git 目前只有 `v1.3.0`、`v1.3.1`、`v1.3.2` 标签，没有 `v1.3.3` 标签或正式 Release；[Releases](https://github.com/Shunlly/LocalMiniDrama/releases) 仅作为历史页。当前建议从源码或 Docker 运行。正式二进制必须在同一干净 Git SHA 的源码、Docker、Windows 制品、安全、回滚、产品验收与 CI 全绿，并且 draft Release 经人工复核后正式发布，届时才可作为下载版本。
 
 - 🛠️ **发布扫描修复**：PR/分支 CI 使用固定 digest 的 Trivy 0.64.1 扫描完整源码依赖与配置，并与 Tag Release 共用 Windows Gitleaks、Defender、SBOM/配置 Trivy、制品清单和离线复核工作流
 - 🔧 **失败恢复与并发状态**：素材选择器保证最新请求生效、显示安全中文错误与长名称提示，项目包导入失败保留可重试的页内告警
@@ -174,13 +174,13 @@
 | 节点操作面板 | 单击节点下方编辑/生成，无需频繁切列表 |
 | 镜头检查器 | 右侧停靠编辑、前后镜头导航、真实图片/视频/配音摘要与未保存草稿保护 |
 
-当前交付范围为桌面端。现有素材能力是本地图片/视频上传、搜索与类型筛选，以及把公开网页 URL 的正文导入项目；不包含第三方图片/视频搜索、版权来源核验或下载入库。AI 配置提供多厂商预设、自定义 OpenAI 兼容厂商和手工模型列表，但不包含通用 `/v1/models` 远端模型自动发现。移动/触控、真实 Provider 深度联调、上述网络素材能力、自动模型发现、协作与完整 Agent/MCP 后置。任务 1-5、8 项产品验收、ZIP 安全复审及 E2E 代码/契约复审已经完成，但真实 Docker 生产 E2E 尚未执行，最终发布门禁仍为 **待验证**。自动化测试不调用外部真实 Provider。
+当前交付范围为桌面端。素材中心支持本地图片/视频上传，以及从 Wikimedia Commons 搜索公开图片/视频、查看作者和许可来源、预览并安全下载入库；网页 URL 入口用于把故事正文导入项目。使用者仍需自行确认素材许可是否满足具体用途，其他第三方素材平台暂未接入。AI 配置提供多厂商预设、自定义 OpenAI 兼容厂商和手工模型列表，但不包含通用 `/v1/models` 远端模型自动发现。移动/触控、自动模型发现、协作与完整 Agent/MCP 后置；真实第三方 Provider 的账号、模型、区域、额度、计费与长耗时行为也属于部署后深度联调范围。历史产品验收、ZIP 安全复审及 E2E 代码/契约复审不能替代当前未提交工作树的运行重验，当前状态为 **UNVERIFIED**。自动化测试不调用外部真实 Provider。
 
 📖 [画布工作流完整文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md) · 验收收尾报告：`http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`
 
 ### 🤖 AI 配置 · 🌓 亮/暗主题 · 自定义提示词
 
-AI 配置按文本、素材图片、分镜图片、视频和 TTS 五类核心服务展示覆盖状态、默认配置与连接测试结果；新增配置时按基础信息、厂商认证、高级接口、模型和调用策略逐步填写。支持多厂商预设、自定义 OpenAI 兼容厂商和手工模型列表；当前连接测试只验证配置端点，不会通过通用 `/v1/models` 自动导入远端模型。支持一键配置通义、火山和 Agnes，9 类提示词可自定义覆盖。
+AI 配置按文本、素材图片、分镜图片、视频和 TTS 五类核心服务展示覆盖状态、默认配置与连接测试结果；新增配置时按基础信息、厂商认证、高级接口、模型和调用策略逐步填写。支持多厂商预设、自定义 OpenAI 兼容厂商和手工模型列表；Google Gemini 文本使用官方 Gemini OpenAI 兼容端点 `https://generativelanguage.googleapis.com/v1beta/openai`，当前连接测试仍只验证配置端点，不会通过通用 `/v1/models` 自动导入远端模型。支持一键配置通义、火山和 Agnes，9 类提示词可自定义覆盖。
 
 ---
 
@@ -289,7 +289,7 @@ npm run docker:up
 docker compose ps
 ```
 
-前端仍访问 `http://localhost:3013`，后端健康/就绪检查为 `http://localhost:5679/health` 和 `http://localhost:5679/ready`。Compose 默认仅绑定宿主机 `127.0.0.1`，并使用只读根文件系统、`no-new-privileges` 与能力裁剪。`npm run docker:up` 要求干净工作树，并把当前 Git SHA 写入镜像 revision；开发中的未提交源码可直接运行 `docker compose up -d --build --wait`，但这类镜像不能创建正式回滚检查点。完整容器验证可运行 `npm run verify:docker`。生产 E2E 必须先执行 `npm run docker:e2e:up`，再运行 `npm run verify:e2e`。自由画布的 E2E 代码与契约已复审，但截至 2026-07-27 尚未执行真实 Docker 矩阵，不能作为发布通过证据。本地 Docker 构建、运行或验收通过都不等于 GitHub 正式发布。发布前停止后端和 Docker，并在干净工作树运行 `npm run verify:rollback`；正式上线还必须按 [快速开始](docs/quickstart.md) 保留真实数据备份、旧提交、运行镜像 ID、Compose / 配置与 SHA-256。桌面产品验收报告可在 `http://localhost:3013/reports/product-acceptance/report.html` 查看，自由画布收尾报告位于 `http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`。
+前端仍访问 `http://localhost:3013`，后端健康/就绪检查为 `http://localhost:5679/health` 和 `http://localhost:5679/ready`。Compose 默认仅绑定宿主机 `127.0.0.1`，并使用只读根文件系统、`no-new-privileges` 与能力裁剪。`npm run docker:up` 要求干净工作树，并把当前 Git SHA 写入镜像 revision；开发中的未提交源码可直接运行 `docker compose up -d --build --wait`，但这类镜像不能创建正式回滚检查点。`npm run verify:docker` 验证镜像边界并在临时验证容器内运行前后端测试，不代替当前 Compose 服务的运行态验收；运行态还需启动 Compose、探测 `/health`、`/ready`、`/healthz`，并执行生产 E2E。生产 E2E 必须在仓库外新建空数据目录后设置 `LOCALMINIDRAMA_DATA_DIR`，再执行 `npm run docker:e2e:up` 和 `npm run verify:e2e`，最后销毁 E2E profile 与临时数据目录；完整 PowerShell 命令见 [快速开始](docs/quickstart.md#运行方式二docker当前候选部署)。自由画布的 E2E 代码与契约已复审，但截至 2026-08-02 当前候选尚未重新执行真实 Docker 矩阵，不能作为发布通过证据。本地 Docker 构建、运行或验收通过都不等于 GitHub 正式发布。发布前停止后端和 Docker，并在干净工作树运行 `npm run verify:rollback`；正式上线还必须按 [快速开始](docs/quickstart.md) 保留真实数据备份、旧提交、运行镜像 ID、Compose / 配置与 SHA-256。桌面产品验收报告可在 `http://localhost:3013/reports/product-acceptance/report.html` 查看，自由画布收尾报告位于 `http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`。
 
 异常退出若留下维护租约，必须按 [维护租约恢复步骤](docs/quickstart.md#q-如何备份迁移项目数据) 先检查归属，再用精确作用域和 PID 显式恢复；不要直接删除锁文件。
 
@@ -303,6 +303,11 @@ npm run verify:version
 
 # 源码、Node 20 容器、revision-bound Docker 与生产 E2E
 npm run verify:release:source
+
+# 使用官方 npm registry 的后端、前端、桌面依赖审计
+npm --prefix backend-node audit --audit-level=high --registry=https://registry.npmjs.org
+npm --prefix frontweb audit --audit-level=high --registry=https://registry.npmjs.org
+npm --prefix desktop audit --audit-level=high --registry=https://registry.npmjs.org
 
 # Windows 桌面候选构建与 smoke 验证；仍需独立安全扫描
 npm run verify:release:windows
@@ -335,13 +340,13 @@ npm run verify:release
 | 火山引擎 Volcengine（豆包 / Seedance 2.0） | ✅ | ✅ | ✅ |
 | 可灵 Kling AI（含 Omni） | — | ✅ | ✅ |
 | Agnes AI | ✅ | ✅ | ✅ |
-| Google Gemini（Imagen / Veo） | — | ✅ | ✅ |
+| Google Gemini（文本 / Gemini 原生图片模型 / Veo） | ✅ | ✅ | ✅ |
 | Vidu 生数科技 | — | — | ✅ |
 | NanoBanana（含代理） | — | ✅ | — |
 | 本地 Ollama 等 OpenAI 兼容 | ✅ | — | — |
 | 其他 OpenAI 兼容接口 | ✅ | ✅ | ✅ |
 
-> Novel2Anime 生产工作流会调用已启用并通过就绪检查的文本、素材图、分镜图、视频和 TTS 配置，再由本机 FFmpeg/FFprobe 合成与校验；Draft 预演仍可使用本地 mock 产物，production QA 会拒绝 mock/占位产物。仓库生产 E2E 使用本地协议兼容 Provider 验证完整非 mock 链路，不代表每个第三方厂商、账号、模型或额度组合都已深度联调，真实部署仍需在「AI 配置」执行连接测试。当前模型来自内置预设或手工录入，不会通过通用 `/v1/models` 自动发现；素材中心只提供本地素材上传/筛选，网页 URL 入口用于导入故事正文，不提供第三方媒体搜索或版权来源服务。移动端 Web 重排、触控行为和移动画布/列表降级不在当前桌面发布范围内。
+> Novel2Anime 生产工作流会调用已启用并通过就绪检查的文本、素材图、分镜图、视频和 TTS 配置，再由本机 FFmpeg/FFprobe 合成与校验；Google Gemini 文本走官方 Gemini OpenAI 兼容端点，图片走 Gemini `generateContent` 原生图片模型（不是 Imagen API），视频走 Veo。真实 Google 账号、模型、额度和计费行为仍需在「AI 配置」中单独连接测试。Draft 预演仍可使用本地 mock 产物，production QA 会拒绝 mock/占位产物。仓库生产 E2E 使用本地协议兼容 Provider 验证完整非 mock 链路，不代表每个第三方厂商、账号、模型或额度组合都已深度联调。当前模型来自内置预设或手工录入，不会通过通用 `/v1/models` 自动发现；素材中心支持本地素材和 Wikimedia Commons 网络素材，展示远端作者与许可元数据并安全下载入库，但使用者仍需核对具体用途的许可兼容性，更多平台及用途许可判断后置。移动端 Web 重排、触控行为和移动画布/列表降级不在当前桌面发布范围内。
 
 ---
 
@@ -375,7 +380,8 @@ LocalMiniDrama/
 | ✅ | 画布侧参考图统一入口 | 画布生成时可管理和选择分镜参考媒体 |
 | ✅ | 参考图自由选择 | 生图时可手动指定角色、场景等参考媒体 |
 | ✅ | 宫格图生成视频 | 支持将宫格参考交给声明兼容能力的视频模型 |
-| 📋 | 网络素材搜索与版权来源 | 第三方图片/视频搜索、版权与授权来源核验、预览选择和下载入库后置；当前仅支持本地素材上传/筛选与网页 URL 正文导入 |
+| ✅ | Wikimedia Commons 网络素材 | 支持公开图片/视频搜索、作者与许可来源展示、预览选择、安全下载和项目/全局素材入库 |
+| 📋 | 更多网络素材平台与许可兼容判断 | 其他第三方平台接入及针对具体用途的自动许可兼容判断后置 |
 | 📋 | 远端模型自动发现 | 通用 `/v1/models` 模型列表发现与导入后置；当前使用厂商预设、自定义兼容厂商和手工模型 |
 | 📋 | 第三方 Provider 深度联调 | 真实厂商、账户、模型版本、额度与计费组合后置；每个部署仍须本地连接测试和非敏感样例验收 |
 | 📋 | 移动端 Web | 移动重排、触控行为和移动画布/列表降级后置；当前验收矩阵仅覆盖桌面视口 |

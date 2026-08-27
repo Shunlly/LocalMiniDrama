@@ -1,6 +1,7 @@
 <template>
   <el-dialog
     ref="dialogRef"
+    class="accessible-dialog"
     v-bind="$attrs"
     :model-value="modelValue"
     append-to="body"
@@ -8,10 +9,10 @@
     @update:model-value="handleModelValueUpdate"
     @open="handleOpen"
     @opened="handleOpened"
-    @close="emit('close')"
+    @close="handleClose"
     @closed="handleClosed"
     @open-auto-focus="handleOpenAutoFocus"
-    @close-auto-focus="emit('closeAutoFocus')"
+    @close-auto-focus="handleCloseAutoFocus"
   >
     <template v-for="(_, slotName) in $slots" #[slotName]="slotProps">
       <slot :name="slotName" v-bind="slotProps || {}" />
@@ -104,31 +105,39 @@ function handleModelValueUpdate(value) {
   emit('update:modelValue', value)
 }
 
-function handleOpen() {
+function handleOpen(...args) {
   if (!ensureRegistered()) {
     nextTick(() => {
       if (!disposed && props.modelValue) ensureRegistered()
     })
   }
-  emit('open')
+  emit('open', ...args)
 }
 
-function handleOpenAutoFocus() {
+function handleOpenAutoFocus(...args) {
   scheduleInitialFocus()
-  emit('openAutoFocus')
+  emit('openAutoFocus', ...args)
 }
 
-function handleOpened() {
+function handleOpened(...args) {
   if (!focusScheduled) applyInitialFocus()
-  emit('opened')
+  emit('opened', ...args)
 }
 
-function handleClosed() {
+function handleClose(...args) {
+  emit('close', ...args)
+}
+
+function handleCloseAutoFocus(...args) {
+  emit('closeAutoFocus', ...args)
+}
+
+function handleClosed(...args) {
   cancelScheduledFocus()
   unregister()
   pendingOpener = null
   focusApplied = false
-  emit('closed')
+  emit('closed', ...args)
 }
 
 watch(
@@ -152,3 +161,37 @@ onBeforeUnmount(() => {
   unregister()
 })
 </script>
+
+<style>
+.accessible-dialog.el-dialog {
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
+}
+
+@media (max-width: 520px) {
+  .accessible-dialog.el-dialog {
+    display: flex;
+    width: calc(100vw - 24px) !important;
+    max-height: calc(100dvh - 24px);
+    flex-direction: column;
+    margin-top: 12px !important;
+    margin-bottom: 12px !important;
+  }
+
+  .accessible-dialog.el-dialog > .el-dialog__header,
+  .accessible-dialog.el-dialog > .el-dialog__body,
+  .accessible-dialog.el-dialog > .el-dialog__footer {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .accessible-dialog.el-dialog > .el-dialog__body {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-x: auto;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+  }
+}
+</style>

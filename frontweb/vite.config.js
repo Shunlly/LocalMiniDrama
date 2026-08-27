@@ -1,5 +1,5 @@
 import vue from '@vitejs/plugin-vue'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { fileURLToPath, URL } from 'node:url'
 import Components from 'unplugin-vue-components/vite'
@@ -9,6 +9,13 @@ import { defineConfig } from 'vite'
 const require = createRequire(import.meta.url)
 const { createRuntimeInstanceId } = require('../backend-node/src/utils/runtimeInstanceId.js')
 const workspaceRoot = fileURLToPath(new URL('..', import.meta.url))
+const elementPlusComponentsRoot = fileURLToPath(new URL('./node_modules/element-plus/es/components/', import.meta.url))
+const elementPlusComponentEntries = readdirSync(elementPlusComponentsRoot, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .flatMap((entry) => [
+    `element-plus/es/components/${entry.name}`,
+    `element-plus/es/components/${entry.name}/style/css`,
+  ])
 const frontendPackage = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
 )
@@ -34,6 +41,14 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
     }
+  },
+  optimizeDeps: {
+    include: elementPlusComponentEntries,
+    entries: [
+      'index.html',
+      'src/**/*.js',
+      'src/**/*.vue',
+    ],
   },
   server: {
     host: devServerHost,

@@ -2,13 +2,22 @@
 
 const storageLayout = require('./storageLayout');
 const uploadService = require('./uploadService');
+const taskService = require('./taskService');
 const { validateFreeCanvas, badRequest: canvasBadRequest } = require('./freeCanvasValidation');
 const { PRESET_VALUES, resolveStylePreset } = require('../constants/generationStylePresets');
 const seedance2AssetGuards = require('../utils/seedance2AssetGuards');
+const dramaWriteGuard = require('./dramaWriteGuard');
+const { randomUUID } = require('crypto');
 const {
   assertBackgroundTasksAccepting,
   scheduleLegacyAsync,
 } = require('./legacyAsyncSchedulerService');
+
+const dramaRecycleRecoveryJobs = new Map();
+const DRAMA_RECYCLE_RECOVERY_BASE_DELAY_MS = 1000;
+const DRAMA_RECYCLE_RECOVERY_MAX_DELAY_MS = 10_000;
+const DRAMA_RECYCLE_RECOVERY_MAX_ELAPSED_MS = 10 * 60 * 1000;
+const DRAMA_RECYCLE_TASK_DRAIN_MAX_PASSES = 5;
 
 /**
  * 清理 image_url：如果数据库中存储的是 base64 data URL，则返回 null。
@@ -28,6 +37,24 @@ function parseJsonColumn(value) {
   } catch (_) {
     return null;
   }
+}
+
+function dramaRecycleError(message = '项目正在移入回收站，请等待当前操作完成') {
+  const error = new Error(message);
+  error.code = 'DRAMA_RECYCLE_IN_PROGRESS';
+  error.statusCode = 409;
+  return error;
+}
+
+const assertDramaWritable = dramaWriteGuard.assertDramaWritable;
+
+function runDramaWriteTransaction(db, dramaId, mutation) {
+  assertDramaWritable(db, dramaId);
+  const persist = db.transaction(() => {
+    assertDramaWritable(db, dramaId);
+    return mutation();
+  });
+  return typeof persist.immediate === 'function' ? persist.immediate() : persist();
 }
 
 const DRAMA_GENRE_LABELS = {
@@ -137,6 +164,7 @@ function getDramaById(db, id) {
 }
 
 function getDrama(db, dramaId, baseUrl) {
+  if (!dramaWriteGuard.canReadDrama(db, dramaId)) return null;
   const drama = getDramaById(db, Number(dramaId));
   if (!drama) return null;
   // 加载 episodes、characters、scenes、props、storyboards（简化：只查当前 drama 的）
@@ -347,7 +375,7 @@ function listTrashedDramas(db, query = {}) {
   return { dramas, total, page, pageSize };
 }
 
-function updateDrama(db, log, dramaId, req) {
+function updateDramaUnsafe(db, log, dramaId, req) {
   const drama = getDramaById(db, Number(dramaId));
   if (!drama) return null;
   const updates = [];
@@ -375,6 +403,10 @@ function updateDrama(db, log, dramaId, req) {
   ).run(...params);
   log.info('Drama updated', { drama_id: dramaId });
   return getDramaById(db, dramaId);
+}
+
+function updateDrama(db, log, dramaId, req) {
+  return runDramaWriteTransaction(db, dramaId, () => updateDramaUnsafe(db, log, dramaId, req));
 }
 
 function generateStoryboard(db, log, episodeId, options) {
@@ -405,22 +437,543 @@ function getTrashRetentionPolicy() {
   };
 }
 
-function moveDramaToTrash(db, log, dramaId) {
-  const id = Number(dramaId);
-  if (!Number.isInteger(id) || id <= 0) return null;
+function taskScopeConflict(message, details) {
+  const error = new Error(message);
+  error.code = 'TASK_SCOPE_CONFLICT';
+  error.statusCode = 409;
+  error.details = details;
+  return error;
+}
+
+function numericResourceId(value) {
+  const normalized = String(value ?? '').trim();
+  if (!/^[1-9]\d*$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function queryDramaIds(db, sql, ...params) {
+  try {
+    return db.prepare(sql).all(...params)
+      .map((row) => Number(row.drama_id))
+      .filter((value) => Number.isSafeInteger(value) && value > 0);
+  } catch (error) {
+    if (/no such table|no such column/i.test(error?.message || '')) return [];
+    throw error;
+  }
+}
+
+function declaredTaskDramaIds(db, task) {
+  const type = String(task.type || '');
+  const resource = String(task.resource_id || '').trim();
+  const id = numericResourceId(resource);
+  if (['character_generation', 'story_generation', 'video_generation'].includes(type)) {
+    return id ? [id] : [];
+  }
+  if (['background_extraction', 'prop_extraction', 'storyboard_generation', 'video_merge', 'character_extraction'].includes(type)) {
+    return id ? queryDramaIds(db, 'SELECT drama_id FROM episodes WHERE id = ?', id) : [];
+  }
+  if (type === 'frame_prompt_generation') {
+    return id ? queryDramaIds(
+      db,
+      `SELECT episode.drama_id FROM storyboards storyboard
+        JOIN episodes episode ON episode.id = storyboard.episode_id
+       WHERE storyboard.id = ?`,
+      id
+    ) : [];
+  }
+  if (['prop_image_generation'].includes(type)) {
+    return id ? queryDramaIds(db, 'SELECT drama_id FROM props WHERE id = ?', id) : [];
+  }
+  if (['character_image'].includes(type)) {
+    return id ? queryDramaIds(db, 'SELECT drama_id FROM characters WHERE id = ?', id) : [];
+  }
+  if (type === 'image_generation') {
+    const character = resource.match(/^character_(\d+)$/);
+    if (character) return queryDramaIds(db, 'SELECT drama_id FROM characters WHERE id = ?', Number(character[1]));
+    const scene = resource.match(/^scene_(\d+)$/);
+    if (scene) return queryDramaIds(db, 'SELECT drama_id FROM scenes WHERE id = ?', Number(scene[1]));
+    return id ? [id] : [];
+  }
+  return [];
+}
+
+function assertTaskResourceWritable(db, taskType, resourceId) {
+  try {
+    db.prepare('SELECT id FROM dramas LIMIT 1').get();
+  } catch (error) {
+    if (/no such table/i.test(error?.message || '')) return [];
+    throw error;
+  }
+  const dramaIds = [...new Set(declaredTaskDramaIds(db, {
+    type: taskType,
+    resource_id: resourceId,
+  }))];
+  for (const dramaId of dramaIds) assertDramaWritable(db, dramaId);
+  return dramaIds;
+}
+
+function relatedTaskDramaIds(db, taskId) {
+  return [
+    ...queryDramaIds(db, 'SELECT drama_id FROM image_generations WHERE task_id = ? AND deleted_at IS NULL', taskId),
+    ...queryDramaIds(db, 'SELECT drama_id FROM video_generations WHERE task_id = ? AND deleted_at IS NULL', taskId),
+    ...queryDramaIds(db, 'SELECT drama_id FROM video_merges WHERE task_id = ? AND deleted_at IS NULL', taskId),
+  ];
+}
+
+function taskOwnershipRows(db, dramaId, rows, options = {}) {
+  const owned = [];
+  const conflicts = [];
+  for (const task of rows) {
+    const declared = new Set(declaredTaskDramaIds(db, task));
+    const relatedValues = relatedTaskDramaIds(db, task.id);
+    const related = new Set(relatedValues);
+    const combined = new Set([...declared, ...related]);
+    const touchesDrama = combined.has(Number(dramaId));
+    const mismatched = combined.size > 1
+      || (declared.size && related.size && [...declared].some((id) => !related.has(id)))
+      || related.size > 1;
+    const unresolved = combined.size === 0;
+    if (unresolved && options.rejectUnresolved !== false) {
+      conflicts.push({
+        task_id: task.id,
+        task_type: task.type,
+        resource_id: task.resource_id || null,
+        reason: 'unresolved_active_task_ownership',
+      });
+      continue;
+    }
+    if (touchesDrama && mismatched) {
+      conflicts.push({
+        task_id: task.id,
+        task_type: task.type,
+        resource_id: task.resource_id || null,
+        declared_drama_ids: [...declared],
+        related_drama_ids: [...related],
+      });
+      continue;
+    }
+    if (touchesDrama) owned.push(task);
+  }
+  if (conflicts.length) {
+    throw taskScopeConflict('任务声明归属与业务关联归属不一致，已拒绝回收项目', { conflicts });
+  }
+  return owned;
+}
+
+function auditActiveTaskOwnership(db, dramaId) {
+  let activeTasks;
+  try {
+    activeTasks = db.prepare(
+      `SELECT id, type, resource_id, status FROM async_tasks
+        WHERE status IN ('pending', 'processing', 'cancelling') AND deleted_at IS NULL`
+    ).all();
+  } catch (error) {
+    if (/no such table/i.test(error?.message || '')) return [];
+    throw error;
+  }
+  return taskOwnershipRows(db, dramaId, activeTasks);
+}
+
+function auditPendingCancellationOwnership(db, dramaId) {
+  let rows;
+  try {
+    rows = db.prepare(
+      `SELECT id, type, resource_id, status, cancel_state, cancel_operation_id, cancel_context
+         FROM async_tasks
+        WHERE deleted_at IS NULL
+          AND cancel_state IS NOT NULL
+          AND cancel_state != 'confirmed'
+          AND (status IN ('pending', 'processing', 'cancelling') OR status = 'failed')`
+    ).all();
+  } catch (error) {
+    if (/no such table|no such column/i.test(error?.message || '')) return [];
+    throw error;
+  }
+  return taskOwnershipRows(db, dramaId, rows, { rejectUnresolved: true });
+}
+
+function auditProjectCancellationSafety(db, dramaId, operationId) {
+  const activeTasks = auditActiveTaskOwnership(db, dramaId);
+  if (activeTasks.length) return { safe: false, reason: 'active_tasks', tasks: activeTasks };
+  const pending = auditPendingCancellationOwnership(db, dramaId);
+  if (pending.length) {
+    return {
+      safe: false,
+      reason: 'unconfirmed_cancellations',
+      tasks: pending.map((task) => ({
+        task_id: task.id,
+        task_type: task.type,
+        status: task.status,
+        cancel_state: task.cancel_state,
+        cancel_operation_id: task.cancel_operation_id || null,
+        cancel_context: parseJsonColumn(task.cancel_context),
+      })),
+    };
+  }
+  const claimed = db.prepare(
+    `SELECT id, status, cancel_state, cancel_operation_id
+       FROM async_tasks
+      WHERE deleted_at IS NULL AND cancel_operation_id = ?`
+  ).all(operationId);
+  const unconfirmedClaim = claimed.find((task) => task.cancel_state !== 'confirmed');
+  if (unconfirmedClaim) {
+    return {
+      safe: false,
+      reason: 'operation_confirmation_missing',
+      tasks: [unconfirmedClaim],
+    };
+  }
+  return { safe: true, tasks: [] };
+}
+
+function upgradePendingDramaCancellations(db, dramaId, operationId) {
+  const candidates = auditPendingCancellationOwnership(db, dramaId);
+  const context = {
+    scope: 'drama_recycle',
+    drama_id: Number(dramaId),
+    recycle_operation_id: String(operationId),
+    reason: '项目移入回收站',
+  };
+  const upgraded = [];
+  for (const task of candidates) {
+    const token = taskService.upgradeTaskCancellationContext(db, task.id, context);
+    if (token) upgraded.push({ task_id: task.id, token });
+  }
+  return upgraded;
+}
+
+function persistDramaRemoval(db, log, id, operationId) {
   const removedAt = new Date().toISOString();
   const result = db.prepare(
-    'UPDATE dramas SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL'
-  ).run(removedAt, id);
-  if (result.changes === 0) return null;
-
-  const row = db.prepare('SELECT * FROM dramas WHERE id = ? AND deleted_at IS NOT NULL').get(id);
-  log.info('Drama moved to trash', {
-    drama_id: id,
-    associated_data: 'preserved',
-    recoverable: true,
-  });
+    `UPDATE dramas
+        SET deleted_at = ?, trash_state = NULL, recycle_phase = 'completed', updated_at = ?
+      WHERE id = ? AND deleted_at IS NULL AND trash_state = 'recycling'
+        AND recycle_operation_id = ?`
+  ).run(removedAt, removedAt, id, operationId);
+  if (!result.changes) return null;
+  const row = db.prepare('SELECT * FROM dramas WHERE id = ?').get(id);
+  log.info('Drama moved to trash', { drama_id: id, associated_data: 'preserved', recoverable: true });
   return row ? rowToDrama(row) : null;
+}
+
+function dramaRecycleRecoveryKey(id, operationId) {
+  return `${Number(id)}:${String(operationId || '')}`;
+}
+
+function releaseDramaRecycleLock(db, log, id, operationId, reason) {
+  const releasedAt = new Date().toISOString();
+  const result = db.prepare(
+    `UPDATE dramas
+        SET trash_state = NULL, recycle_operation_id = NULL, recycle_phase = NULL,
+            recycle_started_at = NULL, updated_at = ?
+      WHERE id = ? AND deleted_at IS NULL AND trash_state = 'recycling'
+        AND recycle_operation_id = ?`
+  ).run(releasedAt, id, operationId);
+  if (result.changes) {
+    log.error?.('Drama recycle stopped without deleting the project', {
+      drama_id: id,
+      recycle_operation_id: operationId,
+      reason,
+    });
+  }
+  return result.changes > 0;
+}
+
+function markDramaRecycleManualIntervention(db, log, id, operationId, reason) {
+  const markedAt = new Date().toISOString();
+  const result = db.prepare(
+    `UPDATE dramas
+        SET recycle_phase = 'manual_intervention', updated_at = ?
+      WHERE id = ? AND deleted_at IS NULL AND trash_state = 'recycling'
+        AND recycle_operation_id = ?`
+  ).run(markedAt, id, operationId);
+  if (result.changes) {
+    log.error?.('Drama recycle requires manual intervention and remains locked', {
+      drama_id: id,
+      recycle_operation_id: operationId,
+      reason,
+    });
+  }
+  return result.changes > 0;
+}
+
+function preserveMalformedDramaRecycleLock(db, log, id, reason) {
+  const markedAt = new Date().toISOString();
+  const result = db.prepare(
+    `UPDATE dramas
+        SET recycle_phase = 'manual_intervention', updated_at = ?
+      WHERE id = ? AND deleted_at IS NULL AND trash_state = 'recycling'`
+  ).run(markedAt, id);
+  if (result.changes) {
+    log.error?.('Drama recycle metadata is incomplete; lock preserved for manual intervention', {
+      drama_id: id,
+      reason,
+    });
+  }
+  return result.changes > 0;
+}
+
+function dramaRecycleDeadlineExceeded(db, id, operationId, now = Date.now()) {
+  const row = db.prepare(
+    `SELECT recycle_started_at FROM dramas
+      WHERE id = ? AND deleted_at IS NULL AND trash_state = 'recycling'
+        AND recycle_operation_id = ?`
+  ).get(id, operationId);
+  if (!row) return true;
+  const startedAt = Date.parse(row.recycle_started_at || '');
+  return !Number.isFinite(startedAt)
+    || now - startedAt >= DRAMA_RECYCLE_RECOVERY_MAX_ELAPSED_MS;
+}
+
+function scheduleDramaRecycleRecovery(db, log, id, operationId, attempt = 0) {
+  const key = dramaRecycleRecoveryKey(id, operationId);
+  if (dramaRecycleRecoveryJobs.has(key)) return false;
+  if (dramaRecycleDeadlineExceeded(db, id, operationId)) {
+    markDramaRecycleManualIntervention(db, log, id, operationId, 'recovery_deadline_exceeded');
+    return false;
+  }
+  const normalizedAttempt = Math.max(0, Number(attempt) || 0);
+  const delayMs = Math.min(
+    DRAMA_RECYCLE_RECOVERY_MAX_DELAY_MS,
+    DRAMA_RECYCLE_RECOVERY_BASE_DELAY_MS * (2 ** Math.min(normalizedAttempt, 10))
+  );
+  dramaRecycleRecoveryJobs.set(key, { attempt: normalizedAttempt, delay_ms: delayMs });
+  try {
+    require('./legacyAsyncSchedulerService').scheduleDelayedBackgroundTask(log, 'drama_recycle_recovery', delayMs, async () => {
+      dramaRecycleRecoveryJobs.delete(key);
+      const locked = db.prepare(
+        `SELECT id FROM dramas
+          WHERE id = ? AND deleted_at IS NULL AND trash_state = 'recycling'
+            AND recycle_operation_id = ?`
+      ).get(id, operationId);
+      if (!locked) return;
+      try {
+        await continueDramaRecycle(db, log, id, operationId, {
+          recoveryAttempt: normalizedAttempt + 1,
+          backgroundRecovery: true,
+        });
+      } catch (error) {
+        log.error('Deferred drama recycle recovery failed', {
+          drama_id: id,
+          recycle_operation_id: operationId,
+          error: error.message,
+        });
+      }
+    }, { id: key, drama_id: id, recycle_operation_id: operationId, attempt: normalizedAttempt });
+  } catch (error) {
+    dramaRecycleRecoveryJobs.delete(key);
+    throw error;
+  }
+  return true;
+}
+
+async function continueDramaRecycle(db, log, id, operationId, options = {}) {
+  const workflowService = require('./workflowService');
+  if (dramaRecycleDeadlineExceeded(db, id, operationId)) {
+    markDramaRecycleManualIntervention(db, log, id, operationId, 'recovery_deadline_exceeded');
+    if (options.backgroundRecovery) return null;
+    const error = new Error('项目回收等待任务退出已超过安全时限，请确认任务状态后重试');
+    error.code = 'WORKFLOW_DRAIN_TIMEOUT';
+    error.statusCode = 409;
+    error.details = {
+      project_remains_locked: true,
+      recycle_phase: 'manual_intervention',
+    };
+    throw error;
+  }
+  db.prepare(
+    `UPDATE dramas SET recycle_phase = 'cancelling', updated_at = ?
+      WHERE id = ? AND deleted_at IS NULL AND trash_state = 'recycling' AND recycle_operation_id = ?`
+  ).run(new Date().toISOString(), id, operationId);
+
+  let workflowResult;
+  try {
+    workflowResult = await workflowService.cancelAndDrainDramaWorkflows(
+      db, log, id, '项目移入回收站'
+    );
+  } catch (error) {
+    if (error?.code !== 'WORKFLOW_DRAIN_TIMEOUT') throw error;
+    scheduleDramaRecycleRecovery(
+      db, log, id, operationId, Math.max(0, Number(options.recoveryAttempt) || 0)
+    );
+    if (options.backgroundRecovery) return null;
+    throw error;
+  }
+  const cancelledTaskIds = new Set();
+  for (let pass = 0; pass < DRAMA_RECYCLE_TASK_DRAIN_MAX_PASSES; pass += 1) {
+    let taskRows;
+    try {
+      taskRows = auditActiveTaskOwnership(db, id);
+    } catch (error) {
+      markDramaRecycleManualIntervention(db, log, id, operationId, error.code || 'task_scope_conflict');
+      throw error;
+    }
+    if (taskRows.length) {
+      const cancelContext = {
+        scope: 'drama_recycle',
+        drama_id: Number(id),
+        recycle_operation_id: String(operationId),
+        reason: '项目移入回收站',
+      };
+      const cancellations = await Promise.all(
+        taskRows.map((row) => {
+          taskService.upgradeTaskCancellationContext(db, row.id, cancelContext);
+          return taskService.cancelTask(
+            db,
+            log,
+            row.id,
+            '项目移入回收站',
+            { preserveOnUncertain: true, cancelContext }
+          );
+        })
+      );
+      const failedIndex = cancellations.findIndex((result) => !result.ok);
+      taskRows.forEach((row, index) => {
+        if (cancellations[index]?.ok) cancelledTaskIds.add(row.id);
+      });
+      if (failedIndex >= 0) {
+        const failed = cancellations[failedIndex];
+        const remainsLocked = [
+          'remote_cancel_uncertain',
+          'remote_cancel_exhausted',
+          'task_scope_conflict',
+        ].includes(failed.reason);
+        if (failed.reason === 'remote_cancel_uncertain' || failed.reason === 'remote_cancel_exhausted') {
+          scheduleDramaRecycleRecovery(
+            db, log, id, operationId, Math.max(0, Number(options.recoveryAttempt) || 0)
+          );
+        } else if (failed.reason === 'task_scope_conflict') {
+          markDramaRecycleManualIntervention(db, log, id, operationId, failed.reason);
+        } else {
+          releaseDramaRecycleLock(db, log, id, operationId, failed.reason || 'remote_cancel_failed');
+        }
+        const error = new Error(failed.error || '任务取消失败，项目保持回收锁定');
+        error.code = failed.reason === 'task_scope_conflict'
+          ? 'TASK_SCOPE_CONFLICT'
+            : remainsLocked
+            ? failed.reason === 'remote_cancel_exhausted'
+              ? 'REMOTE_CANCEL_EXHAUSTED'
+              : 'REMOTE_CANCEL_UNCERTAIN'
+            : 'REMOTE_CANCEL_FAILED';
+        error.details = {
+          cancelled_task_ids: [...cancelledTaskIds],
+          failed_task_id: taskRows[failedIndex]?.id || null,
+          cancelled_workflow_run_ids: workflowResult.cancelled_run_ids,
+          project_remains_locked: remainsLocked,
+        };
+        if (options.backgroundRecovery && remainsLocked) return null;
+        throw error;
+      }
+      continue;
+    }
+
+    const commit = db.transaction(() => {
+      const remainingTasks = auditActiveTaskOwnership(db, id);
+      if (remainingTasks.length) return { remainingTasks, removed: null };
+      db.prepare(
+        `UPDATE dramas SET recycle_phase = 'ready_to_commit', updated_at = ?
+          WHERE id = ? AND deleted_at IS NULL AND trash_state = 'recycling'
+            AND recycle_operation_id = ?`
+      ).run(new Date().toISOString(), id, operationId);
+      return { remainingTasks: [], removed: persistDramaRemoval(db, log, id, operationId) };
+    });
+    const committed = typeof commit.immediate === 'function' ? commit.immediate() : commit();
+    if (committed.removed) return committed.removed;
+  }
+
+  scheduleDramaRecycleRecovery(
+    db, log, id, operationId, Math.max(0, Number(options.recoveryAttempt) || 0)
+  );
+  if (options.backgroundRecovery) return null;
+  const error = new Error('项目回收期间仍有新任务进入，已延后重试');
+  error.code = 'WORKFLOW_DRAIN_TIMEOUT';
+  error.statusCode = 409;
+  error.details = {
+    cancelled_task_ids: [...cancelledTaskIds],
+    cancelled_workflow_run_ids: workflowResult.cancelled_run_ids,
+    project_remains_locked: true,
+  };
+  throw error;
+}
+
+async function moveDramaToTrash(db, log, dramaId) {
+  const id = Number(dramaId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const recyclingAt = new Date().toISOString();
+  const operationId = randomUUID();
+  const existing = db.prepare(
+    `SELECT id, trash_state, recycle_phase FROM dramas
+      WHERE id = ? AND deleted_at IS NULL`
+  ).get(id);
+  if (!existing) return null;
+  const retryingManualIntervention = existing.trash_state === 'recycling'
+    && existing.recycle_phase === 'manual_intervention';
+  const claimed = retryingManualIntervention
+    ? db.prepare(
+        `UPDATE dramas
+            SET recycle_operation_id = ?, recycle_phase = 'claimed',
+                recycle_started_at = ?, updated_at = ?
+          WHERE id = ? AND deleted_at IS NULL AND trash_state = 'recycling'
+            AND recycle_phase = 'manual_intervention'`
+      ).run(operationId, recyclingAt, recyclingAt, id)
+    : db.prepare(
+        `UPDATE dramas
+            SET trash_state = 'recycling', recycle_operation_id = ?, recycle_phase = 'claimed',
+                recycle_started_at = ?, updated_at = ?
+          WHERE id = ? AND deleted_at IS NULL
+            AND (trash_state IS NULL OR trash_state = '')`
+      ).run(operationId, recyclingAt, recyclingAt, id);
+  if (!claimed.changes) {
+    const current = db.prepare(
+      'SELECT id, trash_state FROM dramas WHERE id = ? AND deleted_at IS NULL'
+    ).get(id);
+    if (!current) return null;
+    throw dramaRecycleError();
+  }
+  try {
+    auditActiveTaskOwnership(db, id);
+  } catch (error) {
+    if (retryingManualIntervention) {
+      markDramaRecycleManualIntervention(db, log, id, operationId, error.code || 'task_scope_conflict');
+    } else {
+      markDramaRecycleManualIntervention(db, log, id, operationId, error.code || 'task_scope_conflict');
+    }
+    throw error;
+  }
+  return continueDramaRecycle(db, log, id, operationId);
+}
+
+function recoverInterruptedTrashOperations(db, log) {
+  const rows = db.prepare(
+    `SELECT id, recycle_operation_id, recycle_phase, recycle_started_at FROM dramas
+      WHERE deleted_at IS NULL AND trash_state = 'recycling'`
+  ).all();
+  let recovered = 0;
+  for (const row of rows) {
+    if (row.recycle_phase === 'claimed' || row.recycle_phase === 'cancelling') {
+      if (row.recycle_operation_id) {
+        scheduleDramaRecycleRecovery(db, log, Number(row.id), row.recycle_operation_id);
+      } else {
+        preserveMalformedDramaRecycleLock(db, log, Number(row.id), 'missing_recycle_operation_id');
+      }
+      recovered += 1;
+      continue;
+    }
+    if (!row.recycle_operation_id || !row.recycle_phase) {
+      preserveMalformedDramaRecycleLock(db, log, Number(row.id), 'missing_recycle_metadata');
+      recovered += 1;
+      continue;
+    }
+    if (row.recycle_phase === 'manual_intervention') {
+      recovered += 1;
+      continue;
+    }
+    scheduleDramaRecycleRecovery(db, log, Number(row.id), row.recycle_operation_id);
+    recovered += 1;
+  }
+  if (recovered) log.warn?.('Recovered interrupted drama recycle operations', { count: recovered });
+  return recovered;
 }
 
 function restoreDrama(db, log, dramaId) {
@@ -428,7 +981,11 @@ function restoreDrama(db, log, dramaId) {
   if (!Number.isInteger(id) || id <= 0) return null;
   const restoredAt = new Date().toISOString();
   const result = db.prepare(
-    'UPDATE dramas SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL'
+    `UPDATE dramas
+        SET deleted_at = NULL, trash_state = NULL,
+            recycle_phase = NULL, recycle_operation_id = NULL,
+            recycle_started_at = NULL, updated_at = ?
+      WHERE id = ? AND deleted_at IS NOT NULL`
   ).run(restoredAt, id);
   if (result.changes === 0) return null;
 
@@ -472,6 +1029,7 @@ function rowToDrama(r) {
     updated_at: r.updated_at,
     removed_at: r.deleted_at || null,
     is_removed: Boolean(r.deleted_at),
+    recycle_state: r.trash_state || null,
   };
 }
 
@@ -626,7 +1184,7 @@ function rowToProp(r) {
   };
 }
 
-function saveOutline(db, log, dramaId, req) {
+function saveOutlineUnsafe(db, log, dramaId, req) {
   const drama = getDramaById(db, Number(dramaId));
   if (!drama) return false;
   const now = new Date().toISOString();
@@ -686,6 +1244,10 @@ function saveOutline(db, log, dramaId, req) {
   return true;
 }
 
+function saveOutline(db, log, dramaId, req) {
+  return runDramaWriteTransaction(db, dramaId, () => saveOutlineUnsafe(db, log, dramaId, req));
+}
+
 function getCharacters(db, dramaId, episodeId) {
   const did = Number(dramaId);
   const drama = getDramaById(db, did);
@@ -717,7 +1279,7 @@ function getCharacters(db, dramaId, episodeId) {
   return characters;
 }
 
-function saveCharacters(db, log, dramaId, req) {
+function saveCharactersUnsafe(db, log, dramaId, req) {
   const did = Number(dramaId);
   const drama = getDramaById(db, did);
   if (!drama) return false;
@@ -809,7 +1371,11 @@ function saveCharacters(db, log, dramaId, req) {
   return true;
 }
 
-function saveEpisodes(db, log, dramaId, req) {
+function saveCharacters(db, log, dramaId, req) {
+  return runDramaWriteTransaction(db, dramaId, () => saveCharactersUnsafe(db, log, dramaId, req));
+}
+
+function saveEpisodesUnsafe(db, log, dramaId, req) {
   const did = Number(dramaId);
   const drama = getDramaById(db, did);
   if (!drama) return false;
@@ -854,7 +1420,11 @@ function saveEpisodes(db, log, dramaId, req) {
   return true;
 }
 
-function saveProgress(db, log, dramaId, req) {
+function saveEpisodes(db, log, dramaId, req) {
+  return runDramaWriteTransaction(db, dramaId, () => saveEpisodesUnsafe(db, log, dramaId, req));
+}
+
+function saveProgressUnsafe(db, log, dramaId, req) {
   const drama = getDramaById(db, Number(dramaId));
   if (!drama) return false;
   // getDramaById 已通过 rowToDrama 把 metadata 解析为对象，不能对 object 再 JSON.parse，否则进 catch 得到 {} 会整表覆盖掉画风等字段
@@ -867,8 +1437,12 @@ function saveProgress(db, log, dramaId, req) {
   return true;
 }
 
+function saveProgress(db, log, dramaId, req) {
+  return runDramaWriteTransaction(db, dramaId, () => saveProgressUnsafe(db, log, dramaId, req));
+}
+
 /** 保存画布布局 / 工作流组到 metadata（合并现有 metadata） */
-function saveCanvasLayout(db, log, dramaId, req) {
+function saveCanvasLayoutUnsafe(db, log, dramaId, req) {
   const drama = getDramaById(db, Number(dramaId));
   if (!drama) return null;
   const layout = req?.canvas_layout;
@@ -903,6 +1477,10 @@ function saveCanvasLayout(db, log, dramaId, req) {
     workflow_group_count: workflowGroups ? workflowGroups.length : undefined,
   });
   return getDrama(db, dramaId);
+}
+
+function saveCanvasLayout(db, log, dramaId, req) {
+  return runDramaWriteTransaction(db, dramaId, () => saveCanvasLayoutUnsafe(db, log, dramaId, req));
 }
 
 /**
@@ -1104,6 +1682,8 @@ function downloadEpisodeVideo(db, episodeId) {
 }
 
 module.exports = {
+  assertDramaWritable,
+  assertTaskResourceWritable,
   createDrama,
   getDrama,
   getDramaById,
@@ -1111,6 +1691,7 @@ module.exports = {
   listTrashedDramas,
   updateDrama,
   moveDramaToTrash,
+  recoverInterruptedTrashOperations,
   restoreDrama,
   getTrashRetentionPolicy,
   getDramaStats,

@@ -158,8 +158,133 @@ test('canvas project identity follows same-component route changes', () => {
   assert.doesNotMatch(canvasSource, /const canvasProjectId = Number\(route\.params\.id\)/)
   assert.match(
     canvasSource,
-    /watch\(\(\) => route\.params\.id,[\s\S]*?cancelScheduledCanvasSave\(\)[\s\S]*?layoutDirty\.value = false/,
+    /watch\([\s\S]*?\(\) => \[String\(route\.params\.id \|\| ''\), routeFocusNodeId\(\), routeEpisodeId\(\)\][\s\S]*?startCanvasRouteSynchronization\(\{ resetProject \}\)/,
   )
+  assert.match(canvasSource, /function resetCanvasProjectForRoute\(\)[\s\S]*?canvasEntityFocusRevision \+= 1[\s\S]*?cancelScheduledCanvasSave\(\)/)
+  assert.match(canvasSource, /async function synchronizeCanvasRouteFocus[\s\S]*?resetCanvasProjectForRoute\(\)[\s\S]*?claimRouteEntityFocus\(\)[\s\S]*?ownsCanvasEntityFocus\(ownership\)/)
+})
+
+test('same-project focus and episode history updates must pass the shared navigation barrier', async () => {
+  const route = { params: { id: '7' }, query: { episode: '11', focus: 'sb:101' } }
+  let barrierCalls = 0
+  let barrierResult = false
+  const controller = loadCanvasFunctions([
+    'routeFocusNodeId',
+    'routeEpisodeId',
+    'canvasRouteContext',
+    'guardCanvasRouteUpdate',
+  ], {
+    route,
+    runCanvasNavigationBarrier: async () => {
+      barrierCalls += 1
+      return barrierResult
+    },
+    String,
+    Number,
+  })
+
+  assert.equal(await controller.guardCanvasRouteUpdate({
+    params: { id: '7' },
+    query: { episode: '11', focus: 'sb:101', ignored: 'yes' },
+  }), true)
+  assert.equal(barrierCalls, 0)
+
+  assert.equal(await controller.guardCanvasRouteUpdate({
+    params: { id: '7' },
+    query: { episode: '12', focus: 'sb:101' },
+  }), false)
+  assert.equal(barrierCalls, 1)
+
+  barrierResult = true
+  assert.equal(await controller.guardCanvasRouteUpdate({
+    params: { id: '7' },
+    query: { episode: '11', focus: 'sb:202' },
+  }), true)
+  assert.equal(await controller.guardCanvasRouteUpdate({
+    params: { id: '8' },
+    query: { episode: '11', focus: 'sb:101' },
+  }), true)
+  assert.equal(barrierCalls, 3)
+})
+
+test('episode selector removes stale focus and waits for route restoration to finish', async () => {
+  const synchronization = deferred()
+  const route = {
+    query: { episode: '11', focus: 'sb:101', returnTo: '/?status=draft' },
+  }
+  const replacements = []
+  const requestEpisodeFilterChange = loadCanvasFunction('requestEpisodeFilterChange', {
+    filterEpisodeId: { value: 11 },
+    route,
+    router: {
+      async replace(location) {
+        replacements.push(location)
+      },
+    },
+    canvasRouteSynchronization: synchronization.promise,
+    routeEpisodeId: (routeLike = route) => {
+      const raw = Array.isArray(routeLike?.query?.episode)
+        ? routeLike.query.episode[0]
+        : routeLike?.query?.episode
+      return raw == null || raw === '' ? null : Number(raw)
+    },
+    String,
+    Number,
+  })
+
+  let settled = false
+  const result = requestEpisodeFilterChange(12).then((value) => {
+    settled = true
+    return value
+  })
+  await Promise.resolve()
+
+  assert.equal(settled, false)
+  assert.deepEqual(replacements, [{
+    query: { episode: '12', returnTo: '/?status=draft' },
+  }])
+
+  synchronization.resolve(true)
+  assert.equal(await result, true)
+})
+
+test('canvas return path preserves route episode and focus before inspector hydration', () => {
+  const route = {
+    params: { id: '7' },
+    query: { episode: '12', focus: 'free:text:alpha', ignored: 'removed-later' },
+  }
+  let resolvedLocation = null
+  const controller = loadCanvasFunctions([
+    'routeFocusNodeId',
+    'routeEpisodeId',
+    'buildCanvasReturnTo',
+  ], {
+    route,
+    canvasMode: { value: 'free' },
+    selectedFreeNodeId: { value: null },
+    focusedNodeId: { value: null },
+    dramaId: { value: 7 },
+    router: {
+      resolve(location) {
+        resolvedLocation = structuredClone(location)
+        return { fullPath: '/film/7/canvas?episode=12&focus=free:text:alpha' }
+      },
+    },
+    String,
+    Number,
+  })
+
+  assert.equal(
+    controller.buildCanvasReturnTo(),
+    '/film/7/canvas?episode=12&focus=free:text:alpha',
+  )
+  assert.equal(resolvedLocation.name, 'film-canvas')
+  assert.deepEqual(resolvedLocation.params, { id: '7' })
+  assert.equal(resolvedLocation.query.episode, '12')
+  assert.equal(resolvedLocation.query.focus, 'free:text:alpha')
+
+  controller.buildCanvasReturnTo('free:text:beta')
+  assert.equal(resolvedLocation.query.focus, 'free:text:beta')
 })
 
 test('project reset cancels a pending autosave before the route identity changes', () => {

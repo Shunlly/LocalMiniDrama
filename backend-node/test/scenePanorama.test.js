@@ -164,7 +164,7 @@ test('completed scene panorama task binds panorama fields and leaves the main im
     getDefaultImageConfig: imageClient.getDefaultImageConfig,
     getStoryboardReferenceLimits: imageClient.getStoryboardReferenceLimits,
     callImageApi: imageClient.callImageApi,
-    downloadImageToLocal: uploadService.downloadImageToLocal,
+    downloadImageToLocalAbortable: imageClient.downloadImageToLocalAbortable,
     loadConfig: configModule.loadConfig,
   };
   try {
@@ -186,7 +186,7 @@ test('completed scene panorama task binds panorama fields and leaves the main im
       apiRequest = request;
       return { image_url: 'https://provider.example.test/generated-panorama.jpg' };
     };
-    uploadService.downloadImageToLocal = async () => panoramaPath;
+    imageClient.downloadImageToLocalAbortable = async () => panoramaPath;
     configModule.loadConfig = () => ({
       storage: { local_path: tempStorage, base_url: 'http://localhost:5679/static' },
       style: {},
@@ -222,7 +222,7 @@ test('completed scene panorama task binds panorama fields and leaves the main im
     imageClient.getDefaultImageConfig = originals.getDefaultImageConfig;
     imageClient.getStoryboardReferenceLimits = originals.getStoryboardReferenceLimits;
     imageClient.callImageApi = originals.callImageApi;
-    uploadService.downloadImageToLocal = originals.downloadImageToLocal;
+    imageClient.downloadImageToLocalAbortable = originals.downloadImageToLocalAbortable;
     configModule.loadConfig = originals.loadConfig;
     db.close();
     fs.rmSync(tempStorage, { recursive: true, force: true });

@@ -54,3 +54,9 @@ desktop/dist/
 
 # Media binaries are acquired from the pinned, hash-verified release policy.
 /backend-node/tools/ffmpeg/*.exe
+
+# Local junk and credential-adjacent files that must never be committed.
+/-version
+/backend-node/-version
+/docs/new-api-ui-concept.html
+/data/
