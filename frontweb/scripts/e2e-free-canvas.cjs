@@ -1186,8 +1186,11 @@ async function assertReloadedBrowserState({ page, apiRequest, dramaId, expected 
     const edge = page.locator(`.vue-flow__edge[data-id=${JSON.stringify(String(edgeId))}]`)
     await assertUniqueLocator(edge, `reloaded edge ${edgeId}`)
   }
+  await clickUniqueButton(page, '适配视图')
+  await delay(400)
   const textNode = await exactFreeNode(page, expected.textNodeId)
-  await textNode.dblclick()
+  await textNode.scrollIntoViewIfNeeded()
+  await textNode.dblclick({ force: true })
   const editor = textNode.getByRole('textbox', { name: '文本内容', exact: true })
   await assertUniqueLocator(editor, 'reloaded exact text editor')
   assert.equal(await editor.inputValue(), expected.textContent, 'reloaded text editor content is incorrect')
