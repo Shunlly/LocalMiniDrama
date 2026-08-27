@@ -1478,21 +1478,34 @@ async function exerciseFreeCanvas({
     const paneBox = await pane.boundingBox()
     assert.ok(paneBox, 'canvas pane must have browser coordinates')
     const panStart = await findBlankPanePoint(page, paneBox)
-    await page.mouse.click(panStart.x, panStart.y, { button: 'left' })
-    await page.keyboard.down('Space')
     await page.mouse.move(panStart.x, panStart.y)
-    await page.mouse.down({ button: 'left' })
-    await page.mouse.move(panStart.x + 140, panStart.y + 90, { steps: 12 })
-    await page.mouse.up({ button: 'left' })
-    await page.keyboard.up('Space')
-    const renderedPanned = await waitForValue(
-      () => readRenderedViewport(page),
-      (viewport) => (
-        Math.abs(Number(viewport.x) - Number(renderedZoomed.x)) > 20
-        || Math.abs(Number(viewport.y) - Number(renderedZoomed.y)) > 20
-      ),
-      'browser pan transform',
-    )
+    await page.mouse.wheel(160, 120)
+    let renderedPanned = null
+    try {
+      renderedPanned = await waitForValue(
+        () => readRenderedViewport(page),
+        (viewport) => (
+          Math.abs(Number(viewport.x) - Number(renderedZoomed.x)) > 20
+          || Math.abs(Number(viewport.y) - Number(renderedZoomed.y)) > 20
+        ),
+        'browser pan transform',
+        4000,
+      )
+    } catch (_) {
+      await page.mouse.move(panStart.x, panStart.y)
+      await page.mouse.down({ button: 'right' })
+      await page.mouse.move(panStart.x + 160, panStart.y + 110, { steps: 14 })
+      await page.mouse.up({ button: 'right' })
+      await page.keyboard.press('Escape')
+      renderedPanned = await waitForValue(
+        () => readRenderedViewport(page),
+        (viewport) => (
+          Math.abs(Number(viewport.x) - Number(renderedZoomed.x)) > 20
+          || Math.abs(Number(viewport.y) - Number(renderedZoomed.y)) > 20
+        ),
+        'browser pan transform',
+      )
+    }
     const viewportState = await waitForPersistedFreeCanvas(
       apiRequest,
       primaryId,
