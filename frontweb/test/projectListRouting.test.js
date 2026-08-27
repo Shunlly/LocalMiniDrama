@@ -145,7 +145,7 @@ test('project list and project workspaces wire safe return navigation through th
   assert.match(filmListSource, /选择已有项目后导入网页 URL/)
   assert.match(
     filmListSource,
-    /router\.push\(projectCardDestination\(drama, sourceImportIntent\.value, projectListReturnTo\.value\)\)/,
+    /router\.push\(newProjectDestination\(drama, sourceImportIntent\.value, projectListReturnTo\.value\)\)/,
   )
 
   for (const source of [filmCreateSource, dramaDetailSource]) {

@@ -15,7 +15,7 @@ test('source-import intent routes an existing project to its URL import area', a
   })
 })
 
-test('newly created projects reuse the same destination behavior for normal and URL-import intent', async () => {
+test('existing project cards open the film workspace unless URL-import intent is active', async () => {
   const { projectCardDestination } = await import('../src/utils/sourceImportNavigation.js')
 
   assert.deepEqual(projectCardDestination({ id: '51' }, false, '/?q=moon'), {
@@ -24,6 +24,26 @@ test('newly created projects reuse the same destination behavior for normal and 
     query: { returnTo: '/?q=moon' },
   })
   assert.deepEqual(projectCardDestination({ id: '52' }, true, '/?intent=source-import'), {
+    name: 'drama-detail',
+    params: { id: 52 },
+    query: {
+      intake: 'source-url',
+      returnTo: '/?intent=source-import',
+    },
+    hash: '#source-intake-workflow',
+  })
+})
+
+test('newly created projects land on source intake instead of an empty film workspace', async () => {
+  const { newProjectDestination } = await import('../src/utils/sourceImportNavigation.js')
+
+  assert.deepEqual(newProjectDestination({ id: '51' }, false, '/?q=moon'), {
+    name: 'drama-detail',
+    params: { id: 51 },
+    query: { returnTo: '/?q=moon' },
+    hash: '#source-intake-workflow',
+  })
+  assert.deepEqual(newProjectDestination({ id: '52' }, true, '/?intent=source-import'), {
     name: 'drama-detail',
     params: { id: 52 },
     query: {

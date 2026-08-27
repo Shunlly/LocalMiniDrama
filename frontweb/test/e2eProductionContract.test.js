@@ -2827,7 +2827,7 @@ test('production images pin reviewed bases and the frontend runs without root', 
   const digestPattern = /@sha256:[a-f0-9]{64}/
   assert.match(productionDockerfile, /FROM node:20-bookworm-slim@sha256:/)
   assert.match(productionDockerfile, /FROM nginxinc\/nginx-unprivileged:1\.29-alpine@sha256:/)
-  assert.match(productionDockerfile, /USER root\s+RUN apk upgrade --no-cache/)
+  assert.match(productionDockerfile, /USER root(?:\s|#.*|ARG [^\n]+)*\s+RUN apk upgrade --no-cache/)
   assert.match(productionDockerfile, /\nUSER 101\s*\n/)
   assert.match(verificationDockerfile, /RUN chown -R node:node \/app\s+USER node/)
   assert.match(verificationDockerfile, /USER node[\s\S]*CMD \["npm", "run", "dev"/)

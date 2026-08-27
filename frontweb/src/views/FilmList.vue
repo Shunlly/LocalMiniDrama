@@ -703,7 +703,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files, Collection, ArrowDown, MoreFilled, RefreshLeft, Search, ArrowRight } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
-import { projectCardDestination } from '@/utils/sourceImportNavigation.js'
+import { newProjectDestination, projectCardDestination } from '@/utils/sourceImportNavigation.js'
 import { dramaAPI } from '@/api/drama'
 import { characterLibraryAPI } from '@/api/characterLibrary'
 import { sceneLibraryAPI } from '@/api/sceneLibrary'
@@ -1357,7 +1357,7 @@ async function submitNew() {
     showNewDialog.value = false
     ElMessage.success('项目已创建')
     loadList()
-    router.push(projectCardDestination(drama, sourceImportIntent.value, projectListReturnTo.value))
+    router.push(newProjectDestination(drama, sourceImportIntent.value, projectListReturnTo.value))
   } catch (e) {
     ElMessage.error(e.message || '创建失败')
   } finally {

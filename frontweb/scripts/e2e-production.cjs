@@ -1483,7 +1483,7 @@ async function createDramaFromUi(page, { title, description }) {
   const responsePromise = page.waitForResponse((response) => (
     response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/dramas'
   ), { timeout: 30000 })
-  const navigationPromise = page.waitForURL(/\/drama\/\d+(?:[?#]|$)/, { timeout: 30000 })
+  const navigationPromise = page.waitForURL(/\/drama\/\d+(?:[?#]|$)/, { timeout: 30000, waitUntil: 'commit' })
   let response
   let payload
   try {
