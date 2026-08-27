@@ -1558,7 +1558,19 @@ async function exerciseFreeCanvas({
       dramaId: primaryId,
       type: 'reference',
       action: async () => {
-        const characterButton = page.getByRole('button', { name: seeded.character.name, exact: true })
+        const library = page.getByRole('complementary', { name: '自由画布素材', exact: true })
+        await assertUniqueLocator(library, 'free canvas asset sidebar')
+        if (!(await library.isVisible())) {
+          await clickUniqueButton(page, '展开素材栏')
+        }
+        const characterSection = library.locator('details.asset-section').filter({
+          has: page.locator('summary', { hasText: '角色' }),
+        }).first()
+        await characterSection.waitFor({ state: 'visible', timeout: DEFAULT_TIMEOUT_MS })
+        if (await characterSection.getAttribute('open') === null) {
+          await characterSection.locator('summary').click()
+        }
+        const characterButton = library.getByRole('button', { name: seeded.character.name, exact: true })
         await assertUniqueLocator(characterButton, 'fixture character library item')
         await characterButton.click()
       },
