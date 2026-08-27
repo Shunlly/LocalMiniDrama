@@ -351,6 +351,7 @@ function keyboardControllerHarness() {
   document.activeElement = nodeTarget
 
   const controller = loadCanvasFunctions([
+    'isTypingTarget',
     'isEditableKeyTarget',
     'activateFreeCanvasNode',
     'removeFreeCanvasItems',

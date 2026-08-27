@@ -111,7 +111,7 @@ test('canvas inspector restores keyboard and selection context when closing or c
 test('free canvas shortcuts ignore interactive controls and inspector content', () => {
   assert.match(
     dramaCanvasSource,
-    /function isEditableKeyTarget\(target\)[\s\S]*?input, textarea, select, button, video, audio,[\s\S]*?\.free-canvas-inspector-dock/,
+    /function isTypingTarget\(target\)[\s\S]*?input, textarea, select,[\s\S]*?\.el-textarea/,
   )
   assert.match(dramaCanvasSource, /if \(isEditableKeyTarget\(event\.target\)\) return/)
 })

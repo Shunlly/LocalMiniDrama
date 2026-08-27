@@ -3324,9 +3324,15 @@ function goMediaLibrary() {
   router.push({ name: 'media-library', query: { returnTo: buildCanvasReturnTo() } })
 }
 
-function isEditableKeyTarget(target) {
+function isTypingTarget(target) {
   return Boolean(target?.closest?.(
-    'input, textarea, select, button, video, audio, [contenteditable="true"], .el-input, .el-textarea, .el-popper, .free-canvas-inspector-dock',
+    'input, textarea, select, [contenteditable="true"], .el-input, .el-textarea',
+  ))
+}
+
+function isEditableKeyTarget(target) {
+  return isTypingTarget(target) || Boolean(target?.closest?.(
+    'button, video, audio, .el-popper, .free-canvas-inspector-dock',
   ))
 }
 
@@ -3406,7 +3412,7 @@ function handleFreeCanvasKeydown(event) {
     }
     return
   }
-  if (isEditableKeyTarget(event.target)) return
+  if (isTypingTarget(event.target)) return
 
   const modifier = event.ctrlKey || event.metaKey
   const key = String(event.key || '').toLowerCase()
