@@ -128,6 +128,18 @@ namespace LocalMiniDrama
             StringBuilder fileSystemNameBuffer,
             uint fileSystemNameSize);
 
+        static string ExtendedPath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                throw new ArgumentException("Rollback path is required.", "path");
+            if (path.StartsWith(@"\\?\", StringComparison.Ordinal))
+                return path;
+            string full = Path.GetFullPath(path);
+            if (full.StartsWith(@"\\", StringComparison.Ordinal))
+                return @"\\?\UNC\" + full.Substring(2);
+            return @"\\?\" + full;
+        }
+
         static Win32Exception LastError(string operation, string path)
         {
             int error = Marshal.GetLastWin32Error();
@@ -137,7 +149,7 @@ namespace LocalMiniDrama
         static SafeFileHandle OpenLocked(string path)
         {
             SafeFileHandle handle = CreateFileW(
-                path,
+                ExtendedPath(path),
                 DELETE | FILE_READ_ATTRIBUTES,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 IntPtr.Zero,
@@ -180,7 +192,7 @@ namespace LocalMiniDrama
         static void AssertSupportedFileSystem(string path)
         {
             StringBuilder volumePath = new StringBuilder(1024);
-            if (!GetVolumePathNameW(path, volumePath, (uint)volumePath.Capacity))
+            if (!GetVolumePathNameW(ExtendedPath(path), volumePath, (uint)volumePath.Capacity))
                 throw LastError("GetVolumePathNameW", path);
             StringBuilder fileSystem = new StringBuilder(64);
             uint serial, maximumComponentLength, flags;
@@ -237,7 +249,7 @@ namespace LocalMiniDrama
             {
                 if (state.Stopwatch.ElapsedMilliseconds >= state.TimeoutMilliseconds)
                     throw new TimeoutException("Rollback owned-path cleanup exceeded its deadline.");
-                string[] entries = Directory.GetFileSystemEntries(directoryPath);
+                string[] entries = Directory.GetFileSystemEntries(ExtendedPath(directoryPath));
                 if (entries.Length == 0) return;
                 foreach (string entry in entries) DeleteEntry(entry, state);
             }

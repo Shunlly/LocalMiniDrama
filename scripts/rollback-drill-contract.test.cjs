@@ -4226,3 +4226,41 @@ test('rollback drill module import does not execute the CLI', () => {
   assert.equal(result.stdout, '')
   assert.equal(result.stderr, '')
 })
+test('Windows owned-path deletion uses extended-length paths', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'remove-rollback-owned-path.ps1'), 'utf8')
+  assert.match(source, /static string ExtendedPath\(string path\)/)
+  assert.match(source, /CreateFileW\(\s*ExtendedPath\(path\)/)
+  assert.match(source, /GetFileSystemEntries\(ExtendedPath\(directoryPath\)\)/)
+  assert.match(source, /@"\\?\\"/)
+})
+
+test('Windows owned-path cleanup deletes nested files beyond MAX_PATH', async (t) => {
+  if (process.platform !== 'win32') return t.skip('Windows-only')
+  const { removeOwnedClaimWindows } = require('./run-rollback-drill.cjs')
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-longpath-'))
+  const prefix = '\\\\?\\'
+  t.after(() => {
+    try { fs.rmSync(prefix + root, { recursive: true, force: true }) } catch (_) {}
+  })
+  let nested = root
+  while (Buffer.byteLength(nested, 'utf8') < 270) nested = path.join(nested, 'segment-name-20ch')
+  fs.mkdirSync(prefix + nested, { recursive: true })
+  fs.writeFileSync(prefix + path.join(nested, 'payload.bin'), 'payload')
+  const handle = await fsp.open(root, fs.constants.O_RDONLY)
+  t.after(() => handle.close().catch(() => {}))
+  const descriptor = await handle.stat({ bigint: true })
+  await removeOwnedClaimWindows({
+    claimPath: root,
+    expected: {
+      dev: descriptor.dev,
+      ino: descriptor.ino,
+      nlink: descriptor.nlink,
+      size: descriptor.size,
+      type: 'directory',
+    },
+    label: 'long-path fixture',
+    maximumEntries: 4096,
+  })
+  await assert.rejects(() => fsp.lstat(root), { code: 'ENOENT' })
+})
+
