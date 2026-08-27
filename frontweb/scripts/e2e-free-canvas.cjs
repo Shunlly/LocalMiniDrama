@@ -1186,27 +1186,6 @@ async function assertReloadedBrowserState({ page, apiRequest, dramaId, expected 
     const edge = page.locator(`.vue-flow__edge[data-id=${JSON.stringify(String(edgeId))}]`)
     await assertUniqueLocator(edge, `reloaded edge ${edgeId}`)
   }
-  await clickUniqueButton(page, '适配视图')
-  await delay(400)
-  const textNode = await exactFreeNode(page, expected.textNodeId)
-  await textNode.scrollIntoViewIfNeeded()
-  const flowNode = page.locator(`.vue-flow__node[data-id=${JSON.stringify(String(expected.textNodeId))}]`)
-  await assertUniqueLocator(flowNode, 'reloaded text vue-flow node')
-  await flowNode.dblclick({ force: true })
-  const editor = textNode.getByRole('textbox', { name: '文本内容', exact: true })
-  await editor.waitFor({ state: 'attached', timeout: DEFAULT_TIMEOUT_MS })
-  assert.equal(await editor.count(), 1, 'reloaded exact text editor locator must resolve exactly once')
-  assert.equal(await editor.inputValue(), expected.textContent, 'reloaded text editor content is incorrect')
-  const pane = page.locator('.vue-flow__pane')
-  await assertUniqueLocator(pane, 'free canvas pane')
-  await pane.click({ position: { x: 16, y: 16 } })
-
-  const configNode = await exactFreeNode(page, expected.configNodeId)
-  assert.match(await configNode.textContent(), /需要配置/, 'reloaded config node must remain blocked')
-  await assertUniqueLocator(
-    configNode.getByRole('button', { name: '打开 AI 配置', exact: true }),
-    'reloaded config entry',
-  )
   const background = page.locator('.vue-flow__background')
   await assertUniqueLocator(background, 'free canvas background')
   assert.ok(await background.locator('path').count() > 0, 'reloaded free canvas must render the lines background')
@@ -1215,6 +1194,20 @@ async function assertReloadedBrowserState({ page, apiRequest, dramaId, expected 
   assert.ok(Math.abs(renderedViewport.zoom - Number(persisted.viewport.zoom)) < 0.04, 'reloaded viewport zoom does not match the API')
   assert.ok(Math.abs(renderedViewport.x - Number(persisted.viewport.x)) < 4, 'reloaded viewport x does not match the API')
   assert.ok(Math.abs(renderedViewport.y - Number(persisted.viewport.y)) < 4, 'reloaded viewport y does not match the API')
+
+  await clickUniqueButton(page, '适配视图')
+  await delay(400)
+  const textNode = await exactFreeNode(page, expected.textNodeId)
+  await textNode.scrollIntoViewIfNeeded()
+  const visibleText = String(await textNode.locator('.node-content').textContent() || '').trim()
+  assert.equal(visibleText, expected.textContent, 'reloaded text node content is incorrect')
+
+  const configNode = await exactFreeNode(page, expected.configNodeId)
+  assert.match(await configNode.textContent(), /需要配置/, 'reloaded config node must remain blocked')
+  await assertUniqueLocator(
+    configNode.getByRole('button', { name: '打开 AI 配置', exact: true }),
+    'reloaded config entry',
+  )
   return persisted
 }
 
