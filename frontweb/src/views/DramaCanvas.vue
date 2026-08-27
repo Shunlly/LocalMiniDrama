@@ -4121,6 +4121,8 @@ async function saveFreeCanvasNodeAsAsset(payload = {}) {
 }
 
 :deep(.vue-flow__minimap) {
+  right: 16px;
+  bottom: 92px;
   background: rgba(24, 24, 27, 0.92);
   border: 1px solid #3f3f46;
 }
