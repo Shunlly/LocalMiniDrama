@@ -16,7 +16,9 @@ COPY frontweb/test ./test
 COPY backend-node/src/utils/runtimeInstanceId.js /backend-node/src/utils/runtimeInstanceId.js
 
 ENV NODE_ENV=production
-RUN npm run build
+# Docker Desktop 在部分 Windows 主机上会让 V8 Turbofan 在 Vite 编译时崩溃。
+# --no-opt 不能放进 NODE_OPTIONS，必须直接传给 node。
+RUN node --no-opt ./node_modules/vite/bin/vite.js build && node --no-opt scripts/check-bundle-budget.cjs
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6 AS runtime
 

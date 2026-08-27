@@ -2775,7 +2775,9 @@ test('main CI always runs production E2E and uploads the complete sanitized evid
 
 test('production frontend image installs build tooling but compiles the production runtime', () => {
   assert.match(productionDockerfile, /npm ci --include=dev --no-audit/)
-  assert.match(productionDockerfile, /ENV NODE_ENV=production\s+RUN npm run build/)
+  assert.match(productionDockerfile, /ENV NODE_ENV=production/)
+  assert.match(productionDockerfile, /node --no-opt \.\/node_modules\/vite\/bin\/vite\.js build/)
+  assert.match(productionDockerfile, /node --no-opt scripts\/check-bundle-budget\.cjs/)
   assert.doesNotMatch(productionDockerfile, /ENV NODE_ENV=development/)
 })
 
