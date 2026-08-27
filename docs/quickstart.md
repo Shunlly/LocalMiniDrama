@@ -37,7 +37,7 @@
 
 ### 自由画布集成状态（2026-07-27）
 
-同一路由中的「制作 + 自由」桌面工作台，源码、合同复审和 ZIP 安全复审只能证明对应历史范围；**当前工作树运行验收仍为 UNVERIFIED**。1280x720、1366x768、1440x900 的亮色/暗色生产 E2E、当前 Docker Compose 运行态以及真实浏览器创建项目链路，都必须在当前未提交工作树上重新执行后才能作为发布证据。测试只使用本地协议兼容测试服务，不调用外部真实 Provider。历史报告仅供对照：`http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`。
+同一路由中的「制作 + 自由」桌面工作台已在干净提交 `f2fa2a85` 上完成本地 Docker 生产 E2E 和自由画布 E2E。测试只使用本地协议兼容测试服务，不调用外部真实 Provider。`v1.3.3` 标签、Windows 制品和 CI 合入仍未完成。历史报告仅供对照：`http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`。
 
 ---
 
@@ -268,7 +268,7 @@ try {
 }
 ```
 
-`docker:e2e:up` 等价于带可信 Git revision 的 `docker compose --profile e2e up -d --build --wait`，并会拒绝默认 `backend-node/data`、非空目录、符号链接目录和与仓库危险重叠的路径。E2E 会调用本地协议兼容的文本、图片、视频和 TTS 测试端点，生成成片、验证桌面视口播放、下载与项目导出，然后清理测试项目；测试不得调用外部真实 Provider，也不等同于外部云 Provider 深度联调。2026-07-27 的自由画布历史运行曾出现来源 403、节点点击被画布拦截、刷新文本不保留和画布平移保存超时；截至当前未提交工作树，隔离 Docker 命令和亮/暗视口矩阵仍未重新执行，不能写入发布通过结论。
+`docker:e2e:up` 等价于带可信 Git revision 的 `docker compose --profile e2e up -d --build --wait`，并会拒绝默认 `backend-node/data`、非空目录、符号链接目录和与仓库危险重叠的路径。E2E 会调用本地协议兼容的文本、图片、视频和 TTS 测试端点，生成成片、验证桌面视口播放、下载与项目导出，然后清理测试项目；测试不得调用外部真实 Provider，也不等同于外部云 Provider 深度联调。干净提交 `f2fa2a85` 已重跑隔离 Docker 生产 E2E 和自由画布 E2E。`v1.3.3` 标签和 CI 合入仍未完成，不能当作正式发布。
 
 `npm run verify:docker` 依次检查镜像边界，并在临时验证容器内运行后端验证和前端验证；它不验证当前 Compose 服务。宿主机若使用 Node.js 24 等缺少 `better-sqlite3` 预编译产物的版本，可直接以 Docker/Node 20 作为权威容器验证路径。
 

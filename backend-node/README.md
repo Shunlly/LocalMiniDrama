@@ -2,7 +2,7 @@
 
 **Node.js + Express + SQLite · 纯 JavaScript · 无 TypeScript**
 
-> **当前工作树运行验收：UNVERIFIED。** 文档中的历史报告、代码/契约复审和旧提交结果不能证明当前未提交工作树通过运行验收。
+> **本地 Docker E2E 已在干净提交 `f2fa2a85` 通过。** `v1.3.3` 标签、Windows 制品和 CI 合入仍未完成，不能当作正式发布。
 
 → [项目主页](../README.md) | [快速开始](../docs/quickstart.md) | [AI 配置](../docs/configuration.md) | [版本历史](../docs/changelog.md) | [作者故事](../docs/story.md) | [English](../docs/en.md)
 
