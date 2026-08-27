@@ -846,6 +846,35 @@ async function marqueeSelectExactNodes({ page, nodeIds }) {
   return assertExactSelectedFreeNodeIds(page, expectedNodeIds)
 }
 
+async function findBlankPanePoint(page, paneBox) {
+  const candidates = []
+  for (const xRatio of [0.08, 0.92, 0.18, 0.82, 0.5]) {
+    for (const yRatio of [0.12, 0.86, 0.28, 0.72]) {
+      candidates.push({
+        x: paneBox.x + paneBox.width * xRatio,
+        y: paneBox.y + paneBox.height * yRatio,
+      })
+    }
+  }
+  for (const point of candidates) {
+    const blocked = await page.evaluate(({ x, y }) => {
+      const element = document.elementFromPoint(x, y)
+      if (!element) return true
+      return Boolean(element.closest([
+        '[data-free-node-id]',
+        '.el-button',
+        '.el-dropdown-menu',
+        '.free-canvas-inspector-dock',
+        '.vue-flow__minimap',
+        '.vue-flow__controls',
+        '.el-message',
+      ].join(',')))
+    }, point)
+    if (!blocked) return point
+  }
+  throw new Error('free canvas has no blank pane point for panning')
+}
+
 async function clickUniqueButton(page, name) {
   const button = page.getByRole('button', { name, exact: true })
   await assertUniqueLocator(button, `${name} button`)
@@ -1448,14 +1477,14 @@ async function exerciseFreeCanvas({
 
     const paneBox = await pane.boundingBox()
     assert.ok(paneBox, 'canvas pane must have browser coordinates')
-    const panStart = {
-      x: paneBox.x + Math.min(80, paneBox.width / 4),
-      y: paneBox.y + Math.min(100, paneBox.height / 4),
-    }
+    const panStart = await findBlankPanePoint(page, paneBox)
+    await page.mouse.click(panStart.x, panStart.y, { button: 'left' })
+    await page.keyboard.down('Space')
     await page.mouse.move(panStart.x, panStart.y)
-    await page.mouse.down({ button: 'middle' })
-    await page.mouse.move(panStart.x + 96, panStart.y + 64, { steps: 8 })
-    await page.mouse.up({ button: 'middle' })
+    await page.mouse.down({ button: 'left' })
+    await page.mouse.move(panStart.x + 140, panStart.y + 90, { steps: 12 })
+    await page.mouse.up({ button: 'left' })
+    await page.keyboard.up('Space')
     const renderedPanned = await waitForValue(
       () => readRenderedViewport(page),
       (viewport) => (
