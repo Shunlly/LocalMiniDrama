@@ -1108,15 +1108,19 @@ async function captureAcceptanceScreenshots({
     await setEvidenceTheme(page, capture.theme)
     await closeInspector(page)
     await clickUniqueButton(page, '适配视图')
+    await clickUniqueButton(page, '缩小画布')
+    await delay(220)
     if (capture.inspectorOpen) {
       const inspectorNode = await exactFreeNode(page, inspectorNodeId)
-      await inspectorNode.click()
+      await inspectorNode.locator('.node-header').click({ force: true })
       await assertUniqueLocator(
         page.getByRole('complementary', { name: '自由节点检查器', exact: true }),
         'acceptance capture inspector',
       )
       await delay(250)
       await clickUniqueButton(page, '适配视图')
+      await clickUniqueButton(page, '缩小画布')
+      await delay(220)
     }
     await waitForUiSaveSettled(page)
     await assertPageFixtureIdentity({ page, fixture, verifyFixture, services })
