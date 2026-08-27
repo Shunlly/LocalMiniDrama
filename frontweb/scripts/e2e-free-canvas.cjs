@@ -152,6 +152,13 @@ function paginatedItems(value) {
   return Array.isArray(value?.items) ? value.items : []
 }
 
+function unwrapNamedRecord(payload, key) {
+  if (payload && typeof payload === 'object' && payload[key] && typeof payload[key] === 'object' && !Array.isArray(payload[key])) {
+    return payload[key]
+  }
+  return payload
+}
+
 async function assertFixtureIdentity({ apiRequest, frontendApiRequest: frontendRequest, dramaId, expectedTitle }) {
   assert.ok(Number.isSafeInteger(Number(dramaId)) && Number(dramaId) > 0, 'fixture id must be a positive integer')
   assert.ok(String(expectedTitle || '').startsWith(E2E_TITLE_PREFIX), 'fixture title must use the guarded E2E prefix')
@@ -1595,7 +1602,7 @@ async function exerciseFreeCanvas({
     await confirm.click()
     await waitForMessage(page, '已转换为制作参考')
     const convertedCharacter = await waitForValue(
-      () => apiRequest(`/characters/${seeded.character.id}`),
+      async () => unwrapNamedRecord(await apiRequest(`/characters/${seeded.character.id}`), 'character'),
       (character) => (
         String(character?.description || '').includes('[自由画布参考]')
         && String(character?.description || '').includes(seeded.character.name)
