@@ -1583,7 +1583,7 @@ async function exerciseFreeCanvas({
     await assertUniqueLocator(inspector, 'reference node inspector')
     const conversionTarget = inspector.getByRole('combobox', { name: '转换目标', exact: true })
     await assertUniqueLocator(conversionTarget, 'reference conversion target')
-    await conversionTarget.click()
+    await conversionTarget.click({ force: true })
     const characterOption = page.getByRole('option', { name: `角色 · ${seeded.character.name}`, exact: true })
     await assertUniqueLocator(characterOption, 'fixture character conversion option')
     await characterOption.click()
@@ -1613,7 +1613,7 @@ async function exerciseFreeCanvas({
     assert.ok(referenceTitle && referenceContent, 'storyboard conversion fixture reference text is incomplete')
     const storyboardBefore = await apiRequest(`/storyboards/${seeded.storyboard.id}`)
     const expectedStoryboardDescription = `${String(storyboardBefore.description || '').trim()}\n\n[自由画布参考]\n${referenceTitle}\n${referenceContent}`
-    await conversionTarget.click()
+    await conversionTarget.click({ force: true })
     const storyboardOption = page.getByRole('option', {
       name: `分镜 · ${seeded.episode.title} · ${seeded.storyboard.title}`,
       exact: true,
