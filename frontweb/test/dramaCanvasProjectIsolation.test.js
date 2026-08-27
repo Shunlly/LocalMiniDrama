@@ -395,6 +395,8 @@ function keyboardControllerHarness() {
     finishFreeCanvasNodeEditing() {},
     closeContextMenu() {},
     closeFreeCanvasInspector() {},
+    cancelScheduledCanvasSave() {},
+    persistCanvasState() { return Promise.resolve({ ok: true }) },
     commitFreeCanvasState(nextState, reason) {
       freeCanvas.value = history.commit(nextState, reason)
       const remaining = new Set(freeCanvas.value.nodes.map((node) => String(node.id)))

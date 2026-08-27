@@ -475,8 +475,8 @@ export function createFreeEdge(source, target, overrides = {}) {
 
 export function removeFreeSelection(state, ids = []) {
   const normalized = normalizeFreeCanvas(state)
-  const selected = new Set(Array.isArray(ids) ? ids : [])
-  const nodes = normalized.nodes.filter((node) => !selected.has(node.id))
+  const selected = new Set((Array.isArray(ids) ? ids : []).map((id) => String(id)))
+  const nodes = normalized.nodes.filter((node) => !selected.has(String(node.id)))
   const nodeIds = new Set(nodes.map((node) => node.id))
   const edges = normalized.edges.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
   return sanitizeJsonValue({ ...normalized, nodes, edges })

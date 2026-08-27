@@ -3152,7 +3152,12 @@ function syncVisualFreeCanvasSelection() {
 
 function deleteFreeCanvasSelection() {
   const { nodeIds, edgeIds } = syncVisualFreeCanvasSelection()
-  return removeFreeCanvasItems(nodeIds, edgeIds)
+  const removed = removeFreeCanvasItems(nodeIds, edgeIds)
+  if (removed) {
+    cancelScheduledCanvasSave()
+    void persistCanvasState({ freeOnly: true })
+  }
+  return removed
 }
 
 function retryFreeCanvasNode(nodeId) {
@@ -3429,6 +3434,16 @@ function pasteFreeCanvasSelection() {
     nodes: [...freeCanvas.value.nodes, ...copiedNodes],
     edges: [...freeCanvas.value.edges, ...copiedEdges],
   }, 'paste')
+  const copiedIdSet = new Set(copiedNodes.map((node) => String(node.id)))
+  const copiedEdgeSet = new Set(copiedEdges.map((edge) => String(edge.id)))
+  nodes.value = nodes.value.map((node) => ({
+    ...node,
+    selected: copiedIdSet.has(String(node.id)),
+  }))
+  edges.value = edges.value.map((edge) => ({
+    ...edge,
+    selected: copiedEdgeSet.has(String(edge.id)),
+  }))
   return true
 }
 
