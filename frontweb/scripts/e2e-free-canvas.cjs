@@ -636,6 +636,8 @@ async function createNodeAndResolve({ page, apiRequest, dramaId, type, action })
   const node = persisted.nodes.find((item) => String(item.id) === createdIds[0])
   assert.equal(node?.type, type, `created API node ${createdIds[0]} has the wrong type`)
   await clickUniqueButton(page, '适配视图')
+  await delay(400)
+  await waitForUiSaveSettled(page)
   await exactFreeNode(page, createdIds[0])
   return { node, state: persisted, before }
 }
@@ -645,6 +647,8 @@ async function moveExactNodeAwayFrom({ page, apiRequest, dramaId, nodeId, anchor
   const beforeNode = before.nodes.find((node) => String(node.id) === String(nodeId))
   assert.ok(beforeNode, `movable API node ${nodeId} is missing`)
   const node = await exactFreeNode(page, nodeId)
+  await node.click()
+  await delay(200)
   const anchor = await exactFreeNode(page, anchorNodeId)
   const dragSurface = node.locator('.node-header')
   await assertUniqueLocator(dragSurface, `drag surface ${nodeId}`)
