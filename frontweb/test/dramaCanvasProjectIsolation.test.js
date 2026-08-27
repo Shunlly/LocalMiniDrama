@@ -557,7 +557,7 @@ function realPlacementCreationHarness(screenRect) {
   }
 }
 
-test('high-zoom creation propagates insufficient measured bounds without mutating canvas state', async () => {
+test('high-zoom creation still places a node outside the tight measured bounds', async () => {
   const harness = realPlacementCreationHarness({
     left: 240,
     top: 0,
@@ -566,28 +566,18 @@ test('high-zoom creation propagates insufficient measured bounds without mutatin
     width: 660,
     height: 720,
   })
-  const beforeCanvas = harness.history.present()
-  const beforeNodes = structuredClone(harness.nodes.value)
-  const beforeSelection = {
-    focused: harness.selectedFreeNodeId.value,
-    nodes: [...harness.selectedFreeNodeIds.value],
-    edges: [...harness.selectedFreeEdgeIds.value],
-  }
 
   const result = await harness.createFreeCanvasNode('text', null, { id: 'new-node' })
 
-  assert.equal(result, null)
-  assert.deepEqual(harness.freeCanvas.value, beforeCanvas)
-  assert.deepEqual(harness.history.present(), beforeCanvas)
-  assert.equal(harness.history.canUndo(), false)
-  assert.deepEqual(harness.nodes.value, beforeNodes)
-  assert.deepEqual({
-    focused: harness.selectedFreeNodeId.value,
-    nodes: harness.selectedFreeNodeIds.value,
-    edges: harness.selectedFreeEdgeIds.value,
-  }, beforeSelection)
-  assert.deepEqual(harness.commits, [])
-  assert.deepEqual(harness.warnings, ['当前可见区域没有足够的空位，请移动或缩放画布后重试'])
+  assert.equal(result.id, 'new-node')
+  assert.equal(typeof result.position?.x, 'number')
+  assert.equal(typeof result.position?.y, 'number')
+  assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), ['existing-node', 'new-node'])
+  assert.equal(harness.history.canUndo(), true)
+  assert.equal(harness.selectedFreeNodeId.value, 'new-node')
+  assert.deepEqual(harness.selectedFreeNodeIds.value, ['new-node'])
+  assert.deepEqual(harness.commits, ['create:text'])
+  assert.deepEqual(harness.warnings, [])
 })
 
 test('real placement chain still creates a node when measured high-zoom geometry is sufficient', async () => {

@@ -2908,7 +2908,6 @@ function freeCanvasSafeBounds() {
 
 function defaultFreeNodePosition(position = null) {
   const bounds = freeCanvasSafeBounds()
-  if (bounds === null) return null
   const supplied = position && Number.isFinite(position.x) && Number.isFinite(position.y)
     ? { x: position.x, y: position.y }
     : null
@@ -2919,6 +2918,7 @@ function defaultFreeNodePosition(position = null) {
     }
     : { x: 80, y: 80 })
   return findFreeNodeSpawnPosition(preferred, nodes.value, { bounds })
+    || findFreeNodeSpawnPosition(preferred, nodes.value)
 }
 
 function freeNodeDefaults(type) {
