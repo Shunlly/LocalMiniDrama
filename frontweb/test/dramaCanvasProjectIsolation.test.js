@@ -510,6 +510,24 @@ test('copy and paste use current visual selection even when a toolbar button is 
   assert.equal(harness.freeCanvas.value.edges.length, 2)
 })
 
+test('delete shortcut uses current visual selection even when internal ids are empty', () => {
+  const harness = keyboardControllerHarness()
+  harness.nodes.value = harness.nodes.value.map((node) => ({ ...node, selected: true }))
+  harness.selectedFreeNodeIds.value = []
+  harness.selectedFreeEdgeIds.value = []
+  harness.selectedFreeNodeId.value = null
+
+  const buttonTarget = {
+    closest(selector) {
+      return String(selector).split(',').map((item) => item.trim()).includes('button') ? this : null
+    },
+  }
+  const deletion = harness.keyEvent('Delete', buttonTarget)
+  harness.handleFreeCanvasKeydown(deletion)
+  assert.equal(deletion.defaultPrevented, true)
+  assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), [])
+})
+
 test('node creation aborts when the visible safe area has no open position', async () => {
   let createCalls = 0
   let commitCalls = 0

@@ -2859,7 +2859,7 @@ function updateCanvasViewportReady() {
 
 onMounted(() => {
   window.addEventListener('beforeunload', handleCanvasBeforeUnload)
-  window.addEventListener('keydown', handleFreeCanvasKeydown)
+  window.addEventListener('keydown', handleFreeCanvasKeydown, true)
   canvasReadyFrame = window.requestAnimationFrame(() => {
     updateCanvasViewportReady()
     if (typeof ResizeObserver === 'function' && canvasMainRef.value) {
@@ -2871,7 +2871,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleCanvasBeforeUnload)
-  window.removeEventListener('keydown', handleFreeCanvasKeydown)
+  window.removeEventListener('keydown', handleFreeCanvasKeydown, true)
   activeWorkflowRun.value?.controller?.abort()
   activeWorkflowRun.value = null
   nodeGenerationCoordinator.stopWaiting('画布已关闭，后台任务和供应商计费可能继续')
@@ -3462,8 +3462,10 @@ function handleFreeCanvasKeydown(event) {
     return
   }
   if (event.key === 'Delete' || event.key === 'Backspace') {
-    if (selectedFreeNodeIds.value.length || selectedFreeEdgeIds.value.length) {
+    const { nodeIds, edgeIds } = currentVisualFreeCanvasSelection()
+    if (nodeIds.length || edgeIds.length) {
       event.preventDefault()
+      event.stopPropagation()
       deleteFreeCanvasSelection()
     }
   }
