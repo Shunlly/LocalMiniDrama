@@ -882,6 +882,16 @@ async function findBlankPanePoint(page, paneBox) {
   throw new Error('free canvas has no blank pane point for panning')
 }
 
+async function openLabeledSelect(page, root, name) {
+  const combobox = root.getByRole('combobox', { name, exact: true })
+  await assertUniqueLocator(combobox, `${name} combobox`)
+  const select = root.locator('.el-select').filter({ has: combobox }).first()
+  await select.waitFor({ state: 'visible', timeout: DEFAULT_TIMEOUT_MS })
+  await select.click({ force: true })
+  await page.getByRole('listbox').waitFor({ state: 'visible', timeout: DEFAULT_TIMEOUT_MS })
+  return combobox
+}
+
 async function clickUniqueButton(page, name) {
   const button = page.getByRole('button', { name, exact: true })
   await assertUniqueLocator(button, `${name} button`)
@@ -1588,9 +1598,7 @@ async function exerciseFreeCanvas({
     await referenceNode.locator('.node-header').click({ force: true })
     const inspector = page.getByRole('complementary', { name: '自由节点检查器' })
     await assertUniqueLocator(inspector, 'reference node inspector')
-    const conversionTarget = inspector.getByRole('combobox', { name: '转换目标', exact: true })
-    await assertUniqueLocator(conversionTarget, 'reference conversion target')
-    await conversionTarget.click({ force: true })
+    const conversionTarget = await openLabeledSelect(page, inspector, '转换目标')
     const characterOption = page.getByRole('option', { name: `角色 · ${seeded.character.name}`, exact: true })
     await assertUniqueLocator(characterOption, 'fixture character conversion option')
     await characterOption.click()
@@ -1620,7 +1628,7 @@ async function exerciseFreeCanvas({
     assert.ok(referenceTitle && referenceContent, 'storyboard conversion fixture reference text is incomplete')
     const storyboardBefore = await apiRequest(`/storyboards/${seeded.storyboard.id}`)
     const expectedStoryboardDescription = `${String(storyboardBefore.description || '').trim()}\n\n[自由画布参考]\n${referenceTitle}\n${referenceContent}`
-    await conversionTarget.click({ force: true })
+    await openLabeledSelect(page, inspector, '转换目标')
     const storyboardOption = page.getByRole('option', {
       name: `分镜 · ${seeded.episode.title} · ${seeded.storyboard.title}`,
       exact: true,
