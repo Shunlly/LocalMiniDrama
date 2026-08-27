@@ -147,7 +147,11 @@ test('keyboard node activation synchronizes selection before destructive shortcu
     /if \(event\.key === 'Enter' \|\| event\.key === ' '||event\.key === ' ' \|\| event\.key === 'Enter'\)[\s\S]*?activateFreeCanvasNode/,
   )
   assert.match(dramaCanvasSource, /filter\(\(node\) => node\.selected && isFreeCanvasNodeId\(node\.id\)\)/)
-  assert.match(dramaCanvasSource, /return removeFreeCanvasItems\(nodeIds, edgeIds\)/)
+  assert.match(dramaCanvasSource, /event\.key === 'Delete' \|\| event\.key === 'Backspace'[\s\S]*deleteFreeCanvasSelection\(\)/)
+  assert.match(
+    dramaCanvasSource,
+    /function deleteFreeCanvasSelection\(\) \{[\s\S]*removeFreeCanvasItems\(nodeIds, edgeIds\)[\s\S]*persistCanvasState\(\{ freeOnly: true \}\)/,
+  )
 })
 
 test('free mode empty state exposes text config and media actions while production is demoted', () => {

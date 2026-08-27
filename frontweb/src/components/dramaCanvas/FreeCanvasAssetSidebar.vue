@@ -65,7 +65,7 @@
       </el-button>
     </div>
 
-    <details :open="Boolean(searchQuery)" class="asset-section">
+    <details :open="Boolean(searchQuery)" class="asset-section" data-asset-section="characters">
       <summary>角色 <span>{{ filteredCharacters.length }}</span></summary>
       <button
         v-for="item in filteredCharacters"
@@ -77,7 +77,7 @@
       <p v-if="!filteredCharacters.length" class="asset-empty">暂无匹配角色</p>
     </details>
 
-    <details :open="Boolean(searchQuery)" class="asset-section">
+    <details :open="Boolean(searchQuery)" class="asset-section" data-asset-section="scenes">
       <summary>场景 <span>{{ filteredScenes.length }}</span></summary>
       <button
         v-for="item in filteredScenes"
@@ -89,7 +89,7 @@
       <p v-if="!filteredScenes.length" class="asset-empty">暂无匹配场景</p>
     </details>
 
-    <details :open="Boolean(searchQuery)" class="asset-section">
+    <details :open="Boolean(searchQuery)" class="asset-section" data-asset-section="props">
       <summary>道具 <span>{{ filteredProps.length }}</span></summary>
       <button
         v-for="item in filteredProps"
@@ -101,7 +101,7 @@
       <p v-if="!filteredProps.length" class="asset-empty">暂无匹配道具</p>
     </details>
 
-    <details :open="Boolean(searchQuery)" class="asset-section">
+    <details :open="Boolean(searchQuery)" class="asset-section" data-asset-section="storyboard-media">
       <summary>分镜媒体 <span>{{ filteredStoryboardMedia.length }}</span></summary>
       <button
         v-for="item in filteredStoryboardMedia"
@@ -118,7 +118,7 @@
       <p v-if="!filteredStoryboardMedia.length" class="asset-empty">暂无匹配分镜媒体</p>
     </details>
 
-    <details ref="projectAssetsSectionRef" open class="asset-section">
+    <details ref="projectAssetsSectionRef" open class="asset-section" data-asset-section="project-assets">
       <summary>项目素材 <span>{{ filteredAssets.length }}</span></summary>
       <button
         v-for="item in filteredAssets"

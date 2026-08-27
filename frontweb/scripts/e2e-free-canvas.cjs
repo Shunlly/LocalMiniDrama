@@ -1607,10 +1607,8 @@ async function exerciseFreeCanvas({
         if (!(await library.isVisible())) {
           await clickUniqueButton(page, '展开素材栏')
         }
-        const characterSection = library.locator('details.asset-section').filter({
-          has: page.locator('summary', { hasText: '角色' }),
-        }).first()
-        await characterSection.waitFor({ state: 'visible', timeout: DEFAULT_TIMEOUT_MS })
+        const characterSection = library.locator('details.asset-section[data-asset-section="characters"]')
+        await assertUniqueLocator(characterSection, 'character library section')
         if (await characterSection.getAttribute('open') === null) {
           await characterSection.locator('summary').click()
         }

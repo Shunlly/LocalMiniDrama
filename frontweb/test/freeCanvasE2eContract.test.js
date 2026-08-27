@@ -466,6 +466,7 @@ test('browser implementation uses exact free-node IDs and never soft-deletes fix
   assert.doesNotMatch(e2eSource, /\.first\s*\(/)
   assert.doesNotMatch(e2eSource, /method:\s*['"]DELETE['"]/)
   assert.match(e2eSource, /data-free-node-id/)
+  assert.match(e2eSource, /data-asset-section="characters"/)
   assert.match(e2eSource, /new Set\(/)
 })
 
