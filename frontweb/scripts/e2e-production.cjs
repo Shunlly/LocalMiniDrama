@@ -3256,7 +3256,7 @@ async function verifyCompletedUi(browser, dramaId, viewport, {
   const timeline = workflow.locator('.timeline-block')
   assert.ok(Number.isInteger(expectedTrackCount) && expectedTrackCount > 0, 'expected timeline track count is required')
   await timeline.getByText(`${expectedTrackCount} \u8f68`, { exact: true }).waitFor({ timeout: 30000 })
-  await timeline.getByText('video / subtitle / voice / dialogue / effect / bgm / transition', { exact: true }).waitFor({ timeout: 30000 })
+  await timeline.getByText('\u89c6\u9891 / \u5b57\u5e55 / \u65c1\u767d / \u5bf9\u767d / \u97f3\u6548 / \u80cc\u666f\u97f3\u4e50 / \u8f6c\u573a', { exact: true }).waitFor({ timeout: 30000 })
   await assertNoHorizontalOverflow(page, `drama detail ${viewport.width}x${viewport.height}`)
 
   await timeline.getByRole('button', { name: UI.continueImport, exact: true }).click()
