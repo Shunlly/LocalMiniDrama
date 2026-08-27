@@ -280,6 +280,21 @@ test('clones selected nodes with offset and remaps internal edges', () => {
   assert.equal(input.nodes.length, 2)
 })
 
+test('matches cloned selection ids after string coercion', () => {
+  const input = {
+    nodes: [
+      { id: 'a', type: 'text', position: { x: 0, y: 0 } },
+      { id: 'b', type: 'image', position: { x: 40, y: 0 } },
+    ],
+    edges: [{ id: 'ab', source: 'a', target: 'b' }],
+  }
+  const result = cloneFreeSelection(input, ['a', 'b'])
+  const originalIds = new Set(input.nodes.map((node) => String(node.id)))
+  const cloned = result.nodes.filter((node) => !originalIds.has(String(node.id)))
+  assert.equal(cloned.length, 2)
+  assert.equal(result.edges.length, 2)
+})
+
 test('adds no clones when the normalized canvas has reached node capacity', () => {
   const input = {
     nodes: Array.from({ length: 500 }, (_, index) => ({ id: `n${index}`, type: 'text' })),

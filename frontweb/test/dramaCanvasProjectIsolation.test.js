@@ -3,11 +3,13 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createCanvasHistory } from '../src/utils/canvasHistory.js'
 import {
+  cloneFreeSelection,
   createFreeNode,
   findFreeNodeSpawnPosition,
   normalizeFreeCanvas,
   removeFreeSelection,
   screenRectToFreeCanvasBounds,
+  serializeFreeCanvas,
   synchronizeFreeCanvasSelection,
 } from '../src/utils/freeCanvasState.js'
 import {
@@ -355,7 +357,11 @@ function keyboardControllerHarness() {
     'isEditableKeyTarget',
     'activateFreeCanvasNode',
     'removeFreeCanvasItems',
+    'currentVisualFreeCanvasSelection',
+    'syncVisualFreeCanvasSelection',
     'deleteFreeCanvasSelection',
+    'copyFreeCanvasSelection',
+    'pasteFreeCanvasSelection',
     'handleFreeCanvasKeydown',
     'undoFreeCanvas',
   ], {
@@ -369,6 +375,13 @@ function keyboardControllerHarness() {
     selectedFreeNodeId,
     editingFreeNodeId: { value: null },
     contextMenuVisible: { value: false },
+    dramaId: { value: 7 },
+    freeClipboard: null,
+    freePasteCount: 0,
+    cloneFreeSelection,
+    serializeFreeCanvas,
+    normalizeFreeCanvas,
+    ElMessage: { warning() {} },
     isFreeCanvasNodeId: (id) => freeCanvas.value.nodes.some((node) => String(node.id) === String(id)),
     synchronizeFreeCanvasSelection,
     normalizeFreeCanvasForProject: normalizeFreeCanvas,
@@ -384,7 +397,12 @@ function keyboardControllerHarness() {
     commitFreeCanvasState(nextState, reason) {
       freeCanvas.value = history.commit(nextState, reason)
       const remaining = new Set(freeCanvas.value.nodes.map((node) => String(node.id)))
-      nodes.value = nodes.value.filter((node) => remaining.has(String(node.id)))
+      nodes.value = [
+        ...nodes.value.filter((node) => remaining.has(String(node.id))),
+        ...freeCanvas.value.nodes
+          .filter((node) => !nodes.value.some((item) => String(item.id) === String(node.id)))
+          .map((node) => ({ id: node.id, type: 'freeCanvas', selected: true })),
+      ]
     },
     freeCanvasHistory: history,
     applyFreeCanvasHistoryState(nextState) {
@@ -461,6 +479,35 @@ test('shared deletion uses current visual selection instead of stale internal id
 
   assert.equal(harness.deleteFreeCanvasSelection(), true)
   assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), ['config-a'])
+})
+
+test('copy and paste use current visual selection even when a toolbar button is focused', () => {
+  const harness = keyboardControllerHarness()
+  harness.freeCanvas.value = normalizeFreeCanvas({
+    ...harness.freeCanvas.value,
+    edges: [{ id: 'edge-ab', source: 'config-a', target: 'text-b' }],
+  })
+  harness.nodes.value = harness.nodes.value.map((node) => ({ ...node, selected: true }))
+  harness.selectedFreeNodeIds.value = []
+  harness.selectedFreeNodeId.value = null
+
+  const buttonTarget = {
+    closest(selector) {
+      return String(selector).split(',').map((item) => item.trim()).includes('button') ? this : null
+    },
+  }
+  const copyEvent = harness.keyEvent('c', buttonTarget)
+  copyEvent.ctrlKey = true
+  harness.handleFreeCanvasKeydown(copyEvent)
+  assert.equal(copyEvent.defaultPrevented, true)
+  assert.deepEqual([...harness.selectedFreeNodeIds.value].sort(), ['config-a', 'text-b'])
+
+  const pasteEvent = harness.keyEvent('v', buttonTarget)
+  pasteEvent.ctrlKey = true
+  harness.handleFreeCanvasKeydown(pasteEvent)
+  assert.equal(pasteEvent.defaultPrevented, true)
+  assert.equal(harness.freeCanvas.value.nodes.length, 4)
+  assert.equal(harness.freeCanvas.value.edges.length, 2)
 })
 
 test('node creation aborts when the visible safe area has no open position', async () => {

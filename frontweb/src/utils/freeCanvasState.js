@@ -484,11 +484,11 @@ export function removeFreeSelection(state, ids = []) {
 
 export function cloneFreeSelection(state, ids = [], offset = {}) {
   const normalized = normalizeFreeCanvas(state)
-  const selected = new Set(Array.isArray(ids) ? ids : [])
+  const selected = new Set((Array.isArray(ids) ? ids : []).map((id) => String(id)))
   const capacity = Math.max(0, MAX_NODES - normalized.nodes.length)
-  const selectedNodes = normalized.nodes.filter((node) => selected.has(node.id))
+  const selectedNodes = normalized.nodes.filter((node) => selected.has(String(node.id)))
   const selectedEdges = normalized.edges.filter((edge) => (
-    selected.has(edge.source) && selected.has(edge.target)
+    selected.has(String(edge.source)) && selected.has(String(edge.target))
   ))
   if (
     selectedNodes.length > capacity

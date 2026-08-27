@@ -3108,7 +3108,7 @@ function deleteFreeCanvasNode(nodeId) {
   removeFreeCanvasItems([nodeId])
 }
 
-function deleteFreeCanvasSelection() {
+function currentVisualFreeCanvasSelection() {
   const nodeIds = nodes.value
     .filter((node) => node.selected && isFreeCanvasNodeId(node.id))
     .map((node) => node.id)
@@ -3116,9 +3116,19 @@ function deleteFreeCanvasSelection() {
   const edgeIds = edges.value
     .filter((edge) => edge.selected && freeEdgeIds.has(String(edge.id)))
     .map((edge) => edge.id)
-  selectedFreeNodeIds.value = nodeIds
-  selectedFreeEdgeIds.value = edgeIds
-  selectedFreeNodeId.value = nodeIds.length === 1 ? nodeIds[0] : null
+  return { nodeIds, edgeIds }
+}
+
+function syncVisualFreeCanvasSelection() {
+  const selection = currentVisualFreeCanvasSelection()
+  selectedFreeNodeIds.value = selection.nodeIds
+  selectedFreeEdgeIds.value = selection.edgeIds
+  selectedFreeNodeId.value = selection.nodeIds.length === 1 ? selection.nodeIds[0] : null
+  return selection
+}
+
+function deleteFreeCanvasSelection() {
+  const { nodeIds, edgeIds } = syncVisualFreeCanvasSelection()
   return removeFreeCanvasItems(nodeIds, edgeIds)
 }
 
@@ -3348,11 +3358,12 @@ function selectAllFreeCanvasNodes() {
 }
 
 function copyFreeCanvasSelection() {
-  if (!selectedFreeNodeIds.value.length) return false
+  const { nodeIds } = syncVisualFreeCanvasSelection()
+  if (!nodeIds.length) return false
   freeClipboard = {
     projectId: Number(dramaId.value),
     state: serializeFreeCanvas(freeCanvas.value),
-    nodeIds: [...selectedFreeNodeIds.value],
+    nodeIds: nodeIds.map((id) => String(id)),
   }
   freePasteCount = 0
   return true

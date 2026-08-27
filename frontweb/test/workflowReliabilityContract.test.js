@@ -114,6 +114,9 @@ test('free canvas shortcuts ignore interactive controls and inspector content', 
     /function isTypingTarget\(target\)[\s\S]*?input, textarea, select,[\s\S]*?\.el-textarea/,
   )
   assert.match(dramaCanvasSource, /if \(isEditableKeyTarget\(event\.target\)\) return/)
+  assert.match(dramaCanvasSource, /if \(isTypingTarget\(event\.target\)\) return/)
+  assert.match(dramaCanvasSource, /function currentVisualFreeCanvasSelection\(/)
+  assert.match(dramaCanvasSource, /const \{ nodeIds \} = syncVisualFreeCanvasSelection\(\)/)
 })
 
 test('open inspector reserves canvas space so the minimap remains usable', () => {
