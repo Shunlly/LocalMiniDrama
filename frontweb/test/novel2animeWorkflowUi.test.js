@@ -10,7 +10,7 @@ import {
   sourceTypeLabel,
 } from '../src/utils/sourceIntakeAdapter.js'
 import { createWorkflowGroup, normalizePipeline } from '../src/utils/canvasWorkflow.js'
-import { normalizeWorkflowRun, workflowStepLabel, workflowTypeLabel } from '../src/utils/workflowRunStatus.js'
+import { normalizeWorkflowRun, workflowStatusLabel, workflowStepLabel, workflowStepStatusLabel, workflowTypeLabel } from '../src/utils/workflowRunStatus.js'
 import { buildQaPresentation, normalizeQaReport, qaCheckLabel } from '../src/utils/qaReport.js'
 import { formatDuration, normalizeTimelineSummary, timelineTrackTypeLabel } from '../src/utils/timelineSummary.js'
 import { assetImageUrl, audioUrl, isSafeImagePreviewUrl, probeImageSource, storyboardImageUrl } from '../src/utils/mediaUrl.js'
@@ -210,6 +210,19 @@ test('normalizeWorkflowRun exposes retry, pause, resume and cancel states', () =
   })
   assert.equal(productionWithMock.label, '正式制作 · 检测到占位产物')
   assert.equal(productionWithMock.productionPlaceholder, true)
+})
+
+test('workflow status labels stay Chinese for aliases and unknown values', () => {
+  const canceled = normalizeWorkflowRun({ id: 'run-canceled', status: 'canceled' })
+  assert.equal(canceled.status, 'cancelled')
+  assert.equal(canceled.label, '已取消')
+  assert.equal(canceled.canRetry, false)
+  const failedAlias = normalizeWorkflowRun({ id: 'run-fail', status: 'error' })
+  assert.equal(failedAlias.status, 'failed')
+  assert.equal(failedAlias.canRetry, true)
+  assert.equal(workflowStatusLabel('canceled'), '已取消')
+  assert.equal(workflowStepStatusLabel('cancelling'), '正在取消')
+  assert.equal(workflowStatusLabel('unknown-english'), '未知状态')
 })
 
 test('normalizeQaReport counts severities and remediation actions', () => {

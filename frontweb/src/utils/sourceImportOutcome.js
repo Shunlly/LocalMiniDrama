@@ -1,4 +1,5 @@
 import { runWithOwnedRequestErrorToast } from './request.js'
+import { isRequestCanceled } from './requestError.js'
 
 export const SOURCE_LIST_REFRESH_FAILED_MESSAGE = '素材已在服务端完成导入，但列表尚未确认。请勿重复导入，请刷新列表确认。'
 export const SOURCE_POST_CREATE_FAILED_MESSAGE = '素材已导入，但页面状态更新未完成。请勿重复导入，请刷新列表确认。'
@@ -76,6 +77,16 @@ function sourceWorkflowDisposedError() {
   error.name = 'SourceWorkflowDisposedError'
   error.code = 'SOURCE_WORKFLOW_DISPOSED'
   return error
+}
+
+export function isSourceWorkflowDisposedError(error) {
+  return error?.code === 'SOURCE_WORKFLOW_DISPOSED' || error?.name === 'SourceWorkflowDisposedError'
+}
+
+export function shouldIgnoreSourceWorkflowPollError(error, lifecycle) {
+  if (lifecycle && typeof lifecycle.isActive === 'function' && !lifecycle.isActive()) return true
+  if (isSourceWorkflowDisposedError(error)) return true
+  return isRequestCanceled(error)
 }
 
 export function assertSourceWorkflowLifecycleActive(lifecycle) {

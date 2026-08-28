@@ -5,8 +5,11 @@ import {
   buildSourceWorkflowState,
   getNewWorkflowRunReason,
   getSourceWorkflowActionReasons,
+  getSourceWorkflowBusyReason,
   resolveInspectedWorkflowStep,
   SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE,
+  SOURCE_WORKFLOW_CANCEL_REASON,
+  SOURCE_WORKFLOW_PAUSE_REASON,
   isDeferredAutoExtractionSource,
   localizeSourceIntakeFailure,
 } from '../src/utils/sourceWorkflowState.js'
@@ -296,4 +299,35 @@ test('延后的 OCR/转写入口给出中文说明而不是英文失败', () => 
     SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE,
   )
   assert.equal(localizeSourceIntakeFailure('素材列表加载失败'), '素材列表加载失败')
+})
+
+test('取消的流程不当成失败，失败才可重试', () => {
+  const cancelled = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: { id: 'run-cancelled', status: 'canceled' },
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: {},
+  })
+  const processStep = cancelled.steps.find((step) => step.id === 'process')
+  assert.equal(processStep.status, 'ready')
+  assert.match(processStep.summary, /已取消/)
+  assert.notEqual(processStep.status, 'error')
+
+  const failedReasons = getSourceWorkflowActionReasons({
+    hasSourceInput: true,
+    runState: { id: 'run-4', status: 'failed' },
+  })
+  assert.equal(failedReasons.retry, '')
+  assert.match(failedReasons.pause, /仅运行中的处理可以暂停/)
+  assert.match(failedReasons.cancel, /仅运行中的处理可以取消/)
+
+  const busy = getSourceWorkflowBusyReason({ pausing: true })
+  assert.match(busy, /正在暂停处理/)
+  assert.equal(localizeSourceIntakeFailure('User cancelled from Source Intake panel'), SOURCE_WORKFLOW_CANCEL_REASON)
+  assert.equal(localizeSourceIntakeFailure('User paused from Source Intake panel'), SOURCE_WORKFLOW_PAUSE_REASON)
+  const aborted = Object.assign(new Error('canceled'), { name: 'AbortError', code: 'ERR_CANCELED' })
+  assert.equal(localizeSourceIntakeFailure(aborted), '')
 })

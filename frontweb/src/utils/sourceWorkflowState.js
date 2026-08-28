@@ -1,4 +1,8 @@
-import { workflowStepLabel } from './workflowRunStatus.js'
+import { isRequestCanceled } from './requestError.js'
+import { normalizeWorkflowStatus, workflowStepLabel } from './workflowRunStatus.js'
+
+export const SOURCE_WORKFLOW_CANCEL_REASON = '用户已取消处理'
+export const SOURCE_WORKFLOW_PAUSE_REASON = '用户已暂停处理'
 
 const FLOW_STEPS = [
   { id: 'intake', label: '导入素材' },
@@ -22,16 +26,18 @@ function statusLabel(status) {
 
 function firstStepWithStatus(run, statuses) {
   const steps = Array.isArray(run?.steps) ? run.steps : []
-  return steps.find((step) => statuses.includes(step?.status)) || null
+  const wanted = new Set((statuses || []).map((status) => normalizeWorkflowStatus(status)))
+  return steps.find((step) => wanted.has(normalizeWorkflowStatus(step?.status))) || null
 }
 
 export function resolveWorkflowRunActiveStep(run) {
   if (run?.activeStep?.step_key) return run.activeStep
   const current = firstStepWithStatus(run, ['processing']) || firstStepWithStatus(run, ['pending'])
   if (current) return current
+  const status = normalizeWorkflowStatus(run.status)
   if (
     run?.current_step
-    && (run.status === 'pending' || run.status === 'processing' || run.status === 'paused')
+    && (status === 'pending' || status === 'processing' || status === 'paused')
   ) {
     return { step_key: run.current_step }
   }
@@ -42,7 +48,7 @@ export function resolveWorkflowRunFailedStep(run) {
   if (run?.failedStep?.step_key) return run.failedStep
   const failed = firstStepWithStatus(run, ['failed'])
   if (failed) return failed
-  if (run?.status === 'failed' && run.current_step) return { step_key: run.current_step }
+  if (normalizeWorkflowStatus(run?.status) === 'failed' && run.current_step) return { step_key: run.current_step }
   return null
 }
 
@@ -92,11 +98,12 @@ function buildStepSummary(stepId, context) {
     if (!run?.id) return sources > 0 ? '素材已就绪，可启动处理' : '需先导入素材'
     const failedStep = resolveWorkflowRunFailedStep(run)
     const activeStep = resolveWorkflowRunActiveStep(run)
-    if (run.status === 'failed') return `流程失败：${labeledRunStep(failedStep, run) || '请重试'}`
-    if (run.status === 'cancelled') return '上次流程已取消，可重新启动'
-    if (run.status === 'paused') return '流程已暂停，等待恢复'
+    const runStatus = normalizeWorkflowStatus(run.status)
+    if (runStatus === 'failed') return `流程失败：${labeledRunStep(failedStep, run) || '请重试'}`
+    if (runStatus === 'cancelled') return '上次流程已取消，可重新启动'
+    if (runStatus === 'paused') return '流程已暂停，等待恢复'
     if (activeStep?.step_key) return `当前：${labeledRunStep(activeStep, run)}`
-    if (run.status === 'completed') return '最近一次流程已完成'
+    if (runStatus === 'completed') return '最近一次流程已完成'
     return '流程状态已记录'
   }
 
@@ -153,10 +160,10 @@ export function buildSourceWorkflowState({ sourceCount, hasSourceInput, run, qa,
   const sources = Math.max(0, Number(sourceCount) || 0)
   const episodes = Math.max(0, Number(episodeCount) || 0)
   const timelineEpisodes = Math.max(0, Number(timeline?.episodeCount) || 0)
-  const runStatus = run?.status || ''
+  const runStatus = normalizeWorkflowStatus(run?.status)
   const runCompleted = runStatus === 'completed'
   const runActive = runStatus === 'pending' || runStatus === 'processing' || runStatus === 'paused'
-  const runError = runStatus === 'failed' || runStatus === 'cancelled'
+  const runFailed = runStatus === 'failed'
   const currentQa = qaBelongsToRun(qa, run) ? qa : null
   const hasQa = Boolean(currentQa)
   const qaPassed = hasQa && Boolean(currentQa.passed)
@@ -165,7 +172,7 @@ export function buildSourceWorkflowState({ sourceCount, hasSourceInput, run, qa,
 
   const statuses = {
     intake: sources > 0 ? 'done' : hasSourceInput ? 'active' : 'ready',
-    process: runCompleted ? 'done' : runError ? 'error' : runActive ? 'active' : sources > 0 ? 'ready' : 'pending',
+    process: runCompleted ? 'done' : runFailed ? 'error' : runActive ? 'active' : sources > 0 ? 'ready' : 'pending',
     qa: qaPassed ? 'done' : qaFailed ? 'error' : runCompleted ? 'ready' : 'pending',
     remediation: !runCompleted ? 'pending' : qaPassed ? 'done' : qaFailed && currentQa.canRemediate ? 'active' : qaFailed ? 'blocked' : 'pending',
     delivery: deliveryReady ? 'done' : qaPassed || runCompleted ? 'ready' : 'pending',
@@ -205,12 +212,17 @@ export function selectInspectedWorkflowStep(flowState, currentStepId, requestedS
 
 export function getNewWorkflowRunReason(runState = {}) {
   if (runState.active) return '当前已有处理流程运行中，请等待完成或先取消。'
-  if (runState.status === 'paused') return '当前处理已暂停，请先恢复或取消后再启动新流程。'
+  if (normalizeWorkflowStatus(runState.status) === 'paused') return '当前处理已暂停，请先恢复或取消后再启动新流程。'
   return ''
 }
 
 export function getSourceWorkflowActionReasons({ hasSourceInput, runState, qa } = {}) {
   const state = runState || {}
+  const status = normalizeWorkflowStatus(state.status)
+  const canRetry = Boolean(state.canRetry) || status === 'failed'
+  const canPause = Boolean(state.canPause) || Boolean(state.active) || status === 'pending' || status === 'processing'
+  const canResume = Boolean(state.canResume) || status === 'paused'
+  const canCancel = Boolean(state.canCancel) || canPause || canResume
   const report = qa || {}
   const hasCurrentQa = qaBelongsToRun(report, state)
   const sourceInputReason = hasSourceInput
@@ -220,18 +232,18 @@ export function getSourceWorkflowActionReasons({ hasSourceInput, runState, qa } 
   let qaReason = ''
   if (!hasWorkflowId(state.id)) qaReason = '请先启动并完成素材处理。'
   else if (state.active) qaReason = '素材处理仍在运行，完成后才能执行 QA。'
-  else if (state.status === 'paused') qaReason = '请先恢复并完成当前处理。'
-  else if (state.status === 'failed') qaReason = '请先重试失败步骤并完成处理。'
-  else if (state.status === 'cancelled') qaReason = '当前处理已取消，请重新启动处理。'
-  else if (state.status !== 'completed') qaReason = '当前处理尚未完成。'
+  else if (status === 'paused') qaReason = '请先恢复并完成当前处理。'
+  else if (status === 'failed') qaReason = '请先重试失败步骤并完成处理。'
+  else if (status === 'cancelled') qaReason = '当前处理已取消，请重新启动处理。'
+  else if (status !== 'completed') qaReason = '当前处理尚未完成。'
 
   let remediationReason = ''
   if (!hasWorkflowId(state.id)) remediationReason = '请先启动并完成素材处理。'
   else if (state.active) remediationReason = '素材处理仍在运行，完成后才能自动修复。'
-  else if (state.status === 'paused') remediationReason = '请先恢复并完成当前处理。'
-  else if (state.status === 'failed') remediationReason = '请先重试失败步骤并完成处理。'
-  else if (state.status === 'cancelled') remediationReason = '当前处理已取消，请重新启动处理。'
-  else if (state.status !== 'completed') remediationReason = '当前处理尚未完成。'
+  else if (status === 'paused') remediationReason = '请先恢复并完成当前处理。'
+  else if (status === 'failed') remediationReason = '请先重试失败步骤并完成处理。'
+  else if (status === 'cancelled') remediationReason = '当前处理已取消，请重新启动处理。'
+  else if (status !== 'completed') remediationReason = '当前处理尚未完成。'
   else if (!hasCurrentQa) remediationReason = '请先执行当前运行的 QA 审计。'
   else if (report.passed) remediationReason = 'QA 已通过，无需自动修复。'
   else if (!report.canRemediate) remediationReason = '当前问题没有可自动执行的修复动作，请按 QA 建议人工处理。'
@@ -241,11 +253,19 @@ export function getSourceWorkflowActionReasons({ hasSourceInput, runState, qa } 
     start: getNewWorkflowRunReason(state) || sourceInputReason,
     qa: qaReason,
     remediate: remediationReason,
-    retry: state.canRetry ? '' : !state.id ? '暂无可重试的处理记录。' : '仅失败的处理可以重试。',
-    pause: state.canPause ? '' : !state.id ? '暂无运行中的处理。' : '仅运行中的处理可以暂停。',
-    resume: state.canResume ? '' : !state.id ? '暂无已暂停的处理。' : '仅已暂停的处理可以恢复。',
-    cancel: state.canCancel ? '' : !state.id ? '暂无运行中的处理。' : '仅运行中的处理可以取消。',
+    retry: canRetry ? '' : !state.id ? '暂无可重试的处理记录。' : '仅失败的处理可以重试。',
+    pause: canPause ? '' : !state.id ? '暂无运行中的处理。' : '仅运行中的处理可以暂停。',
+    resume: canResume ? '' : !state.id ? '暂无已暂停的处理。' : '仅已暂停的处理可以恢复。',
+    cancel: canCancel ? '' : !state.id ? '暂无运行中的处理。' : '仅运行中的处理可以取消。',
   }
+}
+
+export function getSourceWorkflowBusyReason({ retrying, pausing, resuming, cancelling } = {}) {
+  if (retrying) return '正在提交重试，请稍候。'
+  if (pausing) return '正在暂停处理，请稍候。'
+  if (resuming) return '正在恢复处理，请稍候。'
+  if (cancelling) return '正在取消处理，请稍候。'
+  return ''
 }
 
 export const SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE = 'PDF、图片、音频和视频暂不支持自动抽取，请改为导入文本或网页。'
@@ -293,5 +313,8 @@ export function localizeSourceIntakeFailure(error, context = {}) {
   const hint = context.file || context.filename || context.sourceUrl || ''
   if (hint && isDeferredAutoExtractionSource(hint)) return SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE
   if (ENGLISH_AUTO_EXTRACTION_FAILURE_PATTERN.test(message)) return SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE
+  if (isRequestCanceled(error)) return ''
+  if (/user cancelled from source intake panel/i.test(message)) return SOURCE_WORKFLOW_CANCEL_REASON
+  if (/user paused from source intake panel/i.test(message)) return SOURCE_WORKFLOW_PAUSE_REASON
   return message
 }

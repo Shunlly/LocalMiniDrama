@@ -75,9 +75,11 @@ test('source workflow restores inspected step from the route and can restart can
   assert.match(source, /route\.query\.step/)
   assert.match(source, /resolveInspectedWorkflowStep\(flowState\.value/)
   assert.match(source, /const canRestartFromLatestSource = computed/)
-  assert.match(source, /runState\.value\.status === 'cancelled'/)
+  assert.match(source, /runState\.value\.status === 'cancelled' \|\| runState\.value\.status === 'failed'/)
   assert.match(source, /重新启动\$\{workflowModeShortLabel\}/)
   assert.match(source, /async function retryRun\(\)[\s\S]*refreshAndConfirmRun\(nextRun\.id\)/)
+  assert.match(source, /controlActionReasons\.pause/)
+  assert.match(source, /controlActionReasons\.cancel/)
 })
 
 test('source workflow separates actual progress from inspected history', () => {
@@ -729,4 +731,16 @@ test('source intake copy defers OCR and transcription instead of advertising the
   assert.match(source, /PDF、图片、音频和视频暂不支持自动抽取/)
   assert.match(source, /isDeferredAutoExtractionSource/)
   assert.match(source, /SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE/)
+})
+
+test('source workflow polling abort is ignored instead of reported as failure', () => {
+  const shouldIgnoreSourceWorkflowPollError = requireWorkflowHelper('shouldIgnoreSourceWorkflowPollError')
+  const createSourceWorkflowLifecycleGuard = requireWorkflowHelper('createSourceWorkflowLifecycleGuard')
+  const lifecycle = createSourceWorkflowLifecycleGuard()
+  const aborted = Object.assign(new Error('canceled'), { name: 'AbortError', code: 'ERR_CANCELED' })
+  assert.equal(shouldIgnoreSourceWorkflowPollError(aborted, lifecycle), true)
+  lifecycle.dispose()
+  assert.equal(shouldIgnoreSourceWorkflowPollError(new Error('处理状态刷新失败'), lifecycle), true)
+  const active = createSourceWorkflowLifecycleGuard()
+  assert.equal(shouldIgnoreSourceWorkflowPollError(new Error('处理状态刷新失败'), active), false)
 })

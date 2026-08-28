@@ -7,6 +7,34 @@ const STATUS_LABELS = {
   completed: '已完成',
   failed: '失败',
   cancelled: '已取消',
+  cancelling: '正在取消',
+  timeout: '已超时',
+}
+
+const STATUS_ALIASES = {
+  canceled: 'cancelled',
+  abort: 'cancelled',
+  aborted: 'cancelled',
+  canceling: 'cancelling',
+  running: 'processing',
+  success: 'completed',
+  done: 'completed',
+  error: 'failed',
+  fail: 'failed',
+  timed_out: 'timeout',
+  timedout: 'timeout',
+}
+
+export function normalizeWorkflowStatus(status) {
+  const key = String(status || '').trim().toLowerCase()
+  if (!key) return ''
+  return STATUS_ALIASES[key] || key
+}
+
+export function workflowStatusLabel(status) {
+  const key = normalizeWorkflowStatus(status)
+  if (!key) return '等待中'
+  return STATUS_LABELS[key] || '未知状态'
 }
 
 const STEP_LABELS = {
@@ -118,11 +146,14 @@ export function normalizeWorkflowRun(run) {
   const mode = runMode(run)
   const isNovel2Anime = String(run?.type || '').startsWith('novel2anime')
   const stepKinds = steps.map((step) => ({ step, kind: classifyWorkflowStep(step, run) }))
-  const failedStep = steps.find((step) => step.status === 'failed') || null
-  const activeStep = steps.find((step) => step.status === 'processing') || steps.find((step) => step.status === 'pending') || null
-  const completedCount = steps.filter((step) => step.status === 'completed').length
+  const status = normalizeWorkflowStatus(run?.status) || 'pending'
+  const failedStep = steps.find((step) => normalizeWorkflowStatus(step.status) === 'failed') || null
+  const activeStep = steps.find((step) => normalizeWorkflowStatus(step.status) === 'processing')
+    || steps.find((step) => normalizeWorkflowStatus(step.status) === 'pending')
+    || null
+  const completedCount = steps.filter((step) => normalizeWorkflowStatus(step.status) === 'completed').length
   const totalCount = steps.length
-  const active = run?.status === 'pending' || run?.status === 'processing'
+  const active = status === 'pending' || status === 'processing'
   const costSummary = summarizeProviderCosts(run?.provider_invocations)
   const costDigits = costSummary.amount > 0 && costSummary.amount < 0.01 ? 4 : 2
   const progress = Math.max(0, Math.min(100, Number(run?.progress) || (totalCount ? Math.round((completedCount / totalCount) * 100) : 0)))
@@ -131,7 +162,7 @@ export function normalizeWorkflowRun(run) {
   ))
   const productionPlaceholder = stepKinds.some(({ kind }) => kind === 'production_placeholder')
   const novel2animePlaceholder = isNovel2Anime && mode === 'draft' && stepKinds.some(({ kind }) => kind === 'draft_placeholder')
-  const statusLabel = STATUS_LABELS[run?.status] || run?.status || '等待中'
+  const statusLabel = workflowStatusLabel(status)
   let label = statusLabel
   if (isNovel2Anime) {
     label = productionPlaceholder
@@ -141,7 +172,7 @@ export function normalizeWorkflowRun(run) {
 
   return {
     id: run?.id || '',
-    status: run?.status || 'pending',
+    status,
     label,
     mode,
     modeLabel: mode === 'production' ? '正式制作' : '草稿预演',
@@ -154,10 +185,10 @@ export function normalizeWorkflowRun(run) {
         ? '草稿预演使用占位媒体，不作为正式成片交付。'
         : '',
     active,
-    canRetry: run?.status === 'failed',
+    canRetry: status === 'failed',
     canPause: active,
-    canResume: run?.status === 'paused',
-    canCancel: active || run?.status === 'paused',
+    canResume: status === 'paused',
+    canCancel: active || status === 'paused',
     progress,
     failedStep,
     activeStep,
@@ -187,5 +218,5 @@ export function workflowStepLabel(stepOrKey, run) {
 }
 
 export function workflowStepStatusLabel(status) {
-  return STATUS_LABELS[status] || status || '等待中'
+  return workflowStatusLabel(status)
 }
