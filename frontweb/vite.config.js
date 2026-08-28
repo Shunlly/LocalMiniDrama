@@ -1,21 +1,21 @@
 import vue from '@vitejs/plugin-vue'
-import { readdirSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { fileURLToPath, URL } from 'node:url'
 import Components from 'unplugin-vue-components/vite'
-import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { defineConfig } from 'vite'
+import {
+  buildElementPlusComponentMap,
+  createElementPlusOnDemandPlugins,
+  createElementPlusResolvers,
+} from './scripts/elementPlusOnDemand.js'
 
 const require = createRequire(import.meta.url)
 const { createRuntimeInstanceId } = require('../backend-node/src/utils/runtimeInstanceId.js')
 const workspaceRoot = fileURLToPath(new URL('..', import.meta.url))
 const elementPlusComponentsRoot = fileURLToPath(new URL('./node_modules/element-plus/es/components/', import.meta.url))
-const elementPlusComponentEntries = readdirSync(elementPlusComponentsRoot, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory())
-  .flatMap((entry) => [
-    `element-plus/es/components/${entry.name}`,
-    `element-plus/es/components/${entry.name}/style/css`,
-  ])
+const elementPlusIconsIndex = fileURLToPath(new URL('./node_modules/@element-plus/icons-vue/dist/index.js', import.meta.url))
+const elementPlusComponentMap = buildElementPlusComponentMap(elementPlusComponentsRoot)
 const frontendPackage = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
 )
@@ -34,7 +34,12 @@ export default defineConfig({
     Components({
       directives: true,
       dts: false,
-      resolvers: [ElementPlusResolver({ importStyle: 'css' })],
+      resolvers: createElementPlusResolvers(elementPlusComponentMap, elementPlusComponentsRoot),
+    }),
+    ...createElementPlusOnDemandPlugins({
+      componentMap: elementPlusComponentMap,
+      componentsRoot: elementPlusComponentsRoot,
+      iconsIndexPath: elementPlusIconsIndex,
     }),
   ],
   resolve: {
@@ -43,7 +48,14 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: elementPlusComponentEntries,
+    exclude: ['@element-plus/icons-vue'],
+    include: [
+      'vue',
+      'vue-router',
+      'pinia',
+      'element-plus/es/components/config-provider/index.mjs',
+      'element-plus/es/locale/lang/zh-cn.mjs',
+    ],
     entries: [
       'index.html',
       'src/**/*.js',
@@ -56,6 +68,10 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/health': {
+        target: backendProxyTarget,
+        changeOrigin: true,
+      },
+      '/ready': {
         target: backendProxyTarget,
         changeOrigin: true,
       },
@@ -79,6 +95,13 @@ export default defineConfig({
           const normalizedId = id.replace(/\\/g, '/')
           if (/\/src\/utils\/(?:canvasHistory|canvasLayout|canvasSaveCoordinator|canvasUiState|freeCanvasAdapter|freeCanvasConfigState|freeCanvasMedia|freeCanvasState)\.js$/.test(normalizedId)) {
             return 'canvas-domain'
+          }
+          if (normalizedId.includes('/node_modules/vue/') || normalizedId.includes('/node_modules/@vue/')) {
+            return 'vue'
+          }
+          // 画布库只给画布路由用，避免和页面业务挤在同一个异步块里。
+          if (normalizedId.includes('/node_modules/@vue-flow/')) {
+            return 'vue-flow'
           }
         },
       },
