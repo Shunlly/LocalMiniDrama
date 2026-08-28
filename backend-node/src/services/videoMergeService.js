@@ -233,7 +233,7 @@ async function resolveVideoToLocalPath(videoUrl, baseUrl, storageRoot, tempDir, 
   try {
     const budget = options.downloadBudget || { remainingBytes: MAX_REMOTE_MERGE_DOWNLOAD_BYTES };
     const maxBytes = Math.min(MAX_REMOTE_VIDEO_BYTES, Math.max(0, Number(budget.remainingBytes) || 0));
-    if (maxBytes <= 0) throw new Error('remote video merge download budget exhausted');
+    if (maxBytes <= 0) throw new Error('远程视频下载配额已用完');
     uploadService.assertUploadDiskCapacity(tempDir, maxBytes);
     const downloaded = await uploadService.downloadBufferViaNodeHttp(u, REMOTE_VIDEO_TIMEOUT_MS, 0, {
       maxBytes,
@@ -244,7 +244,7 @@ async function resolveVideoToLocalPath(videoUrl, baseUrl, storageRoot, tempDir, 
       signal: options.signal,
     });
     throwIfAborted(options.signal);
-    if (!downloaded.buffer.length) throw new Error('empty response body');
+    if (!downloaded.buffer.length) throw new Error('远程视频为空，无法合成');
     uploadService.assertUploadDiskCapacity(tempDir, downloaded.buffer.length);
     uploadService.writeFileAtomically(destPath, (stagedPath) => {
       fs.writeFileSync(stagedPath, downloaded.buffer, { flag: 'wx' });
