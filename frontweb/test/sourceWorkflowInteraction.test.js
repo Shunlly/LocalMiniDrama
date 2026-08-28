@@ -71,6 +71,7 @@ function requireWorkflowHelper(name) {
 
 test('source workflow restores inspected step from the route and can restart cancelled runs', () => {
   assert.match(source, /function persistInspectedFlowStep\(stepId\)/)
+  assert.match(source, /stepId && stepId !== liveStepId/)
   assert.match(source, /route\.query\.step/)
   assert.match(source, /resolveInspectedWorkflowStep\(flowState\.value/)
   assert.match(source, /const canRestartFromLatestSource = computed/)

@@ -9,6 +9,8 @@ import {
 } from '../src/utils/storyboardMedia.js'
 
 const source = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const resourcePanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
+const filmCreateUiSource = source + '\n' + resourcePanelSource
 
 function sourceBetween(startMarker, endMarker) {
   const start = source.indexOf(startMarker)
@@ -101,7 +103,7 @@ test('linked-resource regeneration checks entry, confirmation, loop, and fail-cl
   assert.ok(assertions.some((index) => index > loop && index < providerWrite), 'must check during the loop')
   assert.match(linked, /if \(isStoryboardMediaStateError\(e\)\) throw e/)
   assert.match(
-    source,
+    filmCreateUiSource,
     /<ActionGate :reason="storyboardMediaActionReason" label="重新生成关联分镜图">/,
   )
 })

@@ -254,14 +254,6 @@
           <el-icon><Refresh /></el-icon>重试加载素材
         </el-button>
       </section>
-      <!-- 角色/道具/场景上传图片用，单例放在外层避免 v-for 导致 ref 为数组 -->
-      <input
-        ref="resourceImageFileInput"
-        type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp"
-        style="display: none"
-        @change="onResourceImageFileChange"
-      />
       <!-- 分镜图上传图片用，单例放在外层避免 v-for 导致 ref 为数组 -->
       <input
         ref="sbImageFileInput"
@@ -345,431 +337,84 @@
       />
 
       <!-- 资源管理：角色 / 道具 / 场景 -->
-      <section class="section card resource-panel">
-        <h2 class="collapse-heading">
-          <button
-            type="button"
-            class="collapse-header"
-            :aria-expanded="!resourcePanelCollapsed"
-            aria-controls="resource-panel-body"
-            @click="resourcePanelCollapsed = !resourcePanelCollapsed"
-          >
-            <span class="section-title">资源管理</span>
-            <el-icon class="collapse-icon"><ArrowUp v-if="!resourcePanelCollapsed" /><ArrowDown v-else /></el-icon>
-          </button>
-        </h2>
-        <div id="resource-panel-body" v-show="!resourcePanelCollapsed" class="resource-panel-body">
-          <!-- 角色生成 -->
-          <div id="anchor-characters" class="resource-block card">
-            <h3 class="collapse-heading">
-              <button
-                type="button"
-                class="collapse-header resource-block-header"
-                :aria-expanded="!charactersBlockCollapsed"
-                aria-controls="characters-block-body"
-                @click="charactersBlockCollapsed = !charactersBlockCollapsed"
-              >
-                <span class="resource-block-title">角色生成</span>
-                <el-icon class="collapse-icon"><ArrowUp v-if="!charactersBlockCollapsed" /><ArrowDown v-else /></el-icon>
-              </button>
-            </h3>
-            <div id="characters-block-body" v-show="!charactersBlockCollapsed" class="resource-block-body">
-              <div class="asset-actions">
-                <ActionGate :reason="characterGenerationDisabledReason" label="剧本自动提取角色">
-                  <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" @click="onGenerateCharacters">
-                    剧本自动提取角色
-                  </el-button>
-                </ActionGate>
-                <ActionGate :reason="projectActionDisabledReason" label="添加角色">
-                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" @click="openAddCharacter">添加角色</el-button>
-                </ActionGate>
-                <el-button size="small" @click="showCharLibrary = true">本剧角色库</el-button>
-              </div>
-              <div class="asset-list asset-list-two">
-                <div v-for="char in characters" :key="char.id" class="asset-item asset-item-left-right">
-                  <div class="asset-info">
-                    <div class="asset-name">
-                      <span style="display:inline-flex;align-items:center;gap:4px;flex:1;min-width:0;overflow:hidden">
-                        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ char.name }}</span>
-                        <el-tag v-if="char.role" size="small" effect="plain" :type="char.role === 'main' ? 'danger' : char.role === 'supporting' ? 'warning' : 'info'" style="flex-shrink:0;padding:0 5px;font-size:11px;height:18px;line-height:18px">{{ charRoleLabel(char.role) }}</el-tag>
-                      </span>
-                      <el-button type="danger" text size="small" class="btn-delete-icon" title="删除" :aria-label="`删除角色${char.name || '未命名角色'}`" @click="onDeleteCharacter(char)">
-                        <el-icon><Delete /></el-icon>
-                      </el-button>
-                    </div>
-                    <div class="asset-desc-full">{{ char.appearance || char.description || '暂无描述' }}</div>
-                    <div class="asset-btns">
-                      <el-button size="small" @click="editCharacter(char)">编辑</el-button>
-                      <el-button size="small" :loading="addingCharToLibraryId === char.id" :disabled="!hasAssetImage(char)" @click="onAddCharacterToLibrary(char)">
-                        加入本剧库
-                      </el-button>
-                      <el-button size="small" :loading="addingCharToMaterialId === char.id" :disabled="!hasAssetImage(char)" @click="onAddCharacterToMaterialLibrary(char)">
-                        加入素材库
-                      </el-button><el-button
-                        size="small"
-                        :type="char.seedance2_asset?.status === 'active' ? 'success' : 'warning'"
-                        plain
-                        :loading="sd2CertifyingId === char.id"
-                        :disabled="!hasAssetImage(char)"
-                        @click="onSd2PrimaryAction(char)"
-                      >
-                        {{ sd2ActionLabel(char) }}
-                      </el-button>
-                    </div>
-
-                    <!-- Seedance 2.0 音色参考（仅该模型有效，其他模型不生效） -->
-                    <div class="sd2-voice-row" style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                      <template v-if="char.seedance2_voice_asset?.status === 'active'">
-                        <!-- 音色参考已设置：显示试听 + 更换 -->
-                        <el-button
-                          size="small"
-                          type="success"
-                          plain
-                          @click="playSd2Voice(char)"
-                        >
-                          <el-icon><VideoPlay /></el-icon>
-                          <span style="margin-left:4px">试听</span>
-                        </el-button>
-                        <el-button
-                          size="small"
-                          type="primary"
-                          plain
-                          :loading="sd2VoiceUploadingId === char.id"
-                          @click="onSd2VoiceReplace(char)"
-                        >
-                          更换
-                        </el-button>
-                        <span style="font-size:11px;color:#67c23a">音色已设置</span>
-                      </template>
-                      <template v-else>
-                        <el-button
-                          size="small"
-                          :type="char.seedance2_voice_asset?.status === 'stale' ? 'warning' : 'info'"
-                          plain
-                          :loading="sd2VoiceUploadingId === char.id"
-                          @click="onSd2VoicePrimaryAction(char)"
-                        >
-                          {{ sd2VoiceActionLabel(char) }}
-                        </el-button>
-                        <span v-if="char.seedance2_voice_asset?.status === 'stale'" style="font-size:11px;color:#e6a23c">需刷新</span>
-                      </template>
-                      <span style="font-size:10px;color:#909399">仅 Seedance 2.0 模型生效</span>
-                    </div>
-                    <div v-if="getCharAffectedStoryboards(char.id).length" class="asset-storyboard-link">
-                      <span class="asl-label">影响的分镜：</span>
-                      <span
-                        v-for="sb in getCharAffectedStoryboards(char.id)"
-                        :key="sb.id"
-                        class="asl-chip"
-                        title="点击跳转到该分镜"
-                        @click="scrollToStoryboard(sb.id)"
-                      >#{{ sb.storyboard_number }}</span>
-                      <span v-if="regenSbImagesForAsset.has('char-' + char.id) && regenSbImagesProgress['char-' + char.id]" class="asl-progress">
-                        {{ regenSbImagesProgress['char-' + char.id].current }}/{{ regenSbImagesProgress['char-' + char.id].total }}
-                      </span>
-                      <ActionGate :reason="storyboardMediaActionReason" label="重新生成关联分镜图">
-                        <el-button
-                          size="small"
-                          class="asl-regen-btn"
-                          :loading="regenSbImagesForAsset.has('char-' + char.id)"
-                          :disabled="Boolean(storyboardMediaActionReason)"
-                          @click="onRegenAffectedSbImages('char-' + char.id, getCharAffectedStoryboards(char.id))"
-                        >
-                          <span v-if="!regenSbImagesForAsset.has('char-' + char.id)">↻ 重新生成分镜图</span>
-                        </el-button>
-                      </ActionGate>
-                    </div>
-                  </div>
-                  <div class="asset-cover-wrap">
-                    <div
-                      class="asset-cover"
-                      :class="{ 'asset-cover--clickable': hasAssetImage(char), 'asset-cover--dragover': dragOverResourceKey === 'char-' + char.id }"
-                      role="button"
-                      :tabindex="hasAssetImage(char) ? 0 : -1"
-                      :aria-label="hasAssetImage(char) ? `预览${char.name || '角色'}图片` : undefined"
-                      @click="hasAssetImage(char) && openImagePreview(assetImageUrl(char))"
-                      @keydown.enter.prevent="hasAssetImage(char) && openImagePreview(assetImageUrl(char))"
-                      @keydown.space.prevent="hasAssetImage(char) && openImagePreview(assetImageUrl(char))"
-                      @dragover="onResourceDragOver($event, 'character', char.id)"
-                      @dragleave="onResourceDragLeave($event, 'char-' + char.id)"
-                      @drop="onResourceDrop($event, 'character', char.id)"
-                    >
-                      <img v-if="hasAssetImage(char)" :src="assetImageUrl(char)" class="cover-img" alt="" />
-                      <div v-else-if="char.error_msg || char.errorMsg" class="cover-placeholder error" :title="char.error_msg || char.errorMsg">{{ char.error_msg || char.errorMsg }}</div>
-                      <div v-else class="cover-placeholder">暂无图</div>
-                      <div v-if="dragOverResourceKey === 'char-' + char.id" class="asset-cover-drop-hint">松开上传</div>
-                    </div>
-                    <!-- 额外参考图条 -->
-                    <div v-if="parseExtraImages(char).length" class="extra-images-strip">
-                      <div v-for="(ep, imageIndex) in parseExtraImages(char)" :key="ep" class="extra-thumb" :title="'点击设为主图（悬停左上角可放大预览）'">
-                        <button type="button" class="extra-thumb-primary" :aria-label="`将${char.name || '角色'}参考图${imageIndex + 1}设为主图`" @click="onSetPrimaryImage('character', char, ep)">
-                          <img :src="localPathToUrl(ep)" alt="" />
-                        </button>
-                        <button type="button" class="thumb-preview-btn" title="放大预览" :aria-label="`预览${char.name || '角色'}参考图${imageIndex + 1}`" @click.stop="openImagePreview(localPathToUrl(ep))">
-                          <el-icon :size="10"><ZoomIn /></el-icon>
-                        </button>
-                        <button type="button" class="extra-thumb-remove" title="移除" :aria-label="`移除${char.name || '角色'}参考图${imageIndex + 1}`" @click.stop="onRemoveExtraImage('character', char, ep)">×</button>
-                      </div>
-                    </div>
-                    <div class="asset-cover-actions">
-                      <el-button type="primary" size="small" :loading="generatingCharIds.has(char.id)" @click="onGenerateCharacterImage(char)">
-                        <el-icon v-if="!generatingCharIds.has(char.id)"><MagicStick /></el-icon>
-                        AI 生成
-                      </el-button>
-                      <el-button type="success" size="small" :loading="uploadingResourceId === 'char-' + char.id" @click="onUploadResourceClick('character', char.id)">
-                        <el-icon v-if="uploadingResourceId !== 'char-' + char.id"><Upload /></el-icon>
-                        上传
-                      </el-button>
-                    </div>
-                  </div>
-                </div>
-                <div v-if="characters.length === 0" class="empty-tip">暂无角色，可用「剧本自动提取角色」或「添加角色」</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 道具生成 -->
-          <div id="anchor-props" class="resource-block card">
-            <h3 class="collapse-heading">
-              <button
-                type="button"
-                class="collapse-header resource-block-header"
-                :aria-expanded="!propsBlockCollapsed"
-                aria-controls="props-block-body"
-                @click="propsBlockCollapsed = !propsBlockCollapsed"
-              >
-                <span class="resource-block-title">道具生成</span>
-                <el-icon class="collapse-icon"><ArrowUp v-if="!propsBlockCollapsed" /><ArrowDown v-else /></el-icon>
-              </button>
-            </h3>
-            <div id="props-block-body" v-show="!propsBlockCollapsed" class="resource-block-body">
-              <div class="asset-actions">
-                <ActionGate :reason="propsExtractionDisabledReason" label="从剧本提取道具">
-                  <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" @click="onExtractProps">从剧本提取道具</el-button>
-                </ActionGate>
-                <ActionGate :reason="projectActionDisabledReason" label="添加道具">
-                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" @click="showAddProp = true">添加道具</el-button>
-                </ActionGate>
-                <el-button size="small" @click="showPropLibrary = true">本剧道具库</el-button>
-              </div>
-              <div class="prop-gen-mode" style="margin: 8px 0; font-size: 13px;">
-                <el-checkbox v-model="propUseQuadGrid">生成四视图道具（默认单图，纯色无缝背景）</el-checkbox>
-              </div>
-              <div class="asset-list asset-list-two">
-                <div v-for="prop in props" :key="prop.id" class="asset-item asset-item-left-right">
-                  <div class="asset-info">
-                    <div class="asset-name">
-                      <span>{{ prop.name }}</span>
-                      <el-button type="danger" text size="small" class="btn-delete-icon" title="删除" :aria-label="`删除道具${prop.name || '未命名道具'}`" @click="onDeleteProp(prop)">
-                        <el-icon><Delete /></el-icon>
-                      </el-button>
-                    </div>
-                    <div class="asset-desc-full">{{ prop.description || prop.prompt || '暂无描述' }}</div>
-                    <div class="asset-btns">
-                      <el-button size="small" @click="editProp(prop)">编辑</el-button>
-                      <el-button size="small" :loading="addingPropToLibraryId === prop.id" :disabled="!hasAssetImage(prop)" @click="onAddPropToLibrary(prop)">
-                        加入本剧库
-                      </el-button>
-                      <el-button size="small" :loading="addingPropToMaterialId === prop.id" :disabled="!hasAssetImage(prop)" @click="onAddPropToMaterialLibrary(prop)">
-                        加入素材库
-                      </el-button></div>
-                    <div v-if="getPropAffectedStoryboards(prop.id).length" class="asset-storyboard-link">
-                      <span class="asl-label">影响的分镜：</span>
-                      <span
-                        v-for="sb in getPropAffectedStoryboards(prop.id)"
-                        :key="sb.id"
-                        class="asl-chip"
-                        title="点击跳转到该分镜"
-                        @click="scrollToStoryboard(sb.id)"
-                      >#{{ sb.storyboard_number }}</span>
-                      <span v-if="regenSbImagesForAsset.has('prop-' + prop.id) && regenSbImagesProgress['prop-' + prop.id]" class="asl-progress">
-                        {{ regenSbImagesProgress['prop-' + prop.id].current }}/{{ regenSbImagesProgress['prop-' + prop.id].total }}
-                      </span>
-                      <ActionGate :reason="storyboardMediaActionReason" label="重新生成关联分镜图">
-                        <el-button
-                          size="small"
-                          class="asl-regen-btn"
-                          :loading="regenSbImagesForAsset.has('prop-' + prop.id)"
-                          :disabled="Boolean(storyboardMediaActionReason)"
-                          @click="onRegenAffectedSbImages('prop-' + prop.id, getPropAffectedStoryboards(prop.id))"
-                        >
-                          <span v-if="!regenSbImagesForAsset.has('prop-' + prop.id)">↻ 重新生成分镜图</span>
-                        </el-button>
-                      </ActionGate>
-                    </div>
-                  </div>
-                  <div class="asset-cover-wrap">
-                    <div
-                      class="asset-cover"
-                      :class="{ 'asset-cover--clickable': hasAssetImage(prop), 'asset-cover--dragover': dragOverResourceKey === 'prop-' + prop.id }"
-                      role="button"
-                      :tabindex="hasAssetImage(prop) ? 0 : -1"
-                      :aria-label="hasAssetImage(prop) ? `预览${prop.name || '道具'}图片` : undefined"
-                      @click="hasAssetImage(prop) && openImagePreview(assetImageUrl(prop))"
-                      @keydown.enter.prevent="hasAssetImage(prop) && openImagePreview(assetImageUrl(prop))"
-                      @keydown.space.prevent="hasAssetImage(prop) && openImagePreview(assetImageUrl(prop))"
-                      @dragover="onResourceDragOver($event, 'prop', prop.id)"
-                      @dragleave="onResourceDragLeave($event, 'prop-' + prop.id)"
-                      @drop="onResourceDrop($event, 'prop', prop.id)"
-                    >
-                      <img v-if="hasAssetImage(prop)" :src="assetImageUrl(prop)" class="cover-img" alt="" />
-                      <div v-else-if="prop.error_msg || prop.errorMsg" class="cover-placeholder error" :title="prop.error_msg || prop.errorMsg">{{ prop.error_msg || prop.errorMsg }}</div>
-                      <div v-else class="cover-placeholder">暂无图</div>
-                      <div v-if="dragOverResourceKey === 'prop-' + prop.id" class="asset-cover-drop-hint">松开上传</div>
-                    </div>
-                    <div v-if="parseExtraImages(prop).length" class="extra-images-strip">
-                      <div v-for="(ep, imageIndex) in parseExtraImages(prop)" :key="ep" class="extra-thumb" title="点击设为主图（悬停左上角可放大预览）">
-                        <button type="button" class="extra-thumb-primary" :aria-label="`将${prop.name || '道具'}参考图${imageIndex + 1}设为主图`" @click="onSetPrimaryImage('prop', prop, ep)">
-                          <img :src="localPathToUrl(ep)" alt="" />
-                        </button>
-                        <button type="button" class="thumb-preview-btn" title="放大预览" :aria-label="`预览${prop.name || '道具'}参考图${imageIndex + 1}`" @click.stop="openImagePreview(localPathToUrl(ep))">
-                          <el-icon :size="10"><ZoomIn /></el-icon>
-                        </button>
-                        <button type="button" class="extra-thumb-remove" title="移除" :aria-label="`移除${prop.name || '道具'}参考图${imageIndex + 1}`" @click.stop="onRemoveExtraImage('prop', prop, ep)">×</button>
-                      </div>
-                    </div>
-                    <div class="asset-cover-actions">
-                      <el-tooltip :content="propUseQuadGrid ? '四视图道具（前/侧/后/顶，纯色无缝背景）' : '单图道具（纯色无缝背景）'" placement="top">
-                        <el-button type="primary" size="small" :loading="generatingPropIds.has(prop.id)" @click="onGeneratePropImage(prop, propUseQuadGrid)">
-                          <el-icon v-if="!generatingPropIds.has(prop.id)"><MagicStick /></el-icon>
-                          AI 生成
-                        </el-button>
-                      </el-tooltip>
-                      <el-button type="success" size="small" :loading="uploadingResourceId === 'prop-' + prop.id" @click="onUploadResourceClick('prop', prop.id)">
-                        <el-icon v-if="uploadingResourceId !== 'prop-' + prop.id"><Upload /></el-icon>
-                        上传
-                      </el-button>
-                    </div>
-                  </div>
-                </div>
-                <div v-if="props.length === 0" class="empty-tip">暂无道具，可从剧本提取或添加</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 场景生成 -->
-          <div id="anchor-scenes" class="resource-block card">
-            <h3 class="collapse-heading">
-              <button
-                type="button"
-                class="collapse-header resource-block-header"
-                :aria-expanded="!scenesBlockCollapsed"
-                aria-controls="scenes-block-body"
-                @click="scenesBlockCollapsed = !scenesBlockCollapsed"
-              >
-                <span class="resource-block-title">场景生成</span>
-                <el-icon class="collapse-icon"><ArrowUp v-if="!scenesBlockCollapsed" /><ArrowDown v-else /></el-icon>
-              </button>
-            </h3>
-            <div id="scenes-block-body" v-show="!scenesBlockCollapsed" class="resource-block-body">
-              <div class="asset-actions">
-                <ActionGate :reason="scenesExtractionDisabledReason" label="从剧本提取场景">
-                  <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" @click="onExtractScenes">
-                    从剧本提取场景
-                  </el-button>
-                </ActionGate>
-                <ActionGate :reason="projectActionDisabledReason" label="添加场景">
-                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" @click="openAddScene">添加场景</el-button>
-                </ActionGate>
-                <el-button size="small" @click="showSceneLibrary = true">本剧场景库</el-button>
-              </div>
-              <div class="scene-gen-mode" style="margin: 8px 0; font-size: 13px;">
-                <el-checkbox v-model="sceneUseQuadGrid">生成四宫格场景（默认单图）</el-checkbox>
-              </div>
-              <div class="asset-list asset-list-two">
-                <div v-for="scene in scenes" :key="scene.id" class="asset-item asset-item-left-right">
-                  <div class="asset-info">
-                    <div class="asset-name">
-                      <span>{{ scene.location }}</span>
-                      <el-button type="danger" text size="small" class="btn-delete-icon" title="删除" :aria-label="`删除场景${scene.location || '未命名场景'}`" @click="onDeleteScene(scene)">
-                        <el-icon><Delete /></el-icon>
-                      </el-button>
-                    </div>
-                    <div class="asset-desc-full">{{ scene.description || scene.prompt || scene.time || '暂无描述' }}</div>
-                    <div class="asset-btns">
-                      <el-button size="small" @click="editScene(scene)">编辑</el-button>
-                      <el-button size="small" :loading="addingSceneToLibraryId === scene.id" :disabled="!hasAssetImage(scene)" @click="onAddSceneToLibrary(scene)">
-                        加入本剧库
-                      </el-button>
-                      <el-button size="small" :loading="addingSceneToMaterialId === scene.id" :disabled="!hasAssetImage(scene)" @click="onAddSceneToMaterialLibrary(scene)">
-                        加入素材库
-                      </el-button></div>
-                    <div v-if="getSceneAffectedStoryboards(scene.id).length" class="asset-storyboard-link">
-                      <span class="asl-label">影响的分镜：</span>
-                      <span
-                        v-for="sb in getSceneAffectedStoryboards(scene.id)"
-                        :key="sb.id"
-                        class="asl-chip"
-                        title="点击跳转到该分镜"
-                        @click="scrollToStoryboard(sb.id)"
-                      >#{{ sb.storyboard_number }}</span>
-                      <span v-if="regenSbImagesForAsset.has('scene-' + scene.id) && regenSbImagesProgress['scene-' + scene.id]" class="asl-progress">
-                        {{ regenSbImagesProgress['scene-' + scene.id].current }}/{{ regenSbImagesProgress['scene-' + scene.id].total }}
-                      </span>
-                      <ActionGate :reason="storyboardMediaActionReason" label="重新生成关联分镜图">
-                        <el-button
-                          size="small"
-                          class="asl-regen-btn"
-                          :loading="regenSbImagesForAsset.has('scene-' + scene.id)"
-                          :disabled="Boolean(storyboardMediaActionReason)"
-                          @click="onRegenAffectedSbImages('scene-' + scene.id, getSceneAffectedStoryboards(scene.id))"
-                        >
-                          <span v-if="!regenSbImagesForAsset.has('scene-' + scene.id)">↻ 重新生成分镜图</span>
-                        </el-button>
-                      </ActionGate>
-                    </div>
-                  </div>
-                  <div class="asset-cover-wrap">
-                    <div
-                      class="asset-cover"
-                      :class="{ 'asset-cover--clickable': hasAssetImage(scene), 'asset-cover--dragover': dragOverResourceKey === 'scene-' + scene.id }"
-                      role="button"
-                      :tabindex="hasAssetImage(scene) ? 0 : -1"
-                      :aria-label="hasAssetImage(scene) ? `预览${scene.location || '场景'}图片` : undefined"
-                      @click="hasAssetImage(scene) && openImagePreview(assetImageUrl(scene))"
-                      @keydown.enter.prevent="hasAssetImage(scene) && openImagePreview(assetImageUrl(scene))"
-                      @keydown.space.prevent="hasAssetImage(scene) && openImagePreview(assetImageUrl(scene))"
-                      @dragover="onResourceDragOver($event, 'scene', scene.id)"
-                      @dragleave="onResourceDragLeave($event, 'scene-' + scene.id)"
-                      @drop="onResourceDrop($event, 'scene', scene.id)"
-                    >
-                      <img v-if="hasAssetImage(scene)" :src="assetImageUrl(scene)" class="cover-img" alt="" />
-                      <div v-else-if="scene.error_msg || scene.errorMsg" class="cover-placeholder error" :title="scene.error_msg || scene.errorMsg">{{ scene.error_msg || scene.errorMsg }}</div>
-                      <div v-else class="cover-placeholder">暂无图</div>
-                      <div v-if="dragOverResourceKey === 'scene-' + scene.id" class="asset-cover-drop-hint">松开上传</div>
-                    </div>
-                    <div v-if="parseExtraImages(scene).length" class="extra-images-strip">
-                      <div v-for="(ep, imageIndex) in parseExtraImages(scene)" :key="ep" class="extra-thumb" title="点击设为主图（悬停左上角可放大预览）">
-                        <button type="button" class="extra-thumb-primary" :aria-label="`将${scene.location || '场景'}参考图${imageIndex + 1}设为主图`" @click="onSetPrimaryImage('scene', scene, ep)">
-                          <img :src="localPathToUrl(ep)" alt="" />
-                        </button>
-                        <button type="button" class="thumb-preview-btn" title="放大预览" :aria-label="`预览${scene.location || '场景'}参考图${imageIndex + 1}`" @click.stop="openImagePreview(localPathToUrl(ep))">
-                          <el-icon :size="10"><ZoomIn /></el-icon>
-                        </button>
-                        <button type="button" class="extra-thumb-remove" title="移除" :aria-label="`移除${scene.location || '场景'}参考图${imageIndex + 1}`" @click.stop="onRemoveExtraImage('scene', scene, ep)">×</button>
-                      </div>
-                    </div>
-                    <div class="asset-cover-actions">
-                      <el-tooltip :content="sceneUseQuadGrid ? '四宫格场景（正/侧/俯/仰）' : '单图场景'" placement="top">
-                        <el-button type="primary" size="small" :loading="generatingSceneIds.has(scene.id)" @click="onGenerateSceneImage(scene, sceneUseQuadGrid)">
-                          <el-icon v-if="!generatingSceneIds.has(scene.id)"><MagicStick /></el-icon>
-                          AI 生成
-                        </el-button>
-                      </el-tooltip>
-                      <el-button type="success" size="small" :loading="uploadingResourceId === 'scene-' + scene.id" @click="onUploadResourceClick('scene', scene.id)">
-                        <el-icon v-if="uploadingResourceId !== 'scene-' + scene.id"><Upload /></el-icon>
-                        上传
-                      </el-button>
-                    </div>
-                  </div>
-                </div>
-                <div v-if="scenes.length === 0" class="empty-tip">暂无场景，可从剧本提取或添加场景</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
+      <FilmCreateResourcePanel
+        class="section card resource-panel"
+        v-model:resource-panel-collapsed="resourcePanelCollapsed"
+        v-model:characters-block-collapsed="charactersBlockCollapsed"
+        v-model:props-block-collapsed="propsBlockCollapsed"
+        v-model:scenes-block-collapsed="scenesBlockCollapsed"
+        v-model:prop-use-quad-grid="propUseQuadGrid"
+        v-model:scene-use-quad-grid="sceneUseQuadGrid"
+        :characters="characters"
+        :prop-items="props"
+        :scenes="scenes"
+        :character-generation-disabled-reason="characterGenerationDisabledReason"
+        :project-action-disabled-reason="projectActionDisabledReason"
+        :props-extraction-disabled-reason="propsExtractionDisabledReason"
+        :scenes-extraction-disabled-reason="scenesExtractionDisabledReason"
+        :storyboard-media-action-reason="storyboardMediaActionReason"
+        :characters-generating="charactersGenerating"
+        :props-extracting="propsExtracting"
+        :scenes-extracting="scenesExtracting"
+        :generating-char-ids="generatingCharIds"
+        :generating-prop-ids="generatingPropIds"
+        :generating-scene-ids="generatingSceneIds"
+        :uploading-resource-id="uploadingResourceId"
+        :adding-char-to-library-id="addingCharToLibraryId"
+        :adding-char-to-material-id="addingCharToMaterialId"
+        :adding-prop-to-library-id="addingPropToLibraryId"
+        :adding-prop-to-material-id="addingPropToMaterialId"
+        :adding-scene-to-library-id="addingSceneToLibraryId"
+        :adding-scene-to-material-id="addingSceneToMaterialId"
+        :regen-sb-images-for-asset="regenSbImagesForAsset"
+        :regen-sb-images-progress="regenSbImagesProgress"
+        :sd2-certifying-id="sd2CertifyingId"
+        :sd2-voice-uploading-id="sd2VoiceUploadingId"
+        :has-asset-image="hasAssetImage"
+        :asset-image-url="assetImageUrl"
+        :char-role-label="charRoleLabel"
+        :local-path-to-url="localPathToUrl"
+        :parse-extra-images="parseExtraImages"
+        :get-char-affected-storyboards="getCharAffectedStoryboards"
+        :get-prop-affected-storyboards="getPropAffectedStoryboards"
+        :get-scene-affected-storyboards="getSceneAffectedStoryboards"
+        :sd2-action-label="sd2ActionLabel"
+        :sd2-voice-action-label="sd2VoiceActionLabel"
+        @generate-characters="onGenerateCharacters"
+        @add-character="openAddCharacter"
+        @open-char-library="showCharLibrary = true"
+        @extract-props="onExtractProps"
+        @add-prop="showAddProp = true"
+        @open-prop-library="showPropLibrary = true"
+        @extract-scenes="onExtractScenes"
+        @add-scene="openAddScene"
+        @open-scene-library="showSceneLibrary = true"
+        @generate-character-image="onGenerateCharacterImage"
+        @generate-prop-image="onGeneratePropImage"
+        @generate-scene-image="onGenerateSceneImage"
+        @edit-character="editCharacter"
+        @edit-prop="editProp"
+        @edit-scene="editScene"
+        @delete-character="onDeleteCharacter"
+        @delete-prop="onDeleteProp"
+        @delete-scene="onDeleteScene"
+        @add-character-to-library="onAddCharacterToLibrary"
+        @add-character-to-material="onAddCharacterToMaterialLibrary"
+        @add-prop-to-library="onAddPropToLibrary"
+        @add-prop-to-material="onAddPropToMaterialLibrary"
+        @add-scene-to-library="onAddSceneToLibrary"
+        @add-scene-to-material="onAddSceneToMaterialLibrary"
+        @regen-affected-sb-images="onRegenAffectedSbImages"
+        @upload-resource-image="doUploadResourceImage"
+        @set-primary-image="onSetPrimaryImage"
+        @remove-extra-image="onRemoveExtraImage"
+        @preview-image="openImagePreview"
+        @scroll-to-storyboard="scrollToStoryboard"
+        @sd2-primary-action="onSd2PrimaryAction"
+        @sd2-voice-primary-action="onSd2VoicePrimaryAction"
+        @sd2-voice-replace="onSd2VoiceReplace"
+        @play-sd2-voice="playSd2Voice"
+      />
       <!-- 分镜生成 -->
       <section id="anchor-storyboard" class="section card">
         <h2 class="section-title">
@@ -2768,6 +2413,7 @@ import {
 } from '@/utils/filmCreateEstimates'
 import FilmCreatePipelinePanel from '@/components/filmCreate/FilmCreatePipelinePanel.vue'
 import FilmCreateScriptWorkbench from '@/components/filmCreate/FilmCreateScriptWorkbench.vue'
+import FilmCreateResourcePanel from '@/components/filmCreate/FilmCreateResourcePanel.vue'
 import {
   batchGenerationDisabledReason,
   composeVideoDisabledReason,

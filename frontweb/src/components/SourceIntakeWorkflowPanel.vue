@@ -874,7 +874,8 @@ function requestedFlowStepFromRoute() {
   return typeof raw === 'string' ? raw.trim() : ''
 }
 function persistInspectedFlowStep(stepId) {
-  const nextStepId = String(stepId || '').trim()
+  const liveStepId = flowState.value.activeStepId
+  const nextStepId = stepId && stepId !== liveStepId ? String(stepId).trim() : ''
   if (requestedFlowStepFromRoute() === nextStepId) return
   const query = { ...route.query }
   if (nextStepId) query.step = nextStepId
@@ -1449,7 +1450,7 @@ async function retryRun() {
       selectedRun.value = nextRun
       markWorkflowRefreshUnconfirmed()
       selectedFlowStepId.value = 'process'
-    persistInspectedFlowStep('process')
+      persistInspectedFlowStep('process')
       startPoll()
       return
     }

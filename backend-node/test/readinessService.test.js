@@ -176,12 +176,14 @@ test('readiness 写探测失败时不会把 database.ok 留成 true', (t) => {
   const workspace = makeReadinessWorkspace(t);
   workspace.db.close();
   const readonlyDb = new Database(workspace.databasePath, { readonly: true, fileMustExist: true });
-  t.after(() => {
-    if (readonlyDb.open) readonlyDb.close();
-  });
-  const result = checkReadiness(readonlyDb, workspace.storage, {
-    maintenanceGuard: workspace.maintenanceGuard,
-  });
+  let result;
+  try {
+    result = checkReadiness(readonlyDb, workspace.storage, {
+      maintenanceGuard: workspace.maintenanceGuard,
+    });
+  } finally {
+    readonlyDb.close();
+  }
   assert.equal(result.ready, false);
   assert.equal(result.checks.database.ok, false);
   assert.equal(result.checks.database.error, '数据库不可用');

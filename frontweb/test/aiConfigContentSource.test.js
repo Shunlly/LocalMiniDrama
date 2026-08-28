@@ -226,7 +226,7 @@ test('AI config list preserves prior data on load failure and blocks auto-open w
   assert.match(source, /configLoadError = ref\(''\)/)
   assert.match(source, /class="config-load-state config-load-state--error"/)
   assert.match(source, /configLoadState\.value = list\.value\.length \? 'refreshing' : 'loading'/)
-  assert.match(source, /configLoadError\.value = error\?\.message \|\| '暂时无法读取 AI 配置，请稍后重试。'/)
+  assert.match(source, /configLoadError\.value = describeServiceLoadError\(/)
   assert.match(source, /configLoadState\.value = 'error'/)
   assert.match(source, /configLoadState\.value = 'ready'\n    return true/)
   assert.match(source, /configLoadState\.value = 'error'\n    return false/)

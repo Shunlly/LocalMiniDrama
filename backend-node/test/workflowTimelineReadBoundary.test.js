@@ -203,7 +203,7 @@ test('时间线遇到跨 episode、已删除或缺失 storyboard 的历史脏数
   }
 });
 
-test('workflow list treats novel2anime as a family prefix so repair runs stay visible', () => {
+test('工作流列表按 novel2anime 前缀包含修复跑次', () => {
   const db = createDb();
   const routes = workflowRoutes(db, log);
   try {

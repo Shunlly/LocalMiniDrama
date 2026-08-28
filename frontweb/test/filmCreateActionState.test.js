@@ -121,7 +121,8 @@ test('FilmCreate delegates pipeline UI and wraps major gated actions', () => {
 
   assert.match(filmCreateSource, /<FilmCreatePipelinePanel/)
   assert.doesNotMatch(filmCreateSource, /class="one-click-actions"/)
-  assert.match(filmCreateSource, /:reason="characterGenerationDisabledReason"/)
+  assert.match(filmCreateSource, /:character-generation-disabled-reason="characterGenerationDisabledReason"/)
+  assert.match(filmCreateSource, /<FilmCreateResourcePanel/)
   assert.match(filmCreateSource, /:reason="batchActionDisabledReason"/)
   assert.match(deliveryPanelSource, /:reason="composeActionDisabledReason"/)
   assert.match(filmCreateSource, /if \(composeActionDisabledReason\.value\)/)

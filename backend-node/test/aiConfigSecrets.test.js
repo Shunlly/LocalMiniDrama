@@ -514,6 +514,7 @@ describe('aiConfigService secret handling', () => {
           id: created.id,
           api_key: '********',
           model: 'model-a',
+          settings: JSON.stringify({ timeout: 9999, workflow: 'forged' }),
         },
       }, res);
 
@@ -522,6 +523,8 @@ describe('aiConfigService secret handling', () => {
       assert.equal(captured.base_url, 'https://provider.example.com/v1');
       assert.deepEqual(captured.model, ['model-a']);
       assert.equal(captured.default_model, 'model-a');
+      assert.equal(captured.settings, created.settings);
+      assert.equal(String(captured.settings || '').includes('forged'), false);
     } finally {
       aiConfigService.testConnection = original;
     }

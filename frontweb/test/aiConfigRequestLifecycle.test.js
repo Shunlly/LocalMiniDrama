@@ -33,8 +33,9 @@ test('AI 配置页在卸载和重新加载时取消过期请求', () => {
     assert.match(loader, /withRequestRetry/)
     assert.match(loader, /isRequestCanceled/)
     assert.match(loader, /describeServiceLoadError/)
-    assert.match(loader, /suppressErrorToast: true/)
   }
+  assert.match(source, /function jsonRequestOptions\(signal/)
+  assert.match(source, /suppressErrorToast: true/)
 })
 
 test('连接测试失败可重试且取消不会记成失败', () => {

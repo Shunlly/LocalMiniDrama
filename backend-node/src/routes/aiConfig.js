@@ -167,7 +167,7 @@ function createClientAbort(req, res) {
     controller.abort(error);
   };
   const onClose = () => {
-    if (!res?.writableEnded) abort();
+    if (!res?.headersSent && !res?.writableEnded) abort();
   };
   if (typeof res?.on === 'function') res.on('close', onClose);
   if (typeof req?.on === 'function') req.on('aborted', abort);
@@ -219,9 +219,11 @@ function testConnection(db, log) {
   return async (req, res) => {
     const body = req.body || {};
     const clientAbort = createClientAbort(req, res);
+    let savedConfig = null;
     let opts;
     try {
-      opts = applySavedConfigSecrets(getSavedConfigFromBody(db, body), body);
+      savedConfig = getSavedConfigFromBody(db, body);
+      opts = applySavedConfigSecrets(savedConfig, body);
     } catch (err) {
       clientAbort.dispose();
       if (err.status === 404) return response.notFound(res, err.message);
@@ -243,7 +245,7 @@ function testConnection(db, log) {
         api_protocol: opts.api_protocol,
         endpoint: opts.endpoint,
         service_type: opts.service_type,
-        settings: opts.settings,
+        settings: savedConfig ? savedConfig.settings : opts.settings,
         trusted_origins: req.providerNetworkTrustedOrigins,
         provider_network_policy: req.providerNetworkPolicy,
         signal: clientAbort.signal,

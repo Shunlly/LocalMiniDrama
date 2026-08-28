@@ -22,7 +22,11 @@ const scriptWorkbenchSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateScriptWorkbench.vue', import.meta.url),
   'utf8',
 )
-const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource + '\n' + scriptWorkbenchSource
+const resourcePanelSource = readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url),
+  'utf8',
+)
+const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource + '\n' + scriptWorkbenchSource + '\n' + resourcePanelSource
 
 test('film create navigation and resource disclosure controls use native buttons', () => {
   assert.match(filmCreateSource, /<button[\s\S]*?class="nav-toggle"[\s\S]*?:aria-expanded="!navCollapsed"/)
@@ -42,7 +46,7 @@ test('film create navigation and resource disclosure controls use native buttons
       < filmCreateSource.indexOf('label="批量生成分镜图"'),
   )
 
-  const disclosureButtons = filmCreateSource.match(
+  const disclosureButtons = resourcePanelSource.match(
     /<button\b[^>]*class="collapse-header(?: resource-block-header)?"[^>]*>/g,
   ) || []
   assert.equal(disclosureButtons.length, 4)

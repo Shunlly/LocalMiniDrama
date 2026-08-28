@@ -767,3 +767,17 @@ test('交付面板为下载和导出提供可见的禁用原因', () => {
   assert.match(panel, /当前集还没有可下载的字幕/)
   assert.match(panel, /请先打开制作项目/)
 })
+
+test('FilmCreate 把资源管理交给独立面板并保留折叠与空状态', () => {
+  const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /<FilmCreateResourcePanel/)
+  assert.match(filmCreateSource, /class="section card resource-panel"/)
+  assert.match(filmCreateSource, /:prop-items="props"/)
+  assert.match(filmCreateSource, /@generate-characters="onGenerateCharacters"/)
+  assert.match(panel, /id="anchor-characters"/)
+  assert.match(panel, /id="anchor-props"/)
+  assert.match(panel, /id="anchor-scenes"/)
+  assert.match(panel, /class="collapse-header(?: resource-block-header)?"/)
+  assert.match(panel, /暂无角色/)
+  assert.match(panel, /emit\('generate-characters'\)/)
+})

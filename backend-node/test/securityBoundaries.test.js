@@ -169,6 +169,8 @@ test('private provider dispatch requires an exact enabled saved origin', async (
   const activeProvider = {
     base_url: 'http://e2e-provider:5688/v1',
     is_active: true,
+    provider: 'openai_compatible',
+    settings: JSON.stringify({ allow_local_http: true }),
   };
   const validated = await videoClient.validateProviderRequestUrl(
     'http://e2e-provider:5688/v1/videos',
