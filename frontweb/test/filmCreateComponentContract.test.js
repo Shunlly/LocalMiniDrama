@@ -12,6 +12,7 @@ const pipelinePanelUrl = new URL('../src/components/filmCreate/FilmCreatePipelin
 const disclosureStateUrl = new URL('../src/composables/useDisclosureState.js', import.meta.url)
 const filmPipelineActionUrl = new URL('../src/utils/filmPipelineAction.js', import.meta.url)
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const storyboardCrudSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardCrud.js', import.meta.url), 'utf8')
 const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 
 test('FilmCreate script compiles without duplicate bindings', () => {
@@ -806,6 +807,6 @@ test('FilmCreate 把资源弹窗和分镜弹窗交给独立面板', () => {
 test('FilmCreate 把导入小说弹窗交给独立面板，重新生成分镜需要确认', () => {
   assert.match(filmCreateSource, /<FilmCreateNovelImportDialog/)
   assert.match(filmCreateSource, /v-model:max-chapters="novelMaxChapters"/)
-  assert.match(filmCreateSource, /重新生成会覆盖当前分镜脚本和已有分镜图、视频进度/)
-  assert.match(filmCreateSource, /confirmButtonText: '重新生成'/)
+  assert.match(storyboardCrudSource, /重新生成会覆盖当前分镜脚本和已有分镜图、视频进度/)
+  assert.match(storyboardCrudSource, /confirmButtonText: '重新生成'/)
 })

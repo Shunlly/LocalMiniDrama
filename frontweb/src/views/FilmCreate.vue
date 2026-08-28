@@ -831,7 +831,7 @@ import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Setting, Plus, Minus, Sunny,
 import { useTheme } from '@/composables/useTheme'
 import { useFilmStore } from '@/stores/film'
 import { useGenerationTaskStore, GEN_RESOURCE } from '@/stores/generationTaskStore'
-import { syncGeneratingSetsFromStore, buildEpisodeContext, buildExtractTaskMeta, isEpisodeExtractRunning } from '@/composables/useGenerationTaskSync'
+import { syncGeneratingSetsFromStore, buildEpisodeContext, isEpisodeExtractRunning } from '@/composables/useGenerationTaskSync'
 import { dramaAPI as rawDramaAPI } from '@/api/drama'
 import { timelinesAPI as rawTimelinesAPI } from '@/api/timelines'
 import { generationAPI as rawGenerationAPI } from '@/api/generation'
@@ -932,6 +932,9 @@ import { useFilmCreateStoryboardVideoGeneration } from '@/composables/filmCreate
 import { useFilmCreateStoryboardTts } from '@/composables/filmCreate/useFilmCreateStoryboardTts'
 import { useFilmCreateLinkedStoryboardRegen } from '@/composables/filmCreate/useFilmCreateLinkedStoryboardRegen'
 import { useFilmCreateUniversalSegment } from '@/composables/filmCreate/useFilmCreateUniversalSegment'
+import { useFilmCreateStoryboardUpload } from '@/composables/filmCreate/useFilmCreateStoryboardUpload'
+import { useFilmCreateResourceUpload } from '@/composables/filmCreate/useFilmCreateResourceUpload'
+import { useFilmCreateStoryboardCrud } from '@/composables/filmCreate/useFilmCreateStoryboardCrud'
 import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
 
 const projectLifecycle = createProjectInstanceLifecycle()
@@ -2867,72 +2870,25 @@ const {
   editingFramePromptRegenerating,
 })
 
-function onUploadSbImageClick(sb, slot = 'first') {
-  if (!sb?.id) return
-  sbImageUploadForId.value = sb.id
-  sbImageUploadSlotById.value = { ...sbImageUploadSlotById.value, [sb.id]: slot }
-  if (!storyboardUseFirstLastFrame.value) {
-    uploadingSbImageId.value = sb.id
-  }
-  
-}
-
-async function doUploadSbImage(sbId, file, slot = 'first') {
-  if (!file || !sbId || !dramaId.value) return
-  const useSlot = storyboardUseFirstLastFrame.value ? slot : 'first'
-  if (storyboardUseFirstLastFrame.value) {
-    sbImageUploadSlotById.value = { ...sbImageUploadSlotById.value, [sbId]: useSlot }
-  } else {
-    uploadingSbImageId.value = sbId
-  }
-  try {
-    const res = await uploadAPI.uploadImage(file, { dramaId: dramaId.value })
-    const url = res?.url || res?.path
-    const localPath = res?.local_path
-    if (!url && !localPath) {
-      ElMessage.error('上传未返回地址')
-      return
-    }
-    const uploaded = await imagesAPI.upload({
-      storyboard_id: sbId,
-      drama_id: dramaId.value,
-      image_url: url || '',
-      local_path: localPath || undefined,
-      frame_type: storyboardUseFirstLastFrame.value ? frameTypeForSlot(useSlot) : undefined,
-    })
-    ElMessage.success(useSlot === 'last' ? '尾帧上传成功' : '首帧上传成功')
-    if (uploaded?.id) {
-      const sb = (store.storyboards || []).find((b) => b.id === sbId)
-      if (sb) onSelectSbFrameImage(sb, uploaded, useSlot)
-    } else if (!storyboardUseFirstLastFrame.value) {
-      const { [sbId]: _r, ...rest } = sbSelectedImgId.value
-      sbSelectedImgId.value = rest
-    }
-    await refreshStoryboardMediaForCurrentContext(sbId)
-    restoreSelectionsFromBackend()
-  } catch (e) {
-    ElMessage.error(e.message || '上传失败')
-  } finally {
-    uploadingSbImageId.value = null
-    const next = { ...sbImageUploadSlotById.value }
-    delete next[sbId]
-    sbImageUploadSlotById.value = next
-  }
-}
-
-function onSbImageFileChange(ev) {
-  const file = ev.target?.files?.[0]
-  const sid = sbImageUploadForId.value
-  if (!file || !sid) {
-    ev.target.value = ''
-    return
-  }
-  const slot = sbImageUploadSlotById.value[sid] || 'first'
-  doUploadSbImage(sid, file, slot).finally(() => {
-    sbImageUploadForId.value = null
-    ev.target.value = ''
-  })
-}
+const {
+  onUploadSbImageClick,
+  doUploadSbImage,
+  onSbImageFileChange,
+} = useFilmCreateStoryboardUpload({
+  dramaId,
+  store,
+  uploadAPI,
+  imagesAPI,
+  storyboardUseFirstLastFrame,
+  sbImageUploadForId,
+  sbImageUploadSlotById,
+  uploadingSbImageId,
+  sbSelectedImgId,
+  frameTypeForSlot,
+  onSelectSbFrameImage,
+  refreshStoryboardMediaForCurrentContext,
+  restoreSelectionsFromBackend,
+})
 
 function syncStoryboardStateFromEpisode(ep) {
   const boards = ep?.storyboards || []
@@ -3831,136 +3787,28 @@ async function onAddEpisode() {
   }
 }
 
-function onUploadResourceClick(type, id) {
-  resourceUploadType.value = type
-  resourceUploadId.value = id
-  resourceImageFileInput.value?.click()
-}
-
-// 解析 extra_images JSON，返回 local_path 数组
-function parseExtraImages(item) {
-  if (!item?.extra_images) return []
-  try {
-    const arr = typeof item.extra_images === 'string' ? JSON.parse(item.extra_images) : item.extra_images
-    return Array.isArray(arr) ? arr.filter(Boolean) : []
-  } catch { return [] }
-}
-
-// 将 local_path 转成可访问的 URL
-function localPathToUrl(p) {
-  if (!p) return ''
-  if (p.startsWith('http')) return p
-  return '/static/' + p.replace(/^\//, '')
-}
-
-// 查找角色/道具/场景在 store 中的当前对象
-function findResource(type, id) {
-  const list = type === 'character' ? (store.characters ?? [])
-    : type === 'prop' ? (store.props ?? [])
-    : (store.scenes ?? [])
-  return list.find((x) => Number(x.id) === Number(id)) || null
-}
-
-async function doUploadResourceImage(type, id, file) {
-  if (!file || !type || id == null) return
-  const key = type === 'character' ? 'char-' : type === 'prop' ? 'prop-' : 'scene-'
-  uploadingResourceId.value = key + id
-  try {
-    const res = await uploadAPI.uploadImage(file, { dramaId: dramaId.value })
-    const data = res?.data ?? res
-    const uploadedLocalPath = data?.local_path || data?.path || null
-    const url = data?.url || uploadedLocalPath
-    if (!url) { ElMessage.error('上传未返回地址'); return }
-
-    const current = findResource(type, id)
-    const hasPrimary = !!(current?.local_path || current?.image_url)
-
-    if (hasPrimary) {
-      // 已有主图 → 追加到 extra_images
-      const extras = parseExtraImages(current)
-      const newPath = uploadedLocalPath || url
-      if (!extras.includes(newPath)) extras.push(newPath)
-      const extraJson = JSON.stringify(extras)
-      if (type === 'character') {
-        await characterAPI.putImage(id, { extra_images: extraJson })
-      } else if (type === 'prop') {
-        await propAPI.update(id, { extra_images: extraJson })
-      } else if (type === 'scene') {
-        await sceneAPI.update(id, { extra_images: extraJson })
-      }
-    } else {
-      // 无主图 → 设为主图
-      if (type === 'character') {
-        await characterAPI.putImage(id, { image_url: url, local_path: uploadedLocalPath ?? null })
-      } else if (type === 'prop') {
-        await propAPI.update(id, { image_url: url, local_path: uploadedLocalPath ?? null })
-      } else if (type === 'scene') {
-        await sceneAPI.update(id, { image_url: url, local_path: uploadedLocalPath ?? null })
-      }
-    }
-    await loadDrama()
-    ElMessage.success('上传成功')
-  } catch (e) {
-    ElMessage.error(e.message || '上传失败')
-  } finally {
-    uploadingResourceId.value = null
-  }
-}
-
-// 将某张额外图片设为主图（主图降级到 extra_images 第一位）
-async function onSetPrimaryImage(type, item, extraPath) {
-  const extras = parseExtraImages(item)
-  const oldPrimary = item.local_path || ''
-  const newExtras = extras.filter((p) => p !== extraPath)
-  if (oldPrimary) newExtras.unshift(oldPrimary)
-  const extraJson = JSON.stringify(newExtras)
-  try {
-    if (type === 'character') {
-      await characterAPI.putImage(item.id, { local_path: extraPath, image_url: '', extra_images: extraJson })
-    } else if (type === 'prop') {
-      await propAPI.update(item.id, { local_path: extraPath, image_url: '', extra_images: extraJson })
-    } else if (type === 'scene') {
-      await sceneAPI.update(item.id, { local_path: extraPath, image_url: '', extra_images: extraJson })
-    }
-    await loadDrama()
-  } catch (e) {
-    ElMessage.error(e.message || '操作失败')
-  }
-}
-
-// 删除某张额外图片
-async function onRemoveExtraImage(type, item, extraPath) {
-  const extras = parseExtraImages(item).filter((p) => p !== extraPath)
-  const extraJson = extras.length ? JSON.stringify(extras) : null
-  try {
-    if (type === 'character') {
-      await characterAPI.putImage(item.id, { extra_images: extraJson })
-    } else if (type === 'prop') {
-      await propAPI.update(item.id, { extra_images: extraJson })
-    } else if (type === 'scene') {
-      await sceneAPI.update(item.id, { extra_images: extraJson })
-    }
-    await loadDrama()
-  } catch (e) {
-    ElMessage.error(e.message || '删除失败')
-  }
-}
-
-function onResourceImageFileChange(ev) {
-  const file = ev.target?.files?.[0]
-  const type = resourceUploadType.value
-  const id = resourceUploadId.value
-  if (!file || !type || id == null) {
-    ev.target.value = ''
-    return
-  }
-  doUploadResourceImage(type, id, file).finally(() => {
-    resourceUploadType.value = null
-    resourceUploadId.value = null
-    ev.target.value = ''
-  })
-}
-
+const {
+  onUploadResourceClick,
+  parseExtraImages,
+  localPathToUrl,
+  findResource,
+  doUploadResourceImage,
+  onSetPrimaryImage,
+  onRemoveExtraImage,
+  onResourceImageFileChange,
+} = useFilmCreateResourceUpload({
+  dramaId,
+  store,
+  uploadAPI,
+  characterAPI,
+  propAPI,
+  sceneAPI,
+  loadDrama,
+  resourceUploadType,
+  resourceUploadId,
+  resourceImageFileInput,
+  uploadingResourceId,
+})
 
 function getSbFirstFrameUrl(sb) {
   const img = storyboardUseFirstLastFrame.value ? getSbFirstImage(sb.id) : getSbImage(sb.id)
@@ -5074,140 +4922,34 @@ async function onUsePrevTailAsFirst(sb) {
   }
 }
 
-/** 生成期间轻量刷新分镜列表（只更新指定集 storyboards，不重载整个 drama） */
-async function refreshStoryboardsForEpisode(episodeId) {
-  if (!episodeId) return
-  try {
-    const res = await dramaAPI.getStoryboards(episodeId)
-    const list = Array.isArray(res) ? res : (res?.storyboards ?? null)
-    if (!Array.isArray(list)) return
-    if (Number(store.currentEpisode?.id) === Number(episodeId)) {
-      store.currentEpisode.storyboards = list
-    }
-    const epInDrama = store.drama?.episodes?.find((e) => Number(e.id) === Number(episodeId))
-    if (epInDrama) {
-      epInDrama.storyboards = list
-    }
-  } catch (_) { /* 静默忽略，不影响主流程 */ }
-}
-
-/** @deprecated 使用 refreshStoryboardsForEpisode */
-async function refreshStoryboardsOnly() {
-  return refreshStoryboardsForEpisode(currentEpisodeId.value)
-}
-
-async function onGenerateStoryboard() {
-  trackFilmCreateAction('generate_storyboard_click')
-  const epId = currentEpisodeId.value
-  if (!epId) return
-  if ((store.storyboards || []).length > 0) {
-    try {
-      await ElMessageBox.confirm(
-        '重新生成会覆盖当前分镜脚本和已有分镜图、视频进度。确定继续？',
-        '重新生成分镜',
-        { confirmButtonText: '重新生成', cancelButtonText: '取消', type: 'warning' },
-      )
-    } catch {
-      return
-    }
-  }
-  const meta = buildExtractTaskMeta(store, dramaId.value, epId, GEN_RESOURCE.GENERATE_STORYBOARD, 'AI生成分镜')
-  genStore.markRunning(meta)
-  // 生成期间每 2 秒刷新该集分镜列表，让已解析的分镜逐步出现（切集后仍更新原集缓存）
-  const refreshTimer = setInterval(() => refreshStoryboardsForEpisode(epId), 2000)
-  try {
-    const res = await dramaAPI.generateStoryboard(epId, {
-      model: undefined,
-      style: getSelectedStyle(),
-      storyboard_count: getStoryboardCountForApi(),
-      video_duration: getVideoDurationForApi(),
-      aspect_ratio: projectAspectRatio.value || '16:9',
-      include_narration: !!storyboardIncludeNarration.value,
-      universal_omni_storyboard: !!storyboardUniversalOmni.value,
-    })
-    const taskId = res?.task_id ?? (typeof res === 'string' ? res : null)
-    if (taskId) {
-      const pollRes = await pollTask(taskId, captureDramaRefresh(), meta)
-      // failed / timeout：pollTask 内已展示对应提示，直接返回，不显示「完成」
-      if (pollRes?.status !== 'completed') return
-      if (pollRes?.result?.truncated) {
-        sbTruncatedWarning.value = true
-        sbTruncatedDismissed.value = false
-      }
-    }
-    await loadDrama()
-    // 生成完成后静默补全空缺的摄影参数（只填未填字段，不覆盖 AI 已填的）
-    storyboardsAPI.batchInferParams(epId, false).catch(() => {})
-    const polishRes = await polishUniversalSegmentsAfterGeneration({})
-    const polishedN = polishRes?.polished ?? 0
-    ElMessage.success(
-      storyboardUniversalOmni.value
-        ? polishedN > 0
-          ? `全能分镜生成完成，已自动润色 ${polishedN} 条片段`
-          : '全能分镜生成完成'
-        : '分镜生成完成'
-    )
-    trackFilmCreateAction('generate_storyboard_complete', {
-      extra: { storyboard_count: (store.storyboards || []).length },
-    })
-  } catch (e) {
-    // HTTP 错误由 request 拦截器统一展示，此处仅处理拦截器未覆盖的异常
-    if (!e.response) ElMessage.error(e.message || '生成失败')
-  } finally {
-    clearInterval(refreshTimer)
-    genStore.markDone(meta)
-  }
-}
-
-async function onAddSingleStoryboard(){
-  if (!currentEpisodeId.value) {
-    ElMessage.warning('请先选择集')
-    return
-  }
-  try {
-    // 获取当前最大序号（仅计算当前集的分镜）
-    const maxNum = (store.storyboards || [])
-      .filter(sb => sb.episode_id === currentEpisodeId.value)
-      .reduce((max, sb) => Math.max(max, sb.storyboard_number || 0), 0)
-    await storyboardsAPI.create({
-      episode_id: currentEpisodeId.value,
-      storyboard_number: maxNum + 1,
-      title: `镜头 ${maxNum + 1}`,
-      description: '',
-    })
-    ElMessage.success('添加成功')
-    await loadDrama() // 刷新列表
-  } catch (e) {
-    ElMessage.error(e.message || '添加失败')
-  }
-}
-
-async function onDeleteSingleStoryboard(id){
-  try {
-    await ElMessageBox.confirm('确定要删除这个分镜吗？', '提示', {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    await storyboardsAPI.delete(id)
-    ElMessage.success('删除成功')
-    await loadDrama() // 刷新列表
-  } catch (e) {
-    if (e !== 'cancel') {
-      ElMessage.error(e.message || '删除失败')
-    }
-  }
-}
-
-async function onInsertStoryboardBefore(sb) {
-  try {
-    await storyboardsAPI.insertBefore(sb.id)
-    ElMessage.success('已在此位置前新增空白分镜')
-    await loadDrama()
-  } catch (e) {
-    ElMessage.error(e.message || '新增失败')
-  }
-}
+const {
+  refreshStoryboardsForEpisode,
+  refreshStoryboardsOnly,
+  onGenerateStoryboard,
+  onAddSingleStoryboard,
+  onDeleteSingleStoryboard,
+  onInsertStoryboardBefore,
+} = useFilmCreateStoryboardCrud({
+  currentEpisodeId,
+  dramaId,
+  store,
+  dramaAPI,
+  storyboardsAPI,
+  genStore,
+  pollTask,
+  captureDramaRefresh,
+  loadDrama,
+  getSelectedStyle,
+  getStoryboardCountForApi,
+  getVideoDurationForApi,
+  projectAspectRatio,
+  storyboardIncludeNarration,
+  storyboardUniversalOmni,
+  sbTruncatedWarning,
+  sbTruncatedDismissed,
+  polishUniversalSegmentsAfterGeneration,
+  trackFilmCreateAction,
+})
 
 const {
   startBatchImageGeneration,
