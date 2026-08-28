@@ -893,6 +893,7 @@ import { useFilmCreateTailFrameLink } from '@/composables/filmCreate/useFilmCrea
 import { useFilmCreateScriptPersistence } from '@/composables/filmCreate/useFilmCreateScriptPersistence'
 import { useFilmCreateStoryboardReferences } from '@/composables/filmCreate/useFilmCreateStoryboardReferences'
 import { useFilmCreateScriptWorkspace } from '@/composables/filmCreate/useFilmCreateScriptWorkspace'
+import { useFilmCreateScriptNovelState } from '@/composables/filmCreate/useFilmCreateScriptNovelState'
 import { useFilmCreateNavigationGuards } from '@/composables/filmCreate/useFilmCreateNavigationGuards'
 import { useFilmCreateProjectLoad } from '@/composables/filmCreate/useFilmCreateProjectLoad'
 import { useFilmCreateStoryboardBindings } from '@/composables/filmCreate/useFilmCreateStoryboardBindings'
@@ -904,6 +905,7 @@ import { useFilmCreateTaskPolling } from '@/composables/filmCreate/useFilmCreate
 import { useFilmCreateMediaPreview } from '@/composables/filmCreate/useFilmCreateMediaPreview'
 import { useFilmCreateTaskRecovery } from '@/composables/filmCreate/useFilmCreateTaskRecovery'
 import { useFilmCreateStoryboardAccessors } from '@/composables/filmCreate/useFilmCreateStoryboardAccessors'
+import { useFilmCreateStoryboardFields } from '@/composables/filmCreate/useFilmCreateStoryboardFields'
 import { useFilmCreateStoryboardStateSync } from '@/composables/filmCreate/useFilmCreateStoryboardStateSync'
 import { useFilmCreateStoryboardVideoFields } from '@/composables/filmCreate/useFilmCreateStoryboardVideoFields'
 import { useFilmCreateRefImageDrop } from '@/composables/filmCreate/useFilmCreateRefImageDrop'
@@ -999,63 +1001,40 @@ const {
   refreshProductionReadiness: (...args) => refreshProductionReadiness(...args),
 })
 
-const storyInput = ref('')
-const storyStyle = ref('')
-const storyType = ref('')
-const storyEpisodeCount = ref(1)
-const storyGenerating = ref(false)
-/** 剧本工作台：create 创作 | select 选择预览 */
-const scriptWorkbenchMode = ref('create')
-const showSelectScriptDialog = ref(false)
-const selectScriptLoading = ref(false)
-const selectScriptImporting = ref(false)
-const selectScriptDramas = ref([])
-/** 选择剧本弹窗列表：排除当前打开的项目，避免误点「导入」到自身 */
-const selectableScriptDramas = computed(() => {
-  const cur = store.dramaId
-  const list = selectScriptDramas.value || []
-  if (cur == null) return list
-  return list.filter((d) => Number(d.id) !== Number(cur))
-})
-const selectPreviewEpisodeId = ref('')
-// P1-2: 小说导入
-const showNovelImport = ref(false)
-const novelImportMode = ref('text')
-const novelText = ref('')
-const novelFileName = ref('')
-const novelFileContent = ref('')
-const novelMaxChapters = ref(10)
-const novelAiSummarize = ref(false)
-const novelImporting = ref(false)
-const scriptTitle = ref('')
-const selectedEpisodeId = ref(null)
-const episodeSwitching = ref(false)
-const selectedEpisodeContextLabel = computed(() => {
-  const episodes = store.drama?.episodes || []
-  const index = episodes.findIndex((episode) => (
-    Number(episode?.id) === Number(selectedEpisodeId.value)
-  ))
-  if (index < 0) return '未选择剧集'
-  return formatEpisodeContextLabel(episodes[index], index)
-})
-/** 保存剧本后用于恢复选中集（后端重插后 id 会变，用 episode_number 匹配） */
-const savedCurrentEpisodeNumber = ref(1)
-const scriptLanguage = ref('zh')
-const scriptStoryboardStyle = ref('')
-const scriptGenerating = ref(false)
-const scriptDraftStatus = ref('saved')
-const scriptDraftStatusLabel = computed(() => ({
-  dirty: '未保存',
-  saving: '自动保存中',
-  saved: '已保存',
-  error: '自动保存失败',
-}[scriptDraftStatus.value] || '已保存'))
-const isStoryGenRunning = computed(() => {
-  if (storyGenerating.value || scriptGenerating.value) return true
-  return genStore.getAllRunningTasks().some(
-    (t) => Number(t.dramaId) === Number(dramaId.value) && t.resourceType === GEN_RESOURCE.GENERATE_STORY
-  )
-})
+const {
+  storyInput,
+  storyStyle,
+  storyType,
+  storyEpisodeCount,
+  storyGenerating,
+  scriptWorkbenchMode,
+  showSelectScriptDialog,
+  selectScriptLoading,
+  selectScriptImporting,
+  selectScriptDramas,
+  selectableScriptDramas,
+  selectPreviewEpisodeId,
+  showNovelImport,
+  novelImportMode,
+  novelText,
+  novelFileName,
+  novelFileContent,
+  novelMaxChapters,
+  novelAiSummarize,
+  novelImporting,
+  scriptTitle,
+  selectedEpisodeId,
+  episodeSwitching,
+  selectedEpisodeContextLabel,
+  savedCurrentEpisodeNumber,
+  scriptLanguage,
+  scriptStoryboardStyle,
+  scriptGenerating,
+  scriptDraftStatus,
+  scriptDraftStatusLabel,
+  isStoryGenRunning,
+} = useFilmCreateScriptNovelState({ store, genStore })
+
 const generationStyle = ref('')
 const projectAspectRatio = ref('16:9')
 const videoClipDuration = ref(5)
@@ -1429,36 +1408,33 @@ const sceneUseQuadGrid = ref(false)
 const propUseQuadGrid = ref(false)  // 道具四视图（与场景四宫格同级选项）
 
 // 分镜行内编辑状态（按 storyboard id 存储）
-// navCollapsed/storyboardMenuExpanded/toggleNav → 已移至 useNavigation composable
-
-const sbCharacterIds = ref({})  // sbId -> number[] 多选角色
-const sbPropIds = ref({})       // sbId -> number[] 多选道具
-const sbSceneId = ref({})
-const sbDialogue = ref({})
-const sbNarration = ref({})
-const sbShotType = ref({})
-/** 视频提示词组成（可编辑），key 为分镜 id */
-const sbTitle = ref({})
-const sbLocation = ref({})
-const sbTime = ref({})
-const sbDuration = ref({})
-const sbAction = ref({})
-const sbResult = ref({})
-const sbAtmosphere = ref({})
-const sbAngle = ref({})
-const sbAngleH = ref({})   // 结构化视角：水平方向
-const sbAngleV = ref({})   // 结构化视角：俯仰角度
-const sbAngleS = ref({})   // 结构化视角：景别
-const sbMovement = ref({})
-const sbLighting = ref({})   // 灯光风格
-const sbDof = ref({})        // 景深
-const sbLayoutDescription = ref({})  // 空间布局与人物站位描述（生成分镜时 AI 输出的最高优先级合同，用于首尾帧强制一致）
+const {
+  sbCharacterIds,
+  sbPropIds,
+  sbSceneId,
+  sbDialogue,
+  sbNarration,
+  sbShotType,
+  sbTitle,
+  sbLocation,
+  sbTime,
+  sbDuration,
+  sbAction,
+  sbResult,
+  sbAtmosphere,
+  sbAngle,
+  sbAngleH,
+  sbAngleV,
+  sbAngleS,
+  sbMovement,
+  sbLighting,
+  sbDof,
+  sbLayoutDescription,
+  sbCreationMode,
+  sbUniversalSegmentText,
+  sbVideoReferenceImageId,
+} = useFilmCreateStoryboardFields()
 const regeneratingLayoutSbIds = reactive(new Set())  // 正在 AI 重新生成布局描述的分镜 id 集合
-/** 分镜创作模式：classic | universal（默认 classic，存库 storyboards.creation_mode） */
-const sbCreationMode = ref({})
-/** 全能模式片段描述（存库 universal_segment_text，与经典参考图字段独立） */
-const sbUniversalSegmentText = ref({})
-const sbVideoReferenceImageId = ref({})
 const {
   sbImages,
   sbVideos,
