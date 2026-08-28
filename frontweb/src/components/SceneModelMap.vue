@@ -3,7 +3,7 @@
     <div class="page-header">
       <div class="header-left">
         <p class="page-desc">
-          配置不同业务场景使用的 AI 模型路由。当调用 generateText 时传入 scene_key，系统会优先使用此处配置的模型。
+          配置不同业务场景使用的 AI 模型路由。当文本生成请求传入场景键 scene_key 时，系统会优先使用此处配置的模型。
         </p>
       </div>
       <div class="header-right">
@@ -340,7 +340,7 @@ async function load() {
       }
     })
   } catch (err) {
-    ElMessage.error('加载场景模型映射失败: ' + (err.message || '未知错误'))
+    ElMessage.error('加载场景模型映射失败：' + (err.message || '未知错误'))
   } finally {
     loading.value = false
   }
@@ -396,7 +396,7 @@ async function save() {
     dialogVisible.value = false
     await load()
   } catch (err) {
-    ElMessage.error('保存失败: ' + (err.message || '未知错误'))
+    ElMessage.error('保存失败：' + (err.message || '未知错误'))
   } finally {
     saving.value = false
   }
@@ -405,16 +405,16 @@ async function save() {
 async function onDelete(row) {
   try {
     await ElMessageBox.confirm(
-      `确定要删除场景 "${row.key}" 的模型映射配置吗？`,
+      `确定要删除场景「${row.key}」的模型映射配置吗？`,
       '确认删除',
-      { type: 'warning' }
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
     )
     await sceneModelMapAPI.delete(row.key)
     ElMessage.success('删除成功')
     await load()
   } catch (err) {
     if (err !== 'cancel') {
-      ElMessage.error('删除失败: ' + (err.message || '未知错误'))
+      ElMessage.error('删除失败：' + (err.message || '未知错误'))
     }
   }
 }

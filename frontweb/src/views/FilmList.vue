@@ -170,7 +170,7 @@
             >
               <el-option label="更新时间优先" value="updated-desc" />
               <el-option label="创建时间优先" value="created-desc" />
-              <el-option label="标题 A-Z" value="title-asc" />
+              <el-option label="标题升序" value="title-asc" />
             </el-select>
           </div>
         </section>

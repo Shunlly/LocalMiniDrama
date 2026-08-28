@@ -333,7 +333,7 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
    * 轮询异步任务；同一 taskId 只轮询一次，多路 await 共享结果。
    */
   function pollTask(taskId, meta, onDone, options = {}) {
-    if (!taskId) return Promise.resolve({ status: 'failed', error: '缺少 task_id' })
+    if (!taskId) return Promise.resolve({ status: 'failed', error: '缺少任务编号（task_id）' })
 
     const existingKey = _findKeysByTaskId(taskId)[0]
     const key = existingKey || markRunning({ ...meta, taskId })

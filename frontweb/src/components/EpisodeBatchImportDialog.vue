@@ -36,7 +36,7 @@
               </el-form>
 
               <div class="batch-import-tip-block">
-                <div class="batch-import-tip">将提前准备好的小说原文或者剧本内容的.txt文件导入系统</div>
+                <div class="batch-import-tip">将提前准备好的小说原文或剧本内容的 TXT 文件导入系统</div>
                 <div class="batch-import-tip">请正确输入用于匹配章节标题的正则表达式。</div>
                 <div class="batch-import-tip">示例：<code class="batch-import-code">^\s*(第\d+章[^\n]*)</code>、<code class="batch-import-code">^\s*(第\d+集[^\n]*)</code></div>
                 <div class="batch-import-tip">点击“确认导入配置”后，会先解析章节并切换到预览页。</div>
