@@ -581,991 +581,207 @@
     </main>
 
     <template v-if="projectLoadState === 'ready'">
-    <!-- 添加道具弹窗 -->
-    <AccessibleDialog v-model="showAddProp" title="添加道具" width="600px" @close="() => { addPropForm = { name: '', type: '', description: '', prompt: '' }; addPropAddRefImage = null }">
-      <el-form label-width="90px">
-        <el-form-item label="参考图">
-          <div class="ref-image-zone">
-            <button type="button" class="ref-image-box" aria-label="选择道具参考图" @click="addPropAddRefFileInput?.click()" @drop.prevent="onRefImageDrop2('addProp', $event)" @dragover.prevent>
-              <img v-if="addPropAddRefImage" :src="addPropAddRefImage.dataUrl" alt="待上传道具参考图" class="ref-preview-img" />
-              <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
-            </button>
-            <div v-if="addPropAddRefImage" class="ref-actions">
-              <el-button type="primary" size="small" :loading="extractingPropAddDesc" @click="doExtractFromRef2('addProp')">提取特征描述</el-button>
-              <el-button size="small" @click="addPropAddRefImage = null">移除</el-button>
-            </div>
-          </div>
-        </el-form-item>
-        <el-form-item label="名称" required>
-          <el-input v-model="addPropForm.name" placeholder="道具名称" />
-        </el-form-item>
-        <el-form-item label="类型">
-          <el-input v-model="addPropForm.type" placeholder="如：物品、建筑" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="addPropForm.description" type="textarea" :rows="3" placeholder="描述" />
-        </el-form-item>
-        <el-form-item label="图生提示词">
-          <el-input v-model="addPropForm.prompt" type="textarea" :rows="2" placeholder="用于 AI 生成图片的提示词" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showAddProp = false">取消</el-button>
-        <el-button type="primary" :loading="addPropSaving" :disabled="!addPropForm.name.trim()" @click="submitAddProp">确定</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 隐藏的文件输入框（放在弹窗外层，避免 el-form-item 干扰） -->
-    <input ref="addCharRefFileInput" type="file" accept="image/*" style="display:none" @change="onRefImageFileChange('character', $event)" />
-    <input ref="addSceneRefFileInput" type="file" accept="image/*" style="display:none" @change="onRefImageFileChange('scene', $event)" />
-    <input ref="addPropRefFileInput" type="file" accept="image/*" style="display:none" @change="onRefImageFileChange('prop', $event)" />
-    <input ref="addPropAddRefFileInput" type="file" accept="image/*" style="display:none" @change="onRefImageFileChange2('addProp', $event)" />
-
-    <!-- 添加/编辑角色弹窗 -->
-    <AccessibleDialog v-model="showEditCharacter" :title="editCharacterForm?.id ? '编辑角色' : '添加角色'" width="75%" @close="onCloseCharDialog">
-      <el-form v-if="editCharacterForm" label-width="90px">
-        <!-- 参考图上传区（新增/编辑均显示） -->
-        <el-form-item label="参考图">
-          <div class="ref-image-zone">
-            <button type="button" class="ref-image-box" aria-label="选择角色参考图" @click="addCharRefFileInput?.click()" @drop.prevent="onRefImageDrop('character', $event)" @dragover.prevent>
-              <!-- 优先：刚上传的新参考图 -->
-              <img v-if="addCharRefImage" :src="addCharRefImage.dataUrl" alt="待上传角色参考图" class="ref-preview-img" />
-              <!-- 次之：已保存的参考图 -->
-              <img v-else-if="editCharacterForm.ref_image"
-                :src="editCharacterForm.ref_image.startsWith('http') ? editCharacterForm.ref_image : '/static/' + editCharacterForm.ref_image"
-                alt="已保存角色参考图"
-                class="ref-preview-img" />
-              <!-- 最后：主图（半透明，提示可上传参考图替代） -->
-              <img v-else-if="editCharacterForm.id && (editCharacterForm.image_url || editCharacterForm.local_path)"
-                :src="assetImageUrl(editCharacterForm)"
-                alt="角色主图"
-                class="ref-preview-img" style="opacity:0.5" />
-              <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
-            </button>
-            <div v-if="addCharRefImage" class="ref-actions">
-              <el-button type="primary" size="small" :loading="extractingCharAppearance" @click="doExtractFromRef('character')">提取特征描述</el-button>
-              <el-button size="small" @click="addCharRefImage = null">移除</el-button>
-            </div>
-            <div v-else-if="editCharacterForm.ref_image" class="ref-actions">
-              <el-button type="primary" size="small" :loading="extractingCharAppearance" @click="doExtractCharFromImage">从参考图提取描述</el-button>
-              <el-button size="small" @click="clearCharRefImage">移除参考图</el-button>
-            </div>
-            <div v-else-if="editCharacterForm.id && (editCharacterForm.image_url || editCharacterForm.local_path) && !editCharacterForm.appearance" class="ref-actions">
-              <el-button size="small" :loading="extractingCharAppearance" @click="doExtractCharFromImage">从主图提取描述</el-button>
-            </div>
-          </div>
-        </el-form-item>
-        <el-form-item label="名称" required>
-          <el-input v-model="editCharacterForm.name" placeholder="角色名称" />
-        </el-form-item>
-        <el-form-item label="身份/定位">
-          <el-select v-model="editCharacterForm.role" :aria-label="`角色${editCharacterForm.name || '未命名角色'}身份定位`" placeholder="请选择角色类型" style="width:200px">
-            <el-option value="main" label="主角" />
-            <el-option value="supporting" label="配角" />
-            <el-option value="minor" label="次要角色" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="外貌描述">
-          <el-input v-model="editCharacterForm.appearance" type="textarea" :autosize="{ minRows: 4, maxRows: 10 }" placeholder="用于 AI 生成图像的外貌描述，尽量详细" />
-        </el-form-item>
-        <el-form-item label="简介">
-          <el-input v-model="editCharacterForm.description" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="角色背景简介，供剧本生成参考" />
-        </el-form-item>
-        <el-form-item v-if="editCharacterForm.id">
-          <template #label>
-            <span style="font-size:12px;line-height:1.4;white-space:normal;word-break:break-all;display:inline-block;width:90px">图生提示词</span>
-          </template>
-          <div style="width:100%">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="font-size:12px;color:#909399">AI 润色后的最终提示词，生成四视图图片时直接使用；可手动修改</span>
-              <el-button
-                size="small"
-                :loading="editCharacterPromptGenerating"
-                @click="doGenerateCharacterPrompt"
-              >重新生成提示词</el-button>
-            </div>
-            <el-input
-              v-model="editCharacterForm.polished_prompt"
-              type="textarea"
-              :autosize="{ minRows: 5, maxRows: 16 }"
-              :placeholder="editCharacterPromptGenerating ? 'AI 正在生成提示词，请稍候…' : '点击「重新生成提示词」由 AI 自动生成，或直接在此输入'"
-              :disabled="editCharacterPromptGenerating"
-              style="font-size:12px"
-            />
-          </div>
-        </el-form-item>
-        <!-- P0-2: 视觉锚点（identity_anchors） -->
-        <el-form-item v-if="editCharacterForm.id" label="视觉锚点">
-          <div style="width:100%">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="font-size:12px;color:#909399">AI 从外貌描述提炼的6层视觉特征，用于保持生成图片角色一致性</span>
-              <el-button
-                size="small"
-                :loading="extractingAnchors"
-                :disabled="!editCharacterForm.appearance"
-                @click="extractIdentityAnchors"
-              >提炼视觉锚点</el-button>
-            </div>
-            <el-input
-              v-if="editCharacterForm.identity_anchors"
-              :value="typeof editCharacterForm.identity_anchors === 'string'
-                ? editCharacterForm.identity_anchors
-                : JSON.stringify(editCharacterForm.identity_anchors, null, 2)"
-              type="textarea"
-              :rows="4"
-              readonly
-              style="font-size:11px;font-family:monospace"
-              placeholder="点击「提炼视觉锚点」生成"
-            />
-            <div v-else style="font-size:12px;color:#c0c4cc;padding:4px 0">暂无锚点，点击「提炼视觉锚点」自动提炼</div>
-          </div>
-        </el-form-item>
-        <!-- P1-3: 多阶段造型（stages） -->
-        <el-form-item v-if="editCharacterForm.id" label="多阶段造型">
-          <div style="width:100%">
-            <div style="font-size:12px;color:#909399;margin-bottom:6px">
-              不同集次的角色造型变化，格式：JSON 数组 [{"episode_range":[1,3],"appearance":"..."}]
-            </div>
-            <el-input
-              v-model="editCharacterForm.stages"
-              type="textarea"
-              :rows="4"
-              placeholder='例：[{"episode_range":[1,5],"appearance":"白衣少年"},{"episode_range":[6,10],"appearance":"黑衣武者"}]'
-              style="font-size:12px;font-family:monospace"
-            />
-          </div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showEditCharacter = false">取消</el-button>
-        <el-button type="primary" :loading="editCharacterSaving" :disabled="!editCharacterForm?.name?.trim()" @click="submitEditCharacter">{{ editCharacterForm?.id ? '保存' : '添加' }}</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <AccessibleDialog
-      v-model="showCharSd2Cert"
-      title="SD2 认证详情"
-      width="min(720px, 92vw)"
-      destroy-on-close
-      class="sd2-cert-dialog"
-    >
-      <template v-if="charSd2CertPayload">
-        <el-descriptions :column="1" border size="small" class="sd2-cert-desc">
-          <el-descriptions-item label="素材 ID">
-            <span class="sd2-cert-value">{{ charSd2CertPayload.hub_asset_id || '—' }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="asset_url">
-            <code class="sd2-cert-value">{{ charSd2CertPayload.asset_url || '—' }}</code>
-          </el-descriptions-item>
-          <el-descriptions-item label="状态">
-            <span class="sd2-cert-value">{{ charSd2CertPayload.status || '—' }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="注册图片 URL">
-            <span class="sd2-cert-value">{{ charSd2CertPayload.source_image_url || '—' }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item v-if="charSd2CertPayload.sd2_provider" label="认证提供方">
-            <span class="sd2-cert-value">{{ charSd2CertPayload.sd2_provider }}</span>
-          </el-descriptions-item>
-        </el-descriptions>
-      </template>
-      <template #footer>
-        <el-button @click="showCharSd2Cert = false">关闭</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 编辑道具弹窗 -->
-    <AccessibleDialog v-model="showEditProp" :title="editPropForm?.id ? '编辑道具' : '添加道具'" width="75%" @close="onClosePropDialog">
-      <el-form v-if="editPropForm" label-width="90px">
-        <!-- 参考图上传区（新增/编辑均显示） -->
-        <el-form-item label="参考图">
-          <div class="ref-image-zone">
-            <button type="button" class="ref-image-box" aria-label="选择道具参考图" @click="addPropRefFileInput?.click()" @drop.prevent="onRefImageDrop('prop', $event)" @dragover.prevent>
-              <img v-if="addPropRefImage" :src="addPropRefImage.dataUrl" alt="待上传道具参考图" class="ref-preview-img" />
-              <img v-else-if="editPropForm.ref_image"
-                :src="editPropForm.ref_image.startsWith('http') ? editPropForm.ref_image : '/static/' + editPropForm.ref_image"
-                alt="已保存道具参考图"
-                class="ref-preview-img" />
-              <img v-else-if="editPropForm.id && (editPropForm.image_url || editPropForm.local_path)"
-                :src="assetImageUrl(editPropForm)" alt="道具主图" class="ref-preview-img" style="opacity:0.5" />
-              <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
-            </button>
-            <div v-if="addPropRefImage" class="ref-actions">
-              <el-button type="primary" size="small" :loading="extractingPropDesc" @click="doExtractFromRef('prop')">提取特征描述</el-button>
-              <el-button size="small" @click="addPropRefImage = null">移除</el-button>
-            </div>
-            <div v-else-if="editPropForm.ref_image" class="ref-actions">
-              <el-button type="primary" size="small" :loading="extractingPropDesc" @click="doExtractPropFromImage">从参考图提取描述</el-button>
-              <el-button size="small" @click="clearPropRefImage">移除参考图</el-button>
-            </div>
-            <div v-else-if="editPropForm.id && (editPropForm.image_url || editPropForm.local_path) && !editPropForm.description" class="ref-actions">
-              <el-button size="small" :loading="extractingPropDesc" @click="doExtractPropFromImage">从主图提取描述</el-button>
-            </div>
-          </div>
-        </el-form-item>
-        <el-form-item label="名称" required>
-          <el-input v-model="editPropForm.name" placeholder="道具名称" />
-        </el-form-item>
-        <el-form-item label="类型">
-          <el-input v-model="editPropForm.type" placeholder="如：物品、建筑" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="editPropForm.description" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="道具描述" />
-        </el-form-item>
-        <el-form-item label="图生提示词">
-          <div style="width:100%">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="font-size:12px;color:#909399">AI 润色后的图片提示词，生成图片时直接使用；可手动修改</span>
-              <el-button size="small" :loading="editPropPromptGenerating" @click="doGeneratePropPrompt">重新生成提示词</el-button>
-            </div>
-            <el-input
-              v-model="editPropForm.prompt"
-              type="textarea"
-              :autosize="{ minRows: 5, maxRows: 16 }"
-              :placeholder="editPropPromptGenerating ? 'AI 正在生成提示词，请稍候…' : '点击「重新生成提示词」由 AI 自动生成，或直接在此输入'"
-              :disabled="editPropPromptGenerating"
-            />
-          </div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showEditProp = false">取消</el-button>
-        <el-button type="primary" :loading="editPropSaving" :disabled="!editPropForm?.name?.trim()" @click="submitEditProp">保存</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 添加/编辑场景弹窗 -->
-    <AccessibleDialog v-model="showEditScene" :title="editSceneForm?.id ? '编辑场景' : '添加场景'" width="75%" @close="onCloseSceneDialog">
-      <el-form v-if="editSceneForm" label-width="90px">
-        <!-- 参考图上传区（新增/编辑均显示） -->
-        <el-form-item label="参考图">
-          <div class="ref-image-zone">
-            <button type="button" class="ref-image-box" aria-label="选择场景参考图" @click="addSceneRefFileInput?.click()" @drop.prevent="onRefImageDrop('scene', $event)" @dragover.prevent>
-              <img v-if="addSceneRefImage" :src="addSceneRefImage.dataUrl" alt="待上传场景参考图" class="ref-preview-img" />
-              <img v-else-if="editSceneForm.ref_image"
-                :src="editSceneForm.ref_image.startsWith('http') ? editSceneForm.ref_image : '/static/' + editSceneForm.ref_image"
-                alt="已保存场景参考图"
-                class="ref-preview-img" />
-              <img v-else-if="editSceneForm.id && (editSceneForm.image_url || editSceneForm.local_path)"
-                :src="assetImageUrl(editSceneForm)" alt="场景主图" class="ref-preview-img" style="opacity:0.5" />
-              <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
-            </button>
-            <div v-if="addSceneRefImage" class="ref-actions">
-              <el-button type="primary" size="small" :loading="extractingSceneDesc" @click="doExtractFromRef('scene')">提取特征描述</el-button>
-              <el-button size="small" @click="addSceneRefImage = null">移除</el-button>
-            </div>
-            <div v-else-if="editSceneForm.ref_image" class="ref-actions">
-              <el-button type="primary" size="small" :loading="extractingSceneDesc" @click="doExtractSceneFromImage">从参考图提取描述</el-button>
-              <el-button size="small" @click="clearSceneRefImage">移除参考图</el-button>
-            </div>
-            <div v-else-if="editSceneForm.id && (editSceneForm.image_url || editSceneForm.local_path) && !editSceneForm.prompt" class="ref-actions">
-              <el-button size="small" :loading="extractingSceneDesc" @click="doExtractSceneFromImage">从主图提取描述</el-button>
-            </div>
-          </div>
-        </el-form-item>
-        <el-form-item label="地点" required>
-          <el-input v-model="editSceneForm.location" placeholder="如：森林、教室" />
-        </el-form-item>
-        <el-form-item label="时间">
-          <el-input v-model="editSceneForm.time" placeholder="如：白天、傍晚" />
-        </el-form-item>
-        <el-form-item label="场景描述">
-          <el-input v-model="editSceneForm.prompt" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="场景的简要描述，供 AI 生成四视图时参考" />
-        </el-form-item>
-        <el-form-item v-if="editSceneForm.id">
-          <template #label>
-            <span style="font-size:12px;line-height:1.4;white-space:normal;word-break:break-all;display:inline-block;width:90px">单图提示词</span>
-          </template>
-          <div style="width:100%">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="font-size:12px;color:#909399">单图场景的完整图片提示词（不含四宫格布局），生图时直接使用；可手动修改</span>
-              <el-button size="small" :loading="editScenePromptGenerating" @click="doGenerateSceneSinglePrompt">重新生成提示词</el-button>
-            </div>
-            <el-input
-              v-model="editSceneForm.polished_prompt_single"
-              type="textarea"
-              :autosize="{ minRows: 5, maxRows: 16 }"
-              placeholder="单图场景提示词，点击场景列表的「AI 生成」按钮（不勾选四宫格）后会自动生成"
-              style="font-size:12px"
-            />
-          </div>
-        </el-form-item>
-        <el-form-item v-if="editSceneForm.id">
-          <template #label>
-            <span style="font-size:12px;line-height:1.4;white-space:normal;word-break:break-all;display:inline-block;width:90px">四视图提示词</span>
-          </template>
-          <div style="width:100%">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="font-size:12px;color:#909399">AI 生成的完整四视图图片提示词，生图时直接使用；可手动修改</span>
-              <el-button size="small" :loading="editScenePromptGenerating" @click="doGenerateScenePrompt">重新生成提示词</el-button>
-            </div>
-            <el-input
-              v-model="editSceneForm.polished_prompt"
-              type="textarea"
-              :autosize="{ minRows: 5, maxRows: 16 }"
-              :placeholder="editScenePromptGenerating ? 'AI 正在生成四视图提示词，请稍候…' : '点击「重新生成提示词」由 AI 自动生成，或直接在此输入'"
-              :disabled="editScenePromptGenerating"
-              style="font-size:12px"
-            />
-          </div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showEditScene = false">取消</el-button>
-        <el-button type="primary" :loading="editSceneSaving" :disabled="!editSceneForm?.location?.trim()" @click="submitEditScene">{{ editSceneForm?.id ? '保存' : '添加' }}</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 角色资源库（本剧库 / 本剧全部角色 / 团队库） -->
-    <AccessibleDialog v-model="showCharLibrary" title="角色资源库" width="720px" destroy-on-close class="library-dialog" @open="onCharLibraryDialogOpen">
-      <el-tabs v-model="charLibraryTab" class="char-library-tabs" @tab-change="onCharLibraryTabChange">
-        <el-tab-pane label="本剧角色库" name="library">
-          <div class="library-toolbar">
-            <el-input v-model="charLibraryKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadCharLibrary()" />
-          </div>
-          <div v-loading="charLibraryLoading" class="library-list">
-            <div v-for="item in charLibraryList" :key="'lib-' + item.id" class="library-item">
-              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '角色'}图片`" @click="openImagePreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '角色图片'" />
-                <span v-else class="library-item-placeholder">暂无图</span>
-              </button>
-              <div class="library-item-info">
-                <div class="library-item-name">{{ item.name || '未命名' }}</div>
-                <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}{{ (item.description || '').length > 60 ? '…' : '' }}</div>
-                <div class="library-item-actions">
-                  <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('library', item.id)" :disabled="!currentEpisodeId" @click="onAddCharFromLibrary(item)">加入本集</el-button>
-                  <el-button size="small" @click="openEditCharLibrary(item)">编辑</el-button>
-                  <el-button size="small" type="danger" plain @click="onDeleteCharLibrary(item)">删除</el-button>
-                </div>
-              </div>
-            </div>
-            <div v-if="!charLibraryLoading && charLibraryList.length === 0" class="library-empty">
-              <p>暂无本剧角色库记录，可将本剧角色「加入本剧库」后在此查看</p>
-              <el-button type="primary" @click="returnToCharacterPanel">去角色面板</el-button>
-            </div>
-          </div>
-          <div class="library-pagination">
-            <el-pagination
-              v-model:current-page="charLibraryPage"
-              v-model:page-size="charLibraryPageSize"
-              :total="charLibraryTotal"
-              :page-sizes="[10, 20, 50]"
-              layout="total, sizes, prev, pager, next"
-              @current-change="loadCharLibraryList"
-              @size-change="loadCharLibraryList"
-            />
-          </div>
-        </el-tab-pane>
-
-        <el-tab-pane label="本剧所有角色" name="drama">
-          <div class="library-toolbar">
-            <el-input v-model="dramaAllCharKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadDramaAllCharList()" />
-          </div>
-          <div v-loading="dramaAllCharLoading" class="library-list">
-            <div v-for="item in dramaAllCharList" :key="'drama-' + item.id" class="library-item">
-              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '角色'}图片`" @click="openImagePreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '角色图片'" />
-                <span v-else class="library-item-placeholder">暂无图</span>
-              </button>
-              <div class="library-item-info">
-                <div class="library-item-name">
-                  {{ item.name || '未命名' }}
-                  <el-tag v-if="item.role" size="small" type="info" style="margin-left: 6px">{{ charRoleLabel(item.role) }}</el-tag>
-                </div>
-                <div class="library-item-desc">{{ (item.description || item.appearance || '').slice(0, 60) }}{{ (item.description || item.appearance || '').length > 60 ? '…' : '' }}</div>
-                <div class="library-item-actions">
-                  <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('drama', item.id)" :disabled="!currentEpisodeId" @click="onAddDramaCharToEpisode(item)">加入本集</el-button>
-                </div>
-              </div>
-            </div>
-            <div v-if="!dramaAllCharLoading && dramaAllCharList.length === 0" class="library-empty">
-              <p>本剧暂无制作角色</p>
-              <el-button type="primary" @click="returnToCharacterPanel">创建角色</el-button>
-            </div>
-          </div>
-          <div class="library-pagination">
-            <el-pagination
-              v-model:current-page="dramaAllCharPage"
-              v-model:page-size="dramaAllCharPageSize"
-              :total="dramaAllCharTotal"
-              :page-sizes="[10, 20, 50]"
-              layout="total, sizes, prev, pager, next"
-              @current-change="loadDramaAllCharList"
-              @size-change="loadDramaAllCharList"
-            />
-          </div>
-        </el-tab-pane>
-
-      </el-tabs>
-      <template #footer>
-        <el-button @click="showCharLibrary = false">关闭</el-button>
-      </template>
-    </AccessibleDialog>
-    <!-- 编辑公共角色 -->
-    <AccessibleDialog v-model="showEditCharLibrary" title="编辑公共角色" width="440px" @close="editCharLibraryForm = null">
-      <el-form v-if="editCharLibraryForm" label-width="80px">
-        <el-form-item label="名称">
-          <el-input v-model="editCharLibraryForm.name" placeholder="角色名称" />
-        </el-form-item>
-        <el-form-item label="分类">
-          <el-input v-model="editCharLibraryForm.category" placeholder="可选" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="editCharLibraryForm.description" type="textarea" :rows="3" placeholder="可选" />
-        </el-form-item>
-        <el-form-item label="标签">
-          <el-input v-model="editCharLibraryForm.tags" placeholder="可选，逗号分隔" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showEditCharLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editCharLibrarySaving" @click="submitEditCharLibrary">保存</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 道具资源库 -->
-    <AccessibleDialog v-model="showPropLibrary" title="道具资源库" width="720px" destroy-on-close class="library-dialog" @open="onPropLibraryDialogOpen">
-      <el-tabs v-model="propLibraryTab" class="char-library-tabs" @tab-change="onPropLibraryTabChange">
-        <el-tab-pane label="本剧道具库" name="library">
-          <div class="library-toolbar">
-            <el-input v-model="propLibraryKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadPropLibrary()" />
-          </div>
-          <div v-loading="propLibraryLoading" class="library-list">
-            <div v-for="item in propLibraryList" :key="'plib-' + item.id" class="library-item">
-              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '道具'}图片`" @click="openImagePreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '道具图片'" />
-                <span v-else class="library-item-placeholder">暂无图</span>
-              </button>
-              <div class="library-item-info">
-                <div class="library-item-name">{{ item.name || '未命名' }}</div>
-                <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
-                <div class="library-item-actions">
-                  <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('library', item.id)" :disabled="!currentEpisodeId" @click="onAddPropFromLibrary(item)">加入本集</el-button>
-                  <el-button size="small" @click="openEditPropLibrary(item)">编辑</el-button>
-                  <el-button size="small" type="danger" plain @click="onDeletePropLibrary(item)">删除</el-button>
-                </div>
-              </div>
-            </div>
-            <div v-if="!propLibraryLoading && propLibraryList.length === 0" class="library-empty">暂无本剧道具库记录，可将本剧道具「加入本剧库」后在此查看</div>
-          </div>
-          <div class="library-pagination">
-            <el-pagination v-model:current-page="propLibraryPage" v-model:page-size="propLibraryPageSize" :total="propLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadPropLibraryList" @size-change="loadPropLibraryList" />
-          </div>
-        </el-tab-pane>
-        <el-tab-pane label="本剧所有道具" name="drama">
-          <div class="library-toolbar">
-            <el-input v-model="dramaAllPropKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadDramaAllPropList()" />
-          </div>
-          <div v-loading="dramaAllPropLoading" class="library-list">
-            <div v-for="item in dramaAllPropList" :key="'pdr-' + item.id" class="library-item">
-              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '道具'}图片`" @click="openImagePreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '道具图片'" />
-                <span v-else class="library-item-placeholder">暂无图</span>
-              </button>
-              <div class="library-item-info">
-                <div class="library-item-name">{{ item.name || '未命名' }}</div>
-                <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
-                <div class="library-item-actions">
-                  <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('drama', item.id)" :disabled="!currentEpisodeId" @click="onAddDramaPropToEpisode(item)">加入本集</el-button>
-                </div>
-              </div>
-            </div>
-            <div v-if="!dramaAllPropLoading && dramaAllPropList.length === 0" class="library-empty">本剧暂无制作道具，请先在道具面板创建</div>
-          </div>
-          <div class="library-pagination">
-            <el-pagination v-model:current-page="dramaAllPropPage" v-model:page-size="dramaAllPropPageSize" :total="dramaAllPropTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadDramaAllPropList" @size-change="loadDramaAllPropList" />
-          </div>
-        </el-tab-pane>
-      </el-tabs>
-      <template #footer>
-        <el-button @click="showPropLibrary = false">关闭</el-button>
-      </template>
-    </AccessibleDialog>
-    <!-- 编辑公共道具 -->
-    <AccessibleDialog v-model="showEditPropLibrary" title="编辑公共道具" width="440px" @close="editPropLibraryForm = null">
-      <el-form v-if="editPropLibraryForm" label-width="80px">
-        <el-form-item label="名称">
-          <el-input v-model="editPropLibraryForm.name" placeholder="道具名称" />
-        </el-form-item>
-        <el-form-item label="分类">
-          <el-input v-model="editPropLibraryForm.category" placeholder="可选" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="editPropLibraryForm.description" type="textarea" :rows="3" placeholder="可选" />
-        </el-form-item>
-        <el-form-item label="标签">
-          <el-input v-model="editPropLibraryForm.tags" placeholder="可选，逗号分隔" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showEditPropLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editPropLibrarySaving" @click="submitEditPropLibrary">保存</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 场景资源库 -->
-    <AccessibleDialog v-model="showSceneLibrary" title="场景资源库" width="720px" destroy-on-close class="library-dialog" @open="onSceneLibraryDialogOpen">
-      <el-tabs v-model="sceneLibraryTab" class="char-library-tabs" @tab-change="onSceneLibraryTabChange">
-        <el-tab-pane label="本剧场景库" name="library">
-          <div class="library-toolbar">
-            <el-input v-model="sceneLibraryKeyword" placeholder="搜索地点或描述" clearable style="width: 200px" @input="debouncedLoadSceneLibrary()" />
-          </div>
-          <div v-loading="sceneLibraryLoading" class="library-list">
-            <div v-for="item in sceneLibraryList" :key="'slib-' + item.id" class="library-item">
-              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.location || item.time || '场景'}图片`" @click="openImagePreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.location || item.time || '场景图片'" />
-                <span v-else class="library-item-placeholder">暂无图</span>
-              </button>
-              <div class="library-item-info">
-                <div class="library-item-name">{{ item.location || item.time || '未命名' }}</div>
-                <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
-                <div class="library-item-actions">
-                  <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('library', item.id)" :disabled="!currentEpisodeId" @click="onAddSceneFromLibrary(item)">加入本集</el-button>
-                  <el-button size="small" @click="openEditSceneLibrary(item)">编辑</el-button>
-                  <el-button size="small" type="danger" plain @click="onDeleteSceneLibrary(item)">删除</el-button>
-                </div>
-              </div>
-            </div>
-            <div v-if="!sceneLibraryLoading && sceneLibraryList.length === 0" class="library-empty">暂无本剧场景库记录，可将本剧场景「加入本剧库」后在此查看</div>
-          </div>
-          <div class="library-pagination">
-            <el-pagination v-model:current-page="sceneLibraryPage" v-model:page-size="sceneLibraryPageSize" :total="sceneLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadSceneLibraryList" @size-change="loadSceneLibraryList" />
-          </div>
-        </el-tab-pane>
-        <el-tab-pane label="本剧所有场景" name="drama">
-          <div class="library-toolbar">
-            <el-input v-model="dramaAllSceneKeyword" placeholder="搜索地点或描述" clearable style="width: 200px" @input="debouncedLoadDramaAllSceneList()" />
-          </div>
-          <div v-loading="dramaAllSceneLoading" class="library-list">
-            <div v-for="item in dramaAllSceneList" :key="'sdr-' + item.id" class="library-item">
-              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.location || item.time || '场景'}图片`" @click="openImagePreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.location || item.time || '场景图片'" />
-                <span v-else class="library-item-placeholder">暂无图</span>
-              </button>
-              <div class="library-item-info">
-                <div class="library-item-name">{{ item.location || '未命名' }}<span v-if="item.time" class="library-item-sub"> · {{ item.time }}</span></div>
-                <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
-                <div class="library-item-actions">
-                  <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('drama', item.id)" :disabled="!currentEpisodeId" @click="onAddDramaSceneToEpisode(item)">加入本集</el-button>
-                </div>
-              </div>
-            </div>
-            <div v-if="!dramaAllSceneLoading && dramaAllSceneList.length === 0" class="library-empty">本剧暂无制作场景，请先在场景面板创建</div>
-          </div>
-          <div class="library-pagination">
-            <el-pagination v-model:current-page="dramaAllScenePage" v-model:page-size="dramaAllScenePageSize" :total="dramaAllSceneTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadDramaAllSceneList" @size-change="loadDramaAllSceneList" />
-          </div>
-        </el-tab-pane>
-      </el-tabs>
-      <template #footer>
-        <el-button @click="showSceneLibrary = false">关闭</el-button>
-      </template>
-    </AccessibleDialog>
-    <!-- 编辑公共场景 -->
-    <AccessibleDialog v-model="showEditSceneLibrary" title="编辑公共场景" width="440px" @close="editSceneLibraryForm = null">
-      <el-form v-if="editSceneLibraryForm" label-width="80px">
-        <el-form-item label="地点">
-          <el-input v-model="editSceneLibraryForm.location" placeholder="场景地点" />
-        </el-form-item>
-        <el-form-item label="时间">
-          <el-input v-model="editSceneLibraryForm.time" placeholder="如：浅色/夜晚" />
-        </el-form-item>
-        <el-form-item label="分类">
-          <el-input v-model="editSceneLibraryForm.category" placeholder="可选" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="editSceneLibraryForm.description" type="textarea" :rows="3" placeholder="可选" />
-        </el-form-item>
-        <el-form-item label="标签">
-          <el-input v-model="editSceneLibraryForm.tags" placeholder="可选，逗号分隔" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showEditSceneLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editSceneLibrarySaving" @click="submitEditSceneLibrary">保存</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 分镜提示词编辑弹窗 -->
-    <AccessibleDialog
-      v-model="showSbPromptDialog"
-      :title="`分镜 ${sbPromptTarget?.storyboard_number ?? ''} · 编辑提示词`"
-      width="700px"
-      @close="sbPromptTarget = null"
-    >
-      <el-form v-if="sbPromptTarget" label-width="0" class="sb-prompt-dialog-form">
-        <!-- 图片区 -->
-        <div class="sb-prompt-section-title">🖼 图片提示词</div>
-        <el-form-item label="">
-          <div style="width:100%">
-            <div style="font-size:12px; color:#6b7280; margin-bottom:4px;">原始提示词（分镜生成时写入，仅供参考）</div>
-            <el-input
-              v-model="sbPromptImageText"
-              type="textarea"
-              :rows="4"
-              placeholder="分镜生成时由 AI 写入的原始描述"
-            />
-          </div>
-        </el-form-item>
-        <el-form-item label="">
-          <div style="width:100%">
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
-              <span style="font-size:12px; color:#6b7280;">通用优化提示词（仅更新本字段，不影响首尾帧/关键帧专用提示词）</span>
-              <el-button
-                size="small"
-                type="warning"
-                plain
-                :loading="sbPromptPolishing"
-                @click="onPolishSbPrompt"
-              >{{ sbPromptPolishedText ? '重新生成' : '立即生成' }}</el-button>
-            </div>
-            <el-input
-              v-model="sbPromptPolishedText"
-              type="textarea"
-              :rows="5"
-              placeholder="点击「立即生成」润色通用优化提示词（仅更新本字段，不影响首尾帧专用提示词）"
-            />
-          </div>
-        </el-form-item>
-        <!-- 视频区 -->
-        <div class="sb-prompt-section-title" style="margin-top:12px;">🎬 视频提示词</div>
-        <el-form-item label="">
-          <el-input
-            v-model="sbPromptVideoText"
-            type="textarea"
-            :rows="12"
-            placeholder="视频生成提示词（可选，留空则由系统自动生成）"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showSbPromptDialog = false">取消</el-button>
-        <el-button type="primary" :loading="sbPromptSaving" @click="onSaveSbPromptDialog">保存</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 首尾帧提示词编辑器（显示最终发给AI的完整提示词，支持编辑保存） -->
-    <AccessibleDialog
-      v-model="showFramePromptEditor"
-      :title="`${editingFramePromptSlot === 'last' ? '尾帧' : '首帧'}图生提示词 · 编辑`"
-      width="720px"
-      destroy-on-close
-    >
-      <div class="frame-prompt-editor-body">
-        <div class="frame-prompt-editor-hint">
-          此提示词将直接发给AI生成首/尾帧图片。支持编辑后保存，保存后点击「生成」即可使用新提示词。
-        </div>
-
-        <!-- 空间布局锚点（生成分镜时 AI 输出的最高优先级站位合同） -->
-        <div v-if="editingFramePromptSb?.layout_description" class="frame-layout-anchor">
-          <div class="frame-layout-anchor-label">本分镜空间布局锚点（首尾帧强制一致合同，最高优先级）</div>
-          <div class="frame-layout-anchor-text">{{ editingFramePromptSb.layout_description }}</div>
-          <div class="frame-layout-anchor-note">首帧必须严格按此生成初始站位；尾帧必须在完全相同的左右位置、距离、构图下仅演化姿态/表情/结果。</div>
-        </div>
-
-        <el-input
-          v-model="editingFramePromptText"
-          type="textarea"
-          :rows="14"
-          placeholder="在此编辑最终发给AI生图的完整提示词..."
-          class="frame-prompt-editor-textarea"
-        />
-      </div>
-      <template #footer>
-        <el-button @click="showFramePromptEditor = false">关闭</el-button>
-        <el-button :loading="editingFramePromptRegenerating" @click="regenerateEditingFramePrompt">重新生成</el-button>
-        <el-button type="primary" :loading="editingFramePromptSaving" @click="saveEditingFramePrompt">保存</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 分镜视频参数编辑弹窗 -->
-    <AccessibleDialog
-      v-model="showVideoParamsDialog"
-      :title="`分镜 ${videoParamsTarget?.storyboard_number ?? ''} · 视频参数`"
-      width="860px"
-      destroy-on-close
-      @close="onVideoParamsDialogClosed"
-    >
-      <el-form v-if="videoParamsTarget" label-width="115px" size="small" class="vp-dialog-form">
-        <el-form-item label="创作模式">
-          <el-radio-group
-            :model-value="sbCreationMode[videoParamsTarget.id] === 'universal' ? 'universal' : 'classic'"
-            size="small"
-            @change="(v) => setSbCreationModeId(videoParamsTarget.id, v)"
-          >
-            <el-radio-button value="classic">经典分镜</el-radio-button>
-            <el-radio-button value="universal">全能模式</el-radio-button>
-          </el-radio-group>
-          <div class="vp-mode-hint">全能模式：中间为片段描述；生视频时使用 <strong>AI 配置里当前启用的视频</strong>（接口规范 <code>kling_omni</code> 或 <code>volcengine_omni</code>，模型如 <code>kling-video-o1</code>、<code>doubao-seedance-2-0-260128</code> 等）并合并场景/角色/道具等参考图（不含经典分镜主图）。经典字段保留，可随时切回。</div>
-        </el-form-item>
-        <el-form-item v-if="getSbGridImages(videoParamsTarget.id).length" label="视频参考图">
-          <el-select
-            v-model="sbVideoReferenceImageId[videoParamsTarget.id]"
-            :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}视频参考图`"
-            clearable
-            placeholder="默认使用主图/首帧"
-            style="width:280px"
-          >
-            <el-option
-              v-for="image in getSbGridImages(videoParamsTarget.id)"
-              :key="image.id"
-              :label="image.frame_type === 'nine_grid' ? `九宫格整图 #${image.id}` : `四宫格整图 #${image.id}`"
-              :value="image.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="素材中心参考图">
-          <div class="vp-reference-panel">
-            <div class="vp-reference-toolbar">
-              <el-button size="small" @click="openGlobalMediaPicker(videoParamsTarget, 'reference-primary')">设为视频主参考</el-button>
-              <el-button size="small" plain @click="openGlobalMediaPicker(videoParamsTarget, 'reference')">添加自由参考图</el-button>
-            </div>
-            <div v-if="getSbFreeReferenceItems(videoParamsTarget).length" class="vp-reference-list">
-              <div
-                v-for="(item, index) in getSbFreeReferenceItems(videoParamsTarget)"
-                :key="item.asset_id || item.local_path || item.image_url || index"
-                class="vp-reference-item"
-              >
-                <button
-                  type="button"
-                  class="vp-reference-thumb"
-                  :aria-label="`预览自由参考图 ${item.name || index + 1}`"
-                  @click="openImagePreview(assetImageUrl(item))"
-                >
-                  <img :src="assetImageUrl(item)" :alt="item.name || `自由参考图 ${index + 1}`" />
-                </button>
-                <div class="vp-reference-body">
-                  <div class="vp-reference-title-row">
-                    <span class="vp-reference-title">{{ item.name || `自由参考图 ${index + 1}` }}</span>
-                    <el-tag v-if="index === 0" size="small" effect="plain" type="success">主参考</el-tag>
-                  </div>
-                  <div class="vp-reference-meta">{{ item.source_drama_title || '全局上传' }}</div>
-                  <div class="vp-reference-actions">
-                    <el-button
-                      v-if="index !== 0"
-                      size="small"
-                      link
-                      type="primary"
-                      @click="onPromoteSbFreeReferenceImage(videoParamsTarget, item)"
-                    >
-                      设为主参考
-                    </el-button>
-                    <el-button
-                      size="small"
-                      link
-                      type="danger"
-                      @click="onRemoveSbFreeReferenceImage(videoParamsTarget, index)"
-                    >
-                      移除
-                    </el-button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div v-else class="vp-reference-empty">当前分镜还没有从素材中心挂载自由参考图。</div>
-          </div>
-        </el-form-item>
-        <el-row :gutter="12">
-          <el-col :span="12">
-            <el-form-item label="标题">
-              <el-input v-model="sbTitle[videoParamsTarget.id]" placeholder="镜头标题" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
-            <el-form-item label="地点">
-              <el-input v-model="sbLocation[videoParamsTarget.id]" placeholder="场景地点" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
-            <el-form-item label="时间">
-              <el-input v-model="sbTime[videoParamsTarget.id]" placeholder="清晨/午后" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="12">
-          <el-col :span="6">
-            <el-form-item label="时长(秒)">
-              <el-input-number v-model="sbDuration[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}时长（秒）`" :min="1" :max="60" style="width:100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
-            <el-form-item label="景别">
-              <el-select v-model="sbShotType[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}景别`" placeholder="景别" style="width:100%">
-                <el-option label="大远景" value="大远景" />
-                <el-option label="远景" value="远景" />
-                <el-option label="中景" value="中景" />
-                <el-option label="近景" value="近景" />
-                <el-option label="特写" value="特写" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
-            <el-form-item label="运镜">
-              <el-select v-model="sbMovement[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}运镜`" placeholder="运镜（推荐动态）" style="width:100%" clearable filterable>
-                <el-option-group label="基础运镜">
-                  <el-option label="固定（少用）" value="static" />
-                  <el-option label="推镜" value="push" />
-                  <el-option label="拉镜" value="pull" />
-                  <el-option label="横摇（左/右）" value="pan" />
-                  <el-option label="纵摇（上/下）" value="tilt" />
-                  <el-option label="跟镜/跟踪" value="tracking" />
-                  <el-option label="升镜（吊臂上升）" value="crane_up" />
-                  <el-option label="降镜（吊臂下降）" value="crane_dn" />
-                  <el-option label="环绕/轨道" value="orbit" />
-                  <el-option label="手持/晃动" value="handheld" />
-                </el-option-group>
-                <el-option-group label="进阶运镜">
-                  <el-option label="变焦（zoom in/out）" value="zoom" />
-                  <el-option label="旋转/滚镜（roll）" value="roll" />
-                  <el-option label="甩镜/急摇" value="whip_pan" />
-                  <el-option label="螺旋上升/下降" value="spiral" />
-                </el-option-group>
-                <el-option-group label="电影化组合镜头">
-                  <el-option label="希区柯克镜头（推+变焦）" value="hitchcock_zoom" />
-                  <el-option label="子弹时间（环绕+升格）" value="bullet_time" />
-                  <el-option label="荷兰角+运镜" value="dutch_angle_move" />
-                  <el-option label="推轨复合（dolly+track）" value="dolly_track" />
-                  <el-option label="升格环绕（slow-mo orbit）" value="slowmo_orbit" />
-                </el-option-group>
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
-            <el-form-item label="氛围">
-              <el-input v-model="sbAtmosphere[videoParamsTarget.id]" placeholder="氛围/情绪" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="12">
-          <el-col :span="8">
-            <el-form-item label="镜头视角">
-              <div style="display:flex;gap:4px;flex-wrap:wrap">
-                <el-select v-model="sbAngleS[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}镜头景别`" placeholder="景别" style="width:76px">
-                  <el-option label="特写" value="close_up" />
-                  <el-option label="中景" value="medium" />
-                  <el-option label="远景" value="wide" />
-                </el-select>
-                <el-select v-model="sbAngleV[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}镜头俯仰`" placeholder="俯仰" style="width:86px">
-                  <el-option label="平视" value="eye_level" />
-                  <el-option label="低角仰拍" value="low" />
-                  <el-option label="高角俯拍" value="high" />
-                  <el-option label="虫眼仰视" value="worm" />
-                </el-select>
-                <el-select v-model="sbAngleH[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}镜头方向`" placeholder="方向" style="width:80px">
-                  <el-option label="正面" value="front" />
-                  <el-option label="前左45°" value="front_left" />
-                  <el-option label="左侧" value="left" />
-                  <el-option label="后左135°" value="back_left" />
-                  <el-option label="背面" value="back" />
-                  <el-option label="后右135°" value="back_right" />
-                  <el-option label="右侧" value="right" />
-                  <el-option label="前右45°" value="front_right" />
-                </el-select>
-                <span v-if="sbAngleS[videoParamsTarget.id] && sbAngleV[videoParamsTarget.id] && sbAngleH[videoParamsTarget.id]"
-                      style="font-size:11px;color:#6b7280;background:#f3f4f6;padding:2px 6px;border-radius:4px;white-space:nowrap">
-                  {{ angleToPromptFragment(sbAngleH[videoParamsTarget.id], sbAngleV[videoParamsTarget.id], sbAngleS[videoParamsTarget.id]).label }}
-                </span>
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="灯光">
-              <el-select v-model="sbLighting[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}灯光风格`" placeholder="灯光风格" style="width:100%" clearable>
-                <el-option label="自然光" value="natural" />
-                <el-option label="顺光" value="front" />
-                <el-option label="侧光" value="side" />
-                <el-option label="逆光" value="backlit" />
-                <el-option label="顶光" value="top" />
-                <el-option label="底光" value="under" />
-                <el-option label="柔光" value="soft" />
-                <el-option label="戏剧光" value="dramatic" />
-                <el-option label="黄金时段" value="golden_hour" />
-                <el-option label="蓝调时刻" value="blue_hour" />
-                <el-option label="夜景" value="night" />
-                <el-option label="霓虹" value="neon" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="景深">
-              <el-select v-model="sbDof[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}景深`" placeholder="景深" style="width:100%" clearable>
-                <el-option label="极浅景深" value="extreme_shallow" />
-                <el-option label="浅景深" value="shallow" />
-                <el-option label="中景深" value="medium" />
-                <el-option label="深景深（全焦）" value="deep" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <!-- 空间布局锚点：生成分镜时 AI 输出的最高优先级人物站位合同（首尾帧强制一致核心） -->
-        <el-form-item label="空间布局锚点（首尾帧人物站位合同）">
-          <div style="display:flex; gap:8px; align-items:flex-start; width:100%">
-            <el-input
-              v-model="sbLayoutDescription[videoParamsTarget.id]"
-              type="textarea"
-              :rows="3"
-              placeholder="例如：女主站画面左三分之一正对镜头，男主站右后侧侧身看向女主，中景，双人构图，平衡稳定"
-              style="flex:1"
-            />
-            <el-button
-              size="small"
-              :loading="regeneratingLayoutSbIds.has(videoParamsTarget.id)"
-              @click="onRegenerateLayoutDescription(videoParamsTarget)"
-              style="margin-top:4px; white-space:nowrap"
-            >
-              AI 重新生成/优化
-            </el-button>
-          </div>
-          <div style="font-size:11px;color:#64748b;margin-top:4px;line-height:1.35">
-            最高优先级空间合同（用于首尾帧站位锁定）。AI 可参考上下分镜一键重新生成/优化，点击右侧按钮触发。
-          </div>
-        </el-form-item>
-
-        <el-form-item label="动作">
-          <el-input v-model="sbAction[videoParamsTarget.id]" type="textarea" :rows="2" placeholder="动作描述" />
-        </el-form-item>
-        <el-form-item label="对白">
-          <el-input v-model="sbDialogue[videoParamsTarget.id]" type="textarea" :rows="2" placeholder="角色对白" />
-        </el-form-item>
-        <el-form-item label="解说旁白">
-          <el-input v-model="sbNarration[videoParamsTarget.id]" type="textarea" :rows="2" class="sb-narration-input" placeholder="画外解说 / 纪录片式旁白（与对白分开）" />
-        </el-form-item>
-        <el-form-item v-if="canSplitSbByAudio(videoParamsTarget)" label="多角色对白">
-          <div class="sb-split-audio-row">
-            <p class="sb-split-audio-tip">
-              本镜含多句对白或「对白+旁白」，Seedance 同镜易串音。可拆成多条分镜（每条仅一人说话或仅旁白），再分别生视频。
-            </p>
-            <el-button
-              type="warning"
-              plain
-              :loading="splitByAudioLoading"
-              @click="onSplitSbByAudio(videoParamsTarget)"
-            >
-              按对白拆镜
-            </el-button>
-          </div>
-        </el-form-item>
-        <el-form-item label="画面结果">
-          <el-input v-model="sbResult[videoParamsTarget.id]" type="textarea" :rows="2" placeholder="动作完成后的画面结果" />
-        </el-form-item>
-        <el-form-item label="视频提示词">
-          <div class="vp-video-prompt-hint">保存后将根据上方字段，由系统按最新规则自动生成（含角色音色锚点）。</div>
-          <el-input
-            v-if="videoParamsTarget?.video_prompt"
-            :model-value="videoParamsTarget.video_prompt"
-            type="textarea"
-            :rows="3"
-            readonly
-            style="color:#6b7280;margin-top:8px"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showVideoParamsDialog = false">取消</el-button>
-        <el-button type="primary" :loading="videoParamsSaving" @click="onSaveVideoParams">保存并更新</el-button>
-      </template>
-    </AccessibleDialog>
-
+    <FilmCreateResourceDialogs
+        v-model:show-add-prop="showAddProp"
+        v-model:show-char-library="showCharLibrary"
+        v-model:show-char-sd2-cert="showCharSd2Cert"
+        v-model:show-edit-char-library="showEditCharLibrary"
+        v-model:show-edit-character="showEditCharacter"
+        v-model:show-edit-prop="showEditProp"
+        v-model:show-edit-prop-library="showEditPropLibrary"
+        v-model:show-edit-scene="showEditScene"
+        v-model:show-edit-scene-library="showEditSceneLibrary"
+        v-model:show-prop-library="showPropLibrary"
+        v-model:show-scene-library="showSceneLibrary"
+        v-model:char-library-keyword="charLibraryKeyword"
+        v-model:char-library-page="charLibraryPage"
+        v-model:char-library-page-size="charLibraryPageSize"
+        v-model:char-library-tab="charLibraryTab"
+        v-model:drama-all-char-keyword="dramaAllCharKeyword"
+        v-model:drama-all-char-page="dramaAllCharPage"
+        v-model:drama-all-char-page-size="dramaAllCharPageSize"
+        v-model:drama-all-prop-keyword="dramaAllPropKeyword"
+        v-model:drama-all-prop-page="dramaAllPropPage"
+        v-model:drama-all-prop-page-size="dramaAllPropPageSize"
+        v-model:drama-all-scene-keyword="dramaAllSceneKeyword"
+        v-model:drama-all-scene-page="dramaAllScenePage"
+        v-model:drama-all-scene-page-size="dramaAllScenePageSize"
+        v-model:prop-library-keyword="propLibraryKeyword"
+        v-model:prop-library-page="propLibraryPage"
+        v-model:prop-library-page-size="propLibraryPageSize"
+        v-model:prop-library-tab="propLibraryTab"
+        v-model:scene-library-keyword="sceneLibraryKeyword"
+        v-model:scene-library-page="sceneLibraryPage"
+        v-model:scene-library-page-size="sceneLibraryPageSize"
+        v-model:scene-library-tab="sceneLibraryTab"
+        v-model:add-char-ref-image="addCharRefImage"
+        v-model:add-prop-add-ref-image="addPropAddRefImage"
+        v-model:add-prop-form="addPropForm"
+        v-model:add-prop-ref-image="addPropRefImage"
+        :add-prop-saving="addPropSaving"
+        v-model:add-scene-ref-image="addSceneRefImage"
+        :char-library-list="charLibraryList"
+        :char-library-loading="charLibraryLoading"
+        :char-library-total="charLibraryTotal"
+        :char-sd2-cert-payload="charSd2CertPayload"
+        :current-episode-id="currentEpisodeId"
+        :drama-all-char-list="dramaAllCharList"
+        :drama-all-char-loading="dramaAllCharLoading"
+        :drama-all-char-total="dramaAllCharTotal"
+        :drama-all-prop-list="dramaAllPropList"
+        :drama-all-prop-loading="dramaAllPropLoading"
+        :drama-all-prop-total="dramaAllPropTotal"
+        :drama-all-scene-list="dramaAllSceneList"
+        :drama-all-scene-loading="dramaAllSceneLoading"
+        :drama-all-scene-total="dramaAllSceneTotal"
+        v-model:edit-char-library-form="editCharLibraryForm"
+        :edit-char-library-saving="editCharLibrarySaving"
+        :edit-character-form="editCharacterForm"
+        :edit-character-prompt-generating="editCharacterPromptGenerating"
+        :edit-character-saving="editCharacterSaving"
+        :edit-prop-form="editPropForm"
+        v-model:edit-prop-library-form="editPropLibraryForm"
+        :edit-prop-library-saving="editPropLibrarySaving"
+        :edit-prop-prompt-generating="editPropPromptGenerating"
+        :edit-prop-saving="editPropSaving"
+        :edit-scene-form="editSceneForm"
+        v-model:edit-scene-library-form="editSceneLibraryForm"
+        :edit-scene-library-saving="editSceneLibrarySaving"
+        :edit-scene-prompt-generating="editScenePromptGenerating"
+        :edit-scene-saving="editSceneSaving"
+        :extracting-anchors="extractingAnchors"
+        :extracting-char-appearance="extractingCharAppearance"
+        :extracting-prop-add-desc="extractingPropAddDesc"
+        :extracting-prop-desc="extractingPropDesc"
+        :extracting-scene-desc="extractingSceneDesc"
+        :prop-library-list="propLibraryList"
+        :prop-library-loading="propLibraryLoading"
+        :prop-library-total="propLibraryTotal"
+        :scene-library-list="sceneLibraryList"
+        :scene-library-loading="sceneLibraryLoading"
+        :scene-library-total="sceneLibraryTotal"
+        :asset-image-url="assetImageUrl"
+        :char-role-label="charRoleLabel"
+        :clear-char-ref-image="clearCharRefImage"
+        :clear-prop-ref-image="clearPropRefImage"
+        :clear-scene-ref-image="clearSceneRefImage"
+        :debounced-load-char-library="debouncedLoadCharLibrary"
+        :debounced-load-drama-all-char-list="debouncedLoadDramaAllCharList"
+        :debounced-load-drama-all-prop-list="debouncedLoadDramaAllPropList"
+        :debounced-load-drama-all-scene-list="debouncedLoadDramaAllSceneList"
+        :debounced-load-prop-library="debouncedLoadPropLibrary"
+        :debounced-load-scene-library="debouncedLoadSceneLibrary"
+        :do-extract-char-from-image="doExtractCharFromImage"
+        :do-extract-from-ref="doExtractFromRef"
+        :do-extract-from-ref2="doExtractFromRef2"
+        :do-extract-prop-from-image="doExtractPropFromImage"
+        :do-extract-scene-from-image="doExtractSceneFromImage"
+        :do-generate-character-prompt="doGenerateCharacterPrompt"
+        :do-generate-prop-prompt="doGeneratePropPrompt"
+        :do-generate-scene-prompt="doGenerateScenePrompt"
+        :do-generate-scene-single-prompt="doGenerateSceneSinglePrompt"
+        :extract-identity-anchors="extractIdentityAnchors"
+        :is-char-add-to-episode-loading="isCharAddToEpisodeLoading"
+        :is-prop-add-to-episode-loading="isPropAddToEpisodeLoading"
+        :is-scene-add-to-episode-loading="isSceneAddToEpisodeLoading"
+        :load-char-library-list="loadCharLibraryList"
+        :load-drama-all-char-list="loadDramaAllCharList"
+        :load-drama-all-prop-list="loadDramaAllPropList"
+        :load-drama-all-scene-list="loadDramaAllSceneList"
+        :load-prop-library-list="loadPropLibraryList"
+        :load-scene-library-list="loadSceneLibraryList"
+        :on-add-char-from-library="onAddCharFromLibrary"
+        :on-add-drama-char-to-episode="onAddDramaCharToEpisode"
+        :on-add-drama-prop-to-episode="onAddDramaPropToEpisode"
+        :on-add-drama-scene-to-episode="onAddDramaSceneToEpisode"
+        :on-add-prop-from-library="onAddPropFromLibrary"
+        :on-add-scene-from-library="onAddSceneFromLibrary"
+        :on-char-library-dialog-open="onCharLibraryDialogOpen"
+        :on-char-library-tab-change="onCharLibraryTabChange"
+        :on-close-char-dialog="onCloseCharDialog"
+        :on-close-prop-dialog="onClosePropDialog"
+        :on-close-scene-dialog="onCloseSceneDialog"
+        :on-delete-char-library="onDeleteCharLibrary"
+        :on-delete-prop-library="onDeletePropLibrary"
+        :on-delete-scene-library="onDeleteSceneLibrary"
+        :on-prop-library-dialog-open="onPropLibraryDialogOpen"
+        :on-prop-library-tab-change="onPropLibraryTabChange"
+        :on-ref-image-drop="onRefImageDrop"
+        :on-ref-image-drop2="onRefImageDrop2"
+        :on-ref-image-file-change="onRefImageFileChange"
+        :on-ref-image-file-change2="onRefImageFileChange2"
+        :on-scene-library-dialog-open="onSceneLibraryDialogOpen"
+        :on-scene-library-tab-change="onSceneLibraryTabChange"
+        :open-edit-char-library="openEditCharLibrary"
+        :open-edit-prop-library="openEditPropLibrary"
+        :open-edit-scene-library="openEditSceneLibrary"
+        :open-image-preview="openImagePreview"
+        :return-to-character-panel="returnToCharacterPanel"
+        :submit-add-prop="submitAddProp"
+        :submit-edit-char-library="submitEditCharLibrary"
+        :submit-edit-character="submitEditCharacter"
+        :submit-edit-prop="submitEditProp"
+        :submit-edit-prop-library="submitEditPropLibrary"
+        :submit-edit-scene="submitEditScene"
+        :submit-edit-scene-library="submitEditSceneLibrary"
+    />
+    <FilmCreateStoryboardDialogs
+        v-model:show-sb-prompt-dialog="showSbPromptDialog"
+        v-model:show-frame-prompt-editor="showFramePromptEditor"
+        v-model:show-video-params-dialog="showVideoParamsDialog"
+        v-model:editing-frame-prompt-text="editingFramePromptText"
+        v-model:sb-prompt-image-text="sbPromptImageText"
+        v-model:sb-prompt-polished-text="sbPromptPolishedText"
+        v-model:sb-prompt-video-text="sbPromptVideoText"
+        :editing-frame-prompt-regenerating="editingFramePromptRegenerating"
+        :editing-frame-prompt-saving="editingFramePromptSaving"
+        :editing-frame-prompt-sb="editingFramePromptSb"
+        :editing-frame-prompt-slot="editingFramePromptSlot"
+        :regenerating-layout-sb-ids="regeneratingLayoutSbIds"
+        :sb-action="sbAction"
+        :sb-angle-h="sbAngleH"
+        :sb-angle-s="sbAngleS"
+        :sb-angle-v="sbAngleV"
+        :sb-atmosphere="sbAtmosphere"
+        :sb-creation-mode="sbCreationMode"
+        :sb-dialogue="sbDialogue"
+        :sb-dof="sbDof"
+        :sb-duration="sbDuration"
+        :sb-layout-description="sbLayoutDescription"
+        :sb-lighting="sbLighting"
+        :sb-location="sbLocation"
+        :sb-movement="sbMovement"
+        :sb-narration="sbNarration"
+        :sb-prompt-polishing="sbPromptPolishing"
+        :sb-prompt-saving="sbPromptSaving"
+        v-model:sb-prompt-target="sbPromptTarget"
+        :sb-result="sbResult"
+        :sb-shot-type="sbShotType"
+        :sb-time="sbTime"
+        :sb-title="sbTitle"
+        :sb-video-reference-image-id="sbVideoReferenceImageId"
+        :split-by-audio-loading="splitByAudioLoading"
+        :video-params-saving="videoParamsSaving"
+        :video-params-target="videoParamsTarget"
+        :angle-to-prompt-fragment="angleToPromptFragment"
+        :asset-image-url="assetImageUrl"
+        :can-split-sb-by-audio="canSplitSbByAudio"
+        :get-sb-free-reference-items="getSbFreeReferenceItems"
+        :get-sb-grid-images="getSbGridImages"
+        :on-polish-sb-prompt="onPolishSbPrompt"
+        :on-promote-sb-free-reference-image="onPromoteSbFreeReferenceImage"
+        :on-regenerate-layout-description="onRegenerateLayoutDescription"
+        :on-remove-sb-free-reference-image="onRemoveSbFreeReferenceImage"
+        :on-save-sb-prompt-dialog="onSaveSbPromptDialog"
+        :on-save-video-params="onSaveVideoParams"
+        :on-split-sb-by-audio="onSplitSbByAudio"
+        :on-video-params-dialog-closed="onVideoParamsDialogClosed"
+        :open-global-media-picker="openGlobalMediaPicker"
+        :open-image-preview="openImagePreview"
+        :regenerate-editing-frame-prompt="regenerateEditingFramePrompt"
+        :save-editing-frame-prompt="saveEditingFramePrompt"
+        :set-sb-creation-mode-id="setSbCreationModeId"
+    />
     <!-- P1-2: 导入小说弹窗 -->
     <AccessibleDialog v-model="showNovelImport" title="导入小说/长文" width="600px" @close="novelImportReset">
       <div class="novel-import-dialog">
@@ -1741,6 +957,8 @@ import FilmCreatePipelinePanel from '@/components/filmCreate/FilmCreatePipelineP
 import FilmCreateScriptWorkbench from '@/components/filmCreate/FilmCreateScriptWorkbench.vue'
 import FilmCreateResourcePanel from '@/components/filmCreate/FilmCreateResourcePanel.vue'
 import FilmCreateStoryboardPanel from '@/components/filmCreate/FilmCreateStoryboardPanel.vue'
+import FilmCreateResourceDialogs from '@/components/filmCreate/FilmCreateResourceDialogs.vue'
+import FilmCreateStoryboardDialogs from '@/components/filmCreate/FilmCreateStoryboardDialogs.vue'
 import {
   batchGenerationDisabledReason,
   composeVideoDisabledReason,

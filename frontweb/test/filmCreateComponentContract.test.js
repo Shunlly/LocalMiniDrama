@@ -792,3 +792,13 @@ test('FilmCreate 把分镜生成交给独立面板并保留锚点', () => {
   assert.match(panel, /label="批量生成分镜图"/)
   assert.match(panel, /还没有分镜/)
 })
+
+
+test('FilmCreate 把资源弹窗和分镜弹窗交给独立面板', () => {
+  assert.match(filmCreateSource, /<FilmCreateResourceDialogs/)
+  assert.match(filmCreateSource, /<FilmCreateStoryboardDialogs/)
+  assert.match(filmCreateSource, /导入小说\/长文/)
+  assert.match(filmCreateSource, /<AIConfigContent/)
+  assert.match(filmCreateSource, /<ImagePreviewDialog/)
+  assert.match(filmCreateSource, /<GlobalMediaPickerDialog/)
+})

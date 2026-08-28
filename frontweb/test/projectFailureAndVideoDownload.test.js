@@ -55,7 +55,7 @@ test('project pages keep core load failures outside every editable project surfa
   assert.match(filmCreateSource, /<main v-if="projectLoadState === 'loading'"/)
   assert.match(filmCreateSource, /<main v-else-if="projectLoadState === 'error'"/)
   assert.match(filmCreateSource, /<main v-else class="main">[\s\S]*FilmCreateScriptWorkbench/)
-  assert.match(filmCreateSource, /<template v-if="projectLoadState === 'ready'">\s*<!--[\s\S]*?<AccessibleDialog/)
+  assert.match(filmCreateSource, /<template v-if="projectLoadState === 'ready'">[\s\S]*?<FilmCreateResourceDialogs[\s\S]*?<AccessibleDialog/)
   assert.match(filmCreateSource, /:disabled="projectLoadState !== 'ready'" @click="openAiConfig\(\)"/)
   assert.match(filmCreateSource, /v-if="!projectLoadNotFound"[\s\S]*重试加载/)
   assert.match(dramaDetailSource, /v-if="!dramaLoadNotFound"[\s\S]*重试加载/)

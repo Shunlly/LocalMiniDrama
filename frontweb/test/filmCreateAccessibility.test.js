@@ -30,6 +30,10 @@ const storyboardPanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url),
   'utf8',
 )
+const resourceDialogsSource = readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateResourceDialogs.vue', import.meta.url),
+  'utf8',
+)
 const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource + '\n' + scriptWorkbenchSource + '\n' + resourcePanelSource + '\n' + storyboardPanelSource
 
 test('film create navigation and resource disclosure controls use native buttons', () => {
@@ -123,7 +127,7 @@ test('storyboard video controls expose a focusable missing-prompt reason', () =>
 test('script and character library empty states provide direct actions', () => {
   assert.match(scriptWorkbenchSource, /class="select-script-empty"[\s\S]*?emit\('return-to-creation'\)/)
   assert.match(filmCreateSource, /@return-to-creation="returnToScriptCreation"/)
-  assert.match(filmCreateSource, /class="library-empty"[\s\S]*?@click="returnToCharacterPanel"/)
+  assert.match(resourceDialogsSource, /class="library-empty"[\s\S]*?@click="returnToCharacterPanel"/)
   assert.match(filmCreateSource, /function returnToScriptCreation\(\)/)
   assert.match(filmCreateSource, /function returnToCharacterPanel\(\)/)
 })

@@ -215,8 +215,8 @@ test('AI coverage test actions are accessible secondary buttons with pending sta
   )
   assert.match(actionDisabled, /testingConfigId\.value !== null/)
 
-  const openTest = sourceBetween(aiConfigSource, 'async function openTest', 'async function onDelete')
-  assert.match(openTest, /if \(testingConfigId\.value !== null\) return/)
+  const openTest = sourceBetween(aiConfigSource, 'async function openTest', 'function retryConnectionTest')
+  assert.match(openTest, /if \(testingConfigId\.value !== null && lastTestedConfig/)
   assert.match(openTest, /testingConfigId\.value = row\.id/)
-  assert.match(openTest, /finally\s*\{\s*testingConfigId\.value = null\s*\}/)
+  assert.match(openTest, /if \(testingConfigId\.value === row\.id\) testingConfigId\.value = null/)
 })
