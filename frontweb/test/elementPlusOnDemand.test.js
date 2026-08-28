@@ -8,6 +8,8 @@ const feedbackSource = readFileSync(new URL('../src/utils/elementPlusFeedback.js
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const pipelineRunSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreatePipelineRun.js', import.meta.url), 'utf8')
 const productionReadinessSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateProductionReadiness.js', import.meta.url), 'utf8')
+const deliveryActionsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateDeliveryActions.js', import.meta.url), 'utf8')
+const scriptEstimatesSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateScriptEstimates.js', import.meta.url), 'utf8')
 const deliveryPanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url),
   'utf8',
@@ -41,10 +43,10 @@ test('request feedback and list loaders share timeout, cancel and retry', () => 
 
 test('FilmCreate delivery panel owns export actions and imports split helpers', () => {
   assert.match(filmCreateSource, /<FilmCreateDeliveryPanel/)
-  assert.match(filmCreateSource, /from '@\/utils\/filmCreateDelivery'/)
+  assert.match(deliveryActionsSource, /from '@\/utils\/filmCreateDelivery'/)
   assert.match(productionReadinessSource, /from '@\/utils\/coreJsonRequest'/)
   assert.match(pipelineRunSource, /from '@\/utils\/filmCreateConcurrency'/)
-  assert.match(filmCreateSource, /from '@\/utils\/filmCreateEstimates'/)
+  assert.match(scriptEstimatesSource, /from '@\/utils\/filmCreateEstimates'/)
   assert.doesNotMatch(filmCreateSource, /async function fetchVerifiedVideoBlob/)
   assert.doesNotMatch(filmCreateSource, /function normalizeVideoDownloadFilenamePart/)
   assert.match(deliveryPanelSource, /<section id="anchor-video" class="section card delivery-section">/)

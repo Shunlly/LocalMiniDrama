@@ -28,7 +28,13 @@ const storyboardAccessorsSource = readFileSync(new URL('../src/composables/filmC
 const storyboardStateSyncSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardStateSync.js', import.meta.url), 'utf8')
 const storyboardVideoFieldsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardVideoFields.js', import.meta.url), 'utf8')
 const refImageDropSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateRefImageDrop.js', import.meta.url), 'utf8')
-const source = pipelineRunSource + '\n' + pipelineStagesSource + '\n' + batchGenerationSource + '\n' + episodeComposeSource + '\n' + storyboardImageGenerationSource + '\n' + storyboardVideoGenerationSource + '\n' + tailFrameSource + '\n' + linkedRegenSource + '\n' + navigationGuardsSource + '\n' + projectLoadSource + '\n' + routeSyncSource + '\n' + taskPollingSource + '\n' + mediaPreviewSource + '\n' + taskRecoverySource + '\n' + storyboardAccessorsSource + '\n' + storyboardStateSyncSource + '\n' + storyboardVideoFieldsSource + '\n' + refImageDropSource + '\n' + filmCreateSource + '\n' + mediaComposableSource
+const stylePromptsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStylePrompts.js', import.meta.url), 'utf8')
+const workspaceNavSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateWorkspaceNav.js', import.meta.url), 'utf8')
+const aiConfigWorkspaceSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateAiConfigWorkspace.js', import.meta.url), 'utf8')
+const deliveryActionsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateDeliveryActions.js', import.meta.url), 'utf8')
+const scriptEstimatesSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateScriptEstimates.js', import.meta.url), 'utf8')
+const taskCancelSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateTaskCancel.js', import.meta.url), 'utf8')
+const source = pipelineRunSource + '\n' + pipelineStagesSource + '\n' + batchGenerationSource + '\n' + episodeComposeSource + '\n' + storyboardImageGenerationSource + '\n' + storyboardVideoGenerationSource + '\n' + tailFrameSource + '\n' + linkedRegenSource + '\n' + navigationGuardsSource + '\n' + projectLoadSource + '\n' + routeSyncSource + '\n' + taskPollingSource + '\n' + mediaPreviewSource + '\n' + taskRecoverySource + '\n' + storyboardAccessorsSource + '\n' + storyboardStateSyncSource + '\n' + storyboardVideoFieldsSource + '\n' + refImageDropSource + '\n' + stylePromptsSource + '\n' + workspaceNavSource + '\n' + aiConfigWorkspaceSource + '\n' + deliveryActionsSource + '\n' + scriptEstimatesSource + '\n' + taskCancelSource + '\n' + filmCreateSource + '\n' + mediaComposableSource
 const resourcePanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
 const filmCreateUiSource = source + '\n' + resourcePanelSource
 

@@ -861,21 +861,6 @@ import UniversalSegmentOmniAtEditor from '@/components/UniversalSegmentOmniAtEdi
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import FilmCreateDeliveryPanel from '@/components/filmCreate/FilmCreateDeliveryPanel.vue'
 import FilmCreateVideoSettingsPanel from '@/components/filmCreate/FilmCreateVideoSettingsPanel.vue'
-import {
-  buildDeliveryFilename as buildDeliveryFilenameFromParts,
-  buildEpisodeVideoFilename,
-  fetchVerifiedVideoBlob,
-  friendlyVideoDownloadError,
-  normalizeVideoDownloadFilenamePart,
-  triggerBlobDownload,
-  validateDeliveryBlob,
-} from '@/utils/filmCreateDelivery'
-import {
-  buildScriptStoryboardEstimate,
-  clipSecondsForStoryboardEstimate as resolveClipSeconds,
-  estimateVideoDurationSecFromCharLen,
-  shotCountEstimateFromDurationSec as resolveShotCountEstimate,
-} from '@/utils/filmCreateEstimates'
 import FilmCreatePipelinePanel from '@/components/filmCreate/FilmCreatePipelinePanel.vue'
 import FilmCreateScriptWorkbench from '@/components/filmCreate/FilmCreateScriptWorkbench.vue'
 import FilmCreateResourcePanel from '@/components/filmCreate/FilmCreateResourcePanel.vue'
@@ -896,9 +881,6 @@ import {
 import { normalizeProjectListReturnTo } from '@/utils/projectListRoute'
 import {
   generationStyleOptions,
-  getStylePromptEn,
-  getStylePromptZh,
-  stylePromptMetadataForSave,
 } from '@/constants/styleOptions'
 import { useNavigation } from '@/composables/filmCreate/useNavigation'
 import { useCharacters } from '@/composables/filmCreate/useCharacters'
@@ -935,6 +917,12 @@ import { useFilmCreateStoryboardAccessors } from '@/composables/filmCreate/useFi
 import { useFilmCreateStoryboardStateSync } from '@/composables/filmCreate/useFilmCreateStoryboardStateSync'
 import { useFilmCreateStoryboardVideoFields } from '@/composables/filmCreate/useFilmCreateStoryboardVideoFields'
 import { useFilmCreateRefImageDrop } from '@/composables/filmCreate/useFilmCreateRefImageDrop'
+import { useFilmCreateStylePrompts } from '@/composables/filmCreate/useFilmCreateStylePrompts'
+import { useFilmCreateWorkspaceNav } from '@/composables/filmCreate/useFilmCreateWorkspaceNav'
+import { useFilmCreateAiConfigWorkspace } from '@/composables/filmCreate/useFilmCreateAiConfigWorkspace'
+import { useFilmCreateDeliveryActions } from '@/composables/filmCreate/useFilmCreateDeliveryActions'
+import { useFilmCreateScriptEstimates } from '@/composables/filmCreate/useFilmCreateScriptEstimates'
+import { useFilmCreateTaskCancel } from '@/composables/filmCreate/useFilmCreateTaskCancel'
 import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
 
 const projectLifecycle = createProjectInstanceLifecycle()
@@ -980,21 +968,6 @@ const { navCollapsed, storyboardMenuExpanded, activeNavAnchor, toggleNav, scroll
   getAnchorIds: () => navSteps.value.map((step) => step.anchor),
 })
 
-function goList() {
-  router.push(projectListReturnTo.value || { name: 'list' })
-}
-
-function goCanvasMode() {
-  if (!dramaId.value) return
-  const query = selectedEpisodeId.value ? { episode: String(selectedEpisodeId.value) } : {}
-  if (projectListReturnTo.value) query.returnTo = projectListReturnTo.value
-  router.push({ path: `/film/${dramaId.value}/canvas`, query })
-}
-
-function openMediaLibraryFromPicker() {
-  showGlobalMediaPicker.value = false
-  router.push({ name: 'media-library', query: { returnTo: route.fullPath } })
-}
 
 
 const showAiConfigDialog = ref(false)
@@ -1040,57 +1013,25 @@ const ttsCapabilityReason = computed(() => {
   return gap ? `${gap.label}：${gap.detail}` : ''
 })
 
-function openAiConfig(serviceType = '') {
-  aiConfigOpenedFromPipelineAction.value = false
-  aiConfigInitialServiceType.value = ['text', 'image', 'storyboard_image', 'video', 'tts'].includes(serviceType)
-    ? serviceType
-    : ''
-  showAiConfigDialog.value = true
-}
-
-function openAiConfigFromPipeline(serviceType = '', context = {}) {
-  aiConfigOpenedFromPipelineAction.value = context.source === 'compact-action'
-  aiConfigInitialServiceType.value = ['text', 'image', 'storyboard_image', 'video', 'tts'].includes(serviceType)
-    ? serviceType
-    : ''
-  showAiConfigDialog.value = true
-}
-
-function onAiConfigurationChanged() {
-  aiConfigChanged.value = true
-}
-
-async function confirmAiConfigWorkspaceClose(done) {
-  const canClose = (await aiConfigContentRef.value?.requestClose?.()) !== false
-  if (canClose) done()
-}
-
-async function requestAiConfigWorkspaceClose() {
-  const canClose = (await aiConfigContentRef.value?.requestClose?.()) !== false
-  if (canClose) showAiConfigDialog.value = false
-}
-
-watch(showAiConfigDialog, async (open) => {
-  if (open) {
-    aiConfigChanged.value = false
-    return
-  }
-  const changed = aiConfigChanged.value
-  const restorePipelineSummaryFocus = aiConfigOpenedFromPipelineAction.value
-  aiConfigChanged.value = false
-  aiConfigOpenedFromPipelineAction.value = false
-  invalidateActiveVideoAiConfigCache()
-  if (changed) ElMessage.info('配置已更新，正在重新检查')
-  const refreshPromise = Promise.allSettled([
-    refreshVideoGenerationCapability(),
-    refreshProductionReadiness(),
-  ])
-  await refreshPromise
-  if (restorePipelineSummaryFocus) {
-    await nextTick()
-    pipelinePanelRef.value?.focusSummary()
-  }
+const {
+  openAiConfig,
+  openAiConfigFromPipeline,
+  onAiConfigurationChanged,
+  confirmAiConfigWorkspaceClose,
+  requestAiConfigWorkspaceClose,
+} = useFilmCreateAiConfigWorkspace({
+  ElMessage,
+  showAiConfigDialog,
+  aiConfigContentRef,
+  pipelinePanelRef,
+  aiConfigInitialServiceType,
+  aiConfigChanged,
+  aiConfigOpenedFromPipelineAction,
+  invalidateActiveVideoAiConfigCache: (...args) => invalidateActiveVideoAiConfigCache(...args),
+  refreshVideoGenerationCapability: (...args) => refreshVideoGenerationCapability(...args),
+  refreshProductionReadiness: (...args) => refreshProductionReadiness(...args),
 })
+
 const storyInput = ref('')
 const storyStyle = ref('')
 const storyType = ref('')
@@ -1152,37 +1093,15 @@ const generationStyle = ref('')
 const projectAspectRatio = ref('16:9')
 const videoClipDuration = ref(5)
 
-/** 根据 value 查找样式选项对象 */
-function _findStyleOption(val) {
-  for (const group of generationStyleOptions) {
-    const found = group.options.find(o => o.value === val)
-    if (found) return found
-  }
-  return null
-}
+const {
+  getSelectedStylePrompt,
+  getSelectedStylePromptZh,
+  projectStylePromptMetadata,
+  getSelectedStyle,
+} = useFilmCreateStylePrompts({
+  generationStyle,
+})
 
-/** 传给图像/视频 AI 用的英文 prompt（效果最好）；
- *  找不到 promptEn 时降级到 prompt，再降级到原始值 */
-function getSelectedStylePrompt() {
-  const val = (generationStyle.value || '').toString().trim()
-  if (!val) return undefined
-  const opt = _findStyleOption(val)
-  if (opt) return opt.promptEn || opt.prompt || val
-  return val
-}
-
-/** 中文风格描述（用于界面展示或中文场景提示词拼接） */
-function getSelectedStylePromptZh() {
-  const val = (generationStyle.value || '').toString().trim()
-  if (!val) return undefined
-  const opt = _findStyleOption(val)
-  if (opt) return opt.prompt || opt.promptEn || val
-  return val
-}
-
-function projectStylePromptMetadata() {
-  return stylePromptMetadataForSave(generationStyle.value)
-}
 
 const scriptContent = computed({
   get: () => store.scriptContent,
@@ -1237,6 +1156,19 @@ const {
 })
 const hasAnyEpisode = computed(() => (store.drama?.episodes || []).length > 0)
 const showGlobalMediaPicker = ref(false)
+
+const {
+  goList,
+  goCanvasMode,
+  openMediaLibraryFromPicker,
+} = useFilmCreateWorkspaceNav({
+  router,
+  route,
+  dramaId,
+  selectedEpisodeId,
+  projectListReturnTo,
+  showGlobalMediaPicker,
+})
 const globalMediaPickerMode = ref('reference')
 const globalMediaPickerTarget = ref(null)
 const globalMediaPickerAccept = computed(() => 'image')
@@ -1342,121 +1274,33 @@ function trackFilmCreateAction(action, payload = {}) {
     ...(extra && typeof extra === 'object' ? extra : {}),
   })
 }
-/** 当前集合成视频的播放地址（用于按钮下方预览） */
-const currentEpisodeVideoUrl = computed(() => {
-  const url = currentEpisode.value?.video_url
-  if (!url || !String(url).trim()) return ''
-  const s = String(url).trim()
-  if (isPlaceholderMediaUrl(s)) return ''
-  if (s.startsWith('http://') || s.startsWith('https://')) return s
-  if (s.startsWith('/static/')) return s
-  return '/static/' + s.replace(/^\//, '')
-})
-const deliveryCompositeStatusLabel = computed(() => {
-  if (videoStatus.value === 'generating') return `${videoProgress.value}%`
-  if (currentEpisodeVideoUrl.value) return '已就绪'
-  if (videoStatus.value === 'error') return '合成失败'
-  return '待合成'
-})
-const deliverySubtitleAvailable = computed(() => storyboards.value.some((storyboard) => (
-  [storyboard?.dialogue, storyboard?.narration, storyboard?.action]
-    .some((value) => Boolean(String(value || '').trim()))
-)))
-const deliveryFileCount = computed(() => (
-  1 + (deliverySubtitleAvailable.value ? 1 : 0) + (currentEpisodeVideoUrl.value ? 1 : 0)
-))
 
-const videoDownloadStatus = ref('idle')
-const videoDownloadError = ref('')
-
-async function downloadCurrentEpisodeVideo() {
-  if (videoDownloadStatus.value === 'downloading') return
-  videoDownloadStatus.value = 'downloading'
-  videoDownloadError.value = ''
-  try {
-    const blob = await fetchVerifiedVideoBlob(currentEpisodeVideoUrl.value)
-    const filename = buildEpisodeVideoFilename(
-      store.drama?.title,
-      currentEpisode.value?.episode_number,
-      blob,
-    )
-    triggerBlobDownload(blob, filename)
-    videoDownloadStatus.value = 'success'
-    ElMessage.success('成片下载已完成')
-  } catch (error) {
-    videoDownloadError.value = friendlyVideoDownloadError(error)
-    videoDownloadStatus.value = 'error'
-    ElMessage.error(videoDownloadError.value)
-  }
-}
-
-const deliveryExportStatus = reactive({ subtitle: 'idle', project: 'idle' })
-const deliveryExportError = ref('')
-const deliveryExportHasError = computed(() => (
-  deliveryExportStatus.subtitle === 'error' || deliveryExportStatus.project === 'error'
-))
-const deliveryExportFeedback = computed(() => {
-  if (deliveryExportHasError.value) return deliveryExportError.value
-  if (deliveryExportStatus.subtitle === 'success') return '字幕下载已完成。'
-  if (deliveryExportStatus.project === 'success') return '项目包导出已完成。'
-  return ''
-})
-
-function buildDeliveryFilename(suffix, extension) {
-  return buildDeliveryFilenameFromParts(
-    store.drama?.title,
-    currentEpisode.value?.episode_number,
-    suffix,
-    extension,
-  )
-}
-
-async function downloadCurrentEpisodeSubtitle() {
-  if (!currentEpisodeId.value || deliveryExportStatus.subtitle === 'downloading') return
-  deliveryExportStatus.subtitle = 'downloading'
-  deliveryExportStatus.project = 'idle'
-  deliveryExportError.value = ''
-  try {
-    const blob = await validateDeliveryBlob(
-      await timelinesAPI.getEpisodeSrt(currentEpisodeId.value),
-      { label: '字幕文件' },
-    )
-    const filename = buildDeliveryFilename('字幕', 'srt')
-    triggerBlobDownload(blob, filename)
-    deliveryExportStatus.subtitle = 'success'
-    ElMessage.success('字幕下载已完成')
-  } catch (_) {
-    deliveryExportError.value = '字幕下载失败，可能是本集还没有可导出的字幕。'
-    deliveryExportStatus.subtitle = 'error'
-    ElMessage.error(deliveryExportError.value)
-  }
-}
-
-async function exportCurrentProjectPackage() {
-  if (!dramaId.value || deliveryExportStatus.project === 'downloading') return
-  deliveryExportStatus.project = 'downloading'
-  deliveryExportStatus.subtitle = 'idle'
-  deliveryExportError.value = ''
-  try {
-    const blob = await validateDeliveryBlob(await dramaAPI.exportDrama(dramaId.value), { label: '项目包', kind: 'zip' })
-    const title = normalizeVideoDownloadFilenamePart(store.drama?.title, 'LocalMiniDrama')
-    const filename = `${title}-项目包.zip`
-    triggerBlobDownload(blob, filename)
-    deliveryExportStatus.project = 'success'
-    ElMessage.success('项目包导出已完成')
-  } catch (_) {
-    deliveryExportError.value = '项目包导出失败，请检查本地服务后重试。'
-    deliveryExportStatus.project = 'error'
-    ElMessage.error(deliveryExportError.value)
-  }
-}
-
-watch([currentEpisodeId, currentEpisodeVideoUrl], () => {
-  videoDownloadStatus.value = 'idle'
-  videoDownloadError.value = ''
-  deliveryExportStatus.subtitle = 'idle'
-  deliveryExportStatus.project = 'idle'
-  deliveryExportError.value = ''
+const {
+  currentEpisodeVideoUrl,
+  deliveryCompositeStatusLabel,
+  deliverySubtitleAvailable,
+  deliveryFileCount,
+  videoDownloadStatus,
+  videoDownloadError,
+  deliveryExportStatus,
+  deliveryExportError,
+  deliveryExportHasError,
+  deliveryExportFeedback,
+  buildDeliveryFilename,
+  downloadCurrentEpisodeVideo,
+  downloadCurrentEpisodeSubtitle,
+  exportCurrentProjectPackage,
+} = useFilmCreateDeliveryActions({
+  store,
+  ElMessage,
+  dramaId,
+  currentEpisode,
+  currentEpisodeId,
+  storyboards,
+  videoStatus,
+  videoProgress,
+  timelinesAPI,
+  dramaAPI,
 })
 
 const storyboardGenerating = computed(() =>
@@ -1808,45 +1652,6 @@ const allActiveTaskItems = computed(() => {
 
 const allActiveTaskLabels = computed(() => allActiveTaskItems.value.map((t) => t.label))
 
-async function cancelActiveTask(item) {
-  if (!item) return
-  try {
-    if (item.kind === 'genStore' && item.task) {
-      await genStore.cancelTask(item.task)
-      ElMessage.success('任务已取消')
-      return
-    }
-    if (item.kind === 'pipeline') {
-      await cancelPipelineRun()
-      return
-    }
-    if (item.kind === 'storyGenLocal') {
-      storyGenerating.value = false
-      scriptGenerating.value = false
-      const storyTask = genStore.getAllRunningTasks().find((t) => t.resourceType === GEN_RESOURCE.GENERATE_STORY)
-      if (storyTask) await genStore.cancelTask(storyTask)
-      ElMessage.success('已取消剧本生成')
-      return
-    }
-    if (item.kind === 'universalOmniPolish') {
-      universalOmniPolishAbort.value = true
-      ElMessage.success('正在停止润色...')
-      return
-    }
-    if (item.kind === 'batchImage') {
-      batchImageStopping.value = true
-      ElMessage.info('正在停止批量生图...')
-      return
-    }
-    if (item.kind === 'batchVideo') {
-      batchVideoStopping.value = true
-      ElMessage.info('正在停止批量生视频...')
-      return
-    }
-  } catch (e) {
-    ElMessage.error(e?.message || '取消失败')
-  }
-}
 const sbCharacterIds = ref({})  // sbId -> number[] 多选角色
 const sbPropIds = ref({})       // sbId -> number[] 多选物品
 const sbSceneId = ref({})
@@ -1950,6 +1755,19 @@ const batchImageErrors = ref([])
 // 批量生成分镜视频
 const batchVideoRunning = ref(false)
 const batchVideoStopping = ref(false)
+
+const {
+  cancelActiveTask,
+} = useFilmCreateTaskCancel({
+  ElMessage,
+  genStore,
+  cancelPipelineRun,
+  storyGenerating,
+  scriptGenerating,
+  universalOmniPolishAbort,
+  batchImageStopping,
+  batchVideoStopping,
+})
 const batchVideoProgress = ref({ current: 0, total: 0, failed: 0 })
 const batchVideoErrors = ref([])
 const projectActionDisabledReason = computed(() => projectResourceDisabledReason({
@@ -2207,82 +2025,27 @@ const {
   videoCapabilityReason,
 })
 
-// ── 剧本长度 → 估算总时长；自动分镜数与项目「每段秒数」(videoClipDuration) 对齐 ──
-
-/** 用于估算的每段时长（秒），与一键成片处「X秒/段」一致 */
-function clipSecondsForStoryboardEstimate() {
-  return resolveClipSeconds(videoClipDuration.value)
-}
-
-function shotCountEstimateFromDurationSec(sec) {
-  return resolveShotCountEstimate(sec, clipSecondsForStoryboardEstimate())
-}
-
-const scriptStoryboardEstimate = computed(() => (
-  buildScriptStoryboardEstimate(scriptContent.value, clipSecondsForStoryboardEstimate())
-))
-
-const scriptEstimateVideoDurationHint = computed(() => {
-  const e = scriptStoryboardEstimate.value
-  if (!e) return ''
-  return `（约 ${e.sec}s）`
+const {
+  clipSecondsForStoryboardEstimate,
+  shotCountEstimateFromDurationSec,
+  scriptStoryboardEstimate,
+  scriptEstimateVideoDurationHint,
+  scriptEstimateVideoDurationTitle,
+  scriptEstimateStoryboardHint,
+  scriptEstimateStoryboardTitle,
+  scriptTextTrimmedForEstimate,
+  userFilledStoryboardCount,
+  userFilledVideoDuration,
+  getVideoDurationForApi,
+  getStoryboardCountForApi,
+} = useFilmCreateScriptEstimates({
+  videoClipDuration,
+  scriptContent,
+  storyboardCount,
+  videoDuration,
 })
 
-const scriptEstimateVideoDurationTitle = computed(() => {
-  const e = scriptStoryboardEstimate.value
-  if (!e) return ''
-  return `按当前剧本文本约 ${e.len} 个字符（含标点；常见汉字在浏览器里一字一算，并非按 UTF-8 字节翻倍）、短剧公式 round(10+(字符/600)×60) 粗估总时长约 ${e.sec} 秒；未填输入框时该值会作为约束传给生成接口。仅供参考`
-})
 
-const scriptEstimateStoryboardHint = computed(() => {
-  const e = scriptStoryboardEstimate.value
-  if (!e) return ''
-  if (e.range && e.range.min !== e.range.max) {
-    return `（约 ${e.locked} 镜，参考 ${e.range.min}–${e.range.max}）`
-  }
-  return `（约 ${e.locked} 镜）`
-})
-
-const scriptEstimateStoryboardTitle = computed(() => {
-  const e = scriptStoryboardEstimate.value
-  if (!e) return ''
-  return `按估算时长 ${e.sec}s ÷ 项目「每段 ${e.clip} 秒」四舍五入粗估约 ${e.locked} 镜；旁注区间为 ±1 镜供参考。切换「X秒/段」会同步改变本估算。`
-})
-
-function scriptTextTrimmedForEstimate() {
-  return (scriptContent.value || '').toString().trim()
-}
-
-function userFilledStoryboardCount() {
-  const v = storyboardCount.value
-  return v != null && Number.isFinite(Number(v)) && Number(v) >= 1
-}
-
-function userFilledVideoDuration() {
-  const v = videoDuration.value
-  return v != null && Number.isFinite(Number(v)) && Number(v) >= 10
-}
-
-/** 请求后端的视频总时长：仅未手动填时传剧本估算 */
-function getVideoDurationForApi() {
-  if (userFilledVideoDuration()) return Math.round(Number(videoDuration.value))
-  const len = scriptTextTrimmedForEstimate().length
-  if (len < 1) return undefined
-  return estimateVideoDurationSecFromCharLen(len) ?? undefined
-}
-
-/** 请求后端的分镜数量：仅未手动填时按「估算总时长 ÷ 每段秒数」推算，与项目 X秒/段 一致 */
-function getStoryboardCountForApi() {
-  if (userFilledStoryboardCount()) return Math.round(Number(storyboardCount.value))
-  const sec = getVideoDurationForApi()
-  if (sec == null || !Number.isFinite(sec)) return undefined
-  return shotCountEstimateFromDurationSec(sec).locked
-}
-
-
-function getSelectedStyle() {
-  return getSelectedStylePrompt()
-}
 function onStoryboardUseFirstLastFrameChange() {
   if (storyboardUseFirstLastFrame.value && gridMode.value !== 'single') {
     gridMode.value = 'single'

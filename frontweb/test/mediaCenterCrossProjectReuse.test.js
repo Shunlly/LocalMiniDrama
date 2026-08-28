@@ -6,6 +6,7 @@ import { parse } from '@vue/compiler-sfc'
 import { shouldShowRequestErrorToast } from '../src/utils/request.js'
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const workspaceNavSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateWorkspaceNav.js', import.meta.url), 'utf8')
 const pipelineStagesSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreatePipelineStages.js', import.meta.url), 'utf8')
 const batchGenerationSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateBatchGeneration.js', import.meta.url), 'utf8')
 const storyboardVideoGenerationSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardVideoGeneration.js', import.meta.url), 'utf8')
@@ -88,7 +89,7 @@ test('global media picker shows mount context, media compatibility state, retry 
 
 test('FilmCreate wires the picker into storyboard free references with duplicate, promote, and remove flows', () => {
   assert.match(filmCreateSource, /<GlobalMediaPickerDialog[\s\S]*@select="onGlobalMediaAssetSelected"[\s\S]*@open-library="openMediaLibraryFromPicker"/)
-  assert.match(filmCreateSource, /router\.push\(\{ name: 'media-library', query: \{ returnTo: route\.fullPath \} \}\)/)
+  assert.match(workspaceNavSource, /router\.push\(\{ name: 'media-library', query: \{ returnTo: route\.fullPath \} \}\)/)
   assert.match(storyboardPanelSource, /:aria-label="`分镜 \$\{sb\.storyboard_number\} 视频预览`"/)
   assert.match(deliveryPanelSource, /aria-label="本集合成视频预览"/)
   assert.match(storyboardDialogsSource, /<el-form-item label="素材中心参考图">/)

@@ -9,6 +9,7 @@ function readSource(url) {
 const filmCreateSource = readSource(new URL('../src/views/FilmCreate.vue', import.meta.url))
 const projectLoadSource = readSource(new URL('../src/composables/filmCreate/useFilmCreateProjectLoad.js', import.meta.url))
 const productionReadinessSource = readSource(new URL('../src/composables/filmCreate/useFilmCreateProductionReadiness.js', import.meta.url))
+const aiConfigWorkspaceSource = readSource(new URL('../src/composables/filmCreate/useFilmCreateAiConfigWorkspace.js', import.meta.url))
 const filmListSource = readSource(new URL('../src/views/FilmList.vue', import.meta.url))
 const aiConfigSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
 const pipelinePanelSource = readSource(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url))
@@ -134,8 +135,8 @@ test('FilmCreate generic AI config entry resets a prior service-specific filter'
   assert.doesNotMatch(filmCreateSource, /@click="showAiConfigDialog = true"/)
   assert.match(filmCreateSource, /@open-ai-config="openAiConfig"/)
   assert.match(videoSettingsSource, /<el-link[^>]*@click="emit\('open-ai-config'\)"[^>]*>AI 配置<\/el-link>/)
-  assert.match(filmCreateSource, /function openAiConfig\(serviceType = ''\)/)
-  assert.match(filmCreateSource, /aiConfigInitialServiceType\.value = \['text', 'image', 'storyboard_image', 'video', 'tts'\]\.includes\(serviceType\)/)
+  assert.match(aiConfigWorkspaceSource, /function openAiConfig\(serviceType = ''\)/)
+  assert.match(aiConfigWorkspaceSource, /aiConfigInitialServiceType\.value = \['text', 'image', 'storyboard_image', 'video', 'tts'\]\.includes\(serviceType\)/)
 })
 
 test('FilmCreate AI config returns to production and refreshes changed readiness through the close watcher', () => {
@@ -147,13 +148,13 @@ test('FilmCreate AI config returns to production and refreshes changed readiness
   assert.match(filmCreateSource, /@configuration-changed="onAiConfigurationChanged"/)
 
   assert.match(filmCreateSource, /const aiConfigChanged = ref\(false\)/)
-  assert.match(filmCreateSource, /function onAiConfigurationChanged\(\) \{\s*aiConfigChanged\.value = true\s*\}/)
-  assert.match(filmCreateSource, /async function requestAiConfigWorkspaceClose\(\) \{[\s\S]*await aiConfigContentRef\.value\?\.requestClose\?\.\(\)[\s\S]*showAiConfigDialog\.value = false/)
+  assert.match(aiConfigWorkspaceSource, /function onAiConfigurationChanged\(\) \{\s*aiConfigChanged\.value = true\s*\}/)
+  assert.match(aiConfigWorkspaceSource, /async function requestAiConfigWorkspaceClose\(\) \{[\s\S]*await aiConfigContentRef\.value\?\.requestClose\?\.\(\)[\s\S]*showAiConfigDialog\.value = false/)
 
   const closeWatcher = sourceBetween(
-    filmCreateSource,
+    aiConfigWorkspaceSource,
     'watch(showAiConfigDialog',
-    'const storyInput',
+    'return {',
   )
   assert.match(closeWatcher, /if \(open\) \{[\s\S]*aiConfigChanged\.value = false[\s\S]*return/)
   assert.match(closeWatcher, /invalidateActiveVideoAiConfigCache\(\)/)
@@ -187,10 +188,10 @@ test('pipeline-owned AI recovery restores focus to a stable exposed summary', ()
   assert.match(filmCreateSource, /@open-ai-config="openAiConfigFromPipeline"/)
   assert.match(filmCreateSource, /const pipelinePanelRef = ref\(null\)/)
   assert.match(filmCreateSource, /const aiConfigOpenedFromPipelineAction = ref\(false\)/)
-  assert.match(filmCreateSource, /function openAiConfigFromPipeline\(serviceType = '', context = \{\}\)/)
-  assert.match(filmCreateSource, /aiConfigOpenedFromPipelineAction\.value = context\.source === 'compact-action'/)
-  assert.match(filmCreateSource, /const restorePipelineSummaryFocus = aiConfigOpenedFromPipelineAction\.value/)
-  assert.match(filmCreateSource, /aiConfigOpenedFromPipelineAction\.value = false/)
+  assert.match(aiConfigWorkspaceSource, /function openAiConfigFromPipeline\(serviceType = '', context = \{\}\)/)
+  assert.match(aiConfigWorkspaceSource, /aiConfigOpenedFromPipelineAction\.value = context\.source === 'compact-action'/)
+  assert.match(aiConfigWorkspaceSource, /const restorePipelineSummaryFocus = aiConfigOpenedFromPipelineAction\.value/)
+  assert.match(aiConfigWorkspaceSource, /aiConfigOpenedFromPipelineAction\.value = false/)
 })
 
 test('AI coverage test actions are accessible secondary buttons with pending state', () => {

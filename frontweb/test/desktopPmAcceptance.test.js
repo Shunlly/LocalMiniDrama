@@ -15,7 +15,8 @@ const freeCreateSource = read('../src/views/FreeCreate.vue')
 const canvasSource = read('../src/views/DramaCanvas.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const mediaPreviewSource = read('../src/composables/filmCreate/useFilmCreateMediaPreview.js')
-const filmCreateLogicSource = filmCreateSource + '\n' + mediaPreviewSource
+const workspaceNavSource = read('../src/composables/filmCreate/useFilmCreateWorkspaceNav.js')
+const filmCreateLogicSource = filmCreateSource + '\n' + mediaPreviewSource + '\n' + workspaceNavSource
 const storyboardPanelSource = read('../src/components/filmCreate/FilmCreateStoryboardPanel.vue')
 const filmCreatePipelineSource = read('../src/components/filmCreate/FilmCreatePipelinePanel.vue')
 const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
@@ -103,7 +104,7 @@ test('media library returnTo safely preserves the current film workspace', async
   }
   assert.match(routerSource, /name: 'media-library'[\s\S]*normalizeReturnTo: normalizeMediaLibraryReturnTo/)
   assert.match(mediaLibrarySource, /router\.push\(returnTo\.value \|\| '\/'\)/)
-  assert.match(filmCreateSource, /returnTo: route\.fullPath/)
+  assert.match(workspaceNavSource, /returnTo: route\.fullPath/)
   assert.match(
     filmListSource,
     /router\.push\(newProjectDestination\(drama, sourceImportIntent\.value, projectListReturnTo\.value\)\)/,

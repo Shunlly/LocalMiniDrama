@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs'
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const routeUtilsUrl = new URL('../src/utils/projectListRoute.js', import.meta.url)
 const filmCreateSourceForCanvas = read('../src/views/FilmCreate.vue')
+const workspaceNavSource = read('../src/composables/filmCreate/useFilmCreateWorkspaceNav.js')
 const dramaDetailSourceForCanvas = read('../src/views/DramaDetail.vue')
 const dramaCanvasSourceForReturn = read('../src/views/DramaCanvas.vue')
 
@@ -148,10 +149,10 @@ test('project list and project workspaces wire safe return navigation through th
     /router\.push\(newProjectDestination\(drama, sourceImportIntent\.value, projectListReturnTo\.value\)\)/,
   )
 
-  for (const source of [filmCreateSource, dramaDetailSource]) {
-    assert.match(source, /normalizeProjectListReturnTo\(route\.query\.returnTo\)/)
-    assert.match(source, /router\.push\(projectListReturnTo\.value \|\| \{ name: 'list' \}\)/)
-  }
+  assert.match(filmCreateSource, /normalizeProjectListReturnTo\(route\.query\.returnTo\)/)
+  assert.match(workspaceNavSource, /router\.push\(projectListReturnTo\.value \|\| \{ name: 'list' \}\)/)
+  assert.match(dramaDetailSource, /normalizeProjectListReturnTo\(route\.query\.returnTo\)/)
+  assert.match(dramaDetailSource, /router\.push\(projectListReturnTo\.value \|\| \{ name: 'list' \}\)/)
   assert.doesNotMatch(dramaDetailSource, /router\.push\('\/'\)/)
   assert.match(dramaDetailSource, /withProjectListReturnTo\(query\)/)
 
@@ -161,7 +162,7 @@ test('project list and project workspaces wire safe return navigation through th
 })
 
 test('entering canvas mode keeps the project-list return context', () => {
-  assert.match(filmCreateSourceForCanvas, /function goCanvasMode\(\)[\s\S]*projectListReturnTo\.value[\s\S]*\/film\/\$\{dramaId\.value\}\/canvas/)
+  assert.match(workspaceNavSource, /function goCanvasMode\(\)[\s\S]*projectListReturnTo\.value[\s\S]*\/film\/\$\{dramaId\.value\}\/canvas/)
   assert.match(dramaDetailSourceForCanvas, /const currentEpisodeId = computed\(\(\) => resolveProjectEpisodeId\(episodes\.value, route\.query\.episode\)\)/)
   assert.equal((dramaDetailSourceForCanvas.match(/resolveProjectEpisodeId\(episodes\.value, route\.query\.episode\)/g) || []).length, 1)
   assert.match(dramaDetailSourceForCanvas, /function goCanvasMode\(\)[\s\S]*episode: String\(currentEpisodeId\.value\)[\s\S]*router\.push\(\{ path: `\/film\/\$\{dramaId\}\/canvas`/)

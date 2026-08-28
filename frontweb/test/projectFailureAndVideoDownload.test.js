@@ -13,6 +13,7 @@ import {
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
+const deliveryActionsSource = read('../src/composables/filmCreate/useFilmCreateDeliveryActions.js')
 const deliveryPanelSource = read('../src/components/filmCreate/FilmCreateDeliveryPanel.vue')
 const storyboardMediaSource = read('../src/composables/filmCreate/useFilmCreateStoryboardMedia.js')
 const projectLoadSource = read('../src/composables/filmCreate/useFilmCreateProjectLoad.js')
@@ -204,7 +205,7 @@ test('video filename is filesystem-safe and Blob download always releases its ob
 
 test('FilmCreate exposes an accessible retryable download command beside the final preview', () => {
   const handler = sourceBetween(
-    filmCreateSource,
+    deliveryActionsSource,
     'async function downloadCurrentEpisodeVideo',
     'watch([currentEpisodeId, currentEpisodeVideoUrl]',
   )
@@ -217,7 +218,7 @@ test('FilmCreate exposes an accessible retryable download command beside the fin
 
 test('FilmCreate delivery exports validate files before reporting success', () => {
   const deliveryHandlers = sourceBetween(
-    filmCreateSource,
+    deliveryActionsSource,
     'async function downloadCurrentEpisodeSubtitle',
     'watch([currentEpisodeId, currentEpisodeVideoUrl]',
   )

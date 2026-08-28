@@ -10,6 +10,7 @@ import {
 } from '../src/utils/filmPipelineControl.js'
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const taskCancelSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateTaskCancel.js', import.meta.url), 'utf8')
 const pipelineRunSource = readFileSync(
   new URL('../src/composables/filmCreate/useFilmCreatePipelineRun.js', import.meta.url),
   'utf8',
@@ -206,9 +207,9 @@ test('FilmCreate pauses inside polling and keeps ownership of the same task id',
 
 test('FilmCreate cancellation waits for its owned run and never unlocks in the task button', () => {
   const cancelTaskSource = sourceBetween(
-    filmCreateSource,
+    taskCancelSource,
     'async function cancelActiveTask',
-    'const sbCharacterIds',
+    'return {',
   )
   const cancelRunSource = sourceBetween(
     source,

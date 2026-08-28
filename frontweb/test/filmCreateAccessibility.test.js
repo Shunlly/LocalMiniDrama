@@ -14,6 +14,10 @@ const storyboardVideoFieldsSource = readFileSync(
   new URL('../src/composables/filmCreate/useFilmCreateStoryboardVideoFields.js', import.meta.url),
   'utf8',
 )
+const deliveryActionsSource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreateDeliveryActions.js', import.meta.url),
+  'utf8',
+)
 const stylePickerSource = readFileSync(
   new URL('../src/components/StylePickerButton.vue', import.meta.url),
   'utf8',
@@ -100,7 +104,7 @@ test('film create navigation names and reports the final delivery step accuratel
     filmCreateSource,
     /label: '交付与导出',\s+anchor: 'anchor-video',\s+status: compositeStatus/,
   )
-  assert.match(filmCreateSource, /if \(isPlaceholderMediaUrl\(s\)\) return ''/)
+  assert.match(deliveryActionsSource, /if \(isPlaceholderMediaUrl\(s\)\) return ''/)
   assert.match(filmCreateSource, /currentEpisodeVideoUrl\.value\s*\? 'done'/)
   assert.doesNotMatch(
     filmCreateSource,
@@ -116,7 +120,7 @@ test('delivery stage consolidates composite readiness and user-facing export act
   assert.match(filmCreateSource, /@download-video="downloadCurrentEpisodeVideo"/)
   assert.match(filmCreateSource, /@download-subtitle="downloadCurrentEpisodeSubtitle"/)
   assert.match(filmCreateSource, /@export-project="exportCurrentProjectPackage"/)
-  assert.match(filmCreateSource, /const deliverySubtitleAvailable = computed\(\(\) => storyboards\.value\.some/)
+  assert.match(deliveryActionsSource, /const deliverySubtitleAvailable = computed\(\(\) => storyboards\.value\.some/)
   assert.match(deliveryPanelSource, /<ActionGate :reason="downloadSubtitleDisabledReason" label="下载字幕">/)
   assert.match(deliveryPanelSource, /:disabled="Boolean\(downloadSubtitleDisabledReason\)"/)
   assert.match(filmCreateSource, /import \{ timelinesAPI as rawTimelinesAPI \} from '@\/api\/timelines'/)
