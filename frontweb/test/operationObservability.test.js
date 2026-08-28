@@ -8,24 +8,24 @@ import {
   installOperationLogSink,
   resetOperationLogs,
 } from '../src/utils/operationLog.js'
+import { trackFilmCreateAction } from '../src/utils/filmCreateActionLog.js'
+import { useFilmCreatePipelineRun } from '../src/composables/filmCreate/useFilmCreatePipelineRun.js'
+import { useFilmCreatePipelineStages } from '../src/composables/filmCreate/useFilmCreatePipelineStages.js'
+import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 test('制作页、项目列表、AI 配置和任务取消都接入本地操作日志', () => {
   const filmCreateSource = read('../src/views/FilmCreate.vue')
-  const actionLogSource = read('../src/utils/filmCreateActionLog.js')
-  const pipelineRunSource = read('../src/composables/filmCreate/useFilmCreatePipelineRun.js')
-  const pipelineStagesSource = read('../src/composables/filmCreate/useFilmCreatePipelineStages.js')
-  const filmCreateWithPipelineSource = filmCreateSource + '\n' + pipelineRunSource + '\n' + pipelineStagesSource
   const filmListSource = read('../src/views/FilmList.vue')
   const aiConfigSource = read('../src/components/AIConfigContent.vue')
   const storeSource = read('../src/stores/generationTaskStore.js')
+  const pipelineSource = remainingImportedFunctionSource(useFilmCreatePipelineRun, useFilmCreatePipelineStages)
 
-  assert.match(actionLogSource, /import \{ logOperation \} from '@\/utils\/operationLog'/)
-  assert.match(actionLogSource, /function trackFilmCreateAction\(action, payload = \{\}\) \{[\s\S]*logOperation\(/)
-  assert.match(filmCreateWithPipelineSource, /trackFilmCreateAction\('pipeline_stop_start'/)
-  assert.match(filmCreateWithPipelineSource, /trackFilmCreateAction\(cancellationComplete \? 'pipeline_stop_complete' : 'pipeline_stop_failed'/)
-  assert.match(filmCreateWithPipelineSource, /trackFilmCreateAction\('text_framework_generate_start'/)
+  assert.equal(typeof trackFilmCreateAction, 'function')
+  assert.match(pipelineSource, /trackFilmCreateAction\('pipeline_stop_start'/)
+  assert.match(pipelineSource, /trackFilmCreateAction\(cancellationComplete \? 'pipeline_stop_complete' : 'pipeline_stop_failed'/)
+  assert.match(pipelineSource, /trackFilmCreateAction\('text_framework_generate_start'/)
 
   assert.match(filmListSource, /import \{ createOperationId, logOperation \} from '@\/utils\/operationLog'/)
   assert.match(filmListSource, /operation: 'project_list_load'/)

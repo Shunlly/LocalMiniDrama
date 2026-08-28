@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+
 const source = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
 
 function mediaCardTemplate() {
@@ -112,10 +114,7 @@ test('已导入 Commons 素材展示可审计的版本与内容证据', () => {
 })
 
 test('来源证据复制会写入剪贴板并反馈成功或失败', async () => {
-  const start = source.indexOf('async function copySourceEvidence')
-  const end = source.indexOf('\nfunction formatSourceTimestamp', start)
-  assert.ok(start >= 0 && end > start)
-  const implementation = source.slice(start, end)
+  const implementation = remainingExtractNamedFunction(source, 'copySourceEvidence')
   const harnessSource = `
     let shouldFail = false
     const calls = []

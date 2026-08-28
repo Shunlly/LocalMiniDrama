@@ -2,6 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 
+import { useFilmCreateStoryboardAccessors } from '../src/composables/filmCreate/useFilmCreateStoryboardAccessors.js'
+import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
+
 function read(path) {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
 }
@@ -25,7 +28,6 @@ const targetSources = [
 ]
 
 const filmCreateSource = targetSources.find(({ name }) => name.endsWith('/FilmCreate.vue')).source
-const storyboardAccessorsSource = read('../src/composables/filmCreate/useFilmCreateStoryboardAccessors.js')
 const pipelineSource = targetSources.find(({ name }) => name.endsWith('/FilmCreatePipelinePanel.vue')).source
 const scriptWorkbenchSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateScriptWorkbench.vue')).source
 const storyboardCreatePanelSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateStoryboardPanel.vue')).source
@@ -173,7 +175,7 @@ test('history image operations include a stable per-list index in every accessib
     (storyboardCreatePanelSource.match(/v-for="\(item, historyIndex\) in getStripItems\(sb\.id\)"/g) || []).length,
     2,
   )
-  assert.match(storyboardAccessorsSource, /function historyImageLabel\(sb, storyboardIndex, item, historyIndex\)/)
+  assert.match(remainingImportedFunctionSource(useFilmCreateStoryboardAccessors), /function historyImageLabel\(sb, storyboardIndex, item, historyIndex\)/)
   assert.ok(
     (storyboardCreatePanelSource.match(/historyImageLabel\(sb, i, item, historyIndex\)/g) || []).length >= 6,
     'primary, preview, and delete actions in both history strips must use the indexed label',

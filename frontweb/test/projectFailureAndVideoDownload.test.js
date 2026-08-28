@@ -14,6 +14,7 @@ import {
 import { useFilmCreateDeliveryActions } from '../src/composables/filmCreate/useFilmCreateDeliveryActions.js'
 import { useFilmCreateProjectLoad } from '../src/composables/filmCreate/useFilmCreateProjectLoad.js'
 import { useFilmCreateStoryboardMedia } from '../src/composables/filmCreate/useFilmCreateStoryboardMedia.js'
+import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
 
 const DRAMA_ID = 11
 const EPISODE_ID = 22
@@ -27,7 +28,6 @@ const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const deliveryPanelSource = read('../src/components/filmCreate/FilmCreateDeliveryPanel.vue')
 const resourceDialogsSource = read('../src/components/filmCreate/FilmCreateResourceDialogs.vue')
-const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource
 
 function refOf(value) {
   return { value }
@@ -180,7 +180,7 @@ test('project pages keep core load failures outside every editable project surfa
     assert.match(source, /返回项目列表/)
   }
   assert.match(dramaDetailSource, /dramaLoadFailureRef\.value\?\.focus\(\)/)
-  assert.match(filmCreateSource + '\n' + read('../src/composables/filmCreate/useFilmCreateProjectLoad.js'), /LoadFailureRef\.value\?\.focus\(\)/)
+  assert.match(remainingImportedFunctionSource(useFilmCreateProjectLoad), /LoadFailureRef\.value\?\.focus\(\)/)
 
   assert.match(dramaDetailSource, /<template v-else-if="isDramaReady">[\s\S]*剧集信息/)
   assert.match(dramaDetailSource, /<template v-if="isDramaReady">\s*<!--[\s\S]*?<AccessibleDialog/)
@@ -190,14 +190,15 @@ test('project pages keep core load failures outside every editable project surfa
   assert.match(filmCreateSource, /<main v-if="projectLoadState === 'loading'"/)
   assert.match(filmCreateSource, /<main v-else-if="projectLoadState === 'error'"/)
   assert.match(filmCreateSource, /<main v-else class="main">[\s\S]*FilmCreateScriptWorkbench/)
-  assert.match(filmCreateSource + '\n' + resourceDialogsSource, /<template v-if="projectLoadState === 'ready'">[\s\S]*?<FilmCreateResourceDialogs[\s\S]*?<AccessibleDialog/)
+  assert.match(filmCreateSource, /<template v-if="projectLoadState === 'ready'">[\s\S]*?<FilmCreateResourceDialogs/)
+  assert.match(resourceDialogsSource, /<AccessibleDialog/)
   assert.match(filmCreateSource, /:disabled="projectLoadState !== 'ready'" @click="openAiConfig\(\)"/)
   assert.match(filmCreateSource, /v-if="!projectLoadNotFound"[\s\S]*重试加载/)
   assert.match(dramaDetailSource, /v-if="!dramaLoadNotFound"[\s\S]*重试加载/)
 })
 
 test('core drama request failures use stable page state instead of raw request toasts', async () => {
-  assert.match(dramaDetailSource, /async function loadDrama\([\s\S]*dramaLoadState\.value = 'error'[\s\S]*drama\.value = null[\s\S]*coreDramaAPI\.get\(dramaId\)/)
+  assert.match(dramaDetailSource, /async function loadDrama\([\s\S]*coreDramaAPI\.get\(dramaId\)[\s\S]*drama\.value = null[\s\S]*dramaLoadState\.value = 'error'/)
   assert.match(dramaDetailSource, /requestCoreJson as requestCoreDrama/)
   assert.doesNotMatch(dramaDetailSource, /dramaAPI\.get\(dramaId\)/)
 
@@ -409,9 +410,9 @@ test('FilmCreate exposes an accessible retryable download command beside the fin
     failedEnv.restore()
   }
 
-  assert.match(filmCreateUiSource, /<el-icon><Download \/><\/el-icon>/)
-  assert.match(filmCreateUiSource, /videoDownloadStatus === 'error' \? '重试下载' : '下载成片'/)
-  assert.match(filmCreateUiSource, /:role="videoDownloadStatus === 'error' \? 'alert' : 'status'"/)
+  assert.match(deliveryPanelSource, /<el-icon><Download \/><\/el-icon>/)
+  assert.match(deliveryPanelSource, /videoDownloadStatus === 'error' \? '重试下载' : '下载成片'/)
+  assert.match(deliveryPanelSource, /:role="videoDownloadStatus === 'error' \? 'alert' : 'status'"/)
 })
 
 test('FilmCreate delivery exports validate files before reporting success', async () => {

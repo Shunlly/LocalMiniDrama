@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { synchronizeFreeCanvasSelection } from '../src/utils/freeCanvasState.js'
+import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 
 const canvasSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
 
@@ -13,32 +14,7 @@ function deferred() {
 }
 
 function extractFunction(name) {
-  const markers = [`async function ${name}`, `function ${name}`]
-  const start = markers.reduce((match, marker) => {
-    const index = canvasSource.indexOf(marker)
-    return index >= 0 && (match < 0 || index < match) ? index : match
-  }, -1)
-  assert.ok(start >= 0, `缺少 ${name}`)
-
-  let bodyStart = -1
-  let parenthesisDepth = 0
-  for (let index = canvasSource.indexOf('(', start); index < canvasSource.length; index += 1) {
-    if (canvasSource[index] === '(') parenthesisDepth += 1
-    if (canvasSource[index] === ')') parenthesisDepth -= 1
-    if (parenthesisDepth === 0 && canvasSource[index] === '{') {
-      bodyStart = index
-      break
-    }
-  }
-  assert.ok(bodyStart >= 0, `缺少 ${name} 函数体`)
-
-  let depth = 0
-  for (let index = bodyStart; index < canvasSource.length; index += 1) {
-    if (canvasSource[index] === '{') depth += 1
-    if (canvasSource[index] === '}') depth -= 1
-    if (depth === 0) return canvasSource.slice(start, index + 1)
-  }
-  throw new Error(`${name} 函数体未闭合`)
+  return remainingExtractNamedFunction(canvasSource, name)
 }
 
 function createRouteFocusHarness() {

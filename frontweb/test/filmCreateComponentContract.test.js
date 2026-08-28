@@ -3,6 +3,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { compileScript, parse } from '@vue/compiler-sfc'
+import { useFilmCreateStoryboardAccessors } from '../src/composables/filmCreate/useFilmCreateStoryboardAccessors.js'
+import { useFilmCreateStoryboardBindings } from '../src/composables/filmCreate/useFilmCreateStoryboardBindings.js'
+import { useFilmCreateStoryboardCrud } from '../src/composables/filmCreate/useFilmCreateStoryboardCrud.js'
+import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
 import { createRenderer, defineComponent, h, nextTick, ref } from 'vue'
 
 const vueUrl = import.meta.resolve('vue')
@@ -12,8 +16,6 @@ const pipelinePanelUrl = new URL('../src/components/filmCreate/FilmCreatePipelin
 const disclosureStateUrl = new URL('../src/composables/useDisclosureState.js', import.meta.url)
 const filmPipelineActionUrl = new URL('../src/utils/filmPipelineAction.js', import.meta.url)
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
-const storyboardCrudSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardCrud.js', import.meta.url), 'utf8')
-const storyboardBindingsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardBindings.js', import.meta.url), 'utf8')
 const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 
 test('FilmCreate script compiles without duplicate bindings', () => {
@@ -114,14 +116,15 @@ const FilmCreatePipelinePanel = (await import(compiledPipelinePanelUrl)).default
 
 test('FilmCreate never renders or forwards raw storyboard placeholder URLs', () => {
   assert.match(storyboardPanelSource, /v-else-if="storyboardImageUrl\(sb\)"/)
-  assert.match(filmCreateSource + '\n' + readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardAccessors.js', import.meta.url), 'utf8'), /return storyboardImageUrl\(sb\)/)
+  assert.match(remainingImportedFunctionSource(useFilmCreateStoryboardAccessors), /return storyboardImageUrl\(sb\)/)
   assert.doesNotMatch(filmCreateSource, /v-else-if="sb\.(?:image_url|composed_image)/)
   assert.doesNotMatch(filmCreateSource, /imageUrl\(sb\.composed_image \|\| sb\.image_url\)/)
 })
 
 test('FilmCreate localizes legacy workflow camera movement values', () => {
-  assert.match(storyboardBindingsSource, /'slow push in': '缓慢推镜'/)
-  assert.match(storyboardBindingsSource, /'static hold': '固定镜头'/)
+  const bindings = useFilmCreateStoryboardBindings({ storyboards: { value: [] }, characters: { value: [] }, props: { value: [] }, scenes: { value: [] }, storyboardsAPI: {}, sbCharacterIds: { value: {} }, sbPropIds: { value: {} }, sbSceneId: { value: {} }, saveProjectSettings() {} })
+  assert.equal(bindings.getMovementLabel('slow push in'), '缓慢推镜')
+  assert.equal(bindings.getMovementLabel('static hold'), '固定镜头')
 })
 
 function createHostNode(type, text = '') {
@@ -633,7 +636,7 @@ test('pipeline forwards start, pause, resume, stop, and countdown skip commands'
       ...harness.props.value,
       running: true,
       countdown: 5,
-      countdownMessage: 'Waiting for the next stage',
+      countdownMessage: '等待进入下一阶段',
     }
     await nextTick()
     buttonByText(harness.root, '暂停').props.onClick()
@@ -685,32 +688,59 @@ test('pipeline cancellation failure exposes retry without pause or resume comman
 test('pipeline renders live progress, active tasks, countdown, and error details', () => {
   const harness = mountPipeline({
     running: true,
-    currentStep: '[步骤 2/5] Rendering storyboards',
+    currentStep: '[步骤 2/5] 正在生成分镜',
     stepIndex: 2,
     stepTotal: 5,
     countdown: 7,
-    countdownMessage: 'Waiting for provider capacity',
-    activeTasks: new Set(['Character task', 'Scene task']),
-    errorLog: [{ step: 'Image generation', message: 'Provider failed' }],
+    countdownMessage: '等待供应商资源就绪',
+    activeTasks: new Set(['角色任务', '场景任务']),
+    errorLog: [{ step: '分镜生图', message: '供应商调用失败' }],
   })
   try {
     const [status] = findAll(harness.root, (node) => node.props['aria-live'] === 'polite')
     assert.ok(status)
     const statusText = textContent(status)
     assert.match(statusText, /2\/5/)
-    assert.match(statusText, /Rendering storyboards/)
+    assert.match(statusText, /正在生成分镜/)
     assert.doesNotMatch(statusText, /\[步骤 2\/5\]/)
-    assert.match(statusText, /Waiting for provider capacity/)
-    assert.match(statusText, /Character task/)
-    assert.match(statusText, /Scene task/)
+    assert.match(statusText, /等待供应商资源就绪/)
+    assert.match(statusText, /角色任务/)
+    assert.match(statusText, /场景任务/)
 
     const [alert] = findAll(status, (node) => node.props.role === 'alert')
-    assert.match(textContent(alert), /Image generation/)
-    assert.match(textContent(alert), /Provider failed/)
+    assert.match(textContent(alert), /分镜生图/)
+    assert.match(textContent(alert), /供应商调用失败/)
     assert.equal(buttonByText(harness.root, '一键生成成片').props['data-loading'], true)
     assert.equal(buttonByText(harness.root, '仅生成文本框架').props['data-loading'], true)
   } finally {
     harness.app.unmount()
+  }
+})
+
+test('pipeline shows pause disable reason while stopping and retry after failure', async () => {
+  const stopping = mountPipeline({ running: true, stopping: true })
+  try {
+    assert.match(textContent(stopping.root), /正在停止全流程，请稍候/)
+    assert.equal(buttonByText(stopping.root, '暂停').props.disabled, true)
+    assert.equal(buttonByText(stopping.root, '停止').props.disabled, true)
+  } finally {
+    stopping.app.unmount()
+  }
+
+  const failed = mountPipeline({
+    running: false,
+    errorLog: [{ step: '分镜视频', message: '生成失败' }],
+  })
+  try {
+    await nextTick()
+    assert.match(textContent(failed.root), /执行失败/)
+    assert.match(textContent(failed.root), /全流程生成未完成/)
+    const retry = buttonByText(failed.root, '重试全流程')
+    assert.ok(retry)
+    retry.props.onClick()
+    assert.deepEqual(failed.events, [['start-one-click']])
+  } finally {
+    failed.app.unmount()
   }
 })
 test('pipeline compact action can add the first episode', async () => {
@@ -725,6 +755,10 @@ test('pipeline compact action can add the first episode', async () => {
     const [action] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-action')
     assert.ok(action)
     assert.match(textContent(action), /添加一集/)
+    const [toggle] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-toggle')
+    toggle.props.onClick()
+    await nextTick()
+    assert.match(textContent(harness.root), /还没有剧集/)
     action.props.onClick()
     assert.deepEqual(harness.events, [['add-episode']])
   } finally {
@@ -813,6 +847,6 @@ test('FilmCreate 把资源弹窗和分镜弹窗交给独立面板', () => {
 test('FilmCreate 把导入小说弹窗交给独立面板，重新生成分镜需要确认', () => {
   assert.match(filmCreateSource, /<FilmCreateNovelImportDialog/)
   assert.match(filmCreateSource, /v-model:max-chapters="novelMaxChapters"/)
-  assert.match(storyboardCrudSource, /重新生成会覆盖当前分镜脚本和已有分镜图、视频进度/)
-  assert.match(storyboardCrudSource, /confirmButtonText: '重新生成'/)
+  assert.match(remainingImportedFunctionSource(useFilmCreateStoryboardCrud), /重新生成会覆盖当前分镜脚本和已有分镜图、视频进度/)
+  assert.match(remainingImportedFunctionSource(useFilmCreateStoryboardCrud), /confirmButtonText: '重新生成'/)
 })

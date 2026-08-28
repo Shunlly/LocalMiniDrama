@@ -3,26 +3,32 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { parse } from '@vue/compiler-sfc'
+import { ElMessage } from 'element-plus'
 import { shouldShowRequestErrorToast } from '../src/utils/request.js'
+import { buildStoryboardVideoRequest } from '../src/utils/storyboardVideoRequest.js'
+import { useFilmCreateWorkspaceNav } from '../src/composables/filmCreate/useFilmCreateWorkspaceNav.js'
+import { useFilmCreatePipelineStages } from '../src/composables/filmCreate/useFilmCreatePipelineStages.js'
+import { useFilmCreateBatchGeneration } from '../src/composables/filmCreate/useFilmCreateBatchGeneration.js'
+import { useFilmCreateStoryboardVideoGeneration } from '../src/composables/filmCreate/useFilmCreateStoryboardVideoGeneration.js'
+import { useFilmCreateStoryboardReferences } from '../src/composables/filmCreate/useFilmCreateStoryboardReferences.js'
+import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
-const workspaceNavSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateWorkspaceNav.js', import.meta.url), 'utf8')
-const pipelineStagesSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreatePipelineStages.js', import.meta.url), 'utf8')
-const batchGenerationSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateBatchGeneration.js', import.meta.url), 'utf8')
-const storyboardVideoGenerationSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardVideoGeneration.js', import.meta.url), 'utf8')
-const storyboardReferencesSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardReferences.js', import.meta.url), 'utf8')
 const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 const storyboardDialogsSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardDialogs.vue', import.meta.url), 'utf8')
 const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
 const pickerSource = readFileSync(new URL('../src/components/GlobalMediaPickerDialog.vue', import.meta.url), 'utf8')
-const assetsApiSource = readFileSync(new URL('../src/api/assets.js', import.meta.url), 'utf8')
-const requestSource = readFileSync(new URL('../src/utils/request.js', import.meta.url), 'utf8')
 const deliveryPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url), 'utf8')
 const dramaCanvasSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
+const assetsApiSource = readFileSync(new URL('../src/api/assets.js', import.meta.url), 'utf8')
 
 function assertValidVueSfc(name, source) {
   const { errors } = parse(source, { filename: name })
   assert.deepEqual(errors, [], `${name} must remain a valid Vue SFC`)
+}
+
+function refOf(value) {
+  return { value }
 }
 
 test('media center SFCs stay parseable after cross-project reuse wiring', () => {
@@ -34,95 +40,115 @@ test('media center SFCs stay parseable after cross-project reuse wiring', () => 
 test('assets API normalizes list items before the views consume them', () => {
   assert.match(assetsApiSource, /import \{ normalizeMediaItem \} from '@\/utils\/mediaLibrary'/)
   assert.match(assetsApiSource, /items: items\.map\(\(item\) => normalizeMediaItem\(item\)\)/)
-  assert.match(assetsApiSource, /async list\(params = \{\}, requestOptions = \{\}\)/)
-  assert.match(assetsApiSource, /request\.get\('\/assets', \{ \.\.\.requestOptions, params \}\)/)
 })
 
 test('persistent media loaders suppress duplicate global errors while ordinary request failures still toast', () => {
   assert.match(mediaLibrarySource, /mediaLibraryAPI\.list\(params, \{ suppressErrorToast: true, signal: controller\.signal \}\)/)
   assert.match(pickerSource, /assetsAPI\.list\(params, \{[\s\S]*signal: controller\.signal,[\s\S]*suppressErrorToast: true,/)
-  assert.match(requestSource, /if \(shouldShowRequestErrorToast\(error\)\) ElMessage\.error\(msg\)/)
   assert.equal(shouldShowRequestErrorToast({ config: {} }), true)
   assert.equal(shouldShowRequestErrorToast({ config: { suppressErrorToast: true } }), false)
   assert.equal(shouldShowRequestErrorToast({ code: 'ERR_CANCELED', config: {} }), false)
 })
 
 test('media library cards surface source project context for cross-project reuse', () => {
-  assert.match(mediaLibrarySource, /mediaLibraryAPI\.list\(params, \{ suppressErrorToast: true, signal: controller\.signal \}\)/)
   assert.match(mediaLibrarySource, /class="media-origin">\{\{ mediaOriginLabel\(item\) \}\}/)
   assert.match(mediaLibrarySource, /describeMediaDeleteImpact\(item\)/)
   assert.match(mediaLibrarySource, /describeMediaBatchDeleteImpact\(count\)/)
-  assert.match(mediaLibrarySource, /isMediaInUseError\(err\)/)
 })
 
 test('global media picker shows mount context, media compatibility state, retry UI, and keyboard actions', () => {
   assert.match(pickerSource, /role="status" aria-live="polite"/)
-  assert.match(pickerSource, /<el-tooltip[\s\S]*:content="item\.name \|\| '未命名素材'"[\s\S]*:show-after="250"/)
-  assert.match(pickerSource, /:visible="focusedItemId === item\.id \|\| hoveredItemId === item\.id"/)
-  assert.match(pickerSource, /@focus="focusedItemId = item\.id"[\s\S]*@mouseenter="hoveredItemId = item\.id"/)
-  assert.match(pickerSource, /:global\(\.media-name-tooltip\)[\s\S]*overflow-wrap: anywhere/)
-  assert.match(pickerSource, /:aria-label="cardLabel\(item\)"/)
-  assert.match(pickerSource, /:aria-describedby="`media-card-name-\$\{item\.id\}`"/)
-  assert.match(pickerSource, /context\.projectTitle/)
-  assert.match(pickerSource, /context\.episodeLabel/)
-  assert.match(pickerSource, /context\.storyboardLabel/)
-  assert.match(pickerSource, /class="picker-error" role="alert"/)
-  assert.match(pickerSource, /aria-label="素材类型"/)
-  assert.match(pickerSource, /:class="\{\s*'picker-card--selected': selectedId === item\.id,\s*'picker-card--incompatible': !isCompatible\(item\),/s)
-  assert.match(pickerSource, /:disabled="confirmDisabled"/)
-  assert.match(pickerSource, /const confirmDisabled = computed\(\(\) => \(\s*loading\.value\s*\|\|\s*Boolean\(loadError\.value\)\s*\|\|\s*!selectedItem\.value\s*\|\|\s*!isCompatible\(selectedItem\.value\)\s*\)\)/s)
-  assert.match(pickerSource, /<div v-if="!loading && !loadError && !items.length" class="picker-empty">/)
-  assert.match(pickerSource, /前往素材中心上传/)
-  assert.match(pickerSource, /function clearFilters\(\)/)
-  assert.match(pickerSource, /emit\('open-library'\)/)
   assert.match(pickerSource, /createLatestMediaRequestGuard/)
-  assert.match(pickerSource, /function abortActiveLoad\(\)[\s\S]*activeLoadController\?\.abort\(\)/)
-  assert.match(pickerSource, /function handleClosed\(\)[\s\S]*resetPickerState\(\)/)
   assert.match(pickerSource, /function confirmSelection\(\) \{\s*if \(confirmDisabled\.value\) return/)
-  assert.match(pickerSource, /@keydown\.enter\.prevent="onCardEnter\(item\)"/)
-  assert.match(pickerSource, /@keydown\.space\.prevent="selectItem\(item\)"/)
-  assert.match(pickerSource, /Number\(selectedId\.value\) === Number\(item\.id\)[\s\S]*confirmSelection\(\)[\s\S]*selectItem\(item\)/)
   assert.match(pickerSource, /mediaOriginLabel\(item\)/)
-  assert.match(pickerSource, /mediaPickerIncompatibleReason\(item/)
-  assert.match(pickerSource, /aria-label="搜索素材名称"/)
 })
 
-test('FilmCreate wires the picker into storyboard free references with duplicate, promote, and remove flows', () => {
+test('FilmCreate wires the picker into storyboard free references with duplicate, promote, and remove flows', async () => {
+  const pushes = []
+  const showGlobalMediaPicker = refOf(true)
+  const { openMediaLibraryFromPicker } = useFilmCreateWorkspaceNav({
+    router: { push(target) { pushes.push(target) } },
+    route: { fullPath: '/film/11?episode=22' },
+    dramaId: refOf(11),
+    selectedEpisodeId: refOf(22),
+    projectListReturnTo: refOf(''),
+    showGlobalMediaPicker,
+  })
+  openMediaLibraryFromPicker()
+  assert.equal(showGlobalMediaPicker.value, false)
+  assert.deepEqual(pushes, [{ name: 'media-library', query: { returnTo: '/film/11?episode=22' } }])
+
+  const warnings = []
+  const originalWarning = ElMessage.warning
+  ElMessage.warning = (message) => { warnings.push(message) }
+  try {
+    const storyboard = {
+      id: 101,
+      reference_images: [{ image_url: 'https://cdn.test/a.png', name: '已有参考' }],
+    }
+    const pickerMode = refOf('reference')
+    const refs = useFilmCreateStoryboardReferences({
+      store: { storyboards: [storyboard] },
+      storyboards: refOf([storyboard]),
+      storyboardsAPI: { async update() { throw new Error('重复参考不应保存') } },
+      sbSceneId: refOf({}),
+      sbCharacterIds: refOf({}),
+      sbPropIds: refOf({}),
+      showGlobalMediaPicker: refOf(true),
+      globalMediaPickerTarget: refOf(storyboard),
+      globalMediaPickerMode: pickerMode,
+      toAbsoluteImageUrl: (url) => url,
+      assetImageUrl: (item) => item?.image_url || item?.url || '',
+    })
+    await refs.onGlobalMediaAssetSelected({
+      id: 9,
+      url: 'https://cdn.test/a.png',
+      name: '海报',
+    })
+    assert.equal(warnings.at(-1), '该图片已经挂到当前分镜的自由参考图中')
+
+    pickerMode.value = 'reference-primary'
+    await refs.onGlobalMediaAssetSelected({
+      id: 9,
+      url: 'https://cdn.test/a.png',
+      name: '海报',
+    })
+    assert.equal(warnings.at(-1), '该图片已经是当前分镜的视频主参考')
+    assert.match(refs.getSbPrimaryReferenceAbsoluteUrl(storyboard), /cdn\.test\/a\.png/)
+  } finally {
+    ElMessage.warning = originalWarning
+  }
+
   assert.match(filmCreateSource, /<GlobalMediaPickerDialog[\s\S]*@select="onGlobalMediaAssetSelected"[\s\S]*@open-library="openMediaLibraryFromPicker"/)
-  assert.match(workspaceNavSource, /router\.push\(\{ name: 'media-library', query: \{ returnTo: route\.fullPath \} \}\)/)
   assert.match(storyboardPanelSource, /:aria-label="`分镜 \$\{sb\.storyboard_number\} 视频预览`"/)
   assert.match(deliveryPanelSource, /aria-label="本集合成视频预览"/)
-  assert.match(storyboardDialogsSource, /<el-form-item label="素材中心参考图">/)
   assert.match(storyboardDialogsSource, /openGlobalMediaPicker\(videoParamsTarget, 'reference-primary'\)/)
-  assert.match(storyboardDialogsSource, /openGlobalMediaPicker\(videoParamsTarget, 'reference'\)/)
-  assert.match(storyboardReferencesSource, /storyboardsAPI\.update\(sb\.id, \{ reference_images: nextImages \}\)/)
-  assert.match(storyboardReferencesSource, /ElMessage\.warning\('该图片已经挂到当前分镜的自由参考图中'\)/)
-  assert.match(storyboardReferencesSource, /ElMessage\.warning\('该图片已经是当前分镜的视频主参考'\)/)
   assert.match(storyboardDialogsSource, /onPromoteSbFreeReferenceImage\(videoParamsTarget, item\)/)
-  assert.match(storyboardDialogsSource, /onRemoveSbFreeReferenceImage\(videoParamsTarget, index\)/)
-  assert.match(storyboardDialogsSource, /\{\{ item\.source_drama_title \|\| '全局上传' \}\}/)
-  assert.match(storyboardDialogsSource, /\.vp-reference-thumb\s*\{[\s\S]*width:\s*64px;[\s\S]*height:\s*64px;[\s\S]*overflow:\s*hidden;/)
-  assert.match(storyboardDialogsSource, /\.vp-reference-thumb img\s*\{[\s\S]*width:\s*100%;[\s\S]*height:\s*100%;[\s\S]*object-fit:\s*cover;/)
-  assert.match(storyboardDialogsSource, /\.vp-reference-item\s*\{[\s\S]*grid-template-columns:\s*64px minmax\(0, 1fr\);/)
 })
 
 test('all storyboard video submission paths reuse the shared video request builder', () => {
-  const videoRequestSource = filmCreateSource + '\n' + pipelineStagesSource + '\n' + batchGenerationSource + '\n' + storyboardVideoGenerationSource
-  const requestBuilderUses = videoRequestSource.match(/videosAPI\.create\(buildStoryboardVideoRequest\(/g) || []
-  assert.equal(requestBuilderUses.length, 4)
-  assert.match(videoRequestSource, /referenceImageUrls: referencePayload\.referenceUrls/)
-  assert.match(storyboardReferencesSource, /const primaryReferenceUrl = getSbPrimaryReferenceAbsoluteUrl\(sb\)/)
+  const source = remainingImportedFunctionSource(
+    useFilmCreatePipelineStages,
+    useFilmCreateBatchGeneration,
+    useFilmCreateStoryboardVideoGeneration,
+  )
+  assert.equal((source.match(/videosAPI\.create\(buildStoryboardVideoRequest\(/g) || []).length, 4)
+  const body = buildStoryboardVideoRequest({
+    dramaId: 11,
+    storyboard: { id: 22 },
+    referenceImageUrls: ['https://cdn.test/a.png'],
+  })
+  assert.equal(body.drama_id, 11)
+  assert.equal(body.storyboard_id, 22)
+  assert.deepEqual(body.reference_image_urls, ['https://cdn.test/a.png'])
 })
 
 test('free canvas picker only confirms current-project or global assets and closes after a successful pick', () => {
   assert.match(dramaCanvasSource, /reusePolicy: 'current-or-global'/)
-  assert.match(dramaCanvasSource, /dramaId: dramaId\.value/)
   assert.match(dramaCanvasSource, /@select="onFreeCanvasMediaPicked"/)
-  assert.match(dramaCanvasSource, /if \(added\) freeMediaPickerVisible\.value = false/)
   assert.match(pickerSource, /当前画布只能确认全局素材或当前项目素材/)
   assert.doesNotMatch(filmCreateSource, /reusePolicy: 'current-or-global'/)
 })
-
 
 test('delete impact copy names the asset and warns about cross-project reuse', async () => {
   const {

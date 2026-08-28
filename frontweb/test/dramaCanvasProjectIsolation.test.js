@@ -18,6 +18,7 @@ import {
 } from '../src/utils/freeCanvasMedia.js'
 import * as freeCanvasMedia from '../src/utils/freeCanvasMedia.js'
 import { createCanvasSaveCoordinator } from '../src/utils/canvasSaveCoordinator.js'
+import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 
 const canvasSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
 
@@ -32,30 +33,7 @@ function deferred() {
 }
 
 function extractFunction(name) {
-  const asyncMarker = `async function ${name}`
-  const syncMarker = `function ${name}`
-  const start = canvasSource.indexOf(asyncMarker) >= 0
-    ? canvasSource.indexOf(asyncMarker)
-    : canvasSource.indexOf(syncMarker)
-  assert.ok(start >= 0, `missing ${name}`)
-  let parenthesisDepth = 0
-  let bodyStart = -1
-  for (let index = canvasSource.indexOf('(', start); index < canvasSource.length; index += 1) {
-    if (canvasSource[index] === '(') parenthesisDepth += 1
-    if (canvasSource[index] === ')') parenthesisDepth -= 1
-    if (parenthesisDepth === 0 && canvasSource[index] === '{') {
-      bodyStart = index
-      break
-    }
-  }
-  assert.ok(bodyStart >= 0, `missing ${name} body`)
-  let depth = 0
-  for (let index = bodyStart; index < canvasSource.length; index += 1) {
-    if (canvasSource[index] === '{') depth += 1
-    if (canvasSource[index] === '}') depth -= 1
-    if (depth === 0) return canvasSource.slice(start, index + 1)
-  }
-  throw new Error(`unterminated ${name}`)
+  return remainingExtractNamedFunction(canvasSource, name)
 }
 
 function loadCanvasFunctions(names, dependencies) {

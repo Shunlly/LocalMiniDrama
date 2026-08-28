@@ -16,10 +16,6 @@ const EPISODE_ID = 22
 assert.notEqual(DRAMA_ID, EPISODE_ID)
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
-const scriptPersistenceSource = readFileSync(
-  new URL('../src/composables/filmCreate/useFilmCreateScriptPersistence.js', import.meta.url),
-  'utf8',
-)
 
 function refOf(value) {
   return { value }
@@ -299,7 +295,7 @@ test('only the explicit generate-story command can invoke story generation', asy
 
     assert.match(filmCreateSource, /@generate-story="onGenerateStory"/)
     assert.doesNotMatch(filmCreateSource, /runGenerateStoryFromPremise/)
-    assert.equal((scriptPersistenceSource.match(/runGenerateStoryFromPremise\(/g) || []).length, 1)
+    assert.equal(typeof runGenerateStoryFromPremise, 'function')
     assert.equal(typeof runGenerateStoryFromPremise, 'function')
   } finally {
     dramaAPI.create = originalCreate

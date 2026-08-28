@@ -14,6 +14,11 @@ import {
   storyboardDisabledReason,
   userFacingVideoGenerationError,
 } from '../src/utils/filmCreateActionState.js'
+import { useFilmCreateActionDisabledReasons } from '../src/composables/filmCreate/useFilmCreateActionDisabledReasons.js'
+import { useFilmCreateEpisodeCompose } from '../src/composables/filmCreate/useFilmCreateEpisodeCompose.js'
+import { useFilmCreateProductionReadiness } from '../src/composables/filmCreate/useFilmCreateProductionReadiness.js'
+import { useFilmCreateStoryboardAccessors } from '../src/composables/filmCreate/useFilmCreateStoryboardAccessors.js'
+import { ElMessage } from 'element-plus'
 
 test('resource actions explain missing context and active work', () => {
   assert.equal(projectResourceDisabledReason({ hasProject: false }), '请先创建或打开项目')
@@ -133,12 +138,8 @@ test('video and production capabilities require a usable model, with only explic
   assert.equal(comfyImage.modelOptional, true)
 })
 
-test('FilmCreate delegates pipeline UI and wraps major gated actions', () => {
+test('FilmCreate delegates pipeline UI and wraps major gated actions', async () => {
   const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
-  const episodeComposeSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateEpisodeCompose.js', import.meta.url), 'utf8')
-  const productionReadinessSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateProductionReadiness.js', import.meta.url), 'utf8')
-  const actionDisabledSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateActionDisabledReasons.js', import.meta.url), 'utf8')
-  const storyboardAccessorsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardAccessors.js', import.meta.url), 'utf8')
   const pipelinePanelSource = readFileSync(
     new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
     'utf8',
@@ -148,6 +149,129 @@ test('FilmCreate delegates pipeline UI and wraps major gated actions', () => {
     'utf8',
   )
 
+  const reasons = useFilmCreateActionDisabledReasons({
+    dramaId: { value: 11 },
+    currentEpisodeId: { value: 22 },
+    charactersGenerating: { value: false },
+    propsExtracting: { value: false },
+    scenesExtracting: { value: false },
+    pipelineRunning: { value: false },
+    storyboardMediaActionReason: { value: '' },
+    productionReadinessReason: { value: '' },
+    storyboardGenerating: { value: false },
+    universalOmniPolishRunning: { value: false },
+    batchImageRunning: { value: false },
+    batchVideoRunning: { value: false },
+    videoCapabilityReason: { value: '尚未选择可用模型' },
+    storyboards: { value: [{ id: 101 }, { id: 202 }] },
+    assetVideoUrl: (url) => url,
+    getSbVideo: (id) => (id === 101 ? '/static/a.mp4' : ''),
+    videoStatus: { value: 'idle' },
+  })
+  assert.match(reasons.composeActionDisabledReason.value, /请先为全部分镜生成可播放视频/)
+  assert.equal(reasons.playableStoryboardVideoCount.value, 1)
+  assert.equal(reasons.batchVideoActionDisabledReason.value, '尚未选择可用模型')
+
+  const warnings = []
+  const originalWarning = ElMessage.warning
+  ElMessage.warning = (message) => { warnings.push(message) }
+  try {
+    const compose = useFilmCreateEpisodeCompose({
+      store: {},
+      dramaId: { value: 11 },
+      currentEpisodeId: { value: 22 },
+      dramaAPI: { async composeVideo() { throw new Error('不应开始合成') } },
+      genStore: { markRunning() {}, markFailed() {} },
+      pollTask: async () => {},
+      captureDramaRefresh() {},
+      loadDrama: async () => {},
+      composeActionDisabledReason: reasons.composeActionDisabledReason,
+      currentEpisodeVideoUrl: { value: '' },
+      videoErrorMsg: { value: '' },
+      videoSubtitle: { value: false },
+      videoBurnDialogue: { value: false },
+      videoWatermark: { value: false },
+      videoWatermarkText: { value: '' },
+    })
+    await compose.onGenerateVideo()
+    assert.deepEqual(warnings, [reasons.composeActionDisabledReason.value])
+  } finally {
+    ElMessage.warning = originalWarning
+  }
+
+  const accessors = useFilmCreateStoryboardAccessors({
+    store: { storyboards: [{ id: 101, composed_image: '/static/composed.png' }] },
+    sbImages: { value: { 101: [{ id: 9, image_url: '/static/a.png', status: 'completed' }] } },
+    sbVideos: { value: {} },
+    sbVideoErrors: { value: {} },
+    storyboardUseFirstLastFrame: { value: false },
+    isSbUniversalMode: () => false,
+    storyboardsAPI: {},
+    imagesAPI: {},
+    ElMessage,
+    ElMessageBox: { async confirm() {} },
+    refreshStoryboardMediaForCurrentContext: async () => {},
+    assetImageUrl: (item) => item?.image_url || item?.local_path || '',
+    assetVideoUrl: (url) => url,
+    recordHasPlayableVideoUrl: () => false,
+    toAbsoluteImageUrl: (url) => url,
+    userFacingVideoGenerationError: (value) => value,
+    sbVideoReferenceImageId: { value: {} },
+  })
+  assert.equal(accessors.hasSbImage({ composed_image: '/static/composed.png' }), true)
+  assert.deepEqual(accessors.getSbAllImages(101).map((item) => item.id), [9])
+  assert.equal(accessors.getSbFirstFrameUrl({ id: 101 }), '/static/a.png')
+  const fallbackAccessors = useFilmCreateStoryboardAccessors({
+    store: { storyboards: [] },
+    sbImages: { value: {} },
+    sbVideos: { value: {} },
+    sbVideoErrors: { value: {} },
+    storyboardUseFirstLastFrame: { value: false },
+    isSbUniversalMode: () => false,
+    storyboardsAPI: {},
+    imagesAPI: {},
+    ElMessage,
+    ElMessageBox: { async confirm() {} },
+    refreshStoryboardMediaForCurrentContext: async () => {},
+    assetImageUrl: (item) => item?.image_url || item?.local_path || '',
+    assetVideoUrl: (url) => url,
+    recordHasPlayableVideoUrl: () => false,
+    toAbsoluteImageUrl: (url) => url,
+    userFacingVideoGenerationError: (value) => value,
+    sbVideoReferenceImageId: { value: {} },
+  })
+  assert.equal(fallbackAccessors.getSbFirstFrameUrl({ id: 404, composed_image: '/static/composed.png' }), '/static/composed.png')
+
+  const originalFetch = globalThis.fetch
+  const posts = []
+  globalThis.fetch = async (url, options = {}) => {
+    posts.push({ url: String(url), body: options.body })
+    return new Response(JSON.stringify({ success: true, data: { ready: true, missing_capabilities: [] } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+  try {
+    const productionReadinessLoading = { value: false }
+    const productionReadinessFailed = { value: false }
+    const authoritativeProductionReadiness = { value: null }
+    const readiness = useFilmCreateProductionReadiness({
+      dramaId: { value: 11 },
+      productionReadinessLoading,
+      productionReadinessFailed,
+      authoritativeProductionReadiness,
+      videoCapabilityLoading: { value: false },
+      videoCapabilityFailed: { value: false },
+      videoCapabilityConfigs: { value: [] },
+    })
+    await readiness.refreshProductionReadiness()
+    assert.match(posts[0].url, /\/workflows\/novel2anime\/readiness/)
+    assert.equal(JSON.parse(posts[0].body).qa_mode, 'production')
+    assert.equal(JSON.parse(posts[0].body).drama_id, 11)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
   assert.match(filmCreateSource, /<FilmCreatePipelinePanel/)
   assert.doesNotMatch(filmCreateSource, /class="one-click-actions"/)
   assert.match(filmCreateSource, /:character-generation-disabled-reason="characterGenerationDisabledReason"/)
@@ -155,15 +279,8 @@ test('FilmCreate delegates pipeline UI and wraps major gated actions', () => {
   assert.match(filmCreateSource, /:batch-action-disabled-reason="batchActionDisabledReason"/)
   assert.match(filmCreateSource, /<FilmCreateStoryboardPanel/)
   assert.match(deliveryPanelSource, /:reason="composeActionDisabledReason"/)
-  assert.match(episodeComposeSource, /if \(composeActionDisabledReason\.value\)/)
-  assert.match(actionDisabledSource, /videoCapabilityReason\.value/)
   assert.match(filmCreateSource, /ttsGenerationDisabledReason/)
-  assert.match(actionDisabledSource, /playableVideoCount: playableStoryboardVideoCount\.value/)
-  assert.match(storyboardAccessorsSource, /return getSbImagesList\(sbImages\.value, storyboardId\)/)
-  assert.match(storyboardAccessorsSource, /hasRealMediaValue\(sb\?\.composed_image\)/)
-  assert.match(productionReadinessSource, /getNovel2AnimeReadiness\(\{[\s\S]*qa_mode: 'production'/)
   assert.match(filmCreateSource, /productionReadinessReason/)
-  assert.match(filmCreateSource, /service_type: 'tts'|key: 'tts'|tts/i)
   assert.match(pipelinePanelSource, /高级|生成设置/)
   assert.match(pipelinePanelSource, /<ActionGate label="一键生成成片" :reason="productionReason">/)
   assert.match(pipelinePanelSource, /<ActionGate label="仅生成文本框架" :reason="draftReason">/)

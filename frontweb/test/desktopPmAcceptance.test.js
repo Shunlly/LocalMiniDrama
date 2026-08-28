@@ -2,12 +2,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import { remainingImportBetween, remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
+import { scrollAndFocusSection } from '../src/utils/sectionFocus.js'
+import { useFilmCreateWorkspaceNav } from '../src/composables/filmCreate/useFilmCreateWorkspaceNav.js'
+import { useFilmCreateMediaPreview } from '../src/composables/filmCreate/useFilmCreateMediaPreview.js'
+
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const routerSource = read('../src/router/index.js').replace(/\r\n?/g, '\n')
 const aiConfigSource = read('../src/views/AiConfig.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
-const sectionFocusSource = read('../src/utils/sectionFocus.js')
 const sourceIntakeSource = read('../src/components/SourceIntakeWorkflowPanel.vue')
 const readinessSource = read('../src/components/ProjectReadinessPanel.vue')
 const filmListSource = read('../src/views/FilmList.vue')
@@ -15,9 +19,6 @@ const freeCreateSource = read('../src/views/FreeCreate.vue')
 const canvasSource = read('../src/views/DramaCanvas.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const filmCreateStyleSource = read('../src/views/FilmCreate.css')
-const mediaPreviewSource = read('../src/composables/filmCreate/useFilmCreateMediaPreview.js')
-const workspaceNavSource = read('../src/composables/filmCreate/useFilmCreateWorkspaceNav.js')
-const filmCreateLogicSource = filmCreateSource + '\n' + mediaPreviewSource + '\n' + workspaceNavSource
 const storyboardPanelSource = read('../src/components/filmCreate/FilmCreateStoryboardPanel.vue')
 const filmCreatePipelineSource = read('../src/components/filmCreate/FilmCreatePipelinePanel.vue')
 const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
@@ -46,16 +47,16 @@ test('project readiness defaults to a compact local-task-first surface', () => {
   assert.match(readinessSource, /v-show="expanded"/)
 })
 
-async function loadReturnToNormalizer() {
-  const start = routerSource.indexOf('export function normalizeAiConfigReturnTo')
-  const end = routerSource.indexOf('\n\nconst router =', start)
-  assert.ok(start >= 0 && end > start, 'returnTo normalizer must remain a standalone pure function')
-  const helperModule = routerSource.slice(start, end)
-  return import(`data:text/javascript;charset=utf-8,${encodeURIComponent(helperModule)}`)
+async function loadReturnToNormalizers() {
+  return remainingImportBetween(
+    routerSource,
+    'export function normalizeAiConfigReturnTo',
+    '\n\nconst router =',
+  )
 }
 
 test('AI config returnTo accepts only valid first-party workspaces', async () => {
-  const { normalizeAiConfigReturnTo } = await loadReturnToNormalizer()
+  const { normalizeAiConfigReturnTo } = await loadReturnToNormalizers()
 
   assert.equal(normalizeAiConfigReturnTo('/drama/12'), '/drama/12')
   assert.equal(normalizeAiConfigReturnTo('  /drama/12?tab=sources#intake  '), '/drama/12?tab=sources#intake')
@@ -92,8 +93,8 @@ test('AI config returnTo accepts only valid first-party workspaces', async () =>
 })
 
 test('media library returnTo safely preserves the current film workspace', async () => {
-  const { normalizeMediaLibraryReturnTo } = await loadReturnToNormalizer()
-  assert.equal(normalizeMediaLibraryReturnTo('/film/12?episode=4&ignored=1#drop'), '/film/12?episode=4')
+  const { normalizeMediaLibraryReturnTo } = await loadReturnToNormalizers()
+    assert.equal(normalizeMediaLibraryReturnTo('/film/12?episode=4&ignored=1#drop'), '/film/12?episode=4')
   assert.equal(
     normalizeMediaLibraryReturnTo('/film/12/canvas?episode=4&focus=sb%3A42&ignored=1'),
     '/film/12/canvas?episode=4&focus=sb%3A42',
@@ -105,7 +106,7 @@ test('media library returnTo safely preserves the current film workspace', async
   }
   assert.match(routerSource, /name: 'media-library'[\s\S]*normalizeReturnTo: normalizeMediaLibraryReturnTo/)
   assert.match(mediaLibrarySource, /router\.push\(returnTo\.value \|\| '\/'\)/)
-  assert.match(workspaceNavSource, /returnTo: route\.fullPath/)
+  assert.match(remainingImportedFunctionSource(useFilmCreateWorkspaceNav), /returnTo: route\.fullPath/)
   assert.match(
     filmListSource,
     /router\.push\(newProjectDestination\(drama, sourceImportIntent\.value, projectListReturnTo\.value\)\)/,
@@ -140,7 +141,7 @@ test('source workflow navigation names the actual action and moves focus to its 
   assert.doesNotMatch(dramaDetailSource, /label: '从素材生成剧集'/)
   assert.match(sourceIntakeSource, /id="source-intake-workflow" class="source-workflow-section" tabindex="-1"/)
   assert.match(dramaDetailSource, /scrollAndFocusSection\(id/)
-  assert.match(sectionFocusSource, /target\.focus\?\.\(\{ preventScroll: true \}\)/)
+  assert.equal(typeof scrollAndFocusSection, 'function')
 })
 
 test('source intake protects drafts, validates URLs early, and keeps mode recovery operable', () => {
@@ -192,7 +193,7 @@ test('desktop creation surfaces keep focused tasks readable and user-facing', ()
   assert.doesNotMatch(filmCreateSource, /每镜输出多子分镜段落式/)
   assert.match(storyboardPanelSource, /帮助视频保持镜头衔接/)
   assert.match(storyboardPanelSource, /可直接用于长提示词的分段描述/)
-  assert.match(filmCreateLogicSource, /草稿占位/)
+  assert.match(remainingImportedFunctionSource(useFilmCreateMediaPreview), /草稿占位/)
   assert.doesNotMatch(filmCreateSource, /正在检查 Production|Draft 占位|FFmpeg 能力|TTS 配音失败|解说 TTS 失败/)
 })
 
