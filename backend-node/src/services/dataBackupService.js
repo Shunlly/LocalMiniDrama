@@ -2031,13 +2031,11 @@ function openExclusiveBackupFreeze(databasePath) {
   return db;
 }
 
-function snapshotReadonlyDatabase(databasePath, snapshotPath) {
-  const db = new Database(databasePath, { readonly: true, fileMustExist: true });
+async function snapshotReadonlyDatabase(databasePath, snapshotPath) {
   try {
-    db.pragma('busy_timeout = 0');
-    db.prepare('VACUUM INTO ?').run(snapshotPath);
-  } finally {
-    db.close();
+    await createOnlineDatabaseSnapshot(databasePath, snapshotPath);
+  } catch (_) {
+    await createLockedDatabaseSnapshot(databasePath, snapshotPath);
   }
 }
 
@@ -2069,7 +2067,7 @@ async function captureBackupView(databasePath, storagePath, storySourcesPath, sn
       if (!isReadonlySqliteError(error) && !['EACCES', 'EPERM', 'SQLITE_READONLY', 'SQLITE_CANTOPEN'].includes(String(error?.code || ''))) {
         throw error;
       }
-      snapshotReadonlyDatabase(databasePath, snapshotPath);
+      await snapshotReadonlyDatabase(databasePath, snapshotPath);
       await runFaultInjector(options, 'after-backup-freeze-acquired');
       assertOperationNotAborted(options?.signal);
     }
