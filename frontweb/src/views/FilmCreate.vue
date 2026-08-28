@@ -908,6 +908,10 @@ import { useFilmCreateStoryboardAccessors } from '@/composables/filmCreate/useFi
 import { useFilmCreateStoryboardFields } from '@/composables/filmCreate/useFilmCreateStoryboardFields'
 import { useFilmCreateDeliverySettings } from '@/composables/filmCreate/useFilmCreateDeliverySettings'
 import { useFilmCreatePromptDialogState } from '@/composables/filmCreate/useFilmCreatePromptDialogState'
+import { useFilmCreateProjectLoadSurface } from '@/composables/filmCreate/useFilmCreateProjectLoadSurface'
+import { useFilmCreateAiConfigDialogState } from '@/composables/filmCreate/useFilmCreateAiConfigDialogState'
+import { useFilmCreateResourcePanelState } from '@/composables/filmCreate/useFilmCreateResourcePanelState'
+import { useFilmCreateMediaPickerState } from '@/composables/filmCreate/useFilmCreateMediaPickerState'
 import { useFilmCreateStoryboardStateSync } from '@/composables/filmCreate/useFilmCreateStoryboardStateSync'
 import { useFilmCreateStoryboardVideoFields } from '@/composables/filmCreate/useFilmCreateStoryboardVideoFields'
 import { useFilmCreateRefImageDrop } from '@/composables/filmCreate/useFilmCreateRefImageDrop'
@@ -952,18 +956,16 @@ const genStore = useGenerationTaskStore()
 const { isDark, toggle: toggleTheme } = useTheme()
 const { videoResolution: storeVideoResolution } = storeToRefs(store)
 const initialRouteProjectId = route.params.id && route.params.id !== 'new' ? Number(route.params.id) : null
-const projectLoadState = ref(initialRouteProjectId ? 'loading' : 'ready')
-const projectLoadError = ref('')
-const projectLoadNotFound = ref(false)
-const projectLoadPending = ref(false)
-const projectLoadFailureRef = ref(null)
-const projectDependencyWarning = ref('')
-const projectDependencyLoading = ref(false)
-const projectPageTitle = computed(() => {
-  if (projectLoadState.value === 'loading') return '正在加载项目'
-  if (projectLoadState.value === 'error') return '项目加载失败'
-  return store.dramaId ? (store.drama?.title || '项目') : '新建故事'
-})
+const {
+  projectLoadState,
+  projectLoadError,
+  projectLoadNotFound,
+  projectLoadPending,
+  projectLoadFailureRef,
+  projectDependencyWarning,
+  projectDependencyLoading,
+  projectPageTitle,
+} = useFilmCreateProjectLoadSurface({ initialRouteProjectId, store })
 
 // ── Composable: Navigation ─────────────────────────────
 const { navCollapsed, storyboardMenuExpanded, activeNavAnchor, toggleNav, scrollToTop, scrollToAnchor } = useNavigation({
@@ -971,12 +973,14 @@ const { navCollapsed, storyboardMenuExpanded, activeNavAnchor, toggleNav, scroll
 })
 
 
-const showAiConfigDialog = ref(false)
-const aiConfigContentRef = ref(null)
-const pipelinePanelRef = ref(null)
-const aiConfigInitialServiceType = ref('')
-const aiConfigChanged = ref(false)
-const aiConfigOpenedFromPipelineAction = ref(false)
+const {
+  showAiConfigDialog,
+  aiConfigContentRef,
+  pipelinePanelRef,
+  aiConfigInitialServiceType,
+  aiConfigChanged,
+  aiConfigOpenedFromPipelineAction,
+} = useFilmCreateAiConfigDialogState()
 const videoCapabilityConfigs = ref([])
 const videoCapabilityLoading = ref(true)
 const videoCapabilityFailed = ref(false)
@@ -1130,7 +1134,11 @@ const {
   ElMessage,
 })
 const hasAnyEpisode = computed(() => (store.drama?.episodes || []).length > 0)
-const showGlobalMediaPicker = ref(false)
+const {
+  showGlobalMediaPicker,
+  globalMediaPickerMode,
+  globalMediaPickerTarget,
+} = useFilmCreateMediaPickerState()
 
 const {
   goList,
@@ -1144,8 +1152,6 @@ const {
   projectListReturnTo,
   showGlobalMediaPicker,
 })
-const globalMediaPickerMode = ref('reference')
-const globalMediaPickerTarget = ref(null)
 const globalMediaPickerAccept = computed(() => 'image')
 const globalMediaPickerTitle = computed(() => (
   globalMediaPickerMode.value === 'reference-primary'
@@ -1401,13 +1407,14 @@ const {
 })
 
 
-// 资源管理大面板及子区块折叠状态
-const resourcePanelCollapsed = ref(false)
-const charactersBlockCollapsed = ref(false)
-const propsBlockCollapsed = ref(false)
-const scenesBlockCollapsed = ref(false)
-const sceneUseQuadGrid = ref(false)
-const propUseQuadGrid = ref(false)  // 道具四视图（与场景四宫格同级选项）
+const {
+  resourcePanelCollapsed,
+  charactersBlockCollapsed,
+  propsBlockCollapsed,
+  scenesBlockCollapsed,
+  sceneUseQuadGrid,
+  propUseQuadGrid,
+} = useFilmCreateResourcePanelState()
 
 // 分镜行内编辑状态（按 storyboard id 存储）
 const {
