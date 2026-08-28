@@ -797,8 +797,15 @@ test('FilmCreate 把分镜生成交给独立面板并保留锚点', () => {
 test('FilmCreate 把资源弹窗和分镜弹窗交给独立面板', () => {
   assert.match(filmCreateSource, /<FilmCreateResourceDialogs/)
   assert.match(filmCreateSource, /<FilmCreateStoryboardDialogs/)
-  assert.match(filmCreateSource, /导入小说\/长文/)
+  assert.match(filmCreateSource, /<FilmCreateNovelImportDialog/)
   assert.match(filmCreateSource, /<AIConfigContent/)
   assert.match(filmCreateSource, /<ImagePreviewDialog/)
   assert.match(filmCreateSource, /<GlobalMediaPickerDialog/)
+})
+
+test('FilmCreate 把导入小说弹窗交给独立面板，重新生成分镜需要确认', () => {
+  assert.match(filmCreateSource, /<FilmCreateNovelImportDialog/)
+  assert.match(filmCreateSource, /v-model:max-chapters="novelMaxChapters"/)
+  assert.match(filmCreateSource, /重新生成会覆盖当前分镜脚本和已有分镜图、视频进度/)
+  assert.match(filmCreateSource, /confirmButtonText: '重新生成'/)
 })

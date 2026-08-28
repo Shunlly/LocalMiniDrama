@@ -782,46 +782,18 @@
         :save-editing-frame-prompt="saveEditingFramePrompt"
         :set-sb-creation-mode-id="setSbCreationModeId"
     />
-    <!-- P1-2: 导入小说弹窗 -->
-    <AccessibleDialog v-model="showNovelImport" title="导入小说/长文" width="600px" @close="novelImportReset">
-      <div class="novel-import-dialog">
-        <p style="color:#6b7280;font-size:13px;margin-bottom:12px">支持粘贴小说文本或上传 txt 文件，AI 自动识别章节并转换为剧本集数</p>
-        <el-tabs v-model="novelImportMode">
-          <el-tab-pane label="粘贴文本" name="text">
-            <el-input
-              v-model="novelText"
-              type="textarea"
-              :rows="10"
-              placeholder="粘贴小说正文，AI 会自动识别章节..."
-            />
-          </el-tab-pane>
-          <el-tab-pane label="上传文件" name="file">
-            <el-upload
-              drag
-              :auto-upload="false"
-              :on-change="onNovelFileChange"
-              accept=".txt,.md"
-              :show-file-list="false"
-            >
-              <el-icon class="el-icon--upload"><DocumentAdd /></el-icon>
-              <div class="el-upload__text">拖拽 .txt / .md 文件到此处，或<em>点击上传</em></div>
-            </el-upload>
-            <div v-if="novelFileName" style="margin-top:8px;font-size:13px;color:#409eff">已选择：{{ novelFileName }}</div>
-          </el-tab-pane>
-        </el-tabs>
-        <div class="novel-import-options" style="margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <div style="display:flex;align-items:center;gap:6px;font-size:13px">
-            <span>最多导入集数：</span>
-            <el-input-number v-model="novelMaxChapters" aria-label="最多导入集数" :min="1" :max="20" size="small" style="width:100px" />
-          </div>
-          <el-checkbox v-model="novelAiSummarize" size="small">AI 转换为剧本格式（会消耗 Token）</el-checkbox>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="showNovelImport = false">取消</el-button>
-        <el-button type="primary" :loading="novelImporting" @click="onImportNovel">开始导入</el-button>
-      </template>
-    </AccessibleDialog>
+    <FilmCreateNovelImportDialog
+      v-model:visible="showNovelImport"
+      v-model:mode="novelImportMode"
+      v-model:text="novelText"
+      v-model:max-chapters="novelMaxChapters"
+      v-model:ai-summarize="novelAiSummarize"
+      :file-name="novelFileName"
+      :importing="novelImporting"
+      @reset="novelImportReset"
+      @file-change="onNovelFileChange"
+      @import="onImportNovel"
+    />
 
     <!-- AI 配置弹窗（不跳转，避免本页内容丢失） -->
     <AccessibleDialog
@@ -959,6 +931,7 @@ import FilmCreateResourcePanel from '@/components/filmCreate/FilmCreateResourceP
 import FilmCreateStoryboardPanel from '@/components/filmCreate/FilmCreateStoryboardPanel.vue'
 import FilmCreateResourceDialogs from '@/components/filmCreate/FilmCreateResourceDialogs.vue'
 import FilmCreateStoryboardDialogs from '@/components/filmCreate/FilmCreateStoryboardDialogs.vue'
+import FilmCreateNovelImportDialog from '@/components/filmCreate/FilmCreateNovelImportDialog.vue'
 import {
   batchGenerationDisabledReason,
   composeVideoDisabledReason,
@@ -6072,6 +6045,17 @@ async function onGenerateStoryboard() {
   trackFilmCreateAction('generate_storyboard_click')
   const epId = currentEpisodeId.value
   if (!epId) return
+  if ((store.storyboards || []).length > 0) {
+    try {
+      await ElMessageBox.confirm(
+        '重新生成会覆盖当前分镜脚本和已有分镜图、视频进度。确定继续？',
+        '重新生成分镜',
+        { confirmButtonText: '重新生成', cancelButtonText: '取消', type: 'warning' },
+      )
+    } catch {
+      return
+    }
+  }
   const meta = buildExtractTaskMeta(store, dramaId.value, epId, GEN_RESOURCE.GENERATE_STORYBOARD, 'AI生成分镜')
   genStore.markRunning(meta)
   // 生成期间每 2 秒刷新该集分镜列表，让已解析的分镜逐步出现（切集后仍更新原集缓存）

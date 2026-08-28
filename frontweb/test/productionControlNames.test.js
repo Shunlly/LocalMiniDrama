@@ -28,6 +28,7 @@ const filmCreateSource = targetSources.find(({ name }) => name.endsWith('/FilmCr
 const pipelineSource = targetSources.find(({ name }) => name.endsWith('/FilmCreatePipelinePanel.vue')).source
 const scriptWorkbenchSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateScriptWorkbench.vue')).source
 const storyboardCreatePanelSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateStoryboardPanel.vue')).source
+const novelImportSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateNovelImportDialog.vue')).source
 const storyboardPanelSource = targetSources.find(({ name }) => name.endsWith('/CanvasStoryboardPanel.vue')).source
 const workflowToolbarSource = targetSources.find(({ name }) => name.endsWith('/CanvasWorkflowToolbarGroup.vue')).source
 
@@ -144,7 +145,7 @@ test('production control names preserve generation and item context', () => {
   assert.match(controlBy(scriptWorkbenchSource, 'el-select', 'v-model="storyType"'), /aria-label="故事生成剧本类型"/)
   assert.match(controlBy(scriptWorkbenchSource, 'el-input-number', 'v-model="storyEpisodeCount"'), /aria-label="故事生成集数"/)
   assert.match(controlBy(storyboardCreatePanelSource, 'el-input-number', 'v-model="storyboardCount"'), /aria-label="分镜数量（生成设置）"/)
-  assert.match(controlBy(filmCreateSource, 'el-input-number', 'v-model="novelMaxChapters"'), /aria-label="最多导入集数"/)
+  assert.match(controlBy(novelImportSource, 'el-input-number', 'v-model="maxChapters"'), /aria-label="最多导入集数"/)
   assert.match(controlBy(workflowToolbarSource, 'el-button', "emit('create-workflow')"), /aria-label="创建分组（工作流）"/)
 
   for (const [marker, semantic] of [
