@@ -848,7 +848,7 @@ input_reference = (图片文件，可选)</pre>
           :closable="false"
           show-icon
           style="margin-bottom: 12px"
-          title="用于创作页「角色生成 → SD2认证」"
+          title="用于创作页「角色」面板的 SD2 认证"
           description="保存后，系统从此处读取网关与 Token 调用 POST /api/business/v1/assets 登记角色图；可用「列出素材」核对素材状态。角色主图需为外网可访问的 http(s) 地址（图床或本服务 storage.base_url）。"
         />
         <template v-if="form.service_type === 'video' && form.api_protocol === 'kling_omni'">
@@ -1581,7 +1581,8 @@ import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRoun
 import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
 import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '@/utils/aiConfigExport.js'
-import { buildAiServiceCoverage, getAiServiceCoverageActions, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
+import { buildAiServiceCoverage, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
+import { useAiConfigCoverage } from '@/composables/useAiConfigCoverage.js'
 import {
   createAiConfigConnectionStatusStore,
   resolveAiConfigConnectionStatusScope,
@@ -1643,8 +1644,6 @@ const configWorkspaceView = ref(
 )
 const coverageWorkspaceModeRef = ref(null)
 const configsWorkspaceModeRef = ref(null)
-const coverageCardRefs = new Map()
-const lastTestedCoverageServiceType = ref('')
 
 function selectConfigWorkspaceView(view, { focus = false } = {}) {
   configWorkspaceView.value = view
@@ -2164,79 +2163,45 @@ const canAutoOpenMissingService = computed(() => (
   configLoadState.value === 'ready' && vendorLockResolved.value
 ))
 
-function coverageStateLabel(item) {
-  if (item.ready) return '可用'
-  if (item.issue === 'missing_credentials') return '缺少凭据'
-  if (item.issue === 'missing_model') return '缺少模型'
-  if (item.issue === 'missing_workflow') return '缺少工作流'
-  if (item.issue === 'connection_failed') return '连接失败'
-  if (item.issue === 'inactive') return '未启用'
-  if (item.state === 'configured') return '缺少默认'
-  return '未配置'
-}
-
-function coverageStateTagType(item) {
-  if (item.ready) return 'success'
-  if (item.state === 'configured') return 'warning'
-  return 'danger'
-}
-
-function coverageConfigDetail(item) {
-  if (item.state === 'missing') return '尚无配置'
-  if (item.issue === 'inactive') return `${item.configuredCount} 个配置，均未启用`
-  if (!item.defaultConfig) return `${item.activeCount} 个启用配置，请设置默认项`
-  if (item.issue === 'missing_credentials') return '默认配置缺少凭据'
-  if (item.issue === 'missing_model') return '默认配置缺少模型'
-  if (item.issue === 'missing_workflow') return '默认配置缺少工作流'
-  if (item.issue === 'connection_failed') return '默认配置最近连接失败'
-  const config = item.defaultConfig
-  const model = config.default_model || (Array.isArray(config.model) ? config.model[0] : config.model)
-  const identity = config.name || config.provider || '默认配置'
-  return model ? `${identity} · ${model}` : identity
-}
-
-function coverageInventoryLabel(item) {
-  if (item.state === 'missing') return '未配置'
-  const active = item.activeCount ? `启用 ${item.activeCount}` : '启用 0'
-  return `已配置 ${item.configuredCount} 条 · ${active}`
-}
-
-function coverageTestLabel(test) {
-  if (test.status === 'passed') return test.source === 'session' ? '本次测试通过' : '最近测试通过'
-  if (test.status === 'failed') return test.source === 'session' ? '本次测试失败' : '最近测试失败'
-  return '尚无测试记录'
-}
+const {
+  coverageStateLabel,
+  coverageStateTagType,
+  coverageConfigDetail,
+  coverageInventoryLabel,
+  coverageTestLabel,
+  coverageActions,
+  onCoverageSelect,
+  onCoverageAction,
+  shouldAutoOpenRequestedService,
+  focusServiceConfigs,
+  applyRequestedService,
+  setCoverageCardRef,
+  isCoverageActionTesting: isCoverageActionTestingFromCoverage,
+  restoreTestedCoverageCardFocus: restoreCoverageCardFocus,
+} = useAiConfigCoverage({
+  vendorLock,
+  configWriteLocked,
+  testingConfigId,
+  canAutoOpenMissingService,
+  configWorkspaceView,
+  activeServiceFilter,
+  serviceCoverage,
+  coverageWorkspaceModeRef,
+  configListSectionRef,
+  selectConfigWorkspaceView,
+  normalizeInitialServiceType,
+  openAddForService,
+  openEdit,
+  openTest,
+  abortConnectionTest: () => { connectionTestAbortController?.abort() },
+})
 
 function clearServiceFilter() {
   activeServiceFilter.value = ''
 }
 
-function coverageActions(item) {
-  return getAiServiceCoverageActions(item, {
-    vendorLocked: vendorLock.value.enabled,
-    writesLocked: configWriteLocked.value,
-  })
-}
-
-function setCoverageCardRef(serviceType, element) {
-  if (element) coverageCardRefs.set(serviceType, element)
-  else coverageCardRefs.delete(serviceType)
-}
-
-async function restoreTestedCoverageCardFocus() {
-  connectionTestAbortController?.abort()
-  const serviceType = lastTestedCoverageServiceType.value
-  lastTestedCoverageServiceType.value = ''
-  if (!serviceType) return
-  await nextTick()
-  const target = coverageCardRefs.get(serviceType)
-  if (target) target.focus()
-  else coverageWorkspaceModeRef.value?.focus?.()
-}
-
 function isCoverageActionTesting(item, action) {
-  if (action.action !== 'test' || testingConfigId.value === null) return false
-  return String(testingConfigId.value) === String(item.targetConfig?.id)
+  return isCoverageActionTestingFromCoverage(item, action)
 }
 
 function isCoverageActionDisabled(item, action) {
@@ -2249,68 +2214,9 @@ function isConfigRowSelectable() {
   return !configWriteLocked.value
 }
 
-async function focusServiceConfigs(serviceType, { focusMode = false } = {}) {
-  selectConfigWorkspaceView('configs', { focus: focusMode })
-  activeServiceFilter.value = serviceType
-  await nextTick()
-  configListSectionRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
-}
-
-async function applyRequestedService(serviceType) {
-  const normalized = normalizeInitialServiceType(serviceType)
-  if (normalized) configWorkspaceView.value = 'configs'
-  activeServiceFilter.value = normalized
-  if (!normalized) return
-  const coverageItem = serviceCoverage.value.services.find((item) => item.type === normalized)
-  if (shouldAutoOpenRequestedService(coverageItem)) {
-    openAddForService(normalized)
-    return
-  }
-  if (coverageItem?.targetConfig && !coverageItem.ready && !configWriteLocked.value) {
-    await openEdit(coverageItem.targetConfig, { repairIssue: coverageItem.issue })
-    return
-  }
-  await focusServiceConfigs(normalized)
-}
-
-async function onCoverageSelect(item) {
-  if (shouldAutoOpenRequestedService(item)) {
-    openAddForService(item.type)
-    return
-  }
-  await focusServiceConfigs(item.type, { focusMode: true })
-}
-
-function shouldAutoOpenRequestedService(coverageItem) {
-  return (
-    canAutoOpenMissingService.value
-    && coverageItem?.state === 'missing'
-    && !vendorLock.value.enabled
-  )
-}
-
-async function onCoverageAction(item, action) {
-  if (configWriteLocked.value && ['add', 'edit'].includes(action.action)) return
-  if (action.action === 'add') {
-    openAddForService(item.type)
-    return
-  }
-  if (action.action === 'edit') {
-    if (item.targetConfig) {
-      await openEdit(item.targetConfig, { repairIssue: item.issue })
-    } else {
-      openAddForService(item.type)
-    }
-    return
-  }
-  if (action.action === 'test') {
-    if (item.targetConfig) {
-      lastTestedCoverageServiceType.value = item.type
-      await openTest(item.targetConfig)
-    }
-    return
-  }
-  await focusServiceConfigs(item.type, { focusMode: true })
+async function restoreTestedCoverageCardFocus() {
+  connectionTestAbortController?.abort()
+  await restoreCoverageCardFocus()
 }
 
 function parseSettings(settings) {
@@ -3085,7 +2991,7 @@ function loadMoreJimeng2MaterialAssets() {
 
 async function openTest(row) {
   if (row.service_type === 'jimeng2_character_auth') {
-    ElMessage.info('即梦2角色认证无需在此联调；保存后请在创作页「角色生成」中点击「SD2认证」验证。')
+    ElMessage.info('即梦2角色认证无需在此联调；保存后请在创作页「角色」面板中点击「SD2认证」验证。')
     return
   }
   if (row.service_type === 'model_ark_asset') {

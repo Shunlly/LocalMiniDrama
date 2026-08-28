@@ -6,7 +6,9 @@ function readSource(url) {
   return readFileSync(url, 'utf8').replace(/\r\n?/g, '\n')
 }
 
-const source = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const coverageComposableSource = readSource(new URL('../src/composables/useAiConfigCoverage.js', import.meta.url))
+const source = `${vueSource}\n${coverageComposableSource}`
 const pageSource = readSource(new URL('../src/views/AiConfig.vue', import.meta.url))
 const detailSource = readSource(new URL('../src/views/DramaDetail.vue', import.meta.url))
 const viteSource = readSource(new URL('../vite.config.js', import.meta.url))
