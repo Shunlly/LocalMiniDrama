@@ -7,7 +7,6 @@ server:
   port: 5679
   host: 127.0.0.1
   cors_origins:
-    - http://localhost:3012
     - http://localhost:3013
     - http://127.0.0.1:3013
   read_timeout: 600

@@ -737,11 +737,16 @@ test('FilmCreate 把视频配置交给独立面板并保留成片选项', () => 
   assert.match(filmCreateSource, /<FilmCreateVideoSettingsPanel/)
   assert.match(filmCreateSource, /v-model:resolution="videoResolution"/)
   assert.match(filmCreateSource, /@open-ai-config="openAiConfig"/)
+  assert.match(panel, /<el-form class="config-grid" label-position="top" @submit.prevent>/)
   assert.match(panel, /aria-label="成片分辨率"/)
+  assert.match(panel, /aria-label="成片字幕"/)
+  assert.match(panel, /aria-label="对白烧录"/)
+  assert.match(panel, /aria-label="成片水印"/)
+  assert.match(panel, /aria-label="水印文字"/)
   assert.match(panel, /label="字幕"/)
   assert.match(panel, /label="对白烧录"/)
   assert.match(panel, /label="水印"/)
-  assert.match(panel, /emit\('open-ai-config'\)/)
+  assert.match(panel, /<button type="button" class="ai-config-text-button" @click="emit\('open-ai-config'\)">AI 配置<\/button>/)
 })
 
 test('FilmCreate 把剧本工作台交给独立面板并保留空剧集入口', () => {

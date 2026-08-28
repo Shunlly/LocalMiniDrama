@@ -1,7 +1,7 @@
 <template>
   <section class="section card">
     <h2 class="section-title">视频配置</h2>
-    <div class="config-grid">
+    <el-form class="config-grid" label-position="top" @submit.prevent>
       <el-form-item label="分辨率">
         <el-select :model-value="resolution" aria-label="成片分辨率" style="width: 160px" @update:model-value="emit('update:resolution', $event)">
           <el-option label="480p" value="480p" />
@@ -27,6 +27,7 @@
           <el-input
             v-if="watermark"
             :model-value="watermarkText"
+            aria-label="水印文字"
             placeholder="右下角水印文字"
             maxlength="200"
             show-word-limit
@@ -36,8 +37,8 @@
           />
         </div>
       </el-form-item>
-    </div>
-    <p class="config-tip">文本/图片/视频使用的模型以「<el-link type="primary" underline="never" @click="emit('open-ai-config')">AI 配置</el-link>」中设为默认的为准。</p>
+    </el-form>
+    <p class="config-tip">文本/图片/视频使用的模型以「<button type="button" class="ai-config-text-button" @click="emit('open-ai-config')">AI 配置</button>」中设为默认的为准。</p>
   </section>
 </template>
 
@@ -90,5 +91,16 @@ const emit = defineEmits([
   font-size: 0.9rem;
   color: #a1a1aa;
 }
-.config-tip .el-link { font-size: inherit; }
+.ai-config-text-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--el-color-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.ai-config-text-button:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
+}
 </style>

@@ -134,7 +134,7 @@ test('FilmCreate AI config dialog fixes its header and tabs around one content s
 test('FilmCreate generic AI config entry resets a prior service-specific filter', () => {
   assert.doesNotMatch(filmCreateSource, /@click="showAiConfigDialog = true"/)
   assert.match(filmCreateSource, /@open-ai-config="openAiConfig"/)
-  assert.match(videoSettingsSource, /<el-link[^>]*@click="emit\('open-ai-config'\)"[^>]*>AI 配置<\/el-link>/)
+  assert.match(videoSettingsSource, /<button type="button" class="ai-config-text-button" @click="emit\('open-ai-config'\)">AI 配置<\/button>/)
   assert.match(aiConfigWorkspaceSource, /function openAiConfig\(serviceType = ''\)/)
   assert.match(aiConfigWorkspaceSource, /aiConfigInitialServiceType\.value = \['text', 'image', 'storyboard_image', 'video', 'tts'\]\.includes\(serviceType\)/)
 })
