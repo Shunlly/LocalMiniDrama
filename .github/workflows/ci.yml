@@ -632,6 +632,7 @@ jobs:
           test -z "$(find "$data_dir" -mindepth 1 -print -quit)"
           printf 'LOCALMINIDRAMA_DATA_DIR=%s\n' "$data_dir" >> "$GITHUB_ENV"
       - name: Start production containers and local E2E provider
+        id: e2e_up
         run: npm run docker:e2e:up
       - name: Record and scan final production images with Trivy
         shell: bash
@@ -674,7 +675,7 @@ jobs:
       - name: Verify code inside containers
         run: npm run verify:docker:containers
       - name: Run full production workflow, QA, timeline, export and browser checks
-        if: always()
+        if: steps.e2e_up.outcome == 'success'
         run: npm run verify:e2e
       - name: Capture container logs on failure
         if: failure()

@@ -128,13 +128,8 @@ function verifyBackendRuntime(image, dataDirectory, options = {}) {
 }
 
 function removeHostPath(target, options = {}) {
-  try {
-    fs.rmSync(target, { recursive: true, force: true })
-    return
-  } catch (error) {
-    if (!['EACCES', 'EPERM'].includes(error.code)) throw error
-  }
-  if (options.image) {
+  const resolved = path.resolve(target)
+  if (options.image && fs.existsSync(resolved)) {
     spawnSync('docker', [
       'run',
       '--rm',
@@ -143,10 +138,10 @@ function removeHostPath(target, options = {}) {
       '--entrypoint',
       'sh',
       '-v',
-      `${target}:/cleanup`,
+      `${path.dirname(resolved)}:/parent`,
       options.image,
       '-c',
-      'chmod -R a+rwx /cleanup || true',
+      `rm -rf -- /parent/${path.basename(resolved)}`,
     ], {
       cwd: root,
       stdio: 'ignore',
@@ -154,7 +149,12 @@ function removeHostPath(target, options = {}) {
       windowsHide: true,
     })
   }
-  fs.rmSync(target, { recursive: true, force: true })
+  try {
+    fs.rmSync(resolved, { recursive: true, force: true })
+  } catch (error) {
+    if (error.code === 'ENOENT') return
+    throw error
+  }
 }
 
 function main() {
