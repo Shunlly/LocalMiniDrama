@@ -859,7 +859,6 @@ import { isPlaceholderMediaUrl, probeImageSource, storyboardImageUrl } from '@/u
 import {
   getSbImagesList,
   hasRealMediaValue,
-  isStoryboardMediaStateError,
 } from '@/utils/storyboardMedia'
 import {
   collectStoryboardReferenceSlots,
@@ -931,6 +930,8 @@ import { useFilmCreateBatchGeneration } from '@/composables/filmCreate/useFilmCr
 import { useFilmCreateStoryboardImageGeneration } from '@/composables/filmCreate/useFilmCreateStoryboardImageGeneration'
 import { useFilmCreateStoryboardVideoGeneration } from '@/composables/filmCreate/useFilmCreateStoryboardVideoGeneration'
 import { useFilmCreateStoryboardTts } from '@/composables/filmCreate/useFilmCreateStoryboardTts'
+import { useFilmCreateLinkedStoryboardRegen } from '@/composables/filmCreate/useFilmCreateLinkedStoryboardRegen'
+import { useFilmCreateUniversalSegment } from '@/composables/filmCreate/useFilmCreateUniversalSegment'
 import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
 
 const projectLifecycle = createProjectInstanceLifecycle()
@@ -3360,100 +3361,23 @@ function scrollToStoryboard(sbId) {
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
-/** 对关联分镜批量重新生成图片 */
-async function onRegenAffectedSbImages(assetKey, affectedBoards) {
-  if (!affectedBoards.length || regenSbImagesForAsset.has(assetKey)) return
-  try {
-    assertStoryboardMediaReady()
-  } catch (error) {
-    ElMessage.warning(error.message)
-    return
-  }
-  try {
-    await ElMessageBox.confirm(
-      `将为 ${affectedBoards.length} 个关联分镜重新生成图片（#${affectedBoards.map((s) => s.storyboard_number).join('、#')}），原有图片将被覆盖，是否继续？`,
-      '重新生成关联分镜图',
-      { confirmButtonText: '确认生成', cancelButtonText: '取消', type: 'warning' }
-    )
-  } catch {
-    return
-  }
-  try {
-    assertStoryboardMediaReady()
-  } catch (error) {
-    ElMessage.warning(error.message)
-    return
-  }
-  regenSbImagesForAsset.add(assetKey)
-  // 用 Map 存进度以便响应式更新
-  if (!regenSbImagesProgress.value) regenSbImagesProgress.value = {}
-  regenSbImagesProgress.value[assetKey] = { current: 0, total: affectedBoards.length }
-  let failed = 0
-  try {
-    for (let i = 0; i < affectedBoards.length; i++) {
-      regenSbImagesProgress.value[assetKey] = { current: i + 1, total: affectedBoards.length }
-      const sb = affectedBoards[i]
-      const mediaRefresh = captureStoryboardMediaRefresh(sb.id)
-      try {
-        const useFirstLast = storyboardUseFirstLastFrame.value && !isSbUniversalMode(sb.id)
-        let prompt = sb.polished_prompt || sb.image_prompt || sb.description || ''
-        let frameTypeForCreate = undefined
-        if (useFirstLast) {
-          // 首尾帧模式下，关联资源触发的批量重新生成也必须走专业首帧提示词
-          prompt = await ensureProfessionalFramePrompt(sb, 'first')
-          frameTypeForCreate = 'storyboard_first'
-        }
-        assertStoryboardMediaReady()
-        const res = await imagesAPI.create({
-          storyboard_id: sb.id,
-          drama_id: dramaId.value,
-          prompt,
-          style: getSelectedStyle(),
-          frame_type: frameTypeForCreate,
-          aspect_ratio: projectAspectRatio.value || '16:9',
-        })
-        if (res?.task_id) {
-          const pollRes = await new Promise((resolve) => {
-            const maxAttempts = 180
-            let attempts = 0
-            const tick = async () => {
-              attempts++
-              try {
-                const t = await taskAPI.get(res.task_id)
-                if (t.status === 'completed') { await mediaRefresh(); return resolve({ status: 'completed' }) }
-                if (t.status === 'failed') return resolve({ status: 'failed', error: t.error || '任务失败' })
-              } catch (_) {}
-              if (attempts < maxAttempts) setTimeout(tick, 2000)
-              else resolve({ status: 'timeout' })
-            }
-            setTimeout(tick, 2000)
-          })
-          if (pollRes?.status !== 'completed') failed++
-        } else {
-          await mediaRefresh()
-        }
-        if (useFirstLast) {
-          delete sbSelectedImgId.value[sb.id]
-        }
-      } catch (e) {
-        if (isStoryboardMediaStateError(e)) throw e
-        failed++
-      }
-      if (i < affectedBoards.length - 1) await new Promise((r) => setTimeout(r, 500))
-    }
-    if (failed === 0) ElMessage.success(`已重新生成 ${affectedBoards.length} 张关联分镜图`)
-    else ElMessage.warning(`完成，${failed}/${affectedBoards.length} 条失败`)
-  } catch (error) {
-    if (isStoryboardMediaStateError(error)) {
-      ElMessage.warning(error.message)
-      return
-    }
-    throw error
-  } finally {
-    regenSbImagesForAsset.delete(assetKey)
-    if (regenSbImagesProgress.value) delete regenSbImagesProgress.value[assetKey]
-  }
-}
+const {
+  onRegenAffectedSbImages,
+} = useFilmCreateLinkedStoryboardRegen({
+  dramaId,
+  imagesAPI,
+  taskAPI,
+  assertStoryboardMediaReady,
+  captureStoryboardMediaRefresh,
+  storyboardUseFirstLastFrame,
+  isSbUniversalMode,
+  ensureProfessionalFramePrompt,
+  getSelectedStyle,
+  projectAspectRatio,
+  regenSbImagesForAsset,
+  regenSbImagesProgress,
+  sbSelectedImgId,
+})
 
 function updateStoryboardDialogue(sbId) {
   // 可在此防抖后调用后端更新 dialogue
@@ -4365,219 +4289,29 @@ function getSbVideoDurationForApi(sb) {
 }
 
 /** 全能提示词生成/润色：提交当前编辑区中的分镜字段（避免未点保存时仍用库内旧对白） */
-function buildUniversalSegmentFieldOverrides(sb) {
-  if (!sb?.id) return {}
-  const id = sb.id
-  const trimOrNull = (v) => {
-    const s = (v ?? '').toString().trim()
-    return s || null
-  }
-  return {
-    title: trimOrNull(sbTitle.value[id] ?? sb.title),
-    description: trimOrNull(sb.description),
-    location: trimOrNull(sbLocation.value[id] ?? sb.location),
-    time: trimOrNull(sbTime.value[id] ?? sb.time),
-    action: trimOrNull(sbAction.value[id] ?? sb.action),
-    dialogue: trimOrNull(sbDialogue.value[id] ?? sb.dialogue),
-    narration: trimOrNull(sbNarration.value[id] ?? sb.narration),
-    result: trimOrNull(sbResult.value[id] ?? sb.result),
-    atmosphere: trimOrNull(sbAtmosphere.value[id] ?? sb.atmosphere),
-    shot_type: trimOrNull(sbShotType.value[id] ?? sb.shot_type),
-    movement: trimOrNull(sbMovement.value[id] ?? sb.movement),
-    layout_description: trimOrNull(sbLayoutDescription.value[id] ?? sb.layout_description),
-  }
-}
-
-/** 全能片段：@图片N 转 Grok 占位符 <IMAGE_N> */
-function universalSegmentAtImageToGrokTags(text) {
-  return (text || '').replace(/@图片(\d+)/g, '<IMAGE_$1>')
-}
-
-function onUniversalSegmentToGrokVideoTags(sb) {
-  if (!sb?.id) return
-  const raw = (sbUniversalSegmentText.value[sb.id] ?? '').toString()
-  if (!raw.trim()) {
-    ElMessage.warning('请先填写或生成片段描述')
-    return
-  }
-  const next = universalSegmentAtImageToGrokTags(raw)
-  if (next === raw) {
-    ElMessage.info('未找到 @图片N 标记，无需转换')
-    return
-  }
-  sbUniversalSegmentText.value = { ...sbUniversalSegmentText.value, [sb.id]: next }
-  void onSaveUniversalSegmentField(sb)
-  ElMessage.success('已改为 Grok 视频占位符格式（<IMAGE_N>）')
-}
-
-function onUniversalSegmentPromptMenu(sb, cmd) {
-  if (cmd === 'generate') onGenerateUniversalSegmentPrompt(sb, {})
-  else if (cmd === 'generate-force') onGenerateUniversalSegmentPrompt(sb, { forceWithoutReferenceImages: true })
-  else if (cmd === 'polish') onPolishUniversalSegmentPromptStream(sb, {})
-  else if (cmd === 'polish-force') onPolishUniversalSegmentPromptStream(sb, { forceWithoutReferenceImages: true })
-  else if (cmd === 'to-grok-video-tags') onUniversalSegmentToGrokVideoTags(sb)
-}
-
-/** 全能模式：根据当前分镜结构化字段流式生成片段描述（NDJSON） */
-async function onGenerateUniversalSegmentPrompt(sb, opts = {}) {
-  if (!sb?.id || generatingUniversalSegmentIds.has(sb.id)) return
-  const force = !!opts.forceWithoutReferenceImages
-  generatingUniversalSegmentIds.add(sb.id)
-  let live = ''
-  try {
-    const durationSec = universalSegmentDurationSecForSb(sb)
-    const data = await storyboardsAPI.generateUniversalSegmentPromptStream(
-      sb.id,
-      {
-        duration: durationSec,
-        field_overrides: buildUniversalSegmentFieldOverrides(sb),
-        ...(force ? { force_without_reference_images: true } : {}),
-      },
-      (delta) => {
-        live += delta
-        sbUniversalSegmentText.value = { ...sbUniversalSegmentText.value, [sb.id]: live }
-      }
-    )
-    const text = (data?.universal_segment_text ?? '').toString().trim()
-    if (!text) {
-      ElMessage.warning('未收到完整生成结果，请重试')
-      return
-    }
-    sbUniversalSegmentText.value = { ...sbUniversalSegmentText.value, [sb.id]: text }
-    const list = store.currentEpisode?.storyboards
-    if (Array.isArray(list)) {
-      const row = list.find((x) => Number(x.id) === Number(sb.id))
-      if (row) row.universal_segment_text = text
-    }
-    ElMessage.success(force ? '已强制生成全能片段提示词（无图模式）' : '已根据分镜生成全能片段提示词')
-  } catch (e) {
-    ElMessage.error(e.message || '生成失败，请检查文本模型配置')
-  } finally {
-    generatingUniversalSegmentIds.delete(sb.id)
-  }
-}
-
-/** 全能模式：结合剧本与邻镜流式润色片段描述（服务端 NDJSON） */
-async function onPolishUniversalSegmentPromptStream(sb, opts = {}) {
-  if (!sb?.id || generatingUniversalSegmentIds.has(sb.id)) return
-  const force = !!opts.forceWithoutReferenceImages
-  const draft = sbUniversalSegmentTrimmed(sb)
-  if (!draft) {
-    ElMessage.warning('请先填写或生成片段描述后再润色')
-    return
-  }
-  generatingUniversalSegmentIds.add(sb.id)
-  let live = ''
-  try {
-    const durationSec = universalSegmentDurationSecForSb(sb)
-    const data = await storyboardsAPI.polishUniversalSegmentPromptStream(
-      sb.id,
-      {
-        duration: durationSec,
-        draft_universal_segment_text: draft,
-        field_overrides: buildUniversalSegmentFieldOverrides(sb),
-        ...(force ? { force_without_reference_images: true } : {}),
-      },
-      (delta) => {
-        live += delta
-        sbUniversalSegmentText.value = { ...sbUniversalSegmentText.value, [sb.id]: live }
-      }
-    )
-    const text = (data?.universal_segment_text ?? '').toString().trim()
-    if (!text) {
-      ElMessage.warning('未收到完整润色结果，请重试')
-      return
-    }
-    sbUniversalSegmentText.value = { ...sbUniversalSegmentText.value, [sb.id]: text }
-    const list = store.currentEpisode?.storyboards
-    if (Array.isArray(list)) {
-      const row = list.find((x) => Number(x.id) === Number(sb.id))
-      if (row) row.universal_segment_text = text
-    }
-    ElMessage.success(force ? '全能片段已强制润色并保存（无图模式）' : '全能片段提示词已润色并保存')
-  } catch (e) {
-    ElMessage.error(e.message || '润色失败，请检查文本模型配置')
-  } finally {
-    generatingUniversalSegmentIds.delete(sb.id)
-  }
-}
-
-/**
- * 分镜脚本生成完成后：按镜序逐个流式润色全能片段（服务端已落库）。
- * @param {{ checkPause?: () => Promise<void>, onShotProgress?: (cur:number,total:number,sb:object)=>void, onShotError?: (sb:object,msg:string)=>void }} opts
- */
-async function polishUniversalSegmentsAfterGeneration(opts = {}) {
-  const checkPause = typeof opts.checkPause === 'function' ? opts.checkPause : async () => {}
-  const onShotProgress = typeof opts.onShotProgress === 'function' ? opts.onShotProgress : null
-  const onShotError = typeof opts.onShotError === 'function' ? opts.onShotError : null
-
-  if (!storyboardUniversalOmni.value) return { polished: 0, skipped: true }
-
-  const rawList = store.currentEpisode?.storyboards || []
-  const list = rawList.slice().sort((a, b) => (Number(a.storyboard_number) || 0) - (Number(b.storyboard_number) || 0))
-  const targets = list.filter((sb) => sb?.id && isSbUniversalMode(sb.id) && sbUniversalSegmentTrimmed(sb))
-
-  if (!targets.length) return { polished: 0, skipped: true }
-
-  universalOmniPolishRunning.value = true
-  universalOmniPolishAbort.value = false
-  universalOmniPolishProgress.value = { current: 0, total: targets.length, label: '' }
-  let polished = 0
-  try {
-    for (let i = 0; i < targets.length; i++) {
-      if (universalOmniPolishAbort.value) break
-      await checkPause()
-      const sb = targets[i]
-      const cur = i + 1
-      const label = '#' + (sb.storyboard_number ?? cur) + (sb.title ? ' ' + String(sb.title).slice(0, 20) : '')
-      universalOmniPolishProgress.value = { current: cur, total: targets.length, label }
-      if (onShotProgress) onShotProgress(cur, targets.length, sb)
-
-      const draft = sbUniversalSegmentTrimmed(sb)
-      if (!draft) continue
-
-      generatingUniversalSegmentIds.add(sb.id)
-      let live = ''
-      try {
-        const durationSec = universalSegmentDurationSecForSb(sb)
-        const data = await storyboardsAPI.polishUniversalSegmentPromptStream(
-          sb.id,
-          {
-            duration: durationSec,
-            draft_universal_segment_text: draft,
-            field_overrides: buildUniversalSegmentFieldOverrides(sb),
-            force_without_reference_images: true,
-          },
-          (delta) => {
-            live += delta
-            sbUniversalSegmentText.value = { ...sbUniversalSegmentText.value, [sb.id]: live }
-          }
-        )
-        const text = (data?.universal_segment_text ?? '').toString().trim()
-        if (text) {
-          polished += 1
-          sbUniversalSegmentText.value = { ...sbUniversalSegmentText.value, [sb.id]: text }
-          const storyList = store.currentEpisode?.storyboards
-          if (Array.isArray(storyList)) {
-            const row = storyList.find((x) => Number(x.id) === Number(sb.id))
-            if (row) row.universal_segment_text = text
-          }
-        }
-      } catch (e) {
-        const msg = e?.message || String(e)
-        if (onShotError) onShotError(sb, msg)
-        else ElMessage.warning(`分镜 #${sb.storyboard_number ?? sb.id} 全能润色失败：${msg}`)
-      } finally {
-        generatingUniversalSegmentIds.delete(sb.id)
-      }
-      await pipelineRest()
-    }
-  } finally {
-    universalOmniPolishRunning.value = false
-    universalOmniPolishProgress.value = { current: 0, total: 0, label: '' }
-  }
-  return { polished, skipped: false }
-}
+const {
+  buildUniversalSegmentFieldOverrides,
+  universalSegmentAtImageToGrokTags,
+  onUniversalSegmentToGrokVideoTags,
+  onUniversalSegmentPromptMenu,
+  onGenerateUniversalSegmentPrompt,
+  onPolishUniversalSegmentPromptStream,
+  polishUniversalSegmentsAfterGeneration,
+} = useFilmCreateUniversalSegment({
+  store,
+  storyboardsAPI,
+  generatingUniversalSegmentIds,
+  sbUniversalSegmentText,
+  sbUniversalSegmentTrimmed,
+  universalSegmentDurationSecForSb,
+  isSbUniversalMode,
+  storyboardUniversalOmni,
+  universalOmniPolishRunning,
+  universalOmniPolishAbort,
+  universalOmniPolishProgress,
+  pipelineRest,
+  onSaveUniversalSegmentField,
+})
 
 /** 为视频生成获取参考图的真实 URL */
 async function getMainImageUrlForVideo(sb) {
