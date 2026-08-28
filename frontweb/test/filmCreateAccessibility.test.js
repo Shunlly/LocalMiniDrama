@@ -18,6 +18,10 @@ const deliveryActionsSource = readFileSync(
   new URL('../src/composables/filmCreate/useFilmCreateDeliveryActions.js', import.meta.url),
   'utf8',
 )
+const filmCreateStyleSource = readFileSync(
+  new URL('../src/views/FilmCreate.css', import.meta.url),
+  'utf8',
+)
 const stylePickerSource = readFileSync(
   new URL('../src/components/StylePickerButton.vue', import.meta.url),
   'utf8',
@@ -88,7 +92,7 @@ test('film create keeps the episode selector only in the page header', () => {
   assert.match(filmCreateSource, /class="header-context-label">当前集<\/span>/)
   assert.match(filmCreateSource, /<h1 class="page-title"\s+:title="projectPageTitle">\{\{ projectPageTitle \}\}<\/h1>/)
   assert.doesNotMatch(filmCreateSource, /<span class="page-title"/)
-  assert.match(filmCreateSource, /\.page-title\s*\{[\s\S]*?margin:\s*0;/)
+  assert.match(filmCreateStyleSource, /\.page-title\s*\{[\s\S]*?margin:\s*0;/)
   assert.match(episodeSelectSource, /aria-label="当前集"/)
   assert.match(episodeSelectSource, /:model-value="selectedEpisodeId"/)
   assert.match(episodeSelectSource, /:loading="episodeSwitching"/)

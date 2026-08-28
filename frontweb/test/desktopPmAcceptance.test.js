@@ -14,6 +14,7 @@ const filmListSource = read('../src/views/FilmList.vue')
 const freeCreateSource = read('../src/views/FreeCreate.vue')
 const canvasSource = read('../src/views/DramaCanvas.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
+const filmCreateStyleSource = read('../src/views/FilmCreate.css')
 const mediaPreviewSource = read('../src/composables/filmCreate/useFilmCreateMediaPreview.js')
 const workspaceNavSource = read('../src/composables/filmCreate/useFilmCreateWorkspaceNav.js')
 const filmCreateLogicSource = filmCreateSource + '\n' + mediaPreviewSource + '\n' + workspaceNavSource
@@ -221,9 +222,9 @@ test('film creation desktop keeps the pipeline focus above long content and anch
   assert.ok(scriptWorkbenchIndex >= 0, 'script workbench must remain in the film creation workspace')
   assert.match(filmCreateSource, /<FilmCreateScriptWorkbench/)
   assert.ok(pipelineIndex < scriptWorkbenchIndex, 'pipeline focus must be visible before the long script workbench')
-  assert.match(filmCreateSource, /--film-create-sticky-offset:\s*84px/)
+  assert.match(filmCreateStyleSource, /--film-create-sticky-offset:\s*84px/)
   assert.match(
-    filmCreateSource,
+    filmCreateStyleSource,
     /\.main :is\(\[id\^="anchor-"\], \[id\^="sb-"\]\)\s*\{[\s\S]*?scroll-margin-top:\s*var\(--film-create-sticky-offset\)/,
   )
   assert.match(filmCreatePipelineSource, /class="pipeline-focus"/)

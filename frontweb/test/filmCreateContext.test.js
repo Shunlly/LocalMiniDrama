@@ -8,6 +8,11 @@ const filmCreateSource = readFileSync(
   new URL('../src/views/FilmCreate.vue', import.meta.url),
   'utf8',
 )
+const filmCreateStyleSource = readFileSync(
+  new URL('../src/views/FilmCreate.css', import.meta.url),
+  'utf8',
+)
+const filmCreateViewSource = filmCreateSource + '\n' + filmCreateStyleSource
 
 test('episode context always identifies the episode number before its title', () => {
   assert.equal(
@@ -40,7 +45,7 @@ test('episode context selector keeps the desktop interaction height', () => {
 
 test('desktop production header groups commands into a non-overlapping actions workspace', () => {
   assert.match(filmCreateSource, /class="workspace-actions"/)
-  assert.match(filmCreateSource, /@media \(min-width: 769px\) and \(max-width: 1400px\) \{[\s\S]*?\.header-inner\s*\{[\s\S]*?grid-template-columns:/)
-  assert.match(filmCreateSource, /\.workspace-actions\s*\{[\s\S]*?min-height:\s*32px;/)
-  assert.match(filmCreateSource, /@media \(min-width: 769px\) and \(max-width: 1400px\) \{[\s\S]*?\.workspace-actions\s*\{[\s\S]*?grid-column:/)
+  assert.match(filmCreateViewSource, /@media \(min-width: 769px\) and \(max-width: 1400px\) \{[\s\S]*?\.header-inner\s*\{[\s\S]*?grid-template-columns:/)
+  assert.match(filmCreateViewSource, /\.workspace-actions\s*\{[\s\S]*?min-height:\s*32px;/)
+  assert.match(filmCreateViewSource, /@media \(min-width: 769px\) and \(max-width: 1400px\) \{[\s\S]*?\.workspace-actions\s*\{[\s\S]*?grid-column:/)
 })
