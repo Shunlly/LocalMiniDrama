@@ -14,11 +14,15 @@ const pipelineRunSource = readFileSync(
   new URL('../src/composables/filmCreate/useFilmCreatePipelineRun.js', import.meta.url),
   'utf8',
 )
+const pipelineStagesSource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreatePipelineStages.js', import.meta.url),
+  'utf8',
+)
 const pipelinePanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
   'utf8',
 )
-const source = pipelineRunSource + '\n' + filmCreateSource
+const source = pipelineRunSource + '\n' + pipelineStagesSource + '\n' + filmCreateSource
 
 function sourceBetween(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker)
@@ -220,7 +224,7 @@ test('FilmCreate cancellation waits for its owned run and never unlocks in the t
 
 test('FilmCreate routes retry and production launch through abort and cost gates', () => {
   const startSource = sourceBetween(
-    filmCreateSource,
+    source,
     'async function startOneClickPipeline',
     'async function startTextFrameworkPipeline',
   )
@@ -228,7 +232,7 @@ test('FilmCreate routes retry and production launch through abort and cost gates
   assert.match(source, /const pipelineStarting = ref\(false\)/)
   assert.match(source, /const pipelineStopping = ref\(false\)/)
   assert.match(
-    filmCreateSource,
+    source,
     /async function startOneClickPipeline\(\)[\s\S]*await confirmProductionPipelineCost\(\)[\s\S]*await executeOwnedPipelineRun/,
   )
   assert.equal((startSource.match(/pipelineAbortRequested\.value = false/g) || []).length, 1)

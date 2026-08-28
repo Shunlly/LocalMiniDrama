@@ -6,6 +6,7 @@ import { parse } from '@vue/compiler-sfc'
 import { shouldShowRequestErrorToast } from '../src/utils/request.js'
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const pipelineStagesSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreatePipelineStages.js', import.meta.url), 'utf8')
 const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 const storyboardDialogsSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardDialogs.vue', import.meta.url), 'utf8')
 const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
@@ -102,9 +103,10 @@ test('FilmCreate wires the picker into storyboard free references with duplicate
 })
 
 test('all storyboard video submission paths reuse the shared video request builder', () => {
-  const requestBuilderUses = filmCreateSource.match(/videosAPI\.create\(buildStoryboardVideoRequest\(/g) || []
+  const videoRequestSource = filmCreateSource + '\n' + pipelineStagesSource
+  const requestBuilderUses = videoRequestSource.match(/videosAPI\.create\(buildStoryboardVideoRequest\(/g) || []
   assert.equal(requestBuilderUses.length, 4)
-  assert.match(filmCreateSource, /referenceImageUrls: referencePayload\.referenceUrls/)
+  assert.match(videoRequestSource, /referenceImageUrls: referencePayload\.referenceUrls/)
   assert.match(filmCreateSource, /const primaryReferenceUrl = getSbPrimaryReferenceAbsoluteUrl\(sb\)/)
 })
 
