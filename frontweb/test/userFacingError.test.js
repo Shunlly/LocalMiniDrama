@@ -27,6 +27,9 @@ test('制作页取消/配音/上传失败不再直出 e.message', () => {
     '../src/composables/filmCreate/useFilmCreateStoryboardReferences.js',
     '../src/composables/filmCreate/useFilmCreateUniversalSegment.js',
     '../src/composables/filmCreate/useFilmCreateTailFrameLink.js',
+    '../src/composables/filmCreate/useCharacters.js',
+    '../src/composables/filmCreate/useScenes.js',
+    '../src/composables/filmCreate/useFilmCreateRefImageDrop.js',
   ]
   for (const rel of files) {
     const source = readFileSync(new URL(rel, import.meta.url), 'utf8')

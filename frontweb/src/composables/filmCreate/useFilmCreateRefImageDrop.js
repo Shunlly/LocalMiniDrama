@@ -1,3 +1,5 @@
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
+
 export function useFilmCreateRefImageDrop(deps = {}) {
   const {
     ElMessage,
@@ -99,7 +101,8 @@ export function useFilmCreateRefImageDrop(deps = {}) {
           ElMessage.success('已从参考图提取外貌描述')
         }
       } catch (e) {
-        ElMessage.error(e.message || '提取失败，请检查 AI 配置中是否有支持视觉的模型')
+        if (isUserFacingAbort(e)) return
+        ElMessage.error(toUserFacingError(e, '提取失败，请检查 AI 配置中是否有支持视觉的模型'))
       } finally {
         extractingCharAppearance.value = false
       }
@@ -115,7 +118,8 @@ export function useFilmCreateRefImageDrop(deps = {}) {
           ElMessage.success('已从参考图提取特征描述')
         }
       } catch (e) {
-        ElMessage.error(e.message || '提取失败，请检查 AI 配置中是否有支持视觉的模型')
+        if (isUserFacingAbort(e)) return
+        ElMessage.error(toUserFacingError(e, '提取失败，请检查 AI 配置中是否有支持视觉的模型'))
       } finally {
         extractingPropDesc.value = false
       }
@@ -131,7 +135,8 @@ export function useFilmCreateRefImageDrop(deps = {}) {
           ElMessage.success('已从参考图提取场景描述')
         }
       } catch (e) {
-        ElMessage.error(e.message || '提取失败，请检查 AI 配置中是否有支持视觉的模型')
+        if (isUserFacingAbort(e)) return
+        ElMessage.error(toUserFacingError(e, '提取失败，请检查 AI 配置中是否有支持视觉的模型'))
       } finally {
         extractingSceneDesc.value = false
       }

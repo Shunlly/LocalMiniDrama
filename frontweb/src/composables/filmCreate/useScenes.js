@@ -1,4 +1,5 @@
 import { ref, reactive, computed } from 'vue'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
 import { sceneAPI as rawSceneAPI } from '@/api/scenes'
 import { sceneLibraryAPI as rawSceneLibraryAPI } from '@/api/sceneLibrary'
@@ -131,7 +132,8 @@ export function useScenes(deps) {
         ElMessage.success('场景提取任务已提交')
       }
     } catch (e) {
-      ElMessage.error(e.message || '提取失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '提取失败'))
     } finally {
       genStore.markDone(meta)
     }
@@ -196,7 +198,8 @@ export function useScenes(deps) {
         await loadDrama()
       }
     } catch (e) {
-      ElMessage.error(e.message || '生成提示词失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '生成提示词失败'))
     } finally {
       editScenePromptGenerating.value = false
     }
@@ -214,7 +217,8 @@ export function useScenes(deps) {
         await loadDrama()
       }
     } catch (e) {
-      ElMessage.error(e.message || '生成提示词失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '生成提示词失败'))
     } finally {
       editScenePromptGenerating.value = false
     }
@@ -256,7 +260,8 @@ export function useScenes(deps) {
         ElMessage.success('已从图片提取场景描述')
       }
     } catch (e) {
-      ElMessage.error(e.message || '提取失败，请检查场景是否已上传参考图片')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '提取失败，请检查场景是否已上传参考图片'))
     } finally {
       extractingSceneDesc.value = false
     }
@@ -297,7 +302,8 @@ export function useScenes(deps) {
       await loadDrama()
       showEditScene.value = false
     } catch (e) {
-      ElMessage.error(e.message || (form.id ? '保存失败' : '添加失败'))
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, form.id ? '保存失败' : '添加失败'))
     } finally {
       editSceneSaving.value = false
     }
@@ -322,7 +328,7 @@ export function useScenes(deps) {
       ElMessage.success('场景已删除')
     } catch (e) {
       if (e === 'cancel') return
-      ElMessage.error(e.message || '删除失败')
+      ElMessage.error(toUserFacingError(e, '删除失败'))
     }
   }
 
@@ -362,7 +368,7 @@ export function useScenes(deps) {
     } catch (e) {
       console.error(e)
       scene.errorMsg = e.message || '生成失败'
-      ElMessage.error(e.message || '提交失败')
+      ElMessage.error(toUserFacingError(e, '提交失败'))
     } finally {
       generatingSceneIds.delete(scene.id)
       genStore.markDone(meta)
@@ -488,7 +494,8 @@ export function useScenes(deps) {
       showEditSceneLibrary.value = false
       loadSceneLibraryList()
     } catch (e) {
-      ElMessage.error(e.message || '保存失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '保存失败'))
     } finally {
       editSceneLibrarySaving.value = false
     }
@@ -507,7 +514,7 @@ export function useScenes(deps) {
       loadSceneLibraryList()
     } catch (e) {
       if (e === 'cancel') return
-      ElMessage.error(e.message || '删除失败')
+      ElMessage.error(toUserFacingError(e, '删除失败'))
     }
   }
 
@@ -519,7 +526,8 @@ export function useScenes(deps) {
       ElMessage.success('已加入本剧场景库')
       if (showSceneLibrary.value) loadSceneLibraryList()
     } catch (e) {
-      ElMessage.error(e.message || '加入失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '加入失败'))
     } finally {
       addingSceneToLibraryId.value = null
     }
@@ -532,7 +540,8 @@ export function useScenes(deps) {
       await sceneAPI.addToMaterialLibrary(scene.id)
       ElMessage.success('已加入全局素材库')
     } catch (e) {
-      ElMessage.error(e.message || '加入失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '加入失败'))
     } finally {
       addingSceneToMaterialId.value = null
     }
@@ -570,7 +579,8 @@ export function useScenes(deps) {
       }
       await loadDrama()
     } catch (e) {
-      ElMessage.error(e.message || '加入失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '加入失败'))
     } finally {
       addingSceneFromLibraryId.value = null
     }

@@ -1,4 +1,5 @@
 import { ref, reactive, watch, computed } from 'vue'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
 import { characterAPI as rawCharacterAPI } from '@/api/characters'
 import { characterLibraryAPI as rawCharacterLibraryAPI } from '@/api/characterLibrary'
@@ -146,7 +147,8 @@ export function useCharacters(deps) {
         await loadDrama()
       }
     } catch (e) {
-      ElMessage.error(e.message || '生成失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '生成失败'))
     } finally {
       genStore.markDone(meta)
     }
@@ -275,7 +277,8 @@ export function useCharacters(deps) {
       await loadDrama()
       showEditCharacter.value = false
     } catch (e) {
-      ElMessage.error(e.message || (form.id ? '保存失败' : '添加失败'))
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, form.id ? '保存失败' : '添加失败'))
     } finally {
       editCharacterSaving.value = false
     }
@@ -293,7 +296,8 @@ export function useCharacters(deps) {
         await loadDrama()
       }
     } catch (e) {
-      ElMessage.error(e.message || '生成提示词失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '生成提示词失败'))
     } finally {
       editCharacterPromptGenerating.value = false
     }
@@ -310,7 +314,8 @@ export function useCharacters(deps) {
         ElMessage.success('已从图片提取外貌描述')
       }
     } catch (e) {
-      ElMessage.error(e.message || '提取失败，请检查角色是否已上传参考图片')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '提取失败，请检查角色是否已上传参考图片'))
     } finally {
       extractingCharAppearance.value = false
     }
@@ -347,7 +352,7 @@ export function useCharacters(deps) {
       ElMessage.success('角色已删除')
     } catch (e) {
       if (e === 'cancel') return
-      ElMessage.error(e.message || '删除失败')
+      ElMessage.error(toUserFacingError(e, '删除失败'))
     }
   }
 
@@ -382,7 +387,7 @@ export function useCharacters(deps) {
     } catch (e) {
       console.error(e)
       char.errorMsg = e.message || '生成失败'
-      ElMessage.error(e.message || '提交失败')
+      ElMessage.error(toUserFacingError(e, '提交失败'))
     } finally {
       generatingCharIds.delete(char.id)
       genStore.markDone(meta)
@@ -505,7 +510,8 @@ export function useCharacters(deps) {
       showEditCharLibrary.value = false
       loadCharLibraryList()
     } catch (e) {
-      ElMessage.error(e.message || '保存失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '保存失败'))
     } finally {
       editCharLibrarySaving.value = false
     }
@@ -523,7 +529,7 @@ export function useCharacters(deps) {
       loadCharLibraryList()
     } catch (e) {
       if (e === 'cancel') return
-      ElMessage.error(e.message || '删除失败')
+      ElMessage.error(toUserFacingError(e, '删除失败'))
     }
   }
 
@@ -535,7 +541,8 @@ export function useCharacters(deps) {
       ElMessage.success('已加入本剧角色库')
       if (showCharLibrary.value) loadCharLibraryList()
     } catch (e) {
-      ElMessage.error(e.message || '加入失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '加入失败'))
     } finally {
       addingCharToLibraryId.value = null
     }
@@ -548,7 +555,8 @@ export function useCharacters(deps) {
       await characterAPI.addToMaterialLibrary(char.id)
       ElMessage.success('已加入全局素材库')
     } catch (e) {
-      ElMessage.error(e.message || '加入失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '加入失败'))
     } finally {
       addingCharToMaterialId.value = null
     }
@@ -599,7 +607,8 @@ export function useCharacters(deps) {
       await loadDrama()
       ElMessage.success(`「${item.name || '角色'}」已加入本集`)
     } catch (e) {
-      ElMessage.error(e.message || '加入失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '加入失败'))
     } finally {
       addingCharFromLibraryId.value = null
     }
@@ -645,7 +654,8 @@ export function useCharacters(deps) {
         }
       }, 3000)
     } catch (e) {
-      ElMessage.error(e.message || '提炼失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '提炼失败'))
       extractingAnchors.value = false
     }
   }
@@ -687,7 +697,8 @@ export function useCharacters(deps) {
       await loadDrama()
       ElMessage.success('SD2 认证状态已刷新')
     } catch (e) {
-      ElMessage.error(e?.message || '刷新失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '刷新失败'))
     } finally {
       sd2CertifyingId.value = null
     }
@@ -754,7 +765,8 @@ export function useCharacters(deps) {
       await loadDrama()
       ElMessage.success(res?.data?.message || '音色状态已刷新')
     } catch (e) {
-      ElMessage.error(e?.message || '刷新失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '刷新失败'))
     } finally {
       sd2VoiceUploadingId.value = null
     }
@@ -776,7 +788,8 @@ export function useCharacters(deps) {
         // 强制重新加载整个剧本数据，确保 seedance2_voice_asset 被正确解析并更新到 store
         await loadDrama()
       } catch (e) {
-        ElMessage.error(e?.message || '音色上传失败')
+        if (isUserFacingAbort(e)) return
+        ElMessage.error(toUserFacingError(e, '音色上传失败'))
       } finally {
         sd2VoiceUploadingId.value = null
       }
