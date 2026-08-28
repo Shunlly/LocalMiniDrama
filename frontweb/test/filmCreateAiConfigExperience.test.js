@@ -10,6 +10,7 @@ const filmCreateSource = readSource(new URL('../src/views/FilmCreate.vue', impor
 const filmListSource = readSource(new URL('../src/views/FilmList.vue', import.meta.url))
 const aiConfigSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
 const pipelinePanelSource = readSource(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url))
+const videoSettingsSource = readSource(new URL('../src/components/filmCreate/FilmCreateVideoSettingsPanel.vue', import.meta.url))
 const themeSource = readSource(new URL('../src/styles/theme.css', import.meta.url))
 const mainSource = readSource(new URL('../src/main.js', import.meta.url))
 const aiDialogHostSelector = ':is(.el-dialog.ai-config-workspace-dialog, .el-dialog:has(> .el-dialog__body > .ai-config-content))'
@@ -128,7 +129,8 @@ test('FilmCreate AI config dialog fixes its header and tabs around one content s
 
 test('FilmCreate generic AI config entry resets a prior service-specific filter', () => {
   assert.doesNotMatch(filmCreateSource, /@click="showAiConfigDialog = true"/)
-  assert.match(filmCreateSource, /<el-link[^>]*@click="openAiConfig\(\)"[^>]*>AI 配置<\/el-link>/)
+  assert.match(filmCreateSource, /@open-ai-config="openAiConfig"/)
+  assert.match(videoSettingsSource, /<el-link[^>]*@click="emit\('open-ai-config'\)"[^>]*>AI 配置<\/el-link>/)
   assert.match(filmCreateSource, /function openAiConfig\(serviceType = ''\)/)
   assert.match(filmCreateSource, /aiConfigInitialServiceType\.value = \['text', 'image', 'storyboard_image', 'video', 'tts'\]\.includes\(serviceType\)/)
 })
