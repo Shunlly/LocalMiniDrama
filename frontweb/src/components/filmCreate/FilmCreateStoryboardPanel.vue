@@ -33,7 +33,7 @@
               <el-option label="四宫格" value="quad_grid" />
               <el-option label="九宫格" value="nine_grid" />
             </el-select>
-            <span class="sb-config-hint">四/九宫格自动按视角拆分</span>
+            <span class="sb-config-hint">{{ storyboardUseFirstLastFrame ? '首尾帧模式下使用单张图，序列宫格暂不可用' : '四/九宫格自动按视角拆分' }}</span>
           </label>
         </div>
         <div class="sb-config-row sb-narration-export-row" style="margin-top:10px;flex-wrap:wrap;align-items:center;gap:12px">
@@ -46,29 +46,31 @@
           <el-checkbox v-model="storyboardIncludeNarration" @change="emit('save-settings')">
             同时生成解说旁白（与对白分轨，便于配音和字幕）
           </el-checkbox>
-          <el-button
-            v-if="storyboards.length > 0"
-            class="sb-export-srt-btn"
-            size="small"
-            plain
-            type="primary"
-            :disabled="!currentEpisodeId"
-            :loading="exportingStoryboardSheet"
-            @click="onExportStoryboardSheet"
-          >
-            导出分镜表
-          </el-button>
-          <el-button
-            v-if="storyboards.length > 0"
-            class="sb-export-srt-btn"
-            size="small"
-            plain
-            type="primary"
-            :disabled="!currentEpisodeId"
-            @click="onExportNarrationSrt"
-          >
-            导出解说 SRT
-          </el-button>
+          <ActionGate v-if="storyboards.length" :reason="episodeActionDisabledReason" label="导出分镜表">
+            <el-button
+              class="sb-export-srt-btn"
+              size="small"
+              plain
+              type="primary"
+              :disabled="Boolean(episodeActionDisabledReason)"
+              :loading="exportingStoryboardSheet"
+              @click="onExportStoryboardSheet"
+            >
+              导出分镜表
+            </el-button>
+          </ActionGate>
+          <ActionGate v-if="storyboards.length" :reason="episodeActionDisabledReason" label="导出解说 SRT">
+            <el-button
+              class="sb-export-srt-btn"
+              size="small"
+              plain
+              type="primary"
+              :disabled="Boolean(episodeActionDisabledReason)"
+              @click="onExportNarrationSrt"
+            >
+              导出解说 SRT
+            </el-button>
+          </ActionGate>
         </div>
         <div id="anchor-storyboard-images" class="asset-actions sb-batch-actions">
           <div class="flex">

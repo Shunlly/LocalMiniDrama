@@ -10,6 +10,7 @@
               v-model="storyInput"
               type="textarea"
               :rows="4"
+              aria-label="故事梗概"
               placeholder="例如：一个少女在森林里遇见会说话的狐狸，一起寻找失落的宝石..."
               class="story-textarea"
             />
@@ -62,7 +63,7 @@
               </div>
             </div>
             <div class="row gap" style="margin-bottom: 10px; flex-wrap: wrap;">
-              <el-input v-model="scriptTitle" placeholder="集标题" style="width: 150px" />
+              <el-input v-model="scriptTitle" aria-label="集标题" placeholder="集标题" style="width: 150px" />
               <el-button v-if="dramaId" style="margin-left: auto" aria-label="添加一集" @click="emit('add-episode')">
                 <el-icon><Plus /></el-icon>添加一集
               </el-button>
@@ -71,17 +72,20 @@
               v-model="scriptContent"
               type="textarea"
               :rows="8"
+              aria-label="剧本内容"
               placeholder="剧本内容将显示在这里，可直接编辑..."
               class="story-textarea"
             />
             <div class="row gap" style="margin-top: 8px; flex-wrap: wrap;">
-              <el-button
-                :loading="scriptGenerating"
-                :disabled="!!dramaId && hasAnyEpisode && !currentEpisodeId"
-                @click="emit('generate-script')"
-              >
-                保存当前集
-              </el-button>
+              <ActionGate :reason="saveCurrentEpisodeDisabledReason" label="保存当前集">
+                <el-button
+                  :loading="scriptGenerating"
+                  :disabled="Boolean(saveCurrentEpisodeDisabledReason)"
+                  @click="emit('generate-script')"
+                >
+                  保存当前集
+                </el-button>
+              </ActionGate>
               <span
                 class="script-save-status"
                 :class="`is-${scriptDraftStatus}`"
@@ -107,6 +111,7 @@
             type="textarea"
             :rows="3"
             readonly
+            aria-label="已导入故事梗概"
             class="story-textarea"
           />
           <template v-if="episodes.length > 1">
@@ -123,6 +128,7 @@
                   type="textarea"
                   :rows="12"
                   readonly
+                  :aria-label="`${ep.title || ('第' + (ep.episode_number || 0) + '集')}剧本正文`"
                   class="story-textarea"
                 />
               </el-tab-pane>
@@ -135,6 +141,7 @@
               type="textarea"
               :rows="12"
               readonly
+              aria-label="剧本正文"
               class="story-textarea"
             />
           </template>
@@ -180,11 +187,14 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Document, DocumentAdd, Plus } from '@element-plus/icons-vue'
+import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import { saveCurrentEpisodeDisabledReason as describeSaveCurrentEpisodeDisabledReason } from '@/utils/filmCreateActionState'
 
 defineOptions({ inheritAttrs: false })
 
-defineProps({
+const props = defineProps({
   isStoryGenRunning: { type: Boolean, default: false },
   dramaId: { type: [Number, String], default: null },
   hasAnyEpisode: { type: Boolean, default: false },
@@ -198,6 +208,12 @@ defineProps({
   selectableScriptDramas: { type: Array, default: () => [] },
   selectScriptDramas: { type: Array, default: () => [] },
 })
+
+const saveCurrentEpisodeDisabledReason = computed(() => describeSaveCurrentEpisodeDisabledReason({
+  dramaId: props.dramaId,
+  hasAnyEpisode: props.hasAnyEpisode,
+  currentEpisodeId: props.currentEpisodeId,
+}))
 
 const scriptWorkbenchMode = defineModel('scriptWorkbenchMode', { type: String, default: 'create' })
 const storyInput = defineModel('storyInput', { type: String, default: '' })

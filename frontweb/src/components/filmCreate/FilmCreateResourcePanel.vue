@@ -5,6 +5,8 @@
         type="file"
         accept="image/jpeg,image/png,image/gif,image/webp"
         style="display: none"
+        tabindex="-1"
+        aria-hidden="true"
         @change="onResourceImageFileChange"
       />
       <!-- 资源管理：角色 / 道具 / 场景 -->
@@ -63,21 +65,28 @@
                     <div class="asset-desc-full">{{ char.appearance || char.description || '暂无描述' }}</div>
                     <div class="asset-btns">
                       <el-button size="small" @click="emit('edit-character', char)">编辑</el-button>
-                      <el-button size="small" :loading="addingCharToLibraryId === char.id" :disabled="!hasAssetImage(char)" @click="emit('add-character-to-library', char)">
-                        加入本剧库
-                      </el-button>
-                      <el-button size="small" :loading="addingCharToMaterialId === char.id" :disabled="!hasAssetImage(char)" @click="emit('add-character-to-material', char)">
-                        加入素材库
-                      </el-button><el-button
-                        size="small"
-                        :type="char.seedance2_asset?.status === 'active' ? 'success' : 'warning'"
-                        plain
-                        :loading="sd2CertifyingId === char.id"
-                        :disabled="!hasAssetImage(char)"
-                        @click="emit('sd2-primary-action', char)"
-                      >
-                        {{ sd2ActionLabel(char) }}
-                      </el-button>
+                      <ActionGate :reason="missingAssetImageReason(char)" label="加入本剧库">
+                        <el-button size="small" :loading="addingCharToLibraryId === char.id" :disabled="!hasAssetImage(char)" @click="emit('add-character-to-library', char)">
+                          加入本剧库
+                        </el-button>
+                      </ActionGate>
+                      <ActionGate :reason="missingAssetImageReason(char)" label="加入素材库">
+                        <el-button size="small" :loading="addingCharToMaterialId === char.id" :disabled="!hasAssetImage(char)" @click="emit('add-character-to-material', char)">
+                          加入素材库
+                        </el-button>
+                      </ActionGate>
+                      <ActionGate :reason="missingAssetImageReason(char)" :label="sd2ActionLabel(char)">
+                        <el-button
+                          size="small"
+                          :type="char.seedance2_asset?.status === 'active' ? 'success' : 'warning'"
+                          plain
+                          :loading="sd2CertifyingId === char.id"
+                          :disabled="!hasAssetImage(char)"
+                          @click="emit('sd2-primary-action', char)"
+                        >
+                          {{ sd2ActionLabel(char) }}
+                        </el-button>
+                      </ActionGate>
                     </div>
 
                     <!-- Seedance 2.0 音色参考（仅该模型有效，其他模型不生效） -->
@@ -120,13 +129,15 @@
                     </div>
                     <div v-if="getCharAffectedStoryboards(char.id).length" class="asset-storyboard-link">
                       <span class="asl-label">影响的分镜：</span>
-                      <span
+                      <button
                         v-for="sb in getCharAffectedStoryboards(char.id)"
                         :key="sb.id"
+                        type="button"
                         class="asl-chip"
-                        title="点击跳转到该分镜"
+                        :title="`跳转到分镜 ${sb.storyboard_number}`"
+                        :aria-label="`跳转到分镜 ${sb.storyboard_number}`"
                         @click="emit('scroll-to-storyboard', sb.id)"
-                      >#{{ sb.storyboard_number }}</span>
+                      >#{{ sb.storyboard_number }}</button>
                       <span v-if="regenSbImagesForAsset.has('char-' + char.id) && regenSbImagesProgress['char-' + char.id]" class="asl-progress">
                         {{ regenSbImagesProgress['char-' + char.id].current }}/{{ regenSbImagesProgress['char-' + char.id].total }}
                       </span>
@@ -147,8 +158,8 @@
                     <div
                       class="asset-cover"
                       :class="{ 'asset-cover--clickable': hasAssetImage(char), 'asset-cover--dragover': dragOverResourceKey === 'char-' + char.id }"
-                      role="button"
-                      :tabindex="hasAssetImage(char) ? 0 : -1"
+                      :role="hasAssetImage(char) ? 'button' : undefined"
+                      :tabindex="hasAssetImage(char) ? 0 : undefined"
                       :aria-label="hasAssetImage(char) ? `预览${char.name || '角色'}图片` : undefined"
                       @click="hasAssetImage(char) && emit('preview-image', assetImageUrl(char))"
                       @keydown.enter.prevent="hasAssetImage(char) && emit('preview-image', assetImageUrl(char))"
@@ -230,21 +241,27 @@
                     <div class="asset-desc-full">{{ prop.description || prop.prompt || '暂无描述' }}</div>
                     <div class="asset-btns">
                       <el-button size="small" @click="emit('edit-prop', prop)">编辑</el-button>
-                      <el-button size="small" :loading="addingPropToLibraryId === prop.id" :disabled="!hasAssetImage(prop)" @click="emit('add-prop-to-library', prop)">
-                        加入本剧库
-                      </el-button>
-                      <el-button size="small" :loading="addingPropToMaterialId === prop.id" :disabled="!hasAssetImage(prop)" @click="emit('add-prop-to-material', prop)">
-                        加入素材库
-                      </el-button></div>
+                      <ActionGate :reason="missingAssetImageReason(prop)" label="加入本剧库">
+                        <el-button size="small" :loading="addingPropToLibraryId === prop.id" :disabled="!hasAssetImage(prop)" @click="emit('add-prop-to-library', prop)">
+                          加入本剧库
+                        </el-button>
+                      </ActionGate>
+                      <ActionGate :reason="missingAssetImageReason(prop)" label="加入素材库">
+                        <el-button size="small" :loading="addingPropToMaterialId === prop.id" :disabled="!hasAssetImage(prop)" @click="emit('add-prop-to-material', prop)">
+                          加入素材库
+                        </el-button>
+                      </ActionGate></div>
                     <div v-if="getPropAffectedStoryboards(prop.id).length" class="asset-storyboard-link">
                       <span class="asl-label">影响的分镜：</span>
-                      <span
+                      <button
                         v-for="sb in getPropAffectedStoryboards(prop.id)"
                         :key="sb.id"
+                        type="button"
                         class="asl-chip"
-                        title="点击跳转到该分镜"
+                        :title="`跳转到分镜 ${sb.storyboard_number}`"
+                        :aria-label="`跳转到分镜 ${sb.storyboard_number}`"
                         @click="emit('scroll-to-storyboard', sb.id)"
-                      >#{{ sb.storyboard_number }}</span>
+                      >#{{ sb.storyboard_number }}</button>
                       <span v-if="regenSbImagesForAsset.has('prop-' + prop.id) && regenSbImagesProgress['prop-' + prop.id]" class="asl-progress">
                         {{ regenSbImagesProgress['prop-' + prop.id].current }}/{{ regenSbImagesProgress['prop-' + prop.id].total }}
                       </span>
@@ -265,8 +282,8 @@
                     <div
                       class="asset-cover"
                       :class="{ 'asset-cover--clickable': hasAssetImage(prop), 'asset-cover--dragover': dragOverResourceKey === 'prop-' + prop.id }"
-                      role="button"
-                      :tabindex="hasAssetImage(prop) ? 0 : -1"
+                      :role="hasAssetImage(prop) ? 'button' : undefined"
+                      :tabindex="hasAssetImage(prop) ? 0 : undefined"
                       :aria-label="hasAssetImage(prop) ? `预览${prop.name || '道具'}图片` : undefined"
                       @click="hasAssetImage(prop) && emit('preview-image', assetImageUrl(prop))"
                       @keydown.enter.prevent="hasAssetImage(prop) && emit('preview-image', assetImageUrl(prop))"
@@ -351,21 +368,27 @@
                     <div class="asset-desc-full">{{ scene.description || scene.prompt || scene.time || '暂无描述' }}</div>
                     <div class="asset-btns">
                       <el-button size="small" @click="emit('edit-scene', scene)">编辑</el-button>
-                      <el-button size="small" :loading="addingSceneToLibraryId === scene.id" :disabled="!hasAssetImage(scene)" @click="emit('add-scene-to-library', scene)">
-                        加入本剧库
-                      </el-button>
-                      <el-button size="small" :loading="addingSceneToMaterialId === scene.id" :disabled="!hasAssetImage(scene)" @click="emit('add-scene-to-material', scene)">
-                        加入素材库
-                      </el-button></div>
+                      <ActionGate :reason="missingAssetImageReason(scene)" label="加入本剧库">
+                        <el-button size="small" :loading="addingSceneToLibraryId === scene.id" :disabled="!hasAssetImage(scene)" @click="emit('add-scene-to-library', scene)">
+                          加入本剧库
+                        </el-button>
+                      </ActionGate>
+                      <ActionGate :reason="missingAssetImageReason(scene)" label="加入素材库">
+                        <el-button size="small" :loading="addingSceneToMaterialId === scene.id" :disabled="!hasAssetImage(scene)" @click="emit('add-scene-to-material', scene)">
+                          加入素材库
+                        </el-button>
+                      </ActionGate></div>
                     <div v-if="getSceneAffectedStoryboards(scene.id).length" class="asset-storyboard-link">
                       <span class="asl-label">影响的分镜：</span>
-                      <span
+                      <button
                         v-for="sb in getSceneAffectedStoryboards(scene.id)"
                         :key="sb.id"
+                        type="button"
                         class="asl-chip"
-                        title="点击跳转到该分镜"
+                        :title="`跳转到分镜 ${sb.storyboard_number}`"
+                        :aria-label="`跳转到分镜 ${sb.storyboard_number}`"
                         @click="emit('scroll-to-storyboard', sb.id)"
-                      >#{{ sb.storyboard_number }}</span>
+                      >#{{ sb.storyboard_number }}</button>
                       <span v-if="regenSbImagesForAsset.has('scene-' + scene.id) && regenSbImagesProgress['scene-' + scene.id]" class="asl-progress">
                         {{ regenSbImagesProgress['scene-' + scene.id].current }}/{{ regenSbImagesProgress['scene-' + scene.id].total }}
                       </span>
@@ -386,8 +409,8 @@
                     <div
                       class="asset-cover"
                       :class="{ 'asset-cover--clickable': hasAssetImage(scene), 'asset-cover--dragover': dragOverResourceKey === 'scene-' + scene.id }"
-                      role="button"
-                      :tabindex="hasAssetImage(scene) ? 0 : -1"
+                      :role="hasAssetImage(scene) ? 'button' : undefined"
+                      :tabindex="hasAssetImage(scene) ? 0 : undefined"
                       :aria-label="hasAssetImage(scene) ? `预览${scene.location || '场景'}图片` : undefined"
                       @click="hasAssetImage(scene) && emit('preview-image', assetImageUrl(scene))"
                       @keydown.enter.prevent="hasAssetImage(scene) && emit('preview-image', assetImageUrl(scene))"
@@ -439,6 +462,7 @@
 import { ref } from 'vue'
 import { ArrowDown, ArrowUp, Delete, MagicStick, Upload, VideoPlay, ZoomIn } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import { missingAssetImageReason as describeMissingAssetImageReason } from '@/utils/filmCreateActionState'
 
 defineOptions({ inheritAttrs: false })
 
@@ -505,6 +529,10 @@ const emit = defineEmits([
 
 const { hasAssetImage, assetImageUrl, charRoleLabel, localPathToUrl, parseExtraImages, getCharAffectedStoryboards, getPropAffectedStoryboards, getSceneAffectedStoryboards, sd2ActionLabel, sd2VoiceActionLabel } = props
 
+function missingAssetImageReason(item) {
+  return describeMissingAssetImageReason(hasAssetImage(item))
+}
+
 const resourceImageFileInput = ref(null)
 const pendingUpload = ref(null)
 const dragOverResourceKey = ref(null)
@@ -568,6 +596,9 @@ html.light .section-title { color: #1e1b4b; }
   flex-shrink: 0;
 }
 .asl-chip {
+  appearance: none;
+  font: inherit;
+  line-height: inherit;
   display: inline-flex;
   align-items: center;
   padding: 1px 7px;
@@ -585,6 +616,10 @@ html.light .section-title { color: #1e1b4b; }
   background: rgba(99, 102, 241, 0.28);
   box-shadow: 0 0 6px rgba(99, 102, 241, 0.4);
   color: #c7d2fe;
+}
+.asl-chip:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
 }
 .asl-regen-btn {
   margin-left: auto !important;

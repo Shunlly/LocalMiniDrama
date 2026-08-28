@@ -168,3 +168,12 @@ export function composeVideoDisabledReason({
     batchVideoRunning,
   })
 }
+
+export function saveCurrentEpisodeDisabledReason({ dramaId, hasAnyEpisode, currentEpisodeId }) {
+  if (dramaId && hasAnyEpisode && !currentEpisodeId) return '请先选择要保存的剧集'
+  return ''
+}
+
+export function missingAssetImageReason(hasImage) {
+  return hasImage ? '' : '请先生成或上传图片'
+}

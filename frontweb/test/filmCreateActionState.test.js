@@ -9,6 +9,8 @@ import {
   getVideoGenerationCapability,
   pipelineDisabledReason,
   projectResourceDisabledReason,
+  missingAssetImageReason,
+  saveCurrentEpisodeDisabledReason,
   storyboardDisabledReason,
   userFacingVideoGenerationError,
 } from '../src/utils/filmCreateActionState.js'
@@ -21,6 +23,29 @@ test('resource actions explain missing context and active work', () => {
   )
   assert.equal(episodeResourceDisabledReason({ hasEpisode: false }), '请先创建或选择剧集')
   assert.equal(episodeResourceDisabledReason({ hasEpisode: true }), '')
+})
+
+test('保存当前集和入库按钮在缺剧集或缺图时给出中文原因', () => {
+  const dramaId = 9
+  const selectedEpisodeId = 7
+  assert.notEqual(dramaId, selectedEpisodeId)
+  assert.equal(saveCurrentEpisodeDisabledReason({
+    dramaId,
+    hasAnyEpisode: true,
+    currentEpisodeId: null,
+  }), '请先选择要保存的剧集')
+  assert.equal(saveCurrentEpisodeDisabledReason({
+    dramaId,
+    hasAnyEpisode: true,
+    currentEpisodeId: selectedEpisodeId,
+  }), '')
+  assert.equal(saveCurrentEpisodeDisabledReason({
+    dramaId: null,
+    hasAnyEpisode: false,
+    currentEpisodeId: null,
+  }), '')
+  assert.equal(missingAssetImageReason(false), '请先生成或上传图片')
+  assert.equal(missingAssetImageReason(true), '')
 })
 
 test('pipeline and storyboard actions expose the first blocking reason', () => {
