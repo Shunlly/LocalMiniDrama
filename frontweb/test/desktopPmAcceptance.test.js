@@ -112,12 +112,9 @@ test('media library returnTo safely preserves the current film workspace', async
   )
 })
 
-test('source intake advertises and validates every backend-supported upload extension', () => {
+test('source intake advertises text uploads and keeps deferred media as a rejected fallback', () => {
   const extensions = [
-    '.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json', '.pdf',
-    '.png', '.jpg', '.jpeg', '.webp', '.gif',
-    '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga',
-    '.mp4', '.mov', '.mkv', '.avi', '.webm', '.ogv',
+    '.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json',
   ]
   for (const extension of extensions) {
     assert.match(sourceIntakeSource, new RegExp(`['\"]${extension.replace('.', '\\.') }['\"]`), extension)
@@ -125,7 +122,11 @@ test('source intake advertises and validates every backend-supported upload exte
 
   assert.match(sourceIntakeSource, /:accept="SOURCE_FILE_ACCEPT"/)
   assert.match(sourceIntakeSource, /本地素材文件/)
-  assert.match(sourceIntakeSource, /支持文本、PDF、图片、音频和视频，单文件最大 20MB/)
+  assert.match(sourceIntakeSource, /支持 txt、md、csv、tsv、srt、vtt、ass、json，单文件最大 20MB/)
+  assert.match(sourceIntakeSource, /PDF、图片、音频和视频暂不支持自动抽取/)
+  assert.match(sourceIntakeSource, /isDeferredAutoExtractionSource\(file\)/)
+  assert.doesNotMatch(sourceIntakeSource, /SOURCE_FILE_EXTENSIONS = Object\.freeze\(\[[\s\S]*'\.pdf'/)
+
   assert.match(sourceIntakeSource, /file\.size > MAX_SOURCE_FILE_BYTES/)
   assert.match(sourceIntakeSource, /SOURCE_FILE_EXTENSION_SET\.has\(extension\)/)
   assert.match(sourceIntakeSource, /TEXT_SOURCE_FILE_EXTENSIONS\.has\(extension\) && file\.size <= 2 \* 1024 \* 1024/)

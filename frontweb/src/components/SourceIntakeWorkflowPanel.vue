@@ -192,7 +192,7 @@
                   />
                   <el-button size="small" :loading="sourceFileReading" :disabled="sourceUploadBusy" @click="sourceFileInput?.click()">选择文件</el-button>
                   <el-button v-if="sourceFile" size="small" link type="danger" :disabled="sourceUploadBusy" @click="clearSelectedFile">移除</el-button>
-                  <span class="file-name">{{ selectedFilename || '支持文本、PDF、图片、音频和视频，单文件最大 20MB' }}</span>
+                  <span class="file-name">{{ selectedFilename || '支持 txt、md、csv、tsv、srt、vtt、ass、json，单文件最大 20MB' }}</span>
                 </div>
                 <div class="field-help">
                   文本：txt、md、csv、tsv、srt、vtt、ass、json 可直接导入。PDF、图片、音频和视频暂不支持自动抽取，请改为导入文本或网页。
@@ -613,10 +613,6 @@ import { projectRouteInstanceKey } from '@/utils/projectListRoute'
 const MAX_SOURCE_FILE_BYTES = 20 * 1024 * 1024
 const SOURCE_FILE_EXTENSIONS = Object.freeze([
   '.txt', '.md', '.csv', '.tsv', '.srt', '.vtt', '.ass', '.json',
-  '.pdf',
-  '.png', '.jpg', '.jpeg', '.webp', '.gif',
-  '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga',
-  '.mp4', '.mov', '.mkv', '.avi', '.webm', '.ogv',
 ])
 const SOURCE_FILE_ACCEPT = SOURCE_FILE_EXTENSIONS.join(',')
 const SOURCE_FILE_EXTENSION_SET = new Set(SOURCE_FILE_EXTENSIONS)
@@ -1083,9 +1079,15 @@ async function handleSourceFile(event) {
   sourceOperationError.value = ''
   const extensionIndex = file.name.lastIndexOf('.')
   const extension = extensionIndex >= 0 ? file.name.slice(extensionIndex).toLowerCase() : ''
+  if (isDeferredAutoExtractionSource(file)) {
+    clearSelectedFile()
+    sourceOperationError.value = SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE
+    showWorkflowMessage('warning', sourceOperationError.value)
+    return
+  }
   if (!SOURCE_FILE_EXTENSION_SET.has(extension)) {
     clearSelectedFile()
-    sourceOperationError.value = '不支持此文件格式。请选择文本、PDF、图片、音频或视频素材。'
+    sourceOperationError.value = '不支持此文件格式。请选择 txt、md、csv、tsv、srt、vtt、ass 或 json。'
     showWorkflowMessage('warning', sourceOperationError.value)
     return
   }
@@ -1098,12 +1100,6 @@ async function handleSourceFile(event) {
   if (file.size === 0) {
     clearSelectedFile()
     sourceOperationError.value = '素材文件为空，请重新选择。'
-    showWorkflowMessage('warning', sourceOperationError.value)
-    return
-  }
-  if (isDeferredAutoExtractionSource(file)) {
-    clearSelectedFile()
-    sourceOperationError.value = SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE
     showWorkflowMessage('warning', sourceOperationError.value)
     return
   }
