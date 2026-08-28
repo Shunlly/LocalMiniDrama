@@ -56,7 +56,7 @@ function persistRawSourceText(dramaId, hash, text) {
     if (error.code !== 'EEXIST') throw error;
     const existing = fs.lstatSync(filePath);
     if (existing.isSymbolicLink() || !existing.isFile()) {
-      const unsafe = new Error('The source text path is not a regular file.');
+      const unsafe = new Error('素材文本路径不是普通文件');
       unsafe.code = 'UNSAFE_SOURCE_STORAGE';
       throw unsafe;
     }
@@ -153,7 +153,7 @@ function splitSourceItems(sourceType, text, title) {
   }
 
   if (!chunks.length) {
-    chunks = [{ title: title || `${sourceType} source`, content: body }];
+    chunks = [{ title: title || `${sourceType} 素材`, content: body }];
   }
 
   return chunks
@@ -429,13 +429,13 @@ function createStorySource(db, log, params) {
   dramaWriteGuard.assertDramaWritable(db, dramaId);
   const text = String(params.text || params.raw_text || '').trim();
   if (!text) {
-    const err = new Error('source text is required');
+    const err = new Error('素材文本不能为空');
     err.code = 'BAD_REQUEST';
     throw err;
   }
 
   const sourceType = normalizeSourceType(params.source_type, text);
-  const title = String(params.title || '').trim() || `${sourceType} source`;
+  const title = String(params.title || '').trim() || `${sourceType} 素材`;
   const items = splitSourceItems(sourceType, text, title);
   const createdAt = nowIso();
   const hash = contentHash(text);

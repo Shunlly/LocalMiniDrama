@@ -74,11 +74,11 @@ function checkMediaBinary(bin, expectedName) {
   }
   if (result.status !== 0) {
     const detail = String(result.stderr || result.stdout || '').trim().slice(-500);
-    return { ok: false, path: bin, error: detail || `${expectedName} exited with status ${result.status}` };
+    return { ok: false, path: bin, error: detail || `${expectedName} 退出码 ${result.status}` };
   }
   const output = String(result.stdout || result.stderr || '').trim();
   if (!new RegExp(`^${expectedName} version\\b`, 'i').test(output)) {
-    return { ok: false, path: bin, error: `${bin} is not a valid ${expectedName} executable` };
+    return { ok: false, path: bin, error: `${bin} 不是有效的 ${expectedName} 可执行文件` };
   }
   return { ok: true, path: bin, version: output.split(/\r?\n/, 1)[0] };
 }
@@ -115,7 +115,7 @@ function getAvailableFfmpegEncoders() {
     return {
       ok: false,
       encoders: [],
-      error: String(result.stderr || result.stdout || '').trim().slice(-500) || `ffmpeg exited with status ${result.status}`,
+      error: String(result.stderr || result.stdout || '').trim().slice(-500) || `ffmpeg 退出码 ${result.status}`,
     };
   }
 

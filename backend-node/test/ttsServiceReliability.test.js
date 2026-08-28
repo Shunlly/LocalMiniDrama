@@ -52,7 +52,7 @@ describe('TTS request reliability', () => {
     };
     await assert.rejects(
       synthesize(db, { info() {} }, { text: 'hello', storage_base: '.' }),
-      (error) => error?.code === 'BAD_REQUEST' && /No TTS provider/.test(error.message)
+      (error) => error?.code === 'BAD_REQUEST' && /未配置 TTS/.test(error.message)
     );
   });
 
@@ -339,7 +339,7 @@ describe('TTS request reliability', () => {
           localProviderNetworkOptions(baseUrl)
         ),
         (error) => {
-          assert.equal(error.message, 'OpenAI TTS HTTP 401');
+          assert.equal(error.message, 'OpenAI TTS 请求失败（HTTP 401）');
           assert.doesNotMatch(error.message, /secret|private narration/i);
           return true;
         }

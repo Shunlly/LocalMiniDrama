@@ -531,9 +531,9 @@ function generateScenePanoramaImage(db, log, sceneId, modelName, style) {
   try {
     sourceImage = resolveScenePanoramaSource(sceneRow);
   } catch (_) {
-    return { ok: false, error: 'unsafe scene source image' };
+    return { ok: false, error: '场景主图不安全，请更换后重试' };
   }
-  if (!sourceImage) return { ok: false, error: 'scene source image required' };
+  if (!sourceImage) return { ok: false, error: '请先为场景准备可用的主图，再生成全景图' };
 
   const imageGeneration = runResourceWrite(db, 'scenes', sceneId, () => imageService.create(db, log, {
     drama_id: sceneRow.drama_id,

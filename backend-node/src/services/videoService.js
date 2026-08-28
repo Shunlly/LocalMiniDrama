@@ -550,10 +550,10 @@ async function createAndProcessVideo(db, log, body) {
   await processVideoGeneration(db, log, created.id);
   const completed = getById(db, created.id);
   if (!completed || completed.status !== 'completed') {
-    throw new Error(completed?.error_msg || 'Video generation did not complete');
+    throw new Error(completed?.error_msg || '视频生成未完成');
   }
   if (body.require_local !== false && !String(completed.local_path || '').trim()) {
-    const message = 'Video generation completed without a durable local file';
+    const message = '视频生成完成但未保存到本地文件';
     const now = new Date().toISOString();
     setVideoGenFailed(db, created.id, message, now);
     if (created.task_id) taskService.updateTaskError(db, created.task_id, message);

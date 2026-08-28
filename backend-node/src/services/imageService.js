@@ -616,10 +616,10 @@ function normalizeScopeId(rawValue, field, allowZero) {
   } else if (typeof rawValue === 'string' && /^\d+$/.test(rawValue.trim())) {
     value = Number(rawValue.trim());
   } else {
-    throw imageBadRequest(`${field} is invalid`);
+    throw imageBadRequest(`${field} 无效`);
   }
   if (!Number.isSafeInteger(value) || (allowZero ? value < 0 : value <= 0)) {
-    throw imageBadRequest(`${field} is invalid`);
+    throw imageBadRequest(`${field} 无效`);
   }
   return value;
 }
@@ -644,7 +644,7 @@ function resolveImageGenerationScope(db, req) {
         WHERE s.id = ? AND s.deleted_at IS NULL`
     ).get(storyboardId);
     if (!scope || (dramaId > 0 && Number(scope.drama_id) !== dramaId)) {
-      throw imageBadRequest('storyboard_id must belong to drama_id');
+      throw imageBadRequest('storyboard_id 必须属于当前 drama_id');
     }
     dramaId = Number(scope.drama_id);
   }
@@ -669,15 +669,15 @@ function create(db, log, req) {
           storyboard_id: existing.storyboard_id,
         });
       } catch (_) {
-        throw imageBadRequest('idempotency_key belongs to another drama or storyboard');
+        throw imageBadRequest('idempotency_key 属于其他 drama 或 storyboard');
       }
       const wrongDrama = existingScope.dramaId !== dramaId;
       const wrongStoryboard = existingScope.storyboardId !== storyboardId;
       if (wrongDrama || wrongStoryboard) {
-        throw imageBadRequest('idempotency_key belongs to another drama or storyboard');
+        throw imageBadRequest('idempotency_key 属于其他 drama 或 storyboard');
       }
       if (existing.deleted_at) {
-        throw imageBadRequest('idempotency_key references a deleted image; use a new key');
+        throw imageBadRequest('idempotency_key 引用了已删除的图片记录，请使用新 key');
       }
       if ((Number(existing.drama_id) || 0) !== existingScope.dramaId) {
         db.prepare('UPDATE image_generations SET drama_id = ?, updated_at = ? WHERE id = ?')
@@ -729,7 +729,7 @@ function create(db, log, req) {
     now
   );
   const imageGenId = info.lastInsertRowid;
-  if (!imageGenId) throw new Error('insert failed');
+  if (!imageGenId) throw new Error('图片记录写入失败');
   if (req.__defer_processing !== true) {
     scheduleLegacyAsync(log, 'image_generation', () => {
       processImageGeneration(db, log, imageGenId);
@@ -748,10 +748,10 @@ async function createAndProcessImage(db, log, req) {
   await processImageGeneration(db, log, created.id);
   const completed = getById(db, created.id);
   if (!completed || completed.status !== 'completed') {
-    throw new Error(completed?.error_msg || 'Image generation did not complete');
+    throw new Error(completed?.error_msg || '图片生成未完成');
   }
   if (req.require_local !== false && !isUsableProviderReference(completed.local_path)) {
-    const message = 'Image generation completed without a durable local file';
+    const message = '图片生成完成但未保存到本地文件';
     const now = new Date().toISOString();
     db.prepare('UPDATE image_generations SET status = ?, error_msg = ?, updated_at = ? WHERE id = ?')
       .run('failed', message, now, created.id);

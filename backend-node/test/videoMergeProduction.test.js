@@ -686,7 +686,7 @@ describe('videoMergeService strict production mode', { concurrency: false }, () 
           { scene_id: 102, video_url: 'missing-second.mp4', duration: 1, order: 1 },
         ],
       }),
-      /does not exist/
+      /does not exist|本地媒体文件不存在/
     );
   });
 
@@ -701,7 +701,7 @@ describe('videoMergeService strict production mode', { concurrency: false }, () 
           drama_id: 1,
           scenes: [{ scene_id: 101, video_url: outside, duration: 1, order: 0 }],
         }),
-        /Absolute local media paths are not allowed/
+        /Absolute local media paths are not allowed|不允许使用绝对本地媒体路径/
       );
     } finally {
       db.close();
@@ -921,7 +921,7 @@ describe('videoMergeService strict production mode', { concurrency: false }, () 
 
     assert.equal(result.ok, false);
     assert.equal(result.status, 'failed');
-    assert.match(result.error, /Production QA failed/);
+    assert.match(result.error, /生产 QA 未通过/);
     assertStrictFailureState(fixture.db, fixture.mergeId, fixture.taskId);
     const after = fs.existsSync(mergedDir) ? fs.readdirSync(mergedDir) : [];
     assert.deepEqual(after.filter((name) => !before.has(name)), []);

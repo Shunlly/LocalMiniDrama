@@ -139,7 +139,7 @@ async function postJSONNonStream(url, headers, body, timeoutMs = 120000, network
         if (res.statusCode < 200 || res.statusCode >= 300) {
           return fail(createProviderHttpError({
             provider: 'AI provider',
-            operation: 'vision request',
+            operation: '视觉请求',
             status: res.statusCode,
             responseBody: raw,
           }));
@@ -286,7 +286,7 @@ async function postJSONStream(url, headers, body, silenceTimeoutMs = 60000, onPr
         collectResponse(res, networkOptions.maxErrorBytes || TEXT_RESPONSE_MAX_BYTES, (raw) => {
           fail(createProviderHttpError({
             provider: 'AI provider',
-            operation: 'stream request',
+            operation: '流式请求',
             status: statusCode,
             responseBody: raw,
           }));
@@ -846,7 +846,7 @@ async function generateTextWithVision(db, log, serviceType, userPrompt, systemPr
     });
     throw createProviderHttpError({
       provider: 'AI provider',
-      operation: 'vision response',
+      operation: '视觉响应',
       status: res.status,
       responseBody: res.raw,
     });
@@ -923,7 +923,7 @@ async function extractDescriptionFromImage(db, log, entityType, imageUrl, entity
       ok: false,
       error: toSafeProviderErrorMessage(err, {
         provider: 'AI provider',
-        operation: 'vision analysis',
+        operation: '视觉分析',
       }),
     };
   }

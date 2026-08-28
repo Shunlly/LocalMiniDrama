@@ -127,14 +127,14 @@ function normalizeMergeVideoReference(value, storageRoot, trustedOrigins = []) {
     return uploadService.assertPublicHttpUrlSyntax(text).toString();
   }
   const local = uploadService.resolveStorageReference(storageRoot, text);
-  if (!local) throw new uploadService.UnsafeMediaReferenceError('Video reference must be inside storage.');
+  if (!local) throw new uploadService.UnsafeMediaReferenceError('视频引用必须位于 storage 目录内');
   return local.relativePath;
 }
 
 function normalizeMergeScenes(reqScenes, db) {
   if (reqScenes == null) return [];
   if (!Array.isArray(reqScenes) || reqScenes.length > MAX_STRICT_SCENES) {
-    throw new uploadService.UnsafeMediaReferenceError('Video merge scene list is invalid or too large.');
+    throw new uploadService.UnsafeMediaReferenceError('合成分镜列表无效或数量过多');
   }
   const storageRoot = getStorageRoot();
   const trustedOrigins = configuredProviderOrigins(db);
@@ -447,7 +447,7 @@ async function runExternalProcess(command, args, options = {}) {
       }
       finish(resolve, {
         ok: code === 0,
-        error: code === 0 ? null : String(stderr || stdout || '').trim() || `${command} exited with status ${code}`,
+        error: code === 0 ? null : String(stderr || stdout || '').trim() || `${command} 退出码 ${code}`,
         stdout,
         stderr,
         status: code,
@@ -477,7 +477,7 @@ async function checkMediaBinary(command, expectedName, signal) {
   if (!result.ok) return { ok: false, path: command, error: result.error };
   const output = String(result.stdout || result.stderr || '').trim();
   if (!new RegExp(`^${expectedName} version\\b`, 'i').test(output)) {
-    return { ok: false, path: command, error: `${command} is not a valid ${expectedName} executable` };
+    return { ok: false, path: command, error: `${command} 不是有效的 ${expectedName} 可执行文件` };
   }
   return { ok: true, path: command, version: output.split(/\r?\n/, 1)[0] };
 }
@@ -486,8 +486,8 @@ async function validateFfmpegTools(signal) {
   const ffmpeg = await checkMediaBinary(getFfmpegPath(), 'ffmpeg', signal);
   const ffprobe = await checkMediaBinary(getFfprobePath(), 'ffprobe', signal);
   const errors = [];
-  if (!ffmpeg.ok) errors.push(`ffmpeg unavailable: ${ffmpeg.error}`);
-  if (!ffprobe.ok) errors.push(`ffprobe unavailable: ${ffprobe.error}`);
+  if (!ffmpeg.ok) errors.push(`ffmpeg 不可用：${ffmpeg.error}`);
+  if (!ffprobe.ok) errors.push(`ffprobe 不可用：${ffprobe.error}`);
   return { ok: ffmpeg.ok && ffprobe.ok, ffmpeg, ffprobe, error: errors.length ? errors.join('; ') : null };
 }
 
@@ -516,7 +516,7 @@ async function ffprobeVideo(filePath, options = {}) {
   } catch (error) {
     return { ok: false, error: error.message };
   }
-  if (!stat.isFile() || stat.size <= 0) return { ok: false, error: 'not a non-empty file' };
+  if (!stat.isFile() || stat.size <= 0) return { ok: false, error: '文件为空或不是普通文件' };
 
   const result = await runExternalProcess(
     getFfprobePath(),
@@ -536,7 +536,7 @@ async function ffprobeVideo(filePath, options = {}) {
   if (!result.ok) {
     return {
       ok: false,
-      error: String(result.stderr || result.error || '').trim().slice(-800) || `ffprobe exited with status ${result.status}`,
+      error: String(result.stderr || result.error || '').trim().slice(-800) || `ffprobe 退出码 ${result.status}`,
     };
   }
 
@@ -544,7 +544,7 @@ async function ffprobeVideo(filePath, options = {}) {
   try {
     data = JSON.parse(result.stdout || '{}');
   } catch (error) {
-    return { ok: false, error: `invalid ffprobe output: ${error.message}` };
+    return { ok: false, error: `ffprobe 输出无效：${error.message}` };
   }
   const streams = Array.isArray(data.streams) ? data.streams : [];
   const video = streams.find((stream) => stream.codec_type === 'video');
@@ -552,10 +552,10 @@ async function ffprobeVideo(filePath, options = {}) {
   const width = Number(video?.width);
   const height = Number(video?.height);
   if (!video || !Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
-    return { ok: false, error: 'no usable video stream' };
+    return { ok: false, error: '没有可用的视频流' };
   }
   if (!Number.isFinite(duration) || duration <= 0.01) {
-    return { ok: false, error: 'video duration is unavailable or empty' };
+    return { ok: false, error: '视频时长无效或为空' };
   }
   return {
     ok: true,
@@ -674,10 +674,10 @@ async function transcodeProductionClip(inputPath, probe, outputPath, dimensions,
   const result = await runFfmpeg(args, log, `strict_transcode_${index}`, options);
   if (!result.ok) return result;
   const outputProbe = await ffprobeVideo(outputPath, options);
-  if (!outputProbe.ok) return { ok: false, error: `normalized clip is invalid: ${outputProbe.error}` };
-  if (!outputProbe.hasAudio) return { ok: false, error: 'normalized clip has no audio stream' };
+  if (!outputProbe.ok) return { ok: false, error: `标准化片段无效：${outputProbe.error}` };
+  if (!outputProbe.hasAudio) return { ok: false, error: '标准化片段没有音频流' };
   if (outputProbe.width !== dimensions.width || outputProbe.height !== dimensions.height) {
-    return { ok: false, error: `normalized clip has unexpected size ${outputProbe.width}x${outputProbe.height}` };
+    return { ok: false, error: `标准化片段尺寸异常 ${outputProbe.width}x${outputProbe.height}` };
   }
   return { ok: true, probe: outputProbe };
 }
@@ -946,7 +946,7 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
     const resolvedFilterPlan = buildStrictSceneFilterPlan(strictScenes);
     if (Array.isArray(mergeOpts.filter_plan) &&
         JSON.stringify(mergeOpts.filter_plan) !== JSON.stringify(resolvedFilterPlan)) {
-      throw strictMergeError('Production timeline filter plan does not match merge scenes');
+      throw strictMergeError('生产时间线滤镜计划与合成分镜不匹配');
     }
 
     const toolCheck = await validateFfmpegTools(signal);
@@ -1121,12 +1121,12 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
         mode: 'production',
       });
       if (!qaReport.passed) {
-        throw strictMergeError(`Production QA failed with score ${qaReport.score}`);
+        throw strictMergeError(`生产 QA 未通过，得分 ${qaReport.score}`);
       }
     } catch (error) {
       throw error.code === 'STRICT_PRODUCTION_MERGE_FAILED'
         ? error
-        : strictMergeError(`Production QA failed: ${error.message}`);
+        : strictMergeError(`生产 QA 失败：${error.message}`);
     }
 
     const mergedRelativePath = relativeStoragePath(storageRoot, outputAbsPath);
@@ -1158,7 +1158,7 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
             mode: STRICT_PRODUCTION_MODE,
             status: completionStatus,
           });
-          if (!taskUpdated) throw strictMergeError('Strict merge task no longer accepts completion');
+          if (!taskUpdated) throw strictMergeError('严格合成任务已不再接受完成状态');
         }
         throwIfAborted(signal);
       });
@@ -1330,7 +1330,7 @@ async function processVideoMergeWorker(db, log, mergeId, baseUrl, execution) {
         throwIfAborted(signal);
         const postProbe = postOutputPath
           ? await ffprobeVideo(postOutputPath, { signal })
-          : { ok: false, error: 'post-process output is outside storage' };
+          : { ok: false, error: '后处理输出不在存储目录内' };
         if (postProbe.ok) {
           mergedRelativePath = post.relativePath;
           if (outputPublication && path.resolve(postOutputPath) !== path.resolve(publishedBaseOutputPath)) {
@@ -1379,11 +1379,11 @@ async function processVideoMergeWorker(db, log, mergeId, baseUrl, execution) {
       mode: 'production',
     });
     if (!qaReport.passed && mergeOpts.enforce_qa_gate) {
-      throw new Error(`Production QA failed with score ${qaReport.score}`);
+      throw new Error(`生产 QA 未通过，得分 ${qaReport.score}`);
     }
   } catch (e) {
     if (mergeOpts.enforce_qa_gate) {
-      const message = `Production QA failed: ${e.message}`;
+      const message = `生产 QA 失败：${e.message}`;
       const hadPostPublication = !!postPublication;
       execution.rollbackPublication(outputPublication);
       execution.rollbackPublication(postPublication);
@@ -1407,7 +1407,7 @@ async function processVideoMergeWorker(db, log, mergeId, baseUrl, execution) {
         ).run('completed', finalMergedUrl, duration, now, null, mergeId);
         updateCurrentMergeEpisodeOutput(db, mergeId, episodeId, finalMergedUrl, 'completed', now);
         if (!taskService.updateTaskResult(db, taskId, { merge_id: mergeId, video_url: finalMergedUrl, duration })) {
-          throw new Error('Video merge task no longer accepts completion');
+          throw new Error('视频合成任务已不再接受完成状态');
         }
         throwIfAborted(signal);
       });
@@ -1483,7 +1483,7 @@ function completeQaPendingMerge(db, mergeId, completedAt = new Date().toISOStrin
       const taskService = require('./taskService');
       const task = taskService.getTask(db, row.task_id);
       if (task && task.status !== 'completed') {
-        throw new Error('Video merge: QA completion task is not completed');
+        throw new Error('视频合成：QA 完成任务尚未完成');
       }
       if (task && !taskService.refreshCompletedTaskResult(db, row.task_id, {
         merge_id: row.id,
@@ -1492,7 +1492,7 @@ function completeQaPendingMerge(db, mergeId, completedAt = new Date().toISOStrin
         mode: STRICT_PRODUCTION_MODE,
         status: 'completed',
       })) {
-        throw new Error('Video merge: QA completion task result was not refreshed');
+        throw new Error('视频合成：QA 完成任务结果未能刷新');
       }
     }
     return true;

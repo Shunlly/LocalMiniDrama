@@ -45,7 +45,7 @@ async function postTtsRequest(url, body, headers, timeoutMs, providerName, netwo
     });
   } catch (error) {
     if (error?.name === 'TimeoutError') {
-      const timeoutError = new Error(`${providerName} TTS request timeout`);
+      const timeoutError = new Error(`${providerName} TTS 请求超时`);
       timeoutError.name = 'TimeoutError';
       throw timeoutError;
     }
@@ -91,18 +91,18 @@ async function synthesizeWithMinimax(
       : {}),
   }, timeoutMs, 'MiniMax', networkOptions);
 
-  if (response.status !== 200) throw new Error(`MiniMax TTS HTTP ${response.status}`);
+  if (response.status !== 200) throw new Error(`MiniMax TTS 请求失败（HTTP ${response.status}）`);
   let data;
   try {
     data = await response.json();
   } catch (_) {
-    throw new Error('MiniMax TTS returned invalid JSON');
+    throw new Error('MiniMax TTS 返回了无效 JSON');
   }
   if (data.base_resp?.status_code !== 0) {
-    throw new Error(`MiniMax TTS error ${data.base_resp?.status_code ?? 'unknown'}`);
+    throw new Error(`MiniMax TTS 返回错误 ${data.base_resp?.status_code ?? 'unknown'}`);
   }
   const audioHex = data.data?.audio;
-  if (!audioHex) throw new Error('MiniMax TTS returned no audio');
+  if (!audioHex) throw new Error('MiniMax TTS 未返回音频');
   return Buffer.from(audioHex, 'hex');
 }
 
@@ -134,7 +134,7 @@ async function synthesizeWithOpenai(
   }, timeoutMs, 'OpenAI', networkOptions);
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(`OpenAI TTS HTTP ${response.status}`);
+    throw new Error(`OpenAI TTS 请求失败（HTTP ${response.status}）`);
   }
   return Buffer.from(await response.arrayBuffer());
 }
@@ -151,13 +151,13 @@ async function synthesize(db, log, {
   signal,
 }) {
   if (signal?.aborted) throw signal.reason;
-  if (!text || !text.trim()) throw badRequest('text cannot be empty');
+  if (!text || !text.trim()) throw badRequest('text 不能为空');
   const ttsConfig = config || (() => {
     const configs = aiConfigService.listConfigs(db, 'tts');
     const active = configs.filter((item) => item.is_active);
     return active.find((item) => item.is_default) || active[0];
   })();
-  if (!ttsConfig) throw badRequest('No TTS provider is configured');
+  if (!ttsConfig) throw badRequest('未配置 TTS 服务，请在「AI 配置」中启用配音模型');
 
   const provider = String(ttsConfig.provider || '').toLowerCase();
   let ttsSettings = {};
@@ -215,7 +215,7 @@ async function synthesize(db, log, {
       networkOptions
     );
   } else {
-    throw new Error(`Unsupported TTS provider: ${provider}`);
+    throw new Error(`不支持的 TTS Provider：${provider}`);
   }
 
   if (signal?.aborted) throw signal.reason;

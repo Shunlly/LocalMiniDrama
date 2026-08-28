@@ -98,6 +98,24 @@ function sendVoiceUploadFailure(res, error, uploadService) {
   return false;
 }
 
+function sendCharacterServiceFailure(res, out) {
+  if (!out || out.ok !== false) return false;
+  if (out.error === 'character not found') {
+    response.notFound(res, '角色不存在');
+    return true;
+  }
+  if (out.error === 'unauthorized') {
+    response.notFound(res, '剧集不存在或无权限');
+    return true;
+  }
+  if (out.error === 'library item not found') {
+    response.notFound(res, '角色库项不存在');
+    return true;
+  }
+  response.badRequest(res, out.error);
+  return true;
+}
+
 function sendDramaBoundaryFailure(res, error) {
   if (!isBoundaryError(error)) return false;
   if (error.code === 'BAD_REQUEST' || error.code === 'CROSS_PROJECT_REFERENCE') {
@@ -152,8 +170,7 @@ function routes(db, cfg, log, uploadService) {
           characterLibraryService.updateCharacter(db, log, req.params.id, req.body || {})
         ));
         if (!out.ok) {
-          if (out.error === 'character not found') return response.notFound(res, '角色不存在');
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         response.success(res, { message: '保存成功' });
       } catch (err) {
@@ -168,8 +185,7 @@ function routes(db, cfg, log, uploadService) {
           characterLibraryService.deleteCharacter(db, log, req.params.id)
         ));
         if (!out.ok) {
-          if (out.error === 'character not found') return response.notFound(res, '角色不存在');
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         response.success(res, { message: '删除成功' });
       } catch (err) {
@@ -199,7 +215,7 @@ function routes(db, cfg, log, uploadService) {
           body.style
         );
         if (!out.ok) {
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         response.success(res, {
           message: '批量生成任务已提交',
@@ -224,9 +240,7 @@ function routes(db, cfg, log, uploadService) {
           body.style
         );
         if (!out.ok) {
-          if (out.error === 'character not found') return response.notFound(res, '角色不存在');
-          if (out.error === 'unauthorized') return response.notFound(res, '剧集不存在或无权限');
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         response.success(res, {
           message: '角色四视图生成任务已提交',
@@ -270,8 +284,7 @@ function routes(db, cfg, log, uploadService) {
         if (!out.ok) {
           uploadService.removeFile(persisted.absolute_path, log);
           persisted = null;
-          if (out.error === 'character not found') return response.notFound(res, '角色不存在');
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         databaseUpdated = true;
         response.success(res, { message: '上传成功', url, local_path, filename: req.file.originalname, size: req.file.size });
@@ -317,8 +330,7 @@ function routes(db, cfg, log, uploadService) {
           }
         });
         if (imageOut && !imageOut.ok) {
-          if (imageOut.error === 'character not found') return response.notFound(res, '角色不存在');
-          return response.badRequest(res, imageOut.error);
+          return sendCharacterServiceFailure(res, imageOut);
         }
         response.success(res, { message: '保存成功' });
       } catch (err) {
@@ -335,9 +347,7 @@ function routes(db, cfg, log, uploadService) {
           characterLibraryService.applyLibraryItemToCharacter(db, log, req.params.id, libraryId)
         ));
         if (!out.ok) {
-          if (out.error === 'library item not found') return response.notFound(res, '角色库项不存在');
-          if (out.error === 'character not found') return response.notFound(res, '角色不存在');
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         response.success(res, { message: '应用成功' });
       } catch (err) {
@@ -353,8 +363,7 @@ function routes(db, cfg, log, uploadService) {
           characterLibraryService.addCharacterToLibrary(db, log, req.params.id, category)
         ));
         if (!out.ok) {
-          if (out.error === 'character not found') return response.notFound(res, '角色不存在');
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         response.success(res, { message: '已加入本剧角色库', item: out.item });
       } catch (err) {
@@ -369,8 +378,7 @@ function routes(db, cfg, log, uploadService) {
           characterLibraryService.addCharacterToMaterialLibrary(db, log, req.params.id)
         ));
         if (!out.ok) {
-          if (out.error === 'character not found') return response.notFound(res, '角色不存在');
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         response.success(res, { message: '已加入全局素材库', item: out.item });
       } catch (err) {
@@ -415,9 +423,7 @@ function routes(db, cfg, log, uploadService) {
         const style = body.style || undefined;
         const out = await characterLibraryService.generateCharacterFourViewImage(db, log, cfg, req.params.id, modelName, style);
         if (!out.ok) {
-          if (out.error === 'character not found') return response.notFound(res, '角色不存在');
-          if (out.error === 'unauthorized') return response.notFound(res, '剧集不存在或无权限');
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         response.success(res, { message: '四视图生成任务已提交', image_generation: out.image_generation });
       } catch (err) {
@@ -434,8 +440,7 @@ function routes(db, cfg, log, uploadService) {
         const style = body.style || undefined;
         const out = await characterLibraryService.generateCharacterPromptOnly(db, log, cfg, req.params.id, modelName, style);
         if (!out.ok) {
-          if (out.error === 'character not found') return response.notFound(res, '角色不存在');
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         response.success(res, { message: '提示词已生成', polished_prompt: out.polished_prompt });
       } catch (err) {
@@ -449,8 +454,7 @@ function routes(db, cfg, log, uploadService) {
         assertResourceWritable(db, 'characters', req.params.id);
         const out = await characterLibraryService.extractAppearanceFromImage(db, log, cfg, req.params.id);
         if (!out.ok) {
-          if (out.error === 'character not found') return response.notFound(res, '角色不存在');
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         response.success(res, { message: '外貌描述已提取', appearance: out.appearance });
       } catch (err) {
@@ -465,8 +469,7 @@ function routes(db, cfg, log, uploadService) {
         assertResourceWritable(db, 'characters', req.params.id);
         const out = await characterLibraryService.registerCharacterJimengMaterialAsset(db, log, cfg, req.params.id);
         if (!out.ok) {
-          if (out.error === 'character not found') return response.notFound(res, '角色不存在');
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         response.success(res, { message: 'SD2 素材认证已更新', seedance2_asset: out.seedance2_asset });
       } catch (err) {
@@ -480,8 +483,7 @@ function routes(db, cfg, log, uploadService) {
         assertResourceWritable(db, 'characters', req.params.id);
         const out = await characterLibraryService.refreshCharacterJimengMaterialAsset(db, log, cfg, req.params.id);
         if (!out.ok) {
-          if (out.error === 'character not found') return response.notFound(res, '角色不存在');
-          return response.badRequest(res, out.error);
+          return sendCharacterServiceFailure(res, out);
         }
         response.success(res, { message: '认证状态已刷新', seedance2_asset: out.seedance2_asset });
       } catch (err) {

@@ -258,8 +258,8 @@ function testConnection(db, log) {
       }
       const { toSafeProviderErrorMessage } = require('../services/providerErrorSanitizer');
       const safeMessage = toSafeProviderErrorMessage(err, {
-        provider: opts.provider || 'AI provider',
-        operation: 'connection test',
+        provider: opts.provider || 'AI 服务',
+        operation: '连接测试',
       });
       log.error('AI config test connection failed', { error: safeMessage });
       log.operation?.({

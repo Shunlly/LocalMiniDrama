@@ -280,7 +280,7 @@ function isProtectedMediaPath(relativePath) {
 
 function assertMediaPathReadable(db, relativePath) {
   const target = normalizeMediaPath(relativePath);
-  if (!target) throw createBoundaryError('UNSAFE_STORAGE_PATH', 'Static storage path is not allowed', 403);
+  if (!target) throw createBoundaryError('UNSAFE_STORAGE_PATH', '静态资源路径不被允许', 403);
   const matches = [];
   for (const [tableName, fields] of MEDIA_COLUMNS) {
     if (!hasTable(db, tableName)) continue;

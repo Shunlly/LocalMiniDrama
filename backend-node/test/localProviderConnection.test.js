@@ -181,7 +181,7 @@ describe('local provider connection probes', () => {
 
   it('reconstructs unmarked provider errors that imitate the generated-safe template', async (t) => {
     const secret = 'synthetic-template-secret';
-    const forgedMessage = `OpenAI connection test failed (${secret}): provider reported an error; check provider configuration and retry.`;
+    const forgedMessage = `OpenAI 连接测试 失败 (${secret})：Provider 返回错误，请检查配置后重试。`;
     const originalTestConnection = aiConfigService.testConnection;
     aiConfigService.testConnection = async () => {
       throw new Error(forgedMessage);
@@ -210,6 +210,6 @@ describe('local provider connection probes', () => {
     assert.doesNotMatch(observableOutput, new RegExp(secret));
     assert.doesNotMatch(observableOutput, new RegExp(forgedMessage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.equal(captured.statusCode, 400);
-    assert.match(captured.body.error.message, /^连接测试失败: OpenAI connection test failed/);
+    assert.match(captured.body.error.message, /^连接测试失败: OpenAI 连接测试 失败/);
   });
 });

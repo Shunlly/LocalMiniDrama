@@ -630,7 +630,7 @@ function routes(db, log) {
         );
       } catch (err) {
         log.error('storyboards generateUniversalSegmentStream', { error: err.message, id: sbId });
-        writeNd({ type: 'error', message: err.message || 'stream failed' });
+        writeNd({ type: 'error', message: err.message || '流式生成失败' });
         return res.end();
       }
 
@@ -752,7 +752,7 @@ function routes(db, log) {
         );
       } catch (err) {
         log.error('storyboards polishUniversalSegmentStream', { error: err.message, id: sbId });
-        writeNd({ type: 'error', message: err.message || 'stream failed' });
+        writeNd({ type: 'error', message: err.message || '流式生成失败' });
         return res.end();
       }
 
@@ -1009,7 +1009,7 @@ function routes(db, log) {
         );
       } catch (err) {
         log.error('storyboards polishClassicVideoPromptStream', { error: err.message, id: sbId });
-        writeNd({ type: 'error', message: err.message || 'stream failed' });
+        writeNd({ type: 'error', message: err.message || '流式生成失败' });
         return res.end();
       }
 
