@@ -866,12 +866,6 @@ import FilmCreateResourceDialogs from '@/components/filmCreate/FilmCreateResourc
 import FilmCreateStoryboardDialogs from '@/components/filmCreate/FilmCreateStoryboardDialogs.vue'
 import FilmCreateNovelImportDialog from '@/components/filmCreate/FilmCreateNovelImportDialog.vue'
 import {
-  batchGenerationDisabledReason,
-  composeVideoDisabledReason,
-  episodeResourceDisabledReason,
-  pipelineDisabledReason,
-  projectResourceDisabledReason,
-  storyboardDisabledReason,
   userFacingVideoGenerationError,
 } from '@/utils/filmCreateActionState'
 import { normalizeProjectListReturnTo } from '@/utils/projectListRoute'
@@ -921,6 +915,7 @@ import { useFilmCreateScriptEstimates } from '@/composables/filmCreate/useFilmCr
 import { useFilmCreateTaskCancel } from '@/composables/filmCreate/useFilmCreateTaskCancel'
 import { useFilmCreateActiveTasks } from '@/composables/filmCreate/useFilmCreateActiveTasks'
 import { useFilmCreateNavSteps } from '@/composables/filmCreate/useFilmCreateNavSteps'
+import { useFilmCreateActionDisabledReasons } from '@/composables/filmCreate/useFilmCreateActionDisabledReasons'
 import { trackFilmCreateAction } from '@/utils/filmCreateActionLog'
 import { useFilmCreateScriptDraft } from '@/composables/filmCreate/useFilmCreateScriptDraft'
 import { useFilmCreateResourceGenerate } from '@/composables/filmCreate/useFilmCreateResourceGenerate'
@@ -1568,68 +1563,6 @@ const {
   batchVideoProgress,
 })
 const batchVideoErrors = ref([])
-const projectActionDisabledReason = computed(() => projectResourceDisabledReason({
-  hasProject: Boolean(dramaId.value),
-}))
-const episodeActionDisabledReason = computed(() => episodeResourceDisabledReason({
-  hasEpisode: Boolean(currentEpisodeId.value),
-}))
-const characterGenerationDisabledReason = computed(() => projectResourceDisabledReason({
-  hasProject: Boolean(dramaId.value),
-  running: charactersGenerating.value,
-  label: '角色',
-}))
-const propsExtractionDisabledReason = computed(() => episodeResourceDisabledReason({
-  hasEpisode: Boolean(currentEpisodeId.value),
-  running: propsExtracting.value,
-  label: '道具',
-}))
-const scenesExtractionDisabledReason = computed(() => episodeResourceDisabledReason({
-  hasEpisode: Boolean(currentEpisodeId.value),
-  running: scenesExtracting.value,
-  label: '场景',
-}))
-const pipelineActionDisabledReason = computed(() => pipelineDisabledReason({
-  hasEpisode: Boolean(currentEpisodeId.value),
-  pipelineRunning: pipelineRunning.value,
-}))
-const productionPipelineActionDisabledReason = computed(() => (
-  pipelineActionDisabledReason.value
-  || storyboardMediaActionReason.value
-  || productionReadinessReason.value
-))
-const storyboardActionDisabledReason = computed(() => storyboardDisabledReason({
-  hasEpisode: Boolean(currentEpisodeId.value),
-  storyboardGenerating: storyboardGenerating.value,
-  omniPolishing: universalOmniPolishRunning.value,
-}))
-const batchActionDisabledReason = computed(() => (
-  storyboardMediaActionReason.value || batchGenerationDisabledReason({
-    hasEpisode: Boolean(currentEpisodeId.value),
-    pipelineRunning: pipelineRunning.value,
-    storyboardGenerating: storyboardGenerating.value,
-    omniPolishing: universalOmniPolishRunning.value,
-    batchImageRunning: batchImageRunning.value,
-    batchVideoRunning: batchVideoRunning.value,
-  })
-))
-const batchVideoActionDisabledReason = computed(() => (
-  batchActionDisabledReason.value || videoCapabilityReason.value
-))
-const playableStoryboardVideoCount = computed(() => (
-  storyboards.value.filter((storyboard) => Boolean(assetVideoUrl(getSbVideo(storyboard.id)))).length
-))
-const composeActionDisabledReason = computed(() => composeVideoDisabledReason({
-  hasEpisode: Boolean(currentEpisodeId.value),
-  storyboardCount: storyboards.value.length,
-  playableVideoCount: playableStoryboardVideoCount.value,
-  videoGenerating: videoStatus.value === 'generating',
-  pipelineRunning: pipelineRunning.value,
-  storyboardGenerating: storyboardGenerating.value,
-  omniPolishing: universalOmniPolishRunning.value,
-  batchImageRunning: batchImageRunning.value,
-  batchVideoRunning: batchVideoRunning.value,
-}))
 // P0-1: 连贯帧模式
 const videoFrameContiguity = ref(false)
 // P0-3: 分镜超分辨率 loading set
@@ -1821,6 +1754,39 @@ const {
   generatingSbVideoIds,
   videoStatus,
   currentEpisodeVideoUrl,
+})
+
+const {
+  projectActionDisabledReason,
+  episodeActionDisabledReason,
+  characterGenerationDisabledReason,
+  propsExtractionDisabledReason,
+  scenesExtractionDisabledReason,
+  pipelineActionDisabledReason,
+  productionPipelineActionDisabledReason,
+  storyboardActionDisabledReason,
+  batchActionDisabledReason,
+  batchVideoActionDisabledReason,
+  playableStoryboardVideoCount,
+  composeActionDisabledReason,
+} = useFilmCreateActionDisabledReasons({
+  dramaId,
+  currentEpisodeId,
+  charactersGenerating,
+  propsExtracting,
+  scenesExtracting,
+  pipelineRunning,
+  storyboardMediaActionReason,
+  productionReadinessReason,
+  storyboardGenerating,
+  universalOmniPolishRunning,
+  batchImageRunning,
+  batchVideoRunning,
+  videoCapabilityReason,
+  storyboards,
+  assetVideoUrl,
+  getSbVideo,
+  videoStatus,
 })
 
 const {
