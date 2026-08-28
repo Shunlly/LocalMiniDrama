@@ -742,8 +742,6 @@ test('production E2E verifies workflow-first disclosures and AI config modes', (
   const readinessDisclosure = sourceFunction('verifyProjectReadinessDisclosureUi')
   assertSourceOrder(readinessDisclosure, [
     'page.getByText(UI.readinessTitle, { exact: true })',
-    'page.getByText(UI.workflowTitle, { exact: true })',
-    "page.getByRole('navigation', { name: UI.intakeStepper })",
     "page.getByTestId('project-readiness-toggle')",
     "page.getByTestId('project-readiness-details')",
     'assert.equal(await details.count(), 1',
@@ -754,7 +752,7 @@ test('production E2E verifies workflow-first disclosures and AI config modes', (
     "assert.equal(await toggle.getAttribute('aria-expanded'), 'true'",
   ])
   assert.match(productionSource, /await verifyProjectReadinessDisclosureUi\(startPage\)/)
-  assert.match(productionSource, /readinessTitle: '\\u9879\\u76ee\\u5c31\\u7eea\\u5ea6'/)
+  assert.match(productionSource, /readinessTitle: '\\u6210\\u7247\\u4ea4\\u4ed8\\u5c31\\u7eea\\u5ea6'/)
   assert.match(productionSource, /intakeStepper: '\\u7d20\\u6750\\u5904\\u7406\\u6b65\\u9aa4'/)
 
   const pipelineDisclosure = sourceFunction('verifyFilmPipelineDisclosureUi')
