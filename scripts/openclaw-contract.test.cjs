@@ -33,7 +33,7 @@ test('backend sources expose the authoritative OpenClaw field contract', () => {
   assert.doesNotMatch(characterGeneration, /req\.count/)
 
   assert.match(promptOverrides, /const \{ content \} = req\.body \|\| \{\}/)
-  assert.match(taskService, /id: r\.id[\s\S]*result: r\.result/)
+  assert.match(taskService, /id: row\.id[\s\S]*result: row\.result/)
   assert.match(aiConfigRoutes, /function bulkUpdateKey[\s\S]*if \(!aiConfigService\.getVendorLockStatus\(cfg\)\.enabled\)/)
 
   assert.match(dramaRoutes, /response\.created\(res, drama\)/)
