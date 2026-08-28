@@ -8,6 +8,7 @@ function readSource(url) {
 
 const filmCreateSource = readSource(new URL('../src/views/FilmCreate.vue', import.meta.url))
 const projectLoadSource = readSource(new URL('../src/composables/filmCreate/useFilmCreateProjectLoad.js', import.meta.url))
+const productionReadinessSource = readSource(new URL('../src/composables/filmCreate/useFilmCreateProductionReadiness.js', import.meta.url))
 const filmListSource = readSource(new URL('../src/views/FilmList.vue', import.meta.url))
 const aiConfigSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
 const pipelinePanelSource = readSource(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url))
@@ -48,12 +49,12 @@ test('FilmCreate keeps AI readiness in the pipeline instead of the page-level de
 })
 
 test('FilmCreate readiness refreshes use independent latest-request generation guards', () => {
-  assert.match(filmCreateSource, /import \{ createLatestRequestGuard \} from '@\/utils\/latestRequest\.js'/)
-  assert.match(filmCreateSource, /const productionReadinessRequestGuard = createLatestRequestGuard\(\)/)
-  assert.match(filmCreateSource, /const videoCapabilityRequestGuard = createLatestRequestGuard\(\)/)
+  assert.match(productionReadinessSource, /import \{ createLatestRequestGuard \} from '@\/utils\/latestRequest\.js'/)
+  assert.match(productionReadinessSource, /const productionReadinessRequestGuard = createLatestRequestGuard\(\)/)
+  assert.match(productionReadinessSource, /const videoCapabilityRequestGuard = createLatestRequestGuard\(\)/)
 
   const productionRefresh = sourceBetween(
-    filmCreateSource,
+    productionReadinessSource,
     'async function refreshProductionReadiness',
     'async function refreshVideoGenerationCapability',
   )
@@ -65,7 +66,7 @@ test('FilmCreate readiness refreshes use independent latest-request generation g
   assert.match(productionRefresh, /finally \{\s*productionReadinessRequestGuard\.commit\(requestGeneration, \(\) => \{\s*productionReadinessLoading\.value = false/)
 
   const videoRefresh = sourceBetween(
-    filmCreateSource,
+    productionReadinessSource,
     'async function refreshVideoGenerationCapability',
     'async function getActiveVideoAiConfig',
   )

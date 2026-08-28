@@ -111,6 +111,7 @@ test('video and production capabilities require a usable model, with only explic
 test('FilmCreate delegates pipeline UI and wraps major gated actions', () => {
   const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
   const episodeComposeSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateEpisodeCompose.js', import.meta.url), 'utf8')
+  const productionReadinessSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateProductionReadiness.js', import.meta.url), 'utf8')
   const pipelinePanelSource = readFileSync(
     new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
     'utf8',
@@ -133,7 +134,7 @@ test('FilmCreate delegates pipeline UI and wraps major gated actions', () => {
   assert.match(filmCreateSource, /playableVideoCount: playableStoryboardVideoCount\.value/)
   assert.match(filmCreateSource, /return getSbImagesList\(sbImages\.value, storyboardId\)/)
   assert.match(filmCreateSource, /hasRealMediaValue\(sb\?\.composed_image\)/)
-  assert.match(filmCreateSource, /getNovel2AnimeReadiness\(\{[\s\S]*qa_mode: 'production'/)
+  assert.match(productionReadinessSource, /getNovel2AnimeReadiness\(\{[\s\S]*qa_mode: 'production'/)
   assert.match(filmCreateSource, /productionReadinessReason/)
   assert.match(filmCreateSource, /service_type: 'tts'|key: 'tts'|tts/i)
   assert.match(pipelinePanelSource, /高级|生成设置/)

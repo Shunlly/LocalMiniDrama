@@ -852,16 +852,12 @@ import {
   createEpisodeSwitchController,
   createScriptDraftController,
 } from '@/utils/scriptDraft'
-import { createLatestRequestGuard } from '@/utils/latestRequest.js'
 import { logOperation } from '@/utils/operationLog'
 import { isPlaceholderMediaUrl, probeImageSource, storyboardImageUrl } from '@/utils/mediaUrl'
 import {
   getSbImagesList,
   hasRealMediaValue,
 } from '@/utils/storyboardMedia'
-import {
-  videoConfigSupportsOmni,
-} from '@/utils/storyboardVideoRequest'
 import FilmCreateAiConfigDialog from '@/components/filmCreate/FilmCreateAiConfigDialog.vue'
 import GlobalMediaPickerDialog from '@/components/GlobalMediaPickerDialog.vue'
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
@@ -869,7 +865,6 @@ import UniversalSegmentOmniAtEditor from '@/components/UniversalSegmentOmniAtEdi
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import FilmCreateDeliveryPanel from '@/components/filmCreate/FilmCreateDeliveryPanel.vue'
 import FilmCreateVideoSettingsPanel from '@/components/filmCreate/FilmCreateVideoSettingsPanel.vue'
-import { requestCoreJson } from '@/utils/coreJsonRequest'
 import {
   buildDeliveryFilename as buildDeliveryFilenameFromParts,
   buildEpisodeVideoFilename,
@@ -902,7 +897,6 @@ import {
   storyboardDisabledReason,
   userFacingVideoGenerationError,
 } from '@/utils/filmCreateActionState'
-import { normalizeProductionReadiness } from '@/utils/sourceWorkflowLaunch'
 import { normalizeProjectListReturnTo } from '@/utils/projectListRoute'
 import {
   generationStyleOptions,
@@ -936,6 +930,8 @@ import { useFilmCreateProjectLoad } from '@/composables/filmCreate/useFilmCreate
 import { useFilmCreateStoryboardBindings } from '@/composables/filmCreate/useFilmCreateStoryboardBindings'
 import { useFilmCreateStoryboardExport } from '@/composables/filmCreate/useFilmCreateStoryboardExport'
 import { useFilmCreateEpisodeCompose } from '@/composables/filmCreate/useFilmCreateEpisodeCompose'
+import { useFilmCreateProductionReadiness } from '@/composables/filmCreate/useFilmCreateProductionReadiness'
+import { useFilmCreateRouteSync } from '@/composables/filmCreate/useFilmCreateRouteSync'
 import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
 
 const projectLifecycle = createProjectInstanceLifecycle()
@@ -3008,8 +3004,8 @@ const {
   loadStoryboardMedia,
   recoverAndSyncEpisodeTasks,
   loadPipelineConcurrency,
-  refreshVideoGenerationCapability,
-  refreshProductionReadiness,
+  refreshVideoGenerationCapability: (...args) => refreshVideoGenerationCapability(...args),
+  refreshProductionReadiness: (...args) => refreshProductionReadiness(...args),
   scriptTitle,
   selectedEpisodeId,
   savedCurrentEpisodeNumber,
@@ -3524,106 +3520,25 @@ const {
   sbVideoFirstLastUrls,
 })
 
-let activeVideoAiConfigCache = null
-let activeVideoAiConfigCacheAt = 0
-const ACTIVE_VIDEO_AI_CONFIG_TTL_MS = 15000
-const productionReadinessRequestGuard = createLatestRequestGuard()
-const videoCapabilityRequestGuard = createLatestRequestGuard()
-
-function invalidateActiveVideoAiConfigCache() {
-  activeVideoAiConfigCache = null
-  activeVideoAiConfigCacheAt = 0
-}
-
-function getNovel2AnimeReadiness(data) {
-  return requestCoreJson('/workflows/novel2anime/readiness', { method: 'POST', body: data })
-}
-
-async function refreshProductionReadiness() {
-  const requestGeneration = productionReadinessRequestGuard.begin()
-  productionReadinessRequestGuard.commit(requestGeneration, () => {
-    productionReadinessLoading.value = true
-    productionReadinessFailed.value = false
-    authoritativeProductionReadiness.value = null
-  })
-  try {
-    const readiness = await getNovel2AnimeReadiness({
-      drama_id: dramaId.value,
-      qa_mode: 'production',
-    })
-    productionReadinessRequestGuard.commit(requestGeneration, () => {
-      authoritativeProductionReadiness.value = normalizeProductionReadiness(readiness)
-    })
-  } catch (_) {
-    productionReadinessRequestGuard.commit(requestGeneration, () => {
-      productionReadinessFailed.value = true
-    })
-  } finally {
-    productionReadinessRequestGuard.commit(requestGeneration, () => {
-      productionReadinessLoading.value = false
-    })
-  }
-  return {
-    ready: !productionReadinessFailed.value
-      && Boolean(authoritativeProductionReadiness.value?.ready),
-    reason: productionReadinessReason.value,
-  }
-}
-
-async function refreshVideoGenerationCapability() {
-  const requestGeneration = videoCapabilityRequestGuard.begin()
-  videoCapabilityRequestGuard.commit(requestGeneration, () => {
-    videoCapabilityLoading.value = true
-    videoCapabilityFailed.value = false
-  })
-  let capability
-  try {
-    const rows = await requestCoreJson('/ai-configs?service_type=video')
-    const normalizedRows = Array.isArray(rows) ? rows : []
-    capability = getVideoGenerationCapability(normalizedRows)
-    videoCapabilityRequestGuard.commit(requestGeneration, () => {
-      videoCapabilityConfigs.value = normalizedRows
-      activeVideoAiConfigCache = capability.config
-    })
-  } catch (_) {
-    capability = getVideoGenerationCapability([], { failed: true })
-    videoCapabilityRequestGuard.commit(requestGeneration, () => {
-      videoCapabilityConfigs.value = []
-      videoCapabilityFailed.value = true
-      activeVideoAiConfigCache = null
-    })
-  } finally {
-    videoCapabilityRequestGuard.commit(requestGeneration, () => {
-      activeVideoAiConfigCacheAt = Date.now()
-      videoCapabilityLoading.value = false
-    })
-  }
-  return videoCapabilityRequestGuard.isLatest(requestGeneration)
-    ? capability
-    : videoGenerationCapability.value
-}
-
-async function getActiveVideoAiConfig() {
-  const now = Date.now()
-  if (now - activeVideoAiConfigCacheAt < ACTIVE_VIDEO_AI_CONFIG_TTL_MS) {
-    return activeVideoAiConfigCache
-  }
-  const capability = await refreshVideoGenerationCapability()
-  return capability.config
-}
-
-/** 全能分镜 + 当前视频配置是否可走多图参考（火山 Seedance 2.0、可灵 Omni、Agnes Video 等） */
-function canUseUniversalOmniVideoApi(cfg) {
-  return videoConfigSupportsOmni(cfg)
-}
-
-async function confirmUniversalNonSeedance2Video() {
-  await ElMessageBox.confirm(
-    '你当前视频模型不支持多图参考，全能模式将降级：优先用分镜主图，否则仅传场景参考图。是否继续？',
-    '全能模式与模型不匹配',
-    { confirmButtonText: '继续', cancelButtonText: '取消', type: 'warning' }
-  )
-}
+const {
+  invalidateActiveVideoAiConfigCache,
+  getNovel2AnimeReadiness,
+  refreshProductionReadiness,
+  refreshVideoGenerationCapability,
+  getActiveVideoAiConfig,
+  canUseUniversalOmniVideoApi,
+  confirmUniversalNonSeedance2Video,
+} = useFilmCreateProductionReadiness({
+  dramaId,
+  productionReadinessLoading,
+  productionReadinessFailed,
+  authoritativeProductionReadiness,
+  productionReadinessReason,
+  videoCapabilityLoading,
+  videoCapabilityFailed,
+  videoCapabilityConfigs,
+  videoGenerationCapability,
+})
 
 const {
   onEditSbImagePrompt,
@@ -3997,40 +3912,35 @@ onBeforeUnmount(() => {
   scriptDraftController.dispose()
 })
 
-function applyRouteToStore() {
-  const id = route.params.id
-  invalidateProjectLoads()
-  resetStoryboardMediaContext(id && id !== 'new' ? Number(id) : null, null)
-  projectLoadError.value = ''
-  projectLoadNotFound.value = false
-  projectDependencyWarning.value = ''
-  projectLoadPending.value = false
-  projectDependencyLoading.value = false
-  if (id && id !== 'new') {
-    projectLoadState.value = 'loading'
-    store.reset()
-    store.setDrama({ id: Number(id) })
-    if (route.query.episode) {
-      selectedEpisodeId.value = Number(route.query.episode)
-    } else {
-      selectedEpisodeId.value = null
-    }
-    loadDrama({ blocking: true })
-  } else {
-    projectLoadState.value = 'ready'
-    store.reset()
-    storyInput.value = ''
-    scriptTitle.value = ''
-    selectedEpisodeId.value = null
-    savedCurrentEpisodeNumber.value = 1
-    storyStyle.value = ''
-    storyType.value = ''
-    scriptLanguage.value = 'zh'
-    scriptStoryboardStyle.value = ''
-    generationStyle.value = ''
-    markScriptDraftSaved()
-  }
-}
+const {
+  applyRouteToStore,
+  syncEpisodeRouteQuery,
+} = useFilmCreateRouteSync({
+  route,
+  router,
+  store,
+  dramaId,
+  invalidateProjectLoads,
+  resetStoryboardMediaContext,
+  loadDrama,
+  projectLoadError,
+  projectLoadNotFound,
+  projectDependencyWarning,
+  projectLoadPending,
+  projectDependencyLoading,
+  projectLoadState,
+  selectedEpisodeId,
+  savedCurrentEpisodeNumber,
+  storyInput,
+  scriptTitle,
+  storyStyle,
+  storyType,
+  scriptLanguage,
+  scriptStoryboardStyle,
+  generationStyle,
+  markScriptDraftSaved,
+  onEpisodeSelect,
+})
 
 onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
@@ -4044,36 +3954,6 @@ onMounted(async () => {
   }
 })
 
-// 剧本分集切换时同步 URL query 参数（?episode=<episode_id>），使刷新/分享页面仍保持当前选中集
-// 同时监听 query 变化，支持浏览器前进/后退时自动切换对应集次
-function syncEpisodeRouteQuery(episodeId) {
-  if (!dramaId.value) return
-  const currentInQuery = route.query.episode != null ? Number(route.query.episode) : null
-  const desired = episodeId != null ? Number(episodeId) : null
-  if (currentInQuery === desired) return
-  const newQuery = { ...route.query }
-  if (desired != null) newQuery.episode = String(desired)
-  else delete newQuery.episode
-  router.replace({ query: newQuery }).catch(() => {})
-}
-
-watch(
-  () => selectedEpisodeId.value,
-  syncEpisodeRouteQuery,
-  { flush: 'post' }
-)
-
-watch(
-  () => route.query.episode,
-  (newEp) => {
-    if (!dramaId.value) return
-    const newVal = newEp != null ? Number(newEp) : null
-    const currentSel = selectedEpisodeId.value != null ? Number(selectedEpisodeId.value) : null
-    if (currentSel !== newVal) {
-      onEpisodeSelect(newVal)
-    }
-  }
-)
 </script>
 
 <style scoped>
