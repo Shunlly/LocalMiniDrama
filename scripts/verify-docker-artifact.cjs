@@ -206,7 +206,6 @@ function main() {
     process.stdout.write('Docker 运行时安全边界验证通过。\n')
   } finally {
     if (configCreated) fs.rmSync(fixtureConfig, { force: true })
-    if (dataCreated) fs.rmSync(fixtureData, { force: true })
     removeHostPath(isolatedDataDirectory, { image, env: dockerOptions.env })
   }
 }

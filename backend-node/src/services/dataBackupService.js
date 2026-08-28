@@ -2018,22 +2018,39 @@ function excludeSecretsFromSnapshot(snapshotPath) {
   return { excludedValues: excluded, policy: 'excluded' };
 }
 
+async function canWriteSqlitePath(databasePath) {
+  try {
+    await fsp.access(databasePath, fs.constants.W_OK);
+    await fsp.access(path.dirname(databasePath), fs.constants.W_OK);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function captureBackupView(databasePath, storagePath, storySourcesPath, snapshotPath, limits, options) {
   let freeze;
   let transactionStarted = false;
   try {
     assertOperationNotAborted(options?.signal);
-    freeze = new Database(databasePath, { fileMustExist: true });
+    const writable = await canWriteSqlitePath(databasePath);
+    freeze = new Database(databasePath, { readonly: !writable, fileMustExist: true });
     freeze.pragma('busy_timeout = 0');
-    const journalMode = String(freeze.pragma('journal_mode', { simple: true }) || '').toLowerCase();
-    freeze.exec('BEGIN EXCLUSIVE');
-    transactionStarted = true;
-    await runFaultInjector(options, 'after-backup-freeze-acquired');
-    assertOperationNotAborted(options?.signal);
-    if (journalMode === 'wal') {
-      await createOnlineDatabaseSnapshot(databasePath, snapshotPath);
+    if (writable) {
+      const journalMode = String(freeze.pragma('journal_mode', { simple: true }) || '').toLowerCase();
+      freeze.exec('BEGIN EXCLUSIVE');
+      transactionStarted = true;
+      await runFaultInjector(options, 'after-backup-freeze-acquired');
+      assertOperationNotAborted(options?.signal);
+      if (journalMode === 'wal') {
+        await createOnlineDatabaseSnapshot(databasePath, snapshotPath);
+      } else {
+        await createLockedDatabaseSnapshot(databasePath, snapshotPath);
+      }
     } else {
-      await createLockedDatabaseSnapshot(databasePath, snapshotPath);
+      freeze.prepare('VACUUM INTO ?').run(snapshotPath);
+      await runFaultInjector(options, 'after-backup-freeze-acquired');
+      assertOperationNotAborted(options?.signal);
     }
     await runFaultInjector(options, 'after-backup-database-snapshot');
     assertOperationNotAborted(options?.signal);

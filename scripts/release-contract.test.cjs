@@ -10529,6 +10529,10 @@ function assertCompensationRestoreConsumer(run, label, boundary, artifact) {
 }
 
 test('rollback compensation mutation oracle rejects destructive partial success', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Compensation mutation oracle requires Windows')
+    return
+  }
   assert.equal(process.versions.node.split('.')[0], '20', 'compensation mutation oracle must run under Node 20')
   const { runCompensationProbeFault } = createRollbackRestoreHarness(t)
 
