@@ -2760,7 +2760,11 @@ test('production evidence artifacts stay ignored and release CI always uploads e
 test('main CI always runs production E2E and uploads the complete sanitized evidence directory', () => {
   assert.match(
     ciWorkflow,
-    /- name: Run full production workflow, QA, timeline, export and browser checks\s+if:\s*always\(\)\s+run:\s*npm run verify:e2e/,
+    /- name: Start production containers and local E2E provider\s+id:\s*e2e_up\s+run:\s*npm run docker:e2e:up/,
+  )
+  assert.match(
+    ciWorkflow,
+    /- name: Run full production workflow, QA, timeline, export and browser checks\s+if:\s*steps\.e2e_up\.outcome == 'success'\s+run:\s*npm run verify:e2e/,
   )
   assert.match(
     ciWorkflow,
