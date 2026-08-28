@@ -21,7 +21,7 @@
         role="listbox"
         @mousedown.prevent
       >
-        <div v-if="!slots.length" class="omni-at-menu-empty">当前没有可用的参考图（请为场景 / 角色 / 物品选择带图素材）</div>
+        <div v-if="!slots.length" class="omni-at-menu-empty">当前没有可用的参考图（请为场景 / 角色 / 道具选择带图素材）</div>
         <button
           v-for="s in slots"
           :key="s.index"
@@ -85,7 +85,7 @@ const CHIP_CLASS = 'omni-at-chip'
 function kindLabel(kind) {
   if (kind === 'scene') return '场景'
   if (kind === 'character') return '角色'
-  if (kind === 'prop') return '物品'
+  if (kind === 'prop') return '道具'
   return '参考'
 }
 
@@ -109,7 +109,7 @@ function makeDisplayAtToken(index) {
   const list = props.slots || []
   const dup = list.filter((x) => String(x.name || '').trim() === name).length > 1
   if (!dup) return `@${name}`
-  const prefix = slot.kind === 'scene' ? '场景' : slot.kind === 'prop' ? '物品' : '角色'
+  const prefix = slot.kind === 'scene' ? '场景' : slot.kind === 'prop' ? '道具' : '角色'
   return `@${prefix}·${name}`
 }
 

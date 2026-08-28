@@ -19,7 +19,7 @@
           <el-input v-model="addPropForm.name" placeholder="道具名称" />
         </el-form-item>
         <el-form-item label="类型">
-          <el-input v-model="addPropForm.type" placeholder="如：物品、建筑" />
+          <el-input v-model="addPropForm.type" placeholder="如：道具、建筑" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="addPropForm.description" type="textarea" :rows="3" placeholder="描述" />
@@ -225,7 +225,7 @@
           <el-input v-model="editPropForm.name" placeholder="道具名称" />
         </el-form-item>
         <el-form-item label="类型">
-          <el-input v-model="editPropForm.type" placeholder="如：物品、建筑" />
+          <el-input v-model="editPropForm.type" placeholder="如：道具、建筑" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="editPropForm.description" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="道具描述" />
@@ -832,84 +832,134 @@ const addPropAddRefFileInput = ref(null)
 </script>
 
 <style scoped>
-.ref-image-zone {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+.ref-image-zone {
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 12px;
+
+  flex-wrap: wrap;
+
 }
 
-.ref-image-box {
-  width: 120px;
-  height: 120px;
-  border: 2px dashed #c0c4cc;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  overflow: hidden;
-  background: #fafafa;
-  flex-shrink: 0;
-  transition: border-color 0.2s;
-  padding: 0;
-  color: inherit;
-  font: inherit;
+.ref-image-box {
+
+  width: 120px;
+
+  height: 120px;
+
+  border: 2px dashed #c0c4cc;
+
+  border-radius: 8px;
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  cursor: pointer;
+
+  overflow: hidden;
+
+  background: #fafafa;
+
+  flex-shrink: 0;
+
+  transition: border-color 0.2s;
+
+  padding: 0;
+
+  color: inherit;
+
+  font: inherit;
+
 }
 
-.ref-image-box:hover {
-  border-color: #409eff;
+.ref-image-box:hover {
+
+  border-color: #409eff;
+
 }
 
 .ref-image-box:focus-visible { outline: 2px solid #409eff; outline-offset: 2px; }
 
-.asset-item-left-right .asset-name {
-  font-size: 1.05rem;
-  margin-bottom: 8px;
+.asset-item-left-right .asset-name {
+
+  font-size: 1.05rem;
+
+  margin-bottom: 8px;
+
 }
 
 .asset-name { font-weight: 600; margin-bottom: 4px; color: #e4e4e7; }
 
-.asset-item-left-right .asset-name {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
+.asset-item-left-right .asset-name {
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: space-between;
+
+  gap: 4px;
+
 }
 
 .asset-item-left-right .asset-name span { flex: 1; min-width: 0; }
 
-.empty-tip {
-  color: #5a5a66;
-  font-size: 0.9rem;
-  padding: 16px 0;
+.empty-tip {
+
+  color: #5a5a66;
+
+  font-size: 0.9rem;
+
+  padding: 16px 0;
+
 }
 
-html.light .asset-name {
-  color: #18181b;
+html.light .asset-name {
+
+  color: #18181b;
+
 }
 
-html.light .empty-tip {
-  color: #9ca3af;
+html.light .empty-tip {
+
+  color: #9ca3af;
+
 }
 
 .library-dialog .el-dialog__body { padding-top: 8px; }
 
 .sd2-cert-dialog .el-dialog__body { padding-top: 10px; }
 
-.sd2-cert-desc :deep(.el-descriptions__cell) {
-  white-space: normal;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+.sd2-cert-desc :deep(.el-descriptions__cell) {
+
+  white-space: normal;
+
+  word-break: break-word;
+
+  overflow-wrap: anywhere;
+
 }
 
-.sd2-cert-value {
-  display: inline-block;
-  max-width: 100%;
-  white-space: normal;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  line-height: 1.5;
+.sd2-cert-value {
+
+  display: inline-block;
+
+  max-width: 100%;
+
+  white-space: normal;
+
+  word-break: break-word;
+
+  overflow-wrap: anywhere;
+
+  line-height: 1.5;
+
 }
 
 .library-toolbar { margin-bottom: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
@@ -922,55 +972,92 @@ html.light .empty-tip {
 
 .library-item-sub { font-size: 12px; color: var(--el-text-color-secondary); font-weight: normal; }
 
-.library-list {
-  min-height: 200px;
-  max-height: 420px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.library-list {
+
+  min-height: 200px;
+
+  max-height: 420px;
+
+  overflow-y: auto;
+
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 10px;
+
 }
 
-.library-item {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 10px;
-  background: #1e1f28;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+.library-item {
+
+  display: flex;
+
+  gap: 12px;
+
+  align-items: center;
+
+  padding: 10px;
+
+  background: #1e1f28;
+
+  border: 1px solid rgba(255, 255, 255, 0.06);
+
+  border-radius: 8px;
+
 }
 
-.library-item-cover {
-  width: 72px;
-  height: 72px;
-  flex-shrink: 0;
-  background: #252630;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: inherit;
-  font: inherit;
+.library-item-cover {
+
+  width: 72px;
+
+  height: 72px;
+
+  flex-shrink: 0;
+
+  background: #252630;
+
+  padding: 0;
+
+  border: 0;
+
+  border-radius: 6px;
+
+  overflow: hidden;
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  cursor: pointer;
+
+  color: inherit;
+
+  font: inherit;
+
 }
 
 .library-item-cover:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
 
 .library-item-cover:disabled { cursor: default; }
 
-.library-item-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.library-item-cover img {
+
+  width: 100%;
+
+  height: 100%;
+
+  object-fit: cover;
+
 }
 
-.library-item-placeholder {
-  font-size: 0.8rem;
-  color: #5a5a66;
+.library-item-placeholder {
+
+  font-size: 0.8rem;
+
+  color: #5a5a66;
+
 }
 
 .library-item-info { flex: 1; min-width: 0; }
@@ -981,25 +1068,39 @@ html.light .empty-tip {
 
 .library-item-actions { display: flex; gap: 8px; }
 
-.library-empty {
-  text-align: center;
-  color: #5a5a66;
-  padding: 40px 20px;
+.library-empty {
+
+  text-align: center;
+
+  color: #5a5a66;
+
+  padding: 40px 20px;
+
 }
 
-.library-empty p {
-  margin: 0 0 12px;
+.library-empty p {
+
+  margin: 0 0 12px;
+
 }
 
-.library-pagination {
-  margin-top: 12px;
-  display: flex;
-  justify-content: center;
+.library-pagination {
+
+  margin-top: 12px;
+
+  display: flex;
+
+  justify-content: center;
+
 }
 
-.library-placeholder {
-  padding: 40px 20px;
-  text-align: center;
-  color: #5a5a66;
+.library-placeholder {
+
+  padding: 40px 20px;
+
+  text-align: center;
+
+  color: #5a5a66;
+
 }
 </style>
