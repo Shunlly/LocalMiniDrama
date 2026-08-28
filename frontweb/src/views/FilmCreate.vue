@@ -3387,6 +3387,9 @@ const deliveryFileCount = computed(() => (
   1 + (deliverySubtitleAvailable.value ? 1 : 0) + (currentEpisodeVideoUrl.value ? 1 : 0)
 ))
 
+const videoDownloadStatus = ref('idle')
+const videoDownloadError = ref('')
+
 async function downloadCurrentEpisodeVideo() {
   if (videoDownloadStatus.value === 'downloading') return
   videoDownloadStatus.value = 'downloading'

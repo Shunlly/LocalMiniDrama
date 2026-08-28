@@ -164,7 +164,7 @@ test('FilmCreate pauses inside polling and keeps ownership of the same task id',
 
   assert.match(pollSource, /pipelineOwnedTaskIds\.add\(taskId\)/)
   assert.match(pollSource, /await pipelinePauseGate\.wait\(\)/)
-  assert.match(pollSource, /taskAPI\.get\(taskId, \{ suppressErrorToast: true \}\)/)
+  assert.match(pollSource, /taskAPI\.get\(taskId, \{ suppressErrorToast: true, timeout: DEFAULT_POLL_TIMEOUT_MS \}\)/)
   assert.doesNotMatch(pollSource, /resolve\(\{ paused: true \}\)/)
 })
 

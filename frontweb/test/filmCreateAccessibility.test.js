@@ -18,6 +18,7 @@ const deliveryPanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url),
   'utf8',
 )
+const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource
 
 test('film create navigation and resource disclosure controls use native buttons', () => {
   assert.match(filmCreateSource, /<button[\s\S]*?class="nav-toggle"[\s\S]*?:aria-expanded="!navCollapsed"/)
@@ -114,7 +115,7 @@ test('script and character library empty states provide direct actions', () => {
 })
 
 test('every FilmCreate ActionGate identifies its button action', () => {
-  const actionGates = filmCreateSource.match(/<ActionGate\b[^>]*>/g) || []
+  const actionGates = filmCreateUiSource.match(/<ActionGate\b[^>]*>/g) || []
   assert.ok(actionGates.length >= 13)
   for (const gate of actionGates) {
     assert.match(gate, /(?:^|\s):?label=/)
