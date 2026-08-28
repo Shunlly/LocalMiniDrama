@@ -912,6 +912,9 @@ import { useFilmCreateProjectLoadSurface } from '@/composables/filmCreate/useFil
 import { useFilmCreateAiConfigDialogState } from '@/composables/filmCreate/useFilmCreateAiConfigDialogState'
 import { useFilmCreateResourcePanelState } from '@/composables/filmCreate/useFilmCreateResourcePanelState'
 import { useFilmCreateMediaPickerState } from '@/composables/filmCreate/useFilmCreateMediaPickerState'
+import { useFilmCreateBatchMediaState } from '@/composables/filmCreate/useFilmCreateBatchMediaState'
+import { useFilmCreateUploadDragState } from '@/composables/filmCreate/useFilmCreateUploadDragState'
+import { useFilmCreateStoryboardGenerateSettings } from '@/composables/filmCreate/useFilmCreateStoryboardGenerateSettings'
 import { useFilmCreateStoryboardStateSync } from '@/composables/filmCreate/useFilmCreateStoryboardStateSync'
 import { useFilmCreateStoryboardVideoFields } from '@/composables/filmCreate/useFilmCreateStoryboardVideoFields'
 import { useFilmCreateRefImageDrop } from '@/composables/filmCreate/useFilmCreateRefImageDrop'
@@ -1501,22 +1504,24 @@ const {
 })
 // 重新生成角色/场景/道具关联分镜图的 loading set，key: 'char-{id}' | 'scene-{id}' | 'prop-{id}'
 const regenSbImagesForAsset = reactive(new Set())
-const regenSbImagesProgress = ref({})
-// 批量生成分镜图
-const batchImageRunning = ref(false)
-const batchImageStopping = ref(false)
-const batchImageProgress = ref({ current: 0, total: 0, failed: 0 })
-const inferringParams = ref(false)
-const showVideoParamsDialog = ref(false)
-const videoParamsTarget = ref(null)
-const videoParamsSaving = ref(false)
+const {
+  regenSbImagesProgress,
+  batchImageRunning,
+  batchImageStopping,
+  batchImageProgress,
+  inferringParams,
+  showVideoParamsDialog,
+  videoParamsTarget,
+  videoParamsSaving,
+  splitByAudioLoading,
+  batchImageErrors,
+  batchVideoRunning,
+  batchVideoStopping,
+  batchVideoProgress,
+  batchVideoErrors,
+  videoFrameContiguity,
+} = useFilmCreateBatchMediaState()
 const savingSbReferenceImages = reactive(new Set())
-const splitByAudioLoading = ref(false)
-const batchImageErrors = ref([])
-// 批量生成分镜视频
-const batchVideoRunning = ref(false)
-const batchVideoStopping = ref(false)
-
 const {
   cancelActiveTask,
 } = useFilmCreateTaskCancel({
@@ -1529,7 +1534,6 @@ const {
   batchImageStopping,
   batchVideoStopping,
 })
-const batchVideoProgress = ref({ current: 0, total: 0, failed: 0 })
 
 const {
   allActiveTaskItems,
@@ -1547,10 +1551,6 @@ const {
   batchVideoRunning,
   batchVideoProgress,
 })
-const batchVideoErrors = ref([])
-// P0-1: 连贯帧模式
-const videoFrameContiguity = ref(false)
-// P0-3: 分镜超分辨率 loading set
 const upscalingSbIds = reactive(new Set())
 // P2-4: TTS 状态
 const ttsSbIds = reactive(new Set())
@@ -1592,16 +1592,17 @@ const {
   editingFramePromptSaving,
   editingFramePromptRegenerating,
 } = useFilmCreatePromptDialogState()
-const uploadingSbImageId = ref(null)
-const sbImageFileInput = ref(null)
-const sbImageUploadForId = ref(null)
-// 角色/道具/场景 上传图片
-const resourceImageFileInput = ref(null)
-const resourceUploadType = ref(null) // 'character' | 'prop' | 'scene'
-const resourceUploadId = ref(null)
-const uploadingResourceId = ref(null) // 'char-1' | 'prop-2' | 'scene-3'
-const dragOverResourceKey = ref(null) // 'char-1' | 'prop-2' | 'scene-3'
-const dragOverSbId = ref(null)
+const {
+  uploadingSbImageId,
+  sbImageFileInput,
+  sbImageUploadForId,
+  resourceImageFileInput,
+  resourceUploadType,
+  resourceUploadId,
+  uploadingResourceId,
+  dragOverResourceKey,
+  dragOverSbId,
+} = useFilmCreateUploadDragState()
 
 const {
   getFirstImageFile,
@@ -1636,17 +1637,16 @@ const {
   doUploadSbImage: (...args) => doUploadSbImage(...args),
 })
 // 公共库弹窗状态已移至各 composable
-const storyboardCount = ref(null) // 分镜数量
-const videoDuration = ref(null) // 视频总长度
-/** 分镜生成时是否要求 AI 输出 narration（解说旁白） */
-const storyboardIncludeNarration = ref(false)
-/** 分镜生成是否使用全能模式（universal_segment_text，对接 Seedance / 可灵 Omni） */
-const storyboardUniversalOmni = ref(false)
-const storyboardUseFirstLastFrame = ref(false)
-const exportingStoryboardSheet = ref(false)
-/** 生成尾帧时是否注入首帧作站位/构图参考（默认开启） */
-const lastFrameUseFirstLayoutLock = ref(true)
-const gridMode = ref('single') // 序列图模式：single / quad_grid / nine_grid
+const {
+  storyboardCount,
+  videoDuration,
+  storyboardIncludeNarration,
+  storyboardUniversalOmni,
+  storyboardUseFirstLastFrame,
+  exportingStoryboardSheet,
+  lastFrameUseFirstLayoutLock,
+  gridMode,
+} = useFilmCreateStoryboardGenerateSettings()
 
 const {
   sbSelectedImgId,
