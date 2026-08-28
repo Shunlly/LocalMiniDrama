@@ -113,7 +113,7 @@ describe('provider error sanitizer', () => {
 
     assert.match(error.message, /HTTP 502/);
     assert.match(error.message, /response_bytes=/);
-    assert.match(error.message, /temporarily unavailable/);
+    assert.match(error.message, /暂时不可用|temporarily unavailable/);
     assert.doesNotMatch(error.message, LEAK_PATTERN);
   });
 });

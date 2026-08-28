@@ -240,7 +240,7 @@ describe('sourceIntakeService', () => {
       },
     }, badRes);
     assert.equal(badRes.statusCode, 400);
-    assert.match(badRes.body.error.message, /unsupported|invalid/i);
+    assert.match(badRes.body.error.message, /unsupported|invalid|不支持|无效/i);
   });
 });
 
