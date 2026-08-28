@@ -159,6 +159,7 @@ function removeHostPath(target, options = {}) {
 
 function main() {
   const isolatedDataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-artifact-data-'))
+  fs.chmodSync(isolatedDataDirectory, 0o777)
   const fixtureData = path.join(isolatedDataDirectory, fixtureDataName)
   const dockerOptions = {
     env: { ...process.env, LOCALMINIDRAMA_DATA_DIR: isolatedDataDirectory },
@@ -172,6 +173,7 @@ function main() {
   let configCreated = false
   let dataCreated = false
   let image
+  let primaryError
 
   try {
     fs.writeFileSync(fixtureConfig, JSON.stringify({ api_key: marker }), { encoding: 'utf8', flag: 'wx' })
@@ -204,9 +206,17 @@ function main() {
     process.stdout.write(run(['run', '--rm', '--entrypoint', 'node', image, '-e', inspection], dockerOptions) + '\n')
     verifyBackendRuntime(image, isolatedDataDirectory, dockerOptions)
     process.stdout.write('Docker 运行时安全边界验证通过。\n')
+  } catch (error) {
+    primaryError = error
+    throw error
   } finally {
-    if (configCreated) fs.rmSync(fixtureConfig, { force: true })
-    removeHostPath(isolatedDataDirectory, { image, env: dockerOptions.env })
+    try {
+      if (configCreated) fs.rmSync(fixtureConfig, { force: true })
+      removeHostPath(isolatedDataDirectory, { image, env: dockerOptions.env })
+    } catch (cleanupError) {
+      if (primaryError) console.error(cleanupError.message)
+      else throw cleanupError
+    }
   }
 }
 
