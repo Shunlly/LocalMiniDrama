@@ -8,6 +8,7 @@ import { shouldShowRequestErrorToast } from '../src/utils/request.js'
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const pipelineStagesSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreatePipelineStages.js', import.meta.url), 'utf8')
 const batchGenerationSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateBatchGeneration.js', import.meta.url), 'utf8')
+const storyboardVideoGenerationSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardVideoGeneration.js', import.meta.url), 'utf8')
 const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 const storyboardDialogsSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardDialogs.vue', import.meta.url), 'utf8')
 const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
@@ -104,7 +105,7 @@ test('FilmCreate wires the picker into storyboard free references with duplicate
 })
 
 test('all storyboard video submission paths reuse the shared video request builder', () => {
-  const videoRequestSource = filmCreateSource + '\n' + pipelineStagesSource + '\n' + batchGenerationSource
+  const videoRequestSource = filmCreateSource + '\n' + pipelineStagesSource + '\n' + batchGenerationSource + '\n' + storyboardVideoGenerationSource
   const requestBuilderUses = videoRequestSource.match(/videosAPI\.create\(buildStoryboardVideoRequest\(/g) || []
   assert.equal(requestBuilderUses.length, 4)
   assert.match(videoRequestSource, /referenceImageUrls: referencePayload\.referenceUrls/)

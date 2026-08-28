@@ -13,7 +13,9 @@ const mediaComposableSource = readFileSync(new URL('../src/composables/filmCreat
 const pipelineRunSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreatePipelineRun.js', import.meta.url), 'utf8')
 const pipelineStagesSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreatePipelineStages.js', import.meta.url), 'utf8')
 const batchGenerationSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateBatchGeneration.js', import.meta.url), 'utf8')
-const source = pipelineRunSource + '\n' + pipelineStagesSource + '\n' + batchGenerationSource + '\n' + filmCreateSource + '\n' + mediaComposableSource
+const storyboardImageGenerationSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardImageGeneration.js', import.meta.url), 'utf8')
+const storyboardVideoGenerationSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardVideoGeneration.js', import.meta.url), 'utf8')
+const source = pipelineRunSource + '\n' + pipelineStagesSource + '\n' + batchGenerationSource + '\n' + storyboardImageGenerationSource + '\n' + storyboardVideoGenerationSource + '\n' + filmCreateSource + '\n' + mediaComposableSource
 const resourcePanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
 const filmCreateUiSource = source + '\n' + resourcePanelSource
 
