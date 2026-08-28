@@ -1503,9 +1503,13 @@ async function exerciseFreeCanvas({
     await page.route(savePattern, saveHandler)
     try {
       await clickUniqueButton(page, '切换背景')
+      await waitForValue(
+        () => saveFailureCount,
+        (count) => count === 1,
+        'injected canvas layout save failure',
+      )
       const failedStatus = page.getByText('保存失败', { exact: true })
       await assertUniqueLocator(failedStatus, 'canvas save failure status')
-      await page.unroute(savePattern, saveHandler)
       await clickUniqueButton(page, '重试保存画布')
       const savedStatus = page.getByText('已保存', { exact: true })
       await assertUniqueLocator(savedStatus, 'canvas save recovered status')

@@ -189,6 +189,9 @@ test('save failures remain visible with retry until a successful save clears the
   assert.match(dramaCanvasSource, /layoutSaveError\.value = canvasSaveOperationError\(failedCanvasSaveOperation\.value\)/)
   assert.match(dramaCanvasSource, /const remainingError = canvasSaveOperationError\(remainingFailure\)/)
   assert.match(dramaCanvasSource, /layoutSaveError\.value = ''/)
+  assert.match(dramaCanvasSource, /aria-live="polite"/)
+  assert.match(dramaCanvasSource, /if \(failedCanvasSaveOperation\.value\) layoutSaveState\.value = 'error'/)
+  assert.match(dramaCanvasSource, /, 4000\)/)
 })
 
 test('inspector disables save-as-asset with an accessible eligibility reason', () => {

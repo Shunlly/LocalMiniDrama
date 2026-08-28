@@ -34,9 +34,9 @@
           />
         </el-select>
 
-        <span v-if="layoutSaveState === 'saving'" class="layout-status saving">保存中…</span>
-        <span v-else-if="layoutSaveState === 'saved'" class="layout-status saved">已保存</span>
-        <span v-else-if="layoutSaveState === 'error'" class="layout-status error">保存失败</span>
+        <span v-if="layoutSaveState === 'saving'" class="layout-status saving" aria-live="polite">保存中…</span>
+        <span v-else-if="layoutSaveState === 'saved'" class="layout-status saved" aria-live="polite">已保存</span>
+        <span v-else-if="layoutSaveState === 'error'" class="layout-status error" role="alert">保存失败</span>
         <span
           v-if="layoutSaveError"
           class="layout-save-error"
@@ -2236,7 +2236,11 @@ async function persistCanvasState({
     const queuedSave = canvasSaveChain.then(runSave, runSave)
     canvasSaveChain = queuedSave.catch(() => null)
     const updated = await queuedSave
-    if (!updated) return { ok: false, cancelled: true }
+    if (!updated) {
+      if (failedCanvasSaveOperation.value) layoutSaveState.value = 'error'
+      else if (layoutSaveState.value === 'saving') layoutSaveState.value = 'idle'
+      return { ok: false, cancelled: true }
+    }
     if (
       Number(targetDramaId) !== Number(canvasProjectId.value)
       || Number(targetDramaId) !== Number(drama.value?.id)
@@ -2314,7 +2318,7 @@ async function persistCanvasState({
       if (savedHintTimer) clearTimeout(savedHintTimer)
       savedHintTimer = setTimeout(() => {
         if (layoutSaveState.value === 'saved') layoutSaveState.value = 'idle'
-      }, 2000)
+      }, 4000)
     } else if (failedCanvasSaveOperation.value) {
       layoutSaveState.value = 'error'
     }

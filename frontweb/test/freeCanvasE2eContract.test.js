@@ -499,6 +499,15 @@ test('connection flow separates overlapping exact nodes and verifies browser poi
   assert.match(e2eSource, /waitForValue\([\s\S]*readFreeNodeHitAtHandle\(page, targetHandle\)/)
 })
 
+test('save recovery waits for the injected failure before retrying the same layout request', () => {
+  assert.match(e2eSource, /injected canvas layout save failure/)
+  assert.match(e2eSource, /clickUniqueButton\(page, '重试保存画布'\)/)
+  assert.doesNotMatch(
+    e2eSource.match(/await page\.route\(savePattern, saveHandler\)[\s\S]*?finally/)?.[0] || '',
+    /unroute\(savePattern, saveHandler\)\s*\n\s*await clickUniqueButton\(page, '重试保存画布'\)/,
+  )
+})
+
 test('connection flow uses Vue Flow connect-on-click with exact source and target handles', () => {
   assert.match(e2eSource, /sourceHandle\.click\(\)[\s\S]*targetHandle\.click\(\)/)
   assert.match(e2eSource, /source handle did not enter click-connecting state/)
