@@ -1536,6 +1536,12 @@ input_reference = (图片文件，可选)</pre>
       </template>
       <el-alert v-else type="error" :title="testError || '连接失败'" show-icon :closable="false" />
       <template #footer>
+        <el-button
+          v-if="testResult === false"
+          type="primary"
+          :loading="testingConfigId !== null"
+          @click="retryConnectionTest"
+        >重试</el-button>
         <el-button @click="testVisible = false">关闭</el-button>
       </template>
     </AccessibleDialog>
@@ -1569,7 +1575,7 @@ input_reference = (图片文件，可选)</pre>
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder } from '@element-plus/icons-vue'
 import { aiAPI } from '@/api/ai'
@@ -1601,6 +1607,13 @@ import SceneModelMap from '@/components/SceneModelMap.vue'
 import Sd2AssetManagement from '@/components/Sd2AssetManagement.vue'
 import { hasUnsavedAiConfigChanges } from '@/utils/aiConfigUnsavedGuard.js'
 import { createOperationId, logOperation } from '@/utils/operationLog'
+import {
+  DEFAULT_CONNECTION_TEST_TIMEOUT_MS,
+  DEFAULT_JSON_TIMEOUT_MS,
+  describeServiceLoadError,
+  isRequestCanceled,
+  withRequestRetry,
+} from '@/utils/requestError'
 
 const props = defineProps({
   initialServiceType: {
@@ -1661,9 +1674,20 @@ const generationSettingsLoadError = ref('')
 const generationSettingsWriteLocked = computed(() => generationSettingsLoadState.value !== 'ready' || genSettingSaving.value)
 
 async function loadGenerationSettings() {
+  generationSettingsAbortController?.abort()
+  const controller = new AbortController()
+  generationSettingsAbortController = controller
   generationSettingsLoadState.value = 'loading'
   try {
-    const res = await generationSettingsAPI.get()
+    const res = await withRequestRetry(
+      () => generationSettingsAPI.get({
+        signal: controller.signal,
+        timeout: DEFAULT_JSON_TIMEOUT_MS,
+        suppressErrorToast: true,
+      }),
+      { maxAttempts: 2, delayMs: 400, signal: controller.signal },
+    )
+    if (controller.signal.aborted) return
     const concurrency = Number(res?.concurrency)
     const videoConcurrency = Number(res?.video_concurrency)
     if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 20
@@ -1676,8 +1700,17 @@ async function loadGenerationSettings() {
     generationSettingsLoadError.value = ''
     generationSettingsLoadState.value = 'ready'
   } catch (error) {
-    generationSettingsLoadError.value = error?.message || '暂时无法读取生成设置，请稍后重试。'
+    if (isRequestCanceled(error) || controller.signal.aborted) return
+    generationSettingsLoadError.value = describeServiceLoadError(error, {
+      serviceLabel: '生成设置服务',
+      fallback: '暂时无法读取生成设置，请稍后重试。',
+      signal: controller.signal,
+    })
     generationSettingsLoadState.value = 'error'
+  } finally {
+    if (generationSettingsAbortController === controller) {
+      generationSettingsAbortController = null
+    }
   }
 }
 
@@ -1744,11 +1777,39 @@ watch(
 )
 const sessionTestStatusById = ref({})
 let connectionStatusStore = createAiConfigConnectionStatusStore()
+let configListAbortController = null
+let vendorLockAbortController = null
+let generationSettingsAbortController = null
+let connectionTestAbortController = null
+let connectionStatusScopeAbortController = null
+let lastTestedConfig = null
+
+function abortAiConfigPageRequests() {
+  configListAbortController?.abort()
+  vendorLockAbortController?.abort()
+  generationSettingsAbortController?.abort()
+  connectionTestAbortController?.abort()
+  connectionStatusScopeAbortController?.abort()
+  configListAbortController = null
+  vendorLockAbortController = null
+  generationSettingsAbortController = null
+  connectionTestAbortController = null
+  connectionStatusScopeAbortController = null
+}
+
+function jsonRequestOptions(signal, timeout = DEFAULT_JSON_TIMEOUT_MS) {
+  return { signal, timeout, suppressErrorToast: true }
+}
 
 async function initializeConnectionStatusStore() {
+  connectionStatusScopeAbortController?.abort()
+  const controller = new AbortController()
+  connectionStatusScopeAbortController = controller
   const scope = await resolveAiConfigConnectionStatusScope({
     fallbackScope: import.meta.env.VITE_LOCALMINIDRAMA_INSTANCE_ID || '',
+    signal: controller.signal,
   })
+  if (controller.signal.aborted) return
   connectionStatusStore = createAiConfigConnectionStatusStore({ scope })
 }
 
@@ -2156,6 +2217,7 @@ function setCoverageCardRef(serviceType, element) {
 }
 
 async function restoreTestedCoverageCardFocus() {
+  connectionTestAbortController?.abort()
   const serviceType = lastTestedCoverageServiceType.value
   lastTestedCoverageServiceType.value = ''
   if (!serviceType) return
@@ -2571,11 +2633,17 @@ async function handleSd2AssetSaved() {
 }
 
 async function loadList() {
+  configListAbortController?.abort()
+  const controller = new AbortController()
+  configListAbortController = controller
   const requestId = ++configListLoadSequence
   loading.value = true
   configLoadState.value = list.value.length ? 'refreshing' : 'loading'
   try {
-    const nextList = await aiAPI.list()
+    const nextList = await withRequestRetry(
+      () => aiAPI.list(undefined, jsonRequestOptions(controller.signal)),
+      { maxAttempts: 2, delayMs: 400, signal: controller.signal },
+    )
     if (requestId !== configListLoadSequence) return false
     list.value = nextList
     sessionTestStatusById.value = connectionStatusStore.forConfigs(list.value)
@@ -2583,12 +2651,17 @@ async function loadList() {
     configLoadState.value = 'ready'
     return true
   } catch (error) {
-    if (requestId !== configListLoadSequence) return false
-    configLoadError.value = error?.message || '暂时无法读取 AI 配置，请稍后重试。'
+    if (isRequestCanceled(error) || requestId !== configListLoadSequence) return false
+    configLoadError.value = describeServiceLoadError(error, {
+      serviceLabel: 'AI 配置服务',
+      fallback: '暂时无法读取 AI 配置，请稍后重试。',
+      signal: controller.signal,
+    })
     configLoadState.value = 'error'
     return false
   } finally {
     if (requestId === configListLoadSequence) loading.value = false
+    if (configListAbortController === controller) configListAbortController = null
   }
 }
 
@@ -3012,7 +3085,11 @@ async function openTest(row) {
     ElMessage.info('SD2 资产库请在「SD2 资产管理」标签页使用「刷新列表」验证连接。')
     return
   }
-  if (testingConfigId.value !== null) return
+  if (testingConfigId.value !== null && lastTestedConfig && String(lastTestedConfig.id) === String(row.id)) return
+  connectionTestAbortController?.abort()
+  const controller = new AbortController()
+  connectionTestAbortController = controller
+  lastTestedConfig = row
   testingConfigId.value = row.id
   testVisible.value = true
   testResult.value = null
@@ -3039,6 +3116,10 @@ async function openTest(row) {
       endpoint: row.endpoint,
       service_type: row.service_type,
       settings: row.settings
+    }, {
+      signal: controller.signal,
+      timeout: DEFAULT_CONNECTION_TEST_TIMEOUT_MS,
+      suppressErrorToast: true,
     })
     testResult.value = true
     const testedAt = new Date().toISOString()
@@ -3057,8 +3138,18 @@ async function openTest(row) {
       serviceType: row.service_type || 'text',
     })
   } catch (e) {
+    if (isRequestCanceled(e) || controller.signal.aborted) {
+      if (testVisible.value && testingConfigId.value === row.id) {
+        testResultAnnouncement.value = ''
+      }
+      return
+    }
     testResult.value = false
-    testError.value = e?.message || '请求失败'
+    testError.value = describeServiceLoadError(e, {
+      serviceLabel: 'AI 配置服务',
+      fallback: e?.message || '请求失败',
+      signal: controller.signal,
+    })
     const testedAt = new Date().toISOString()
     connectionStatusStore.set(row.id, 'failed', testedAt)
     sessionTestStatusById.value = {
@@ -3076,8 +3167,14 @@ async function openTest(row) {
       error: testError.value,
     })
   } finally {
-    testingConfigId.value = null
+    if (connectionTestAbortController === controller) connectionTestAbortController = null
+    if (testingConfigId.value === row.id) testingConfigId.value = null
   }
+}
+
+function retryConnectionTest() {
+  if (!lastTestedConfig || testingConfigId.value !== null) return
+  openTest(lastTestedConfig)
 }
 
 async function onDelete(row) {
@@ -3229,7 +3326,7 @@ async function submitOneKeyAgnes() {
 
 async function exportConfigs() {
   try {
-    const configs = await aiAPI.list()
+    const configs = await aiAPI.list(undefined, { suppressErrorToast: true })
     const exportData = configs.map(sanitizeConfigForExport)
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -3240,7 +3337,7 @@ async function exportConfigs() {
     URL.revokeObjectURL(url)
     ElMessage.success(`已导出 ${exportData.length} 条配置`)
   } catch (e) {
-    ElMessage.error('导出失败')
+    ElMessage.error(describeServiceLoadError(e, { serviceLabel: 'AI 配置服务', fallback: '导出失败，请稍后重试。' }))
   }
 }
 
@@ -3309,17 +3406,32 @@ async function importConfigs(event) {
 }
 
 async function loadVendorLock() {
+  vendorLockAbortController?.abort()
+  const controller = new AbortController()
+  vendorLockAbortController = controller
   vendorLockLoading.value = true
   vendorLockResolved.value = false
   try {
-    vendorLock.value = await aiAPI.getVendorLock()
+    vendorLock.value = await withRequestRetry(
+      () => aiAPI.getVendorLock(jsonRequestOptions(controller.signal)),
+      { maxAttempts: 2, delayMs: 400, signal: controller.signal },
+    )
+    if (controller.signal.aborted) return
     vendorLockError.value = ''
     vendorLockResolved.value = true
   } catch (error) {
-    vendorLockError.value = error?.message || '暂时无法确认厂商锁定状态，请稍后重试。'
+    if (isRequestCanceled(error) || controller.signal.aborted) return
+    vendorLockError.value = describeServiceLoadError(error, {
+      serviceLabel: '厂商锁定服务',
+      fallback: '暂时无法确认厂商锁定状态，请稍后重试。',
+      signal: controller.signal,
+    })
     vendorLockResolved.value = false
   } finally {
-    vendorLockLoading.value = false
+    if (vendorLockAbortController === controller) {
+      vendorLockAbortController = null
+      vendorLockLoading.value = false
+    }
   }
 }
 
@@ -3331,6 +3443,10 @@ onMounted(async () => {
   await initializeConnectionStatusStore()
   await Promise.all([loadVendorLock(), loadList(), loadGenerationSettings()])
   if (activeServiceFilter.value) await applyRequestedService(activeServiceFilter.value)
+})
+
+onBeforeUnmount(() => {
+  abortAiConfigPageRequests()
 })
 </script>
 

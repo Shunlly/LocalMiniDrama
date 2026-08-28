@@ -1,5 +1,5 @@
 <template>
-  <div class="media-library-page">
+  <main class="media-library-page">
     <div class="page-header">
       <div class="header-left">
         <el-button text class="back-link" @click="goBack">
@@ -12,7 +12,7 @@
         </div>
       </div>
       <div class="header-actions">
-        <el-button :disabled="mediaAccessState.navigationLocked" @click="goNewProject">
+        <el-button :disabled="mediaAccessState.navigationLocked" aria-label="新建项目" @click="goNewProject">
           <el-icon><Plus /></el-icon>
           新建项目
         </el-button>
@@ -89,6 +89,7 @@
       <el-input
         v-model="keyword"
         placeholder="搜索素材..."
+        aria-label="搜索素材"
         class="search-input"
         clearable
         @input="debouncedLoad"
@@ -102,6 +103,20 @@
       <el-icon class="is-loading"><Loading /></el-icon>
       <span>正在上传 {{ uploadProgress.current }}/{{ uploadProgress.total }}...</span>
     </div>
+
+    <section
+      v-if="uploadFeedback"
+      class="upload-feedback"
+      :class="`upload-feedback--${uploadFeedback.tone}`"
+      :role="uploadFeedback.tone === 'error' ? 'alert' : 'status'"
+      aria-live="assertive"
+      aria-atomic="true"
+    >
+      <div>
+        <h2>{{ uploadFeedback.title }}</h2>
+        <p>{{ uploadFeedback.detail }}</p>
+      </div>
+    </section>
 
     <!-- 媒体网格 -->
     <div v-loading="loading" class="media-grid" :aria-busy="loading">
@@ -172,7 +187,7 @@
         <div class="media-info">
           <span :id="`media-name-${item.id}`" class="media-name" :title="item.name">{{ item.name || '未命名' }}</span>
           <span class="media-meta">{{ formatSize(item.size) }}</span>
-          <span class="media-origin">{{ item.source_drama_title || '全局上传，可跨项目复用' }}</span>
+          <span class="media-origin">{{ mediaOriginLabel(item) }}</span>
         </div>
       </article>
 
@@ -278,7 +293,12 @@
           <h2>网络素材搜索失败</h2>
           <p>{{ networkError }}</p>
         </div>
-        <el-button plain :loading="networkLoading" @click="searchNetworkMedia">重试</el-button>
+        <el-button
+          plain
+          :loading="networkLoading"
+          :disabled="!networkKeyword.trim()"
+          @click="searchNetworkMedia"
+        >重试</el-button>
       </section>
 
       <div v-loading="networkLoading" class="network-grid" :aria-busy="networkLoading">
@@ -346,7 +366,11 @@
           </div>
         </article>
 
-        <div v-if="!networkLoading && !networkError && networkSearched && networkItems.length === 0" class="network-empty">
+        <div
+          v-if="!networkLoading && !networkError && networkSearched && networkItems.length === 0"
+          class="network-empty"
+          role="status"
+        >
           <el-icon><Files /></el-icon>
           <h2>没有找到匹配的网络素材</h2>
           <p>请更换关键词或素材类型后重试。</p>
@@ -360,7 +384,7 @@
     </template>
 
     <!-- 预览弹窗 -->
-    <AccessibleDialog v-model="showPreview" title="素材预览" width="800px" destroy-on-close>
+    <AccessibleDialog v-model="showPreview" title="素材预览" width="800px" destroy-on-close :close-on-click-modal="true" :close-on-press-escape="true">
       <div class="preview-content">
         <video
           v-if="previewItem?.type === 'video'"
@@ -368,6 +392,7 @@
           :aria-label="videoPreviewLabel(previewItem)"
           controls
           class="preview-video"
+          tabindex="0"
           autoplay
         />
         <img
@@ -375,6 +400,7 @@
           :src="itemUrl(previewItem)"
           :alt="previewAlt(previewItem)"
           class="preview-image"
+          tabindex="0"
         />
       </div>
       <div class="preview-meta">
@@ -431,9 +457,12 @@
           </el-button>
         </div>
       </div>
+      <template #footer>
+        <el-button type="primary" @click="showPreview = false">关闭预览</el-button>
+      </template>
     </AccessibleDialog>
 
-    <AccessibleDialog v-model="showNetworkPreview" title="网络素材预览" width="800px" destroy-on-close>
+    <AccessibleDialog v-model="showNetworkPreview" title="网络素材预览" width="800px" destroy-on-close :close-on-click-modal="true" :close-on-press-escape="true">
       <div class="preview-content">
         <video
           v-if="networkPreviewItem?.media_type === 'video'"
@@ -441,12 +470,14 @@
           :aria-label="`网络视频预览：${networkItemTitle(networkPreviewItem)}`"
           controls
           class="preview-video"
+          tabindex="0"
         />
         <img
           v-else-if="networkPreviewItem"
           :src="networkPlaybackUrl(networkPreviewItem)"
           :alt="`网络素材预览图：${networkItemTitle(networkPreviewItem)}`"
           class="preview-image"
+          tabindex="0"
         />
       </div>
       <div class="preview-meta">
@@ -463,8 +494,11 @@
           >查看许可</a>
         </div>
       </div>
+      <template #footer>
+        <el-button type="primary" @click="showNetworkPreview = false">关闭预览</el-button>
+      </template>
     </AccessibleDialog>
-  </div>
+  </main>
 </template>
 
 <script setup>
@@ -495,10 +529,15 @@ import {
   normalizeMediaItem as normalizeItem,
   normalizeMediaLibraryNetworkRoute,
   runMediaOperationOnce,
+  getMediaOriginLabel,
+  describeMediaDeleteImpact,
+  describeMediaBatchDeleteImpact,
+  isMediaInUseError,
 } from '@/utils/mediaLibrary'
 import {
   MEDIA_LIBRARY_MAX_FILE_SIZE_LABEL,
   partitionMediaLibraryUploads,
+  buildMediaLibraryUploadFeedback,
 } from '@/utils/mediaUploadValidation'
 
 const route = useRoute()
@@ -508,6 +547,7 @@ const loading = ref(false)
 const libraryMode = ref(initialNetworkRoute.mode)
 const uploading = ref(false)
 const uploadProgress = ref({ current: 0, total: 0 })
+const uploadFeedback = ref(null)
 const mediaItems = ref([])
 const mediaType = ref('all')
 const keyword = ref('')
@@ -586,6 +626,9 @@ watch(
 watch(
   [libraryMode, networkKeyword, networkMediaType],
   () => {
+    if (libraryMode.value === 'network' && !networkKeyword.value.trim()) {
+      invalidateNetworkSearch()
+    }
     const nextQuery = mergeMediaLibraryNetworkRoute(route.query, {
       mode: libraryMode.value,
       keyword: networkKeyword.value,
@@ -628,34 +671,44 @@ async function onUpload(e) {
   const selectedFiles = Array.from(e.target.files || [])
   if (!selectedFiles.length) return
   const { accepted: files, oversized } = partitionMediaLibraryUploads(selectedFiles)
-  if (oversized.length) {
-    const names = oversized.slice(0, 3).map((file) => file.name).join('、')
-    const suffix = oversized.length > 3 ? ` 等 ${oversized.length} 个文件` : ''
-    ElMessage.warning(`${names}${suffix} 超过单文件 ${MEDIA_LIBRARY_MAX_FILE_SIZE_LABEL} 限制，未开始上传`)
-  }
+  const oversizedNames = oversized.map((file) => file.name)
+  uploadFeedback.value = null
   if (!files.length) {
+    uploadFeedback.value = buildMediaLibraryUploadFeedback({
+      succeeded: 0,
+      failedNames: [],
+      oversizedNames,
+      acceptedCount: 0,
+    })
     e.target.value = ''
     return
   }
   uploading.value = true
   uploadProgress.value = { current: 0, total: files.length }
   let succeeded = 0
+  const failedNames = []
   for (const file of files) {
     try {
-      await uploadAPI.uploadAsset(file)
+      await uploadAPI.uploadAsset(file, { suppressErrorToast: true })
       succeeded++
     } catch (err) {
-      ElMessage.warning(`${file.name} 上传失败: ${err.message}`)
+      failedNames.push(file.name)
+      ElMessage.warning(`${file.name} 上传失败：${describeServiceLoadError(err, { serviceLabel: '素材服务', fallback: err.message || '请稍后重试' })}`)
     } finally {
       uploadProgress.value.current++
     }
   }
   uploading.value = false
   e.target.value = ''
+  uploadFeedback.value = buildMediaLibraryUploadFeedback({
+    succeeded,
+    failedNames,
+    oversizedNames,
+    acceptedCount: files.length,
+  })
   if (succeeded === files.length && oversized.length === 0) ElMessage.success(`${succeeded} 个素材上传完成`)
   else if (succeeded > 0) {
-    const skipped = oversized.length ? `，跳过 ${oversized.length} 个超限文件` : ''
-    ElMessage.warning(`已上传 ${succeeded}/${files.length} 个可上传素材${skipped}`)
+    ElMessage.warning(uploadFeedback.value.detail)
   }
   loadMedia()
 }
@@ -726,7 +779,11 @@ async function loadMedia() {
 }
 
 function describeNetworkError(error, fallback) {
-  return error?.response?.data?.error?.message || error?.message || fallback
+  return describeServiceLoadError(error, { serviceLabel: '网络素材服务', fallback })
+}
+
+function mediaOriginLabel(item) {
+  return getMediaOriginLabel(item)
 }
 
 function invalidateNetworkSearch() {
@@ -804,10 +861,14 @@ function formatSourceTimestamp(value) {
 
 async function searchNetworkMedia() {
   const query = networkKeyword.value.trim()
-  if (!query || networkLoading.value) return
-  const requestId = networkRequestGuard.begin()
+  if (!query) {
+    networkError.value = '请输入关键词后再搜索'
+    return
+  }
+  networkAbortController?.abort()
   const abortController = new AbortController()
   networkAbortController = abortController
+  const requestId = networkRequestGuard.begin()
   networkLoading.value = true
   networkError.value = ''
   try {
@@ -822,6 +883,7 @@ async function searchNetworkMedia() {
       networkSearched.value = true
     })
   } catch (error) {
+    if (isRequestCanceled(error)) return
     networkRequestGuard.commit(requestId, () => {
       networkItems.value = []
       networkSearched.value = true
@@ -942,16 +1004,20 @@ function openPreview(item) {
 async function deleteItem(item) {
   if (mediaWriteLocked.value) return
   try {
-    await ElMessageBox.confirm('确定删除该素材？', '删除确认', { type: 'warning' })
+    await ElMessageBox.confirm(`${describeMediaDeleteImpact(item)}确定删除？`, '删除确认', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
   } catch (_) {
     return
   }
   try {
-    await request.delete(`/assets/${item.id}`)
+    await request.delete(`/assets/${item.id}`, { suppressErrorToast: true })
     ElMessage.success('已删除')
     loadMedia()
   } catch (err) {
-    ElMessage.error(err.message || '删除失败')
+    ElMessage.error(describeServiceLoadError(err, { serviceLabel: '素材服务', fallback: err.message || '删除失败' }))
   }
 }
 
@@ -964,18 +1030,29 @@ async function batchDelete() {
     return
   }
   try {
-    await ElMessageBox.confirm(`确定删除选中的 ${count} 个素材？`, '批量删除', { type: 'warning' })
+    await ElMessageBox.confirm(`${describeMediaBatchDeleteImpact(count)}确定继续？`, '批量删除', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
   } catch (_) {
     return
   }
   let failed = 0
+  let inUse = 0
   for (const id of idsToDelete) {
     try {
-      await request.delete(`/assets/${id}`)
-    } catch (_) { failed++ }
+      await request.delete(`/assets/${id}`, { suppressErrorToast: true })
+    } catch (err) {
+      failed += 1
+      if (isMediaInUseError(err)) inUse += 1
+    }
   }
   selectedIds.clear()
-  if (failed > 0) ElMessage.warning(`${count - failed} 个删除成功，${failed} 个失败`)
+  if (failed > 0) {
+    const inUseHint = inUse ? `，其中 ${inUse} 个仍被分镜或画布引用` : ''
+    ElMessage.warning(`${count - failed} 个删除成功，${failed} 个失败${inUseHint}`)
+  }
   else ElMessage.success(`${count} 个素材已删除`)
   loadMedia()
 }
@@ -1408,6 +1485,39 @@ onBeforeUnmount(() => {
 
 .search-input {
   width: 240px;
+}
+
+.upload-feedback {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--el-color-warning);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.upload-feedback--error {
+  border-left-color: var(--el-color-danger);
+}
+
+.upload-feedback h2,
+.upload-feedback p {
+  margin: 0;
+}
+
+.upload-feedback h2 {
+  color: var(--text-bright);
+  font-size: 15px;
+}
+
+.upload-feedback p {
+  margin-top: 4px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
 .upload-progress {

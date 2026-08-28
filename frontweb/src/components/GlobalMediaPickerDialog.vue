@@ -27,6 +27,7 @@
           v-model="keyword"
           clearable
           placeholder="搜索素材名称"
+          aria-label="搜索素材名称"
           class="picker-search"
           @input="debouncedLoad"
         />
@@ -94,11 +95,11 @@
                 <span class="picker-card__type">{{ item.type === 'video' ? '视频' : '图片' }}</span>
               </div>
               <div class="picker-card__meta">
-                <span>{{ item.source_drama_title || '全局上传' }}</span>
+                <span>{{ mediaOriginLabel(item) }}</span>
                 <span v-if="item.file_size">{{ formatSize(item.file_size) }}</span>
               </div>
               <div v-if="selectedId === item.id" class="picker-card__selection">
-                {{ isCompatible(item) ? '已选中' : incompatibleMessage }}
+                {{ isCompatible(item) ? '已选中' : incompatibleReason(item) }}
               </div>
             </div>
           </button>
@@ -148,6 +149,8 @@ import { assetsAPI } from '@/api/assets'
 import {
   createLatestMediaRequestGuard,
   formatMediaSize as formatSize,
+  getMediaOriginLabel,
+  mediaPickerIncompatibleReason,
 } from '@/utils/mediaLibrary'
 
 const props = defineProps({
@@ -190,10 +193,15 @@ const confirmDisabled = computed(() => (
   || !selectedItem.value
   || !isCompatible(selectedItem.value)
 ))
-const incompatibleMessage = computed(() => props.accept === 'video' ? '当前用途只接受视频素材' : '当前用途只接受图片素材')
+const incompatibleMessage = computed(() => incompatibleReason(selectedItem.value) || (
+  props.accept === 'video' ? '当前用途只接受视频素材' : '当前用途只接受图片素材'
+))
 const acceptHint = computed(() => {
   if (props.accept === 'video') return '可浏览全部素材，当前用途仅可确认视频素材。'
   if (props.accept === 'image') return '可浏览全部素材，当前用途仅可确认图片素材。'
+  if (props.context?.reusePolicy === 'current-or-global') {
+    return '可浏览全部素材，当前画布只能确认全局素材或当前项目素材。'
+  }
   return '可浏览并选择素材中心中的全部素材。'
 })
 const footerStatus = computed(() => {
@@ -204,10 +212,19 @@ const footerStatus = computed(() => {
   return `${selectedItem.value.name || '未命名素材'} 已就绪`
 })
 
+function mediaOriginLabel(item) {
+  return getMediaOriginLabel(item, { globalLabel: '全局上传' })
+}
+
+function incompatibleReason(item) {
+  return mediaPickerIncompatibleReason(item, {
+    accept: props.accept,
+    context: props.context,
+  })
+}
+
 function isCompatible(item) {
-  if (!item) return false
-  if (props.accept === 'all') return true
-  return item.type === props.accept
+  return Boolean(item) && !incompatibleReason(item)
 }
 
 function itemUrl(item) {
@@ -217,8 +234,8 @@ function itemUrl(item) {
 }
 
 function cardLabel(item) {
-  const source = item.source_drama_title || '全局上传'
-  const state = isCompatible(item) ? '可选' : incompatibleMessage.value
+  const source = mediaOriginLabel(item)
+  const state = isCompatible(item) ? '可选' : incompatibleReason(item)
   return `${item.name || '未命名素材'}，${item.type === 'video' ? '视频' : '图片'}，来源 ${source}，${state}`
 }
 

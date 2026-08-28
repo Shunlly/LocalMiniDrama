@@ -90,3 +90,72 @@ test('timeout controller aborts after the budget and marks timeout', async () =>
     timeout.dispose()
   }
 })
+
+test('timeout abort is not treated as cancel and remains retryable', async () => {
+  const reason = Object.assign(new Error('请求超时'), { code: 'ECONNABORTED', isTimeout: true })
+  const aborted = Object.assign(new Error('canceled'), {
+    name: 'CanceledError',
+    code: 'ERR_CANCELED',
+    config: { signal: { reason } },
+  })
+  assert.equal(isRequestTimeout(aborted), true)
+  assert.equal(isRequestCanceled(aborted), false)
+  assert.equal(shouldRetryRequest(aborted), true)
+  assert.equal(
+    describeServiceLoadError(aborted, { serviceLabel: 'AI 配置服务' }),
+    '连接AI 配置服务超时，请稍后重试',
+  )
+
+  const canceled = Object.assign(new Error('aborted'), { name: 'AbortError', code: 'ERR_CANCELED' })
+  assert.equal(isRequestCanceled(canceled), true)
+  assert.equal(isRequestTimeout(canceled), false)
+  assert.equal(shouldRetryRequest(canceled), false)
+
+  const timeout = createTimeoutController(20)
+  const abortError = Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })
+  try {
+    await new Promise((_, reject) => {
+      timeout.signal.addEventListener('abort', () => reject(abortError))
+    })
+    assert.fail('should abort')
+  } catch (error) {
+    assert.equal(timeout.didTimeout(), true)
+    assert.equal(isRequestTimeout(error, timeout.signal), true)
+    assert.equal(isRequestCanceled(error, timeout.signal), false)
+    assert.equal(shouldRetryRequest(error, 1, timeout.signal), true)
+  } finally {
+    timeout.dispose()
+  }
+
+  let attempts = 0
+  const result = await withRequestRetry(async () => {
+    attempts += 1
+    if (attempts === 1) throw aborted
+    return 'recovered'
+  }, { maxAttempts: 2, delayMs: 0 })
+  assert.equal(result, 'recovered')
+  assert.equal(attempts, 2)
+})
+
+test('withRequestRetry aborts its retry delay without another attempt', async () => {
+  const controller = new AbortController()
+  let attempts = 0
+  const startedAt = Date.now()
+  const pending = withRequestRetry(async () => {
+    attempts += 1
+    const error = new Error('timeout of 15000ms exceeded')
+    error.code = 'ECONNABORTED'
+    throw error
+  }, { maxAttempts: 3, delayMs: 400, signal: controller.signal })
+
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  controller.abort()
+  await assert.rejects(pending, (error) => (
+    isRequestCanceled(error, controller.signal)
+    || error?.code === 'ERR_CANCELED'
+    || error?.name === 'AbortError'
+    || error?.name === 'CanceledError'
+  ))
+  assert.equal(attempts, 1)
+  assert.ok(Date.now() - startedAt < 200, 'abort must clear the pending retry timer')
+})

@@ -128,9 +128,9 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3013`, then add provider URLs, models, and API keys on the **AI Config** page. AI service credentials are stored in the local SQLite database, not in `config.yaml`.
+Open `http://127.0.0.1:3013`, then add provider URLs, models, and API keys on the **AI Config** page. AI service credentials are stored in the local SQLite database, not in `config.yaml`.
 
-You can also double-click `run_dev.bat` at the project root to **start both servers at once**.
+You can also double-click `run_dev.bat` or run `run_dev.ps1` at the project root to **start both servers at once**. The launcher opens `http://127.0.0.1:3013` after backend `/health` + `/ready` and the frontend page become ready.
 
 ### Option B — Docker (candidate deployment)
 
@@ -141,7 +141,7 @@ npm run docker:up
 docker compose ps
 ```
 
-Open `http://localhost:3013`. Docker is a supported deployment path for the current source candidate and records the Git SHA in clean-tree images. A local image build, successful startup, or local acceptance result is not a formally published GitHub release.
+Open `http://127.0.0.1:3013`. Backend health/readiness: `http://127.0.0.1:5679/health` and `http://127.0.0.1:5679/ready`. Frontend Docker health: `http://127.0.0.1:3013/healthz` (proxies backend `/ready`). Compose binds host ports to `127.0.0.1` only. `npm run docker:up` requires a clean worktree and writes the current Git SHA into image revisions. Dirty local source may use `docker compose up -d --build --wait`, but those images cannot create official rollback checkpoints. `npm run verify:docker` checks image boundaries and runs in-container tests; it does not replace a running Compose acceptance. A local image build, successful startup, or local acceptance result is not a formally published GitHub release.
 
 📖 Full developer guide, packaging, and FAQ → **[Quickstart Guide](quickstart.md)**
 
@@ -152,14 +152,18 @@ Open `http://localhost:3013`. Docker is a supported deployment path for the curr
 | Provider | Text | Image | Video |
 |----------|:----:|:-----:|:-----:|
 | Alibaba DashScope (Qwen) | ✅ | ✅ | ✅ |
-| Volcengine / Doubao | ✅ | ✅ | ✅ |
+| Volcengine / Doubao (Seedance 2.0) | ✅ | ✅ | ✅ |
+| Kling AI (including Omni) | — | ✅ | ✅ |
 | Agnes AI | ✅ | ✅ | ✅ |
-| Local (Ollama, OpenAI-compat.) | ✅ | — | — |
-| Other OpenAI-compatible APIs | ✅ | ✅ | — |
+| Google Gemini (text / native image / Veo) | ✅ | ✅ | ✅ |
+| Vidu | — | — | ✅ |
+| NanoBanana (including proxy) | — | ✅ | — |
+| Local Ollama / OpenAI-compatible text | ✅ | — | — |
+| Other OpenAI-compatible APIs | ✅ | ✅ | ✅ |
 
 📖 API key registration and configuration → **[Configuration Guide](configuration.md)**
 
-The common adapters and routing are implemented, but deep validation of every real provider, account, model revision, quota, and billing combination is deferred; test each deployment locally with non-sensitive content. Mobile Web reflow, touch behavior, and the mobile Canvas/list fallback are also deferred and are not covered by the current desktop acceptance matrix.
+The adapters and routing above are implemented as configuration presets. Repository production E2E uses a local protocol-compatible provider and does not prove every real vendor, account, model, quota, or billing combination. Test each deployment locally with non-sensitive content. Mobile Web reflow, touch behavior, and the mobile Canvas/list fallback are deferred and are not covered by the current desktop acceptance matrix.
 
 ---
 
@@ -177,9 +181,13 @@ LocalMiniDrama/
 ├── frontweb/              # Vue 3 frontend (Vite + Element Plus)
 │   └── src/
 │       ├── views/
-│       │   ├── FilmList.vue      # Home: project list & material library
+│       │   ├── FilmList.vue      # Home: project list
 │       │   ├── DramaDetail.vue   # Drama: info / episodes / resource library
-│       │   └── FilmCreate.vue    # Studio: script / characters / storyboard
+│       │   ├── FilmCreate.vue    # Studio: script / characters / storyboard
+│       │   ├── DramaCanvas.vue   # Dual-mode canvas workbench
+│       │   ├── AiConfig.vue      # AI provider configuration
+│       │   ├── FreeCreate.vue    # Standalone free create
+│       │   └── MediaLibrary.vue  # Media library
 │       ├── api/                  # Backend API wrappers
 │       ├── stores/               # Pinia state management
 │       └── styles/               # Global styles & theme variables
@@ -192,7 +200,7 @@ LocalMiniDrama/
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Vue 3 + Vite + Element Plus + Pinia + Axios |
+| Frontend | Vue 3 + Vite + Element Plus + Pinia + Axios + @vue-flow/core |
 | Backend | Node.js + Express + SQLite (better-sqlite3) |
 | Desktop | Electron 43.1.1 + electron-builder 26 |
 | Language | Plain JavaScript (no TypeScript) |
@@ -213,7 +221,7 @@ Full version history → **[CHANGELOG](changelog.md)**
 - 🆕 **Closed-loop desktop workflow** — project readiness exposes one next action, while source intake, processing, QA, repair, episodes, and timeline remain recoverable
 - 🆕 **Dual-mode canvas workbench** — keep the production graph and add a persisted free-creation layer with five node types, asset workflows, precise save recovery, explicit production conversion, and secure project transfer; final Docker production E2E is still unverified
 - 🆕 **Multi-provider AI configuration** — configure and test text, source-image, storyboard-image, video, and TTS models across local and hosted providers
-- 🆕 **Novel2Anime production path** — PDF/image OCR, audio/video transcription, image/video/TTS generation, and FFmpeg composition in one auditable workflow
+- 🆕 **Novel2Anime production path** — text import, image/video/TTS generation, and FFmpeg composition are on the auditable path; PDF/image OCR and audio/video transcription remain deferred
 - 🔧 **Film and canvas ergonomics** — consistent action gates, failure feedback, draft protection, panorama/reference media, timeline composition, and batch workflows
 - 🔒 **Release and operations hardening** — localhost-only defaults, SSRF/import/export boundaries, secret-safe exports and backups, trusted media tools, production Docker, and restore drills
 

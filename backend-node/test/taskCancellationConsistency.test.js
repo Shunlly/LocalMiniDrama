@@ -101,6 +101,8 @@ test('并发取消汇合同一 Promise，已有 cancelling 在远端结果返回
 
 test('远端取消失败返回失败并把任务恢复为原活动状态', async (t) => {
   const db = createDb(t);
+  const events = [];
+  const opLog = { ...log, operation(event) { events.push(event); } };
   const taskId = createTask(db);
   taskService.markRemoteCancelPending(taskId);
   taskService.registerRemoteCancel(taskId, async () => ({
@@ -108,12 +110,53 @@ test('远端取消失败返回失败并把任务恢复为原活动状态', async
     error: 'provider refused cancellation',
   }));
 
-  const result = await taskService.cancelTask(db, log, taskId, '远端失败');
+  const result = await taskService.cancelTask(db, opLog, taskId, '远端失败');
 
   assert.equal(result.ok, false);
   assert.equal(result.reason, 'remote_cancel_failed');
   assert.match(result.error, /provider refused cancellation/);
   assert.equal(db.prepare('SELECT status FROM async_tasks WHERE id = ?').get(taskId).status, 'processing');
+  assert.equal(events.some((event) => event.operation === 'task_cancel' && event.phase === 'start'), true);
+  assert.equal(
+    events.some((event) => event.operation === 'task_cancel' && event.phase === 'error' && event.status === 'remote_cancel_failed'),
+    true,
+    JSON.stringify(events)
+  );
+});
+
+test('取消未启动的剧集合并会清掉 processing 剧集状态', async (t) => {
+  const db = createDb(t);
+  db.prepare("UPDATE episodes SET status = 'processing' WHERE id = 11").run();
+  const task = taskService.createTask(db, log, 'video_merge', '11');
+  taskService.updateTaskStatus(db, task.id, 'processing', 10, '合成中');
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO video_merges (episode_id, drama_id, title, provider, status, scenes, task_id, created_at)
+     VALUES (11, 1, '合成', 'ffmpeg', 'pending', '[]', ?, ?)`
+  ).run(task.id, now);
+
+  const result = await taskService.cancelTask(db, log, task.id, '启动前取消');
+
+  assert.equal(result.ok, true);
+  assert.equal(db.prepare('SELECT status FROM video_merges WHERE task_id = ?').get(task.id).status, 'cancelled');
+  assert.equal(db.prepare('SELECT status FROM episodes WHERE id = 11').get().status, 'draft');
+});
+
+test('启动恢复中断的剧集合并会把 processing 剧集收敛为 failed', (t) => {
+  const db = createDb(t);
+  db.prepare("UPDATE episodes SET status = 'processing' WHERE id = 11").run();
+  const task = taskService.createTask(db, log, 'video_merge', '11');
+  taskService.updateTaskStatus(db, task.id, 'processing', 10, '合成中');
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO video_merges (episode_id, drama_id, title, provider, status, scenes, task_id, created_at)
+     VALUES (11, 1, '合成', 'ffmpeg', 'processing', '[]', ?, ?)`
+  ).run(task.id, now);
+
+  assert.ok(taskService.failOrphanedAsyncTasksOnStartup(db, log) >= 1);
+  assert.equal(taskService.getTask(db, task.id).status, 'failed');
+  assert.equal(db.prepare('SELECT status FROM video_merges WHERE task_id = ?').get(task.id).status, 'failed');
+  assert.equal(db.prepare('SELECT status FROM episodes WHERE id = 11').get().status, 'failed');
 });
 
 test('worker 先返回时等待远端失败决议并继续完成，不留下无 worker 的 processing 任务', async (t) => {

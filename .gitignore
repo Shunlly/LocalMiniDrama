@@ -60,3 +60,6 @@ desktop/dist/
 /backend-node/-version
 /docs/new-api-ui-concept.html
 /data/
+
+# Local provider import dumps filled with user keys must never be committed.
+/各大平台中转站配置/*.local.json

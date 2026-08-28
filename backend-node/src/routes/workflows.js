@@ -8,7 +8,7 @@ function badRequestOrInternal(res, err) {
   if (err && err.code === 'WORKFLOW_NOT_READY') {
     return response.error(res, 409, err.code, err.message, err.details);
   }
-  return response.internalError(res, err.message || 'Workflow operation failed');
+  return response.internalError(res, err.message || '工作流操作失败');
 }
 
 function positiveInteger(value) {
@@ -59,8 +59,7 @@ function listReadableWorkflowRuns(db, query) {
     params.push(Number(query.drama_id));
   }
   if (query.type) {
-    sql += ' AND run.type = ?';
-    params.push(String(query.type));
+    sql = workflowService.applyWorkflowTypeFilter(sql, params, query.type, 'run.type');
   }
   if (query.status) {
     sql += ' AND run.status = ?';
@@ -87,10 +86,10 @@ module.exports = function workflowRoutes(db, log) {
     get(req, res) {
       try {
         if (!getReadableWorkflowRun(db, req.params.run_id)) {
-          return response.notFound(res, 'Workflow run not found');
+          return response.notFound(res, '工作流任务不存在');
         }
         const run = workflowService.getWorkflowRunDetail(db, req.params.run_id);
-        if (!run) return response.notFound(res, 'Workflow run not found');
+        if (!run) return response.notFound(res, '工作流任务不存在');
         response.success(res, run);
       } catch (err) {
         log.error('workflows get', { error: err.message, run_id: req.params.run_id });
@@ -125,10 +124,10 @@ module.exports = function workflowRoutes(db, log) {
     retry(req, res) {
       try {
         if (!getReadableWorkflowRun(db, req.params.run_id)) {
-          return response.notFound(res, 'Workflow run not found');
+          return response.notFound(res, '工作流任务不存在');
         }
         const run = workflowService.retryWorkflowRun(db, log, req.params.run_id, req.body || {});
-        if (!run) return response.notFound(res, 'Workflow run not found');
+        if (!run) return response.notFound(res, '工作流任务不存在');
         response.success(res, run);
       } catch (err) {
         log.error('workflows retry', { error: err.message, run_id: req.params.run_id });
@@ -139,10 +138,10 @@ module.exports = function workflowRoutes(db, log) {
     cancel(req, res) {
       try {
         if (!getReadableWorkflowRun(db, req.params.run_id)) {
-          return response.notFound(res, 'Workflow run not found');
+          return response.notFound(res, '工作流任务不存在');
         }
         const run = workflowService.cancelWorkflowRun(db, log, req.params.run_id, req.body?.reason);
-        if (!run) return response.notFound(res, 'Workflow run not found');
+        if (!run) return response.notFound(res, '工作流任务不存在');
         response.success(res, run);
       } catch (err) {
         log.error('workflows cancel', { error: err.message, run_id: req.params.run_id });
@@ -153,10 +152,10 @@ module.exports = function workflowRoutes(db, log) {
     pause(req, res) {
       try {
         if (!getReadableWorkflowRun(db, req.params.run_id)) {
-          return response.notFound(res, 'Workflow run not found');
+          return response.notFound(res, '工作流任务不存在');
         }
         const run = workflowService.pauseWorkflowRun(db, log, req.params.run_id, req.body?.reason);
-        if (!run) return response.notFound(res, 'Workflow run not found');
+        if (!run) return response.notFound(res, '工作流任务不存在');
         response.success(res, run);
       } catch (err) {
         log.error('workflows pause', { error: err.message, run_id: req.params.run_id });
@@ -167,10 +166,10 @@ module.exports = function workflowRoutes(db, log) {
     resume(req, res) {
       try {
         if (!getReadableWorkflowRun(db, req.params.run_id)) {
-          return response.notFound(res, 'Workflow run not found');
+          return response.notFound(res, '工作流任务不存在');
         }
         const run = workflowService.resumeWorkflowRun(db, log, req.params.run_id);
-        if (!run) return response.notFound(res, 'Workflow run not found');
+        if (!run) return response.notFound(res, '工作流任务不存在');
         response.success(res, run);
       } catch (err) {
         log.error('workflows resume', { error: err.message, run_id: req.params.run_id });

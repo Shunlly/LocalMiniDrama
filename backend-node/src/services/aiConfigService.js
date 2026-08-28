@@ -140,20 +140,20 @@ function normalizeProviderBaseUrl(value, config = {}) {
     || BLOCKED_PROVIDER_IPS.has(normalizedHost)
     || normalizedHost.endsWith('.metadata.google.internal')
     || (net.isIP(normalizedHost) && !localTarget && !uploadService.isGloballyRoutableIp(normalizedHost))) {
-    throw providerUrlValidationError('Provider URL targets a blocked or non-routable address');
+    throw providerUrlValidationError('服务地址指向被拦截或不可路由的网络位置');
   }
   if (localTarget && !localMode) {
-    throw providerUrlValidationError('Private or local provider URLs require an explicitly recognized local provider mode');
+    throw providerUrlValidationError('私有或本地服务地址需要使用已识别的本地 Provider 模式');
   }
   if (parsed.protocol === 'http:' && (!localTarget || !localMode)) {
-    throw providerUrlValidationError('Globally routable provider URLs must use HTTPS');
+    throw providerUrlValidationError('公网服务地址必须使用 HTTPS');
   }
   return parsed.toString().replace(/\/$/, '');
 }
 
 function getProviderNetworkOptions(config = {}, overrides = {}) {
   const baseUrl = normalizeProviderBaseUrl(config.base_url, config);
-  if (!baseUrl) throw providerUrlValidationError('base_url is required');
+  if (!baseUrl) throw providerUrlValidationError('base_url 必填');
   const parsed = new URL(baseUrl);
   const allowPrivate = isExplicitLocalProviderHost(parsed.hostname) && isExplicitLocalProviderConfig(config);
   return {
@@ -701,7 +701,7 @@ function updateConfig(db, log, id, req) {
       originChanged = new URL(existing.base_url).origin !== new URL(normalizedBaseUrl).origin;
     } catch (_) {}
     if (originChanged && new URL(normalizedBaseUrl).protocol === 'http:' && hasStoredCredentials(candidate)) {
-      throw providerUrlValidationError('Stored credentials cannot be moved automatically to a new HTTP provider origin');
+      throw providerUrlValidationError('已保存的凭据不能自动迁移到新的 HTTP 服务地址，请重新填写密钥');
     }
     const normalizedModels = normalizeWritableConfigModels({
       model: req.model != null ? req.model : existing.model,
@@ -830,17 +830,49 @@ const CONNECTION_TEST_TIMEOUT_MS = 15000;
 
 async function fetchConnectionProbe(url, options = {}, networkOptions = {}) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CONNECTION_TEST_TIMEOUT_MS);
+  const parentSignal = options.signal || networkOptions.signal;
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    const reason = Object.assign(new Error('连接测试超时，请检查服务地址或网络'), {
+      code: 'ETIMEDOUT',
+      isTimeout: true,
+    });
+    controller.abort(reason);
+  }, CONNECTION_TEST_TIMEOUT_MS);
+  const onParentAbort = () => {
+    if (!controller.signal.aborted) controller.abort(parentSignal?.reason);
+  };
+  parentSignal?.addEventListener('abort', onParentAbort);
+  if (parentSignal?.aborted) onParentAbort();
+  const requestOptions = { ...options, redirect: 'error', signal: controller.signal };
   try {
     if (typeof networkOptions.fetchImpl === 'function') {
       await validateHttpRequestTarget(url, networkOptions);
-      return await networkOptions.fetchImpl(url, {
-        ...options,
-        redirect: 'error',
-        signal: controller.signal,
+      if (controller.signal.aborted) {
+        throw controller.signal.reason || Object.assign(new Error('连接测试已取消'), { code: 'ERR_CANCELED', name: 'AbortError' });
+      }
+      const probe = networkOptions.fetchImpl(url, requestOptions);
+      return await new Promise((resolve, reject) => {
+        const onAbort = () => reject(controller.signal.reason || Object.assign(new Error('连接测试已取消'), { code: 'ERR_CANCELED', name: 'AbortError' }));
+        if (controller.signal.aborted) {
+          onAbort();
+          return;
+        }
+        controller.signal.addEventListener('abort', onAbort, { once: true });
+        Promise.resolve(probe).then(
+          (value) => {
+            controller.signal.removeEventListener('abort', onAbort);
+            resolve(value);
+          },
+          (error) => {
+            controller.signal.removeEventListener('abort', onAbort);
+            reject(error);
+          }
+        );
       });
     }
-    return await secureHttpFetch(url, { ...options, redirect: 'error', signal: controller.signal }, {
+    return await secureHttpFetch(url, requestOptions, {
       trustedOrigins: networkOptions.trustedOrigins,
       allowPrivateOrigins: networkOptions.allowPrivateOrigins,
       requireHttpsForPublic: true,
@@ -849,10 +881,20 @@ async function fetchConnectionProbe(url, options = {}, networkOptions = {}) {
       maxBytes: 2 * 1024 * 1024,
     });
   } catch (error) {
-    if (error?.name === 'AbortError') throw new Error('连接测试超时，请检查服务地址或网络');
+    const reason = controller.signal.reason || parentSignal?.reason || error;
+    if (timedOut || error?.isTimeout === true || reason?.isTimeout === true) {
+      throw new Error('连接测试超时，请检查服务地址或网络');
+    }
+    if (error?.name === 'AbortError' || reason?.name === 'AbortError' || error?.code === 'ERR_CANCELED' || reason?.code === 'ERR_CANCELED') {
+      const cancel = new Error('连接测试已取消');
+      cancel.code = 'ERR_CANCELED';
+      cancel.name = 'AbortError';
+      throw cancel;
+    }
     throw error;
   } finally {
     clearTimeout(timer);
+    parentSignal?.removeEventListener('abort', onParentAbort);
   }
 }
 
@@ -921,16 +963,20 @@ async function testConnectionUnsafe(opts) {
   const providerNetwork = opts.provider_network_policy
     ? requireCompleteProviderNetworkPolicy(opts.provider_network_policy, base)
     : getProviderNetworkOptions(opts, { lookup: opts.provider_dns_lookup });
-  const models = Array.isArray(opts.model) ? opts.model : opts.model != null ? [opts.model] : [];
-  const model = models[0] || '';
-  if (!model && (opts.provider === 'gemini' || opts.provider === 'google')) throw new Error('model 必填');
   const provider = (opts.provider || 'openai').toLowerCase();
   const apiProtocol = (opts.api_protocol || '').toLowerCase();
   const serviceType = (opts.service_type || '').toLowerCase();
   const networkOptions = {
     ...providerNetwork,
     fetchImpl: opts.fetch_impl,
+    signal: opts.signal,
   };
+  const normalizedModels = normalizeConfigModels(opts);
+  let model = '';
+  if (normalizedModels.default_model || normalizedModels.model.length) {
+    model = resolveConfiguredModel(opts);
+  }
+  if (!model && (opts.provider === 'gemini' || opts.provider === 'google')) throw new Error('model 必填');
   let endpoint = opts.endpoint || '';
   if (!opts.api_key && !isApiKeyOptionalConnection({ provider, api_protocol: apiProtocol })) {
     throw new Error('api_key 必填');
@@ -949,6 +995,7 @@ async function testConnectionUnsafe(opts) {
     }, {
       fetch_impl: opts.fetch_impl,
       provider_network_policy: providerNetwork,
+      signal: opts.signal,
     });
     return;
   }
@@ -1170,6 +1217,8 @@ async function testConnection(opts) {
     const message = sanitizeProviderText(error?.message, secrets) || '连接测试失败';
     const safeError = new Error(message);
     if (error?.code) safeError.code = error.code;
+    if (error?.status) safeError.status = error.status;
+    if (error?.details) safeError.details = error.details;
     throw safeError;
   }
 }

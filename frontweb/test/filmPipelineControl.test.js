@@ -112,6 +112,29 @@ test('pipeline retry still aggregates ordinary failures after the configured att
   assert.equal(capturedError?.message, '普通失败 2')
 })
 
+test('pipeline retry aborts between retry waits without recording an ordinary failure', async () => {
+  let attempts = 0
+  let aborted = false
+  let failures = 0
+
+  await assert.rejects(
+    runPipelineTaskWithRetry({
+      task: async () => {
+        attempts += 1
+        throw new Error('temporary')
+      },
+      maxRetries: 3,
+      rest: async () => { aborted = true },
+      isAborted: () => aborted,
+      onFailure: () => { failures += 1 },
+    }),
+    (error) => error.pipelineAborted === true,
+  )
+
+  assert.equal(attempts, 1)
+  assert.equal(failures, 0)
+})
+
 test('pipeline cancellation sweeps task ids that arrive before the owned run settles', async () => {
   let rejectRun
   const runPromise = new Promise((_resolve, reject) => { rejectRun = reject })

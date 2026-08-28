@@ -5,6 +5,7 @@
     v-bind="$attrs"
     :model-value="modelValue"
     :close-on-click-modal="closeOnClickModal"
+    :data-accessible-dialog-id="instanceId"
     append-to="body"
     :append-to-body="true"
     @update:model-value="handleModelValueUpdate"
@@ -46,6 +47,7 @@ const emit = defineEmits([
   'closeAutoFocus',
 ])
 
+const instanceId = `accessible-dialog-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 const dialogRef = ref(null)
 let accessibilityToken = null
 let pendingOpener = null
@@ -58,10 +60,25 @@ function currentActiveElement() {
   return globalThis.document?.activeElement || null
 }
 
+function firstElementNode(candidates) {
+  for (const candidate of candidates) {
+    if (candidate?.nodeType === 1) return candidate
+  }
+  return null
+}
+
 function resolveDialogElement() {
   const contentRef = unref(dialogRef.value?.dialogContentRef)
-  const element = contentRef?.$el || unref(contentRef?.dialogRef) || contentRef
-  return element?.nodeType === 1 ? element : null
+  const fromRef = firstElementNode([
+    contentRef?.$el,
+    unref(contentRef?.dialogRef),
+    contentRef,
+    unref(dialogRef.value?.dialogRef),
+    dialogRef.value?.$el,
+  ])
+  if (fromRef) return fromRef
+  // Element Plus 只对外暴露 resetPosition，必须按实例 data-id 回查真实 DOM。
+  return globalThis.document?.querySelector?.(`[data-accessible-dialog-id="${instanceId}"]`) || null
 }
 
 function ensureRegistered() {
@@ -73,11 +90,10 @@ function ensureRegistered() {
 }
 
 function applyInitialFocus() {
-  if (focusApplied) return
+  if (focusApplied || !props.modelValue) return
   const token = ensureRegistered()
   if (!token) return
-  dialogAccessibility.focus(token)
-  focusApplied = true
+  if (dialogAccessibility.focus(token)) focusApplied = true
 }
 
 function cancelScheduledFocus() {
@@ -117,13 +133,14 @@ function handleOpen(...args) {
   emit('open', ...args)
 }
 
-function handleOpenAutoFocus(...args) {
+function handleOpenAutoFocus(event, ...args) {
+  event?.preventDefault?.()
   scheduleInitialFocus()
-  emit('openAutoFocus', ...args)
+  emit('openAutoFocus', event, ...args)
 }
 
 function handleOpened(...args) {
-  if (!focusScheduled) applyInitialFocus()
+  applyInitialFocus()
   emit('opened', ...args)
 }
 

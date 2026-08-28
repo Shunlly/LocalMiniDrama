@@ -100,11 +100,15 @@ function checkReadiness(db, storageRoot, options = {}) {
 
   try {
     const row = db.prepare('SELECT 1 AS ok').get();
-    checks.database.ok = row?.ok === 1;
-    if (checks.database.ok) runDatabaseRollbackProbe(db);
-    if (!checks.database.ok) checks.database.error = 'database query failed';
+    if (row?.ok !== 1) {
+      checks.database.error = '数据库查询失败';
+    } else {
+      runDatabaseRollbackProbe(db);
+      checks.database.ok = true;
+    }
   } catch (_) {
-    checks.database.error = 'database unavailable';
+    checks.database.ok = false;
+    checks.database.error = '数据库不可用';
   }
 
   try {
@@ -114,7 +118,8 @@ function checkReadiness(db, storageRoot, options = {}) {
     runStorageWriteProbe(storageRoot, fileSystem);
     checks.storage.ok = true;
   } catch (_) {
-    checks.storage.error = 'storage unavailable';
+    checks.storage.ok = false;
+    checks.storage.error = '存储目录不可用';
   }
 
   try {
@@ -122,7 +127,8 @@ function checkReadiness(db, storageRoot, options = {}) {
     assertLease(options.maintenanceGuard);
     checks.maintenance.ok = true;
   } catch (_) {
-    checks.maintenance.error = 'maintenance lease unavailable';
+    checks.maintenance.ok = false;
+    checks.maintenance.error = '维护租约不可用';
   }
 
   return {
@@ -311,13 +317,13 @@ function resolveWorkflowConfigs(db, params, options) {
 function assertDramaExists(db, params) {
   const dramaId = Number(params.drama_id || params.dramaId);
   if (!Number.isSafeInteger(dramaId) || dramaId <= 0) {
-    const error = new Error('drama_id is required and must reference an existing drama');
+    const error = new Error('drama_id 必填，且必须指向未删除的项目');
     error.code = 'BAD_REQUEST';
     throw error;
   }
   const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(dramaId);
   if (!drama) {
-    const error = new Error('drama_id is required and must reference an existing drama');
+    const error = new Error('drama_id 必填，且必须指向未删除的项目');
     error.code = 'BAD_REQUEST';
     throw error;
   }

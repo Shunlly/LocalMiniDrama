@@ -64,6 +64,7 @@ test('项目列表加载失败会锁写、重试恢复，并留下错误/成功�
   listMode = 'ok'
   await failureState.getByRole('button', { name: '重试加载', exact: true }).click()
   await failureState.waitFor({ state: 'hidden', timeout: 20000 })
+  await page.getByRole('heading', { name: '还没有短剧项目' }).waitFor({ timeout: 20000 })
   assert.equal(
     await page.getByRole('button', { name: '新建项目', exact: true }).first().isEnabled(),
     true,

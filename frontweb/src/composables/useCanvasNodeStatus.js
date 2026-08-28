@@ -34,6 +34,8 @@ export function createCanvasNodeStatusStore() {
 
 export const CANVAS_NODE_STATUS_LABELS = {
   image: '生图中',
+  'first-frame': '生成首帧',
+  'last-frame': '生成尾帧',
   video: '生视频中',
   audio: '配音中',
   polish: '润色中',

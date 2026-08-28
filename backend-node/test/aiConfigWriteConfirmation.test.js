@@ -105,6 +105,11 @@ test('single AI config update returns a persisted snapshot and rejects stale ove
   const persisted = aiConfigService.getConfig(db, created.id);
   assert.equal(persisted.provider, 'minimax');
   assert.equal(persisted.api_key, 'fixture-key-updated');
+  const runtime = videoClient.getDefaultVideoConfig(db);
+  assert.equal(runtime.id, created.id);
+  assert.equal(runtime.provider, 'minimax');
+  assert.equal(runtime.default_model, 'MiniMax-Hailuo-2.3-Fast');
+  assert.equal(runtime.api_key, 'fixture-key-updated');
 
   const typeChangeResponse = response();
   routes.update({
@@ -234,4 +239,75 @@ test('persisted AI config fields feed the same provider protocol used at runtime
     base_url: 'https://gateway.example/v1',
     api_protocol: '',
   }), 'openai');
+});
+
+test('saved connection tests keep persisted origin and model instead of client overrides', async (t) => {
+  const db = createDb(t);
+  const created = aiConfigService.createConfig(db, log, configRequest());
+  const routes = aiConfigRoutes(db, log, {});
+  const seen = [];
+  const original = aiConfigService.testConnection;
+  aiConfigService.testConnection = async (opts) => {
+    seen.push({
+      base_url: opts.base_url,
+      model: opts.model,
+      default_model: opts.default_model,
+      provider: opts.provider,
+      api_key: opts.api_key,
+    });
+  };
+  t.after(() => { aiConfigService.testConnection = original; });
+
+  const res = response();
+  await routes.testConnection({
+    body: {
+      id: created.id,
+      base_url: 'https://evil.example/v1',
+      model: 'retired-model',
+      provider: 'gemini',
+      api_key: '********',
+    },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].base_url, created.base_url);
+  assert.deepEqual(seen[0].model, created.model);
+  assert.equal(seen[0].default_model, created.default_model);
+  assert.equal(seen[0].provider, created.provider);
+  assert.equal(seen[0].api_key, 'fixture-key-original');
+  assert.notEqual(seen[0].base_url, 'https://evil.example/v1');
+  assert.equal(JSON.stringify(res.body).includes('fixture-key-original'), false);
+});
+
+test('vendor lock update ignores forged provider fields', (t) => {
+  const db = createDb(t);
+  const createdResponse = response();
+  aiConfigRoutes(db, log, {}).create({ body: configRequest({
+    name: '锁定伪造测试',
+    base_url: 'https://locked.example/v1',
+  }) }, createdResponse);
+  assert.equal(createdResponse.statusCode, 201);
+  const created = createdResponse.body.data;
+  const routes = aiConfigRoutes(db, log, { vendor_lock: { enabled: true } });
+  const updateResponse = response();
+  routes.update({
+    params: { id: String(created.id) },
+    body: {
+      expected_updated_at: created.updated_at,
+      base_url: 'https://forged.example/v1',
+      provider: 'openai',
+      settings: { allow_local_http: true },
+      is_active: false,
+      api_key: 'fixture-key-locked',
+      default_model: 'MiniMax-Hailuo-2.3',
+    },
+  }, updateResponse);
+  assert.equal(updateResponse.statusCode, 200);
+  const row = db.prepare('SELECT base_url, provider, settings, is_active, api_key FROM ai_service_configs WHERE id = ?').get(created.id);
+  assert.equal(row.base_url, 'https://locked.example/v1');
+  assert.equal(row.provider, 'minimax');
+  assert.equal(row.is_active, 1);
+  assert.equal(row.api_key, 'fixture-key-locked');
+  assert.equal(String(row.settings || '').includes('allow_local_http'), false);
 });

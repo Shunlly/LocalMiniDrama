@@ -43,6 +43,14 @@ const mediaLibraryStubUrl = dataModule(`
       },
     }
   }
+
+  export function getMediaOriginLabel(item = {}, options = {}) {
+    return item?.source_drama_title || options.globalLabel || '全局上传'
+  }
+
+  export function mediaPickerIncompatibleReason() {
+    return ''
+  }
 `)
 
 let compiledSource = compileScript(descriptor, {

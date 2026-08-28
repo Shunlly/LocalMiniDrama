@@ -67,18 +67,25 @@ test('app initialization preserves the startup error when cleanup also fails', (
 
 test('production 500 response hides details and returns its request id', () => {
   const entries = [];
-  const handler = createErrorHandler({ errorw(message, fields) { entries.push({ message, fields }); } }, { production: true });
+  const operations = [];
+  const handler = createErrorHandler({
+    errorw(message, fields) { entries.push({ message, fields }); },
+    operation(event) { operations.push(event); },
+  }, { production: true });
   const res = responseRecorder();
   const req = { requestId: 'req-500', method: 'GET', path: '/api/v1/fail' };
   handler(new Error('failed at C:\\private\\database.sqlite with upstream token'), req, res, () => {});
 
   assert.equal(res.statusCode, 500);
   assert.equal(res.body.error.code, 'INTERNAL_ERROR');
-  assert.equal(res.body.error.message, 'Internal server error');
+  assert.equal(res.body.error.message, '服务器内部错误');
   assert.equal(res.body.request_id, 'req-500');
   assert.doesNotMatch(JSON.stringify(res.body), /private|database\.sqlite|upstream token/);
   assert.match(entries[0].fields.error, /database\.sqlite/);
   assert.equal(entries[0].fields.request_id, 'req-500');
+  assert.equal(operations[0].operation, 'http_request');
+  assert.equal(operations[0].phase, 'error');
+  assert.equal(operations[0].code, 'INTERNAL_ERROR');
 });
 
 test('expected client errors retain actionable messages', () => {
@@ -109,7 +116,7 @@ test('response internalError sanitizes production messages and preserves develop
   assert.equal(productionResponse.statusCode, 500);
   assert.equal(productionResponse.headers['x-request-id'], 'req-response-500');
   assert.equal(productionResponse.body.error.code, 'INTERNAL_ERROR');
-  assert.equal(productionResponse.body.error.message, 'Internal server error');
+  assert.equal(productionResponse.body.error.message, '服务器内部错误');
   assert.equal(productionResponse.body.error.request_id, 'req-response-500');
   assert.equal(productionResponse.body.request_id, 'req-response-500');
   assert.doesNotMatch(JSON.stringify(productionResponse.body), /private|database\.sqlite|upstream token/);
@@ -131,7 +138,7 @@ test('production sanitizer hides route-handled 500 messages but preserves client
   response500.statusCode = 500;
   middleware({ requestId: 'req-route-500' }, response500, () => {});
   response500.json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'C:\\private\\db.sqlite failed' } });
-  assert.equal(response500.body.error.message, 'Internal server error');
+  assert.equal(response500.body.error.message, '服务器内部错误');
   assert.equal(response500.body.request_id, 'req-route-500');
   assert.doesNotMatch(JSON.stringify(response500.body), /private|db\.sqlite/);
 
@@ -151,7 +158,7 @@ test('unknown API routes use the standard error envelope', () => {
   assert.equal(res.body.success, false);
   assert.deepEqual(res.body.error, {
     code: 'NOT_FOUND',
-    message: 'API endpoint not found',
+    message: '接口不存在',
   });
   assert.match(res.body.timestamp, /^\d{4}-\d{2}-\d{2}T/);
 });

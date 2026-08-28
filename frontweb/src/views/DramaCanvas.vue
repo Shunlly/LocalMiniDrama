@@ -91,7 +91,7 @@
       >
         <span>{{ freeCanvasCompatibilityMessage }}</span>
         <div class="canvas-warning-actions">
-          <el-button link size="small" @click="goListMode">返回项目列表</el-button>
+          <el-button link size="small" @click="goListMode">列表模式</el-button>
         </div>
       </div>
       <div
@@ -130,7 +130,7 @@
         </p>
         <div class="canvas-load-actions">
           <el-button type="primary" :loading="loading" @click="retryCanvasProjectLoad">重试加载</el-button>
-          <el-button @click="goListMode">返回项目列表</el-button>
+          <el-button @click="goProjectList">返回项目列表</el-button>
         </div>
       </div>
     </main>
@@ -389,14 +389,14 @@
       title="添加自由画布素材"
       accept="all"
       :context="freeMediaPickerContext"
-      @select="createFreeNodeFromAsset"
+      @select="onFreeCanvasMediaPicked"
       @open-library="goMediaLibrary"
     />
     <FreeCanvasInspector
       v-if="selectedFreeNode"
       :key="`${dramaId}:${selectedFreeNode.id}`"
       class="free-canvas-inspector-dock"
-      :data-free-inspector-node-id="String(selectedFreeNode.id)"
+      :data-free-node-id="String(selectedFreeNode.id)"
       :node="selectedFreeNode"
       :readonly="canvasMode !== 'free' || freeCanvasReadOnly"
       :busy="freeInspectorBusy"
@@ -726,6 +726,8 @@ const freeMediaPickerContext = computed(() => ({
   projectTitle: drama.value?.title || '当前项目',
   episodeLabel: currentEpisode.value?.title || '',
   usageLabel: '添加到自由画布',
+  dramaId: dramaId.value,
+  reusePolicy: 'current-or-global',
 }))
 const workflowStoryboardDetails = computed(() => {
   const details = {}
@@ -3012,6 +3014,7 @@ async function createFreeCanvasNode(type, position = null, overrides = {}) {
   selectedFreeNodeId.value = node.id
   selectedFreeNodeIds.value = [node.id]
   selectedFreeEdgeIds.value = []
+  ignoreEmptyFreeSelectionUntil = Date.now() + 1500
   commitFreeCanvasState({
     ...freeCanvas.value,
     nodes: [...freeCanvas.value.nodes, node],
@@ -3259,11 +3262,16 @@ async function createFreeNodeFromLibraryItem(item, position = null) {
   await createFreeNodeFromAsset(item, position)
 }
 
+async function onFreeCanvasMediaPicked(asset) {
+  const added = await createFreeNodeFromAsset(asset)
+  if (added) freeMediaPickerVisible.value = false
+}
+
 async function createFreeNodeFromAsset(asset, position = null) {
   const sourceDramaId = asset?.drama_id
   if (sourceDramaId != null && Number(sourceDramaId) !== Number(dramaId.value)) {
     ElMessage.warning('请选择当前项目或全局素材，其他项目素材需要先复制到当前项目')
-    return
+    return false
   }
   const assetType = asset?.type === 'video' ? 'video' : 'image'
   const storageKey = localMediaReference(asset)
@@ -3275,6 +3283,7 @@ async function createFreeNodeFromAsset(asset, position = null) {
     assetId: asset?.id,
     ...(storageKey ? { storageKey, content: storageKey } : {}),
   })
+  return true
 }
 
 function isMediaFile(file) {
@@ -3509,6 +3518,7 @@ function handleFreeCanvasKeydown(event) {
     return
   }
   if (event.key === 'Delete' || event.key === 'Backspace') {
+    if (event.target?.closest?.('.free-canvas-inspector-dock, video, audio, .el-popper')) return
     const { nodeIds, edgeIds } = currentVisualFreeCanvasSelection()
     if (nodeIds.length || edgeIds.length) {
       event.preventDefault()
@@ -4085,10 +4095,11 @@ async function saveFreeCanvasNodeAsAsset(payload = {}) {
 .free-canvas-bottom-toolbar {
   position: absolute;
   left: 50%;
-  bottom: 20px;
+  bottom: 16px;
   z-index: 1100;
-  max-width: calc(100% - 220px);
+  max-width: min(720px, calc(100% - 160px));
   transform: translateX(-50%);
+  overflow-x: auto;
   box-shadow: var(--canvas-raised-shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
 }
 .free-canvas-empty-state {
@@ -4143,6 +4154,11 @@ async function saveFreeCanvasNodeAsAsset(payload = {}) {
   border: 1px solid #3f3f46;
 }
 
+.drama-canvas-page.free-mode :deep(.vue-flow__controls) {
+  left: 16px;
+  bottom: 76px;
+}
+
 :deep(.vue-flow__controls button) {
   background: #18181b;
   border-color: #3f3f46;
@@ -4164,6 +4180,12 @@ async function saveFreeCanvasNodeAsAsset(payload = {}) {
   .drama-canvas-page.free-inspector-open .canvas-main {
     margin-right: 0;
   }
+  .drama-canvas-page.free-inspector-open :deep(.vue-flow__minimap) {
+    display: none;
+  }
+  .free-canvas-bottom-toolbar {
+    max-width: calc(100% - 24px);
+  }
 }
 @media (max-width: 760px) {
   .free-canvas-inspector-dock {
@@ -4171,6 +4193,9 @@ async function saveFreeCanvasNodeAsAsset(payload = {}) {
     right: 16px;
     width: calc(100vw - 32px);
     max-height: min(620px, calc(100vh - 120px));
+  }
+  .drama-canvas-page.free-mode :deep(.vue-flow__minimap) {
+    display: none;
   }
 }
 </style>

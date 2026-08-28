@@ -177,3 +177,26 @@ test('URL import is named as a project-level flow and keeps its existing navigat
     /function goNewProject\(\) \{[\s\S]*?router\.push\(\{ path: '\/', query: \{ new: '1' \} \}\)[\s\S]*?\n\}/,
   )
 })
+
+test('删除素材确认会说明名称、来源和不可恢复影响', () => {
+  assert.match(source, /describeMediaDeleteImpact\(item\)/)
+  assert.match(source, /describeMediaBatchDeleteImpact\(count\)/)
+  assert.match(source, /<main class="media-library-page">/)
+})
+
+test('预览对话框给媒体初始焦点，并用关闭预览按钮兜底', () => {
+  assert.equal((source.match(/>关闭预览<\/el-button>/g) || []).length, 2)
+  assert.match(source, /class="preview-video"[\s\S]*tabindex="0"/)
+  assert.match(source, /class="preview-image"[\s\S]*tabindex="0"/)
+  assert.match(source, /@click="showPreview = false">关闭预览/)
+  assert.match(source, /@click="showNetworkPreview = false">关闭预览/)
+})
+
+test('上传失败保留可见反馈，网络空结果不会伪装成成功列表', () => {
+  assert.match(source, /v-if="uploadFeedback"/)
+  assert.match(source, /uploadFeedback\.tone === 'error' \? 'alert' : 'status'/)
+  assert.match(source, /buildMediaLibraryUploadFeedback/)
+  assert.match(source, /uploadAPI\.uploadAsset\(file, \{ suppressErrorToast: true \}\)/)
+  assert.match(source, /没有找到匹配的网络素材/)
+  assert.match(source, /class="network-empty"[\s\S]*role="status"/)
+})

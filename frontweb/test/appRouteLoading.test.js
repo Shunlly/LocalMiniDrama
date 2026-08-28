@@ -17,3 +17,11 @@ test('app keeps the active route visible while accessible route loading is pendi
   assert.match(source, /\.route-loading \{[\s\S]*?pointer-events: auto/)
   assert.match(source, /onBeforeUnmount\(\(\) => \{[\s\S]*?removeBeforeEach\(\)[\s\S]*?removeAfterEach\(\)[\s\S]*?removeOnError\(\)/)
 })
+
+test('route loading overlay traps tab focus while navigation is pending', () => {
+  assert.match(source, /aria-modal="true"/)
+  assert.match(source, /tabindex="-1"/)
+  assert.match(source, /@keydown="onRouteLoadingKeydown"/)
+  assert.match(source, /function onRouteLoadingKeydown\(event\)/)
+  assert.match(source, /routeLoadingRef\.value\?\.focus\(\{ preventScroll: true \}\)/)
+})

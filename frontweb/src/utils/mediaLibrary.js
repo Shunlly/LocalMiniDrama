@@ -71,6 +71,57 @@ export function getMediaLibraryDramaId(returnTo = '') {
   return Number.isSafeInteger(dramaId) ? dramaId : null
 }
 
+function positiveDramaId(value) {
+  const dramaId = Number(value)
+  return Number.isSafeInteger(dramaId) && dramaId > 0 ? dramaId : null
+}
+
+export function getMediaOriginLabel(item = {}, options = {}) {
+  const title = String(item?.source_drama_title || '').trim()
+  if (title) return title
+  const dramaId = positiveDramaId(item?.drama_id)
+  if (dramaId) return `项目素材（ID ${dramaId}）`
+  return options.globalLabel || '全局上传，可跨项目复用'
+}
+
+export function describeMediaDeleteImpact(item = {}, options = {}) {
+  const name = String(item?.name || '').trim() || '未命名素材'
+  const origin = getMediaOriginLabel(item, options)
+  return `「${name}」来自${origin}。删除后所有项目都不能再使用它；若仍被分镜或画布引用，删除会被拒绝。`
+}
+
+export function describeMediaBatchDeleteImpact(count) {
+  const total = Number(count)
+  const safeCount = Number.isSafeInteger(total) && total > 0 ? total : 0
+  return `将删除选中的 ${safeCount} 个素材。它们可能被其他项目复用；若仍被分镜或画布引用，删除会被拒绝。`
+}
+
+export function isMediaInUseError(error) {
+  const code = error?.response?.data?.error?.code || error?.code
+  if (code === 'ASSET_IN_USE') return true
+  return /正在被/.test(String(error?.message || error?.response?.data?.error?.message || ''))
+}
+
+export function isMediaPickerItemInScope(item, context = {}) {
+  if (context?.reusePolicy !== 'current-or-global') return true
+  const scopeId = positiveDramaId(context.dramaId ?? context.drama_id)
+  if (!scopeId) return true
+  const itemDramaId = item?.drama_id
+  if (itemDramaId == null || itemDramaId === '') return true
+  if (Number(itemDramaId) === 0) return true
+  return Number(itemDramaId) === scopeId
+}
+
+export function mediaPickerIncompatibleReason(item, { accept = 'all', context = {} } = {}) {
+  if (!item) return '未选择素材'
+  if (accept === 'video' && item.type !== 'video') return '当前用途只接受视频素材'
+  if (accept === 'image' && item.type !== 'image') return '当前用途只接受图片素材'
+  if (!isMediaPickerItemInScope(item, context)) {
+    return '其他项目素材不能直接用于当前项目，请选择全局或当前项目素材'
+  }
+  return ''
+}
+
 function firstQueryValue(value) {
   return Array.isArray(value) ? value[0] : value
 }

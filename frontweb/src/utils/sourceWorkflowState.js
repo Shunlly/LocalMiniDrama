@@ -20,6 +20,58 @@ function statusLabel(status) {
   return labels[status] || status
 }
 
+function firstStepWithStatus(run, statuses) {
+  const steps = Array.isArray(run?.steps) ? run.steps : []
+  return steps.find((step) => statuses.includes(step?.status)) || null
+}
+
+export function resolveWorkflowRunActiveStep(run) {
+  if (run?.activeStep?.step_key) return run.activeStep
+  const current = firstStepWithStatus(run, ['processing']) || firstStepWithStatus(run, ['pending'])
+  if (current) return current
+  if (
+    run?.current_step
+    && (run.status === 'pending' || run.status === 'processing' || run.status === 'paused')
+  ) {
+    return { step_key: run.current_step }
+  }
+  return null
+}
+
+export function resolveWorkflowRunFailedStep(run) {
+  if (run?.failedStep?.step_key) return run.failedStep
+  const failed = firstStepWithStatus(run, ['failed'])
+  if (failed) return failed
+  if (run?.status === 'failed' && run.current_step) return { step_key: run.current_step }
+  return null
+}
+
+function labeledRunStep(step, run) {
+  if (!step) return ''
+  return workflowStepLabel(step, run) || workflowStepLabel(step.step_key || '', run)
+}
+
+export function resolveInspectedWorkflowStep(flowState, {
+  selectedStepId = '',
+  previousActiveStepId = '',
+  requestedStepId = '',
+} = {}) {
+  const steps = Array.isArray(flowState?.steps) ? flowState.steps : []
+  const activeStepId = flowState?.activeStepId || steps[0]?.id || ''
+  if (requestedStepId) {
+    const requested = selectInspectedWorkflowStep(flowState, '', requestedStepId)
+    if (requested === requestedStepId) return requested
+  }
+  if (
+    selectedStepId
+    && previousActiveStepId
+    && selectedStepId !== previousActiveStepId
+  ) {
+    return selectInspectedWorkflowStep(flowState, selectedStepId, selectedStepId) || activeStepId
+  }
+  return activeStepId
+}
+
 function buildStepSummary(stepId, context) {
   const {
     sources,
@@ -38,10 +90,12 @@ function buildStepSummary(stepId, context) {
 
   if (stepId === 'process') {
     if (!run?.id) return sources > 0 ? '素材已就绪，可启动处理' : '需先导入素材'
-    if (run.status === 'failed') return `流程失败：${workflowStepLabel(run.failedStep?.step_key || '') || '请重试'}`
-    if (run.status === 'cancelled') return '上次流程已取消'
+    const failedStep = resolveWorkflowRunFailedStep(run)
+    const activeStep = resolveWorkflowRunActiveStep(run)
+    if (run.status === 'failed') return `流程失败：${labeledRunStep(failedStep, run) || '请重试'}`
+    if (run.status === 'cancelled') return '上次流程已取消，可重新启动'
     if (run.status === 'paused') return '流程已暂停，等待恢复'
-    if (run.activeStep?.step_key) return `当前：${workflowStepLabel(run.activeStep.step_key)}`
+    if (activeStep?.step_key) return `当前：${labeledRunStep(activeStep, run)}`
     if (run.status === 'completed') return '最近一次流程已完成'
     return '流程状态已记录'
   }

@@ -21,7 +21,13 @@ test('existing project cards open the film workspace unless URL-import intent is
   assert.deepEqual(projectCardDestination({ id: '51', episodes: [{ id: 7 }] }, false, '/?q=moon'), {
     name: 'film',
     params: { id: 51 },
+    query: { returnTo: '/?q=moon', episode: '7' },
+  })
+  assert.deepEqual(projectCardDestination({ id: '51', episodes: [{ id: 'bad' }] }, false, '/?q=moon'), {
+    name: 'drama-detail',
+    params: { id: 51 },
     query: { returnTo: '/?q=moon' },
+    hash: '#episode-list',
   })
   assert.deepEqual(projectCardDestination({ id: '51' }, false, '/?q=moon'), {
     name: 'drama-detail',

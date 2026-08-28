@@ -3,25 +3,49 @@
     <router-view v-slot="{ Component, route: matchedRoute }">
       <component :is="Component" :key="projectRouteInstanceKey(matchedRoute)" />
     </router-view>
-    <div v-if="routeLoading" class="route-loading" role="status" aria-live="assertive" aria-atomic="true" @click.stop @mousedown.stop>
+    <div v-if="routeLoading"
+      ref="routeLoadingRef"
+      class="route-loading"
+      role="status"
+      aria-live="assertive"
+      aria-atomic="true"
+      aria-modal="true"
+      tabindex="-1"
+      @click.stop
+      @mousedown.stop
+      @keydown="onRouteLoadingKeydown"
+    >
       正在切换页面
     </div>
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { projectRouteInstanceKey } from '@/utils/projectListRoute.js'
 import { createRouteLoadingState } from '@/utils/routeLoadingState.js'
 
 const router = useRouter()
 const routeLoading = ref(false)
+const routeLoadingRef = ref(null)
 const routeLoadingState = createRouteLoadingState()
 const navigationTokens = new WeakMap()
 function syncRouteLoading() {
   routeLoading.value = routeLoadingState.loading
 }
+function onRouteLoadingKeydown(event) {
+  if (event.key !== 'Tab') return
+  event.preventDefault()
+  event.stopPropagation()
+  routeLoadingRef.value?.focus({ preventScroll: true })
+}
+watch(routeLoading, (loading) => {
+  if (!loading) return
+  nextTick(() => {
+    routeLoadingRef.value?.focus({ preventScroll: true })
+  })
+})
 const removeBeforeEach = router.beforeEach((to) => {
   navigationTokens.set(to, routeLoadingState.begin())
   syncRouteLoading()
@@ -64,5 +88,12 @@ html, body, #app, .app {
   color: var(--text-primary);
   font-size: 14px;
   pointer-events: auto;
+}
+.route-loading:focus {
+  outline: none;
+}
+.route-loading:focus-visible {
+  outline: 2px solid var(--el-color-primary, #818cf8);
+  outline-offset: -8px;
 }
 </style>

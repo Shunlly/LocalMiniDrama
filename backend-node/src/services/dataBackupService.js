@@ -100,6 +100,25 @@ function backupError(code, message, cause) {
   return new DataBackupError(code, message, cause);
 }
 
+function isPermissionDeniedError(error) {
+  const code = String(error?.code || '');
+  return code === 'EACCES' || code === 'EPERM' || code === 'EROFS';
+}
+
+function permissionDeniedError(cause) {
+  return backupError(
+    'PERMISSION_DENIED',
+    '当前路径没有读写权限，请检查数据目录或备份输出目录的权限后重试。',
+    cause
+  );
+}
+
+function wrapUnknownBackupError(error, fallbackCode, fallbackMessage) {
+  if (error instanceof DataBackupError) return error;
+  if (isPermissionDeniedError(error)) return permissionDeniedError(error);
+  return backupError(fallbackCode, fallbackMessage, error);
+}
+
 function attachCleanupErrors(primaryError, cleanupErrors) {
   let existing = [];
   try {
@@ -172,6 +191,34 @@ function assertSafeTargetPaths(databasePath, storagePath, storySourcesPath) {
   ) {
     throw backupError('UNSAFE_TARGET', 'The configured data targets are not safe to replace.');
   }
+}
+
+function resolveDataRoot(value) {
+  if (typeof value !== 'string' || value.trim() === '' || !path.isAbsolute(value.trim())) {
+    throw backupError('INVALID_DATA_ROOT', '数据根目录必须是已存在的绝对路径。');
+  }
+  const resolved = path.resolve(value.trim());
+  if (resolved === path.parse(resolved).root) {
+    throw backupError('INVALID_DATA_ROOT', '数据根目录不能是文件系统根目录。');
+  }
+  let stat;
+  try {
+    stat = fs.lstatSync(resolved);
+  } catch (error) {
+    throw backupError('INVALID_DATA_ROOT', '数据根目录不存在或不可读取。', error);
+  }
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw backupError('INVALID_DATA_ROOT', '数据根目录必须是非符号链接目录。');
+  }
+  const realPath = path.resolve(fs.realpathSync(resolved));
+  const normalize = (pathValue) => {
+    const normalized = path.normalize(pathValue);
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  };
+  if (normalize(realPath) !== normalize(resolved)) {
+    throw backupError('INVALID_DATA_ROOT', '数据根目录不能通过符号链接或联接访问。');
+  }
+  return realPath;
 }
 
 function resolveStorySourcesPath(options = {}) {
@@ -1421,7 +1468,7 @@ async function assertDiskAllocations(allocations, reserveBytes) {
     const statfs = await fsp.statfs(group.existing);
     const available = Number(statfs.bavail ?? statfs.bfree) * Number(statfs.bsize);
     if (Number.isFinite(available) && available - group.bytes < reserveBytes) {
-      throw backupError('INSUFFICIENT_STORAGE', 'Insufficient disk space for the requested backup or restore operation.');
+      throw backupError('INSUFFICIENT_STORAGE', '磁盘空间不足，无法完成备份或恢复。');
     }
   }
 }
@@ -2795,6 +2842,7 @@ async function createDataBackup(options) {
       await syncParentDirectories(outputPath);
     } catch (error) {
       if (error.code === 'EEXIST') throw backupError('OUTPUT_EXISTS', 'The requested backup output already exists.');
+      if (isPermissionDeniedError(error)) throw permissionDeniedError(error);
       throw backupError('OUTPUT_COMMIT_FAILED', 'The backup output could not be created atomically without overwrite.', error);
     }
     await runFaultInjector(options, 'after-backup-output-linked');
@@ -2804,9 +2852,11 @@ async function createDataBackup(options) {
     if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
     return { outputPath, manifest, archiveBytes: archiveStat.size, security };
   } catch (error) {
-    const primaryError = error instanceof DataBackupError
-      ? error
-      : backupError('BACKUP_FAILED', 'The data backup could not be completed.', error);
+    const primaryError = wrapUnknownBackupError(
+      error,
+      'BACKUP_FAILED',
+      'The data backup could not be completed.'
+    );
     if (outputLinked) {
       try {
         const claim = claimOwnedRegularPathSync(
@@ -4027,7 +4077,11 @@ async function restoreDataBackup(options) {
     return await commitRestore(prepared, databasePath, storagePath, storySourcesPath, limits, options);
   } catch (error) {
     if (error instanceof DataBackupError) throw error;
-    throw backupError('RESTORE_FAILED', 'The data restore could not be completed.', error);
+    throw wrapUnknownBackupError(
+      error,
+      'RESTORE_FAILED',
+      'The data restore could not be completed.'
+    );
   } finally {
     const recoveryPending = Boolean(await lstatIfExists(maintenancePaths(databasePath).journalPath).catch(() => null));
     if (!recoveryPending) {
@@ -4056,6 +4110,7 @@ module.exports = {
   nativeMaintenanceOwnerScope,
   recoverInterruptedMaintenanceSync,
   restoreDataBackup,
+  resolveDataRoot,
   __testing: Object.freeze({
     acquireMaintenanceRecoveryClaimSync,
     canonicalPhysicalIdentity,

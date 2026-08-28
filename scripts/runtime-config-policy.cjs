@@ -82,6 +82,11 @@ function assertCredentialFree(value) {
   return value
 }
 
+function isEnabledFlag(value) {
+  if (value === undefined || value === null) return false
+  return value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true'
+}
+
 function sanitizeRuntimeConfig(input = {}) {
   const source = asObject(input)
   const app = asObject(source.app)
@@ -93,6 +98,10 @@ function sanitizeRuntimeConfig(input = {}) {
   const style = asObject(source.style)
   const vendorLock = asObject(source.vendor_lock)
   const imageProxy = asObject(source.image_proxy)
+
+  if (isEnabledFlag(server.insecure_tls) || isEnabledFlag(server.INSECURE_TLS)) {
+    throw new Error('runtime configuration cannot disable TLS certificate verification')
+  }
 
   return assertCredentialFree({
     app: {

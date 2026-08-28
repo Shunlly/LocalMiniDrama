@@ -236,7 +236,9 @@
         :loading="busyStep === 'universal-polish'"
         @click.stop="runUniversalPrompt('polish')"
       >流式润色</el-button>
-      <el-button v-if="!isUniversal" size="small" type="primary" :loading="busyStep === 'image'" @click.stop="runStep('image')">生图</el-button>
+      <el-button v-if="!isUniversal && !useFirstLast" size="small" type="primary" :loading="busyStep === 'image'" @click.stop="runStep('image')">生图</el-button>
+      <el-button v-if="!isUniversal && useFirstLast" size="small" type="primary" :loading="busyStep === 'first-frame'" @click.stop="runStep('first-frame')">生成首帧</el-button>
+      <el-button v-if="!isUniversal && useFirstLast" size="small" type="primary" :loading="busyStep === 'last-frame'" @click.stop="runStep('last-frame')">生成尾帧</el-button>
       <CanvasActionGate
         :reason="videoAction.reason"
         label="生成单镜视频"
@@ -285,9 +287,10 @@ import {
   parseStoryboardPropIds,
   parseStoryboardSceneId,
 } from '@/utils/canvasEntityIds'
-import { runImageStep, runVideoStep, runAudioStep } from '@/composables/useCanvasWorkflowRunner'
+import { runImageStep, runFrameImageStep, runVideoStep, runAudioStep } from '@/composables/useCanvasWorkflowRunner'
 import { findStoryboardInDrama, getDramaGenerationOptions } from '@/utils/canvasWorkflow'
 import { collectStoryboardReferenceSlots } from '@/utils/storyboardVideoRequest'
+import { dramaUsesFirstLastFrame } from '@/utils/storyboardMedia'
 import { createStoryboardDraftFingerprint, hasStoryboardDraftChanges } from '@/utils/storyboardDraft'
 import CanvasActionGate from './CanvasActionGate.vue'
 
@@ -325,6 +328,7 @@ const form = reactive({
 })
 
 const sbNodeId = computed(() => props.nodeId || (props.storyboard?.id ? `sb:${props.storyboard.id}` : ''))
+const useFirstLast = computed(() => dramaUsesFirstLastFrame(ctx?.drama?.value))
 const unavailableProductionAction = Object.freeze({
   ready: false,
   reason: '无法确认正式制作能力，请刷新后重试。',
@@ -767,6 +771,8 @@ async function runStep(step) {
   const statusMsg = CANVAS_NODE_STATUS_LABELS[step] || '处理中…'
   ctx?.nodeStatus?.set(sbNodeId.value, { step, message: statusMsg })
   if (step === 'image') ctx?.nodeStatus?.set(`sbimg:${sbId}`, { step, message: statusMsg })
+  if (step === 'first-frame') ctx?.nodeStatus?.set(`sbimg-first:${sbId}`, { step, message: statusMsg })
+  if (step === 'last-frame') ctx?.nodeStatus?.set(`sbimg-last:${sbId}`, { step, message: statusMsg })
   if (step === 'video') ctx?.nodeStatus?.set(`sbvid:${sbId}`, { step, message: statusMsg })
   try {
     if (step !== 'audio') {
@@ -789,6 +795,12 @@ async function runStep(step) {
     const sb = found?.storyboard || props.storyboard
     const genOpts = ctx?.getGenerationOptions?.() || getDramaGenerationOptions(drama)
     if (step === 'image') await runImageStep(drama, sb, genOpts, { signal: generationRun.signal })
+    else if (step === 'first-frame' || step === 'last-frame') {
+      await runFrameImageStep(drama, sb, genOpts, step === 'last-frame' ? 'last' : 'first', {
+        signal: generationRun.signal,
+        onWarning: (warning) => ElMessage.warning(warning?.message || '已改用本地帧提示词'),
+      })
+    }
     else if (step === 'video') await runVideoStep(drama, sb, genOpts, { signal: generationRun.signal })
     else if (step === 'audio') {
       const res = await runAudioStep(sb, { signal: generationRun.signal })
@@ -797,7 +809,13 @@ async function runStep(step) {
         return
       }
     }
-    ElMessage.success(step === 'image' ? '生图完成' : step === 'video' ? '视频生成完成' : '配音完成')
+    ElMessage.success(
+      step === 'image' ? '生图完成'
+        : step === 'first-frame' ? '首帧生成完成'
+          : step === 'last-frame' ? '尾帧生成完成'
+            : step === 'video' ? '视频生成完成'
+              : '配音完成'
+    )
     await ctx?.refresh?.()
   } catch (e) {
     if (e?.code === 'SUBMISSION_OUTCOME_UNKNOWN') audioOutcomeUnknown.value = true
@@ -810,6 +828,8 @@ async function runStep(step) {
     busyStep.value = ''
     ctx?.nodeStatus?.clear(sbNodeId.value)
     if (step === 'image') ctx?.nodeStatus?.clear(`sbimg:${sbId}`)
+    if (step === 'first-frame') ctx?.nodeStatus?.clear(`sbimg-first:${sbId}`)
+    if (step === 'last-frame') ctx?.nodeStatus?.clear(`sbimg-last:${sbId}`)
     if (step === 'video') ctx?.nodeStatus?.clear(`sbvid:${sbId}`)
   }
 }

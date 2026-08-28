@@ -205,7 +205,7 @@ test('completed source workflows hand off to production without obscuring the ep
   assert.match(dramaDetailSource, /@focus-episode-list="scrollToSection\('episode-list'\)"/)
   assert.match(
     dramaDetailSource,
-    /function enterSourceWorkflowProduction\(\)[\s\S]*?episodes\.value\.find\(\(item\) => Number\(item\?\.id\) > 0\)[\s\S]*?goEpisode\(episode\.id\)/,
+    /async function enterSourceWorkflowProduction\(\)[\s\S]*?await loadDrama\(\)[\s\S]*?ElMessage\.warning\('请先新增一集，再进入制作'\)[\s\S]*?scrollToSection\('episode-list'\)[\s\S]*?goEpisode\(currentEpisodeId\.value\)/,
   )
 })
 
@@ -215,6 +215,7 @@ test('film creation desktop keeps the pipeline focus above long content and anch
 
   assert.ok(pipelineIndex >= 0, 'pipeline panel must remain in the film creation workspace')
   assert.ok(scriptWorkbenchIndex >= 0, 'script workbench must remain in the film creation workspace')
+  assert.match(filmCreateSource, /<FilmCreateScriptWorkbench/)
   assert.ok(pipelineIndex < scriptWorkbenchIndex, 'pipeline focus must be visible before the long script workbench')
   assert.match(filmCreateSource, /--film-create-sticky-offset:\s*84px/)
   assert.match(

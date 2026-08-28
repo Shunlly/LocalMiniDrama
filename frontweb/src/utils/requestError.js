@@ -3,47 +3,62 @@ import axios from 'axios'
 export const DEFAULT_JSON_TIMEOUT_MS = 15_000
 export const DEFAULT_DOWNLOAD_TIMEOUT_MS = 180_000
 export const DEFAULT_POLL_TIMEOUT_MS = 15_000
+export const DEFAULT_CONNECTION_TEST_TIMEOUT_MS = 20_000
 
 function abortLikeError(error) {
   return error?.name === 'CanceledError' || error?.name === 'AbortError'
 }
 
-export function isRequestCanceled(error) {
+function timeoutLikeError(error) {
+  if (!error || typeof error !== 'object') return false
+  if (error.isTimeout === true) return true
+  if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') return true
+  return /timeout/i.test(String(error.message || ''))
+}
+
+function timeoutFromAbortSignal(signal) {
+  return timeoutLikeError(signal?.reason)
+}
+
+export function isRequestTimeout(error, signal) {
+  return timeoutLikeError(error)
+    || timeoutLikeError(error?.cause)
+    || timeoutFromAbortSignal(error?.config?.signal)
+    || timeoutFromAbortSignal(signal)
+}
+
+export function isRequestCanceled(error, signal) {
+  if (isRequestTimeout(error, signal)) return false
   return error?.code === 'ERR_CANCELED'
     || abortLikeError(error)
     || axios.isCancel?.(error) === true
 }
 
-export function isRequestTimeout(error) {
-  if (error?.isTimeout === true) return true
-  if (error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT') return true
-  return /timeout/i.test(String(error?.message || ''))
-}
-
-export function isRequestNetworkError(error) {
+export function isRequestNetworkError(error, signal) {
   if (error?.response) return false
-  if (isRequestCanceled(error) || isRequestTimeout(error)) return false
+  if (isRequestCanceled(error, signal) || isRequestTimeout(error, signal)) return false
   return error?.code === 'ERR_NETWORK' || /network error/i.test(String(error?.message || ''))
 }
 
-export function shouldRetryRequest(error) {
-  if (isRequestTimeout(error)) return true
-  if (isRequestCanceled(error)) return false
+export function shouldRetryRequest(error, attempt, signal) {
+  if (isRequestTimeout(error, signal)) return true
+  if (isRequestCanceled(error, signal)) return false
   const status = Number(error?.response?.status || error?.status)
   if (Number.isInteger(status) && status >= 400 && status < 500) return false
   if (Number.isInteger(status) && status >= 500) return true
-  return isRequestNetworkError(error)
+  return isRequestNetworkError(error, signal)
 }
 
 export function describeServiceLoadError(error, options = {}) {
   const serviceLabel = options.serviceLabel || '服务'
+  const signal = options.signal
   const backendMessage = error?.response?.data?.error?.message
   if (backendMessage) return backendMessage
   const status = Number(error?.status || error?.response?.status)
   if (status === 404 && options.notFoundMessage) return options.notFoundMessage
   if (Number.isInteger(status) && status > 0) return `${serviceLabel}暂时不可用（HTTP ${status}）`
-  if (isRequestTimeout(error)) return `连接${serviceLabel}超时，请稍后重试`
-  if (isRequestCanceled(error)) return `${serviceLabel}请求已取消`
+  if (isRequestTimeout(error, signal)) return `连接${serviceLabel}超时，请稍后重试`
+  if (isRequestCanceled(error, signal)) return `${serviceLabel}请求已取消`
   return options.fallback || `无法连接${serviceLabel}，请检查服务是否已启动`
 }
 
@@ -69,34 +84,58 @@ export function createTimeoutController(timeoutMs, parentSignal) {
   }
 }
 
+function annotateRequestError(error, signal) {
+  if (!error || typeof error !== 'object') return error
+  if (isRequestTimeout(error, signal)) error.isTimeout = true
+  return error
+}
+
 export async function withRequestRetry(task, options = {}) {
   if (typeof task !== 'function') throw new TypeError('withRequestRetry 需要可执行函数')
   const maxAttempts = Math.max(1, Number(options.maxAttempts) || 2)
   const delayMs = Math.max(0, Number(options.delayMs) || 400)
   const signal = options.signal
-  const shouldRetry = typeof options.shouldRetry === 'function' ? options.shouldRetry : shouldRetryRequest
+  const shouldRetry = typeof options.shouldRetry === 'function'
+    ? options.shouldRetry
+    : (error, attempt) => shouldRetryRequest(error, attempt, signal)
   let lastError = null
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (signal?.aborted) {
-      const error = signal.reason instanceof Error ? signal.reason : new Error('请求已取消')
-      if (!error.code) error.code = 'ERR_CANCELED'
+      const error = annotateRequestError(
+        signal.reason instanceof Error ? signal.reason : new Error('请求已取消'),
+        signal,
+      )
+      if (!error.code) error.code = error.isTimeout ? 'ECONNABORTED' : 'ERR_CANCELED'
       throw error
     }
     try {
       return await task(attempt)
     } catch (error) {
-      lastError = error
-      if (isRequestCanceled(error) || attempt >= maxAttempts || !shouldRetry(error, attempt)) throw error
+      lastError = annotateRequestError(error, signal)
+      if (isRequestCanceled(lastError, signal) || attempt >= maxAttempts || !shouldRetry(lastError, attempt)) {
+        throw lastError
+      }
       await new Promise((resolve, reject) => {
-        const timer = setTimeout(resolve, delayMs * attempt)
-        if (!signal) return
+        let settled = false
         const onAbort = () => {
+          if (settled) return
+          settled = true
           clearTimeout(timer)
-          const abortError = signal.reason instanceof Error ? signal.reason : new Error('请求已取消')
-          if (!abortError.code) abortError.code = 'ERR_CANCELED'
+          const abortError = annotateRequestError(
+            signal.reason instanceof Error ? signal.reason : new Error('请求已取消'),
+            signal,
+          )
+          if (!abortError.code) abortError.code = abortError.isTimeout ? 'ECONNABORTED' : 'ERR_CANCELED'
           reject(abortError)
         }
+        const timer = setTimeout(() => {
+          if (settled) return
+          settled = true
+          signal?.removeEventListener('abort', onAbort)
+          resolve()
+        }, delayMs * attempt)
+        if (!signal) return
         if (signal.aborted) onAbort()
         else signal.addEventListener('abort', onAbort, { once: true })
       })

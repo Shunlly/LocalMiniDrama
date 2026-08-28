@@ -69,6 +69,16 @@ function requireWorkflowHelper(name) {
   return sourceWorkflowController[name]
 }
 
+test('source workflow restores inspected step from the route and can restart cancelled runs', () => {
+  assert.match(source, /function persistInspectedFlowStep\(stepId\)/)
+  assert.match(source, /route\.query\.step/)
+  assert.match(source, /resolveInspectedWorkflowStep\(flowState\.value/)
+  assert.match(source, /const canRestartFromLatestSource = computed/)
+  assert.match(source, /runState\.value\.status === 'cancelled'/)
+  assert.match(source, /重新启动\$\{workflowModeShortLabel\}/)
+  assert.match(source, /async function retryRun\(\)[\s\S]*refreshAndConfirmRun\(nextRun\.id\)/)
+})
+
 test('source workflow separates actual progress from inspected history', () => {
   assert.match(source, /\{ 'is-current': flowState\.activeStepId === step\.id \}/)
   assert.match(source, /\{ 'is-selected': inspectedFlowStep\.id === step\.id \}/)

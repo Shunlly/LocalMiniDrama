@@ -3,6 +3,7 @@ const aiConfigService = require('./aiConfigService');
 const { applyDeepSeekChatOptions } = require('./deepseekConfig');
 const uploadService = require('./uploadService');
 const { validateHttpRequestTarget } = require('./secureHttpFetch');
+const { secureHttpsRequestOptions } = require('./tlsPolicy');
 const https = require('https');
 const http = require('http');
 const net = require('net');
@@ -44,14 +45,14 @@ async function pinnedRequestTarget(url, networkOptions = {}) {
   const selected = validated.addresses[0];
   return {
     parsed: validated.parsed,
-    requestOptions: {
+    requestOptions: secureHttpsRequestOptions({
       protocol: validated.parsed.protocol,
       hostname: validated.parsed.hostname,
       port: validated.parsed.port || (validated.parsed.protocol === 'https:' ? 443 : 80),
       path: validated.parsed.pathname + validated.parsed.search,
       servername: net.isIP(validated.parsed.hostname) ? undefined : validated.parsed.hostname,
       lookup: uploadService.createPinnedDnsLookup(selected),
-    },
+    }),
   };
 }
 

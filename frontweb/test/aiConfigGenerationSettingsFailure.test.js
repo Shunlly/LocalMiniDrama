@@ -25,7 +25,9 @@ test('generation settings expose loading, persistent error, and retry states', (
   assert.match(loader, /generationSettingsLoadState\.value = 'loading'/)
   assert.match(loader, /generationSettingsLoadState\.value = 'ready'/)
   assert.match(loader, /generationSettingsLoadError\.value = ''/)
-  assert.match(loader, /generationSettingsLoadError\.value = error\?\.message \|\| '暂时无法读取生成设置，请稍后重试。'/)
+  assert.match(loader, /generationSettingsLoadError\.value = describeServiceLoadError\(/)
+  assert.match(loader, /withRequestRetry/)
+  assert.match(loader, /isRequestCanceled/)
   assert.match(loader, /generationSettingsLoadState\.value = 'error'/)
   assert.doesNotMatch(loader, /catch \(_\) \{\}/)
 

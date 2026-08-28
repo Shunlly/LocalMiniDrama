@@ -27,34 +27,40 @@
           {{ currentEpisodeVideoUrl ? '重新合成' : '合成成片' }}
         </el-button>
       </ActionGate>
-      <el-button
-        type="primary"
-        plain
-        :loading="videoDownloadStatus === 'downloading'"
-        :disabled="!currentEpisodeVideoUrl"
-        @click="$emit('download-video')"
-      >
-        <el-icon><Download /></el-icon>
-        {{ videoDownloadStatus === 'error' ? '重试下载' : '下载成片' }}
-      </el-button>
-      <el-button
-        plain
-        :loading="deliveryExportStatus.subtitle === 'downloading'"
-        :disabled="!currentEpisodeId || !deliverySubtitleAvailable"
-        @click="$emit('download-subtitle')"
-      >
-        <el-icon><Document /></el-icon>
-        {{ deliveryExportStatus.subtitle === 'error' ? '重试字幕' : '下载字幕' }}
-      </el-button>
-      <el-button
-        plain
-        :loading="deliveryExportStatus.project === 'downloading'"
-        :disabled="!dramaId"
-        @click="$emit('export-project')"
-      >
-        <el-icon><Box /></el-icon>
-        {{ deliveryExportStatus.project === 'error' ? '重试项目包' : '导出项目包' }}
-      </el-button>
+      <ActionGate :reason="downloadVideoDisabledReason" label="下载成片">
+        <el-button
+          type="primary"
+          plain
+          :loading="videoDownloadStatus === 'downloading'"
+          :disabled="Boolean(downloadVideoDisabledReason)"
+          @click="$emit('download-video')"
+        >
+          <el-icon><Download /></el-icon>
+          {{ videoDownloadStatus === 'error' ? '重试下载' : '下载成片' }}
+        </el-button>
+      </ActionGate>
+      <ActionGate :reason="downloadSubtitleDisabledReason" label="下载字幕">
+        <el-button
+          plain
+          :loading="deliveryExportStatus.subtitle === 'downloading'"
+          :disabled="Boolean(downloadSubtitleDisabledReason)"
+          @click="$emit('download-subtitle')"
+        >
+          <el-icon><Document /></el-icon>
+          {{ deliveryExportStatus.subtitle === 'error' ? '重试字幕' : '下载字幕' }}
+        </el-button>
+      </ActionGate>
+      <ActionGate :reason="exportProjectDisabledReason" label="导出项目包">
+        <el-button
+          plain
+          :loading="deliveryExportStatus.project === 'downloading'"
+          :disabled="Boolean(exportProjectDisabledReason)"
+          @click="$emit('export-project')"
+        >
+          <el-icon><Box /></el-icon>
+          {{ deliveryExportStatus.project === 'error' ? '重试项目包' : '导出项目包' }}
+        </el-button>
+      </ActionGate>
     </div>
     <div v-if="videoStatus === 'generating'" class="video-progress">
       <el-progress :percentage="videoProgress" :status="videoProgress >= 100 ? 'success' : undefined" />
@@ -104,10 +110,11 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Box, Document, Download, VideoPlay } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 
-defineProps({
+const props = defineProps({
   playableStoryboardVideoCount: { type: Number, default: 0 },
   storyboardCount: { type: Number, default: 0 },
   deliveryCompositeStatusLabel: { type: String, default: '' },
@@ -131,6 +138,18 @@ defineProps({
 })
 
 defineEmits(['generate-video', 'download-video', 'download-subtitle', 'export-project'])
+
+const downloadVideoDisabledReason = computed(() => (
+  props.currentEpisodeVideoUrl ? '' : '请先合成成片后再下载'
+))
+const downloadSubtitleDisabledReason = computed(() => {
+  if (!props.currentEpisodeId) return '请先选择剧集'
+  if (!props.deliverySubtitleAvailable) return '当前集还没有可下载的字幕'
+  return ''
+})
+const exportProjectDisabledReason = computed(() => (
+  props.dramaId ? '' : '请先打开制作项目'
+))
 </script>
 
 <style scoped>

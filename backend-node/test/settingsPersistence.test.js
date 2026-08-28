@@ -245,6 +245,52 @@ test('treats a missing config file as a persistence failure', () => {
   assert.equal(log.updates.length, 0);
 });
 
+test('generation settings PUT is visible to the GET route the frontend reads', () => {
+  const db = createSettingsDb();
+  try {
+    const routes = settingsRoutes(db, {}, createLoggerStub());
+    const updateRes = createResponseRecorder();
+    routes.updateGenerationSettings({
+      body: { concurrency: 8, video_concurrency: 9 },
+    }, updateRes);
+    assert.equal(updateRes.statusCode, 200);
+    assert.equal(updateRes.body.data.concurrency, 8);
+    assert.equal(updateRes.body.data.video_concurrency, 9);
+
+    const getRes = createResponseRecorder();
+    routes.getGenerationSettings({}, getRes);
+    assert.equal(getRes.statusCode, 200);
+    assert.equal(getRes.body.data.concurrency, 8);
+    assert.equal(getRes.body.data.video_concurrency, 9);
+  } finally {
+    db.close();
+  }
+});
+
+test('language route maps missing config file to a displayable 503', () => {
+  const cfg = { app: { language: 'zh' } };
+  const log = createLoggerStub();
+  const db = createSettingsDb();
+  try {
+    const routes = settingsRoutes(db, cfg, log);
+    const res = createResponseRecorder();
+    const fs = require('node:fs');
+    const originalExists = fs.existsSync;
+    fs.existsSync = () => false;
+    try {
+      routes.updateLanguage({ body: { language: 'en' } }, res);
+    } finally {
+      fs.existsSync = originalExists;
+    }
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.body.error.code, 'CONFIG_FILE_NOT_FOUND');
+    assert.match(res.body.error.message, /语言设置未能写入/);
+    assert.equal(cfg.app.language, 'zh');
+  } finally {
+    db.close();
+  }
+});
+
 test('validates a combined generation settings request before writing either value', () => {
   const db = createSettingsDb();
   try {

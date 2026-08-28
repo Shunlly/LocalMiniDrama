@@ -16,10 +16,33 @@ function updateLanguage(cfg, log) {
     if (lang !== 'zh' && lang !== 'en') {
       return response.badRequest(res, '语言参数错误，只支持 zh 或 en');
     }
-    const out = settingsService.updateLanguage(cfg, log, lang);
-    if (!out.ok) return response.badRequest(res, out.error);
-    const message = lang === 'en' ? 'Language switched to English' : '语言已切换为中文';
-    response.success(res, { message, language: lang });
+    try {
+      const out = settingsService.updateLanguage(cfg, log, lang);
+      if (!out.ok) return response.badRequest(res, out.error);
+      log?.operation?.({
+        operation: 'settings_language_update',
+        phase: 'success',
+        language: lang,
+      });
+      const message = lang === 'en' ? 'Language switched to English' : '语言已切换为中文';
+      response.success(res, { message, language: lang });
+    } catch (err) {
+      log?.operation?.({
+        operation: 'settings_language_update',
+        phase: 'error',
+        error: err.message,
+      });
+      const permissionDenied = ['EACCES', 'EPERM', 'EROFS', 'CONFIG_FILE_NOT_FOUND'].includes(String(err.code || ''));
+      if (permissionDenied) {
+        return response.error(
+          res,
+          503,
+          err.code === 'CONFIG_FILE_NOT_FOUND' ? 'CONFIG_FILE_NOT_FOUND' : 'PERMISSION_DENIED',
+          '语言设置未能写入配置文件，请检查配置路径和写权限'
+        );
+      }
+      return response.internalError(res, '语言设置保存失败');
+    }
   };
 }
 

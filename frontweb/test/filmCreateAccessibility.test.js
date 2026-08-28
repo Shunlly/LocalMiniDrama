@@ -18,7 +18,11 @@ const deliveryPanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url),
   'utf8',
 )
-const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource
+const scriptWorkbenchSource = readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateScriptWorkbench.vue', import.meta.url),
+  'utf8',
+)
+const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource + '\n' + scriptWorkbenchSource
 
 test('film create navigation and resource disclosure controls use native buttons', () => {
   assert.match(filmCreateSource, /<button[\s\S]*?class="nav-toggle"[\s\S]*?:aria-expanded="!navCollapsed"/)
@@ -93,7 +97,8 @@ test('delivery stage consolidates composite readiness and user-facing export act
   assert.match(filmCreateSource, /@download-subtitle="downloadCurrentEpisodeSubtitle"/)
   assert.match(filmCreateSource, /@export-project="exportCurrentProjectPackage"/)
   assert.match(filmCreateSource, /const deliverySubtitleAvailable = computed\(\(\) => storyboards\.value\.some/)
-  assert.match(deliveryPanelSource, /:disabled="!currentEpisodeId \|\| !deliverySubtitleAvailable"/)
+  assert.match(deliveryPanelSource, /<ActionGate :reason="downloadSubtitleDisabledReason" label="下载字幕">/)
+  assert.match(deliveryPanelSource, /:disabled="Boolean\(downloadSubtitleDisabledReason\)"/)
   assert.match(filmCreateSource, /import \{ timelinesAPI as rawTimelinesAPI \} from '@\/api\/timelines'/)
   assert.match(filmCreateSource, /const timelinesAPI = projectLifecycle\.guardApi\(rawTimelinesAPI\)/)
 })
@@ -108,7 +113,8 @@ test('storyboard video controls expose a focusable missing-prompt reason', () =>
 })
 
 test('script and character library empty states provide direct actions', () => {
-  assert.match(filmCreateSource, /class="select-script-empty"[\s\S]*?@click="returnToScriptCreation"/)
+  assert.match(scriptWorkbenchSource, /class="select-script-empty"[\s\S]*?emit\('return-to-creation'\)/)
+  assert.match(filmCreateSource, /@return-to-creation="returnToScriptCreation"/)
   assert.match(filmCreateSource, /class="library-empty"[\s\S]*?@click="returnToCharacterPanel"/)
   assert.match(filmCreateSource, /function returnToScriptCreation\(\)/)
   assert.match(filmCreateSource, /function returnToCharacterPanel\(\)/)
@@ -153,7 +159,7 @@ test('制作页空剧集提供可执行入口', () => {
   assert.match(filmCreateSource, /:has-episode="hasAnyEpisode"/)
   assert.match(filmCreateSource, /@add-episode="onAddEpisode"/)
   assert.match(filmCreateSource, /class="header-add-episode"/)
-  assert.match(filmCreateSource, /class="empty-tip film-episode-empty"/)
-  assert.match(filmCreateSource, /还没有剧集/)
-  assert.match(filmCreateSource, /返回剧集管理/)
+  assert.match(scriptWorkbenchSource, /class="empty-tip film-episode-empty"/)
+  assert.match(scriptWorkbenchSource, /还没有剧集/)
+  assert.match(scriptWorkbenchSource, /返回剧集管理/)
 })

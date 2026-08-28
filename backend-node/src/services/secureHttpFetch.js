@@ -10,6 +10,7 @@ const {
   validatePublicHttpUrl,
 } = require('./uploadService');
 const { isSensitiveFieldKey } = require('./sensitiveFieldPolicy');
+const { secureHttpsRequestOptions } = require('./tlsPolicy');
 
 const DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_REDIRECTS = 5;
@@ -191,7 +192,7 @@ async function requestOnce(url, options, networkOptions) {
     const onAbort = () => request?.destroy(abortError(signal));
     const transport = parsed.protocol === 'https:' ? https : http;
 
-    request = transport.request({
+    request = transport.request(secureHttpsRequestOptions({
       protocol: parsed.protocol,
       hostname: parsed.hostname,
       port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
@@ -200,7 +201,7 @@ async function requestOnce(url, options, networkOptions) {
       headers,
       servername: net.isIP(parsed.hostname) ? undefined : parsed.hostname,
       lookup: createPinnedDnsLookup(selected),
-    }, (res) => {
+    }), (res) => {
       const contentLength = Number(res.headers['content-length'] || 0);
       if (Number.isFinite(contentLength) && contentLength > maxBytes) {
         const error = new UnsafeMediaReferenceError('Remote response exceeds the size limit.');

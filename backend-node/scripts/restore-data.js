@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 
 const path = require('node:path');
-const { loadConfig } = require('../src/config');
+const { loadConfig, assertSafeConfigDataPath } = require('../src/config');
 const {
   DataBackupError,
   restoreDataBackup,
+  resolveDataRoot,
 } = require('../src/services/dataBackupService');
 
 const PACKAGE_ROOT = path.resolve(__dirname, '..');
 
 function usage() {
   console.log([
-    'Usage: npm run restore:data -- --input <archive.zip> --yes [--data-root <directory>] [limits]',
+    'Usage: npm run restore:data -- --input <archive.zip> --yes [--data-root <absolute-directory>] [limits]',
     '',
     'Restore refuses to run while the backend port or SQLite database is in use.',
     '',
@@ -63,12 +64,13 @@ function parseArguments(argv) {
 
 function resolveConfiguredPath(value, fallback) {
   const configured = value || fallback;
+  assertSafeConfigDataPath(configured, 'data path');
   return path.isAbsolute(configured) ? configured : path.resolve(PACKAGE_ROOT, configured);
 }
 
 function resolveDataPaths(config, dataRootValue) {
   if (dataRootValue) {
-    const dataRoot = path.resolve(process.cwd(), dataRootValue);
+    const dataRoot = resolveDataRoot(dataRootValue);
     return {
       databasePath: path.join(dataRoot, 'drama_generator.db'),
       storagePath: path.join(dataRoot, 'storage'),

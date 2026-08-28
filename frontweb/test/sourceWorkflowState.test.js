@@ -5,6 +5,7 @@ import {
   buildSourceWorkflowState,
   getNewWorkflowRunReason,
   getSourceWorkflowActionReasons,
+  resolveInspectedWorkflowStep,
 } from '../src/utils/sourceWorkflowState.js'
 
 test('workflow state marks intake as active draft and exposes source empty-state CTAs', () => {
@@ -183,4 +184,96 @@ test('automatic remediation requires a completed run and a matching QA owner', (
     qa: matchingFailedQa,
   })
   assert.equal(matchingOwner.remediate, '')
+})
+
+test('workflow state reads current and failed steps from raw run payloads', () => {
+  const processing = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: {
+      id: 'run-raw',
+      status: 'processing',
+      current_step: 'storyboard_draft',
+      steps: [
+        { step_key: 'source_intake', status: 'completed' },
+        { step_key: 'adaptation_plan', status: 'completed' },
+        { step_key: 'storyboard_draft', status: 'processing' },
+      ],
+    },
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: {},
+  })
+  assert.equal(processing.activeStepId, 'process')
+  assert.match(processing.activeStep.summary, /分镜草稿/)
+
+  const listedOnly = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: {
+      id: 'run-list',
+      status: 'processing',
+      current_step: 'video_generation',
+    },
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: {},
+  })
+  assert.match(listedOnly.activeStep.summary, /分镜视频/)
+
+  const failed = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: {
+      id: 'run-failed',
+      status: 'failed',
+      current_step: 'video_generation',
+      steps: [
+        { step_key: 'image_generation', status: 'completed' },
+        { step_key: 'video_generation', status: 'failed' },
+      ],
+    },
+    qa: null,
+    timeline: null,
+    episodeCount: 0,
+    actionReasons: {},
+  })
+  assert.equal(failed.activeStepId, 'process')
+  assert.match(failed.steps.find((step) => step.id === 'process').summary, /分镜视频/)
+})
+
+test('inspected workflow step stays on history unless the user was following the live stage', () => {
+  const delivered = buildSourceWorkflowState({
+    sourceCount: 1,
+    hasSourceInput: false,
+    run: { id: 'run-complete', status: 'completed', mode: 'draft' },
+    qa: { id: 8, run_id: 'run-complete', passed: true, score: 95, mode: 'draft', remediationActions: [] },
+    timeline: { episodeCount: 2, trackCount: 8 },
+    episodeCount: 2,
+    actionReasons: {},
+  })
+  assert.equal(
+    resolveInspectedWorkflowStep(delivered, {
+      selectedStepId: 'intake',
+      previousActiveStepId: 'delivery',
+      requestedStepId: 'intake',
+    }),
+    'intake',
+  )
+  assert.equal(
+    resolveInspectedWorkflowStep(delivered, {
+      selectedStepId: 'delivery',
+      previousActiveStepId: 'qa',
+    }),
+    'delivery',
+  )
+  assert.equal(
+    resolveInspectedWorkflowStep(delivered, {
+      selectedStepId: 'process',
+      previousActiveStepId: 'delivery',
+    }),
+    'process',
+  )
 })

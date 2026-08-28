@@ -75,7 +75,7 @@ function updateLanguage(cfg, log, language) {
   }
   const targetPath = setConfigPath(cfg);
   if (!targetPath) {
-    const error = new Error('Config file not found; language setting was not persisted');
+    const error = new Error('配置文件不存在，语言设置未保存');
     error.code = 'CONFIG_FILE_NOT_FOUND';
     log.warnw('Failed to write config file', { error: error.message });
     throw error;

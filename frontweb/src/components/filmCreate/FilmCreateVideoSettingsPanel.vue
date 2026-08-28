@@ -11,19 +11,19 @@
       </el-form-item>
       <el-form-item label="字幕">
         <div class="video-option-row">
-          <el-switch :model-value="subtitle" @update:model-value="emit('update:subtitle', $event)" />
+          <el-switch :model-value="subtitle" aria-label="成片字幕" @update:model-value="emit('update:subtitle', $event)" />
           <span v-if="subtitle" class="video-option-hint">开启后，合成整集时会检测解说旁白：若有文案则自动生成 SRT、按分镜时长合成旁白语音（过长加速 / 过短补静音）、与成片对齐后烧录字幕并混音。</span>
         </div>
       </el-form-item>
       <el-form-item label="对白烧录">
         <div class="video-option-row">
-          <el-switch :model-value="burnDialogue" @update:model-value="emit('update:burnDialogue', $event)" />
+          <el-switch :model-value="burnDialogue" aria-label="对白烧录" @update:model-value="emit('update:burnDialogue', $event)" />
           <span v-if="burnDialogue" class="video-option-hint">开启后，将把各镜生成的对白配音按分镜时长对齐并混入整集成片（无对白音频的分镜为静音）。可与「字幕」旁白同时开启，两条音轨会叠混。</span>
         </div>
       </el-form-item>
       <el-form-item label="水印">
         <div class="video-option-row">
-          <el-switch :model-value="watermark" @update:model-value="emit('update:watermark', $event)" />
+          <el-switch :model-value="watermark" aria-label="成片水印" @update:model-value="emit('update:watermark', $event)" />
           <el-input
             v-if="watermark"
             :model-value="watermarkText"

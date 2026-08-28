@@ -373,6 +373,18 @@
                   </el-button>
                 </ActionGate>
               </div>
+                            <div v-if="canRestartFromLatestSource" class="action-row compact">
+                <ActionGate :label="`重新启动${workflowModeShortLabel}`" :reason="newWorkflowRunReason">
+                  <el-button
+                    type="primary"
+                    :loading="startingSourceId === sources[0].id"
+                    :disabled="Boolean(newWorkflowRunReason) || isWorkflowLaunchBusy"
+                    @click="startExistingSource(sources[0])"
+                  >
+                    {{ startingSourceId === sources[0].id ? '正在重新启动' : `重新启动${workflowModeShortLabel}` }}
+                  </el-button>
+                </ActionGate>
+              </div>
             </template>
 
             <div v-else-if="sources.length > 0" class="stage-empty stage-empty--actionable">
@@ -542,7 +554,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { onBeforeRouteLeave, onBeforeRouteUpdate, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp, Setting } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
@@ -582,6 +594,7 @@ import {
   buildSourceWorkflowState,
   getNewWorkflowRunReason,
   getSourceWorkflowActionReasons,
+  resolveInspectedWorkflowStep,
   selectInspectedWorkflowStep,
 } from '@/utils/sourceWorkflowState'
 import {
@@ -613,6 +626,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['refresh', 'enter-production', 'focus-episode-list'])
+const route = useRoute()
 const router = useRouter()
 const sourceWorkflowLifecycle = createSourceWorkflowLifecycleGuard()
 const sourceIntakeAPI = sourceWorkflowLifecycle.guardApi(rawSourceIntakeAPI)
@@ -756,6 +770,14 @@ const actionReasons = computed(() => {
   }
   return reasons
 })
+const canRestartFromLatestSource = computed(() => (
+  sources.value.length > 0
+  && Boolean(selectedRun.value)
+  && (
+    runState.value.status === 'cancelled'
+    || (runState.value.status === 'failed' && Boolean(actionReasons.value.retry))
+  )
+))
 const flowState = computed(() => buildSourceWorkflowState({
   sourceCount: sources.value.length,
   hasSourceInput: hasSourceInput.value,
@@ -847,12 +869,52 @@ const inspectedFlowStep = computed(() => (
   flowState.value.steps.find((step) => step.id === selectedFlowStepId.value)
   || actualFlowStep.value
 ))
+function requestedFlowStepFromRoute() {
+  const raw = Array.isArray(route.query.step) ? route.query.step[0] : route.query.step
+  return typeof raw === 'string' ? raw.trim() : ''
+}
+function persistInspectedFlowStep(stepId) {
+  const nextStepId = String(stepId || '').trim()
+  if (requestedFlowStepFromRoute() === nextStepId) return
+  const query = { ...route.query }
+  if (nextStepId) query.step = nextStepId
+  else delete query.step
+  router.replace({ query, hash: route.hash }).catch(() => {})
+}
+function revealInspectedHistoryIfNeeded(stepId) {
+  if (
+    compactCompletionVisible.value
+    && stepId
+    && stepId !== flowState.value.activeStepId
+  ) {
+    workflowHistoryExpanded.value = true
+  }
+}
 watch(
   () => flowState.value.activeStepId,
-  (activeStepId) => {
-    selectedFlowStepId.value = activeStepId || flowState.value.steps[0]?.id || ''
+  (_activeStepId, previousActiveStepId) => {
+    const nextStepId = resolveInspectedWorkflowStep(flowState.value, {
+      selectedStepId: selectedFlowStepId.value,
+      previousActiveStepId,
+      requestedStepId: requestedFlowStepFromRoute(),
+    })
+    selectedFlowStepId.value = nextStepId
+    revealInspectedHistoryIfNeeded(nextStepId)
   },
   { immediate: true },
+)
+watch(
+  () => route.query.step,
+  () => {
+    const requested = requestedFlowStepFromRoute()
+    if (!requested) return
+    selectedFlowStepId.value = selectInspectedWorkflowStep(
+      flowState.value,
+      selectedFlowStepId.value,
+      requested,
+    )
+    revealInspectedHistoryIfNeeded(selectedFlowStepId.value)
+  },
 )
 watch(
   () => flowState.value.complete,
@@ -904,6 +966,8 @@ function selectFlowStep(stepId) {
     selectedFlowStepId.value,
     stepId,
   )
+  persistInspectedFlowStep(selectedFlowStepId.value)
+  revealInspectedHistoryIfNeeded(selectedFlowStepId.value)
 }
 
 function sourceEventLabel(eventId) {
@@ -949,6 +1013,7 @@ function captureProductionReadinessError(error) {
     productionReadiness.value = normalizeProductionReadiness(apiError.details)
     workflowMode.value = 'production'
     selectedFlowStepId.value = 'process'
+    persistInspectedFlowStep('process')
     return true
   } catch (_) {
     return false
@@ -959,6 +1024,7 @@ function openAiConfigForReadiness() {
   router.push(buildAiConfigLocation({
     dramaId: props.dramaId,
     readiness: productionReadiness.value,
+    returnTo: route.fullPath,
   }))
 }
 
@@ -1174,6 +1240,7 @@ async function openSourceImportIntent() {
     sourceUrlInput,
     nextTickFn: nextTick,
   })
+  persistInspectedFlowStep(selectedFlowStepId.value)
 }
 
 async function createSourceFromForm() {
@@ -1297,6 +1364,7 @@ async function startWorkflow() {
       return
     }
     selectedFlowStepId.value = 'process'
+    persistInspectedFlowStep('process')
     sourceOperationMessage.value = uploadedFilename
       ? `${uploadedFilename} 上传解析完成，${workflowModeShortLabel.value} 流程已启动。`
       : `${workflowModeShortLabel.value} 流程已启动。`
@@ -1356,6 +1424,7 @@ async function startExistingSource(source) {
       return
     }
     selectedFlowStepId.value = 'process'
+    persistInspectedFlowStep('process')
     showWorkflowMessage('success', `已从素材启动 ${workflowModeShortLabel.value} 流程`)
     emitRefresh()
   } catch (e) {
@@ -1370,12 +1439,22 @@ async function startExistingSource(source) {
 }
 
 async function retryRun() {
-  if (!selectedRun.value?.id || workflowActionBusy.value) return
+  if (!selectedRun.value?.id || workflowActionBusy.value || actionReasons.value.retry) return
   retrying.value = true
   try {
     const nextRun = await workflowRunsAPI.retry(selectedRun.value.id)
     if (!sourceWorkflowLifecycle.isActive()) return
-    selectedRun.value = nextRun
+    if (!nextRun?.id) throw new Error('重试接口未返回有效的流程记录。')
+    if (!await refreshAndConfirmRun(nextRun.id)) {
+      selectedRun.value = nextRun
+      markWorkflowRefreshUnconfirmed()
+      selectedFlowStepId.value = 'process'
+    persistInspectedFlowStep('process')
+      startPoll()
+      return
+    }
+    selectedFlowStepId.value = 'process'
+    persistInspectedFlowStep('process')
     showWorkflowMessage('success', '已提交重试')
     emitRefresh()
     startPoll()

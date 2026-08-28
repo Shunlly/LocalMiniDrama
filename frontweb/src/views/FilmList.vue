@@ -42,14 +42,14 @@
               <span class="visually-hidden">{{ isDark ? '切换到浅色模式' : '切换到暗色模式' }}</span>
             </el-button>
           </el-tooltip>
-          <el-button class="btn-settings" :disabled="listWriteLocked" @click="showAiConfigDialog = true">
+          <el-button class="btn-settings" title="打开 AI 配置" @click="showAiConfigDialog = true">
             <el-icon><Setting /></el-icon>AI配置
           </el-button>
           <el-button ref="importTriggerButton" class="btn-import" :loading="importing" :disabled="listWriteLocked" @click="triggerImport">
             <el-icon><Upload /></el-icon>导入项目包
           </el-button>
           <input ref="importFileInput" type="file" accept=".zip" style="display:none" @change="onImportFile" />
-          <el-button type="primary" class="btn-new" :disabled="listWriteLocked" @click="goNewProject">
+          <el-button type="primary" class="btn-new" :disabled="listWriteLocked" aria-label="新建项目" @click="goNewProject">
             <el-icon><Plus /></el-icon>新建项目
           </el-button>
         </div>
@@ -59,7 +59,7 @@
     <main class="main">
       <section v-if="sourceImportIntent" class="source-import-intent" role="status" aria-live="polite">
         <span>选择已有项目后导入网页 URL，或新建项目后继续。</span>
-        <el-button type="primary" size="small" :disabled="listWriteLocked" @click="openSourceImportProject">
+        <el-button type="primary" size="small" :disabled="listWriteLocked" aria-label="新建项目" @click="openSourceImportProject">
           <el-icon><Plus /></el-icon>新建项目
         </el-button>
       </section>
@@ -182,7 +182,7 @@
               <h2 class="action-card-title">还没有短剧项目</h2>
               <p class="action-card-desc">新建空白项目，或继续已有项目包。</p>
               <div class="action-card-buttons">
-                <el-button type="primary" size="large" class="action-btn action-btn-new" :disabled="listWriteLocked" @click="goNewProject">
+                <el-button type="primary" size="large" class="action-btn action-btn-new" :disabled="listWriteLocked" aria-label="新建项目" @click="goNewProject">
                   <el-icon><Plus /></el-icon>新建项目
                 </el-button>
                 <el-button size="large" class="action-btn action-btn-import" :loading="importing" :disabled="listWriteLocked" @click="triggerImport">
@@ -362,16 +362,21 @@
         </div>
       </div>
       <div v-loading="trashLoading" class="trash-dialog-content">
-        <p v-if="trashError" class="trash-error" role="alert">{{ trashError }}</p>
+        <div v-if="trashError" class="trash-error" role="alert">
+          <p>{{ trashError }}</p>
+          <el-button type="primary" plain size="small" :loading="trashLoading" @click="loadTrash">
+            <el-icon><RefreshLeft /></el-icon>重试
+          </el-button>
+        </div>
         <div
-          v-else-if="!trashLoading && trashItems.length === 0"
+          v-if="!trashLoading && !trashError && trashItems.length === 0"
           class="trash-empty"
           role="status"
         >
           <el-icon aria-hidden="true"><Delete /></el-icon>
           <p>回收站中没有项目</p>
         </div>
-        <ul v-else-if="trashItems.length > 0" class="trash-list" aria-label="已移除项目">
+        <ul v-if="trashItems.length > 0" class="trash-list" aria-label="已移除项目">
           <li v-for="item in trashItems" :key="item.id" class="trash-list-item">
             <div class="trash-item-main">
               <h3 class="trash-item-title">{{ item.title || '未命名项目' }}</h3>
@@ -385,7 +390,7 @@
               type="primary"
               plain
               :loading="restoringId === item.id"
-              :disabled="listWriteLocked || (restoringId !== null && restoringId !== item.id)"
+              :disabled="restoringId !== null && restoringId !== item.id"
               :aria-label="`恢复项目「${item.title || '未命名项目'}」`"
               @click="restoreFromTrash(item)"
             >
@@ -428,7 +433,7 @@
           <el-input v-model="newForm.description" type="textarea" :rows="3" placeholder="输入项目描述（选填）" />
         </el-form-item>
         <el-form-item label="画面比例">
-          <el-select v-model="newForm.aspect_ratio" style="width: 100%">
+          <el-select v-model="newForm.aspect_ratio" aria-label="画面比例" style="width: 100%">
             <el-option label="16:9 横屏（默认）" value="16:9" />
             <el-option label="9:16 竖屏（短视频）" value="9:16" />
             <el-option label="3:4 竖版" value="3:4" />
@@ -459,7 +464,7 @@
     <!-- 公共角色库 -->
     <AccessibleDialog v-model="showCharLibrary" title="素材库 · 角色" width="720px" destroy-on-close class="library-dialog" @open="loadCharLibraryList">
       <div class="library-toolbar">
-        <el-input v-model="charLibraryKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadCharLibrary()" />
+        <el-input v-model="charLibraryKeyword" placeholder="搜索名称或描述" aria-label="搜索角色素材" clearable style="width: 200px" @input="debouncedLoadCharLibrary()" />
       </div>
       <div v-loading="charLibraryLoading" class="library-list">
         <div v-for="item in charLibraryList" :key="item.id" class="library-item">
@@ -484,7 +489,11 @@
             </div>
           </div>
         </div>
-        <div v-if="!charLibraryLoading && charLibraryList.length === 0" class="library-empty">素材库暂无角色，可在项目中将角色「加入素材库」后在此查看</div>
+        <div v-if="charLibraryError" class="library-error" role="alert">
+          <p>{{ charLibraryError }}</p>
+          <el-button size="small" type="primary" plain :loading="charLibraryLoading" @click="loadCharLibraryList">重试</el-button>
+        </div>
+        <div v-if="!charLibraryLoading && !charLibraryError && charLibraryList.length === 0" class="library-empty">{{ charLibraryKeyword.trim() ? '没有匹配的角色，试试其他关键词。' : '素材库暂无角色，可在项目中将角色「加入素材库」后在此查看' }}</div>
       </div>
       <div class="library-pagination">
         <el-pagination v-model:current-page="charLibraryPage" v-model:page-size="charLibraryPageSize" :total="charLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadCharLibraryList" @size-change="loadCharLibraryList" />
@@ -529,7 +538,7 @@
     <!-- 公共场景库 -->
     <AccessibleDialog v-model="showSceneLibrary" title="素材库 · 场景" width="720px" destroy-on-close class="library-dialog" @open="loadSceneLibraryList">
       <div class="library-toolbar">
-        <el-input v-model="sceneLibraryKeyword" placeholder="搜索地点或描述" clearable style="width: 200px" @input="debouncedLoadSceneLibrary()" />
+        <el-input v-model="sceneLibraryKeyword" placeholder="搜索地点或描述" aria-label="搜索场景素材" clearable style="width: 200px" @input="debouncedLoadSceneLibrary()" />
       </div>
       <div v-loading="sceneLibraryLoading" class="library-list">
         <div v-for="item in sceneLibraryList" :key="item.id" class="library-item">
@@ -554,7 +563,11 @@
             </div>
           </div>
         </div>
-        <div v-if="!sceneLibraryLoading && sceneLibraryList.length === 0" class="library-empty">素材库暂无场景，可在项目中将场景「加入素材库」后在此查看</div>
+        <div v-if="sceneLibraryError" class="library-error" role="alert">
+          <p>{{ sceneLibraryError }}</p>
+          <el-button size="small" type="primary" plain :loading="sceneLibraryLoading" @click="loadSceneLibraryList">重试</el-button>
+        </div>
+        <div v-if="!sceneLibraryLoading && !sceneLibraryError && sceneLibraryList.length === 0" class="library-empty">{{ sceneLibraryKeyword.trim() ? '没有匹配的场景，试试其他关键词。' : '素材库暂无场景，可在项目中将场景「加入素材库」后在此查看' }}</div>
       </div>
       <div class="library-pagination">
         <el-pagination v-model:current-page="sceneLibraryPage" v-model:page-size="sceneLibraryPageSize" :total="sceneLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadSceneLibraryList" @size-change="loadSceneLibraryList" />
@@ -600,7 +613,7 @@
     <!-- 公共道具库 -->
     <AccessibleDialog v-model="showPropLibrary" title="素材库 · 道具" width="720px" destroy-on-close class="library-dialog" @open="loadPropLibraryList">
       <div class="library-toolbar">
-        <el-input v-model="propLibraryKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadPropLibrary()" />
+        <el-input v-model="propLibraryKeyword" placeholder="搜索名称或描述" aria-label="搜索道具素材" clearable style="width: 200px" @input="debouncedLoadPropLibrary()" />
       </div>
       <div v-loading="propLibraryLoading" class="library-list">
         <div v-for="item in propLibraryList" :key="item.id" class="library-item">
@@ -625,7 +638,11 @@
             </div>
           </div>
         </div>
-        <div v-if="!propLibraryLoading && propLibraryList.length === 0" class="library-empty">素材库暂无道具，可在项目中将道具「加入素材库」后在此查看</div>
+        <div v-if="propLibraryError" class="library-error" role="alert">
+          <p>{{ propLibraryError }}</p>
+          <el-button size="small" type="primary" plain :loading="propLibraryLoading" @click="loadPropLibraryList">重试</el-button>
+        </div>
+        <div v-if="!propLibraryLoading && !propLibraryError && propLibraryList.length === 0" class="library-empty">{{ propLibraryKeyword.trim() ? '没有匹配的道具，试试其他关键词。' : '素材库暂无道具，可在项目中将道具「加入素材库」后在此查看' }}</div>
       </div>
       <div class="library-pagination">
         <el-pagination v-model:current-page="propLibraryPage" v-model:page-size="propLibraryPageSize" :total="propLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadPropLibraryList" @size-change="loadPropLibraryList" />
@@ -931,6 +948,7 @@ const charLibraryPage = ref(1)
 const charLibraryPageSize = ref(20)
 const charLibraryTotal = ref(0)
 const charLibraryKeyword = ref('')
+const charLibraryError = ref('')
 const showEditCharLibrary = ref(false)
 const editCharLibraryForm = ref(null)
 const editCharLibrarySaving = ref(false)
@@ -945,7 +963,10 @@ async function loadCharLibraryList() {
     charLibraryTotal.value = p.total ?? 0
     if (p.page != null) charLibraryPage.value = p.page
     if (p.page_size != null) charLibraryPageSize.value = p.page_size
-  } catch { charLibraryList.value = [] } finally { charLibraryLoading.value = false }
+    charLibraryError.value = ''
+  } catch (error) {
+    charLibraryError.value = describeServiceLoadError(error, { serviceLabel: '角色素材服务' })
+  } finally { charLibraryLoading.value = false }
 }
 function debouncedLoadCharLibrary() {
   if (charLibraryKeywordTimer) clearTimeout(charLibraryKeywordTimer)
@@ -981,6 +1002,7 @@ const sceneLibraryPage = ref(1)
 const sceneLibraryPageSize = ref(20)
 const sceneLibraryTotal = ref(0)
 const sceneLibraryKeyword = ref('')
+const sceneLibraryError = ref('')
 const showEditSceneLibrary = ref(false)
 const editSceneLibraryForm = ref(null)
 const editSceneLibrarySaving = ref(false)
@@ -995,7 +1017,10 @@ async function loadSceneLibraryList() {
     sceneLibraryTotal.value = p.total ?? 0
     if (p.page != null) sceneLibraryPage.value = p.page
     if (p.page_size != null) sceneLibraryPageSize.value = p.page_size
-  } catch { sceneLibraryList.value = [] } finally { sceneLibraryLoading.value = false }
+    sceneLibraryError.value = ''
+  } catch (error) {
+    sceneLibraryError.value = describeServiceLoadError(error, { serviceLabel: '场景素材服务' })
+  } finally { sceneLibraryLoading.value = false }
 }
 function debouncedLoadSceneLibrary() {
   if (sceneLibraryKeywordTimer) clearTimeout(sceneLibraryKeywordTimer)
@@ -1032,6 +1057,7 @@ const propLibraryPage = ref(1)
 const propLibraryPageSize = ref(20)
 const propLibraryTotal = ref(0)
 const propLibraryKeyword = ref('')
+const propLibraryError = ref('')
 const showEditPropLibrary = ref(false)
 const editPropLibraryForm = ref(null)
 const editPropLibrarySaving = ref(false)
@@ -1046,7 +1072,10 @@ async function loadPropLibraryList() {
     propLibraryTotal.value = p.total ?? 0
     if (p.page != null) propLibraryPage.value = p.page
     if (p.page_size != null) propLibraryPageSize.value = p.page_size
-  } catch { propLibraryList.value = [] } finally { propLibraryLoading.value = false }
+    propLibraryError.value = ''
+  } catch (error) {
+    propLibraryError.value = describeServiceLoadError(error, { serviceLabel: '道具素材服务' })
+  } finally { propLibraryLoading.value = false }
 }
 function debouncedLoadPropLibrary() {
   if (propLibraryKeywordTimer) clearTimeout(propLibraryKeywordTimer)
@@ -1344,8 +1373,6 @@ async function loadTrash() {
     trashTotal.value = res?.pagination?.total ?? 0
     if (res?.pagination?.page != null) trashPage.value = res.pagination.page
   } catch (error) {
-    trashItems.value = []
-    trashTotal.value = 0
     trashError.value = error.message || '回收站加载失败，请重试'
   } finally {
     trashLoading.value = false
@@ -1353,7 +1380,6 @@ async function loadTrash() {
 }
 
 async function restoreFromTrash(item) {
-  if (listWriteLocked.value) return
   if (restoringId.value !== null) return
   restoringId.value = item.id
   trashError.value = ''
@@ -1706,7 +1732,7 @@ onBeforeUnmount(() => {
 }
 .logo {
   margin: 0;
-  cursor: pointer;
+  cursor: default;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -2532,10 +2558,29 @@ html.dark .workspace-search :deep(.el-input__inner::placeholder) {
   margin: 0;
 }
 .trash-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px;
   border-left: 3px solid #f87171;
   background: rgba(239, 68, 68, 0.08);
   color: #fca5a5;
+}
+.library-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #f87171;
+  background: rgba(239, 68, 68, 0.08);
+  color: #fca5a5;
+}
+.library-error p,
+.trash-error p {
+  margin: 0;
 }
 .trash-live-status {
   min-height: 20px;
@@ -2749,6 +2794,7 @@ html.light .library-item {
 html.light .library-item-name { color: #1e1b4b; }
 html.light .library-item-desc { color: #4b5563; }
 html.light .library-empty { color: #6b7280; }
+html.light .library-error { color: #b91c1c; background: #fef2f2; }
 html.light .lib-img-thumb {
   background: #f3f4f6;
   border-color: #e5e7eb;

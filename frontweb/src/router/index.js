@@ -132,7 +132,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  if (['drama-detail', 'film'].includes(to.name) && Object.prototype.hasOwnProperty.call(to.query, 'returnTo')) {
+  if (['drama-detail', 'film', 'film-canvas'].includes(to.name) && Object.prototype.hasOwnProperty.call(to.query, 'returnTo')) {
     const rawReturnTo = Array.isArray(to.query.returnTo) ? to.query.returnTo[0] : to.query.returnTo
     const returnTo = normalizeProjectListReturnTo(to.query.returnTo)
     if (Array.isArray(to.query.returnTo) || returnTo !== rawReturnTo) {

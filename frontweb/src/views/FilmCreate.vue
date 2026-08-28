@@ -309,184 +309,40 @@
       />
 
       <!-- 剧本工作台：单卡片 + 选项卡（创作 / 选择） -->
-      <section class="section card script-workbench-unified">
-        <el-tabs v-model="scriptWorkbenchMode" class="script-workbench-tabs">
-          <el-tab-pane label="创作剧本" name="create">
-            <div class="script-pane-inner">
-              <div class="script-sub-block">
-                <h2 class="section-title">故事生成</h2>
-                <p class="section-desc">输入一段故事梗概，AI 帮你扩写成完整剧本，或直接导入小说章节</p>
-                <el-input
-                  v-model="storyInput"
-                  type="textarea"
-                  :rows="4"
-                  placeholder="例如：一个少女在森林里遇见会说话的狐狸，一起寻找失落的宝石..."
-                  class="story-textarea"
-                />
-                <div class="row gap" style="margin-top: 10px; flex-wrap: wrap;">
-                  <el-select v-model="storyStyle" aria-label="故事风格" placeholder="故事风格" clearable style="width: 120px" @change="() => saveProjectSettings(false)">
-                    <el-option label="现代" value="modern" />
-                    <el-option label="古风" value="ancient" />
-                    <el-option label="奇幻" value="fantasy" />
-                    <el-option label="日常" value="daily" />
-                  </el-select>
-                  <el-select v-model="storyType" aria-label="故事生成剧本类型" placeholder="剧本类型" clearable style="width: 120px" @change="() => saveProjectSettings(false)">
-                    <el-option label="剧情" value="drama" />
-                    <el-option label="喜剧" value="comedy" />
-                    <el-option label="冒险" value="adventure" />
-                  </el-select>
-                  <div style="display:flex;align-items:center;gap:6px;font-size:13px">
-                    <span>集数</span>
-                    <el-input-number
-                      v-model="storyEpisodeCount"
-                      aria-label="故事生成集数"
-                      :min="1"
-                      :step="1"
-                      :precision="0"
-                      controls-position="right"
-                      style="width: 100px"
-                    />
-                  </div>
-                  <el-button type="primary" :loading="isStoryGenRunning" @click="onGenerateStory">
-                    生成剧本
-                  </el-button>
-                  <el-button plain @click="showNovelImport = true">
-                    <el-icon><DocumentAdd /></el-icon>
-                    导入小说
-                  </el-button>
-                </div>
-              </div>
-              <div class="script-sub-divider" />
-              <div id="anchor-script" class="script-sub-block">
-                <h2 class="section-title">剧本</h2>
-                <div
-                  v-if="dramaId && !hasAnyEpisode"
-                  class="empty-tip film-episode-empty"
-                  role="status"
-                >
-                  <p class="film-episode-empty-title">还没有剧集</p>
-                  <p>可以点「添加一集」开始手写剧本，或在上方输入故事梗概后生成剧本。</p>
-                  <div class="film-episode-empty-actions">
-                    <el-button type="primary" @click="onAddEpisode">添加一集</el-button>
-                    <el-button @click="router.push('/drama/' + dramaId)">返回剧集管理</el-button>
-                  </div>
-                </div>
-                <div class="row gap" style="margin-bottom: 10px; flex-wrap: wrap;">
-                  <el-input v-model="scriptTitle" placeholder="集标题" style="width: 150px" />
-                  <el-button v-if="dramaId" style="margin-left: auto" aria-label="添加一集" @click="onAddEpisode">
-                    <el-icon><Plus /></el-icon>添加一集
-                  </el-button>
-                </div>
-                <el-input
-                  v-model="scriptContent"
-                  type="textarea"
-                  :rows="8"
-                  placeholder="剧本内容将显示在这里，可直接编辑..."
-                  class="story-textarea"
-                />
-                <div class="row gap" style="margin-top: 8px; flex-wrap: wrap;">
-                  <el-button
-                    :loading="scriptGenerating"
-                    :disabled="!!dramaId && (store.drama?.episodes?.length > 0) && !currentEpisodeId"
-                    @click="onGenerateScript"
-                  >
-                    保存当前集
-                  </el-button>
-                  <span
-                    class="script-save-status"
-                    :class="`is-${scriptDraftStatus}`"
-                    role="status"
-                    aria-live="polite"
-                  >{{ scriptDraftStatusLabel }}</span>
-                </div>
-              </div>
-            </div>
-          </el-tab-pane>
-          <el-tab-pane label="选择剧本" name="select">
-            <p class="section-desc script-mode-hint">
-              从剧本库选择后，仅把「故事梗概」与「各集剧本正文」写入当前工程，不会导入角色、分镜、图片或视频。
-            </p>
-            <el-button type="primary" @click="openSelectScriptDialog">
-              <el-icon><Document /></el-icon>
-              从已有剧本中选择…
-            </el-button>
-            <div v-if="dramaId && (store.drama?.episodes?.length || storyInput)" class="script-preview-wrap">
-              <h3 class="preview-block-title">故事梗概</h3>
-              <el-input
-                :model-value="storyInput"
-                type="textarea"
-                :rows="3"
-                readonly
-                class="story-textarea"
-              />
-              <template v-if="(store.drama?.episodes || []).length > 1">
-                <h3 class="preview-block-title">分集剧本</h3>
-                <el-tabs v-model="selectPreviewEpisodeId" class="preview-ep-tabs">
-                  <el-tab-pane
-                    v-for="ep in (store.drama?.episodes || [])"
-                    :key="ep.id"
-                    :label="ep.title || ('第' + (ep.episode_number || 0) + '集')"
-                    :name="String(ep.id)"
-                  >
-                    <el-input
-                      :model-value="ep.script_content || ''"
-                      type="textarea"
-                      :rows="12"
-                      readonly
-                      class="story-textarea"
-                    />
-                  </el-tab-pane>
-                </el-tabs>
-              </template>
-              <template v-else>
-                <h3 class="preview-block-title">剧本正文</h3>
-                <el-input
-                  :model-value="scriptContent"
-                  type="textarea"
-                  :rows="12"
-                  readonly
-                  class="story-textarea"
-                />
-              </template>
-              <div class="preview-actions">
-                <el-button type="primary" plain @click="scriptWorkbenchMode = 'create'">切换到创作剧本以编辑</el-button>
-              </div>
-            </div>
-            <p v-else class="script-select-empty">尚未选择剧本，请点击上方按钮</p>
-          </el-tab-pane>
-        </el-tabs>
-      </section>
-
-      <AccessibleDialog
-        v-model="showSelectScriptDialog"
-        title="从剧本库导入"
-        width="640px"
-        destroy-on-close
-        @open="loadSelectScriptList"
-      >
-        <div v-loading="selectScriptLoading || selectScriptImporting" class="select-script-list">
-          <button
-            type="button"
-            v-for="d in selectableScriptDramas"
-            :key="d.id"
-            class="select-script-item"
-            :class="{ disabled: selectScriptImporting }"
-            :disabled="selectScriptImporting"
-            @click="!selectScriptImporting && onPickScriptFromDialog(d.id)"
-          >
-            <span class="select-script-title">{{ d.title || '未命名' }}</span>
-            <span class="select-script-desc">{{ (d.description || '暂无简介').slice(0, 200) }}{{ (d.description && d.description.length > 200) ? '…' : '' }}</span>
-          </button>
-          <div v-if="!selectScriptLoading && selectScriptDramas.length === 0" class="select-script-empty">
-            <p>剧本库为空，可直接在当前项目创作剧本</p>
-            <el-button type="primary" @click="returnToScriptCreation">开始创作剧本</el-button>
-          </div>
-          <div v-else-if="!selectScriptLoading && selectableScriptDramas.length === 0" class="select-script-empty">
-            <p>没有可导入的其他剧本</p>
-            <el-button type="primary" @click="returnToScriptCreation">返回创作剧本</el-button>
-          </div>
-        </div>
-      </AccessibleDialog>
+      <FilmCreateScriptWorkbench
+        class="section card script-workbench-unified"
+        v-model:script-workbench-mode="scriptWorkbenchMode"
+        v-model:story-input="storyInput"
+        v-model:story-style="storyStyle"
+        v-model:story-type="storyType"
+        v-model:story-episode-count="storyEpisodeCount"
+        v-model:script-title="scriptTitle"
+        v-model:script-content="scriptContent"
+        v-model:show-select-script-dialog="showSelectScriptDialog"
+        v-model:select-preview-episode-id="selectPreviewEpisodeId"
+        :is-story-gen-running="isStoryGenRunning"
+        :drama-id="dramaId"
+        :has-any-episode="hasAnyEpisode"
+        :script-generating="scriptGenerating"
+        :current-episode-id="currentEpisodeId"
+        :episodes="store.drama?.episodes || []"
+        :script-draft-status="scriptDraftStatus"
+        :script-draft-status-label="scriptDraftStatusLabel"
+        :select-script-loading="selectScriptLoading"
+        :select-script-importing="selectScriptImporting"
+        :selectable-script-dramas="selectableScriptDramas"
+        :select-script-dramas="selectScriptDramas"
+        @save-settings="saveProjectSettings(false)"
+        @generate-story="onGenerateStory"
+        @open-novel-import="showNovelImport = true"
+        @add-episode="onAddEpisode"
+        @go-to-drama="router.push('/drama/' + dramaId)"
+        @generate-script="onGenerateScript"
+        @open-select-script="openSelectScriptDialog"
+        @load-select-script-list="loadSelectScriptList"
+        @pick-script="onPickScriptFromDialog"
+        @return-to-creation="returnToScriptCreation"
+      />
 
       <!-- 资源管理：角色 / 道具 / 场景 -->
       <section class="section card resource-panel">
@@ -667,7 +523,7 @@
                     </div>
                   </div>
                 </div>
-                <div v-if="characters.length === 0" class="empty-tip">暂无角色，请先「AI 生成角色」或在上一步保存剧本后提取</div>
+                <div v-if="characters.length === 0" class="empty-tip">暂无角色，可用「剧本自动提取角色」或「添加角色」</div>
               </div>
             </div>
           </div>
@@ -907,30 +763,30 @@
                     </div>
                   </div>
                 </div>
-                <div v-if="scenes.length === 0" class="empty-tip">暂无场景，请从剧本提取</div>
+                <div v-if="scenes.length === 0" class="empty-tip">暂无场景，可从剧本提取或添加场景</div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- 6. 分镜生成 -->
+      <!-- 分镜生成 -->
       <section id="anchor-storyboard" class="section card">
         <h2 class="section-title">
-          <span>5. 分镜生成</span>
+          <span>分镜生成</span>
           <span class="step-desc">根据剧本、角色、场景自动生成分镜头脚本</span>
         </h2>
         <div class="sb-config-row">
           <label class="sb-config-item">
             <span class="sb-config-label">分镜数量</span>
             <el-input-number v-model="storyboardCount" aria-label="分镜数量（生成设置）" :min="1" :max="200" :step="5" placeholder="自动" class="sb-config-input" />
-            <span class="sb-config-hint sb-config-hint--estimate" :title="scriptEstimateStoryboardTitle">留空由 AI 决定{{ scriptEstimateStoryboardHint }}</span>
+            <span class="sb-config-hint sb-config-hint--estimate" :title="scriptEstimateStoryboardTitle">留空则按剧本体量估算{{ scriptEstimateStoryboardHint }}</span>
           </label>
           <span class="sb-config-divider">｜</span>
           <label class="sb-config-item">
             <span class="sb-config-label">视频总时长(秒)</span>
             <el-input-number v-model="videoDuration" aria-label="分镜视频总时长（秒）" :min="10" :max="600" :step="5" placeholder="自动" class="sb-config-input" />
-            <span class="sb-config-hint sb-config-hint--estimate" :title="scriptEstimateVideoDurationTitle">留空由 AI 决定{{ scriptEstimateVideoDurationHint }}</span>
+            <span class="sb-config-hint sb-config-hint--estimate" :title="scriptEstimateVideoDurationTitle">留空则按剧本体量估算{{ scriptEstimateVideoDurationHint }}</span>
           </label>
           <span class="sb-config-divider">｜</span>
           <label class="sb-config-item">
@@ -963,7 +819,7 @@
             :loading="exportingStoryboardSheet"
             @click="onExportStoryboardSheet"
           >
-            导出分镜表excel
+            导出分镜表
           </el-button>
           <el-button
             v-if="storyboards.length > 0"
@@ -1193,7 +1049,7 @@
                 <el-select
                   :model-value="getSbPropIds(sb.id)"
                   :aria-label="`分镜${sb.storyboard_number || i + 1}道具`"
-                  placeholder="选择物品"
+                  placeholder="选择道具"
                   multiple
                   collapse-tags
                   collapse-tags-tooltip
@@ -1712,9 +1568,9 @@
             全能片段润色中 {{ universalOmniPolishProgress.current }}/{{ universalOmniPolishProgress.total }}
             <template v-if="universalOmniPolishProgress.label"> · {{ universalOmniPolishProgress.label }}</template>
           </span>
-          <span v-else class="sb-gen-text">分镜持续生成中，客官稍等片刻…</span>
+          <span v-else class="sb-gen-text">分镜持续生成中，请稍候…</span>
         </div>
-        <div v-else-if="storyboards.length === 0" class="empty-tip">请先生成分镜</div>
+        <div v-else-if="storyboards.length === 0" class="empty-tip">{{ hasAnyEpisode ? '还没有分镜，可生成分镜或添加一个分镜' : '请先创建或选择剧集，再生成或添加分镜' }}</div>
       </section>
 
       <!-- 7. 视频配置 + AI 模型配置 -->
@@ -2911,6 +2767,7 @@ import {
   shotCountEstimateFromDurationSec as resolveShotCountEstimate,
 } from '@/utils/filmCreateEstimates'
 import FilmCreatePipelinePanel from '@/components/filmCreate/FilmCreatePipelinePanel.vue'
+import FilmCreateScriptWorkbench from '@/components/filmCreate/FilmCreateScriptWorkbench.vue'
 import {
   batchGenerationDisabledReason,
   composeVideoDisabledReason,
@@ -9709,124 +9566,6 @@ watch(
   font-size: 16px;
   line-height: 24px;
 }
-.script-workbench-unified {
-  margin-bottom: 0;
-}
-.script-workbench-tabs :deep(.el-tabs__header) {
-  margin-bottom: 16px;
-}
-.script-workbench-tabs :deep(.el-tabs__nav-wrap::after) {
-  height: 1px;
-}
-.script-workbench-tabs :deep(.el-tabs__item) {
-  font-size: 15px;
-  font-weight: 600;
-}
-.script-pane-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-.script-sub-block {
-  padding-top: 4px;
-}
-.script-sub-divider {
-  margin: 20px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-html.light .script-sub-divider {
-  border-top-color: rgba(0, 0, 0, 0.08);
-}
-.script-mode-hint {
-  margin-top: 0;
-  margin-bottom: 12px;
-}
-.script-preview-wrap {
-  margin-top: 20px;
-}
-.preview-block-title {
-  margin: 16px 0 8px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #a1a1aa;
-}
-html.light .preview-block-title {
-  color: #64748b;
-}
-.preview-block-title:first-of-type {
-  margin-top: 0;
-}
-.preview-actions {
-  margin-top: 16px;
-}
-.script-select-empty {
-  margin-top: 16px;
-  color: #71717a;
-  font-size: 14px;
-}
-.select-script-list {
-  min-height: 120px;
-  max-height: 420px;
-  overflow-y: auto;
-}
-.select-script-item {
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  margin-bottom: 8px;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-.select-script-item:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
-.select-script-item:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(99, 102, 241, 0.35);
-}
-.select-script-item.disabled,
-.select-script-item.disabled:hover {
-  cursor: not-allowed;
-  opacity: 0.55;
-  border-color: rgba(255, 255, 255, 0.06);
-  background: transparent;
-}
-html.light .select-script-item {
-  border-color: rgba(99, 102, 241, 0.15);
-}
-html.light .select-script-item:hover {
-  background: rgba(99, 102, 241, 0.06);
-}
-.select-script-title {
-  display: block;
-  font-weight: 600;
-  color: #e4e4e7;
-  margin-bottom: 6px;
-}
-html.light .select-script-title {
-  color: #1e1b4b;
-}
-.select-script-desc {
-  display: block;
-  font-size: 13px;
-  color: #9ca0b2;
-  line-height: 1.45;
-}
-.select-script-empty {
-  text-align: center;
-  color: #71717a;
-  padding: 24px;
-}
-.select-script-empty p {
-  margin: 0 0 12px;
-}
-.preview-ep-tabs {
-  margin-top: 4px;
-}
-
 .film-create {
   --film-nav-width: 180px;
   min-height: 100vh;
@@ -9957,20 +9696,6 @@ html.light .page-title {
 }
 .header-add-episode {
   flex-shrink: 0;
-}
-.film-episode-empty {
-  margin: 0 0 12px;
-}
-.film-episode-empty-title {
-  margin: 0 0 6px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-.film-episode-empty-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
 }
 .header-episode-select {
   width: min(240px, 20vw);
@@ -10869,9 +10594,6 @@ html.light .resource-block-title {
   line-height: 1.5;
 }
 html.light .section-desc { color: #6b7280; }
-.story-textarea {
-  margin-bottom: 12px;
-}
 .row { display: flex; flex-wrap: wrap; align-items: center; }
 .gap { gap: 12px; }
 .asset-actions { margin-bottom: 12px; }
@@ -12607,19 +12329,4 @@ html.light .frame-layout-anchor {
   line-height: 1.4;
 }
 
-.script-save-status {
-  align-self: center;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.script-save-status.is-dirty,
-.script-save-status.is-error {
-  color: var(--status-warning);
-}
-
-.script-save-status.is-saving {
-  color: var(--accent-text);
-}
 </style>

@@ -15,6 +15,12 @@ const {
   mergeMediaLibraryNetworkRoute,
   normalizeMediaLibraryNetworkRoute,
   runMediaOperationOnce,
+  getMediaOriginLabel,
+  describeMediaDeleteImpact,
+  describeMediaBatchDeleteImpact,
+  isMediaInUseError,
+  isMediaPickerItemInScope,
+  mediaPickerIncompatibleReason,
 } = mediaLibrary
 const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
 
@@ -326,4 +332,42 @@ test('network import guard admits only one concurrent operation per source key',
   release()
   assert.deepEqual(await first, { started: true, value: 'done' })
   assert.equal(activeKeys.size, 0)
+})
+
+test('素材来源标签不会把带 drama_id 的项目素材误标成全局上传', () => {
+  assert.equal(getMediaOriginLabel({ source_drama_title: '雨夜' }), '雨夜')
+  assert.equal(getMediaOriginLabel({ drama_id: 12 }), '项目素材（ID 12）')
+  assert.equal(getMediaOriginLabel({ drama_id: 0 }), '全局上传，可跨项目复用')
+  assert.equal(getMediaOriginLabel({ drama_id: null }, { globalLabel: '全局上传' }), '全局上传')
+})
+
+test('删除确认和选择器范围会区分跨项目复用与当前项目权限', () => {
+  assert.match(describeMediaDeleteImpact({ name: '雨景', source_drama_title: '项目甲' }), /项目甲/)
+  assert.match(describeMediaDeleteImpact({ name: '雨景', source_drama_title: '项目甲' }), /所有项目都不能再使用它/)
+  assert.match(describeMediaBatchDeleteImpact(3), /3 个素材/)
+  assert.equal(isMediaInUseError({ code: 'ASSET_IN_USE' }), true)
+  assert.equal(isMediaInUseError({ message: '网络错误' }), false)
+  assert.equal(isMediaPickerItemInScope({ drama_id: 9 }, { reusePolicy: 'current-or-global', dramaId: 3 }), false)
+  assert.equal(isMediaPickerItemInScope({ drama_id: null }, { reusePolicy: 'current-or-global', dramaId: 3 }), true)
+  assert.equal(isMediaPickerItemInScope({ drama_id: 9 }, {}), true)
+  assert.equal(mediaPickerIncompatibleReason({ type: 'video', drama_id: 9 }, {
+    accept: 'image',
+    context: { reusePolicy: 'current-or-global', dramaId: 3 },
+  }), '当前用途只接受图片素材')
+  assert.equal(mediaPickerIncompatibleReason({ type: 'image', drama_id: 9 }, {
+    accept: 'image',
+    context: { reusePolicy: 'current-or-global', dramaId: 3 },
+  }), '其他项目素材不能直接用于当前项目，请选择全局或当前项目素材')
+})
+
+test('网络搜索失败可中止重试，空关键词重试会留下可见错误', () => {
+  assert.match(mediaLibrarySource, /if \(isRequestCanceled\(error\)\) return/)
+  assert.match(mediaLibrarySource, /networkAbortController\?\.abort\(\)/)
+  assert.doesNotMatch(
+    mediaLibrarySource,
+    /async function searchNetworkMedia\(\) \{\s*const query = networkKeyword\.value\.trim\(\)\s*if \(!query \|\| networkLoading\.value\) return/,
+  )
+  assert.match(mediaLibrarySource, /networkError\.value = '请输入关键词后再搜索'/)
+  assert.match(mediaLibrarySource, /:disabled="!networkKeyword\.trim\(\)"/)
+  assert.match(mediaLibrarySource, /class="network-empty"\s*role="status"/)
 })

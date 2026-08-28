@@ -27,7 +27,8 @@ export const uploadAPI = {
       form.append('drama_id', String(did))
     }
     const response = await request.post('/assets/upload', form, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      suppressErrorToast: opts.suppressErrorToast === true,
     })
     return normalizeMediaItem(response || {})
   },

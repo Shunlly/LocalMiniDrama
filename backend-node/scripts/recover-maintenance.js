@@ -2,11 +2,12 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadConfig } = require('../src/config');
+const { loadConfig, assertSafeConfigDataPath } = require('../src/config');
 const {
   DataBackupError,
   maintenancePaths,
   recoverInterruptedMaintenanceSync,
+  resolveDataRoot,
 } = require('../src/services/dataBackupService');
 
 const PACKAGE_ROOT = path.resolve(__dirname, '..');
@@ -77,35 +78,8 @@ function parseArguments(argv) {
 
 function resolveConfiguredPath(value, fallback) {
   const configured = value || fallback;
+  assertSafeConfigDataPath(configured, 'data path');
   return path.isAbsolute(configured) ? configured : path.resolve(PACKAGE_ROOT, configured);
-}
-
-function resolveDataRoot(value) {
-  if (typeof value !== 'string' || value.trim() === '' || !path.isAbsolute(value.trim())) {
-    throw new DataBackupError('INVALID_DATA_ROOT', '数据根目录必须是已存在的绝对路径。');
-  }
-  const resolved = path.resolve(value.trim());
-  if (resolved === path.parse(resolved).root) {
-    throw new DataBackupError('INVALID_DATA_ROOT', '数据根目录不能是文件系统根目录。');
-  }
-  let stat;
-  try {
-    stat = fs.lstatSync(resolved);
-  } catch (error) {
-    throw new DataBackupError('INVALID_DATA_ROOT', '数据根目录不存在或不可读取。', error);
-  }
-  if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    throw new DataBackupError('INVALID_DATA_ROOT', '数据根目录必须是非符号链接目录。');
-  }
-  const realPath = path.resolve(fs.realpathSync(resolved));
-  const normalize = (pathValue) => {
-    const normalized = path.normalize(pathValue);
-    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
-  };
-  if (normalize(realPath) !== normalize(resolved)) {
-    throw new DataBackupError('INVALID_DATA_ROOT', '数据根目录不能通过符号链接或联接访问。');
-  }
-  return realPath;
 }
 
 function readMaintenanceLock(databasePath) {

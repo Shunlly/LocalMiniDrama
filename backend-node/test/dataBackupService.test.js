@@ -18,6 +18,7 @@ const {
   maintenancePaths,
   recoverInterruptedMaintenanceSync,
   restoreDataBackup,
+  resolveDataRoot,
 } = require('../src/services/dataBackupService');
 
 async function makeWorkspace(t) {
@@ -2309,6 +2310,34 @@ test('service lease heartbeat advances and stale same-scope dead locks recover',
   assert.equal(await fsp.stat(lockPath).catch(() => null), null);
 });
 
+test('unwritable backup output is reported as PERMISSION_DENIED', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('Windows 无法用 chmod 稳定复现目录写权限失败');
+    return;
+  }
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'permission-denied');
+  await seedStorage(workspace.storagePath, 'permission-denied');
+  const outputDir = path.join(workspace.root, 'locked-output');
+  await fsp.mkdir(outputDir, { recursive: true });
+  await fsp.chmod(outputDir, 0o500);
+  t.after(async () => {
+    try { await fsp.chmod(outputDir, 0o700); } catch (_) {}
+  });
+  try {
+    await assert.rejects(
+      createDataBackup({
+        ...workspace,
+        outputPath: path.join(outputDir, 'backup.zip'),
+        skipServiceCheck: true,
+      }),
+      expectCode('PERMISSION_DENIED')
+    );
+  } finally {
+    db.close();
+  }
+});
+
 test('backup output commit never overwrites a path created during backup', async (t) => {
   const workspace = await makeWorkspace(t);
   const db = createDatabase(workspace.databasePath, 'output-race');
@@ -2588,4 +2617,23 @@ test('backup and restore CLIs use the selected data root for every persistent ta
   assert.deepEqual(readDatabaseValues(decoyDatabase), ['decoy-original']);
   assert.equal(await fsp.readFile(path.join(decoyRoot, 'storage', 'decoy.txt'), 'utf8'), 'decoy-storage');
   assert.equal(await fsp.readFile(path.join(decoyRoot, 'story_sources', 'decoy.txt'), 'utf8'), 'decoy-source');
+});
+
+test('resolveDataRoot rejects relative paths and symbolic-link data roots', async (t) => {
+  const { resolveDataRoot } = require('../src/services/dataBackupService');
+  assert.throws(() => resolveDataRoot('relative-data-root'), (error) => error?.code === 'INVALID_DATA_ROOT');
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'lmd-data-root-link-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+  const realRoot = path.join(root, 'real');
+  const linkedRoot = path.join(root, 'linked');
+  await fsp.mkdir(realRoot);
+  try {
+    await fsp.symlink(realRoot, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch (error) {
+    if (['EPERM', 'EACCES', 'ENOTSUP'].includes(error.code)) return;
+    throw error;
+  }
+  assert.throws(() => resolveDataRoot(linkedRoot), (error) => error?.code === 'INVALID_DATA_ROOT');
 });

@@ -217,6 +217,17 @@ function getWorkflowRunDetail(db, runId) {
   };
 }
 
+function applyWorkflowTypeFilter(sql, params, type, column = 'type') {
+  const normalized = String(type || '').trim();
+  if (!normalized) return sql;
+  if (normalized.includes(':')) {
+    params.push(normalized);
+    return `${sql} AND ${column} = ?`;
+  }
+  params.push(normalized, `${normalized}:%`);
+  return `${sql} AND (${column} = ? OR ${column} LIKE ?)`;
+}
+
 function listWorkflowRuns(db, query = {}) {
   let sql = 'SELECT * FROM workflow_runs WHERE deleted_at IS NULL';
   const params = [];
@@ -225,8 +236,7 @@ function listWorkflowRuns(db, query = {}) {
     params.push(Number(query.drama_id));
   }
   if (query.type) {
-    sql += ' AND type = ?';
-    params.push(String(query.type));
+    sql = applyWorkflowTypeFilter(sql, params, query.type);
   }
   if (query.status) {
     sql += ' AND status = ?';
@@ -240,7 +250,7 @@ function listWorkflowRuns(db, query = {}) {
 function createWorkflowRun(db, log, params) {
   const dramaId = Number(params.drama_id || params.dramaId);
   if (!dramaId || !dramaService.getDramaById(db, dramaId)) {
-    const err = new Error('drama_id is required and must reference an existing drama');
+    const err = new Error('drama_id 必填，且必须指向未删除的项目');
     err.code = 'BAD_REQUEST';
     throw err;
   }
@@ -1507,7 +1517,7 @@ function retryWorkflowRun(db, log, runId, options = {}) {
   const run = getWorkflowRun(db, runId);
   if (!run) return null;
   if (run.status !== 'failed') {
-    const err = new Error('Only failed workflow runs can be retried');
+    const err = new Error('只有失败的工作流可以重试');
     err.code = 'BAD_REQUEST';
     throw err;
   }
@@ -1582,7 +1592,7 @@ function resumeWorkflowRun(db, log, runId) {
   const run = getWorkflowRun(db, runId);
   if (!run) return null;
   if (run.status !== 'paused') {
-    const err = new Error('Only paused workflow runs can be resumed');
+    const err = new Error('只有已暂停的工作流可以继续');
     err.code = 'BAD_REQUEST';
     throw err;
   }
@@ -1676,6 +1686,7 @@ module.exports = {
   getWorkflowRun,
   getWorkflowSteps,
   getWorkflowRunDetail,
+  applyWorkflowTypeFilter,
   listWorkflowRuns,
   rowToRun,
   rowToStep,

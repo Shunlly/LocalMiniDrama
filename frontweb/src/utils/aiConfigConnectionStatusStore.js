@@ -41,12 +41,14 @@ function read(storage, storageKey) {
 export async function resolveAiConfigConnectionStatusScope({
   fetchImpl = globalThis.fetch,
   fallbackScope = '',
+  signal,
 } = {}) {
   try {
     const response = await fetchImpl('/health', {
       method: 'GET',
       headers: { Accept: 'application/json' },
       cache: 'no-store',
+      signal,
     })
     if (response?.ok) {
       const runtimeScope = normalizeRuntimeScope((await response.json())?.instance_id)

@@ -11,6 +11,7 @@ const pickerSource = readFileSync(new URL('../src/components/GlobalMediaPickerDi
 const assetsApiSource = readFileSync(new URL('../src/api/assets.js', import.meta.url), 'utf8')
 const requestSource = readFileSync(new URL('../src/utils/request.js', import.meta.url), 'utf8')
 const deliveryPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url), 'utf8')
+const dramaCanvasSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
 
 function assertValidVueSfc(name, source) {
   const { errors } = parse(source, { filename: name })
@@ -41,7 +42,10 @@ test('persistent media loaders suppress duplicate global errors while ordinary r
 
 test('media library cards surface source project context for cross-project reuse', () => {
   assert.match(mediaLibrarySource, /mediaLibraryAPI\.list\(params, \{ suppressErrorToast: true, signal: controller\.signal \}\)/)
-  assert.match(mediaLibrarySource, /class="media-origin">\{\{ item\.source_drama_title \|\| '全局上传/)
+  assert.match(mediaLibrarySource, /class="media-origin">\{\{ mediaOriginLabel\(item\) \}\}/)
+  assert.match(mediaLibrarySource, /describeMediaDeleteImpact\(item\)/)
+  assert.match(mediaLibrarySource, /describeMediaBatchDeleteImpact\(count\)/)
+  assert.match(mediaLibrarySource, /isMediaInUseError\(err\)/)
 })
 
 test('global media picker shows mount context, media compatibility state, retry UI, and keyboard actions', () => {
@@ -71,7 +75,9 @@ test('global media picker shows mount context, media compatibility state, retry 
   assert.match(pickerSource, /@keydown\.enter\.prevent="onCardEnter\(item\)"/)
   assert.match(pickerSource, /@keydown\.space\.prevent="selectItem\(item\)"/)
   assert.match(pickerSource, /Number\(selectedId\.value\) === Number\(item\.id\)[\s\S]*confirmSelection\(\)[\s\S]*selectItem\(item\)/)
-  assert.match(pickerSource, /\{\{ item\.source_drama_title \|\| '全局上传' \}\}/)
+  assert.match(pickerSource, /mediaOriginLabel\(item\)/)
+  assert.match(pickerSource, /mediaPickerIncompatibleReason\(item/)
+  assert.match(pickerSource, /aria-label="搜索素材名称"/)
 })
 
 test('FilmCreate wires the picker into storyboard free references with duplicate, promote, and remove flows', () => {
@@ -98,4 +104,28 @@ test('all storyboard video submission paths reuse the shared video request build
   assert.equal(requestBuilderUses.length, 4)
   assert.match(filmCreateSource, /referenceImageUrls: referencePayload\.referenceUrls/)
   assert.match(filmCreateSource, /const primaryReferenceUrl = getSbPrimaryReferenceAbsoluteUrl\(sb\)/)
+})
+
+test('free canvas picker only confirms current-project or global assets and closes after a successful pick', () => {
+  assert.match(dramaCanvasSource, /reusePolicy: 'current-or-global'/)
+  assert.match(dramaCanvasSource, /dramaId: dramaId\.value/)
+  assert.match(dramaCanvasSource, /@select="onFreeCanvasMediaPicked"/)
+  assert.match(dramaCanvasSource, /if \(added\) freeMediaPickerVisible\.value = false/)
+  assert.match(pickerSource, /当前画布只能确认全局素材或当前项目素材/)
+  assert.doesNotMatch(filmCreateSource, /reusePolicy: 'current-or-global'/)
+})
+
+
+test('delete impact copy names the asset and warns about cross-project reuse', async () => {
+  const {
+    describeMediaBatchDeleteImpact,
+    describeMediaDeleteImpact,
+    getMediaOriginLabel,
+  } = await import('../src/utils/mediaLibrary.js')
+  assert.equal(getMediaOriginLabel({ source_drama_title: '夜雨' }), '夜雨')
+  assert.equal(getMediaOriginLabel({ drama_id: 9 }), '项目素材（ID 9）')
+  assert.equal(getMediaOriginLabel({}), '全局上传，可跨项目复用')
+  assert.match(describeMediaDeleteImpact({ name: '海报.png', source_drama_title: '夜雨' }), /「海报\.png」来自夜雨/)
+  assert.match(describeMediaDeleteImpact({}), /未命名素材/)
+  assert.match(describeMediaBatchDeleteImpact(3), /将删除选中的 3 个素材/)
 })

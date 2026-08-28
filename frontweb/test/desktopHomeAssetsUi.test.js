@@ -147,7 +147,7 @@ test('material center frames upload and project-only flows with direct CTAs', ()
   assert.match(mediaLibrarySource, /<el-icon><Upload \/><\/el-icon>上传素材/)
   assert.match(mediaLibrarySource, /选择项目后导入网页 URL/)
   assert.match(mediaLibrarySource, /加入素材库/)
-  assert.match(mediaLibrarySource, /uploadAPI\.uploadAsset\(file\)/)
+  assert.match(mediaLibrarySource, /uploadAPI\.uploadAsset\(file, \{ suppressErrorToast: true \}\)/)
   assert.doesNotMatch(mediaLibrarySource, /uploadAPI\.uploadImage\(file\)/)
 })
 

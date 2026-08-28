@@ -247,7 +247,7 @@ function createOriginGuard(originAllowed, log = logger) {
       success: false,
       error: {
         code: 'REQUEST_SOURCE_NOT_ALLOWED',
-        message: 'Request host or origin is not allowed',
+        message: '当前请求来源不被允许',
         request_id: req.requestId,
       },
       request_id: req.requestId,
@@ -305,7 +305,7 @@ function createStorageStaticMiddleware(storageRoot, log = logger, db = null) {
         if (error?.code === 'UNSAFE_STORAGE_PATH') {
           return res.status(403).json({
             success: false,
-            error: { code: 'UNSAFE_STORAGE_PATH', message: 'Static storage path is not allowed' },
+            error: { code: 'UNSAFE_STORAGE_PATH', message: '静态资源路径不被允许' },
             request_id: req.requestId,
             timestamp: new Date().toISOString(),
           });
@@ -328,7 +328,7 @@ function createStorageStaticMiddleware(storageRoot, log = logger, db = null) {
       });
       return res.status(403).json({
         success: false,
-        error: { code: 'UNSAFE_STORAGE_PATH', message: 'Static storage path is not allowed' },
+        error: { code: 'UNSAFE_STORAGE_PATH', message: '静态资源路径不被允许' },
         request_id: req.requestId,
         timestamp: new Date().toISOString(),
       });
@@ -414,7 +414,7 @@ function createAppCloseHandler(maintenanceGuard, closeDatabase = closeDb, before
 function createNotFoundHandler() {
   return (req, res) => {
     if (req.path.startsWith('/api')) {
-      return response.notFound(res, 'API endpoint not found');
+      return response.notFound(res, '接口不存在');
     }
     return res.status(404).send('Not Found');
   };
@@ -450,7 +450,7 @@ function createProductionErrorResponseSanitizer(options = {}) {
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
-          message: 'Internal server error',
+          message: '服务器内部错误',
           request_id: requestId,
         },
         request_id: requestId,
@@ -466,11 +466,14 @@ function classifyExpectedError(error) {
   if (code === 'LEGACY_ASYNC_SCHEDULER_CLOSED') {
     return { status: 503, code, message: error.message };
   }
+  if (code === 'CONFIG_FILE_NOT_FOUND') {
+    return { status: 503, code, message: error.message || '配置文件不存在，设置未保存' };
+  }
   if (code === 'LIMIT_FILE_SIZE') {
-    return { status: 413, code: 'FILE_TOO_LARGE', message: 'Uploaded file exceeds the allowed size' };
+    return { status: 413, code: 'FILE_TOO_LARGE', message: '上传文件超过允许大小' };
   }
   if (code === 'INSUFFICIENT_STORAGE' || code === 'ENOSPC') {
-    return { status: 507, code: 'INSUFFICIENT_STORAGE', message: 'Insufficient storage space' };
+    return { status: 507, code: 'INSUFFICIENT_STORAGE', message: '存储空间不足' };
   }
   if ([
     'ARCHIVE_TOO_LARGE',
@@ -493,11 +496,11 @@ function classifyExpectedError(error) {
     code.startsWith('INVALID_') ||
     code.startsWith('UNSAFE_')
   ) {
-    return { status: 400, code: code || 'BAD_REQUEST', message: error.message || 'Invalid request' };
+    return { status: 400, code: code || 'BAD_REQUEST', message: error.message || '请求无效' };
   }
   const status = Number(error?.status || error?.statusCode);
   if (Number.isInteger(status) && status >= 400 && status < 500) {
-    return { status, code: code || 'REQUEST_REJECTED', message: error.message || 'Request rejected' };
+    return { status, code: code || 'REQUEST_REJECTED', message: error.message || '请求被拒绝' };
   }
   return null;
 }
@@ -518,7 +521,19 @@ function createErrorHandler(log, options = {}) {
     const expected = classifyExpectedError(err);
     const status = expected?.status || 500;
     const code = expected?.code || 'INTERNAL_ERROR';
-    const message = expected?.message || (production ? 'Internal server error' : (err?.message || 'Internal server error'));
+    const message = expected?.message || (production ? '服务器内部错误' : (err?.message || '服务器内部错误'));
+    if (!expected || status >= 500) {
+      log.operation?.({
+        operation: 'http_request',
+        operationId: requestId,
+        phase: 'error',
+        method: req.method,
+        path: req.path,
+        status,
+        code,
+        error: err?.message,
+      });
+    }
     res.status(status).json({
       success: false,
       error: { code, message, request_id: requestId },
@@ -648,8 +663,8 @@ function createApp() {
       res.send(
         '<!DOCTYPE html><html><head><meta charset="utf-8"><title>LocalMiniDrama</title></head><body>' +
           '<h1>LocalMiniDrama API</h1><p>后端已启动。请先构建前端：</p>' +
-          '<pre>cd web &amp;&amp; pnpm install &amp;&amp; pnpm build</pre>' +
-          '<p>然后将 <code>web/dist</code> 放到与 backend-node 同级的 <code>web/dist</code>，或访问 <a href="/health">/health</a> 检查接口。</p></body></html>'
+          '<pre>cd frontweb &amp;&amp; npm install &amp;&amp; npm run build</pre>' +
+          '<p>然后将 <code>frontweb/dist</code> 放到与 backend-node 同级的 <code>frontweb/dist</code>，或访问 <a href="/ready">/ready</a> 检查就绪状态。</p></body></html>'
       );
     });
   }

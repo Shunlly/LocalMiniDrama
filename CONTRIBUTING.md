@@ -75,7 +75,7 @@ git push origin feature/your-feature-name
 
 ## 开发环境搭建 / Development Setup
 
-> 需要 Node.js >= 20 / Requires Node.js >= 20
+> 根目录、后端、前端、Docker 与通用门禁使用 Node.js 20.x（`>=20 <21`）。桌面依赖安装、原生重建、打包和 Windows 制品安全扫描使用 Node.js 22.12.0（`desktop/.npmrc` 启用 `engine-strict`）。Electron 43.1.1 运行时自带 Node.js 24。
 
 ### 启动后端
 
@@ -94,7 +94,7 @@ npm install
 npm run dev       # 默认端口 3013
 ```
 
-浏览器访问 `http://localhost:3013`
+浏览器访问 `http://127.0.0.1:3013`
 
 在页面的「AI 配置」中填写 Provider 地址、模型和 API Key；AI 服务凭据存储在本地 SQLite 数据库，不写入 `config.yaml`。
 

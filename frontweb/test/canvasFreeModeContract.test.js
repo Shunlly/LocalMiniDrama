@@ -7,6 +7,8 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const toolbarSource = read('../src/components/dramaCanvas/FreeCanvasToolbar.vue')
 const nodeSource = read('../src/components/dramaCanvas/FreeCanvasNode.vue')
 const inspectorSource = read('../src/components/dramaCanvas/FreeCanvasInspector.vue')
+const inspectorMediaSource = read('../src/components/dramaCanvas/CanvasMediaPanel.vue')
+const storyboardPanelSource = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
 const assetSidebarSource = read('../src/components/dramaCanvas/FreeCanvasAssetSidebar.vue')
 const desktopToolbarSource = read('../src/components/dramaCanvas/CanvasDesktopToolbar.vue')
 const contextMenuSource = read('../src/components/dramaCanvas/CanvasContextMenu.vue')
@@ -231,4 +233,47 @@ test('context menu moves focus into the menu and restores it on close', () => {
   assert.match(contextMenuSource, /menuRef\.value\?\.focus\(\)/)
   assert.match(contextMenuSource, /returnFocus\?\.focus\(\)/)
   assert.match(contextMenuSource, /watch\(\(\) => props\.visible/)
+})
+
+test('free inspector dock exposes the node id that focus restore actually reads', () => {
+  assert.match(dramaCanvasSource, /class="free-canvas-inspector-dock"/)
+  assert.match(dramaCanvasSource, /:data-free-node-id="String\(selectedFreeNode\.id\)"/)
+  assert.match(dramaCanvasSource, /inspector\?\.dataset\?\.freeNodeId/)
+  assert.doesNotMatch(dramaCanvasSource, /data-free-inspector-node-id/)
+})
+
+test('creating a free node suppresses the empty selection race until Vue Flow settles', () => {
+  assert.match(
+    dramaCanvasSource,
+    /function createFreeCanvasNode\([\s\S]*ignoreEmptyFreeSelectionUntil = Date\.now\(\) \+ 1500[\s\S]*commitFreeCanvasState/,
+  )
+})
+
+test('project-list return actions keep list-mode and project-list destinations distinct', () => {
+  assert.match(dramaCanvasSource, /<button type="button" class="logo" aria-label="返回项目列表" @click="goProjectList">/)
+  assert.match(dramaCanvasSource, /canvas-load-actions[\s\S]*@click="goProjectList">返回项目列表/)
+  assert.match(dramaCanvasSource, /free-canvas-version-warning[\s\S]*@click="goListMode">列表模式/)
+  assert.match(dramaCanvasSource, /function goProjectList\(\)[\s\S]*projectListReturnTo\.value \|\| '\/'/)
+})
+
+test('delete shortcut ignores inspector and other editable chrome', () => {
+  assert.match(
+    dramaCanvasSource,
+    /event\.key === 'Delete' \|\| event\.key === 'Backspace'[\s\S]*free-canvas-inspector-dock[\s\S]*deleteFreeCanvasSelection\(\)/,
+  )
+})
+
+test('free-mode controls sit above the bottom toolbar and hide the minimap on small inspector layouts', () => {
+  assert.match(dramaCanvasSource, /\.drama-canvas-page\.free-mode :deep\(\.vue-flow__controls\)[\s\S]*bottom: 76px/)
+  assert.match(dramaCanvasSource, /max-width: min\(720px, calc\(100% - 160px\)\)/)
+  assert.match(dramaCanvasSource, /\.drama-canvas-page\.free-inspector-open :deep\(\.vue-flow__minimap\)[\s\S]*display: none/)
+})
+
+test('first and last frame generation remains reachable from media and storyboard inspectors', () => {
+  assert.match(inspectorMediaSource, /frameKind === 'first'/)
+  assert.match(inspectorMediaSource, /重新生成\$\{frameTitle\.value\}/)
+  assert.match(storyboardPanelSource, /runStep\('first-frame'\)/)
+  assert.match(storyboardPanelSource, /runStep\('last-frame'\)/)
+  assert.match(storyboardPanelSource, /runFrameImageStep/)
+  assert.match(storyboardPanelSource, /dramaUsesFirstLastFrame/)
 })

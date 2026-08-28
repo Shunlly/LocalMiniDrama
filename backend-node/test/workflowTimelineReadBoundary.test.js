@@ -202,3 +202,31 @@ test('时间线遇到跨 episode、已删除或缺失 storyboard 的历史脏数
     }
   }
 });
+
+test('workflow list treats novel2anime as a family prefix so repair runs stay visible', () => {
+  const db = createDb();
+  const routes = workflowRoutes(db, log);
+  try {
+    db.prepare(`
+      INSERT INTO workflow_runs
+        (id, drama_id, episode_id, type, status, progress, input_json, output_json, created_at, updated_at)
+      VALUES
+        ('repair-latest', 1, 101, 'novel2anime:repair_storyboards', 'failed', 40, '{}', '{}', '2026-08-01T06:00:00Z', '2026-08-01T06:00:00Z')
+    `).run();
+
+    const family = responseRecorder();
+    routes.list({ query: { drama_id: 1, type: 'novel2anime', limit: 20 } }, family);
+    assert.equal(family.statusCode, 200);
+    assert.deepEqual(family.body.data.map((run) => run.id), ['repair-latest', 'active', 'active-no-episode']);
+
+    const exact = responseRecorder();
+    routes.list({ query: { drama_id: 1, type: 'novel2anime:repair_storyboards', limit: 20 } }, exact);
+    assert.deepEqual(exact.body.data.map((run) => run.id), ['repair-latest']);
+
+    const other = responseRecorder();
+    routes.list({ query: { drama_id: 1, type: 'other', limit: 20 } }, other);
+    assert.deepEqual(other.body.data, []);
+  } finally {
+    db.close();
+  }
+});

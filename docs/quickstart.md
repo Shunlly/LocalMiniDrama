@@ -67,11 +67,11 @@ npm install
 # AI API 地址与密钥通过前端「AI 配置」页面写入数据库
 # npm run migrate 仅在首次手动初始化或新增 migration SQL 后需要；服务启动会自动补列
 
-# 启动服务（默认端口 5679）
-npm start
-
-# 开发模式（热重载）
+# 开发模式热重载（默认端口 5679；与 run_dev 脚本一致）
 npm run dev
+
+# 无热重载启动
+npm start
 ```
 
 后端启动后以就绪端点为准；返回 HTTP 200 且 `status` 为 `ready` 才能接收业务请求：
@@ -95,7 +95,7 @@ npm install
 npm run dev
 ```
 
-浏览器访问 `http://localhost:3013` 即可看到界面。
+浏览器访问 `http://127.0.0.1:3013` 即可看到界面。Vite 与 Compose 默认只监听 `127.0.0.1`。
 
 ---
 
@@ -229,10 +229,11 @@ docker compose ps
 
 | 服务 | 地址 |
 |------|------|
-| 前端 | `http://localhost:3013` |
-| 后端健康检查 | `http://localhost:5679/health` |
-| 后端就绪检查 | `http://localhost:5679/ready` |
-| API 路径前缀 | `http://localhost:5679/api/v1`（该前缀本身不是可访问资源） |
+| 前端 | `http://127.0.0.1:3013` |
+| 前端 Docker 健康检查 | `http://127.0.0.1:3013/healthz`（代理后端 `/ready`） |
+| 后端健康检查 | `http://127.0.0.1:5679/health` |
+| 后端就绪检查 | `http://127.0.0.1:5679/ready` |
+| API 路径前缀 | `http://127.0.0.1:5679/api/v1`（该前缀本身不是可访问资源） |
 
 Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器默认把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下；发布回滚脚本会把从实际 backend 容器捕获并验证的宿主 bind source 通过 `LOCALMINIDRAMA_DATA_DIR` 重新绑定到该目标。前端容器使用 Nginx 提供 Vite 的生产构建产物，源码没有 bind mount。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
 

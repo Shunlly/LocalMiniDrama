@@ -582,7 +582,10 @@ function terminalizeOwnedMergeRecords(db, task, message, updatedAt, terminalStat
           AND status IN ('pending', 'processing') AND deleted_at IS NULL`
     ).run(status, String(message || '').slice(0, 500), updatedAt, task.id, expected);
   } catch (error) {
-    if (/no such table/i.test(error?.message || '')) return;
+    if (/no such table/i.test(error?.message || '')) {
+      syncEpisodeStatusAfterMergeTerminal(db, task, terminalStatus, updatedAt);
+      return;
+    }
     if (!/completed_at|error_msg/i.test(error?.message || '')) throw error;
     db.prepare(
       `UPDATE video_merges SET status = ?
@@ -590,6 +593,44 @@ function terminalizeOwnedMergeRecords(db, task, message, updatedAt, terminalStat
           AND (CASE WHEN drama_id IS NULL OR drama_id = 0 THEN '' ELSE CAST(drama_id AS TEXT) END) = ?
           AND status IN ('pending', 'processing') AND deleted_at IS NULL`
     ).run(status, task.id, expected);
+  }
+  syncEpisodeStatusAfterMergeTerminal(db, task, terminalStatus, updatedAt);
+}
+
+function syncEpisodeStatusAfterMergeTerminal(db, task, terminalStatus, updatedAt) {
+  if (task?.type !== 'video_merge') return;
+  let merges;
+  try {
+    merges = db.prepare(
+      'SELECT id, episode_id, status FROM video_merges WHERE task_id = ?'
+    ).all(task.id);
+  } catch (error) {
+    if (/no such table|no such column/i.test(error?.message || '')) return;
+    throw error;
+  }
+  const mergeStatus = terminalStatus === 'failed' ? 'failed' : 'cancelled';
+  const nextStatus = terminalStatus === 'failed' ? 'failed' : 'draft';
+  for (const merge of merges) {
+    if (String(merge.status || '') !== mergeStatus) continue;
+    const episodeId = Number(merge.episode_id);
+    if (!Number.isSafeInteger(episodeId) || episodeId <= 0) continue;
+    try {
+      db.prepare(
+        `UPDATE episodes
+            SET status = ?, updated_at = ?
+          WHERE id = ?
+            AND status = 'processing'
+            AND ? = (
+              SELECT id FROM video_merges
+               WHERE episode_id = ?
+               ORDER BY id DESC
+               LIMIT 1
+            )`
+      ).run(nextStatus, updatedAt, episodeId, merge.id, episodeId);
+    } catch (error) {
+      if (/no such table|no such column/i.test(error?.message || '')) return;
+      throw error;
+    }
   }
 }
 
@@ -1128,18 +1169,35 @@ function scheduleRemoteCancellationRetry(db, log, taskId, token, reason) {
   return true;
 }
 
+function logTaskCancelOperation(log, taskId, token, phase, extra = {}) {
+  log?.operation?.({
+    operation: 'task_cancel',
+    operationId: token || String(taskId),
+    phase,
+    task_id: taskId,
+    ...extra,
+  });
+}
+
 async function executeCancellation(db, log, taskId, reason, prepared, options) {
+  const token = prepared.token;
+  logTaskCancelOperation(log, taskId, token, 'start');
+  const result = await executeCancellationAttempt(db, log, taskId, reason, prepared, options);
+  if (!result?.ok) {
+    logTaskCancelOperation(log, taskId, token, 'error', {
+      status: result?.reason || 'failed',
+      error: result?.error || result?.reason || null,
+    });
+  }
+  return result;
+}
+
+async function executeCancellationAttempt(db, log, taskId, reason, prepared, options) {
   const persistedContext = prepared.context || taskCancelContext(getRawTask(db, taskId));
   const cancellationReason = String(reason || persistedContext?.reason || USER_CANCEL_TASK_MSG)
     .trim()
     .slice(0, 2000) || USER_CANCEL_TASK_MSG;
   const token = prepared.token;
-  log?.operation?.({
-    operation: 'task_cancel',
-    operationId: token || String(taskId),
-    phase: 'start',
-    task_id: taskId,
-  });
   const claim = claimCancellationAttempt(db, taskId, token);
   if (claim.kind === 'stale') {
     return {
@@ -1244,13 +1302,6 @@ async function executeCancellation(db, log, taskId, reason, prepared, options) {
     const restored = restoreAfterRemoteRejection(db, taskId, token, outcome);
     if (restored.stale) return { ok: false, reason: 'cancel_superseded', error: REMOTE_CANCEL_SUPERSEDED_MSG, task: restored.task };
     log.error?.('Task remote cancellation failed', { task_id: taskId, type: task.type, error: outcome.error });
-    log?.operation?.({
-      operation: 'task_cancel',
-      operationId: token || String(taskId),
-      phase: 'error',
-      task_id: taskId,
-      error: outcome.error,
-    });
     return {
       ok: false,
       reason: restored.failed ? 'remote_cancel_exhausted' : 'remote_cancel_failed',
@@ -1281,7 +1332,17 @@ function cancelTask(db, log, taskId, reason, options = {}) {
   try {
     prepared = prepareCancellation(db, taskId, reason, options);
   } catch (error) {
+    logTaskCancelOperation(log, taskId, null, 'error', {
+      status: error.code || 'failed',
+      error: error.message,
+    });
     return Promise.reject(error);
+  }
+  if (!prepared.ok && !prepared.already_done) {
+    logTaskCancelOperation(log, taskId, prepared.token, 'error', {
+      status: prepared.reason || 'failed',
+      error: prepared.error || prepared.reason || null,
+    });
   }
   if (!prepared.ok || prepared.already_done) return Promise.resolve(prepared);
 

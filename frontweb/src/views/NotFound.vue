@@ -4,7 +4,10 @@
       <p class="product-name">LocalMiniDrama</p>
       <p class="status-code" aria-hidden="true">404</p>
       <h1 id="not-found-title" ref="titleRef" tabindex="-1">页面不存在</h1>
-      <p class="description">地址可能已失效，或项目编号不正确。</p>
+      <p class="description">
+        <template v-if="fromPath">无法打开地址 {{ fromPath }}。地址可能已失效，或项目编号不正确。</template>
+        <template v-else>地址可能已失效，或项目编号不正确。</template>
+      </p>
       <div class="actions">
         <el-button v-if="canGoBack" :icon="ArrowLeft" @click="goBack">返回上一页</el-button>
         <el-button type="primary" :icon="HomeFilled" @click="goHome">项目列表</el-button>
@@ -17,7 +20,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ArrowLeft, HomeFilled } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
-import { resolveNotFoundNavigation } from '@/utils/notFoundNavigation.js'
+import { resolveNotFoundFromPath, resolveNotFoundNavigation } from '@/utils/notFoundNavigation.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -25,6 +28,7 @@ const titleRef = ref(null)
 
 const navigation = computed(() => resolveNotFoundNavigation(router.options.history.state, route.fullPath))
 const canGoBack = computed(() => navigation.value.type === 'back')
+const fromPath = computed(() => resolveNotFoundFromPath(route.query.from))
 
 function goBack() {
   if (canGoBack.value) router.back()

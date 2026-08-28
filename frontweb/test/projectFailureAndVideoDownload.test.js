@@ -49,12 +49,12 @@ test('project pages keep core load failures outside every editable project surfa
 
   assert.match(dramaDetailSource, /<template v-else-if="isDramaReady">[\s\S]*剧集信息/)
   assert.match(dramaDetailSource, /<template v-if="isDramaReady">\s*<!--[\s\S]*?<AccessibleDialog/)
-  assert.match(dramaDetailSource, /<el-button v-if="isDramaReady" type="primary" @click="goCreate">/)
+  assert.match(dramaDetailSource, /<el-tooltip[\s\S]*v-if="isDramaReady"[\s\S]*请先新增一集，再进入制作[\s\S]*:disabled="!currentEpisodeId" @click="goCreate">/)
 
   assert.match(filmCreateSource, /<nav v-if="projectLoadState === 'ready'"/)
   assert.match(filmCreateSource, /<main v-if="projectLoadState === 'loading'"/)
   assert.match(filmCreateSource, /<main v-else-if="projectLoadState === 'error'"/)
-  assert.match(filmCreateSource, /<main v-else class="main">[\s\S]*故事生成/)
+  assert.match(filmCreateSource, /<main v-else class="main">[\s\S]*FilmCreateScriptWorkbench/)
   assert.match(filmCreateSource, /<template v-if="projectLoadState === 'ready'">\s*<!--[\s\S]*?<AccessibleDialog/)
   assert.match(filmCreateSource, /:disabled="projectLoadState !== 'ready'" @click="openAiConfig\(\)"/)
   assert.match(filmCreateSource, /v-if="!projectLoadNotFound"[\s\S]*重试加载/)

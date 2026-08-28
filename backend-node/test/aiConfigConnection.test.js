@@ -165,4 +165,60 @@ describe('aiConfigService.testConnection', () => {
       }
     );
   });
+
+
+  it('rejects a stale default model before sending credentials', async () => {
+    let probeCalls = 0;
+    await assert.rejects(
+      aiConfigService.testConnection({
+        base_url: 'https://provider.example.com/v1',
+        api_key: 'saved-secret',
+        provider: 'openai',
+        service_type: 'text',
+        model: ['current-model'],
+        default_model: 'retired-model',
+        fetch_impl: async () => {
+          probeCalls += 1;
+          return new Response('{}', { status: 200 });
+        },
+        provider_dns_lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+      }),
+      (error) => error?.code === 'INVALID_AI_CONFIG' && error?.details?.issue === 'not_in_model_list'
+    );
+    assert.equal(probeCalls, 0);
+  });
+
+  it('cancels an in-flight probe when the caller unloads instead of reporting timeout', async () => {
+    const controller = new AbortController();
+    let sawSignal = false;
+    const fetchImpl = (_url, options) => new Promise((_, reject) => {
+      sawSignal = options.signal instanceof AbortSignal;
+      const onAbort = () => {
+        const error = new Error('The operation was aborted.');
+        error.name = 'AbortError';
+        reject(error);
+      };
+      if (options.signal?.aborted) onAbort();
+      else options.signal.addEventListener('abort', onAbort, { once: true });
+    });
+    const pending = aiConfigService.testConnection({
+      base_url: 'https://provider.example.com/v1',
+      api_key: 'saved-secret',
+      provider: 'openai',
+      service_type: 'text',
+      model: 'text-model',
+      fetch_impl: fetchImpl,
+      provider_dns_lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+      signal: controller.signal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort();
+    await assert.rejects(pending, (error) => {
+      assert.equal(error.code, 'ERR_CANCELED');
+      assert.match(error.message, /取消/);
+      assert.doesNotMatch(error.message, /超时/);
+      return true;
+    });
+    assert.equal(sawSignal, true);
+  });
 });

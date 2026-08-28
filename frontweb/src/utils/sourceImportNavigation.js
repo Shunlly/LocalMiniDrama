@@ -1,5 +1,7 @@
+import { resolveProjectEpisodeId } from './projectListRoute.js'
+
 export function hasProjectEpisodes(project) {
-  return Array.isArray(project?.episodes) && project.episodes.length > 0
+  return resolveProjectEpisodeId(project?.episodes) != null
 }
 
 export function projectCardDestination(project, sourceImportIntent, returnTo) {
@@ -8,7 +10,8 @@ export function projectCardDestination(project, sourceImportIntent, returnTo) {
   if (sourceImportIntent) {
     return newProjectDestination(project, sourceImportIntent, returnTo)
   }
-  if (!hasProjectEpisodes(project)) {
+  const episodeId = resolveProjectEpisodeId(project?.episodes)
+  if (!episodeId) {
     return {
       name: 'drama-detail',
       params: { id },
@@ -19,7 +22,7 @@ export function projectCardDestination(project, sourceImportIntent, returnTo) {
   return {
     name: 'film',
     params: { id },
-    query: { returnTo },
+    query: { returnTo, episode: String(episodeId) },
   }
 }
 

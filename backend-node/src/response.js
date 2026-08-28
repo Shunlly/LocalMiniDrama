@@ -63,7 +63,7 @@ function ensureRequestId(res) {
 function internalError(res, message) {
   const requestId = ensureRequestId(res);
   const safeMessage = process.env.NODE_ENV === 'production'
-    ? 'Internal server error'
+    ? '服务器内部错误'
     : (message || '服务器错误');
   send(res, 500, {
     success: false,

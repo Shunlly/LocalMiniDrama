@@ -206,7 +206,7 @@ describe('aiConfigService secret handling', () => {
         api_key: '********',
         settings: JSON.stringify({ allow_local_http: true }),
       }),
-      (error) => error.code === 'INVALID_PROVIDER_URL' && /Stored credentials/.test(error.message)
+      (error) => error.code === 'INVALID_PROVIDER_URL' && /已保存的凭据/.test(error.message)
     );
     const unchanged = aiConfigService.getConfig(db, created.id);
     assert.equal(unchanged.base_url, 'https://provider.example/v1');
@@ -520,7 +520,8 @@ describe('aiConfigService secret handling', () => {
       assert.equal(res.statusCode, 200);
       assert.equal(captured.api_key, 'saved-secret');
       assert.equal(captured.base_url, 'https://provider.example.com/v1');
-      assert.equal(captured.model, 'model-a');
+      assert.deepEqual(captured.model, ['model-a']);
+      assert.equal(captured.default_model, 'model-a');
     } finally {
       aiConfigService.testConnection = original;
     }

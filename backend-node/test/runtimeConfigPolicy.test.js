@@ -47,3 +47,10 @@ test('config loader prioritizes the explicit sanitized runtime path', (t) => {
 
   assert.equal(loadConfig().app.name, 'Runtime Override');
 });
+
+test('runtime config policy rejects TLS verification bypass flags', () => {
+  assert.throws(
+    () => sanitizeRuntimeConfig({ server: { insecure_tls: true } }),
+    /cannot disable TLS certificate verification/
+  );
+});

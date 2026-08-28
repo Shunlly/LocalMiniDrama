@@ -72,11 +72,11 @@
 
       <template v-else-if="kind === 'image'">
         <div class="preview-wrap">
-          <img v-if="url && !busy" :src="url" alt="" class="preview-img" />
-          <div v-else-if="!busy" class="preview-empty">无分镜图</div>
-          <div v-if="busy" class="preview-loading"><span class="spinner" />生图中...</div>
+          <img v-if="url && !busy" :src="url" :alt="frameTitle ? `${frameTitle}预览` : ''" class="preview-img" />
+          <div v-else-if="!busy" class="preview-empty">{{ frameTitle ? `无${frameTitle}` : '无分镜图' }}</div>
+          <div v-if="busy" class="preview-loading"><span class="spinner" />{{ frameBusyLabel }}</div>
         </div>
-        <el-button size="small" type="primary" :loading="busy" @click.stop="runStep('image')">重新生成图</el-button>
+        <el-button size="small" type="primary" :loading="busy" @click.stop="runStep('image')">{{ frameActionLabel }}</el-button>
       </template>
 
       <template v-else-if="kind === 'video'">
@@ -171,10 +171,22 @@ const showMediaQueryBlocker = computed(() => (
   mediaQueryUnknown.value && ['image', 'video', 'universal'].includes(props.kind)
 ))
 
+const frameTitle = computed(() => {
+  if (props.frameKind === 'first') return '首帧'
+  if (props.frameKind === 'last') return '尾帧'
+  return ''
+})
 const kindTitle = computed(() => {
+  if (frameTitle.value) return frameTitle.value
   const map = { text: '脚本摘要', universal: '全能分镜词', image: '分镜图', video: '视频', audio: '音频' }
   return map[props.kind] || '媒体'
 })
+const frameActionLabel = computed(() => (
+  frameTitle.value ? `重新生成${frameTitle.value}` : '重新生成图'
+))
+const frameBusyLabel = computed(() => (
+  frameTitle.value ? `${frameTitle.value}生成中...` : '生图中...'
+))
 
 const busyLabel = computed(() => {
   const map = ctx?.nodeStatus?.map

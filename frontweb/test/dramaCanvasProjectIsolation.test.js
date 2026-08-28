@@ -564,6 +564,7 @@ test('node creation aborts when the visible safe area has no open position', asy
     selectedFreeNodeId: { value: null },
     selectedFreeNodeIds: { value: [] },
     selectedFreeEdgeIds: { value: [] },
+    ignoreEmptyFreeSelectionUntil: 0,
     commitFreeCanvasState() { commitCalls += 1 },
   })
 
@@ -616,6 +617,7 @@ function realPlacementCreationHarness(screenRect) {
     selectedFreeNodeId,
     selectedFreeNodeIds,
     selectedFreeEdgeIds,
+    ignoreEmptyFreeSelectionUntil: 0,
     canvasMode: { value: 'free' },
     freeCanvas,
     setCanvasMode: async () => {},

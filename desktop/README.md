@@ -1,6 +1,6 @@
 # LocalMiniDrama 桌面客户端
 
-基于 Electron 的本地桌面应用，内嵌 `backend-node` 与 `frontweb`。当前包版本为 **1.3.3 发布候选**，候选目标为 Windows x64 Setup 与 Portable；Git 尚无 `v1.3.3` 标签或正式 Release，本地构建产物不是 GitHub 正式发布。自由画布实现及代码复审已完成，但真实 Docker 与生产 E2E 仍待验证；正式二进制必须等同一 Git SHA 的全部门禁通过并经人工发布。macOS 构建会主动拒绝执行，不在当前验收矩阵。
+基于 Electron 的本地桌面应用，内嵌 `backend-node` 与 `frontweb`。当前包版本为 **1.3.3 发布候选**，候选目标为 Windows x64 Setup 与 Portable；Git 尚无 `v1.3.3` 标签或正式 Release，本地构建产物不是 GitHub 正式发布。干净提交 `f2fa2a85` 上已通过本地 Docker 生产 E2E 与自由画布 E2E 证据校验，后续提交或未提交改动不能自动继承该证据。正式二进制必须等同一 Git SHA 的全部门禁通过并经人工发布。macOS 构建会主动拒绝执行，不在当前验收矩阵。桌面依赖安装、原生重建、打包和 Windows 制品安全扫描固定使用 Node.js 22.12.0。
 
 ---
 
@@ -24,7 +24,7 @@
 | 合成视频 | 将所有分镜视频合成为完整剧集 |
 | 主题 | 支持暗色模式（默认）与浅色模式，偏好持久保存 |
 
-自由画布当前只验收桌面键鼠范围。移动/触控、新真实 Provider 路由、协作与完整 Agent/MCP 后置；自动化测试不调用外部真实 Provider。实现收尾报告位于 `http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`，其中最终 Docker/生产 E2E 门禁明确标记为待验证。
+自由画布当前只验收桌面键鼠范围。移动/触控、新真实 Provider 路由、协作与完整 Agent/MCP 后置；自动化测试不调用外部真实 Provider。2026-07-27 收尾报告位于 `http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`，只覆盖该日范围，不能替代后续 SHA 绑定的 Docker / 生产 E2E 重验。
 
 ---
 

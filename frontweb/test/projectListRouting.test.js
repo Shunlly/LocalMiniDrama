@@ -156,7 +156,7 @@ test('project list and project workspaces wire safe return navigation through th
   assert.match(dramaDetailSource, /withProjectListReturnTo\(query\)/)
 
   assert.match(routerSource, /import \{ normalizeProjectListReturnTo \} from '@\/utils\/projectListRoute'/)
-  assert.match(routerSource, /\['drama-detail', 'film'\]\.includes\(to\.name\)/)
+  assert.match(routerSource, /\['drama-detail', 'film', 'film-canvas'\]\.includes\(to\.name\)/)
   assert.match(routerSource, /delete query\.returnTo/)
 })
 

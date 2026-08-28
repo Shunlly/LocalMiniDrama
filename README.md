@@ -48,7 +48,7 @@
 - 🆕 **桌面创作流程收口**：项目就绪度给出唯一下一步，素材导入、处理、QA、修复、剧集与时间线形成可恢复的五步流程
 - 🆕 **多厂商 AI 配置**：按文本、素材图片、分镜图片、视频和 TTS 管理模型，支持连接测试、默认配置和本地/云端路由
 - 🔧 **AI 就绪度与桌面流程**：连接状态按运行实例隔离并随配置变更失效；缺凭据/模型/工作流时直达具体字段，已有项目可从素材中心直接进入网页 URL 导入
-- 🆕 **Novel2Anime 生产链路**：PDF/图片 OCR、音视频转写、图片/视频/TTS 生成与 FFmpeg 合成串成可验收工作流
+- 🆕 **Novel2Anime 生产链路**：文本导入、图片/视频/TTS 与 FFmpeg 合成已串成可验收工作流；PDF/图片 OCR 与音视频转写仍后置
 - 🔧 **制作页与画布体验**：项目列表支持服务端搜索/分页和项目级素材入口；画布检查器支持前后镜头与真实媒体摘要；制作台统一成片、字幕和项目包交付
 - 🆕 **制作 + 自由双模式画布**：同一路由保留生产流水线，并加入五类自由节点、素材拖入、自由连线、历史操作、精确保存重试和显式生产引用转换
 - 🔒 **发布安全与运维**：本机监听、SSRF/导入导出边界、敏感配置脱敏、可信媒体工具、数据备份恢复与生产 Docker 门禁
@@ -271,16 +271,16 @@ Windows 安全工作流会先更新 Defender 签名，更新失败即停止；`A
 git clone https://github.com/Shunlly/LocalMiniDrama.git
 cd LocalMiniDrama
 
-# 后端（端口 5679）
+# 后端开发热重载（端口 5679）；无热重载可用 npm start
 cd backend-node && npm install
 # configs/config.yaml 已随仓库提供；AI Key 通过前端「AI 配置」写入数据库
-npm start
+npm run dev
 
 # 前端（端口 3013，新终端）
 cd frontweb && npm install && npm run dev
 ```
 
-浏览器打开 `http://localhost:3013`，或双击根目录 **`run_dev.bat`** 一键启动。启动器只会复用已验证的 LocalMiniDrama 前后端；5679 或 3013 被其他程序占用时会明确退出，不会终止陌生进程。新启动的服务会在通过就绪探针后才打开浏览器，60 秒内未就绪则失败关闭并保留服务窗口供排错。Vite 默认只监听 `127.0.0.1`，确需局域网调试时必须显式设置 `VITE_DEV_SERVER_HOST`。
+浏览器打开 `http://127.0.0.1:3013`，或双击根目录 **`run_dev.bat`** / 运行 **`run_dev.ps1`** 一键启动（启动器实际打开的也是 `127.0.0.1`）。启动器只会复用已验证的 LocalMiniDrama 前后端；5679 或 3013 被其他程序占用时会明确退出，不会终止陌生进程。新启动的服务会在通过就绪探针后才打开浏览器，60 秒内未就绪则失败关闭并保留服务窗口供排错。Vite 默认只监听 `127.0.0.1`，确需局域网调试时必须显式设置 `VITE_DEV_SERVER_HOST`。
 
 也可以直接从仓库根目录使用 Docker；这是当前 `1.3.3` 源码候选的可用部署路径：
 
@@ -289,7 +289,7 @@ npm run docker:up
 docker compose ps
 ```
 
-前端仍访问 `http://localhost:3013`，后端健康/就绪检查为 `http://localhost:5679/health` 和 `http://localhost:5679/ready`。Compose 默认仅绑定宿主机 `127.0.0.1`，并使用只读根文件系统、`no-new-privileges` 与能力裁剪。`npm run docker:up` 要求干净工作树，并把当前 Git SHA 写入镜像 revision；开发中的未提交源码可直接运行 `docker compose up -d --build --wait`，但这类镜像不能创建正式回滚检查点。`npm run verify:docker` 验证镜像边界并在临时验证容器内运行前后端测试，不代替当前 Compose 服务的运行态验收；运行态还需启动 Compose、探测 `/health`、`/ready`、`/healthz`，并执行生产 E2E。生产 E2E 必须在仓库外新建空数据目录后设置 `LOCALMINIDRAMA_DATA_DIR`，再执行 `npm run docker:e2e:up` 和 `npm run verify:e2e`，最后销毁 E2E profile 与临时数据目录；完整 PowerShell 命令见 [快速开始](docs/quickstart.md#运行方式二docker当前候选部署)。自由画布的 E2E 代码与契约已复审，但截至 2026-08-02 当前候选尚未重新执行真实 Docker 矩阵，不能作为发布通过证据。本地 Docker 构建、运行或验收通过都不等于 GitHub 正式发布。发布前停止后端和 Docker，并在干净工作树运行 `npm run verify:rollback`；正式上线还必须按 [快速开始](docs/quickstart.md) 保留真实数据备份、旧提交、运行镜像 ID、Compose / 配置与 SHA-256。桌面产品验收报告可在 `http://localhost:3013/reports/product-acceptance/report.html` 查看，自由画布收尾报告位于 `http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`。
+前端仍访问 `http://127.0.0.1:3013`，后端健康/就绪检查为 `http://127.0.0.1:5679/health` 和 `http://127.0.0.1:5679/ready`，Docker 前端健康检查为 `http://127.0.0.1:3013/healthz`（代理后端 `/ready`）。Compose 默认仅绑定宿主机 `127.0.0.1`，并使用只读根文件系统、`no-new-privileges` 与能力裁剪。`npm run docker:up` 要求干净工作树，并把当前 Git SHA 写入镜像 revision；开发中的未提交源码可直接运行 `docker compose up -d --build --wait`，但这类镜像不能创建正式回滚检查点。`npm run verify:docker` 验证镜像边界并在临时验证容器内运行前后端测试，不代替当前 Compose 服务的运行态验收；运行态还需启动 Compose、探测 `/health`、`/ready`、`/healthz`，并执行生产 E2E。生产 E2E 必须在仓库外新建空数据目录后设置 `LOCALMINIDRAMA_DATA_DIR`，再执行 `npm run docker:e2e:up` 和 `npm run verify:e2e`，最后销毁 E2E profile 与临时数据目录；完整 PowerShell 命令见 [快速开始](docs/quickstart.md#运行方式二docker当前候选部署)。干净提交 `f2fa2a85` 上的本地 Docker 生产 E2E 与自由画布 E2E 只绑定该 SHA；后续提交或未提交改动必须重跑后才能作为发布证据。仓库生产 E2E 使用本地协议兼容 Provider，不代表真实厂商账号已深度联调。本地 Docker 构建、运行或验收通过都不等于 GitHub 正式发布。发布前停止后端和 Docker，并在干净工作树运行 `npm run verify:rollback`；正式上线还必须按 [快速开始](docs/quickstart.md) 保留真实数据备份、旧提交、运行镜像 ID、Compose / 配置与 SHA-256。桌面产品验收报告可在 `http://127.0.0.1:3013/reports/product-acceptance/report.html` 查看，自由画布收尾报告位于 `http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`。
 
 异常退出若留下维护租约，必须按 [维护租约恢复步骤](docs/quickstart.md#q-如何备份迁移项目数据) 先检查归属，再用精确作用域和 PID 显式恢复；不要直接删除锁文件。
 
@@ -356,7 +356,7 @@ npm run verify:release
 LocalMiniDrama/
 ├── backend-node/     # Express + SQLite，生成/合成/导入导出
 ├── frontweb/         # Vue 3 + Element Plus + @vue-flow/core
-│   └── views/        # FilmList · DramaDetail · FilmCreate · DramaCanvas
+│   └── src/views/    # FilmList · DramaDetail · FilmCreate · DramaCanvas · AiConfig · FreeCreate · MediaLibrary
 ├── desktop/          # Electron 打包 exe
 └── docs/             # 文档与计划
 ```

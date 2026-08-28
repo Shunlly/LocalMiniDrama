@@ -155,8 +155,8 @@ test('readiness fails without exposing filesystem details or allowing a missing 
     },
   });
   assert.equal(result.ready, false);
-  assert.deepEqual(result.checks.storage, { ok: false, error: 'storage unavailable' });
-  assert.deepEqual(result.checks.maintenance, { ok: false, error: 'maintenance lease unavailable' });
+  assert.deepEqual(result.checks.storage, { ok: false, error: '存储目录不可用' });
+  assert.deepEqual(result.checks.maintenance, { ok: false, error: '维护租约不可用' });
   assert.equal(JSON.stringify(result).includes(secretPath), false);
 });
 
@@ -168,6 +168,23 @@ test('readiness refuses a closed database even when storage and lease are health
   });
   assert.equal(result.ready, false);
   assert.equal(result.checks.database.ok, false);
+  assert.equal(result.checks.storage.ok, true);
+  assert.equal(result.checks.maintenance.ok, true);
+});
+
+test('readiness 写探测失败时不会把 database.ok 留成 true', (t) => {
+  const workspace = makeReadinessWorkspace(t);
+  workspace.db.close();
+  const readonlyDb = new Database(workspace.databasePath, { readonly: true, fileMustExist: true });
+  t.after(() => {
+    if (readonlyDb.open) readonlyDb.close();
+  });
+  const result = checkReadiness(readonlyDb, workspace.storage, {
+    maintenanceGuard: workspace.maintenanceGuard,
+  });
+  assert.equal(result.ready, false);
+  assert.equal(result.checks.database.ok, false);
+  assert.equal(result.checks.database.error, '数据库不可用');
   assert.equal(result.checks.storage.ok, true);
   assert.equal(result.checks.maintenance.ok, true);
 });

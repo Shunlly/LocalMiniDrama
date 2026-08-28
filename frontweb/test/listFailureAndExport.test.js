@@ -150,7 +150,14 @@ test('project list uses a persistent failure state without replacing it with an 
   assert.match(loadListSource, /hasSuccessfulListLoad\.value = true/)
   assert.match(loadListSource, /listError\.value = ''/)
   assert.match(loadListSource, /listError\.value = describeProjectLoadError\(error\)/)
+  assert.match(loadListSource, /listAbortController\?\.abort\(\)/)
+  assert.match(loadListSource, /signal: controller\.signal/)
+  assert.match(loadListSource, /isRequestCanceled\(error\) \|\| requestId !== listRequestSequence/)
   assert.doesNotMatch(loadListSource, /dramas\.value\s*=\s*\[\]/)
+  assert.match(
+    filmListSource,
+    /onBeforeUnmount\(\(\) => \{[\s\S]*listAbortController\?\.abort\(\)/,
+  )
 })
 
 test('project writes stay locked until a successful list response', () => {
@@ -374,4 +381,15 @@ test('project export behavior reports success only after validation and recovers
   assert.equal(harness.exportFailure.value, null)
   assert.match(harness.calls.join('|'), /api:8\|create-url\|append\|click\|success:/)
   assert.match(harness.calls.join('|'), /remove\|revoke:blob:test-export$/)
+})
+
+test('分类素材加载失败不会被伪装成空库，且 AI 配置在列表失败时仍可打开', () => {
+  assert.match(filmListSource, /const charLibraryError = ref\(''\)/)
+  assert.match(filmListSource, /charLibraryError\.value = describeServiceLoadError/)
+  assert.doesNotMatch(filmListSource, /catch \{ charLibraryList\.value = \[\] \}/)
+  assert.match(filmListSource, /v-if="charLibraryError"[\s\S]*@click="loadCharLibraryList"[\s\S]*重试/)
+  assert.match(filmListSource, /v-if="!charLibraryLoading && !charLibraryError && charLibraryList\.length === 0"/)
+  assert.match(filmListSource, /没有匹配的角色，试试其他关键词/)
+  assert.match(filmListSource, /class="btn-settings" title="打开 AI 配置" @click="showAiConfigDialog = true"/)
+  assert.doesNotMatch(filmListSource, /class="btn-settings" :disabled="listWriteLocked"/)
 })
