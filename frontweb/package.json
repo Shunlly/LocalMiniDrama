@@ -16,7 +16,7 @@
     "verify:free-canvas-evidence": "node scripts/verify-free-canvas-evidence.cjs",
     "e2e:production:raw": "node scripts/e2e-production.cjs",
     "e2e:production": "npm run e2e:production:raw && npm run verify:acceptance-report:final && npm run e2e:free-canvas && npm run verify:free-canvas-evidence",
-    "test": "node --test",
+    "test": "node --import ./test/registerSrcAlias.js --test",
     "verify:acceptance-report": "node scripts/verify-acceptance-report.cjs --mode=tracked",
     "verify:acceptance-report:final": "node scripts/verify-acceptance-report.cjs --mode=final --evidence-root ../artifacts/e2e-production",
     "verify": "npm run check && npm run test && npm run verify:acceptance-report && npm run build"

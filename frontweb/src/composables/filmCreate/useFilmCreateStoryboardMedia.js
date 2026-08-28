@@ -13,6 +13,7 @@ export function useFilmCreateStoryboardMedia({
   imagesAPI,
   videosAPI,
   onSelectionsRestored,
+  loadDrama,
 } = {}) {
   const sbImages = ref({})
   const sbVideos = ref({})
@@ -157,6 +158,12 @@ export function useFilmCreateStoryboardMedia({
     return storyboardMediaStateController.actionReason(currentStoryboardMediaContext())
   })
 
+
+  function captureDramaRefresh(expectedContext = currentStoryboardMediaContext()) {
+    const capturedContext = { ...expectedContext }
+    return () => loadDrama({ expectedContext: capturedContext })
+  }
+
   return {
     sbImages,
     sbVideos,
@@ -173,5 +180,6 @@ export function useFilmCreateStoryboardMedia({
     refreshStoryboardMediaForCurrentContext,
     loadStoryboardMedia,
     loadSingleStoryboardMedia,
+    captureDramaRefresh,
   }
 }

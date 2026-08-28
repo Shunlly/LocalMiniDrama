@@ -1604,6 +1604,7 @@ const {
   refreshStoryboardMediaForCurrentContext,
   loadStoryboardMedia,
   loadSingleStoryboardMedia,
+  captureDramaRefresh,
 } = useFilmCreateStoryboardMedia({
   dramaId,
   currentEpisodeId,
@@ -1611,13 +1612,9 @@ const {
   imagesAPI,
   videosAPI,
   onSelectionsRestored: () => restoreSelectionsFromBackend(),
+  loadDrama: (...args) => loadDrama(...args),
 })
 const sbVideoErrors = ref({})
-
-function captureDramaRefresh(expectedContext = currentStoryboardMediaContext()) {
-  const capturedContext = { ...expectedContext }
-  return () => loadDrama({ expectedContext: capturedContext })
-}
 const generatingSbImageIds = reactive(new Set())
 const generatingSbVideoIds = reactive(new Set())
 const generatingUniversalSegmentIds = reactive(new Set())
@@ -2172,10 +2169,6 @@ const {
   regenSbImagesProgress,
   sbSelectedImgId,
 })
-
-function updateStoryboardDialogue(sbId) {
-  // 可在此防抖后调用后端更新 dialogue
-}
 
 const {
   saveScriptToBackend,

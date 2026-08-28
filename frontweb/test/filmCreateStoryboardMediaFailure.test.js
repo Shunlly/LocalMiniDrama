@@ -120,7 +120,7 @@ test('every storyboard Provider write has the same immediate synchronous asserti
 test('linked-resource regeneration checks entry, confirmation, loop, and fail-closed errors', () => {
   const linked = sourceBetween(
     'async function onRegenAffectedSbImages',
-    'function updateStoryboardDialogue',
+    'return {\n    onRegenAffectedSbImages',
   )
   const confirmation = linked.indexOf('await ElMessageBox.confirm')
   const loop = linked.indexOf('for (let i = 0; i < affectedBoards.length; i++)')
