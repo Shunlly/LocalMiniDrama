@@ -2018,13 +2018,26 @@ function excludeSecretsFromSnapshot(snapshotPath) {
   return { excludedValues: excluded, policy: 'excluded' };
 }
 
-async function canWriteSqlitePath(databasePath) {
+function isReadonlySqliteError(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return code.includes('READONLY') || /readonly|read-only|EROFS/i.test(message);
+}
+
+function openExclusiveBackupFreeze(databasePath) {
+  const db = new Database(databasePath, { fileMustExist: true });
+  db.pragma('busy_timeout = 0');
+  db.exec('BEGIN EXCLUSIVE');
+  return db;
+}
+
+function snapshotReadonlyDatabase(databasePath, snapshotPath) {
+  const db = new Database(databasePath, { readonly: true, fileMustExist: true });
   try {
-    await fsp.access(databasePath, fs.constants.W_OK);
-    await fsp.access(path.dirname(databasePath), fs.constants.W_OK);
-    return true;
-  } catch (_) {
-    return false;
+    db.pragma('busy_timeout = 0');
+    db.prepare('VACUUM INTO ?').run(snapshotPath);
+  } finally {
+    db.close();
   }
 }
 
@@ -2033,13 +2046,10 @@ async function captureBackupView(databasePath, storagePath, storySourcesPath, sn
   let transactionStarted = false;
   try {
     assertOperationNotAborted(options?.signal);
-    const writable = await canWriteSqlitePath(databasePath);
-    freeze = new Database(databasePath, { readonly: !writable, fileMustExist: true });
-    freeze.pragma('busy_timeout = 0');
-    if (writable) {
-      const journalMode = String(freeze.pragma('journal_mode', { simple: true }) || '').toLowerCase();
-      freeze.exec('BEGIN EXCLUSIVE');
+    try {
+      freeze = openExclusiveBackupFreeze(databasePath);
       transactionStarted = true;
+      const journalMode = String(freeze.pragma('journal_mode', { simple: true }) || '').toLowerCase();
       await runFaultInjector(options, 'after-backup-freeze-acquired');
       assertOperationNotAborted(options?.signal);
       if (journalMode === 'wal') {
@@ -2047,8 +2057,19 @@ async function captureBackupView(databasePath, storagePath, storySourcesPath, sn
       } else {
         await createLockedDatabaseSnapshot(databasePath, snapshotPath);
       }
-    } else {
-      freeze.prepare('VACUUM INTO ?').run(snapshotPath);
+    } catch (error) {
+      if (freeze) {
+        if (transactionStarted) {
+          try { freeze.exec('ROLLBACK'); } catch (_) {}
+        }
+        try { freeze.close(); } catch (_) {}
+        freeze = null;
+        transactionStarted = false;
+      }
+      if (!isReadonlySqliteError(error) && !['EACCES', 'EPERM', 'SQLITE_READONLY', 'SQLITE_CANTOPEN'].includes(String(error?.code || ''))) {
+        throw error;
+      }
+      snapshotReadonlyDatabase(databasePath, snapshotPath);
       await runFaultInjector(options, 'after-backup-freeze-acquired');
       assertOperationNotAborted(options?.signal);
     }

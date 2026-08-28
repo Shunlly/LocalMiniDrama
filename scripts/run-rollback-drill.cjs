@@ -1026,17 +1026,25 @@ async function executeRollbackDrill(options, runtime) {
         archiveBytes = Number(archiveIdentity.size)
         assert.equal(Number.isSafeInteger(archiveBytes), true, 'rollback archive size is not a safe integer')
       } else {
-        backup = await runtime.createDataBackup({
-          databasePath: sourcePaths.databasePath,
-          storagePath: sourcePaths.storagePath,
-          storySourcesPath: sourcePaths.storySourcesPath,
-          outputPath: archivePath,
-          serviceHost: runtime.serviceHost,
-          servicePort: runtime.servicePort,
-          externalMaintenanceLease: runtime.externalMaintenanceLease,
-          signal,
-          limits,
-        })
+        try {
+          backup = await runtime.createDataBackup({
+            databasePath: sourcePaths.databasePath,
+            storagePath: sourcePaths.storagePath,
+            storySourcesPath: sourcePaths.storySourcesPath,
+            outputPath: archivePath,
+            serviceHost: runtime.serviceHost,
+            servicePort: runtime.servicePort,
+            externalMaintenanceLease: runtime.externalMaintenanceLease,
+            signal,
+            limits,
+          })
+        } catch (error) {
+          const cause = error?.cause
+          if (cause) {
+            console.error(`Backup cause: ${cause.stack || cause.message || cause}`)
+          }
+          throw error
+        }
         assertDrillNotAborted(signal)
         verifiedManifest = assertFormat2Manifest(backup?.manifest)
         assert.equal(verifiedManifest.security.secretPolicy, 'excluded', 'rollback backup must exclude credentials')
