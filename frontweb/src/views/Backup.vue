@@ -187,8 +187,8 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Download, Refresh, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import {
@@ -200,6 +200,8 @@ import {
 const router = useRouter()
 const route = useRoute()
 const fileInputRef = ref(null)
+const leaveProtection = inject('appRouteLeaveProtection', null)
+let unregisterLeaveProtection = null
 const {
   backups,
   loading,
@@ -266,15 +268,37 @@ async function onCreateBackup() {
 
 async function onConfirmRestore() {
   const result = await confirmRestore()
-  if (result.ok) ElMessage.success('备份已恢复')
+  if (result.ok) ElMessage.success(result.message || '备份已恢复')
 }
 
+function isBackupBusy() {
+  return creating.value || restoring.value
+}
+
+onBeforeRouteLeave(async (_to, _from, next) => {
+  if (!isBackupBusy()) {
+    next()
+    return
+  }
+  const allowed = window.confirm('正在备份或恢复，离开会中断当前操作。仍要离开吗？')
+  next(allowed)
+})
+
 onMounted(() => {
+  unregisterLeaveProtection = leaveProtection?.register?.('backup', {
+    shouldBlockUnload: () => isBackupBusy(),
+    confirmLeave: async () => {
+      if (!isBackupBusy()) return true
+      return window.confirm('正在备份或恢复，离开会中断当前操作。仍要离开吗？')
+    },
+  }) || null
   loadBackups()
   loadReadiness()
 })
 
 onBeforeUnmount(() => {
+  unregisterLeaveProtection?.()
+  unregisterLeaveProtection = null
   dispose()
 })
 </script>

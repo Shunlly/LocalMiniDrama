@@ -504,7 +504,7 @@ export function useBackupSettings(options = {}) {
     const operationId = createOperationId('backup_restore')
     logOperation({ operation: 'backup_restore', operationId, phase: 'start', name: target.name })
     try {
-      await api.restore({
+      const result = await api.restore({
         file: target.file,
         name: target.name,
         confirmed: true,
@@ -514,7 +514,14 @@ export function useBackupSettings(options = {}) {
       selectedFile.value = null
       logOperation({ operation: 'backup_restore', operationId, phase: 'success', name: target.name })
       await loadBackups()
-      return { ok: true }
+      const pendingRestart = Boolean(result?.pending_restart)
+      return {
+        ok: true,
+        pendingRestart,
+        message: pendingRestart
+          ? (result?.message || '已安排在下次启动时恢复，请重启应用。')
+          : '备份已恢复',
+      }
     } catch (error) {
       const message = describeBackupError(error)
       actionError.value = message

@@ -2,6 +2,7 @@ const settingsService = require('../services/settingsService');
 const response = require('../response');
 const { loadConfig } = require('../config');
 const { resolveVideoGenerationTimeoutMinutes } = require('../config/videoGeneration');
+const backupSettingsService = require('../services/backupSettingsService');
 
 function getLanguage(cfg) {
   return (req, res) => {
@@ -98,11 +99,89 @@ function updateGenerationSettings(db) {
   };
 }
 
+function sendBackupError(res, error, log, operation) {
+  const mapped = backupSettingsService.describeBackupHttpError(error);
+  log?.operation?.({
+    operation,
+    phase: 'error',
+    code: mapped.code,
+    error: error?.message,
+  });
+  return response.error(res, mapped.status, mapped.code, mapped.message);
+}
+
+function listBackups(cfg, log) {
+  return async (req, res) => {
+    try {
+      const data = await backupSettingsService.listBackups(
+        backupSettingsService.resolveRuntimeDataPaths(cfg),
+      );
+      log?.operation?.({ operation: 'backup_list', phase: 'success', count: data.items.length });
+      return response.success(res, data);
+    } catch (error) {
+      return sendBackupError(res, error, log, 'backup_list');
+    }
+  };
+}
+
+function createBackup(cfg, log) {
+  return async (req, res) => {
+    try {
+      const data = await backupSettingsService.createBackup(
+        backupSettingsService.resolveRuntimeDataPaths(cfg),
+        { log, signal: req.signal },
+      );
+      log?.operation?.({ operation: 'backup_create', phase: 'success', name: data.name });
+      return response.created(res, data);
+    } catch (error) {
+      return sendBackupError(res, error, log, 'backup_create');
+    }
+  };
+}
+
+function restoreBackup(cfg, log) {
+  return async (req, res) => {
+    try {
+      const uploadedName = req.file?.originalname || '';
+      const uploadedPath = req.file?.path;
+      const bodyName = req.body?.name;
+      const confirmed = req.body?.confirmed === true || req.body?.confirmed === 'true';
+      const paths = backupSettingsService.resolveRuntimeDataPaths(cfg);
+      let name = bodyName;
+      if (uploadedPath) {
+        const backupDir = backupSettingsService.resolveBackupDir(paths);
+        await require('node:fs/promises').mkdir(backupDir, { recursive: true });
+        const safeName = backupSettingsService.buildBackupFileName();
+        const dest = require('node:path').join(backupDir, safeName);
+        await require('node:fs/promises').rename(uploadedPath, dest);
+        name = safeName;
+        log?.operation?.({
+          operation: 'backup_restore_upload',
+          phase: 'success',
+          originalName: uploadedName,
+          name: safeName,
+        });
+      }
+      const data = await backupSettingsService.stagePendingRestore(paths, { name, confirmed });
+      log?.operation?.({ operation: 'backup_restore', phase: 'success', name: data.name });
+      return response.success(res, data);
+    } catch (error) {
+      if (req.file?.path) {
+        await require('node:fs/promises').rm(req.file.path, { force: true }).catch(() => {});
+      }
+      return sendBackupError(res, error, log, 'backup_restore');
+    }
+  };
+}
+
 module.exports = function settingsRoutes(db, cfg, log) {
   return {
     getLanguage: getLanguage(cfg),
     updateLanguage: updateLanguage(cfg, log),
     getGenerationSettings: getGenerationSettings(db),
     updateGenerationSettings: updateGenerationSettings(db),
+    listBackups: listBackups(cfg, log),
+    createBackup: createBackup(cfg, log),
+    restoreBackup: restoreBackup(cfg, log),
   };
 };

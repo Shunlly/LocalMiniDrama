@@ -140,6 +140,14 @@ function setupRouter(cfg, db, log) {
     }),
     limits: { fileSize: DEFAULT_IMPORT_LIMITS.maxArchiveBytes, files: 1, fields: 20 },
   });
+  const backupUploadTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-backup-upload-'));
+  const backupUpload = multer({
+    storage: multer.diskStorage({
+      destination(_req, _file, callback) { callback(null, backupUploadTempRoot); },
+      filename(_req, _file, callback) { callback(null, `${randomUUID()}.zip`); },
+    }),
+    limits: { fileSize: 8 * 1024 * 1024 * 1024, files: 1, fields: 20 },
+  });
   const novelUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1 } });
   const sourceUploadMaxBytes = 20 * 1024 * 1024;
   const sourceUpload = multer({
@@ -554,6 +562,9 @@ function setupRouter(cfg, db, log) {
   r.put('/settings/language', settings.updateLanguage);
   r.get('/settings/generation', settings.getGenerationSettings);
   r.put('/settings/generation', settings.updateGenerationSettings);
+  r.get('/settings/backups', settings.listBackups);
+  r.post('/settings/backups', settings.createBackup);
+  r.post('/settings/backups/restore', backupUpload.single('file'), settings.restoreBackup);
 
   // ---------- prompt overrides ----------
   r.get('/settings/prompts', promptOverrides.list);

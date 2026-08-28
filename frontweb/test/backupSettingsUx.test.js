@@ -324,11 +324,37 @@ test('路由、深链接和设置入口都接到备份页', () => {
   assert.match(aiConfigSource, /aria-label="打开数据备份与维护"/)
   assert.match(aiConfigSource, /name: 'backup', query: \{ returnTo: '\/ai-config' \}/)
   assert.match(pageSource, /normalizeBackupReturnTo\(route\.query.returnTo\)/)
-  assert.match(pageSource, /onBeforeUnmount\(\(\) => \{\s*dispose\(\)/)
-  assert.match(pageSource, /onMounted\(\(\) => \{\s*loadBackups\(\)\s*loadReadiness\(\)/)
+  assert.match(pageSource, /unregisterLeaveProtection\?\.\(\)/)
+  assert.match(pageSource, /loadBackups\(\)/)
+  assert.match(pageSource, /loadReadiness\(\)/)
   assert.match(viewsSource, /name: 'backup'/)
   assert.match(viewsSource, /component: 'Backup.vue'/)
   assert.match(viewsSource, /id: 'backup', view: 'backup', label: '数据备份'/)
   assert.match(navigationSource, /to.name === 'backup'/)
   assert.match(navigationSource, /normalizeBackupReturnTo/)
 })
+
+test('确认恢复若返回待重启，不会假装当前进程已经覆盖数据', async () => {
+  const api = createApi({
+    restore: async () => ({
+      pending_restart: true,
+      message: '已安排在下次启动时恢复，请重启应用。',
+    }),
+  })
+  const harness = useBackupSettings({ api })
+  harness.selectBackupFile(fileStub('keep.zip', 64))
+  harness.requestRestoreFromSelection()
+  const result = await harness.confirmRestore()
+  assert.equal(result.ok, true)
+  assert.equal(result.pendingRestart, true)
+  assert.match(result.message, /重启应用/)
+})
+
+test('备份页在创建或恢复时注册离开保护', () => {
+  const source = read('../src/views/Backup.vue')
+  assert.match(source, /appRouteLeaveProtection/)
+  assert.match(source, /正在备份或恢复，离开会中断当前操作/)
+  assert.match(source, /onBeforeRouteLeave/)
+  assert.match(source, /result\.message/)
+})
+
