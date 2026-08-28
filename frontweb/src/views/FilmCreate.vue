@@ -915,6 +915,9 @@ import { useFilmCreateMediaPickerState } from '@/composables/filmCreate/useFilmC
 import { useFilmCreateBatchMediaState } from '@/composables/filmCreate/useFilmCreateBatchMediaState'
 import { useFilmCreateUploadDragState } from '@/composables/filmCreate/useFilmCreateUploadDragState'
 import { useFilmCreateStoryboardGenerateSettings } from '@/composables/filmCreate/useFilmCreateStoryboardGenerateSettings'
+import { useFilmCreateProductionCapabilityState } from '@/composables/filmCreate/useFilmCreateProductionCapabilityState'
+import { useFilmCreateOmniPolishState } from '@/composables/filmCreate/useFilmCreateOmniPolishState'
+import { useFilmCreateInFlightMediaSets } from '@/composables/filmCreate/useFilmCreateInFlightMediaSets'
 import { useFilmCreateStoryboardStateSync } from '@/composables/filmCreate/useFilmCreateStoryboardStateSync'
 import { useFilmCreateStoryboardVideoFields } from '@/composables/filmCreate/useFilmCreateStoryboardVideoFields'
 import { useFilmCreateRefImageDrop } from '@/composables/filmCreate/useFilmCreateRefImageDrop'
@@ -984,12 +987,14 @@ const {
   aiConfigChanged,
   aiConfigOpenedFromPipelineAction,
 } = useFilmCreateAiConfigDialogState()
-const videoCapabilityConfigs = ref([])
-const videoCapabilityLoading = ref(true)
-const videoCapabilityFailed = ref(false)
-const authoritativeProductionReadiness = ref(null)
-const productionReadinessLoading = ref(true)
-const productionReadinessFailed = ref(false)
+const {
+  videoCapabilityConfigs,
+  videoCapabilityLoading,
+  videoCapabilityFailed,
+  authoritativeProductionReadiness,
+  productionReadinessLoading,
+  productionReadinessFailed,
+} = useFilmCreateProductionCapabilityState()
 
 const {
   openAiConfig,
@@ -1237,12 +1242,14 @@ const storyboardGenerating = computed(() =>
   isEpisodeExtractRunning(genStore, dramaId.value, currentEpisodeId.value, GEN_RESOURCE.GENERATE_STORYBOARD)
 )
 /** 分镜批量生成结束后，按镜序逐个润色全能片段（仅勾选全能模式且各镜为 universal 且有正文时） */
-const universalOmniPolishRunning = ref(false)
-const universalOmniPolishAbort = ref(false)
-const universalOmniPolishProgress = ref({ current: 0, total: 0, label: '' })
-const sbTruncatedWarning = ref(false)
-const sbTruncatedDismissed = ref(false)
-const videoErrorMsg = ref('')
+const {
+  universalOmniPolishRunning,
+  universalOmniPolishAbort,
+  universalOmniPolishProgress,
+  sbTruncatedWarning,
+  sbTruncatedDismissed,
+  videoErrorMsg,
+} = useFilmCreateOmniPolishState()
 // 一键全流程流水线
 const {
   pipelineRunning,
@@ -1446,7 +1453,24 @@ const {
   sbUniversalSegmentText,
   sbVideoReferenceImageId,
 } = useFilmCreateStoryboardFields()
-const regeneratingLayoutSbIds = reactive(new Set())  // 正在 AI 重新生成布局描述的分镜 id 集合
+const {
+  regeneratingLayoutSbIds,
+  sbVideoErrors,
+  generatingSbImageIds,
+  generatingSbVideoIds,
+  generatingUniversalSegmentIds,
+  generatingSbFirstImageIds,
+  generatingSbLastImageIds,
+  regenSbImagesForAsset,
+  savingSbReferenceImages,
+  upscalingSbIds,
+  ttsSbIds,
+  ttsSbNarrationIds,
+  linkingTailFrameIds,
+  usingPrevTailAsFirstIds,
+  sbDialogueAudioPaths,
+  sbNarrationAudioPaths,
+} = useFilmCreateInFlightMediaSets()
 const {
   sbImages,
   sbVideos,
@@ -1473,12 +1497,6 @@ const {
   onSelectionsRestored: () => restoreSelectionsFromBackend(),
   loadDrama: (...args) => loadDrama(...args),
 })
-const sbVideoErrors = ref({})
-const generatingSbImageIds = reactive(new Set())
-const generatingSbVideoIds = reactive(new Set())
-const generatingUniversalSegmentIds = reactive(new Set())
-const generatingSbFirstImageIds = reactive(new Set())
-const generatingSbLastImageIds = reactive(new Set())
 const {
   getGeneratingSetsBag,
   buildSbGenMeta,
@@ -1502,8 +1520,6 @@ const {
   loadSingleStoryboardMedia,
   captureDramaRefresh,
 })
-// 重新生成角色/场景/道具关联分镜图的 loading set，key: 'char-{id}' | 'scene-{id}' | 'prop-{id}'
-const regenSbImagesForAsset = reactive(new Set())
 const {
   regenSbImagesProgress,
   batchImageRunning,
@@ -1521,7 +1537,6 @@ const {
   batchVideoErrors,
   videoFrameContiguity,
 } = useFilmCreateBatchMediaState()
-const savingSbReferenceImages = reactive(new Set())
 const {
   cancelActiveTask,
 } = useFilmCreateTaskCancel({
@@ -1551,10 +1566,6 @@ const {
   batchVideoRunning,
   batchVideoProgress,
 })
-const upscalingSbIds = reactive(new Set())
-// P2-4: TTS 状态
-const ttsSbIds = reactive(new Set())
-const ttsSbNarrationIds = reactive(new Set())
 
 const {
   ttsGenerationDisabledReason,
@@ -1563,14 +1574,6 @@ const {
   ttsSbNarrationIds,
   ttsCapabilityReason,
 })
-// 尾帧衔接 loading 状态
-const linkingTailFrameIds = reactive(new Set())
-// “上镜尾帧”（将上一分镜尾帧图片直接设为当前首帧）loading 状态
-const usingPrevTailAsFirstIds = reactive(new Set())
-/** 对白 TTS 路径缓存（与 storyboards.audio_local_path 一致） */
-const sbDialogueAudioPaths = ref({})
-/** 解说旁白 TTS 路径缓存（与 storyboards.narration_audio_local_path 一致） */
-const sbNarrationAudioPaths = ref({})
 /** 分镜 TTS 试听：避免多条同时播放 */
 /** 正在编辑视频提示词的分镜 id；编辑中显示文本框与保存/取消 */
 const {
