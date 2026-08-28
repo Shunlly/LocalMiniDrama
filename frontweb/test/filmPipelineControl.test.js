@@ -10,10 +10,15 @@ import {
 } from '../src/utils/filmPipelineControl.js'
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const pipelineRunSource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreatePipelineRun.js', import.meta.url),
+  'utf8',
+)
 const pipelinePanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
   'utf8',
 )
+const source = pipelineRunSource + '\n' + filmCreateSource
 
 function sourceBetween(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker)
@@ -180,7 +185,7 @@ test('pipeline cancellation reports a remote task that still fails after the fin
 
 test('FilmCreate pauses inside polling and keeps ownership of the same task id', () => {
   const pollSource = sourceBetween(
-    filmCreateSource,
+    source,
     'async function pollTaskWithPause',
     'function onPipelineResume',
   )
@@ -198,16 +203,16 @@ test('FilmCreate cancellation waits for its owned run and never unlocks in the t
     'const sbCharacterIds',
   )
   const cancelRunSource = sourceBetween(
-    filmCreateSource,
+    source,
     'async function cancelPipelineRun',
-    'async function cancelActiveTask',
+    'async function pollTaskWithPause',
   )
 
   assert.match(cancelTaskSource, /await cancelPipelineRun\(\)/)
   assert.doesNotMatch(cancelTaskSource, /pipelineRunning\.value = false/)
   assert.match(cancelRunSource, /pipelineAbortRequested\.value = true/)
   assert.match(cancelRunSource, /pipelinePauseGate\.release\(\)/)
-  assert.match(cancelRunSource, /const runPromise = activePipelineRunPromise/)
+  assert.match(cancelRunSource, /const runPromise = activePipelineRunPromise\.value/)
   assert.match(cancelRunSource, /cancelPipelineTasksAroundRun\(\{/)
   assert.match(cancelRunSource, /pipelineOwnedTaskIds/)
   assert.doesNotMatch(cancelRunSource, /genStore\.getAllRunningTasks\(\)/)
@@ -219,9 +224,9 @@ test('FilmCreate routes retry and production launch through abort and cost gates
     'async function startOneClickPipeline',
     'async function startTextFrameworkPipeline',
   )
-  assert.match(filmCreateSource, /runPipelineTaskWithRetry\(\{/)
-  assert.match(filmCreateSource, /const pipelineStarting = ref\(false\)/)
-  assert.match(filmCreateSource, /const pipelineStopping = ref\(false\)/)
+  assert.match(source, /runPipelineTaskWithRetry\(\{/)
+  assert.match(source, /const pipelineStarting = ref\(false\)/)
+  assert.match(source, /const pipelineStopping = ref\(false\)/)
   assert.match(
     filmCreateSource,
     /async function startOneClickPipeline\(\)[\s\S]*await confirmProductionPipelineCost\(\)[\s\S]*await executeOwnedPipelineRun/,
@@ -262,9 +267,9 @@ test('FilmCreate protects navigation and unload while pipeline work is active', 
 
 test('FilmCreate describes pipeline stop as local-only and discloses provider billing risk', () => {
   const cancelRunSource = sourceBetween(
-    filmCreateSource,
+    source,
     'async function cancelPipelineRun',
-    'async function cancelActiveTask',
+    'async function pollTaskWithPause',
   )
   const navigationSource = sourceBetween(
     filmCreateSource,

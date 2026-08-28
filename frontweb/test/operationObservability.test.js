@@ -13,14 +13,16 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 test('制作页、项目列表、AI 配置和任务取消都接入本地操作日志', () => {
   const filmCreateSource = read('../src/views/FilmCreate.vue')
+  const pipelineRunSource = read('../src/composables/filmCreate/useFilmCreatePipelineRun.js')
+  const filmCreateWithPipelineSource = filmCreateSource + '\n' + pipelineRunSource
   const filmListSource = read('../src/views/FilmList.vue')
   const aiConfigSource = read('../src/components/AIConfigContent.vue')
   const storeSource = read('../src/stores/generationTaskStore.js')
 
   assert.match(filmCreateSource, /import \{ logOperation \} from '@\/utils\/operationLog'/)
   assert.match(filmCreateSource, /function trackFilmCreateAction\(action, payload = \{\}\) \{[\s\S]*logOperation\(/)
-  assert.match(filmCreateSource, /trackFilmCreateAction\('pipeline_stop_start'/)
-  assert.match(filmCreateSource, /trackFilmCreateAction\(cancellationComplete \? 'pipeline_stop_complete' : 'pipeline_stop_failed'/)
+  assert.match(filmCreateWithPipelineSource, /trackFilmCreateAction\('pipeline_stop_start'/)
+  assert.match(filmCreateWithPipelineSource, /trackFilmCreateAction\(cancellationComplete \? 'pipeline_stop_complete' : 'pipeline_stop_failed'/)
   assert.match(filmCreateSource, /trackFilmCreateAction\('text_framework_generate_start'/)
 
   assert.match(filmListSource, /import \{ createOperationId, logOperation \} from '@\/utils\/operationLog'/)

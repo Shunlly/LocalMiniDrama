@@ -6,6 +6,7 @@ const mainSource = readFileSync(new URL('../src/main.js', import.meta.url), 'utf
 const requestSource = readFileSync(new URL('../src/utils/request.js', import.meta.url), 'utf8')
 const feedbackSource = readFileSync(new URL('../src/utils/elementPlusFeedback.js', import.meta.url), 'utf8')
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const pipelineRunSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreatePipelineRun.js', import.meta.url), 'utf8')
 const deliveryPanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url),
   'utf8',
@@ -41,7 +42,7 @@ test('FilmCreate delivery panel owns export actions and imports split helpers', 
   assert.match(filmCreateSource, /<FilmCreateDeliveryPanel/)
   assert.match(filmCreateSource, /from '@\/utils\/filmCreateDelivery'/)
   assert.match(filmCreateSource, /from '@\/utils\/coreJsonRequest'/)
-  assert.match(filmCreateSource, /from '@\/utils\/filmCreateConcurrency'/)
+  assert.match(pipelineRunSource, /from '@\/utils\/filmCreateConcurrency'/)
   assert.match(filmCreateSource, /from '@\/utils\/filmCreateEstimates'/)
   assert.doesNotMatch(filmCreateSource, /async function fetchVerifiedVideoBlob/)
   assert.doesNotMatch(filmCreateSource, /function normalizeVideoDownloadFilenamePart/)

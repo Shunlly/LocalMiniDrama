@@ -14,6 +14,8 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const deliveryPanelSource = read('../src/components/filmCreate/FilmCreateDeliveryPanel.vue')
+const storyboardMediaSource = read('../src/composables/filmCreate/useFilmCreateStoryboardMedia.js')
+const resourceDialogsSource = read('../src/components/filmCreate/FilmCreateResourceDialogs.vue')
 const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource
 
 function sourceBetween(source, startMarker, endMarker) {
@@ -55,7 +57,7 @@ test('project pages keep core load failures outside every editable project surfa
   assert.match(filmCreateSource, /<main v-if="projectLoadState === 'loading'"/)
   assert.match(filmCreateSource, /<main v-else-if="projectLoadState === 'error'"/)
   assert.match(filmCreateSource, /<main v-else class="main">[\s\S]*FilmCreateScriptWorkbench/)
-  assert.match(filmCreateSource, /<template v-if="projectLoadState === 'ready'">[\s\S]*?<FilmCreateResourceDialogs[\s\S]*?<AccessibleDialog/)
+  assert.match(filmCreateSource + '\n' + resourceDialogsSource, /<template v-if="projectLoadState === 'ready'">[\s\S]*?<FilmCreateResourceDialogs[\s\S]*?<AccessibleDialog/)
   assert.match(filmCreateSource, /:disabled="projectLoadState !== 'ready'" @click="openAiConfig\(\)"/)
   assert.match(filmCreateSource, /v-if="!projectLoadNotFound"[\s\S]*重试加载/)
   assert.match(dramaDetailSource, /v-if="!dramaLoadNotFound"[\s\S]*重试加载/)
@@ -85,7 +87,7 @@ test('core drama request failures use stable page state instead of raw request t
   assert.doesNotMatch(createLoader, /dramaAPI\.get\(requestedDramaId\)/)
   assert.doesNotMatch(createLoader, /ElMessage\.(error|warning)/)
   assert.match(filmCreateSource, /projectDependencyWarning/)
-  assert.match(filmCreateSource, /failedCount \+= 1/)
+  assert.match(storyboardMediaSource, /failedCount \+= 1/)
 })
 
 test('core project request unwraps data and rejects HTTP failures without the global toast client', async () => {
