@@ -114,12 +114,16 @@ test('FilmCreate delegates pipeline UI and wraps major gated actions', () => {
     new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
     'utf8',
   )
+  const deliveryPanelSource = readFileSync(
+    new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url),
+    'utf8',
+  )
 
   assert.match(filmCreateSource, /<FilmCreatePipelinePanel/)
   assert.doesNotMatch(filmCreateSource, /class="one-click-actions"/)
   assert.match(filmCreateSource, /:reason="characterGenerationDisabledReason"/)
   assert.match(filmCreateSource, /:reason="batchActionDisabledReason"/)
-  assert.match(filmCreateSource, /:reason="composeActionDisabledReason"/)
+  assert.match(deliveryPanelSource, /:reason="composeActionDisabledReason"/)
   assert.match(filmCreateSource, /if \(composeActionDisabledReason\.value\)/)
   assert.match(filmCreateSource, /videoCapabilityReason\.value/)
   assert.match(filmCreateSource, /ttsGenerationDisabledReason/)

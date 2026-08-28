@@ -10,6 +10,7 @@ const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue',
 const pickerSource = readFileSync(new URL('../src/components/GlobalMediaPickerDialog.vue', import.meta.url), 'utf8')
 const assetsApiSource = readFileSync(new URL('../src/api/assets.js', import.meta.url), 'utf8')
 const requestSource = readFileSync(new URL('../src/utils/request.js', import.meta.url), 'utf8')
+const deliveryPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url), 'utf8')
 
 function assertValidVueSfc(name, source) {
   const { errors } = parse(source, { filename: name })
@@ -77,7 +78,7 @@ test('FilmCreate wires the picker into storyboard free references with duplicate
   assert.match(filmCreateSource, /<GlobalMediaPickerDialog[\s\S]*@select="onGlobalMediaAssetSelected"[\s\S]*@open-library="openMediaLibraryFromPicker"/)
   assert.match(filmCreateSource, /router\.push\(\{ name: 'media-library', query: \{ returnTo: route\.fullPath \} \}\)/)
   assert.match(filmCreateSource, /:aria-label="`分镜 \$\{sb\.storyboard_number\} 视频预览`"/)
-  assert.match(filmCreateSource, /aria-label="本集合成视频预览"/)
+  assert.match(deliveryPanelSource, /aria-label="本集合成视频预览"/)
   assert.match(filmCreateSource, /<el-form-item label="素材中心参考图">/)
   assert.match(filmCreateSource, /openGlobalMediaPicker\(videoParamsTarget, 'reference-primary'\)/)
   assert.match(filmCreateSource, /openGlobalMediaPicker\(videoParamsTarget, 'reference'\)/)
