@@ -2,6 +2,10 @@
 
 const { secureHttpFetch, validateHttpRequestTarget } = require('../secureHttpFetch');
 const { requireCompleteProviderNetworkPolicy } = require('../providerNetworkPolicy');
+const {
+  createTimeoutController,
+  normalizeProviderRequestError,
+} = require('./requestError');
 
 const DEFAULT_TIMEOUTS_MS = Object.freeze({
   request: 120000,
@@ -39,45 +43,6 @@ function resolveVideoTimeoutMs(kind = 'request') {
   );
 }
 
-function createFallbackTimeoutSignal(timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => {
-    const error = new Error(`Video provider request timed out after ${timeoutMs}ms`);
-    error.name = 'TimeoutError';
-    controller.abort(error);
-  }, timeoutMs);
-  if (typeof timer.unref === 'function') timer.unref();
-  return controller.signal;
-}
-
-function createTimeoutSignal(timeoutMs) {
-  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-    return AbortSignal.timeout(timeoutMs);
-  }
-  return createFallbackTimeoutSignal(timeoutMs);
-}
-
-function combineAbortSignals(signals) {
-  const activeSignals = signals.filter(Boolean);
-  if (activeSignals.length === 1) return activeSignals[0];
-  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
-    return AbortSignal.any(activeSignals);
-  }
-
-  const controller = new AbortController();
-  const abortFrom = (signal) => {
-    if (!controller.signal.aborted) controller.abort(signal.reason);
-  };
-  for (const signal of activeSignals) {
-    if (signal.aborted) {
-      abortFrom(signal);
-      break;
-    }
-    signal.addEventListener('abort', () => abortFrom(signal), { once: true });
-  }
-  return controller.signal;
-}
-
 /** 请求头和响应体共用同一超时信号，响应体停滞时也会被中止。 */
 async function fetchVideoWithTimeout(
   url,
@@ -86,24 +51,31 @@ async function fetchVideoWithTimeout(
   networkOptions = {}
 ) {
   const boundedTimeoutMs = normalizeTimeoutMs(timeoutMs, resolveVideoTimeoutMs('request'));
-  const timeoutSignal = createTimeoutSignal(boundedTimeoutMs);
-  const signal = options.signal
-    ? combineAbortSignals([options.signal, timeoutSignal])
-    : timeoutSignal;
-  const policy = requireCompleteProviderNetworkPolicy(networkOptions, url);
-  if (typeof policy.fetchImpl === 'function') {
-    await validateHttpRequestTarget(url, policy);
-    return policy.fetchImpl(url, { ...options, signal });
+  const timeout = createTimeoutController(boundedTimeoutMs, options.signal);
+  try {
+    const policy = requireCompleteProviderNetworkPolicy(networkOptions, url);
+    if (typeof policy.fetchImpl === 'function') {
+      await validateHttpRequestTarget(url, policy);
+      return await policy.fetchImpl(url, { ...options, signal: timeout.signal });
+    }
+    return await secureHttpFetch(url, { ...options, signal: timeout.signal }, {
+      trustedOrigins: policy.trustedOrigins,
+      allowPrivateOrigins: policy.allowPrivateOrigins,
+      requireHttpsForPublic: policy.requireHttpsForPublic,
+      lookup: policy.lookup,
+      timeoutMs: boundedTimeoutMs,
+      maxBytes: policy.maxBytes || 128 * 1024 * 1024,
+      maxRedirects: policy.maxRedirects,
+    });
+  } catch (error) {
+    throw normalizeProviderRequestError(error, {
+      signal: timeout.signal,
+      provider: 'Video',
+      operation: 'video request',
+    });
+  } finally {
+    timeout.dispose();
   }
-  return secureHttpFetch(url, { ...options, signal }, {
-    trustedOrigins: policy.trustedOrigins,
-    allowPrivateOrigins: policy.allowPrivateOrigins,
-    requireHttpsForPublic: policy.requireHttpsForPublic,
-    lookup: policy.lookup,
-    timeoutMs: boundedTimeoutMs,
-    maxBytes: policy.maxBytes || 128 * 1024 * 1024,
-    maxRedirects: policy.maxRedirects,
-  });
 }
 
 function sanitizeUrlForLog(value) {

@@ -204,9 +204,9 @@ async function callJimengAiApiVideo(config, log, opts) {
   try {
     res = await fetchVideoWithTimeout(url, fetchOpts, longWaitMs);
   } catch (e) {
-    const safeError = videoProviderException(e, 'JimengAI', 'video request');
+    const safeError = videoProviderException(e, 'JimengAI', 'video request', opts.signal);
     log.error('[JimengAI] 请求失败', { video_gen_id, error: safeError });
-    return { error: safeError.message };
+    return { error: safeError };
   }
 
   const raw = await res.text();

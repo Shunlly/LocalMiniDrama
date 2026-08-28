@@ -88,7 +88,7 @@ async function callGeminiImageApi(db, config, log, opts) {
       mimeType = m[1];
       imageBuffer = Buffer.from(m[2], 'base64');
     } else {
-      throw new uploadService.UnsafeMediaReferenceError('Gemini reference image was not prevalidated.');
+      throw new uploadService.UnsafeMediaReferenceError('Gemini 参考图未通过预校验。');
     }
 
     log.info('[Gemini图生] 参考图 读取完成', {
@@ -206,9 +206,9 @@ async function callGeminiImageApi(db, config, log, opts) {
     geminiStatus = out.statusCode;
     raw = out.raw;
   } catch (e) {
-    const safeError = imageProviderException(e, 'Gemini', 'image request');
+    const safeError = imageProviderException(e, 'Gemini', 'image request', opts.signal);
     log.error('[Gemini图生] ✗ 网络错误', { image_gen_id, error: safeError, total_elapsed: elapsed() });
-    return { error: safeError.message };
+    return { error: safeError };
   }
   log.info('[Gemini图生] ← 收到响应', { image_gen_id, status: geminiStatus, req_ms: Date.now() - tReq, elapsed: elapsed() });
 

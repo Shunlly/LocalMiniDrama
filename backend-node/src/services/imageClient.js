@@ -455,12 +455,12 @@ async function callImageApi(db, log, opts = {}) {
       throwIfAborted(opts.signal);
       const result = await callImageApiInternal(db, log, opts);
       throwIfAborted(opts.signal);
-      return sanitizeProviderResult(result, { provider, operation: 'image generation' });
+      return sanitizeProviderResult(result, { provider, operation: '图片生成' });
     } catch (error) {
       if (isOperationCancelled(error, opts.signal)) {
         throw operationCancelledError(opts.signal?.reason || error);
       }
-      throw sanitizeProviderException(error, { provider, operation: 'image generation' });
+      throw sanitizeProviderException(error, { provider, operation: '图片生成' });
     }
   });
 }
@@ -617,7 +617,7 @@ function createAndGenerateImage(db, log, opts) {
       if (result.error) {
         throw new Error(toSafeProviderErrorMessage(result.error, {
           provider: provider || 'Image provider',
-          operation: 'image generation',
+          operation: '图片生成',
         }));
       }
       if (!result.image_url) throw new Error('图片 Provider 未返回图片地址');
@@ -672,7 +672,7 @@ function createAndGenerateImage(db, log, opts) {
 
       const errMsg = toSafeProviderErrorMessage(err, {
         provider: provider || 'Image provider',
-        operation: 'image generation',
+        operation: '图片生成',
       });
       try {
         await taskService.failTaskAfterCancellationDecision(db, taskId, errMsg, (failedAt) => {

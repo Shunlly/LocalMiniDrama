@@ -65,7 +65,7 @@ function resolveImageRef(value) {
 
 async function validateImageReferenceBuffer(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > IMAGE_REFERENCE_MAX_BYTES) {
-    throw new uploadService.UnsafeMediaReferenceError('Image reference exceeds the size limit.');
+    throw new uploadService.UnsafeMediaReferenceError('参考图超过大小限制。');
   }
   const detected = await uploadService.validateAllowedUpload(buffer, 'image');
   return {
@@ -82,7 +82,7 @@ async function loadImageReference(value, opts, config) {
     const match = text.match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i);
     const encodedLimit = Math.ceil(IMAGE_REFERENCE_MAX_BYTES * 4 / 3) + 16;
     if (!match || match[2].length > encodedLimit) {
-      throw new uploadService.UnsafeMediaReferenceError('Image reference data URL is invalid or too large.');
+      throw new uploadService.UnsafeMediaReferenceError('参考图 data URL 无效或过大。');
     }
     return validateImageReferenceBuffer(Buffer.from(match[2].replace(/\s/g, ''), 'base64'));
   }
@@ -98,7 +98,7 @@ async function loadImageReference(value, opts, config) {
       const opened = uploadService.openStorageFile(opts.storage_local_path, local.relativePath);
       try {
         if (opened.stat.size > IMAGE_REFERENCE_MAX_BYTES) {
-          throw new uploadService.UnsafeMediaReferenceError('Image reference exceeds the size limit.');
+          throw new uploadService.UnsafeMediaReferenceError('参考图超过大小限制。');
         }
         return validateImageReferenceBuffer(fs.readFileSync(opened.fd));
       } finally {
@@ -108,7 +108,7 @@ async function loadImageReference(value, opts, config) {
   }
 
   if (!/^https?:\/\//i.test(text)) {
-    throw new uploadService.UnsafeMediaReferenceError('Image reference must be inside storage or use HTTP(S).');
+    throw new uploadService.UnsafeMediaReferenceError('参考图必须位于本地存储或使用 HTTP(S) 地址。');
   }
   const downloaded = await uploadService.downloadBufferViaNodeHttp(text, IMAGE_REFERENCE_TIMEOUT_MS, 0, {
     maxBytes: IMAGE_REFERENCE_MAX_BYTES,
@@ -129,7 +129,7 @@ async function prepareImageReferences(values, opts, config) {
     if (!loaded) continue;
     totalBytes += loaded.buffer.length;
     if (totalBytes > IMAGE_REFERENCE_TOTAL_MAX_BYTES) {
-      throw new uploadService.UnsafeMediaReferenceError('Combined image references exceed the size limit.');
+      throw new uploadService.UnsafeMediaReferenceError('参考图合计超过大小限制。');
     }
     prepared.push(`data:${loaded.mimeType};base64,${loaded.buffer.toString('base64')}`);
   }

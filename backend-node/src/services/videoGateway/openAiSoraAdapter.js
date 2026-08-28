@@ -2,6 +2,12 @@
 
 const { fetchVideoWithTimeout, resolveVideoTimeoutMs } = require('./providerRuntime');
 const aiConfigService = require('../aiConfigService');
+const {
+  gatewayErrorResult,
+  isRequestTimeout,
+  markSafeProviderError,
+  operationCancelledError,
+} = require('./requestError');
 
 const CANCELLED_STATES = new Set(['cancelled', 'canceled', 'cancelled_by_user', 'deleted']);
 const COMPLETED_STATES = new Set(['completed', 'succeeded', 'success', 'done']);
@@ -19,16 +25,17 @@ class VideoAdapterError extends Error {
     this.provider = 'sora';
     this.code = options.code || 'SORA_VIDEO_ERROR';
     this.retryable = options.retryable === true;
+    markSafeProviderError(this);
   }
 }
 
 function requireConfig(config) {
   if (!config?.api_key || !config?.base_url) {
-    throw new TypeError('Sora video base_url and api_key are required');
+    throw new TypeError('Sora 视频未配置 base_url 或 api_key');
   }
   const baseUrl = new URL(config.base_url);
   if (!['http:', 'https:'].includes(baseUrl.protocol) || baseUrl.username || baseUrl.password) {
-    throw new TypeError('Sora video base_url must be a valid HTTP URL');
+    throw new TypeError('Sora 视频 base_url 必须是不含凭据的 HTTP(S) 地址');
   }
   return baseUrl;
 }
@@ -36,7 +43,7 @@ function requireConfig(config) {
 function endpointUrl(baseUrl, endpoint, fallback) {
   const raw = String(endpoint || fallback);
   if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\') || /[\r\n]/.test(raw)) {
-    throw new TypeError('Sora video endpoint must be a relative path');
+    throw new TypeError('Sora 视频接口路径必须是相对路径');
   }
   const result = new URL(baseUrl.href);
   const basePath = result.pathname.replace(/\/+$/, '');
@@ -64,7 +71,7 @@ function withTaskId(endpoint, fallback, taskId) {
 function requireTaskId(value) {
   const taskId = String(value ?? '');
   if (!taskId || taskId.length > 200 || !/^[A-Za-z0-9_-]+$/.test(taskId)) {
-    throw new TypeError('Sora video task id is invalid');
+    throw new TypeError('Sora 视频任务 ID 无效');
   }
   return taskId;
 }
@@ -141,6 +148,7 @@ function abortableDelay(ms, signal) {
 
 function retryableTransportError(error) {
   if (error?.retryable === true) return true;
+  if (isRequestTimeout(error)) return true;
   if (/^(?:TimeoutError|NetworkError)$/i.test(String(error?.name || ''))) return true;
   return /^(?:EAI_AGAIN|ECONNREFUSED|ECONNRESET|ENETUNREACH|ENOTFOUND|EPIPE|ETIMEDOUT)$/i
     .test(String(error?.code || ''));
@@ -161,17 +169,17 @@ function createRequestBody(input) {
 async function readJson(response) {
   const length = Number(response.headers?.get?.('content-length'));
   if (Number.isFinite(length) && length > MAX_RESPONSE_BYTES) {
-    throw new VideoAdapterError('Sora video response is too large', { retryable: true });
+    throw new VideoAdapterError('Sora 视频响应过大', { retryable: true });
   }
   const text = await response.text();
   if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES) {
-    throw new VideoAdapterError('Sora video response is too large', { retryable: true });
+    throw new VideoAdapterError('Sora 视频响应过大', { retryable: true });
   }
   if (!text) return null;
   try {
     return JSON.parse(text);
   } catch (_) {
-    throw new VideoAdapterError('Sora video response is invalid', { retryable: true });
+    throw new VideoAdapterError('Sora 视频响应格式异常', { retryable: true });
   }
 }
 
@@ -233,7 +241,7 @@ function createRemoteCancellation(runtime, config, baseUrl) {
 function appendInputReference(body, reference) {
   if (!reference) return;
   const buffer = Buffer.isBuffer(reference) ? reference : reference.buffer;
-  if (!Buffer.isBuffer(buffer)) throw new TypeError('Sora input_reference must contain a Buffer');
+  if (!Buffer.isBuffer(buffer)) throw new TypeError('Sora 参考图必须是已加载的二进制内容');
   const contentType = String(reference.contentType || reference.mimeType || 'application/octet-stream');
   const filename = String(reference.filename || 'reference.bin');
   body.append('input_reference', new Blob([buffer], { type: contentType }), filename);
@@ -273,14 +281,14 @@ async function createSoraVideo(config, input = {}, runtime = {}) {
             await abortableDelay(retryDelayMs(response, attempt), signal);
             continue;
           }
-          throw new VideoAdapterError(`Sora video request failed with HTTP ${response.status}`, {
+          throw new VideoAdapterError(`Sora 视频请求失败（HTTP ${response.status}）`, {
             retryable: transientStatus(response.status),
           });
         }
         data = await readJson(response);
         break;
       } catch (error) {
-        if (signal?.aborted) throw signal.reason;
+        if (signal?.aborted) throw operationCancelledError(signal.reason);
         if (!runtime.idempotency_key
           || !retryableTransportError(error)
           || attempt === MAX_CREATE_ATTEMPTS) throw error;
@@ -288,8 +296,11 @@ async function createSoraVideo(config, input = {}, runtime = {}) {
       }
     }
     const status = pickStatus(data);
-    if (FAILED_STATES.has(status) || CANCELLED_STATES.has(status) || data?.error) {
-      return { error: 'Sora video request failed' };
+    if (CANCELLED_STATES.has(status)) {
+      throw operationCancelledError('视频生成已取消');
+    }
+    if (FAILED_STATES.has(status) || data?.error) {
+      return gatewayErrorResult('Sora 视频请求失败');
     }
     const videoUrl = pickVideoUrl(data);
     if (videoUrl) return { status: 'completed', video_url: videoUrl };
@@ -297,7 +308,7 @@ async function createSoraVideo(config, input = {}, runtime = {}) {
     remoteCancellation.settle(taskId);
     if (signal?.aborted) {
       await remoteCancellation.cancel();
-      throw signal.reason;
+      throw operationCancelledError(signal.reason);
     }
     return { status: status || 'processing', task_id: taskId };
   } finally {
@@ -309,7 +320,7 @@ async function pollSoraVideo(config, taskId, runtime = {}) {
   runtime = withProviderNetworkPolicy(config, runtime);
   const baseUrl = requireConfig(config);
   const normalizedTaskId = requireTaskId(taskId);
-  if (runtime.signal?.aborted) throw runtime.signal.reason;
+  if (runtime.signal?.aborted) throw operationCancelledError(runtime.signal.reason);
   const remoteCancellation = createRemoteCancellation(runtime, config, baseUrl);
   remoteCancellation.settle(normalizedTaskId);
   const endpoint = withTaskId(
@@ -326,18 +337,21 @@ async function pollSoraVideo(config, taskId, runtime = {}) {
     if (transientStatus(response.status)) {
       return { status: 'pending', task_id: normalizedTaskId, retryable: true };
     }
-    return { error: `Sora video task failed with HTTP ${response.status}` };
+    return gatewayErrorResult(`Sora 视频任务失败（HTTP ${response.status}）`);
   }
   const data = await readJson(response);
   const status = pickStatus(data);
-  if (FAILED_STATES.has(status) || CANCELLED_STATES.has(status) || data?.error) {
-    return { error: 'Sora video task failed' };
+  if (CANCELLED_STATES.has(status)) {
+    throw operationCancelledError('视频生成已取消');
+  }
+  if (FAILED_STATES.has(status) || data?.error) {
+    return gatewayErrorResult('Sora 视频任务失败');
   }
   const videoUrl = pickVideoUrl(data);
   if (videoUrl) return { status: 'completed', video_url: videoUrl };
-  if (COMPLETED_STATES.has(status)) return { error: 'Sora video task completed without a video URL' };
+  if (COMPLETED_STATES.has(status)) return gatewayErrorResult('Sora 视频任务已完成但未返回视频地址');
   if (PENDING_STATES.has(status)) return { status: 'pending', task_id: normalizedTaskId };
-  return { error: 'Sora video task returned an unknown status' };
+  return gatewayErrorResult('Sora 视频任务返回了无法识别的状态');
 }
 
 module.exports = {

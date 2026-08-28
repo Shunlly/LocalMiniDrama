@@ -226,7 +226,7 @@ test('image generation rejects a soft-deleted idempotency key before creating a 
 
     assert.equal(res.statusCode, 400);
     assert.equal(res.body.error.code, 'BAD_REQUEST');
-    assert.match(res.body.error.message, /idempotency_key.*deleted/i);
+    assert.match(res.body.error.message, /idempotency_key.*已删除/);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM async_tasks').get().count, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM image_generations').get().count, 1);
   } finally {
@@ -253,8 +253,8 @@ for (const probe of [
 
       assert.equal(res.statusCode, 400);
       assert.equal(res.body.error.code, 'BAD_REQUEST');
-      assert.match(res.body.error.message, /idempotency_key.*another drama or storyboard/i);
-      assert.doesNotMatch(res.body.error.message, /deleted/i);
+      assert.match(res.body.error.message, /idempotency_key.*其他 drama 或 storyboard/);
+      assert.doesNotMatch(res.body.error.message, /deleted|已删除/i);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM async_tasks').get().count, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM image_generations').get().count, 1);
     } finally {
@@ -338,7 +338,7 @@ test('a global idempotency key only reuses the exact normalized global tuple', (
       body: { drama_id: 2, idempotency_key: 'exact-global-key', prompt: 'project probe' },
     }, projectRes);
     assert.equal(projectRes.statusCode, 400);
-    assert.match(projectRes.body.error.message, /another drama or storyboard/i);
+    assert.match(projectRes.body.error.message, /其他 drama 或 storyboard/);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM async_tasks').get().count, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM image_generations').get().count, 1);
   } finally {
@@ -362,7 +362,7 @@ for (const invalidDramaId of [-7, 1.5, 'not-a-number', true]) {
 
       assert.equal(res.statusCode, 400);
       assert.equal(res.body.error.code, 'BAD_REQUEST');
-      assert.match(res.body.error.message, /drama_id.*invalid/i);
+      assert.match(res.body.error.message, /drama_id.*无效/);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM async_tasks').get().count, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM image_generations').get().count, 0);
     } finally {
@@ -388,7 +388,7 @@ for (const invalidDramaId of [[], {}, false]) {
 
       assert.equal(res.statusCode, 400);
       assert.equal(res.body.error.code, 'BAD_REQUEST');
-      assert.match(res.body.error.message, /drama_id.*invalid/i);
+      assert.match(res.body.error.message, /drama_id.*无效/);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM async_tasks').get().count, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM image_generations').get().count, 0);
     } finally {
@@ -442,7 +442,7 @@ for (const invalidStoryboardId of [-7, 1.5, 'not-a-number', true]) {
 
       assert.equal(res.statusCode, 400);
       assert.equal(res.body.error.code, 'BAD_REQUEST');
-      assert.match(res.body.error.message, /storyboard_id.*invalid/i);
+      assert.match(res.body.error.message, /storyboard_id.*无效/);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM async_tasks').get().count, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM image_generations').get().count, 0);
     } finally {

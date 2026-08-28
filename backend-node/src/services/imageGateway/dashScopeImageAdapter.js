@@ -72,9 +72,9 @@ async function callDashScopeImageApi(config, log, opts) {
       httpStatus = out.statusCode;
       raw = out.raw;
     } catch (e) {
-      const safeError = imageProviderException(e, 'Qwen-Image', 'image request');
+      const safeError = imageProviderException(e, 'Qwen-Image', 'image request', opts.signal);
       log.error('Qwen-Image network error', { image_gen_id, error: safeError });
-      return { error: safeError.message };
+      return { error: safeError };
     }
     if (httpStatus < 200 || httpStatus >= 300) {
       log.error('Qwen-Image create failed', {
@@ -159,9 +159,9 @@ async function callDashScopeImageApi(config, log, opts) {
     httpStatus = out.statusCode;
     raw = out.raw;
   } catch (e) {
-    const safeError = imageProviderException(e, 'DashScope', 'image request');
+    const safeError = imageProviderException(e, 'DashScope', 'image request', opts.signal);
     log.error('DashScope network error', { image_gen_id, error: safeError });
-    return { error: safeError.message };
+    return { error: safeError };
   }
   if (httpStatus < 200 || httpStatus >= 300) {
     log.error('DashScope create failed', {

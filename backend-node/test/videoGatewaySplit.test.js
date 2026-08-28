@@ -112,6 +112,7 @@ describe('videoGateway 客户端拆分', () => {
       'minimaxVideoAdapter.js',
       'openAiSoraAdapter.js',
       'providerRuntime.js',
+      'requestError.js',
       'veo3VideoAdapter.js',
       'viduVideoAdapter.js',
       'volcengineVideoAdapter.js',

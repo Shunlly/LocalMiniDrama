@@ -11,6 +11,7 @@ const {
   postJSONWithTimeout,
   imageProviderFailure,
   imageProviderException,
+  rethrowIfRequestCanceled,
 } = require('./runtime');
 const { klingImageAspectRatio } = require('./sizeAdapters');
 const { resolveImageRef } = require('./referenceUtils');
@@ -69,9 +70,9 @@ async function callKlingImageApi(config, log, opts) {
     submitStatus = out.statusCode;
     submitRaw = out.raw;
   } catch (e) {
-    const safeError = imageProviderException(e, 'Kling', 'image request');
+    const safeError = imageProviderException(e, 'Kling', 'image request', opts.signal);
     log.error('[Kling图生] 网络错误', { image_gen_id, error: safeError });
-    return { error: safeError.message };
+    return { error: safeError };
   }
 
   if (submitStatus < 200 || submitStatus >= 300) {
@@ -159,7 +160,8 @@ async function callKlingImageApi(config, log, opts) {
         return imageProviderFailure('Kling', 'image task', null, queryData, queryData?.code);
       }
     } catch (e) {
-      log.warn('[Kling图生] 轮询请求失败', { attempt, error: e.message, image_gen_id });
+      const classified = rethrowIfRequestCanceled(e, opts.signal);
+      log.warn('[Kling图生] 轮询请求失败', { attempt, error: classified.message, image_gen_id });
     }
   }
   return { error: '可灵图片生成超时' };

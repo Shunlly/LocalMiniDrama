@@ -5,9 +5,13 @@
 const { AsyncLocalStorage } = require('async_hooks');
 const { postJSONWithTimeout: postJSONWithTimeoutBase } = require('../aiClient');
 const {
-  providerFailure,
-  sanitizeProviderException,
-} = require('../providerErrorSanitizer');
+  classifyHttpFailure,
+  isRequestCanceled,
+  isRequestTimeout,
+  normalizeProviderRequestError,
+  operationCancelledError,
+  rethrowIfRequestCanceled,
+} = require('./requestError');
 
 /** 图生 POST 使用 Node http(s)，默认 10 分钟，避免 undici fetch 大包体/慢链路下模糊失败 */
 const IMAGE_HTTP_TIMEOUT_MS = 600000;
@@ -18,20 +22,13 @@ function normalizeIdempotencyKey(value) {
   return String(value || '').trim().slice(0, 200);
 }
 
-function operationCancelledError(reason) {
-  if (reason instanceof Error && reason.code === 'OPERATION_CANCELLED') return reason;
-  const error = new Error(reason instanceof Error ? reason.message : String(reason || '操作已取消'));
-  error.name = 'AbortError';
-  error.code = 'OPERATION_CANCELLED';
-  return error;
-}
-
 function throwIfAborted(signal) {
-  if (signal?.aborted) throw operationCancelledError(signal.reason);
+  if (!signal?.aborted) return;
+  throw normalizeProviderRequestError(signal.reason || new Error('请求已取消'), { signal });
 }
 
 function isOperationCancelled(error, signal) {
-  return signal?.aborted || error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
+  return isRequestCanceled(error, signal);
 }
 
 function abortableDelay(ms, signal) {
@@ -48,7 +45,7 @@ function abortableDelay(ms, signal) {
     function abort() {
       clearTimeout(timer);
       cleanup();
-      reject(operationCancelledError(signal.reason));
+      reject(normalizeProviderRequestError(signal.reason || new Error('请求已取消'), { signal }));
     }
     signal?.addEventListener('abort', abort, { once: true });
   });
@@ -56,22 +53,61 @@ function abortableDelay(ms, signal) {
 
 function postJSONWithTimeout(url, headers, body, timeoutMs, networkOptions = {}) {
   const context = imageRequestContext.getStore() || {};
+  const mergedNetworkOptions = { ...(context.networkOptions || {}), ...networkOptions };
+  const signal = mergedNetworkOptions.signal;
   const idempotencyKey = normalizeIdempotencyKey(context.idempotencyKey);
-  return postJSONWithTimeoutBase(
+  throwIfAborted(signal);
+  const request = postJSONWithTimeoutBase(
     url,
     idempotencyKey ? { ...(headers || {}), 'Idempotency-Key': idempotencyKey } : headers,
     body,
     timeoutMs,
-    { ...(context.networkOptions || {}), ...networkOptions }
+    mergedNetworkOptions
   );
+  if (!signal) return request;
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      reject(normalizeProviderRequestError(signal.reason || new Error('请求已取消'), {
+        signal,
+        provider: 'Image',
+        operation: 'image request',
+      }));
+    };
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+    request.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(normalizeProviderRequestError(error, {
+          signal,
+          provider: 'Image',
+          operation: 'image request',
+        }));
+      }
+    );
+  });
 }
 
 function imageProviderFailure(provider, operation, status, responseBody, code) {
-  return providerFailure({ provider, operation, status, responseBody, code });
+  const error = classifyHttpFailure({ provider, operation, status, responseBody, code });
+  const result = { error };
+  if (error.retryable === true) result.retryable = true;
+  return result;
 }
 
-function imageProviderException(error, provider, operation) {
-  return sanitizeProviderException(error, { provider, operation });
+function imageProviderException(error, provider, operation, signal) {
+  const classified = normalizeProviderRequestError(error, { provider, operation, signal });
+  if (isRequestCanceled(classified, signal) || isRequestTimeout(classified, signal) || classified.retryable === true) {
+    throw classified;
+  }
+  return classified;
 }
 
 // 多参考图时注入到所有支持 negative_prompt 的模型，防止生成分割/拼贴布局；同时加入安全词以减少敏感拦截
@@ -114,6 +150,7 @@ module.exports = {
   postJSONWithTimeout,
   imageProviderFailure,
   imageProviderException,
+  rethrowIfRequestCanceled,
   ANTI_SPLIT_NEGATIVE_PROMPT,
   mergeNegativePromptFragments,
   inferProtocol,

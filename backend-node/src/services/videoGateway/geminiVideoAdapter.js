@@ -88,7 +88,7 @@ async function callGeminiVideoApi(config, log, opts) {
   try {
     data = JSON.parse(raw);
   } catch (e) {
-    return { error: 'Gemini ??????????' };
+    return { error: 'Gemini 视频生成返回格式异常' };
   }
 
   // ?? operation name ?? task_id???? pollVideoTask ??
@@ -97,7 +97,7 @@ async function callGeminiVideoApi(config, log, opts) {
     log.info('Gemini Video task created', { operation: operationName, video_gen_id });
     return { task_id: operationName, status: 'processing' };
   }
-  return { error: 'Gemini ??? operation name???? API Key ?????' };
+  return { error: 'Gemini 未返回 operation name，请检查模型名称或 API Key 权限' };
 }
 
 module.exports = {

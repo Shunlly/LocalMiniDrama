@@ -766,10 +766,10 @@ async function callVideoApi(db, log, opts = {}) {
     const provider = opts.preferred_provider || opts.preferredProvider || opts.provider || 'Video provider';
     try {
       const result = await callVideoApiInternal(db, log, opts);
-      return sanitizeProviderResult(result, { provider, operation: 'video generation' });
+      return sanitizeProviderResult(result, { provider, operation: '视频生成' });
     } catch (error) {
       if (error?.code === 'VIDEO_INPUT_INVALID') throw error;
-      throw sanitizeProviderException(error, { provider, operation: 'video generation' });
+      throw sanitizeProviderException(error, { provider, operation: '视频生成' });
     }
   });
 }
@@ -1152,9 +1152,9 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
       intervalMs,
       signal
     );
-    return sanitizeProviderResult(result, { provider, operation: 'video task' });
+    return sanitizeProviderResult(result, { provider, operation: '视频任务' });
   } catch (error) {
-    throw sanitizeProviderException(error, { provider, operation: 'video task' });
+    throw sanitizeProviderException(error, { provider, operation: '视频任务' });
   }
 }
 

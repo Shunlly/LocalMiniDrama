@@ -69,7 +69,7 @@ async function callDashScopeVideoApi(config, log, opts) {
     const firstUrl = toImageInput(firstRaw);
     const lastUrl = toImageInput(lastRaw);
     if (!firstUrl || !lastUrl) {
-      return { error: 'wan2.2-kf2v-flash ?????????' };
+      return { error: 'wan2.2-kf2v-flash 需要首帧和尾帧图片' };
     }
     body = {
       model,
@@ -87,7 +87,7 @@ async function callDashScopeVideoApi(config, log, opts) {
     url = base + DASHSCOPE_VIDEO_GENERATION;
     const imgRaw = (image_url && image_url.trim()) || (first_frame_url && first_frame_url.trim());
     const imgUrl = toImageInput(imgRaw);
-    if (!imgUrl) return { error: 'wan2.6-i2v-flash ??????' };
+    if (!imgUrl) return { error: 'wan2.6-i2v-flash 需要参考图' };
     body = {
       model,
       input: { prompt: prompt || '', img_url: imgUrl },
@@ -97,7 +97,7 @@ async function callDashScopeVideoApi(config, log, opts) {
     url = base + DASHSCOPE_VIDEO_GENERATION;
     const rawRefs = Array.isArray(reference_urls) ? reference_urls.filter(Boolean).slice(0, 3) : [];
     const refs = rawRefs.map(toImageInput).filter(Boolean);
-    if (refs.length === 0) return { error: 'wanx2.1-vace-plus ???????? 3 ??' };
+    if (refs.length === 0) return { error: 'wanx2.1-vace-plus 需要 1 到 3 张参考图' };
     body = {
       model,
       input: { function: 'image_reference', prompt: prompt || '', ref_images_url: refs },
@@ -107,14 +107,14 @@ async function callDashScopeVideoApi(config, log, opts) {
     url = base + DASHSCOPE_VIDEO_GENERATION;
     const rawRefs = Array.isArray(reference_urls) ? reference_urls.filter(Boolean).slice(0, 5) : [];
     const refs = rawRefs.map(toImageInput).filter(Boolean);
-    if (refs.length === 0) return { error: 'wan2.6-r2v-flash ??????????? 5 ??' };
+    if (refs.length === 0) return { error: 'wan2.6-r2v-flash 需要 1 到 5 张参考图' };
     body = {
       model,
       input: { prompt: prompt || '', reference_urls: refs },
       parameters: { prompt_extend: true },
     };
   } else {
-    return { error: '????????????: ' + model };
+    return { error: '暂不支持该通义万象视频模型: ' + model };
   }
 
   const shorten = (v) => (v && v.startsWith('data:') ? '(base64 ???)' : v);
@@ -156,7 +156,7 @@ async function callDashScopeVideoApi(config, log, opts) {
   try {
     data = JSON.parse(raw);
   } catch (e) {
-    return { error: '??????????' };
+    return { error: '通义万象视频返回格式异常' };
   }
   if (data.code) {
     return videoProviderFailure('DashScope', 'video request', res.status, data, data.code);
@@ -165,7 +165,7 @@ async function callDashScopeVideoApi(config, log, opts) {
   if (taskId) return { task_id: taskId, status: 'PENDING' };
   const videoUrl = parseDashScopeVideoUrl(data);
   if (videoUrl) return { video_url: videoUrl };
-  return { error: '??? task_id ? video_url' };
+  return { error: '未返回 task_id 或 video_url' };
 }
 
 module.exports = {

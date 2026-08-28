@@ -7,10 +7,15 @@ const {
 } = require('./providerRuntime');
 const {
   createSafeProviderLogger,
-  providerFailure,
   sanitizeLogValue,
-  sanitizeProviderException,
 } = require('../providerErrorSanitizer');
+const {
+  classifyHttpFailure,
+  isRequestCanceled,
+  isRequestTimeout,
+  normalizeProviderRequestError,
+  operationCancelledError,
+} = require('./requestError');
 
 const createSafeVideoLogger = createSafeProviderLogger;
 const videoRequestContext = new AsyncLocalStorage();
@@ -34,11 +39,22 @@ function fetchVideoWithTimeout(url, options = {}, timeoutMs, networkOptions) {
 }
 
 function videoProviderFailure(provider, operation, status, responseBody, code) {
-  return providerFailure({ provider, operation, status, responseBody, code });
+  const pollStatus = extractPollTaskStatus(responseBody);
+  if (isPollTaskCancelled(pollStatus)) {
+    throw operationCancelledError('视频生成已取消');
+  }
+  const error = classifyHttpFailure({ provider, operation, status, responseBody, code });
+  const result = { error };
+  if (error.retryable === true) result.retryable = true;
+  return result;
 }
 
-function videoProviderException(error, provider, operation) {
-  return sanitizeProviderException(error, { provider, operation });
+function videoProviderException(error, provider, operation, signal) {
+  const classified = normalizeProviderRequestError(error, { provider, operation, signal });
+  if (isRequestCanceled(classified, signal) || isRequestTimeout(classified, signal) || classified.retryable === true) {
+    throw classified;
+  }
+  return classified;
 }
 
 /**
@@ -205,13 +221,16 @@ function extractPollTaskStatus(data) {
   return '';
 }
 
+function isPollTaskCancelled(status) {
+  return status === 'cancelled' || status === 'canceled' || status === 'cancelled_by_user';
+}
+
 function isPollTaskFailed(status) {
   return (
     status === 'failed' ||
     status === 'failure' ||
     status === 'error' ||
-    status === 'cancelled' ||
-    status === 'canceled' ||
+    isPollTaskCancelled(status) ||
     status === 'fail'
   );
 }
@@ -513,6 +532,7 @@ module.exports = {
   isPlausibleHttpVideoUrl,
   coerceHttpVideoUrl,
   extractPollTaskStatus,
+  isPollTaskCancelled,
   isPollTaskFailed,
   extractPollFailureMessage,
   videoUrlFromRecord,

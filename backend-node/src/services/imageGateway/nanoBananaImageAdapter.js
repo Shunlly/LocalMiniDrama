@@ -11,6 +11,7 @@ const {
   postJSONWithTimeout,
   imageProviderFailure,
   imageProviderException,
+  rethrowIfRequestCanceled,
 } = require('./runtime');
 const { nanoBananaAspectRatio } = require('./sizeAdapters');
 const { resolveImageRef } = require('./referenceUtils');
@@ -115,9 +116,9 @@ async function callNanoBananaImageApi(config, log, opts) {
     submitStatus = out.statusCode;
     submitRaw = out.raw;
   } catch (e) {
-    const safeError = imageProviderException(e, 'NanoBanana', 'image request');
+    const safeError = imageProviderException(e, 'NanoBanana', 'image request', opts.signal);
     log.error('NanoBanana submit network error', { image_gen_id, error: safeError });
-    return { error: safeError.message };
+    return { error: safeError };
   }
   if (submitStatus < 200 || submitStatus >= 300) {
     log.error('NanoBanana submit failed', {
@@ -255,7 +256,8 @@ async function callNanoBananaImageApi(config, log, opts) {
         return imageProviderFailure('NanoBanana', 'image task', null, queryData, queryData?.code);
       }
     } catch (e) {
-      log.warn('NanoBanana poll request failed', { attempt, error: e.message, image_gen_id, poll_url: pollUrl });
+      const classified = rethrowIfRequestCanceled(e, opts.signal);
+      log.warn('NanoBanana poll request failed', { attempt, error: classified.message, image_gen_id, poll_url: pollUrl });
     }
   }
   return { error: 'NanoBanana 图片生成超时' };
