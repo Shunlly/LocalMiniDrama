@@ -31,7 +31,7 @@ function routes(db, log) {
       res,
       501,
       'LEGACY_ENDPOINT_DISABLED',
-      'Use POST /api/v1/episodes/:episode_id/finalize to start an FFmpeg merge.'
+      '请改为调用 POST /api/v1/episodes/:episode_id/finalize 启动 FFmpeg 合成'
     ),
     get: (req, res) => {
       try {

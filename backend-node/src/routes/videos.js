@@ -53,13 +53,13 @@ function routes(db, log) {
       res,
       501,
       'LEGACY_ENDPOINT_DISABLED',
-      'Use POST /api/v1/videos with storyboard_id and frame references.'
+      '请改为调用 POST /api/v1/videos，并传入 storyboard_id 与帧参考'
     ),
     episodeBatch: (_req, res) => response.error(
       res,
       501,
       'LEGACY_ENDPOINT_DISABLED',
-      'Submit POST /api/v1/videos once for each storyboard.'
+      '请改为对每个分镜单独调用 POST /api/v1/videos'
     ),
   };
 }

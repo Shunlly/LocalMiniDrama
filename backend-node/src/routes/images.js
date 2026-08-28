@@ -49,7 +49,7 @@ function routes(db, cfg, log) {
       res,
       501,
       'LEGACY_ENDPOINT_DISABLED',
-      'Use POST /api/v1/scenes/generate-image with scene_id.'
+      '请改为调用 POST /api/v1/scenes/generate-image，并传入 scene_id'
     ),
     episodeBackgrounds: (req, res) => {
       try {
