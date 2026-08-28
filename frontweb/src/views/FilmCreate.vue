@@ -861,11 +861,6 @@ import {
   hasRealMediaValue,
 } from '@/utils/storyboardMedia'
 import {
-  collectStoryboardReferenceSlots,
-  collectStoryboardReferenceUrls,
-  createStoryboardReferenceFromAsset,
-  normalizeStoryboardReferenceImages,
-  upsertStoryboardReferenceImage,
   videoConfigSupportsOmni,
 } from '@/utils/storyboardVideoRequest'
 import { exportStoryboardSheet } from '@/utils/exportStoryboardSheet'
@@ -919,7 +914,6 @@ import {
   backfillDramaStylePromptMetadataIfNeeded,
 } from '@/constants/styleOptions'
 import { useNavigation } from '@/composables/filmCreate/useNavigation'
-import { runGenerateStoryFromPremise } from '@/composables/useStoryGeneration'
 import { useCharacters } from '@/composables/filmCreate/useCharacters'
 import { useProps as usePropsComposable } from '@/composables/filmCreate/useProps'
 import { useScenes } from '@/composables/filmCreate/useScenes'
@@ -937,6 +931,8 @@ import { useFilmCreateResourceUpload } from '@/composables/filmCreate/useFilmCre
 import { useFilmCreateStoryboardCrud } from '@/composables/filmCreate/useFilmCreateStoryboardCrud'
 import { useFilmCreateStoryboardPrompts } from '@/composables/filmCreate/useFilmCreateStoryboardPrompts'
 import { useFilmCreateTailFrameLink } from '@/composables/filmCreate/useFilmCreateTailFrameLink'
+import { useFilmCreateScriptPersistence } from '@/composables/filmCreate/useFilmCreateScriptPersistence'
+import { useFilmCreateStoryboardReferences } from '@/composables/filmCreate/useFilmCreateStoryboardReferences'
 import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
 
 const projectLifecycle = createProjectInstanceLifecycle()
@@ -3341,172 +3337,37 @@ function updateStoryboardDialogue(sbId) {
   // 可在此防抖后调用后端更新 dialogue
 }
 
-/** 将当前剧本内容保存到后端（创建/更新项目与集数），供「保存剧本」与「AI 生成」后自动保存共用 */
-async function saveScriptToBackend(content) {
-  const trimmed = (content ?? '').toString().trim()
-  if (!trimmed) return
-  const parsed = parseScriptIntoEpisodes(trimmed)
-  const multiFromMarkers = parsed.split && parsed.episodes.length >= 2
-  const toPayload = (list) =>
-    list.map((e, i) => ({
-      episode_number: i + 1,
-      title: (e.title && String(e.title).trim()) || '第' + (i + 1) + '集',
-      script_content: e.script_content ?? '',
-      description: null,
-      duration: 0,
-    }))
-
-  let dramaId = store.dramaId
-  const curEp = store.currentEpisode
-  if (!dramaId) {
-    const drama = await dramaAPI.create({
-      title: scriptTitle.value || '新故事',
-      description: '',
-      genre: storyType.value || undefined,
-      style: generationStyle.value || undefined,
-      metadata: {
-        ...projectStylePromptMetadata(),
-        story_style: storyStyle.value || undefined,
-        story_generation_draft: storyInput.value?.trim() || undefined,
-        aspect_ratio: projectAspectRatio.value || '16:9',
-      },
-    })
-    store.setDrama(drama)
-    dramaId = drama.id
-    savedCurrentEpisodeNumber.value = 1
-    const first = parsed.episodes[0] || { title: '', script_content: trimmed }
-    const episodes = multiFromMarkers
-      ? toPayload(parsed.episodes)
-      : [
-          {
-            episode_number: 1,
-            title: scriptTitle.value || first.title || '第1集',
-            script_content: trimmed,
-          },
-        ]
-    await dramaAPI.saveEpisodes(dramaId, episodes)
-    await loadDrama()
-    if (route.params.id === 'new') {
-      router.replace('/film/' + dramaId)
-    }
-    if (multiFromMarkers) {
-      ElMessage.success(`已按「第N集/章/节」拆分为 ${episodes.length} 集`)
-    }
-    return { created: true }
-  }
-  if (multiFromMarkers) {
-    savedCurrentEpisodeNumber.value = 1
-    const payload = toPayload(parsed.episodes)
-    await dramaAPI.saveEpisodes(dramaId, payload)
-    if (storyInput.value?.trim()) {
-      await dramaAPI.saveOutline(dramaId, {
-        genre: storyType.value || undefined,
-        style: generationStyle.value || undefined,
-        metadata: {
-          ...projectStylePromptMetadata(),
-          story_style: storyStyle.value || undefined,
-          story_generation_draft: storyInput.value?.trim() || undefined,
-          aspect_ratio: projectAspectRatio.value || '16:9',
-        },
-      }).catch(() => {})
-    }
-    await loadDrama()
-    ElMessage.success(`已按「第N集/章/节」拆分为 ${payload.length} 集`)
-    return { created: false, splitEpisodes: true }
-  }
-  const episodes = store.drama?.episodes || []
-  savedCurrentEpisodeNumber.value = curEp?.episode_number ?? 1
-  const updated = episodes.map((ep, i) => {
-    const num = ep.episode_number ?? i + 1
-    const isCurrent = curEp && Number(ep.id) === Number(curEp.id)
-    return {
-      episode_number: num,
-      title: isCurrent
-        ? scriptTitle.value || ep.title || '第' + num + '集'
-        : ep.title || '',
-      script_content: isCurrent ? trimmed : (ep.script_content || ''),
-      description: ep.description,
-      duration: ep.duration,
-    }
-  })
-  if (updated.length === 0) {
-    updated.push({ episode_number: 1, title: scriptTitle.value || '第1集', script_content: trimmed })
-  }
-  await dramaAPI.saveEpisodes(dramaId, updated)
-  if (storyInput.value?.trim()) {
-    await dramaAPI.saveOutline(dramaId, {
-      genre: storyType.value || undefined,
-      style: generationStyle.value || undefined,
-      metadata: {
-        ...projectStylePromptMetadata(),
-        story_style: storyStyle.value || undefined,
-        story_generation_draft: storyInput.value?.trim() || undefined,
-        aspect_ratio: projectAspectRatio.value || '16:9',
-      },
-    }).catch(() => {})
-  }
-  await loadDrama()
-  return { created: false }
-}
-
-/**
- * @param {boolean} includeGenerationStyle - 仅在选择「画面风格」为 true：写入 dramas.style 与 style_prompt_*。
- * 其它项目设置改为 false，避免界面未刷新时仍用旧的 generationStyle 覆盖外部已更新的画风（如直接调 API PUT outline）。
- */
-async function saveProjectSettings(includeGenerationStyle = false) {
-  if (!store.dramaId) return
-  const metadata = {
-    story_style: storyStyle.value || undefined,
-    story_generation_draft: storyInput.value?.trim() || undefined,
-    aspect_ratio: projectAspectRatio.value || '16:9',
-    video_clip_duration: videoClipDuration.value || 5,
-    storyboard_include_narration: !!storyboardIncludeNarration.value,
-    storyboard_universal_omni: !!storyboardUniversalOmni.value,
-    storyboard_use_first_last_frame: !!storyboardUseFirstLastFrame.value,
-    last_frame_use_first_layout_lock: !!lastFrameUseFirstLayoutLock.value,
-  }
-  if (includeGenerationStyle) {
-    Object.assign(metadata, projectStylePromptMetadata())
-  }
-  const payload = {
-    genre: storyType.value || undefined,
-    metadata,
-  }
-  if (includeGenerationStyle) {
-    payload.style = generationStyle.value || undefined
-  }
-  dramaAPI.saveOutline(store.dramaId, payload).catch(e => console.error('Settings auto-save failed', e))
-}
-
-async function onGenerateStory() {
-  trackFilmCreateAction('generate_script_click')
-  await runGenerateStoryFromPremise({
-    premise: storyInput.value,
-    storyStyle: storyStyle.value,
-    storyType: storyType.value,
-    storyEpisodeCount: storyEpisodeCount.value,
-    scriptTitle: scriptTitle.value,
-    generationStyle: generationStyle.value,
-    projectAspectRatio: projectAspectRatio.value,
-    store,
-    router,
-    route,
-    loadDrama,
-    savedCurrentEpisodeNumber,
-    selectedEpisodeId,
-    onEpisodeSelect,
+const {
+  saveScriptToBackend,
+  saveProjectSettings,
+  onGenerateStory,
+} = useFilmCreateScriptPersistence({
+  store,
+  dramaAPI,
+  router,
+  route,
+  scriptTitle,
+  storyType,
+  generationStyle,
+  storyStyle,
+  storyInput,
+  projectAspectRatio,
+  videoClipDuration,
+  storyboardIncludeNarration,
+  storyboardUniversalOmni,
+  storyboardUseFirstLastFrame,
+  lastFrameUseFirstLayoutLock,
+  projectStylePromptMetadata,
+  loadDrama,
+  savedCurrentEpisodeNumber,
+  selectedEpisodeId,
+  onEpisodeSelect,
   storyGenerating,
   scriptGenerating,
   pollTask,
-  replaceRouteWhenNew: true,
-    skipPostLoad: false,
-    onComplete: ({ episodeCount }) => {
-      trackFilmCreateAction('generate_script_complete', {
-        extra: { episode_count: episodeCount },
-      })
-    },
-  })
-}
+  trackFilmCreateAction,
+  storyEpisodeCount,
+})
 
 function openSelectScriptDialog() {
   showSelectScriptDialog.value = true
@@ -4212,221 +4073,45 @@ function buildSbVideoPromptForApi(sb, { preferClassicPrompt = false } = {}) {
   return vp
 }
 
-function currentStoryboardReferenceState(sb) {
-  if (!sb?.id) return sb || {}
-  return {
-    ...sb,
-    scene_id: sbSceneId.value[sb.id] ?? sb.scene_id,
-    characters: sbCharacterIds.value[sb.id] ?? sb.characters,
-    prop_ids: sbPropIds.value[sb.id] ?? sb.prop_ids,
-  }
-}
-
-function findStoryboardRow(sbId) {
-  return (storyboards.value || []).find((row) => Number(row.id) === Number(sbId)) || null
-}
-
-function mergeStoryboardIntoStore(nextRow) {
-  if (!nextRow?.id) return
-  const mergeIntoList = (list) => {
-    if (!Array.isArray(list)) return
-    const row = list.find((item) => Number(item.id) === Number(nextRow.id))
-    if (row) Object.assign(row, nextRow)
-  }
-  mergeIntoList(store.currentEpisode?.storyboards)
-  for (const episode of store.drama?.episodes || []) mergeIntoList(episode.storyboards)
-  if (videoParamsTarget.value?.id === nextRow.id) {
-    videoParamsTarget.value = { ...videoParamsTarget.value, ...nextRow }
-  }
-}
-
-function getSbFreeReferenceItems(sb) {
-  return normalizeStoryboardReferenceImages(currentStoryboardReferenceState(sb))
-}
-
-function getSbPrimaryFreeReferenceItem(sb) {
-  return getSbFreeReferenceItems(sb)[0] || null
-}
-
-function collectSbFreeReferenceAbsoluteUrls(sb) {
-  if (!sb?.id) return []
-  return collectStoryboardReferenceUrls(
-    currentDramaReferenceEntities(),
-    currentStoryboardReferenceState(sb),
-    { kinds: ['free'], toAbsolute: toAbsoluteImageUrl, limit: 10 }
-  )
-}
-
-function uniqueStoryboardReferenceUrls(values, limit = 10) {
-  const next = []
-  const seen = new Set()
-  for (const raw of values || []) {
-    const value = String(raw || '').trim()
-    if (!value || seen.has(value)) continue
-    seen.add(value)
-    next.push(value)
-    if (next.length >= limit) break
-  }
-  return next
-}
-
-async function saveStoryboardReferenceImages(sb, nextImages, successMessage) {
-  if (!sb?.id || savingSbReferenceImages.has(sb.id)) return false
-  savingSbReferenceImages.add(sb.id)
-  try {
-    const updated = await storyboardsAPI.update(sb.id, { reference_images: nextImages })
-    mergeStoryboardIntoStore(updated)
-    ElMessage.success(successMessage)
-    return true
-  } catch (e) {
-    ElMessage.error(e.message || '保存分镜参考图失败')
-    return false
-  } finally {
-    savingSbReferenceImages.delete(sb.id)
-  }
-}
-
-function openGlobalMediaPicker(sb, mode = 'reference') {
-  if (!sb?.id) return
-  globalMediaPickerMode.value = mode
-  globalMediaPickerTarget.value = findStoryboardRow(sb.id) || sb
-  showGlobalMediaPicker.value = true
-}
-
-async function onGlobalMediaAssetSelected(asset) {
-  const sb = globalMediaPickerTarget.value
-  if (!sb?.id) return
-  const reference = createStoryboardReferenceFromAsset(asset)
-  if (!reference) {
-    ElMessage.warning('当前闭环先支持把图片挂到分镜参考图')
-    return
-  }
-  const prepend = globalMediaPickerMode.value === 'reference-primary'
-  const result = upsertStoryboardReferenceImage(currentStoryboardReferenceState(sb), reference, { prepend })
-  if (result.status === 'invalid') {
-    ElMessage.warning('所选素材缺少可用图片地址，无法挂到分镜参考图')
-    return
-  }
-  if (result.status === 'duplicate' && !prepend) {
-    ElMessage.warning('该图片已经挂到当前分镜的自由参考图中')
-    return
-  }
-  if (result.status === 'duplicate' && prepend) {
-    ElMessage.warning('该图片已经是当前分镜的视频主参考')
-    return
-  }
-  const message = prepend ? '已设置为当前分镜的视频主参考图' : '已添加到当前分镜的自由参考图'
-  const saved = await saveStoryboardReferenceImages(sb, result.items, message)
-  if (saved) {
-    showGlobalMediaPicker.value = false
-    globalMediaPickerTarget.value = findStoryboardRow(sb.id) || sb
-  }
-}
-
-async function onRemoveSbFreeReferenceImage(sb, index) {
-  const items = getSbFreeReferenceItems(sb)
-  if (index < 0 || index >= items.length) return
-  const nextImages = items.filter((_, itemIndex) => itemIndex !== index)
-  await saveStoryboardReferenceImages(sb, nextImages, '已移除分镜自由参考图')
-}
-
-async function onPromoteSbFreeReferenceImage(sb, item) {
-  const result = upsertStoryboardReferenceImage(currentStoryboardReferenceState(sb), item, { prepend: true })
-  if (result.status === 'duplicate') {
-    ElMessage.warning('该图片已经是当前分镜的视频主参考')
-    return
-  }
-  await saveStoryboardReferenceImages(sb, result.items, '已更新当前分镜的视频主参考图')
-}
-
-function currentDramaReferenceEntities() {
-  return {
-    scenes: scenes.value || [],
-    characters: characters.value || [],
-    props: props.value || [],
-  }
-}
-
-/** 全能模式：场景、角色、物品和自由参考图槽位（用于 @ 选择器缩略图） */
-function getSbUniversalOmniRefSlots(sb) {
-  if (!sb?.id) return []
-  return collectStoryboardReferenceSlots(
-    currentDramaReferenceEntities(),
-    currentStoryboardReferenceState(sb)
-  ).map((slot) => ({
-    index: slot.index,
-    kind: slot.kind,
-    name: slot.name,
-    thumbUrl: slot.url,
-  }))
-}
-
-/** 全能模式：统一收集场景、角色、物品和自由参考图，最多 10 张。 */
-function collectSbOmniReferenceAbsoluteUrls(sb) {
-  if (!sb?.id) return []
-  return collectStoryboardReferenceUrls(
-    currentDramaReferenceEntities(),
-    currentStoryboardReferenceState(sb),
-    { toAbsolute: toAbsoluteImageUrl, limit: 10 }
-  )
-}
-
-/** 非 Seedance2 全能降级：仅场景参考图（若有） */
-function collectSbSceneOnlyReferenceAbsoluteUrls(sb) {
-  if (!sb?.id) return []
-  return collectStoryboardReferenceUrls(
-    currentDramaReferenceEntities(),
-    currentStoryboardReferenceState(sb),
-    { kinds: ['scene'], toAbsolute: toAbsoluteImageUrl, limit: 1 }
-  )
-}
-
-function getSbPrimaryReferenceAbsoluteUrl(sb) {
-  const primary = getSbPrimaryFreeReferenceItem(sb)
-  return primary ? toAbsoluteImageUrl(assetImageUrl(primary)) : ''
-}
-
-async function buildStoryboardVideoReferencePayload(sb, options = {}) {
-  const universal = options.universal === true
-  const universalOmni = options.universalOmni === true
-  const selectedGrid = options.selectedGrid || null
-  const gridAbsoluteUrl = selectedGrid ? toAbsoluteImageUrl(assetImageUrl(selectedGrid)) : ''
-  const omniRefs = universal ? [gridAbsoluteUrl, ...collectSbOmniReferenceAbsoluteUrls(sb)].filter(Boolean) : []
-  const sceneOnlyRefs = universal && !universalOmni ? collectSbSceneOnlyReferenceAbsoluteUrls(sb) : []
-  const freeRefs = collectSbFreeReferenceAbsoluteUrls(sb)
-  const primaryReferenceUrl = getSbPrimaryReferenceAbsoluteUrl(sb)
-  const mainImageUrl = selectedGrid ? '' : toAbsoluteImageUrl((options.mainImageUrl || await getMainImageUrlForVideo(sb) || ''))
-  let absoluteUrl = gridAbsoluteUrl || mainImageUrl || primaryReferenceUrl
-  let referenceUrls = []
-
-  if (universalOmni) {
-    referenceUrls = uniqueStoryboardReferenceUrls(omniRefs, 10)
-    if (!absoluteUrl) absoluteUrl = referenceUrls[0] || ''
-  } else if (universal) {
-    referenceUrls = uniqueStoryboardReferenceUrls([absoluteUrl, ...sceneOnlyRefs, ...freeRefs], 10)
-    if (!absoluteUrl) absoluteUrl = referenceUrls[0] || ''
-  } else {
-    referenceUrls = uniqueStoryboardReferenceUrls([absoluteUrl, ...freeRefs], 10)
-    if (!absoluteUrl) absoluteUrl = referenceUrls[0] || ''
-  }
-
-  const frameUrls = sbVideoFirstLastUrls(sb, universalOmni, options.contiguityFirstFrameUrl || null)
-  const firstFrameUrl = selectedGrid ? gridAbsoluteUrl : (frameUrls.first || absoluteUrl || undefined)
-  const lastFrameUrl = selectedGrid ? undefined : frameUrls.last
-  if (!universalOmni && lastFrameUrl) {
-    referenceUrls = uniqueStoryboardReferenceUrls([...referenceUrls, lastFrameUrl], 10)
-  }
-
-  return {
-    absoluteUrl,
-    gridAbsoluteUrl,
-    referenceUrls: referenceUrls.length ? referenceUrls : undefined,
-    firstFrameUrl,
-    lastFrameUrl,
-    omniRefs,
-    sceneOnlyRefs,
-  }
-}
+const {
+  currentStoryboardReferenceState,
+  findStoryboardRow,
+  mergeStoryboardIntoStore,
+  getSbFreeReferenceItems,
+  getSbPrimaryFreeReferenceItem,
+  collectSbFreeReferenceAbsoluteUrls,
+  uniqueStoryboardReferenceUrls,
+  saveStoryboardReferenceImages,
+  openGlobalMediaPicker,
+  onGlobalMediaAssetSelected,
+  onRemoveSbFreeReferenceImage,
+  onPromoteSbFreeReferenceImage,
+  currentDramaReferenceEntities,
+  getSbUniversalOmniRefSlots,
+  collectSbOmniReferenceAbsoluteUrls,
+  collectSbSceneOnlyReferenceAbsoluteUrls,
+  getSbPrimaryReferenceAbsoluteUrl,
+  buildStoryboardVideoReferencePayload,
+} = useFilmCreateStoryboardReferences({
+  store,
+  storyboards,
+  storyboardsAPI,
+  sbSceneId,
+  sbCharacterIds,
+  sbPropIds,
+  videoParamsTarget,
+  toAbsoluteImageUrl,
+  assetImageUrl,
+  scenes,
+  characters,
+  props,
+  savingSbReferenceImages,
+  globalMediaPickerMode,
+  globalMediaPickerTarget,
+  showGlobalMediaPicker,
+  getMainImageUrlForVideo,
+  sbVideoFirstLastUrls,
+})
 
 let activeVideoAiConfigCache = null
 let activeVideoAiConfigCacheAt = 0

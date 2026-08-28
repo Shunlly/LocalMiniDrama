@@ -6,6 +6,11 @@ const filmCreateSource = readFileSync(
   new URL('../src/views/FilmCreate.vue', import.meta.url),
   'utf8',
 )
+const scriptPersistenceSource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreateScriptPersistence.js', import.meta.url),
+  'utf8',
+)
+const filmCreateWithScriptSource = scriptPersistenceSource + '\n' + filmCreateSource
 const storyGenerationSource = readFileSync(
   new URL('../src/composables/useStoryGeneration.js', import.meta.url),
   'utf8',
@@ -27,7 +32,7 @@ test('story generation draft is restored from dedicated metadata rather than pro
 })
 
 test('saving a script never submits a generation request and keeps its draft out of project description', () => {
-  const saveScript = sourceBetween(filmCreateSource, 'async function saveScriptToBackend(content)', 'async function saveProjectSettings')
+  const saveScript = sourceBetween(filmCreateWithScriptSource, 'async function saveScriptToBackend(content)', 'async function saveProjectSettings')
 
   assert.doesNotMatch(saveScript, /generationAPI\.generateStory/)
   assert.doesNotMatch(saveScript, /description:\s*storyInput\.value/)
@@ -36,17 +41,17 @@ test('saving a script never submits a generation request and keeps its draft out
 })
 
 test('manual single-episode saves preserve the exact script body instead of stripping an episode heading', () => {
-  const saveScript = sourceBetween(filmCreateSource, 'async function saveScriptToBackend(content)', 'async function saveProjectSettings')
+  const saveScript = sourceBetween(filmCreateWithScriptSource, 'async function saveScriptToBackend(content)', 'async function saveProjectSettings')
 
   assert.match(saveScript, /script_content:\s*trimmed/)
   assert.match(saveScript, /script_content:\s*isCurrent\s*\?\s*trimmed\s*:/)
 })
 
 test('only the explicit generate-story command can invoke story generation', () => {
-  const explicitCommand = sourceBetween(filmCreateSource, 'async function onGenerateStory()', 'function openSelectScriptDialog')
+  const explicitCommand = sourceBetween(filmCreateWithScriptSource, 'async function onGenerateStory()', 'function openSelectScriptDialog')
 
   assert.match(explicitCommand, /runGenerateStoryFromPremise\(/)
-  assert.equal((filmCreateSource.match(/runGenerateStoryFromPremise\(/g) || []).length, 1)
+  assert.equal((filmCreateWithScriptSource.match(/runGenerateStoryFromPremise\(/g) || []).length, 1)
   assert.match(storyGenerationSource, /story_generation_draft:\s*text/)
   assert.doesNotMatch(storyGenerationSource, /summary:\s*text/)
 })

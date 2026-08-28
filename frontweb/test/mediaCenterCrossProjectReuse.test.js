@@ -9,6 +9,7 @@ const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', imp
 const pipelineStagesSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreatePipelineStages.js', import.meta.url), 'utf8')
 const batchGenerationSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateBatchGeneration.js', import.meta.url), 'utf8')
 const storyboardVideoGenerationSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardVideoGeneration.js', import.meta.url), 'utf8')
+const storyboardReferencesSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardReferences.js', import.meta.url), 'utf8')
 const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 const storyboardDialogsSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardDialogs.vue', import.meta.url), 'utf8')
 const mediaLibrarySource = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
@@ -93,9 +94,9 @@ test('FilmCreate wires the picker into storyboard free references with duplicate
   assert.match(storyboardDialogsSource, /<el-form-item label="素材中心参考图">/)
   assert.match(storyboardDialogsSource, /openGlobalMediaPicker\(videoParamsTarget, 'reference-primary'\)/)
   assert.match(storyboardDialogsSource, /openGlobalMediaPicker\(videoParamsTarget, 'reference'\)/)
-  assert.match(filmCreateSource, /storyboardsAPI\.update\(sb\.id, \{ reference_images: nextImages \}\)/)
-  assert.match(filmCreateSource, /ElMessage\.warning\('该图片已经挂到当前分镜的自由参考图中'\)/)
-  assert.match(filmCreateSource, /ElMessage\.warning\('该图片已经是当前分镜的视频主参考'\)/)
+  assert.match(storyboardReferencesSource, /storyboardsAPI\.update\(sb\.id, \{ reference_images: nextImages \}\)/)
+  assert.match(storyboardReferencesSource, /ElMessage\.warning\('该图片已经挂到当前分镜的自由参考图中'\)/)
+  assert.match(storyboardReferencesSource, /ElMessage\.warning\('该图片已经是当前分镜的视频主参考'\)/)
   assert.match(storyboardDialogsSource, /onPromoteSbFreeReferenceImage\(videoParamsTarget, item\)/)
   assert.match(storyboardDialogsSource, /onRemoveSbFreeReferenceImage\(videoParamsTarget, index\)/)
   assert.match(storyboardDialogsSource, /\{\{ item\.source_drama_title \|\| '全局上传' \}\}/)
@@ -109,7 +110,7 @@ test('all storyboard video submission paths reuse the shared video request build
   const requestBuilderUses = videoRequestSource.match(/videosAPI\.create\(buildStoryboardVideoRequest\(/g) || []
   assert.equal(requestBuilderUses.length, 4)
   assert.match(videoRequestSource, /referenceImageUrls: referencePayload\.referenceUrls/)
-  assert.match(filmCreateSource, /const primaryReferenceUrl = getSbPrimaryReferenceAbsoluteUrl\(sb\)/)
+  assert.match(storyboardReferencesSource, /const primaryReferenceUrl = getSbPrimaryReferenceAbsoluteUrl\(sb\)/)
 })
 
 test('free canvas picker only confirms current-project or global assets and closes after a successful pick', () => {
