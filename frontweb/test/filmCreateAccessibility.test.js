@@ -38,6 +38,10 @@ const scriptWorkbenchSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateScriptWorkbench.vue', import.meta.url),
   'utf8',
 )
+const storyboardDialogsSource = readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateStoryboardDialogs.vue', import.meta.url),
+  'utf8',
+)
 const resourcePanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url),
   'utf8',
@@ -190,4 +194,15 @@ test('制作页空剧集提供可执行入口', () => {
   assert.match(scriptWorkbenchSource, /class="empty-tip film-episode-empty"/)
   assert.match(scriptWorkbenchSource, /还没有剧集/)
   assert.match(scriptWorkbenchSource, /返回剧集管理/)
+})
+
+test('storyboard prompt dialogs name every editable field', () => {
+  assert.doesNotMatch(storyboardDialogsSource, /<el-form-item label="">/)
+  assert.match(storyboardDialogsSource, /<el-form-item label="原始图片提示词">/)
+  assert.match(storyboardDialogsSource, /aria-label="原始图片提示词"/)
+  assert.match(storyboardDialogsSource, /<el-form-item label="通用优化提示词">/)
+  assert.match(storyboardDialogsSource, /aria-label="通用优化提示词"/)
+  assert.match(storyboardDialogsSource, /<el-form-item label="视频提示词">/)
+  assert.match(storyboardDialogsSource, /aria-label="视频提示词"/)
+    assert.match(storyboardDialogsSource, /editingFramePromptSlot === 'last' \? '尾帧' : '首帧'\}图生提示词/)
 })

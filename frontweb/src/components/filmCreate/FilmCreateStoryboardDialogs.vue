@@ -7,47 +7,43 @@
       width="700px"
       @close="sbPromptTarget = null"
     >
-      <el-form v-if="sbPromptTarget" label-width="0" class="sb-prompt-dialog-form">
-        <!-- 图片区 -->
-        <div class="sb-prompt-section-title">🖼 图片提示词</div>
-        <el-form-item label="">
-          <div style="width:100%">
-            <div style="font-size:12px; color:#6b7280; margin-bottom:4px;">原始提示词（分镜生成时写入，仅供参考）</div>
-            <el-input
-              v-model="sbPromptImageText"
-              type="textarea"
-              :rows="4"
-              placeholder="分镜生成时由 AI 写入的原始描述"
-            />
-          </div>
+      <el-form v-if="sbPromptTarget" label-position="top" class="sb-prompt-dialog-form">
+        <div class="sb-prompt-section-title">图片提示词</div>
+        <el-form-item label="原始图片提示词">
+          <el-input
+            v-model="sbPromptImageText"
+            type="textarea"
+            :rows="4"
+            aria-label="原始图片提示词"
+            placeholder="分镜生成时由 AI 写入的原始描述"
+          />
         </el-form-item>
-        <el-form-item label="">
-          <div style="width:100%">
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
-              <span style="font-size:12px; color:#6b7280;">通用优化提示词（仅更新本字段，不影响首尾帧/关键帧专用提示词）</span>
-              <el-button
-                size="small"
-                type="warning"
-                plain
-                :loading="sbPromptPolishing"
-                @click="onPolishSbPrompt"
-              >{{ sbPromptPolishedText ? '重新生成' : '立即生成' }}</el-button>
-            </div>
-            <el-input
-              v-model="sbPromptPolishedText"
-              type="textarea"
-              :rows="5"
-              placeholder="点击「立即生成」润色通用优化提示词（仅更新本字段，不影响首尾帧专用提示词）"
-            />
+        <el-form-item label="通用优化提示词">
+          <div class="sb-prompt-polish-row">
+            <el-button
+              size="small"
+              type="warning"
+              plain
+              :loading="sbPromptPolishing"
+              @click="onPolishSbPrompt"
+            >{{ sbPromptPolishedText ? '重新生成' : '立即生成' }}</el-button>
+            <span class="sb-prompt-polish-hint">只更新通用优化字段，不影响首尾帧专用提示词</span>
           </div>
+          <el-input
+            v-model="sbPromptPolishedText"
+            type="textarea"
+            :rows="5"
+            aria-label="通用优化提示词"
+            placeholder="点击「立即生成」润色通用优化提示词（仅更新本字段，不影响首尾帧专用提示词）"
+          />
         </el-form-item>
-        <!-- 视频区 -->
-        <div class="sb-prompt-section-title" style="margin-top:12px;">🎬 视频提示词</div>
-        <el-form-item label="">
+        <div class="sb-prompt-section-title">视频提示词</div>
+        <el-form-item label="视频提示词">
           <el-input
             v-model="sbPromptVideoText"
             type="textarea"
             :rows="12"
+            aria-label="视频提示词"
             placeholder="视频生成提示词（可选，留空则由系统自动生成）"
           />
         </el-form-item>
@@ -81,6 +77,7 @@
           v-model="editingFramePromptText"
           type="textarea"
           :rows="14"
+          :aria-label="`${editingFramePromptSlot === 'last' ? '尾帧' : '首帧'}图生提示词`"
           placeholder="在此编辑最终发给AI生图的完整提示词..."
           class="frame-prompt-editor-textarea"
         />
@@ -469,125 +466,212 @@ setSbCreationModeId
 </script>
 
 <style scoped>
-.vp-mode-hint {
-  font-size: 12px;
-  color: #909399;
-  line-height: 1.45;
-  margin-top: 8px;
-  max-width: 520px;
+.vp-mode-hint {
+
+  font-size: 12px;
+
+  color: #909399;
+
+  line-height: 1.45;
+
+  margin-top: 8px;
+
+  max-width: 520px;
+
 }
 
-.vp-dialog-form .el-form-item {
-  margin-bottom: 12px;
+.vp-dialog-form .el-form-item {
+
+  margin-bottom: 12px;
+
 }
 
-.vp-dialog-form :deep(.el-form-item__content) {
-  min-width: 0;
+.vp-dialog-form :deep(.el-form-item__content) {
+
+  min-width: 0;
+
 }
 
-.vp-reference-panel {
-  width: 100%;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.vp-reference-panel {
+
+  width: 100%;
+
+  min-width: 0;
+
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 8px;
+
 }
 
-.vp-reference-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.vp-reference-toolbar {
+
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 8px;
+
 }
 
-.vp-reference-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-  width: 100%;
-  max-height: 176px;
-  overflow-y: auto;
+.vp-reference-list {
+
+  display: grid;
+
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+
+  gap: 8px;
+
+  width: 100%;
+
+  max-height: 176px;
+
+  overflow-y: auto;
+
 }
 
-.vp-reference-item {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 8px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
-  background: var(--el-fill-color-light);
+.vp-reference-item {
+
+  display: grid;
+
+  grid-template-columns: 64px minmax(0, 1fr);
+
+  align-items: center;
+
+  gap: 10px;
+
+  min-width: 0;
+
+  padding: 8px;
+
+  border: 1px solid var(--el-border-color-light);
+
+  border-radius: 6px;
+
+  background: var(--el-fill-color-light);
+
 }
 
-.vp-reference-thumb {
-  width: 64px;
-  height: 64px;
-  min-width: 64px;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--el-border-color);
-  border-radius: 6px;
-  background: var(--el-fill-color-dark);
-  cursor: pointer;
+.vp-reference-thumb {
+
+  width: 64px;
+
+  height: 64px;
+
+  min-width: 64px;
+
+  padding: 0;
+
+  overflow: hidden;
+
+  border: 1px solid var(--el-border-color);
+
+  border-radius: 6px;
+
+  background: var(--el-fill-color-dark);
+
+  cursor: pointer;
+
 }
 
-.vp-reference-thumb:focus-visible {
-  outline: 2px solid var(--el-color-primary);
-  outline-offset: 2px;
+.vp-reference-thumb:focus-visible {
+
+  outline: 2px solid var(--el-color-primary);
+
+  outline-offset: 2px;
+
 }
 
-.vp-reference-thumb img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.vp-reference-thumb img {
+
+  display: block;
+
+  width: 100%;
+
+  height: 100%;
+
+  object-fit: cover;
+
 }
 
-.vp-reference-body {
-  min-width: 0;
+.vp-reference-body {
+
+  min-width: 0;
+
 }
 
-.vp-reference-title-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
+.vp-reference-title-row {
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 6px;
+
+  min-width: 0;
+
 }
 
-.vp-reference-title {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--el-text-color-primary);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.vp-reference-title {
+
+  min-width: 0;
+
+  overflow: hidden;
+
+  color: var(--el-text-color-primary);
+
+  font-weight: 600;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
 }
 
-.vp-reference-meta {
-  margin-top: 3px;
-  overflow: hidden;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.vp-reference-meta {
+
+  margin-top: 3px;
+
+  overflow: hidden;
+
+  color: var(--el-text-color-secondary);
+
+  font-size: 12px;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
 }
 
-.vp-reference-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 2px;
+.vp-reference-actions {
+
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 8px;
+
+  margin-top: 2px;
+
 }
 
-.vp-reference-actions :deep(.el-button + .el-button) {
-  margin-left: 0;
+.vp-reference-actions :deep(.el-button + .el-button) {
+
+  margin-left: 0;
+
 }
 
-.vp-reference-empty {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.5;
+.vp-reference-empty {
+
+  color: var(--el-text-color-secondary);
+
+  font-size: 12px;
+
+  line-height: 1.5;
+
 }
 
 .sb-prompt-section-title { font-size: 0.9rem; font-weight: 600; color: #e4e4e7; margin-bottom: 8px; }
@@ -598,67 +682,124 @@ setSbCreationModeId
 
 .sb-prompt-dialog-form .el-form-item { margin-bottom: 10px; }
 
-.sb-frame-prompt-clean .el-message-box__content {
-  padding: 16px 20px 8px;
+.sb-frame-prompt-clean .el-message-box__content {
+
+  padding: 16px 20px 8px;
+
 }
 
-.frame-prompt-editor-body {
-  padding: 4px 0;
+.frame-prompt-editor-body {
+
+  padding: 4px 0;
+
 }
 
-.frame-prompt-editor-hint {
-  font-size: 12px;
-  color: #64748b;
-  margin-bottom: 10px;
-  line-height: 1.5;
+.frame-prompt-editor-hint {
+
+  font-size: 12px;
+
+  color: #64748b;
+
+  margin-bottom: 10px;
+
+  line-height: 1.5;
+
 }
 
-html.light .frame-prompt-editor-hint {
-  color: #475569;
+html.light .frame-prompt-editor-hint {
+
+  color: #475569;
+
 }
 
-.frame-prompt-editor-textarea :deep(.el-textarea__inner) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 13px;
-  line-height: 1.65;
+.frame-prompt-editor-textarea :deep(.el-textarea__inner) {
+
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  font-size: 13px;
+
+  line-height: 1.65;
+
 }
 
-.frame-layout-anchor {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-bottom: 10px;
+.frame-layout-anchor {
+
+  background: #f8fafc;
+
+  border: 1px solid #e2e8f0;
+
+  border-radius: 6px;
+
+  padding: 8px 10px;
+
+  margin-bottom: 10px;
+
 }
 
-html.light .frame-layout-anchor {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
+html.light .frame-layout-anchor {
+
+  background: #f1f5f9;
+
+  border-color: #cbd5e1;
+
 }
 
-.frame-layout-anchor-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #334155;
-  margin-bottom: 4px;
+.frame-layout-anchor-label {
+
+  font-size: 12px;
+
+  font-weight: 600;
+
+  color: #334155;
+
+  margin-bottom: 4px;
+
 }
 
-.frame-layout-anchor-text {
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: #1e293b;
-  background: #fff;
-  padding: 6px 8px;
-  border-radius: 4px;
-  border: 1px solid #e2e8f0;
-  white-space: pre-wrap;
-  word-break: break-word;
+.frame-layout-anchor-text {
+
+  font-size: 12.5px;
+
+  line-height: 1.5;
+
+  color: #1e293b;
+
+  background: #fff;
+
+  padding: 6px 8px;
+
+  border-radius: 4px;
+
+  border: 1px solid #e2e8f0;
+
+  white-space: pre-wrap;
+
+  word-break: break-word;
+
 }
 
-.frame-layout-anchor-note {
-  font-size: 11px;
-  color: #64748b;
-  margin-top: 4px;
-  line-height: 1.4;
+.frame-layout-anchor-note {
+
+  font-size: 11px;
+
+  color: #64748b;
+
+  margin-top: 4px;
+
+  line-height: 1.4;
+
+}
+
+.sb-prompt-polish-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.sb-prompt-polish-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.4;
 }
 </style>
