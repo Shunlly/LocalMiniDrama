@@ -1187,7 +1187,10 @@ async function resumePolling() {
     if (!sourceWorkflowLifecycle.isActive()) return
     emitRefresh()
   } catch (error) {
-    if (shouldIgnoreSourceWorkflowPollError(error, sourceWorkflowLifecycle)) return
+    if (shouldIgnoreSourceWorkflowPollError(error, sourceWorkflowLifecycle)) {
+      if (sourceWorkflowLifecycle.isActive()) startPoll()
+      return
+    }
     pollState.value = 'error'
     pollError.value = describeServiceLoadError(error, {
       serviceLabel: '处理状态',

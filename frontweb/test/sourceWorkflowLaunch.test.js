@@ -187,6 +187,7 @@ test('source workflow polling surfaces failure, persists load errors, and offers
   assert.match(source, /async function resumePolling\(\)/)
   assert.match(source, /pollState\.value = 'error'/)
   assert.match(source, /shouldIgnoreSourceWorkflowPollError\(error, sourceWorkflowLifecycle\)/)
+  assert.match(source, /if \(sourceWorkflowLifecycle.isActive\(\)\) startPoll\(\)/)
   assert.match(source, /describeServiceLoadError\(error, \{[\s\S]*fallback: '处理状态刷新失败，自动轮询已暂停。'/)
   assert.match(source, /shouldIgnoreSourceWorkflowPollError\(e, sourceWorkflowLifecycle\)/)
   assert.match(source, /describeServiceLoadError\(e, \{[\s\S]*fallback: '加载素材流程状态失败，请稍后重试。'/)

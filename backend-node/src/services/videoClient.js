@@ -343,7 +343,7 @@ async function callVideoApiInternal(db, log, opts) {
     opts.preferred_provider || opts.preferredProvider || opts.provider
   );
   if (!config) {
-    throw new Error('???????????AI ?????? video ?????????');
+    throw new Error('请先在 AI 配置中添加并启用视频服务');
   }
   const providerNetworkOptions = createProviderNetworkOptions(config, {
     fetch_impl: opts.fetch_impl,
@@ -1068,7 +1068,7 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
         }
         if (state === 'success' || state === 'succeeded' || state === 'completed' || state === 'done') {
           log.warn('[Vidu poll] ???????? video_url', summarizeProviderResponse(data));
-          return { error: 'Vidu ??????????' };
+          return { error: 'Vidu 任务完成但未返回视频地址' };
         }
         continue;
       }
@@ -1080,7 +1080,7 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
         if (data.done === true) {
           const videoUri = data.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
           if (videoUri) return { video_url: videoUri };
-          return { error: 'Gemini ??????????????' };
+          return { error: 'Gemini 任务完成但未返回视频地址' };
         }
         continue;
       }
@@ -1136,7 +1136,7 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
       log.warn('Video poll request failed', { attempt, error: e.message });
     }
   }
-  return { error: '??????' };
+  return { error: '视频生成超时，请稍后重试' };
 }
 
 async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 300, intervalMs = 10000, signal) {

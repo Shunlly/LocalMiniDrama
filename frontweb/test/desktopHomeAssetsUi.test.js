@@ -83,7 +83,7 @@ test('project workspace list has server-backed filtering, sorting, quiet utility
   assert.match(filmListSource, /class="workspace-overview"[\s\S]*class="workspace-title"[\s\S]*>项目列表<\/h2>/)
   assert.match(filmListSource, /class="workspace-count"[\s\S]*\{\{ projectListCountLabel \}\}/)
   assert.match(filmListSource, /v-model="projectSearch"[\s\S]*placeholder="搜索项目标题、描述、风格或类型"/)
-  assert.match(filmListSource, /v-model="projectSort"[\s\S]*更新时间优先[\s\S]*创建时间优先[\s\S]*标题 A-Z/)
+  assert.match(filmListSource, /v-model="projectSort"[\s\S]*更新时间优先[\s\S]*创建时间优先[\s\S]*标题升序/)
   assert.match(filmListSource, /v-if="!loading && hasSuccessfulListLoad && !listError && hasProjectFilters && filteredDramas\.length === 0"/)
   assert.match(filmListSource, /没有匹配的项目/)
   assert.match(filmListSource, /function clearProjectFilters\(\)/)

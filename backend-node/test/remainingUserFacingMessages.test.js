@@ -273,3 +273,17 @@ test('Provider \u8131\u654f\u9519\u8bef\u548c\u9759\u6001 404 \u5bf9\u7528\u6237
   assert.match(appSource, /\u8d44\u6e90\u8def\u5f84\u65e0\u6548/);
   assert.equal(appSource.includes("send('Not Found')"), false);
 });
+
+test('videoClient 用户错误不再是问号乱码', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8');
+  const userFacing = source
+    .split('\n')
+    .filter((line) => /throw new Error\(|return \{ error:/.test(line))
+    .join('\n');
+  assert.equal(userFacing.includes('??????'), false);
+  assert.match(source, /请先在 AI 配置中添加并启用视频服务/);
+  assert.match(source, /Vidu 任务完成但未返回视频地址/);
+  assert.match(source, /Gemini 任务完成但未返回视频地址/);
+  assert.match(source, /视频生成超时，请稍后重试/);
+});
+
