@@ -37,7 +37,8 @@ const taskCancelSource = readFileSync(new URL('../src/composables/filmCreate/use
 const scriptDraftSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateScriptDraft.js', import.meta.url), 'utf8')
 const resourceGenerateSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateResourceGenerate.js', import.meta.url), 'utf8')
 const actionLogSource = readFileSync(new URL('../src/utils/filmCreateActionLog.js', import.meta.url), 'utf8')
-const source = pipelineRunSource + '\n' + pipelineStagesSource + '\n' + batchGenerationSource + '\n' + episodeComposeSource + '\n' + storyboardImageGenerationSource + '\n' + storyboardVideoGenerationSource + '\n' + tailFrameSource + '\n' + linkedRegenSource + '\n' + navigationGuardsSource + '\n' + projectLoadSource + '\n' + routeSyncSource + '\n' + taskPollingSource + '\n' + mediaPreviewSource + '\n' + taskRecoverySource + '\n' + storyboardAccessorsSource + '\n' + storyboardStateSyncSource + '\n' + storyboardVideoFieldsSource + '\n' + refImageDropSource + '\n' + stylePromptsSource + '\n' + workspaceNavSource + '\n' + aiConfigWorkspaceSource + '\n' + deliveryActionsSource + '\n' + scriptEstimatesSource + '\n' + taskCancelSource + '\n' + scriptDraftSource + '\n' + resourceGenerateSource + '\n' + actionLogSource + '\n' + filmCreateSource + '\n' + mediaComposableSource
+const actionDisabledSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateActionDisabledReasons.js', import.meta.url), 'utf8')
+const source = pipelineRunSource + '\n' + pipelineStagesSource + '\n' + batchGenerationSource + '\n' + episodeComposeSource + '\n' + storyboardImageGenerationSource + '\n' + storyboardVideoGenerationSource + '\n' + tailFrameSource + '\n' + linkedRegenSource + '\n' + navigationGuardsSource + '\n' + projectLoadSource + '\n' + routeSyncSource + '\n' + taskPollingSource + '\n' + mediaPreviewSource + '\n' + taskRecoverySource + '\n' + storyboardAccessorsSource + '\n' + storyboardStateSyncSource + '\n' + storyboardVideoFieldsSource + '\n' + refImageDropSource + '\n' + stylePromptsSource + '\n' + workspaceNavSource + '\n' + aiConfigWorkspaceSource + '\n' + deliveryActionsSource + '\n' + scriptEstimatesSource + '\n' + taskCancelSource + '\n' + scriptDraftSource + '\n' + resourceGenerateSource + '\n' + actionLogSource + '\n' + actionDisabledSource + '\n' + filmCreateSource + '\n' + mediaComposableSource
 const resourcePanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
 const filmCreateUiSource = source + '\n' + resourcePanelSource
 
@@ -316,4 +317,45 @@ test('a late media failure leaves the selected video untouched and prevents all 
   assert.equal(providerWrites, 0)
   assert.equal(backendClearWrites, 0)
   assert.equal(selectedVideoId, 99)
+})
+
+test('media query cancellation is not recorded as unknown and keeps cached items', () => {
+  const dramaId = 11
+  const episodeId = 22
+  assert.notEqual(dramaId, episodeId)
+  const controller = createStoryboardMediaStateController()
+  controller.setContext({ projectId: dramaId, episodeId })
+  const first = controller.beginFull([101])
+  for (const request of first) controller.commitSuccess(request, [{ id: 'cached' }])
+  assert.equal(controller.getSnapshot().status, 'ready')
+  assert.equal(controller.getSnapshot().media.images[101][0].id, 'cached')
+
+  const firstRefresh = controller.beginFull([101])
+  const secondRefresh = controller.beginFull([101])
+  assert.equal(controller.commitFailure(firstRefresh.find((request) => request.endpoint === 'images')), false)
+  for (const request of secondRefresh) controller.commitSuccess(request, [{ id: 'fresh' }])
+  assert.equal(controller.getSnapshot().status, 'ready')
+  assert.equal(controller.getSnapshot().media.images[101][0].id, 'fresh')
+})
+
+test('unknown media blocks paid writes with Chinese reason and preserves cache on failure', () => {
+  const dramaId = 11
+  const episodeId = 22
+  assert.notEqual(dramaId, episodeId)
+  const controller = createStoryboardMediaStateController()
+  controller.setContext({ projectId: dramaId, episodeId })
+  const first = controller.beginFull([7])
+  for (const request of first) controller.commitSuccess(request, [{ id: 'keep' }])
+
+  const refresh = controller.beginFull([7])
+  controller.commitFailure(refresh.find((request) => request.endpoint === 'images'))
+  controller.commitSuccess(refresh.find((request) => request.endpoint === 'videos'), [{ id: 'v1' }])
+  assert.equal(controller.getSnapshot().status, 'error')
+  assert.equal(controller.getSnapshot().media.images[7][0].id, 'keep')
+  assert.match(controller.actionReason({ projectId: dramaId, episodeId }), /分镜图片或视频读取失败/)
+  assert.throws(
+    () => controller.assertReady({ projectId: dramaId, episodeId }),
+    (error) => isStoryboardMediaStateError(error) && /请先重试加载素材/.test(error.message),
+  )
+  assert.match(controller.actionReason({ projectId: dramaId, episodeId: 99 }), /分镜图片和视频状态尚未就绪/)
 })
