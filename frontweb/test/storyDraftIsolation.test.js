@@ -19,6 +19,10 @@ const navigationGuardsSource = readFileSync(
   new URL('../src/composables/filmCreate/useFilmCreateNavigationGuards.js', import.meta.url),
   'utf8',
 )
+const projectLoadSource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreateProjectLoad.js', import.meta.url),
+  'utf8',
+)
 const storyGenerationSource = readFileSync(
   new URL('../src/composables/useStoryGeneration.js', import.meta.url),
   'utf8',
@@ -33,7 +37,7 @@ function sourceBetween(source, startMarker, endMarker) {
 }
 
 test('story generation draft is restored from dedicated metadata rather than project description', () => {
-  const loader = sourceBetween(filmCreateSource, 'async function loadDrama({', 'async function retryFilmProjectLoad')
+  const loader = sourceBetween(projectLoadSource, 'async function loadDrama({', 'async function retryFilmProjectLoad')
 
   assert.match(loader, /storyInput\.value\s*=\s*\(d\.metadata\?\.story_generation_draft\s*\|\|\s*''\)/)
   assert.doesNotMatch(loader, /storyInput\.value\s*=\s*\(d\.description\s*\|\|\s*''\)/)

@@ -7,6 +7,7 @@ function readSource(url) {
 }
 
 const filmCreateSource = readSource(new URL('../src/views/FilmCreate.vue', import.meta.url))
+const projectLoadSource = readSource(new URL('../src/composables/filmCreate/useFilmCreateProjectLoad.js', import.meta.url))
 const filmListSource = readSource(new URL('../src/views/FilmList.vue', import.meta.url))
 const aiConfigSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
 const pipelinePanelSource = readSource(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url))
@@ -38,7 +39,7 @@ test('FilmCreate keeps AI readiness in the pipeline instead of the page-level de
   assert.match(filmCreateSource, /const productionReadinessState = computed\(\(\) => \{/)
 
   const dependencyRefresh = sourceBetween(
-    filmCreateSource,
+    projectLoadSource,
     'async function refreshProjectDependencies',
     'async function retryProjectDependencies',
   )

@@ -9,6 +9,7 @@ import {
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
+const projectLoadSource = read('../src/composables/filmCreate/useFilmCreateProjectLoad.js')
 const characterSource = read('../src/composables/filmCreate/useCharacters.js')
 const propSource = read('../src/composables/filmCreate/useProps.js')
 const sceneSource = read('../src/composables/filmCreate/useScenes.js')
@@ -67,10 +68,10 @@ test('FilmCreate owns API, message, and load invalidation for its keyed project 
     )
   }
 
-  assert.match(filmCreateSource, /const coreDramaAPI = projectLifecycle\.guardApi\(\{/)
+  assert.match(projectLoadSource, /const coreDramaAPI = projectLifecycle\.guardApi\(\{/)
   assert.match(
     filmCreateSource,
-    /onBeforeUnmount\(\(\) => \{[\s\S]*projectLoadRequestId \+= 1[\s\S]*projectDependencyRequestId \+= 1[\s\S]*projectLifecycle\.dispose\(\)/,
+    /onBeforeUnmount\(\(\) => \{[\s\S]*invalidateProjectLoads\(\)[\s\S]*projectLifecycle\.dispose\(\)/,
   )
   assert.doesNotMatch(filmCreateSource, /watch\(\(\) => route\.params\.id,/)
 })

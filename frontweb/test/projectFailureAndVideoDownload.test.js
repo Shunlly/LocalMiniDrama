@@ -15,6 +15,7 @@ const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const deliveryPanelSource = read('../src/components/filmCreate/FilmCreateDeliveryPanel.vue')
 const storyboardMediaSource = read('../src/composables/filmCreate/useFilmCreateStoryboardMedia.js')
+const projectLoadSource = read('../src/composables/filmCreate/useFilmCreateProjectLoad.js')
 const resourceDialogsSource = read('../src/components/filmCreate/FilmCreateResourceDialogs.vue')
 const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource
 
@@ -46,7 +47,7 @@ test('project pages keep core load failures outside every editable project surfa
     assert.match(source, /项目可能已移入回收站或被删除/)
     assert.match(source, /重试加载/)
     assert.match(source, /返回项目列表/)
-    assert.match(source, /LoadFailureRef\.value\?\.focus\(\)/)
+    assert.match(name === 'FilmCreate' ? source + '\n' + projectLoadSource : source, /LoadFailureRef\.value\?\.focus\(\)/)
   }
 
   assert.match(dramaDetailSource, /<template v-else-if="isDramaReady">[\s\S]*剧集信息/)
@@ -76,7 +77,7 @@ test('core drama request failures use stable page state instead of raw request t
   assert.doesNotMatch(detailLoader, /ElMessage\.(error|warning)/)
 
   const createLoader = sourceBetween(
-    filmCreateSource,
+    projectLoadSource,
     'async function loadDrama(',
     'async function retryFilmProjectLoad',
   )
