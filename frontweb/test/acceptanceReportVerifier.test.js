@@ -900,7 +900,7 @@ test('CLI supports tracked mode and resolves final commit from the temporary Git
       '--mode=final',
       '--repo-root', root,
       '--evidence-root', fixture.evidenceRoot,
-    ], { cwd: path.dirname(verificationCliPath), encoding: 'utf8', env: { ...process.env, LOCALMINIDRAMA_BUILD_REVISION: '' } })
+    ], { cwd: path.dirname(verificationCliPath), encoding: 'utf8', env: { ...process.env, LOCALMINIDRAMA_BUILD_REVISION: 'b'.repeat(40), GITHUB_SHA: 'a'.repeat(40) } })
     assert.equal(result.status, 0, result.stderr)
     assert.deepEqual(JSON.parse(result.stdout), {
       status: 'passed',

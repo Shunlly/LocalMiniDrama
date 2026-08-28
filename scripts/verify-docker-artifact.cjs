@@ -127,6 +127,36 @@ function verifyBackendRuntime(image, dataDirectory, options = {}) {
   }
 }
 
+function removeHostPath(target, options = {}) {
+  try {
+    fs.rmSync(target, { recursive: true, force: true })
+    return
+  } catch (error) {
+    if (!['EACCES', 'EPERM'].includes(error.code)) throw error
+  }
+  if (options.image) {
+    spawnSync('docker', [
+      'run',
+      '--rm',
+      '--user',
+      '0',
+      '--entrypoint',
+      'sh',
+      '-v',
+      `${target}:/cleanup`,
+      options.image,
+      '-c',
+      'chmod -R a+rwx /cleanup || true',
+    ], {
+      cwd: root,
+      stdio: 'ignore',
+      env: options.env || process.env,
+      windowsHide: true,
+    })
+  }
+  fs.rmSync(target, { recursive: true, force: true })
+}
+
 function main() {
   const isolatedDataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-artifact-data-'))
   const fixtureData = path.join(isolatedDataDirectory, fixtureDataName)
@@ -141,6 +171,7 @@ function main() {
   fs.mkdirSync(path.dirname(fixtureData), { recursive: true })
   let configCreated = false
   let dataCreated = false
+  let image
 
   try {
     fs.writeFileSync(fixtureConfig, JSON.stringify({ api_key: marker }), { encoding: 'utf8', flag: 'wx' })
@@ -148,7 +179,7 @@ function main() {
     fs.writeFileSync(fixtureData, marker, { encoding: 'utf8', flag: 'wx' })
     dataCreated = true
     run(['compose', 'build', 'backend'], dockerOptions)
-    const image = resolveComposeImage('backend', dockerOptions)
+    image = resolveComposeImage('backend', dockerOptions)
 
     const inspection = [
       "const fs=require('node:fs');",
@@ -176,7 +207,7 @@ function main() {
   } finally {
     if (configCreated) fs.rmSync(fixtureConfig, { force: true })
     if (dataCreated) fs.rmSync(fixtureData, { force: true })
-    fs.rmSync(isolatedDataDirectory, { recursive: true, force: true })
+    removeHostPath(isolatedDataDirectory, { image, env: dockerOptions.env })
   }
 }
 

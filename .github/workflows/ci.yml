@@ -24,7 +24,7 @@ jobs:
           cache-dependency-path: backend-node/package-lock.json
       - name: Install runtime policy dependencies
         working-directory: backend-node
-        run: npm ci --ignore-scripts
+        run: npm ci
       - name: Verify package and API versions
         run: |
           npm run check
@@ -68,6 +68,9 @@ jobs:
       - name: Install dependencies
         working-directory: frontweb
         run: npm ci
+      - name: Install Playwright Chromium
+        working-directory: frontweb
+        run: npx playwright install --with-deps chromium
       - name: Verify
         working-directory: frontweb
         run: npm run verify

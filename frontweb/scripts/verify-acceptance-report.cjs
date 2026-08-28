@@ -28,10 +28,11 @@ function parseArguments(argv) {
 }
 
 function resolveCommit(options, repoRoot) {
-  const configured = options['expected-commit']
-    || process.env.LOCALMINIDRAMA_BUILD_REVISION
-    || process.env.GITHUB_SHA
-  if (configured?.trim()) return configured.trim()
+  if (options['expected-commit']?.trim()) return options['expected-commit'].trim()
+  if (!options['repo-root']) {
+    const configured = process.env.LOCALMINIDRAMA_BUILD_REVISION || process.env.GITHUB_SHA
+    if (configured?.trim()) return configured.trim()
+  }
   const result = spawnSync('git', ['-C', repoRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8', windowsHide: true })
   if (result.status !== 0) throw new Error('unable to resolve expected commit from Git')
   return result.stdout.trim()
