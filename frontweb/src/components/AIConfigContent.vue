@@ -1617,6 +1617,13 @@ import {
   isRequestCanceled,
   withRequestRetry,
 } from '@/utils/requestError'
+import {
+  clampGenerationConcurrency,
+  describeGenerationSettingsLoadError,
+  loadGenerationSettingsPayload,
+  shouldIgnoreGenerationSettingsError,
+  validateGenerationConcurrency,
+} from '@/utils/aiConfigGenerationSettings'
 
 const props = defineProps({
   initialServiceType: {
@@ -1680,33 +1687,19 @@ async function loadGenerationSettings() {
   generationSettingsAbortController = controller
   generationSettingsLoadState.value = 'loading'
   try {
-    const res = await withRequestRetry(
-      () => generationSettingsAPI.get({
-        signal: controller.signal,
-        timeout: DEFAULT_JSON_TIMEOUT_MS,
-        suppressErrorToast: true,
-      }),
-      { maxAttempts: 2, delayMs: 400, signal: controller.signal },
-    )
-    if (controller.signal.aborted) return
-    const concurrency = Number(res?.concurrency)
-    const videoConcurrency = Number(res?.video_concurrency)
-    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 20
-      || !Number.isInteger(videoConcurrency) || videoConcurrency < 1 || videoConcurrency > 20) {
-      throw new Error('生成设置返回的数据无效，请重试。')
-    }
-    genConcurrencyInput.value = concurrency
-    genVideoConcurrencyInput.value = videoConcurrency
+    const payload = await loadGenerationSettingsPayload(generationSettingsAPI, {
+      signal: controller.signal,
+      timeout: DEFAULT_JSON_TIMEOUT_MS,
+    })
+    if (payload.aborted || controller.signal.aborted) return
+    genConcurrencyInput.value = payload.concurrency
+    genVideoConcurrencyInput.value = payload.videoConcurrency
     generationSettingsBaseline.value = generationSettingsFingerprint()
     generationSettingsLoadError.value = ''
     generationSettingsLoadState.value = 'ready'
   } catch (error) {
-    if (isRequestCanceled(error) || controller.signal.aborted) return
-    generationSettingsLoadError.value = describeServiceLoadError(error, {
-      serviceLabel: '生成设置服务',
-      fallback: '暂时无法读取生成设置，请稍后重试。',
-      signal: controller.signal,
-    })
+    if (shouldIgnoreGenerationSettingsError(error, controller.signal)) return
+    generationSettingsLoadError.value = describeGenerationSettingsLoadError(error, controller.signal)
     generationSettingsLoadState.value = 'error'
   } finally {
     if (generationSettingsAbortController === controller) {
@@ -1716,13 +1709,13 @@ async function loadGenerationSettings() {
 }
 
 function onConcurrencyChange(val) {
-  const n = Number(val)
-  if (!isNaN(n) && n >= 1) genConcurrencyInput.value = Math.min(20, Math.max(1, Math.round(n)))
+  const next = clampGenerationConcurrency(val)
+  if (next != null) genConcurrencyInput.value = next
 }
 
 function onVideoConcurrencyChange(val) {
-  const n = Number(val)
-  if (!isNaN(n) && n >= 1) genVideoConcurrencyInput.value = Math.min(20, Math.max(1, Math.round(n)))
+  const next = clampGenerationConcurrency(val)
+  if (next != null) genVideoConcurrencyInput.value = next
 }
 
 async function saveGenerationSettings() {
@@ -1732,12 +1725,9 @@ async function saveGenerationSettings() {
   }
   const n = Number(genConcurrencyInput.value)
   const nv = Number(genVideoConcurrencyInput.value)
-  if (isNaN(n) || n < 1 || n > 20) {
-    ElMessage.warning('图片并发数请填写 1-20 之间的整数')
-    return
-  }
-  if (isNaN(nv) || nv < 1 || nv > 20) {
-    ElMessage.warning('视频并发数请填写 1-20 之间的整数')
+  const invalid = validateGenerationConcurrency(n, nv)
+  if (invalid) {
+    ElMessage.warning(invalid)
     return
   }
   genSettingSaving.value = true

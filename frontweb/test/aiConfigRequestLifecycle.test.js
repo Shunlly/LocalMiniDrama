@@ -26,7 +26,6 @@ test('AI 配置页在卸载和重新加载时取消过期请求', () => {
   const loaders = [
     sourceBetween('async function loadList()', 'function parseModelText'),
     sourceBetween('async function loadVendorLock()', 'async function retryConfigDependencies'),
-    sourceBetween('async function loadGenerationSettings', 'function onConcurrencyChange'),
   ]
   for (const loader of loaders) {
     assert.match(loader, /AbortController/)
@@ -34,6 +33,11 @@ test('AI 配置页在卸载和重新加载时取消过期请求', () => {
     assert.match(loader, /isRequestCanceled/)
     assert.match(loader, /describeServiceLoadError/)
   }
+  const generationLoader = sourceBetween('async function loadGenerationSettings', 'function onConcurrencyChange')
+  assert.match(generationLoader, /AbortController/)
+  assert.match(generationLoader, /loadGenerationSettingsPayload/)
+  assert.match(generationLoader, /shouldIgnoreGenerationSettingsError/)
+  assert.match(generationLoader, /describeGenerationSettingsLoadError/)
   assert.match(source, /function jsonRequestOptions\(signal/)
   assert.match(source, /suppressErrorToast: true/)
 })
