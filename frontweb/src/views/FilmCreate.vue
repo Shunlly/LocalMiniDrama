@@ -862,7 +862,6 @@ import {
 import {
   videoConfigSupportsOmni,
 } from '@/utils/storyboardVideoRequest'
-import { exportStoryboardSheet } from '@/utils/exportStoryboardSheet'
 import FilmCreateAiConfigDialog from '@/components/filmCreate/FilmCreateAiConfigDialog.vue'
 import GlobalMediaPickerDialog from '@/components/GlobalMediaPickerDialog.vue'
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
@@ -934,6 +933,9 @@ import { useFilmCreateStoryboardReferences } from '@/composables/filmCreate/useF
 import { useFilmCreateScriptWorkspace } from '@/composables/filmCreate/useFilmCreateScriptWorkspace'
 import { useFilmCreateNavigationGuards } from '@/composables/filmCreate/useFilmCreateNavigationGuards'
 import { useFilmCreateProjectLoad } from '@/composables/filmCreate/useFilmCreateProjectLoad'
+import { useFilmCreateStoryboardBindings } from '@/composables/filmCreate/useFilmCreateStoryboardBindings'
+import { useFilmCreateStoryboardExport } from '@/composables/filmCreate/useFilmCreateStoryboardExport'
+import { useFilmCreateEpisodeCompose } from '@/composables/filmCreate/useFilmCreateEpisodeCompose'
 import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
 
 const projectLifecycle = createProjectInstanceLifecycle()
@@ -3032,174 +3034,37 @@ const {
   scriptDraftController,
 })
 
-const EMPTY_ARR = []
-/** 当前分镜已选角色 id 列表（供 el-select 绑定） */
-function getSbCharacterIds(sbId) {
-  const arr = sbCharacterIds.value[sbId]
-  return Array.isArray(arr) && arr.length > 0 ? arr : EMPTY_ARR
-}
-
-/** 运镜值的简短中文标签（用于分镜控制栏显示） */
-function getMovementLabel(m) {
-  if (!m) return ''
-  const map = {
-    static: '固定',
-    push: '推镜',
-    pull: '拉镜',
-    pan: '横摇',
-    tilt: '纵摇',
-    tracking: '跟镜',
-    crane_up: '升镜',
-    crane_dn: '降镜',
-    orbit: '环绕',
-    handheld: '手持',
-    zoom: '变焦',
-    roll: '旋转',
-    whip_pan: '甩镜',
-    spiral: '螺旋',
-    hitchcock_zoom: '希区柯克',
-    bullet_time: '子弹时间',
-    dutch_angle_move: '荷兰角',
-    dolly_track: '推轨',
-    slowmo_orbit: '升格环绕',
-    'slow push in': '缓慢推镜',
-    'static hold': '固定镜头'
-  }
-  return map[m] || m
-}
-
-function setSbCharacterIds(sbId, v) {
-  const next = Array.isArray(v) ? v : []
-  sbCharacterIds.value = { ...sbCharacterIds.value, [sbId]: next }
-  onStoryboardCharacterChange(sbId)
-}
-
-/** 当前分镜尚未勾选的角色（供缩略图旁「+」下拉添加） */
-function charactersAvailableToAddToSb(sbId) {
-  const all = characters.value ?? []
-  const cur = new Set((getSbCharacterIds(sbId) || []).map((x) => Number(x)))
-  return all.filter((c) => c && !cur.has(Number(c.id)))
-}
-
-function onSbAddCharacterCommand(sbId, charId) {
-  const id = Number(charId)
-  if (!Number.isFinite(id)) return
-  const cur = [...(getSbCharacterIds(sbId) || [])]
-  if (cur.some((x) => Number(x) === id)) return
-  cur.push(id)
-  setSbCharacterIds(sbId, cur)
-}
-
-/** 当前分镜已选物品 id 列表 */
-function getSbPropIds(sbId) {
-  const arr = sbPropIds.value[sbId]
-  return Array.isArray(arr) && arr.length > 0 ? arr : EMPTY_ARR
-}
-
-function setSbPropIds(sbId, v) {
-  sbPropIds.value = { ...sbPropIds.value, [sbId]: Array.isArray(v) ? v : [] }
-  onStoryboardPropChange(sbId)
-}
-
-function onStoryboardPropChange(sbId) {
-  const ids = sbPropIds.value[sbId] || []
-  storyboardsAPI.update(sbId, { prop_ids: ids }).catch(() => {})
-}
-
-/** 当前分镜选中的场景对象（用于下方缩略图） */
-function getSbSelectedScene(sbId) {
-  const sceneId = sbSceneId.value[sbId]
-  if (sceneId == null) return null
-  const list = scenes.value ?? []
-  return list.find((s) => Number(s.id) === Number(sceneId)) || null
-}
-
-/** 当前分镜选中的角色对象列表（用于下方缩略图） */
-function getSbSelectedCharacters(sbId) {
-  const ids = getSbCharacterIds(sbId)
-  if (!ids.length) return []
-  const list = characters.value ?? []
-  return ids.map((id) => list.find((c) => Number(c.id) === Number(id))).filter(Boolean)
-}
-
-/** 当前分镜选中的物品对象列表（用于下方缩略图） */
-function getSbSelectedProps(sbId) {
-  const ids = getSbPropIds(sbId)
-  if (!ids.length) return []
-  const list = props.value ?? []
-  return ids.map((id) => list.find((p) => Number(p.id) === Number(id))).filter(Boolean)
-}
-
-async function onStoryboardCharacterChange(sbId) {
-  const ids = sbCharacterIds.value[sbId] || []
-  try {
-    await storyboardsAPI.update(sbId, { character_ids: ids })
-    // 首/尾帧提示词保留（含用户手动保存版）；图生时后端会按当前勾选做 sanitize
-  } catch (e) {
-    console.warn('[分镜] 保存角色失败', e)
-  }
-}
-
-function onLastFrameLayoutLockChange() {
-  saveProjectSettings()
-}
-
-function onStoryboardSceneChange(sbId) {
-  const sceneId = sbSceneId.value[sbId] ?? null
-  storyboardsAPI.update(sbId, { scene_id: sceneId }).catch(() => {})
-}
-
-/** 同镜号多行时只保留 id 最大的一条（与后端 dedupe 一致，避免「影响的分镜」重复 #N） */
-function dedupeStoryboardsForAssetLink(list) {
-  const byNum = new Map()
-  const extras = []
-  for (const sb of list || []) {
-    const n = Number(sb?.storyboard_number)
-    if (Number.isFinite(n) && n > 0) {
-      const prev = byNum.get(n)
-      if (!prev || Number(sb.id) > Number(prev.id)) byNum.set(n, sb)
-    } else {
-      extras.push(sb)
-    }
-  }
-  return [...byNum.values(), ...extras].sort(
-    (a, b) => (Number(a.storyboard_number) || 0) - (Number(b.storyboard_number) || 0)
-  )
-}
-
-/** 返回包含指定角色的所有分镜（已排序） */
-function getCharAffectedStoryboards(charId) {
-  const matched = (storyboards.value || []).filter((sb) => {
-    if (!sb.characters) return false
-    const chars = Array.isArray(sb.characters) ? sb.characters : []
-    return chars.some((c) => Number(typeof c === 'object' && c != null ? c.id : c) === Number(charId))
-  })
-  return dedupeStoryboardsForAssetLink(matched)
-}
-
-/** 返回指定场景关联的所有分镜 */
-function getSceneAffectedStoryboards(sceneId) {
-  const matched = (storyboards.value || []).filter(
-    (sb) => sb.scene_id != null && Number(sb.scene_id) === Number(sceneId)
-  )
-  return dedupeStoryboardsForAssetLink(matched)
-}
-
-/** 返回包含指定道具的所有分镜（已排序） */
-function getPropAffectedStoryboards(propId) {
-  const matched = (storyboards.value || []).filter((sb) => {
-    if (!sb.prop_ids) return false
-    const pids = Array.isArray(sb.prop_ids) ? sb.prop_ids : []
-    return pids.some((pid) => Number(pid) === Number(propId))
-  })
-  return dedupeStoryboardsForAssetLink(matched)
-}
-
-/** 点击分镜 chip → 滚动到对应分镜行 */
-function scrollToStoryboard(sbId) {
-  const el = document.getElementById('sb-' + sbId)
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-}
+const {
+  getSbCharacterIds,
+  getMovementLabel,
+  setSbCharacterIds,
+  charactersAvailableToAddToSb,
+  onSbAddCharacterCommand,
+  getSbPropIds,
+  setSbPropIds,
+  onStoryboardPropChange,
+  getSbSelectedScene,
+  getSbSelectedCharacters,
+  getSbSelectedProps,
+  onStoryboardCharacterChange,
+  onLastFrameLayoutLockChange,
+  onStoryboardSceneChange,
+  dedupeStoryboardsForAssetLink,
+  getCharAffectedStoryboards,
+  getSceneAffectedStoryboards,
+  getPropAffectedStoryboards,
+  scrollToStoryboard,
+} = useFilmCreateStoryboardBindings({
+  storyboards,
+  characters,
+  props,
+  scenes,
+  storyboardsAPI,
+  sbCharacterIds,
+  sbPropIds,
+  sbSceneId,
+  saveProjectSettings: (...args) => saveProjectSettings(...args),
+})
 
 const {
   onRegenAffectedSbImages,
@@ -3431,144 +3296,39 @@ const {
   projectLifecycle,
 })
 
-function formatSrtTimestamp(ms) {
-  if (!Number.isFinite(ms) || ms < 0) ms = 0
-  const h = Math.floor(ms / 3600000)
-  const m = Math.floor((ms % 3600000) / 60000)
-  const s = Math.floor((ms % 60000) / 1000)
-  const z = Math.floor(ms % 1000)
-  const p2 = (n) => String(n).padStart(2, '0')
-  return `${p2(h)}:${p2(m)}:${p2(s)},${String(z).padStart(3, '0')}`
-}
-
-/** 导出当前集分镜表（每镜一行；首尾帧模式含首/尾帧专用提示词） */
-async function onExportStoryboardSheet() {
-  const boards = storyboards.value || []
-  if (!boards.length) {
-    ElMessage.warning('暂无分镜')
-    return
-  }
-  const epNum = store.currentEpisode?.episode_number
-  const dramaTitle = (store.drama?.title || 'project').replace(/[\\/:*?"<>|]/g, '_')
-  const epLabel = epNum != null ? `第${epNum}集` : `ep${currentEpisodeId.value || '1'}`
-  const filenameBase = `${dramaTitle}-${epLabel}-分镜表`
-  const useFirstLast = !!storyboardUseFirstLastFrame.value
-
-  exportingStoryboardSheet.value = true
-  const framePromptBySbId = {}
-  try {
-    await Promise.all(
-      boards.map(async (sb) => {
-        try {
-          const res = await storyboardsAPI.getFramePrompts(sb.id)
-          const fps = res?.frame_prompts || []
-          framePromptBySbId[sb.id] = {
-            first: fps.find((r) => r.frame_type === 'first')?.prompt?.trim() || '',
-            last: fps.find((r) => r.frame_type === 'last')?.prompt?.trim() || '',
-          }
-        } catch (_) {
-          framePromptBySbId[sb.id] = { first: '', last: '' }
-        }
-      })
-    )
-  } finally {
-    exportingStoryboardSheet.value = false
-  }
-
-  function resolveFirstFramePrompt(sbId) {
-    const cached = framePromptBySbId[sbId]?.first
-    if (cached) return cached
-    const imgPrompt = getSbFirstImage(sbId)?.prompt?.trim()
-    if (imgPrompt) return imgPrompt
-    if (useFirstLast) return buildFirstFrameImagePrompt(sbId)
-    return ''
-  }
-
-  function resolveLastFramePrompt(sbId) {
-    const cached = framePromptBySbId[sbId]?.last
-    if (cached) return cached
-    const imgPrompt = getSbLastImage(sbId)?.prompt?.trim()
-    if (imgPrompt) return imgPrompt
-    if (useFirstLast) return buildLastFrameImagePrompt(sbId)
-    return ''
-  }
-
-  const result = exportStoryboardSheet(
-    {
-      storyboards: boards,
-      getScene: (sbId) => getSbSelectedScene(sbId),
-      getCharacters: (sbId) => getSbSelectedCharacters(sbId),
-      getProps: (sbId) => getSbSelectedProps(sbId),
-      getMovementLabel,
-      getFirstFramePrompt: resolveFirstFramePrompt,
-      getLastFramePrompt: resolveLastFramePrompt,
-      getField(sb, key) {
-        const id = sb.id
-        const map = {
-          title: sbTitle.value[id],
-          location: sbLocation.value[id],
-          time: sbTime.value[id],
-          duration: sbDuration.value[id] ?? sb.duration,
-          dialogue: sbDialogue.value[id],
-          narration: sbNarration.value[id],
-          action: sbAction.value[id],
-          result: sbResult.value[id],
-          atmosphere: sbAtmosphere.value[id],
-          shot_type: sbShotType.value[id],
-          movement: sbMovement.value[id],
-          layout_description: sbLayoutDescription.value[id],
-          universal_segment_text: sbUniversalSegmentText.value[id],
-        }
-        if (Object.prototype.hasOwnProperty.call(map, key)) {
-          const v = map[key]
-          return v != null && v !== '' ? v : sb[key]
-        }
-        return sb[key]
-      },
-    },
-    filenameBase
-  )
-
-  if (!result.ok) {
-    ElMessage.warning('当前分镜没有可导出的内容')
-    return
-  }
-  ElMessage.success(`已导出分镜表（${result.count} 个镜头）`)
-}
-
-function onExportNarrationSrt() {
-  const boards = storyboards.value || []
-  if (!boards.length) {
-    ElMessage.warning('暂无分镜')
-    return
-  }
-  let tMs = 0
-  const lines = []
-  let idx = 1
-  for (const sb of boards) {
-    const durSec = Number(sbDuration.value[sb.id] ?? sb.duration)
-    const sec = Number.isFinite(durSec) && durSec > 0 ? durSec : 5
-    const durMs = Math.round(sec * 1000)
-    const text = ((sbNarration.value[sb.id] ?? sb.narration) || '').toString().trim()
-    if (text) {
-      const start = formatSrtTimestamp(tMs)
-      const end = formatSrtTimestamp(tMs + durMs)
-      lines.push(String(idx++), `${start} --> ${end}`, text, '')
-    }
-    tMs += durMs
-  }
-  if (!lines.length) {
-    ElMessage.warning('当前分镜没有可导出的解说文案')
-    return
-  }
-  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = `narration-${currentEpisodeId.value || 'episode'}.srt`
-  a.click()
-  URL.revokeObjectURL(a.href)
-  ElMessage.success('已下载解说 SRT')
-}
+const {
+  formatSrtTimestamp,
+  onExportStoryboardSheet,
+  onExportNarrationSrt,
+} = useFilmCreateStoryboardExport({
+  store,
+  currentEpisodeId,
+  storyboards,
+  storyboardsAPI,
+  storyboardUseFirstLastFrame,
+  exportingStoryboardSheet,
+  getSbFirstImage,
+  getSbLastImage,
+  buildFirstFrameImagePrompt,
+  buildLastFrameImagePrompt,
+  getSbSelectedScene,
+  getSbSelectedCharacters,
+  getSbSelectedProps,
+  getMovementLabel,
+  sbTitle,
+  sbLocation,
+  sbTime,
+  sbDuration,
+  sbDialogue,
+  sbNarration,
+  sbAction,
+  sbResult,
+  sbAtmosphere,
+  sbShotType,
+  sbMovement,
+  sbLayoutDescription,
+  sbUniversalSegmentText,
+})
 
 async function onSaveSbNarrationField(sb) {
   if (!sb?.id) return
@@ -4076,77 +3836,26 @@ const {
   canUseUniversalOmniVideoApi,
 })
 
-function getFinalizeMergeOptions() {
-  return {
-    burn_narration_subtitles: !!videoSubtitle.value,
-    burn_dialogue_audio: !!videoBurnDialogue.value,
-    watermark_text: videoWatermark.value ? String(videoWatermarkText.value || '').trim().slice(0, 200) : '',
-  }
-}
-
-async function onGenerateVideo() {
-  if (composeActionDisabledReason.value) {
-    ElMessage.warning(composeActionDisabledReason.value)
-    return
-  }
-  const epId = currentEpisodeId.value
-  const did = dramaId.value
-  const dramaTitle = store.drama?.title || ''
-  const epNum = store.currentEpisode?.episode_number
-  const epLabel = dramaTitle ? `${dramaTitle} · 第${epNum ?? ''}集` : `第${epNum ?? ''}集`
-  const mergeMeta = {
-    dramaId: did,
-    episodeId: epId,
-    dramaTitle,
-    episodeNumber: epNum,
-    resourceType: GEN_RESOURCE.EPISODE_MERGE,
-    resourceId: epId,
-    label: `${epLabel} 合成视频`,
-  }
-  store.setVideoStatus('generating', did, epId)
-  store.setVideoProgress(5, did, epId)
-  genStore.markRunning(mergeMeta)
-  videoErrorMsg.value = ''
-  try {
-    const result = await dramaAPI.finalizeEpisode(epId, getFinalizeMergeOptions())
-    if (result?.task_id != null) {
-      store.setVideoProgress(10, did, epId)
-      ElMessage.success(result?.message || '视频合成任务已提交，请稍后查看')
-      const pollResult = await pollTask(result.task_id, captureDramaRefresh(), mergeMeta)
-      await loadDrama()
-      if (pollResult?.status === 'completed') {
-        store.setVideoProgress(100, did, epId)
-        if (currentEpisodeVideoUrl.value) {
-          store.setVideoStatus('done', did, epId)
-          ElMessage.success('视频生成完成')
-        } else {
-          store.setVideoStatus('error', did, epId)
-          videoErrorMsg.value = '视频生成完成但未获取到播放地址，请稍后刷新'
-          ElMessage.warning(videoErrorMsg.value)
-        }
-      } else if (pollResult?.status === 'failed') {
-        store.setVideoStatus('error', did, epId)
-        videoErrorMsg.value = pollResult?.error || '视频生成失败'
-      } else if (pollResult?.status === 'timeout') {
-        store.setVideoStatus('generating', did, epId)
-        videoErrorMsg.value = '任务仍在排队或生成中，请稍后刷新查看'
-        ElMessage.warning(videoErrorMsg.value)
-      }
-    } else {
-      store.setVideoStatus('error', did, epId)
-      const msg = result?.message || '本集没有可合成的视频片段'
-      videoErrorMsg.value = msg
-      ElMessage.warning(msg)
-    }
-  } catch (e) {
-    videoErrorMsg.value = e.message || '生成失败'
-    store.setVideoStatus('error', did, epId)
-  } finally {
-    if (store.getVideoStatus(did, epId) !== 'generating') {
-      genStore.markDone(mergeMeta)
-    }
-  }
-}
+const {
+  getFinalizeMergeOptions,
+  onGenerateVideo,
+} = useFilmCreateEpisodeCompose({
+  store,
+  dramaId,
+  currentEpisodeId,
+  dramaAPI,
+  genStore,
+  pollTask: (...args) => pollTask(...args),
+  captureDramaRefresh,
+  loadDrama,
+  composeActionDisabledReason,
+  currentEpisodeVideoUrl,
+  videoErrorMsg,
+  videoSubtitle,
+  videoBurnDialogue,
+  videoWatermark,
+  videoWatermarkText,
+})
 
 /** 无 task_id 时轮询刷新直到资源出现图片或超时（用于角色/道具/场景图生成） */
 async function pollUntilResourceHasImage(checker, maxAttempts = 20, intervalMs = 3000) {

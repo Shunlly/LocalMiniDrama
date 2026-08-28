@@ -13,6 +13,7 @@ const disclosureStateUrl = new URL('../src/composables/useDisclosureState.js', i
 const filmPipelineActionUrl = new URL('../src/utils/filmPipelineAction.js', import.meta.url)
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const storyboardCrudSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardCrud.js', import.meta.url), 'utf8')
+const storyboardBindingsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardBindings.js', import.meta.url), 'utf8')
 const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 
 test('FilmCreate script compiles without duplicate bindings', () => {
@@ -119,8 +120,8 @@ test('FilmCreate never renders or forwards raw storyboard placeholder URLs', () 
 })
 
 test('FilmCreate localizes legacy workflow camera movement values', () => {
-  assert.match(filmCreateSource, /'slow push in': '缓慢推镜'/)
-  assert.match(filmCreateSource, /'static hold': '固定镜头'/)
+  assert.match(storyboardBindingsSource, /'slow push in': '缓慢推镜'/)
+  assert.match(storyboardBindingsSource, /'static hold': '固定镜头'/)
 })
 
 function createHostNode(type, text = '') {

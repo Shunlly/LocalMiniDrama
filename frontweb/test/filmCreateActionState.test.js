@@ -110,6 +110,7 @@ test('video and production capabilities require a usable model, with only explic
 
 test('FilmCreate delegates pipeline UI and wraps major gated actions', () => {
   const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+  const episodeComposeSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateEpisodeCompose.js', import.meta.url), 'utf8')
   const pipelinePanelSource = readFileSync(
     new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
     'utf8',
@@ -126,7 +127,7 @@ test('FilmCreate delegates pipeline UI and wraps major gated actions', () => {
   assert.match(filmCreateSource, /:batch-action-disabled-reason="batchActionDisabledReason"/)
   assert.match(filmCreateSource, /<FilmCreateStoryboardPanel/)
   assert.match(deliveryPanelSource, /:reason="composeActionDisabledReason"/)
-  assert.match(filmCreateSource, /if \(composeActionDisabledReason\.value\)/)
+  assert.match(episodeComposeSource, /if \(composeActionDisabledReason\.value\)/)
   assert.match(filmCreateSource, /videoCapabilityReason\.value/)
   assert.match(filmCreateSource, /ttsGenerationDisabledReason/)
   assert.match(filmCreateSource, /playableVideoCount: playableStoryboardVideoCount\.value/)
