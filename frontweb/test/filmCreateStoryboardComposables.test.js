@@ -107,6 +107,49 @@ describe('filmCreateStoryboardComposables', () => {
     assert.equal(accessors.getSbFirstImage(EPISODE_ID).id, 2100)
   })
 
+  test('首尾帧按字符串/数字图片 id 取值，不会命中其它图片', () => {
+    const storyboardId = '77'
+    const boundId = '31'
+    const otherId = 32
+    assert.notEqual(Number(boundId), otherId)
+    const store = {
+      storyboards: [
+        { id: 77, first_frame_image_id: 31, last_frame_image_id: '31', episode_id: 22 },
+      ],
+    }
+    const sbImages = {
+      value: {
+        77: [
+          { id: 31, status: 'completed', frame_type: 'storyboard_first', image_url: '/static/bound.png' },
+          { id: otherId, status: 'completed', frame_type: 'storyboard_first', image_url: '/static/other.png' },
+        ],
+      },
+    }
+    const accessors = useFilmCreateStoryboardAccessors({
+      store,
+      sbImages,
+      sbVideos: { value: {} },
+      sbVideoErrors: { value: {} },
+      storyboardUseFirstLastFrame: { value: true },
+      isSbUniversalMode: () => false,
+      storyboardsAPI: {},
+      imagesAPI: {},
+      ElMessage: { success() {}, error() {} },
+      ElMessageBox: { confirm: async () => {} },
+      refreshStoryboardMediaForCurrentContext: async () => {},
+      assetImageUrl: (img) => img?.image_url || '',
+      assetVideoUrl: () => '',
+      recordHasPlayableVideoUrl: () => false,
+      toAbsoluteImageUrl: (url) => url || '',
+      userFacingVideoGenerationError: (msg) => msg,
+      sbVideoReferenceImageId: { value: {} },
+    })
+    accessors.sbSelectedImgId.value = { [storyboardId]: otherId }
+    const first = accessors.getSbFirstImage(storyboardId)
+    assert.equal(first.image_url, '/static/bound.png')
+    assert.equal(first.id, 31)
+  })
+
   test('storyboard create and delete failures use Chinese errors without throwing English', async () => {
     const messages = captureMessages()
     const creates = []

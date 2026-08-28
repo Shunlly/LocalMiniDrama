@@ -267,7 +267,7 @@ function isCompletedImage(i) {
     && (hasRealMediaValue(i.image_url) || hasRealMediaValue(i.local_path))
 }
 
-function samePositiveId(left, right) {
+export function samePositiveId(left, right) {
   if (left == null || right == null || left === '' || right === '') return false
   const a = Number(left)
   const b = Number(right)
@@ -275,7 +275,7 @@ function samePositiveId(left, right) {
   return String(left) === String(right)
 }
 
-function lookupByStoryboardId(collection, storyboardId) {
+export function lookupByStoryboardId(collection, storyboardId) {
   if (!collection || typeof collection !== 'object') return undefined
   if (Object.prototype.hasOwnProperty.call(collection, storyboardId)) return collection[storyboardId]
   const numeric = Number(storyboardId)

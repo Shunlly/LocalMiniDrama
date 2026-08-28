@@ -9,6 +9,7 @@ const Database = require('better-sqlite3')
 const { setupRouter } = require('../src/routes')
 const {
   applyPendingRestore,
+  applyPendingRestoreSync,
   createBackup,
   listBackups,
   resolveRuntimeDataPaths,
@@ -82,6 +83,19 @@ test('启动恢复会覆盖当前数据，且 drama 路径不会把备份写进�
   assert.equal(readValue(workspace.databasePath), 'before-backup')
   const second = await applyPendingRestore(workspace)
   assert.equal(second.applied, false)
+})
+
+test('同步启动恢复可在打开数据库前覆盖数据', async (t) => {
+  const workspace = await makeWorkspace(t)
+  const created = await createBackup(workspace)
+  const db = new Database(workspace.databasePath)
+  db.prepare('DELETE FROM records').run()
+  db.prepare('INSERT INTO records (value) VALUES (?)').run('changed-after-backup')
+  db.close()
+  await stagePendingRestore(workspace, { name: created.name, confirmed: true })
+  const applied = applyPendingRestoreSync(workspace)
+  assert.equal(applied.applied, true)
+  assert.equal(readValue(workspace.databasePath), 'before-backup')
 })
 
 test('HTTP 列表和创建走真实备份目录，恢复返回待重启', async (t) => {

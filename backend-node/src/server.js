@@ -180,54 +180,33 @@ function startServer(options = {}) {
   processRef.on('SIGINT', onSigint);
   processRef.on('SIGTERM', onSigterm);
 
-  const listen = () => {
-    if (shutdownRequested) {
-      beginShutdown();
-      return;
-    }
-
-    const { app, config } = resources;
-    const port = Number(env.PORT) || config.server?.port || 5679;
-    const host = env.HOST || config.server?.host || '127.0.0.1';
-
-    try {
-      server = app.listen(port, host, () => {
-        log.info('Server starting', { port, host });
-        log.info('Frontend:  http://localhost:' + port);
-        log.info('API:       http://localhost:' + port + '/api/v1');
-        log.info('Health:    http://localhost:' + port + '/health');
-        log.info('Server is ready!');
-      });
-    } catch (error) {
-      removeSignalListeners();
-      resources.close?.();
-      throw error;
-    }
-  };
-
-  const boot = () => {
-    resources = createApp();
-    listen();
-  };
-
-  if (typeof options.applyPendingRestore === 'function') {
-    Promise.resolve()
-      .then(() => options.applyPendingRestore())
-      .then(() => {
-        boot();
-      })
-      .catch((error) => {
-        removeSignalListeners();
-        log.error?.('Failed to apply pending restore before startup', { error: error.message });
-        processRef.exit(1);
-      });
-    return { get server() { return server; }, shutdown: requestShutdown };
-  }
-
   try {
-    boot();
+    resources = createApp();
   } catch (error) {
     removeSignalListeners();
+    throw error;
+  }
+
+  if (shutdownRequested) {
+    beginShutdown();
+    return { server, shutdown: requestShutdown };
+  }
+
+  const { app, config } = resources;
+  const port = Number(env.PORT) || config.server?.port || 5679;
+  const host = env.HOST || config.server?.host || '127.0.0.1';
+
+  try {
+    server = app.listen(port, host, () => {
+      log.info('Server starting', { port, host });
+      log.info('Frontend:  http://localhost:' + port);
+      log.info('API:       http://localhost:' + port + '/api/v1');
+      log.info('Health:    http://localhost:' + port + '/health');
+      log.info('Server is ready!');
+    });
+  } catch (error) {
+    removeSignalListeners();
+    resources.close?.();
     throw error;
   }
 
@@ -235,11 +214,7 @@ function startServer(options = {}) {
 }
 
 if (require.main === module) {
-  const { loadConfig } = require('./config');
-  const { applyPendingRestoreFromConfig } = require('./services/backupSettingsService');
-  startServer({
-    applyPendingRestore: () => applyPendingRestoreFromConfig(loadConfig()),
-  });
+  startServer();
 }
 
 module.exports = {

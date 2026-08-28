@@ -611,14 +611,11 @@ function createErrorHandler(log, options = {}) {
 
 function createApp() {
   const config = loadConfig();
-  const databasePath = path.isAbsolute(config.database?.path || '')
-    ? config.database.path
-    : path.resolve(process.cwd(), config.database?.path || './data/drama_generator.db');
-  const storageRoot = config.storage?.local_path
-    ? (path.isAbsolute(config.storage.local_path)
-        ? config.storage.local_path
-        : path.join(process.cwd(), config.storage.local_path))
-    : path.join(process.cwd(), 'data', 'storage');
+  const backupSettingsService = require('./services/backupSettingsService');
+  const paths = backupSettingsService.resolveRuntimeDataPaths(config);
+  backupSettingsService.applyPendingRestoreSync(paths, { log: logger });
+  const databasePath = paths.databasePath;
+  const storageRoot = paths.storagePath;
   const maintenanceGuard = require('./services/dataBackupService').acquireServiceMaintenanceLockSync({
     databasePath,
     storagePath: storageRoot,

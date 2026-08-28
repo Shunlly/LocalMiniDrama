@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { getSbImagesList, hasRealMediaValue } from '@/utils/storyboardMedia'
+import { getSbImagesList, hasRealMediaValue, lookupByStoryboardId, samePositiveId } from '@/utils/storyboardMedia'
 import { isPlaceholderMediaUrl, storyboardImageUrl } from '@/utils/mediaUrl'
 
 export function useFilmCreateStoryboardAccessors(deps = {}) {
@@ -38,13 +38,13 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
   function resolveSbImageById(storyboardId, imageId) {
     if (imageId == null) return null
     const images = getSbAllImages(storyboardId)
-    return images.find((i) => i.id === imageId) || null
+    return images.find((i) => samePositiveId(i.id, imageId)) || null
   }
 
   /** 首帧图（首尾帧模式下严格优先服务器绑定的 first_frame_image_id） */
   function getSbFirstImage(storyboardId) {
     const images = getSbAllImages(storyboardId)
-    const sb = (store.storyboards || []).find((b) => b.id === storyboardId)
+    const sb = (store.storyboards || []).find((b) => samePositiveId(b.id, storyboardId))
 
     // 最高权威：服务器已绑定的首帧
     if (sb?.first_frame_image_id != null) {
@@ -54,7 +54,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
 
     const sel = sbSelectedImgId.value[storyboardId]
     if (sel != null) {
-      const found = images.find((i) => i.id === sel)
+      const found = images.find((i) => samePositiveId(i.id, sel))
       if (found) return found
     }
 
@@ -67,7 +67,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
   /** 尾帧图（首尾帧模式下严格优先服务器绑定的 last_frame_image_id） */
   function getSbLastImage(storyboardId) {
     const images = getSbAllImages(storyboardId)
-    const sb = (store.storyboards || []).find((b) => b.id === storyboardId)
+    const sb = (store.storyboards || []).find((b) => samePositiveId(b.id, storyboardId))
 
     // 最高权威：服务器已绑定的尾帧（后端 bindStoryboardFrameImage 正确写入的 last_frame_image_id）
     if (sb?.last_frame_image_id != null) {
@@ -78,7 +78,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
     // 仅在没有服务器绑定时才考虑手动选择（首尾帧生成后我们会主动清除手动选择）
     const sel = sbSelectedLastImgId.value[storyboardId]
     if (sel != null) {
-      const found = images.find((i) => i.id === sel)
+      const found = images.find((i) => samePositiveId(i.id, sel))
       if (found) return found
     }
 
@@ -124,7 +124,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
   function hasSbDraftImagePlaceholder(sb) {
     const directValues = [sb?.image_url, sb?.local_path, sb?.composed_image]
     if (directValues.some((value) => isPlaceholderMediaUrl(value))) return true
-    const records = sbImages.value[sb?.id]
+    const records = lookupByStoryboardId(sbImages.value, sb?.id)
     return Array.isArray(records) && records.some((record) => (
       isPlaceholderMediaUrl(record?.image_url) || isPlaceholderMediaUrl(record?.local_path)
     ))
@@ -136,7 +136,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
     if (!images.length) return null
     const selectedId = sbSelectedImgId.value[storyboardId]
     if (selectedId != null) {
-      const found = images.find((i) => i.id === selectedId)
+      const found = images.find((i) => samePositiveId(i.id, selectedId))
       if (found) return found
     }
     return images[0]
@@ -144,7 +144,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
   /** 取该分镜下的四宫格整图记录 */
   /** 取该分镜下的四宫格整图记录 */
   function getQuadGridImage(storyboardId) {
-    const list = sbImages.value[storyboardId]
+    const list = lookupByStoryboardId(sbImages.value, storyboardId)
     if (!Array.isArray(list)) return null
     return list.find((i) => (
       i.status === 'completed'
@@ -154,7 +154,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
   }
   /** 取该分镜所有已完成的视频记录 */
   function getSbAllVideos(storyboardId) {
-    const list = sbVideos.value[storyboardId]
+    const list = lookupByStoryboardId(sbVideos.value, storyboardId)
     if (!Array.isArray(list)) return []
     return list.filter((i) => i.status === 'completed' && recordHasPlayableVideoUrl(i))
   }
@@ -164,7 +164,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
     if (all.length === 0) return null
     const selectedId = sbSelectedVideoId.value[storyboardId]
     if (selectedId != null) {
-      const found = all.find((v) => v.id === selectedId)
+      const found = all.find((v) => samePositiveId(v.id, selectedId))
       if (found) return found
     }
     return all[0]
@@ -172,7 +172,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
   /** 取下一个分镜（按 storyboard_number 顺序） */
   function getNextStoryboard(storyboardId) {
     const list = store.storyboards || []
-    const idx = list.findIndex((s) => s.id === storyboardId)
+    const idx = list.findIndex((s) => samePositiveId(s.id, storyboardId))
     if (idx === -1 || idx === list.length - 1) return null
     return list[idx + 1]
   }
@@ -180,7 +180,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
   /** 取上一个分镜（按 storyboard_number 顺序，用于“上镜尾帧”快速衔接） */
   function getPrevStoryboard(storyboardId) {
     const list = store.storyboards || []
-    const idx = list.findIndex((s) => s.id === storyboardId)
+    const idx = list.findIndex((s) => samePositiveId(s.id, storyboardId))
     if (idx === -1 || idx === 0) return null
     return list[idx - 1]
   }
@@ -217,7 +217,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
     if (sbVideoErrors.value[storyboardId]) {
       return userFacingVideoGenerationError(sbVideoErrors.value[storyboardId])
     }
-    const list = sbVideos.value[storyboardId]
+    const list = lookupByStoryboardId(sbVideos.value, storyboardId)
     if (!Array.isArray(list) || list.length === 0) return ''
     const hasCompleted = list.some((i) => i.status === 'completed' && recordHasPlayableVideoUrl(i))
     if (hasCompleted) return ''
@@ -361,7 +361,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
     // 这样点击后立即生效，无需刷新页面；getStripItems 也会立即把这张图从历史条里过滤掉
     const list = store.currentEpisode?.storyboards
     if (Array.isArray(list)) {
-      const row = list.find((x) => Number(x.id) === Number(sb.id))
+      const row = list.find((x) => samePositiveId(x.id, sb.id))
       if (row) {
         const now = new Date().toISOString()
         if (isLast) {
@@ -417,7 +417,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
     }
   }
   function getSbGridImages(storyboardId) {
-    const list = sbImages.value[storyboardId]
+    const list = lookupByStoryboardId(sbImages.value, storyboardId)
     if (!Array.isArray(list)) return []
     return list.filter((image) => (
       image.status === 'completed' &&
@@ -430,7 +430,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
     if (!sb?.id) return null
     const selectedId = Number(sbVideoReferenceImageId.value[sb.id] || sb.video_reference_image_id)
     if (!Number.isFinite(selectedId) || selectedId <= 0) return null
-    return getSbGridImages(sb.id).find((image) => Number(image.id) === selectedId) || null
+    return getSbGridImages(sb.id).find((image) => samePositiveId(image.id, selectedId)) || null
   }
   function getSbFirstFrameUrl(sb) {
     const img = storyboardUseFirstLastFrame.value ? getSbFirstImage(sb.id) : getSbImage(sb.id)

@@ -1,5 +1,7 @@
+const fs = require('node:fs')
 const fsp = require('node:fs/promises')
 const path = require('node:path')
+const { spawnSync } = require('node:child_process')
 const {
   DataBackupError,
   createDataBackup,
@@ -212,6 +214,30 @@ async function applyPendingRestore(paths, options = {}) {
   return { applied: true, name: parsed.archiveName }
 }
 
+
+function applyPendingRestoreSync(paths, options = {}) {
+  const backupDir = resolveBackupDir(paths)
+  const pendingPath = pendingRestorePath(backupDir)
+  if (!fs.existsSync(pendingPath)) return { applied: false, skipped: true }
+  const script = path.join(__dirname, 'runPendingRestore.js')
+  const result = spawnSync(process.execPath, [script], {
+    cwd: options.cwd || process.cwd(),
+    env: {
+      ...process.env,
+      LOCALMINIDRAMA_RESTORE_DATABASE_PATH: paths.databasePath,
+      LOCALMINIDRAMA_RESTORE_STORAGE_PATH: paths.storagePath,
+      LOCALMINIDRAMA_RESTORE_STORY_SOURCES_PATH: paths.storySourcesPath,
+    },
+    encoding: 'utf8',
+    timeout: options.timeoutMs || 10 * 60 * 1000,
+  })
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || '').trim()
+    throw new Error(detail || '待恢复备份未能在启动前应用')
+  }
+  return { applied: true }
+}
+
 async function applyPendingRestoreFromConfig(cfg, options = {}) {
   const paths = resolveRuntimeDataPaths(cfg, options.cwd)
   return applyPendingRestore(paths, options)
@@ -239,6 +265,7 @@ module.exports = {
   HTTP_BACKUP_MESSAGES,
   SAFE_BACKUP_NAME_RE,
   applyPendingRestore,
+  applyPendingRestoreSync,
   applyPendingRestoreFromConfig,
   buildBackupFileName,
   createBackup,
