@@ -98,7 +98,7 @@ test('FilmCreate wires the picker into storyboard free references with duplicate
   assert.match(storyboardDialogsSource, /\{\{ item\.source_drama_title \|\| '全局上传' \}\}/)
   assert.match(storyboardDialogsSource, /\.vp-reference-thumb\s*\{[\s\S]*width:\s*64px;[\s\S]*height:\s*64px;[\s\S]*overflow:\s*hidden;/)
   assert.match(storyboardDialogsSource, /\.vp-reference-thumb img\s*\{[\s\S]*width:\s*100%;[\s\S]*height:\s*100%;[\s\S]*object-fit:\s*cover;/)
-  assert.match(filmCreateSource, /\.vp-reference-item\s*\{[\s\S]*grid-template-columns:\s*64px minmax\(0, 1fr\);/)
+  assert.match(storyboardDialogsSource, /\.vp-reference-item\s*\{[\s\S]*grid-template-columns:\s*64px minmax\(0, 1fr\);/)
 })
 
 test('all storyboard video submission paths reuse the shared video request builder', () => {

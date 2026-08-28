@@ -247,3 +247,51 @@ export function getSourceWorkflowActionReasons({ hasSourceInput, runState, qa } 
     cancel: state.canCancel ? '' : !state.id ? '暂无运行中的处理。' : '仅运行中的处理可以取消。',
   }
 }
+
+export const SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE = 'PDF、图片、音频和视频暂不支持自动抽取，请改为导入文本或网页。'
+
+const DEFERRED_AUTO_EXTRACTION_EXTENSIONS = new Set([
+  '.pdf',
+  '.png', '.jpg', '.jpeg', '.webp', '.gif',
+  '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga',
+  '.mp4', '.mov', '.mkv', '.avi', '.webm', '.ogv',
+])
+
+const ENGLISH_AUTO_EXTRACTION_FAILURE_PATTERN = /ocr|tesseract|transcription|transcribe|extractable text|extracted video audio|unsupported source intake file type|unsupported or invalid source file|the pdf |extracted pdf text|audio sent for transcription|uploaded video is /i
+
+export function sourceFileExtension(value) {
+  const name = String(value || '').trim().split(/[\\/]/).pop() || ''
+  const index = name.lastIndexOf('.')
+  return index >= 0 ? name.slice(index).toLowerCase() : ''
+}
+
+function sourceNameFromInput(input) {
+  if (!input) return ''
+  if (typeof input === 'string') return input.trim()
+  return String(input.name || '').trim()
+}
+
+function sourcePathnameFromInput(input) {
+  const raw = sourceNameFromInput(input)
+  if (!raw) return ''
+  try {
+    if (/^https?:\/\//i.test(raw)) return decodeURIComponent(new URL(raw).pathname || '')
+  } catch (_) {}
+  return raw
+}
+
+export function isDeferredAutoExtractionSource(input) {
+  const mime = String(input && typeof input === 'object' ? input.type || '' : '').toLowerCase()
+  if (mime === 'application/pdf' || mime.startsWith('image/') || mime.startsWith('audio/') || mime.startsWith('video/')) {
+    return true
+  }
+  return DEFERRED_AUTO_EXTRACTION_EXTENSIONS.has(sourceFileExtension(sourcePathnameFromInput(input)))
+}
+
+export function localizeSourceIntakeFailure(error, context = {}) {
+  const message = String(error?.message || error || '').trim()
+  const hint = context.file || context.filename || context.sourceUrl || ''
+  if (hint && isDeferredAutoExtractionSource(hint)) return SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE
+  if (ENGLISH_AUTO_EXTRACTION_FAILURE_PATTERN.test(message)) return SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE
+  return message
+}

@@ -6,6 +6,9 @@ import {
   getNewWorkflowRunReason,
   getSourceWorkflowActionReasons,
   resolveInspectedWorkflowStep,
+  SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE,
+  isDeferredAutoExtractionSource,
+  localizeSourceIntakeFailure,
 } from '../src/utils/sourceWorkflowState.js'
 
 test('workflow state marks intake as active draft and exposes source empty-state CTAs', () => {
@@ -276,4 +279,21 @@ test('inspected workflow step stays on history unless the user was following the
     }),
     'process',
   )
+})
+
+test('延后的 OCR/转写入口给出中文说明而不是英文失败', () => {
+  assert.equal(isDeferredAutoExtractionSource({ name: 'a.pdf', type: 'application/pdf' }), true)
+  assert.equal(isDeferredAutoExtractionSource({ name: 'a.png', type: 'image/png' }), true)
+  assert.equal(isDeferredAutoExtractionSource({ name: 'a.mp3', type: 'audio/mpeg' }), true)
+  assert.equal(isDeferredAutoExtractionSource({ name: 'a.mp4', type: 'video/mp4' }), true)
+  assert.equal(isDeferredAutoExtractionSource({ name: 'story.txt', type: 'text/plain' }), false)
+  assert.equal(
+    localizeSourceIntakeFailure(new Error('Tesseract OCR failed'), { filename: 'scan.png' }),
+    SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE,
+  )
+  assert.equal(
+    localizeSourceIntakeFailure('extracted video audio is empty'),
+    SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE,
+  )
+  assert.equal(localizeSourceIntakeFailure('素材列表加载失败'), '素材列表加载失败')
 })

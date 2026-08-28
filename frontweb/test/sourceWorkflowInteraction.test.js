@@ -723,3 +723,10 @@ test('source workflow component wires the executable controller and keeps the al
   assert.match(source, /@click="refreshImportedSources"[\s\S]*?>\s*刷新列表\s*<\/el-button>/)
   assert.match(source, /等待当前运行 QA/)
 })
+
+test('source intake copy defers OCR and transcription instead of advertising them as ready', () => {
+  const source = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
+  assert.match(source, /PDF、图片、音频和视频暂不支持自动抽取/)
+  assert.match(source, /isDeferredAutoExtractionSource/)
+  assert.match(source, /SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE/)
+})

@@ -17,15 +17,49 @@ function cleanMediaPath(url) {
   return String(url || '').split(/[?#]/, 1)[0]
 }
 
+export function getMediaItemFileSize(item = {}) {
+  const candidates = [item?.file_size, item?.size]
+  for (const raw of candidates) {
+    if (raw == null || raw === '') continue
+    const bytes = Number(raw)
+    if (Number.isFinite(bytes) && bytes >= 0) return bytes
+  }
+  return null
+}
+
 export function normalizeMediaItem(item = {}) {
   const url = item.url || item.image_url || item.video_url || ''
   const cleanPath = cleanMediaPath(url)
   const isVideo = item.type === 'video' || VIDEO_EXTENSION.test(cleanPath)
+  const fileSize = getMediaItemFileSize(item)
 
-  return {
+  const normalized = {
     ...item,
     type: isVideo ? 'video' : 'image',
     name: item.name || item.filename || cleanPath.split('/').pop() || '',
+  }
+  if (fileSize != null) normalized.file_size = fileSize
+  return normalized
+}
+
+export function buildMediaLibraryNetworkImportFeedback({
+  status = 'failed',
+  item = {},
+  detail = '',
+} = {}) {
+  const title = String(item?.title || item?.name || '').trim() || '未命名网络素材'
+  if (status === 'unconfirmed') {
+    return {
+      tone: 'error',
+      title: '网络素材导入未确认',
+      detail: `「${title}」服务端已导入但列表未确认，请勿重复导入。请切回“本地素材”后重试加载。`,
+    }
+  }
+  const reason = String(detail || '').trim() || '请稍后重试'
+  return {
+    tone: 'error',
+    title: '网络素材导入失败',
+    detail: `「${title}」未能写入素材库。${reason}`,
   }
 }
 

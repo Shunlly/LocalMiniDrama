@@ -305,7 +305,8 @@ test('network source uses the canonical type parameter and prevents duplicate im
   assert.match(mediaLibrarySource, /params.type = networkMediaType.value/)
   assert.doesNotMatch(mediaLibrarySource, /params.media_type = networkMediaType.value/)
   assert.match(mediaLibrarySource, /api: mediaLibraryAPI/)
-  assert.match(mediaLibrarySource, /服务端已导入但列表未确认，请勿重复导入/)
+  assert.match(mediaLibrarySource, /buildMediaLibraryNetworkImportFeedback/)
+  assert.match(mediaLibrarySource, /status: 'unconfirmed'/)
 })
 
 test('网络搜索切换会中止旧请求并让旧请求的所有回调失效', () => {

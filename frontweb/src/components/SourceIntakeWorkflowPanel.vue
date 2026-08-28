@@ -195,7 +195,7 @@
                   <span class="file-name">{{ selectedFilename || '支持文本、PDF、图片、音频和视频，单文件最大 20MB' }}</span>
                 </div>
                 <div class="field-help">
-                  文本：txt、md、csv、tsv、srt、vtt、ass、json；图片：png、jpg、jpeg、webp、gif；音频：mp3、wav、m4a、aac、flac、ogg、oga；视频：mp4、mov、mkv、avi、webm、ogv。
+                  文本：txt、md、csv、tsv、srt、vtt、ass、json 可直接导入。PDF、图片、音频和视频暂不支持自动抽取，请改为导入文本或网页。
                 </div>
                 <div v-if="sourceOperationStatus" class="source-operation-status" role="status" aria-live="polite">
                   {{ sourceOperationStatus }}
@@ -348,7 +348,7 @@
               </details>
 
               <div v-if="runState.failedStep" class="run-error">
-                {{ runState.failedStep.error || selectedRun.error }}
+                {{ displayedRunError }}
               </div>
 
               <div class="action-row compact">
@@ -373,7 +373,7 @@
                   </el-button>
                 </ActionGate>
               </div>
-                            <div v-if="canRestartFromLatestSource" class="action-row compact">
+              <div v-if="canRestartFromLatestSource" class="action-row compact">
                 <ActionGate :label="`重新启动${workflowModeShortLabel}`" :reason="newWorkflowRunReason">
                   <el-button
                     type="primary"
@@ -591,9 +591,12 @@ import {
 import { buildQaPresentation, normalizeQaReport, qaCheckLabel } from '@/utils/qaReport'
 import { formatDuration, normalizeTimelineSummary, timelineTrackTypeLabel } from '@/utils/timelineSummary'
 import {
+  SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE,
   buildSourceWorkflowState,
   getNewWorkflowRunReason,
   getSourceWorkflowActionReasons,
+  isDeferredAutoExtractionSource,
+  localizeSourceIntakeFailure,
   resolveInspectedWorkflowStep,
   selectInspectedWorkflowStep,
 } from '@/utils/sourceWorkflowState'
@@ -636,6 +639,14 @@ const timelinesAPI = sourceWorkflowLifecycle.guardApi(rawTimelinesAPI)
 
 function showWorkflowMessage(type, message) {
   return sourceWorkflowLifecycle.run(() => ElMessage[type](message))
+}
+
+function sourceIntakeFailureMessage(error, fallback = '导入失败') {
+  return localizeSourceIntakeFailure(error, {
+    file: sourceFile.value,
+    filename: selectedFilename.value,
+    sourceUrl: rawSourceUrl.value,
+  }) || fallback
 }
 
 function emitRefresh() {
@@ -693,8 +704,10 @@ let activeLoadCount = 0
 
 const rawSourceUrl = computed(() => String(form.source_url || '').trim())
 const sourceUrlValidationMessage = computed(() => {
-  if (!rawSourceUrl.value || isValidHttpSourceUrl(rawSourceUrl.value)) return ''
-  return '请输入完整的 http:// 或 https:// 网页地址。'
+  if (!rawSourceUrl.value) return ''
+  if (!isValidHttpSourceUrl(rawSourceUrl.value)) return '请输入完整的 http:// 或 https:// 网页地址。'
+  if (isDeferredAutoExtractionSource(rawSourceUrl.value)) return SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE
+  return ''
 })
 const hasWebSourceUrl = computed(() => Boolean(rawSourceUrl.value) && !sourceUrlValidationMessage.value)
 const hasSourceInput = computed(() => Boolean(sourceFile.value || hasWebSourceUrl.value || form.text.trim()))
@@ -730,6 +743,9 @@ const sourceOperationStatus = computed(() => {
   return sourceOperationMessage.value
 })
 const runState = computed(() => normalizeWorkflowRun(selectedRun.value))
+const displayedRunError = computed(() => localizeSourceIntakeFailure(
+  runState.value.failedStep?.error || selectedRun.value?.error || '',
+))
 const productionLaunchReason = computed(() => {
   if (workflowMode.value !== 'production') return ''
   if (readinessChecking.value) return '正在检查正式制作能力'
@@ -809,7 +825,7 @@ const sourceImportController = createSourceImportController({
     showWorkflowMessage('success', '素材已导入')
   },
   onCreateFailed: (error) => {
-    sourceOperationError.value = error?.message || '导入失败'
+    sourceOperationError.value = sourceIntakeFailureMessage(error, '导入失败')
     showWorkflowMessage('error', sourceOperationError.value)
   },
   setRefreshAlert: (message) => { sourceListRefreshError.value = message },
@@ -1085,6 +1101,12 @@ async function handleSourceFile(event) {
     showWorkflowMessage('warning', sourceOperationError.value)
     return
   }
+  if (isDeferredAutoExtractionSource(file)) {
+    clearSelectedFile()
+    sourceOperationError.value = SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE
+    showWorkflowMessage('warning', sourceOperationError.value)
+    return
+  }
   sourceFile.value = file
   selectedFilename.value = file.name
   if (!form.title) form.title = file.name.replace(/\.[^.]+$/, '')
@@ -1249,9 +1271,15 @@ async function createSourceFromForm() {
     throw new Error(sourceUrlValidationMessage.value)
   }
   if (sourceFile.value) {
+    if (isDeferredAutoExtractionSource(sourceFile.value)) {
+      throw new Error(SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE)
+    }
     return sourceIntakeAPI.uploadForDrama(props.dramaId, buildSourceUploadFormData(form, props.drama, sourceFile.value))
   }
   if (hasWebSourceUrl.value) {
+    if (isDeferredAutoExtractionSource(rawSourceUrl.value)) {
+      throw new Error(SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE)
+    }
     return sourceIntakeAPI.importUrlForDrama(
       props.dramaId,
       buildWebSourceIntakePayload(form, props.drama),
@@ -1381,7 +1409,9 @@ async function startWorkflow() {
         await loadSources()
       } catch (_) {}
     }
-    sourceOperationError.value = e.message || '启动失败'
+    sourceOperationError.value = createdSource
+      ? (e.message || '启动失败')
+      : sourceIntakeFailureMessage(e, '启动失败')
     showWorkflowMessage('error', sourceOperationError.value)
   } finally {
     workflowStarting.value = false

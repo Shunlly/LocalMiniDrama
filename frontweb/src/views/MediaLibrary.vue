@@ -34,6 +34,20 @@
       <el-tab-pane label="网络素材" name="network" />
     </el-tabs>
 
+    <section
+      v-if="networkImportFeedback"
+      class="upload-feedback"
+      :class="`upload-feedback--${networkImportFeedback.tone}`"
+      :role="networkImportFeedback.tone === 'error' ? 'alert' : 'status'"
+      aria-live="assertive"
+      aria-atomic="true"
+    >
+      <div>
+        <h2>{{ networkImportFeedback.title }}</h2>
+        <p>{{ networkImportFeedback.detail }}</p>
+      </div>
+    </section>
+
     <template v-if="libraryMode === 'local'">
     <section
       v-if="loadError"
@@ -186,7 +200,7 @@
         </div>
         <div class="media-info">
           <span :id="`media-name-${item.id}`" class="media-name" :title="item.name">{{ item.name || '未命名' }}</span>
-          <span class="media-meta">{{ formatSize(item.size) }}</span>
+          <span class="media-meta">{{ formatSize(mediaItemFileSize(item)) }}</span>
           <span class="media-origin">{{ mediaOriginLabel(item) }}</span>
         </div>
       </article>
@@ -405,7 +419,7 @@
       </div>
       <div class="preview-meta">
         <div class="meta-row"><span>名称：</span>{{ previewItem?.name || '未命名' }}</div>
-        <div class="meta-row"><span>大小：</span>{{ formatSize(previewItem?.size) }}</div>
+        <div class="meta-row"><span>大小：</span>{{ formatSize(mediaItemFileSize(previewItem)) }}</div>
         <div class="meta-row"><span>创建时间：</span>{{ previewItem?.created_at }}</div>
         <div v-if="previewItem?.source_provider" class="meta-row"><span>来源：</span>{{ previewItem.source_provider }}</div>
         <div v-if="previewItem?.author" class="meta-row"><span>作者：</span>{{ previewItem.author }}</div>
@@ -517,6 +531,8 @@ import { normalizeMediaLibraryReturnTo } from '@/router'
 import {
   createLatestMediaRequestGuard,
   formatMediaSize as formatSize,
+  getMediaItemFileSize as mediaItemFileSize,
+  buildMediaLibraryNetworkImportFeedback,
   getNetworkAssetImportability,
   getNetworkAssetCardImageUrl,
   getNetworkAssetPreviewUrl,
@@ -548,6 +564,7 @@ const libraryMode = ref(initialNetworkRoute.mode)
 const uploading = ref(false)
 const uploadProgress = ref({ current: 0, total: 0 })
 const uploadFeedback = ref(null)
+const networkImportFeedback = ref(null)
 const mediaItems = ref([])
 const mediaType = ref('all')
 const keyword = ref('')
@@ -919,6 +936,7 @@ async function importNetworkItem(item) {
     return
   }
   await runMediaOperationOnce(networkImportingKeys, key, async () => {
+    networkImportFeedback.value = null
     try {
       const result = await importNetworkAssetAndConfirm({
         item,
@@ -929,10 +947,19 @@ async function importNetworkItem(item) {
       if (result.confirmed) {
         ElMessage.success(`已导入：${networkItemTitle(item)}`)
       } else {
-        ElMessage.error('服务端已导入但列表未确认，请勿重复导入。请切回“本地素材”后重试加载。')
+        networkImportFeedback.value = buildMediaLibraryNetworkImportFeedback({
+          status: 'unconfirmed',
+          item,
+        })
+        ElMessage.error(networkImportFeedback.value.detail)
       }
     } catch (error) {
-      ElMessage.error(describeNetworkError(error, '网络素材导入失败'))
+      networkImportFeedback.value = buildMediaLibraryNetworkImportFeedback({
+        status: 'failed',
+        item,
+        detail: describeNetworkError(error, '网络素材导入失败'),
+      })
+      ElMessage.error(networkImportFeedback.value.detail)
     }
   })
 }
