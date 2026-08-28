@@ -1,11 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  classifyRequestError,
   createTimeoutController,
   describeServiceLoadError,
   isRequestCanceled,
   isRequestNetworkError,
   isRequestTimeout,
+  REQUEST_ERROR_CATEGORY,
   shouldRetryRequest,
   withRequestRetry,
 } from '../src/utils/requestError.js'
@@ -22,6 +24,12 @@ test('request errors distinguish cancel, timeout, network and HTTP status', () =
   assert.equal(shouldRetryRequest({ response: { status: 500 } }), true)
   assert.equal(shouldRetryRequest({ response: { status: 404 } }), false)
   assert.equal(shouldRetryRequest({ code: 'ERR_CANCELED' }), false)
+  assert.equal(classifyRequestError({ code: 'ERR_CANCELED' }), REQUEST_ERROR_CATEGORY.CANCEL)
+  assert.equal(classifyRequestError({ code: 'ECONNABORTED' }), REQUEST_ERROR_CATEGORY.TIMEOUT)
+  assert.equal(classifyRequestError({ code: 'ERR_NETWORK' }), REQUEST_ERROR_CATEGORY.NETWORK)
+  assert.equal(classifyRequestError({ code: 'ECONNREFUSED' }), REQUEST_ERROR_CATEGORY.NETWORK)
+  assert.equal(classifyRequestError({ response: { status: 404 } }), REQUEST_ERROR_CATEGORY.HTTP_4XX)
+  assert.equal(classifyRequestError({ response: { status: 503 } }), REQUEST_ERROR_CATEGORY.HTTP_5XX)
 })
 
 test('service load errors prefer backend copy and localize timeout/network', () => {
@@ -101,6 +109,7 @@ test('timeout abort is not treated as cancel and remains retryable', async () =>
   assert.equal(isRequestTimeout(aborted), true)
   assert.equal(isRequestCanceled(aborted), false)
   assert.equal(shouldRetryRequest(aborted), true)
+  assert.equal(classifyRequestError(aborted), REQUEST_ERROR_CATEGORY.TIMEOUT)
   assert.equal(
     describeServiceLoadError(aborted, { serviceLabel: 'AI 配置服务' }),
     '连接AI 配置服务超时，请稍后重试',
@@ -110,6 +119,7 @@ test('timeout abort is not treated as cancel and remains retryable', async () =>
   assert.equal(isRequestCanceled(canceled), true)
   assert.equal(isRequestTimeout(canceled), false)
   assert.equal(shouldRetryRequest(canceled), false)
+  assert.equal(classifyRequestError(canceled), REQUEST_ERROR_CATEGORY.CANCEL)
 
   const timeout = createTimeoutController(20)
   const abortError = Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })
