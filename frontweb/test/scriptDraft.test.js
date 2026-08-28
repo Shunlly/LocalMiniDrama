@@ -164,3 +164,54 @@ test('episode switch serializes requests without dropping a later route change',
     'busy:false',
   ])
 })
+
+
+test('草稿只按剧集 id 更新，不会把 episode_number 当成同一主键', () => {
+  const episodes = [
+    { id: 2, episode_number: 1, title: 'First', script_content: 'A', duration: 2 },
+    { id: 5, episode_number: 2, title: 'Second', script_content: 'B', duration: 3 },
+  ]
+  const payload = buildEpisodeDraftPayload(episodes, {
+    dramaId: 9,
+    episodeId: 2,
+    episodeNumber: 2,
+    title: 'First edited',
+    content: 'A edited',
+  })
+  assert.equal(payload.length, 2)
+  assert.equal(payload[0].title, 'First edited')
+  assert.equal(payload[0].script_content, 'A edited')
+  assert.equal(payload[1].title, 'Second')
+  assert.equal(payload[1].script_content, 'B')
+})
+
+test('字符串剧集 id 与数字 id 视为同一集，空列表不会误造新剧集', () => {
+  const episodes = [
+    { id: '12', episode_number: '1', title: 'One', script_content: 'A', duration: 1 },
+  ]
+  const updated = buildEpisodeDraftPayload(episodes, {
+    episodeId: 12,
+    episodeNumber: 1,
+    title: 'One edited',
+    content: 'A edited',
+  })
+  assert.equal(updated.length, 1)
+  assert.equal(updated[0].title, 'One edited')
+
+  const empty = buildEpisodeDraftPayload([], {
+    episodeId: 12,
+    episodeNumber: 1,
+    title: 'Orphan',
+    content: 'lost',
+  })
+  assert.deepEqual(empty, [])
+
+  const byNumberOnly = buildEpisodeDraftPayload([], {
+    episodeNumber: 3,
+    title: 'New',
+    content: 'N',
+  })
+  assert.equal(byNumberOnly.length, 1)
+  assert.equal(byNumberOnly[0].episode_number, 3)
+  assert.equal(byNumberOnly[0].title, 'New')
+})

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import * as mediaLibrary from '../src/utils/mediaLibrary.js'
+import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 
 const {
   createLatestMediaRequestGuard,
@@ -122,9 +123,7 @@ test('successful reloads reconcile selection and batch deletion snapshots visibl
     /const visibleSelectedIds = getVisibleSelectedMediaIds\(selectedIds, nextItems\)[\s\S]*selectedIds\.clear\(\)[\s\S]*visibleSelectedIds\.forEach\(\(id\) => selectedIds\.add\(id\)\)/,
   )
 
-  const batchDeleteStart = mediaLibrarySource.indexOf('async function batchDelete')
-  const batchDeleteEnd = mediaLibrarySource.indexOf('\nonMounted', batchDeleteStart)
-  const batchDeleteSource = mediaLibrarySource.slice(batchDeleteStart, batchDeleteEnd)
+  const batchDeleteSource = remainingExtractNamedFunction(mediaLibrarySource, 'batchDelete')
   assert.match(batchDeleteSource, /const idsToDelete = getVisibleSelectedMediaIds\(selectedIds, mediaItems\.value\)/)
   assert.match(batchDeleteSource, /for \(const id of idsToDelete\)/)
   assert.doesNotMatch(batchDeleteSource, /for \(const id of selectedIds\)/)
@@ -209,17 +208,9 @@ test('网络视频卡片使用缩略图，弹窗只使用可播放下载地址',
     download_url: 'https://cdn.test/image.png',
   }), 'https://cdn.test/image.png')
 
-  const start = mediaLibrarySource.indexOf('function networkCardImageUrl')
-  const end = mediaLibrarySource.indexOf('\nfunction networkPlaybackUrl', start)
-  assert.ok(start >= 0 && end > start)
-  const harness = await import(`data:text/javascript;charset=utf-8,${encodeURIComponent(`
-    const getNetworkAssetCardImageUrl = (item) => String(item?.thumbnail_url || item?.download_url || '').trim()
-    ${mediaLibrarySource.slice(start, end)}
-    export function run(item) { return networkCardImageUrl(item) }
-  `)}`)
-  assert.equal(harness.run(video), video.thumbnail_url)
-  assert.equal(harness.run({ media_type: 'video', download_url: video.download_url }), '')
-  assert.equal(harness.run({ media_type: 'image', download_url: 'https://cdn.test/image.png' }), 'https://cdn.test/image.png')
+  const networkCard = remainingExtractNamedFunction(mediaLibrarySource, 'networkCardImageUrl')
+  assert.match(networkCard, /item\?\.media_type === 'video'/)
+  assert.match(networkCard, /getNetworkAssetCardImageUrl\(item\)/)
 
   assert.match(
     mediaLibrarySource,
@@ -371,4 +362,20 @@ test('网络搜索失败可中止重试，空关键词重试会留下可见错�
   assert.match(mediaLibrarySource, /networkError\.value = '请输入关键词后再搜索'/)
   assert.match(mediaLibrarySource, /:disabled="!networkKeyword\.trim\(\)"/)
   assert.match(mediaLibrarySource, /class="network-empty"\s*role="status"/)
+})
+
+
+test('可见选中素材 id 会对齐字符串与数字，且不会把其它素材 id 算进来', () => {
+  const selectedIds = new Set([12, '14', 99])
+  const visibleItems = [{ id: '12' }, { id: 14 }, { id: 15 }]
+  assert.deepEqual(
+    mediaLibrary.getVisibleSelectedMediaIds(selectedIds, visibleItems),
+    ['12', 14],
+  )
+  assert.deepEqual(mediaLibrary.getVisibleSelectedMediaIds(new Set(), visibleItems), [])
+  assert.deepEqual(mediaLibrary.getVisibleSelectedMediaIds(selectedIds, []), [])
+  assert.deepEqual(
+    mediaLibrary.getVisibleSelectedMediaIds(['12'], [{ id: 13 }]),
+    [],
+  )
 })

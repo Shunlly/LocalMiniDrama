@@ -71,7 +71,7 @@ function appendSlot(slots, kind, entity, name) {
   slots.push({
     index: slots.length + 1,
     kind,
-    name: nonEmpty(name) || `Reference ${slots.length + 1}`,
+    name: nonEmpty(name) || `参考图${slots.length + 1}`,
     url,
   })
 }
@@ -98,15 +98,15 @@ function referenceIdentity(item) {
 
 function cleanStoryboardReferenceItem(item) {
   const cleaned = {
-    name: nonEmpty(item?.name) || nonEmpty(item?.filename) || 'Free reference',
+    name: nonEmpty(item?.name) || nonEmpty(item?.filename) || '自由参考图',
   }
   const localPath = nonEmpty(item?.local_path)
   const imageUrl = nonEmpty(item?.image_url || item?.url)
   if (localPath) cleaned.local_path = localPath
   if (imageUrl) cleaned.image_url = imageUrl
 
-  const assetId = Number(item?.asset_id ?? item?.id)
-  if (Number.isFinite(assetId) && assetId > 0) cleaned.asset_id = assetId
+  const assetId = Number(item?.asset_id)
+  if (Number.isSafeInteger(assetId) && assetId > 0) cleaned.asset_id = assetId
 
   const sourceDramaId = Number(item?.source_drama_id ?? item?.drama_id)
   if (Number.isFinite(sourceDramaId) && sourceDramaId > 0) cleaned.source_drama_id = sourceDramaId
@@ -137,7 +137,7 @@ export function createStoryboardReferenceFromAsset(asset) {
   const imageUrl = localPath ? '' : nonEmpty(asset.url || asset.image_url)
   if (!localPath && !imageUrl) return null
   return cleanStoryboardReferenceItem({
-    name: nonEmpty(asset.name) || 'Media library reference',
+    name: nonEmpty(asset.name) || '素材库参考图',
     local_path: localPath,
     image_url: imageUrl,
     asset_id: asset.id,
@@ -187,7 +187,7 @@ export function collectStoryboardReferenceSlots(drama, storyboard) {
     if (prop) appendSlot(slots, 'prop', prop, prop.name)
   }
   for (const entity of normalizeStoryboardReferenceImages(storyboard)) {
-    appendSlot(slots, 'free', entity, entity?.name || entity?.filename || 'Free reference')
+    appendSlot(slots, 'free', entity, entity?.name || entity?.filename || '自由参考图')
   }
   return slots.slice(0, 10).map((slot, index) => ({ ...slot, index: index + 1 }))
 }

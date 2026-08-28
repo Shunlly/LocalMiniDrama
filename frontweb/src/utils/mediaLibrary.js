@@ -76,12 +76,28 @@ export function hasActiveMediaFilters(mediaType = 'all', keyword = '') {
   return mediaType !== 'all' || String(keyword).trim().length > 0
 }
 
+function mediaIdKey(id) {
+  if (id == null || id === '') return null
+  const numeric = typeof id === 'string' && /^\d+$/.test(id.trim())
+    ? Number(id.trim())
+    : id
+  if (typeof numeric === 'number' && Number.isSafeInteger(numeric) && numeric > 0) return `n:${numeric}`
+  return `r:${String(id)}`
+}
+
 export function getVisibleSelectedMediaIds(selectedIds, visibleItems = []) {
   const selected = selectedIds instanceof Set ? selectedIds : new Set(selectedIds || [])
-  const visibleIds = new Set(
-    (Array.isArray(visibleItems) ? visibleItems : []).map((item) => item?.id),
-  )
-  return Array.from(selected).filter((id) => visibleIds.has(id))
+  const selectedKeys = new Set()
+  for (const id of selected) {
+    const key = mediaIdKey(id)
+    if (key != null) selectedKeys.add(key)
+  }
+  const result = []
+  for (const item of Array.isArray(visibleItems) ? visibleItems : []) {
+    const key = mediaIdKey(item?.id)
+    if (key != null && selectedKeys.has(key)) result.push(item.id)
+  }
+  return result
 }
 
 export function mediaLibraryAccessState({

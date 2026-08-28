@@ -4,14 +4,21 @@
       ref="editorRef"
       class="omni-at-editor"
       contenteditable="true"
+      role="textbox"
+      aria-multiline="true"
+      :aria-label="resolvedAriaLabel"
+      :aria-expanded="menuOpen"
+      aria-haspopup="listbox"
       spellcheck="false"
       data-placeholder="输入 @ 选择素材；编辑区显示 @场景名 / @角色名，保存与提交仍为 @图片N"
       @input="onInput"
       @blur="onBlur"
       @keydown="onKeydown"
+      @copy="onCopyCanonicalSelection"
+      @cut="onCutCanonicalSelection"
       @paste="onPaste"
       @compositionstart="composing = true"
-      @compositionend="composing = false"
+      @compositionend="onCompositionEnd"
     />
     <teleport to="body">
       <div
@@ -19,16 +26,20 @@
         class="omni-at-menu"
         :style="menuStyle"
         role="listbox"
+        aria-label="插入参考图"
         @mousedown.prevent
       >
         <div v-if="!slots.length" class="omni-at-menu-empty">当前没有可用的参考图（请为场景 / 角色 / 道具选择带图素材）</div>
         <button
-          v-for="s in slots"
+          v-for="(s, i) in slots"
           :key="s.index"
           type="button"
           class="omni-at-menu-item"
+          :class="{ 'omni-at-menu-item--active': menuActiveIndex === i }"
           role="option"
+          :aria-selected="menuActiveIndex === i"
           @click="onPickSlot(s.index)"
+          @mouseenter="menuActiveIndex = i"
         >
           <span class="omni-at-menu-thumb-wrap">
             <img v-if="s.thumbUrl" :src="s.thumbUrl" class="omni-at-menu-thumb" alt="" />
@@ -55,22 +66,33 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { computed, ref, useAttrs, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { DocumentCopy } from '@element-plus/icons-vue'
+import {
+  canonicalAtToken,
+  makeDisplayAtToken as buildDisplayAtToken,
+  omniSlotKindLabel,
+  toCanonicalOmniText,
+} from '@/utils/universalSegmentOmniAt.js'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
-  /** { index: number, kind: 'scene'|'character'|'prop', name: string, thumbUrl: string }[] */
+  /** { index: number, kind: 'scene'|'character'|'prop'|'free', name: string, thumbUrl: string }[] */
   slots: { type: Array, default: () => [] },
+  ariaLabel: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:modelValue', 'blur'])
+
+const attrs = useAttrs()
+const resolvedAriaLabel = computed(() => props.ariaLabel || attrs['aria-label'] || '全能片段描述')
 
 const wrapRef = ref(null)
 const editorRef = ref(null)
 const menuOpen = ref(false)
 const menuStyle = ref({ top: '0px', left: '0px' })
+const menuActiveIndex = ref(0)
 const composing = ref(false)
 
 /** 'insert' at lone @ | 'replace' chip */
@@ -83,64 +105,49 @@ let skipNextModelWatch = false
 const CHIP_CLASS = 'omni-at-chip'
 
 function kindLabel(kind) {
-  if (kind === 'scene') return '场景'
-  if (kind === 'character') return '角色'
-  if (kind === 'prop') return '道具'
-  return '参考'
-}
-
-function slotByIndex(index) {
-  const list = props.slots || []
-  return list.find((s) => Number(s.index) === Number(index))
+  return omniSlotKindLabel(kind)
 }
 
 function canonicalAt(index) {
-  const n = Number(index)
-  if (!Number.isFinite(n) || n < 1) return '@图片1'
-  return `@图片${n}`
+  return canonicalAtToken(index) || ''
 }
 
-/** 编辑区展示用 @token；与存库/提交的 @图片N 一一对应 */
 function makeDisplayAtToken(index) {
-  const n = Number(index)
-  const slot = slotByIndex(n)
-  const name = slot && slot.name != null ? String(slot.name).trim() : ''
-  if (!name) return canonicalAt(n)
-  const list = props.slots || []
-  const dup = list.filter((x) => String(x.name || '').trim() === name).length > 1
-  if (!dup) return `@${name}`
-  const prefix = slot.kind === 'scene' ? '场景' : slot.kind === 'prop' ? '道具' : '角色'
-  return `@${prefix}·${name}`
+  return buildDisplayAtToken(index, props.slots)
 }
 
 function menuPrimaryAt(s) {
   return makeDisplayAtToken(s.index)
 }
 
+function bindChip(span) {
+  span.addEventListener('mousedown', onChipMouseDown)
+  span.addEventListener('click', onChipClick)
+  span.addEventListener('keydown', onChipKeydown)
+}
+
 function applyPlainTextToEditor(el, text) {
   if (!el) return
-  const raw = text == null ? '' : String(text)
+  const raw = toCanonicalOmniText(text, props.slots)
   el.innerHTML = ''
-  if (!raw) {
-    el.appendChild(document.createTextNode(''))
-    return
-  }
+  if (!raw) return
   const re = /@图片(\d+)/g
   let last = 0
   let m
   while ((m = re.exec(raw)) !== null) {
+    const canon = canonicalAt(m[1])
+    if (!canon) continue
     if (m.index > last) el.appendChild(document.createTextNode(raw.slice(last, m.index)))
     const span = document.createElement('span')
     span.className = CHIP_CLASS
     span.contentEditable = 'false'
-    span.dataset.n = m[1]
+    span.dataset.n = String(Number(m[1]))
     const disp = makeDisplayAtToken(m[1])
     span.textContent = disp
     span.setAttribute('role', 'button')
     span.setAttribute('tabindex', '0')
-    span.setAttribute('aria-label', `${disp}（提交为 ${canonicalAt(m[1])}），点击可更换`)
-    span.addEventListener('mousedown', onChipMouseDown)
-    span.addEventListener('click', onChipClick)
+    span.setAttribute('aria-label', `${disp}（提交为 ${canon}），点击可更换`)
+    bindChip(span)
     el.appendChild(span)
     last = m.index + m[0].length
   }
@@ -173,15 +180,10 @@ function chipCanonicalLength(node) {
   return canonicalAt(node.dataset?.n).length
 }
 
-/** 光标在「规范串」中的偏移（与 serializeEditor 一致） */
-function getCaretCanonicalOffset(el) {
-  const win = el?.ownerDocument?.defaultView || window
-  const sel = win.getSelection()
-  if (!sel || sel.rangeCount === 0 || !el) return 0
-  const range = sel.getRangeAt(0)
+function measureCanonicalPrefix(el, endContainer, endOffset) {
   const r = el.ownerDocument.createRange()
   r.selectNodeContents(el)
-  r.setEnd(range.endContainer, range.endOffset)
+  r.setEnd(endContainer, endOffset)
   let len = 0
   function measure(n) {
     if (n.nodeType === Node.TEXT_NODE) len += (n.textContent || '').length
@@ -190,9 +192,41 @@ function getCaretCanonicalOffset(el) {
       else n.childNodes.forEach(measure)
     }
   }
-  const frag = r.cloneContents()
-  frag.childNodes.forEach(measure)
+  r.cloneContents().childNodes.forEach(measure)
   return len
+}
+
+/** 光标在「规范串」中的偏移（与 serializeEditor 一致） */
+function getCaretCanonicalOffset(el) {
+  const win = el?.ownerDocument?.defaultView || window
+  const sel = win.getSelection()
+  if (!sel || sel.rangeCount === 0 || !el) return 0
+  const range = sel.getRangeAt(0)
+  return measureCanonicalPrefix(el, range.endContainer, range.endOffset)
+}
+
+function getCanonicalSelection(el) {
+  const win = el?.ownerDocument?.defaultView || window
+  const sel = win.getSelection()
+  if (!sel || sel.rangeCount === 0 || !el) {
+    const off = getCaretCanonicalOffset(el)
+    return { start: off, end: off }
+  }
+  const range = sel.getRangeAt(0)
+  const a = measureCanonicalPrefix(el, range.startContainer, range.startOffset)
+  const b = measureCanonicalPrefix(el, range.endContainer, range.endOffset)
+  return { start: Math.min(a, b), end: Math.max(a, b) }
+}
+
+function serializeSelection(el) {
+  const win = el?.ownerDocument?.defaultView || window
+  const sel = win.getSelection()
+  if (!sel || sel.rangeCount === 0 || !el) return serializeEditor(el)
+  const range = sel.getRangeAt(0)
+  if (range.collapsed) return serializeEditor(el)
+  const holder = el.ownerDocument.createElement('div')
+  holder.appendChild(range.cloneContents())
+  return serializeEditor(holder)
 }
 
 function setCaretCanonicalOffset(el, target) {
@@ -240,6 +274,17 @@ function setCaretCanonicalOffset(el, target) {
   sel.addRange(range)
 }
 
+function applyCanonicalAndEmit(el, next, caret) {
+  applyPlainTextToEditor(el, next)
+  const serialized = serializeEditor(el)
+  skipNextModelWatch = true
+  emit('update:modelValue', serialized)
+  nextTick(() => {
+    setCaretCanonicalOffset(el, caret)
+    el.focus()
+  })
+}
+
 function positionMenuNearRect(rect) {
   const pad = 4
   const w = 280
@@ -279,6 +324,17 @@ function closeMenu() {
   menuOpen.value = false
   menuMode = 'insert'
   replaceChipEl = null
+  menuActiveIndex.value = 0
+}
+
+function openInsertMenu() {
+  menuMode = 'insert'
+  replaceChipEl = null
+  menuActiveIndex.value = 0
+  nextTick(() => {
+    positionMenuAtCaret()
+    menuOpen.value = true
+  })
 }
 
 function maybeOpenAtMenu() {
@@ -292,12 +348,7 @@ function maybeOpenAtMenu() {
   if (/@图片\d+$/.test(before)) return
   if (before.endsWith('@@')) return
   insertAtOffset = off
-  menuMode = 'insert'
-  replaceChipEl = null
-  nextTick(() => {
-    positionMenuAtCaret()
-    menuOpen.value = true
-  })
+  openInsertMenu()
 }
 
 function onInput() {
@@ -322,31 +373,66 @@ function onKeydown(e) {
     closeMenu()
     return
   }
-  if (menuOpen.value && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+  if (!menuOpen.value) return
+  const list = props.slots || []
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    if (!list.length) return
+    const delta = e.key === 'ArrowDown' ? 1 : -1
+    menuActiveIndex.value = (menuActiveIndex.value + delta + list.length) % list.length
+    return
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    const slot = list[menuActiveIndex.value]
+    if (slot) onPickSlot(slot.index)
+  }
+}
+
+function onCopyCanonicalSelection(e) {
+  const el = editorRef.value
+  const text = serializeSelection(el)
+  if (!e?.clipboardData) return
+  e.clipboardData.setData('text/plain', text)
+  e.preventDefault()
+}
+
+function onCutCanonicalSelection(e) {
+  const el = editorRef.value
+  if (!el) return
+  const text = serializeSelection(el)
+  if (e?.clipboardData) {
+    e.clipboardData.setData('text/plain', text)
     e.preventDefault()
   }
+  const { start, end } = getCanonicalSelection(el)
+  const s = serializeEditor(el)
+  applyCanonicalAndEmit(el, s.slice(0, start) + s.slice(end), start)
 }
 
 function onPaste(e) {
   e.preventDefault()
-  const text = e.clipboardData?.getData('text/plain') ?? ''
-  try {
-    document.execCommand('insertText', false, text)
-  } catch (_) {
-    const sel = window.getSelection()
-    if (!sel?.rangeCount) return
-    const range = sel.getRangeAt(0)
-    range.deleteContents()
-    range.insertNode(document.createTextNode(text))
-    range.collapse(false)
-    sel.removeAllRanges()
-    sel.addRange(range)
-  }
-  onInput()
+  const el = editorRef.value
+  if (!el) return
+  const pasted = toCanonicalOmniText(e.clipboardData?.getData('text/plain') ?? '', props.slots)
+  const { start, end } = getCanonicalSelection(el)
+  const s = serializeEditor(el)
+  applyCanonicalAndEmit(el, s.slice(0, start) + pasted + s.slice(end), start + pasted.length)
+}
+
+function onCompositionEnd() {
+  composing.value = false
+  maybeOpenAtMenu()
 }
 
 function onChipMouseDown(e) {
   e.preventDefault()
+}
+
+function onChipKeydown(e) {
+  if (e.key !== 'Enter' && e.key !== ' ') return
+  e.preventDefault()
+  onChipClick(e)
 }
 
 function onChipClick(e) {
@@ -357,6 +443,7 @@ function onChipClick(e) {
   editorRef.value?.focus()
   menuMode = 'replace'
   replaceChipEl = chip
+  menuActiveIndex.value = 0
   const r = chip.getBoundingClientRect()
   positionMenuNearRect(r)
   menuOpen.value = true
@@ -365,11 +452,16 @@ function onChipClick(e) {
 function onPickSlot(index) {
   const el = editorRef.value
   if (!el) return
+  const token = canonicalAt(index)
+  if (!token) {
+    closeMenu()
+    return
+  }
   if (menuMode === 'replace' && replaceChipEl) {
     replaceChipEl.dataset.n = String(index)
     const disp = makeDisplayAtToken(index)
     replaceChipEl.textContent = disp
-    replaceChipEl.setAttribute('aria-label', `${disp}（提交为 ${canonicalAt(index)}），点击可更换`)
+    replaceChipEl.setAttribute('aria-label', `${disp}（提交为 ${token}），点击可更换`)
     const next = serializeEditor(el)
     skipNextModelWatch = true
     emit('update:modelValue', next)
@@ -382,16 +474,8 @@ function onPickSlot(index) {
     closeMenu()
     return
   }
-  const newS = s.slice(0, at - 1) + `@图片${index}` + s.slice(at)
-  applyPlainTextToEditor(el, newS)
-  const next = serializeEditor(el)
-  skipNextModelWatch = true
-  emit('update:modelValue', next)
-  nextTick(() => {
-    const pos = at - 1 + (`@图片${index}`).length
-    setCaretCanonicalOffset(el, pos)
-    el.focus()
-  })
+  const newS = s.slice(0, at - 1) + token + s.slice(at)
+  applyCanonicalAndEmit(el, newS, at - 1 + token.length)
   closeMenu()
 }
 
@@ -604,13 +688,15 @@ html.light .omni-at-menu-empty {
 .omni-at-menu-item:last-child {
   margin-bottom: 0;
 }
-.omni-at-menu-item:hover {
+.omni-at-menu-item:hover,
+.omni-at-menu-item--active {
   background: rgba(148, 163, 184, 0.15);
 }
 html.light .omni-at-menu-item {
   color: #0f172a;
 }
-html.light .omni-at-menu-item:hover {
+html.light .omni-at-menu-item:hover,
+html.light .omni-at-menu-item--active {
   background: #f1f5f9;
 }
 .omni-at-menu-thumb-wrap {

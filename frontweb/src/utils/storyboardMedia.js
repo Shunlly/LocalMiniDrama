@@ -267,13 +267,32 @@ function isCompletedImage(i) {
     && (hasRealMediaValue(i.image_url) || hasRealMediaValue(i.local_path))
 }
 
+function samePositiveId(left, right) {
+  if (left == null || right == null || left === '' || right === '') return false
+  const a = Number(left)
+  const b = Number(right)
+  if (Number.isSafeInteger(a) && Number.isSafeInteger(b) && a > 0 && b > 0) return a === b
+  return String(left) === String(right)
+}
+
+function lookupByStoryboardId(collection, storyboardId) {
+  if (!collection || typeof collection !== 'object') return undefined
+  if (Object.prototype.hasOwnProperty.call(collection, storyboardId)) return collection[storyboardId]
+  const numeric = Number(storyboardId)
+  if (Number.isSafeInteger(numeric) && numeric > 0) {
+    if (Object.prototype.hasOwnProperty.call(collection, numeric)) return collection[numeric]
+    if (Object.prototype.hasOwnProperty.call(collection, String(numeric))) return collection[String(numeric)]
+  }
+  return undefined
+}
+
 export function getSbImagesList(imagesBySbId, storyboardId) {
-  const list = imagesBySbId?.[storyboardId]
+  const list = lookupByStoryboardId(imagesBySbId, storyboardId)
   return Array.isArray(list) ? list.filter(isCompletedImage) : []
 }
 
 export function getSbVideosList(videosBySbId, storyboardId) {
-  const list = videosBySbId?.[storyboardId]
+  const list = lookupByStoryboardId(videosBySbId, storyboardId)
   if (!Array.isArray(list)) return []
   return list.filter((v) => v.status === 'completed' && (hasRealMediaValue(v.local_path) || (hasRealMediaValue(v.video_url) && isHttpVideoUrl(v.video_url))))
 }
@@ -283,7 +302,7 @@ export function resolveSbFirstImageRecord(sb, imagesBySbId) {
   if (!sb) return null
   const images = getSbImagesList(imagesBySbId, sb.id)
   if (sb.first_frame_image_id != null) {
-    const bound = images.find((i) => i.id === sb.first_frame_image_id)
+    const bound = images.find((i) => samePositiveId(i.id, sb.first_frame_image_id))
     if (bound) return bound
   }
   const typed = images.find((i) => i.frame_type === 'storyboard_first')
@@ -304,7 +323,7 @@ export function resolveSbLastImageRecord(sb, imagesBySbId) {
   if (!sb) return null
   const images = getSbImagesList(imagesBySbId, sb.id)
   if (sb.last_frame_image_id != null) {
-    const bound = images.find((i) => i.id === sb.last_frame_image_id)
+    const bound = images.find((i) => samePositiveId(i.id, sb.last_frame_image_id))
     if (bound) return bound
   }
   const typed = images.find((i) => i.frame_type === 'storyboard_last')

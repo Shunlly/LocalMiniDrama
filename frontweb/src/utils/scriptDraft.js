@@ -9,27 +9,36 @@ export function scriptDraftFingerprint(snapshot) {
   ])
 }
 
+function positiveId(value) {
+  const n = Number(value)
+  return Number.isSafeInteger(n) && n > 0 ? n : null
+}
+
 export function buildEpisodeDraftPayload(episodes, snapshot) {
   const list = Array.isArray(episodes) ? episodes : []
+  const targetId = positiveId(snapshot?.episodeId)
+  const targetNumber = positiveId(snapshot?.episodeNumber)
   let matched = false
   const payload = list.map((episode, index) => {
-    const episodeNumber = Number(episode.episode_number) || index + 1
-    const isTarget = Number(episode.id) === Number(snapshot.episodeId)
-      || episodeNumber === Number(snapshot.episodeNumber)
+    const episodeNumber = positiveId(episode.episode_number) || index + 1
+    const episodeId = positiveId(episode.id)
+    const isTarget = targetId
+      ? episodeId === targetId
+      : Boolean(targetNumber && episodeNumber === targetNumber)
     if (isTarget) matched = true
     return {
       episode_number: episodeNumber,
-      title: isTarget ? String(snapshot.title || '') : String(episode.title || ''),
-      script_content: isTarget ? String(snapshot.content || '') : String(episode.script_content || ''),
+      title: isTarget ? String(snapshot?.title || '') : String(episode.title || ''),
+      script_content: isTarget ? String(snapshot?.content || '') : String(episode.script_content || ''),
       description: episode.description ?? null,
       duration: Number(episode.duration) || 0,
     }
   })
-  if (!matched) {
+  if (!matched && !targetId) {
     payload.push({
-      episode_number: Number(snapshot.episodeNumber) || payload.length + 1,
-      title: String(snapshot.title || ''),
-      script_content: String(snapshot.content || ''),
+      episode_number: targetNumber || payload.length + 1,
+      title: String(snapshot?.title || ''),
+      script_content: String(snapshot?.content || ''),
       description: null,
       duration: 0,
     })

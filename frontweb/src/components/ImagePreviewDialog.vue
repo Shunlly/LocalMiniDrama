@@ -50,7 +50,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'closed'])
 
-const resolvedAlt = computed(() => props.alt.trim() || props.title)
+const resolvedAlt = computed(() => String(props.alt || '').trim() || props.title)
 const loadState = ref('loading')
 
 watch(
