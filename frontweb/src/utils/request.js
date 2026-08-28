@@ -1,5 +1,6 @@
+import { ElMessage } from './elementPlusFeedback.js'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { describeServiceLoadError, isRequestCanceled } from './requestError.js'
 
 const request = axios.create({
   baseURL: '/api/v1',
@@ -29,8 +30,7 @@ request.interceptors.request.use(
 
 export function shouldShowRequestErrorToast(error) {
   return error?.config?.suppressErrorToast !== true
-    && error?.code !== 'ERR_CANCELED'
-    && !axios.isCancel(error)
+    && !isRequestCanceled(error)
 }
 
 request.interceptors.response.use(
@@ -48,10 +48,14 @@ request.interceptors.response.use(
   (error) => {
     // 提取后端实际错误信息（优先 API 返回的 message，而非 axios 通用 "status code 500"）
     const backendMsg = error.response?.data?.error?.message
-    const msg = backendMsg || error.message || '网络错误'
+    const msg = backendMsg || describeServiceLoadError(error, {
+      serviceLabel: '服务',
+      fallback: error.message || '网络错误',
+    })
     if (shouldShowRequestErrorToast(error)) ElMessage.error(msg)
     // 将真实错误信息写回 message，使组件 catch 块可直接用 e.message 获取可读内容
     if (backendMsg) error.message = backendMsg
+    else if (msg && msg !== error.message) error.message = msg
     return Promise.reject(error)
   }
 )

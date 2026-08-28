@@ -240,6 +240,7 @@ const props = defineProps({
   productionReadinessReason: { type: String, default: '' },
   productionReadinessState: { type: String, default: 'ready' },
   productionReadinessServiceType: { type: String, default: '' },
+  hasEpisode: { type: Boolean, default: true },
   starting: { type: Boolean, default: false },
   stopping: { type: Boolean, default: false },
   stopRequired: { type: Boolean, default: false },
@@ -273,6 +274,7 @@ const emit = defineEmits([
   'resume',
   'cancel',
   'skip-countdown',
+  'add-episode',
 ])
 
 const activeTaskLabels = computed(() => Array.from(props.activeTasks || []))
@@ -309,6 +311,7 @@ const focusNextStep = computed(() => {
   if (props.starting) return '确认服务能力与本次调用范围'
   if (props.stopRequired) return '重试停止剩余远端任务'
   if (props.running) return props.paused ? '继续当前生成流程' : '等待当前阶段完成'
+  if (props.hasEpisode === false) return '添加一集后再保存剧本或启动生成'
   if (draftReason.value) return '处理当前阻断后再启动生成'
   if (props.productionReadinessState === 'checking') return '等待检查完成'
   if (props.productionReadinessState === 'error') return '重试检查，确认本地服务与配置状态'
@@ -330,6 +333,7 @@ const compactAction = computed(() => getPipelineCompactAction({
   serviceType: props.productionReadinessServiceType,
   running: props.running,
   paused: props.paused,
+  hasEpisode: props.hasEpisode,
   draftReason: draftReason.value,
   productionReason: productionReason.value,
 }))

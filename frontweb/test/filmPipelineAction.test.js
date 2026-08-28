@@ -27,3 +27,19 @@ test('pipeline compact commands use concise labels for direct actions', () => {
   assert.equal(getPipelineCompactAction({ readinessState: 'ready' }).label, '一键生成成片')
   assert.equal(getPipelineCompactAction({ running: true, paused: true }).label, '继续生成')
 })
+test('缺少剧集时紧凑标题提供添加一集', () => {
+  assert.deepEqual(
+    getPipelineCompactAction({
+      readinessState: 'missing',
+      serviceType: 'video',
+      hasEpisode: false,
+      draftReason: '请先创建或选择剧集',
+    }),
+    {
+      key: 'add-episode',
+      label: '添加一集',
+      event: 'add-episode',
+    },
+  )
+  assert.equal(getPipelineCompactAction({ readinessState: 'ready', draftReason: '缺少剧本' }), null)
+})

@@ -38,7 +38,9 @@ test('AI configuration uses a real page heading and keyboard-operable help contr
 
 test('project readiness and detail controls avoid dead or mouse-only interactions', () => {
   assert.match(readinessSource, /:is="service\.ready \? 'span' : 'button'"/)
-  assert.match(dramaDetailSource, /<button type="button" class="episode-enter"/)
+  assert.match(dramaDetailSource, /<RouterLink[\s\S]*class="episode-card-main"/)
+  assert.match(dramaDetailSource, /class="episode-enter"/)
+  assert.match(dramaDetailSource, /class="episode-card-delete"/)
   assert.match(dramaDetailSource, /:aria-label="`删除第 /)
   assert.match(dramaDetailSource, /role="tablist" aria-label="项目资源分类"/)
   assert.match(dramaDetailSource, /role="tab"/)

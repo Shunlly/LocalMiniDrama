@@ -1600,6 +1600,7 @@ import PromptEditor from '@/components/PromptEditor.vue'
 import SceneModelMap from '@/components/SceneModelMap.vue'
 import Sd2AssetManagement from '@/components/Sd2AssetManagement.vue'
 import { hasUnsavedAiConfigChanges } from '@/utils/aiConfigUnsavedGuard.js'
+import { createOperationId, logOperation } from '@/utils/operationLog'
 
 const props = defineProps({
   initialServiceType: {
@@ -3019,6 +3020,15 @@ async function openTest(row) {
   testResultAnnouncement.value = '正在测试连接'
   testServiceType.value = row.service_type || 'text'
   const testModel = row.default_model || (Array.isArray(row.model) ? row.model[0] : row.model)
+  const operationId = createOperationId('ai_config_test')
+  const startedAt = Date.now()
+  logOperation({
+    operation: 'ai_config_test',
+    operationId,
+    phase: 'start',
+    configId: row.id,
+    serviceType: row.service_type || 'text',
+  })
   try {
     await aiAPI.testConnection({
       id: row.id,
@@ -3038,6 +3048,14 @@ async function openTest(row) {
       [row.id]: { status: 'passed', testedAt },
     }
     testResultAnnouncement.value = '连接测试通过'
+    logOperation({
+      operation: 'ai_config_test',
+      operationId,
+      phase: 'success',
+      durationMs: Date.now() - startedAt,
+      configId: row.id,
+      serviceType: row.service_type || 'text',
+    })
   } catch (e) {
     testResult.value = false
     testError.value = e?.message || '请求失败'
@@ -3048,6 +3066,15 @@ async function openTest(row) {
       [row.id]: { status: 'failed', testedAt },
     }
     testResultAnnouncement.value = `连接测试失败：${testError.value}`
+    logOperation({
+      operation: 'ai_config_test',
+      operationId,
+      phase: 'error',
+      durationMs: Date.now() - startedAt,
+      configId: row.id,
+      serviceType: row.service_type || 'text',
+      error: testError.value,
+    })
   } finally {
     testingConfigId.value = null
   }

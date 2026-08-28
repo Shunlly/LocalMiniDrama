@@ -327,3 +327,8 @@ test('520px 视口下弹窗外壳和内容都受视口宽度约束', () => {
   assert.match(componentSource, /\.accessible-dialog\.el-dialog > \.el-dialog__body[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;/)
   assert.match(componentSource, /\.accessible-dialog\.el-dialog > \.el-dialog__body \{[\s\S]*?min-height: 0;[\s\S]*?flex: 1 1 auto;[\s\S]*?overflow-x: auto;[\s\S]*?overflow-y: auto;/)
 })
+
+test('弹窗默认禁止点遮罩关闭', () => {
+  assert.match(componentSource, /closeOnClickModal:\s*\{\s*type:\s*Boolean,\s*default:\s*false/)
+  assert.match(componentSource, /:close-on-click-modal="closeOnClickModal"/)
+})

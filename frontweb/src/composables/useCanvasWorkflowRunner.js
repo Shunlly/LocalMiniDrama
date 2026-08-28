@@ -4,6 +4,7 @@ import { videosAPI } from '@/api/videos'
 import { aiAPI } from '@/api/ai'
 import { storyboardsAPI } from '@/api/storyboards'
 import request from '@/utils/request'
+import { isRequestTimeout } from '@/utils/requestError'
 import { storyboardImageUrl } from '@/utils/mediaUrl'
 import {
   DEFAULT_PIPELINE,
@@ -39,9 +40,6 @@ function audioSubmissionRequestOptions(signal) {
   return { signal, timeout: AUDIO_SUBMISSION_REQUEST_TIMEOUT_MS }
 }
 
-function isRequestTimeout(error) {
-  return error?.code === 'ECONNABORTED' || /timeout/i.test(String(error?.message || ''))
-}
 
 function createAbortError(message = '任务已取消') {
   if (typeof DOMException === 'function') return new DOMException(message, 'AbortError')

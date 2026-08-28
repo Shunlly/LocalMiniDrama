@@ -113,14 +113,51 @@ function accessibleName(element) {
   return normalizedText(element.getAttribute?.('title'))
 }
 
+function classListHas(element, className) {
+  const list = element?.classList
+  if (!list) return false
+  if (typeof list.contains === 'function') return list.contains(className)
+  if (typeof list.has === 'function') return list.has(className)
+  return false
+}
+
+function isDialogCloseControl(element, boundary) {
+  let current = element
+  while (current && current !== boundary) {
+    if (classListHas(current, 'el-dialog__headerbtn') || classListHas(current, 'el-dialog__close')) {
+      return true
+    }
+    current = current.parentElement
+  }
+  const name = accessibleName(element)
+  return name === '关闭此对话框' || name === '关闭对话框'
+}
+
+function isTextEntryControl(element) {
+  const tagName = element.tagName?.toLowerCase()
+  if (tagName === 'textarea' || tagName === 'select') return true
+  if (element.hasAttribute?.('contenteditable') && element.getAttribute('contenteditable') !== 'false') return true
+  if (tagName !== 'input') return false
+  const type = (element.getAttribute?.('type') || 'text').toLowerCase()
+  return !['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'hidden', 'image', 'range', 'color'].includes(type)
+}
+
 export function findDialogFocusTarget(dialogElement) {
   if (!dialogElement?.querySelectorAll) return null
   const autofocusTarget = Array.from(dialogElement.querySelectorAll('[autofocus]'))
     .find((element) => isFocusable(element, dialogElement))
   if (autofocusTarget) return autofocusTarget
 
-  return Array.from(dialogElement.querySelectorAll(INTERACTIVE_SELECTOR))
-    .find((element) => isFocusable(element, dialogElement) && accessibleName(element)) || null
+  const candidates = Array.from(dialogElement.querySelectorAll(INTERACTIVE_SELECTOR))
+    .filter((element) => isFocusable(element, dialogElement) && !isDialogCloseControl(element, dialogElement))
+
+  const namedField = candidates.find((element) => isTextEntryControl(element) && accessibleName(element))
+  if (namedField) return namedField
+
+  const unnamedField = candidates.find((element) => isTextEntryControl(element))
+  if (unnamedField) return unnamedField
+
+  return candidates.find((element) => accessibleName(element)) || null
 }
 
 function focusElement(element) {

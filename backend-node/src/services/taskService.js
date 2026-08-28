@@ -1134,6 +1134,12 @@ async function executeCancellation(db, log, taskId, reason, prepared, options) {
     .trim()
     .slice(0, 2000) || USER_CANCEL_TASK_MSG;
   const token = prepared.token;
+  log?.operation?.({
+    operation: 'task_cancel',
+    operationId: token || String(taskId),
+    phase: 'start',
+    task_id: taskId,
+  });
   const claim = claimCancellationAttempt(db, taskId, token);
   if (claim.kind === 'stale') {
     return {
@@ -1238,6 +1244,13 @@ async function executeCancellation(db, log, taskId, reason, prepared, options) {
     const restored = restoreAfterRemoteRejection(db, taskId, token, outcome);
     if (restored.stale) return { ok: false, reason: 'cancel_superseded', error: REMOTE_CANCEL_SUPERSEDED_MSG, task: restored.task };
     log.error?.('Task remote cancellation failed', { task_id: taskId, type: task.type, error: outcome.error });
+    log?.operation?.({
+      operation: 'task_cancel',
+      operationId: token || String(taskId),
+      phase: 'error',
+      task_id: taskId,
+      error: outcome.error,
+    });
     return {
       ok: false,
       reason: restored.failed ? 'remote_cancel_exhausted' : 'remote_cancel_failed',
@@ -1251,6 +1264,14 @@ async function executeCancellation(db, log, taskId, reason, prepared, options) {
   if (confirmed.stale) return { ok: false, reason: 'cancel_superseded', error: REMOTE_CANCEL_SUPERSEDED_MSG, task: confirmed.task };
   clearCancellationRetry(taskId);
   log.info('Task cancelled by user', { task_id: taskId, cancel_outcome: outcome.outcome });
+  log?.operation?.({
+    operation: 'task_cancel',
+    operationId: token || String(taskId),
+    phase: 'cancel',
+    status: 'cancelled',
+    task_id: taskId,
+    cancel_outcome: outcome.outcome,
+  });
   return { ok: true, outcome, task: confirmed.task };
 }
 

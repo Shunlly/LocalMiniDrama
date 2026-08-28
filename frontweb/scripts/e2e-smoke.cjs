@@ -1,3 +1,5 @@
+// 本地烟测入口。CI 走 npm run verify:e2e（e2e-production.cjs）。
+// 剧集页可见文案必须同时出现在 production E2E，避免本脚本游离后假通过。
 const assert = require('node:assert/strict')
 const { execFile } = require('node:child_process')
 const fs = require('node:fs')

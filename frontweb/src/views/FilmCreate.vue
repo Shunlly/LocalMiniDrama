@@ -16,6 +16,7 @@
         <div v-if="projectLoadState === 'ready' && dramaId" class="header-context">
           <span class="header-context-label">当前集</span>
           <el-select
+            v-if="hasAnyEpisode"
             class="header-episode-select"
             :model-value="selectedEpisodeId"
             aria-label="当前集"
@@ -33,6 +34,16 @@
               :value="ep.id"
             />
           </el-select>
+          <el-button
+            v-else
+            type="primary"
+            plain
+            class="header-add-episode"
+            aria-label="添加一集"
+            @click="onAddEpisode"
+          >
+            <el-icon><Plus /></el-icon>添加一集
+          </el-button>
         </div>
         <el-button v-if="projectLoadState === 'ready' && dramaId" class="btn-back-drama" @click="router.push('/drama/' + dramaId)">
           <el-icon><ArrowLeft /></el-icon>
@@ -284,6 +295,7 @@
         :countdown="pipelineCountdown"
         :countdown-message="pipelineCountdownMsg"
         :active-tasks="pipelineActiveTasks"
+        :has-episode="hasAnyEpisode"
         @save-settings="saveProjectSettings"
         @start-one-click="startOneClickPipeline"
         @start-text-framework="startTextFrameworkPipeline"
@@ -293,6 +305,7 @@
         @resume="onPipelineResume"
         @cancel="cancelPipelineRun"
         @skip-countdown="skipPipelineCountdown"
+        @add-episode="onAddEpisode"
       />
 
       <!-- 剧本工作台：单卡片 + 选项卡（创作 / 选择） -->
@@ -346,6 +359,18 @@
               <div class="script-sub-divider" />
               <div id="anchor-script" class="script-sub-block">
                 <h2 class="section-title">剧本</h2>
+                <div
+                  v-if="dramaId && !hasAnyEpisode"
+                  class="empty-tip film-episode-empty"
+                  role="status"
+                >
+                  <p class="film-episode-empty-title">还没有剧集</p>
+                  <p>可以点「添加一集」开始手写剧本，或在上方输入故事梗概后生成剧本。</p>
+                  <div class="film-episode-empty-actions">
+                    <el-button type="primary" @click="onAddEpisode">添加一集</el-button>
+                    <el-button @click="router.push('/drama/' + dramaId)">返回剧集管理</el-button>
+                  </div>
+                </div>
                 <div class="row gap" style="margin-bottom: 10px; flex-wrap: wrap;">
                   <el-input v-model="scriptTitle" placeholder="集标题" style="width: 150px" />
                   <el-button v-if="dramaId" style="margin-left: auto" aria-label="添加一集" @click="onAddEpisode">
@@ -1752,108 +1777,29 @@
       </section>
 
       <!-- 8. 交付与导出 -->
-      <section id="anchor-video" class="section card delivery-section">
-        <h2 class="section-title">交付与导出</h2>
-        <div class="delivery-overview" role="status" aria-live="polite">
-          <div class="delivery-stat">
-            <span>分镜视频</span>
-            <strong>{{ playableStoryboardVideoCount }} / {{ storyboards.length }}</strong>
-          </div>
-          <div class="delivery-stat">
-            <span>整集合成</span>
-            <strong>{{ deliveryCompositeStatusLabel }}</strong>
-          </div>
-          <div class="delivery-stat">
-            <span>可交付文件</span>
-            <strong>{{ deliveryFileCount }} 项</strong>
-          </div>
-        </div>
-        <div class="delivery-actions">
-          <ActionGate :reason="composeActionDisabledReason" label="合成成片">
-            <el-button
-              type="primary"
-              :loading="videoStatus === 'generating'"
-              :disabled="Boolean(composeActionDisabledReason)"
-              @click="onGenerateVideo"
-            >
-              <el-icon><VideoPlay /></el-icon>
-              {{ currentEpisodeVideoUrl ? '重新合成' : '合成成片' }}
-            </el-button>
-          </ActionGate>
-          <el-button
-            type="primary"
-            plain
-            :loading="videoDownloadStatus === 'downloading'"
-            :disabled="!currentEpisodeVideoUrl"
-            @click="downloadCurrentEpisodeVideo"
-          >
-            <el-icon><Download /></el-icon>
-            {{ videoDownloadStatus === 'error' ? '重试下载' : '下载成片' }}
-          </el-button>
-          <el-button
-            plain
-            :loading="deliveryExportStatus.subtitle === 'downloading'"
-            :disabled="!currentEpisodeId || !deliverySubtitleAvailable"
-            @click="downloadCurrentEpisodeSubtitle"
-          >
-            <el-icon><Document /></el-icon>
-            {{ deliveryExportStatus.subtitle === 'error' ? '重试字幕' : '下载字幕' }}
-          </el-button>
-          <el-button
-            plain
-            :loading="deliveryExportStatus.project === 'downloading'"
-            :disabled="!dramaId"
-            @click="exportCurrentProjectPackage"
-          >
-            <el-icon><Box /></el-icon>
-            {{ deliveryExportStatus.project === 'error' ? '重试项目包' : '导出项目包' }}
-          </el-button>
-        </div>
-        <div v-if="videoStatus === 'generating'" class="video-progress">
-          <el-progress :percentage="videoProgress" :status="videoProgress >= 100 ? 'success' : undefined" />
-          <p>视频生成中...</p>
-        </div>
-        <div v-if="videoStatus === 'done'" class="video-done">
-          <el-alert type="success" title="视频生成完成" show-icon />
-        </div>
-        <div v-else-if="videoStatus === 'error'" class="video-error">
-          <el-alert type="error" :title="videoErrorMsg" show-icon />
-        </div>
-        <div v-if="currentEpisodeVideoUrl" class="video-preview-wrap">
-          <div class="video-preview-header">
-            <p class="video-preview-label">本集合成视频预览</p>
-          </div>
-          <video
-            :src="currentEpisodeVideoUrl"
-            controls
-            aria-label="本集合成视频预览"
-            class="video-preview-player"
-            preload="metadata"
-          />
-          <p
-            v-if="videoDownloadStatus !== 'idle'"
-            class="video-download-status"
-            :class="{ 'is-error': videoDownloadStatus === 'error' }"
-            :role="videoDownloadStatus === 'error' ? 'alert' : 'status'"
-            aria-live="polite"
-          >
-            {{ videoDownloadStatus === 'downloading'
-              ? '正在验证并下载成片...'
-              : videoDownloadStatus === 'success'
-                ? '成片下载已完成。'
-                : videoDownloadError }}
-          </p>
-        </div>
-        <p
-          v-if="deliveryExportFeedback"
-          class="delivery-export-feedback"
-          :class="{ 'is-error': deliveryExportHasError }"
-          :role="deliveryExportHasError ? 'alert' : 'status'"
-          aria-live="polite"
-        >
-          {{ deliveryExportFeedback }}
-        </p>
-      </section>
+      <FilmCreateDeliveryPanel
+        :playable-storyboard-video-count="playableStoryboardVideoCount"
+        :storyboard-count="storyboards.length"
+        :delivery-composite-status-label="deliveryCompositeStatusLabel"
+        :delivery-file-count="deliveryFileCount"
+        :compose-action-disabled-reason="composeActionDisabledReason"
+        :video-status="videoStatus"
+        :video-progress="videoProgress"
+        :current-episode-video-url="currentEpisodeVideoUrl"
+        :video-download-status="videoDownloadStatus"
+        :video-download-error="videoDownloadError"
+        :current-episode-id="currentEpisodeId"
+        :delivery-subtitle-available="deliverySubtitleAvailable"
+        :drama-id="dramaId"
+        :delivery-export-status="deliveryExportStatus"
+        :video-error-msg="videoErrorMsg"
+        :delivery-export-feedback="deliveryExportFeedback"
+        :delivery-export-has-error="deliveryExportHasError"
+        @generate-video="onGenerateVideo"
+        @download-video="downloadCurrentEpisodeVideo"
+        @download-subtitle="downloadCurrentEpisodeSubtitle"
+        @export-project="exportCurrentProjectPackage"
+      />
     </main>
 
     <template v-if="projectLoadState === 'ready'">
@@ -2968,6 +2914,7 @@ import {
   createScriptDraftController,
 } from '@/utils/scriptDraft'
 import { createLatestRequestGuard } from '@/utils/latestRequest.js'
+import { logOperation } from '@/utils/operationLog'
 import { isPlaceholderMediaUrl, probeImageSource, storyboardImageUrl } from '@/utils/mediaUrl'
 import {
   createStoryboardMediaStateController,
@@ -2992,6 +2939,25 @@ import GlobalMediaPickerDialog from '@/components/GlobalMediaPickerDialog.vue'
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import UniversalSegmentOmniAtEditor from '@/components/UniversalSegmentOmniAtEditor.vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import FilmCreateDeliveryPanel from '@/components/filmCreate/FilmCreateDeliveryPanel.vue'
+import { requestCoreJson } from '@/utils/coreJsonRequest'
+import { DEFAULT_POLL_TIMEOUT_MS } from '@/utils/requestError'
+import { runConcurrently as runConcurrentQueue } from '@/utils/filmCreateConcurrency'
+import {
+  buildDeliveryFilename as buildDeliveryFilenameFromParts,
+  buildEpisodeVideoFilename,
+  fetchVerifiedVideoBlob,
+  friendlyVideoDownloadError,
+  normalizeVideoDownloadFilenamePart,
+  triggerBlobDownload,
+  validateDeliveryBlob,
+} from '@/utils/filmCreateDelivery'
+import {
+  buildScriptStoryboardEstimate,
+  clipSecondsForStoryboardEstimate as resolveClipSeconds,
+  estimateVideoDurationSecFromCharLen,
+  shotCountEstimateFromDurationSec as resolveShotCountEstimate,
+} from '@/utils/filmCreateEstimates'
 import FilmCreatePipelinePanel from '@/components/filmCreate/FilmCreatePipelinePanel.vue'
 import {
   batchGenerationDisabledReason,
@@ -3290,6 +3256,7 @@ const props = computed(() => store.props)
 const storyboards = computed(() => store.storyboards)
 const currentEpisode = computed(() => store.currentEpisode)
 const currentEpisodeId = computed(() => store.currentEpisode?.id ?? null)
+const hasAnyEpisode = computed(() => (store.drama?.episodes || []).length > 0)
 const showGlobalMediaPicker = ref(false)
 const globalMediaPickerMode = ref('reference')
 const globalMediaPickerTarget = ref(null)
@@ -3380,8 +3347,21 @@ watch(
 const videoProgress = computed(() => store.videoProgress)
 const videoStatus = computed(() => store.videoStatus)
 
-function trackFilmCreateAction(_action, _payload = {}) {
-  // 单机版：无埋点上报
+function trackFilmCreateAction(action, payload = {}) {
+  const { extra, cancelled, ...rest } = payload
+  let phase = 'info'
+  if (/_failed$/.test(action)) phase = 'error'
+  else if (/stop_complete$|cancel/.test(action)) phase = 'cancel'
+  else if (/_complete$|_partial$/.test(action)) phase = 'success'
+  else if (/_start$|_click$/.test(action)) phase = 'start'
+  logOperation({
+    operation: 'film_create',
+    phase,
+    action,
+    cancelled: cancelled === true,
+    ...(rest || {}),
+    ...(extra && typeof extra === 'object' ? extra : {}),
+  })
 }
 /** 当前集合成视频的播放地址（用于按钮下方预览） */
 const currentEpisodeVideoUrl = computed(() => {
@@ -3407,130 +3387,6 @@ const deliveryFileCount = computed(() => (
   1 + (deliverySubtitleAvailable.value ? 1 : 0) + (currentEpisodeVideoUrl.value ? 1 : 0)
 ))
 
-function normalizeVideoDownloadFilenamePart(value, fallback) {
-  const normalized = String(value ?? '')
-    .normalize('NFKC')
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
-    .replace(/\s+/g, ' ')
-    .replace(/[. ]+$/g, '')
-    .trim()
-    .slice(0, 72)
-  return normalized || fallback
-}
-
-function videoExtensionForBlob(blob) {
-  const contentType = String(blob?.type || '').toLowerCase().split(';')[0].trim()
-  const extensions = {
-    'video/webm': 'webm',
-    'video/quicktime': 'mov',
-    'video/x-matroska': 'mkv',
-    'video/avi': 'avi',
-    'video/x-msvideo': 'avi',
-  }
-  return extensions[contentType] || 'mp4'
-}
-
-function buildEpisodeVideoFilename(title, episodeNumber, blob) {
-  const safeTitle = normalizeVideoDownloadFilenamePart(title, 'LocalMiniDrama')
-  const numericEpisode = Number(episodeNumber)
-  const safeEpisode = Number.isFinite(numericEpisode) && numericEpisode > 0
-    ? String(Math.trunc(numericEpisode))
-    : normalizeVideoDownloadFilenamePart(episodeNumber, '当前')
-  return `${safeTitle}-第${safeEpisode}集-成片.${videoExtensionForBlob(blob)}`
-}
-
-function isJsonVideoDownloadType(contentType) {
-  const normalized = String(contentType || '').toLowerCase().split(';')[0].trim()
-  return normalized === 'application/json' || normalized === 'text/json' || normalized.endsWith('+json')
-}
-
-async function blobContainsJsonPayload(blob) {
-  if (!blob || blob.size > 1024 * 1024 || typeof blob.text !== 'function') return false
-  try {
-    const text = (await blob.text()).trim()
-    if (!text || (!text.startsWith('{') && !text.startsWith('['))) return false
-    JSON.parse(text)
-    return true
-  } catch (_) {
-    return false
-  }
-}
-
-async function fetchVerifiedVideoBlob(url, fetchImpl = globalThis.fetch) {
-  const source = String(url || '').trim()
-  if (!source) throw new Error('没有可下载的成片地址。')
-
-  let response
-  try {
-    response = await fetchImpl(source, {
-      method: 'GET',
-      credentials: 'same-origin',
-      headers: { Accept: 'video/*, application/octet-stream;q=0.9' },
-    })
-  } catch (_) {
-    throw new Error('无法连接本地服务，成片下载未开始。')
-  }
-
-  if (!response?.ok) {
-    const status = Number(response?.status)
-    const suffix = Number.isFinite(status) && status > 0 ? `（HTTP ${status}）` : ''
-    throw new Error(`服务器暂时无法提供成片${suffix}。`)
-  }
-
-  const contentType = response.headers?.get?.('content-type') || ''
-  if (isJsonVideoDownloadType(contentType)) {
-    throw new Error('服务器返回了错误信息，未下载任何文件。')
-  }
-
-  let blob
-  try {
-    blob = await response.blob()
-  } catch (_) {
-    throw new Error('无法读取成片文件，请重试。')
-  }
-  if (!blob || !Number.isFinite(blob.size) || blob.size <= 0) {
-    throw new Error('成片文件为空，未下载任何文件。')
-  }
-  if (isJsonVideoDownloadType(blob.type) || await blobContainsJsonPayload(blob)) {
-    throw new Error('服务器返回了错误信息，未下载任何文件。')
-  }
-  return blob
-}
-
-function triggerBlobDownload(blob, filename, environment = globalThis) {
-  const objectUrl = environment.URL.createObjectURL(blob)
-  const anchor = environment.document.createElement('a')
-  anchor.href = objectUrl
-  anchor.download = filename
-  anchor.rel = 'noopener'
-  anchor.style.display = 'none'
-  environment.document.body.appendChild(anchor)
-  try {
-    anchor.click()
-  } finally {
-    anchor.remove()
-    environment.URL.revokeObjectURL(objectUrl)
-  }
-}
-
-const videoDownloadStatus = ref('idle')
-const videoDownloadError = ref('')
-
-function friendlyVideoDownloadError(error) {
-  const message = String(error?.message || '')
-  const safePrefixes = [
-    '没有可下载的成片地址',
-    '无法连接本地服务',
-    '服务器暂时无法提供成片',
-    '服务器返回了错误信息',
-    '无法读取成片文件',
-    '成片文件为空',
-  ]
-  return safePrefixes.some((prefix) => message.startsWith(prefix))
-    ? message
-    : '成片下载失败，请检查本地服务后重试。'
-}
-
 async function downloadCurrentEpisodeVideo() {
   if (videoDownloadStatus.value === 'downloading') return
   videoDownloadStatus.value = 'downloading'
@@ -3552,25 +3408,6 @@ async function downloadCurrentEpisodeVideo() {
   }
 }
 
-async function validateDeliveryBlob(blob, { label = '文件', kind = 'file' } = {}) {
-  if (typeof Blob === 'undefined' || !(blob instanceof Blob)) throw new Error(`${label}未返回文件`)
-  if (!Number.isFinite(blob.size) || blob.size <= 0) throw new Error(`${label}为空`)
-  const contentType = String(blob.type || '').toLowerCase()
-  if (contentType.includes('json') || await blobContainsJsonPayload(blob)) {
-    throw new Error(`${label}接口返回了错误信息`)
-  }
-  if (kind === 'zip') {
-    const signature = new Uint8Array(await blob.slice(0, 4).arrayBuffer())
-    const isZip = signature[0] === 0x50 && signature[1] === 0x4b && (
-      (signature[2] === 0x03 && signature[3] === 0x04)
-      || (signature[2] === 0x05 && signature[3] === 0x06)
-      || (signature[2] === 0x07 && signature[3] === 0x08)
-    )
-    if (!isZip) throw new Error(`${label}格式无效`)
-  }
-  return blob
-}
-
 const deliveryExportStatus = reactive({ subtitle: 'idle', project: 'idle' })
 const deliveryExportError = ref('')
 const deliveryExportHasError = computed(() => (
@@ -3584,10 +3421,12 @@ const deliveryExportFeedback = computed(() => {
 })
 
 function buildDeliveryFilename(suffix, extension) {
-  const title = normalizeVideoDownloadFilenamePart(store.drama?.title, 'LocalMiniDrama')
-  const episodeNumber = Number(currentEpisode.value?.episode_number)
-  const episode = Number.isFinite(episodeNumber) && episodeNumber > 0 ? `-第${Math.trunc(episodeNumber)}集` : ''
-  return `${title}${episode}-${suffix}.${extension}`
+  return buildDeliveryFilenameFromParts(
+    store.drama?.title,
+    currentEpisode.value?.episode_number,
+    suffix,
+    extension,
+  )
 }
 
 async function downloadCurrentEpisodeSubtitle() {
@@ -3693,28 +3532,12 @@ async function loadPipelineConcurrency() {
  * @returns {Promise<void>}
  */
 async function runConcurrently(items, concurrency, fn, options = {}) {
-  let index = 0
-  const getLabel = options.getLabel || (() => null)
-
-  async function worker() {
-    while (index < items.length) {
-      const i = index++
-      const item = items[i]
-      const label = getLabel(item)
-      if (label) pipelineActiveTasks.add(label)
-      try {
-        await fn(item, i)
-      } finally {
-        if (label) pipelineActiveTasks.delete(label)
-      }
-    }
-  }
-
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
-  const results = await Promise.allSettled(workers)
-  const rejected = results.find((result) => result.status === 'rejected')
-  if (rejected) throw rejected.reason
+  return runConcurrentQueue(items, concurrency, fn, {
+    ...options,
+    activeTasks: pipelineActiveTasks,
+  })
 }
+
 // ── Composable: Characters ────────────────────────────
 const {
   showEditCharacter, editCharacterForm, editCharacterSaving, editCharacterPromptGenerating,
@@ -4019,6 +3842,7 @@ async function cancelPipelineRun() {
   pipelinePaused.value = false
   pipelinePauseGate.release()
   pipelineCurrentStep.value = '正在停止本地执行并结束前端等待...'
+  trackFilmCreateAction('pipeline_stop_start')
 
   const runPromise = activePipelineRunPromise
 
@@ -4043,12 +3867,19 @@ async function cancelPipelineRun() {
       console.warn('[pipeline] run failed while stopping:', cancellation.runError?.message)
     }
     cancellationComplete = cancellation.complete
+    trackFilmCreateAction(cancellationComplete ? 'pipeline_stop_complete' : 'pipeline_stop_failed', {
+      extra: {
+        cancelled_count: cancellation.cancelledTaskIds.length,
+        failed_count: cancellation.failedTaskIds.length,
+      },
+    })
     if (cancellationComplete) {
       ElMessage.warning('本地全流程已停止；已提交的供应商任务和计费可能继续，请稍后刷新任务状态')
     } else {
       ElMessage.error(`本地全流程已停止等待，但仍有 ${cancellation.failedTaskIds.length} 个任务状态未能标记为已停止；供应商任务和计费可能继续，请刷新后再处理`)
     }
   } catch (error) {
+    trackFilmCreateAction('pipeline_stop_failed', { extra: { message: error?.message || '停止全流程失败' } })
     ElMessage.error(error?.message || '停止全流程失败，请重试')
   } finally {
     pipelineStarting.value = false
@@ -4365,40 +4196,16 @@ const gridMode = ref('single') // 序列图模式：single / quad_grid / nine_gr
 
 /** 用于估算的每段时长（秒），与一键成片处「X秒/段」一致 */
 function clipSecondsForStoryboardEstimate() {
-  const c = Number(videoClipDuration.value)
-  return Math.max(2, Math.min(60, Number.isFinite(c) && c > 0 ? c : 5))
+  return resolveClipSeconds(videoClipDuration.value)
 }
 
-/** 由估算总时长与每段秒数得镜数中枢与宽松参考区间（±1 镜） */
 function shotCountEstimateFromDurationSec(sec) {
-  const s = Math.max(10, Math.min(600, Math.round(Number(sec) || 0)))
-  const clip = clipSecondsForStoryboardEstimate()
-  const ideal = s / clip
-  const locked = Math.max(1, Math.min(200, Math.round(ideal)))
-  const minR = Math.max(1, locked - 1)
-  const maxR = Math.min(200, locked + 1)
-  const range = minR >= maxR ? { min: locked, max: locked } : { min: minR, max: maxR }
-  return { locked, range, clip }
+  return resolveShotCountEstimate(sec, clipSecondsForStoryboardEstimate())
 }
 
-/** 由剧本字符数粗估成片总时长（短剧偏长镜）：秒数 = round(10 + (字数/600)×60)，夹在 10–600s */
-function estimateVideoDurationSecFromCharLen(charLen) {
-  const len = Math.max(0, Math.floor(Number(charLen) || 0))
-  if (len < 1) return null
-  const raw = Math.round(10 + (len / 600) * 60)
-  return Math.min(600, Math.max(10, raw))
-}
-
-/** 当前剧本下的估算：总秒数、镜数中枢、镜数区间、采用的每段秒数 */
-const scriptStoryboardEstimate = computed(() => {
-  const script = (scriptContent.value || '').toString().trim()
-  const len = script.length
-  if (!len) return null
-  const sec = estimateVideoDurationSecFromCharLen(len)
-  if (sec == null) return null
-  const { locked, range, clip } = shotCountEstimateFromDurationSec(sec)
-  return { sec, locked, range, clip, len }
-})
+const scriptStoryboardEstimate = computed(() => (
+  buildScriptStoryboardEstimate(scriptContent.value, clipSecondsForStoryboardEstimate())
+))
 
 const scriptEstimateVideoDurationHint = computed(() => {
   const e = scriptStoryboardEstimate.value
@@ -5789,43 +5596,6 @@ async function refreshProjectDependencies(episodeId, { includeProjectCapabilitie
 async function retryProjectDependencies() {
   if (projectLoadState.value !== 'ready') return
   await refreshProjectDependencies(currentEpisodeId.value, { includeProjectCapabilities: true })
-}
-
-function coreRequestError(status) {
-  const error = new Error('PROJECT_LOAD_FAILED')
-  error.status = Number(status) || 0
-  return error
-}
-
-async function requestCoreJson(path, { method = 'GET', body, fetchImpl = globalThis.fetch } = {}) {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 15000)
-  let response
-  try {
-    response = await fetchImpl(`/api/v1${path}`, {
-      method,
-      credentials: 'same-origin',
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    })
-  } catch (_) {
-    throw coreRequestError(0)
-  } finally {
-    clearTimeout(timeout)
-  }
-
-  let payload = null
-  try {
-    payload = response.status === 204 ? null : await response.json()
-  } catch (_) {
-    throw coreRequestError(response.status)
-  }
-  if (!response.ok || payload?.success === false) throw coreRequestError(response.status)
-  return payload?.data !== undefined ? payload.data : payload
 }
 
 const coreDramaAPI = projectLifecycle.guardApi({
@@ -8802,7 +8572,7 @@ async function pollTaskWithPause(taskId, onDone, meta = {}) {
 
       let task
       try {
-        task = await taskAPI.get(taskId, { suppressErrorToast: true })
+        task = await taskAPI.get(taskId, { suppressErrorToast: true, timeout: DEFAULT_POLL_TIMEOUT_MS })
       } catch (pollErr) {
         if (pipelineAbortRequested.value) throw createPipelineAbortError()
         console.warn('[pollTaskWithPause] poll attempt failed:', pollErr?.message)
@@ -9013,6 +8783,7 @@ async function startTextFrameworkPipeline() {
     pipelineOwnedTaskIds.clear()
     pipelineStepTotal.value = 4
     pipelineStarting.value = false
+    trackFilmCreateAction('text_framework_generate_start')
     await executeOwnedPipelineRun(() => runOneClickPipeline(true))
   } finally {
     pipelineStarting.value = false
@@ -10228,6 +9999,23 @@ html.light .page-title {
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
+}
+.header-add-episode {
+  flex-shrink: 0;
+}
+.film-episode-empty {
+  margin: 0 0 12px;
+}
+.film-episode-empty-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.film-episode-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 .header-episode-select {
   width: min(240px, 20vw);

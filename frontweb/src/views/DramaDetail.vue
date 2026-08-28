@@ -231,38 +231,43 @@
           <div v-if="episodeEmptyState.primaryDisabledReason" class="empty-state-note">{{ episodeEmptyState.primaryDisabledReason }}</div>
         </div>
         <div v-else class="episode-grid">
-          <div
+          <article
             v-for="ep in episodes"
             :key="ep.id"
             class="episode-card"
           >
-            <div class="episode-card-header">
+            <el-button
+              class="episode-card-delete"
+              size="small"
+              type="danger"
+              plain
+              circle
+              :icon="Delete"
+              :loading="deletingEpisodeId === ep.id"
+              :aria-label="`删除第 ${ep.episode_number ?? ep.number ?? '?'} 集`"
+              :title="`删除第 ${ep.episode_number ?? ep.number ?? '?'} 集`"
+              @click.stop="onDeleteEpisode(ep)"
+            />
+            <RouterLink
+              class="episode-card-main"
+              :to="{ path: `/film/${dramaId}`, query: withProjectListReturnTo({ episode: String(ep.id) }) }"
+              :aria-label="`进入${ep.title || `第 ${ep.episode_number ?? ep.number ?? '?'} 集`}制作`"
+            >
               <span class="episode-num">第 {{ ep.episode_number ?? ep.number ?? '?' }} 集</span>
-              <el-button
-                size="small"
-                type="danger"
-                plain
-                circle
-                :icon="Delete"
-                :loading="deletingEpisodeId === ep.id"
-                :aria-label="`删除第 ${ep.episode_number ?? ep.number ?? '?'} 集`"
-                :title="`删除第 ${ep.episode_number ?? ep.number ?? '?'} 集`"
-                @click.stop="onDeleteEpisode(ep)"
-              />
-            </div>
-            <div class="episode-title">{{ ep.title || '未命名' }}</div>
-            <div class="episode-preview">{{ (ep.script_content || '').slice(0, 20) || '暂无剧本' }}</div>
-            <div class="episode-stats">
-              <span class="ep-stat">
-                <span class="ep-stat-num">{{ ep.storyboards?.length ?? 0 }}</span> 分镜
+              <div class="episode-title">{{ ep.title || '未命名' }}</div>
+              <div class="episode-preview">{{ (ep.script_content || '').slice(0, 20) || '暂无剧本' }}</div>
+              <div class="episode-stats">
+                <span class="ep-stat">
+                  <span class="ep-stat-num">{{ ep.storyboards?.length ?? 0 }}</span> 分镜
+                </span>
+                <span v-if="ep.status" class="ep-stat ep-stat--status" :class="'ep-status--' + ep.status">{{ epStatusLabel(ep.status) }}</span>
+              </div>
+              <span class="episode-enter">
+                <el-icon class="episode-enter-icon"><VideoPlay /></el-icon>
+                进入制作
               </span>
-              <span v-if="ep.status" class="ep-stat ep-stat--status" :class="'ep-status--' + ep.status">{{ epStatusLabel(ep.status) }}</span>
-            </div>
-            <button type="button" class="episode-enter" :aria-label="`进入${ep.title || `第 ${ep.episode_number ?? ep.number ?? '?'} 集`}制作`" @click="goEpisode(ep.id)">
-              <el-icon class="episode-enter-icon"><VideoPlay /></el-icon>
-              进入制作
-            </button>
-          </div>
+            </RouterLink>
+          </article>
         </div>
       </section>
 
@@ -732,6 +737,7 @@ import { buildProjectReadiness } from '@/utils/projectReadiness'
 import { normalizeProjectListReturnTo, projectRouteInstanceKey, resolveProjectEpisodeId } from '@/utils/projectListRoute'
 import { scrollAndFocusSection } from '@/utils/sectionFocus.js'
 import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
+import { requestCoreJson as requestCoreDrama } from '@/utils/coreJsonRequest'
 
 const projectLifecycle = createProjectInstanceLifecycle()
 const ElMessage = projectLifecycle.guardNotifier(RawElMessage)
@@ -1317,43 +1323,6 @@ function assetImageUrl(item) {
 function formatDate(val) {
   if (!val) return ''
   return new Date(val).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
-}
-
-function coreDramaRequestError(status) {
-  const error = new Error('PROJECT_LOAD_FAILED')
-  error.status = Number(status) || 0
-  return error
-}
-
-async function requestCoreDrama(path, { method = 'GET', body, fetchImpl = globalThis.fetch } = {}) {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 15000)
-  let response
-  try {
-    response = await fetchImpl(`/api/v1${path}`, {
-      method,
-      credentials: 'same-origin',
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    })
-  } catch (_) {
-    throw coreDramaRequestError(0)
-  } finally {
-    clearTimeout(timeout)
-  }
-
-  let payload = null
-  try {
-    payload = response.status === 204 ? null : await response.json()
-  } catch (_) {
-    throw coreDramaRequestError(response.status)
-  }
-  if (!response.ok || payload?.success === false) throw coreDramaRequestError(response.status)
-  return payload?.data !== undefined ? payload.data : payload
 }
 
 const coreDramaAPI = projectLifecycle.guardApi({
@@ -2096,6 +2065,25 @@ html.light .dependency-status--error {
   position: relative;
   overflow: hidden;
 }
+.episode-card-delete {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+}
+.episode-card-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  padding-right: 36px;
+  color: inherit;
+  text-decoration: none;
+}
+.episode-card-main:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
 .episode-card::before {
   content: '';
   position: absolute;
@@ -2103,6 +2091,7 @@ html.light .dependency-status--error {
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.06), transparent 60%);
   opacity: 0;
   transition: opacity 0.25s;
+  pointer-events: none;
 }
 .episode-card:hover {
   border-color: rgba(139, 92, 246, 0.5);

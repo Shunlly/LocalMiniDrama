@@ -30,7 +30,7 @@ test('assets API normalizes list items before the views consume them', () => {
 })
 
 test('persistent media loaders suppress duplicate global errors while ordinary request failures still toast', () => {
-  assert.match(mediaLibrarySource, /mediaLibraryAPI\.list\(params, \{ suppressErrorToast: true \}\)/)
+  assert.match(mediaLibrarySource, /mediaLibraryAPI\.list\(params, \{ suppressErrorToast: true, signal: controller\.signal \}\)/)
   assert.match(pickerSource, /assetsAPI\.list\(params, \{[\s\S]*signal: controller\.signal,[\s\S]*suppressErrorToast: true,/)
   assert.match(requestSource, /if \(shouldShowRequestErrorToast\(error\)\) ElMessage\.error\(msg\)/)
   assert.equal(shouldShowRequestErrorToast({ config: {} }), true)
@@ -39,7 +39,7 @@ test('persistent media loaders suppress duplicate global errors while ordinary r
 })
 
 test('media library cards surface source project context for cross-project reuse', () => {
-  assert.match(mediaLibrarySource, /const res = await mediaLibraryAPI\.list\(params, \{ suppressErrorToast: true \}\)/)
+  assert.match(mediaLibrarySource, /mediaLibraryAPI\.list\(params, \{ suppressErrorToast: true, signal: controller\.signal \}\)/)
   assert.match(mediaLibrarySource, /class="media-origin">\{\{ item\.source_drama_title \|\| '全局上传/)
 })
 

@@ -14,6 +14,10 @@ const pipelinePanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
   'utf8',
 )
+const deliveryPanelSource = readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url),
+  'utf8',
+)
 
 test('film create navigation and resource disclosure controls use native buttons', () => {
   assert.match(filmCreateSource, /<button[\s\S]*?class="nav-toggle"[\s\S]*?:aria-expanded="!navCollapsed"/)
@@ -80,14 +84,15 @@ test('film create navigation names and reports the final delivery step accuratel
 })
 
 test('delivery stage consolidates composite readiness and user-facing export actions', () => {
-  assert.match(filmCreateSource, /<section id="anchor-video" class="section card delivery-section">/)
-  assert.match(filmCreateSource, /<h2 class="section-title">交付与导出<\/h2>/)
-  assert.match(filmCreateSource, /分镜视频[\s\S]*playableStoryboardVideoCount[\s\S]*整集合成[\s\S]*可交付文件/)
-  assert.match(filmCreateSource, /@click="downloadCurrentEpisodeVideo"/)
-  assert.match(filmCreateSource, /@click="downloadCurrentEpisodeSubtitle"/)
-  assert.match(filmCreateSource, /@click="exportCurrentProjectPackage"/)
+  assert.match(filmCreateSource, /<FilmCreateDeliveryPanel/)
+  assert.match(deliveryPanelSource, /<section id="anchor-video" class="section card delivery-section">/)
+  assert.match(deliveryPanelSource, /<h2 class="section-title">交付与导出<\/h2>/)
+  assert.match(deliveryPanelSource, /分镜视频[\s\S]*playableStoryboardVideoCount[\s\S]*整集合成[\s\S]*可交付文件/)
+  assert.match(filmCreateSource, /@download-video="downloadCurrentEpisodeVideo"/)
+  assert.match(filmCreateSource, /@download-subtitle="downloadCurrentEpisodeSubtitle"/)
+  assert.match(filmCreateSource, /@export-project="exportCurrentProjectPackage"/)
   assert.match(filmCreateSource, /const deliverySubtitleAvailable = computed\(\(\) => storyboards\.value\.some/)
-  assert.match(filmCreateSource, /:disabled="!currentEpisodeId \|\| !deliverySubtitleAvailable"/)
+  assert.match(deliveryPanelSource, /:disabled="!currentEpisodeId \|\| !deliverySubtitleAvailable"/)
   assert.match(filmCreateSource, /import \{ timelinesAPI as rawTimelinesAPI \} from '@\/api\/timelines'/)
   assert.match(filmCreateSource, /const timelinesAPI = projectLifecycle\.guardApi\(rawTimelinesAPI\)/)
 })
@@ -141,4 +146,13 @@ test('full pipeline is an accessible idle disclosure that opens for running work
   assert.match(compactSummary, /\{\{ focusKicker \}\}/)
   assert.match(compactSummary, /\{\{ focusTitle \}\}/)
   assert.match(compactSummary, /\{\{ focusNextStep \}\}/)
+})
+test('制作页空剧集提供可执行入口', () => {
+  assert.match(filmCreateSource, /const hasAnyEpisode = computed\(\(\) => \(store\.drama\?\.episodes \|\| \[\]\)\.length > 0\)/)
+  assert.match(filmCreateSource, /:has-episode="hasAnyEpisode"/)
+  assert.match(filmCreateSource, /@add-episode="onAddEpisode"/)
+  assert.match(filmCreateSource, /class="header-add-episode"/)
+  assert.match(filmCreateSource, /class="empty-tip film-episode-empty"/)
+  assert.match(filmCreateSource, /还没有剧集/)
+  assert.match(filmCreateSource, /返回剧集管理/)
 })

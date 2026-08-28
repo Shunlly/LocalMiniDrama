@@ -133,10 +133,27 @@ function log(level, msg, ...args) {
   }
 }
 
+function operation(event = {}) {
+  const phase = String(event.phase || 'info');
+  const record = sanitizeLogValue({
+    ...event,
+    event: 'operation',
+    operation: event.operation || 'unknown',
+    operationId: event.operationId || null,
+    phase,
+    status: event.status || phase,
+    durationMs: Number.isFinite(event.durationMs) ? event.durationMs : null,
+    error: event.error ? String(event.error) : null,
+  });
+  const level = phase === 'error' ? 'ERROR' : phase === 'cancel' ? 'WARN' : 'INFO';
+  log(level, 'operation', record);
+}
+
 module.exports = {
   sanitizeLogString,
   sanitizeLogValue,
   formatLogArgs,
+  operation,
   info(msg, ...args) {
     log('INFO', msg, ...args);
   },

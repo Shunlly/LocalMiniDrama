@@ -1536,7 +1536,16 @@ function retryWorkflowRun(db, log, runId, options = {}) {
 function cancelWorkflowRun(db, log, runId, reason = 'User cancelled workflow') {
   const run = getWorkflowRun(db, runId);
   if (!run) return null;
-  if (RUN_TERMINAL_STATUSES.has(run.status)) return getWorkflowRunDetail(db, runId);
+  if (RUN_TERMINAL_STATUSES.has(run.status)) {
+    log?.operation?.({
+      operation: 'workflow_cancel',
+      operationId: run.id,
+      phase: 'success',
+      status: 'already_terminal',
+      run_status: run.status,
+    });
+    return getWorkflowRunDetail(db, runId);
+  }
   const now = nowIso();
   db.prepare(
     `UPDATE workflow_steps
@@ -1545,6 +1554,12 @@ function cancelWorkflowRun(db, log, runId, reason = 'User cancelled workflow') {
   ).run(reason, now, now, run.id);
   setRunStatus(db, run.id, 'cancelled', { error: reason });
   log?.info?.('Workflow run cancelled', { run_id: run.id });
+  log?.operation?.({
+    operation: 'workflow_cancel',
+    operationId: run.id,
+    phase: 'cancel',
+    status: 'cancelled',
+  });
   return getWorkflowRunDetail(db, run.id);
 }
 

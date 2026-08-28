@@ -52,6 +52,8 @@ const FOCUSED_DESKTOP_VIEWPORT = Object.freeze({ width: 1280, height: 720 })
 const AI_TWO_COLUMN_VIEWPORT = Object.freeze({ width: 1024, height: 768 })
 const FILM_DESKTOP_EDGE_VIEWPORT = Object.freeze({ width: 769, height: 900 })
 const UI = Object.freeze({
+  readinessTitle: '\u9879\u76ee\u5c31\u7eea\u5ea6',
+  intakeStepper: '\u7d20\u6750\u5904\u7406\u6b65\u9aa4',
   workflowTitle: '\u6545\u4e8b\u7d20\u6750\u6d41\u7a0b',
   intakeStep: '\u5bfc\u5165\u7d20\u6750',
   draftMode: '\u8349\u7a3f\u9884\u6f14',
@@ -1385,6 +1387,9 @@ async function resetAcceptanceReportArtifacts(evidenceRoot) {
 }
 
 async function verifyProjectReadinessDisclosureUi(page) {
+  await page.getByText(UI.readinessTitle, { exact: true }).waitFor({ timeout: 30000 })
+  await page.getByText(UI.workflowTitle, { exact: true }).waitFor({ timeout: 30000 })
+  await page.getByRole('navigation', { name: UI.intakeStepper }).waitFor({ timeout: 30000 })
   const toggle = page.getByTestId('project-readiness-toggle')
   const details = page.getByTestId('project-readiness-details')
   await toggle.waitFor({ state: 'visible', timeout: 30000 })

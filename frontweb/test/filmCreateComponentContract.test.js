@@ -328,6 +328,7 @@ const pipelineEventListeners = {
   onCancel: (_value, events) => events.push(['cancel']),
   onSkipCountdown: (_value, events) => events.push(['skip-countdown']),
   onRetryReadiness: (_value, events) => events.push(['retry-readiness']),
+  onAddEpisode: (_value, events) => events.push(['add-episode']),
 }
 
 function mountPipeline(initialProps = {}) {
@@ -705,6 +706,24 @@ test('pipeline renders live progress, active tasks, countdown, and error details
     assert.match(textContent(alert), /Provider failed/)
     assert.equal(buttonByText(harness.root, '一键生成成片').props['data-loading'], true)
     assert.equal(buttonByText(harness.root, '仅生成文本框架').props['data-loading'], true)
+  } finally {
+    harness.app.unmount()
+  }
+})
+test('pipeline compact action can add the first episode', async () => {
+  const harness = mountPipeline({
+    productionDisabledReason: '请先创建或选择剧集',
+    draftDisabledReason: '请先创建或选择剧集',
+    hasEpisode: false,
+    productionReadinessState: 'missing',
+    productionReadinessServiceType: 'video',
+  })
+  try {
+    const [action] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-action')
+    assert.ok(action)
+    assert.match(textContent(action), /添加一集/)
+    action.props.onClick()
+    assert.deepEqual(harness.events, [['add-episode']])
   } finally {
     harness.app.unmount()
   }

@@ -1,8 +1,8 @@
 import request from '@/utils/request'
 
 export const dramaAPI = {
-  list(params) {
-    return request.get('/dramas', { params: params || {} })
+  list(params, options = {}) {
+    return request.get('/dramas', { params: params || {}, ...options })
   },
   create(data) {
     return request.post('/dramas', data)

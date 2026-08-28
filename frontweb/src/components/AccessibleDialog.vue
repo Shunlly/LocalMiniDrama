@@ -4,6 +4,7 @@
     class="accessible-dialog"
     v-bind="$attrs"
     :model-value="modelValue"
+    :close-on-click-modal="closeOnClickModal"
     append-to="body"
     :append-to-body="true"
     @update:model-value="handleModelValueUpdate"
@@ -31,6 +32,8 @@ defineOptions({
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
+  // 默认禁止点遮罩关闭，避免表单弹窗被非语义点击丢掉。
+  closeOnClickModal: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([

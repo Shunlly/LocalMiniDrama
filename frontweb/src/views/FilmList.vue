@@ -422,7 +422,7 @@
     >
       <el-form :model="newForm" label-width="80px" label-position="top">
         <el-form-item label="标题" required>
-          <el-input v-model="newForm.title" placeholder="输入项目标题" maxlength="100" show-word-limit />
+          <el-input v-model="newForm.title" autofocus aria-label="项目标题" placeholder="输入项目标题" maxlength="100" show-word-limit />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="newForm.description" type="textarea" :rows="3" placeholder="输入项目描述（选填）" />
@@ -683,7 +683,7 @@
     >
       <el-form :model="editForm" label-width="80px" label-position="top">
         <el-form-item label="标题" required>
-          <el-input v-model="editForm.title" placeholder="输入项目标题" maxlength="100" show-word-limit />
+          <el-input v-model="editForm.title" autofocus aria-label="项目标题" placeholder="输入项目标题" maxlength="100" show-word-limit />
         </el-form-item>
         <el-form-item label="故事">
           <el-input v-model="editForm.description" type="textarea" :rows="3" placeholder="输入故事梗概（选填）" />
@@ -716,6 +716,8 @@ import { imagesAPI } from '@/api/images'
 import { taskAPI } from '@/api/task'
 import { filterProjectList, getProjectCover } from '@/utils/projectList'
 import { mergeProjectListFilters, normalizeProjectListFilters, normalizeProjectListReturnTo } from '@/utils/projectListRoute'
+import { createOperationId, logOperation } from '@/utils/operationLog'
+import { describeServiceLoadError, isRequestCanceled, withRequestRetry } from '@/utils/requestError'
 
 const router = useRouter()
 const route = useRoute()
@@ -1121,29 +1123,50 @@ const editForm = ref({ id: null, title: '', description: '' })
 const editSaving = ref(false)
 
 function describeProjectLoadError(error) {
-  const backendMessage = error?.response?.data?.error?.message
-  if (backendMessage) return backendMessage
-  const status = Number(error?.response?.status)
-  if (Number.isInteger(status) && status > 0) return `项目服务暂时不可用（HTTP ${status}）`
-  if (error?.code === 'ECONNABORTED') return '连接项目服务超时，请稍后重试'
-  return '无法连接项目服务，请检查服务是否已启动'
+  return describeServiceLoadError(error, { serviceLabel: '项目服务' })
 }
+
+let listAbortController = null
 
 async function loadList(options = {}) {
   const requestedPage = Math.max(1, Number(options.page ?? projectPage.value) || 1)
   const requestedPageSize = Math.max(1, Number(options.pageSize ?? projectPageSize.value) || 24)
+  listAbortController?.abort()
+  const controller = new AbortController()
+  listAbortController = controller
   const requestId = ++listRequestSequence
+  const operationId = createOperationId('project_list_load')
   loading.value = true
   let loaded = false
+  logOperation({
+    operation: 'project_list_load',
+    operationId,
+    phase: 'start',
+    page: requestedPage,
+    pageSize: requestedPageSize,
+  })
+  const startedAt = Date.now()
   try {
-    const res = await dramaAPI.list({
-      page: requestedPage,
-      page_size: requestedPageSize,
-      keyword: normalizedProjectSearch.value || undefined,
-      status: projectStatusFilter.value !== 'all' ? projectStatusFilter.value : undefined,
-      sort: projectSort.value,
-    })
-    if (requestId !== listRequestSequence) return false
+    const res = await withRequestRetry(
+      () => dramaAPI.list({
+        page: requestedPage,
+        page_size: requestedPageSize,
+        keyword: normalizedProjectSearch.value || undefined,
+        status: projectStatusFilter.value !== 'all' ? projectStatusFilter.value : undefined,
+        sort: projectSort.value,
+      }, { signal: controller.signal }),
+      { maxAttempts: 2, delayMs: 400, signal: controller.signal },
+    )
+    if (requestId !== listRequestSequence) {
+      logOperation({
+        operation: 'project_list_load',
+        operationId,
+        phase: 'cancel',
+        status: 'stale',
+        durationMs: Date.now() - startedAt,
+      })
+      return false
+    }
     const pagination = res?.pagination ?? {}
     const nextTotal = Number(pagination.total ?? 0) || 0
     const nextPageSize = Number(pagination.page_size ?? requestedPageSize) || requestedPageSize
@@ -1161,13 +1184,33 @@ async function loadList(options = {}) {
     listError.value = ''
     loaded = true
   } catch (error) {
+    if (isRequestCanceled(error) || requestId !== listRequestSequence) {
+      return false
+    }
     if (requestId === listRequestSequence) {
       listError.value = describeProjectLoadError(error)
+      logOperation({
+        operation: 'project_list_load',
+        operationId,
+        phase: 'error',
+        durationMs: Date.now() - startedAt,
+        error: listError.value,
+      })
     }
   } finally {
     if (requestId === listRequestSequence) loading.value = false
   }
-  if (loaded) maybeOpenNewDialogFromRoute()
+  if (loaded) {
+    logOperation({
+      operation: 'project_list_load',
+      operationId,
+      phase: 'success',
+      durationMs: Date.now() - startedAt,
+      page: projectPage.value,
+      total: total.value,
+    })
+    maybeOpenNewDialogFromRoute()
+  }
   return loaded
 }
 
@@ -1620,6 +1663,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
   projectListMounted = false
   if (projectReloadTimer) clearTimeout(projectReloadTimer)
+  listAbortController?.abort()
 })
 </script>
 

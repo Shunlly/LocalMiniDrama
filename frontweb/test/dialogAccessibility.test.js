@@ -257,3 +257,33 @@ test('attribute snapshots are restored exactly after close and out-of-order clea
   assert.equal(app.getAttribute('aria-hidden'), 'false')
   assert.equal(app.inert, false)
 })
+
+test('弹窗初始焦点跳过关闭按钮，优先落在无名称输入框', () => {
+  const { findDialogFocusTarget } = requireAccessibility()
+  const document = new FakeDocument()
+  const { dialog } = createDialogLayer(document)
+  const closeButton = document.createElement('button', {
+    class: 'el-dialog__headerbtn',
+    'aria-label': '关闭此对话框',
+  })
+  const unnamedTitle = document.createElement('input')
+  const cancel = document.createElement('button', { textContent: '取消' })
+  dialog.append(closeButton, unnamedTitle, cancel)
+
+  assert.equal(findDialogFocusTarget(dialog), unnamedTitle)
+})
+
+test('具名输入框优先于脚部按钮', () => {
+  const { findDialogFocusTarget } = requireAccessibility()
+  const document = new FakeDocument()
+  const { dialog } = createDialogLayer(document)
+  const closeButton = document.createElement('button', {
+    class: 'el-dialog__headerbtn',
+    'aria-label': '关闭此对话框',
+  })
+  const labeled = document.createElement('input', { 'aria-label': '项目标题' })
+  const confirm = document.createElement('button', { textContent: '确定' })
+  dialog.append(closeButton, labeled, confirm)
+
+  assert.equal(findDialogFocusTarget(dialog), labeled)
+})

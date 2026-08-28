@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { taskAPI } from '@/api/task'
 import { imagesAPI } from '@/api/images'
 import { videosAPI } from '@/api/videos'
+import { logOperation } from '@/utils/operationLog'
 
 /** 资源类型常量 */
 export const GEN_RESOURCE = {
@@ -202,9 +203,24 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
     const reason = options.reason || USER_CANCEL_TASK_MSG
     const taskId = typeof meta === 'string' ? meta : meta?.taskId
     if (taskId) {
+      const startedAt = Date.now()
+      logOperation({
+        operation: 'generation_task_cancel',
+        operationId: String(taskId),
+        phase: 'start',
+        taskId,
+      })
       try {
         await taskAPI.cancel(taskId, { reason })
         stopPollingTask(taskId, reason, 'cancelled')
+        logOperation({
+          operation: 'generation_task_cancel',
+          operationId: String(taskId),
+          phase: 'cancel',
+          status: 'cancelled',
+          durationMs: Date.now() - startedAt,
+          taskId,
+        })
         return { status: 'cancelled' }
       } catch (e) {
         const code = e?.response?.data?.error?.code
@@ -219,10 +235,28 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
               showTimeoutToast: false,
             })
           }
+          logOperation({
+            operation: 'generation_task_cancel',
+            operationId: String(taskId),
+            phase: 'cancel',
+            status: 'cancelling',
+            durationMs: Date.now() - startedAt,
+            taskId,
+            error: message,
+            code,
+          })
           return { status: 'cancelling', code, error: message, details }
         }
         console.warn('[generationTaskStore] cancel API failed:', e?.message)
         stopPollingTask(taskId, e?.message || reason)
+        logOperation({
+          operation: 'generation_task_cancel',
+          operationId: String(taskId),
+          phase: 'error',
+          durationMs: Date.now() - startedAt,
+          taskId,
+          error: e?.message || reason,
+        })
         return { status: 'failed', error: e?.message || reason }
       }
     }

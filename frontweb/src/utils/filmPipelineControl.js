@@ -1,3 +1,5 @@
+import { createOperationId, logOperation } from './operationLog.js'
+
 export function createPipelineAbortError(message = '全流程已取消') {
   return Object.assign(new Error(message), { pipelineAborted: true })
 }
@@ -68,22 +70,46 @@ export async function cancelPipelineTasksAroundRun({
     }))
   }
 
-  await sweep()
-  let runError = null
-  if (runPromise) {
-    await Promise.resolve(runPromise).catch((error) => {
-      runError = error
-    })
-  }
-  await sweep()
+  const operationId = createOperationId('pipeline_task_cancel')
+  const startedAt = Date.now()
+  logOperation({ operation: 'pipeline_task_cancel', operationId, phase: 'start' })
+  try {
+    await sweep()
+    let runError = null
+    if (runPromise) {
+      await Promise.resolve(runPromise).catch((error) => {
+        runError = error
+      })
+    }
+    await sweep()
 
-  const failedTaskIds = [...getTaskIds()].filter((taskId) => !cancelledTaskIds.has(taskId))
-  return {
-    cancelledTaskIds: [...cancelledTaskIds],
-    complete: failedTaskIds.length === 0,
-    errors,
-    failedTaskIds,
-    runError,
+    const failedTaskIds = [...getTaskIds()].filter((taskId) => !cancelledTaskIds.has(taskId))
+    const result = {
+      cancelledTaskIds: [...cancelledTaskIds],
+      complete: failedTaskIds.length === 0,
+      errors,
+      failedTaskIds,
+      runError,
+    }
+    logOperation({
+      operation: 'pipeline_task_cancel',
+      operationId,
+      phase: result.complete ? 'success' : 'error',
+      status: result.complete ? 'cancelled' : 'partial',
+      durationMs: Date.now() - startedAt,
+      cancelledCount: result.cancelledTaskIds.length,
+      failedCount: result.failedTaskIds.length,
+    })
+    return result
+  } catch (error) {
+    logOperation({
+      operation: 'pipeline_task_cancel',
+      operationId,
+      phase: 'error',
+      durationMs: Date.now() - startedAt,
+      error: error?.message || String(error),
+    })
+    throw error
   }
 }
 

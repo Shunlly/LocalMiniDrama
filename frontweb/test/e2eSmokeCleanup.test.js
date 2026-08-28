@@ -368,3 +368,15 @@ test('hard purge output must explicitly verify zero residual rows', () => {
     true,
   )
 })
+
+test('production E2E 必须接上 smoke 的剧集页文案，避免烟测脚本游离', () => {
+  const productionSource = readFileSync(new URL('../scripts/e2e-production.cjs', import.meta.url), 'utf8')
+  assert.match(productionSource, /UI\.readinessTitle/)
+  assert.match(productionSource, /UI\.workflowTitle/)
+  assert.match(productionSource, /UI\.intakeStepper/)
+  assert.match(productionSource, /UI\.startDraft/)
+  assert.match(scriptSource, /getByText\('项目就绪度'\)/)
+  assert.match(scriptSource, /getByText\('故事素材流程'\)/)
+  assert.match(scriptSource, /getByRole\('navigation', \{ name: '素材处理步骤' \}\)/)
+  assert.match(scriptSource, /getByRole\('button', \{ name: '以 草稿预演 启动', exact: true \}\)/)
+})

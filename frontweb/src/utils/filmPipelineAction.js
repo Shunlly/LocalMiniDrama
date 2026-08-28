@@ -4,6 +4,10 @@ export function getPipelineCompactAction(state = {}) {
     return { key: 'resume', label: '继续生成', event: 'resume' }
   }
 
+  if (state.hasEpisode === false) {
+    return { key: 'add-episode', label: '添加一集', event: 'add-episode' }
+  }
+
   if (state.draftReason || state.readinessState === 'checking') return null
 
   if (state.readinessState === 'missing') {

@@ -478,6 +478,7 @@ import {
 import { mediaLibraryAPI, importNetworkAssetAndConfirm } from '@/api/mediaLibrary.js'
 import { uploadAPI } from '@/api/upload'
 import request from '@/utils/request'
+import { describeServiceLoadError, isRequestCanceled, withRequestRetry } from '@/utils/requestError'
 import { normalizeMediaLibraryReturnTo } from '@/router'
 import {
   createLatestMediaRequestGuard,
@@ -676,15 +677,15 @@ function clearFilters() {
 }
 
 function describeMediaLoadError(error) {
-  const backendMessage = error?.response?.data?.error?.message
-  if (backendMessage) return backendMessage
-  const status = Number(error?.response?.status)
-  if (Number.isInteger(status) && status > 0) return `素材服务暂时不可用（HTTP ${status}）`
-  if (error?.code === 'ECONNABORTED') return '连接素材服务超时，请稍后重试'
-  return '无法连接素材服务，请检查服务是否已启动'
+  return describeServiceLoadError(error, { serviceLabel: '素材服务' })
 }
 
+let mediaListAbortController = null
+
 async function loadMedia() {
+  mediaListAbortController?.abort()
+  const controller = new AbortController()
+  mediaListAbortController = controller
   const requestId = mediaRequestGuard.begin()
   loading.value = true
   try {
@@ -694,7 +695,10 @@ async function loadMedia() {
     }
     if (mediaType.value !== 'all') params.type = mediaType.value
     if (keyword.value.trim()) params.keyword = keyword.value.trim()
-    const res = await mediaLibraryAPI.list(params, { suppressErrorToast: true })
+    const res = await withRequestRetry(
+      () => mediaLibraryAPI.list(params, { suppressErrorToast: true, signal: controller.signal }),
+      { maxAttempts: 2, delayMs: 400, signal: controller.signal },
+    )
     const applied = mediaRequestGuard.commit(requestId, () => {
       const nextItems = (res?.items || []).map(normalizeItem)
       const visibleSelectedIds = getVisibleSelectedMediaIds(selectedIds, nextItems)
@@ -707,6 +711,9 @@ async function loadMedia() {
     })
     return { status: applied ? 'applied' : 'stale', data: applied ? [...mediaItems.value] : null }
   } catch (err) {
+    if (isRequestCanceled(err)) {
+      return { status: 'stale', error: err }
+    }
     const applied = mediaRequestGuard.commit(requestId, () => {
       loadError.value = describeMediaLoadError(err)
     })
@@ -1001,6 +1008,7 @@ onBeforeUnmount(() => {
   mediaLibraryMounted = false
   clearTimeout(keywordTimer)
   invalidateNetworkSearch()
+  mediaListAbortController?.abort()
   window.removeEventListener('beforeunload', handleBeforeUnload)
 })
 </script>
