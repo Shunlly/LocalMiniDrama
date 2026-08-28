@@ -43,6 +43,7 @@
           v-model="search"
           placeholder="搜索风格名称..."
           clearable
+          aria-label="搜索风格名称"
           style="width: 240px"
         >
           <template #prefix><el-icon><Search /></el-icon></template>

@@ -5,6 +5,8 @@
         type="file"
         accept="image/jpeg,image/png,image/gif,image/webp"
         style="display: none"
+        tabindex="-1"
+        aria-hidden="true"
         @change="onSbImageFileChange"
       />
       <!-- 分镜生成 -->
@@ -413,6 +415,7 @@
                   v-model="sbNarration[sb.id]"
                   type="textarea"
                   :rows="2"
+                  :aria-label="`分镜${sb.storyboard_number || i + 1}解说旁白`"
                   placeholder="本镜解说文案（画外音 / 纪录片式旁白，可生成配音或导出字幕）"
                   class="sb-narration-input"
                   @blur="() => onSaveSbNarrationField(sb)"
@@ -494,6 +497,7 @@
                   v-if="!generatingUniversalSegmentIds.has(sb.id)"
                   v-model="sbUniversalSegmentText[sb.id]"
                   :slots="getSbUniversalOmniRefSlots(sb)"
+                  :aria-label="`分镜${sb.storyboard_number || i + 1}全能片段描述`"
                   class="sb-universal-textarea"
                   @blur="() => onSaveUniversalSegmentField(sb)"
                 />
@@ -503,6 +507,7 @@
                   type="textarea"
                   :rows="10"
                   :autosize="{ minRows: 10, maxRows: 22 }"
+                  :aria-label="`分镜${sb.storyboard_number || i + 1}全能片段描述`"
                   placeholder="例如：@图片1 为夜景街道，@图片2 从餐厅冲出停在光斑里，低头操作手机…"
                   class="sb-universal-textarea"
                   @blur="() => onSaveUniversalSegmentField(sb)"

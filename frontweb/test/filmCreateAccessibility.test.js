@@ -58,7 +58,6 @@ const resourceDialogsSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateResourceDialogs.vue', import.meta.url),
   'utf8',
 )
-const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource + '\n' + scriptWorkbenchSource + '\n' + resourcePanelSource + '\n' + storyboardPanelSource
 
 test('film create navigation and resource disclosure controls use native buttons', () => {
   assert.match(filmCreateSource, /<button[\s\S]*?class="nav-toggle"[\s\S]*?:aria-expanded="!navCollapsed"/)
@@ -158,7 +157,8 @@ test('script and character library empty states provide direct actions', () => {
 })
 
 test('every FilmCreate ActionGate identifies its button action', () => {
-  const actionGates = filmCreateUiSource.match(/<ActionGate\b[^>]*>/g) || []
+  const actionGates = [filmCreateSource, deliveryPanelSource, scriptWorkbenchSource, resourcePanelSource, storyboardPanelSource]
+    .flatMap((source) => source.match(/<ActionGate\b[^>]*>/g) || [])
   assert.ok(actionGates.length >= 13)
   for (const gate of actionGates) {
     assert.match(gate, /(?:^|\s):?label=/)
@@ -178,7 +178,7 @@ test('full pipeline is an accessible idle disclosure that opens for running work
   assert.match(pipelinePanelSource, /aria-controls="film-pipeline-details"/)
   assert.match(pipelinePanelSource, /id="film-pipeline-details"/)
   assert.match(pipelinePanelSource, /v-show="expanded"/)
-  assert.match(pipelinePanelSource, /forceExpanded:\s*computed\(\(\) => props\.running\)/)
+  assert.match(pipelinePanelSource, /forceExpanded:\s*computed\(\(\) => props\.running \|\| props\.errorLog\.length > 0\)/)
   assert.match(pipelinePanelSource, /\.pipeline-toggle:focus-visible\s*\{/)
   assert.match(pipelinePanelSource, /<h2 id="pipeline-title" class="pipeline-title">全流程生成<\/h2>/)
   assert.equal(pipelinePanelSource.match(/>全流程生成<\//g)?.length, 1)

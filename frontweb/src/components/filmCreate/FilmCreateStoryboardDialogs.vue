@@ -101,6 +101,7 @@
         <el-form-item label="创作模式">
           <el-radio-group
             :model-value="sbCreationMode[videoParamsTarget.id] === 'universal' ? 'universal' : 'classic'"
+            :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}创作模式`"
             size="small"
             @change="(v) => setSbCreationModeId(videoParamsTarget.id, v)"
           >
@@ -179,17 +180,17 @@
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="标题">
-              <el-input v-model="sbTitle[videoParamsTarget.id]" placeholder="镜头标题" />
+              <el-input v-model="sbTitle[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}标题`" placeholder="镜头标题" />
             </el-form-item>
           </el-col>
           <el-col :span="6">
             <el-form-item label="地点">
-              <el-input v-model="sbLocation[videoParamsTarget.id]" placeholder="场景地点" />
+              <el-input v-model="sbLocation[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}地点`" placeholder="场景地点" />
             </el-form-item>
           </el-col>
           <el-col :span="6">
             <el-form-item label="时间">
-              <el-input v-model="sbTime[videoParamsTarget.id]" placeholder="清晨/午后" />
+              <el-input v-model="sbTime[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}时间`" placeholder="清晨/午后" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -243,7 +244,7 @@
           </el-col>
           <el-col :span="6">
             <el-form-item label="氛围">
-              <el-input v-model="sbAtmosphere[videoParamsTarget.id]" placeholder="氛围/情绪" />
+              <el-input v-model="sbAtmosphere[videoParamsTarget.id]" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}氛围`" placeholder="氛围/情绪" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -316,6 +317,7 @@
               v-model="sbLayoutDescription[videoParamsTarget.id]"
               type="textarea"
               :rows="3"
+              :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}空间布局锚点`"
               placeholder="例如：女主站画面左三分之一正对镜头，男主站右后侧侧身看向女主，中景，双人构图，平衡稳定"
               style="flex:1"
             />
@@ -334,13 +336,13 @@
         </el-form-item>
 
         <el-form-item label="动作">
-          <el-input v-model="sbAction[videoParamsTarget.id]" type="textarea" :rows="2" placeholder="动作描述" />
+          <el-input v-model="sbAction[videoParamsTarget.id]" type="textarea" :rows="2" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}动作`" placeholder="动作描述" />
         </el-form-item>
         <el-form-item label="对白">
-          <el-input v-model="sbDialogue[videoParamsTarget.id]" type="textarea" :rows="2" placeholder="角色对白" />
+          <el-input v-model="sbDialogue[videoParamsTarget.id]" type="textarea" :rows="2" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}对白`" placeholder="角色对白" />
         </el-form-item>
         <el-form-item label="解说旁白">
-          <el-input v-model="sbNarration[videoParamsTarget.id]" type="textarea" :rows="2" class="sb-narration-input" placeholder="画外解说 / 纪录片式旁白（与对白分开）" />
+          <el-input v-model="sbNarration[videoParamsTarget.id]" type="textarea" :rows="2" class="sb-narration-input" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}解说旁白`" placeholder="画外解说 / 纪录片式旁白（与对白分开）" />
         </el-form-item>
         <el-form-item v-if="canSplitSbByAudio(videoParamsTarget)" label="多角色对白">
           <div class="sb-split-audio-row">
@@ -358,7 +360,7 @@
           </div>
         </el-form-item>
         <el-form-item label="画面结果">
-          <el-input v-model="sbResult[videoParamsTarget.id]" type="textarea" :rows="2" placeholder="动作完成后的画面结果" />
+          <el-input v-model="sbResult[videoParamsTarget.id]" type="textarea" :rows="2" :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}画面结果`" placeholder="动作完成后的画面结果" />
         </el-form-item>
         <el-form-item label="视频提示词">
           <div class="vp-video-prompt-hint">保存后将根据上方字段，由系统按最新规则自动生成（含角色音色锚点）。</div>
@@ -368,6 +370,7 @@
             type="textarea"
             :rows="3"
             readonly
+            :aria-label="`分镜${videoParamsTarget.storyboard_number || videoParamsTarget.id}视频提示词`"
             style="color:#6b7280;margin-top:8px"
           />
         </el-form-item>

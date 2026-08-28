@@ -694,3 +694,14 @@ html.dark .el-message--error {
 html.light .el-message--error {
   box-shadow: 0 4px 20px rgba(245, 108, 108, 0.18);
 }
+
+/* 自定义按钮与键盘可达控件保持可见焦点环 */
+button:focus-visible,
+[role="button"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[role="tab"]:focus-visible,
+[role="option"]:focus-visible,
+[contenteditable="true"]:focus-visible {
+  outline: 2px solid var(--el-color-primary, #818cf8);
+  outline-offset: 2px;
+}

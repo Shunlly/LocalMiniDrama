@@ -153,7 +153,7 @@
             <el-form label-position="top" class="intake-form">
               <div class="form-row">
                 <el-form-item label="素材类型">
-                  <el-select v-model="form.source_type" placeholder="自动识别" clearable>
+                  <el-select v-model="form.source_type" aria-label="素材类型" placeholder="自动识别" clearable>
                     <el-option
                       v-for="item in sourceTypeOptions"
                       :key="item.value"
@@ -163,12 +163,12 @@
                   </el-select>
                 </el-form-item>
                 <el-form-item label="目标集数">
-                  <el-input-number v-model="form.target_episode_count" :min="1" :max="100" controls-position="right" />
+                  <el-input-number v-model="form.target_episode_count" aria-label="目标集数" :min="1" :max="100" controls-position="right" />
                 </el-form-item>
               </div>
 
               <el-form-item label="标题">
-                <el-input v-model="form.title" placeholder="故事素材标题" />
+                <el-input v-model="form.title" aria-label="故事素材标题" placeholder="故事素材标题" />
               </el-form-item>
 
               <el-form-item label="网页 URL" :error="sourceUrlValidationMessage">
@@ -176,6 +176,7 @@
                   ref="sourceUrlInput"
                   v-model="form.source_url"
                   clearable
+                  aria-label="网页 URL"
                   placeholder="粘贴公开网页或纯文本链接，系统会抽取正文作为素材"
                 />
                 <div class="field-help">仅导入公开可访问的文本 / HTML 页面，请确认素材版权或授权。</div>
@@ -188,6 +189,8 @@
                     type="file"
                     :accept="SOURCE_FILE_ACCEPT"
                     class="hidden-file-input"
+                    tabindex="-1"
+                    aria-hidden="true"
                     @change="handleSourceFile"
                   />
                   <el-button size="small" :loading="sourceFileReading" :disabled="sourceUploadBusy" @click="sourceFileInput?.click()">选择文件</el-button>
@@ -228,6 +231,7 @@
                   v-model="form.text"
                   type="textarea"
                   :rows="8"
+                  aria-label="原始素材"
                   placeholder="粘贴小说、梗概、剧本、分镜表、漫画文字说明或转写文本"
                 />
               </el-form-item>
@@ -347,28 +351,28 @@
                 </div>
               </details>
 
-              <div v-if="runState.failedStep" class="run-error">
+              <div v-if="runState.failedStep && displayedRunError" class="run-error">
                 {{ displayedRunError }}
               </div>
 
               <div class="action-row compact">
-                <ActionGate label="重试失败步骤" :reason="actionReasons.retry">
-                  <el-button size="small" :disabled="Boolean(actionReasons.retry) || workflowActionBusy" :loading="retrying" @click="retryRun">
+                <ActionGate label="重试失败步骤" :reason="controlActionReasons.retry">
+                  <el-button size="small" :disabled="Boolean(controlActionReasons.retry)" :loading="retrying" @click="retryRun">
                     {{ retrying ? '正在提交重试' : '重试失败步骤' }}
                   </el-button>
                 </ActionGate>
-                <ActionGate label="暂停处理" :reason="actionReasons.pause">
-                  <el-button size="small" :disabled="Boolean(actionReasons.pause) || workflowActionBusy" :loading="pausing" @click="pauseRun">
+                <ActionGate label="暂停处理" :reason="controlActionReasons.pause">
+                  <el-button size="small" :disabled="Boolean(controlActionReasons.pause)" :loading="pausing" @click="pauseRun">
                     {{ pausing ? '正在暂停' : '暂停' }}
                   </el-button>
                 </ActionGate>
-                <ActionGate label="恢复处理" :reason="actionReasons.resume">
-                  <el-button size="small" type="primary" plain :disabled="Boolean(actionReasons.resume) || workflowActionBusy" :loading="resuming" @click="resumeRun">
+                <ActionGate label="恢复处理" :reason="controlActionReasons.resume">
+                  <el-button size="small" type="primary" plain :disabled="Boolean(controlActionReasons.resume)" :loading="resuming" @click="resumeRun">
                     {{ resuming ? '正在恢复' : '恢复' }}
                   </el-button>
                 </ActionGate>
-                <ActionGate label="取消处理" :reason="actionReasons.cancel">
-                  <el-button size="small" type="danger" plain :disabled="Boolean(actionReasons.cancel) || workflowActionBusy" :loading="cancelling" @click="cancelRun">
+                <ActionGate label="取消处理" :reason="controlActionReasons.cancel">
+                  <el-button size="small" type="danger" plain :disabled="Boolean(controlActionReasons.cancel)" :loading="cancelling" @click="cancelRun">
                     {{ cancelling ? '正在取消' : '取消' }}
                   </el-button>
                 </ActionGate>
@@ -581,6 +585,7 @@ import {
   extractCreatedStorySource,
   runGatedQaRemediation,
   selectQaReportForRun,
+  shouldIgnoreSourceWorkflowPollError,
 } from '@/utils/sourceImportOutcome'
 import {
   normalizeWorkflowRun,
@@ -590,11 +595,15 @@ import {
 } from '@/utils/workflowRunStatus'
 import { buildQaPresentation, normalizeQaReport, qaCheckLabel } from '@/utils/qaReport'
 import { formatDuration, normalizeTimelineSummary, timelineTrackTypeLabel } from '@/utils/timelineSummary'
+import { describeServiceLoadError } from '@/utils/requestError'
 import {
   SOURCE_AUTO_EXTRACTION_UNSUPPORTED_MESSAGE,
+  SOURCE_WORKFLOW_CANCEL_REASON,
+  SOURCE_WORKFLOW_PAUSE_REASON,
   buildSourceWorkflowState,
   getNewWorkflowRunReason,
   getSourceWorkflowActionReasons,
+  getSourceWorkflowBusyReason,
   isDeferredAutoExtractionSource,
   localizeSourceIntakeFailure,
   resolveInspectedWorkflowStep,
@@ -782,13 +791,22 @@ const actionReasons = computed(() => {
   }
   return reasons
 })
+const workflowBusyReason = computed(() => getSourceWorkflowBusyReason({
+  retrying: retrying.value,
+  pausing: pausing.value,
+  resuming: resuming.value,
+  cancelling: cancelling.value,
+}))
+const controlActionReasons = computed(() => ({
+  retry: actionReasons.value.retry || workflowBusyReason.value,
+  pause: actionReasons.value.pause || workflowBusyReason.value,
+  resume: actionReasons.value.resume || workflowBusyReason.value,
+  cancel: actionReasons.value.cancel || workflowBusyReason.value,
+}))
 const canRestartFromLatestSource = computed(() => (
   sources.value.length > 0
   && Boolean(selectedRun.value)
-  && (
-    runState.value.status === 'cancelled'
-    || (runState.value.status === 'failed' && Boolean(actionReasons.value.retry))
-  )
+  && (runState.value.status === 'cancelled' || runState.value.status === 'failed')
 ))
 const flowState = computed(() => buildSourceWorkflowState({
   sourceCount: sources.value.length,
@@ -937,15 +955,15 @@ watch(
 )
 const runTagType = computed(() => {
   if (runState.value.productionPlaceholder) return 'danger'
-  if (selectedRun.value?.status === 'completed') return 'success'
-  if (selectedRun.value?.status === 'failed') return 'danger'
-  if (selectedRun.value?.status === 'cancelled') return 'info'
-  if (selectedRun.value?.status === 'paused') return 'info'
+  if (runState.value.status === 'completed') return 'success'
+  if (runState.value.status === 'failed') return 'danger'
+  if (runState.value.status === 'cancelled') return 'info'
+  if (runState.value.status === 'paused') return 'info'
   return 'warning'
 })
 const runProgressStatus = computed(() => {
-  if (selectedRun.value?.status === 'completed') return 'success'
-  if (selectedRun.value?.status === 'failed') return 'exception'
+  if (runState.value.status === 'completed') return 'success'
+  if (runState.value.status === 'failed') return 'exception'
   return undefined
 })
 const pollStatusMessage = computed(() => {
@@ -1142,10 +1160,13 @@ async function refreshSelectedRun() {
       emitRefresh()
     }
   } catch (error) {
-    if (!sourceWorkflowLifecycle.isActive()) return
+    if (shouldIgnoreSourceWorkflowPollError(error, sourceWorkflowLifecycle)) return
     stopPoll()
     pollState.value = 'error'
-    pollError.value = error?.message || '处理状态刷新失败，自动轮询已暂停。'
+    pollError.value = describeServiceLoadError(error, {
+      serviceLabel: '处理状态',
+      fallback: '处理状态刷新失败，自动轮询已暂停。',
+    })
   }
 }
 
@@ -1166,9 +1187,12 @@ async function resumePolling() {
     if (!sourceWorkflowLifecycle.isActive()) return
     emitRefresh()
   } catch (error) {
-    if (!sourceWorkflowLifecycle.isActive()) return
+    if (shouldIgnoreSourceWorkflowPollError(error, sourceWorkflowLifecycle)) return
     pollState.value = 'error'
-    pollError.value = error?.message || '恢复轮询失败，请重试。'
+    pollError.value = describeServiceLoadError(error, {
+      serviceLabel: '处理状态',
+      fallback: '恢复轮询失败，请重试。',
+    })
   }
 }
 
@@ -1244,7 +1268,13 @@ async function loadData() {
   try {
     return await refreshWorkflowSnapshot()
   } catch (e) {
-    workflowDataError.value = e.message || '加载素材流程状态失败，请稍后重试。'
+    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle)) {
+      return { status: 'ignored', error: e }
+    }
+    workflowDataError.value = describeServiceLoadError(e, {
+      serviceLabel: '素材流程',
+      fallback: '加载素材流程状态失败，请稍后重试。',
+    })
     return { status: 'failed', error: e }
   } finally {
     activeLoadCount -= 1
@@ -1466,7 +1496,7 @@ async function startExistingSource(source) {
 }
 
 async function retryRun() {
-  if (!selectedRun.value?.id || workflowActionBusy.value || actionReasons.value.retry) return
+  if (!selectedRun.value?.id || workflowActionBusy.value || controlActionReasons.value.retry) return
   retrying.value = true
   try {
     const nextRun = await workflowRunsAPI.retry(selectedRun.value.id)
@@ -1486,52 +1516,52 @@ async function retryRun() {
     emitRefresh()
     startPoll()
   } catch (e) {
-    if (!sourceWorkflowLifecycle.isActive()) return
+    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle)) return
     captureProductionReadinessError(e)
-    showWorkflowMessage('error', e.message || '重试失败')
+    showWorkflowMessage('error', describeServiceLoadError(e, { serviceLabel: '处理流程', fallback: '重试失败' }))
   } finally {
     retrying.value = false
   }
 }
 
 async function cancelRun() {
-  if (!selectedRun.value?.id || workflowActionBusy.value) return
+  if (!selectedRun.value?.id || workflowActionBusy.value || controlActionReasons.value.cancel) return
   cancelling.value = true
   try {
-    const nextRun = await workflowRunsAPI.cancel(selectedRun.value.id, 'User cancelled from Source Intake panel')
+    const nextRun = await workflowRunsAPI.cancel(selectedRun.value.id, SOURCE_WORKFLOW_CANCEL_REASON)
     if (!sourceWorkflowLifecycle.isActive()) return
     selectedRun.value = nextRun
     showWorkflowMessage('success', '已取消')
     stopPoll()
     emitRefresh()
   } catch (e) {
-    if (!sourceWorkflowLifecycle.isActive()) return
-    showWorkflowMessage('error', e.message || '取消失败')
+    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle)) return
+    showWorkflowMessage('error', describeServiceLoadError(e, { serviceLabel: '处理流程', fallback: '取消失败' }))
   } finally {
     cancelling.value = false
   }
 }
 
 async function pauseRun() {
-  if (!selectedRun.value?.id || workflowActionBusy.value) return
+  if (!selectedRun.value?.id || workflowActionBusy.value || controlActionReasons.value.pause) return
   pausing.value = true
   try {
-    const nextRun = await workflowRunsAPI.pause(selectedRun.value.id, 'User paused from Source Intake panel')
+    const nextRun = await workflowRunsAPI.pause(selectedRun.value.id, SOURCE_WORKFLOW_PAUSE_REASON)
     if (!sourceWorkflowLifecycle.isActive()) return
     selectedRun.value = nextRun
     showWorkflowMessage('success', '已暂停')
     stopPoll()
     emitRefresh()
   } catch (e) {
-    if (!sourceWorkflowLifecycle.isActive()) return
-    showWorkflowMessage('error', e.message || '暂停失败')
+    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle)) return
+    showWorkflowMessage('error', describeServiceLoadError(e, { serviceLabel: '处理流程', fallback: '暂停失败' }))
   } finally {
     pausing.value = false
   }
 }
 
 async function resumeRun() {
-  if (!selectedRun.value?.id || workflowActionBusy.value) return
+  if (!selectedRun.value?.id || workflowActionBusy.value || controlActionReasons.value.resume) return
   resuming.value = true
   try {
     const nextRun = await workflowRunsAPI.resume(selectedRun.value.id)
@@ -1541,9 +1571,9 @@ async function resumeRun() {
     emitRefresh()
     startPoll()
   } catch (e) {
-    if (!sourceWorkflowLifecycle.isActive()) return
+    if (shouldIgnoreSourceWorkflowPollError(e, sourceWorkflowLifecycle)) return
     captureProductionReadinessError(e)
-    showWorkflowMessage('error', e.message || '恢复失败')
+    showWorkflowMessage('error', describeServiceLoadError(e, { serviceLabel: '处理流程', fallback: '恢复失败' }))
   } finally {
     resuming.value = false
   }

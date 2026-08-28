@@ -74,6 +74,7 @@ const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
 const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
 const aiConfigSource = read('../src/views/AiConfig.vue')
+const backupSource = read('../src/views/Backup.vue')
 const accessibleDialogSource = read('../src/components/AccessibleDialog.vue')
 
 const targetSources = [
@@ -82,6 +83,7 @@ const targetSources = [
   { name: '../src/views/MediaLibrary.vue', source: mediaLibrarySource },
   { name: '../src/views/DramaCanvas.vue', source: dramaCanvasSource },
   { name: '../src/views/AiConfig.vue', source: aiConfigSource },
+  { name: '../src/views/Backup.vue', source: backupSource },
 ]
 
 test('列表、剧集、素材、画布和配置页的 Plus 与图标按钮都有可访问名称', () => {

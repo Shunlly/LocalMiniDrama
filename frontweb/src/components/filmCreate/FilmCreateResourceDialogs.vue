@@ -16,16 +16,16 @@
           </div>
         </el-form-item>
         <el-form-item label="名称" required>
-          <el-input v-model="addPropForm.name" placeholder="道具名称" />
+          <el-input v-model="addPropForm.name" aria-label="道具名称" placeholder="道具名称" />
         </el-form-item>
         <el-form-item label="类型">
-          <el-input v-model="addPropForm.type" placeholder="如：道具、建筑" />
+          <el-input v-model="addPropForm.type" aria-label="道具类型" placeholder="如：道具、建筑" />
         </el-form-item>
         <el-form-item label="描述">
-          <el-input v-model="addPropForm.description" type="textarea" :rows="3" placeholder="描述" />
+          <el-input v-model="addPropForm.description" type="textarea" :rows="3" aria-label="道具描述" placeholder="描述" />
         </el-form-item>
         <el-form-item label="图生提示词">
-          <el-input v-model="addPropForm.prompt" type="textarea" :rows="2" placeholder="用于 AI 生成图片的提示词" />
+          <el-input v-model="addPropForm.prompt" type="textarea" :rows="2" aria-label="道具图生提示词" placeholder="用于 AI 生成图片的提示词" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -35,10 +35,10 @@
     </AccessibleDialog>
 
     <!-- 隐藏的文件输入框（放在弹窗外层，避免 el-form-item 干扰） -->
-    <input ref="addCharRefFileInput" type="file" accept="image/*" style="display:none" @change="onRefImageFileChange('character', $event)" />
-    <input ref="addSceneRefFileInput" type="file" accept="image/*" style="display:none" @change="onRefImageFileChange('scene', $event)" />
-    <input ref="addPropRefFileInput" type="file" accept="image/*" style="display:none" @change="onRefImageFileChange('prop', $event)" />
-    <input ref="addPropAddRefFileInput" type="file" accept="image/*" style="display:none" @change="onRefImageFileChange2('addProp', $event)" />
+    <input ref="addCharRefFileInput" type="file" accept="image/*" style="display:none" tabindex="-1" aria-hidden="true" @change="onRefImageFileChange('character', $event)" />
+    <input ref="addSceneRefFileInput" type="file" accept="image/*" style="display:none" tabindex="-1" aria-hidden="true" @change="onRefImageFileChange('scene', $event)" />
+    <input ref="addPropRefFileInput" type="file" accept="image/*" style="display:none" tabindex="-1" aria-hidden="true" @change="onRefImageFileChange('prop', $event)" />
+    <input ref="addPropAddRefFileInput" type="file" accept="image/*" style="display:none" tabindex="-1" aria-hidden="true" @change="onRefImageFileChange2('addProp', $event)" />
 
     <!-- 添加/编辑角色弹窗 -->
     <AccessibleDialog v-model="showEditCharacter" :title="editCharacterForm?.id ? '编辑角色' : '添加角色'" width="75%" @close="onCloseCharDialog">
@@ -75,7 +75,7 @@
           </div>
         </el-form-item>
         <el-form-item label="名称" required>
-          <el-input v-model="editCharacterForm.name" placeholder="角色名称" />
+          <el-input v-model="editCharacterForm.name" aria-label="角色名称" placeholder="角色名称" />
         </el-form-item>
         <el-form-item label="身份/定位">
           <el-select v-model="editCharacterForm.role" :aria-label="`角色${editCharacterForm.name || '未命名角色'}身份定位`" placeholder="请选择角色类型" style="width:200px">
@@ -85,10 +85,10 @@
           </el-select>
         </el-form-item>
         <el-form-item label="外貌描述">
-          <el-input v-model="editCharacterForm.appearance" type="textarea" :autosize="{ minRows: 4, maxRows: 10 }" placeholder="用于 AI 生成图像的外貌描述，尽量详细" />
+          <el-input v-model="editCharacterForm.appearance" type="textarea" :autosize="{ minRows: 4, maxRows: 10 }" aria-label="角色外貌描述" placeholder="用于 AI 生成图像的外貌描述，尽量详细" />
         </el-form-item>
         <el-form-item label="简介">
-          <el-input v-model="editCharacterForm.description" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="角色背景简介，供剧本生成参考" />
+          <el-input v-model="editCharacterForm.description" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" aria-label="角色简介" placeholder="角色背景简介，供剧本生成参考" />
         </el-form-item>
         <el-form-item v-if="editCharacterForm.id">
           <template #label>
@@ -107,6 +107,7 @@
               v-model="editCharacterForm.polished_prompt"
               type="textarea"
               :autosize="{ minRows: 5, maxRows: 16 }"
+              aria-label="角色图生提示词"
               :placeholder="editCharacterPromptGenerating ? 'AI 正在生成提示词，请稍候…' : '点击「重新生成提示词」由 AI 自动生成，或直接在此输入'"
               :disabled="editCharacterPromptGenerating"
               style="font-size:12px"
@@ -133,6 +134,7 @@
               type="textarea"
               :rows="4"
               readonly
+              aria-label="角色视觉锚点"
               style="font-size:11px;font-family:monospace"
               placeholder="点击「提炼视觉锚点」生成"
             />
@@ -149,6 +151,7 @@
               v-model="editCharacterForm.stages"
               type="textarea"
               :rows="4"
+              aria-label="角色多阶段造型"
               placeholder='例：[{"episode_range":[1,5],"appearance":"白衣少年"},{"episode_range":[6,10],"appearance":"黑衣武者"}]'
               style="font-size:12px;font-family:monospace"
             />
@@ -222,13 +225,13 @@
           </div>
         </el-form-item>
         <el-form-item label="名称" required>
-          <el-input v-model="editPropForm.name" placeholder="道具名称" />
+          <el-input v-model="editPropForm.name" aria-label="道具名称" placeholder="道具名称" />
         </el-form-item>
         <el-form-item label="类型">
-          <el-input v-model="editPropForm.type" placeholder="如：道具、建筑" />
+          <el-input v-model="editPropForm.type" aria-label="道具类型" placeholder="如：道具、建筑" />
         </el-form-item>
         <el-form-item label="描述">
-          <el-input v-model="editPropForm.description" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="道具描述" />
+          <el-input v-model="editPropForm.description" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" aria-label="道具描述" placeholder="道具描述" />
         </el-form-item>
         <el-form-item label="图生提示词">
           <div style="width:100%">
@@ -240,6 +243,7 @@
               v-model="editPropForm.prompt"
               type="textarea"
               :autosize="{ minRows: 5, maxRows: 16 }"
+              aria-label="道具图生提示词"
               :placeholder="editPropPromptGenerating ? 'AI 正在生成提示词，请稍候…' : '点击「重新生成提示词」由 AI 自动生成，或直接在此输入'"
               :disabled="editPropPromptGenerating"
             />
@@ -282,13 +286,13 @@
           </div>
         </el-form-item>
         <el-form-item label="地点" required>
-          <el-input v-model="editSceneForm.location" placeholder="如：森林、教室" />
+          <el-input v-model="editSceneForm.location" aria-label="场景地点" placeholder="如：森林、教室" />
         </el-form-item>
         <el-form-item label="时间">
-          <el-input v-model="editSceneForm.time" placeholder="如：白天、傍晚" />
+          <el-input v-model="editSceneForm.time" aria-label="场景时间" placeholder="如：白天、傍晚" />
         </el-form-item>
         <el-form-item label="场景描述">
-          <el-input v-model="editSceneForm.prompt" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="场景的简要描述，供 AI 生成四视图时参考" />
+          <el-input v-model="editSceneForm.prompt" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" aria-label="场景描述" placeholder="场景的简要描述，供 AI 生成四视图时参考" />
         </el-form-item>
         <el-form-item v-if="editSceneForm.id">
           <template #label>
@@ -303,6 +307,7 @@
               v-model="editSceneForm.polished_prompt_single"
               type="textarea"
               :autosize="{ minRows: 5, maxRows: 16 }"
+              aria-label="场景单图提示词"
               placeholder="单图场景提示词，点击场景列表的「AI 生成」按钮（不勾选四宫格）后会自动生成"
               style="font-size:12px"
             />
@@ -321,6 +326,7 @@
               v-model="editSceneForm.polished_prompt"
               type="textarea"
               :autosize="{ minRows: 5, maxRows: 16 }"
+              aria-label="场景四视图提示词"
               :placeholder="editScenePromptGenerating ? 'AI 正在生成四视图提示词，请稍候…' : '点击「重新生成提示词」由 AI 自动生成，或直接在此输入'"
               :disabled="editScenePromptGenerating"
               style="font-size:12px"
@@ -336,10 +342,10 @@
 
     <!-- 角色资源库（本剧库 / 本剧全部角色 / 团队库） -->
     <AccessibleDialog v-model="showCharLibrary" title="角色资源库" width="720px" destroy-on-close class="library-dialog" @open="onCharLibraryDialogOpen">
-      <el-tabs v-model="charLibraryTab" class="char-library-tabs" @tab-change="onCharLibraryTabChange">
+      <el-tabs v-model="charLibraryTab" class="char-library-tabs" aria-label="角色资源库分类" @tab-change="onCharLibraryTabChange">
         <el-tab-pane label="本剧角色库" name="library">
           <div class="library-toolbar">
-            <el-input v-model="charLibraryKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadCharLibrary()" />
+            <el-input v-model="charLibraryKeyword" aria-label="搜索角色素材" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadCharLibrary()" />
           </div>
           <div v-loading="charLibraryLoading" class="library-list">
             <div v-for="item in charLibraryList" :key="'lib-' + item.id" class="library-item">
@@ -377,7 +383,7 @@
 
         <el-tab-pane label="本剧所有角色" name="drama">
           <div class="library-toolbar">
-            <el-input v-model="dramaAllCharKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadDramaAllCharList()" />
+            <el-input v-model="dramaAllCharKeyword" aria-label="搜索本剧角色" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadDramaAllCharList()" />
           </div>
           <div v-loading="dramaAllCharLoading" class="library-list">
             <div v-for="item in dramaAllCharList" :key="'drama-' + item.id" class="library-item">
@@ -423,16 +429,16 @@
     <AccessibleDialog v-model="showEditCharLibrary" title="编辑公共角色" width="440px" @close="editCharLibraryForm = null">
       <el-form v-if="editCharLibraryForm" label-width="80px">
         <el-form-item label="名称">
-          <el-input v-model="editCharLibraryForm.name" placeholder="角色名称" />
+          <el-input v-model="editCharLibraryForm.name" aria-label="公共角色名称" placeholder="角色名称" />
         </el-form-item>
         <el-form-item label="分类">
-          <el-input v-model="editCharLibraryForm.category" placeholder="可选" />
+          <el-input v-model="editCharLibraryForm.category" aria-label="公共角色分类" placeholder="可选" />
         </el-form-item>
         <el-form-item label="描述">
-          <el-input v-model="editCharLibraryForm.description" type="textarea" :rows="3" placeholder="可选" />
+          <el-input v-model="editCharLibraryForm.description" type="textarea" :rows="3" aria-label="公共角色描述" placeholder="可选" />
         </el-form-item>
         <el-form-item label="标签">
-          <el-input v-model="editCharLibraryForm.tags" placeholder="可选，逗号分隔" />
+          <el-input v-model="editCharLibraryForm.tags" aria-label="公共角色标签" placeholder="可选，逗号分隔" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -443,10 +449,10 @@
 
     <!-- 道具资源库 -->
     <AccessibleDialog v-model="showPropLibrary" title="道具资源库" width="720px" destroy-on-close class="library-dialog" @open="onPropLibraryDialogOpen">
-      <el-tabs v-model="propLibraryTab" class="char-library-tabs" @tab-change="onPropLibraryTabChange">
+      <el-tabs v-model="propLibraryTab" class="char-library-tabs" aria-label="道具资源库分类" @tab-change="onPropLibraryTabChange">
         <el-tab-pane label="本剧道具库" name="library">
           <div class="library-toolbar">
-            <el-input v-model="propLibraryKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadPropLibrary()" />
+            <el-input v-model="propLibraryKeyword" aria-label="搜索道具素材" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadPropLibrary()" />
           </div>
           <div v-loading="propLibraryLoading" class="library-list">
             <div v-for="item in propLibraryList" :key="'plib-' + item.id" class="library-item">
@@ -472,7 +478,7 @@
         </el-tab-pane>
         <el-tab-pane label="本剧所有道具" name="drama">
           <div class="library-toolbar">
-            <el-input v-model="dramaAllPropKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadDramaAllPropList()" />
+            <el-input v-model="dramaAllPropKeyword" aria-label="搜索本剧道具" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadDramaAllPropList()" />
           </div>
           <div v-loading="dramaAllPropLoading" class="library-list">
             <div v-for="item in dramaAllPropList" :key="'pdr-' + item.id" class="library-item">
@@ -503,16 +509,16 @@
     <AccessibleDialog v-model="showEditPropLibrary" title="编辑公共道具" width="440px" @close="editPropLibraryForm = null">
       <el-form v-if="editPropLibraryForm" label-width="80px">
         <el-form-item label="名称">
-          <el-input v-model="editPropLibraryForm.name" placeholder="道具名称" />
+          <el-input v-model="editPropLibraryForm.name" aria-label="公共道具名称" placeholder="道具名称" />
         </el-form-item>
         <el-form-item label="分类">
-          <el-input v-model="editPropLibraryForm.category" placeholder="可选" />
+          <el-input v-model="editPropLibraryForm.category" aria-label="公共道具分类" placeholder="可选" />
         </el-form-item>
         <el-form-item label="描述">
-          <el-input v-model="editPropLibraryForm.description" type="textarea" :rows="3" placeholder="可选" />
+          <el-input v-model="editPropLibraryForm.description" type="textarea" :rows="3" aria-label="公共道具描述" placeholder="可选" />
         </el-form-item>
         <el-form-item label="标签">
-          <el-input v-model="editPropLibraryForm.tags" placeholder="可选，逗号分隔" />
+          <el-input v-model="editPropLibraryForm.tags" aria-label="公共道具标签" placeholder="可选，逗号分隔" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -523,10 +529,10 @@
 
     <!-- 场景资源库 -->
     <AccessibleDialog v-model="showSceneLibrary" title="场景资源库" width="720px" destroy-on-close class="library-dialog" @open="onSceneLibraryDialogOpen">
-      <el-tabs v-model="sceneLibraryTab" class="char-library-tabs" @tab-change="onSceneLibraryTabChange">
+      <el-tabs v-model="sceneLibraryTab" class="char-library-tabs" aria-label="场景资源库分类" @tab-change="onSceneLibraryTabChange">
         <el-tab-pane label="本剧场景库" name="library">
           <div class="library-toolbar">
-            <el-input v-model="sceneLibraryKeyword" placeholder="搜索地点或描述" clearable style="width: 200px" @input="debouncedLoadSceneLibrary()" />
+            <el-input v-model="sceneLibraryKeyword" aria-label="搜索场景素材" placeholder="搜索地点或描述" clearable style="width: 200px" @input="debouncedLoadSceneLibrary()" />
           </div>
           <div v-loading="sceneLibraryLoading" class="library-list">
             <div v-for="item in sceneLibraryList" :key="'slib-' + item.id" class="library-item">
@@ -552,7 +558,7 @@
         </el-tab-pane>
         <el-tab-pane label="本剧所有场景" name="drama">
           <div class="library-toolbar">
-            <el-input v-model="dramaAllSceneKeyword" placeholder="搜索地点或描述" clearable style="width: 200px" @input="debouncedLoadDramaAllSceneList()" />
+            <el-input v-model="dramaAllSceneKeyword" aria-label="搜索本剧场景" placeholder="搜索地点或描述" clearable style="width: 200px" @input="debouncedLoadDramaAllSceneList()" />
           </div>
           <div v-loading="dramaAllSceneLoading" class="library-list">
             <div v-for="item in dramaAllSceneList" :key="'sdr-' + item.id" class="library-item">
@@ -583,19 +589,19 @@
     <AccessibleDialog v-model="showEditSceneLibrary" title="编辑公共场景" width="440px" @close="editSceneLibraryForm = null">
       <el-form v-if="editSceneLibraryForm" label-width="80px">
         <el-form-item label="地点">
-          <el-input v-model="editSceneLibraryForm.location" placeholder="场景地点" />
+          <el-input v-model="editSceneLibraryForm.location" aria-label="公共场景地点" placeholder="场景地点" />
         </el-form-item>
         <el-form-item label="时间">
-          <el-input v-model="editSceneLibraryForm.time" placeholder="如：浅色/夜晚" />
+          <el-input v-model="editSceneLibraryForm.time" aria-label="公共场景时间" placeholder="如：浅色/夜晚" />
         </el-form-item>
         <el-form-item label="分类">
-          <el-input v-model="editSceneLibraryForm.category" placeholder="可选" />
+          <el-input v-model="editSceneLibraryForm.category" aria-label="公共场景分类" placeholder="可选" />
         </el-form-item>
         <el-form-item label="描述">
-          <el-input v-model="editSceneLibraryForm.description" type="textarea" :rows="3" placeholder="可选" />
+          <el-input v-model="editSceneLibraryForm.description" type="textarea" :rows="3" aria-label="公共场景描述" placeholder="可选" />
         </el-form-item>
         <el-form-item label="标签">
-          <el-input v-model="editSceneLibraryForm.tags" placeholder="可选，逗号分隔" />
+          <el-input v-model="editSceneLibraryForm.tags" aria-label="公共场景标签" placeholder="可选，逗号分隔" />
         </el-form-item>
       </el-form>
       <template #footer>

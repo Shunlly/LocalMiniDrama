@@ -170,17 +170,23 @@
           @click="$emit('retry-readiness')"
         >重试检查</el-button>
         <template v-if="running">
-          <el-button v-if="!stopRequired && !paused" type="warning" :disabled="stopping" @click="$emit('pause')">暂停</el-button>
-          <el-button v-else-if="!stopRequired" type="success" :disabled="stopping" @click="$emit('resume')">继续</el-button>
-          <el-button
-            type="danger"
-            plain
-            :loading="stopping"
-            :disabled="stopping"
-            @click="$emit('cancel')"
-          >
-            {{ stopRequired ? '重试停止' : '停止' }}
-          </el-button>
+          <ActionGate v-if="!stopRequired && !paused" label="暂停" :reason="pauseDisabledReason">
+            <el-button type="warning" :disabled="Boolean(pauseDisabledReason)" @click="$emit('pause')">暂停</el-button>
+          </ActionGate>
+          <ActionGate v-else-if="!stopRequired" label="继续" :reason="resumeDisabledReason">
+            <el-button type="success" :disabled="Boolean(resumeDisabledReason)" @click="$emit('resume')">继续</el-button>
+          </ActionGate>
+          <ActionGate :label="stopRequired ? '重试停止' : '停止'" :reason="cancelDisabledReason">
+            <el-button
+              type="danger"
+              plain
+              :loading="stopping"
+              :disabled="Boolean(cancelDisabledReason)"
+              @click="$emit('cancel')"
+            >
+              {{ stopRequired ? '重试停止' : '停止' }}
+            </el-button>
+          </ActionGate>
         </template>
       </div>
     </div>
@@ -199,7 +205,9 @@
           <p class="pipeline-countdown-msg">{{ countdownMessage }}</p>
           <div class="pipeline-countdown-actions">
             <el-button size="small" type="success" @click="$emit('skip-countdown')">立即开始下一阶段</el-button>
-            <el-button v-if="!paused" size="small" type="warning" @click="$emit('pause')">暂停倒计时</el-button>
+            <ActionGate v-if="!paused" label="暂停倒计时" :reason="pauseDisabledReason">
+              <el-button size="small" type="warning" :disabled="Boolean(pauseDisabledReason)" @click="$emit('pause')">暂停倒计时</el-button>
+            </ActionGate>
             <span v-else class="pipeline-countdown-paused">已暂停，点击“继续”恢复</span>
           </div>
         </div>
@@ -214,8 +222,16 @@
         <div v-for="(entry, index) in errorLog" :key="index" class="pipeline-error-line">
           [{{ entry.step }}] {{ entry.message }}
         </div>
+        <ActionGate v-if="!running" label="重试全流程" :reason="retryDisabledReason">
+          <el-button type="primary" :disabled="Boolean(retryDisabledReason) || starting" @click="$emit('start-one-click')">
+            重试全流程
+          </el-button>
+        </ActionGate>
       </div>
     </div>
+    <p v-else-if="hasEpisode === false" class="pipeline-empty" role="status">
+      还没有剧集。添加一集后即可保存剧本或启动全流程生成。
+    </p>
     </div>
   </section>
 </template>
@@ -226,7 +242,7 @@ import { ArrowDown, ArrowRight, ArrowUp, Setting, VideoPlay } from '@element-plu
 import StylePickerButton from '@/components/StylePickerButton.vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import { useDisclosureState } from '@/composables/useDisclosureState'
-import { getPipelineCompactAction } from '@/utils/filmPipelineAction'
+import { getPipelineCompactAction, getPipelineControlReasons } from '@/utils/filmPipelineAction'
 
 const props = defineProps({
   aspectRatio: { type: String, default: '16:9' },
@@ -256,7 +272,7 @@ const props = defineProps({
 })
 
 const { expanded, toggle } = useDisclosureState({
-  forceExpanded: computed(() => props.running),
+  forceExpanded: computed(() => props.running || props.errorLog.length > 0),
 })
 const summaryRef = ref(null)
 
@@ -281,18 +297,33 @@ const activeTaskLabels = computed(() => Array.from(props.activeTasks || []))
 const cleanCurrentStep = computed(() => props.currentStep.replace(/^\[步骤 \d+\/\d+\] /, ''))
 const productionReason = computed(() => props.productionDisabledReason || props.disabledReason)
 const draftReason = computed(() => props.draftDisabledReason || props.disabledReason)
+const hasPipelineError = computed(() => props.errorLog.length > 0)
+const controlReasons = computed(() => getPipelineControlReasons({
+  running: props.running,
+  paused: props.paused,
+  stopping: props.stopping,
+  stopRequired: props.stopRequired,
+  productionReason: productionReason.value,
+}))
+const pauseDisabledReason = computed(() => (props.running && !props.stopRequired && !props.paused ? controlReasons.value.pause : ''))
+const resumeDisabledReason = computed(() => (props.running && !props.stopRequired && props.paused ? controlReasons.value.resume : ''))
+const cancelDisabledReason = computed(() => (props.running ? controlReasons.value.cancel : ''))
+const retryDisabledReason = computed(() => controlReasons.value.retry)
 const focusReason = computed(() => props.running ? '' : productionReason.value)
 const longFocusReason = computed(() => focusReason.value.length > 56)
 const focusState = computed(() => {
   if (props.starting) return 'checking'
   if (props.stopRequired) return 'error'
   if (props.running) return props.paused ? 'paused' : 'running'
+  if (hasPipelineError.value) return 'error'
   if (!draftReason.value && props.productionReadinessState === 'checking') return 'checking'
   if (!draftReason.value && props.productionReadinessState === 'error') return 'error'
   return focusReason.value ? 'blocked' : 'ready'
 })
 const focusKicker = computed(() => {
   if (props.stopRequired) return '停止受阻'
+  if (props.running) return focusReason.value ? '当前阻断' : '当前任务'
+  if (hasPipelineError.value) return '执行失败'
   if (!draftReason.value && props.productionReadinessState === 'checking') return '能力检查'
   if (!draftReason.value && props.productionReadinessState === 'error') return '检查失败'
   return focusReason.value ? '当前阻断' : '当前任务'
@@ -303,6 +334,7 @@ const focusTitle = computed(() => {
   if (props.running) {
     return cleanCurrentStep.value || (props.paused ? '全流程生成已暂停' : '正在执行全流程生成')
   }
+  if (hasPipelineError.value) return '全流程生成未完成'
   if (!draftReason.value && props.productionReadinessState === 'checking') return '正在检查完整成片能力'
   if (!draftReason.value && props.productionReadinessState === 'error') return '完整成片能力检查失败'
   return focusReason.value ? '完整成片暂不可生成' : '完整成片已可生成'
@@ -311,6 +343,7 @@ const focusNextStep = computed(() => {
   if (props.starting) return '确认服务能力与本次调用范围'
   if (props.stopRequired) return '重试停止剩余远端任务'
   if (props.running) return props.paused ? '继续当前生成流程' : '等待当前阶段完成'
+  if (hasPipelineError.value) return '查看错误后重试全流程'
   if (props.hasEpisode === false) return '添加一集后再保存剧本或启动生成'
   if (draftReason.value) return '处理当前阻断后再启动生成'
   if (props.productionReadinessState === 'checking') return '等待检查完成'
@@ -336,6 +369,7 @@ const compactAction = computed(() => getPipelineCompactAction({
   hasEpisode: props.hasEpisode,
   draftReason: draftReason.value,
   productionReason: productionReason.value,
+  hasError: hasPipelineError.value,
 }))
 
 function runCompactAction() {
@@ -736,6 +770,17 @@ function updateSetting(name, value) {
 .pipeline-error-line {
   margin-bottom: 4px;
   word-break: break-word;
+}
+
+.pipeline-empty {
+  margin: 12px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.pipeline-error-log :deep(.el-button) {
+  margin-top: 8px;
 }
 
 .pipeline-countdown {
