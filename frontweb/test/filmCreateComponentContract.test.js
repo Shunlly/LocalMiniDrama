@@ -728,3 +728,15 @@ test('pipeline compact action can add the first episode', async () => {
     harness.app.unmount()
   }
 })
+
+test('FilmCreate 把视频配置交给独立面板并保留成片选项', () => {
+  const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateVideoSettingsPanel.vue', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /<FilmCreateVideoSettingsPanel/)
+  assert.match(filmCreateSource, /v-model:resolution="videoResolution"/)
+  assert.match(filmCreateSource, /@open-ai-config="openAiConfig"/)
+  assert.match(panel, /aria-label="成片分辨率"/)
+  assert.match(panel, /label="字幕"/)
+  assert.match(panel, /label="对白烧录"/)
+  assert.match(panel, /label="水印"/)
+  assert.match(panel, /emit\('open-ai-config'\)/)
+})

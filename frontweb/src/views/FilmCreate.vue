@@ -1718,63 +1718,14 @@
       </section>
 
       <!-- 7. 视频配置 + AI 模型配置 -->
-      <section class="section card">
-        <h2 class="section-title">视频配置</h2>
-        <div class="config-grid">
-          <el-form-item label="分辨率">
-            <el-select v-model="videoResolution" aria-label="成片分辨率" style="width: 160px">
-              <el-option label="480p" value="480p" />
-              <el-option label="720p" value="720p" />
-              <el-option label="1080p" value="1080p" />
-            </el-select>
-          </el-form-item>
-          <!--
-          <el-form-item label="配乐">
-            <el-select v-model="videoMusic" placeholder="无" clearable style="width: 160px">
-              <el-option label="无" value="" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="音效">
-            <el-select v-model="videoSfx" placeholder="无" clearable style="width: 160px">
-              <el-option label="无" value="" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="画质">
-            <el-select v-model="videoQuality" style="width: 120px">
-              <el-option label="高" value="high" />
-              <el-option label="中" value="medium" />
-            </el-select>
-          </el-form-item>
-          -->
-          <el-form-item label="字幕">
-            <div class="video-option-row">
-              <el-switch v-model="videoSubtitle" />
-              <span v-if="videoSubtitle" class="video-option-hint">开启后，合成整集时会检测解说旁白：若有文案则自动生成 SRT、按分镜时长合成旁白语音（过长加速 / 过短补静音）、与成片对齐后烧录字幕并混音。</span>
-            </div>
-          </el-form-item>
-          <el-form-item label="对白烧录">
-            <div class="video-option-row">
-              <el-switch v-model="videoBurnDialogue" />
-              <span v-if="videoBurnDialogue" class="video-option-hint">开启后，将把各镜生成的对白配音按分镜时长对齐并混入整集成片（无对白音频的分镜为静音）。可与「字幕」旁白同时开启，两条音轨会叠混。</span>
-            </div>
-          </el-form-item>
-          <el-form-item label="水印">
-            <div class="video-option-row">
-              <el-switch v-model="videoWatermark" />
-              <el-input
-                v-if="videoWatermark"
-                v-model="videoWatermarkText"
-                placeholder="右下角水印文字"
-                maxlength="200"
-                show-word-limit
-                clearable
-                class="video-watermark-input"
-              />
-            </div>
-          </el-form-item>
-        </div>
-        <p class="config-tip">文本/图片/视频使用的模型以「<el-link type="primary" underline="never" @click="openAiConfig()">AI 配置</el-link>」中设为默认的为准。</p>
-      </section>
+      <FilmCreateVideoSettingsPanel
+        v-model:resolution="videoResolution"
+        v-model:subtitle="videoSubtitle"
+        v-model:burn-dialogue="videoBurnDialogue"
+        v-model:watermark="videoWatermark"
+        v-model:watermark-text="videoWatermarkText"
+        @open-ai-config="openAiConfig"
+      />
 
       <!-- 8. 交付与导出 -->
       <FilmCreateDeliveryPanel
@@ -2940,6 +2891,7 @@ import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import UniversalSegmentOmniAtEditor from '@/components/UniversalSegmentOmniAtEditor.vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import FilmCreateDeliveryPanel from '@/components/filmCreate/FilmCreateDeliveryPanel.vue'
+import FilmCreateVideoSettingsPanel from '@/components/filmCreate/FilmCreateVideoSettingsPanel.vue'
 import { requestCoreJson } from '@/utils/coreJsonRequest'
 import { DEFAULT_POLL_TIMEOUT_MS } from '@/utils/requestError'
 import { runConcurrently as runConcurrentQueue } from '@/utils/filmCreateConcurrency'
