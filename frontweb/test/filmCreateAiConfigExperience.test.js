@@ -38,7 +38,7 @@ test('FilmCreate keeps AI readiness in the pipeline instead of the page-level de
   assert.match(filmCreateSource, /:production-readiness-reason="productionReadinessReason"/)
   assert.match(filmCreateSource, /:production-readiness-state="productionReadinessState"/)
   assert.match(filmCreateSource, /@retry-readiness="refreshProductionReadiness"/)
-  assert.match(filmCreateSource, /const productionReadinessState = computed\(\(\) => \{/)
+  assert.match(productionReadinessSource, /const productionReadinessState = computed\(\(\) => \{/)
 
   const dependencyRefresh = sourceBetween(
     projectLoadSource,

@@ -869,7 +869,6 @@ import {
   batchGenerationDisabledReason,
   composeVideoDisabledReason,
   episodeResourceDisabledReason,
-  getVideoGenerationCapability,
   pipelineDisabledReason,
   projectResourceDisabledReason,
   storyboardDisabledReason,
@@ -985,36 +984,6 @@ const videoCapabilityFailed = ref(false)
 const authoritativeProductionReadiness = ref(null)
 const productionReadinessLoading = ref(true)
 const productionReadinessFailed = ref(false)
-const videoGenerationCapability = computed(() => getVideoGenerationCapability(
-  videoCapabilityConfigs.value,
-  { loading: videoCapabilityLoading.value, failed: videoCapabilityFailed.value },
-))
-const videoCapabilityReason = computed(() => videoGenerationCapability.value.reason)
-const productionCapabilityGaps = computed(() => (
-  authoritativeProductionReadiness.value?.missing_capabilities || []
-))
-const productionReadinessState = computed(() => {
-  if (productionReadinessLoading.value) return 'checking'
-  if (productionReadinessFailed.value) return 'error'
-  return productionCapabilityGaps.value.length ? 'missing' : 'ready'
-})
-const productionReadinessReason = computed(() => {
-  if (productionReadinessLoading.value) return '正在检查完整成片所需的 AI 服务与本地合成能力。'
-  if (productionReadinessFailed.value) return '无法确认完整成片制作能力，请刷新后重试。'
-  if (!productionCapabilityGaps.value.length) return ''
-  return productionCapabilityGaps.value
-    .map((gap) => `${gap.label}：${gap.detail}`)
-    .join('；')
-})
-const productionReadinessServiceType = computed(() => (
-  productionCapabilityGaps.value.find((gap) => gap.service_type)?.service_type || ''
-))
-const ttsCapabilityReason = computed(() => {
-  if (productionReadinessLoading.value) return '正在检查语音合成配置，请稍候。'
-  if (productionReadinessFailed.value) return '无法确认语音合成配置，请刷新后重试或前往 AI 配置检查。'
-  const gap = productionCapabilityGaps.value.find((item) => item?.service_type === 'tts')
-  return gap ? `${gap.label}：${gap.detail}` : ''
-})
 
 const {
   openAiConfig,
@@ -1128,6 +1097,33 @@ const props = computed(() => store.props)
 const storyboards = computed(() => store.storyboards)
 const currentEpisode = computed(() => store.currentEpisode)
 const currentEpisodeId = computed(() => store.currentEpisode?.id ?? null)
+
+const {
+  invalidateActiveVideoAiConfigCache,
+  getNovel2AnimeReadiness,
+  refreshProductionReadiness,
+  refreshVideoGenerationCapability,
+  getActiveVideoAiConfig,
+  canUseUniversalOmniVideoApi,
+  confirmUniversalNonSeedance2Video,
+  videoGenerationCapability,
+  videoCapabilityReason,
+  productionCapabilityGaps,
+  productionReadinessState,
+  productionReadinessReason,
+  ttsCapabilityReason,
+} = useFilmCreateProductionReadiness({
+  dramaId,
+  productionReadinessLoading,
+  productionReadinessFailed,
+  authoritativeProductionReadiness,
+  videoCapabilityLoading,
+  videoCapabilityFailed,
+  videoCapabilityConfigs,
+})
+const productionReadinessServiceType = computed(() => (
+  productionCapabilityGaps.value.find((gap) => gap.service_type)?.service_type || ''
+))
 
 const {
   pollUntilResourceHasImage,
@@ -2331,25 +2327,6 @@ const {
   sbVideoFirstLastUrls,
 })
 
-const {
-  invalidateActiveVideoAiConfigCache,
-  getNovel2AnimeReadiness,
-  refreshProductionReadiness,
-  refreshVideoGenerationCapability,
-  getActiveVideoAiConfig,
-  canUseUniversalOmniVideoApi,
-  confirmUniversalNonSeedance2Video,
-} = useFilmCreateProductionReadiness({
-  dramaId,
-  productionReadinessLoading,
-  productionReadinessFailed,
-  authoritativeProductionReadiness,
-  productionReadinessReason,
-  videoCapabilityLoading,
-  videoCapabilityFailed,
-  videoCapabilityConfigs,
-  videoGenerationCapability,
-})
 
 const {
   onEditSbImagePrompt,
