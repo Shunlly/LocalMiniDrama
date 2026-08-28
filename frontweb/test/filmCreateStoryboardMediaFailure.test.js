@@ -8,7 +8,9 @@ import {
   submitStoryboardVideoAfterAccepted,
 } from '../src/utils/storyboardMedia.js'
 
-const source = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const mediaComposableSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardMedia.js', import.meta.url), 'utf8')
+const source = filmCreateSource + '\n' + mediaComposableSource
 const resourcePanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
 const filmCreateUiSource = source + '\n' + resourcePanelSource
 
@@ -23,11 +25,11 @@ function sourceBetween(startMarker, endMarker) {
 test('storyboard media loaders delegate cache and endpoint state to the race-safe controller', () => {
   const loader = sourceBetween(
     'async function loadStoryboardMedia',
-    'function getGeneratingSetsBag',
+    'async function loadSingleStoryboardMedia',
   )
   const singleLoader = sourceBetween(
     'async function loadSingleStoryboardMedia',
-    '// ── 主图选择',
+    'function captureStoryboardMediaRefresh',
   )
 
   assert.match(source, /createStoryboardMediaStateController/)
@@ -228,11 +230,11 @@ test('single and batch video submission defer selection clearing until Provider 
 test('task recovery and polling callbacks capture their original storyboard-media context', () => {
   const recovery = sourceBetween(
     'async function recoverAndSyncEpisodeTasks',
-    '/** 只刷新单条分镜',
+    '// ── 主图选择',
   )
   const singleLoader = sourceBetween(
     'async function loadSingleStoryboardMedia',
-    '// ── 主图选择',
+    'function captureStoryboardMediaRefresh',
   )
 
   assert.match(recovery, /const mediaContext = currentStoryboardMediaContext\(did, eid\)/)

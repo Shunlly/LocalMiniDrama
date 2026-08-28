@@ -864,7 +864,6 @@ import { createLatestRequestGuard } from '@/utils/latestRequest.js'
 import { logOperation } from '@/utils/operationLog'
 import { isPlaceholderMediaUrl, probeImageSource, storyboardImageUrl } from '@/utils/mediaUrl'
 import {
-  createStoryboardMediaStateController,
   getSbImagesList,
   hasRealMediaValue,
   isStoryboardMediaStateError,
@@ -937,6 +936,7 @@ import { runGenerateStoryFromPremise } from '@/composables/useStoryGeneration'
 import { useCharacters } from '@/composables/filmCreate/useCharacters'
 import { useProps as usePropsComposable } from '@/composables/filmCreate/useProps'
 import { useScenes } from '@/composables/filmCreate/useScenes'
+import { useFilmCreateStoryboardMedia } from '@/composables/filmCreate/useFilmCreateStoryboardMedia'
 import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
 
 const projectLifecycle = createProjectInstanceLifecycle()
@@ -1923,71 +1923,31 @@ const sbCreationMode = ref({})
 /** 全能模式片段描述（存库 universal_segment_text，与经典参考图字段独立） */
 const sbUniversalSegmentText = ref({})
 const sbVideoReferenceImageId = ref({})
-// 分镜图片/视频列表（由 /images?storyboard_id=xx 和 /videos?storyboard_id=xx 拉取）
-const sbImages = ref({})
-const sbVideos = ref({})
-const sbVideoErrors = ref({})
-const storyboardMediaLoadState = ref('unknown')
-const storyboardMediaLoadError = ref('')
-
-function currentStoryboardMediaContext(projectId = dramaId.value, episodeId = currentEpisodeId.value) {
-  return { projectId, episodeId }
-}
-
-function applyStoryboardMediaSnapshot(snapshot) {
-  sbImages.value = snapshot.media.images
-  sbVideos.value = snapshot.media.videos
-  storyboardMediaLoadState.value = snapshot.status
-  const failedStoryboardCount = new Set(
-    snapshot.failedEndpoints.map(({ storyboardId }) => storyboardId),
-  ).size
-  storyboardMediaLoadError.value = failedStoryboardCount > 0
-    ? describeStoryboardMediaLoadError(failedStoryboardCount)
-    : ''
-}
-
-const storyboardMediaStateController = createStoryboardMediaStateController({
-  onChange: applyStoryboardMediaSnapshot,
+const {
+  sbImages,
+  sbVideos,
+  storyboardMediaLoadState,
+  storyboardMediaLoadError,
+  storyboardMediaStateController,
+  storyboardMediaActionReason,
+  currentStoryboardMediaContext,
+  resetStoryboardMediaContext,
+  ensureStoryboardMediaContext,
+  assertStoryboardMediaReady,
+  currentEpisodeStoryboardIds,
+  captureStoryboardMediaRefresh,
+  refreshStoryboardMediaForCurrentContext,
+  loadStoryboardMedia,
+  loadSingleStoryboardMedia,
+} = useFilmCreateStoryboardMedia({
+  dramaId,
+  currentEpisodeId,
+  getStoryboards: () => store.storyboards || [],
+  imagesAPI,
+  videosAPI,
+  onSelectionsRestored: () => restoreSelectionsFromBackend(),
 })
-
-function resetStoryboardMediaContext(
-  projectId = dramaId.value,
-  episodeId = currentEpisodeId.value,
-) {
-  storyboardMediaStateController.setContext(currentStoryboardMediaContext(projectId, episodeId))
-}
-
-function ensureStoryboardMediaContext(
-  projectId = dramaId.value,
-  episodeId = currentEpisodeId.value,
-) {
-  const context = currentStoryboardMediaContext(projectId, episodeId)
-  if (!storyboardMediaStateController.isCurrentContext(context)) {
-    storyboardMediaStateController.setContext(context)
-  }
-}
-
-function assertStoryboardMediaReady() {
-  return storyboardMediaStateController.assertReady(currentStoryboardMediaContext())
-}
-
-function currentEpisodeStoryboardIds() {
-  const episodeId = currentEpisodeId.value
-  return (store.storyboards || [])
-    .filter((storyboard) => (
-      storyboard?.episode_id == null || Number(storyboard.episode_id) === Number(episodeId)
-    ))
-    .map((storyboard) => storyboard.id)
-}
-
-function captureStoryboardMediaRefresh(storyboardId, expectedContext = currentStoryboardMediaContext()) {
-  const capturedContext = { ...expectedContext }
-  return () => loadSingleStoryboardMedia(storyboardId, capturedContext)
-}
-
-function refreshStoryboardMediaForCurrentContext(storyboardId) {
-  return loadSingleStoryboardMedia(storyboardId, currentStoryboardMediaContext())
-}
+const sbVideoErrors = ref({})
 
 function captureDramaRefresh(expectedContext = currentStoryboardMediaContext()) {
   const capturedContext = { ...expectedContext }
@@ -2015,10 +1975,6 @@ const batchVideoRunning = ref(false)
 const batchVideoStopping = ref(false)
 const batchVideoProgress = ref({ current: 0, total: 0, failed: 0 })
 const batchVideoErrors = ref([])
-const storyboardMediaActionReason = computed(() => {
-  storyboardMediaLoadState.value
-  return storyboardMediaStateController.actionReason(currentStoryboardMediaContext())
-})
 const projectActionDisabledReason = computed(() => projectResourceDisabledReason({
   hasProject: Boolean(dramaId.value),
 }))
@@ -2672,47 +2628,6 @@ function getSbVideoError(storyboardId) {
   return userFacingVideoGenerationError(failed[0].error_msg)
 }
 
-function describeStoryboardMediaLoadError(failedCount = 1) {
-  const count = Math.max(1, Number(failedCount) || 1)
-  return `${count} 个分镜的图片或视频读取失败，已保留上次成功读取的内容。重试成功前，为避免重复生成和计费，批量与完整成片已暂停。`
-}
-
-async function loadStoryboardMedia({ failClosed = false } = {}) {
-  const boards = store.storyboards || []
-  const context = currentStoryboardMediaContext()
-  const requests = storyboardMediaStateController.beginFull(boards.map((sb) => sb.id))
-  const outcomes = await Promise.all(requests.map(async (request) => {
-    try {
-      const response = request.endpoint === 'images'
-        ? await imagesAPI.list({ storyboard_id: request.storyboardId, page: 1, page_size: 100 })
-        : await videosAPI.list({ storyboard_id: request.storyboardId, page: 1, page_size: 50 })
-      return {
-        request,
-        failed: false,
-        committed: storyboardMediaStateController.commitSuccess(request, response?.items || []),
-      }
-    } catch (error) {
-      return {
-        request,
-        failed: true,
-        committed: storyboardMediaStateController.commitFailure(request, error),
-      }
-    }
-  }))
-  const committedOutcomes = outcomes.filter(({ committed }) => committed)
-  const failedStoryboardIds = new Set(
-    committedOutcomes.filter(({ failed }) => failed).map(({ request }) => request.storyboardId),
-  )
-  let failedCount = 0
-  for (const _storyboardId of failedStoryboardIds) failedCount += 1
-  const stale = committedOutcomes.length !== outcomes.length
-  if (committedOutcomes.length > 0 && storyboardMediaStateController.isCurrentContext(context)) {
-    restoreSelectionsFromBackend()
-  }
-  if (failClosed) assertStoryboardMediaReady()
-  return { failedCount, total: boards.length, stale }
-}
-
 function getGeneratingSetsBag() {
   return {
     generatingCharIds,
@@ -2781,45 +2696,6 @@ async function recoverAndSyncEpisodeTasks(epId) {
   )
   if (mergeRunning) {
     store.setVideoStatus('generating', did, eid)
-  }
-}
-
-/** 只刷新单条分镜的图片/视频，避免每次单图操作都全量请求所有分镜 */
-async function loadSingleStoryboardMedia(sbId, expectedContext) {
-  if (!sbId || !expectedContext) return { stale: true }
-  if (!storyboardMediaStateController.isCurrentContext(expectedContext)) return { stale: true }
-  const storyboardIds = currentEpisodeStoryboardIds()
-  if (!storyboardIds.some((storyboardId) => Number(storyboardId) === Number(sbId))) {
-    return { stale: true }
-  }
-  const requests = storyboardMediaStateController.beginSingle(sbId, {
-    expectedContext,
-    storyboardIds,
-  })
-  if (requests.length === 0) return { stale: true }
-  const outcomes = await Promise.all(requests.map(async (request) => {
-    try {
-      const response = request.endpoint === 'images'
-        ? await imagesAPI.list({ storyboard_id: request.storyboardId, page: 1, page_size: 100 })
-        : await videosAPI.list({ storyboard_id: request.storyboardId, page: 1, page_size: 50 })
-      return {
-        failed: false,
-        committed: storyboardMediaStateController.commitSuccess(request, response?.items || []),
-      }
-    } catch (error) {
-      return {
-        failed: true,
-        committed: storyboardMediaStateController.commitFailure(request, error),
-      }
-    }
-  }))
-  const committedOutcomes = outcomes.filter(({ committed }) => committed)
-  if (committedOutcomes.length > 0 && storyboardMediaStateController.isCurrentContext(expectedContext)) {
-    restoreSelectionsFromBackend()
-  }
-  return {
-    failedCount: committedOutcomes.filter(({ failed }) => failed).length,
-    stale: committedOutcomes.length !== outcomes.length,
   }
 }
 
