@@ -17,6 +17,16 @@ test('制作页取消/配音/上传失败不再直出 e.message', () => {
     '../src/composables/filmCreate/useFilmCreateResourceUpload.js',
     '../src/composables/filmCreate/useFilmCreateStoryboardUpload.js',
     '../src/components/EpisodeBatchImportDialog.vue',
+    '../src/composables/filmCreate/useProps.js',
+    '../src/composables/filmCreate/useFilmCreateStoryboardPrompts.js',
+    '../src/composables/filmCreate/useFilmCreateScriptWorkspace.js',
+    '../src/composables/filmCreate/useFilmCreateStoryboardImageGeneration.js',
+    '../src/composables/filmCreate/useFilmCreateStoryboardCrud.js',
+    '../src/composables/filmCreate/useFilmCreateStoryboardAccessors.js',
+    '../src/composables/filmCreate/useFilmCreateStoryboardVideoFields.js',
+    '../src/composables/filmCreate/useFilmCreateStoryboardReferences.js',
+    '../src/composables/filmCreate/useFilmCreateUniversalSegment.js',
+    '../src/composables/filmCreate/useFilmCreateTailFrameLink.js',
   ]
   for (const rel of files) {
     const source = readFileSync(new URL(rel, import.meta.url), 'utf8')

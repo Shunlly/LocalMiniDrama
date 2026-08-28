@@ -1,3 +1,5 @@
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
+
 export function useFilmCreateStoryboardVideoFields(deps = {}) {
   const {
     store,
@@ -60,7 +62,8 @@ export function useFilmCreateStoryboardVideoFields(deps = {}) {
       ElMessage.success('超分完成，图片已更新为高清版本')
       await refreshStoryboardMediaForCurrentContext(sb.id)
     } catch (e) {
-      ElMessage.error(e.message || '超分辨率失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '超分辨率失败'))
     } finally {
       upscalingSbIds.delete(sb.id)
     }
@@ -104,7 +107,7 @@ export function useFilmCreateStoryboardVideoFields(deps = {}) {
       }
     } catch (e) {
       sbCreationMode.value = { ...sbCreationMode.value, [sb.id]: cur }
-      ElMessage.error(e.message || '保存失败')
+      ElMessage.error(toUserFacingError(e, '保存失败'))
     }
   }
 

@@ -1,4 +1,5 @@
 import { ElMessage } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 
 export function useFilmCreateUniversalSegment(deps = {}) {
   const {
@@ -115,7 +116,8 @@ export function useFilmCreateUniversalSegment(deps = {}) {
       }
       ElMessage.success(force ? '已强制生成全能片段提示词（无图模式）' : '已根据分镜生成全能片段提示词')
     } catch (e) {
-      ElMessage.error(e.message || '生成失败，请检查文本模型配置')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '生成失败，请检查文本模型配置'))
     } finally {
       generatingUniversalSegmentIds.delete(sb.id)
     }
@@ -160,7 +162,8 @@ export function useFilmCreateUniversalSegment(deps = {}) {
       }
       ElMessage.success(force ? '全能片段已强制润色并保存（无图模式）' : '全能片段提示词已润色并保存')
     } catch (e) {
-      ElMessage.error(e.message || '润色失败，请检查文本模型配置')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '润色失败，请检查文本模型配置'))
     } finally {
       generatingUniversalSegmentIds.delete(sb.id)
     }

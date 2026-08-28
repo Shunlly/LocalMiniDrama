@@ -1,4 +1,5 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 
 export function useFilmCreateTailFrameLink(deps = {}) {
   const {
@@ -52,7 +53,8 @@ export function useFilmCreateTailFrameLink(deps = {}) {
         refreshStoryboardMediaForCurrentContext(nextSb.id)
       ])
     } catch (e) {
-      ElMessage.error(e.message || '尾帧衔接失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '尾帧衔接失败'))
     } finally {
       linkingTailFrameIds.delete(sb.id)
     }
@@ -98,7 +100,8 @@ export function useFilmCreateTailFrameLink(deps = {}) {
       // 清除可能残留的手动选中（让服务器权威绑定 id 生效）
       delete sbSelectedImgId.value[sb.id]
     } catch (e) {
-      ElMessage.error(e.message || '上镜尾帧设置失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '上镜尾帧设置失败'))
     } finally {
       usingPrevTailAsFirstIds.delete(sb.id)
     }

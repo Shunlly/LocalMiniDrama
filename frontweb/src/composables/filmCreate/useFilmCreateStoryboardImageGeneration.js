@@ -1,4 +1,5 @@
 import { ElMessage } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { storyboardImageUrl } from '@/utils/mediaUrl'
 
@@ -153,7 +154,8 @@ export function useFilmCreateStoryboardImageGeneration(deps = {}) {
       ElMessage.success('提示词已保存，后续生成将使用此版本')
       showFramePromptEditor.value = false
     } catch (e) {
-      ElMessage.error(e.message || '保存失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '保存失败'))
     } finally {
       editingFramePromptSaving.value = false
     }
@@ -171,7 +173,8 @@ export function useFilmCreateStoryboardImageGeneration(deps = {}) {
       editingFramePromptText.value = fresh || ''
       ElMessage.success('已重新生成，可编辑后保存')
     } catch (e) {
-      ElMessage.error(e.message || '生成失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '生成失败'))
     } finally {
       editingFramePromptRegenerating.value = false
     }
@@ -281,7 +284,7 @@ export function useFilmCreateStoryboardImageGeneration(deps = {}) {
       }
     } catch (e) {
       sb.errorMsg = e.message || '生成失败'
-      ElMessage.error(e.message || '生成失败')
+      ElMessage.error(toUserFacingError(e, '生成失败'))
     } finally {
       loadingSet.delete(sb.id)
       genStore.markDone(meta)
@@ -352,7 +355,7 @@ export function useFilmCreateStoryboardImageGeneration(deps = {}) {
     } catch (e) {
       console.error(e)
       sb.errorMsg = e.message || '生成失败'
-      ElMessage.error(e.message || '生成失败')
+      ElMessage.error(toUserFacingError(e, '生成失败'))
     } finally {
       generatingSbImageIds.delete(sb.id)
       genStore.markDone(meta)

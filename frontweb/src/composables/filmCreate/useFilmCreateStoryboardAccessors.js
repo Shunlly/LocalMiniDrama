@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { getSbImagesList, hasRealMediaValue, lookupByStoryboardId, samePositiveId } from '@/utils/storyboardMedia'
 import { isPlaceholderMediaUrl, storyboardImageUrl } from '@/utils/mediaUrl'
 
@@ -412,7 +413,7 @@ export function useFilmCreateStoryboardAccessors(deps = {}) {
       ElMessage.success('历史图已删除')
     } catch (err) {
       if (err !== 'cancel' && err !== 'close') {
-        ElMessage.error(err?.message || '删除失败')
+        ElMessage.error(toUserFacingError(err, '删除失败'))
       }
     }
   }

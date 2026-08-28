@@ -1,4 +1,5 @@
 import { ref, reactive, computed } from 'vue'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
 import { propAPI as rawPropAPI } from '@/api/props'
 import { propLibraryAPI as rawPropLibraryAPI } from '@/api/propLibrary'
@@ -135,7 +136,8 @@ export function useProps(deps) {
         ElMessage.success('道具提取任务已提交')
       }
     } catch (e) {
-      ElMessage.error(e.message || '提取失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '提取失败'))
     } finally {
       genStore.markDone(meta)
     }
@@ -194,7 +196,8 @@ export function useProps(deps) {
         await loadDrama()
       }
     } catch (e) {
-      ElMessage.error(e.message || '生成提示词失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '生成提示词失败'))
     } finally {
       editPropPromptGenerating.value = false
     }
@@ -236,7 +239,8 @@ export function useProps(deps) {
         ElMessage.success('已从图片提取道具描述')
       }
     } catch (e) {
-      ElMessage.error(e.message || '提取失败，请检查道具是否已上传参考图片')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '提取失败，请检查道具是否已上传参考图片'))
     } finally {
       extractingPropDesc.value = false
     }
@@ -257,7 +261,8 @@ export function useProps(deps) {
       showEditProp.value = false
       ElMessage.success('道具已保存')
     } catch (e) {
-      ElMessage.error(e.message || '保存失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '保存失败'))
     } finally {
       editPropSaving.value = false
     }
@@ -280,7 +285,8 @@ export function useProps(deps) {
       await loadDrama()
       ElMessage.success('道具已添加')
     } catch (e) {
-      ElMessage.error(e.message || '添加失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '添加失败'))
     } finally {
       addPropSaving.value = false
     }
@@ -305,7 +311,7 @@ export function useProps(deps) {
       ElMessage.success('道具已删除')
     } catch (e) {
       if (e === 'cancel') return
-      ElMessage.error(e.message || '删除失败')
+      ElMessage.error(toUserFacingError(e, '删除失败'))
     }
   }
 
@@ -339,8 +345,8 @@ export function useProps(deps) {
       }
     } catch (e) {
       console.error(e)
-      prop.errorMsg = e.message || '生成失败'
-      ElMessage.error(e.message || '提交失败')
+      prop.errorMsg = toUserFacingError(e, '生成失败')
+      ElMessage.error(toUserFacingError(e, '提交失败'))
     } finally {
       generatingPropIds.delete(prop.id)
       genStore.markDone(meta)
@@ -464,7 +470,8 @@ export function useProps(deps) {
       showEditPropLibrary.value = false
       loadPropLibraryList()
     } catch (e) {
-      ElMessage.error(e.message || '保存失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '保存失败'))
     } finally {
       editPropLibrarySaving.value = false
     }
@@ -482,7 +489,7 @@ export function useProps(deps) {
       loadPropLibraryList()
     } catch (e) {
       if (e === 'cancel') return
-      ElMessage.error(e.message || '删除失败')
+      ElMessage.error(toUserFacingError(e, '删除失败'))
     }
   }
 
@@ -494,7 +501,8 @@ export function useProps(deps) {
       ElMessage.success('已加入本剧道具库')
       if (showPropLibrary.value) loadPropLibraryList()
     } catch (e) {
-      ElMessage.error(e.message || '加入失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '加入失败'))
     } finally {
       addingPropToLibraryId.value = null
     }
@@ -507,7 +515,8 @@ export function useProps(deps) {
       await propAPI.addToMaterialLibrary(prop.id)
       ElMessage.success('已加入全局素材库')
     } catch (e) {
-      ElMessage.error(e.message || '加入失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '加入失败'))
     } finally {
       addingPropToMaterialId.value = null
     }
@@ -547,7 +556,8 @@ export function useProps(deps) {
       }
       await loadDrama()
     } catch (e) {
-      ElMessage.error(e.message || '加入失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '加入失败'))
     } finally {
       addingPropFromLibraryId.value = null
     }
@@ -579,7 +589,8 @@ export function useProps(deps) {
         ElMessage.success('已从参考图提取特征描述')
       }
     } catch (e) {
-      ElMessage.error(e.message || '提取失败，请检查 AI 配置中是否有支持视觉的模型')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '提取失败，请检查 AI 配置中是否有支持视觉的模型'))
     } finally {
       extractingPropAddDesc.value = false
     }

@@ -1,4 +1,5 @@
 import { ElMessage } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import {
   collectStoryboardReferenceSlots,
   collectStoryboardReferenceUrls,
@@ -96,7 +97,8 @@ export function useFilmCreateStoryboardReferences(deps = {}) {
       ElMessage.success(successMessage)
       return true
     } catch (e) {
-      ElMessage.error(e.message || '保存分镜参考图失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '保存分镜参考图失败'))
       return false
     } finally {
       savingSbReferenceImages.delete(sb.id)

@@ -1,4 +1,5 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { buildExtractTaskMeta } from '@/composables/useGenerationTaskSync'
 
@@ -103,7 +104,7 @@ export function useFilmCreateStoryboardCrud(deps = {}) {
       })
     } catch (e) {
       // HTTP 错误由 request 拦截器统一展示，此处仅处理拦截器未覆盖的异常
-      if (!e.response) ElMessage.error(e.message || '生成失败')
+      if (!e.response && !isUserFacingAbort(e)) ElMessage.error(toUserFacingError(e, '生成失败'))
     } finally {
       clearInterval(refreshTimer)
       genStore.markDone(meta)
@@ -129,7 +130,8 @@ export function useFilmCreateStoryboardCrud(deps = {}) {
       ElMessage.success('添加成功')
       await loadDrama() // 刷新列表
     } catch (e) {
-      ElMessage.error(e.message || '添加失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '添加失败'))
     }
   }
 
@@ -145,7 +147,7 @@ export function useFilmCreateStoryboardCrud(deps = {}) {
       await loadDrama() // 刷新列表
     } catch (e) {
       if (e !== 'cancel') {
-        ElMessage.error(e.message || '删除失败')
+        ElMessage.error(toUserFacingError(e, '删除失败'))
       }
     }
   }
@@ -156,7 +158,8 @@ export function useFilmCreateStoryboardCrud(deps = {}) {
       ElMessage.success('已在此位置前新增空白分镜')
       await loadDrama()
     } catch (e) {
-      ElMessage.error(e.message || '新增失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '新增失败'))
     }
   }
 

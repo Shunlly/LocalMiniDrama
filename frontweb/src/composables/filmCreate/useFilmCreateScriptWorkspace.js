@@ -1,4 +1,5 @@
 import { nextTick, watch } from 'vue'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { episodesListToPlainScript, parseScriptIntoEpisodes } from '@/utils/scriptEpisodes'
 
@@ -154,7 +155,8 @@ export function useFilmCreateScriptWorkspace(deps = {}) {
       ElMessage.success('已导入故事梗概与剧本（当前工程未切换）')
       scriptWorkbenchMode.value = 'select'
     } catch (e) {
-      ElMessage.error(e.message || '导入失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '导入失败'))
     } finally {
       selectScriptImporting.value = false
     }
@@ -256,7 +258,8 @@ export function useFilmCreateScriptWorkspace(deps = {}) {
       showNovelImport.value = false
       novelImportReset()
     } catch (e) {
-      ElMessage.error(e.message || '导入失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '导入失败'))
     } finally {
       novelImporting.value = false
     }
@@ -283,7 +286,8 @@ export function useFilmCreateScriptWorkspace(deps = {}) {
         extra: { created_project: !!result?.created },
       })
     } catch (e) {
-      ElMessage.error(e.message || '保存失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '保存失败'))
     } finally {
       scriptGenerating.value = false
     }
@@ -315,7 +319,8 @@ export function useFilmCreateScriptWorkspace(deps = {}) {
       await loadDrama()
       ElMessage.success('已添加第' + nextNum + '集')
     } catch (e) {
-      ElMessage.error(e.message || '添加失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '添加失败'))
     }
   }
 

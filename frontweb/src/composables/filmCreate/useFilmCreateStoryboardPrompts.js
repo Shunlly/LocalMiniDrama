@@ -1,4 +1,5 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 
 export function useFilmCreateStoryboardPrompts(deps = {}) {
   const {
@@ -91,7 +92,8 @@ export function useFilmCreateStoryboardPrompts(deps = {}) {
         ElMessage.success('通用优化提示词已生成')
       }
     } catch (e) {
-      ElMessage.error(e.message || '生成失败，请检查文本模型配置')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '生成失败，请检查文本模型配置'))
     } finally {
       sbPromptPolishing.value = false
     }
@@ -112,7 +114,8 @@ export function useFilmCreateStoryboardPrompts(deps = {}) {
       showSbPromptDialog.value = false
       ElMessage.success('提示词已保存')
     } catch (e) {
-      ElMessage.error(e.message || '保存失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '保存失败'))
     } finally {
       sbPromptSaving.value = false
     }
@@ -126,7 +129,8 @@ export function useFilmCreateStoryboardPrompts(deps = {}) {
       editingSbImagePromptId.value = null
       ElMessage.success('图片提示词已保存')
     } catch (e) {
-      ElMessage.error(e.message || '保存失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '保存失败'))
     }
   }
 
@@ -183,7 +187,8 @@ export function useFilmCreateStoryboardPrompts(deps = {}) {
       await loadDrama()
       ElMessage.success('已保存，视频提示词已按最新规则自动生成')
     } catch (e) {
-      ElMessage.error(e.message || '保存失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '保存失败'))
     }
   }
 
@@ -195,7 +200,8 @@ export function useFilmCreateStoryboardPrompts(deps = {}) {
       editingSbVideoPromptId.value = null
       ElMessage.success('视频提示词已保存')
     } catch (e) {
-      ElMessage.error(e.message || '保存失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '保存失败'))
     }
   }
 
@@ -255,7 +261,8 @@ export function useFilmCreateStoryboardPrompts(deps = {}) {
       await loadDrama()
       ElMessage.success(summary ? `已拆成 ${n} 条：${summary}` : `已拆成 ${n} 条分镜`)
     } catch (e) {
-      ElMessage.error(e.message || '拆镜失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '拆镜失败'))
     } finally {
       splitByAudioLoading.value = false
     }
@@ -269,7 +276,8 @@ export function useFilmCreateStoryboardPrompts(deps = {}) {
       await onSaveSbVideoFields(sb)
       showVideoParamsDialog.value = false
     } catch (e) {
-      ElMessage.error(e.message || '保存失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '保存失败'))
     } finally {
       videoParamsSaving.value = false
     }
@@ -283,7 +291,8 @@ export function useFilmCreateStoryboardPrompts(deps = {}) {
       await loadDrama()
       ElMessage.success(`摄影参数推断完成，更新了 ${res?.updated ?? 0} 条分镜`)
     } catch (e) {
-      ElMessage.error(e.message || '推断失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '推断失败'))
     } finally {
       inferringParams.value = false
     }
@@ -312,7 +321,8 @@ export function useFilmCreateStoryboardPrompts(deps = {}) {
         ElMessage.warning('AI 未返回有效的布局描述')
       }
     } catch (e) {
-      ElMessage.error(e.message || '重新生成布局描述失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '重新生成布局描述失败'))
     } finally {
       regeneratingLayoutSbIds.delete(sb.id)
     }
