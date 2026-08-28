@@ -1029,13 +1029,16 @@ async function retryCanvasProjectLoad() {
 async function fitCanvasView() {
   const flowApi = canvasFlowApi.value
   if (!flowApi?.fitView) return
+  const duration = 250
   await flowApi.fitView({
     padding: canvasMode.value === 'free' ? 0.28 : 0.12,
     minZoom: canvasMode.value === 'free' ? 0.25 : MIN_READABLE_CANVAS_ZOOM,
     maxZoom: canvasMode.value === 'free' ? 1.2 : 1,
-    duration: 250,
+    duration,
     includeHiddenNodes: false,
   })
+  await new Promise((resolve) => setTimeout(resolve, duration + 50))
+  await nextTick()
   const viewport = flowApi.getViewport?.()
   if (viewport) {
     onViewportChange(viewport)
@@ -4111,6 +4114,10 @@ async function saveFreeCanvasNodeAsAsset(payload = {}) {
   opacity: 0.16;
   filter: grayscale(0.85);
   pointer-events: none;
+}
+
+.drama-canvas-page.free-mode :deep(.vue-flow__node-freeCanvas) {
+  overflow: visible;
 }
 .logo:focus-visible { outline: 2px solid var(--canvas-indigo-strong); outline-offset: 4px; }
 

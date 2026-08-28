@@ -642,9 +642,7 @@ async function createNodeAndResolve({ page, apiRequest, dramaId, type, action })
   assert.equal(createdIds.length, 1, `${type} creation must add exactly one API node ID`)
   const node = persisted.nodes.find((item) => String(item.id) === createdIds[0])
   assert.equal(node?.type, type, `created API node ${createdIds[0]} has the wrong type`)
-  await clickUniqueButton(page, '适配视图')
-  await delay(400)
-  await waitForUiSaveSettled(page)
+  await fitViewAndSettle(page)
   await exactFreeNode(page, createdIds[0])
   return { node, state: persisted, before }
 }
@@ -740,6 +738,20 @@ async function moveExactNodeAwayFrom({ page, apiRequest, dramaId, nodeId, anchor
   assert.ok(finalGap >= 16, `exact free nodes remain too close after browser drag (gap=${Math.round(finalGap)})`)
 }
 
+async function fitViewAndSettle(page) {
+  await clickUniqueButton(page, '适配视图')
+  await delay(400)
+  await waitForUiSaveSettled(page)
+}
+
+async function readFreeNodeHitAtHandle(page, handle) {
+  const box = await handle.boundingBox()
+  if (!box || box.width < 1 || box.height < 1) return ''
+  return page.evaluate(({ x, y }) => (
+    document.elementFromPoint(x, y)?.closest('[data-free-node-id]')?.getAttribute('data-free-node-id') || ''
+  ), { x: box.x + box.width / 2, y: box.y + box.height / 2 })
+}
+
 async function connectExactNodes({ page, apiRequest, dramaId, sourceId, targetId }) {
   const before = await readFreeCanvas(apiRequest, dramaId)
   const beforeEdgeIds = stringSet(before.edges.map((edge) => edge.id))
@@ -749,17 +761,16 @@ async function connectExactNodes({ page, apiRequest, dramaId, sourceId, targetId
   const targetHandle = targetNode.locator('.vue-flow__handle.target')
   await assertUniqueLocator(sourceHandle, `source handle ${sourceId}`)
   await assertUniqueLocator(targetHandle, `target handle ${targetId}`)
-  const sourceBox = await sourceHandle.boundingBox()
-  const targetBox = await targetHandle.boundingBox()
-  assert.ok(sourceBox && targetBox, 'exact connection handles must have browser coordinates')
-  const sourcePoint = { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 }
-  const targetPoint = { x: targetBox.x + targetBox.width / 2, y: targetBox.y + targetBox.height / 2 }
-  const sourceHit = await page.evaluate(({ x, y }) => (
-    document.elementFromPoint(x, y)?.closest('[data-free-node-id]')?.getAttribute('data-free-node-id') || ''
-  ), sourcePoint)
-  const targetHit = await page.evaluate(({ x, y }) => (
-    document.elementFromPoint(x, y)?.closest('[data-free-node-id]')?.getAttribute('data-free-node-id') || ''
-  ), targetPoint)
+  const sourceHit = await waitForValue(
+    () => readFreeNodeHitAtHandle(page, sourceHandle),
+    (hit) => hit === String(sourceId),
+    'pointer hit target for source handle does not match the exact source ID',
+  )
+  const targetHit = await waitForValue(
+    () => readFreeNodeHitAtHandle(page, targetHandle),
+    (hit) => hit === String(targetId),
+    'pointer hit target for target handle does not match the exact target ID',
+  )
   assert.equal(sourceHit, String(sourceId), 'pointer hit target for source handle does not match the exact source ID')
   assert.equal(targetHit, String(targetId), 'pointer hit target for target handle does not match the exact target ID')
   await sourceHandle.click()
@@ -1214,8 +1225,7 @@ async function assertReloadedBrowserState({ page, apiRequest, dramaId, expected 
   assert.ok(Math.abs(renderedViewport.x - Number(persisted.viewport.x)) < 4, 'reloaded viewport x does not match the API')
   assert.ok(Math.abs(renderedViewport.y - Number(persisted.viewport.y)) < 4, 'reloaded viewport y does not match the API')
 
-  await clickUniqueButton(page, '适配视图')
-  await delay(400)
+  await fitViewAndSettle(page)
   const textNode = await exactFreeNode(page, expected.textNodeId)
   await textNode.scrollIntoViewIfNeeded()
   const visibleText = String(await textNode.locator('.node-content').textContent() || '').trim()
@@ -1316,7 +1326,7 @@ async function exerciseFreeCanvas({
       nodeId: configNodeId,
       anchorNodeId: textNodeId,
     })
-    await clickUniqueButton(page, '适配视图')
+    await fitViewAndSettle(page)
     const connected = await connectExactNodes({
       page,
       apiRequest,

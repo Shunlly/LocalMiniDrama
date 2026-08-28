@@ -66,6 +66,12 @@ test('free mode node renders text safely and protects editor gestures from the c
   assert.match(nodeSource, /props\.editing\s*&&\s*!props\.readonly\s*&&\s*props\.node\.type === 'text'/)
   assert.match(nodeSource, /@blur="finishEditing"/)
   assert.match(nodeSource, /:data-free-node-id="String\(node\.id\)"/)
+  assert.match(nodeSource, /overflow: visible;/)
+  assert.match(nodeSource, /<Handle[\s\S]*?type="target"[\s\S]*?:data-free-node-id="String\(node\.id\)"/)
+  assert.match(nodeSource, /<Handle[\s\S]*?type="source"[\s\S]*?:data-free-node-id="String\(node\.id\)"/)
+  assert.match(nodeSource, /\.free-canvas-node :deep\(\.vue-flow__handle\)/)
+  assert.match(dramaCanvasSource, /\.drama-canvas-page\.free-mode[\s\S]*?\.vue-flow__node-freeCanvas[\s\S]*?overflow:\s*visible/)
+  assert.match(dramaCanvasSource, /await new Promise\(\(resolve\) => setTimeout\(resolve, duration \+ 50\)\)/)
 })
 
 test('free image and video nodes render real media with stable loading and retry states', () => {

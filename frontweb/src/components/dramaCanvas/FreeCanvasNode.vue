@@ -6,7 +6,12 @@
     tabindex="-1"
     :aria-label="`${typeLabel}：${displayTitle}`"
   >
-    <Handle v-if="isFreeMode" type="target" :position="Position.Left" />
+    <Handle
+      v-if="isFreeMode"
+      type="target"
+      :position="Position.Left"
+      :data-free-node-id="String(node.id)"
+    />
     <header class="node-header">
       <span class="node-kind">{{ typeLabel }}</span>
       <span v-if="isConfigNode" class="node-state" :class="`state-${configRuntime.status}`" role="status">
@@ -105,7 +110,12 @@
         </el-button>
       </el-tooltip>
     </footer>
-    <Handle v-if="isFreeMode" type="source" :position="Position.Right" />
+    <Handle
+      v-if="isFreeMode"
+      type="source"
+      :position="Position.Right"
+      :data-free-node-id="String(node.id)"
+    />
   </article>
 </template>
 
@@ -210,13 +220,22 @@ watch(
   height: 208px;
   grid-template-rows: 24px 20px minmax(72px, 1fr) 24px;
   gap: 8px;
-  overflow: hidden;
+  overflow: visible;
   padding: 12px;
   border: 1px solid var(--border-color, #3f3f46);
   border-radius: 6px;
   background: var(--canvas-card-surface, var(--bg-card, #18181b));
   color: var(--canvas-text-primary, var(--text-primary, #e4e4e7));
   box-shadow: var(--shadow, 0 4px 16px rgba(0, 0, 0, 0.35));
+}
+
+.free-canvas-node :deep(.vue-flow__handle) {
+  z-index: 5;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--canvas-card-surface, var(--bg-card, #18181b));
+  background: var(--canvas-focus-ring, #818cf8);
+  pointer-events: auto;
 }
 
 .free-canvas-node.loading { border-color: var(--canvas-info-text, #60a5fa); }

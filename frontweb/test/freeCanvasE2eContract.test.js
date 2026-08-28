@@ -493,6 +493,10 @@ test('connection flow separates overlapping exact nodes and verifies browser poi
   assert.match(e2eSource, /elementFromPoint\(/)
   assert.match(e2eSource, /pointer hit target.*source/i)
   assert.match(e2eSource, /pointer hit target.*target/i)
+  assert.match(e2eSource, /async function fitViewAndSettle\(/)
+  assert.match(e2eSource, /async function readFreeNodeHitAtHandle\(/)
+  assert.match(e2eSource, /fitViewAndSettle\(page\)[\s\S]*connectExactNodes\(/)
+  assert.match(e2eSource, /waitForValue\([\s\S]*readFreeNodeHitAtHandle\(page, targetHandle\)/)
 })
 
 test('connection flow uses Vue Flow connect-on-click with exact source and target handles', () => {
