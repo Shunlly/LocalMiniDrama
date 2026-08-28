@@ -906,6 +906,8 @@ import { useFilmCreateMediaPreview } from '@/composables/filmCreate/useFilmCreat
 import { useFilmCreateTaskRecovery } from '@/composables/filmCreate/useFilmCreateTaskRecovery'
 import { useFilmCreateStoryboardAccessors } from '@/composables/filmCreate/useFilmCreateStoryboardAccessors'
 import { useFilmCreateStoryboardFields } from '@/composables/filmCreate/useFilmCreateStoryboardFields'
+import { useFilmCreateDeliverySettings } from '@/composables/filmCreate/useFilmCreateDeliverySettings'
+import { useFilmCreatePromptDialogState } from '@/composables/filmCreate/useFilmCreatePromptDialogState'
 import { useFilmCreateStoryboardStateSync } from '@/composables/filmCreate/useFilmCreateStoryboardStateSync'
 import { useFilmCreateStoryboardVideoFields } from '@/composables/filmCreate/useFilmCreateStoryboardVideoFields'
 import { useFilmCreateRefImageDrop } from '@/composables/filmCreate/useFilmCreateRefImageDrop'
@@ -1035,9 +1037,18 @@ const {
   isStoryGenRunning,
 } = useFilmCreateScriptNovelState({ store, genStore })
 
-const generationStyle = ref('')
-const projectAspectRatio = ref('16:9')
-const videoClipDuration = ref(5)
+const {
+  generationStyle,
+  projectAspectRatio,
+  videoClipDuration,
+  videoMusic,
+  videoSfx,
+  videoQuality,
+  videoSubtitle,
+  videoBurnDialogue,
+  videoWatermark,
+  videoWatermarkText,
+} = useFilmCreateDeliverySettings()
 
 const {
   getSelectedStylePrompt,
@@ -1054,15 +1065,6 @@ const scriptContent = computed({
   set: (v) => store.setScriptContent(v)
 })
 const videoResolution = storeVideoResolution
-const videoMusic = ref('')
-const videoSfx = ref('')
-const videoQuality = ref('high')
-const videoSubtitle = ref(false)
-/** 合成整集时把各镜对白 TTS（audio_local_path）按分镜时长对齐并混入成片 */
-const videoBurnDialogue = ref(false)
-const videoWatermark = ref(false)
-/** 水印开启时烧录到成片右下角 */
-const videoWatermarkText = ref('')
 
 const dramaId = computed(() => store.dramaId)
 const characters = computed(() => store.characters)
@@ -1564,26 +1566,25 @@ const sbDialogueAudioPaths = ref({})
 const sbNarrationAudioPaths = ref({})
 /** 分镜 TTS 试听：避免多条同时播放 */
 /** 正在编辑视频提示词的分镜 id；编辑中显示文本框与保存/取消 */
-const editingSbVideoPromptId = ref(null)
-const editingSbVideoPromptText = ref('')
-/** 正在编辑图片提示词的分镜 id（行内编辑，保留供内部 onSaveSbImagePrompt 使用） */
-const editingSbImagePromptId = ref(null)
-const editingSbImagePromptText = ref('')
-/** 分镜提示词弹窗 */
-const showSbPromptDialog = ref(false)
-const sbPromptTarget = ref(null)
-const sbPromptImageText = ref('')       // 原始 image_prompt
-const sbPromptPolishedText = ref('')    // AI 优化后 polished_prompt
-const sbPromptVideoText = ref('')       // video_prompt
-const sbPromptSaving = ref(false)
-const sbPromptPolishing = ref(false)
-/** 首尾帧提示词编辑器 */
-const showFramePromptEditor = ref(false)
-const editingFramePromptSb = ref(null)
-const editingFramePromptSlot = ref('first') // 'first' | 'last'
-const editingFramePromptText = ref('')
-const editingFramePromptSaving = ref(false)
-const editingFramePromptRegenerating = ref(false)
+const {
+  editingSbVideoPromptId,
+  editingSbVideoPromptText,
+  editingSbImagePromptId,
+  editingSbImagePromptText,
+  showSbPromptDialog,
+  sbPromptTarget,
+  sbPromptImageText,
+  sbPromptPolishedText,
+  sbPromptVideoText,
+  sbPromptSaving,
+  sbPromptPolishing,
+  showFramePromptEditor,
+  editingFramePromptSb,
+  editingFramePromptSlot,
+  editingFramePromptText,
+  editingFramePromptSaving,
+  editingFramePromptRegenerating,
+} = useFilmCreatePromptDialogState()
 const uploadingSbImageId = ref(null)
 const sbImageFileInput = ref(null)
 const sbImageUploadForId = ref(null)
