@@ -10,6 +10,10 @@ const scriptWorkspaceSource = readFileSync(
   new URL('../src/composables/filmCreate/useFilmCreateScriptWorkspace.js', import.meta.url),
   'utf8',
 )
+const storyboardVideoFieldsSource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreateStoryboardVideoFields.js', import.meta.url),
+  'utf8',
+)
 const stylePickerSource = readFileSync(
   new URL('../src/components/StylePickerButton.vue', import.meta.url),
   'utf8',
@@ -125,7 +129,7 @@ test('storyboard video controls expose a focusable missing-prompt reason', () =>
     /<ActionGate :reason="sbVideoGenerationDisabledReason\(sb\)" label="生成分镜视频">/,
   )
   assert.match(storyboardPanelSource, /class="sb-video-disabled-reason"[\s\S]*?role="status"[\s\S]*?tabindex="0"/)
-  assert.match(filmCreateSource, /function sbVideoGenerationDisabledReason\(sb\)[\s\S]*?请先填写视频提示词/)
+  assert.match(storyboardVideoFieldsSource, /function sbVideoGenerationDisabledReason\(sb\)[\s\S]*?请先填写视频提示词/)
 })
 
 test('script and character library empty states provide direct actions', () => {
