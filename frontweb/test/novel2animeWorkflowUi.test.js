@@ -320,7 +320,7 @@ test('canvas workflow keeps explicit empty pipeline invalid instead of defaultin
   assert.deepEqual(normalizePipeline([]), ['image', 'video', 'audio'])
   assert.throws(
     () => createWorkflowGroup([], { title: 'empty', storyboardIds: [1], pipeline: [] }),
-    /workflow step/
+    /请至少选择一个工作流步骤/
   )
 })
 

@@ -73,7 +73,7 @@
       <template v-else-if="kind === 'image'">
         <div class="preview-wrap">
           <img v-if="url && !busy" :src="url" :alt="frameTitle ? `${frameTitle}预览` : ''" class="preview-img" />
-          <div v-else-if="!busy" class="preview-empty">{{ frameTitle ? `无${frameTitle}` : '无分镜图' }}</div>
+          <div v-else-if="!busy" class="preview-empty">{{ imageEmptyLabel }}</div>
           <div v-if="busy" class="preview-loading"><span class="spinner" />{{ frameBusyLabel }}</div>
         </div>
         <el-button size="small" type="primary" :loading="busy" @click.stop="runStep('image')">{{ frameActionLabel }}</el-button>
@@ -180,6 +180,11 @@ const kindTitle = computed(() => {
   if (frameTitle.value) return frameTitle.value
   const map = { text: '脚本摘要', universal: '全能分镜词', image: '分镜图', video: '视频', audio: '音频' }
   return map[props.kind] || '媒体'
+})
+const imageEmptyLabel = computed(() => {
+  if (props.frameKind === 'first') return '待生成首帧'
+  if (props.frameKind === 'last') return '待生成尾帧'
+  return '无分镜图'
 })
 const frameActionLabel = computed(() => (
   frameTitle.value ? `重新生成${frameTitle.value}` : '重新生成图'

@@ -22,7 +22,7 @@
           </button>
         </h2>
         <div id="resource-panel-body" v-show="!resourcePanelCollapsed" class="resource-panel-body">
-          <!-- 角色生成 -->
+          <!-- 角色 -->
           <div id="anchor-characters" class="resource-block card">
             <h3 class="collapse-heading">
               <button
@@ -32,7 +32,7 @@
                 aria-controls="characters-block-body"
                 @click="charactersBlockCollapsed = !charactersBlockCollapsed"
               >
-                <span class="resource-block-title">角色生成</span>
+                <span class="resource-block-title">角色</span>
                 <el-icon class="collapse-icon"><ArrowUp v-if="!charactersBlockCollapsed" /><ArrowDown v-else /></el-icon>
               </button>
             </h3>
@@ -191,7 +191,7 @@
             </div>
           </div>
 
-          <!-- 道具生成 -->
+          <!-- 道具 -->
           <div id="anchor-props" class="resource-block card">
             <h3 class="collapse-heading">
               <button
@@ -201,7 +201,7 @@
                 aria-controls="props-block-body"
                 @click="propsBlockCollapsed = !propsBlockCollapsed"
               >
-                <span class="resource-block-title">道具生成</span>
+                <span class="resource-block-title">道具</span>
                 <el-icon class="collapse-icon"><ArrowUp v-if="!propsBlockCollapsed" /><ArrowDown v-else /></el-icon>
               </button>
             </h3>
@@ -305,12 +305,12 @@
                     </div>
                   </div>
                 </div>
-                <div v-if="propItems.length === 0" class="empty-tip">暂无道具，可从剧本提取或添加</div>
+                <div v-if="propItems.length === 0" class="empty-tip">暂无道具，可用「从剧本提取道具」或「添加道具」</div>
               </div>
             </div>
           </div>
 
-          <!-- 场景生成 -->
+          <!-- 场景 -->
           <div id="anchor-scenes" class="resource-block card">
             <h3 class="collapse-heading">
               <button
@@ -320,7 +320,7 @@
                 aria-controls="scenes-block-body"
                 @click="scenesBlockCollapsed = !scenesBlockCollapsed"
               >
-                <span class="resource-block-title">场景生成</span>
+                <span class="resource-block-title">场景</span>
                 <el-icon class="collapse-icon"><ArrowUp v-if="!scenesBlockCollapsed" /><ArrowDown v-else /></el-icon>
               </button>
             </h3>
@@ -426,7 +426,7 @@
                     </div>
                   </div>
                 </div>
-                <div v-if="scenes.length === 0" class="empty-tip">暂无场景，可从剧本提取或添加场景</div>
+                <div v-if="scenes.length === 0" class="empty-tip">暂无场景，可用「从剧本提取场景」或「添加场景」</div>
               </div>
             </div>
           </div>

@@ -10,6 +10,7 @@
           focused: showPanel,
           processing: isNodeBusy,
           unknown: showMediaQueryWarning,
+          pending: Boolean(pendingFrameCaption),
         },
       ]"
       role="button"
@@ -30,8 +31,8 @@
         <p class="text-body universal-body">{{ data.summary || '暂无全能分镜词' }}</p>
       </template>
       <template v-else-if="data.kind === 'image'">
-        <img v-if="data.url" :src="data.url" :alt="`${kindLabel}预览`" class="media-img" />
-        <div v-else class="empty">无分镜图</div>
+        <img v-if="imageUrl" :src="imageUrl" :alt="`${kindLabel}预览`" class="media-img" />
+        <div v-else class="empty" :class="{ 'pending-frame': Boolean(pendingFrameCaption) }">{{ pendingFrameCaption || '无分镜图' }}</div>
       </template>
       <template v-else-if="data.kind === 'video'">
         <div v-if="data.url" class="media-video-wrap">
@@ -105,10 +106,19 @@ const kindLabel = computed(() => {
   return map[props.data.kind] || props.data.kind
 })
 
+const imageUrl = computed(() => String(props.data.url || '').trim())
+
+const pendingFrameCaption = computed(() => {
+  if (props.data.kind !== 'image' || imageUrl.value) return ''
+  if (props.data.frameKind === 'first') return '待生成首帧'
+  if (props.data.frameKind === 'last') return '待生成尾帧'
+  return ''
+})
+
 const validatedMediaUrl = computed(() => (
   props.data.kind === 'video'
     ? (videoState.value === 'ready' ? props.data.url : '')
-    : props.data.url
+    : imageUrl.value
 ))
 
 const accessibleLabel = computed(() => {
@@ -118,7 +128,8 @@ const accessibleLabel = computed(() => {
     ? `，${videoState.value === 'ready' ? '可播放' : videoState.value === 'invalid' ? '不可播放' : '校验中'}`
     : ''
   const unknownStatus = showMediaQueryWarning.value ? '，媒体状态未知，可重试查询' : ''
-  return `${kindLabel.value}${suffix}${videoStatus}${unknownStatus}，按 Enter 或空格展开`
+  const title = pendingFrameCaption.value || kindLabel.value
+  return `${title}${suffix}${videoStatus}${unknownStatus}，按 Enter 或空格展开`
 })
 
 function reportVideoState(state) {
@@ -228,6 +239,16 @@ watch(
   color: var(--canvas-text-subtle, #71717a);
   padding: 20px 0;
   text-align: center;
+}
+
+.pending-frame {
+  min-height: 92px;
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  border: 1px dashed var(--border-muted, #3f3f46);
+  border-radius: 6px;
+  background: var(--canvas-media-well, #09090b);
 }
 
 .universal-body {

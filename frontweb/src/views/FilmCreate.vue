@@ -54,7 +54,7 @@
           画布模式
         </el-button>
         <div class="header-actions">
-          <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
+          <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
             <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
             {{ isDark ? '浅色' : '暗色' }}
           </el-button><el-button class="btn-ai-config" :disabled="projectLoadState !== 'ready'" @click="openAiConfig()">
@@ -161,7 +161,7 @@
       <!-- 当前任务面板 -->
       <div v-if="allActiveTaskItems.length > 0" class="atp-panel">
         <!-- 折叠态：只显示旋转点和数量 -->
-        <div v-if="navCollapsed" class="atp-collapsed-badge" :title="allActiveTaskLabels.join('\n')">
+        <div v-if="navCollapsed" class="atp-collapsed-badge" role="status" aria-live="polite" :aria-label="`进行中任务 ${allActiveTaskItems.length} 个：${allActiveTaskLabels.join('、')}`" :title="allActiveTaskLabels.join('\n')">
           <span class="atp-spin-dot" />
           <span class="atp-collapsed-count">{{ allActiveTaskItems.length }}</span>
         </div>
@@ -920,6 +920,7 @@ import { useFilmCreateAiConfigWorkspace } from '@/composables/filmCreate/useFilm
 import { useFilmCreateDeliveryActions } from '@/composables/filmCreate/useFilmCreateDeliveryActions'
 import { useFilmCreateScriptEstimates } from '@/composables/filmCreate/useFilmCreateScriptEstimates'
 import { useFilmCreateTaskCancel } from '@/composables/filmCreate/useFilmCreateTaskCancel'
+import { useFilmCreateActiveTasks } from '@/composables/filmCreate/useFilmCreateActiveTasks'
 import { trackFilmCreateAction } from '@/utils/filmCreateActionLog'
 import { useFilmCreateScriptDraft } from '@/composables/filmCreate/useFilmCreateScriptDraft'
 import { useFilmCreateResourceGenerate } from '@/composables/filmCreate/useFilmCreateResourceGenerate'
@@ -1506,62 +1507,8 @@ const navSteps = computed(() => {
   ]
 })
 
-/** 聚合所有当前正在运行的任务，用于悬浮任务面板（含跨剧跨集） */
-const allActiveTaskItems = computed(() => {
-  const items = []
-  const seen = new Set()
-  function addItem(item) {
-    const id = item.id || item.label
-    if (!id || seen.has(id)) return
-    seen.add(id)
-    items.push(item)
-  }
-  for (const t of genStore.getAllRunningTasks()) {
-    addItem({
-      id: `gen:${t.key || t.taskId || t.label}`,
-      label: t.label || '任务进行中...',
-      kind: 'genStore',
-      task: t,
-    })
-  }
-  if (pipelineRunning.value) {
-    const step = pipelineCurrentStep.value
-    addItem({
-      id: 'pipeline',
-      label: pipelineStopping.value
-        ? '正在停止全流程...'
-        : pipelineAbortRequested.value
-          ? '全流程停止未完成，点击重试'
-          : (step ? step.replace(/^\[步骤 \d+\/\d+\] /, '') : '一键全流程运行中...'),
-      kind: 'pipeline',
-    })
-  }
-  if (isStoryGenRunning.value && !genStore.getAllRunningTasks().some((t) => t.resourceType === GEN_RESOURCE.GENERATE_STORY)) {
-    addItem({ id: 'story-gen-local', label: '生成剧本...', kind: 'storyGenLocal' })
-  }
-  if (universalOmniPolishRunning.value) {
-    const p = universalOmniPolishProgress.value
-    addItem({
-      id: 'universal-omni-polish',
-      label: `润色全能分镜 ${p.current}/${p.total}${p.label ? ' ' + p.label : ''}`,
-      kind: 'universalOmniPolish',
-    })
-  }
-  if (batchImageRunning.value) {
-    addItem({ id: 'batch-image', label: '批量生成分镜图...', kind: 'batchImage' })
-  }
-  if (batchVideoRunning.value) {
-    const p = batchVideoProgress.value
-    const suffix = p?.total ? ` ${p.current}/${p.total}` : ''
-    addItem({ id: 'batch-video', label: `批量生成分镜视频${suffix}...`, kind: 'batchVideo' })
-  }
-  return items
-})
-
-const allActiveTaskLabels = computed(() => allActiveTaskItems.value.map((t) => t.label))
-
 const sbCharacterIds = ref({})  // sbId -> number[] 多选角色
-const sbPropIds = ref({})       // sbId -> number[] 多选物品
+const sbPropIds = ref({})       // sbId -> number[] 多选道具
 const sbSceneId = ref({})
 const sbDialogue = ref({})
 const sbNarration = ref({})
@@ -1674,6 +1621,23 @@ const {
   batchVideoStopping,
 })
 const batchVideoProgress = ref({ current: 0, total: 0, failed: 0 })
+
+const {
+  allActiveTaskItems,
+  allActiveTaskLabels,
+} = useFilmCreateActiveTasks({
+  genStore,
+  pipelineRunning,
+  pipelineStopping,
+  pipelineAbortRequested,
+  pipelineCurrentStep,
+  isStoryGenRunning,
+  universalOmniPolishRunning,
+  universalOmniPolishProgress,
+  batchImageRunning,
+  batchVideoRunning,
+  batchVideoProgress,
+})
 const batchVideoErrors = ref([])
 const projectActionDisabledReason = computed(() => projectResourceDisabledReason({
   hasProject: Boolean(dramaId.value),
