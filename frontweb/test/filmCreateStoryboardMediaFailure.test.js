@@ -21,7 +21,12 @@ const tailFrameSource = readFileSync(new URL('../src/composables/filmCreate/useF
 const navigationGuardsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateNavigationGuards.js', import.meta.url), 'utf8')
 const projectLoadSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateProjectLoad.js', import.meta.url), 'utf8')
 const routeSyncSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateRouteSync.js', import.meta.url), 'utf8')
-const source = pipelineRunSource + '\n' + pipelineStagesSource + '\n' + batchGenerationSource + '\n' + episodeComposeSource + '\n' + storyboardImageGenerationSource + '\n' + storyboardVideoGenerationSource + '\n' + tailFrameSource + '\n' + linkedRegenSource + '\n' + navigationGuardsSource + '\n' + projectLoadSource + '\n' + routeSyncSource + '\n' + filmCreateSource + '\n' + mediaComposableSource
+const taskPollingSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateTaskPolling.js', import.meta.url), 'utf8')
+const mediaPreviewSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateMediaPreview.js', import.meta.url), 'utf8')
+const taskRecoverySource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateTaskRecovery.js', import.meta.url), 'utf8')
+const storyboardAccessorsSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardAccessors.js', import.meta.url), 'utf8')
+const storyboardStateSyncSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardStateSync.js', import.meta.url), 'utf8')
+const source = pipelineRunSource + '\n' + pipelineStagesSource + '\n' + batchGenerationSource + '\n' + episodeComposeSource + '\n' + storyboardImageGenerationSource + '\n' + storyboardVideoGenerationSource + '\n' + tailFrameSource + '\n' + linkedRegenSource + '\n' + navigationGuardsSource + '\n' + projectLoadSource + '\n' + routeSyncSource + '\n' + taskPollingSource + '\n' + mediaPreviewSource + '\n' + taskRecoverySource + '\n' + storyboardAccessorsSource + '\n' + storyboardStateSyncSource + '\n' + filmCreateSource + '\n' + mediaComposableSource
 const resourcePanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
 const filmCreateUiSource = source + '\n' + resourcePanelSource
 
@@ -241,7 +246,7 @@ test('single and batch video submission defer selection clearing until Provider 
 test('task recovery and polling callbacks capture their original storyboard-media context', () => {
   const recovery = sourceBetween(
     'async function recoverAndSyncEpisodeTasks',
-    '// ── 主图选择',
+    '// 任务恢复结束',
   )
   const singleLoader = sourceBetween(
     'async function loadSingleStoryboardMedia',

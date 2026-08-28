@@ -114,7 +114,7 @@ const FilmCreatePipelinePanel = (await import(compiledPipelinePanelUrl)).default
 
 test('FilmCreate never renders or forwards raw storyboard placeholder URLs', () => {
   assert.match(storyboardPanelSource, /v-else-if="storyboardImageUrl\(sb\)"/)
-  assert.match(filmCreateSource, /return storyboardImageUrl\(sb\)/)
+  assert.match(filmCreateSource + '\n' + readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardAccessors.js', import.meta.url), 'utf8'), /return storyboardImageUrl\(sb\)/)
   assert.doesNotMatch(filmCreateSource, /v-else-if="sb\.(?:image_url|composed_image)/)
   assert.doesNotMatch(filmCreateSource, /imageUrl\(sb\.composed_image \|\| sb\.image_url\)/)
 })

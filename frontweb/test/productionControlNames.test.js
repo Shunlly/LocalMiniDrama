@@ -25,6 +25,7 @@ const targetSources = [
 ]
 
 const filmCreateSource = targetSources.find(({ name }) => name.endsWith('/FilmCreate.vue')).source
+const storyboardAccessorsSource = read('../src/composables/filmCreate/useFilmCreateStoryboardAccessors.js')
 const pipelineSource = targetSources.find(({ name }) => name.endsWith('/FilmCreatePipelinePanel.vue')).source
 const scriptWorkbenchSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateScriptWorkbench.vue')).source
 const storyboardCreatePanelSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateStoryboardPanel.vue')).source
@@ -172,7 +173,7 @@ test('history image operations include a stable per-list index in every accessib
     (storyboardCreatePanelSource.match(/v-for="\(item, historyIndex\) in getStripItems\(sb\.id\)"/g) || []).length,
     2,
   )
-  assert.match(filmCreateSource, /function historyImageLabel\(sb, storyboardIndex, item, historyIndex\)/)
+  assert.match(storyboardAccessorsSource, /function historyImageLabel\(sb, storyboardIndex, item, historyIndex\)/)
   assert.ok(
     (storyboardCreatePanelSource.match(/historyImageLabel\(sb, i, item, historyIndex\)/g) || []).length >= 6,
     'primary, preview, and delete actions in both history strips must use the indexed label',

@@ -8,6 +8,9 @@ const dialogSource = read('../src/components/ImagePreviewDialog.vue')
 const filmListSource = read('../src/views/FilmList.vue')
 const freeCreateSource = read('../src/views/FreeCreate.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
+const mediaPreviewSource = read('../src/composables/filmCreate/useFilmCreateMediaPreview.js')
+const storyboardAccessorsSource = read('../src/composables/filmCreate/useFilmCreateStoryboardAccessors.js')
+const filmCreateLogicSource = filmCreateSource + '\n' + mediaPreviewSource + '\n' + storyboardAccessorsSource
 const resourceDialogsSource = read('../src/components/filmCreate/FilmCreateResourceDialogs.vue')
 const resourcePanelSource = read('../src/components/filmCreate/FilmCreateResourcePanel.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
@@ -69,9 +72,9 @@ test('FilmCreate and DramaDetail use the shared focus-managed preview for every 
   assert.equal((dramaDetailSource.match(/type="button" class="lib-img-thumb"/g) || []).length, 6)
   assert.equal((resourceDialogsSource.match(/type="button" class="library-item-cover"/g) || []).length, 6)
   assert.equal((resourceDialogsSource.match(/class="ref-image-box" aria-label=/g) || []).length, 4)
-  assert.match(filmCreateSource, /await probeImageSource\(source\)/)
-  assert.match(filmCreateSource, /hasSbDraftImagePlaceholder\(sb\)/)
-  assert.match(filmCreateSource, /草稿占位/)
+  assert.match(filmCreateLogicSource, /await probeImageSource\(source\)/)
+  assert.match(filmCreateLogicSource, /hasSbDraftImagePlaceholder\(sb\)/)
+  assert.match(filmCreateLogicSource, /草稿占位/)
 })
 
 test('custom canvas and asset controls expose native or complete keyboard semantics', () => {
