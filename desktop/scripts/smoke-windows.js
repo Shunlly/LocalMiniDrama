@@ -21,7 +21,7 @@ const mediaToolNames = {
 };
 const legacyFixture = {
   title: 'Desktop legacy migration smoke fixture',
-  assetRelativePath: 'legacy-smoke/visible.txt',
+  assetRelativePath: 'library/legacy-smoke/visible.txt',
   assetContents: 'legacy media fixture is visible',
 };
 const bundledExampleFilename = '衣服设计天才302.zip';
