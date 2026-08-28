@@ -8,7 +8,6 @@ const path = require('node:path');
 const { stripVTControlCharacters } = require('node:util');
 const asar = require('@electron/asar');
 const { getPath7za } = require('app-builder-lib/out/toolsets/7zip');
-const { archive } = require('app-builder-lib/out/targets/archive');
 const packageJson = require('../package.json');
 const { FUSE_POLICY } = require('./electron-fuses');
 const mediaToolPolicy = require('./media-tool-policy');
@@ -325,16 +324,29 @@ async function packageUnpacked() {
 }
 
 async function createVerifiedZip(source, output, runtime = {}) {
-  const archiveWriter = runtime.archiveWriter || archive;
   const sevenZip = runtime.sevenZip || await getPath7za();
   const runCommand = runtime.runCommand || run;
+  const archiveWriter = runtime.archiveWriter || (async (_format, archivePath, src) => {
+    const resolvedSource = path.resolve(src);
+    runCommand(sevenZip, [
+      'a',
+      '-tzip',
+      '-bd',
+      '-mx=7',
+      '-mmt=off',
+      '-mcu=on',
+      '-sccUTF-8',
+      path.resolve(archivePath),
+      path.basename(resolvedSource),
+    ], { cwd: path.dirname(resolvedSource) });
+  });
   let lastError = null;
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     fs.rmSync(output, { force: true });
     await archiveWriter('zip', output, source, { compression: 'normal' });
     try {
-      runCommand(sevenZip, ['t', '-bd', output]);
+      runCommand(sevenZip, ['t', '-bd', '-mmt=off', '-sccUTF-8', output]);
       return { output, attempts: attempt };
     } catch (error) {
       lastError = error;
