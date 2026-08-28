@@ -15,6 +15,18 @@ export function useFilmCreateUniversalSegment(deps = {}) {
     universalOmniPolishProgress,
     pipelineRest,
     onSaveUniversalSegmentField,
+    // 未注入编辑区 ref 时回退为空对象，避免生成路径抛出英文 ReferenceError
+    sbTitle = { value: {} },
+    sbLocation = { value: {} },
+    sbTime = { value: {} },
+    sbAction = { value: {} },
+    sbDialogue = { value: {} },
+    sbNarration = { value: {} },
+    sbResult = { value: {} },
+    sbAtmosphere = { value: {} },
+    sbShotType = { value: {} },
+    sbMovement = { value: {} },
+    sbLayoutDescription = { value: {} },
   } = deps
 
   function buildUniversalSegmentFieldOverrides(sb) {

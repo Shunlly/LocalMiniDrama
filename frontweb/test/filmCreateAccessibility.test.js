@@ -6,6 +6,10 @@ const filmCreateSource = readFileSync(
   new URL('../src/views/FilmCreate.vue', import.meta.url),
   'utf8',
 )
+const navStepsSource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreateNavSteps.js', import.meta.url),
+  'utf8',
+)
 const scriptWorkspaceSource = readFileSync(
   new URL('../src/composables/filmCreate/useFilmCreateScriptWorkspace.js', import.meta.url),
   'utf8',
@@ -109,15 +113,16 @@ test('film create keeps the episode selector only in the page header', () => {
 
 test('film create navigation names and reports the final delivery step accurately', () => {
   assert.match(
-    filmCreateSource,
+    navStepsSource,
     /label: '交付与导出',\s+anchor: 'anchor-video',\s+status: compositeStatus/,
   )
   assert.match(deliveryActionsSource, /if \(isPlaceholderMediaUrl\(s\)\) return ''/)
-  assert.match(filmCreateSource, /currentEpisodeVideoUrl\.value\s*\? 'done'/)
+  assert.match(navStepsSource, /currentEpisodeVideoUrl\.value\s*\? 'done'/)
   assert.doesNotMatch(
-    filmCreateSource,
+    navStepsSource,
     /label: '分镜视频',\s+anchor: 'anchor-video'/,
   )
+  assert.match(filmCreateSource, /useFilmCreateNavSteps\(/)
 })
 
 test('delivery stage consolidates composite readiness and user-facing export actions', () => {

@@ -921,6 +921,7 @@ import { useFilmCreateDeliveryActions } from '@/composables/filmCreate/useFilmCr
 import { useFilmCreateScriptEstimates } from '@/composables/filmCreate/useFilmCreateScriptEstimates'
 import { useFilmCreateTaskCancel } from '@/composables/filmCreate/useFilmCreateTaskCancel'
 import { useFilmCreateActiveTasks } from '@/composables/filmCreate/useFilmCreateActiveTasks'
+import { useFilmCreateNavSteps } from '@/composables/filmCreate/useFilmCreateNavSteps'
 import { trackFilmCreateAction } from '@/utils/filmCreateActionLog'
 import { useFilmCreateScriptDraft } from '@/composables/filmCreate/useFilmCreateScriptDraft'
 import { useFilmCreateResourceGenerate } from '@/composables/filmCreate/useFilmCreateResourceGenerate'
@@ -1439,74 +1440,6 @@ const propUseQuadGrid = ref(false)  // 道具四视图（与场景四宫格同�
 // 分镜行内编辑状态（按 storyboard id 存储）
 // navCollapsed/storyboardMenuExpanded/toggleNav → 已移至 useNavigation composable
 
-/** 左侧导航各步骤状态 */
-const navSteps = computed(() => {
-  const epRunning = genStore.getRunningForEpisode(dramaId.value, currentEpisodeId.value)
-  // 剧本
-  const hasScript = !!(scriptContent?.value?.trim())
-  const scriptStatus = isStoryGenRunning.value
-    ? 'generating'
-    : hasScript ? 'done' : 'pending'
-
-  // 角色
-  const charList = characters.value || []
-  const charDone = charList.length > 0 && charList.every(c => hasAssetImage(c))
-  const charGen = charactersGenerating.value || generatingCharIds.size > 0
-    || epRunning.some((t) => t.resourceType === GEN_RESOURCE.CHAR_IMAGE || t.resourceType === GEN_RESOURCE.EXTRACT_CHARACTERS)
-  const charStatus = charGen ? 'generating' : charDone ? 'done' : charList.length > 0 ? 'partial' : 'pending'
-
-  // 道具
-  const propList = props.value || []
-  const propDone = propList.length > 0 && propList.every(p => hasAssetImage(p))
-  const propGen = propsExtracting.value || generatingPropIds.size > 0
-    || epRunning.some((t) => t.resourceType === GEN_RESOURCE.PROP_IMAGE || t.resourceType === GEN_RESOURCE.EXTRACT_PROPS)
-  const propStatus = propGen ? 'generating' : propDone ? 'done' : propList.length > 0 ? 'partial' : 'pending'
-
-  // 场景
-  const sceneList = scenes.value || []
-  const sceneDone = sceneList.length > 0 && sceneList.every(s => hasAssetImage(s))
-  const sceneGen = scenesExtracting.value || generatingSceneIds.size > 0
-    || epRunning.some((t) => t.resourceType === GEN_RESOURCE.SCENE_IMAGE || t.resourceType === GEN_RESOURCE.EXTRACT_SCENES)
-  const sceneStatus = sceneGen ? 'generating' : sceneDone ? 'done' : sceneList.length > 0 ? 'partial' : 'pending'
-
-  // 分镜脚本
-  const sbList = storyboards.value || []
-  const sbScriptDone = sbList.length > 0
-  const sbScriptGen = storyboardGenerating.value || universalOmniPolishRunning.value
-    || epRunning.some((t) => t.resourceType === GEN_RESOURCE.GENERATE_STORYBOARD)
-  const sbScriptStatus = sbScriptGen ? 'generating' : sbScriptDone ? 'done' : 'pending'
-
-  // 分镜图
-  const sbImgDone = sbList.length > 0 && sbList.every(sb => hasSbImage(sb))
-  const sbImgGen = generatingSbImageIds.size > 0 || batchImageRunning.value || epRunning.some((t) =>
-    t.resourceType === GEN_RESOURCE.SB_IMAGE
-    || t.resourceType === GEN_RESOURCE.SB_FIRST_IMAGE
-    || t.resourceType === GEN_RESOURCE.SB_LAST_IMAGE
-  )
-  const sbImgStatus = sbImgGen ? 'generating' : sbImgDone ? 'done' : sbList.length > 0 ? 'partial' : 'pending'
-
-  // 成片合成：分镜视频齐备只是前置条件，只有整集视频存在才算完成。
-  const sbVideoAllDone = sbList.length > 0 && sbList.every(sb => getSbAllVideos(sb.id).length > 0)
-  const sbVideoSome = sbList.some(sb => getSbAllVideos(sb.id).length > 0)
-  const sbVideoGen = batchVideoRunning.value || generatingSbVideoIds.size > 0
-    || epRunning.some((t) => t.resourceType === GEN_RESOURCE.SB_VIDEO)
-  const compositeStatus = videoStatus.value === 'generating'
-    ? 'generating'
-    : currentEpisodeVideoUrl.value
-      ? 'done'
-      : (sbVideoGen || sbVideoAllDone || sbVideoSome) ? 'partial' : 'pending'
-
-  return [
-    { key: 'script',   label: '故事剧本',   anchor: 'anchor-script',     status: scriptStatus,    count: hasScript ? 1 : 0 },
-    { key: 'chars',    label: '角色',        anchor: 'anchor-characters', status: charStatus,      count: charList.length },
-    { key: 'props',    label: '道具',        anchor: 'anchor-props',      status: propStatus,      count: propList.length },
-    { key: 'scenes',   label: '场景',        anchor: 'anchor-scenes',     status: sceneStatus,     count: sceneList.length },
-    { key: 'sb',       label: '分镜脚本',   anchor: 'anchor-storyboard', status: sbScriptStatus,  count: sbList.length },
-    { key: 'sbimg',    label: '分镜图',      anchor: 'anchor-storyboard-images', status: sbImgStatus, count: sbList.length },
-    { key: 'video',    label: '交付与导出', anchor: 'anchor-video',      status: compositeStatus, count: 0 },
-  ]
-})
-
 const sbCharacterIds = ref({})  // sbId -> number[] 多选角色
 const sbPropIds = ref({})       // sbId -> number[] 多选道具
 const sbSceneId = ref({})
@@ -1861,6 +1794,37 @@ const {
   toAbsoluteImageUrl,
   userFacingVideoGenerationError,
   sbVideoReferenceImageId,
+})
+
+const {
+  navSteps,
+} = useFilmCreateNavSteps({
+  genStore,
+  dramaId,
+  currentEpisodeId,
+  scriptContent,
+  isStoryGenRunning,
+  characters,
+  hasAssetImage,
+  charactersGenerating,
+  generatingCharIds,
+  props,
+  propsExtracting,
+  generatingPropIds,
+  scenes,
+  scenesExtracting,
+  generatingSceneIds,
+  storyboards,
+  storyboardGenerating,
+  universalOmniPolishRunning,
+  hasSbImage,
+  generatingSbImageIds,
+  batchImageRunning,
+  getSbAllVideos,
+  batchVideoRunning,
+  generatingSbVideoIds,
+  videoStatus,
+  currentEpisodeVideoUrl,
 })
 
 const {
@@ -2313,6 +2277,17 @@ const {
   universalOmniPolishProgress,
   pipelineRest,
   onSaveUniversalSegmentField,
+  sbTitle,
+  sbLocation,
+  sbTime,
+  sbAction,
+  sbDialogue,
+  sbNarration,
+  sbResult,
+  sbAtmosphere,
+  sbShotType,
+  sbMovement,
+  sbLayoutDescription,
 })
 
 

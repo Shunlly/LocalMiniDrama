@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
-const nav = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const nav = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateNavSteps.js', import.meta.url), 'utf8')
 
 test('资源面板标题与导航步骤一致，空态指向真实按钮', () => {
   assert.match(nav, /label: '角色'/)
