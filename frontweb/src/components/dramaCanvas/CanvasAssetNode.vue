@@ -21,7 +21,10 @@
       <Handle type="source" :position="Position.Right" />
       <div class="cover">
         <img v-if="thumbUrl && !isNodeBusy" :src="thumbUrl" :alt="`${displayName}${kindLabel}参考图`" />
-        <div v-else-if="!isNodeBusy" class="cover-placeholder">{{ kindIcon }}</div>
+        <div v-else-if="!isNodeBusy" class="cover-placeholder">
+          <span class="cover-icon" aria-hidden="true">{{ kindIcon }}</span>
+          <span class="cover-empty">暂无参考图</span>
+        </div>
         <CanvasNodeStatusOverlay :node-id="id" />
       </div>
       <div class="info">
@@ -88,7 +91,7 @@ const statusChip = computed(() => {
   if (s === 'processing') return { key: 'processing', label: '生成中' }
   if (s === 'failed') return { key: 'failed', label: '失败' }
   if (thumbUrl.value) return { key: 'ready', label: '有图' }
-  return null
+  return { key: 'empty', label: '无图' }
 })
 
 const accessibleLabel = computed(() => (
@@ -139,8 +142,24 @@ async function openPanel() {
   object-fit: cover;
 }
 .cover-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  border: 1px dashed var(--border-muted, #3f3f46);
+  box-sizing: border-box;
+}
+.cover-icon {
   font-size: 28px;
   opacity: 0.7;
+}
+.cover-empty {
+  font-size: 11px;
+  color: var(--canvas-text-muted, #a1a1aa);
 }
 .info {
   padding: 8px 10px 10px;
@@ -175,6 +194,7 @@ async function openPanel() {
 .status-chip.st-busy,
 .status-chip.st-processing { color: var(--canvas-info-text, #60a5fa); background: rgba(96, 165, 250, 0.15); }
 .status-chip.st-ready { color: var(--canvas-success-text, #34d399); background: rgba(52, 211, 153, 0.12); }
+.status-chip.st-empty { color: var(--canvas-text-muted, #a1a1aa); background: var(--canvas-chip-surface, rgba(255, 255, 255, 0.08)); }
 .status-chip.st-failed { color: var(--canvas-danger-text, #f87171); background: rgba(248, 113, 113, 0.12); }
 .kind {
   font-size: 11px;

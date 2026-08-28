@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="panelRef"
     class="canvas-node-panel sb-panel nodrag nopan nowheel"
     tabindex="-1"
     @pointerdown.stop
@@ -7,13 +8,14 @@
     @click.stop
     @mouseup.stop
     @wheel.stop
+    @keydown.esc.stop.prevent="closePanel"
   >
     <div class="panel-head">
       <span>分镜 #{{ storyboard?.storyboard_number ?? storyboard?.id }}</span>
       <div class="head-actions">
         <span v-if="busyLabel" class="busy-tag">{{ busyLabel }}</span>
-        <el-button link size="small" type="primary" @click.stop="openListMode">列表详情</el-button>
-        <el-button link size="small" @click.stop="closePanel">收起</el-button>
+        <el-button link size="small" type="primary" aria-label="打开列表详情" @click.stop="openListMode">列表详情</el-button>
+        <el-button link size="small" aria-label="收起面板" @click.stop="closePanel">收起</el-button>
       </div>
     </div>
     <div v-if="audioOutcomeUnknown" class="media-query-blocker" role="alert">
@@ -23,7 +25,7 @@
 
     <el-form label-position="left" label-width="36px" size="small" class="panel-form compact-form">
       <el-form-item label="标题">
-        <el-input v-model="form.title" placeholder="分镜标题" @blur="saveMeta" />
+        <el-input v-model="form.title" :aria-label="storyboardControlLabel('标题')" placeholder="分镜标题" @blur="saveMeta" />
       </el-form-item>
 
       <div class="relation-row">
@@ -101,11 +103,21 @@
       <div class="reference-row">
         <span class="reference-label">参考图 {{ referenceSlots.length }}/10</span>
         <div class="reference-list">
-          <div v-for="slot in referenceSlots" :key="`${slot.kind}-${slot.index}-${slot.url}`" class="reference-thumb">
-            <img :src="slot.url" :alt="slot.name" />
-            <span class="reference-kind">{{ referenceKindLabel(slot.kind) }}</span>
+          <p v-if="!referenceDisplaySlots.length" class="reference-empty" role="status">
+            尚未加入参考图。绑定带图的场景、角色或道具后会自动出现，也可上传自由参考图。
+          </p>
+          <div
+            v-for="slot in referenceDisplaySlots"
+            :key="`${slot.kind}-${slot.index}-${slot.url || slot.name}`"
+            class="reference-thumb"
+            :class="{ pending: !slot.url }"
+            :title="canvasReferenceSourceLabel(slot)"
+          >
+            <img v-if="slot.url" :src="slot.url" :alt="canvasReferenceSourceLabel(slot)" />
+            <div v-else class="reference-missing">暂无图</div>
+            <span class="reference-kind">{{ canvasReferenceKindLabel(slot.kind) }}</span>
             <el-button
-              v-if="slot.kind === 'free'"
+              v-if="slot.kind === 'free' && slot.freeIndex != null"
               class="reference-remove"
               :icon="Close"
               circle
@@ -133,13 +145,15 @@
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
           multiple
+          tabindex="-1"
+          aria-hidden="true"
           @change="onReferenceFiles"
         />
       </div>
 
       <div class="meta-row">
         <el-form-item label="景别" class="meta-item">
-          <el-input v-model="form.shot_type" placeholder="特写" @blur="saveMeta" />
+          <el-input v-model="form.shot_type" :aria-label="storyboardControlLabel('景别')" placeholder="特写" @blur="saveMeta" />
         </el-form-item>
         <el-form-item label="时长" class="meta-item narrow">
           <el-input-number v-model="form.duration" :aria-label="storyboardControlLabel('时长')" :min="1" :max="120" controls-position="right" @change="saveMeta" />
@@ -164,6 +178,7 @@
             type="textarea"
             :rows="2"
             resize="vertical"
+            :aria-label="storyboardControlLabel('全能词')"
             placeholder="全能模式片段描述"
           />
         </el-form-item>
@@ -173,6 +188,7 @@
             type="textarea"
             :rows="2"
             resize="vertical"
+            :aria-label="storyboardControlLabel('视频词')"
             placeholder="生视频提示词"
           />
         </el-form-item>
@@ -185,6 +201,7 @@
               type="textarea"
               :rows="2"
               resize="vertical"
+              :aria-label="storyboardControlLabel('动作')"
               placeholder="画面动作"
             />
           </el-form-item>
@@ -194,6 +211,7 @@
               type="textarea"
               :rows="2"
               resize="vertical"
+              :aria-label="storyboardControlLabel('对白')"
               placeholder="角色对白"
             />
           </el-form-item>
@@ -204,6 +222,7 @@
             type="textarea"
             :rows="2"
             resize="vertical"
+            :aria-label="storyboardControlLabel('生图词')"
             placeholder="图片提示词"
           />
         </el-form-item>
@@ -213,6 +232,7 @@
             type="textarea"
             :rows="2"
             resize="vertical"
+            :aria-label="storyboardControlLabel('视频词')"
             placeholder="视频提示词"
           />
         </el-form-item>
@@ -290,6 +310,13 @@ import {
 import { runImageStep, runFrameImageStep, runVideoStep, runAudioStep } from '@/composables/useCanvasWorkflowRunner'
 import { findStoryboardInDrama, getDramaGenerationOptions } from '@/utils/canvasWorkflow'
 import { collectStoryboardReferenceSlots } from '@/utils/storyboardVideoRequest'
+import { assetImageUrl } from '@/utils/mediaUrl'
+import {
+  buildCanvasReferenceDisplaySlots,
+  canvasReferenceKindLabel,
+  canvasReferenceSourceLabel,
+} from '@/composables/useCanvasReferenceDisplay'
+import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
 import { dramaUsesFirstLastFrame } from '@/utils/storyboardMedia'
 import { createStoryboardDraftFingerprint, hasStoryboardDraftChanges } from '@/utils/storyboardDraft'
 import CanvasActionGate from './CanvasActionGate.vue'
@@ -302,6 +329,7 @@ const props = defineProps({
 
 const router = useRouter()
 const ctx = useCanvasContext()
+const panelRef = ref(null)
 const saving = ref(false)
 const busyStep = ref('')
 const uploadingReference = ref(false)
@@ -382,6 +410,17 @@ const referenceSlots = computed(() => {
   })
 })
 
+const referenceDisplaySlots = computed(() => buildCanvasReferenceDisplaySlots({
+  filledSlots: referenceSlots.value,
+  sceneId: sceneId.value,
+  characterIds: characterIds.value,
+  propIds: propIds.value,
+  scenes: scenes.value,
+  characters: characters.value,
+  propsList: propsList.value,
+  resolveUrl: assetImageUrl,
+}))
+
 const busyLabel = computed(() => {
   const map = ctx?.nodeStatus?.map
   const st = map && sbNodeId.value ? map[sbNodeId.value] : null
@@ -454,6 +493,7 @@ watch(() => props.storyboard, (sb) => {
 
 let unregisterFocusGuard = null
 onMounted(() => {
+  panelRef.value?.focus?.()
   unregisterFocusGuard = ctx?.registerFocusGuard?.(confirmStoryboardLeave, hasPendingStoryboardWork) || null
 })
 onBeforeUnmount(() => {
@@ -528,7 +568,7 @@ async function onRelationChange() {
     markDraftFieldsSaved(['characterIds', 'sceneId', 'propIds'], draftSnapshot)
     await ctx?.refreshDrama?.(true)
   } catch (e) {
-    ElMessage.error(e?.message || '关联保存失败')
+    ElMessage.error(canvasUserError(e, '关联保存失败'))
   }
 }
 
@@ -544,7 +584,7 @@ async function saveMeta() {
     markDraftFieldsSaved(['title', 'shot_type', 'duration'], draftSnapshot)
     await ctx?.refreshDrama?.(true)
   } catch (e) {
-    ElMessage.error(e?.message || '保存失败')
+    ElMessage.error(canvasUserError(e, '保存失败'))
   }
 }
 
@@ -592,7 +632,7 @@ async function saveFields() {
     markDraftSaved(draftSnapshot)
     await ctx?.refreshDrama?.(true)
   } catch (e) {
-    ElMessage.error(e?.message || '保存失败')
+    ElMessage.error(canvasUserError(e, '保存失败'))
   } finally {
     saving.value = false
     if (!busyStep.value) ctx?.nodeStatus?.clear(sbNodeId.value)
@@ -612,8 +652,8 @@ async function deleteStoryboard() {
     ElMessage.success('分镜已删除')
     await ctx?.refresh?.()
   } catch (e) {
-    if (e === 'cancel') return
-    ElMessage.error(e?.message || '删除失败')
+    if (isCanvasUserAbort(e)) return
+    ElMessage.error(canvasUserError(e, '删除失败'))
   }
 }
 
@@ -628,15 +668,11 @@ async function polishPrompt() {
     ElMessage.success('提示词已润色')
     await ctx?.refreshDrama?.(true)
   } catch (e) {
-    ElMessage.error(e?.message || '润色失败')
+    ElMessage.error(canvasUserError(e, '润色失败'))
   } finally {
     busyStep.value = ''
     ctx?.nodeStatus?.clear(sbNodeId.value)
   }
-}
-
-function referenceKindLabel(kind) {
-  return { scene: '场', character: '角', prop: '物', free: '自' }[kind] || '参'
 }
 
 function openReferenceUpload() {
@@ -678,7 +714,7 @@ async function onReferenceFiles(event) {
     await persistReferences()
     ElMessage.success('参考图已保存')
   } catch (e) {
-    ElMessage.error(e?.message || '参考图上传失败')
+    ElMessage.error(canvasUserError(e, '参考图上传失败'))
   } finally {
     uploadingReference.value = false
   }
@@ -691,7 +727,7 @@ async function removeFreeReference(index) {
     await persistReferences()
   } catch (e) {
     form.reference_images = original
-    ElMessage.error(e?.message || '移除参考图失败')
+    ElMessage.error(canvasUserError(e, '移除参考图失败'))
   }
 }
 
@@ -739,7 +775,7 @@ async function runUniversalPrompt(mode) {
     ElMessage.success(polishing ? '全能词已润色并保存' : '全能词已生成并保存')
   } catch (e) {
     form.universal_segment_text = original
-    ElMessage.error(e?.message || (polishing ? '全能词润色失败' : '全能词生成失败'))
+    ElMessage.error(canvasUserError(e, polishing ? '全能词润色失败' : '全能词生成失败'))
   } finally {
     busyStep.value = ''
     ctx?.nodeStatus?.clear(sbNodeId.value)
@@ -820,7 +856,7 @@ async function runStep(step) {
   } catch (e) {
     if (e?.code === 'SUBMISSION_OUTCOME_UNKNOWN') audioOutcomeUnknown.value = true
     if (e?.name !== 'AbortError' && !generationRun?.signal.aborted) {
-      ElMessage.error(e?.message || '生成失败')
+      ElMessage.error(canvasUserError(e, '生成失败'))
     }
   } finally {
     generationRun?.finish()
@@ -840,7 +876,7 @@ async function refreshAfterUnknownAudio() {
     audioOutcomeUnknown.value = false
     ElMessage.success('分镜状态已刷新')
   } catch (error) {
-    ElMessage.error(error?.message || '刷新失败，请稍后重试')
+    ElMessage.error(canvasUserError(error, '刷新失败，请稍后重试'))
   }
 }
 </script>
@@ -932,12 +968,31 @@ async function refreshAfterUnknownAudio() {
   height: 44px;
   flex: 0 0 44px;
 }
+.reference-empty {
+  flex: 1 1 100%;
+  margin: 0;
+  padding-top: 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--canvas-text-muted, #a1a1aa);
+}
 .reference-thumb {
   position: relative;
   overflow: visible;
   border: 1px solid var(--canvas-divider-strong, #3f3f46);
   border-radius: 6px;
   background: var(--canvas-media-well, #09090b);
+}
+.reference-thumb.pending {
+  border-style: dashed;
+}
+.reference-missing {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--canvas-text-subtle, #71717a);
+  font-size: 9px;
 }
 .reference-thumb img {
   width: 100%;
@@ -950,7 +1005,7 @@ async function refreshAfterUnknownAudio() {
   position: absolute;
   left: 2px;
   bottom: 2px;
-  min-width: 16px;
+  min-width: 22px;
   height: 16px;
   padding: 0 3px;
   border-radius: 4px;

@@ -174,10 +174,15 @@
             :key="'c-' + c.id"
             class="sidebar-item"
             :class="{ active: highlightAssetId === 'char:' + c.id }"
+            :aria-label="`定位角色${c.name || '未命名'}`"
             @click="selectSidebarAsset('char:' + c.id)"
           >
             {{ c.name || '未命名' }}
           </button>
+          <p v-if="!(drama.characters || []).length" class="sidebar-empty" role="status">
+            暂无角色
+            <el-button link type="primary" size="small" aria-label="新建角色" @click="openCreateDialog('character')">新建</el-button>
+          </p>
         </div>
         <div class="sidebar-section">
           <div class="sec-label sec-label-row">
@@ -190,10 +195,15 @@
             :key="'s-' + s.id"
             class="sidebar-item"
             :class="{ active: highlightAssetId === 'scene:' + s.id }"
+            :aria-label="`定位场景${s.location || '未命名'}`"
             @click="selectSidebarAsset('scene:' + s.id)"
           >
             {{ s.location || '未命名' }}
           </button>
+          <p v-if="!(drama.scenes || []).length" class="sidebar-empty" role="status">
+            暂无场景
+            <el-button link type="primary" size="small" aria-label="新建场景" @click="openCreateDialog('scene')">新建</el-button>
+          </p>
         </div>
         <div class="sidebar-section">
           <div class="sec-label sec-label-row">
@@ -206,10 +216,15 @@
             :key="'p-' + p.id"
             class="sidebar-item"
             :class="{ active: highlightAssetId === 'prop:' + p.id }"
+            :aria-label="`定位道具${p.name || '未命名'}`"
             @click="selectSidebarAsset('prop:' + p.id)"
           >
             {{ p.name || '未命名' }}
           </button>
+          <p v-if="!(drama.props || []).length" class="sidebar-empty" role="status">
+            暂无道具
+            <el-button link type="primary" size="small" aria-label="新建道具" @click="openCreateDialog('prop')">新建</el-button>
+          </p>
         </div>
 
         <CanvasWorkflowSidebarList
@@ -325,8 +340,10 @@
           v-if="canvasMode === 'free' && !loading && !freeCanvas.nodes.length"
           class="free-canvas-empty-state"
           aria-labelledby="free-canvas-empty-title"
+          aria-describedby="free-canvas-empty-desc"
         >
           <h2 id="free-canvas-empty-title">开始自由创作</h2>
+          <p id="free-canvas-empty-desc">还没有自由节点。可以新建文本、配置，或导入媒体开始编排。</p>
           <div class="free-canvas-empty-actions">
             <el-button type="primary" @click="createFreeCanvasNode('text')">
               <el-icon><Document /></el-icon>
@@ -4117,6 +4134,13 @@ async function saveFreeCanvasNodeAsAsset(payload = {}) {
   margin: 0;
   font-size: 18px;
   line-height: 24px;
+}
+.free-canvas-empty-state p {
+  margin: 0;
+  max-width: 420px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--canvas-text-muted, #a1a1aa);
 }
 .free-canvas-empty-actions {
   display: flex;

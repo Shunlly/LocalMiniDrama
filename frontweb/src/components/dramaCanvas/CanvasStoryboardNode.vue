@@ -121,6 +121,7 @@
 import { computed, ref } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { ElMessage } from 'element-plus'
+import { canvasUserError } from '@/composables/useCanvasUserError'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { useCanvasContext } from '@/composables/useCanvasContext'
 import {
@@ -234,7 +235,7 @@ async function retryMedia() {
     if (ok) ElMessage.success('媒体查询已刷新')
     else ElMessage.warning('媒体查询仍未恢复，请稍后重试')
   } catch (error) {
-    ElMessage.error(error?.message || '媒体查询重试失败')
+    ElMessage.error(canvasUserError(error, '媒体查询重试失败'))
   } finally {
     retryingMedia.value = false
   }

@@ -190,6 +190,10 @@ watch(
 .canvas-media-node.unknown {
   border-color: var(--canvas-amber-strong, #fbbf24);
 }
+.canvas-media-node.pending {
+  border-style: dashed;
+  border-color: var(--canvas-indigo-border, rgba(129, 140, 248, 0.62));
+}
 
 .tag {
   font-size: 10px;

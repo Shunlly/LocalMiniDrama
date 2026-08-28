@@ -9,22 +9,22 @@
     <el-form label-position="top" size="default" @submit.prevent="onSubmit">
       <template v-if="type === 'storyboard'">
         <el-form-item label="分镜标题">
-          <el-input v-model="form.title" placeholder="留空则自动命名" />
+          <el-input v-model="form.title" aria-label="分镜标题" placeholder="留空则自动命名" />
         </el-form-item>
         <el-form-item label="描述（可选）">
-          <el-input v-model="form.description" type="textarea" :rows="2" placeholder="简要描述" />
+          <el-input v-model="form.description" type="textarea" :rows="2" aria-label="分镜描述" placeholder="简要描述" />
         </el-form-item>
       </template>
 
       <template v-else-if="type === 'episode'">
         <el-form-item label="集标题">
-          <el-input v-model="form.title" placeholder="留空则自动命名" />
+          <el-input v-model="form.title" aria-label="集标题" placeholder="留空则自动命名" />
         </el-form-item>
       </template>
 
       <template v-else-if="type === 'character'">
         <el-form-item label="角色名称" required>
-          <el-input v-model="form.name" placeholder="必填" />
+          <el-input v-model="form.name" aria-label="角色名称" placeholder="必填" />
         </el-form-item>
         <el-form-item label="角色类型">
           <el-select v-model="form.role" aria-label="新建角色类型" placeholder="可选" clearable style="width: 100%">
@@ -33,34 +33,34 @@
           </el-select>
         </el-form-item>
         <el-form-item label="外貌描述">
-          <el-input v-model="form.appearance" type="textarea" :rows="2" />
+          <el-input v-model="form.appearance" type="textarea" :rows="2" aria-label="角色外貌描述" />
         </el-form-item>
         <el-form-item label="简介">
-          <el-input v-model="form.description" type="textarea" :rows="2" />
+          <el-input v-model="form.description" type="textarea" :rows="2" aria-label="角色简介" />
         </el-form-item>
       </template>
 
       <template v-else-if="type === 'scene'">
         <el-form-item label="场景地点" required>
-          <el-input v-model="form.location" placeholder="必填，如：客厅" />
+          <el-input v-model="form.location" aria-label="场景地点" placeholder="必填，如：客厅" />
         </el-form-item>
         <el-form-item label="时间">
-          <el-input v-model="form.time" placeholder="如：白天、夜晚" />
+          <el-input v-model="form.time" aria-label="场景时间" placeholder="如：白天、夜晚" />
         </el-form-item>
         <el-form-item label="场景描述">
-          <el-input v-model="form.prompt" type="textarea" :rows="3" />
+          <el-input v-model="form.prompt" type="textarea" :rows="3" aria-label="场景描述" />
         </el-form-item>
       </template>
 
       <template v-else-if="type === 'prop'">
         <el-form-item label="道具名称" required>
-          <el-input v-model="form.name" placeholder="必填" />
+          <el-input v-model="form.name" aria-label="道具名称" placeholder="必填" />
         </el-form-item>
         <el-form-item label="描述">
-          <el-input v-model="form.description" type="textarea" :rows="2" />
+          <el-input v-model="form.description" type="textarea" :rows="2" aria-label="道具描述" />
         </el-form-item>
         <el-form-item label="提示词">
-          <el-input v-model="form.prompt" type="textarea" :rows="2" />
+          <el-input v-model="form.prompt" type="textarea" :rows="2" aria-label="道具提示词" />
         </el-form-item>
       </template>
     </el-form>

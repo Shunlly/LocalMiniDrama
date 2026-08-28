@@ -20,6 +20,7 @@
       <el-form-item label="标题">
         <el-input
           :model-value="draft.title"
+          aria-label="节点标题"
           :disabled="editorDisabled"
           @update:model-value="updateDraftField('title', $event)"
         />
@@ -30,6 +31,7 @@
           type="textarea"
           resize="none"
           :rows="6"
+          aria-label="节点内容"
           :disabled="editorDisabled"
           @update:model-value="updateDraftField('content', $event)"
         />

@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="panelRef"
     class="canvas-node-panel media-panel nodrag nopan nowheel"
     tabindex="-1"
     :class="['kind-' + kind, { unknown: showMediaQueryBlocker }]"
@@ -8,12 +9,13 @@
     @click.stop
     @mouseup.stop
     @wheel.stop
+    @keydown.esc.stop.prevent="closePanel"
   >
     <div class="panel-head">
       <span>{{ kindTitle }}</span>
       <div class="head-right">
         <span v-if="busyLabel" class="busy-tag">{{ busyLabel }}</span>
-        <el-button link size="small" @click.stop="closePanel">收起</el-button>
+        <el-button link size="small" aria-label="收起面板" @click.stop="closePanel">收起</el-button>
       </div>
     </div>
     <div v-if="audioOutcomeUnknown" class="media-query-blocker" role="alert">
@@ -37,9 +39,10 @@
         type="button"
         class="media-query-retry"
         :disabled="retryingMedia"
+        :aria-label="retryingMedia ? '正在重试媒体查询' : '重试媒体查询'"
         @click.stop="retryMedia"
       >
-        {{ retryingMedia ? '重试中...' : '重试媒体查询' }}
+        {{ retryingMedia ? '重试中…' : '重试媒体查询' }}
       </button>
     </div>
 
@@ -76,14 +79,14 @@
           <div v-else-if="!busy" class="preview-empty">{{ imageEmptyLabel }}</div>
           <div v-if="busy" class="preview-loading"><span class="spinner" />{{ frameBusyLabel }}</div>
         </div>
-        <el-button size="small" type="primary" :loading="busy" @click.stop="runStep('image')">{{ frameActionLabel }}</el-button>
+        <el-button size="small" type="primary" :loading="busy" :aria-label="frameActionLabel" @click.stop="runStep('image')">{{ frameActionLabel }}</el-button>
       </template>
 
       <template v-else-if="kind === 'video'">
         <div class="preview-wrap">
           <video v-if="url && !busy" :src="url" class="preview-vid" controls playsinline aria-label="画布分镜视频预览" />
           <div v-else-if="!busy" class="preview-empty">无视频</div>
-          <div v-if="busy" class="preview-loading"><span class="spinner" />生视频中...</div>
+          <div v-if="busy" class="preview-loading"><span class="spinner" />生视频中…</div>
         </div>
         <CanvasActionGate
           :reason="videoAction.reason"
@@ -104,6 +107,7 @@
       <template v-else-if="kind === 'audio'">
         <div class="audio-label">{{ audioType === 'narration' ? '旁白音频' : '对白音频' }}</div>
         <audio v-if="url" :src="url" controls class="preview-aud" />
+        <div v-else-if="!busy" class="preview-empty">暂无配音</div>
         <CanvasActionGate
           :reason="ttsAction.reason"
           label="重新生成单镜配音"
@@ -124,9 +128,10 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useCanvasContext } from '@/composables/useCanvasContext'
+import { canvasUserError } from '@/composables/useCanvasUserError'
 import { CANVAS_NODE_STATUS_LABELS } from '@/composables/useCanvasNodeStatus'
 import { runImageStep, runFrameImageStep, runVideoStep, runAudioStep } from '@/composables/useCanvasWorkflowRunner'
 import { findStoryboardInDrama, getDramaGenerationOptions } from '@/utils/canvasWorkflow'
@@ -143,6 +148,7 @@ const props = defineProps({
 })
 
 const ctx = useCanvasContext()
+const panelRef = ref(null)
 const busy = ref(false)
 const retryingMedia = ref(false)
 const audioOutcomeUnknown = ref(false)
@@ -186,11 +192,14 @@ const imageEmptyLabel = computed(() => {
   if (props.frameKind === 'last') return '待生成尾帧'
   return '无分镜图'
 })
-const frameActionLabel = computed(() => (
-  frameTitle.value ? `重新生成${frameTitle.value}` : '重新生成图'
-))
+const imageEmpty = computed(() => !String(props.url || '').trim())
+const frameActionLabel = computed(() => {
+  if (props.frameKind === 'first') return imageEmpty.value ? '生成首帧' : '重新生成首帧'
+  if (props.frameKind === 'last') return imageEmpty.value ? '生成尾帧' : '重新生成尾帧'
+  return imageEmpty.value ? '生成分镜图' : '重新生成分镜图'
+})
 const frameBusyLabel = computed(() => (
-  frameTitle.value ? `${frameTitle.value}生成中...` : '生图中...'
+  frameTitle.value ? `${frameTitle.value}生成中…` : '生图中…'
 ))
 
 const busyLabel = computed(() => {
@@ -206,6 +215,10 @@ function focusStoryboard() {
 function closePanel() {
   ctx?.clearFocusedNode?.()
 }
+
+onMounted(() => {
+  panelRef.value?.focus?.()
+})
 
 async function runStep(step) {
   const drama = ctx?.drama?.value
@@ -233,7 +246,7 @@ async function runStep(step) {
   }
   generationRun = nextRun
   busy.value = true
-  const statusMsg = CANVAS_NODE_STATUS_LABELS[step] || '处理中...'
+  const statusMsg = CANVAS_NODE_STATUS_LABELS[step] || '处理中…'
   ctx?.nodeStatus?.set(props.nodeId, { step, message: statusMsg })
   ctx?.nodeStatus?.set(sbNodeId.value, { step, message: statusMsg })
   try {
@@ -260,7 +273,7 @@ async function runStep(step) {
   } catch (error) {
     if (error?.code === 'SUBMISSION_OUTCOME_UNKNOWN') audioOutcomeUnknown.value = true
     if (error?.name !== 'AbortError' && !generationRun?.signal.aborted) {
-      ElMessage.error(error?.message || '生成失败')
+      ElMessage.error(canvasUserError(error, '生成失败'))
     }
   } finally {
     generationRun?.finish()
@@ -277,7 +290,7 @@ async function refreshAfterUnknownAudio() {
     audioOutcomeUnknown.value = false
     ElMessage.success('分镜状态已刷新')
   } catch (error) {
-    ElMessage.error(error?.message || '刷新失败，请稍后重试')
+    ElMessage.error(canvasUserError(error, '刷新失败，请稍后重试'))
   }
 }
 
@@ -289,7 +302,7 @@ async function retryMedia() {
     if (ok) ElMessage.success('媒体查询已刷新')
     else ElMessage.warning('媒体查询仍未恢复，请稍后重试')
   } catch (error) {
-    ElMessage.error(error?.message || '媒体查询重试失败')
+    ElMessage.error(canvasUserError(error, '媒体查询重试失败'))
   } finally {
     retryingMedia.value = false
   }
