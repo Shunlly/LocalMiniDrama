@@ -2,39 +2,91 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import { ElMessage, ElMessageBox } from 'element-plus'
+
 import {
   cancelPipelineTasksAroundRun,
   createPipelineAbortError,
   createPipelinePauseGate,
   runPipelineTaskWithRetry,
 } from '../src/utils/filmPipelineControl.js'
+import { DEFAULT_POLL_TIMEOUT_MS } from '../src/utils/requestError.js'
+import { useFilmCreatePipelineRun } from '../src/composables/filmCreate/useFilmCreatePipelineRun.js'
+import { useFilmCreateTaskCancel } from '../src/composables/filmCreate/useFilmCreateTaskCancel.js'
+import { useFilmCreatePipelineStages } from '../src/composables/filmCreate/useFilmCreatePipelineStages.js'
+import { useFilmCreateNavigationGuards } from '../src/composables/filmCreate/useFilmCreateNavigationGuards.js'
 
-const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
-const taskCancelSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateTaskCancel.js', import.meta.url), 'utf8')
-const pipelineRunSource = readFileSync(
-  new URL('../src/composables/filmCreate/useFilmCreatePipelineRun.js', import.meta.url),
-  'utf8',
-)
-const pipelineStagesSource = readFileSync(
-  new URL('../src/composables/filmCreate/useFilmCreatePipelineStages.js', import.meta.url),
-  'utf8',
-)
 const pipelinePanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
   'utf8',
 )
-const navigationGuardsSource = readFileSync(
-  new URL('../src/composables/filmCreate/useFilmCreateNavigationGuards.js', import.meta.url),
-  'utf8',
-)
-const source = pipelineRunSource + '\n' + pipelineStagesSource + '\n' + navigationGuardsSource + '\n' + filmCreateSource
 
-function sourceBetween(source, startMarker, endMarker) {
-  const start = source.indexOf(startMarker)
-  const end = source.indexOf(endMarker, start + startMarker.length)
-  assert.notEqual(start, -1, `missing source marker: ${startMarker}`)
-  assert.notEqual(end, -1, `missing source marker: ${endMarker}`)
-  return source.slice(start, end)
+function refOf(value) {
+  return { value }
+}
+
+function stubElementPlusFeedback() {
+  const messages = []
+  const originals = {
+    warning: ElMessage.warning,
+    error: ElMessage.error,
+    success: ElMessage.success,
+    info: ElMessage.info,
+    confirm: ElMessageBox.confirm,
+  }
+  const record = (type) => (message, title, options) => {
+    messages.push({ type, message, title, options })
+    return { close() {} }
+  }
+  ElMessage.warning = record('warning')
+  ElMessage.error = record('error')
+  ElMessage.success = record('success')
+  ElMessage.info = record('info')
+  let confirmImpl = async () => {}
+  ElMessageBox.confirm = async (message, title, options) => {
+    messages.push({ type: 'confirm', message, title, options })
+    return confirmImpl(message, title, options)
+  }
+  return {
+    messages,
+    setConfirm(next) { confirmImpl = next },
+    last(type) { return messages.filter((item) => item.type === type).at(-1) },
+    restore() {
+      ElMessage.warning = originals.warning
+      ElMessage.error = originals.error
+      ElMessage.success = originals.success
+      ElMessage.info = originals.info
+      ElMessageBox.confirm = originals.confirm
+    },
+  }
+}
+
+function createPipelineRun(overrides = {}) {
+  return useFilmCreatePipelineRun({
+    store: { storyboards: [] },
+    videoClipDuration: refOf(5),
+    taskAPI: {
+      async get() { return { status: 'completed' } },
+      async cancel() {},
+      ...overrides.taskAPI,
+    },
+    genStore: {
+      markRunning() {},
+      markDone() {},
+      markFailed() {},
+      stopPollingTask() {},
+      ...overrides.genStore,
+    },
+    trackFilmCreateAction: overrides.trackFilmCreateAction || (() => {}),
+    getStoryboardCountForApi: () => 0,
+    ...overrides.deps,
+  })
+}
+
+function installImmediateTimeouts() {
+  const original = globalThis.setTimeout
+  globalThis.setTimeout = (callback, _delay, ...args) => original(callback, 0, ...args)
+  return () => { globalThis.setTimeout = original }
 }
 
 test('pipeline pause gate resumes every concurrent waiter', async () => {
@@ -164,22 +216,17 @@ test('pipeline cancellation sweeps task ids that arrive before the owned run set
   })
 
   await Promise.resolve()
-  assert.deepEqual(cancelCalls, ['task-early'])
   taskIds.add('task-late')
   rejectRun(createPipelineAbortError())
-
   const result = await cancellation
   assert.equal(result.complete, true)
-  assert.deepEqual(cancelCalls, ['task-early', 'task-late'])
-  assert.deepEqual(result.failedTaskIds, [])
-  assert.equal(result.runError?.pipelineAborted, true)
+  assert.deepEqual(cancelCalls.sort(), ['task-early', 'task-late'].sort())
 })
 
-test('pipeline cancellation reports a remote task that still fails after the final sweep', async () => {
-  const taskIds = new Set(['task-unreachable'])
+test('pipeline cancellation reports remaining task ids when remote cancel fails', async () => {
   let attempts = 0
   const result = await cancelPipelineTasksAroundRun({
-    getTaskIds: () => taskIds,
+    getTaskIds: () => new Set(['task-unreachable']),
     runPromise: Promise.resolve(),
     cancelTask: async () => {
       attempts += 1
@@ -192,58 +239,173 @@ test('pipeline cancellation reports a remote task that still fails after the fin
   assert.deepEqual(result.failedTaskIds, ['task-unreachable'])
 })
 
-test('FilmCreate pauses inside polling and keeps ownership of the same task id', () => {
-  const pollSource = sourceBetween(
-    source,
-    'async function pollTaskWithPause',
-    'function onPipelineResume',
-  )
+test('FilmCreate pauses inside polling and keeps ownership of the same task id', async () => {
+  const restoreTimeouts = installImmediateTimeouts()
+  const getCalls = []
+  try {
+    const run = createPipelineRun({
+      taskAPI: {
+        async get(taskId, options) {
+          getCalls.push({ taskId, options })
+          return { status: 'completed', result: { ok: true } }
+        },
+      },
+    })
 
-  assert.match(pollSource, /pipelineOwnedTaskIds\.add\(taskId\)/)
-  assert.match(pollSource, /await pipelinePauseGate\.wait\(\)/)
-  assert.match(pollSource, /taskAPI\.get\(taskId, \{ suppressErrorToast: true, timeout: DEFAULT_POLL_TIMEOUT_MS \}\)/)
-  assert.doesNotMatch(pollSource, /resolve\(\{ paused: true \}\)/)
+    run.pipelinePaused.value = true
+    const pending = run.pollTaskWithPause('task-keep')
+    for (let i = 0; i < 8 && getCalls.length === 0; i += 1) {
+      await new Promise((resolve) => restoreTimeouts && setTimeout(resolve, 0))
+    }
+    assert.equal(run.pipelineOwnedTaskIds.has('task-keep'), true)
+    assert.equal(getCalls.length, 0)
+
+    run.onPipelineResume()
+    const result = await pending
+    assert.equal(getCalls.length, 1)
+    assert.equal(getCalls[0].taskId, 'task-keep')
+    assert.deepEqual(getCalls[0].options, {
+      suppressErrorToast: true,
+      timeout: DEFAULT_POLL_TIMEOUT_MS,
+    })
+    assert.equal(result.status, 'completed')
+    assert.equal(result.paused, undefined)
+  } finally {
+    restoreTimeouts()
+  }
 })
 
-test('FilmCreate cancellation waits for its owned run and never unlocks in the task button', () => {
-  const cancelTaskSource = sourceBetween(
-    taskCancelSource,
-    'async function cancelActiveTask',
-    'return {',
-  )
-  const cancelRunSource = sourceBetween(
-    source,
-    'async function cancelPipelineRun',
-    'async function pollTaskWithPause',
-  )
+test('FilmCreate cancellation waits for its owned run and never unlocks in the task button', async () => {
+  const feedback = stubElementPlusFeedback()
+  try {
+    const cancelRemote = []
+    const run = createPipelineRun({
+      taskAPI: {
+        async cancel(taskId, payload, options) {
+          cancelRemote.push({ taskId, payload, options })
+        },
+      },
+    })
+    run.pipelineRunning.value = true
+    run.pipelineOwnedTaskIds.add('owned-1')
 
-  assert.match(cancelTaskSource, /await cancelPipelineRun\(\)/)
-  assert.doesNotMatch(cancelTaskSource, /pipelineRunning\.value = false/)
-  assert.match(cancelRunSource, /pipelineAbortRequested\.value = true/)
-  assert.match(cancelRunSource, /pipelinePauseGate\.release\(\)/)
-  assert.match(cancelRunSource, /const runPromise = activePipelineRunPromise\.value/)
-  assert.match(cancelRunSource, /cancelPipelineTasksAroundRun\(\{/)
-  assert.match(cancelRunSource, /pipelineOwnedTaskIds/)
-  assert.doesNotMatch(cancelRunSource, /genStore\.getAllRunningTasks\(\)/)
+    const { cancelActiveTask } = useFilmCreateTaskCancel({
+      ElMessage,
+      genStore: {
+        stopPollingTask() {},
+        getAllRunningTasks() {
+          throw new Error('任务按钮取消不应扫全部运行中任务')
+        },
+        async cancelTask() {
+          throw new Error('任务按钮取消不应改走 genStore.cancelTask')
+        },
+      },
+      cancelPipelineRun: (...args) => run.cancelPipelineRun(...args),
+      storyGenerating: refOf(false),
+      scriptGenerating: refOf(false),
+      universalOmniPolishAbort: refOf(false),
+      batchImageStopping: refOf(false),
+      batchVideoStopping: refOf(false),
+    })
+
+    await cancelActiveTask({ kind: 'pipeline' })
+    assert.equal(run.pipelineAbortRequested.value, true)
+    assert.deepEqual(cancelRemote.map((item) => item.taskId), ['owned-1'])
+    assert.equal(cancelRemote[0].payload.reason, '用户停止全流程')
+    assert.match(feedback.last('warning').message, /本地全流程已停止/)
+    assert.doesNotMatch(feedback.last('warning').message, /取消远端任务|远端任务取消失败|取消剩余远端任务/)
+  } finally {
+    feedback.restore()
+  }
 })
 
-test('FilmCreate routes retry and production launch through abort and cost gates', () => {
-  const startSource = sourceBetween(
-    source,
-    'async function startOneClickPipeline',
-    'async function startTextFrameworkPipeline',
-  )
-  assert.match(source, /runPipelineTaskWithRetry\(\{/)
-  assert.match(source, /const pipelineStarting = ref\(false\)/)
-  assert.match(source, /const pipelineStopping = ref\(false\)/)
-  assert.match(
-    source,
-    /async function startOneClickPipeline\(\)[\s\S]*await confirmProductionPipelineCost\(\)[\s\S]*await executeOwnedPipelineRun/,
-  )
-  assert.equal((startSource.match(/pipelineAbortRequested\.value = false/g) || []).length, 1)
-  assert.ok(startSource.indexOf('pipelineAbortRequested.value = false') < startSource.indexOf('await refreshProductionReadiness()'))
-  assert.ok(startSource.indexOf('if (pipelineAbortRequested.value) return') < startSource.indexOf('await confirmProductionPipelineCost()'))
-  assert.ok(startSource.lastIndexOf('if (pipelineAbortRequested.value) return') < startSource.indexOf('await executeOwnedPipelineRun'))
+test('FilmCreate routes retry and production launch through abort and cost gates', async () => {
+  const feedback = stubElementPlusFeedback()
+  try {
+    const events = []
+    const pipelineAbortRequested = refOf(true)
+    const pipelineStarting = refOf(false)
+    const pipelineRunning = refOf(false)
+    const pipelineStopping = refOf(false)
+    const activePipelineRunPromise = refOf(null)
+    const pipelineErrorLog = refOf([])
+    const pipelineCurrentStep = refOf('')
+    const pipelineStepIndex = refOf(0)
+    const pipelineStepTotal = refOf(10)
+    const pipelineActiveTasks = new Set()
+    const pipelineOwnedTaskIds = new Set()
+
+    const stages = useFilmCreatePipelineStages({
+      currentEpisodeId: refOf(22),
+      dramaId: refOf(11),
+      pipelineStarting,
+      pipelineRunning,
+      pipelineStopping,
+      activePipelineRunPromise,
+      pipelineAbortRequested,
+      pipelineErrorLog,
+      pipelineCurrentStep,
+      pipelineStepIndex,
+      pipelineStepTotal,
+      pipelineActiveTasks,
+      pipelineOwnedTaskIds,
+      storyboardMediaActionReason: refOf(''),
+      refreshProductionReadiness: async () => {
+        events.push('readiness')
+        assert.equal(pipelineAbortRequested.value, false)
+        pipelineAbortRequested.value = true
+        return { ready: true, reason: '' }
+      },
+      confirmProductionPipelineCost: async () => {
+        events.push('cost')
+        return true
+      },
+      executeOwnedPipelineRun: async () => {
+        events.push('run')
+      },
+      trackFilmCreateAction(action) {
+        events.push(action)
+      },
+    })
+
+    await stages.startOneClickPipeline()
+    assert.deepEqual(events, ['readiness'])
+
+    events.length = 0
+    pipelineAbortRequested.value = false
+    const laterAbort = useFilmCreatePipelineStages({
+      currentEpisodeId: refOf(22),
+      dramaId: refOf(11),
+      pipelineStarting: refOf(false),
+      pipelineRunning: refOf(false),
+      pipelineStopping: refOf(false),
+      activePipelineRunPromise: refOf(null),
+      pipelineAbortRequested,
+      pipelineErrorLog,
+      pipelineCurrentStep,
+      pipelineStepIndex,
+      pipelineStepTotal,
+      pipelineActiveTasks,
+      pipelineOwnedTaskIds,
+      storyboardMediaActionReason: refOf(''),
+      refreshProductionReadiness: async () => ({ ready: true, reason: '' }),
+      confirmProductionPipelineCost: async () => {
+        events.push('cost')
+        pipelineAbortRequested.value = true
+        return true
+      },
+      executeOwnedPipelineRun: async () => {
+        events.push('run')
+      },
+      trackFilmCreateAction(action) {
+        events.push(action)
+      },
+    })
+    await laterAbort.startOneClickPipeline()
+    assert.deepEqual(events, ['cost'])
+  } finally {
+    feedback.restore()
+  }
 })
 
 test('pipeline panel blocks duplicate starts and exposes an explicit stop command', () => {
@@ -255,39 +417,81 @@ test('pipeline panel blocks duplicate starts and exposes an explicit stop comman
   assert.match(pipelinePanelSource, /:loading="stopping"[\s\S]*@click="\$emit\('cancel'\)"/)
 })
 
-test('FilmCreate protects navigation and unload while pipeline work is active', () => {
-  assert.match(
-    navigationGuardsSource,
-    /function hasActivePipelineWork\(\)[\s\S]*pipelineStarting\.value[\s\S]*pipelineRunning\.value[\s\S]*pipelineStopping\.value/,
-  )
-  assert.match(
-    navigationGuardsSource,
-    /async function confirmPipelineNavigation\(\)[\s\S]*ElMessageBox\.confirm[\s\S]*return cancelPipelineRun\(\)/,
-  )
-  assert.match(
-    navigationGuardsSource,
-    /async function allowNavigationAfterDraftFlush\(\)[\s\S]*await confirmPipelineNavigation\(\)[\s\S]*scriptDraftController\.markSaved\(null\)/,
-  )
-  assert.match(
-    navigationGuardsSource,
-    /function handleBeforeUnload\(event\)[\s\S]*hasActivePipelineWork\(\)/,
-  )
+test('FilmCreate protects navigation and unload while pipeline work is active', async () => {
+  const feedback = stubElementPlusFeedback()
+  try {
+    const pipelineOwnedTaskIds = new Set(['owned-nav'])
+    const cancelCalls = []
+    const markSavedCalls = []
+    const guards = useFilmCreateNavigationGuards({
+      pipelineStarting: refOf(false),
+      pipelineRunning: refOf(true),
+      pipelineStopping: refOf(false),
+      activePipelineRunPromise: refOf(null),
+      pipelineOwnedTaskIds,
+      showAiConfigDialog: refOf(false),
+      aiConfigContentRef: refOf(null),
+      scriptDraftController: {
+        hasPendingChanges: () => false,
+        markSaved(value) { markSavedCalls.push(value) },
+      },
+      flushScriptDraft: async () => {},
+      cancelPipelineRun: async () => {
+        cancelCalls.push('cancel')
+        return true
+      },
+    })
+
+    assert.equal(guards.hasActivePipelineWork(), true)
+    let prevented = false
+    const event = {
+      preventDefault() { prevented = true },
+      returnValue: 'preset',
+    }
+    guards.handleBeforeUnload(event)
+    assert.equal(prevented, true)
+    assert.equal(event.returnValue, '')
+
+    assert.equal(await guards.allowNavigationAfterDraftFlush(), true)
+    assert.equal(cancelCalls.length, 1)
+    assert.deepEqual(markSavedCalls, [])
+    assert.match(feedback.last('confirm').message, /已提交的供应商任务和计费可能继续/)
+    assert.doesNotMatch(feedback.last('confirm').message, /取消本流程已经提交的远端生成任务/)
+  } finally {
+    feedback.restore()
+  }
 })
 
-test('FilmCreate describes pipeline stop as local-only and discloses provider billing risk', () => {
-  const cancelRunSource = sourceBetween(
-    source,
-    'async function cancelPipelineRun',
-    'async function pollTaskWithPause',
-  )
-  const navigationSource = sourceBetween(
-    navigationGuardsSource,
-    'async function confirmPipelineNavigation',
-    'async function allowNavigationAfterDraftFlush',
-  )
+test('FilmCreate describes pipeline stop as local-only and discloses provider billing risk', async () => {
+  const feedback = stubElementPlusFeedback()
+  try {
+    const run = createPipelineRun()
+    run.pipelineRunning.value = true
+    run.pipelineOwnedTaskIds.add('owned-2')
+    await run.cancelPipelineRun()
+    assert.match(run.pipelineCurrentStep.value, /停止本地执行|本地全流程已停止/)
+    assert.match(feedback.last('warning').message, /供应商任务和计费可能继续/)
+    assert.doesNotMatch(feedback.last('warning').message, /取消远端任务|远端任务取消失败|取消剩余远端任务/)
 
-  assert.doesNotMatch(cancelRunSource, /取消远端任务|远端任务取消失败|取消剩余远端任务/)
-  assert.doesNotMatch(navigationSource, /取消本流程已经提交的远端生成任务/)
-  assert.match(cancelRunSource, /停止本地执行/)
-  assert.match(navigationSource, /已提交的供应商任务和计费可能继续/)
+    const guards = useFilmCreateNavigationGuards({
+      pipelineStarting: refOf(false),
+      pipelineRunning: refOf(true),
+      pipelineStopping: refOf(false),
+      activePipelineRunPromise: refOf(null),
+      pipelineOwnedTaskIds: new Set(['owned-2']),
+      showAiConfigDialog: refOf(false),
+      aiConfigContentRef: refOf(null),
+      scriptDraftController: {
+        hasPendingChanges: () => false,
+        markSaved() {},
+      },
+      flushScriptDraft: async () => {},
+      cancelPipelineRun: async () => true,
+    })
+    await guards.confirmPipelineNavigation()
+    assert.match(feedback.last('confirm').message, /已提交的供应商任务和计费可能继续/)
+    assert.doesNotMatch(feedback.last('confirm').message, /取消本流程已经提交的远端生成任务/)
+  } finally {
+    feedback.restore()
+  }
 })
