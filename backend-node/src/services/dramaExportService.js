@@ -104,7 +104,7 @@ function normalizeExportLimits(overrides = {}) {
     if (!Number.isSafeInteger(value) || value <= 0) {
       throw exportError(
         'INVALID_EXPORT_LIMIT',
-        `Project export limit ${suppliedName} must be a positive integer.`,
+        `项目导出限制 ${suppliedName} 必须是正整数。`,
         { limit: suppliedName },
         500
       );
@@ -161,12 +161,12 @@ class ExportArchiveBuilder {
 
   assertCanAdd(archivePath, size) {
     if (!Number.isSafeInteger(size) || size < 0) {
-      throw exportError('EXPORT_FILE_SIZE_LIMIT', 'Project export encountered an invalid file size.');
+      throw exportError('EXPORT_FILE_SIZE_LIMIT', '项目导出遇到无效的文件大小，请检查素材后重试。');
     }
     if (this.archivePaths.has(archivePath)) {
       throw exportError(
         'EXPORT_DUPLICATE_PATH',
-        'Project export generated a duplicate archive path.',
+        '项目导出生成了重复的压缩包路径，请重试。',
         { archive_path: archivePath },
         500
       );
@@ -175,14 +175,14 @@ class ExportArchiveBuilder {
     if (nextFileCount > this.limits.maxFiles) {
       throw exportError(
         'EXPORT_FILE_COUNT_LIMIT',
-        'Project export contains too many files.',
+        '项目导出文件过多，请精简素材后重试。',
         { limit: this.limits.maxFiles, actual: nextFileCount }
       );
     }
     if (size > this.limits.maxFileBytes) {
       throw exportError(
         'EXPORT_FILE_SIZE_LIMIT',
-        'A project export file exceeds the configured size limit.',
+        '某个导出文件超过大小上限，请精简素材后重试。',
         { limit_bytes: this.limits.maxFileBytes, actual_bytes: size, archive_path: archivePath }
       );
     }
@@ -190,7 +190,7 @@ class ExportArchiveBuilder {
     if (!Number.isSafeInteger(nextTotal) || nextTotal > this.limits.maxTotalUncompressedBytes) {
       throw exportError(
         'EXPORT_TOTAL_SIZE_LIMIT',
-        'Project export exceeds the configured uncompressed size limit.',
+        '项目导出超过未压缩大小上限，请精简素材后重试。',
         { limit_bytes: this.limits.maxTotalUncompressedBytes, actual_bytes: nextTotal }
       );
     }
@@ -198,7 +198,7 @@ class ExportArchiveBuilder {
     if (!Number.isSafeInteger(estimatedMemory) || estimatedMemory > this.limits.maxMemoryBytes) {
       throw exportError(
         'EXPORT_MEMORY_LIMIT',
-        'Project export exceeds the configured memory budget.',
+        '项目导出超过内存预算，请精简素材后重试。',
         { limit_bytes: this.limits.maxMemoryBytes, estimated_bytes: estimatedMemory }
       );
     }
@@ -206,7 +206,7 @@ class ExportArchiveBuilder {
 
   addBuffer(archivePath, buffer) {
     if (!Buffer.isBuffer(buffer)) {
-      throw exportError('EXPORT_FILE_READ_FAILED', 'Project export could not materialize a file.', null, 500);
+      throw exportError('EXPORT_FILE_READ_FAILED', '项目导出无法读取文件，请检查素材后重试。', null, 500);
     }
     this.assertCanAdd(archivePath, buffer.length);
     this.zip.addFile(archivePath, buffer);
@@ -231,7 +231,7 @@ class ExportArchiveBuilder {
         : 'INVALID_REFERENCE';
       throw exportError(
         'UNSAFE_EXPORT_STORAGE',
-        'Project export rejected an unsafe storage path.',
+        '项目导出拒绝了不安全的存储路径。',
         { archive_path: archivePath, reason },
         400,
         error
@@ -245,13 +245,13 @@ class ExportArchiveBuilder {
       while (offset < buffer.length) {
         const bytes = fs.readSync(opened.fd, buffer, offset, buffer.length - offset, offset);
         if (bytes <= 0) {
-          throw exportError('EXPORT_FILE_CHANGED', 'Project export source changed while being read.', null, 409);
+          throw exportError('EXPORT_FILE_CHANGED', '项目导出读取时源文件发生变化，请重试。', null, 409);
         }
         offset += bytes;
       }
       const after = fs.fstatSync(opened.fd);
       if (after.size !== opened.stat.size || after.mtimeMs !== opened.stat.mtimeMs) {
-        throw exportError('EXPORT_FILE_CHANGED', 'Project export source changed while being read.', null, 409);
+        throw exportError('EXPORT_FILE_CHANGED', '项目导出读取时源文件发生变化，请重试。', null, 409);
       }
       return buffer;
     } finally {
@@ -272,7 +272,7 @@ class ExportArchiveBuilder {
     if (actualPeakBytes > this.limits.maxMemoryBytes) {
       throw exportError(
         'EXPORT_MEMORY_LIMIT',
-        'Project export exceeds the configured memory budget.',
+        '项目导出超过内存预算，请精简素材后重试。',
         { limit_bytes: this.limits.maxMemoryBytes, actual_bytes: actualPeakBytes }
       );
     }
@@ -361,7 +361,7 @@ function declaredCommonsEvidence(category, sourcePath) {
   ) {
     throw exportError(
       'INVALID_NETWORK_MEDIA_EVIDENCE',
-      'Project export rejected incomplete or inconsistent network media evidence.',
+      '项目导出拒绝了不完整或不一致的网络素材证据。',
       { source_path: sourcePath },
       400
     );
@@ -543,7 +543,7 @@ function collectSourceIntakeOriginals(db, storagePath, dramaId, archive) {
     const sourceRef = `source_${String(sources.length + 1).padStart(4, '0')}`;
     const extension = path.extname(String(metadata.original_file.server_filename || '')).toLowerCase();
     if (!/^\.[a-z0-9]{1,8}$/.test(extension)) {
-      throw exportError('UNSAFE_EXPORT_STORAGE', 'Project export rejected unsafe source metadata.', null, 400);
+      throw exportError('UNSAFE_EXPORT_STORAGE', '项目导出拒绝了不安全的素材元数据。', null, 400);
     }
     const archivePath = `source-intake/originals/${sourceRef}/original${extension}`;
     archive.assertCanAdd(archivePath, Number(metadata.original_file.size));
@@ -556,7 +556,7 @@ function collectSourceIntakeOriginals(db, storagePath, dramaId, archive) {
     } catch (error) {
       throw exportError(
         'UNSAFE_EXPORT_STORAGE',
-        'Project export rejected an unsafe source original.',
+        '项目导出拒绝了不安全的原始素材文件。',
         null,
         400,
         error
@@ -566,7 +566,7 @@ function collectSourceIntakeOriginals(db, storagePath, dramaId, archive) {
     if (Buffer.byteLength(JSON.stringify(safeMetadata), 'utf8') > MAX_SOURCE_METADATA_BYTES) {
       throw exportError(
         'EXPORT_SOURCE_METADATA_LIMIT',
-        'Project export source metadata exceeds the safe limit.',
+        '项目导出的素材元数据超过安全上限。',
         { limit_bytes: MAX_SOURCE_METADATA_BYTES },
         400
       );
@@ -661,7 +661,7 @@ function normalizeFreeCanvasExportPath(value, field) {
   if (typeof value !== 'string' || !value.trim()) {
     throw exportError(
       'INVALID_FREE_CANVAS_REFERENCE',
-      `Project export rejected an invalid free_canvas ${field}.`,
+      `项目导出拒绝了无效的自由画布 ${field}。`,
       { field },
       400
     );
@@ -674,7 +674,7 @@ function normalizeFreeCanvasExportPath(value, field) {
   } catch (error) {
     throw exportError(
       'INVALID_FREE_CANVAS_REFERENCE',
-      `Project export rejected an unsafe free_canvas ${field}.`,
+      `项目导出拒绝了不安全的自由画布 ${field}。`,
       { field },
       400,
       error
@@ -688,7 +688,7 @@ function validateFreeCanvasForExport(db, dramaId, canvas) {
   } catch (error) {
     throw exportError(
       'INVALID_FREE_CANVAS_REFERENCE',
-      `Project export rejected invalid free_canvas data: ${String(error?.message || 'validation failed')}`,
+      `项目导出拒绝了无效的自由画布数据：${String(error?.message || '校验失败')}`,
       null,
       400,
       error
@@ -708,7 +708,7 @@ function assertFreeCanvasMediaExtension(sourcePath, detectedFormat) {
   if (!expected || expected !== detectedFormat) {
     throw exportError(
       'INVALID_FREE_CANVAS_MEDIA',
-      'Project export rejected free_canvas media whose content does not match its extension.',
+      '项目导出拒绝了内容与扩展名不符的自由画布媒体。',
       { source_path: sourcePath },
       400
     );
@@ -730,7 +730,7 @@ function assertFreeCanvasMediaScope(drama, sourcePath, allowedGlobalUploadPaths)
   if (prefixes.some((prefix) => sourcePath === prefix || sourcePath.startsWith(`${prefix}/`))) return;
   throw exportError(
     'INVALID_FREE_CANVAS_REFERENCE',
-    'Project export rejected cross-project free_canvas media.',
+    '项目导出拒绝了跨项目的自由画布媒体。',
     { source_path: sourcePath },
     400
   );
@@ -746,7 +746,7 @@ function inspectFreeCanvasMedia(buffer, sourcePath, category) {
   } catch (error) {
     throw exportError(
       'INVALID_FREE_CANVAS_MEDIA',
-      'Project export rejected invalid free_canvas media content.',
+      '项目导出拒绝了无效的自由画布媒体内容。',
       { source_path: sourcePath },
       400,
       error
@@ -773,7 +773,7 @@ function parseFreeCanvasExportReference(value, sourceDramaId, field, kind) {
       if (Number(scoped[1]) !== Number(sourceDramaId)) {
         throw exportError(
           'INVALID_FREE_CANVAS_REFERENCE',
-          `Project export rejected a cross-project free_canvas ${field}.`,
+          `项目导出拒绝了跨项目的自由画布 ${field}。`,
           { field },
           400
         );
@@ -784,7 +784,7 @@ function parseFreeCanvasExportReference(value, sourceDramaId, field, kind) {
   if (!Number.isSafeInteger(id) || id <= 0) {
     throw exportError(
       'INVALID_FREE_CANVAS_REFERENCE',
-      `Project export rejected an invalid free_canvas ${field}.`,
+      `项目导出拒绝了无效的自由画布 ${field}。`,
       { field },
       400
     );
@@ -824,7 +824,7 @@ function collectFreeCanvasImportManifest({
     if (existing && existing !== category) {
       throw exportError(
         'INVALID_FREE_CANVAS_REFERENCE',
-        'Project export rejected a free_canvas asset used as conflicting media types.',
+        '项目导出拒绝了被当成冲突媒体类型的自由画布资产。',
         { asset_id: assetId },
         400
       );
@@ -874,7 +874,7 @@ function collectFreeCanvasImportManifest({
     if (!FREE_CANVAS_MEDIA_EXTENSIONS[category]?.has(extension)) {
       throw exportError(
         'INVALID_FREE_CANVAS_REFERENCE',
-        `Project export rejected an unsupported free_canvas ${field}.`,
+        `项目导出拒绝了不支持的自由画布 ${field}。`,
         { field },
         400
       );
@@ -884,7 +884,7 @@ function collectFreeCanvasImportManifest({
       if (existing.category !== category) {
         throw exportError(
           'INVALID_FREE_CANVAS_REFERENCE',
-          'Project export rejected a free_canvas path used as conflicting media types.',
+          '项目导出拒绝了被当成冲突媒体类型的自由画布路径。',
           { field },
           400
         );
@@ -924,7 +924,7 @@ function collectFreeCanvasImportManifest({
     if (!asset || (asset.drama_id != null && Number(asset.drama_id) !== sourceDramaId)) {
       throw exportError(
         'INVALID_FREE_CANVAS_REFERENCE',
-        'Project export rejected a missing or cross-project free_canvas asset.',
+        '项目导出拒绝了缺失或跨项目的自由画布资产。',
         { asset_id: sourceId },
         400
       );
@@ -943,7 +943,7 @@ function collectFreeCanvasImportManifest({
     if (assetMediaCategories.has(sourceId) && !sourcePath) {
       throw exportError(
         'INVALID_FREE_CANVAS_REFERENCE',
-        'Project export rejected a free_canvas media asset without a local file.',
+        '项目导出拒绝了没有本地文件的自由画布媒体。',
         { asset_id: sourceId },
         400
       );
@@ -957,7 +957,7 @@ function collectFreeCanvasImportManifest({
       )) {
         throw exportError(
           'INVALID_NETWORK_MEDIA_EVIDENCE',
-          'Project export rejected conflicting network media content hashes.',
+          '项目导出拒绝了冲突的网络素材内容哈希。',
           { source_path: sourcePath },
           400
         );
@@ -1000,7 +1000,7 @@ function collectFreeCanvasImportManifest({
     if (!generation) {
       throw exportError(
         'INVALID_FREE_CANVAS_REFERENCE',
-        'Project export rejected a missing or cross-project free_canvas video generation.',
+        '项目导出拒绝了缺失或跨项目的自由画布视频生成记录。',
         { video_generation_id: sourceId },
         400
       );
@@ -1008,7 +1008,7 @@ function collectFreeCanvasImportManifest({
     if (generation.storyboard_id != null && !exportedStoryboardIds.has(Number(generation.storyboard_id))) {
       throw exportError(
         'INVALID_FREE_CANVAS_REFERENCE',
-        'Project export rejected a cross-project free_canvas video-generation storyboard.',
+        '项目导出拒绝了跨项目的自由画布视频分镜。',
         { video_generation_id: sourceId },
         400
       );
@@ -1016,7 +1016,7 @@ function collectFreeCanvasImportManifest({
     if (generation.scene_id != null && !exportedSceneIds.has(Number(generation.scene_id))) {
       throw exportError(
         'INVALID_FREE_CANVAS_REFERENCE',
-        'Project export rejected a cross-project free_canvas video-generation scene.',
+        '项目导出拒绝了跨项目的自由画布视频场景。',
         { video_generation_id: sourceId },
         400
       );
@@ -1025,7 +1025,7 @@ function collectFreeCanvasImportManifest({
     if (!FREE_CANVAS_VIDEO_STATUSES.has(status)) {
       throw exportError(
         'INVALID_FREE_CANVAS_REFERENCE',
-        'Project export rejected an unsupported free_canvas video-generation status.',
+        '项目导出拒绝了不支持的自由画布视频生成状态。',
         { video_generation_id: sourceId },
         400
       );
@@ -1038,7 +1038,7 @@ function collectFreeCanvasImportManifest({
     if (linkedPaths.size !== 1) {
       throw exportError(
         'INVALID_FREE_CANVAS_REFERENCE',
-        'Project export rejected an ambiguous free_canvas video-generation media binding.',
+        '项目导出拒绝了不明确的自由画布视频媒体绑定。',
         { video_generation_id: sourceId },
         400
       );
@@ -1050,7 +1050,7 @@ function collectFreeCanvasImportManifest({
     if (generationPath !== linkedPath) {
       throw exportError(
         'INVALID_FREE_CANVAS_REFERENCE',
-        'Project export rejected mismatched asset and video-generation media.',
+        '项目导出拒绝了资产与视频生成媒体不匹配的记录。',
         { video_generation_id: sourceId },
         400
       );
@@ -1059,7 +1059,7 @@ function collectFreeCanvasImportManifest({
     if (!sourcePath) {
       throw exportError(
         'INVALID_FREE_CANVAS_REFERENCE',
-        'Project export rejected a referenced video generation without local media.',
+        '项目导出拒绝了没有本地媒体的视频生成引用。',
         { video_generation_id: sourceId },
         400
       );
@@ -1095,7 +1095,7 @@ function collectFreeCanvasImportManifest({
     if (archivePaths.has(collisionKey)) {
       throw exportError(
         'EXPORT_DUPLICATE_PATH',
-        'Project export generated a duplicate free_canvas archive path.',
+        '项目导出生成了重复的自由画布压缩路径，请重试。',
         { archive_path: entry.archive_path },
         500
       );
@@ -1106,7 +1106,7 @@ function collectFreeCanvasImportManifest({
     if (!buffer) {
       throw exportError(
         'FREE_CANVAS_MEDIA_MISSING',
-        'Project export could not archive referenced free_canvas media.',
+        '项目导出无法打包引用的自由画布媒体，请检查素材后重试。',
         { source_path: entry.source_path },
         400
       );
@@ -1117,7 +1117,7 @@ function collectFreeCanvasImportManifest({
     if (evidence && (evidence.contentSha256 !== entry.sha256 || evidence.commonsSha1 !== actualSha1)) {
       throw exportError(
         'NETWORK_MEDIA_CONTENT_HASH_MISMATCH',
-        'Project export rejected network media whose evidence does not match the local file.',
+        '项目导出拒绝了证据与本地文件不符的网络素材。',
         { source_path: entry.source_path },
         400
       );
@@ -1605,7 +1605,7 @@ function exportDrama(db, cfg, log, dramaId, options = {}) {
     if (!archive.archivePaths.has(media.archive_path)) {
       throw exportError(
         'FREE_CANVAS_MEDIA_MISSING',
-        'Project export lost referenced free_canvas media before finalizing the archive.',
+        '项目导出在完成压缩包前丢失了引用的自由画布媒体，请重试。',
         { source_path: media.source_path },
         500
       );

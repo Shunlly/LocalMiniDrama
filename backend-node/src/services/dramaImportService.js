@@ -693,7 +693,7 @@ function parseZip(zipSource, options = {}) {
   let data;
   try {
     const projectData = projectEntry.getData();
-    if (projectData.length !== Number(projectEntry.header.size)) throw new Error('size mismatch');
+    if (projectData.length !== Number(projectEntry.header.size)) throw new Error('项目包大小与清单不一致，请重新导出后导入');
     data = JSON.parse(projectData.toString('utf8'));
   } catch (e) {
     throw importError('INVALID_PROJECT_JSON', 'project.json 格式错误，无法解析 JSON', e);
@@ -1455,16 +1455,16 @@ function freeCanvasAssetCategory(value, field) {
       || source.origin !== 'https://commons.wikimedia.org'
       || source.username
       || source.password
-    ) throw new Error('unsafe source');
+    ) throw new Error('素材源引用不安全，请检查项目包后重试');
     const sourceMatch = source.pathname.match(/^\/wiki\/(.+)$/);
     const sourceTitle = sourceMatch
       ? decodeURIComponent(sourceMatch[1]).replace(/_/g, ' ').normalize('NFC')
       : '';
-    if (sourceTitle !== metadata.commons_title.normalize('NFC')) throw new Error('mismatched title');
+    if (sourceTitle !== metadata.commons_title.normalize('NFC')) throw new Error('素材标题与清单不一致，请检查项目包后重试');
     for (const key of ['license_url', 'resolved_download_url']) {
       if (!metadata[key]) continue;
       const url = new URL(metadata[key]);
-      if (url.protocol !== 'https:' || url.username || url.password) throw new Error('unsafe URL');
+      if (url.protocol !== 'https:' || url.username || url.password) throw new Error('素材 URL 不安全，仅支持不含凭据的 https 地址');
     }
   } catch (_) {
     throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
