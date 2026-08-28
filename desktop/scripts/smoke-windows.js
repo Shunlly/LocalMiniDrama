@@ -60,21 +60,49 @@ async function removeTreeWithRetry(target, waitMs = 30000) {
   throw lastError || new Error(`Timed out removing ${target}`);
 }
 
-function expectedArtifactName(kind) {
+const WINDOWS_EXE_HEADER = Buffer.from('MZ');
+
+function expectedArtifactName(kind, version = packageJson.version) {
   if (!['Setup', 'Portable'].includes(kind)) throw new Error(`Unknown release artifact kind ${kind}`);
-  return `LocalMiniDrama-${kind}-${packageJson.version}-x64.exe`;
+  return `LocalMiniDrama-${kind}-${version}-x64.exe`;
 }
 
-function exactArtifact(kind) {
-  const expected = expectedArtifactName(kind);
+function assertWindowsExecutableFile(filePath, label = path.basename(filePath)) {
+  let fd;
+  try {
+    fd = fs.openSync(filePath, 'r');
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      throw new Error(`${label} is missing: ${filePath}`);
+    }
+    throw new Error(`${label} could not be read: ${error && error.message ? error.message : error}`);
+  }
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) {
+      throw new Error(`${label} is not a file: ${filePath}`);
+    }
+    const header = Buffer.alloc(2);
+    const bytesRead = fs.readSync(fd, header, 0, 2, 0);
+    if (bytesRead < 2 || !header.equals(WINDOWS_EXE_HEADER)) {
+      throw new Error(`${label} is not a Windows executable: ${filePath}`);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return filePath;
+}
+
+function exactArtifact(kind, directory = releaseRoot, version = packageJson.version) {
+  const expected = expectedArtifactName(kind, version);
   const family = new RegExp(`^LocalMiniDrama-${kind}-.*-x64\\.exe$`, 'i');
-  const matches = fs.readdirSync(releaseRoot, { withFileTypes: true })
+  const matches = fs.readdirSync(directory, { withFileTypes: true })
     .filter((entry) => entry.isFile() && family.test(entry.name))
     .map((entry) => entry.name);
   if (matches.length !== 1 || matches[0] !== expected) {
     throw new Error(`Expected only ${expected}, found ${matches.join(', ') || 'none'}`);
   }
-  return path.join(releaseRoot, expected);
+  return assertWindowsExecutableFile(path.join(directory, expected), expected);
 }
 
 function findApplicationExe(root) {
@@ -84,7 +112,15 @@ function findApplicationExe(root) {
   if (candidates.length !== 1) {
     throw new Error(`Expected one application executable in ${root}, found ${candidates.length}`);
   }
-  return candidates[0];
+  return assertWindowsExecutableFile(candidates[0], path.basename(candidates[0]));
+}
+
+function assertInstallMatrixExecutables(directory, version = packageJson.version) {
+  return {
+    setup: exactArtifact('Setup', directory, version),
+    portable: exactArtifact('Portable', directory, version),
+    unpacked: findApplicationExe(path.join(directory, 'win-unpacked')),
+  };
 }
 
 function verifyMediaTool(label, executable, expectedName) {
@@ -656,9 +692,13 @@ if (require.main === module) {
 module.exports = {
   assertExampleImportResponse,
   assertExampleListResponse,
+  assertInstallMatrixExecutables,
   assertRendererLog,
   assertSuccessfulSpawnResult,
+  assertWindowsExecutableFile,
+  exactArtifact,
   expectedArtifactName,
+  findApplicationExe,
   sameOriginWriteHeaders,
   verifyBundledExampleImport,
 };

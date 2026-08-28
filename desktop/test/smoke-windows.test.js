@@ -2,15 +2,21 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { removeFixtureTree } = require('./fixture-fs');
 
 const {
   assertExampleImportResponse,
   assertExampleListResponse,
+  assertInstallMatrixExecutables,
   assertRendererLog,
   assertSuccessfulSpawnResult,
+  assertWindowsExecutableFile,
+  exactArtifact,
   expectedArtifactName,
+  findApplicationExe,
   sameOriginWriteHeaders,
   verifyBundledExampleImport,
 } = require('../scripts/smoke-windows');
@@ -218,3 +224,53 @@ test('release smoke and manifest accept only the current version artifact matrix
     /missing, stale, or unexpected/
   );
 });
+
+test('install matrix locates Setup, Portable, and Unpacked executables without packaging', (t) => {
+  const version = packageJson.version;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-install-matrix-'));
+  t.after(() => removeFixtureTree(root));
+  const mz = Buffer.concat([Buffer.from('MZ'), Buffer.from('fake-windows-executable')]);
+  fs.writeFileSync(path.join(root, expectedArtifactName('Setup', version)), mz);
+  fs.writeFileSync(path.join(root, expectedArtifactName('Portable', version)), mz);
+  fs.mkdirSync(path.join(root, 'win-unpacked'));
+  fs.writeFileSync(path.join(root, 'win-unpacked', '本地短剧助手.exe'), mz);
+  fs.writeFileSync(path.join(root, 'win-unpacked', 'Unins000.exe'), mz);
+
+  const matrix = assertInstallMatrixExecutables(root, version);
+  assert.equal(path.basename(matrix.setup), expectedArtifactName('Setup', version));
+  assert.equal(path.basename(matrix.portable), expectedArtifactName('Portable', version));
+  assert.equal(path.basename(matrix.unpacked), '本地短剧助手.exe');
+  assert.equal(assertWindowsExecutableFile(matrix.setup), matrix.setup);
+});
+
+test('install matrix rejects missing, stale, or non-executable candidates', (t) => {
+  const version = packageJson.version;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-install-matrix-neg-'));
+  t.after(() => removeFixtureTree(root));
+  const mz = Buffer.concat([Buffer.from('MZ'), Buffer.from('fake-windows-executable')]);
+  fs.writeFileSync(path.join(root, expectedArtifactName('Setup', version)), Buffer.from('not-an-exe'));
+  fs.writeFileSync(path.join(root, expectedArtifactName('Portable', '0.0.0')), mz);
+  fs.mkdirSync(path.join(root, 'win-unpacked'));
+  fs.writeFileSync(path.join(root, 'win-unpacked', 'readme.txt'), 'help');
+
+  assert.throws(
+    () => exactArtifact('Setup', root, version),
+    /is not a Windows executable/
+  );
+  assert.throws(
+    () => exactArtifact('Portable', root, version),
+    /Expected only/
+  );
+  assert.throws(
+    () => findApplicationExe(path.join(root, 'win-unpacked')),
+    /Expected one application executable/
+  );
+
+  fs.writeFileSync(path.join(root, 'win-unpacked', 'LocalMiniDrama.exe'), Buffer.from('MZ'));
+  fs.writeFileSync(path.join(root, 'win-unpacked', 'Helper.exe'), Buffer.from('MZ'));
+  assert.throws(
+    () => findApplicationExe(path.join(root, 'win-unpacked')),
+    /found 2/
+  );
+});
+
