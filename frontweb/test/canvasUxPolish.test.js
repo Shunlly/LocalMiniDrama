@@ -146,3 +146,11 @@ test('剧本面板提取失败不再静默，右键菜单键盘可达', () => {
   assert.match(contextMenuSource, /role="menu"/)
   assert.match(contextMenuSource, /role="menuitem"/)
 })
+
+test('画布页用户 toast 不再直出 e.message', () => {
+  assert.match(canvasSource, /from '@\/composables\/useCanvasUserError'/)
+  assert.match(canvasSource, /function safeFreeCanvasError\(error, fallback\) \{[\s\S]*return canvasUserError\(error, fallback/)
+  assert.doesNotMatch(canvasSource, /ElMessage\.(error|warning)\(e\?\.message/)
+  assert.doesNotMatch(canvasSource, /ElMessage\.(error|warning)\((?:error\?\.message|`[^`]*\$\{error\?\.message)/)
+  assert.match(canvasSource, /if \(isCanvasUserAbort\(e\)\) return/)
+})

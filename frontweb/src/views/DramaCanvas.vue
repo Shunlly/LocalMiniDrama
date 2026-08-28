@@ -462,6 +462,7 @@ import { uploadAPI } from '@/api/upload'
 import { useTheme } from '@/composables/useTheme'
 import { runWorkflowGroup } from '@/composables/useCanvasWorkflowRunner'
 import { CANVAS_CONTEXT_KEY } from '@/composables/useCanvasContext'
+import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
 import { useCanvasStoryboardMedia } from '@/composables/useCanvasStoryboardMedia'
 import { useCanvasCrud } from '@/composables/useCanvasCrud'
 import { useCanvasEpisodeGenerate } from '@/composables/useCanvasEpisodeGenerate'
@@ -1544,7 +1545,7 @@ function commitFreeCanvasState(nextState, reason, { save = true } = {}) {
   try {
     normalized = normalizeFreeCanvasForProject(nextState)
   } catch (error) {
-    ElMessage.warning(error?.message || '自由画布内容不符合保存要求')
+    ElMessage.warning(safeFreeCanvasError(error, '自由画布内容不符合保存要求'))
     return freeCanvas.value
   }
   freeCanvas.value = freeCanvasHistory.commit(normalized, reason)
@@ -1782,7 +1783,8 @@ async function onCreateSubmit(form) {
   try {
     await submitCreate(form)
   } catch (e) {
-    ElMessage.error(e?.message || '创建失败')
+    if (isCanvasUserAbort(e)) return
+    ElMessage.error(safeFreeCanvasError(e, '创建失败'))
   }
 }
 
@@ -1851,7 +1853,7 @@ async function refreshProductionReadiness() {
     productionReadinessState.value = {
       status: 'error',
       data: null,
-      error: error?.message || '正式制作能力加载失败',
+      error: safeFreeCanvasError(error, '正式制作能力加载失败'),
     }
   }
 }
@@ -2391,7 +2393,7 @@ const {
   persist: () => persistCanvasState({ groupsOnly: true, reportError: false }),
   onSaveFailed: (error, result) => {
     abandonCanvasSaveOperation(result?.operation)
-    ElMessage.error(`分镜排序保存失败，已恢复原顺序：${error?.message || '保存失败'}`)
+    ElMessage.error(`分镜排序保存失败，已恢复原顺序：${safeFreeCanvasError(error, '保存失败')}`)
   },
   setMediaValidity: (nodeId, state) => {
     if (nodeId) mediaValidity[nodeId] = state
@@ -2554,7 +2556,8 @@ async function onAlignNodes() {
     if (!saved.ok || !isCanvasProjectCurrent(requestedProjectId)) return
     ElMessage.success('节点已按规则对齐并适配当前视图')
   } catch (e) {
-    ElMessage.error(e?.message || '对齐失败')
+    if (isCanvasUserAbort(e)) return
+    ElMessage.error(safeFreeCanvasError(e, '对齐失败'))
   } finally {
     aligningNodes.value = false
   }
@@ -2573,7 +2576,7 @@ async function loadDrama(silent = false) {
     await loadForDrama(drama.value, filterEpisodeId.value)
     rebuildGraph()
   } catch (e) {
-    if (!silent) ElMessage.error(e?.message || '加载项目失败')
+    if (!silent && !isCanvasUserAbort(e)) ElMessage.error(safeFreeCanvasError(e, '加载项目失败'))
   } finally {
     if (!silent) loading.value = false
   }
@@ -2690,7 +2693,7 @@ async function onRunActiveGroup() {
       },
       onStoryboardError: ({ storyboardId, error }) => {
         if (!isActiveWorkflowRun(run)) return
-        ElMessage.error(`分镜 #${storyboardId} 失败：${error?.message || error}`)
+        ElMessage.error(`分镜 #${storyboardId} 失败：${safeFreeCanvasError(error, '生成失败')}`)
       },
     })
     if (!isActiveWorkflowRun(run)) return
@@ -2708,7 +2711,7 @@ async function onRunActiveGroup() {
   } catch (e) {
     if (e?.code === 'SUBMISSION_OUTCOME_UNKNOWN') workflowOutcomeUnknown.value = true
     if (isActiveWorkflowRun(run) && !isWorkflowAbortError(e)) {
-      ElMessage.error(e?.message || '工作流执行失败')
+      ElMessage.error(safeFreeCanvasError(e, '工作流执行失败'))
     }
   } finally {
     if (activeWorkflowRun.value === run) {
@@ -3337,7 +3340,7 @@ async function uploadFreeCanvasFiles(files, position = null) {
         await createFreeNodeFromAsset(asset, nodePosition)
         succeeded += 1
       } catch (error) {
-        ElMessage.warning(`${file.name || '素材'} 上传失败：${error?.message || '请稍后重试'}`)
+        ElMessage.warning(`${file.name || '素材'} 上传失败：${safeFreeCanvasError(error, '请稍后重试')}`)
       }
     }
   } finally {
@@ -3546,11 +3549,7 @@ function handleFreeCanvasKeydown(event) {
 }
 
 function safeFreeCanvasError(error, fallback) {
-  const message = String(error?.message || '').replace(/[\r\n\0]+/g, ' ').trim()
-  const trustedMessages = new Set(['本地保存暂时不可用'])
-  if (trustedMessages.has(message)) return message
-  const safeFallback = String(fallback || '操作失败，请重试').replace(/[\r\n\0]+/g, ' ').trim()
-  return safeFallback.slice(0, 240) || '操作失败，请重试'
+  return canvasUserError(error, fallback || '操作失败，请重试')
 }
 
 function freeNodeReferenceText(node) {
