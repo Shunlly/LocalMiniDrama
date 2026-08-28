@@ -76,7 +76,7 @@ test('QA below 80 leaves episode and merge uncompleted and fails the workflow', 
 
   const failed = await workflowService.processWorkflowRun(fixture.db, log, fixture.runId);
   assert.equal(failed.status, 'failed');
-  assert.match(failed.error, /QA gate failed with score/);
+  assert.match(failed.error, /质量检查未通过，当前得分/);
   assert.ok(failed.steps[0].output_json.score < 80);
   assert.equal(failed.steps[0].output_json.passed, false);
   assert.notEqual(fixture.db.prepare('SELECT status FROM video_merges WHERE id = ?').get(fixture.mergeId).status, 'completed');

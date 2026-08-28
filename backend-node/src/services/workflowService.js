@@ -789,7 +789,7 @@ function ensureTimelinePlan(db, log, dramaId, mode = 'draft') {
 
 async function requestProductionAdaptationText(db, log, run, step, sourceId, plan, providerOptions) {
   const sourceDetail = sourceIntakeService.getSourceDetail(db, sourceId);
-  if (!sourceDetail) throw new Error('Source not found for production text adaptation');
+  if (!sourceDetail) throw new Error('找不到用于生产文本改编的素材源，请确认素材源仍存在后重试');
   const sourcePrompt = skillRegistryService.renderSkillPrompt(db, 'localminidrama-source-intake', {
     drama_id: run.drama_id,
     source_id: sourceId,
@@ -808,7 +808,7 @@ async function requestProductionAdaptationText(db, log, run, step, sourceId, pla
     provider: providerOptions.text_provider,
   };
   const route = aiClient.resolveTextRoute(db, 'text', routeOptions);
-  if (!route) throw new Error('Production workflow is not ready: text provider route is unavailable');
+  if (!route) throw new Error('生产工作流尚未就绪：文本模型路由不可用，请在「AI 配置」中启用文本模型后重试');
   const model = aiClient.getModelFromConfig(route.config, route.modelOverride || routeOptions.model);
   const providerName = route.config.provider || route.config.name || 'text-provider';
   const promptEvidence = {
@@ -865,7 +865,7 @@ async function requestProductionAdaptationText(db, log, run, step, sourceId, pla
       idempotency_key: step.call_key,
       input: { call_key: step.call_key, source_id: sourceId, prompt_evidence: promptEvidence },
       output: { prompt_evidence: promptEvidence },
-      error_message: error.message || 'Production text provider request failed',
+      error_message: error.message || '生产文本模型请求失败，请检查「AI 配置」后重试',
     });
     throw error;
   }
@@ -879,15 +879,15 @@ async function executeStep(db, log, run, step, allSteps) {
     const input = step.input_json || {};
     if (input.source_id) {
       const detail = sourceIntakeService.getSourceDetail(db, input.source_id);
-      if (!detail) throw new Error('Source not found');
+      if (!detail) throw new Error('找不到该素材源，请确认素材源仍存在后重试');
       if (Number(detail.source.drama_id) !== Number(run.drama_id)) {
-        throw new Error('Source does not belong to this drama');
+        throw new Error('该素材源不属于当前项目，请选择本项目下的素材源');
       }
       let adaptationPlanId = input.adaptation_plan_id || detail.adaptation_plans[0]?.id || null;
       if (adaptationPlanId) {
         const plan = sourceIntakeService.getAdaptationPlanById(db, adaptationPlanId);
         if (!plan || Number(plan.source_id) !== Number(detail.source.id)) {
-          throw new Error('Adaptation plan does not belong to this source');
+          throw new Error('该改编方案不属于当前素材源，请选择该素材源下的改编方案');
         }
       }
       const output = {
@@ -925,7 +925,7 @@ async function executeStep(db, log, run, step, allSteps) {
   if (step.step_key === 'adaptation_plan') {
     const sourceOut = previousOutput(allSteps, 'source_intake');
     const sourceId = sourceOut.source_id;
-    if (!sourceId) throw new Error('source_intake output missing source_id');
+    if (!sourceId) throw new Error('素材导入步骤未返回素材源 ID，请重新导入素材后再继续');
     let plan = sourceOut.adaptation_plan_id
       ? sourceIntakeService.getAdaptationPlanById(db, sourceOut.adaptation_plan_id)
       : sourceIntakeService.getLatestPlanForSource(db, sourceId);
@@ -995,14 +995,14 @@ async function executeStep(db, log, run, step, allSteps) {
 
   if (step.step_key === 'apply_episodes') {
     const planOut = previousOutput(allSteps, 'adaptation_plan');
-    if (!planOut.adaptation_plan_id) throw new Error('adaptation_plan output missing adaptation_plan_id');
+    if (!planOut.adaptation_plan_id) throw new Error('改编计划步骤未返回改编方案 ID，请重新生成改编方案后再继续');
     const applyOnce = db.transaction(() => {
       const existing = completedStepEffect(db, step.call_key);
       if (existing) return existing;
       const result = sourceIntakeService.applyAdaptationPlanToEpisodes(db, log, planOut.adaptation_plan_id, {
         overwrite_existing_episodes: run.input_json?.overwrite_existing_episodes === true,
       });
-      if (!result) throw new Error('Failed to apply adaptation plan');
+      if (!result) throw new Error('应用改编方案失败，请确认方案仍存在后重试');
       recordSkill(db, run, step, 'localminidrama-script-adapter', { adaptation_plan_id: planOut.adaptation_plan_id }, result);
       return recordStepEffect(db, run, step, result);
     });
@@ -1167,19 +1167,19 @@ async function executeStep(db, log, run, step, allSteps) {
     });
     const { report, output } = auditWithCompletionGate();
     if (!report.passed) {
-      const error = new Error(`QA gate failed with score ${report.score}`);
+      const error = new Error(`质量检查未通过，当前得分 ${report.score}，请根据 QA 报告修复后再重试`);
       error.report = report;
       throw error;
     }
     if (!output || output.score < 80 || output.passed !== true) {
-      const error = new Error(`QA gate failed with score ${report.score}`);
+      const error = new Error(`质量检查未通过，当前得分 ${report.score}，请根据 QA 报告修复后再重试`);
       error.report = report;
       throw error;
     }
     return output;
   }
 
-  throw new Error(`Unknown workflow step: ${step.step_key}`);
+  throw new Error(`未知的工作流步骤：${step.step_key}，请刷新后重试`);
 }
 
 async function processWorkflowRun(db, log, runId, options = {}) {
@@ -1221,7 +1221,7 @@ async function processWorkflowRunInner(db, log, runId, options = {}) {
     if (!step) {
       const qaStep = steps.find((item) => item.step_key === 'qa_audit');
       if (qaStep && (qaStep.output_json?.passed !== true || Number(qaStep.output_json?.score) < 80)) {
-        const message = 'Workflow cannot complete without a passing QA score of at least 80';
+        const message = '工作流无法完成：质量检查得分需至少 80 分，请根据 QA 报告修复后再重试';
         setRunStatus(db, runId, 'failed', {
           current_step: 'qa_audit',
           error: message,
@@ -1338,7 +1338,7 @@ async function processWorkflowRunInner(db, log, runId, options = {}) {
 function resolveWorkflowBackgroundTasks(options = {}) {
   const tasks = options.backgroundTasks || defaultBackgroundTasks;
   if (!tasks || typeof tasks.schedule !== 'function' || typeof tasks.assertAccepting !== 'function') {
-    throw new Error('Workflow scheduling requires a background task scheduler');
+    throw new Error('工作流调度需要后台任务调度器，请检查服务状态后重试');
   }
   return tasks;
 }
@@ -1492,7 +1492,7 @@ function startNovel2AnimeRepairWorkflow(db, log, params = {}) {
   };
   const steps = stepsFromKeys(actionSteps[action] || actionSteps.repair_storyboards);
   if (!steps.length) {
-    const err = new Error(`Unsupported repair action: ${action}`);
+    const err = new Error(`不支持的修复操作：${action}，请选择有效的修复动作后重试`);
     err.code = 'BAD_REQUEST';
     throw err;
   }
@@ -1543,7 +1543,7 @@ function retryWorkflowRun(db, log, runId, options = {}) {
   return getWorkflowRunDetail(db, run.id);
 }
 
-function cancelWorkflowRun(db, log, runId, reason = 'User cancelled workflow') {
+function cancelWorkflowRun(db, log, runId, reason = '用户已取消工作流') {
   const run = getWorkflowRun(db, runId);
   if (!run) return null;
   if (RUN_TERMINAL_STATUSES.has(run.status)) {
@@ -1573,7 +1573,7 @@ function cancelWorkflowRun(db, log, runId, reason = 'User cancelled workflow') {
   return getWorkflowRunDetail(db, run.id);
 }
 
-function pauseWorkflowRun(db, log, runId, reason = 'User paused workflow') {
+function pauseWorkflowRun(db, log, runId, reason = '用户已暂停工作流') {
   const run = getWorkflowRun(db, runId);
   if (!run) return null;
   if (RUN_TERMINAL_STATUSES.has(run.status) || run.status === 'paused') return getWorkflowRunDetail(db, runId);
