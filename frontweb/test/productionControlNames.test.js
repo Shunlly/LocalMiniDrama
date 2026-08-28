@@ -27,6 +27,7 @@ const targetSources = [
 const filmCreateSource = targetSources.find(({ name }) => name.endsWith('/FilmCreate.vue')).source
 const pipelineSource = targetSources.find(({ name }) => name.endsWith('/FilmCreatePipelinePanel.vue')).source
 const scriptWorkbenchSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateScriptWorkbench.vue')).source
+const storyboardCreatePanelSource = targetSources.find(({ name }) => name.endsWith('/FilmCreateStoryboardPanel.vue')).source
 const storyboardPanelSource = targetSources.find(({ name }) => name.endsWith('/CanvasStoryboardPanel.vue')).source
 const workflowToolbarSource = targetSources.find(({ name }) => name.endsWith('/CanvasWorkflowToolbarGroup.vue')).source
 
@@ -142,7 +143,7 @@ test('production control names preserve generation and item context', () => {
   assert.match(controlBy(scriptWorkbenchSource, 'el-select', 'v-model="storyStyle"'), /aria-label="故事风格"/)
   assert.match(controlBy(scriptWorkbenchSource, 'el-select', 'v-model="storyType"'), /aria-label="故事生成剧本类型"/)
   assert.match(controlBy(scriptWorkbenchSource, 'el-input-number', 'v-model="storyEpisodeCount"'), /aria-label="故事生成集数"/)
-  assert.match(controlBy(filmCreateSource, 'el-input-number', 'v-model="storyboardCount"'), /aria-label="分镜数量（生成设置）"/)
+  assert.match(controlBy(storyboardCreatePanelSource, 'el-input-number', 'v-model="storyboardCount"'), /aria-label="分镜数量（生成设置）"/)
   assert.match(controlBy(filmCreateSource, 'el-input-number', 'v-model="novelMaxChapters"'), /aria-label="最多导入集数"/)
   assert.match(controlBy(workflowToolbarSource, 'el-button', "emit('create-workflow')"), /aria-label="创建分组（工作流）"/)
 
@@ -151,7 +152,7 @@ test('production control names preserve generation and item context', () => {
     ['v-model="sbSceneId[sb.id]"', '场景'],
     ['getSbPropIds(sb.id)', '道具'],
   ]) {
-    const select = controlBy(filmCreateSource, 'el-select', marker)
+    const select = controlBy(storyboardCreatePanelSource, 'el-select', marker)
     assert.match(select, /:aria-label="`分镜\$\{sb\.storyboard_number \|\| i \+ 1\}/)
     assert.match(select, new RegExp(`${semantic}\``))
   }
@@ -167,12 +168,12 @@ test('production control names preserve generation and item context', () => {
 
 test('history image operations include a stable per-list index in every accessible name', () => {
   assert.equal(
-    (filmCreateSource.match(/v-for="\(item, historyIndex\) in getStripItems\(sb\.id\)"/g) || []).length,
+    (storyboardCreatePanelSource.match(/v-for="\(item, historyIndex\) in getStripItems\(sb\.id\)"/g) || []).length,
     2,
   )
   assert.match(filmCreateSource, /function historyImageLabel\(sb, storyboardIndex, item, historyIndex\)/)
   assert.ok(
-    (filmCreateSource.match(/historyImageLabel\(sb, i, item, historyIndex\)/g) || []).length >= 6,
+    (storyboardCreatePanelSource.match(/historyImageLabel\(sb, i, item, historyIndex\)/g) || []).length >= 6,
     'primary, preview, and delete actions in both history strips must use the indexed label',
   )
 })

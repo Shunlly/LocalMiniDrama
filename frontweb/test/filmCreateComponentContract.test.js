@@ -12,6 +12,7 @@ const pipelinePanelUrl = new URL('../src/components/filmCreate/FilmCreatePipelin
 const disclosureStateUrl = new URL('../src/composables/useDisclosureState.js', import.meta.url)
 const filmPipelineActionUrl = new URL('../src/utils/filmPipelineAction.js', import.meta.url)
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 
 test('FilmCreate script compiles without duplicate bindings', () => {
   const parsed = parse(filmCreateSource, { filename: 'FilmCreate.vue' })
@@ -21,8 +22,8 @@ test('FilmCreate script compiles without duplicate bindings', () => {
 
 test('storyboard insertion command names the object it creates', () => {
   assert.doesNotMatch(filmCreateSource, />\s*＋ 新增\s*<\/el-button>/)
-  assert.match(filmCreateSource, /:aria-label="`在分镜\$\{i \+ 1\}前插入新分镜`"/)
-  assert.match(filmCreateSource, /<span>插入分镜<\/span>/)
+  assert.match(storyboardPanelSource, /:aria-label="`在分镜\$\{i \+ 1\}前插入新分镜`"/)
+  assert.match(storyboardPanelSource, /<span>插入分镜<\/span>/)
 })
 
 function dataModule(source) {
@@ -110,7 +111,7 @@ const CanvasActionGate = (await import(compiledCanvasActionGateUrl)).default
 const FilmCreatePipelinePanel = (await import(compiledPipelinePanelUrl)).default
 
 test('FilmCreate never renders or forwards raw storyboard placeholder URLs', () => {
-  assert.match(filmCreateSource, /v-else-if="storyboardImageUrl\(sb\)"/)
+  assert.match(storyboardPanelSource, /v-else-if="storyboardImageUrl\(sb\)"/)
   assert.match(filmCreateSource, /return storyboardImageUrl\(sb\)/)
   assert.doesNotMatch(filmCreateSource, /v-else-if="sb\.(?:image_url|composed_image)/)
   assert.doesNotMatch(filmCreateSource, /imageUrl\(sb\.composed_image \|\| sb\.image_url\)/)
@@ -780,4 +781,14 @@ test('FilmCreate 把资源管理交给独立面板并保留折叠与空状态', 
   assert.match(panel, /class="collapse-header(?: resource-block-header)?"/)
   assert.match(panel, /暂无角色/)
   assert.match(panel, /emit\('generate-characters'\)/)
+})
+
+test('FilmCreate 把分镜生成交给独立面板并保留锚点', () => {
+  const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /<FilmCreateStoryboardPanel/)
+  assert.match(filmCreateSource, /:on-generate-storyboard="onGenerateStoryboard"/)
+  assert.match(panel, /id="anchor-storyboard"/)
+  assert.match(panel, /id="anchor-storyboard-images"/)
+  assert.match(panel, /label="批量生成分镜图"/)
+  assert.match(panel, /还没有分镜/)
 })

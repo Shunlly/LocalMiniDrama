@@ -26,7 +26,11 @@ const resourcePanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url),
   'utf8',
 )
-const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource + '\n' + scriptWorkbenchSource + '\n' + resourcePanelSource
+const storyboardPanelSource = readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url),
+  'utf8',
+)
+const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource + '\n' + scriptWorkbenchSource + '\n' + resourcePanelSource + '\n' + storyboardPanelSource
 
 test('film create navigation and resource disclosure controls use native buttons', () => {
   assert.match(filmCreateSource, /<button[\s\S]*?class="nav-toggle"[\s\S]*?:aria-expanded="!navCollapsed"/)
@@ -37,13 +41,13 @@ test('film create navigation and resource disclosure controls use native buttons
   assert.equal((filmCreateSource.match(/:aria-current=/g) || []).length, 1)
   assert.match(filmCreateSource, /\{ 'is-current': activeNavAnchor === step\.anchor \}/)
 
-  const storyboardScriptAnchors = filmCreateSource.match(/id="anchor-storyboard"/g) || []
-  const storyboardImageAnchors = filmCreateSource.match(/id="anchor-storyboard-images"/g) || []
+  const storyboardScriptAnchors = storyboardPanelSource.match(/id="anchor-storyboard"/g) || []
+  const storyboardImageAnchors = storyboardPanelSource.match(/id="anchor-storyboard-images"/g) || []
   assert.equal(storyboardScriptAnchors.length, 1)
   assert.equal(storyboardImageAnchors.length, 1)
   assert.ok(
-    filmCreateSource.indexOf('id="anchor-storyboard-images"')
-      < filmCreateSource.indexOf('label="批量生成分镜图"'),
+    storyboardPanelSource.indexOf('id="anchor-storyboard-images"')
+      < storyboardPanelSource.indexOf('label="批量生成分镜图"'),
   )
 
   const disclosureButtons = resourcePanelSource.match(
@@ -109,10 +113,10 @@ test('delivery stage consolidates composite readiness and user-facing export act
 
 test('storyboard video controls expose a focusable missing-prompt reason', () => {
   assert.match(
-    filmCreateSource,
+    storyboardPanelSource,
     /<ActionGate :reason="sbVideoGenerationDisabledReason\(sb\)" label="生成分镜视频">/,
   )
-  assert.match(filmCreateSource, /class="sb-video-disabled-reason"[\s\S]*?role="status"[\s\S]*?tabindex="0"/)
+  assert.match(storyboardPanelSource, /class="sb-video-disabled-reason"[\s\S]*?role="status"[\s\S]*?tabindex="0"/)
   assert.match(filmCreateSource, /function sbVideoGenerationDisabledReason\(sb\)[\s\S]*?请先填写视频提示词/)
 })
 
