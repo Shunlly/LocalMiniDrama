@@ -115,7 +115,7 @@ function runExternalProcess(command, args, options = {}) {
         ok: code === 0,
         error: code === 0
           ? null
-          : String(stderr || stdout || '').trim() || `${command} exited with status ${code}`,
+          : String(stderr || stdout || '').trim() || `${command} 退出码为 ${code}`,
         stdout,
         stderr,
         status: code,
@@ -261,7 +261,7 @@ function copyStoredAudioToTemp(storageRoot, storedPath, targetPath) {
   let completed = false;
   try {
     if (!opened.stat.isFile() || opened.stat.size <= 0 || opened.stat.size > MAX_STORED_AUDIO_BYTES) {
-      throw new Error('Stored audio file is empty or exceeds the size limit.');
+      throw new Error('本地音频文件为空或超过大小限制，请重新生成配音后再合成');
     }
     targetFd = fs.openSync(targetPath, 'wx');
     const buffer = Buffer.allocUnsafe(64 * 1024);

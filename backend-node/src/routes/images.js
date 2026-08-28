@@ -75,7 +75,7 @@ function routes(db, cfg, log) {
         response.success(res, { task_id: taskId, status: 'pending', message: '场景提取任务已创建，正在后台处理...' });
       } catch (err) {
         log.error('images episode backgrounds extract', { error: err.message });
-        if (err.message && (err.message.includes('script content') || err.message.includes('not found'))) {
+        if (err.message && (err.message.includes('script content') || err.message.includes('not found') || err.message.includes('剧本内容为空') || err.message.includes('剧集不存在'))) {
           return response.badRequest(res, err.message);
         }
         response.internalError(res, err.message || '任务创建失败');
@@ -85,7 +85,7 @@ function routes(db, cfg, log) {
       res,
       501,
       'LEGACY_ENDPOINT_DISABLED',
-      'Submit POST /api/v1/images once for each storyboard.'
+      '请改为对每个分镜单独调用 POST /api/v1/images'
     ),
     upload: (req, res) => {
       try {

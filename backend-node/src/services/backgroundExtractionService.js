@@ -224,9 +224,9 @@ async function processBackgroundExtraction(db, cfg, log, taskID, episodeId, mode
 
 function extractBackgroundsForEpisode(db, cfg, log, episodeId, model, style, language) {
   const episode = db.prepare('SELECT id, drama_id, script_content FROM episodes WHERE id = ? AND deleted_at IS NULL').get(Number(episodeId));
-  if (!episode) throw new Error('episode not found');
+  if (!episode) throw new Error('剧集不存在，无法提取场景');
   if (!episode.script_content || !String(episode.script_content).trim()) {
-    throw new Error('episode has no script content');
+    throw new Error('剧集剧本内容为空，无法提取场景');
   }
   // 读取项目的 aspect_ratio，覆盖全局 cfg 中的 default_image_ratio，使 promptI18n 生成正确比例的提示词
   let runCfg = cfg;

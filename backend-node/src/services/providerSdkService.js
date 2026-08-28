@@ -51,7 +51,7 @@ function recordProviderInvocation(db, params) {
         const refresh = db.prepare('UPDATE provider_invocations SET output_json = ? WHERE id = ?')
           .run(toJson(output), existing.id);
         if (refresh.changes !== 1) {
-          throw new Error(`Provider invocation output refresh changed ${refresh.changes} rows`);
+          throw new Error(`供应商调用记录刷新异常（变更行数：${refresh.changes}）`);
         }
         return { id: Number(existing.id), output, reused: true };
       }
@@ -263,7 +263,7 @@ function updateCompositorTaskResult(db, taskId, result) {
   const updated = task.status === 'completed'
     ? taskService.refreshCompletedTaskResult(db, taskId, result)
     : taskService.updateTaskResult(db, taskId, result);
-  if (!updated) throw new Error('Compositor task result was not persisted');
+  if (!updated) throw new Error('合成任务结果未能保存，请重试整集合成');
 }
 
 function persistOwnedCompositorMerge(db, log, params) {
@@ -301,7 +301,7 @@ function persistOwnedCompositorMerge(db, log, params) {
       params.status,
       params.now
     );
-    if (episodeUpdated.changes !== 1) throw new Error('Compositor merge did not acquire episode ownership');
+    if (episodeUpdated.changes !== 1) throw new Error('合成结果未能绑定到该集，请重试整集合成');
     updateCompositorTaskResult(db, task.id, {
       merge_id: mergeId,
       video_url: params.merged_url,
@@ -326,7 +326,7 @@ function stageCurrentCompositorMerge(db, merge, status, now, mode) {
       status,
       now
     );
-    if (episodeUpdated.changes !== 1) throw new Error('Compositor merge no longer owns the episode');
+    if (episodeUpdated.changes !== 1) throw new Error('该集当前合成归属已变化，请刷新后重试整集合成');
     updateCompositorTaskResult(db, merge.task_id, {
       merge_id: Number(merge.id),
       video_url: merge.merged_url,
@@ -526,14 +526,14 @@ function assertProductionReadiness(db, params = {}) {
   const ttsConfig = getActiveTtsConfig(db, params.tts_model, params.tts_provider);
   const mediaTools = validateFfmpegTools();
   const missing = [];
-  if (!storyboards.length) missing.push('storyboards');
-  if (!assetImageConfig) missing.push('asset image provider');
-  if (!imageConfig) missing.push('storyboard image provider');
-  if (!videoConfig) missing.push('video provider');
-  if (needsTts && !ttsConfig) missing.push('TTS provider');
+  if (!storyboards.length) missing.push('分镜');
+  if (!assetImageConfig) missing.push('素材图 Provider');
+  if (!imageConfig) missing.push('分镜图 Provider');
+  if (!videoConfig) missing.push('视频 Provider');
+  if (needsTts && !ttsConfig) missing.push('TTS Provider');
   if (!mediaTools.ok) missing.push('FFmpeg/FFprobe');
   if (missing.length) {
-    throw new Error(`Production workflow is not ready: missing ${missing.join(', ')}`);
+    throw new Error(`生产工作流尚未就绪，缺少：${missing.join('、')}`);
   }
   return {
     storyboards,
@@ -579,7 +579,7 @@ function recordFailedInvocation(db, params, providerType, providerName, model) {
     idempotency_key: params.call_key ? `${params.call_key}:${providerType}:failed` : null,
     input: { drama_id: params.drama_id, call_key: params.call_key || null },
     output: {},
-    error_message: `${providerType} provider request failed`,
+    error_message: `${providerType} Provider 请求失败`,
   });
 }
 
@@ -595,6 +595,30 @@ function parseJsonObject(value) {
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch (_) {
     return {};
+  }
+}
+
+// 时间线轨道类型的用户可见名称
+function timelineTrackTypeLabel(type) {
+  switch (String(type || '')) {
+    case 'video': return '视频';
+    case 'subtitle': return '字幕';
+    case 'voice': return '旁白';
+    case 'dialogue': return '对白';
+    case 'effect': return '音效';
+    case 'bgm': return '背景音乐';
+    case 'transition': return '转场';
+    default: return String(type || '未知');
+  }
+}
+
+// 素材类型的用户可见名称
+function productionAssetTypeLabel(type) {
+  switch (String(type || '')) {
+    case 'character': return '角色';
+    case 'scene': return '场景';
+    case 'prop': return '道具';
+    default: return String(type || '素材');
   }
 }
 
@@ -644,32 +668,32 @@ function normalizedTimelineTrack(track) {
 
 function buildProductionTimelineCompositePlan(db, episodeId) {
   const timeline = timelineService.getEpisodeTimeline(db, episodeId);
-  if (!timeline) throw productionCompositeError(`Episode ${episodeId} timeline was not found`);
+  if (!timeline) throw productionCompositeError(`第 ${episodeId} 集还没有时间线，请先生成时间线后再合成`);
   const requiredTypes = ['video', 'subtitle', 'voice', 'dialogue', 'effect', 'bgm', 'transition'];
   const byType = new Map();
   for (const type of requiredTypes) {
     const matching = timeline.tracks.filter((track) => track.type === type);
     if (matching.length !== 1) {
-      throw productionCompositeError(`Episode ${episodeId} requires exactly one ${type} timeline track`);
+      throw productionCompositeError(`第 ${episodeId} 集必须恰好有一条${timelineTrackTypeLabel(type)}时间线轨道`);
     }
     byType.set(type, matching[0]);
   }
 
   const videoItems = sortedTimelineItems(byType.get('video'));
   if (videoItems.length === 0) {
-    throw productionCompositeError(`Episode ${episodeId} video timeline is empty`);
+    throw productionCompositeError(`第 ${episodeId} 集的视频时间线为空，请先为分镜添加视频`);
   }
   const seenStoryboardIds = new Set();
   const scenes = videoItems.map((item, order) => {
     const storyboardId = Number(item.storyboard_id);
     if (!Number.isInteger(storyboardId) || storyboardId <= 0 || !item.storyboard) {
-      throw productionCompositeError(`Episode ${episodeId} video item ${item.id} has no valid storyboard`);
+      throw productionCompositeError(`第 ${episodeId} 集视频片段 ${item.id} 没有有效分镜，请检查时间线`);
     }
     if (seenStoryboardIds.has(storyboardId)) {
-      throw productionCompositeError(`Episode ${episodeId} video timeline repeats storyboard ${storyboardId}`);
+      throw productionCompositeError(`第 ${episodeId} 集视频时间线重复引用了分镜 ${storyboardId}`);
     }
     if (!hasPositiveTimelineDuration(item) || !hasRealTimelineSource(item)) {
-      throw productionCompositeError(`Episode ${episodeId} video item ${item.id} is not production-ready`);
+      throw productionCompositeError(`第 ${episodeId} 集视频片段 ${item.id} 尚未就绪，请确认已有本地视频且时长有效`);
     }
     seenStoryboardIds.add(storyboardId);
     const startSec = Number(item.start_sec);
@@ -690,17 +714,17 @@ function buildProductionTimelineCompositePlan(db, episodeId) {
   if (subtitleItems.length === 0 || subtitleItems.some((item) => (
     !hasPositiveTimelineDuration(item) || !String(item.source_path || '').trim()
   ))) {
-    throw productionCompositeError(`Episode ${episodeId} subtitle timeline is incomplete`);
+    throw productionCompositeError(`第 ${episodeId} 集字幕时间线不完整，请为每个分镜补齐字幕`);
   }
   const voiceItems = sortedTimelineItems(byType.get('voice'));
   const dialogueItems = sortedTimelineItems(byType.get('dialogue'));
   if ([...voiceItems, ...dialogueItems].some((item) => (
     !hasPositiveTimelineDuration(item) || !hasRealTimelineSource(item)
   ))) {
-    throw productionCompositeError(`Episode ${episodeId} voice/dialogue timeline contains invalid media`);
+    throw productionCompositeError(`第 ${episodeId} 集旁白或对白时间线的媒体无效，请重新生成配音并确认已保存到本地`);
   }
   if (voiceItems.length + dialogueItems.length === 0) {
-    throw productionCompositeError(`Episode ${episodeId} requires voice or dialogue timeline media`);
+    throw productionCompositeError(`第 ${episodeId} 集需要旁白或对白时间线媒体，请先生成配音`);
   }
 
   for (const type of ['effect', 'bgm', 'transition']) {
@@ -710,7 +734,7 @@ function buildProductionTimelineCompositePlan(db, episodeId) {
     if (items.length === 0 && !(
       track.status === 'unused' && metadata.optional === true && metadata.usage === 'unused'
     )) {
-      throw productionCompositeError(`Episode ${episodeId} optional ${type} track must be explicitly unused`);
+      throw productionCompositeError(`第 ${episodeId} 集的可选${timelineTrackTypeLabel(type)}轨道需明确标记为未使用，或补充该轨道内容`);
     }
   }
 
@@ -746,7 +770,7 @@ async function generateAssetBibleImagesProduction(db, log, params) {
     params.asset_image_provider,
     'image'
   );
-  if (!config) throw new Error('Production asset image provider is unavailable');
+  if (!config) throw new Error('素材图 Provider 不可用，请在「AI 配置」中启用图片模型');
   const provider = config.provider || params.asset_image_provider || 'openai';
   const model = configuredModel(config, params.asset_image_model, 'image');
   const targets = [
@@ -838,9 +862,9 @@ async function generateAssetBibleImagesProduction(db, log, params) {
         idempotency_key: callKey,
         input: { call_key: callKey, asset_type: target.type, asset_id: target.row.id },
         output: {},
-        error_message: error.message || 'Production asset image request failed',
+        error_message: error.message || '素材图请求失败',
       });
-      throw new Error(`Production asset image generation failed for ${target.type} ${target.row.id}`);
+      throw new Error(`${productionAssetTypeLabel(target.type)} ${target.row.id} 的素材图生成失败：${error.message || '未知错误'}`);
     }
   }
   return {
@@ -908,7 +932,7 @@ async function generateStoryboardImagesProduction(db, log, params) {
         provider,
         error_type: error?.name || 'Error',
       });
-      throw new Error(`Production image generation failed for storyboard ${storyboard.id}`);
+      throw new Error(`分镜 ${storyboard.id} 的图片生成失败：${error.message || '未知错误'}`);
     }
   }
   return { storyboard_count: readiness.storyboards.length, image_created: created, image_reused: reused, mode: 'production' };
@@ -932,7 +956,7 @@ async function generateStoryboardVideosProduction(db, log, params) {
         reused += 1;
       } else {
         const image = findReusableImage(db, storyboard.id);
-        if (!image) throw new Error('No durable storyboard image is available');
+        if (!image) throw new Error('没有可用的本地分镜图，请先完成分镜图生成并确认已保存到本地');
         const firstFrame = image.local_path || image.image_url;
         video = await videoService.createAndProcessVideo(db, log, {
           drama_id: params.drama_id,
@@ -974,7 +998,7 @@ async function generateStoryboardVideosProduction(db, log, params) {
         provider,
         error_type: error?.name || 'Error',
       });
-      throw new Error(`Production video generation failed for storyboard ${storyboard.id}`);
+      throw new Error(`分镜 ${storyboard.id} 的视频生成失败：${error.message || '未知错误'}`);
     }
   }
   return { storyboard_count: readiness.storyboards.length, video_created: created, video_reused: reused, mode: 'production' };
@@ -1033,7 +1057,7 @@ async function generateStoryboardAudioProduction(db, log, params) {
         reused += 1;
       }
       if ((dialogue && !localMediaExists(dialoguePath)) || (narration && !localMediaExists(narrationPath))) {
-        throw new Error('TTS output was not persisted locally');
+        throw new Error('TTS 音频未保存到本地，请重新生成配音后再继续');
       }
       dramaService.assertDramaWritable(db, params.drama_id);
       db.prepare(
@@ -1062,7 +1086,7 @@ async function generateStoryboardAudioProduction(db, log, params) {
         provider,
         error_type: error?.name || 'Error',
       });
-      throw new Error(`Production TTS generation failed for storyboard ${storyboard.id}`);
+      throw new Error(`分镜 ${storyboard.id} 的 TTS 配音生成失败：${error.message || '未知错误'}`);
     }
   }
   return {
@@ -1160,7 +1184,7 @@ async function compositeEpisodesProduction(db, log, params) {
         reused += 1;
       } else {
         if (!scenes.length || scenes.some((scene) => !localMediaExists(scene.video_url))) {
-          throw new Error('Episode is missing one or more durable video clips');
+          throw new Error('该集缺少一个或多个已落盘的视频片段，请先完成分镜视频生成');
         }
         const createdMerge = videoMergeService.create(db, log, {
           episode_id: episode.id,
@@ -1188,7 +1212,7 @@ async function compositeEpisodesProduction(db, log, params) {
         merge = db.prepare('SELECT * FROM video_merges WHERE id = ?').get(createdMerge.merge_id);
         const expectedStatus = params.defer_qa_completion ? 'qa_pending' : 'completed';
         if (!merge || merge.status !== expectedStatus || !localMediaExists(merge.merged_url)) {
-          throw new Error(merge?.error_msg || 'Strict video merge did not complete');
+          throw new Error(merge?.error_msg || '严格模式视频合成未完成，请检查分镜视频与时间线后重试');
         }
         recordCompositeEvidence(merge);
         created += 1;
@@ -1199,7 +1223,7 @@ async function compositeEpisodesProduction(db, log, params) {
         episode_id: episode.id,
         error_type: error?.name || 'Error',
       });
-      throw new Error(`Production episode composite failed for episode ${episode.id}`);
+      throw new Error(`第 ${episode.id} 集整集合成失败：${error.message || '未知错误'}`);
     }
   }
   return { episode_count: episodes.length, composite_created: created, composite_reused: reused, mode: 'production' };

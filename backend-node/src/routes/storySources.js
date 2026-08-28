@@ -19,10 +19,10 @@ function badRequestOrInternal(res, err) {
       res,
       507,
       err.code || 'INSUFFICIENT_STORAGE',
-      'Insufficient storage capacity for the source original.'
+      '存储空间不足，无法保存原始素材。请清理磁盘后重试'
     );
   }
-  return response.internalError(res, err.message || 'Story source operation failed');
+  return response.internalError(res, err.message || '素材源操作失败，请稍后重试');
 }
 
 function resolveSourceStoragePath(routeOptions) {
@@ -68,7 +68,7 @@ function sanitizeMetadataNode(value, depth = 0) {
 function sanitizeUploadMetadata(value) {
   const metadata = sanitizeMetadataNode(parseMetadata(value));
   if (Buffer.byteLength(JSON.stringify(metadata), 'utf8') > MAX_UPLOAD_METADATA_BYTES) {
-    const err = new Error('Source upload metadata is limited to 64KB.');
+    const err = new Error('素材上传元数据不能超过 64KB');
     err.code = 'BAD_REQUEST';
     throw err;
   }
@@ -174,7 +174,7 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
     get(req, res) {
       try {
         const detail = sourceIntakeService.getSourceDetail(db, req.params.source_id);
-        if (!detail) return response.notFound(res, 'Story source not found');
+        if (!detail) return response.notFound(res, '找不到该素材源');
         response.success(res, detail);
       } catch (err) {
         log.error('story sources get', { error: err.message, source_id: req.params.source_id });
@@ -185,7 +185,7 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
     downloadOriginal(req, res) {
       try {
         const source = sourceIntakeService.getSourceById(db, req.params.source_id);
-        if (!source) return response.notFound(res, 'Story source not found');
+        if (!source) return response.notFound(res, '找不到该素材源');
         const original = uploadService.readStorySourceOriginal(storagePath, source);
         res.setHeader('Cache-Control', 'private, no-store');
         res.setHeader('Content-Disposition', `attachment; filename="${original.serverFilename}"`);
@@ -205,7 +205,7 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
     createPlan(req, res) {
       try {
         const plan = sourceIntakeService.createAdaptationPlan(db, log, req.params.source_id, req.body || {});
-        if (!plan) return response.notFound(res, 'Story source not found');
+        if (!plan) return response.notFound(res, '找不到该素材源');
         response.created(res, plan);
       } catch (err) {
         log.error('story sources create plan', { error: err.message, source_id: req.params.source_id });
@@ -216,7 +216,7 @@ module.exports = function storySourceRoutes(db, log, routeOptions = {}) {
     applyPlan(req, res) {
       try {
         const result = sourceIntakeService.applyAdaptationPlanToEpisodes(db, log, req.params.plan_id, req.body || {});
-        if (!result) return response.notFound(res, 'Adaptation plan not found');
+        if (!result) return response.notFound(res, '找不到该改编方案');
         response.success(res, result);
       } catch (err) {
         log.error('adaptation plan apply', { error: err.message, plan_id: req.params.plan_id });

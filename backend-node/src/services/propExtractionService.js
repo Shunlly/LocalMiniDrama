@@ -175,7 +175,7 @@ function extractPropsForEpisode(db, log, episodeId, cfg) {
   const episode = db.prepare(
     'SELECT id, drama_id, script_content FROM episodes WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(episodeId));
-  if (!episode) throw new Error('episode not found');
+  if (!episode) throw new Error('剧集不存在，无法提取道具');
   if (!episode.script_content || !String(episode.script_content).trim()) {
     throw new Error('剧集剧本内容为空，无法提取道具');
   }

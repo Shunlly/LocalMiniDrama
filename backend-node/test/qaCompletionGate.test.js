@@ -309,7 +309,7 @@ test('same-key retry rolls back ownership when durable evidence refresh changes 
 
   await assert.rejects(
     providerSdkService.compositeEpisodes(fixture.db, log, params),
-    /Provider invocation output refresh changed 0 rows/
+    /供应商调用记录刷新异常（变更行数：0）/
   );
 
   assert.equal(fixture.db.prepare('SELECT COUNT(*) AS count FROM video_merges').get().count, mergeCountBeforeRetry);

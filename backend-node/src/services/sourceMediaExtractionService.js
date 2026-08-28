@@ -181,12 +181,12 @@ function isTextMime(mime) {
 }
 
 function inspectUploadedFile(file) {
-  if (!file || !Buffer.isBuffer(file.buffer)) throw actionableError('A source file is required.');
+  if (!file || !Buffer.isBuffer(file.buffer)) throw actionableError('请上传源文件后再试。');
   const actualSize = file.buffer.length;
   const reportedSize = Number(file.size || 0);
-  if (!actualSize) throw actionableError('The uploaded source file is empty.');
+  if (!actualSize) throw actionableError('上传的源文件为空。请选择包含内容的文件后重新上传。');
   if (actualSize > MAX_SOURCE_UPLOAD_BYTES || reportedSize > MAX_SOURCE_UPLOAD_BYTES) {
-    throw actionableError('Source Intake uploads are limited to 20MB. Split or compress the source and try again.');
+    throw actionableError('源文件上传上限为 20MB。请拆分或压缩后再试。');
   }
 
   const filename = sanitizeFilename(file.originalname);
@@ -197,10 +197,10 @@ function inspectUploadedFile(file) {
 
   if (descriptor) {
     if (!extensionMatches(descriptor, ext)) {
-      throw actionableError('The source filename extension does not match the file signature.');
+      throw actionableError('源文件扩展名与文件签名不一致。请确认文件未被改扩展名后重新上传。');
     }
     if (!mimeMatches(descriptor, declaredMime)) {
-      throw actionableError('The source MIME type does not match the file signature.');
+      throw actionableError('源文件 MIME 类型与文件签名不一致。请按实际格式重新上传。');
     }
     return { ...descriptor, filename, extension: ext, size: actualSize, declared_mime: declaredMime };
   }
@@ -209,25 +209,25 @@ function inspectUploadedFile(file) {
     return { kind: 'text', format: ext ? ext.slice(1) : 'txt', mime: declaredMime || 'text/plain', filename, extension: ext, size: actualSize, declared_mime: declaredMime };
   }
 
-  throw actionableError('Unsupported or invalid source file. Use text, PDF, PNG/JPEG/WebP/GIF, or a supported audio/video container.');
+  throw actionableError('不支持或无效的源文件。请使用文本、PDF、PNG/JPEG/WebP/GIF，或受支持的音频/视频容器后重试。');
 }
 
 function decodeUtf8Text(buffer) {
-  if (buffer.includes(0)) throw actionableError('The uploaded text file contains binary data.');
+  if (buffer.includes(0)) throw actionableError('上传的文本文件包含二进制数据。请改用 UTF-8 纯文本后重试。');
   let text;
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
   } catch (err) {
-    throw actionableError('The uploaded text file must be valid UTF-8.', err);
+    throw actionableError('上传的文本文件必须是有效的 UTF-8 编码。请转换编码后重新上传。', err);
   }
-  return ensureTextResult(text.replace(/^\uFEFF/, ''), 'The uploaded text file is empty.');
+  return ensureTextResult(text.replace(/^\uFEFF/, ''), '上传的文本文件为空。请填入可读文本后重新上传。');
 }
 
-function ensureTextResult(value, emptyMessage = 'No readable text was extracted from the source.') {
+function ensureTextResult(value, emptyMessage = '未能从源文件抽取到可读文本。请更换文件，或检查 OCR/转写配置后重试。') {
   const text = String(value || '').replace(/\r\n/g, '\n').trim();
   if (!text) throw actionableError(emptyMessage);
   if (Buffer.byteLength(text, 'utf8') > MAX_EXTRACTED_TEXT_BYTES) {
-    throw actionableError('Extracted source text exceeds the 2MB limit. Split the source and try again.');
+    throw actionableError('抽取到的源文本超过 2MB 上限。请拆分源文件后重试。');
   }
   return text;
 }
@@ -255,28 +255,28 @@ function configuredModel(config) {
     }
   }
   const model = aiConfigService.resolveConfiguredModel({ ...config, model: models });
-  if (!model) throw actionableError(`The active service_type=${config?.service_type || 'unknown'} configuration has no model.`);
-  if (/\r|\n|\0/.test(model)) throw actionableError('The configured model name is invalid.');
+  if (!model) throw actionableError(`当前启用的 service_type=${config?.service_type || 'unknown'} 配置缺少 model。请在「AI 配置」中补全模型名称。`);
+  if (/\r|\n|\0/.test(model)) throw actionableError('配置的 model 名称无效。请在「AI 配置」中改为不含换行或空字符的名称。');
   return model.slice(0, 300);
 }
 
 function validateEndpointPath(endpoint) {
   const value = String(endpoint || '').trim();
   if (!value || value.length > 1000 || /[\\\0\r\n]/.test(value) || value.includes('?') || value.includes('#')) {
-    throw actionableError('The configured service endpoint path is invalid.');
+    throw actionableError('配置的服务 endpoint 路径无效。请在「AI 配置」中填写相对路径。');
   }
   if (/^[a-z][a-z\d+.-]*:/i.test(value) || value.startsWith('//')) {
-    throw actionableError('Service endpoints must be relative to the configured base URL.');
+    throw actionableError('服务 endpoint 必须相对于已配置的 base_url。请不要填写完整 URL。');
   }
   const normalized = value.startsWith('/') ? value : `/${value}`;
   let decoded;
   try {
     decoded = decodeURIComponent(normalized);
   } catch (err) {
-    throw actionableError('The configured service endpoint path is invalid.', err);
+    throw actionableError('配置的服务 endpoint 路径无效。请在「AI 配置」中填写相对路径。', err);
   }
   if (decoded.split('/').some((segment) => segment === '..' || segment === '.')) {
-    throw actionableError('The configured service endpoint path cannot traverse directories.');
+    throw actionableError('配置的服务 endpoint 路径不能穿越目录。请改为当前服务下的相对路径。');
   }
   return normalized;
 }
@@ -284,16 +284,16 @@ function validateEndpointPath(endpoint) {
 function buildConfiguredUrl(config, defaultEndpoint) {
   const rawBase = String(config?.base_url || '').trim();
   if (!rawBase || rawBase.length > 2048) {
-    throw actionableError(`The active service_type=${config?.service_type || 'unknown'} configuration has no valid base_url.`);
+    throw actionableError(`当前启用的 service_type=${config?.service_type || 'unknown'} 配置缺少有效的 base_url。请在「AI 配置」中填写 HTTP 地址。`);
   }
   let url;
   try {
     url = new URL(rawBase);
   } catch (err) {
-    throw actionableError('The configured service base URL is invalid.', err);
+    throw actionableError('配置的服务 base_url 无效。请填写合法的 HTTP 地址。', err);
   }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-    throw actionableError('The configured service base URL must be an HTTP(S) URL without credentials, query, or fragment.');
+    throw actionableError('配置的服务 base_url 必须是不含账号、查询参数或片段的 HTTP 地址。请修改后重试。');
   }
 
   const endpoint = validateEndpointPath(config.endpoint || defaultEndpoint);
@@ -302,20 +302,20 @@ function buildConfiguredUrl(config, defaultEndpoint) {
     url.pathname = endpoint.startsWith(`${basePath}/`) ? endpoint : `${basePath}${endpoint}`;
   }
   if (url.origin !== new URL(rawBase).origin) {
-    throw actionableError('The configured service endpoint must remain on the configured origin.');
+    throw actionableError('配置的服务 endpoint 必须与已配置的 base_url 同源。请检查后再试。');
   }
   return url.toString();
 }
 
 function authorizationHeaders(config) {
   const key = String(config?.api_key || '');
-  if (/\r|\n|\0/.test(key)) throw actionableError('The configured API key is invalid.');
+  if (/\r|\n|\0/.test(key)) throw actionableError('配置的 API key 无效。请去掉换行或空字符后重新保存。');
   return key ? { Authorization: `Bearer ${key}` } : {};
 }
 
 async function readBoundedResponse(response, maxBytes) {
   const declaredLength = Number(response.headers.get('content-length') || 0);
-  if (declaredLength > maxBytes) throw actionableError('The extraction service response is too large.');
+  if (declaredLength > maxBytes) throw actionableError('抽取服务返回内容过大。请缩短源文件后重试。');
   if (!response.body) return Buffer.alloc(0);
 
   const reader = response.body.getReader();
@@ -328,7 +328,7 @@ async function readBoundedResponse(response, maxBytes) {
       total += value.byteLength;
       if (total > maxBytes) {
         await reader.cancel();
-        throw actionableError('The extraction service response is too large.');
+        throw actionableError('抽取服务返回内容过大。请缩短源文件后重试。');
       }
       chunks.push(Buffer.from(value));
     }
@@ -369,13 +369,13 @@ async function requestBounded(url, init, options) {
       }
     } catch (err) {
       if (controller.signal.aborted || err?.name === 'AbortError' || err?.name === 'TimeoutError') {
-        throw actionableError(`${options.label} timed out after ${timeoutMs}ms.`, err);
+        throw actionableError(`${options.label} 在 ${timeoutMs}ms 后超时。请检查当前 AI 配置后重试。`, err);
       }
-      throw actionableError(`${options.label} could not be reached. Check the active AI configuration.`, err);
+      throw actionableError(`${options.label} 无法连接。请检查当前 AI 配置中的 base_url 后重试。`, err);
     }
     if (!response.ok) {
       await response.body?.cancel().catch(() => {});
-      throw actionableError(`${options.label} returned HTTP ${response.status}. Check the active AI configuration.`);
+      throw actionableError(`${options.label} 返回 HTTP ${response.status}。请检查当前 AI 配置。`);
     }
     return {
       body: await readBoundedResponse(response, maxResponseBytes),
@@ -400,12 +400,12 @@ function extractVisionResponse(body) {
   try {
     parsed = JSON.parse(body.toString('utf8'));
   } catch (err) {
-    throw actionableError('The OCR service returned invalid JSON.', err);
+    throw actionableError('OCR 服务返回了无效 JSON。请检查 service_type=ocr 的接口响应格式。', err);
   }
   const text = contentText(parsed?.choices?.[0]?.message?.content) ||
     contentText(parsed?.output_text) ||
     contentText(parsed?.output?.[0]?.content);
-  return ensureTextResult(text, 'The OCR service returned no readable text.');
+  return ensureTextResult(text, 'OCR 服务未返回可读文本。请更换更清晰的图片，或检查 service_type=ocr 配置。');
 }
 
 async function callVisionOcr(config, image, options = {}) {
@@ -442,7 +442,7 @@ async function callVisionOcr(config, image, options = {}) {
     {
       timeoutMs,
       maxResponseBytes,
-      label: 'OCR service',
+      label: 'OCR 服务',
       fetchImpl: options.fetchImpl,
       trustedOrigins: [config.base_url],
       networkLookup: options.networkLookup,
@@ -462,19 +462,19 @@ async function createTempDir(options, prefix) {
   const dir = await fsp.mkdtemp(path.join(root, prefix));
   if (!isPathInside(dir, root)) {
     await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
-    throw actionableError('Could not create a safe temporary extraction directory.');
+    throw actionableError('无法创建安全的临时抽取目录。请检查临时目录权限后重试。');
   }
   return { dir, root };
 }
 
 async function cleanupTempDir(temp) {
   if (!temp?.dir || !isPathInside(temp.dir, temp.root)) {
-    throw actionableError('Temporary extraction path validation failed.');
+    throw actionableError('临时抽取路径校验失败。请检查临时目录配置后重试。');
   }
   try {
     await fsp.rm(temp.dir, { recursive: true, force: true });
   } catch (err) {
-    throw actionableError('Temporary extraction files could not be removed.', err);
+    throw actionableError('临时抽取文件无法删除。请检查临时目录权限后重试。', err);
   }
 }
 
@@ -483,7 +483,7 @@ function runBoundedProcess(command, args, options = {}) {
     const timeoutMs = clampInteger(options.timeoutMs, 30000, 1000, 300000);
     const maxStdoutBytes = clampInteger(options.maxStdoutBytes, 1024 * 1024, 1024, 4 * 1024 * 1024);
     const maxStderrBytes = clampInteger(options.maxStderrBytes, 64 * 1024, 1024, 256 * 1024);
-    const label = options.label || 'Media helper';
+    const label = options.label || '媒体处理工具';
     let child;
     try {
       child = spawn(command, args, {
@@ -493,7 +493,7 @@ function runBoundedProcess(command, args, options = {}) {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (err) {
-      const wrapped = actionableError(`${label} is unavailable.`, err);
+      const wrapped = actionableError(`${label} 不可用。请确认本机已安装对应工具，或检查 AI 配置后重试。`, err);
       wrapped.process_code = 'PROCESS_UNAVAILABLE';
       reject(wrapped);
       return;
@@ -516,7 +516,7 @@ function runBoundedProcess(command, args, options = {}) {
 
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
-      finish(actionableError(`${label} timed out after ${timeoutMs}ms.`));
+      finish(actionableError(`${label} 在 ${timeoutMs}ms 后超时。请缩短源文件或稍后重试。`));
     }, timeoutMs);
     timer.unref?.();
 
@@ -525,7 +525,7 @@ function runBoundedProcess(command, args, options = {}) {
       if (stdoutBytes > maxStdoutBytes) {
         overflow = true;
         child.kill('SIGKILL');
-        finish(actionableError(`${label} produced too much output.`));
+        finish(actionableError(`${label} 输出过多。请换更小的源文件后重试。`));
         return;
       }
       stdout.push(chunk);
@@ -535,20 +535,20 @@ function runBoundedProcess(command, args, options = {}) {
       if (stderrBytes > maxStderrBytes) {
         overflow = true;
         child.kill('SIGKILL');
-        finish(actionableError(`${label} produced too much diagnostic output.`));
+        finish(actionableError(`${label} 诊断输出过多。请换更小的源文件后重试。`));
         return;
       }
       stderr.push(chunk);
     });
     child.on('error', (err) => {
-      const wrapped = actionableError(`${label} is unavailable.`, err);
+      const wrapped = actionableError(`${label} 不可用。请确认本机已安装对应工具，或检查 AI 配置后重试。`, err);
       wrapped.process_code = err?.code === 'ENOENT' ? 'PROCESS_UNAVAILABLE' : 'PROCESS_FAILED';
       finish(wrapped);
     });
     child.on('close', (code) => {
       if (overflow || settled) return;
       if (code !== 0) {
-        const wrapped = actionableError(`${label} failed with exit code ${code}.`);
+        const wrapped = actionableError(`${label} 失败，退出码 ${code}。请检查源文件后重试。`);
         wrapped.process_code = 'PROCESS_FAILED';
         finish(wrapped);
         return;
@@ -583,7 +583,7 @@ async function tryTesseract(image, options, settings) {
         cwd: temp.dir,
       }
     );
-    return { ok: true, text: ensureTextResult(Buffer.from(result.stdout || '').toString('utf8'), 'Tesseract OCR returned no readable text.') };
+    return { ok: true, text: ensureTextResult(Buffer.from(result.stdout || '').toString('utf8'), 'Tesseract OCR 未返回可读文本。请更换更清晰的图片，或改用 service_type=ocr 配置。') };
   } catch (err) {
     return { ok: false, unavailable: err?.process_code === 'PROCESS_UNAVAILABLE', error: err };
   } finally {
@@ -609,10 +609,10 @@ async function ocrImageWithFallback(db, image, options = {}, existingConfig) {
   const tesseract = await tryTesseract(image, options, config?.settings_object || {});
   if (tesseract.ok) return { text: tesseract.text, method: 'tesseract_cli' };
   if (!config && tesseract.unavailable) {
-    throw actionableError('No OCR service is configured and Tesseract is unavailable. Add an active service_type=ocr AI configuration or install Tesseract CLI.');
+    throw actionableError('未配置 OCR 服务，且 Tesseract 不可用。请添加启用的 service_type=ocr AI 配置，或安装 Tesseract CLI。');
   }
   if (providerError) throw providerError;
-  throw actionableError('OCR failed. Check service_type=ocr or the local Tesseract installation.', tesseract.error);
+  throw actionableError('OCR 失败。请检查 service_type=ocr 配置或本机 Tesseract 安装。', tesseract.error);
 }
 
 async function normalizeImage(buffer) {
@@ -642,11 +642,11 @@ async function normalizeImage(buffer) {
       fit: 'inside',
       withoutEnlargement: true,
     }).jpeg({ quality: 88, chromaSubsampling: '4:4:4' }).toBuffer({ resolveWithObject: true });
-    if (jpeg.data.length > MAX_NORMALIZED_IMAGE_BYTES) throw actionableError('The normalized OCR image exceeds the 10MB limit.');
+    if (jpeg.data.length > MAX_NORMALIZED_IMAGE_BYTES) throw actionableError('规范化后的 OCR 图片超过 10MB 上限。请缩小图片后重试。');
     return { buffer: jpeg.data, mime: 'image/jpeg', width: jpeg.info.width, height: jpeg.info.height };
   } catch (err) {
     if (err?.code === 'BAD_REQUEST') throw err;
-    throw actionableError('The uploaded image is invalid or exceeds the 40-megapixel decode limit.', err);
+    throw actionableError('上传的图片无效，或超过 4000 万像素解码上限。请更换较小的图片后重试。', err);
   }
 }
 
@@ -695,18 +695,18 @@ async function pageContainsRasterImage(page, pdfjs) {
 async function renderPdfPage(page) {
   const base = page.getViewport({ scale: 1 });
   if (![base.width, base.height].every((value) => Number.isFinite(value) && value > 0)) {
-    throw actionableError('The PDF contains an invalid page size.');
+    throw actionableError('该 PDF 包含无效页面尺寸。请更换文件或拆分后再试。');
   }
   const scale = Math.min(
     2,
     MAX_PDF_RENDER_DIMENSION / Math.max(base.width, base.height),
     Math.sqrt(MAX_PDF_RENDER_PIXELS / (base.width * base.height))
   );
-  if (!Number.isFinite(scale) || scale <= 0) throw actionableError('The PDF page cannot be rendered safely.');
+  if (!Number.isFinite(scale) || scale <= 0) throw actionableError('该 PDF 页面无法安全渲染。请更换文件或降低页尺寸后重试。');
   const viewport = page.getViewport({ scale });
   const width = Math.max(1, Math.ceil(viewport.width));
   const height = Math.max(1, Math.ceil(viewport.height));
-  if (width * height > MAX_PDF_RENDER_PIXELS) throw actionableError('The PDF page exceeds the OCR render pixel limit.');
+  if (width * height > MAX_PDF_RENDER_PIXELS) throw actionableError('该 PDF 页面超过 OCR 渲染像素上限。请拆分或缩小页面后重试。');
   const canvas = createCanvas(width, height);
   const context = canvas.getContext('2d');
   context.fillStyle = '#ffffff';
@@ -736,7 +736,7 @@ async function extractPdf(db, descriptor, fileBuffer, options) {
     document = await loadingTask.promise;
   } catch (err) {
     await loadingTask?.destroy?.().catch(() => {});
-    throw actionableError('The PDF is invalid, truncated, encrypted, or unsupported.', err);
+    throw actionableError('该 PDF 无效、已截断、已加密或不被支持。请更换未加密的完整 PDF 后重试。', err);
   }
 
   const pageCount = document.numPages;
@@ -746,7 +746,7 @@ async function extractPdf(db, descriptor, fileBuffer, options) {
   const ocrPageLimit = clampInteger(pdfSettings.max_pdf_ocr_pages, MAX_PDF_OCR_PAGES, 1, MAX_PDF_OCR_PAGES);
   if (pageCount > pageLimit) {
     await document.destroy();
-    throw actionableError(`The PDF has ${pageCount} pages; the configured limit is ${pageLimit}. Split the PDF and try again.`);
+    throw actionableError(`该 PDF 有 ${pageCount} 页，当前上限为 ${pageLimit} 页。请拆分 PDF 后重试。`);
   }
 
   const pageResults = [];
@@ -764,7 +764,7 @@ async function extractPdf(db, descriptor, fileBuffer, options) {
         } else if (await pageContainsRasterImage(page, pdfjs)) {
           ocrPageCount += 1;
           if (ocrPageCount > ocrPageLimit) {
-            throw actionableError(`The PDF needs OCR on more than ${ocrPageLimit} pages. Split the PDF and try again.`);
+            throw actionableError(`该 PDF 需要 OCR 的页数超过 ${ocrPageLimit} 页。请拆分 PDF 后重试。`);
           }
           const image = await renderPdfPage(page);
           const ocr = await ocrImageWithFallback(db, image, options, ocrConfig);
@@ -775,7 +775,7 @@ async function extractPdf(db, descriptor, fileBuffer, options) {
         if (text.trim()) pageResults.push(`--- Page ${pageNumber} ---\n${text.trim()}`);
         const currentBytes = Buffer.byteLength(pageResults.join('\n\n'), 'utf8');
         if (currentBytes > MAX_EXTRACTED_TEXT_BYTES) {
-          throw actionableError('Extracted PDF text exceeds the 2MB limit. Split the PDF and try again.');
+          throw actionableError('抽取的 PDF 文本超过 2MB 上限。请拆分 PDF 后重试。');
         }
       } finally {
         page.cleanup();
@@ -785,7 +785,7 @@ async function extractPdf(db, descriptor, fileBuffer, options) {
     await document.destroy();
   }
 
-  const text = ensureTextResult(pageResults.join('\n\n'), 'The PDF contains no extractable text or OCR-readable pages.');
+  const text = ensureTextResult(pageResults.join('\n\n'), '该 PDF 没有可抽取文本或可供 OCR 识别的页面。请更换文件或检查 OCR 配置。');
   return {
     text,
     metadata: {
@@ -801,24 +801,24 @@ async function extractPdf(db, descriptor, fileBuffer, options) {
 }
 
 function transcriptionResponse(body, contentType) {
-  if (contentType.startsWith('text/')) return ensureTextResult(body.toString('utf8'), 'The transcription service returned no text.');
+  if (contentType.startsWith('text/')) return ensureTextResult(body.toString('utf8'), '转写服务未返回文本。请检查音频内容，或核对 service_type=transcription 配置。');
   let parsed;
   try {
     parsed = JSON.parse(body.toString('utf8'));
   } catch (err) {
-    throw actionableError('The transcription service returned invalid JSON.', err);
+    throw actionableError('转写服务返回了无效 JSON。请检查 service_type=transcription 的接口响应格式。', err);
   }
   const text = parsed?.text || parsed?.transcript || parsed?.data?.text || '';
-  return ensureTextResult(text, 'The transcription service returned no text.');
+  return ensureTextResult(text, '转写服务未返回文本。请检查音频内容，或核对 service_type=transcription 配置。');
 }
 
 async function transcribeAudio(db, audio, options = {}) {
   const config = selectActiveConfig(db, 'transcription');
   if (!config) {
-    throw actionableError('No transcription service is configured. Add an active service_type=transcription OpenAI-compatible AI configuration.');
+    throw actionableError('未配置转写服务。请添加启用的 service_type=transcription、且兼容 OpenAI 的 AI 配置。');
   }
   if (audio.buffer.length > MAX_TRANSCODED_AUDIO_BYTES) {
-    throw actionableError('Audio sent for transcription exceeds the 20MB limit. Shorten or compress the source.');
+    throw actionableError('送去转写的音频超过 20MB 上限。请缩短或压缩源文件后重试。');
   }
   const settings = config.settings_object || {};
   const form = new FormData();
@@ -841,7 +841,7 @@ async function transcribeAudio(db, audio, options = {}) {
     {
       timeoutMs: clampInteger(settings.timeout_ms ?? settings.timeout, 120000, 1000, 120000),
       maxResponseBytes: clampInteger(settings.max_response_bytes, MAX_PROVIDER_RESPONSE_BYTES, 1024, MAX_PROVIDER_RESPONSE_BYTES),
-      label: 'Transcription service',
+      label: '转写服务',
       fetchImpl: options.fetchImpl,
       trustedOrigins: [config.base_url],
       networkLookup: options.networkLookup,
@@ -858,14 +858,14 @@ function parseProbeOutput(stdout) {
   try {
     parsed = JSON.parse(Buffer.from(stdout || '').toString('utf8'));
   } catch (err) {
-    throw actionableError('FFprobe returned invalid media metadata.', err);
+    throw actionableError('FFprobe 返回了无效的媒体元数据。请更换视频文件后重试。', err);
   }
   const audioStreams = Array.isArray(parsed.streams) ? parsed.streams.filter((stream) => stream.codec_type === 'audio') : [];
-  if (!audioStreams.length) throw actionableError('The uploaded video has no audio track to transcribe.');
+  if (!audioStreams.length) throw actionableError('上传的视频没有可转写的音轨。请更换包含音频的视频后重试。');
   const durations = [parsed?.format?.duration, ...audioStreams.map((stream) => stream.duration)]
     .map(Number)
     .filter((value) => Number.isFinite(value) && value > 0);
-  if (!durations.length) throw actionableError('The uploaded video duration could not be determined safely.');
+  if (!durations.length) throw actionableError('无法安全确定上传视频的时长。请更换完整视频文件后重试。');
   return { duration: Math.max(...durations) };
 }
 
@@ -886,7 +886,7 @@ async function extractVideoAndTranscribe(db, descriptor, fileBuffer, options) {
     const media = parseProbeOutput(probe.stdout);
     const durationLimit = clampInteger(options.maxMediaDurationSeconds, MAX_MEDIA_DURATION_SECONDS, 1, MAX_MEDIA_DURATION_SECONDS);
     if (media.duration > durationLimit) {
-      throw actionableError(`The uploaded video is ${Math.ceil(media.duration)} seconds; the transcription limit is ${durationLimit} seconds.`);
+      throw actionableError(`上传的视频时长为 ${Math.ceil(media.duration)} 秒，转写上限为 ${durationLimit} 秒。请截短视频后重试。`);
     }
     await runProcess(
       options.ffmpegPath || getFfmpegPath(),
@@ -903,13 +903,13 @@ async function extractVideoAndTranscribe(db, descriptor, fileBuffer, options) {
         timeoutMs: clampInteger(options.ffmpegTimeoutMs, 120000, 5000, 300000),
         maxStdoutBytes: 64 * 1024,
         maxStderrBytes: 128 * 1024,
-        label: 'FFmpeg audio extraction',
+        label: 'FFmpeg 音频抽取',
         cwd: temp.dir,
       }
     );
     const stat = await fsp.stat(outputPath).catch(() => null);
-    if (!stat?.isFile() || stat.size <= 0) throw actionableError('FFmpeg did not produce a usable audio track.');
-    if (stat.size > MAX_TRANSCODED_AUDIO_BYTES) throw actionableError('The extracted video audio exceeds the 20MB transcription limit.');
+    if (!stat?.isFile() || stat.size <= 0) throw actionableError('FFmpeg 未能生成可用音轨。请确认视频包含音频后重试。');
+    if (stat.size > MAX_TRANSCODED_AUDIO_BYTES) throw actionableError('抽取的视频音频超过 20MB 转写上限。请截短或压缩视频后重试。');
     const audioBuffer = await fsp.readFile(outputPath);
     const transcription = await transcribeAudio(db, {
       buffer: audioBuffer,
@@ -992,7 +992,7 @@ async function extractUploadedSource(db, file, options = {}) {
   if (descriptor.kind === 'video') {
     return { ...await extractVideoAndTranscribe(db, descriptor, file.buffer, options), file: descriptor };
   }
-  throw actionableError('Unsupported Source Intake file type.');
+  throw actionableError('不支持该源文件类型。请使用文本、PDF、图片或受支持的音频/视频文件。');
 }
 
 module.exports = {

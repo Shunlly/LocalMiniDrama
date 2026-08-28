@@ -71,7 +71,7 @@ function extractProps(db, log, cfg) {
       const taskId = propExtractionService.extractPropsForEpisode(db, log, episodeId, cfg);
       response.success(res, { task_id: taskId });
     } catch (err) {
-      if (err.message === 'episode not found' || err.message?.includes('剧本内容为空')) {
+      if (err.message === 'episode not found' || err.message?.includes('剧集不存在') || err.message?.includes('剧本内容为空')) {
         return response.badRequest(res, err.message);
       }
       log.error('extractProps failed', { error: err.message });

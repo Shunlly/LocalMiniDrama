@@ -315,7 +315,7 @@ function assertSafeMetadata(metadata, extractedText) {
   assert.equal(Object.hasOwn(metadata, 'raw_text'), false);
 }
 
-describe('Source Intake media extraction', () => {
+describe('sourceMediaExtraction: Source Intake media extraction', () => {
   it('does not let a configured public extraction hostname rebind to loopback', async () => {
     await assert.rejects(
       requestBounded('http://ocr-provider.example/v1/chat/completions', {
@@ -329,7 +329,7 @@ describe('Source Intake media extraction', () => {
         trustedOrigins: ['http://ocr-provider.example'],
         networkLookup: async () => [{ address: '127.0.0.1', family: 4 }],
       }),
-      /could not be reached/
+      /无法连接/
     );
   });
 
@@ -619,7 +619,7 @@ describe('Source Intake media extraction', () => {
       }, res);
 
       assert.equal(res.statusCode, 400);
-      assert.match(res.body.error.message, /Transcription service returned HTTP 503/);
+      assert.match(res.body.error.message, /转写服务.*HTTP 503/);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM source_items').get().count, 0);
       assert.deepEqual(await fsp.readdir(tempRoot), []);
@@ -671,7 +671,7 @@ describe('Source Intake media extraction', () => {
       }, res);
 
       assert.equal(res.statusCode, 400);
-      assert.match(res.body.error.message, /extension.*signature/i);
+      assert.match(res.body.error.message, /扩展名.*文件签名/);
       assert.equal(fake.requests.length, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
     } finally {
