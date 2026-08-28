@@ -111,10 +111,6 @@ export function createLocationSanitizer(normalizers = {}) {
   const normalizeBackupReturnTo = normalizers.normalizeBackupReturnTo || (() => '')
 
   return function sanitizeAppLocation(to = {}) {
-    if (to.name === 'not-found-catchall') {
-      return buildNotFoundLocation(to.fullPath || '')
-    }
-
     const query = cloneQuery(to.query)
     let changed = false
 
