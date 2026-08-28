@@ -3,10 +3,18 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { parse } from '@vue/compiler-sfc'
+import { requestCoreJson } from '../src/utils/coreJsonRequest.js'
+import {
+  buildEpisodeVideoFilename,
+  fetchVerifiedVideoBlob,
+  triggerBlobDownload,
+} from '../src/utils/filmCreateDelivery.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
+const deliveryPanelSource = read('../src/components/filmCreate/FilmCreateDeliveryPanel.vue')
+const filmCreateUiSource = filmCreateSource + '\n' + deliveryPanelSource
 
 function sourceBetween(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker)
@@ -17,31 +25,11 @@ function sourceBetween(source, startMarker, endMarker) {
 }
 
 async function loadVideoDownloadHelpers() {
-  const helpers = sourceBetween(
-    filmCreateSource,
-    'function normalizeVideoDownloadFilenamePart',
-    'const videoDownloadStatus',
-  )
-  const exports = `
-    export {
-      normalizeVideoDownloadFilenamePart,
-      buildEpisodeVideoFilename,
-      fetchVerifiedVideoBlob,
-      triggerBlobDownload,
-    }
-  `
-  return import(`data:text/javascript;charset=utf-8,${encodeURIComponent(helpers + exports)}`)
+  return { buildEpisodeVideoFilename, fetchVerifiedVideoBlob, triggerBlobDownload }
 }
 
 async function loadCoreDramaRequestHelpers() {
-  const helpers = sourceBetween(
-    filmCreateSource,
-    'function coreRequestError',
-    'const coreDramaAPI',
-  )
-  return import(`data:text/javascript;charset=utf-8,${encodeURIComponent(`${helpers}
-    export { requestCoreJson }
-  `)}`)
+  return { requestCoreJson }
 }
 
 test('project pages keep core load failures outside every editable project surface', () => {
@@ -219,15 +207,15 @@ test('FilmCreate exposes an accessible retryable download command beside the fin
   )
   assert.ok(handler.indexOf('fetchVerifiedVideoBlob') < handler.indexOf('triggerBlobDownload'))
   assert.ok(handler.indexOf('triggerBlobDownload') < handler.indexOf("videoDownloadStatus.value = 'success'"))
-  assert.match(filmCreateSource, /<el-icon><Download \/><\/el-icon>/)
-  assert.match(filmCreateSource, /videoDownloadStatus === 'error' \? '重试下载' : '下载成片'/)
-  assert.match(filmCreateSource, /:role="videoDownloadStatus === 'error' \? 'alert' : 'status'"/)
+  assert.match(filmCreateUiSource, /<el-icon><Download \/><\/el-icon>/)
+  assert.match(filmCreateUiSource, /videoDownloadStatus === 'error' \? '重试下载' : '下载成片'/)
+  assert.match(filmCreateUiSource, /:role="videoDownloadStatus === 'error' \? 'alert' : 'status'"/)
 })
 
 test('FilmCreate delivery exports validate files before reporting success', () => {
   const deliveryHandlers = sourceBetween(
     filmCreateSource,
-    'async function validateDeliveryBlob',
+    'async function downloadCurrentEpisodeSubtitle',
     'watch([currentEpisodeId, currentEpisodeVideoUrl]',
   )
   assert.match(deliveryHandlers, /await timelinesAPI\.getEpisodeSrt\(currentEpisodeId\.value\)/)

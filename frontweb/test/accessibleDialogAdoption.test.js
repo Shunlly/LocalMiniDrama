@@ -34,7 +34,7 @@ test('business Vue files use AccessibleDialog instead of el-dialog', () => {
 test('main registers AccessibleDialog globally with its PascalCase name', () => {
   assert.match(
     mainSource,
-    /const AccessibleDialog = defineAsyncComponent\(\(\) => import\(['"]\.\/components\/AccessibleDialog\.vue['"]\)\)/,
+    /import\s+AccessibleDialog\s+from\s+['"]\.\/components\/AccessibleDialog\.vue['"]|AccessibleDialog\s*=\s*defineAsyncComponent\(\(\)\s*=>\s*import\(['"]\.\/components\/AccessibleDialog\.vue['"]\)\)/,
   )
   assert.match(
     mainSource,

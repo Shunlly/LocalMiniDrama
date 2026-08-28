@@ -8,7 +8,7 @@ import {
 export function normalizeVideoDownloadFilenamePart(value, fallback) {
   const normalized = String(value ?? '')
     .normalize('NFKC')
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+    .replace(/[\u003c\u003e:"/\\|?*\u0000-\u001f]/g, '_')
     .replace(/\s+/g, ' ')
     .replace(/[. ]+$/g, '')
     .trim()
