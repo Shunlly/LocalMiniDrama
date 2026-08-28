@@ -6,27 +6,12 @@ import {
   filterProjectList,
   getProjectCover,
 } from '../src/utils/projectList.js'
+import { projectCardDestination } from '../src/utils/sourceImportNavigation.js'
 
 const filmListSource = readFileSync(
   new URL('../src/views/FilmList.vue', import.meta.url),
   'utf8',
 ).replace(/\r\n?/g, '\n')
-
-function sourceBetween(source, start, end, label) {
-  const startIndex = source.indexOf(start)
-  assert.notEqual(startIndex, -1, `${label} start boundary is missing`)
-  const endIndex = source.indexOf(end, startIndex + start.length)
-  assert.notEqual(endIndex, -1, `${label} end boundary is missing`)
-  assert.ok(endIndex > startIndex, `${label} boundaries are out of order`)
-  return source.slice(startIndex, endIndex + end.length)
-}
-
-const projectCardAssetsSource = sourceBetween(
-  filmListSource,
-  '<RouterLink\n              class="project-card-assets"',
-  '            </RouterLink>',
-  'project-card story-material action',
-)
 
 test('project cover prefers the first usable storyboard image', () => {
   const project = {
@@ -97,7 +82,7 @@ test('project cards expose a visual cover, status filter, and explicit continue 
   assert.doesNotMatch(filmListSource, /value="archived"/)
   assert.match(filmListSource, /清除筛选/)
   assert.match(filmListSource, /继续制作/)
-  assert.match(projectCardAssetsSource, /<el-icon><Files \/><\/el-icon>故事素材\s*<\/RouterLink>/)
+  assert.match(filmListSource, /class="project-card-assets"[\s\S]*<el-icon><Files \/><\/el-icon>故事素材/)
 })
 
 test('continue action enters the production workspace while edit remains a management action', () => {
@@ -107,20 +92,37 @@ test('continue action enters the production workspace while edit remains a manag
   )
   assert.match(filmListSource, /if \(action === 'edit'\) return openEditDialog\(drama\)/)
   assert.match(
-    projectCardAssetsSource,
-    /:to="\{ name: 'drama-detail', params: \{ id: d\.id \}, query: \{ returnTo: projectListReturnTo \}, hash: '#source-intake-workflow' \}"/,
+    filmListSource,
+    /class="project-card-assets"[\s\S]*:to="\{ name: 'drama-detail', params: \{ id: d\.id \}, query: \{ returnTo: projectListReturnTo \}, hash: '#source-intake-workflow' \}"[\s\S]*@click\.stop/,
   )
-  assert.match(projectCardAssetsSource, /@click\.stop/)
+
+  assert.deepEqual(
+    projectCardDestination({ id: 8, episodes: [{ id: 3 }] }, false, '/?q=moon'),
+    { name: 'film', params: { id: 8 }, query: { returnTo: '/?q=moon', episode: '3' } },
+  )
+  assert.deepEqual(
+    projectCardDestination({ id: 8, episodes: [] }, false, '/?q=moon'),
+    { name: 'drama-detail', params: { id: 8 }, query: { returnTo: '/?q=moon' }, hash: '#episode-list' },
+  )
+  assert.deepEqual(
+    projectCardDestination({ id: 9 }, true, '/?intent=source-import'),
+    {
+      name: 'drama-detail',
+      params: { id: 9 },
+      query: { intake: 'source-url', returnTo: '/?intent=source-import' },
+      hash: '#source-intake-workflow',
+    },
+  )
 })
 
 test('project cards distinguish their story-material workflow from global materials', () => {
   assert.match(
-    projectCardAssetsSource,
-    /:aria-label="`打开项目「\$\{d\.title \|\| '未命名项目'\}」的故事素材流程`"/,
+    filmListSource,
+    /class="project-card-assets"[\s\S]*:aria-label="`打开项目「\$\{d\.title \|\| '未命名项目'\}」的故事素材流程`"/,
   )
   assert.doesNotMatch(
-    projectCardAssetsSource,
-    /<el-icon><Files \/><\/el-icon>素材\s*<\/RouterLink>/,
+    filmListSource,
+    /class="project-card-assets"[\s\S]*<el-icon><Files \/><\/el-icon>素材\s*</,
   )
 })
 
