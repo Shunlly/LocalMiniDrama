@@ -1,11 +1,11 @@
 # Novel2Anime 实现状态
 
 日期：2026-08-02
-发布范围：LocalMiniDrama `1.3.3` 桌面候选
+范围：LocalMiniDrama `1.3.3` 桌面源码 / Docker
 
 ## 当前状态
 
-Novel2Anime 生产工作流的源码链路已经实现，覆盖素材导入、抽取、改编、资产生成、分镜、媒体生成、TTS、FFmpeg 合成、QA、修复、导出、恢复和清理。实现完成不等于正式发布通过。干净提交 `f2fa2a85` 上已有本地 Docker 生产 E2E 与自由画布 E2E 证据；后续提交、未提交改动和 `v1.3.3` 标签/CI 合入仍须按同一 Git SHA 重跑后才能作为发布证据。
+Novel2Anime 生产工作流的源码链路已经实现，覆盖文本素材导入、改编、资产生成、分镜、媒体生成、TTS、FFmpeg 合成、QA、修复、导出、恢复和清理。源码实现不等于产品已发版，也不等于 OCR、真实厂商账号或移动端已经完成。
 
 生产 E2E 使用隔离的本地 OpenAI 兼容 Provider harness，不提交外部凭据。它可以验证本地协议兼容的非 mock 流程，但不代表任何第三方账号、模型、额度、计费或长耗时行为已经深度联调；真实部署仍须在「AI 配置」中连接测试并用非敏感样例验收。
 
@@ -31,10 +31,7 @@ Novel2Anime 生产工作流的源码链路已经实现，覆盖素材导入、�
 ## 素材抽取
 
 - 文本类文件按上传和内容限制解码、规范化。
-- PDF 优先使用嵌入文本；图片型页面使用已配置的 OCR。
-- 图片使用具备 OCR 能力的视觉服务。
-- 音频使用已启用的 OpenAI 兼容转写服务。
-- 视频经过探测、时长限制和 FFmpeg 音频转换后送入转写。
+- PDF 可抽取嵌入文本；图片型 PDF、图片 OCR 与音视频转写仍后置，不能当作已完成产品能力。
 - 原始素材保持项目作用域，并纳入安全项目/全量导出策略。
 
 ## 可靠性与安全
@@ -50,32 +47,24 @@ Novel2Anime 生产工作流的源码链路已经实现，覆盖素材导入、�
 
 源码、后端、前端、Docker 和通用 PR/分支门禁固定使用 Node.js 20.x；桌面依赖安装、原生重建、打包和 Windows 制品安全扫描固定使用 Node.js 22.12.0，Electron 运行时自带 Node.js 24。
 
-同一干净源码修订上的完整门禁入口为：
+常用校验命令：
 
 ```bash
+npm --prefix backend-node test
+npm --prefix frontweb test
 npm run verify
 npm run verify:docker
-npm --prefix backend-node audit --audit-level=high --registry=https://registry.npmjs.org
-npm --prefix frontweb audit --audit-level=high --registry=https://registry.npmjs.org
-npm --prefix desktop audit --audit-level=high --registry=https://registry.npmjs.org
-npm run verify:release:source
-npm run verify:release:windows
-npm run verify:release:artifacts
 ```
 
-依赖审计必须显式使用官方 npm registry `https://registry.npmjs.org`；已有审计 JSON 若未绑定当前源码 SHA，只能作为历史审计上下文，不能单独写成当前发布通过。根目录没有对应 lockfile 时，不把根目录 `npm audit` 的 `ENOLOCK` 误报为依赖通过或失败。
-
-生产 E2E 必须使用新建的仓库外空数据目录，先执行 `npm run docker:e2e:up` 启动隔离 Compose 与本地 Provider，再执行 `npm run verify:e2e`，最后销毁 E2E profile 和临时数据目录。该命令链及 PowerShell 示例见 [快速开始](quickstart.md#运行方式二docker当前候选部署)。当前候选尚无这次重新执行的 Docker 运行证据。
+生产 E2E 必须使用新建的仓库外空数据目录，先执行 `npm run docker:e2e:up` 启动隔离 Compose 与本地 Provider，再执行 `npm run verify:e2e`，最后销毁 E2E profile 和临时数据目录。命令示例见 [快速开始](quickstart.md#运行方式二docker)。仓库测试使用本地协议兼容 Provider，不代表真实厂商账号已联调。
 
 生产 E2E 覆盖文本、资产/分镜图片、视频、TTS、FFmpeg 合成、桌面视口播放、最终下载、项目导出、注入失败恢复和零残留清理。最终证据应写入 `artifacts/e2e-production/`，并绑定版本 `1.3.3`、完整源码 SHA 和 `working_tree_dirty=false`。
 
-说明性产品报告中的 tracked 截图矩阵为 34 张历史/说明性图片；正式机器证据仍由 acceptance manifest 的合同矩阵生成，目前合同要求 28 张原始 viewport PNG。两者均不能在当前候选未重验时替代 Docker 生产 E2E。
+说明性产品报告中的 tracked 截图矩阵为历史/说明性图片，不能替代当前仓库的 `npm run verify:docker` 与隔离生产 E2E。
 
-## 无限画布历史失败与候选重验
+## 历史失败记录
 
-2026-07-27 的自由画布运行证据记录过来源校验 403、点击「生成配置」时被画布容器拦截、刷新后文本节点未保留浏览器编辑内容，以及画布平移保存超时。它们是历史失败证据，当前代码/契约复审不能替代候选运行复验。
-
-2026-07-23 的生产 E2E 曾在旧源码 SHA `7079fd9fe0d4f62f61430a13a90bd5f49779e6d6` 上生成 28 张截图并报告通过；当前工作区 HEAD 已不同，不能继承该结果。当前候选必须重新执行隔离 Docker E2E、截图哈希校验、清理检查和人工视觉复核后，才能更新发布结论。
+2026-07-27 的自由画布运行证据记录过来源校验 403、点击「生成配置」时被画布容器拦截、刷新后文本节点未保留浏览器编辑内容，以及画布平移保存超时。它们是历史失败记录，不能当作当前能力说明。
 
 ## 明确后置边界
 
@@ -89,8 +78,8 @@ AI 配置提供厂商预设、自定义 OpenAI 兼容厂商和手工模型列表
 
 ### 移动端与外部 Provider
 
-`1.3.3` 验收范围仅覆盖桌面。移动重排、触控行为、移动画布/列表降级、协作、完整 Agent/MCP 面板，以及每个真实厂商/模型/账号组合的深度验证均后置。
+当前验收范围仅覆盖桌面。移动重排、触控行为、移动画布/列表降级、协作、完整 Agent/MCP 面板，以及每个真实厂商/模型/账号组合的深度验证均后置。
 
 ### 桌面签名与其他平台
 
-Windows x64 Setup、Portable 和 unpacked 是当前发布目标。Authenticode 签名、macOS 制品和 Linux 桌面制品后置；macOS 构建脚本会失败关闭，不产出未验证制品。
+当前桌面范围是 Windows x64。Authenticode 签名、macOS 制品和 Linux 桌面制品后置；macOS 构建脚本会失败关闭。

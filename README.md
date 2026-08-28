@@ -6,7 +6,7 @@
 
 *LocalMiniDrama · AI-powered short drama creator*
 
-[![version](https://img.shields.io/badge/version-1.3.3%20RC-orange?style=flat-square)](#-v133-候选动态)
+[![version](https://img.shields.io/badge/version-1.3.3-blue?style=flat-square)](#-快速开始)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](#-快速开始)
 [![stack](https://img.shields.io/badge/Vue3%20%2B%20Node.js%20%2B%20Electron-informational?style=flat-square)](#-项目架构)
@@ -17,7 +17,7 @@
 [![GitHub](https://img.shields.io/badge/GitHub-Shunlly%2FLocalMiniDrama-181717?logo=github&style=flat-square)](https://github.com/Shunlly/LocalMiniDrama)
 [![Gitee](https://img.shields.io/badge/Gitee-bi__shang__a%2Flocalminidrama-C71D23?logo=gitee&style=flat-square)](https://gitee.com/bi_shang_a/localminidrama)
 
-[**🚀 源码 / Docker 运行**](#-快速开始) · [**🗃 Releases 历史**](https://github.com/Shunlly/LocalMiniDrama/releases) · [**📖 配置 AI**](docs/configuration.md) · [**🗺 画布文档**](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
+[**🚀 源码 / Docker 运行**](#-快速开始) · [**📖 配置 AI**](docs/configuration.md) · [**🗺 画布文档**](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
 
 </div>
 
@@ -39,26 +39,23 @@
 
 ---
 
-## 📌 v1.3.3 候选动态
+## 当前怎么运行
 
-> 当前源码与包版本为 `1.3.3` 发布候选。干净提交 `f2fa2a85bc5e0cfbff932de3b3a5fe92b03ad665` 上，本地 Docker 生产 E2E（QA 100，28 张截图）和自由画布 E2E（6 张截图）已通过证据校验。Git 目前只有 `v1.3.0`、`v1.3.1`、`v1.3.2` 标签，没有 `v1.3.3` 标签或正式 Release；[Releases](https://github.com/Shunlly/LocalMiniDrama/releases) 仅作为历史页。当前建议从源码或 Docker 运行。正式二进制必须在同一干净 Git SHA 的源码、Docker、Windows 制品、安全、回滚、产品验收与 CI 全绿，并且 draft Release 经人工复核后正式发布，届时才可作为下载版本。
+包版本为 `1.3.3`。当前从源码或 Docker 运行即可，不要按发版下载使用。
 
-- 🛠️ **发布扫描修复**：PR/分支 CI 使用固定 digest 的 Trivy 0.64.1 扫描完整源码依赖与配置，并与 Tag Release 共用 Windows Gitleaks、Defender、SBOM/配置 Trivy、制品清单和离线复核工作流
-- 🔧 **失败恢复与并发状态**：素材选择器保证最新请求生效、显示安全中文错误与长名称提示，项目包导入失败保留可重试的页内告警
-- 🆕 **桌面创作流程收口**：项目就绪度给出唯一下一步，素材导入、处理、QA、修复、剧集与时间线形成可恢复的五步流程
-- 🆕 **多厂商 AI 配置**：按文本、素材图片、分镜图片、视频和 TTS 管理模型，支持连接测试、默认配置和本地/云端路由
-- 🔧 **AI 就绪度与桌面流程**：连接状态按运行实例隔离并随配置变更失效；缺凭据/模型/工作流时直达具体字段，已有项目可从素材中心直接进入网页 URL 导入
-- 🆕 **Novel2Anime 生产链路**：文本导入、图片/视频/TTS 与 FFmpeg 合成已串成可验收工作流；PDF/图片 OCR 与音视频转写仍后置
-- 🔧 **制作页与画布体验**：项目列表支持服务端搜索/分页和项目级素材入口；画布检查器支持前后镜头与真实媒体摘要；制作台统一成片、字幕和项目包交付
-- 🆕 **制作 + 自由双模式画布**：同一路由保留生产流水线，并加入五类自由节点、素材拖入、自由连线、历史操作、精确保存重试和显式生产引用转换
-- 🔒 **发布安全与运维**：本机监听、SSRF/导入导出边界、敏感配置脱敏、可信媒体工具、数据备份恢复与生产 Docker 门禁
+- 后端 `backend-node`：Express + SQLite（better-sqlite3），端口 **5679**，启动执行 `runMigrationsAndEnsure`
+- 前端 `frontweb`：Vite + Vue 3，端口 **3013**，开发时代理 `/api` 与 `/static`
+- 语言：纯 JavaScript，无 TypeScript
+- 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写
+- PDF/图片 OCR、音视频转写、真实厂商账号深度联调、移动端都不在当前完成范围
 
-完整记录 → **[CHANGELOG.md](CHANGELOG.md)**
+详细步骤见下方 [快速开始](#-快速开始) 和 [开发指南](docs/quickstart.md)。
 
 ---
 
 ## 目录
 
+- [当前怎么运行](#当前怎么运行)
 - [界面预览](#-界面预览)
 - [核心功能](#-核心功能)
 - [快速开始](#-快速开始)
@@ -174,7 +171,7 @@
 | 节点操作面板 | 单击节点下方编辑/生成，无需频繁切列表 |
 | 镜头检查器 | 右侧停靠编辑、前后镜头导航、真实图片/视频/配音摘要与未保存草稿保护 |
 
-当前交付范围为桌面端。素材中心支持本地图片/视频上传，以及从 Wikimedia Commons 搜索公开图片/视频、查看作者和许可来源、预览并安全下载入库；网页 URL 入口用于把故事正文导入项目。使用者仍需自行确认素材许可是否满足具体用途，其他第三方素材平台暂未接入。AI 配置提供多厂商预设、自定义 OpenAI 兼容厂商和手工模型列表，但不包含通用 `/v1/models` 远端模型自动发现。移动/触控、自动模型发现、协作与完整 Agent/MCP 后置；真实第三方 Provider 的账号、模型、区域、额度、计费与长耗时行为也属于部署后深度联调范围。干净提交 `f2fa2a85` 已完成本地 Docker 生产 E2E 和自由画布 E2E。`v1.3.3` 仍未打标签，正式发布还要过 CI 合入、Windows 制品和安全回滚。自动化测试不调用外部真实 Provider。
+当前交付范围为桌面端。素材中心支持本地图片/视频上传，以及从 Wikimedia Commons 搜索公开图片/视频、查看作者和许可来源、预览并安全下载入库；网页 URL 入口用于把故事正文导入项目。使用者仍需自行确认素材许可是否满足具体用途，其他第三方素材平台暂未接入。AI 配置提供多厂商预设、自定义 OpenAI 兼容厂商和手工模型列表，但不包含通用 `/v1/models` 远端模型自动发现。PDF/图片 OCR、音视频转写、移动/触控、自动模型发现、协作与完整 Agent/MCP 后置；真实第三方 Provider 的账号、模型、区域、额度、计费与长耗时行为也属于部署后深度联调范围。自动化测试不调用外部真实 Provider。
 
 📖 [画布工作流完整文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md) · 验收收尾报告：`http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`
 
@@ -186,86 +183,17 @@ AI 配置按文本、素材图片、分镜图片、视频和 TTS 五类核心服
 
 ## 🚀 快速开始
 
-### 当前候选：源码或 Docker（推荐）
+当前推荐从源码或 Docker 运行。
 
-`1.3.3` 当前没有正式可下载的 Setup 或 Portable。请按下方步骤从源码运行，或使用本节后面的 Docker 方式部署候选源码。本地自行生成的 Setup、Portable 或镜像都是未发布候选，不能称为 GitHub 正式发布。
+### 环境要求
 
-#### Windows 未签名制品安全提示
-
-Setup 与 Portable **未做 Authenticode 签名**，Windows 可能显示 `Unknown Publisher` 或 SmartScreen 警告。只能从 [Shunlly/LocalMiniDrama 官方 GitHub Release](https://github.com/Shunlly/LocalMiniDrama/releases) 下载；来源不明、SHA-256 不符、manifest 不符或 GitHub artifact attestation 不匹配时，均不得运行。正式 Release 正文会给出 `$tag` 和完整 `$expectedGitSha`；以下 Windows PowerShell 命令要求 Release tag、预期 Git SHA、`release-manifest.json.git_commit` 与下载的官方标签源码完全一致：
-
-```powershell
-$repo = 'Shunlly/LocalMiniDrama'
-$tag = '<official release tag>'
-$expectedGitSha = '<full Git SHA shown in the official Release>'
-$downloadDir = Join-Path $PWD "LocalMiniDrama-$tag"
-if (Test-Path -LiteralPath $downloadDir) { throw "Refusing to reuse existing directory: $downloadDir" }
-New-Item -ItemType Directory -Path $downloadDir | Out-Null
-gh release download $tag --repo $repo --dir $downloadDir
-if ($LASTEXITCODE -ne 0) { throw 'Official GitHub Release download failed' }
-$attestationArgs = @(
-  '--repo', $repo,
-  '--signer-workflow', "$repo/.github/workflows/release.yml",
-  '--source-ref', "refs/tags/$tag",
-  '--source-digest', $expectedGitSha,
-  '--deny-self-hosted-runners'
-)
-
-Push-Location $downloadDir
-$manifestPath = Join-Path $PWD 'release-manifest.json'
-gh attestation verify $manifestPath @attestationArgs
-if ($LASTEXITCODE -ne 0) { throw 'Release manifest attestation mismatch' }
-$manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
-if ($manifest.tag -ne $tag -or $manifest.git_commit -ne $expectedGitSha) { throw 'Release manifest tag or git_commit mismatch' }
-$manifestArtifacts = @($manifest.artifacts)
-if ($manifestArtifacts.Count -eq 0) { throw 'Release manifest contains no artifacts' }
-$seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-$expectedChecksumRows = @()
-foreach ($artifact in $manifestArtifacts) {
-  $name = [string]$artifact.name
-  if ([string]::IsNullOrWhiteSpace($name) -or [IO.Path]::GetFileName($name) -ne $name -or -not $seenNames.Add($name)) { throw "Unsafe or duplicate manifest artifact name: $name" }
-  $expectedBytes = 0L
-  if (-not [long]::TryParse([string]$artifact.bytes, [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$expectedBytes) -or $expectedBytes -le 0) { throw "Invalid manifest byte count: $name" }
-  $expectedSha = [string]$artifact.sha256
-  if ($expectedSha -cnotmatch '^[a-f0-9]{64}$') { throw "Invalid manifest SHA-256: $name" }
-  $artifactPath = Join-Path $PWD $name
-  $file = Get-Item -LiteralPath $artifactPath -Force -ErrorAction Stop
-  if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Unsafe release artifact: $name" }
-  if ($file.Length -ne $expectedBytes) { throw "Manifest byte count mismatch: $name" }
-  $actualSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $artifactPath).Hash.ToLowerInvariant()
-  if ($actualSha -cne $expectedSha) { throw "Manifest SHA-256 mismatch: $name" }
-  $expectedChecksumRows += "$expectedSha  $name"
-}
-$expectedReleaseFiles = @($manifestArtifacts | ForEach-Object { [string]$_.name }) + @('release-manifest.json', 'SHA256SUMS')
-$actualReleaseFiles = @(Get-ChildItem -LiteralPath $PWD -File | ForEach-Object { $_.Name })
-if (Compare-Object ($expectedReleaseFiles | Sort-Object) ($actualReleaseFiles | Sort-Object)) { throw 'Downloaded Release file set does not match the attested manifest' }
-$manifestSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $manifestPath).Hash.ToLowerInvariant()
-$expectedChecksumRows += "$manifestSha  release-manifest.json"
-$actualChecksumRows = @(Get-Content -LiteralPath 'SHA256SUMS')
-if ($actualChecksumRows.Count -ne $expectedChecksumRows.Count) { throw 'SHA256SUMS does not exactly match the attested manifest' }
-for ($index = 0; $index -lt $expectedChecksumRows.Count; $index += 1) {
-  if ($actualChecksumRows[$index] -cne $expectedChecksumRows[$index]) { throw 'SHA256SUMS does not exactly match the attested manifest' }
-}
-Pop-Location
-
-$sourceDir = Join-Path $downloadDir 'source'
-git clone --branch $tag --depth 1 "https://github.com/$repo.git" $sourceDir
-$sourceSha = (& git -C $sourceDir rev-parse HEAD).Trim()
-if ($sourceSha -ne $expectedGitSha) { throw 'Downloaded source does not match the expected Git SHA' }
-
-Get-ChildItem -LiteralPath $downloadDir -File |
-  Where-Object { $_.Name -match '\.(exe|zip)$' -or $_.Name -eq 'artifact-security.json' } |
-  ForEach-Object {
-    gh attestation verify $_.FullName @attestationArgs
-    if ($LASTEXITCODE -ne 0) { throw "Artifact attestation mismatch: $($_.Name)" }
-  }
-```
-
-Windows 安全工作流会先更新 Defender 签名，更新失败即停止；`AntivirusSignatureLastUpdated` 以 UTC 写入证据且不得早于扫描时间 72 小时。
+| 用途 | Node.js |
+|------|---------|
+| 根目录、后端、前端、Docker、通用 PR/分支门禁 | 20.x（`.nvmrc` 为 `20`，`engines` 为 `>=20.0.0 <21`） |
+| 桌面依赖安装、原生重建、打包、Windows 制品安全扫描 | 22.12.0（`desktop/.npmrc` 启用 `engine-strict`） |
+| Electron 运行时 | Electron 43.1.1 自带 Node.js 24 |
 
 ### 源码开发
-
-> 根目录、后端、前端、Docker 与通用 PR/分支门禁固定使用 Node.js 20。桌面依赖安装、原生重建、打包和 Windows 制品安全扫描固定使用 Node.js 22.12.0（`engine-strict`）；Electron 43.1.1 运行时自带 Node.js 24。
 
 ```bash
 git clone https://github.com/Shunlly/LocalMiniDrama.git
@@ -273,62 +201,72 @@ cd LocalMiniDrama
 
 # 后端开发热重载（端口 5679）；无热重载可用 npm start
 cd backend-node && npm install
-# configs/config.yaml 已随仓库提供；AI Key 通过前端「AI 配置」写入数据库
+# configs/config.yaml 已随仓库提供，无需从 example 复制
+# AI Key 通过前端「AI 配置」写入数据库；启动时自动 runMigrationsAndEnsure
 npm run dev
 
 # 前端（端口 3013，新终端）
 cd frontweb && npm install && npm run dev
 ```
 
-浏览器打开 `http://127.0.0.1:3013`，或双击根目录 **`run_dev.bat`** / 运行 **`run_dev.ps1`** 一键启动（启动器实际打开的也是 `127.0.0.1`）。启动器只会复用已验证的 LocalMiniDrama 前后端；5679 或 3013 被其他程序占用时会明确退出，不会终止陌生进程。新启动的服务会在通过就绪探针后才打开浏览器，60 秒内未就绪则失败关闭并保留服务窗口供排错。Vite 默认只监听 `127.0.0.1`，确需局域网调试时必须显式设置 `VITE_DEV_SERVER_HOST`。
+浏览器打开 `http://127.0.0.1:3013`。Vite 把 `/api` 和 `/static` 代理到 `http://127.0.0.1:5679`。后端 CORS 只允许前端 `3013`（`http://localhost:3013` 与 `http://127.0.0.1:3013`）。
 
-也可以直接从仓库根目录使用 Docker；这是当前 `1.3.3` 源码候选的可用部署路径：
+也可以双击根目录 **`run_dev.bat`** 或运行 **`run_dev.ps1`** 一键启动（启动器实际打开的也是 `127.0.0.1`）。启动器只会复用已验证的 LocalMiniDrama 前后端；`5679` 或 `3013` 被其他程序占用时会明确退出，不会终止陌生进程。新启动的服务会在通过就绪探针后才打开浏览器，60 秒内未就绪则失败并保留服务窗口供排错。Vite 默认只监听 `127.0.0.1`，确需局域网调试时必须显式设置 `VITE_DEV_SERVER_HOST`。
+
+未配置外部 API Key 也可以启动、浏览界面和跑本地测试；调用外部模型生成时再到「AI 配置」填写。
+
+后端就绪检查：
 
 ```bash
-npm run docker:up
+curl.exe --fail http://127.0.0.1:5679/ready
+```
+
+### Docker
+
+Compose **不挂载应用源码**，只把数据目录和只读配置源挂进容器。改完源码后必须重建镜像，不能指望容器热更新仓库里的 JS/Vue：
+
+```bash
+docker compose up -d --build --wait
 docker compose ps
 ```
 
-前端仍访问 `http://127.0.0.1:3013`，后端健康/就绪检查为 `http://127.0.0.1:5679/health` 和 `http://127.0.0.1:5679/ready`，Docker 前端健康检查为 `http://127.0.0.1:3013/healthz`（代理后端 `/ready`）。Compose 默认仅绑定宿主机 `127.0.0.1`，并使用只读根文件系统、`no-new-privileges` 与能力裁剪。`npm run docker:up` 要求干净工作树，并把当前 Git SHA 写入镜像 revision；开发中的未提交源码可直接运行 `docker compose up -d --build --wait`，但这类镜像不能创建正式回滚检查点。`npm run verify:docker` 验证镜像边界并在临时验证容器内运行前后端测试，不代替当前 Compose 服务的运行态验收；运行态还需启动 Compose、探测 `/health`、`/ready`、`/healthz`，并执行生产 E2E。生产 E2E 必须在仓库外新建空数据目录后设置 `LOCALMINIDRAMA_DATA_DIR`，再执行 `npm run docker:e2e:up` 和 `npm run verify:e2e`，最后销毁 E2E profile 与临时数据目录；完整 PowerShell 命令见 [快速开始](docs/quickstart.md#运行方式二docker当前候选部署)。干净提交 `f2fa2a85` 上的本地 Docker 生产 E2E 与自由画布 E2E 只绑定该 SHA；后续提交或未提交改动必须重跑后才能作为发布证据。仓库生产 E2E 使用本地协议兼容 Provider，不代表真实厂商账号已深度联调。本地 Docker 构建、运行或验收通过都不等于 GitHub 正式发布。发布前停止后端和 Docker，并在干净工作树运行 `npm run verify:rollback`；正式上线还必须按 [快速开始](docs/quickstart.md) 保留真实数据备份、旧提交、运行镜像 ID、Compose / 配置与 SHA-256。桌面产品验收报告可在 `http://127.0.0.1:3013/reports/product-acceptance/report.html` 查看，自由画布收尾报告位于 `http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`。
+| 服务 | 地址 |
+|------|------|
+| 前端 | `http://127.0.0.1:3013` |
+| 前端 Docker 健康检查 | `http://127.0.0.1:3013/healthz`（代理后端 `/ready`） |
+| 后端健康检查 | `http://127.0.0.1:5679/health` |
+| 后端就绪检查 | `http://127.0.0.1:5679/ready` |
+
+默认只绑定宿主机 `127.0.0.1`，并使用只读根文件系统、`no-new-privileges` 与能力裁剪。容器级校验：
+
+```bash
+npm run verify:docker
+```
+
+`npm run verify:docker` 检查镜像边界，并在临时验证容器内跑前后端测试，不代替正在运行的 Compose 服务。`npm run docker:up` 要求 Git 工作树干净，并把当前 Git SHA 写入镜像 revision；未提交改动请直接用 `docker compose up -d --build --wait`。
+
+生产 E2E 必须在仓库外新建空数据目录后设置 `LOCALMINIDRAMA_DATA_DIR`，再执行 `npm run docker:e2e:up` 和 `npm run verify:e2e`，最后销毁 E2E profile 与临时数据目录；完整 PowerShell 命令见 [开发指南](docs/quickstart.md#运行方式二docker)。仓库测试使用本地协议兼容 Provider，不代表真实厂商账号已深度联调。
 
 异常退出若留下维护租约，必须按 [维护租约恢复步骤](docs/quickstart.md#q-如何备份迁移项目数据) 先检查归属，再用精确作用域和 PID 显式恢复；不要直接删除锁文件。
 
-### 发布候选验证
-
-以下命令从仓库根目录运行；正式证据必须来自同一个干净提交：
+### 测试
 
 ```bash
-# 版本一致性
-npm run verify:version
+# 后端（Node.js 内置测试运行器）
+npm --prefix backend-node test
 
-# 源码、Node 20 容器、revision-bound Docker 与生产 E2E
-npm run verify:release:source
+# 前端（ESM，Node.js 内置测试运行器）
+npm --prefix frontweb test
 
-# 使用官方 npm registry 的后端、前端、桌面依赖审计
-npm --prefix backend-node audit --audit-level=high --registry=https://registry.npmjs.org
-npm --prefix frontweb audit --audit-level=high --registry=https://registry.npmjs.org
-npm --prefix desktop audit --audit-level=high --registry=https://registry.npmjs.org
+# 包级校验
+npm --prefix backend-node run verify
+npm --prefix frontweb run verify
 
-# Windows 桌面候选构建与 smoke 验证；仍需独立安全扫描
-npm run verify:release:windows
-
-# 当前干净提交的数据备份/隔离恢复演练；PR、main 与 tag Release 也会在 Node 20 运行隔离门禁
-npm run verify:rollback
-
-# 对已独立扫描且具备 artifact-security.json、release-manifest.json、SHA256SUMS 的候选做离线复核
-npm run verify:release:artifacts
-
-# Windows 上依次执行源码/Docker/E2E 与桌面候选构建/smoke；不替代独立扫描、回滚和最终制品复核
-npm run verify:release
+# 仓库源码门禁
+npm run verify
 ```
 
-完整的安全扫描、回滚检查点和发布顺序见 [开发/打包/Docker 指南](docs/quickstart.md)。
-
-源码历史 secret scan 使用不含路径豁免的 `.gitleaks.toml`；PR、`main` 和 tag workflow 除事件范围检查外，还会用固定 digest 的官方 Gitleaks 8.30.1 OCI 镜像扫描 `--all`。PR/分支 CI 另用固定 digest 的 Trivy 0.64.1 `fs` 扫描三个 npm 依赖图（含开发依赖）和全部生产 Dockerfile。Windows 候选在打标签前与 Tag Release 复用同一安全工作流。本地未跟踪依赖、运行数据和构建输出的目录扫描使用 `.gitleaks-worktree.toml`，Windows 发布制品使用 `.gitleaks-artifacts.toml`，三类 Gitleaks 配置不能互换。
-
-生产后端不会直接使用宿主机原始 YAML：Compose 将可选的 `LOCALMINIDRAMA_CONFIG_DIR` 挂载到 `/app/config-source`，入口脚本启动时用 `runtime-config-policy.cjs` 净化到 `/tmp/localminidrama-config/config.yaml`，再以 `node` 用户启动服务。这样即使外部配置包含调试开关或敏感字段，运行配置仍按发布策略收敛；自定义配置目录中的 `config.yaml` 会在启动时重新校验。
-
-📖 [详细开发/打包/Docker 指南](docs/quickstart.md) · [AI 配置指南](docs/configuration.md)
+📖 [详细开发 / Docker / 备份指南](docs/quickstart.md) · [AI 配置指南](docs/configuration.md)
 
 ---
 
@@ -346,7 +284,7 @@ npm run verify:release
 | 本地 Ollama 等 OpenAI 兼容 | ✅ | — | — |
 | 其他 OpenAI 兼容接口 | ✅ | ✅ | ✅ |
 
-> Novel2Anime 生产工作流会调用已启用并通过就绪检查的文本、素材图、分镜图、视频和 TTS 配置，再由本机 FFmpeg/FFprobe 合成与校验；Google Gemini 文本走官方 Gemini OpenAI 兼容端点，图片走 Gemini `generateContent` 原生图片模型（不是 Imagen API），视频走 Veo。真实 Google 账号、模型、额度和计费行为仍需在「AI 配置」中单独连接测试。Draft 预演仍可使用本地 mock 产物，production QA 会拒绝 mock/占位产物。仓库生产 E2E 使用本地协议兼容 Provider 验证完整非 mock 链路，不代表每个第三方厂商、账号、模型或额度组合都已深度联调。当前模型来自内置预设或手工录入，不会通过通用 `/v1/models` 自动发现；素材中心支持本地素材和 Wikimedia Commons 网络素材，展示远端作者与许可元数据并安全下载入库，但使用者仍需核对具体用途的许可兼容性，更多平台及用途许可判断后置。移动端 Web 重排、触控行为和移动画布/列表降级不在当前桌面发布范围内。
+> Novel2Anime 生产工作流会调用已启用并通过就绪检查的文本、素材图、分镜图、视频和 TTS 配置，再由本机 FFmpeg/FFprobe 合成与校验；Google Gemini 文本走官方 Gemini OpenAI 兼容端点，图片走 Gemini `generateContent` 原生图片模型（不是 Imagen API），视频走 Veo。真实 Google 账号、模型、额度和计费行为仍需在「AI 配置」中单独连接测试。Draft 预演仍可使用本地 mock 产物，production QA 会拒绝 mock/占位产物。仓库生产 E2E 使用本地协议兼容 Provider 验证完整非 mock 链路，不代表每个第三方厂商、账号、模型或额度组合都已深度联调。当前模型来自内置预设或手工录入，不会通过通用 `/v1/models` 自动发现；素材中心支持本地素材和 Wikimedia Commons 网络素材，展示远端作者与许可元数据并安全下载入库，但使用者仍需核对具体用途的许可兼容性，更多平台及用途许可判断后置。移动端 Web 重排、触控行为和移动画布/列表降级不在当前桌面范围内。
 
 ---
 
@@ -363,9 +301,10 @@ LocalMiniDrama/
 
 | 层 | 技术 |
 |----|------|
-| 前端 | Vue 3 · Vite · Element Plus · Pinia · @vue-flow/core |
-| 后端 | Node.js · Express · SQLite (better-sqlite3) |
-| 桌面 | Electron 43.1.1 · electron-builder 26 |
+| 语言 | 纯 JavaScript（无 TypeScript） |
+| 前端 | Vue 3 · Vite · Element Plus · Pinia · @vue-flow/core · 开发端口 3013 |
+| 后端 | Node.js · Express · SQLite（better-sqlite3）· 端口 5679 · 启动时 `runMigrationsAndEnsure` |
+| 桌面 | Electron 43.1.1 · electron-builder 26 · 安装/打包用 Node.js 22.12.0 |
 
 ---
 
@@ -384,6 +323,7 @@ LocalMiniDrama/
 | 📋 | 更多网络素材平台与许可兼容判断 | 其他第三方平台接入及针对具体用途的自动许可兼容判断后置 |
 | 📋 | 远端模型自动发现 | 通用 `/v1/models` 模型列表发现与导入后置；当前使用厂商预设、自定义兼容厂商和手工模型 |
 | 📋 | 第三方 Provider 深度联调 | 真实厂商、账户、模型版本、额度与计费组合后置；每个部署仍须本地连接测试和非敏感样例验收 |
+| 📋 | PDF/图片 OCR 与音视频转写 | 产品能力仍后置，不能当作已完成 |
 | 📋 | 移动端 Web | 移动重排、触控行为和移动画布/列表降级后置；当前验收矩阵仅覆盖桌面视口 |
 
 > 认领功能或提建议 → [GitHub Issues](https://github.com/Shunlly/LocalMiniDrama/issues)
@@ -459,6 +399,6 @@ LocalMiniDrama/
 
 **如果这个项目对你有帮助，请点 ⭐ Star —— 这是对作者最大的鼓励！**
 
-[🚀 源码 / Docker 运行](docs/quickstart.md) · [🗃 Releases 历史](https://github.com/Shunlly/LocalMiniDrama/releases) · [🗺 画布文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
+[🚀 源码 / Docker 运行](docs/quickstart.md) · [📖 配置 AI](docs/configuration.md) · [🗺 画布文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
 
 </div>

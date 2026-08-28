@@ -6,42 +6,42 @@
 
 ## 目录
 
-- [当前发布状态与运行建议](#当前发布状态与运行建议)
-  - [自由画布集成状态](#自由画布集成状态2026-07-27)
-- [运行方式一：源码开发（当前建议）](#运行方式一源码开发当前建议)
+- [当前运行建议](#当前运行建议)
+- [运行方式一：源码开发](#运行方式一源码开发)
   - [环境要求](#环境要求)
   - [启动后端](#1-启动后端)
   - [启动前端](#2-启动前端)
   - [一键启动脚本](#3-一键启动脚本)
-- [本地构建 Windows 候选](#本地构建-windows-候选)
-  - [正式发布顺序](#正式发布顺序)
+- [本地构建 Windows 桌面（可选）](#本地构建-windows-桌面可选)
 - [配置文件说明](#配置文件说明)
 - [数据库与数据目录](#数据库与数据目录)
-- [运行方式二：Docker（当前候选部署）](#运行方式二docker当前候选部署)
+- [测试与校验](#测试与校验)
+- [运行方式二：Docker](#运行方式二docker)
 - [常见问题 FAQ](#常见问题-faq)
 
 ---
 
-## 当前发布状态与运行建议
+## 当前运行建议
 
-当前源码与三个包的版本为 `1.3.3` 发布候选。Git 目前只有 `v1.3.0`、`v1.3.1`、`v1.3.2` 标签，没有 `v1.3.3` 标签或正式 Release；[Releases](https://github.com/Shunlly/LocalMiniDrama/releases) 仅作为历史页，不能据此推断当前存在正式 Setup 或 Portable。
+包版本为 `1.3.3`。当前从源码或 Docker 运行，不要按发版下载使用。仓库是纯 JavaScript，没有 TypeScript。
 
-当前建议按下文从源码运行，或使用 Docker 部署候选源码。本地源码、Docker 或自行构建的 Windows 候选即使运行通过，也不是 GitHub 正式发布。正式二进制必须等同一 Git SHA 的 CI、源码、Docker、Windows 制品、安全、回滚与产品验收全部通过，并在 draft Release 人工复核后正式发布。
+- 后端端口 **5679**，前端 Vite 端口 **3013**；开发时前端代理 `/api` 与 `/static`
+- 后端 CORS 只允许 `http://localhost:3013` 与 `http://127.0.0.1:3013`
+- `configs/config.yaml` 已随仓库提供；启动时执行 `runMigrationsAndEnsure`，一般不必手动 `npm run migrate`
+- 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写
+- PDF/图片 OCR、音视频转写、真实厂商账号深度联调、移动端都不在当前完成范围
+- Docker Compose **不挂载应用源码**。改完代码后执行 `docker compose up -d --build --wait`，容器级校验用根目录 `npm run verify:docker`
 
 ### 当前能力与延期边界
 
 - 素材中心支持本地图片/视频上传，以及从 Wikimedia Commons 搜索公开图片/视频、查看作者和许可来源、预览并安全下载到项目或全局素材库；网页 URL 入口用于提取故事正文并写入项目。使用者仍需自行确认素材许可是否满足具体用途，其他第三方素材平台暂未接入。
 - AI 配置当前支持厂商预设、自定义 OpenAI 兼容厂商和手工模型列表；Google Gemini 文本使用官方 Gemini OpenAI 兼容端点 `https://generativelanguage.googleapis.com/v1beta/openai`。连接测试会探测配置端点，但不会通过通用 `/v1/models` 自动发现或导入远端模型，真实 Google 账号、模型和额度仍需单独连接测试。
 - 外部真实 Provider 的厂商、账户、模型版本、额度、计费和长耗时行为仍需每个部署自行连接测试和非敏感样例验收；仓库测试不得使用真实凭据。
-- 移动端重排、触控行为和移动画布/列表降级后置；本候选只按桌面矩阵验收。
-
-### 自由画布集成状态（2026-07-27）
-
-同一路由中的「制作 + 自由」桌面工作台已在干净提交 `f2fa2a85` 上完成本地 Docker 生产 E2E 和自由画布 E2E。测试只使用本地协议兼容测试服务，不调用外部真实 Provider。`v1.3.3` 标签、Windows 制品和 CI 合入仍未完成。历史报告仅供对照：`http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`。
+- 移动端重排、触控行为和移动画布/列表降级后置；当前只按桌面矩阵验收。
 
 ---
 
-## 运行方式一：源码开发（当前建议）
+## 运行方式一：源码开发
 
 ### 环境要求
 
@@ -95,7 +95,7 @@ npm install
 npm run dev
 ```
 
-浏览器访问 `http://127.0.0.1:3013` 即可看到界面。Vite 与 Compose 默认只监听 `127.0.0.1`。
+浏览器访问 `http://127.0.0.1:3013` 即可看到界面。Vite 把 `/api` 和 `/static` 代理到 `http://127.0.0.1:5679`。后端 CORS 只允许前端 `3013`（`http://localhost:3013` 与 `http://127.0.0.1:3013`）。Vite 与 Compose 默认只监听 `127.0.0.1`。未配置外部 API Key 也可以浏览界面和跑本地测试。
 
 ---
 
@@ -117,9 +117,9 @@ run_dev.bat
 
 ---
 
-## 本地构建 Windows 候选
+## 本地构建 Windows 桌面（可选）
 
-> 以下命令只生成本地未发布候选，不会创建 GitHub Release。打包前请先确保已完成后端和前端的 `npm install`。
+桌面安装、原生重建和打包使用 Node.js **22.12.0**（`desktop/.npmrc` 启用 `engine-strict`）。以下命令只在本机打出 exe，不是发版流程。打包前请先完成后端和前端的 `npm install`。
 
 ```bash
 cd desktop
@@ -134,38 +134,15 @@ npm run dist
 npm run dist:cn
 ```
 
-`npm run dist`（或 `dist:cn`）只生成 Setup、Portable 与 `win-unpacked`，位于 `desktop/release/`：
+产物位于 `desktop/release/`：
 - `LocalMiniDrama-Setup-x.x.x-x64.exe` — NSIS 安装包
 - `LocalMiniDrama-Portable-x.x.x-x64.exe` — 便携版
 - `win-unpacked/` — 未压缩目录
 
-正式候选必须从仓库根目录运行 `npm run verify:release:source` 和 Windows 上的 `npm run verify:release:windows`。Windows 验证在冒烟通过后追加已校验的 `LocalMiniDrama-Unpacked-x.x.x-x64.zip`、四个 CycloneDX SBOM 文件和 `media-tools.json`；四个 SBOM 文件实际覆盖后端、前端、桌面三个独立依赖图，桌面依赖图同时使用版本化发布文件名和内部扫描文件名。CI 与 Release 共用同一套 Gitleaks、Trivy、Microsoft Defender、Electron Fuse、制品清单与 `SHA256SUMS` 安全工作流；`artifact-security.json`、`release-manifest.json` 和 `SHA256SUMS` 仅在这些独立扫描完成后生成。已有候选可用 `npm run verify:release:artifacts` 离线复核。
-
-依赖审计必须在后端、前端和桌面三个独立 lockfile 上使用官方 npm registry，并设置高危级别门禁：
-
-```bash
-npm --prefix backend-node audit --audit-level=high --registry=https://registry.npmjs.org
-npm --prefix frontweb audit --audit-level=high --registry=https://registry.npmjs.org
-npm --prefix desktop audit --audit-level=high --registry=https://registry.npmjs.org
-```
-
-根目录没有对应 lockfile，不执行根目录 `npm audit`；任何已有审计 JSON 若未绑定当前候选的完整 Git SHA，只能作为历史上下文，不能单独写成当前发布通过。
-
-后端容器入口只在启动时以 root 修正绑定数据目录的属主，随后立即通过 `setpriv` 以 `node` 用户执行服务。对应 Trivy `AVD-DS-0002` 例外仅作用于 `backend-node/Dockerfile`，记录在 `backend-node/.trivyignore.yaml`，并于 2027-07-17 到期复审。
-
 **打包原理：**
 1. 构建前端静态文件
-2. 复制后端代码与前端产物到 `desktop/` 
+2. 复制后端代码与前端产物到 `desktop/`
 3. electron-builder 打包为 Windows exe
-
-### 正式发布顺序
-
-1. 在最终候选分支提交全部改动，确认版本号一致、Git 工作树干净，并在同一 SHA 完成本地全量验证与生产 Docker E2E。
-2. 推送候选分支并等待分支 CI 全部通过；其中必须包含源码依赖/配置扫描、Windows 候选构建、Gitleaks、Defender、Trivy、回滚演练和制品离线复核。CI 未通过时不得打标签。
-3. 合入 `main` 后再次等待该 SHA 的分支 CI 全绿，部署升级前按下文创建并保留真实回退检查点。
-4. 仅对已经验收的 `main` 提交创建 annotated tag（例如 `git tag -a v1.3.3 <sha> -m "LocalMiniDrama v1.3.3"`）并推送；不要移动或覆盖已发布标签。
-5. Tag workflow 只从同一提交重新验证并生成草稿 Release。核对附件精确集合、`artifact-security.json`、`release-manifest.json`、`SHA256SUMS` 和 provenance 后再人工发布草稿。
-6. 升级后完成健康、就绪、已有项目、媒体播放和关键生成流程验收；回退检查点至少保留到业务验收结束。
 
 ---
 
@@ -178,6 +155,10 @@ npm --prefix desktop audit --audit-level=high --registry=https://registry.npmjs.
 ```yaml
 server:
   port: 5679          # 后端端口
+  host: 127.0.0.1
+  cors_origins:
+    - http://localhost:3013
+    - http://127.0.0.1:3013
 
 database:
   path: ./data/drama_generator.db   # SQLite 数据库路径
@@ -187,7 +168,7 @@ storage:
   upload_disk_reserve_bytes: 536870912 # 上传后至少保留 512MB 可用空间
 
 app:
-  language: zh        # 界面及提示词语言（zh / en）
+  language: zh        # 后端提示词默认语言（zh / en），不是 Vue 界面语言开关
 
 style:
   default_style: realistic           # 默认画风
@@ -216,12 +197,36 @@ AI 服务配置通过软件内「AI 配置」页面管理，无需手动编辑 Y
 
 ---
 
-## 运行方式二：Docker（当前候选部署）
-
-项目根目录已提供 `docker-compose.yml`，会同时启动后端和前端：
+## 测试与校验
 
 ```bash
-npm run docker:up
+# 后端（Node.js 内置测试运行器）
+npm --prefix backend-node test
+
+# 前端（ESM，Node.js 内置测试运行器）
+npm --prefix frontweb test
+
+# 包级校验
+npm --prefix backend-node run verify
+npm --prefix frontweb run verify
+
+# 仓库源码门禁（含版本一致性）
+npm run verify
+
+# 容器级校验：镜像边界 + 临时验证容器内跑前后端测试
+npm run verify:docker
+```
+
+`npm run verify:docker` 不验证当前正在运行的 Compose 服务。没有 ESLint。仓库测试使用本地协议兼容 Provider，不得填入真实凭据，也不代表真实厂商账号已联调。
+
+---
+
+## 运行方式二：Docker
+
+项目根目录 `docker-compose.yml` 会同时启动后端和前端。Compose **不挂载应用源码**，只把数据目录挂到 `/app/data`，并把配置源目录只读挂到 `/app/config-source`。改完 JS/Vue 后必须重建镜像，不能把 Docker 当成 bind-mount 热更新开发环境：
+
+```bash
+docker compose up -d --build --wait
 docker compose ps
 ```
 
@@ -235,21 +240,17 @@ docker compose ps
 | 后端就绪检查 | `http://127.0.0.1:5679/ready` |
 | API 路径前缀 | `http://127.0.0.1:5679/api/v1`（该前缀本身不是可访问资源） |
 
-Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器默认把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下；发布回滚脚本会把从实际 backend 容器捕获并验证的宿主 bind source 通过 `LOCALMINIDRAMA_DATA_DIR` 重新绑定到该目标。前端容器使用 Nginx 提供 Vite 的生产构建产物，源码没有 bind mount。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
+Docker 镜像固定使用 Node.js 20，并在后端容器内安装 `ffmpeg`；编译工具只存在于依赖构建阶段。容器默认把 `backend-node/data` 挂载到 `/app/data`，数据库和生成素材会保留在本机项目目录下。前端容器使用 Nginx 提供 Vite 的生产构建产物。生产容器启用只读根文件系统、`no-new-privileges`、能力裁剪和受限临时目录。
 
-后端 Compose 不会让宿主机配置直接覆盖运行配置。`LOCALMINIDRAMA_CONFIG_DIR`（默认 `./backend-node/configs`）只读挂载到容器的 `/app/config-source`；入口脚本会在降权前通过 `runtime-config-policy.cjs` 将其净化到 `/tmp/localminidrama-config/config.yaml`，应用通过 `LOCALMINIDRAMA_CONFIG_PATH` 读取净化结果。自定义配置必须提供 `config.yaml`，每次启动都会重新净化。
+后端 Compose 不会让宿主机配置直接覆盖运行配置。`LOCALMINIDRAMA_CONFIG_DIR`（默认 `./backend-node/configs`）只读挂载到容器的 `/app/config-source`；入口脚本会在降权前通过 `runtime-config-policy.cjs` 将其净化到 `/tmp/localminidrama-config/config.yaml`，应用通过 `LOCALMINIDRAMA_CONFIG_PATH` 读取净化结果。自定义配置必须提供 `config.yaml`，每次启动都会重新净化。CORS 在 Compose 里指向前端 `3013`。
 
-`npm run docker:up` 要求 Git 工作树干净，并把当前完整提交 SHA 写入后端和前端镜像的 OCI revision 标签。修改源码尚未提交时可直接执行 `docker compose up -d --build --wait` 做开发检查，但 revision 会是 `unknown`，不能用于发布证据或正式回滚检查点；提交后必须重新运行 `npm run docker:up`。Docker 是当前候选的可用部署路径，但本地镜像构建、运行或验收结果不构成 GitHub 正式发布。
-
-Docker 默认只把 `5679` 和 `3013` 绑定到宿主机 `127.0.0.1`，不会向局域网公开无认证接口。确需远程访问时，请先增加反向代理、认证和 TLS，再显式调整端口绑定。
-
-镜像边界与容器内测试验证：
+`npm run docker:up` 要求 Git 工作树干净，并把当前完整提交 SHA 写入后端和前端镜像的 OCI revision 标签。日常改源码后请直接执行 `docker compose up -d --build --wait`。根目录容器校验：
 
 ```bash
 npm run verify:docker
 ```
 
-该命令在临时验证容器中运行前后端检查，不验证当前正在运行的 Compose 服务。运行态验收还必须执行 `docker compose up -d --build --wait`，探测前端 `/healthz`、后端 `/health` 与 `/ready`，并完成下述生产 E2E。前端 `/healthz` 会代理后端 `/ready`，因此返回 200 同时证明 Nginx 和后端依赖已就绪。前后端均使用 `unless-stopped` 自动恢复策略；人工停止后不会自行重启。
+该命令在临时验证容器中运行前后端检查，不验证当前正在运行的 Compose 服务。运行态还需探测前端 `/healthz`、后端 `/health` 与 `/ready`。前端 `/healthz` 会代理后端 `/ready`，因此返回 200 同时证明 Nginx 和后端依赖已就绪。前后端均使用 `unless-stopped` 自动恢复策略；人工停止后不会自行重启。
 
 单独运行 `npm run verify:e2e` 不会自动启动测试服务；下面的 `npm run docker:e2e:up` 会显式启动本地协议兼容测试服务。它还要求 `LOCALMINIDRAMA_DATA_DIR` 指向仓库外新建的绝对空目录，以免 E2E 污染开发数据。必须在干净工作树按顺序执行：
 
@@ -269,9 +270,9 @@ try {
 }
 ```
 
-`docker:e2e:up` 等价于带可信 Git revision 的 `docker compose --profile e2e up -d --build --wait`，并会拒绝默认 `backend-node/data`、非空目录、符号链接目录和与仓库危险重叠的路径。E2E 会调用本地协议兼容的文本、图片、视频和 TTS 测试端点，生成成片、验证桌面视口播放、下载与项目导出，然后清理测试项目；测试不得调用外部真实 Provider，也不等同于外部云 Provider 深度联调。干净提交 `f2fa2a85` 已重跑隔离 Docker 生产 E2E 和自由画布 E2E。`v1.3.3` 标签和 CI 合入仍未完成，不能当作正式发布。
+`docker:e2e:up` 等价于带可信 Git revision 的 `docker compose --profile e2e up -d --build --wait`，并会拒绝默认 `backend-node/data`、非空目录、符号链接目录和与仓库危险重叠的路径。E2E 会调用本地协议兼容的文本、图片、视频和 TTS 测试端点，生成成片、验证桌面视口播放、下载与项目导出，然后清理测试项目；测试不得调用外部真实 Provider，也不等同于外部云 Provider 深度联调。
 
-`npm run verify:docker` 依次检查镜像边界，并在临时验证容器内运行后端验证和前端验证；它不验证当前 Compose 服务。宿主机若使用 Node.js 24 等缺少 `better-sqlite3` 预编译产物的版本，可直接以 Docker/Node 20 作为权威容器验证路径。
+宿主机若使用 Node.js 24 等缺少 `better-sqlite3` 预编译产物的版本，可直接以 Docker/Node 20 作为权威容器验证路径。
 
 停止服务：
 
@@ -430,7 +431,7 @@ v5 是升级和回退的唯一发布权威格式。v4 检查点仍可检查，�
 
 因此，当前流程不证明检查点创建者身份、调用前的保管链、静态存储遭恶意整体替换后的真实性或新鲜度。能替换整套检查点文件的一方可以制作另一套内部一致的 v5。需要这些保证时，应另行建设签名的外部发布账本或授权记录，并把 metadata 摘要、提交、版本、创建序列或时间、签名者身份和密钥策略绑定在检查点之外；当前命令不接受也不伪装提供 `ExpectedCommit`、`ExpectedMetadataSha256` 或签名参数。
 
-需要回退时，优先保持当前部署运行并直接执行恢复命令；若升级后容器已经 unhealthy 或 stopped，只要 Compose 容器尚未被删除，脚本仍会从容器捕获镜像、revision、状态和配置作为补偿证据后继续回退。不要先执行会删除容器的 `docker compose down`，也不要覆盖或移动正式发布标签：
+需要回退时，优先保持当前部署运行并直接执行恢复命令；若升级后容器已经 unhealthy 或 stopped，只要 Compose 容器尚未被删除，脚本仍会从容器捕获镜像、revision、状态和配置作为补偿证据后继续回退。不要先执行会删除容器的 `docker compose down`，也不要覆盖或移动已有版本标签：
 
 ```powershell
 $checkpoint = 'D:\backup\localminidrama-YYYYMMDD-HHMMSS'
@@ -439,7 +440,7 @@ npm run restore:rollback -- -CheckpointDirectory $checkpoint
 
 `restore:rollback` 只接受 v5 检查点。脚本在接触数据前核对固定位置的 metadata、`data-bind-source.txt`、数据 ZIP、Compose、净化后的运行配置、镜像归档和 v3 演练摘要及其 SHA-256，再从当前 existing backend 容器重新捕获 `/app/data`。当前挂载必须仍是唯一可写 bind，且当前检查到的宿主 source 必须与检查点记录的小写原生 `data_root_identity` 表示同一个物理目录；路径文本相同但目录身份不同会失败关闭。归档 metadata 中的路径只用于证据比对，不会被用来拼接归档文件或选择备份/恢复目标；检查点备份、旧数据恢复和所有前向补偿都显式使用重新 inspect 的同一 source。
 
-检查点创建后，当前实时数据根内的数据库、素材和原文等后代内容可以正常变化。恢复只比较 v3 摘要与 v5 metadata 之间保存的历史数据根摘要，不会重新散列当前实时字节并与该旧摘要比较；物理目录身份约束与历史内容摘要是两个不同的证明。每次启动回滚或前向部署前会先解析 Compose 确认 `/app/data` 指向该 source，启动后再 inspect 容器复核。旧版本启动失败时，脚本会尝试恢复补偿数据和升级后镜像；补偿也失败才会报告双重故障。安全归档和发布证据始终排除 Provider 凭据；成功后仍需复验一条已有媒体播放链路，并在「AI 配置」重新填写所有备份策略排除的 Provider 凭据。`v1.3.3` 目前尚未创建；任何版本标签一旦按正式流程发布，都不可移动或重写。
+检查点创建后，当前实时数据根内的数据库、素材和原文等后代内容可以正常变化。恢复只比较 v3 摘要与 v5 metadata 之间保存的历史数据根摘要，不会重新散列当前实时字节并与该旧摘要比较；物理目录身份约束与历史内容摘要是两个不同的证明。每次启动回滚或前向部署前会先解析 Compose 确认 `/app/data` 指向该 source，启动后再 inspect 容器复核。旧版本启动失败时，脚本会尝试恢复补偿数据和升级后镜像；补偿也失败才会报告双重故障。安全归档始终排除 Provider 凭据；成功后仍需复验一条已有媒体播放链路，并在「AI 配置」重新填写所有备份策略排除的 Provider 凭据。不要移动或重写已有版本标签。
 
 **源码离线目录副本**：只有在后端和 Docker 均已停止时，才可复制整个 `backend-node/data/`；不要在 SQLite 正在写入时直接拷贝。exe 数据必须使用上文 `%APPDATA%` 路径，不能用仓库目录替代。
 
@@ -447,7 +448,7 @@ npm run restore:rollback -- -CheckpointDirectory $checkpoint
 
 ### Q: 支持 Mac / Linux 吗？
 
-当前 `1.3.3` 候选验收矩阵仅包含 Windows x64 Setup、Portable 与 unpacked。后端和前端可在其他平台源码或 Docker 运行，但桌面 macOS 构建脚本会主动拒绝执行，Linux 桌面制品也不在本次支持范围。
+当前桌面验收矩阵仅包含 Windows x64。后端和前端可在其他平台用源码或 Docker 运行，但桌面 macOS 构建脚本会主动拒绝执行，Linux 桌面制品也不在当前范围。
 
 ---
 

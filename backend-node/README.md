@@ -2,8 +2,6 @@
 
 **Node.js + Express + SQLite · 纯 JavaScript · 无 TypeScript**
 
-> **本地 Docker E2E 已在干净提交 `f2fa2a85` 通过。** `v1.3.3` 标签、Windows 制品和 CI 合入仍未完成，不能当作正式发布。
-
 → [项目主页](../README.md) | [快速开始](../docs/quickstart.md) | [AI 配置](../docs/configuration.md) | [版本历史](../docs/changelog.md) | [作者故事](../docs/story.md) | [English](../docs/en.md)
 
 **官方仓库：**
@@ -12,7 +10,7 @@
 
 > 遇到问题或有功能建议，欢迎在 [GitHub Issues](https://github.com/Shunlly/LocalMiniDrama/issues) 或 [Gitee Issues](https://gitee.com/bi_shang_a/localminidrama/issues) 提交反馈。
 
-> **本包版本：** `1.3.3` 发布候选（与仓库根目录 [CHANGELOG](../CHANGELOG.md)、前端与桌面 `package.json` 对齐；不代表已有 `v1.3.3` 正式 Release）
+> **本包版本：** `1.3.3`（与仓库根目录、前端与桌面 `package.json` 对齐）
 
 ---
 
@@ -57,6 +55,9 @@ npm start
 # 开发模式（Node.js --watch 热重载）
 npm run dev
 
+# 测试（Node.js 内置测试运行器）
+npm test
+
 # 静态检查、全部测试与流程审计
 npm run verify
 
@@ -76,6 +77,8 @@ npm run maintenance:recover -- --owner-scope <scope> --pid <pid> --yes
 curl.exe --fail http://127.0.0.1:5679/ready
 ```
 
+开发前端默认在 `3013`。CORS 只允许 `http://localhost:3013` 与 `http://127.0.0.1:3013`。未配置外部 API Key 也可以启动服务；真正生成内容通过前端「AI 配置」写入数据库。
+
 ---
 
 ## 目录结构
@@ -91,7 +94,7 @@ backend-node/
 │   └── storage/                # 项目媒体 projects/、公共素材 library/ 及兼容旧目录
 ├── migrations/
 │   ├── 01_init.sql             # 初始建表
-│   └── 02_add_default_model.sql ... 35_storyboard_order_integrity.sql
+│   └── 02_add_default_model.sql ... 37_task_cancellation_state.sql
 ├── src/
 │   ├── app.js                  # Express 应用（路由注册、中间件）
 │   ├── server.js               # HTTP 服务入口
@@ -145,6 +148,10 @@ backend-node/
 ```yaml
 server:
   port: 5679                      # HTTP 服务端口
+  host: 127.0.0.1                 # 本机监听
+  cors_origins:                   # 只允许前端 3013
+    - http://localhost:3013
+    - http://127.0.0.1:3013
 
 database:
   path: ./data/drama_generator.db # SQLite 文件路径
