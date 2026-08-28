@@ -12447,7 +12447,7 @@ test('Docker artifact boundaries are checked before production bind mounts chang
     assert.ok(start >= 0 && start < containers, 'container verification must run after production startup')
   }
 
-  const sourceVerificationStart = releaseVerifierSource.indexOf('function verifySourceAndContainers()')
+  const sourceVerificationStart = releaseVerifierSource.indexOf('function verifySourceAndContainers(')
   const sourceVerificationEnd = releaseVerifierSource.indexOf('\nfunction writeSbom(', sourceVerificationStart)
   const sourceVerification = releaseVerifierSource.slice(sourceVerificationStart, sourceVerificationEnd)
   const artifactVerification = sourceVerification.indexOf("['run', 'verify:docker:artifact']")
