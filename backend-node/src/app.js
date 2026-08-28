@@ -289,14 +289,14 @@ function createStorageStaticMiddleware(storageRoot, log = logger, db = null) {
   return (req, res, next) => {
     if (!['GET', 'HEAD'].includes(req.method)) return next();
     const encodedPath = String(req.url || '').split('?')[0].replace(/^\/+/, '');
-    if (!encodedPath) return res.status(404).send('Not Found');
+    if (!encodedPath) return res.status(404).send('未找到资源');
     let rawPath;
     try {
       rawPath = uploadService.decodeReferencePath(encodedPath).replace(/\\/g, '/').replace(/^\/+/, '');
     } catch (_) {
-      return res.status(400).send('Not Found');
+      return res.status(400).send('资源路径无效');
     }
-    if (!rawPath) return res.status(404).send('Not Found');
+    if (!rawPath) return res.status(404).send('未找到资源');
 
     if (db) {
       try {
@@ -310,7 +310,7 @@ function createStorageStaticMiddleware(storageRoot, log = logger, db = null) {
             timestamp: new Date().toISOString(),
           });
         }
-        return res.status(404).send('Not Found');
+        return res.status(404).send('未找到资源');
       }
     }
 
@@ -319,7 +319,7 @@ function createStorageStaticMiddleware(storageRoot, log = logger, db = null) {
       opened = uploadService.openStorageFile(storageRoot, rawPath);
     } catch (error) {
       if (error?.code === 'UNSAFE_MEDIA_REFERENCE' && error?.reason === 'NOT_FOUND') {
-        return res.status(404).send('Not Found');
+        return res.status(404).send('未找到资源');
       }
       log.warnw?.('Rejected unsafe static storage path', {
         request_id: req.requestId,
@@ -416,7 +416,7 @@ function createNotFoundHandler() {
     if (req.path.startsWith('/api')) {
       return response.notFound(res, '接口不存在');
     }
-    return res.status(404).send('Not Found');
+    return res.status(404).send('未找到资源');
   };
 }
 
@@ -438,24 +438,86 @@ function initializeWithMaintenanceGuard(maintenanceGuard, initialize, closeDatab
   }
 }
 
+function stripUserFacingStack(message) {
+  // 用户可见错误只保留首行说明，堆栈留在服务端日志。
+  const text = String(message || '');
+  const index = text.search(/\r?\n\s+at\s+/);
+  if (index < 0) return text;
+  return text.slice(0, index).trim();
+}
+
+function omitStackFields(value, depth = 0) {
+  if (value == null || depth > 4) return value;
+  if (typeof value === 'string') return stripUserFacingStack(value);
+  if (typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((item) => omitStackFields(item, depth + 1));
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (/^stack$/i.test(key)) continue;
+    out[key] = omitStackFields(child, depth + 1);
+  }
+  return out;
+}
+
+function sanitizePublicErrorBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  if (body.success !== false && !body.error) return body;
+  return omitStackFields(body);
+}
+
+function classifyLogCategory(error, status) {
+  const code = String(error?.code || '');
+  const name = String(error?.name || '');
+  if (
+    error?.isTimeout === true
+    || code === 'ETIMEDOUT'
+    || code === 'ECONNABORTED'
+    || code === 'UND_ERR_CONNECT_TIMEOUT'
+    || code === 'TIMEOUT'
+  ) {
+    return 'timeout';
+  }
+  if (
+    code === 'ERR_CANCELED'
+    || code === 'ABORT_ERR'
+    || name === 'AbortError'
+    || name === 'CanceledError'
+  ) {
+    return 'cancel';
+  }
+  if (Number(status) >= 500) return 'http_5xx';
+  if (Number(status) >= 400) return 'http_4xx';
+  if (
+    code === 'ECONNREFUSED'
+    || code === 'ENOTFOUND'
+    || code === 'EAI_AGAIN'
+    || code === 'ECONNRESET'
+    || code === 'ERR_NETWORK'
+  ) {
+    return 'network';
+  }
+  return 'unknown';
+}
+
 function createProductionErrorResponseSanitizer(options = {}) {
   const production = options.production ?? process.env.NODE_ENV === 'production';
   return (req, res, next) => {
-    if (!production) return next();
     const sendJson = res.json.bind(res);
     res.json = (body) => {
-      if (res.statusCode !== 500) return sendJson(body);
       const requestId = req.requestId || randomUUID();
-      return sendJson({
-        success: false,
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: '服务器内部错误',
+      if (production && res.statusCode === 500) {
+        return sendJson({
+          success: false,
+          error: {
+            code: 'INTERNAL_ERROR',
+            message: '服务器内部错误',
+            request_id: requestId,
+          },
           request_id: requestId,
-        },
-        request_id: requestId,
-        timestamp: new Date().toISOString(),
-      });
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return sendJson(sanitizePublicErrorBody(body));
     };
     return next();
   };
@@ -509,28 +571,32 @@ function createErrorHandler(log, options = {}) {
   const production = options.production ?? process.env.NODE_ENV === 'production';
   return (err, req, res, next) => {
     const requestId = req.requestId || randomUUID();
+    const expected = classifyExpectedError(err);
+    const status = expected?.status || 500;
+    const code = expected?.code || 'INTERNAL_ERROR';
+    const category = classifyLogCategory(err, status);
+    const rawMessage = expected?.message || (production ? '服务器内部错误' : (err?.message || '服务器内部错误'));
+    const message = stripUserFacingStack(rawMessage) || (production ? '服务器内部错误' : '服务器内部错误');
     log.errorw?.('Unhandled request error', {
       request_id: requestId,
       method: req.method,
       path: req.path,
       code: err?.code,
+      category,
       error: err?.message,
       stack: err?.stack,
     });
     if (res.headersSent) return next(err);
-    const expected = classifyExpectedError(err);
-    const status = expected?.status || 500;
-    const code = expected?.code || 'INTERNAL_ERROR';
-    const message = expected?.message || (production ? '服务器内部错误' : (err?.message || '服务器内部错误'));
     if (!expected || status >= 500) {
       log.operation?.({
         operation: 'http_request',
         operationId: requestId,
-        phase: 'error',
+        phase: category === 'cancel' ? 'cancel' : 'error',
         method: req.method,
         path: req.path,
         status,
         code,
+        category,
         error: err?.message,
       });
     }
@@ -700,6 +766,7 @@ function createApp() {
 module.exports = {
   CONTENT_SECURITY_POLICY,
   classifyExpectedError,
+  classifyLogCategory,
   createApp,
   createAppCloseHandler,
   createBackgroundTaskContextMiddleware,
@@ -714,5 +781,7 @@ module.exports = {
   isLoopbackHostname,
   parseHttpOrigin,
   requestContext,
+  sanitizePublicErrorBody,
   securityHeaders,
+  stripUserFacingStack,
 };

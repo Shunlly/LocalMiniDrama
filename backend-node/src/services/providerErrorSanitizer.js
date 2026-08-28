@@ -30,7 +30,7 @@ function byteLength(value) {
 
 function safeLabel(value, fallback) {
   const label = String(value || '').trim();
-  return /^[A-Za-z0-9][A-Za-z0-9 ._/-]{0,63}$/.test(label) ? label : fallback;
+  return /^[A-Za-z0-9\u4e00-\u9fff][A-Za-z0-9\u4e00-\u9fff ._/-]{0,63}$/.test(label) ? label : fallback;
 }
 
 function sanitizeUrl(value) {
@@ -157,21 +157,21 @@ function summarizeProviderResponse(value) {
 }
 
 function statusAction(status, responseFormat) {
-  if (status === 400 || status === 422) return 'request rejected; check the selected model and request parameters';
-  if (status === 401) return 'authentication rejected; check the provider credentials';
-  if (status === 403) return 'request forbidden; check provider permissions and content policy';
-  if (status === 404) return 'endpoint, model, or task not found; check the provider configuration';
-  if (status === 408) return 'provider timed out; retry the request';
-  if (status === 409) return 'provider reported a request conflict; retry with a new request';
-  if (status === 429) return 'provider rate limit or quota reached; retry later or check quota';
-  if (status >= 500) return 'provider temporarily unavailable; retry later';
-  if (responseFormat === 'non_json') return 'provider returned an unreadable error response';
-  return 'provider reported an error; check provider configuration and retry';
+  if (status === 400 || status === 422) return '请求被拒绝，请检查所选模型和请求参数';
+  if (status === 401) return '认证失败，请检查 Provider 凭据';
+  if (status === 403) return '请求被禁止，请检查 Provider 权限和内容策略';
+  if (status === 404) return '接口、模型或任务不存在，请检查 Provider 配置';
+  if (status === 408) return 'Provider 超时，请重试';
+  if (status === 409) return 'Provider 报告请求冲突，请使用新的请求重试';
+  if (status === 429) return 'Provider 达到速率限制或额度，请稍后重试或检查额度';
+  if (status >= 500) return 'Provider 暂时不可用，请稍后重试';
+  if (responseFormat === 'non_json') return 'Provider 返回了无法解析的错误响应';
+  return 'Provider 返回错误，请检查配置后重试';
 }
 
 function buildProviderErrorMessage(options = {}) {
   const provider = safeLabel(options.provider, 'Provider');
-  const operation = safeLabel(options.operation, 'request');
+  const operation = safeLabel(options.operation, '请求');
   const status = extractHttpStatus(options.status);
   const responseValue = options.responseBody !== undefined
     ? options.responseBody
@@ -183,7 +183,7 @@ function buildProviderErrorMessage(options = {}) {
   if (code) details.push(`code ${code}`);
   if (summary.response_bytes > 0) details.push(`response_bytes=${summary.response_bytes}`);
   const suffix = details.length ? ` (${details.join('; ')})` : '';
-  return `${provider} ${operation} failed${suffix}: ${statusAction(status, summary.response_format)}.`;
+  return `${provider} ${operation} 失败${suffix}：${statusAction(status, summary.response_format)}。`;
 }
 
 function createProviderHttpError(options = {}) {
@@ -221,16 +221,16 @@ function sanitizeProviderException(error, options = {}) {
   });
   if (error?.retryable === true) safeError.retryable = true;
   if (/timeout|abort/i.test(String(error?.name || '')) || /(?:^|_)TIME(?:D)?OUT$/i.test(errorCode || '')) {
-    safeError.message = `${safeLabel(options.provider, 'Provider')} ${safeLabel(options.operation, 'request')} timed out${errorCode ? ` (code ${errorCode})` : ''}; retry the request.`;
+    safeError.message = `${safeLabel(options.provider, 'Provider')} ${safeLabel(options.operation, '请求')} 超时${errorCode ? ` (code ${errorCode})` : ''}，请重试。`;
   } else if (errorCode && /^(?:EAI_AGAIN|ECONNREFUSED|ECONNRESET|ENETUNREACH|ENOTFOUND|EPIPE)$/i.test(errorCode)) {
-    safeError.message = `${safeLabel(options.provider, 'Provider')} ${safeLabel(options.operation, 'request')} failed (code ${errorCode}): network connection failed; check the endpoint and retry.`;
+    safeError.message = `${safeLabel(options.provider, 'Provider')} ${safeLabel(options.operation, '请求')} 失败 (code ${errorCode})：网络连接失败，请检查服务地址后重试。`;
   }
   return safeError;
 }
 
 function toSafeProviderErrorMessage(error, options = {}) {
   if (error?.[SAFE_PROVIDER_ERROR]) return error.message;
-  if (isUnsafeMediaError(error)) return sanitizeString(error.message || 'Unsafe media reference.');
+  if (isUnsafeMediaError(error)) return sanitizeString(error.message || '媒体引用不安全');
   const source = typeof error === 'string' ? error : error?.message || error;
   const status = extractHttpStatus(error) || extractHttpStatus(source) || extractHttpStatus(options.status);
   const code = safeProviderCode(error?.providerCode)

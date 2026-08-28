@@ -83,9 +83,11 @@ test('production 500 response hides details and returns its request id', () => {
   assert.doesNotMatch(JSON.stringify(res.body), /private|database\.sqlite|upstream token/);
   assert.match(entries[0].fields.error, /database\.sqlite/);
   assert.equal(entries[0].fields.request_id, 'req-500');
+  assert.equal(entries[0].fields.category, 'http_5xx');
   assert.equal(operations[0].operation, 'http_request');
   assert.equal(operations[0].phase, 'error');
   assert.equal(operations[0].code, 'INTERNAL_ERROR');
+  assert.equal(operations[0].category, 'http_5xx');
 });
 
 test('expected client errors retain actionable messages', () => {
@@ -161,4 +163,77 @@ test('unknown API routes use the standard error envelope', () => {
     message: '接口不存在',
   });
   assert.match(res.body.timestamp, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('user-facing errors strip stack frames even in development', () => {
+  const entries = [];
+  const handler = createErrorHandler({
+    errorw(message, fields) { entries.push({ message, fields }); },
+    operation() {},
+  }, { production: false });
+  const res = responseRecorder();
+  const error = new Error('failed to open file\n    at Database.open (C:\\private\\database.sqlite:1:1)');
+  handler(error, { requestId: 'req-dev-500', method: 'GET', path: '/api/v1/fail' }, res, () => {});
+
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.body.error.message, 'failed to open file');
+  assert.equal(res.body.error.stack, undefined);
+  assert.doesNotMatch(JSON.stringify(res.body), /private|database\.sqlite|at Database\.open/);
+  assert.match(entries[0].fields.stack, /database\.sqlite/);
+  assert.equal(entries[0].fields.category, 'http_5xx');
+});
+
+test('timeout failures keep generic production copy and classify logs as timeout', () => {
+  const entries = [];
+  const handler = createErrorHandler({
+    errorw(message, fields) { entries.push({ message, fields }); },
+    operation() {},
+  }, { production: true });
+  const res = responseRecorder();
+  const error = new Error('connect ETIMEDOUT 10.0.0.1');
+  error.code = 'ETIMEDOUT';
+  handler(error, { requestId: 'req-timeout', method: 'GET', path: '/api/v1/ai' }, res, () => {});
+
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.body.error.code, 'INTERNAL_ERROR');
+  assert.equal(res.body.error.message, '服务器内部错误');
+  assert.equal(res.body.request_id, 'req-timeout');
+  assert.equal(entries[0].fields.category, 'timeout');
+  assert.doesNotMatch(JSON.stringify(res.body), /ETIMEDOUT|10\.0\.0\.1/);
+});
+
+test('cancel failures classify logs as cancel without exposing stack', () => {
+  const entries = [];
+  const handler = createErrorHandler({
+    errorw(message, fields) { entries.push({ message, fields }); },
+    operation() {},
+  }, { production: true });
+  const res = responseRecorder();
+  const error = new Error('aborted\n    at abort (internal.js:1:1)');
+  error.code = 'ERR_CANCELED';
+  error.name = 'AbortError';
+  handler(error, { requestId: 'req-cancel', method: 'POST', path: '/api/v1/tasks' }, res, () => {});
+
+  assert.equal(res.body.error.message, '服务器内部错误');
+  assert.equal(res.body.error.stack, undefined);
+  assert.equal(entries[0].fields.category, 'cancel');
+  assert.doesNotMatch(JSON.stringify(res.body), /internal\.js|aborted/);
+});
+
+test('error sanitizer strips stack from development error envelopes', () => {
+  const middleware = createProductionErrorResponseSanitizer({ production: false });
+  const response500 = responseRecorder();
+  response500.statusCode = 500;
+  middleware({ requestId: 'req-dev-stack' }, response500, () => {});
+  response500.json({
+    success: false,
+    error: {
+      code: 'INTERNAL_ERROR',
+      message: 'boom\n    at open (C:\\private\\db.sqlite:1:1)',
+      stack: 'Error: boom\n    at open (C:\\private\\db.sqlite:1:1)',
+    },
+  });
+  assert.equal(response500.body.error.message, 'boom');
+  assert.equal(response500.body.error.stack, undefined);
+  assert.doesNotMatch(JSON.stringify(response500.body), /private|db\.sqlite/);
 });
