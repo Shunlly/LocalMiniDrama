@@ -10,7 +10,15 @@ const scriptPersistenceSource = readFileSync(
   new URL('../src/composables/filmCreate/useFilmCreateScriptPersistence.js', import.meta.url),
   'utf8',
 )
-const filmCreateWithScriptSource = scriptPersistenceSource + '\n' + filmCreateSource
+const scriptWorkspaceSource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreateScriptWorkspace.js', import.meta.url),
+  'utf8',
+)
+const filmCreateWithScriptSource = scriptPersistenceSource + '\n' + scriptWorkspaceSource + '\n' + filmCreateSource
+const navigationGuardsSource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreateNavigationGuards.js', import.meta.url),
+  'utf8',
+)
 const storyGenerationSource = readFileSync(
   new URL('../src/composables/useStoryGeneration.js', import.meta.url),
   'utf8',
@@ -57,7 +65,7 @@ test('only the explicit generate-story command can invoke story generation', () 
 })
 
 test('failed automatic script saves offer save, leave, and cancel choices before navigation', () => {
-  const navigation = sourceBetween(filmCreateSource, 'async function flushDraftBeforeNavigation()', 'async function confirmPipelineNavigation')
+  const navigation = sourceBetween(navigationGuardsSource, 'async function flushDraftBeforeNavigation()', 'async function confirmPipelineNavigation')
 
   assert.match(navigation, /confirmButtonText:\s*'保存并离开'/)
   assert.match(navigation, /cancelButtonText:\s*'仍然离开'/)

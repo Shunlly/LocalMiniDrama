@@ -22,7 +22,11 @@ const pipelinePanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url),
   'utf8',
 )
-const source = pipelineRunSource + '\n' + pipelineStagesSource + '\n' + filmCreateSource
+const navigationGuardsSource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreateNavigationGuards.js', import.meta.url),
+  'utf8',
+)
+const source = pipelineRunSource + '\n' + pipelineStagesSource + '\n' + navigationGuardsSource + '\n' + filmCreateSource
 
 function sourceBetween(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker)
@@ -252,19 +256,19 @@ test('pipeline panel blocks duplicate starts and exposes an explicit stop comman
 
 test('FilmCreate protects navigation and unload while pipeline work is active', () => {
   assert.match(
-    filmCreateSource,
+    navigationGuardsSource,
     /function hasActivePipelineWork\(\)[\s\S]*pipelineStarting\.value[\s\S]*pipelineRunning\.value[\s\S]*pipelineStopping\.value/,
   )
   assert.match(
-    filmCreateSource,
+    navigationGuardsSource,
     /async function confirmPipelineNavigation\(\)[\s\S]*ElMessageBox\.confirm[\s\S]*return cancelPipelineRun\(\)/,
   )
   assert.match(
-    filmCreateSource,
+    navigationGuardsSource,
     /async function allowNavigationAfterDraftFlush\(\)[\s\S]*await confirmPipelineNavigation\(\)[\s\S]*scriptDraftController\.markSaved\(null\)/,
   )
   assert.match(
-    filmCreateSource,
+    navigationGuardsSource,
     /function handleBeforeUnload\(event\)[\s\S]*hasActivePipelineWork\(\)/,
   )
 })
@@ -276,7 +280,7 @@ test('FilmCreate describes pipeline stop as local-only and discloses provider bi
     'async function pollTaskWithPause',
   )
   const navigationSource = sourceBetween(
-    filmCreateSource,
+    navigationGuardsSource,
     'async function confirmPipelineNavigation',
     'async function allowNavigationAfterDraftFlush',
   )

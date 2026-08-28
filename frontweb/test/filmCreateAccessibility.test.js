@@ -6,6 +6,10 @@ const filmCreateSource = readFileSync(
   new URL('../src/views/FilmCreate.vue', import.meta.url),
   'utf8',
 )
+const scriptWorkspaceSource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreateScriptWorkspace.js', import.meta.url),
+  'utf8',
+)
 const stylePickerSource = readFileSync(
   new URL('../src/components/StylePickerButton.vue', import.meta.url),
   'utf8',
@@ -128,8 +132,8 @@ test('script and character library empty states provide direct actions', () => {
   assert.match(scriptWorkbenchSource, /class="select-script-empty"[\s\S]*?emit\('return-to-creation'\)/)
   assert.match(filmCreateSource, /@return-to-creation="returnToScriptCreation"/)
   assert.match(resourceDialogsSource, /class="library-empty"[\s\S]*?@click="returnToCharacterPanel"/)
-  assert.match(filmCreateSource, /function returnToScriptCreation\(\)/)
-  assert.match(filmCreateSource, /function returnToCharacterPanel\(\)/)
+  assert.match(scriptWorkspaceSource, /function returnToScriptCreation\(\)/)
+  assert.match(scriptWorkspaceSource, /function returnToCharacterPanel\(\)/)
 })
 
 test('every FilmCreate ActionGate identifies its button action', () => {
