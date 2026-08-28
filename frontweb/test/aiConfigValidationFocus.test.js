@@ -63,9 +63,9 @@ test('AI config submit preserves Element Plus invalid fields for focus and clear
     /async function submit\(\)[\s\S]*?catch \(invalidFields\)[\s\S]*?handleConfigValidationFailure\(invalidFields\)[\s\S]*?return/,
   )
   assert.match(componentSource, /@validate="handleConfigFieldValidated"/)
-  assert.match(componentSource, /function handleConfigFieldValidated\(prop, isValid\)/)
-  assert.match(componentSource, /if \(isValid\) clearConfigFieldValidation\(prop\)/)
-  assert.match(componentSource, /configValidationSummary\.value = \[\]/)
+  assert.match(componentSource, /handleConfigFieldValidated,/)
+  assert.match(componentSource, /handleConfigValidationFailure,/)
+  assert.match(componentSource, /useAiConfigUnsaved\(\{/)
 })
 
 test('model validation preserves the existing model-less ComfyUI workflow exception', () => {

@@ -1584,6 +1584,14 @@ import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '@/utils
 import { buildAiServiceCoverage, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
 import { useAiConfigCoverage } from '@/composables/useAiConfigCoverage.js'
 import {
+  DEFAULT_MODEL_VALIDATION_MESSAGE,
+  isMaskedSecret,
+  isDefaultModelSelectionValid as isValidDefaultModelSelection,
+  configFormFingerprint as fingerprintConfigForm,
+  generationSettingsFingerprint as fingerprintGenerationSettings,
+  useAiConfigUnsaved,
+} from '@/composables/useAiConfigUnsaved.js'
+import {
   createAiConfigConnectionStatusStore,
   resolveAiConfigConnectionStatusScope,
 } from '@/utils/aiConfigConnectionStatusStore.js'
@@ -1595,18 +1603,12 @@ import {
   runAiConfigCreateBatch,
 } from '@/utils/aiConfigMutations.js'
 import { applyAiConfigRepairTarget } from '@/utils/aiConfigRepairTarget.js'
-import {
-  createAiConfigValidationSummary,
-  focusFirstInvalidAiConfigField,
-  getAiConfigFieldDescription,
-} from '@/utils/aiConfigValidationFocus.js'
 import { CUSTOM_PROVIDER_SENTINEL, getBaseUrlForProvider, getProviderEndpointDefaults, getProviderProtocol, isApiKeyOptionalProvider, providerConfigs } from '@/utils/aiProviderPresets.js'
 import { buildProviderPricing, parseSettingsObject, readProviderPricingForm } from '@/utils/providerPricing.js'
 import { getConfigWorkspaceKeyTarget, shouldApplyConfigWorkspaceRequest } from '@/utils/aiConfigWorkspace.js'
 import PromptEditor from '@/components/PromptEditor.vue'
 import SceneModelMap from '@/components/SceneModelMap.vue'
 import Sd2AssetManagement from '@/components/Sd2AssetManagement.vue'
-import { hasUnsavedAiConfigChanges } from '@/utils/aiConfigUnsavedGuard.js'
 import { createOperationId, logOperation } from '@/utils/operationLog'
 import {
   DEFAULT_CONNECTION_TEST_TIMEOUT_MS,
@@ -1825,10 +1827,6 @@ function invalidateConnectionTestResults() {
 }
 const selectedRows = ref([])
 const batchDeleting = ref(false)
-const MASKED_SECRET = '********'
-function isMaskedSecret(value) {
-  return String(value || '').trim() === MASKED_SECRET
-}
 const vendorLock = ref({ enabled: false, config_file: '' })
 const vendorLockResolved = ref(false)
 const vendorLockLoading = ref(false)
@@ -1882,16 +1880,16 @@ const form = ref({
 const presetModelPick = ref('')
 
 const formModelList = computed(() => parseModelText(form.value.modelText))
-const DEFAULT_MODEL_VALIDATION_MESSAGE = '请选择模型列表中的有效默认模型'
 const isDefaultModelUnavailable = computed(() => {
   const selected = String(form.value.default_model || '').trim()
   return Boolean(selected && !formModelList.value.includes(selected))
 })
 
 function isDefaultModelSelectionValid(value) {
-  const selected = String(value || '').trim()
-  if (isComfyUiForm.value && formModelList.value.length === 0 && !selected) return true
-  return Boolean(selected && formModelList.value.includes(selected))
+  return isValidDefaultModelSelection(value, {
+    isComfyUi: isComfyUiForm.value,
+    modelList: formModelList.value,
+  })
 }
 
 const defaultModelRules = [
@@ -1903,58 +1901,6 @@ const defaultModelRules = [
     trigger: 'change',
   },
 ]
-
-function configFieldDescriptionId(field) {
-  return `ai-config-${field}-description`
-}
-
-function isConfigFieldInvalid(field) {
-  return configValidationSummary.value.some((item) => item.field === field)
-}
-
-function configFieldDescription(field) {
-  return configValidationSummary.value.find((item) => item.field === field)?.message
-    || (field === 'default_model' ? DEFAULT_MODEL_VALIDATION_MESSAGE : '')
-    || getAiConfigFieldDescription(field)
-}
-
-function clearConfigValidationSummary() {
-  configValidationSummary.value = []
-}
-
-function clearConfigFieldValidation(prop) {
-  configValidationSummary.value = configValidationSummary.value.filter(
-    (item) => item.prop !== prop && item.field !== prop,
-  )
-}
-
-function handleConfigFieldValidated(prop, isValid) {
-  if (isValid) clearConfigFieldValidation(prop)
-}
-
-function expandConfigValidationSection(section) {
-  if (!section || advancedFormSections.value.includes(section)) return
-  advancedFormSections.value = [...advancedFormSections.value, section]
-}
-
-async function handleConfigValidationFailure(invalidFields) {
-  const summary = createAiConfigValidationSummary(invalidFields)
-  if (invalidFields?.default_model) {
-    summary.push({
-      field: 'default_model',
-      prop: 'default_model',
-      label: '默认模型',
-      message: DEFAULT_MODEL_VALIDATION_MESSAGE,
-      section: null,
-    })
-  }
-  configValidationSummary.value = summary
-  await focusFirstInvalidAiConfigField(configValidationSummary.value, {
-    scrollContainer: configDialogScrollRef.value,
-    expandSection: expandConfigValidationSection,
-    nextTickFn: nextTick,
-  })
-}
 
 // 新增配置延续首项默认值；编辑时保留已失效的历史值，等待用户显式修正。
 watch(
@@ -2619,11 +2565,11 @@ function resetForm() {
 }
 
 function configFormFingerprint() {
-  return JSON.stringify(form.value)
+  return fingerprintConfigForm(form.value)
 }
 
 function generationSettingsFingerprint() {
-  return JSON.stringify([genConcurrencyInput.value, genVideoConcurrencyInput.value])
+  return fingerprintGenerationSettings(genConcurrencyInput.value, genVideoConcurrencyInput.value)
 }
 
 const configFormDirty = computed(() => (
@@ -2643,39 +2589,52 @@ const credentialDraftDirty = computed(() => (
   || (bulkKeyVisible.value && Boolean(bulkKeyInput.value.trim()))
 ))
 
-function hasUnsavedChanges() {
-  return configFormDirty.value
-    || generationSettingsDirty.value
-    || credentialDraftDirty.value
-    || hasUnsavedAiConfigChanges([
-      promptEditorRef.value,
-      sceneModelMapRef.value,
-    ])
-}
-
-async function confirmDiscard() {
-  try {
-    await ElMessageBox.confirm(
-      '当前 AI 配置尚未保存，关闭后本次修改会丢失。',
-      '放弃未保存修改？',
-      {
-        confirmButtonText: '放弃修改',
-        cancelButtonText: '继续编辑',
-        type: 'warning',
-        distinguishCancelAndClose: true,
-      },
-    )
-    return true
-  } catch (_) {
-    return false
-  }
-}
-
-async function requestClose() {
-  if (!hasUnsavedChanges()) return true
-  if (!await confirmDiscard()) return false
-  return true
-}
+const {
+  configFieldDescriptionId,
+  isConfigFieldInvalid,
+  configFieldDescription,
+  clearConfigValidationSummary,
+  handleConfigFieldValidated,
+  handleConfigValidationFailure,
+  hasUnsavedChanges,
+  confirmDiscard,
+  requestClose,
+  confirmConfigDialogClose,
+  requestConfigDialogClose,
+  confirmOneKeyTongyiClose,
+  confirmOneKeyVolcClose,
+  confirmOneKeyAgnesClose,
+  confirmBulkKeyClose,
+  requestOneKeyTongyiClose,
+  requestOneKeyVolcClose,
+  requestOneKeyAgnesClose,
+  requestBulkKeyClose,
+} = useAiConfigUnsaved({
+  formModelList,
+  isComfyUiForm,
+  configValidationSummary,
+  advancedFormSections,
+  configDialogScrollRef,
+  configFormDirty,
+  generationSettingsDirty,
+  credentialDraftDirty,
+  promptEditorRef,
+  sceneModelMapRef,
+  configDialogSaved,
+  dialogVisible,
+  oneKeyTongyiKey,
+  oneKeyTongyiVisible,
+  oneKeyVolcKey,
+  oneKeyVolcVisible,
+  oneKeyAgnesKey,
+  oneKeyAgnesVisible,
+  bulkKeyInput,
+  bulkKeyVisible,
+  discardMessage: '当前 AI 配置尚未保存，关闭后本次修改会丢失。',
+  discardTitle: '放弃未保存修改？',
+  discardConfirmText: '放弃修改',
+  discardCancelText: '继续编辑',
+})
 
 defineExpose({
   hasUnsavedChanges,
@@ -2691,31 +2650,6 @@ function openConfigDialog() {
     if (configDialogScrollRef.value) configDialogScrollRef.value.scrollTop = 0
   })
 }
-
-async function confirmConfigDialogClose(done) {
-  if (configDialogSaved.value || !configFormDirty.value || await confirmDiscard()) done()
-}
-
-async function requestConfigDialogClose() {
-  if (configDialogSaved.value || !configFormDirty.value || await confirmDiscard()) dialogVisible.value = false
-}
-
-async function confirmCredentialDraftClose(input, done) {
-  if (!input.value.trim() || await confirmDiscard()) done()
-}
-
-async function requestCredentialDraftClose(input, visible) {
-  if (!input.value.trim() || await confirmDiscard()) visible.value = false
-}
-
-const confirmOneKeyTongyiClose = (done) => confirmCredentialDraftClose(oneKeyTongyiKey, done)
-const confirmOneKeyVolcClose = (done) => confirmCredentialDraftClose(oneKeyVolcKey, done)
-const confirmOneKeyAgnesClose = (done) => confirmCredentialDraftClose(oneKeyAgnesKey, done)
-const confirmBulkKeyClose = (done) => confirmCredentialDraftClose(bulkKeyInput, done)
-const requestOneKeyTongyiClose = () => requestCredentialDraftClose(oneKeyTongyiKey, oneKeyTongyiVisible)
-const requestOneKeyVolcClose = () => requestCredentialDraftClose(oneKeyVolcKey, oneKeyVolcVisible)
-const requestOneKeyAgnesClose = () => requestCredentialDraftClose(oneKeyAgnesKey, oneKeyAgnesVisible)
-const requestBulkKeyClose = () => requestCredentialDraftClose(bulkKeyInput, bulkKeyVisible)
 
 function handleConfigDialogClosed() {
   resetForm()

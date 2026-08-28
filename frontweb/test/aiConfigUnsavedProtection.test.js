@@ -18,26 +18,18 @@ const sceneModelMapSource = readFileSync(new URL('../src/components/SceneModelMa
 test('AIConfigContent exposes one dirty-state and discard-confirmation contract', () => {
   assert.match(contentSource, /<PromptEditor ref="promptEditorRef" \/>/)
   assert.match(contentSource, /<SceneModelMap ref="sceneModelMapRef" \/>/)
-  assert.match(
-    contentSource,
-    /function hasUnsavedChanges\(\) \{[\s\S]*hasUnsavedAiConfigChanges\(\[[\s\S]*promptEditorRef\.value,[\s\S]*sceneModelMapRef\.value,[\s\S]*\]\)[\s\S]*\}/,
-  )
+  assert.match(contentSource, /from '@\/composables\/useAiConfigUnsaved\.js'/)
+  assert.match(contentSource, /useAiConfigUnsaved\(\{/)
+  assert.match(contentSource, /promptEditorRef,/)
+  assert.match(contentSource, /sceneModelMapRef,/)
   assert.match(contentSource, /const generationSettingsDirty = computed/)
   assert.match(contentSource, /const credentialDraftDirty = computed/)
+  assert.match(contentSource, /configFormFingerprint\(\) !== configFormBaseline\.value/)
   assert.match(contentSource, /:before-close="confirmOneKeyTongyiClose"/)
   assert.match(contentSource, /:before-close="confirmBulkKeyClose"/)
-  assert.match(contentSource, /async function requestClose\(\)/)
   assert.match(contentSource, /defineExpose\(\{[\s\S]*hasUnsavedChanges,[\s\S]*requestClose,[\s\S]*\}\)/)
-
-  const requestCloseStart = contentSource.indexOf('async function requestClose()')
-  const exposeStart = contentSource.indexOf('defineExpose({', requestCloseStart)
-  assert.ok(requestCloseStart >= 0 && exposeStart > requestCloseStart)
-  const requestCloseSource = contentSource.slice(requestCloseStart, exposeStart)
-  assert.match(requestCloseSource, /if \(!hasUnsavedChanges\(\)\) return true/)
-  assert.match(contentSource, /async function confirmDiscard\(\)[\s\S]*当前 AI 配置尚未保存/)
-  assert.match(requestCloseSource, /await confirmDiscard\(\)/)
-  assert.match(requestCloseSource, /return false/)
-  assert.doesNotMatch(requestCloseSource, /markUnsavedChangesDiscarded/)
+  assert.match(contentSource, /当前 AI 配置尚未保存/)
+  assert.doesNotMatch(contentSource, /markUnsavedChangesDiscarded/)
 })
 
 test('advanced AI editors expose their actual draft state', () => {
