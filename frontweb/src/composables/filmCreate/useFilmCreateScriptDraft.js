@@ -34,10 +34,7 @@ export function useFilmCreateScriptDraft(deps = {}) {
     const payload = buildEpisodeDraftPayload(episodes, snapshot)
     await dramaAPI.saveEpisodes(snapshot.dramaId, payload)
 
-    const target = episodes.find((episode) => (
-      Number(episode.id) === Number(snapshot.episodeId)
-        || Number(episode.episode_number) === Number(snapshot.episodeNumber)
-    ))
+    const target = episodes.find((episode) => Number(episode.id) === Number(snapshot.episodeId))
     if (target) {
       target.title = snapshot.title
       target.script_content = snapshot.content
