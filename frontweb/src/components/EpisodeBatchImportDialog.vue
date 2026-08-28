@@ -94,6 +94,7 @@
 </template>
 
 <script setup>
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { onBeforeUnmount, ref } from 'vue'
 import { ElMessage as RawElMessage } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
@@ -249,10 +250,11 @@ function confirmConfig() {
     activeTab.value = 'preview'
     ElMessage.success(`已识别 ${chapters.length} 章，可导入 ${episodes.length} 集`)
   } catch (e) {
+    if (isUserFacingAbort(e)) return
     previewReady.value = false
     previewChapters.value = []
     previewEpisodes.value = []
-    ElMessage.error(e.message || '章节预览失败')
+    ElMessage.error(toUserFacingError(e, '章节预览失败'))
   }
 }
 
@@ -280,8 +282,8 @@ async function confirmImport() {
       resetState()
     })
   } catch (e) {
-    if (isProjectInstanceDisposedError(e)) return
-    ElMessage.error(e.message || '批量导入失败')
+    if (isUserFacingAbort(e) || isProjectInstanceDisposedError(e)) return
+    ElMessage.error(toUserFacingError(e, '批量导入失败'))
   } finally {
     batchImportLifecycle.run(() => { importing.value = false })
   }

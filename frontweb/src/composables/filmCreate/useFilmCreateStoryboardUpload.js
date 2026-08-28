@@ -1,4 +1,5 @@
 import { ElMessage } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 
 export function useFilmCreateStoryboardUpload(deps = {}) {
   const {
@@ -61,7 +62,8 @@ export function useFilmCreateStoryboardUpload(deps = {}) {
       await refreshStoryboardMediaForCurrentContext(sbId)
       restoreSelectionsFromBackend()
     } catch (e) {
-      ElMessage.error(e.message || '上传失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '上传失败'))
     } finally {
       uploadingSbImageId.value = null
       const next = { ...sbImageUploadSlotById.value }

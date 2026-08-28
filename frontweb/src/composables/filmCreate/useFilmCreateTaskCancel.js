@@ -1,4 +1,5 @@
 import { GEN_RESOURCE } from '@/stores/generationTaskStore'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 
 export function useFilmCreateTaskCancel(deps = {}) {
   const {
@@ -47,7 +48,8 @@ export function useFilmCreateTaskCancel(deps = {}) {
         return
       }
     } catch (e) {
-      ElMessage.error(e?.message || '取消失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '取消失败'))
     }
   }
   return {

@@ -1,4 +1,5 @@
 import { ElMessage } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 
 export function useFilmCreateResourceUpload(deps = {}) {
   const {
@@ -85,7 +86,8 @@ export function useFilmCreateResourceUpload(deps = {}) {
       await loadDrama()
       ElMessage.success('上传成功')
     } catch (e) {
-      ElMessage.error(e.message || '上传失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '上传失败'))
     } finally {
       uploadingResourceId.value = null
     }
@@ -108,7 +110,8 @@ export function useFilmCreateResourceUpload(deps = {}) {
       }
       await loadDrama()
     } catch (e) {
-      ElMessage.error(e.message || '操作失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '操作失败'))
     }
   }
 
@@ -126,7 +129,8 @@ export function useFilmCreateResourceUpload(deps = {}) {
       }
       await loadDrama()
     } catch (e) {
-      ElMessage.error(e.message || '删除失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '删除失败'))
     }
   }
 

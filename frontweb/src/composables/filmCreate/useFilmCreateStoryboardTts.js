@@ -1,4 +1,5 @@
 import { ElMessage } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 
 export function useFilmCreateStoryboardTts(deps = {}) {
   const {
@@ -98,7 +99,8 @@ export function useFilmCreateStoryboardTts(deps = {}) {
         ElMessage.success('配音已生成')
       }
     } catch (e) {
-      ElMessage.error(e.message || '对白配音失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '对白配音失败'))
     } finally {
       ttsSbIds.delete(sb.id)
     }
@@ -137,7 +139,8 @@ export function useFilmCreateStoryboardTts(deps = {}) {
         ElMessage.success('解说配音已生成')
       }
     } catch (e) {
-      ElMessage.error(e.message || '解说配音失败')
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '解说配音失败'))
     } finally {
       ttsSbNarrationIds.delete(sb.id)
     }
