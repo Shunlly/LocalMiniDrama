@@ -8,6 +8,13 @@ const yaml = require('js-yaml');
 const settingsService = require('../src/services/settingsService');
 const settingsRoutes = require('../src/routes/settings');
 
+const inheritedRuntimeConfigPath = process.env.LOCALMINIDRAMA_CONFIG_PATH;
+delete process.env.LOCALMINIDRAMA_CONFIG_PATH;
+test.after(() => {
+  if (inheritedRuntimeConfigPath === undefined) delete process.env.LOCALMINIDRAMA_CONFIG_PATH;
+  else process.env.LOCALMINIDRAMA_CONFIG_PATH = inheritedRuntimeConfigPath;
+});
+
 function withFsOverrides(overrides, action) {
   const originals = {};
   for (const [name, implementation] of Object.entries(overrides)) {
@@ -50,6 +57,23 @@ function createSettingsDb() {
   )`);
   return db;
 }
+
+test('language persistence honors the explicit runtime config path', (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'localminidrama-settings-config-'));
+  const runtimeConfig = path.join(tempRoot, 'config.yaml');
+  fs.writeFileSync(runtimeConfig, 'app:\n  language: zh\n', 'utf8');
+  const previousPath = process.env.LOCALMINIDRAMA_CONFIG_PATH;
+  process.env.LOCALMINIDRAMA_CONFIG_PATH = runtimeConfig;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.LOCALMINIDRAMA_CONFIG_PATH;
+    else process.env.LOCALMINIDRAMA_CONFIG_PATH = previousPath;
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  const cfg = { app: { language: 'zh' } };
+  assert.deepEqual(settingsService.updateLanguage(cfg, createLoggerStub(), 'en'), { ok: true, language: 'en' });
+  assert.equal(yaml.load(fs.readFileSync(runtimeConfig, 'utf8')).app.language, 'en');
+});
 
 test('updates in-memory language only after the YAML file is persisted', () => {
   const cfg = { app: { language: 'zh' } };
@@ -219,6 +243,52 @@ test('treats a missing config file as a persistence failure', () => {
   assert.equal(cfg.app.language, 'zh');
   assert.equal(log.warnings.length, 1);
   assert.equal(log.updates.length, 0);
+});
+
+test('generation settings PUT is visible to the GET route the frontend reads', () => {
+  const db = createSettingsDb();
+  try {
+    const routes = settingsRoutes(db, {}, createLoggerStub());
+    const updateRes = createResponseRecorder();
+    routes.updateGenerationSettings({
+      body: { concurrency: 8, video_concurrency: 9 },
+    }, updateRes);
+    assert.equal(updateRes.statusCode, 200);
+    assert.equal(updateRes.body.data.concurrency, 8);
+    assert.equal(updateRes.body.data.video_concurrency, 9);
+
+    const getRes = createResponseRecorder();
+    routes.getGenerationSettings({}, getRes);
+    assert.equal(getRes.statusCode, 200);
+    assert.equal(getRes.body.data.concurrency, 8);
+    assert.equal(getRes.body.data.video_concurrency, 9);
+  } finally {
+    db.close();
+  }
+});
+
+test('language route maps missing config file to a displayable 503', () => {
+  const cfg = { app: { language: 'zh' } };
+  const log = createLoggerStub();
+  const db = createSettingsDb();
+  try {
+    const routes = settingsRoutes(db, cfg, log);
+    const res = createResponseRecorder();
+    const fs = require('node:fs');
+    const originalExists = fs.existsSync;
+    fs.existsSync = () => false;
+    try {
+      routes.updateLanguage({ body: { language: 'en' } }, res);
+    } finally {
+      fs.existsSync = originalExists;
+    }
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.body.error.code, 'CONFIG_FILE_NOT_FOUND');
+    assert.match(res.body.error.message, /语言设置未能写入/);
+    assert.equal(cfg.app.language, 'zh');
+  } finally {
+    db.close();
+  }
 });
 
 test('validates a combined generation settings request before writing either value', () => {

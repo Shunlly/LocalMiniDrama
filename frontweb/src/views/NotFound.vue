@@ -3,10 +3,13 @@
     <section class="not-found-content" aria-labelledby="not-found-title">
       <p class="product-name">LocalMiniDrama</p>
       <p class="status-code" aria-hidden="true">404</p>
-      <h1 id="not-found-title">页面不存在</h1>
-      <p class="description">地址可能已失效，或项目编号不正确。</p>
+      <h1 id="not-found-title" ref="titleRef" tabindex="-1">页面不存在</h1>
+      <p class="description">
+        <template v-if="fromPath">无法打开地址 {{ fromPath }}。地址可能已失效，或项目编号不正确。</template>
+        <template v-else>地址可能已失效，或项目编号不正确。</template>
+      </p>
       <div class="actions">
-        <el-button :icon="ArrowLeft" @click="goBack">返回上一页</el-button>
+        <el-button v-if="canGoBack" :icon="ArrowLeft" @click="goBack">返回上一页</el-button>
         <el-button type="primary" :icon="HomeFilled" @click="goHome">项目列表</el-button>
       </div>
     </section>
@@ -14,19 +17,31 @@
 </template>
 
 <script setup>
+import { computed, onMounted, ref } from 'vue'
 import { ArrowLeft, HomeFilled } from '@element-plus/icons-vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { resolveNotFoundFromPath, resolveNotFoundNavigation } from '@/utils/notFoundNavigation.js'
 
+const route = useRoute()
 const router = useRouter()
+const titleRef = ref(null)
+
+const navigation = computed(() => resolveNotFoundNavigation(router.options.history.state, route.fullPath))
+const canGoBack = computed(() => navigation.value.type === 'back')
+const fromPath = computed(() => resolveNotFoundFromPath(route.query.from))
 
 function goBack() {
-  if (window.history.length > 1) router.back()
+  if (canGoBack.value) router.back()
   else router.replace('/')
 }
 
 function goHome() {
   router.replace('/')
 }
+
+onMounted(() => {
+  titleRef.value?.focus({ preventScroll: true })
+})
 </script>
 
 <style scoped>
@@ -63,6 +78,15 @@ h1 {
   margin: 16px 0 8px;
   font-size: 28px;
   line-height: 1.3;
+}
+
+h1:focus {
+  outline: none;
+}
+
+h1:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 4px;
 }
 
 .description {

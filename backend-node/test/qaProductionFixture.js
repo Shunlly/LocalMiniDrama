@@ -130,7 +130,7 @@ function createProductionQaFixture(t, options = {}) {
     image: { local_path: 'images/shot.png' },
     video: { local_path: 'videos/shot.mp4' },
     tts: { audio_local_path: 'audio/shot.mp3' },
-    compositor: { merged_url: 'videos/merged.mp4' },
+    compositor: { merge_id: mergeId, merged_url: 'videos/merged.mp4' },
   };
   for (const [providerType, output] of Object.entries(providerOutputs)) {
     db.prepare(

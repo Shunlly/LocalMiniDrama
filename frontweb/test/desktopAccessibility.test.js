@@ -19,7 +19,7 @@ test('disabled action gates expose the action name and reason to keyboard users'
   assert.match(actionGateSource, /label: \{ type: String, default: '此操作' \}/)
   assert.match(actionGateSource, /`\$\{props\.label\}不可用：\$\{props\.reason\}`/)
 
-  assert.match(sourceWorkflowSource, /<ActionGate label="仅导入素材" :reason="actionReasons\.import">/)
+  assert.match(sourceWorkflowSource, /<ActionGate label="导入故事素材" :reason="actionReasons\.import">/)
   assert.match(sourceWorkflowSource, /<ActionGate label="重试失败步骤" :reason="actionReasons\.retry">/)
   assert.match(sourceWorkflowSource, /<ActionGate label="执行 QA 审计" :reason="actionReasons\.qa">/)
   assert.doesNotMatch(sourceWorkflowSource, /<el-tooltip/)
@@ -32,15 +32,31 @@ test('AI configuration uses a real page heading and keyboard-operable help contr
   assert.match(aiConfigContentSource, /<h2 id="ai-service-coverage-title">AI 服务配置与验证<\/h2>/)
   assert.match(aiConfigContentSource, /class="tip-button" aria-label="查看接口规范说明"/)
   assert.match(aiConfigContentSource, /\.tip-button:focus-visible/)
+  assert.match(aiConfigContentSource, /role="tablist" aria-label="AI 配置工作区"/)
+  assert.match(aiConfigContentSource, /\.config-workspace-mode:focus-visible/)
 })
 
 test('project readiness and detail controls avoid dead or mouse-only interactions', () => {
   assert.match(readinessSource, /:is="service\.ready \? 'span' : 'button'"/)
-  assert.match(dramaDetailSource, /<button type="button" class="episode-enter"/)
+  assert.match(dramaDetailSource, /<RouterLink[\s\S]*class="episode-card-main"/)
+  assert.match(dramaDetailSource, /class="episode-enter"/)
+  assert.match(dramaDetailSource, /class="episode-card-delete"/)
   assert.match(dramaDetailSource, /:aria-label="`删除第 /)
   assert.match(dramaDetailSource, /role="tablist" aria-label="项目资源分类"/)
   assert.match(dramaDetailSource, /role="tab"/)
   assert.match(dramaDetailSource, /前往制作页新增并入库/)
+})
+
+test('project readiness keeps the next action visible while diagnostics are collapsible', () => {
+  assert.match(readinessSource, /data-testid="project-readiness-toggle"/)
+  assert.match(readinessSource, /:aria-expanded="expanded"/)
+  assert.match(readinessSource, /aria-controls="project-readiness-details"/)
+  assert.match(readinessSource, /id="project-readiness-details"/)
+  assert.match(readinessSource, /v-show="expanded"/)
+
+  const nextActionStart = readinessSource.indexOf('class="next-action"')
+  const detailsStart = readinessSource.indexOf('id="project-readiness-details"')
+  assert.ok(nextActionStart > 0 && nextActionStart < detailsStart)
 })
 
 test('theme status colors remain readable in both desktop themes', () => {

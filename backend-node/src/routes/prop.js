@@ -71,7 +71,7 @@ function extractProps(db, log, cfg) {
       const taskId = propExtractionService.extractPropsForEpisode(db, log, episodeId, cfg);
       response.success(res, { task_id: taskId });
     } catch (err) {
-      if (err.message === 'episode not found' || err.message?.includes('剧本内容为空')) {
+      if (err.message?.includes('剧集不存在') || err.message?.includes('剧本内容为空')) {
         return response.badRequest(res, err.message);
       }
       log.error('extractProps failed', { error: err.message });
@@ -110,6 +110,7 @@ function addToMaterialLibrary(db, log) {
     const out = propLibraryService.addPropToMaterialLibrary(db, log, id);
     if (!out.ok) {
       if (out.error === 'prop not found') return response.notFound(res, '道具不存在');
+      if (out.error === 'unauthorized') return response.forbidden(res, '无权限');
       return response.badRequest(res, out.error);
     }
     response.success(res, { message: '已加入全局素材库', item: out.item });

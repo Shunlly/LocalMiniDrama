@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+
 import {
   ProductionReadinessError,
   buildAiConfigLocation,
@@ -155,9 +157,6 @@ test('AI config location preserves a safe explicit workspace return and the firs
 
 test('source workflow panel exposes mode, readiness remediation, and a throwing source launcher', () => {
   const source = readFileSync(new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url), 'utf8')
-  const launcherStart = source.indexOf('async function startWorkflowFromSource')
-  const launcherEnd = source.indexOf('\nasync function startExistingSource', launcherStart)
-  const launcher = source.slice(launcherStart, launcherEnd)
 
   assert.match(source, /草稿预演/)
   assert.match(source, /正式制作/)
@@ -172,6 +171,7 @@ test('source workflow panel exposes mode, readiness remediation, and a throwing 
   assert.doesNotMatch(source, /:disabled="isWorkflowLaunchBusy \|\| Boolean\(newWorkflowRunReason\)"/)
   assert.match(source, /onBeforeRouteLeave\(\(\) => confirmSourceInputLeave\(\)\)/)
   assert.match(source, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
+  const launcher = remainingExtractNamedFunction(source, 'startWorkflowFromSource')
   assert.match(launcher, /throw new Error\('素材记录无效/)
   assert.doesNotMatch(launcher, /catch\s*\(/)
   assert.doesNotMatch(launcher, /return null/)
@@ -186,7 +186,12 @@ test('source workflow polling surfaces failure, persists load errors, and offers
   assert.match(source, /class="poll-status-banner"/)
   assert.match(source, /async function resumePolling\(\)/)
   assert.match(source, /pollState\.value = 'error'/)
-  assert.match(source, /pollError\.value = error\?\.message \|\| '处理状态刷新失败，自动轮询已暂停。'/)
-  assert.match(source, /workflowDataError\.value = e\.message \|\| '加载素材流程状态失败，请稍后重试。'/)
+  assert.match(source, /shouldIgnoreSourceWorkflowPollError\(error, sourceWorkflowLifecycle\)/)
+  assert.match(source, /if \(sourceWorkflowLifecycle.isActive\(\)\) startPoll\(\)/)
+  assert.match(source, /describeServiceLoadError\(error, \{[\s\S]*fallback: '处理状态刷新失败，自动轮询已暂停。'/)
+  assert.match(source, /shouldIgnoreSourceWorkflowPollError\(e, sourceWorkflowLifecycle\)/)
+  assert.match(source, /describeServiceLoadError\(e, \{[\s\S]*fallback: '加载素材流程状态失败，请稍后重试。'/)
+  assert.match(source, /SOURCE_WORKFLOW_CANCEL_REASON/)
+  assert.match(source, /SOURCE_WORKFLOW_PAUSE_REASON/)
   assert.match(source, /@click="resumePolling"/)
 })

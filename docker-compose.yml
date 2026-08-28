@@ -6,19 +6,51 @@ services:
     build:
       context: .
       dockerfile: backend-node/Dockerfile
+      args:
+        LOCALMINIDRAMA_BUILD_REVISION: ${LOCALMINIDRAMA_BUILD_REVISION:-unknown}
     container_name: localminidrama-backend
-    restart: "on-failure:10"
+    restart: unless-stopped
+    init: true
+    pids_limit: 512
+    cpus: "4.0"
+    mem_limit: 8g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     stop_grace_period: 60s
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_READ_SEARCH
+      - KILL
+      - SETGID
+      - SETUID
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1g,mode=1777
     environment:
       NODE_ENV: production
       PORT: "5679"
       HOST: "0.0.0.0"
+      LOCALMINIDRAMA_CORS_ORIGINS: "http://localhost:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013},http://127.0.0.1:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013}"
       LOCALMINIDRAMA_MAINTENANCE_SCOPE: localminidrama-docker-backend
+      LOCALMINIDRAMA_CONFIG_SOURCE: /app/config-source/config.yaml
+      LOCALMINIDRAMA_CONFIG_PATH: /tmp/localminidrama-config/config.yaml
     ports:
       - "127.0.0.1:5679:5679"
     volumes:
-      - ./backend-node/data:/app/data
-      - ./backend-node/configs:/app/configs:ro
+      - type: bind
+        source: ${LOCALMINIDRAMA_DATA_DIR:-./backend-node/data}
+        target: /app/data
+      - type: bind
+        source: ${LOCALMINIDRAMA_CONFIG_DIR:-./backend-node/configs}
+        target: /app/config-source
+        read_only: true
     healthcheck:
       test:
         [
@@ -35,9 +67,28 @@ services:
     build:
       context: .
       dockerfile: frontweb/Dockerfile.prod
+      args:
+        LOCALMINIDRAMA_BUILD_REVISION: ${LOCALMINIDRAMA_BUILD_REVISION:-unknown}
     container_name: localminidrama-frontend
+    restart: unless-stopped
+    init: true
+    pids_limit: 128
+    cpus: "1.0"
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1g,mode=1777
     ports:
-      - "127.0.0.1:3013:3013"
+      - "127.0.0.1:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013}:3013"
     depends_on:
       backend:
         condition: service_healthy
@@ -67,6 +118,8 @@ services:
       context: .
       dockerfile: backend-node/Dockerfile
       target: verification
+      args:
+        LOCALMINIDRAMA_BUILD_REVISION: ${LOCALMINIDRAMA_BUILD_REVISION:-unknown}
     environment:
       NODE_ENV: test
 
@@ -76,6 +129,25 @@ services:
     build:
       context: .
       dockerfile: backend-node/Dockerfile
+      args:
+        LOCALMINIDRAMA_BUILD_REVISION: ${LOCALMINIDRAMA_BUILD_REVISION:-unknown}
+    user: node
+    init: true
+    pids_limit: 128
+    cpus: "1.0"
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777
     environment:
       NODE_ENV: test
       LOCALMINIDRAMA_E2E_PROVIDER: "1"

@@ -2,11 +2,11 @@
 
 # 🎬 本地短剧助手
 
-**本地优先的 AI 短剧 & 漫剧生成工具 —— 下载即用，完全开源，数据默认保存在本机**
+**本地优先的 AI 短剧 & 漫剧生成工具 —— 可从源码或 Docker 运行，完全开源，数据默认保存在本机**
 
 *LocalMiniDrama · AI-powered short drama creator*
 
-[![version](https://img.shields.io/badge/version-1.3.2-blue?style=flat-square)](https://github.com/Shunlly/LocalMiniDrama/releases)
+[![version](https://img.shields.io/badge/version-1.3.3-blue?style=flat-square)](#-快速开始)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](#-快速开始)
 [![stack](https://img.shields.io/badge/Vue3%20%2B%20Node.js%20%2B%20Electron-informational?style=flat-square)](#-项目架构)
@@ -17,7 +17,7 @@
 [![GitHub](https://img.shields.io/badge/GitHub-Shunlly%2FLocalMiniDrama-181717?logo=github&style=flat-square)](https://github.com/Shunlly/LocalMiniDrama)
 [![Gitee](https://img.shields.io/badge/Gitee-bi__shang__a%2Flocalminidrama-C71D23?logo=gitee&style=flat-square)](https://gitee.com/bi_shang_a/localminidrama)
 
-[**⬇️ 下载 Release**](https://github.com/Shunlly/LocalMiniDrama/releases) · [**🚀 快速开始**](#-快速开始) · [**📖 配置 AI**](docs/configuration.md) · [**🗺 画布文档**](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
+[**🚀 源码 / Docker 运行**](#-快速开始) · [**📖 配置 AI**](docs/configuration.md) · [**🗺 画布文档**](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
 
 </div>
 
@@ -39,20 +39,23 @@
 
 ---
 
-## 📌 v1.3.2 动态
-- 🛠️ **Windows 发布修复**：Docker entrypoint 固定 LF 并增加镜像内检查；产品验收测试兼容 CRLF；前后端测试使用 Node.js 原生发现
-- 🆕 **桌面创作流程收口**：项目就绪度给出唯一下一步，素材导入、处理、QA、修复、剧集与时间线形成可恢复的五步流程
-- 🆕 **多厂商 AI 配置**：按文本、素材图片、分镜图片、视频和 TTS 管理模型，支持连接测试、默认配置和本地/云端路由
-- 🆕 **Novel2Anime 生产链路**：PDF/图片 OCR、音视频转写、图片/视频/TTS 生成与 FFmpeg 合成串成可验收工作流
-- 🔧 **制作页与画布体验**：统一动作门禁、失败反馈、自动保存与离开保护，并补齐全景图、参考图、时间线和批量工作流
-- 🔒 **发布安全与运维**：本机监听、SSRF/导入导出边界、敏感配置脱敏、可信媒体工具、数据备份恢复与生产 Docker 门禁
+## 当前怎么运行
 
-完整记录 → **[CHANGELOG.md](CHANGELOG.md)**
+包版本为 `1.3.3`。当前从源码或 Docker 运行即可，不要按发版下载使用。
+
+- 后端 `backend-node`：Express + SQLite（better-sqlite3），端口 **5679**，启动执行 `runMigrationsAndEnsure`
+- 前端 `frontweb`：Vite + Vue 3，端口 **3013**，开发时代理 `/api` 与 `/static`
+- 语言：纯 JavaScript，无 TypeScript
+- 未配置外部 API Key 也可以启动和开发界面；真正生成内容到「AI 配置」页填写
+- PDF/图片 OCR、音视频转写、真实厂商账号深度联调、移动端都不在当前完成范围
+
+详细步骤见下方 [快速开始](#-快速开始) 和 [开发指南](docs/quickstart.md)。
 
 ---
 
 ## 目录
 
+- [当前怎么运行](#当前怎么运行)
 - [界面预览](#-界面预览)
 - [核心功能](#-核心功能)
 - [快速开始](#-快速开始)
@@ -151,71 +154,119 @@
 
 </details>
 
-### 🗺 画布工作流（LibTV 式）
+### 🗺 双模式画布工作台
 
-制作页 / 剧集详情 → **画布模式**（`/film/:id/canvas`），与列表模式**同源数据**：
+制作页 / 剧集详情 → **画布模式**（`/film/:id/canvas`），在同一路由切换「制作」与「自由」，并与列表模式共享生产数据：
 
 | 能力 | 说明 |
 |------|------|
-| 竖排流水线 | 每镜一行：经典「文本→首帧/尾帧→视频」；全能「全能分镜词→视频」 |
+| 制作模式 | 每镜一行的生产流水线；保留剧本节点、镜头检查器、工作流整组重跑和原有动作门禁 |
+| 自由节点 | `text` / `image` / `video` / `config` / `reference`，写入 `metadata.free_canvas` |
+| 自由编辑 | 单选、多选、框选、连线、复制粘贴、删除、撤销与重做 |
+| 素材侧栏 | 搜索、图片/视频筛选、分组折叠、上传入口和拖入画布 |
+| 保存恢复 | 显示净化后的失败原因，对未保存变更精确重试；保存不覆盖生产图或未知 metadata |
+| 生产衔接 | 符合资格的媒体可保存为素材；通过明确目标选择转换为生产引用，自由节点仍保留 |
+| 项目迁移 | 项目 ZIP 导入/导出保留自由画布，并执行项目、媒体与归档安全校验 |
 | 剧本节点 | 画布起点直接编辑剧本、AI 生成故事、提取角色/场景/道具 |
 | 节点操作面板 | 单击节点下方编辑/生成，无需频繁切列表 |
-| 右键 / 工具栏 | 新建分镜、集、角色、场景、道具；框选创建工作流 |
-| 工作流组 | 框选分镜 → 创建工作流 → **整组重跑**（生图/视频/配音可勾选） |
-| 布局持久化 | 拖动保存坐标；曲线连线；左键框选、中键/右键平移 |
+| 镜头检查器 | 右侧停靠编辑、前后镜头导航、真实图片/视频/配音摘要与未保存草稿保护 |
 
-界面预览见 [上方截图](#-界面预览) · 📖 [画布工作流完整文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
+当前交付范围为桌面端。素材中心支持本地图片/视频上传，以及从 Wikimedia Commons 搜索公开图片/视频、查看作者和许可来源、预览并安全下载入库；网页 URL 入口用于把故事正文导入项目。使用者仍需自行确认素材许可是否满足具体用途，其他第三方素材平台暂未接入。AI 配置提供多厂商预设、自定义 OpenAI 兼容厂商和手工模型列表，但不包含通用 `/v1/models` 远端模型自动发现。PDF/图片 OCR、音视频转写、移动/触控、自动模型发现、协作与完整 Agent/MCP 后置；真实第三方 Provider 的账号、模型、区域、额度、计费与长耗时行为也属于部署后深度联调范围。自动化测试不调用外部真实 Provider。
+
+📖 [画布工作流完整文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md) · 验收收尾报告：`http://127.0.0.1:3013/reports/infinite-canvas-20260727/report.html`
 
 ### 🤖 AI 配置 · 🌓 亮/暗主题 · 自定义提示词
 
-AI 配置按文本、素材图片、分镜图片、视频和 TTS 五类核心服务展示覆盖状态、默认配置与连接测试结果；新增配置时按基础信息、厂商认证、高级接口、模型和调用策略逐步填写。支持一键配置通义、火山和 Agnes，9 类提示词可自定义覆盖。
+AI 配置按文本、素材图片、分镜图片、视频和 TTS 五类核心服务展示覆盖状态、默认配置与连接测试结果；新增配置时按基础信息、厂商认证、高级接口、模型和调用策略逐步填写。支持多厂商预设、自定义 OpenAI 兼容厂商和手工模型列表；Google Gemini 文本使用官方 Gemini OpenAI 兼容端点 `https://generativelanguage.googleapis.com/v1beta/openai`，当前连接测试仍只验证配置端点，不会通过通用 `/v1/models` 自动导入远端模型。支持一键配置通义、火山和 Agnes，9 类提示词可自定义覆盖。
 
 ---
 
 ## 🚀 快速开始
 
-### 方式一：下载 exe（推荐）
+当前推荐从源码或 Docker 运行。
 
-前往 **[Releases 下载页](https://github.com/Shunlly/LocalMiniDrama/releases)**：
+### 环境要求
 
-| 版本 | 说明 | 适合 |
-|------|------|------|
-| `LocalMiniDrama-Setup-x.x.x-x64.exe` | Windows x64 安装版，可选择安装目录 | 日常使用 |
-| `LocalMiniDrama-Portable-x.x.x-x64.exe` | Windows x64 便携版，无需安装 | 试用与移动使用 |
+| 用途 | Node.js |
+|------|---------|
+| 根目录、后端、前端、Docker、通用 PR/分支门禁 | 20.x（`.nvmrc` 为 `20`，`engines` 为 `>=20.0.0 <21`） |
+| 桌面依赖安装、原生重建、打包、Windows 制品安全扫描 | 22.12.0（`desktop/.npmrc` 启用 `engine-strict`） |
+| Electron 运行时 | Electron 43.1.1 自带 Node.js 24 |
 
-双击运行 → 「AI 配置」填入 API Key → 开始创作。
-
-> 当前 Windows 包未做 Authenticode 签名，首次运行可能触发 SmartScreen；请从 GitHub Releases 下载并核对 `SHA256SUMS`。首次运行配置位于 `%APPDATA%\localminidrama-desktop\backend\configs\config.yaml`。
-
-### 方式二：源码开发
-
-> 需要 Node.js >= 20，发布与 Docker 验证统一使用 Node.js 20。
+### 源码开发
 
 ```bash
 git clone https://github.com/Shunlly/LocalMiniDrama.git
 cd LocalMiniDrama
 
-# 后端（端口 5679）
+# 后端开发热重载（端口 5679）；无热重载可用 npm start
 cd backend-node && npm install
-# configs/config.yaml 已随仓库提供；AI Key 通过前端「AI 配置」写入数据库
-npm start
+# configs/config.yaml 已随仓库提供，无需从 example 复制
+# AI Key 通过前端「AI 配置」写入数据库；启动时自动 runMigrationsAndEnsure
+npm run dev
 
 # 前端（端口 3013，新终端）
 cd frontweb && npm install && npm run dev
 ```
 
-浏览器打开 `http://localhost:3013`，或双击根目录 **`run_dev.bat`** 一键启动。
+浏览器打开 `http://127.0.0.1:3013`。Vite 把 `/api` 和 `/static` 代理到 `http://127.0.0.1:5679`。后端 CORS 只允许前端 `3013`（`http://localhost:3013` 与 `http://127.0.0.1:3013`）。
 
-也可以直接从仓库根目录使用 Docker：
+也可以双击根目录 **`run_dev.bat`** 或运行 **`run_dev.ps1`** 一键启动（启动器实际打开的也是 `127.0.0.1`）。启动器只会复用已验证的 LocalMiniDrama 前后端；`5679` 或 `3013` 被其他程序占用时会明确退出，不会终止陌生进程。新启动的服务会在通过就绪探针后才打开浏览器，60 秒内未就绪则失败并保留服务窗口供排错。Vite 默认只监听 `127.0.0.1`，确需局域网调试时必须显式设置 `VITE_DEV_SERVER_HOST`。
+
+未配置外部 API Key 也可以启动、浏览界面和跑本地测试；调用外部模型生成时再到「AI 配置」填写。
+
+后端就绪检查：
+
+```bash
+curl.exe --fail http://127.0.0.1:5679/ready
+```
+
+### Docker
+
+Compose **不挂载应用源码**，只把数据目录和只读配置源挂进容器。改完源码后必须重建镜像，不能指望容器热更新仓库里的 JS/Vue：
 
 ```bash
 docker compose up -d --build --wait
 docker compose ps
 ```
 
-前端仍访问 `http://localhost:3013`，后端健康/就绪检查为 `http://localhost:5679/health` 和 `http://localhost:5679/ready`。Compose 默认仅绑定宿主机 `127.0.0.1`，不会把无认证接口直接暴露到局域网。改动前后端源码后需重新执行 `docker compose up -d --build --wait`；完整容器验证可运行 `npm run verify:docker`。桌面产品验收报告可在 `http://localhost:3013/reports/product-acceptance/report.html` 查看。
+| 服务 | 地址 |
+|------|------|
+| 前端 | `http://127.0.0.1:3013` |
+| 前端 Docker 健康检查 | `http://127.0.0.1:3013/healthz`（代理后端 `/ready`） |
+| 后端健康检查 | `http://127.0.0.1:5679/health` |
+| 后端就绪检查 | `http://127.0.0.1:5679/ready` |
 
-📖 [详细开发/打包/Docker 指南](docs/quickstart.md) · [AI 配置指南](docs/configuration.md)
+默认只绑定宿主机 `127.0.0.1`，并使用只读根文件系统、`no-new-privileges` 与能力裁剪。容器级校验：
+
+```bash
+npm run verify:docker
+```
+
+`npm run verify:docker` 检查镜像边界，并在临时验证容器内跑前后端测试，不代替正在运行的 Compose 服务。`npm run docker:up` 要求 Git 工作树干净，并把当前 Git SHA 写入镜像 revision；未提交改动请直接用 `docker compose up -d --build --wait`。
+
+生产 E2E 必须在仓库外新建空数据目录后设置 `LOCALMINIDRAMA_DATA_DIR`，再执行 `npm run docker:e2e:up` 和 `npm run verify:e2e`，最后销毁 E2E profile 与临时数据目录；完整 PowerShell 命令见 [开发指南](docs/quickstart.md#运行方式二docker)。仓库测试使用本地协议兼容 Provider，不代表真实厂商账号已深度联调。
+
+异常退出若留下维护租约，必须按 [维护租约恢复步骤](docs/quickstart.md#q-如何备份迁移项目数据) 先检查归属，再用精确作用域和 PID 显式恢复；不要直接删除锁文件。
+
+### 测试
+
+```bash
+# 后端（Node.js 内置测试运行器）
+npm --prefix backend-node test
+
+# 前端（ESM，Node.js 内置测试运行器）
+npm --prefix frontweb test
+
+# 包级校验
+npm --prefix backend-node run verify
+npm --prefix frontweb run verify
+
+# 仓库源码门禁
+npm run verify
+```
+
+📖 [详细开发 / Docker / 备份指南](docs/quickstart.md) · [AI 配置指南](docs/configuration.md)
 
 ---
 
@@ -227,13 +278,13 @@ docker compose ps
 | 火山引擎 Volcengine（豆包 / Seedance 2.0） | ✅ | ✅ | ✅ |
 | 可灵 Kling AI（含 Omni） | — | ✅ | ✅ |
 | Agnes AI | ✅ | ✅ | ✅ |
-| Google Gemini（Imagen / Veo） | — | ✅ | ✅ |
+| Google Gemini（文本 / Gemini 原生图片模型 / Veo） | ✅ | ✅ | ✅ |
 | Vidu 生数科技 | — | — | ✅ |
 | NanoBanana（含代理） | — | ✅ | — |
 | 本地 Ollama 等 OpenAI 兼容 | ✅ | — | — |
 | 其他 OpenAI 兼容接口 | ✅ | ✅ | ✅ |
 
-> Novel2Anime 生产工作流会调用已启用并通过就绪检查的文本、素材图、分镜图、视频和 TTS 配置，再由本机 FFmpeg 合成。OpenAI 兼容表示公共协议可路由，不代表每个中转站或模型都支持全部媒体端点；真实账号仍需在「AI 配置」执行连接测试。production QA 会拒绝 mock/占位产物。
+> Novel2Anime 生产工作流会调用已启用并通过就绪检查的文本、素材图、分镜图、视频和 TTS 配置，再由本机 FFmpeg/FFprobe 合成与校验；Google Gemini 文本走官方 Gemini OpenAI 兼容端点，图片走 Gemini `generateContent` 原生图片模型（不是 Imagen API），视频走 Veo。真实 Google 账号、模型、额度和计费行为仍需在「AI 配置」中单独连接测试。Draft 预演仍可使用本地 mock 产物，production QA 会拒绝 mock/占位产物。仓库生产 E2E 使用本地协议兼容 Provider 验证完整非 mock 链路，不代表每个第三方厂商、账号、模型或额度组合都已深度联调。当前模型来自内置预设或手工录入，不会通过通用 `/v1/models` 自动发现；素材中心支持本地素材和 Wikimedia Commons 网络素材，展示远端作者与许可元数据并安全下载入库，但使用者仍需核对具体用途的许可兼容性，更多平台及用途许可判断后置。移动端 Web 重排、触控行为和移动画布/列表降级不在当前桌面范围内。
 
 ---
 
@@ -243,16 +294,17 @@ docker compose ps
 LocalMiniDrama/
 ├── backend-node/     # Express + SQLite，生成/合成/导入导出
 ├── frontweb/         # Vue 3 + Element Plus + @vue-flow/core
-│   └── views/        # FilmList · DramaDetail · FilmCreate · DramaCanvas
+│   └── src/views/    # FilmList · DramaDetail · FilmCreate · DramaCanvas · AiConfig · FreeCreate · MediaLibrary
 ├── desktop/          # Electron 打包 exe
 └── docs/             # 文档与计划
 ```
 
 | 层 | 技术 |
 |----|------|
-| 前端 | Vue 3 · Vite · Element Plus · Pinia · @vue-flow/core |
-| 后端 | Node.js · Express · SQLite (better-sqlite3) |
-| 桌面 | Electron 43.1.1 · electron-builder 26 |
+| 语言 | 纯 JavaScript（无 TypeScript） |
+| 前端 | Vue 3 · Vite · Element Plus · Pinia · @vue-flow/core · 开发端口 3013 |
+| 后端 | Node.js · Express · SQLite（better-sqlite3）· 端口 5679 · 启动时 `runMigrationsAndEnsure` |
+| 桌面 | Electron 43.1.1 · electron-builder 26 · 安装/打包用 Node.js 22.12.0 |
 
 ---
 
@@ -262,13 +314,19 @@ LocalMiniDrama/
 |:----:|------|------|
 | ✅ | Seedance 2.0 + 全能模式 | 多图 `@图片N` · `universal_segment_text` |
 | ✅ | 画布工作流 | 列表/画布双视图 · 整组重跑 · 节点面板 |
-| 📋 | **场景图 → 全景图** | 由场景参考图 AI 扩展超宽/360° 全景，供大景别运镜与场景库 |
+| ✅ | 场景图 → 全景图 | 已支持由场景主图生成 2:1 全景图，并随项目导入导出 |
 | ✅ | 列表侧分镜参考图/首尾帧上传 | 制作页列表模式已支持上传和绑定 |
-| 📋 | 画布侧参考图统一入口 | 画布生成时自由选择参考图 |
-| 📋 | 参考图自由选择 | 生图时手动指定角色/场景参考 |
-| 📋 | 宫格图生成视频 | 多帧合图作为视频输入（部分模型已支持） |
+| ✅ | 画布侧参考图统一入口 | 画布生成时可管理和选择分镜参考媒体 |
+| ✅ | 参考图自由选择 | 生图时可手动指定角色、场景等参考媒体 |
+| ✅ | 宫格图生成视频 | 支持将宫格参考交给声明兼容能力的视频模型 |
+| ✅ | Wikimedia Commons 网络素材 | 支持公开图片/视频搜索、作者与许可来源展示、预览选择、安全下载和项目/全局素材入库 |
+| 📋 | 更多网络素材平台与许可兼容判断 | 其他第三方平台接入及针对具体用途的自动许可兼容判断后置 |
+| 📋 | 远端模型自动发现 | 通用 `/v1/models` 模型列表发现与导入后置；当前使用厂商预设、自定义兼容厂商和手工模型 |
+| 📋 | 第三方 Provider 深度联调 | 真实厂商、账户、模型版本、额度与计费组合后置；每个部署仍须本地连接测试和非敏感样例验收 |
+| 📋 | PDF/图片 OCR 与音视频转写 | 产品能力仍后置，不能当作已完成 |
+| 📋 | 移动端 Web | 移动重排、触控行为和移动画布/列表降级后置；当前验收矩阵仅覆盖桌面视口 |
 
-> 认领功能或提建议 → [New Issue](https://github.com/Shunlly/LocalMiniDrama/issues/new)
+> 认领功能或提建议 → [GitHub Issues](https://github.com/Shunlly/LocalMiniDrama/issues)
 
 <details>
 <summary><b>📋 更多历史版本亮点（v1.2.3 及更早）</b></summary>
@@ -297,8 +355,8 @@ LocalMiniDrama/
 
 ## 🤝 参与贡献
 
-- 🐛 [报告 Bug](https://github.com/Shunlly/LocalMiniDrama/issues/new)
-- 💡 [功能建议](https://github.com/Shunlly/LocalMiniDrama/issues/new)
+- 🐛 [报告 Bug](https://github.com/Shunlly/LocalMiniDrama/issues)
+- 💡 [功能建议](https://github.com/Shunlly/LocalMiniDrama/issues)
 - 🔧 Fork → PR
 - ⭐ **Star** 帮助更多人发现本项目
 
@@ -341,6 +399,6 @@ LocalMiniDrama/
 
 **如果这个项目对你有帮助，请点 ⭐ Star —— 这是对作者最大的鼓励！**
 
-[⬇️ 立即下载](https://github.com/Shunlly/LocalMiniDrama/releases) · [📖 快速开始文档](docs/quickstart.md) · [🗺 画布文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
+[🚀 源码 / Docker 运行](docs/quickstart.md) · [📖 配置 AI](docs/configuration.md) · [🗺 画布文档](docs/plans/2026-06-15-drama-canvas-workflow-plan.md)
 
 </div>

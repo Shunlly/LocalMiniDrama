@@ -87,7 +87,7 @@ class InsufficientUploadStorageError extends Error {
 
 class UnsafeMediaReferenceError extends Error {
   constructor(
-    message = 'Media reference is not a safe storage resource or public HTTP(S) URL.',
+    message = '媒体引用必须是安全的本地存储资源或公网 HTTP(S) URL',
     reason = 'UNSAFE_PATH'
   ) {
     super(message);
@@ -112,13 +112,13 @@ function decodeReferencePath(value) {
     try {
       next = decodeURIComponent(decoded);
     } catch (_) {
-      throw new UnsafeMediaReferenceError('Media reference contains invalid percent encoding.');
+      throw new UnsafeMediaReferenceError('媒体引用包含无效的百分号编码');
     }
     if (next === decoded) return decoded;
     decoded = next;
   }
   if (/%[0-9a-f]{2}/i.test(decoded)) {
-    throw new UnsafeMediaReferenceError('Media reference contains nested percent encoding.');
+    throw new UnsafeMediaReferenceError('媒体引用包含嵌套的百分号编码');
   }
   return decoded;
 }
@@ -254,16 +254,16 @@ function isMetadataHostname(hostname) {
 function parseHttpUrlSyntax(value) {
   const text = String(value || '').trim();
   if (!text || text.length > 4096 || /[\u0000-\u001f\u007f]/.test(text)) {
-    throw new UnsafeMediaReferenceError('Media URL is empty, too long, or contains control characters.');
+    throw new UnsafeMediaReferenceError('媒体 URL 为空、过长或包含控制字符');
   }
   let parsed;
   try {
     parsed = new URL(text);
   } catch (_) {
-    throw new UnsafeMediaReferenceError('Media URL is invalid.');
+    throw new UnsafeMediaReferenceError('媒体 URL 无效');
   }
   if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
-    throw new UnsafeMediaReferenceError('Media URL must be credential-free HTTP(S).');
+    throw new UnsafeMediaReferenceError('媒体 URL 必须是不含凭据的 HTTP(S) 地址');
   }
   return parsed;
 }
@@ -292,9 +292,9 @@ function isExplicitLocalProviderHostname(hostname) {
 function assertPublicHttpUrlSyntax(value) {
   const parsed = parseHttpUrlSyntax(value);
   const host = normalizedHostname(parsed.hostname);
-  if (isBlockedHostname(host)) throw new UnsafeMediaReferenceError('Media URL host is not public.');
+  if (isBlockedHostname(host)) throw new UnsafeMediaReferenceError('媒体 URL 主机不是公网地址');
   if (net.isIP(host) && !isGloballyRoutableIp(host)) {
-    throw new UnsafeMediaReferenceError('Media URL resolves to a non-public address.');
+    throw new UnsafeMediaReferenceError('媒体 URL 解析到非公网地址');
   }
   return parsed;
 }
@@ -303,7 +303,7 @@ async function validatePublicHttpUrl(value, options = {}) {
   const basic = parseHttpUrlSyntax(value);
   const basicHost = normalizedHostname(basic.hostname);
   if (isMetadataHostname(basicHost)) {
-    throw new UnsafeMediaReferenceError('Media URL targets a metadata service.');
+    throw new UnsafeMediaReferenceError('媒体 URL 指向元数据服务，已被拒绝');
   }
   const trustedOrigin = trustedOriginMatch(basic, options.trustedOrigins);
   const explicitPrivateOrigin = trustedOriginMatch(basic, options.allowPrivateOrigins);
@@ -320,7 +320,7 @@ async function validatePublicHttpUrl(value, options = {}) {
     try {
       records = await lookup(host, { all: true, verbatim: true });
     } catch (error) {
-      throw new UnsafeMediaReferenceError(`Media URL DNS lookup failed: ${error?.code || 'DNS_ERROR'}.`);
+      throw new UnsafeMediaReferenceError(`媒体 URL DNS 解析失败：${error?.code || 'DNS_ERROR'}`);
     }
   }
   if (!Array.isArray(records)) records = records ? [records] : [];
@@ -331,7 +331,7 @@ async function validatePublicHttpUrl(value, options = {}) {
     return !privateAddressAllowed || !isAllowedPrivateProviderIp(record?.address);
   });
   if (records.length === 0 || invalidDnsAnswer || metadataAnswer || unsafeAnswer) {
-    throw new UnsafeMediaReferenceError('Media URL resolves to a non-public address.');
+    throw new UnsafeMediaReferenceError('媒体 URL 解析到非公网地址');
   }
   return {
     url: parsed.toString(),
@@ -345,7 +345,7 @@ async function validatePublicHttpUrl(value, options = {}) {
 function createPinnedDnsLookup(selected) {
   const address = String(selected?.address || '');
   const family = Number(selected?.family) || net.isIP(address);
-  if (!family) throw new UnsafeMediaReferenceError('Pinned DNS address is invalid.');
+  if (!family) throw new UnsafeMediaReferenceError('固定的 DNS 地址无效');
   return (_hostname, lookupOptions, callback) => {
     if (typeof lookupOptions === 'function') {
       callback = lookupOptions;
@@ -362,38 +362,38 @@ function createPinnedDnsLookup(selected) {
 function normalizeStorageRelativeReference(value) {
   const text = String(value || '').trim();
   if (!text || text.length > 2048 || /[\u0000-\u001f\u007f?#]/.test(text)) {
-    throw new UnsafeMediaReferenceError('Local media reference is invalid.');
+    throw new UnsafeMediaReferenceError('本地媒体引用无效');
   }
   if (/^[a-z][a-z0-9+.-]*:/i.test(text) || path.isAbsolute(text) || /^[\\/]{2}/.test(text)) {
-    throw new UnsafeMediaReferenceError('Absolute local media paths are not allowed.');
+    throw new UnsafeMediaReferenceError('不允许使用绝对本地媒体路径');
   }
   let relative = decodeReferencePath(text).replace(/\\/g, '/');
   relative = relative.replace(/^\/+/, '');
   if (relative.toLowerCase().startsWith('static/')) relative = relative.slice('static/'.length);
   const segments = relative.split('/');
   if (!relative || segments.some((segment) => !segment || segment === '.' || segment === '..')) {
-    throw new UnsafeMediaReferenceError('Local media reference would escape storage.');
+    throw new UnsafeMediaReferenceError('本地媒体引用超出存储目录');
   }
   const normalized = path.posix.normalize(relative);
   if (normalized !== relative || path.posix.isAbsolute(normalized) || /^[a-z]:/i.test(normalized)) {
-    throw new UnsafeMediaReferenceError('Local media reference would escape storage.');
+    throw new UnsafeMediaReferenceError('本地媒体引用超出存储目录');
   }
   return normalized;
 }
 
 function localReferenceFromValue(value) {
   const text = String(value || '').trim();
-  if (!text) throw new UnsafeMediaReferenceError('Media reference is empty.');
+  if (!text) throw new UnsafeMediaReferenceError('媒体引用为空');
   if (text.startsWith('/static/')) return normalizeStorageRelativeReference(text.slice('/static/'.length));
   if (/^https?:\/\//i.test(text)) {
     let parsed;
     try {
       parsed = new URL(text);
     } catch (_) {
-      throw new UnsafeMediaReferenceError('Media URL is invalid.');
+      throw new UnsafeMediaReferenceError('媒体 URL 无效');
     }
     if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
-      throw new UnsafeMediaReferenceError('Media URL must be credential-free HTTP(S).');
+      throw new UnsafeMediaReferenceError('媒体 URL 必须是不含凭据的 HTTP(S) 地址');
     }
     const host = normalizedHostname(parsed.hostname);
     const isKnownLocal = host === 'localhost' || host.endsWith('.localhost') || host === '::1' ||
@@ -407,7 +407,7 @@ function localReferenceFromValue(value) {
 }
 
 function inspectStorageRoot(storagePath, options = {}) {
-  if (!storagePath) throw new UnsafeMediaReferenceError('Storage root is required for local media.');
+  if (!storagePath) throw new UnsafeMediaReferenceError('本地媒体需要配置存储根目录');
   const root = path.resolve(storagePath);
   const parsed = path.parse(root);
   const segments = root.slice(parsed.root.length).split(path.sep).filter(Boolean);
@@ -424,18 +424,18 @@ function inspectStorageRoot(storagePath, options = {}) {
       stat = fs.lstatSync(candidate);
     } catch (error) {
       if (error?.code !== 'ENOENT' || !options.create) {
-        throw new UnsafeMediaReferenceError('Storage root is unavailable.', 'NOT_FOUND');
+        throw new UnsafeMediaReferenceError('存储根目录不可用', 'NOT_FOUND');
       }
       try {
         fs.mkdirSync(candidate);
         stat = fs.lstatSync(candidate);
       } catch (mkdirError) {
-        throw new UnsafeMediaReferenceError('Storage root could not be created safely.', 'CREATE_FAILED');
+        throw new UnsafeMediaReferenceError('无法安全创建存储根目录', 'CREATE_FAILED');
       }
     }
     if (stat.isSymbolicLink() || !stat.isDirectory()) {
       throw new UnsafeMediaReferenceError(
-        'Storage root path cannot contain symbolic links or non-directory entries.',
+        '存储根路径不能包含符号链接或非目录项',
         stat.isSymbolicLink() ? 'SYMLINK' : 'NOT_DIRECTORY'
       );
     }
@@ -457,14 +457,14 @@ function ensureStorageDirectory(storagePath, relativeDirectory) {
     const stat = fs.lstatSync(current);
     if (stat.isSymbolicLink() || !stat.isDirectory()) {
       throw new UnsafeMediaReferenceError(
-        'Storage directories cannot contain symbolic links or non-directory entries.',
+        '存储目录不能包含符号链接或非目录项',
         stat.isSymbolicLink() ? 'SYMLINK' : 'NOT_DIRECTORY'
       );
     }
     const currentReal = fs.realpathSync(current);
     const relation = path.relative(rootReal, currentReal);
     if (relation === '..' || relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation)) {
-      throw new UnsafeMediaReferenceError('Storage directory would escape its root.');
+      throw new UnsafeMediaReferenceError('存储目录超出根路径');
     }
   }
   return { root, rootReal, directory: current, relativePath: relative };
@@ -477,7 +477,7 @@ function resolveStorageReference(storagePath, value, options = {}) {
   const candidate = path.resolve(root, ...relativePath.split('/'));
   const relation = path.relative(root, candidate);
   if (!relation || relation === '..' || relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation)) {
-    throw new UnsafeMediaReferenceError('Local media reference would escape storage.');
+    throw new UnsafeMediaReferenceError('本地媒体引用超出存储目录');
   }
   if (options.mustExist === false) {
     return { relativePath, absolutePath: candidate, canonical: `/static/${relativePath}` };
@@ -492,20 +492,20 @@ function resolveStorageReference(storagePath, value, options = {}) {
       stat = fs.lstatSync(current);
     } catch (error) {
       if (error?.code === 'ENOENT' && options.allowMissing) return null;
-      throw new UnsafeMediaReferenceError('Local media file does not exist.', 'NOT_FOUND');
+      throw new UnsafeMediaReferenceError('本地媒体文件不存在', 'NOT_FOUND');
     }
     if (stat.isSymbolicLink()) {
-      throw new UnsafeMediaReferenceError('Symbolic links are not allowed for local media.', 'SYMLINK');
+      throw new UnsafeMediaReferenceError('本地媒体不允许使用符号链接', 'SYMLINK');
     }
     if (index < segments.length - 1 && !stat.isDirectory()) {
-      throw new UnsafeMediaReferenceError('Local media path contains a non-directory entry.', 'NOT_DIRECTORY');
+      throw new UnsafeMediaReferenceError('本地媒体路径包含非目录项', 'NOT_DIRECTORY');
     }
   }
   const candidateReal = fs.realpathSync(candidate);
   const realRelation = path.relative(rootReal, candidateReal);
   const stat = fs.statSync(candidateReal);
   if (!realRelation || realRelation === '..' || realRelation.startsWith(`..${path.sep}`) || path.isAbsolute(realRelation) || !stat.isFile()) {
-    throw new UnsafeMediaReferenceError('Local media file is outside storage or is not a regular file.');
+    throw new UnsafeMediaReferenceError('本地媒体文件不在存储目录内，或不是普通文件');
   }
   return { relativePath, absolutePath: candidateReal, canonical: `/static/${relativePath}` };
 }
@@ -522,7 +522,7 @@ function sameFileIdentity(left, right) {
 
 function openStorageFile(storagePath, value) {
   const resolved = resolveStorageReference(storagePath, value);
-  if (!resolved) throw new UnsafeMediaReferenceError('Local storage file is required.');
+  if (!resolved) throw new UnsafeMediaReferenceError('需要提供本地存储文件');
   const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
   let fd;
   try {
@@ -534,7 +534,7 @@ function openStorageFile(storagePath, value) {
       verified.absolutePath !== resolved.absolutePath ||
       !sameFileIdentity(openedStat, verifiedStat)
     ) {
-      throw new UnsafeMediaReferenceError('Local media file changed during secure open.', 'CHANGED');
+      throw new UnsafeMediaReferenceError('本地媒体文件在打开过程中发生变化', 'CHANGED');
     }
     return { ...verified, fd, stat: openedStat };
   } catch (error) {
@@ -543,10 +543,167 @@ function openStorageFile(storagePath, value) {
   }
 }
 
+function createSiblingStagingPath(finalPath, label = 'tmp') {
+  const resolved = path.resolve(finalPath);
+  return path.join(
+    path.dirname(resolved),
+    `.${path.basename(resolved)}.${randomUUID()}.${label}`
+  );
+}
+
+function fsyncFile(filePath) {
+  let fd;
+  try {
+    try {
+      fd = fs.openSync(filePath, fs.constants.O_RDWR);
+    } catch (_) {
+      fd = fs.openSync(filePath, fs.constants.O_RDONLY);
+    }
+    fs.fsyncSync(fd);
+  } catch (error) {
+    if (process.platform !== 'win32' || !['EINVAL', 'EPERM', 'ENOTSUP'].includes(error?.code)) {
+      throw error;
+    }
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+function fsyncDirectory(directoryPath) {
+  let fd;
+  try {
+    fd = fs.openSync(directoryPath, fs.constants.O_RDONLY);
+    fs.fsyncSync(fd);
+  } catch (error) {
+    // Windows 不支持对目录句柄执行 fsync；文件 fsync 和同盘 rename 仍然必须成功。
+    if (process.platform !== 'win32' || !['EINVAL', 'EPERM', 'EISDIR', 'ENOTSUP'].includes(error?.code)) {
+      throw error;
+    }
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+function removeFileQuietly(filePath) {
+  if (!filePath) return;
+  try {
+    fs.rmSync(filePath, { force: true });
+  } catch (_) {}
+}
+
+/**
+ * 发布一个已完整写入的同盘暂存文件。调用方在数据库提交后调用 commit；提交失败则调用 rollback。
+ */
+function publishStagedFile(stagedPath, finalPath) {
+  const staged = path.resolve(stagedPath);
+  const final = path.resolve(finalPath);
+  const finalDirectory = path.dirname(final);
+  const stagedDirectory = path.dirname(staged);
+  if (fs.statSync(stagedDirectory).dev !== fs.statSync(finalDirectory).dev) {
+    throw new Error('暂存文件必须与最终文件位于同一文件系统');
+  }
+  const stagedStat = fs.statSync(staged);
+  if (!stagedStat.isFile() || stagedStat.size <= 0) {
+    throw new Error('暂存文件为空或不是普通文件');
+  }
+
+  fsyncFile(staged);
+  let backupPath = null;
+  let published = false;
+  try {
+    if (fs.existsSync(final)) {
+      const finalStat = fs.lstatSync(final);
+      if (finalStat.isSymbolicLink() || !finalStat.isFile()) {
+        throw new UnsafeMediaReferenceError('本地媒体输出不是普通文件', 'OUTPUT_TYPE');
+      }
+      backupPath = createSiblingStagingPath(final, 'backup');
+      try {
+        fs.linkSync(final, backupPath);
+      } catch (_) {
+        fs.copyFileSync(final, backupPath, fs.constants.COPYFILE_EXCL);
+        fsyncFile(backupPath);
+      }
+    }
+    fs.renameSync(staged, final);
+    published = true;
+    fsyncDirectory(stagedDirectory);
+    fsyncDirectory(finalDirectory);
+  } catch (error) {
+    if (published) removeFileQuietly(final);
+    if (backupPath && fs.existsSync(backupPath)) {
+      try { fs.renameSync(backupPath, final); } catch (_) {}
+    }
+    removeFileQuietly(staged);
+    removeFileQuietly(backupPath);
+    throw error;
+  }
+
+  let settled = false;
+  return {
+    finalPath: final,
+    commit() {
+      if (settled) return;
+      settled = true;
+      removeFileQuietly(backupPath);
+      fsyncDirectory(finalDirectory);
+    },
+    rollback() {
+      if (settled) return;
+      settled = true;
+      removeFileQuietly(final);
+      if (backupPath && fs.existsSync(backupPath)) fs.renameSync(backupPath, final);
+      fsyncDirectory(finalDirectory);
+    },
+  };
+}
+
+function writeFileAtomically(finalPath, writeStagedFile) {
+  const stagedPath = createSiblingStagingPath(finalPath);
+  let publication = null;
+  try {
+    writeStagedFile(stagedPath);
+    publication = publishStagedFile(stagedPath, finalPath);
+    publication.commit();
+    return finalPath;
+  } catch (error) {
+    publication?.rollback();
+    removeFileQuietly(stagedPath);
+    throw error;
+  }
+}
+
+function writeStorageBuffer(storagePath, value, buffer) {
+  if (!Buffer.isBuffer(buffer)) {
+    throw new TypeError('本地存储输出必须是 Buffer');
+  }
+  const relativePath = normalizeStorageRelativeReference(value);
+  const segments = relativePath.split('/');
+  const filename = segments.pop();
+  const parent = segments.length
+    ? ensureStorageDirectory(storagePath, segments.join('/'))
+    : inspectStorageRoot(storagePath, { create: true });
+  const absolutePath = path.join(parent.directory || parent.root, filename);
+  writeFileAtomically(absolutePath, (stagedPath) => {
+    const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+    const fd = fs.openSync(
+      stagedPath,
+      fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | noFollow,
+      0o600
+    );
+    try {
+      fs.writeFileSync(fd, buffer);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+  });
+  return resolveStorageReference(storagePath, relativePath);
+}
+
 async function validateMediaReference(value, options = {}) {
   const text = String(value || '').trim();
   if (!text || text.startsWith('data:') || text.startsWith('file:')) {
-    throw new UnsafeMediaReferenceError('Reference media must come from storage or a public HTTP(S) URL.');
+    throw new UnsafeMediaReferenceError('参考媒体必须来自本地存储或公网 HTTP(S) URL');
   }
   let local = null;
   try {
@@ -567,7 +724,7 @@ function readUploadHead(source) {
     };
   }
   if (typeof source !== 'string' || !source) {
-    throw new TypeError('upload source must be a Buffer or file path');
+    throw new TypeError('上传源必须是 Buffer 或文件路径');
   }
 
   const fd = fs.openSync(source, 'r');
@@ -800,7 +957,7 @@ function isUploadStorageError(err) {
 function storySourceStorageId(value, label) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', `${label} must be a positive integer.`);
+    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', `${label} 必须为正整数`);
   }
   return parsed;
 }
@@ -822,7 +979,7 @@ function sourceOriginalExtension(source) {
   };
   const inferred = byFormat[format] || `.${format || 'txt'}`;
   if (!allowed.has(inferred)) {
-    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', 'The detected source extension is not allowed.');
+    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', '检测到的素材扩展名不受支持');
   }
   return inferred;
 }
@@ -833,7 +990,7 @@ function sourceOriginalMime(value) {
     mime.length > 200 ||
     !/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(mime)
   ) {
-    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', 'The detected source MIME type is invalid.');
+    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', '检测到的素材 MIME 类型无效');
   }
   return mime;
 }
@@ -865,7 +1022,7 @@ function directoryFileBytes(directory, stopAfter = Number.MAX_SAFE_INTEGER) {
     if (currentStat.isSymbolicLink()) {
       throw new StorySourceStorageError(
         'UNSAFE_SOURCE_STORAGE',
-        'Story source storage cannot contain symbolic links.'
+        '素材源存储不能包含符号链接'
       );
     }
     if (currentStat.isFile()) {
@@ -876,7 +1033,7 @@ function directoryFileBytes(directory, stopAfter = Number.MAX_SAFE_INTEGER) {
     if (!currentStat.isDirectory()) {
       throw new StorySourceStorageError(
         'UNSAFE_SOURCE_STORAGE',
-        'Story source storage can contain only regular files and directories.'
+        '素材源存储只能包含普通文件和目录'
       );
     }
     for (const entry of fs.readdirSync(current)) {
@@ -890,11 +1047,11 @@ function persistStorySourceOriginal(storagePath, dramaIdValue, sourceIdValue, so
   const dramaId = storySourceStorageId(dramaIdValue, 'drama_id');
   const sourceId = storySourceStorageId(sourceIdValue, 'source_id');
   if (!Buffer.isBuffer(source?.buffer) || source.buffer.length === 0) {
-    throw new StorySourceStorageError('INVALID_SOURCE_ORIGINAL', 'The source original is empty or unavailable.');
+    throw new StorySourceStorageError('INVALID_SOURCE_ORIGINAL', '原始素材为空或不可用');
   }
   const maxBytes = Math.max(1, Number(options.maxBytes) || MAX_STORY_SOURCE_ORIGINAL_BYTES);
   if (source.buffer.length > maxBytes) {
-    throw new StorySourceStorageError('SOURCE_ORIGINAL_TOO_LARGE', 'The source original exceeds the upload limit.');
+    throw new StorySourceStorageError('SOURCE_ORIGINAL_TOO_LARGE', '原始素材超过上传大小限制');
   }
 
   const quotaBytes = Math.max(1, Number(options.quotaBytes) || DEFAULT_STORY_SOURCE_ORIGINAL_QUOTA_BYTES);
@@ -904,7 +1061,7 @@ function persistStorySourceOriginal(storagePath, dramaIdValue, sourceIdValue, so
   if (existingBytes + source.buffer.length > quotaBytes) {
     throw new StorySourceStorageError(
       'SOURCE_ORIGINAL_QUOTA_EXCEEDED',
-      'The story source original quota for this drama has been exceeded.'
+      '该项目的原始素材配额已用尽'
     );
   }
   assertUploadDiskCapacity(
@@ -925,21 +1082,21 @@ function persistStorySourceOriginal(storagePath, dramaIdValue, sourceIdValue, so
   const absolutePath = path.join(originalDirectory.directory, serverFilename);
   const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
   const flags = fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | noFollow;
-  let fd;
   try {
-    fd = fs.openSync(absolutePath, flags, 0o600);
-    fs.writeFileSync(fd, source.buffer);
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
-    fd = undefined;
+    writeFileAtomically(absolutePath, (stagedPath) => {
+      const fd = fs.openSync(stagedPath, flags, 0o600);
+      try {
+        fs.writeFileSync(fd, source.buffer);
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+    });
     const written = fs.lstatSync(absolutePath);
     if (written.isSymbolicLink() || !written.isFile() || written.size !== source.buffer.length) {
-      throw new StorySourceStorageError('SOURCE_ORIGINAL_WRITE_FAILED', 'The source original was not written safely.');
+      throw new StorySourceStorageError('SOURCE_ORIGINAL_WRITE_FAILED', '原始素材未能安全写入');
     }
   } catch (error) {
-    if (fd !== undefined) {
-      try { fs.closeSync(fd); } catch (_) {}
-    }
     try { fs.unlinkSync(absolutePath); } catch (cleanupError) {
       if (cleanupError.code !== 'ENOENT') throw cleanupError;
     }
@@ -980,7 +1137,7 @@ function readStorySourceOriginal(storagePath, source) {
   const sourceId = storySourceStorageId(source?.id, 'source_id');
   const metadata = source?.metadata?.original_file;
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
-    throw new StorySourceStorageError('SOURCE_ORIGINAL_NOT_FOUND', 'This story source has no retained original.');
+    throw new StorySourceStorageError('SOURCE_ORIGINAL_NOT_FOUND', '该素材源没有保留原始文件');
   }
   const expectedDirectory = `story_sources/${dramaId}/${sourceId}/original`;
   const relativePath = normalizeStorageRelativeReference(metadata.storage_path);
@@ -990,7 +1147,7 @@ function readStorySourceOriginal(storagePath, source) {
     path.posix.basename(relativePath) !== serverFilename ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]{1,8}$/.test(serverFilename)
   ) {
-    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', 'Story source original metadata is not bound to this source.');
+    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', '原始素材元数据未绑定到该素材源');
   }
   const expectedSize = Number(metadata.size);
   const expectedHash = String(metadata.sha256 || '').toLowerCase();
@@ -1001,7 +1158,7 @@ function readStorySourceOriginal(storagePath, source) {
     expectedSize > MAX_STORY_SOURCE_ORIGINAL_BYTES ||
     !/^[0-9a-f]{64}$/.test(expectedHash)
   ) {
-    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', 'Story source original integrity metadata is invalid.');
+    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', '原始素材完整性元数据无效');
   }
 
   const opened = openStorageFile(storagePath, relativePath);
@@ -1009,16 +1166,16 @@ function readStorySourceOriginal(storagePath, source) {
   try {
     const before = opened.stat;
     if (!before.isFile() || before.size !== expectedSize) {
-      throw new StorySourceStorageError('SOURCE_ORIGINAL_INTEGRITY_FAILED', 'The retained source original size no longer matches its metadata.');
+      throw new StorySourceStorageError('SOURCE_ORIGINAL_INTEGRITY_FAILED', '保留的原始素材大小与元数据不一致');
     }
     const buffer = fs.readFileSync(fd);
     const after = fs.fstatSync(fd);
     if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
-      throw new StorySourceStorageError('SOURCE_ORIGINAL_INTEGRITY_FAILED', 'The retained source original changed while it was being read.');
+      throw new StorySourceStorageError('SOURCE_ORIGINAL_INTEGRITY_FAILED', '保留的原始素材在读取时发生变化');
     }
     const actualHash = createHash('sha256').update(buffer).digest('hex');
     if (actualHash !== expectedHash) {
-      throw new StorySourceStorageError('SOURCE_ORIGINAL_INTEGRITY_FAILED', 'The retained source original hash no longer matches its metadata.');
+      throw new StorySourceStorageError('SOURCE_ORIGINAL_INTEGRITY_FAILED', '保留的原始素材哈希与元数据不一致');
     }
     return {
       buffer,
@@ -1226,7 +1383,7 @@ async function downloadBufferViaNodeHttp(url, timeoutMs = 30000, redirectCount =
   const maxRedirects = Number.isInteger(configuredMaxRedirects) && configuredMaxRedirects >= 0
     ? configuredMaxRedirects
     : DEFAULT_REMOTE_MEDIA_REDIRECTS;
-  if (redirectCount > maxRedirects) throw new UnsafeMediaReferenceError('Media URL has too many redirects.');
+  if (redirectCount > maxRedirects) throw new UnsafeMediaReferenceError('媒体 URL 重定向次数过多');
   const maxBytes = options.maxBytes ?? DEFAULT_REMOTE_MEDIA_MAX_BYTES;
   const requestHeaders = {
     'User-Agent': 'Mozilla/5.0 (compatible; LocalMiniDrama/1.0)',
@@ -1243,12 +1400,13 @@ async function downloadBufferViaNodeHttp(url, timeoutMs = 30000, redirectCount =
   }, {
     trustedOrigins: options.trustedOrigins,
     allowPrivateOrigins: options.allowPrivateOrigins,
+    requireHttpsForPublic: options.requireHttpsForPublic === true,
     lookup: options.lookup,
     timeoutMs,
     maxBytes,
     maxRedirects: Math.max(0, maxRedirects - redirectCount),
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`远程媒体请求失败（HTTP ${response.status}）`);
   return {
     buffer: Buffer.from(await response.arrayBuffer()),
     contentType: response.headers.get('content-type') || '',
@@ -1339,7 +1497,9 @@ function uploadFile(
     category,
     projectSubdir,
     detected,
-    (filePath) => fs.writeFileSync(filePath, fileBuffer, { flag: 'wx' })
+    (filePath) => writeFileAtomically(filePath, (stagedPath) => {
+      fs.writeFileSync(stagedPath, fileBuffer, { flag: 'wx' });
+    })
   );
 }
 
@@ -1379,7 +1539,9 @@ function uploadFileFromPath(
     category,
     projectSubdir,
     detected,
-    (filePath) => fs.copyFileSync(sourcePath, filePath, fs.constants.COPYFILE_EXCL)
+    (filePath) => writeFileAtomically(filePath, (stagedPath) => {
+      fs.copyFileSync(sourcePath, stagedPath, fs.constants.COPYFILE_EXCL);
+    })
   );
 }
 
@@ -1408,7 +1570,7 @@ async function downloadImageToLocal(storagePath, imageUrl, category, log, prefix
       }
       buffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
       if (buffer.length === 0 || buffer.length > DEFAULT_REMOTE_MEDIA_MAX_BYTES) {
-        throw new UnsafeMediaReferenceError('Inline image exceeds the size limit.');
+        throw new UnsafeMediaReferenceError('内联图片超过大小限制');
       }
       ext = match[1] === 'jpeg' ? 'jpg' : match[1];
     } else {
@@ -1442,7 +1604,9 @@ async function downloadImageToLocal(storagePath, imageUrl, category, log, prefix
     assertUploadDiskCapacity(storagePath, buffer.length);
     const name = `${prefix}${prefix ? '_' : ''}${randomUUID().slice(0, 8)}.${ext}`;
     const filePath = path.join(categoryPath, name);
-    fs.writeFileSync(filePath, buffer, { flag: 'wx' });
+    writeFileAtomically(filePath, (stagedPath) => {
+      fs.writeFileSync(stagedPath, buffer, { flag: 'wx' });
+    });
     writtenFilePath = filePath;
     const relativePath = `${relPrefix}/${name}`.replace(/\\/g, '/');
     const opened = openStorageFile(storagePath, relativePath);
@@ -1556,7 +1720,7 @@ async function uploadLocalImageToProxy(storagePath, localPathOrUrl, log, tag) {
     const mimeType = mimeMap[ext] || 'image/jpeg';
     const stat = fs.statSync(filePath);
     if (stat.size > DEFAULT_REMOTE_MEDIA_MAX_BYTES) {
-      throw new UnsafeMediaReferenceError('Local image exceeds the proxy upload size limit.');
+      throw new UnsafeMediaReferenceError('本地图片超过代理上传大小限制');
     }
     const buf = fs.readFileSync(filePath);
     await validateAllowedUpload(buf, 'image');
@@ -1593,7 +1757,13 @@ module.exports = {
   isGloballyRoutableIp,
   ensureStorageDirectory,
   normalizeStorageRelativeReference,
+  decodeReferencePath,
   openStorageFile,
+  writeStorageBuffer,
+  writeFileAtomically,
+  publishStagedFile,
+  fsyncFile,
+  fsyncDirectory,
   resolveStorageReference,
   validateMediaReference,
   downloadBufferViaNodeHttp,

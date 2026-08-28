@@ -94,6 +94,50 @@ test('returned promises with timer-backed continuations drain without async hook
   assert.equal(state.completed, 1);
 });
 
+test('可取消延迟任务不会执行回调，并立即从活动作业中移除', async () => {
+  let timerCallback;
+  let clearedHandle;
+  let calls = 0;
+  const scheduler = createLegacyAsyncScheduler({
+    setTimeoutFn(callback) {
+      timerCallback = callback;
+      return 42;
+    },
+    clearTimeoutFn(handle) { clearedHandle = handle; },
+  });
+
+  const id = scheduler.scheduleDelayed(null, 'retry', 1000, () => { calls += 1; });
+  assert.equal(scheduler.getState().active, 1);
+  assert.equal(scheduler.getState().queued, 1);
+  assert.equal(scheduler.cancel(id), true);
+  assert.equal(scheduler.cancel(id), false);
+  assert.equal(clearedHandle, 42);
+  assert.equal(scheduler.getState().active, 0);
+  assert.equal(scheduler.getState().recent.find((job) => job.id === id).status, 'cancelled');
+
+  timerCallback();
+  await Promise.resolve();
+  assert.equal(calls, 0);
+  assert.equal((await scheduler.shutdown()).active, 0);
+});
+
+test('shutdown 取消尚未开始的延迟任务', async () => {
+  const cleared = [];
+  let calls = 0;
+  const scheduler = createLegacyAsyncScheduler({
+    setTimeoutFn() { return 7; },
+    clearTimeoutFn(handle) { cleared.push(handle); },
+  });
+  scheduler.scheduleDelayed(null, 'recovery', 1000, () => { calls += 1; });
+
+  const state = await scheduler.shutdown();
+
+  assert.deepEqual(cleared, [7]);
+  assert.equal(calls, 0);
+  assert.equal(state.active, 0);
+  assert.equal(state.queued, 0);
+});
+
 test('API task context drains bare route timers and rejects requests after draining starts', async () => {
   const scheduler = createLegacyAsyncScheduler();
   const middleware = createBackgroundTaskContextMiddleware(scheduler, null);

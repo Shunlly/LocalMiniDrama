@@ -1,8 +1,8 @@
 import { ref, reactive, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { sceneAPI } from '@/api/scenes'
-import { sceneLibraryAPI } from '@/api/sceneLibrary'
-import { uploadAPI } from '@/api/upload'
+import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
+import { sceneAPI as rawSceneAPI } from '@/api/scenes'
+import { sceneLibraryAPI as rawSceneLibraryAPI } from '@/api/sceneLibrary'
+import { uploadAPI as rawUploadAPI } from '@/api/upload'
 import { useGenerationTaskStore, GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { buildExtractTaskMeta, isEpisodeExtractRunning } from '@/composables/useGenerationTaskSync'
 
@@ -21,7 +21,22 @@ import { buildExtractTaskMeta, isEpisodeExtractRunning } from '@/composables/use
  * @param {object} deps.dramaAPI
  */
 export function useScenes(deps) {
-  const { store, dramaId, currentEpisodeId, getSelectedStyle, scriptLanguage, loadDrama, pollTask, pollUntilResourceHasImage, hasAssetImage, dramaAPI } = deps
+  const {
+    store,
+    dramaId,
+    currentEpisodeId,
+    getSelectedStyle,
+    scriptLanguage,
+    loadDrama,
+    pollTask,
+    pollUntilResourceHasImage,
+    hasAssetImage,
+    dramaAPI,
+    ElMessage = RawElMessage,
+    sceneAPI = rawSceneAPI,
+    sceneLibraryAPI = rawSceneLibraryAPI,
+    uploadAPI = rawUploadAPI,
+  } = deps
   const genStore = useGenerationTaskStore()
 
   function buildSceneImageMeta(scene) {

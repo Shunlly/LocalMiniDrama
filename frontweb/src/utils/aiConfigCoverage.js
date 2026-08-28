@@ -1,3 +1,5 @@
+import { getServiceConfigReadiness } from './aiServiceReadiness.js'
+
 export const AI_SERVICE_COVERAGE_DEFINITIONS = Object.freeze([
   Object.freeze({
     type: 'text',
@@ -27,7 +29,8 @@ export const AI_SERVICE_COVERAGE_DEFINITIONS = Object.freeze([
 ])
 
 function isEnabled(config) {
-  return config?.is_active !== false && config?.is_active !== 0
+  const value = String(config?.is_active ?? '').trim().toLowerCase()
+  return config?.is_active !== false && config?.is_active !== 0 && !['0', 'false'].includes(value)
 }
 
 function isDefault(config) {
@@ -68,6 +71,32 @@ function buildCoverageSummary(services) {
   }
 }
 
+function getCoveragePriority(service) {
+  if ([
+    'no_default',
+    'inactive',
+    'missing_credentials',
+    'missing_model',
+    'missing_workflow',
+  ].includes(service?.issue)) return 0
+  if (service?.issue === 'connection_failed' || service?.test?.status === 'failed') return 1
+  if (service?.state === 'configured') return 2
+  if (service?.state === 'missing') return 3
+  if (service?.test?.status === 'unknown') return 4
+  return 5
+}
+
+export function sortAiServiceCoverage(services = []) {
+  const source = Array.isArray(services) ? services : []
+  return source
+    .map((service, index) => ({ service, index }))
+    .sort((left, right) => (
+      getCoveragePriority(left.service) - getCoveragePriority(right.service)
+      || left.index - right.index
+    ))
+    .map(({ service }) => service)
+}
+
 export function getConfigTestStatus(config, sessionTestStatusById = {}) {
   if (!config) {
     return { status: 'unknown', source: 'none', testedAt: null }
@@ -100,59 +129,63 @@ export function getConfigTestStatus(config, sessionTestStatusById = {}) {
 
 export function getAiServiceCoverageActions(service, options = {}) {
   const vendorLocked = !!options.vendorLocked
-  const actions = []
+  const writesLocked = !!options.writesLocked
 
   if (service.state === 'missing') {
-    if (!vendorLocked) {
-      actions.push({
-        key: 'add',
-        label: `添加${service.label}配置`,
-        action: 'add',
-        emphasis: 'primary',
-      })
-    }
-    actions.push({
-      key: 'view',
-      label: '查看配置',
-      action: 'view',
-      emphasis: 'secondary',
-    })
-    return actions
+    return []
   }
 
-  if (!vendorLocked && service.issue === 'no_default') {
-    actions.push({
+  const editableIssues = ['no_default', 'inactive', 'missing_credentials', 'missing_model', 'missing_workflow']
+  if ((vendorLocked || writesLocked) && editableIssues.includes(service.issue)) {
+    return []
+  }
+
+  const readinessActions = {
+    missing_credentials: { key: 'fix-credentials', label: '\u8865\u5145\u51ed\u636e' },
+    missing_model: { key: 'fix-model', label: '\u8865\u5145\u6a21\u578b' },
+    missing_workflow: { key: 'fix-workflow', label: '\u8865\u5145\u5de5\u4f5c\u6d41' },
+  }
+  if (service.targetConfig && readinessActions[service.issue]) {
+    return [{ ...readinessActions[service.issue], action: 'edit', emphasis: 'primary' }]
+  }
+
+  if (service.targetConfig && service.test?.status === 'failed') {
+    return [{
+      key: 'test',
+      label: '\u91cd\u65b0\u6d4b\u8bd5',
+      action: 'test',
+      emphasis: 'primary',
+    }]
+  }
+
+  if (service.issue === 'no_default') {
+    return [{
       key: 'fix-default',
       label: service.targetConfig ? '补齐默认' : '添加默认',
       action: service.targetConfig ? 'edit' : 'add',
       emphasis: 'primary',
-    })
-  } else if (!vendorLocked && service.issue === 'inactive') {
-    actions.push({
+    }]
+  }
+
+  if (service.issue === 'inactive') {
+    return [{
       key: 'activate',
       label: service.targetConfig ? '启用默认' : '添加配置',
       action: service.targetConfig ? 'edit' : 'add',
       emphasis: 'primary',
-    })
+    }]
   }
 
-  actions.push({
-    key: 'view',
-    label: '查看配置',
-    action: 'view',
-    emphasis: actions.length ? 'secondary' : 'primary',
-  })
-
-  if (service.targetConfig) {
-    actions.push({
+  if (service.targetConfig && ['unknown', 'failed'].includes(service.test?.status)) {
+    return [{
       key: 'test',
-      label: service.test.status === 'passed' ? '重新测试' : '立即测试',
+      label: service.test.status === 'failed' ? '重新测试' : '立即测试',
       action: 'test',
-      emphasis: 'secondary',
-    })
+      emphasis: 'primary',
+    }]
   }
 
-  return actions
+  return []
 }
 
 export function buildAiServiceCoverage(configs = [], sessionTestStatusById = {}) {
@@ -170,17 +203,23 @@ export function buildAiServiceCoverage(configs = [], sessionTestStatusById = {})
       issue = activeConfigs.length === 0 ? 'inactive' : (defaultConfig ? null : 'no_default')
     }
 
+    const test = getConfigTestStatus(targetConfig, sessionTestStatusById)
+    const readiness = defaultConfig ? getServiceConfigReadiness(defaultConfig) : null
+    if (defaultConfig) issue = readiness.issue || (test.status === 'failed' ? 'connection_failed' : null)
+    const ready = state === 'default' && readiness?.ready === true && test.status !== 'failed'
+
     return {
       ...definition,
       state,
       issue,
-      ready: state === 'default',
-      needsAttention: state !== 'default',
+      readiness,
+      ready,
+      needsAttention: !ready,
       configuredCount: serviceConfigs.length,
       activeCount: activeConfigs.length,
       defaultConfig,
       targetConfig,
-      test: getConfigTestStatus(targetConfig, sessionTestStatusById),
+      test,
     }
   })
 

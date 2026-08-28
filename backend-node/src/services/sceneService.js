@@ -5,6 +5,13 @@ const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
 const uploadService = require('./uploadService');
 const { mergeCfgStyleWithDrama } = require('../utils/dramaStyleMerge');
+const {
+  assertEpisodeWritable,
+  canReadDrama,
+  canReadResource,
+  runDramaWrite,
+  runResourceWrite,
+} = require('./dramaWriteGuard');
 
 function applySceneStyleOverride(cfg, styleOverride) {
   const o = (styleOverride || '').toString().trim();
@@ -21,73 +28,82 @@ function applySceneStyleOverride(cfg, styleOverride) {
 }
 function updateScene(db, log, sceneId, req) {
   const row = db.prepare('SELECT id FROM scenes WHERE id = ? AND deleted_at IS NULL').get(Number(sceneId));
-  if (!row) return { ok: false, error: 'scene not found' };
-  const updates = [];
-  const params = [];
-  if (req.location != null) { updates.push('location = ?'); params.push(req.location); }
-  if (req.time != null) { updates.push('time = ?'); params.push(req.time); }
-  if (req.prompt != null) { updates.push('prompt = ?'); params.push(req.prompt); }
-  if (req.polished_prompt != null) { updates.push('polished_prompt = ?'); params.push(req.polished_prompt); }
-  if (req.polished_prompt_single != null) { updates.push('polished_prompt_single = ?'); params.push(req.polished_prompt_single); }
-  if (req.image_url != null) { updates.push('image_url = ?'); params.push(req.image_url); }
-  if (req.local_path !== undefined) { updates.push('local_path = ?'); params.push(req.local_path); }
-  if (req.extra_images !== undefined) { updates.push('extra_images = ?'); params.push(req.extra_images ?? null); }
-  if (req.ref_image !== undefined) { updates.push('ref_image = ?'); params.push(req.ref_image ?? null); }
-  if (updates.length === 0) return { ok: true };
-  params.push(new Date().toISOString(), sceneId);
-  db.prepare('UPDATE scenes SET ' + updates.join(', ') + ', updated_at = ? WHERE id = ?').run(...params);
+  if (!row || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
+  const changed = runResourceWrite(db, 'scenes', sceneId, () => {
+    const updates = [];
+    const params = [];
+    if (req.location != null) { updates.push('location = ?'); params.push(req.location); }
+    if (req.time != null) { updates.push('time = ?'); params.push(req.time); }
+    if (req.prompt != null) { updates.push('prompt = ?'); params.push(req.prompt); }
+    if (req.polished_prompt != null) { updates.push('polished_prompt = ?'); params.push(req.polished_prompt); }
+    if (req.polished_prompt_single != null) { updates.push('polished_prompt_single = ?'); params.push(req.polished_prompt_single); }
+    if (req.image_url != null) { updates.push('image_url = ?'); params.push(req.image_url); }
+    if (req.local_path !== undefined) { updates.push('local_path = ?'); params.push(req.local_path); }
+    if (req.extra_images !== undefined) { updates.push('extra_images = ?'); params.push(req.extra_images ?? null); }
+    if (req.ref_image !== undefined) { updates.push('ref_image = ?'); params.push(req.ref_image ?? null); }
+    if (updates.length === 0) return true;
+    params.push(new Date().toISOString(), Number(sceneId));
+    return db.prepare('UPDATE scenes SET ' + updates.join(', ') + ', updated_at = ? WHERE id = ? AND deleted_at IS NULL').run(...params).changes > 0;
+  });
   log.info('Scene updated', { scene_id: sceneId });
-  return { ok: true };
+  return { ok: changed !== false };
 }
 
 function updateScenePrompt(db, log, sceneId, req) {
   const row = db.prepare('SELECT id FROM scenes WHERE id = ? AND deleted_at IS NULL').get(Number(sceneId));
-  if (!row) return { ok: false, error: 'scene not found' };
+  if (!row || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
   const prompt = req.prompt != null ? req.prompt : '';
-  db.prepare('UPDATE scenes SET prompt = ?, updated_at = ? WHERE id = ?').run(prompt, new Date().toISOString(), Number(sceneId));
+  runResourceWrite(db, 'scenes', sceneId, () => db.prepare(
+    'UPDATE scenes SET prompt = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
+  ).run(prompt, new Date().toISOString(), Number(sceneId)));
   log.info('Scene prompt updated', { scene_id: sceneId });
   return { ok: true };
 }
 
 function deleteScene(db, log, sceneId) {
-  const now = new Date().toISOString();
-  const result = db.prepare('UPDATE scenes SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL').run(now, Number(sceneId));
+  if (!canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
+  const result = runResourceWrite(db, 'scenes', sceneId, () => db.prepare(
+    'UPDATE scenes SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL'
+  ).run(new Date().toISOString(), Number(sceneId)));
   if (result.changes === 0) return { ok: false, error: 'scene not found' };
   log.info('Scene deleted', { scene_id: sceneId });
   return { ok: true };
 }
 
 function createScene(db, log, dramaId, req) {
-  const now = new Date().toISOString();
+  const normalizedDramaId = Number(dramaId);
   const episodeId = req.episode_id != null ? Number(req.episode_id) : null;
-  try {
-    const info = db.prepare(
-      `INSERT INTO scenes (drama_id, episode_id, location, time, prompt, image_url, local_path, storyboard_count, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?)`
-    ).run(
-      Number(dramaId),
-      episodeId,
-      req.location || '',
-      req.time || '',
-      req.prompt || '',
-      req.image_url ?? null,
-      req.local_path ?? null,
-      now,
-      now
-    );
-    log.info('Scene created', { scene_id: info.lastInsertRowid, drama_id: dramaId, episode_id: episodeId });
-    return getSceneById(db, info.lastInsertRowid);
-  } catch (e) {
-    // 老库可能没有 episode_id 列，降级为不含 episode_id 的 INSERT
-    if ((e.message || '').includes('episode_id')) {
-      const info = db.prepare(
-        `INSERT INTO scenes (drama_id, location, time, prompt, image_url, local_path, storyboard_count, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?)`
-      ).run(Number(dramaId), req.location || '', req.time || '', req.prompt || '', req.image_url ?? null, req.local_path ?? null, now, now);
-      return getSceneById(db, info.lastInsertRowid);
+  const info = runDramaWrite(db, normalizedDramaId, () => {
+    if (episodeId != null) assertEpisodeWritable(db, episodeId, normalizedDramaId);
+    const now = new Date().toISOString();
+    try {
+      return db.prepare(
+        `INSERT INTO scenes (drama_id, episode_id, location, time, prompt, image_url, local_path, storyboard_count, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?)`
+      ).run(
+        normalizedDramaId,
+        episodeId,
+        req.location || '',
+        req.time || '',
+        req.prompt || '',
+        req.image_url ?? null,
+        req.local_path ?? null,
+        now,
+        now
+      );
+    } catch (error) {
+      // 老库可能没有 episode_id 列，降级为不含 episode_id 的 INSERT。
+      if ((error.message || '').includes('episode_id')) {
+        return db.prepare(
+          `INSERT INTO scenes (drama_id, location, time, prompt, image_url, local_path, storyboard_count, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?)`
+        ).run(normalizedDramaId, req.location || '', req.time || '', req.prompt || '', req.image_url ?? null, req.local_path ?? null, now, now);
+      }
+      throw error;
     }
-    throw e;
-  }
+  });
+  log.info('Scene created', { scene_id: info.lastInsertRowid, drama_id: dramaId, episode_id: episodeId });
+  return getSceneById(db, info.lastInsertRowid);
 }
 
 function createSceneForEpisode(db, log, dramaId, episodeId, req) {
@@ -95,18 +111,23 @@ function createSceneForEpisode(db, log, dramaId, episodeId, req) {
 }
 
 function deleteScenesByEpisodeId(db, log, episodeId) {
-  const now = new Date().toISOString();
   try {
-    const result = db.prepare('UPDATE scenes SET deleted_at = ? WHERE episode_id = ? AND deleted_at IS NULL').run(now, Number(episodeId));
+    const episode = assertEpisodeWritable(db, episodeId);
+    const result = runDramaWrite(db, episode.drama_id, () => {
+      assertEpisodeWritable(db, episodeId, episode.drama_id);
+      return db.prepare('UPDATE scenes SET deleted_at = ? WHERE episode_id = ? AND deleted_at IS NULL')
+        .run(new Date().toISOString(), Number(episodeId));
+    });
     log.info('Scenes deleted by episode', { episode_id: episodeId, count: result.changes });
     return result.changes;
   } catch (e) {
-    if ((e.message || '').includes('episode_id')) return 0;
+    if ((e.message || '').includes('episode_id') || e.code === 'RESOURCE_NOT_FOUND') return 0;
     throw e;
   }
 }
 
 function listByDramaId(db, dramaId) {
+  if (!canReadDrama(db, dramaId)) return [];
   const rows = db.prepare(
     'SELECT * FROM scenes WHERE drama_id = ? AND deleted_at IS NULL ORDER BY id ASC'
   ).all(Number(dramaId));
@@ -134,6 +155,7 @@ function listByDramaId(db, dramaId) {
 
 function getSceneById(db, id) {
   const row = db.prepare('SELECT * FROM scenes WHERE id = ? AND deleted_at IS NULL').get(id);
+  if (row && !canReadResource(db, 'scenes', id)) return null;
   return row ? {
     id: row.id,
     drama_id: row.drama_id,
@@ -208,7 +230,7 @@ async function generateScenePromptOnly(db, log, cfg, sceneId, modelName, style) 
   const sceneRow = db.prepare(
     'SELECT id, drama_id, location, time, prompt FROM scenes WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(sceneId));
-  if (!sceneRow) return { ok: false, error: 'scene not found' };
+  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
 
   const dramaFull = db.prepare('SELECT id, style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(sceneRow.drama_id);
   let mergedCfg = mergeCfgStyleWithDrama(cfg, dramaFull || {});
@@ -250,9 +272,9 @@ async function generateScenePromptOnly(db, log, cfg, sceneId, modelName, style) 
   const styleZh = (mergedCfg.style.default_style_zh || '').trim();
   const polishedPrompt = buildSceneFourViewImagePrompt(fourViewDescription.trim(), styleEn, styleZh);
 
-  db.prepare('UPDATE scenes SET polished_prompt = ?, updated_at = ? WHERE id = ?').run(
-    polishedPrompt, new Date().toISOString(), Number(sceneId)
-  );
+  runResourceWrite(db, 'scenes', sceneId, () => db.prepare(
+    'UPDATE scenes SET polished_prompt = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
+  ).run(polishedPrompt, new Date().toISOString(), Number(sceneId)));
   log.info('[场景提示词] 生成并保存完成', { scene_id: sceneId, length: polishedPrompt.length });
   return { ok: true, polished_prompt: polishedPrompt };
 }
@@ -265,7 +287,7 @@ async function generateSceneSinglePromptOnly(db, log, cfg, sceneId, modelName, s
   const sceneRow = db.prepare(
     'SELECT id, drama_id, location, time, prompt FROM scenes WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(sceneId));
-  if (!sceneRow) return { ok: false, error: 'scene not found' };
+  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
 
   const dramaFull = db.prepare('SELECT id, style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(sceneRow.drama_id);
   let mergedCfg = mergeCfgStyleWithDrama(cfg, dramaFull || {});
@@ -305,9 +327,9 @@ async function generateSceneSinglePromptOnly(db, log, cfg, sceneId, modelName, s
   const styleZh = (mergedCfg.style.default_style_zh || '').trim();
   const polishedPrompt = buildSceneSingleImagePrompt(singleViewDescription.trim(), styleEn, styleZh);
 
-  db.prepare('UPDATE scenes SET polished_prompt_single = ?, updated_at = ? WHERE id = ?').run(
-    polishedPrompt, new Date().toISOString(), Number(sceneId)
-  );
+  runResourceWrite(db, 'scenes', sceneId, () => db.prepare(
+    'UPDATE scenes SET polished_prompt_single = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
+  ).run(polishedPrompt, new Date().toISOString(), Number(sceneId)));
   log.info('[场景单图提示词] 生成并保存完成', { scene_id: sceneId, length: polishedPrompt.length });
   return { ok: true, polished_prompt_single: polishedPrompt };
 }
@@ -322,7 +344,7 @@ async function generateSceneFourViewImage(db, log, cfg, sceneId, modelName, styl
   const sceneRow = db.prepare(
     'SELECT id, drama_id, location, time, prompt, polished_prompt FROM scenes WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(sceneId));
-  if (!sceneRow) return { ok: false, error: 'scene not found' };
+  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
   const dramaFull = db.prepare('SELECT id, style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(sceneRow.drama_id);
   if (!dramaFull) return { ok: false, error: 'unauthorized' };
 
@@ -365,16 +387,14 @@ async function generateSceneFourViewImage(db, log, cfg, sceneId, modelName, styl
     imagePrompt = buildSceneFourViewImagePrompt(fourViewDescription, styleEn, styleZh);
 
     // 顺带保存，供下次复用
-    try {
-      db.prepare('UPDATE scenes SET polished_prompt = ?, updated_at = ? WHERE id = ?').run(
-        imagePrompt, new Date().toISOString(), Number(sceneId)
-      );
-    } catch (_) {}
+    runResourceWrite(db, 'scenes', sceneId, () => db.prepare(
+      'UPDATE scenes SET polished_prompt = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
+    ).run(imagePrompt, new Date().toISOString(), Number(sceneId)));
 
     log.info('[场景四视图] Step1 完成，开始Step2生图', { scene_id: sceneId });
   }
 
-  const imageGen = imageClient.createAndGenerateImage(db, log, {
+  const imageGen = runResourceWrite(db, 'scenes', sceneId, () => imageClient.createAndGenerateImage(db, log, {
     drama_id: sceneRow.drama_id,
     scene_id: sceneId,
     prompt: imagePrompt,
@@ -382,7 +402,7 @@ async function generateSceneFourViewImage(db, log, cfg, sceneId, modelName, styl
     size: '1792x1024',
     quality: 'standard',
     provider: 'openai',
-  });
+  }));
 
   log.info('[场景四视图] Step2 图片生成任务已提交', { scene_id: sceneId, image_gen_id: imageGen?.id });
 
@@ -398,7 +418,7 @@ async function generateSceneSingleImage(db, log, cfg, sceneId, modelName, style)
   const sceneRow = db.prepare(
     'SELECT id, drama_id, location, time, prompt, polished_prompt, polished_prompt_single FROM scenes WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(sceneId));
-  if (!sceneRow) return { ok: false, error: 'scene not found' };
+  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
   const dramaFull = db.prepare('SELECT id, style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(sceneRow.drama_id);
   if (!dramaFull) return { ok: false, error: 'unauthorized' };
 
@@ -442,16 +462,14 @@ async function generateSceneSingleImage(db, log, cfg, sceneId, modelName, style)
     const styleZh = (mergedCfg.style.default_style_zh || '').trim();
     imagePrompt = buildSceneSingleImagePrompt(singleViewDescription, styleEn, styleZh);
 
-    try {
-      db.prepare('UPDATE scenes SET polished_prompt_single = ?, updated_at = ? WHERE id = ?').run(
-        imagePrompt, new Date().toISOString(), Number(sceneId)
-      );
-    } catch (_) {}
+    runResourceWrite(db, 'scenes', sceneId, () => db.prepare(
+      'UPDATE scenes SET polished_prompt_single = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
+    ).run(imagePrompt, new Date().toISOString(), Number(sceneId)));
 
     log.info('[场景单图] Step1 完成，开始Step2生图', { scene_id: sceneId });
   }
 
-  const imageGen = imageClient.createAndGenerateImage(db, log, {
+  const imageGen = runResourceWrite(db, 'scenes', sceneId, () => imageClient.createAndGenerateImage(db, log, {
     drama_id: sceneRow.drama_id,
     scene_id: sceneId,
     prompt: imagePrompt,
@@ -459,7 +477,7 @@ async function generateSceneSingleImage(db, log, cfg, sceneId, modelName, style)
     size: '1792x1024',
     quality: 'standard',
     provider: 'openai',
-  });
+  }));
 
   log.info('[场景单图] Step2 图片生成任务已提交', { scene_id: sceneId, image_gen_id: imageGen?.id });
 
@@ -504,7 +522,7 @@ function generateScenePanoramaImage(db, log, sceneId, modelName, style) {
     `SELECT id, drama_id, location, time, image_url, local_path
        FROM scenes WHERE id = ? AND deleted_at IS NULL`
   ).get(Number(sceneId));
-  if (!sceneRow) return { ok: false, error: 'scene not found' };
+  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
 
   const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(sceneRow.drama_id);
   if (!drama) return { ok: false, error: 'unauthorized' };
@@ -513,11 +531,11 @@ function generateScenePanoramaImage(db, log, sceneId, modelName, style) {
   try {
     sourceImage = resolveScenePanoramaSource(sceneRow);
   } catch (_) {
-    return { ok: false, error: 'unsafe scene source image' };
+    return { ok: false, error: '场景主图不安全，请更换后重试' };
   }
-  if (!sourceImage) return { ok: false, error: 'scene source image required' };
+  if (!sourceImage) return { ok: false, error: '请先为场景准备可用的主图，再生成全景图' };
 
-  const imageGeneration = imageService.create(db, log, {
+  const imageGeneration = runResourceWrite(db, 'scenes', sceneId, () => imageService.create(db, log, {
     drama_id: sceneRow.drama_id,
     scene_id: sceneRow.id,
     frame_type: 'scene_panorama',
@@ -528,7 +546,7 @@ function generateScenePanoramaImage(db, log, sceneId, modelName, style) {
     size: '2048x1024',
     quality: 'standard',
     provider: 'openai',
-  });
+  }));
 
   log.info('[场景全景图] 图片生成任务已提交', {
     scene_id: sceneRow.id,
@@ -544,9 +562,9 @@ async function extractSceneFromImage(db, log, cfg, sceneId) {
   const { generateTextWithVision, resolveEntityImageSource, EXTRACT_PROMPTS } = require('./aiClient');
 
   const sceneRow = db.prepare(
-    'SELECT id, location, time, image_url, local_path, extra_images, ref_image FROM scenes WHERE id = ? AND deleted_at IS NULL'
+    'SELECT id, drama_id, location, time, image_url, local_path, extra_images, ref_image FROM scenes WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(sceneId));
-  if (!sceneRow) return { ok: false, error: 'scene not found' };
+  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
 
   const imgSrc = resolveEntityImageSource(sceneRow, cfg);
   if (!imgSrc) return { ok: false, error: '该场景暂无参考图片，请先上传图片' };
@@ -566,8 +584,9 @@ async function extractSceneFromImage(db, log, cfg, sceneId) {
     return { ok: false, error: errMsg };
   }
 
-  db.prepare('UPDATE scenes SET prompt = ?, updated_at = ? WHERE id = ?')
-    .run(prompt, new Date().toISOString(), Number(sceneId));
+  runResourceWrite(db, 'scenes', sceneId, () => db.prepare(
+    'UPDATE scenes SET prompt = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
+  ).run(prompt, new Date().toISOString(), Number(sceneId)));
 
   log.info('[extractSceneFromImage] 场景描述提取成功', { sceneId, prompt_len: prompt.length });
   return { ok: true, prompt };

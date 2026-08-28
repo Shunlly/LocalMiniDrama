@@ -1,11 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import * as sourceIntakeAdapter from '../src/utils/sourceIntakeAdapter.js'
 
-import { buildSourceIntakePayload, inferSourceTypeFromFilename, normalizeSourceType } from '../src/utils/sourceIntakeAdapter.js'
+import {
+  buildSourceIntakePayload,
+  inferSourceTypeFromFilename,
+  normalizeSourceType,
+  sourceRelationLabel,
+  sourceTypeLabel,
+} from '../src/utils/sourceIntakeAdapter.js'
 import { createWorkflowGroup, normalizePipeline } from '../src/utils/canvasWorkflow.js'
-import { normalizeWorkflowRun, workflowStepLabel } from '../src/utils/workflowRunStatus.js'
-import { buildQaPresentation, normalizeQaReport } from '../src/utils/qaReport.js'
-import { formatDuration, normalizeTimelineSummary } from '../src/utils/timelineSummary.js'
+import { normalizeWorkflowRun, workflowStatusLabel, workflowStepLabel, workflowStepStatusLabel, workflowTypeLabel } from '../src/utils/workflowRunStatus.js'
+import { buildQaPresentation, normalizeQaReport, qaCheckLabel } from '../src/utils/qaReport.js'
+import { formatDuration, normalizeTimelineSummary, timelineTrackTypeLabel } from '../src/utils/timelineSummary.js'
 import { assetImageUrl, audioUrl, isSafeImagePreviewUrl, probeImageSource, storyboardImageUrl } from '../src/utils/mediaUrl.js'
 import { hasStoryboardImage, hasStoryboardVideo, resolveSbVideoRecord, videoRecordUrl } from '../src/utils/storyboardMedia.js'
 import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '../src/utils/aiConfigExport.js'
@@ -43,12 +50,71 @@ test('buildSourceIntakePayload preserves automatic source classification by defa
   assert.equal(payload.title, 'Auto classify')
 })
 
+test('web source payload lets the fetched page title replace the automatic project title', () => {
+  assert.equal(typeof sourceIntakeAdapter.buildWebSourceIntakePayload, 'function')
+  const { buildWebSourceIntakePayload } = sourceIntakeAdapter
+  const drama = { title: 'Workflow Test', metadata: {} }
+  const automatic = buildWebSourceIntakePayload({
+    title: 'Workflow Test 素材',
+    source_type: '',
+    source_url: ' https://example.com/story ',
+    target_episode_count: 1,
+    text: 'stale pasted text',
+  }, drama)
+
+  assert.equal('title' in automatic, false)
+  assert.equal(automatic.source_url, 'https://example.com/story')
+  assert.equal(automatic.text, '')
+
+  const custom = buildWebSourceIntakePayload({
+    title: '我的网页素材',
+    source_url: 'https://example.com/story',
+    target_episode_count: 1,
+  }, drama)
+  assert.equal(custom.title, '我的网页素材')
+})
+
+test('source provenance labels distinguish web, file, and pasted imports', () => {
+  assert.equal(typeof sourceIntakeAdapter.sourceProvenanceLabel, 'function')
+  const { sourceProvenanceLabel } = sourceIntakeAdapter
+  assert.equal(sourceProvenanceLabel({
+    metadata: { imported_from: 'source_intake_url', source_url: 'https://example.com/story' },
+  }), '网页 · example.com')
+  assert.equal(sourceProvenanceLabel({
+    metadata: { imported_from: 'source_intake_upload' },
+  }), '本地文件')
+  assert.equal(sourceProvenanceLabel({
+    metadata: { imported_from: 'source_intake_panel' },
+  }), '粘贴文本')
+  assert.equal(sourceProvenanceLabel({ metadata: {} }), '')
+})
+
 test('inferSourceTypeFromFilename detects common multi-source file names', () => {
   assert.equal(inferSourceTypeFromFilename('storyboard_shots.csv'), 'storyboard')
   assert.equal(inferSourceTypeFromFilename('episode-script.md'), 'script')
   assert.equal(inferSourceTypeFromFilename('captions.srt'), 'transcript')
   assert.equal(inferSourceTypeFromFilename('漫画-panels.txt'), 'comic')
   assert.equal(inferSourceTypeFromFilename('story.txt'), 'novel')
+})
+
+test('source and workflow technical enums have stable Chinese display labels', () => {
+  assert.equal(sourceTypeLabel('SCRIPT'), '剧本')
+  assert.equal(sourceTypeLabel(''), '自动识别')
+  assert.equal(sourceTypeLabel('vendor-specific'), '其他素材')
+  assert.equal(sourceRelationLabel('next'), '顺承')
+  assert.equal(sourceRelationLabel('cause'), '因果')
+  assert.equal(sourceRelationLabel('conflict'), '冲突')
+  assert.equal(sourceRelationLabel('reveal'), '揭示')
+  assert.equal(sourceRelationLabel('hook'), '悬念')
+  assert.equal(sourceRelationLabel('vendor-specific'), '事件关系')
+  assert.equal(workflowTypeLabel('novel2anime'), '故事转动画')
+  assert.equal(workflowTypeLabel('unknown'), '内容制作流程')
+  assert.equal(workflowStepLabel('asset_bible'), '资产设定')
+  assert.equal(qaCheckLabel('source_intake'), '素材导入')
+  assert.equal(qaCheckLabel('vendor_specific'), '其他检查')
+  assert.equal(timelineTrackTypeLabel('video'), '视频')
+  assert.equal(timelineTrackTypeLabel('subtitle'), '字幕')
+  assert.equal(timelineTrackTypeLabel('vendor_specific'), '其他轨道')
 })
 
 test('normalizeWorkflowRun exposes retry, pause, resume and cancel states', () => {
@@ -144,6 +210,19 @@ test('normalizeWorkflowRun exposes retry, pause, resume and cancel states', () =
   })
   assert.equal(productionWithMock.label, '正式制作 · 检测到占位产物')
   assert.equal(productionWithMock.productionPlaceholder, true)
+})
+
+test('workflow status labels stay Chinese for aliases and unknown values', () => {
+  const canceled = normalizeWorkflowRun({ id: 'run-canceled', status: 'canceled' })
+  assert.equal(canceled.status, 'cancelled')
+  assert.equal(canceled.label, '已取消')
+  assert.equal(canceled.canRetry, false)
+  const failedAlias = normalizeWorkflowRun({ id: 'run-fail', status: 'error' })
+  assert.equal(failedAlias.status, 'failed')
+  assert.equal(failedAlias.canRetry, true)
+  assert.equal(workflowStatusLabel('canceled'), '已取消')
+  assert.equal(workflowStepStatusLabel('cancelling'), '正在取消')
+  assert.equal(workflowStatusLabel('unknown-english'), '未知状态')
 })
 
 test('normalizeQaReport counts severities and remediation actions', () => {
@@ -254,7 +333,7 @@ test('canvas workflow keeps explicit empty pipeline invalid instead of defaultin
   assert.deepEqual(normalizePipeline([]), ['image', 'video', 'audio'])
   assert.throws(
     () => createWorkflowGroup([], { title: 'empty', storyboardIds: [1], pipeline: [] }),
-    /workflow step/
+    /请至少选择一个工作流步骤/
   )
 })
 

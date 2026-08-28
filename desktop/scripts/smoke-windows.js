@@ -21,9 +21,10 @@ const mediaToolNames = {
 };
 const legacyFixture = {
   title: 'Desktop legacy migration smoke fixture',
-  assetRelativePath: 'legacy-smoke/visible.txt',
+  assetRelativePath: 'library/legacy-smoke/visible.txt',
   assetContents: 'legacy media fixture is visible',
 };
+const bundledExampleFilename = '衣服设计天才302.zip';
 
 function log(message) {
   process.stdout.write(`[smoke] ${message}\n`);
@@ -59,21 +60,49 @@ async function removeTreeWithRetry(target, waitMs = 30000) {
   throw lastError || new Error(`Timed out removing ${target}`);
 }
 
-function expectedArtifactName(kind) {
+const WINDOWS_EXE_HEADER = Buffer.from('MZ');
+
+function expectedArtifactName(kind, version = packageJson.version) {
   if (!['Setup', 'Portable'].includes(kind)) throw new Error(`Unknown release artifact kind ${kind}`);
-  return `LocalMiniDrama-${kind}-${packageJson.version}-x64.exe`;
+  return `LocalMiniDrama-${kind}-${version}-x64.exe`;
 }
 
-function exactArtifact(kind) {
-  const expected = expectedArtifactName(kind);
+function assertWindowsExecutableFile(filePath, label = path.basename(filePath)) {
+  let fd;
+  try {
+    fd = fs.openSync(filePath, 'r');
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      throw new Error(`${label} is missing: ${filePath}`);
+    }
+    throw new Error(`${label} could not be read: ${error && error.message ? error.message : error}`);
+  }
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) {
+      throw new Error(`${label} is not a file: ${filePath}`);
+    }
+    const header = Buffer.alloc(2);
+    const bytesRead = fs.readSync(fd, header, 0, 2, 0);
+    if (bytesRead < 2 || !header.equals(WINDOWS_EXE_HEADER)) {
+      throw new Error(`${label} is not a Windows executable: ${filePath}`);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return filePath;
+}
+
+function exactArtifact(kind, directory = releaseRoot, version = packageJson.version) {
+  const expected = expectedArtifactName(kind, version);
   const family = new RegExp(`^LocalMiniDrama-${kind}-.*-x64\\.exe$`, 'i');
-  const matches = fs.readdirSync(releaseRoot, { withFileTypes: true })
+  const matches = fs.readdirSync(directory, { withFileTypes: true })
     .filter((entry) => entry.isFile() && family.test(entry.name))
     .map((entry) => entry.name);
   if (matches.length !== 1 || matches[0] !== expected) {
     throw new Error(`Expected only ${expected}, found ${matches.join(', ') || 'none'}`);
   }
-  return path.join(releaseRoot, expected);
+  return assertWindowsExecutableFile(path.join(directory, expected), expected);
 }
 
 function findApplicationExe(root) {
@@ -83,7 +112,15 @@ function findApplicationExe(root) {
   if (candidates.length !== 1) {
     throw new Error(`Expected one application executable in ${root}, found ${candidates.length}`);
   }
-  return candidates[0];
+  return assertWindowsExecutableFile(candidates[0], path.basename(candidates[0]));
+}
+
+function assertInstallMatrixExecutables(directory, version = packageJson.version) {
+  return {
+    setup: exactArtifact('Setup', directory, version),
+    portable: exactArtifact('Portable', directory, version),
+    unpacked: findApplicationExe(path.join(directory, 'win-unpacked')),
+  };
 }
 
 function verifyMediaTool(label, executable, expectedName) {
@@ -146,7 +183,7 @@ function requestHttp(port, endpoint, options = {}) {
       path: endpoint,
       method: options.method || 'GET',
       headers,
-      timeout: 2000,
+      timeout: options.timeoutMs || 2000,
     }, (response) => {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
@@ -488,9 +525,75 @@ async function verifyLegacyMigrationFixture({ label, port, userData }) {
   log(`${label}: migrated database row and static media are visible`);
 }
 
+function assertExampleListResponse(response) {
+  const items = response && response.body && response.body.data;
+  if (
+    !response ||
+    response.statusCode !== 200 ||
+    response.body.success !== true ||
+    !Array.isArray(items) ||
+    !items.every((item) => item && typeof item.filename === 'string' && item.filename.trim())
+  ) {
+    throw new Error(`Example list response must be a successful 200 response with filenames: ${JSON.stringify(response)}`);
+  }
+  return items;
+}
+
+function assertExampleImportResponse(response) {
+  const data = response && response.body && response.body.data;
+  if (
+    !response ||
+    response.statusCode !== 201 ||
+    response.body.success !== true ||
+    !data ||
+    !Number.isInteger(data.drama_id) ||
+    data.drama_id <= 0 ||
+    typeof data.title !== 'string' ||
+    !data.title.trim()
+  ) {
+    throw new Error(`Example import response must be a successful 201 response with drama_id and title: ${JSON.stringify(response)}`);
+  }
+  return data;
+}
+
+async function verifyBundledExampleImport({ label, port }, runtime = {}) {
+  const request = runtime.requestJson || requestJson;
+  const importTimeoutMs = runtime.importTimeoutMs ?? timeoutMs;
+  const examples = assertExampleListResponse(await request(port, '/api/v1/dramas/examples'));
+  if (!examples.some((example) => example.filename === bundledExampleFilename)) {
+    throw new Error(`${label} did not list bundled example ${bundledExampleFilename}`);
+  }
+
+  const imported = assertExampleImportResponse(await request(port, '/api/v1/dramas/import-example', {
+    method: 'POST',
+    headers: sameOriginWriteHeaders(port),
+    body: { filename: bundledExampleFilename },
+    timeoutMs: importTimeoutMs,
+  }));
+  const readBack = await request(port, `/api/v1/dramas/${imported.drama_id}`);
+  const drama = readBack && readBack.body && readBack.body.data;
+  if (
+    !readBack ||
+    readBack.statusCode !== 200 ||
+    readBack.body.success !== true ||
+    !drama ||
+    drama.id !== imported.drama_id ||
+    drama.title !== imported.title
+  ) {
+    throw new Error(`${label} example import read-back did not match imported ID and title: ${JSON.stringify(readBack)}`);
+  }
+  log(`${label}: bundled example imported and read back (${imported.drama_id})`);
+}
+
 async function smokeUnpacked() {
   const executable = findApplicationExe(path.join(releaseRoot, 'win-unpacked'));
   const bundledTools = verifyBundledMediaTools('unpacked', executable);
+  await launchAndProbe(
+    'unpacked-example-import',
+    executable,
+    path.join(smokeRoot, 'unpacked-example-import'),
+    { onReady: verifyBundledExampleImport }
+  );
   const fresh = await launchAndProbe(
     'unpacked-fresh',
     executable,
@@ -587,8 +690,15 @@ if (require.main === module) {
 }
 
 module.exports = {
+  assertExampleImportResponse,
+  assertExampleListResponse,
+  assertInstallMatrixExecutables,
   assertRendererLog,
   assertSuccessfulSpawnResult,
+  assertWindowsExecutableFile,
+  exactArtifact,
   expectedArtifactName,
+  findApplicationExe,
   sameOriginWriteHeaders,
+  verifyBundledExampleImport,
 };

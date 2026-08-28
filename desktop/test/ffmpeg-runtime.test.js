@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const { removeFixtureTree } = require('./fixture-fs');
 
 const desktopRoot = path.join(__dirname, '..');
 const packageJson = require('../package.json');
@@ -42,7 +43,7 @@ function loadEnsureFfmpeg(resourcesPath) {
 
 function createFixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-ffmpeg-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeFixtureTree(root));
   const resourcesPath = path.join(root, 'resources');
   const backendCwd = path.join(root, 'user-data', 'backend');
   const sourceDir = path.join(resourcesPath, 'ffmpeg');

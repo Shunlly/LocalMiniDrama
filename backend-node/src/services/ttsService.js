@@ -6,6 +6,7 @@ const path = require('path');
 const { createHash, randomUUID } = require('crypto');
 const aiConfigService = require('./aiConfigService');
 const { secureHttpFetch } = require('./secureHttpFetch');
+const uploadService = require('./uploadService');
 
 const DEFAULT_TTS_TIMEOUT_MS = 120000;
 const MAX_TTS_TIMEOUT_MS = 5 * 60 * 1000;
@@ -33,6 +34,7 @@ async function postTtsRequest(url, body, headers, timeoutMs, providerName, netwo
       method: 'POST',
       headers,
       body,
+      signal: networkOptions.signal,
       redirect: 'error',
     }, {
       ...networkOptions,
@@ -43,7 +45,7 @@ async function postTtsRequest(url, body, headers, timeoutMs, providerName, netwo
     });
   } catch (error) {
     if (error?.name === 'TimeoutError') {
-      const timeoutError = new Error(`${providerName} TTS request timeout`);
+      const timeoutError = new Error(`${providerName} TTS 请求超时`);
       timeoutError.name = 'TimeoutError';
       throw timeoutError;
     }
@@ -89,18 +91,18 @@ async function synthesizeWithMinimax(
       : {}),
   }, timeoutMs, 'MiniMax', networkOptions);
 
-  if (response.status !== 200) throw new Error(`MiniMax TTS HTTP ${response.status}`);
+  if (response.status !== 200) throw new Error(`MiniMax TTS 请求失败（HTTP ${response.status}）`);
   let data;
   try {
     data = await response.json();
   } catch (_) {
-    throw new Error('MiniMax TTS returned invalid JSON');
+    throw new Error('MiniMax TTS 返回了无效 JSON');
   }
   if (data.base_resp?.status_code !== 0) {
-    throw new Error(`MiniMax TTS error ${data.base_resp?.status_code ?? 'unknown'}`);
+    throw new Error(`MiniMax TTS 返回错误 ${data.base_resp?.status_code ?? 'unknown'}`);
   }
   const audioHex = data.data?.audio;
-  if (!audioHex) throw new Error('MiniMax TTS returned no audio');
+  if (!audioHex) throw new Error('MiniMax TTS 未返回音频');
   return Buffer.from(audioHex, 'hex');
 }
 
@@ -132,7 +134,7 @@ async function synthesizeWithOpenai(
   }, timeoutMs, 'OpenAI', networkOptions);
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(`OpenAI TTS HTTP ${response.status}`);
+    throw new Error(`OpenAI TTS 请求失败（HTTP ${response.status}）`);
   }
   return Buffer.from(await response.arrayBuffer());
 }
@@ -146,14 +148,16 @@ async function synthesize(db, log, {
   speed,
   idempotency_key,
   provider_dns_lookup,
+  signal,
 }) {
-  if (!text || !text.trim()) throw badRequest('text cannot be empty');
+  if (signal?.aborted) throw signal.reason;
+  if (!text || !text.trim()) throw badRequest('text 不能为空');
   const ttsConfig = config || (() => {
     const configs = aiConfigService.listConfigs(db, 'tts');
     const active = configs.filter((item) => item.is_active);
     return active.find((item) => item.is_default) || active[0];
   })();
-  if (!ttsConfig) throw badRequest('No TTS provider is configured');
+  if (!ttsConfig) throw badRequest('未配置 TTS 服务，请在「AI 配置」中启用配音模型');
 
   const provider = String(ttsConfig.provider || '').toLowerCase();
   let ttsSettings = {};
@@ -164,14 +168,13 @@ async function synthesize(db, log, {
   }
   const voiceId = voice_id || ttsConfig.voice_id || ttsSettings.voice_id || '';
   const groupId = ttsConfig.group_id || ttsSettings.group_id || '';
-  const ttsModel = ttsConfig.default_model
-    || (Array.isArray(ttsConfig.model) ? ttsConfig.model[0] : ttsConfig.model)
-    || '';
+  const ttsModel = aiConfigService.resolveConfiguredModel(ttsConfig, null, '');
   const finalSpeed = speed || ttsSettings.speed || 1.0;
   const timeoutMs = normalizeTtsTimeoutMs(ttsSettings.timeout_ms || ttsSettings.timeout);
   const idempotencyKey = normalizeIdempotencyKey(idempotency_key);
   const networkOptions = aiConfigService.getProviderNetworkOptions(ttsConfig, {
     lookup: provider_dns_lookup,
+    signal,
   });
 
   const audioDir = path.join(storage_base, 'audio');
@@ -212,10 +215,27 @@ async function synthesize(db, log, {
       networkOptions
     );
   } else {
-    throw new Error(`Unsupported TTS provider: ${provider}`);
+    throw new Error(`不支持的 TTS Provider：${provider}`);
   }
 
-  fs.writeFileSync(filePath, audioBuffer);
+  if (signal?.aborted) throw signal.reason;
+  const temporaryPath = path.join(audioDir, `.${filename}.${randomUUID()}.tmp`);
+  let publication = null;
+  try {
+    fs.writeFileSync(temporaryPath, audioBuffer, { flag: 'wx' });
+    if (signal?.aborted) throw signal.reason;
+    publication = uploadService.publishStagedFile(temporaryPath, filePath);
+    if (signal?.aborted) {
+      publication.rollback();
+      publication = null;
+      throw signal.reason;
+    }
+    publication.commit();
+  } catch (error) {
+    publication?.rollback();
+    try { fs.rmSync(temporaryPath, { force: true }); } catch (_) {}
+    throw error;
+  }
   log.info('[TTS] synthesis complete', { storyboard_id, local_path: localPath, provider });
   try { const cloudService = require('./cloudService'); cloudService.reportUsage('tts', ttsModel || '', '', 0); } catch (_) {}
   return { local_path: localPath };

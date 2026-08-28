@@ -2,17 +2,22 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import { useFilmCreateMediaPreview } from '../src/composables/filmCreate/useFilmCreateMediaPreview.js'
+import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
+
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const dialogSource = read('../src/components/ImagePreviewDialog.vue')
 const filmListSource = read('../src/views/FilmList.vue')
 const freeCreateSource = read('../src/views/FreeCreate.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
+const resourceDialogsSource = read('../src/components/filmCreate/FilmCreateResourceDialogs.vue')
+const resourcePanelSource = read('../src/components/filmCreate/FilmCreateResourcePanel.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
 
 test('shared image preview uses an accessible Element Plus dialog', () => {
-  assert.match(dialogSource, /<el-dialog/)
+  assert.match(dialogSource, /<AccessibleDialog/)
   assert.match(dialogSource, /:title="title"/)
   assert.match(dialogSource, /append-to-body/)
   assert.match(dialogSource, /:show-close="true"/)
@@ -65,20 +70,20 @@ test('FilmCreate and DramaDetail use the shared focus-managed preview for every 
   assert.equal((dramaDetailSource.match(/type="button" class="library-item-cover"/g) || []).length, 4)
   assert.equal((dramaDetailSource.match(/type="button" class="drama-res-cover"/g) || []).length, 3)
   assert.equal((dramaDetailSource.match(/type="button" class="lib-img-thumb"/g) || []).length, 6)
-  assert.equal((filmCreateSource.match(/type="button" class="library-item-cover"/g) || []).length, 6)
-  assert.equal((filmCreateSource.match(/class="ref-image-box" aria-label=/g) || []).length, 4)
-  assert.match(filmCreateSource, /await probeImageSource\(source\)/)
-  assert.match(filmCreateSource, /hasSbDraftImagePlaceholder\(sb\)/)
-  assert.match(filmCreateSource, /草稿占位/)
+  assert.equal((resourceDialogsSource.match(/type="button" class="library-item-cover"/g) || []).length, 6)
+  assert.equal((resourceDialogsSource.match(/class="ref-image-box" aria-label=/g) || []).length, 4)
+  assert.match(remainingImportedFunctionSource(useFilmCreateMediaPreview), /await probeImageSource\(source\)/)
+  assert.match(filmCreateSource, /hasSbDraftImagePlaceholder/)
+  assert.match(remainingImportedFunctionSource(useFilmCreateMediaPreview), /草稿占位/)
 })
 
 test('custom canvas and asset controls expose native or complete keyboard semantics', () => {
   assert.match(dramaCanvasSource, /<button type="button" class="logo" aria-label="返回项目列表"/)
   assert.equal((dramaCanvasSource.match(/class="sidebar-item"/g) || []).length, 3)
   assert.match(filmCreateSource, /<button type="button" class="logo" aria-label="返回项目列表"/)
-  assert.equal((filmCreateSource.match(/\n\s+role="button"\r?\n/g) || []).length, 3)
-  assert.equal((filmCreateSource.match(/@keydown\.enter\.prevent=/g) || []).length, 3)
-  assert.equal((filmCreateSource.match(/@keydown\.space\.prevent=/g) || []).length, 3)
+  assert.equal((resourcePanelSource.match(/:role="hasAssetImage\(/g) || []).length, 3)
+  assert.equal((resourcePanelSource.match(/@keydown\.enter\.prevent=/g) || []).length, 3)
+  assert.equal((resourcePanelSource.match(/@keydown\.space\.prevent=/g) || []).length, 3)
   assert.doesNotMatch(dramaCanvasSource, /<h1\b[^>]*@click/)
   assert.doesNotMatch(filmCreateSource, /<h1\b[^>]*@click/)
   assert.doesNotMatch(dramaDetailSource, /<h1\b[^>]*@click/)

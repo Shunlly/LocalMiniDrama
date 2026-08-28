@@ -1,6 +1,15 @@
 const response = require('../response');
 const assetService = require('../services/assetService');
 
+function handleError(res, log, operation, err) {
+  if (err?.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
+  if (Number.isInteger(err?.statusCode) && err.statusCode >= 400 && err.statusCode < 600) {
+    return response.error(res, err.statusCode, err.code || 'NETWORK_MEDIA_ERROR', err.message);
+  }
+  log.error(operation, { error: err?.message });
+  return response.internalError(res);
+}
+
 function routes(db, log) {
   return {
     list: (req, res) => {
@@ -9,17 +18,31 @@ function routes(db, log) {
         const { items, total, page, pageSize } = assetService.list(db, query);
         response.successWithPagination(res, items, total, page, pageSize);
       } catch (err) {
-        log.error('assets list', { error: err.message });
-        response.internalError(res, err.message);
+        handleError(res, log, 'assets list', err);
       }
     },
     create: (req, res) => {
       try {
-        const item = assetService.create(db, log, req.body || {});
+        const item = assetService.create(db, log, req.body || {}, { strictDramaId: true });
         response.created(res, item);
       } catch (err) {
-        log.error('assets create', { error: err.message });
-        response.internalError(res, err.message);
+        handleError(res, log, 'assets create', err);
+      }
+    },
+    networkSearch: async (req, res) => {
+      try {
+        const result = await assetService.searchNetwork(req.query || {});
+        response.success(res, result);
+      } catch (err) {
+        handleError(res, log, 'assets network search', err);
+      }
+    },
+    networkImport: async (req, res) => {
+      try {
+        const item = await assetService.importFromNetwork(db, log, req.body || {});
+        response.created(res, item);
+      } catch (err) {
+        handleError(res, log, 'assets network import', err);
       }
     },
     get: (req, res) => {
@@ -28,8 +51,7 @@ function routes(db, log) {
         if (!item) return response.notFound(res, '资源不存在');
         response.success(res, item);
       } catch (err) {
-        log.error('assets get', { error: err.message });
-        response.internalError(res, err.message);
+        handleError(res, log, 'assets get', err);
       }
     },
     update: (req, res) => {
@@ -38,8 +60,7 @@ function routes(db, log) {
         if (!item) return response.notFound(res, '资源不存在');
         response.success(res, item);
       } catch (err) {
-        log.error('assets update', { error: err.message });
-        response.internalError(res, err.message);
+        handleError(res, log, 'assets update', err);
       }
     },
     delete: (req, res) => {
@@ -51,8 +72,7 @@ function routes(db, log) {
         if (err.code === 'ASSET_IN_USE') {
           return response.error(res, 409, err.code, err.message, err.details);
         }
-        log.error('assets delete', { error: err.message });
-        response.internalError(res, err.message);
+        handleError(res, log, 'assets delete', err);
       }
     },
     importImage: (req, res) => {
@@ -61,8 +81,7 @@ function routes(db, log) {
         if (!item) return response.notFound(res, '图片生成记录不存在');
         response.created(res, item);
       } catch (err) {
-        log.error('assets import image', { error: err.message });
-        response.internalError(res, err.message);
+        handleError(res, log, 'assets import image', err);
       }
     },
     importVideo: (req, res) => {
@@ -71,8 +90,7 @@ function routes(db, log) {
         if (!item) return response.notFound(res, '视频生成记录不存在');
         response.created(res, item);
       } catch (err) {
-        log.error('assets import video', { error: err.message });
-        response.internalError(res, err.message);
+        handleError(res, log, 'assets import video', err);
       }
     },
   };

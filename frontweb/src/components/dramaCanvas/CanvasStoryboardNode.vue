@@ -33,46 +33,87 @@
       </div>
       <div class="title">{{ data.storyboard?.title || '分镜' }}</div>
       <div class="chips">
-        <span v-if="data.storyboard?.shot_type">{{ data.storyboard.shot_type }}</span>
-        <span v-if="data.storyboard?.duration">{{ data.storyboard.duration }}s</span>
+        <span v-if="data.storyboard?.shot_type">{{ storyboardShotTypeLabel(data.storyboard.shot_type) }}</span>
+        <span v-if="data.storyboard?.duration">{{ data.storyboard.duration }} 秒</span>
         <span :class="'st-' + statusState.key">{{ statusState.label }}</span>
       </div>
       <div class="hint">
-        {{ mediaQueryUnknown ? '媒体状态未知，重试查询后再继续生成' : (showPanel ? '下方可编辑与生成' : '单击展开操作，双击进入列表') }}
+        {{ mediaQueryUnknown ? '媒体状态未知，重试查询后再继续生成' : (showPanel ? '右侧检查器可编辑与生成' : '单击展开操作，双击进入列表') }}
       </div>
     </div>
 
-    <div v-if="showPanel" class="panel-wrap">
-      <CanvasStoryboardPanel
-        :storyboard="data.storyboard"
-        :episode-id="data.episodeId"
-        :node-id="id"
-      />
-      <div
-        v-if="mediaQueryUnknown"
-        class="media-query-blocker"
-        role="alert"
-        @pointerdown.stop
-        @mousedown.stop
-        @click.stop
-        @mouseup.stop
+    <Teleport to="body">
+      <aside
+        v-if="showPanel"
+        class="canvas-inspector-dock"
+        aria-label="分镜编辑器"
+        @keydown.esc.stop.prevent="closeInspector"
       >
-        <p class="media-query-title">媒体查询失败</p>
-        <p class="media-query-message">{{ mediaQueryMessage }}</p>
-        <p class="media-query-note">
-          {{ mediaQueryPreservedData ? '已保留上次加载到的媒体结果。' : '当前没有可确认的媒体结果。' }}
-          为避免重复计费，图片和视频重新生成已暂时阻断。
-        </p>
-        <button
-          type="button"
-          class="media-query-retry"
-          :disabled="retryingMedia"
-          @click.stop="retryMedia"
-        >
-          {{ retryingMedia ? '重试中...' : '重试媒体查询' }}
-        </button>
-      </div>
-    </div>
+        <div class="panel-wrap">
+          <div class="inspector-context" role="status" aria-live="polite">
+            <div class="inspector-context-copy">
+              <strong>镜头 {{ inspectorNavigation.index }} / {{ inspectorNavigation.total }}</strong>
+              <span class="inspector-media-summary">
+                图片 {{ mediaSummary.imageCount }}
+                <span aria-hidden="true">·</span>
+                视频 {{ mediaSummary.videoCount }}
+                <span aria-hidden="true">·</span>
+                配音 {{ mediaSummary.audioReady ? '就绪' : '缺失' }}
+              </span>
+            </div>
+            <div class="inspector-navigation" aria-label="分镜导航">
+              <el-button
+                circle
+                size="small"
+                :icon="ArrowLeft"
+                :disabled="!inspectorNavigation.previousId"
+                aria-label="上一镜"
+                title="上一镜"
+                @click.stop="navigateInspector(inspectorNavigation.previousId)"
+              />
+              <el-button
+                circle
+                size="small"
+                :icon="ArrowRight"
+                :disabled="!inspectorNavigation.nextId"
+                aria-label="下一镜"
+                title="下一镜"
+                @click.stop="navigateInspector(inspectorNavigation.nextId)"
+              />
+            </div>
+          </div>
+          <CanvasStoryboardPanel
+            :storyboard="data.storyboard"
+            :episode-id="data.episodeId"
+            :node-id="id"
+          />
+          <div
+            v-if="mediaQueryUnknown"
+            class="media-query-blocker"
+            role="alert"
+            @pointerdown.stop
+            @mousedown.stop
+            @click.stop
+            @mouseup.stop
+          >
+            <p class="media-query-title">媒体查询失败</p>
+            <p class="media-query-message">{{ mediaQueryMessage }}</p>
+            <p class="media-query-note">
+              {{ mediaQueryPreservedData ? '已保留上次加载到的媒体结果。' : '当前没有可确认的媒体结果。' }}
+              为避免重复计费，图片和视频重新生成已暂时阻断。
+            </p>
+            <button
+              type="button"
+              class="media-query-retry"
+              :disabled="retryingMedia"
+              @click.stop="retryMedia"
+            >
+              {{ retryingMedia ? '重试中...' : '重试媒体查询' }}
+            </button>
+          </div>
+        </div>
+      </aside>
+    </Teleport>
   </div>
 </template>
 
@@ -80,7 +121,14 @@
 import { computed, ref } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { ElMessage } from 'element-plus'
+import { canvasUserError } from '@/composables/useCanvasUserError'
+import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { useCanvasContext } from '@/composables/useCanvasContext'
+import {
+  getStoryboardInspectorMediaSummary,
+  getStoryboardInspectorNavigation,
+  storyboardShotTypeLabel,
+} from '@/utils/canvasUiState'
 import CanvasStoryboardPanel from './CanvasStoryboardPanel.vue'
 import CanvasNodeStatusOverlay from './CanvasNodeStatusOverlay.vue'
 
@@ -105,6 +153,12 @@ const mediaQueryStatus = computed(() => props.data.mediaQueryStatus || ctx?.getS
 const mediaQueryUnknown = computed(() => mediaQueryStatus.value?.state === 'unknown')
 const mediaQueryMessage = computed(() => mediaQueryStatus.value?.error || '媒体查询失败，请重试。')
 const mediaQueryPreservedData = computed(() => Boolean(mediaQueryStatus.value?.preservedData))
+
+const inspectorNavigation = computed(() => getStoryboardInspectorNavigation(
+  ctx?.drama?.value?.episodes,
+  props.data.episodeId,
+  props.data.storyboard?.id,
+))
 
 const mediaAvailability = computed(() => {
   const base = props.data.mediaAvailability || {}
@@ -137,6 +191,22 @@ const statusState = computed(() => {
   return { key: 'pending', label: '待处理' }
 })
 
+const mediaSummary = computed(() => {
+  const storyboardId = props.data.storyboard?.id
+  const imageRecords = ctx?.imagesBySbId?.value?.[storyboardId]
+  const videoRecords = ctx?.videosBySbId?.value?.[storyboardId]
+  return getStoryboardInspectorMediaSummary({
+    imageRecords,
+    videoRecords,
+    imageReady: mediaAvailability.value.imageReady,
+    videoReady: mediaAvailability.value.videoReady,
+    audioRecords: [
+      props.data.storyboard?.audio_local_path,
+      props.data.storyboard?.narration_audio_local_path,
+    ],
+  })
+})
+
 const accessibleLabel = computed(() => {
   const storyboard = props.data.storyboard || {}
   const number = storyboard.storyboard_number ?? props.data.index ?? '?'
@@ -144,8 +214,17 @@ const accessibleLabel = computed(() => {
   return `分镜 ${number}，${storyboard.title || '未命名'}，${statusState.value.label}${unknownSuffix}，按 Enter 或空格展开`
 })
 
-function openPanel() {
-  ctx?.setFocusedNode?.(props.id)
+async function openPanel() {
+  await ctx?.setFocusedNode?.(props.id)
+}
+
+async function closeInspector() {
+  await ctx?.clearFocusedNode?.({ restoreFocus: true })
+}
+
+async function navigateInspector(storyboardId) {
+  if (storyboardId == null) return
+  await ctx?.setFocusedNode?.(`sb:${storyboardId}`)
 }
 
 async function retryMedia() {
@@ -156,7 +235,7 @@ async function retryMedia() {
     if (ok) ElMessage.success('媒体查询已刷新')
     else ElMessage.warning('媒体查询仍未恢复，请稍后重试')
   } catch (error) {
-    ElMessage.error(error?.message || '媒体查询重试失败')
+    ElMessage.error(canvasUserError(error, '媒体查询重试失败'))
   } finally {
     retryingMedia.value = false
   }
@@ -302,13 +381,116 @@ async function retryMedia() {
   color: var(--canvas-text-faint, #52525b);
 }
 
+.canvas-inspector-dock {
+  --canvas-card-surface: var(--bg-card, #18181b);
+  --canvas-panel-surface: var(--bg-card, #18181b);
+  --canvas-media-well: var(--bg-inner, #09090b);
+  --canvas-text-primary: var(--text-primary, #e4e4e7);
+  --canvas-text-secondary: var(--text-primary, #d4d4d8);
+  --canvas-text-muted: var(--text-muted, #a1a1aa);
+  --canvas-text-subtle: var(--text-subtle, #71717a);
+  --canvas-text-faint: var(--text-faint, #52525b);
+  --canvas-indigo-text: var(--accent-text, #a5b4fc);
+  --canvas-indigo-strong: #818cf8;
+  --canvas-indigo-border: var(--border-muted, rgba(129, 140, 248, 0.45));
+  --canvas-amber-text: var(--status-warning, #fcd34d);
+  --canvas-amber-strong: var(--status-warning, #fbbf24);
+  --canvas-blue-text: #93c5fd;
+  --canvas-success-text: var(--status-success, #34d399);
+  --canvas-info-text: #60a5fa;
+  --canvas-danger-text: #f87171;
+  --canvas-chip-surface-soft: rgba(255, 255, 255, 0.06);
+  --canvas-divider-strong: var(--border-muted, rgba(63, 63, 70, 0.8));
+  --canvas-raised-shadow: var(--shadow, 0 12px 32px rgba(0, 0, 0, 0.45));
+  position: fixed;
+  top: 150px;
+  right: 20px;
+  z-index: 1200;
+  width: min(460px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 174px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border-radius: 10px;
+  pointer-events: auto;
+}
+
+:global(html.light) .canvas-inspector-dock {
+  --canvas-panel-surface: var(--bg-card, #ffffff);
+  --canvas-media-well: var(--bg-inner, #fafafa);
+  --canvas-text-primary: var(--text-primary, #27272a);
+  --canvas-text-secondary: #374151;
+  --canvas-text-muted: var(--text-muted, #4b5563);
+  --canvas-text-subtle: var(--text-subtle, #6b7280);
+  --canvas-text-faint: var(--text-subtle, #6b7280);
+  --canvas-indigo-text: #4338ca;
+  --canvas-indigo-strong: #4f46e5;
+  --canvas-indigo-border: rgba(67, 56, 202, 0.48);
+  --canvas-amber-text: #92400e;
+  --canvas-amber-strong: #b45309;
+  --canvas-blue-text: #1d4ed8;
+  --canvas-success-text: #047857;
+  --canvas-info-text: #1d4ed8;
+  --canvas-danger-text: #b91c1c;
+  --canvas-chip-surface-soft: rgba(15, 23, 42, 0.06);
+  --canvas-divider-strong: #d4d4d8;
+  --canvas-raised-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
+  color-scheme: light;
+}
+
 .panel-wrap {
   position: relative;
 }
 
+.inspector-context {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--canvas-divider-strong);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--canvas-panel-surface);
+  color: var(--canvas-text-primary);
+}
+
+.inspector-context-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.inspector-media-summary {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  color: var(--canvas-text-muted);
+  font-size: 11px;
+}
+
+.inspector-navigation {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.inspector-context + :deep(.sb-panel) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.canvas-inspector-dock :deep(.sb-panel) {
+  width: 100%;
+  max-width: none;
+  margin-top: 0;
+}
+
 .media-query-blocker {
   position: absolute;
-  inset: 10px 0 0;
+  inset: 0;
   display: grid;
   gap: 8px;
   padding: 14px;
@@ -358,5 +540,14 @@ async function retryMedia() {
 .canvas-sb-node:focus-visible {
   outline: 2px solid var(--canvas-focus-ring, #818cf8);
   outline-offset: 3px;
+}
+
+@media (max-width: 760px) {
+  .canvas-inspector-dock {
+    top: 104px;
+    right: 16px;
+    width: calc(100vw - 32px);
+    max-height: min(620px, calc(100vh - 120px));
+  }
 }
 </style>

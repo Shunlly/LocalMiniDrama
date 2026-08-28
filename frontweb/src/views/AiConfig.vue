@@ -7,6 +7,9 @@
           <span class="logo-sub">LocalMiniDrama</span>
         </button>
         <h1 class="page-title">AI 配置</h1>
+        <el-button class="btn-backup" aria-label="打开数据备份与维护" @click="goBackup">
+          数据备份
+        </el-button>
         <el-button class="btn-back" @click="goBack">
           <el-icon><ArrowLeft /></el-icon>
           {{ backButtonText }}
@@ -15,19 +18,21 @@
     </header>
 
     <main class="main">
-      <AIConfigContent :initial-service-type="initialServiceType" />
+      <AIConfigContent ref="aiConfigContentRef" :initial-service-type="initialServiceType" />
     </main>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import AIConfigContent from '@/components/AIConfigContent.vue'
 
 const router = useRouter()
 const route = useRoute()
+const aiConfigContentRef = ref(null)
+let skipNextRouteGuard = false
 const filterableServiceTypes = new Set(['text', 'image', 'storyboard_image', 'video', 'tts'])
 const initialServiceType = computed(() => {
   const raw = Array.isArray(route.query.service_type)
@@ -50,9 +55,48 @@ const backButtonLabel = computed(() => {
   return returnTo.value ? '返回原项目' : '返回项目列表'
 })
 
-function goBack() {
-  router.replace(returnTo.value || { name: 'list' })
+async function requestAiConfigPageClose() {
+  return (await aiConfigContentRef.value?.requestClose?.()) !== false
 }
+
+async function goBack() {
+  if (!await requestAiConfigPageClose()) return
+  skipNextRouteGuard = true
+  try {
+    await router.replace(returnTo.value || { name: 'list' })
+  } finally {
+    skipNextRouteGuard = false
+  }
+}
+
+async function goBackup() {
+  if (!await requestAiConfigPageClose()) return
+  skipNextRouteGuard = true
+  try {
+    await router.push({ name: 'backup', query: { returnTo: '/ai-config' } })
+  } finally {
+    skipNextRouteGuard = false
+  }
+}
+
+function handleBeforeUnload(event) {
+  if (!aiConfigContentRef.value?.hasUnsavedChanges?.()) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onBeforeRouteLeave(() => {
+  if (skipNextRouteGuard) return true
+  return requestAiConfigPageClose()
+})
+
+onMounted(() => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
 </script>
 
 <style scoped>
@@ -162,5 +206,56 @@ html.light .main {
   background: rgba(255, 255, 255, 0.88);
   border-color: rgba(139, 92, 246, 0.15);
   box-shadow: 0 4px 20px rgba(139, 92, 246, 0.08);
+}
+@media (max-width: 760px) {
+  .ai-config {
+    overflow-x: clip;
+  }
+  .header-inner {
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 10px 16px;
+  }
+  .main {
+    width: calc(100% - 24px);
+    margin: 12px auto;
+    padding: 16px;
+    box-sizing: border-box;
+    border-radius: 10px;
+    overflow-x: hidden;
+  }
+}
+@media (max-width: 520px) {
+  .header-inner {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+  .page-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .logo {
+    min-width: 0;
+    margin-right: auto;
+  }
+  .logo-main {
+    font-size: 1rem;
+  }
+  .btn-backup,
+  .btn-back {
+    flex: 0 0 auto;
+    margin-left: 0;
+  }
+  .main {
+    width: calc(100% - 16px);
+    margin-top: 8px;
+    padding: 12px;
+  }
 }
 </style>

@@ -72,8 +72,8 @@ const accessibleLabel = computed(() => {
   return `第 ${episodeNumber} 集剧本，${state}，按 Enter 或空格展开`
 })
 
-function openPanel() {
-  ctx?.setFocusedNode?.(props.id)
+async function openPanel() {
+  await ctx?.setFocusedNode?.(props.id)
 }
 </script>
 

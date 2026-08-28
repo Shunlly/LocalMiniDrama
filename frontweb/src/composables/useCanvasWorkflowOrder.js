@@ -26,16 +26,18 @@ export function useCanvasWorkflowOrder({
     workflowGroups.value = nextGroups
     onOrderApplied?.()
 
+    let failedResult
     try {
       const result = await persist(nextGroups)
       if (result === false || result?.ok === false) {
+        failedResult = result
         throw result?.error || new Error('保存失败')
       }
       return true
     } catch (error) {
       workflowGroups.value = previousGroups
       onOrderApplied?.()
-      onSaveFailed?.(error)
+      onSaveFailed?.(error, failedResult)
       return false
     } finally {
       workflowOrderSaving.value = false

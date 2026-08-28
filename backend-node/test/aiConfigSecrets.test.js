@@ -206,7 +206,7 @@ describe('aiConfigService secret handling', () => {
         api_key: '********',
         settings: JSON.stringify({ allow_local_http: true }),
       }),
-      (error) => error.code === 'INVALID_PROVIDER_URL' && /Stored credentials/.test(error.message)
+      (error) => error.code === 'INVALID_PROVIDER_URL' && /已保存的凭据/.test(error.message)
     );
     const unchanged = aiConfigService.getConfig(db, created.id);
     assert.equal(unchanged.base_url, 'https://provider.example/v1');
@@ -420,6 +420,29 @@ describe('aiConfigService secret handling', () => {
       db.prepare('SELECT id FROM ai_service_configs WHERE deleted_at IS NULL AND is_default = 1').all(),
       [{ id: first.id }]
     );
+
+    db.exec(`
+      CREATE TRIGGER reject_default_update
+      BEFORE UPDATE ON ai_service_configs
+      WHEN NEW.name = 'forced-update-failure'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced update failure');
+      END;
+    `);
+    assert.throws(
+      () => aiConfigService.updateConfig(db, log, second.id, {
+        name: 'forced-update-failure',
+        is_default: true,
+      }),
+      /forced update failure/
+    );
+    db.exec('DROP TRIGGER reject_default_update');
+    assert.deepEqual(
+      db.prepare('SELECT id FROM ai_service_configs WHERE deleted_at IS NULL AND is_default = 1').all(),
+      [{ id: first.id }]
+    );
+    assert.equal(db.prepare('SELECT is_default FROM ai_service_configs WHERE id = ?').get(second.id).is_default, 0);
+
     assert.throws(
       () => db.prepare('UPDATE ai_service_configs SET is_default = 1 WHERE id = ?').run(second.id),
       /UNIQUE constraint failed/
@@ -491,13 +514,17 @@ describe('aiConfigService secret handling', () => {
           id: created.id,
           api_key: '********',
           model: 'model-a',
+          settings: JSON.stringify({ timeout: 9999, workflow: 'forged' }),
         },
       }, res);
 
       assert.equal(res.statusCode, 200);
       assert.equal(captured.api_key, 'saved-secret');
       assert.equal(captured.base_url, 'https://provider.example.com/v1');
-      assert.equal(captured.model, 'model-a');
+      assert.deepEqual(captured.model, ['model-a']);
+      assert.equal(captured.default_model, 'model-a');
+      assert.equal(captured.settings, created.settings);
+      assert.equal(String(captured.settings || '').includes('forged'), false);
     } finally {
       aiConfigService.testConnection = original;
     }

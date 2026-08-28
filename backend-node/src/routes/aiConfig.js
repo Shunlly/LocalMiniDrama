@@ -45,7 +45,9 @@ function create(db, log, cfg) {
       response.created(res, aiConfigService.configForResponse(config));
     } catch (err) {
       log.errorw('Create AI config failed', { error: err.message });
-      if (err.status === 400) return response.badRequest(res, err.message);
+      if (err.status === 400) {
+        return response.error(res, 400, err.code || 'BAD_REQUEST', err.message, err.details);
+      }
       response.internalError(res, '创建失败');
     }
   };
@@ -63,6 +65,7 @@ function update(db, log, cfg) {
       if (body.api_key !== undefined) allowed.api_key = body.api_key;
       if (body.default_model !== undefined) allowed.default_model = body.default_model;
       if (body.is_default !== undefined) allowed.is_default = body.is_default;
+      if (body.expected_updated_at !== undefined) allowed.expected_updated_at = body.expected_updated_at;
       body = allowed;
     }
 
@@ -72,7 +75,9 @@ function update(db, log, cfg) {
       response.success(res, aiConfigService.configForResponse(config));
     } catch (err) {
       log.errorw('Update AI config failed', { error: err.message, config_id: id });
-      if (err.status === 400) return response.badRequest(res, err.message);
+      if (err.status === 400 || err.status === 409) {
+        return response.error(res, err.status, err.code || 'BAD_REQUEST', err.message, err.details);
+      }
       response.internalError(res, '更新失败');
     }
   };
@@ -101,8 +106,11 @@ function bulkUpdateKey(db, log, cfg) {
       return response.badRequest(res, '请提供新的 API Key');
     }
     try {
-      const count = aiConfigService.bulkUpdateApiKey(db, log, api_key.trim());
-      response.success(res, { updated: count, message: `已更新 ${count} 条配置的 API Key` });
+      const result = aiConfigService.bulkUpdateApiKey(db, log, api_key.trim());
+      response.success(res, {
+        ...result,
+        message: `已更新 ${result.updated} 条配置的 API Key`,
+      });
     } catch (err) {
       log.error('Bulk update api_key failed', { error: err.message });
       response.internalError(res, '批量换Key失败');
@@ -149,13 +157,45 @@ function mergeSettingsForRequest(savedSettings, bodySettings) {
   };
 }
 
+function createClientAbort(req, res) {
+  const controller = new AbortController();
+  const abort = () => {
+    if (controller.signal.aborted) return;
+    const error = new Error('连接测试已取消');
+    error.code = 'ERR_CANCELED';
+    error.name = 'AbortError';
+    controller.abort(error);
+  };
+  const onClose = () => {
+    if (!res?.headersSent && !res?.writableEnded) abort();
+  };
+  if (typeof res?.on === 'function') res.on('close', onClose);
+  if (typeof req?.on === 'function') req.on('aborted', abort);
+  return {
+    signal: controller.signal,
+    dispose() {
+      if (typeof res?.off === 'function') res.off('close', onClose);
+      else if (typeof res?.removeListener === 'function') res.removeListener('close', onClose);
+      if (typeof req?.off === 'function') req.off('aborted', abort);
+      else if (typeof req?.removeListener === 'function') req.removeListener('aborted', abort);
+    },
+  };
+}
+
 function applySavedConfigSecrets(savedConfig, body) {
   if (!savedConfig) return body;
   const savedSettings = mergeSettingsForRequest(savedConfig.settings, body.settings);
   return {
-    ...savedConfig,
     ...body,
-    base_url: body.base_url || savedConfig.base_url,
+    ...savedConfig,
+    base_url: savedConfig.base_url,
+    provider: savedConfig.provider,
+    api_protocol: savedConfig.api_protocol,
+    endpoint: savedConfig.endpoint,
+    query_endpoint: savedConfig.query_endpoint,
+    service_type: savedConfig.service_type,
+    model: savedConfig.model,
+    default_model: savedConfig.default_model,
     api_key: body.api_key && !aiConfigService.isMaskedSecret(body.api_key) ? body.api_key : savedConfig.api_key,
     settings: JSON.stringify(savedSettings),
     access_key_id: body.access_key_id && !aiConfigService.isMaskedSecret(body.access_key_id) ? body.access_key_id : savedSettings.access_key_id,
@@ -167,22 +207,32 @@ function applySavedConfigSecrets(savedConfig, body) {
     path_mode: body.path_mode || savedSettings.path_mode,
     api_version: body.api_version || savedSettings.api_version,
     auth_mode: body.auth_mode || savedSettings.auth_mode,
+    http_method: body.http_method || savedSettings.http_method,
+    action: body.action,
+    payload: body.payload,
+    limit: body.limit,
+    cursor: body.cursor,
   };
 }
 
 function testConnection(db, log) {
   return async (req, res) => {
     const body = req.body || {};
+    const clientAbort = createClientAbort(req, res);
+    let savedConfig = null;
     let opts;
     try {
-      opts = applySavedConfigSecrets(getSavedConfigFromBody(db, body), body);
+      savedConfig = getSavedConfigFromBody(db, body);
+      opts = applySavedConfigSecrets(savedConfig, body);
     } catch (err) {
+      clientAbort.dispose();
       if (err.status === 404) return response.notFound(res, err.message);
       return response.badRequest(res, err.message);
     }
     const apiKeyOptional = aiConfigService.isApiKeyOptionalConnection(opts);
     const missingRequiredKey = !apiKeyOptional && (!opts.api_key || aiConfigService.isMaskedSecret(opts.api_key));
     if (!opts.base_url || missingRequiredKey) {
+      clientAbort.dispose();
       return response.badRequest(res, apiKeyOptional ? '缺少 base_url' : '缺少 base_url 或 api_key');
     }
     try {
@@ -190,17 +240,40 @@ function testConnection(db, log) {
         base_url: opts.base_url,
         api_key: opts.api_key,
         model: opts.model,
+        default_model: opts.default_model,
         provider: opts.provider,
         api_protocol: opts.api_protocol,
         endpoint: opts.endpoint,
         service_type: opts.service_type,
-        settings: opts.settings,
+        settings: savedConfig ? savedConfig.settings : opts.settings,
         trusted_origins: req.providerNetworkTrustedOrigins,
+        provider_network_policy: req.providerNetworkPolicy,
+        signal: clientAbort.signal,
       });
-      response.success(res, { message: '连接测试成功' });
+      if (!res.writableEnded) response.success(res, { message: '连接测试成功' });
     } catch (err) {
-      log.error('AI config test connection failed', { error: err.message });
-      response.badRequest(res, '连接测试失败: ' + (err.message || '未知错误'));
+      if (res.writableEnded) return;
+      if (err?.code === 'INVALID_AI_CONFIG') {
+        return response.error(res, err.status || 400, err.code, err.message, err.details);
+      }
+      const { toSafeProviderErrorMessage } = require('../services/providerErrorSanitizer');
+      const safeMessage = toSafeProviderErrorMessage(err, {
+        provider: opts.provider || 'AI 服务',
+        operation: '连接测试',
+      });
+      log.error('AI config test connection failed', { error: safeMessage });
+      log.operation?.({
+        operation: 'ai_config_test',
+        phase: 'error',
+        provider: opts.provider || null,
+        error: safeMessage,
+      });
+      if (err?.code === 'ERR_CANCELED' || err?.name === 'AbortError') {
+        return response.badRequest(res, safeMessage || '连接测试已取消');
+      }
+      response.badRequest(res, '连接测试失败: ' + safeMessage);
+    } finally {
+      clientAbort.dispose();
     }
   };
 }
@@ -229,7 +302,7 @@ function modelArkAsset(db, log) {
           sign_service: opts.sign_service,
           session_token: opts.session_token,
           project_name: opts.project_name,
-          trusted_origins: req.providerNetworkTrustedOrigins,
+          network_policy: req.providerNetworkPolicy,
         },
         log
       );
@@ -244,7 +317,7 @@ function modelArkAsset(db, log) {
   };
 }
 
-/** 即梦2角色认证：代理 GET 素材列表（表单未保存也可用当前填写的网关与 Token） */
+/** 即梦2角色认证：仅使用已保存并启用配置的完整网络策略代理素材列表。 */
 function listJimeng2MaterialAssets(db, log) {
   return async (req, res) => {
     const body = req.body || {};
@@ -255,7 +328,7 @@ function listJimeng2MaterialAssets(db, log) {
       if (err.status === 404) return response.notFound(res, err.message);
       return response.badRequest(res, err.message);
     }
-    const base_url = (body.base_url || savedConfig?.base_url || '').toString().trim().replace(/\/$/, '');
+    const base_url = (savedConfig?.base_url || '').toString().trim().replace(/\/$/, '');
     const { normalizeMaterialHubToken } = require('../services/jimengMaterialHubService');
     let api_key = body.api_key && !aiConfigService.isMaskedSecret(body.api_key) ? body.api_key : savedConfig?.api_key || '';
     api_key = normalizeMaterialHubToken(api_key || '');
@@ -263,7 +336,7 @@ function listJimeng2MaterialAssets(db, log) {
       return response.badRequest(res, '请先填写网关 URL 与 Token');
     }
     const jimengMaterialHubService = require('../services/jimengMaterialHubService');
-    const ctx = { baseUrl: base_url, token: api_key };
+    const ctx = { baseUrl: base_url, token: api_key, networkPolicy: req.providerNetworkPolicy };
     const r = await jimengMaterialHubService.listAssets(ctx, { limit: body.limit, cursor: body.cursor }, log);
     if (!r.ok) {
       return response.badRequest(res, String(r.error || '列出素材失败').slice(0, 800));

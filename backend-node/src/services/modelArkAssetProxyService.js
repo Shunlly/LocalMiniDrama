@@ -3,6 +3,7 @@
 const querystring = require('querystring');
 const { Signer } = require('@volcengine/openapi');
 const { secureHttpFetch } = require('./secureHttpFetch');
+const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
 const {
   createProviderHttpError,
   sanitizeProviderException,
@@ -173,6 +174,7 @@ async function fetchSignedOpenApi({
     trustedOrigins: networkOptions?.trustedOrigins || [base],
     allowPrivateOrigins: networkOptions?.allowPrivateOrigins,
     lookup: networkOptions?.lookup,
+    requireHttpsForPublic: networkOptions?.requireHttpsForPublic,
     timeoutMs: MODEL_ARK_TIMEOUT_MS,
     maxBytes: MODEL_ARK_MAX_RESPONSE_BYTES,
     maxRedirects: 0,
@@ -197,6 +199,7 @@ async function fetchBearer(url, method, token, bodyObj, networkOptions = {}) {
     trustedOrigins: networkOptions.trustedOrigins,
     allowPrivateOrigins: networkOptions.allowPrivateOrigins,
     lookup: networkOptions.lookup,
+    requireHttpsForPublic: networkOptions.requireHttpsForPublic,
     timeoutMs: MODEL_ARK_TIMEOUT_MS,
     maxBytes: MODEL_ARK_MAX_RESPONSE_BYTES,
     maxRedirects: 0,
@@ -219,9 +222,7 @@ async function callModelArkAsset(opts, log) {
     sign_service,
     session_token,
     project_name,
-    trusted_origins,
-    allow_private_origins,
-    network_lookup,
+    network_policy,
   } = opts;
 
   if (!action || typeof action !== 'string') throw new Error('缺少 action');
@@ -243,11 +244,7 @@ async function callModelArkAsset(opts, log) {
     bodyObj.ProjectName = pnScope;
   }
   let res;
-  const networkOptions = {
-    trustedOrigins: Array.isArray(trusted_origins) && trusted_origins.length ? trusted_origins : [base],
-    allowPrivateOrigins: allow_private_origins,
-    lookup: network_lookup,
-  };
+  const networkOptions = requireCompleteProviderNetworkPolicy(network_policy, base);
 
   try {
   if (modeAuth === 'volc_sign') {

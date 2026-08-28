@@ -5,24 +5,97 @@ on:
     tags:
       - 'v*.*.*'
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
+  release-source-gate:
+    name: Require successful pre-tag main CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Verify exact release commit passed main push CI before tagging
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const { data: releaseRun } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            })
+            const releaseCreatedAt = Date.parse(releaseRun.created_at)
+            if (!Number.isFinite(releaseCreatedAt)) {
+              throw new Error('Unable to determine the release workflow creation time')
+            }
+
+            const runs = []
+            for await (const response of github.paginate.iterator(
+              github.rest.actions.listWorkflowRuns,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'ci.yml',
+                branch: 'main',
+                event: 'push',
+                status: 'success',
+                head_sha: context.sha,
+                per_page: 100,
+              },
+            )) {
+              runs.push(...response.data)
+            }
+
+            const approvedRun = runs.find((run) =>
+              run.event === 'push'
+              && run.head_branch === 'main'
+              && run.head_sha === context.sha
+              && run.status === 'completed'
+              && run.conclusion === 'success'
+              && Number.isFinite(Date.parse(run.updated_at))
+              && Date.parse(run.updated_at) < releaseCreatedAt
+            )
+            if (!approvedRun) {
+              throw new Error('Release commit has no successful pre-tag main push run of ci.yml')
+            }
+
   production-e2e:
     name: Verify production Docker workflow
+    needs: release-source-gate
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
       contents: read
+    env:
+      LOCALMINIDRAMA_BUILD_REVISION: ${{ github.sha }}
+      LOCALMINIDRAMA_IMAGE_TAG: ${{ github.sha }}
+      GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+      TRIVY_IMAGE: ghcr.io/aquasecurity/trivy@sha256:a8ca29078522f30393bdb34225e4c0994d38f37083be81a42da3a2a7e1488e9e
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - name: Scan repository history for secrets
+      - name: Verify release commit belongs to origin/main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+      - name: Scan release event range for secrets
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan complete repository history for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker run --rm "$GITLEAKS_IMAGE" version)" = 'v8.30.1'
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/repo:ro" \
+            --workdir /repo \
+            "$GITLEAKS_IMAGE" \
+            git --config .gitleaks.toml --redact --no-banner --log-opts=--all
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
@@ -40,8 +113,61 @@ jobs:
           npm --prefix desktop audit --audit-level=high --registry=https://registry.npmjs.org
       - name: Verify Docker build context boundaries
         run: npm run verify:docker:artifact
+      - name: Verify clean Docker build revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          test "$(git rev-parse HEAD)" = "$LOCALMINIDRAMA_BUILD_REVISION"
+      - name: 准备隔离的 Docker E2E 数据目录
+        shell: bash
+        run: |
+          set -euo pipefail
+          data_dir="$(mktemp -d "$RUNNER_TEMP/localminidrama-e2e-data.XXXXXX")"
+          chmod 0777 "$data_dir"
+          test -d "$data_dir"
+          test -z "$(find "$data_dir" -mindepth 1 -print -quit)"
+          printf 'LOCALMINIDRAMA_DATA_DIR=%s\n' "$data_dir" >> "$GITHUB_ENV"
       - name: Start production containers and local protocol-compatible provider
-        run: docker compose --profile e2e up -d --build --wait
+        run: npm run docker:e2e:up
+      - name: Record and scan final production images with Trivy
+        shell: bash
+        run: |
+          set -euo pipefail
+          readonly evidence_dir="$GITHUB_WORKSPACE/artifacts/e2e-production"
+          readonly cache_dir="$RUNNER_TEMP/trivy-cache"
+          readonly backend_image="localminidrama-backend:$LOCALMINIDRAMA_IMAGE_TAG"
+          readonly frontend_image="localminidrama-frontend:$LOCALMINIDRAMA_IMAGE_TAG"
+          mkdir -p "$evidence_dir" "$cache_dir"
+
+          : > "$evidence_dir/docker-image-ids.txt"
+          for image in "$backend_image" "$frontend_image"; do
+            image_id="$(docker image inspect --format '{{.Id}}' "$image")"
+            revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")"
+            test "$revision" = "$LOCALMINIDRAMA_BUILD_REVISION"
+            printf '%s\t%s\t%s\n' "$image" "$image_id" "$revision" >> "$evidence_dir/docker-image-ids.txt"
+          done
+          docker image inspect "$backend_image" "$frontend_image" > "$evidence_dir/docker-images.json"
+
+          run_trivy() {
+            docker run --rm \
+              --volume /var/run/docker.sock:/var/run/docker.sock \
+              --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+              --volume "$evidence_dir:/evidence" \
+              --volume "$cache_dir:/root/.cache/trivy" \
+              "$TRIVY_IMAGE" "$@"
+          }
+
+          version="$(run_trivy --version | awk -F': ' '/^Version:/{print $2; exit}')"
+          test "$version" = '0.64.1'
+          printf '%s\n' "$version" > "$evidence_dir/trivy-version.txt"
+
+          status=0
+          run_trivy image --skip-version-check --scanners vuln --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed \
+            --format json --output /evidence/trivy-backend.json "$backend_image" || status=$?
+          run_trivy image --skip-version-check --scanners vuln --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed \
+            --format json --output /evidence/trivy-frontend.json "$frontend_image" || status=$?
+          exit "$status"
       - name: Verify application code inside containers
         run: npm run verify:docker:containers
       - name: Run production workflow, QA, timeline, export and browser checks
@@ -64,15 +190,336 @@ jobs:
         if: always()
         run: docker compose --profile e2e down --volumes --remove-orphans
 
+  rollback-drill:
+    name: Verify isolated backup and rollback
+    needs: release-source-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend-node/package-lock.json
+      - name: Install backend dependencies
+        run: npm --prefix backend-node ci
+      - name: Initialize isolated rollback source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix backend-node run migrate
+          mkdir -p backend-node/data/storage backend-node/data/story_sources
+          test -z "$(git status --porcelain)"
+      - name: Run and validate rollback drill
+        shell: bash
+        run: |
+          set -euo pipefail
+          stdout_log="$RUNNER_TEMP/rollback-drill.stdout.log"
+          stderr_log="$RUNNER_TEMP/rollback-drill.stderr.log"
+          stderr_pipe="$RUNNER_TEMP/rollback-drill.stderr.pipe"
+          pipeline_script="$RUNNER_TEMP/rollback-drill.pipeline.sh"
+          pipeline_status_file="$RUNNER_TEMP/rollback-drill.pipeline.status"
+          rollback_control_dir="$(mktemp -d "$RUNNER_TEMP/rollback-container.XXXXXX")"
+          chmod 700 "$rollback_control_dir"
+          rollback_token="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(16).toString("hex"))')"
+          export LMD_ROLLBACK_CIDFILE="$rollback_control_dir/container.cid"
+          export LMD_ROLLBACK_CONTAINER_LABEL="localminidrama.rollback-drill.run=$rollback_token"
+          export LMD_ROLLBACK_CONTAINER_NAME="localminidrama-rollback-$rollback_token"
+          rollback_session_file="$rollback_control_dir/session.pid"
+          rm -f "$stderr_pipe" "$pipeline_script" "$pipeline_status_file"
+          mkfifo "$stderr_pipe"
+
+          append_container_listing() {
+            local listing="$1" id existing count=0
+            [[ -z "$listing" ]] && return 0
+            while IFS= read -r id; do
+              [[ -z "$id" ]] && continue
+              [[ "$id" =~ ^[a-f0-9]{64}$ ]] || return 1
+              count=$((count + 1))
+              (( count <= 1 )) || return 1
+              for existing in "${container_candidates[@]}"; do
+                [[ "$existing" == "$id" ]] && continue 2
+              done
+              container_candidates+=("$id")
+            done <<<"$listing"
+          }
+
+          collect_owned_container_ids() {
+            local extra_id="${1:-}" label_listing name_listing cid_listing inspection remaining id
+            local recorded_id=""
+            local -a container_candidates=()
+            label_listing="$(timeout --signal=KILL 8s docker container ls --all --no-trunc --quiet --filter "label=$LMD_ROLLBACK_CONTAINER_LABEL")" || return 1
+            name_listing="$(timeout --signal=KILL 8s docker container ls --all --no-trunc --quiet --filter "name=^/$LMD_ROLLBACK_CONTAINER_NAME$")" || return 1
+            append_container_listing "$label_listing" || return 1
+            append_container_listing "$name_listing" || return 1
+            if [[ -e "$LMD_ROLLBACK_CIDFILE" || -L "$LMD_ROLLBACK_CIDFILE" ]]; then
+              [[ -f "$LMD_ROLLBACK_CIDFILE" && ! -L "$LMD_ROLLBACK_CIDFILE" ]] || return 1
+              recorded_id="$(tr -d '\r\n' <"$LMD_ROLLBACK_CIDFILE")" || return 1
+              [[ "$recorded_id" =~ ^[a-f0-9]{64}$ ]] || recorded_id=""
+            fi
+            if [[ -n "$recorded_id" ]]; then
+              cid_listing="$(timeout --signal=KILL 8s docker container ls --all --no-trunc --quiet --filter "id=$recorded_id")" || return 1
+              append_container_listing "$cid_listing" || return 1
+            fi
+            if [[ -n "$extra_id" ]]; then
+              [[ "$extra_id" =~ ^[a-f0-9]{64}$ ]] || return 1
+              cid_listing="$(timeout --signal=KILL 8s docker container ls --all --no-trunc --quiet --filter "id=$extra_id")" || return 1
+              append_container_listing "$cid_listing" || return 1
+            fi
+            for id in "${container_candidates[@]}"; do
+              if ! inspection="$(timeout --signal=KILL 8s docker container inspect --format '{{ index .Config.Labels "localminidrama.rollback-drill.run" }}' "$id")"; then
+                remaining="$(timeout --signal=KILL 8s docker container ls --all --no-trunc --quiet --filter "id=$id")" || return 1
+                [[ -z "$remaining" ]] && continue
+                return 1
+              fi
+              [[ "$inspection" == "$rollback_token" ]] || return 1
+              printf '%s\n' "$id"
+            done
+          }
+
+          remove_owned_containers() {
+            local listing id
+            listing="$(collect_owned_container_ids "${1:-}")" || return 1
+            while IFS= read -r id; do
+              [[ -z "$id" ]] && continue
+              timeout --signal=KILL 8s docker stop --time 3 "$id" >/dev/null 2>/dev/null || true
+              timeout --signal=KILL 8s docker kill "$id" >/dev/null 2>/dev/null || true
+              timeout --signal=KILL 8s docker rm --force "$id" >/dev/null 2>/dev/null || true
+            done <<<"$listing"
+          }
+
+          cleanup_rollback_container() {
+            local attempt sentinel_id create_status remaining
+            for attempt in {1..4}; do
+              remove_owned_containers || return 1
+              if sentinel_id="$(timeout --signal=KILL 8s docker create --pull never --name "$LMD_ROLLBACK_CONTAINER_NAME" --label "$LMD_ROLLBACK_CONTAINER_LABEL" node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 node -e 'process.exit(0)')"; then
+                [[ "$sentinel_id" =~ ^[a-f0-9]{64}$ ]] || return 1
+                timeout --signal=KILL 8s docker container inspect --format '{{ index .Config.Labels "localminidrama.rollback-drill.run" }}' "$sentinel_id" | grep -Fx -- "$rollback_token" >/dev/null || return 1
+                timeout --signal=KILL 8s docker rm --force "$sentinel_id" >/dev/null 2>/dev/null || true
+                remaining="$(collect_owned_container_ids "$sentinel_id")" || return 1
+                if [[ -z "$remaining" ]]; then
+                  rm -f "$LMD_ROLLBACK_CIDFILE"
+                  return 0
+                fi
+              else
+                create_status=$?
+                if (( create_status == 124 || create_status == 137 )); then return 1; fi
+              fi
+            done
+            return 1
+          }
+
+          terminate_rollback_session() {
+            local session_pid deadline
+            [[ -e "$rollback_session_file" ]] || return 0
+            [[ -f "$rollback_session_file" && ! -L "$rollback_session_file" ]] || return 1
+            session_pid="$(tr -d '\r\n' <"$rollback_session_file")" || return 1
+            [[ "$session_pid" =~ ^[1-9][0-9]*$ ]] || return 1
+            if kill -0 -- "-$session_pid" 2>/dev/null; then
+              kill -TERM -- "-$session_pid" 2>/dev/null || true
+              deadline=$((SECONDS + 30))
+              while kill -0 -- "-$session_pid" 2>/dev/null && (( SECONDS < deadline )); do sleep 0.1; done
+              if kill -0 -- "-$session_pid" 2>/dev/null; then
+                kill -KILL -- "-$session_pid" 2>/dev/null || true
+                deadline=$((SECONDS + 5))
+                while kill -0 -- "-$session_pid" 2>/dev/null && (( SECONDS < deadline )); do sleep 0.1; done
+              fi
+            fi
+            if kill -0 -- "-$session_pid" 2>/dev/null; then return 1; fi
+            rm -f "$rollback_session_file"
+          }
+
+          cleanup_on_exit() {
+            local original_status=$? session_status=0 cleanup_status=0
+            trap - EXIT INT TERM
+            set +e
+            terminate_rollback_session || session_status=$?
+            if (( session_status == 0 )); then
+              cleanup_rollback_container || cleanup_status=$?
+            else
+              printf 'rollback session cleanup failed; container cleanup was skipped and control evidence remains at %s\n' "$rollback_control_dir" >&2
+            fi
+            if (( cleanup_status != 0 )); then
+              printf 'rollback container cleanup failed; control evidence remains at %s\n' "$rollback_control_dir" >&2
+            fi
+            if (( original_status != 0 )); then
+              printf 'rollback execution did not complete normally; daemon completion is unproven and control evidence remains at %s\n' "$rollback_control_dir" >&2
+            fi
+            if (( original_status == 0 && session_status == 0 && cleanup_status == 0 )); then
+              rm -f "$stderr_pipe" "$pipeline_script" "$pipeline_status_file"
+              rmdir "$rollback_control_dir" 2>/dev/null || true
+            fi
+            if (( original_status == 0 && session_status != 0 )); then original_status=$session_status; fi
+            if (( original_status == 0 && cleanup_status != 0 )); then original_status=$cleanup_status; fi
+            exit "$original_status"
+          }
+          trap cleanup_on_exit EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          node -e '
+            const fs = require("node:fs")
+            const [logPath, limitText] = process.argv.slice(1)
+            const limit = Number(limitText)
+            const log = fs.openSync(logPath, "w")
+            let retained = 0
+            let truncated = false
+            process.stdin.on("data", (chunk) => {
+              const keep = chunk.subarray(0, Math.max(0, limit - retained))
+              if (keep.length > 0) {
+                let written = 0
+                while (( written < keep.length )) {
+                  const count = fs.writeSync(log, keep, written, keep.length - written)
+                  if (count <= 0) throw new Error("rollback stderr log write made no progress")
+                  written += count
+                }
+                process.stderr.write(keep)
+                retained += keep.length
+              }
+              if (keep.length !== chunk.length) truncated = true
+            })
+            process.stdin.on("end", () => {
+              fs.closeSync(log)
+              if (truncated) {
+                process.stderr.write("\n[rollback drill stderr truncated]\n")
+                process.exitCode = 1
+              }
+            })
+          ' "$stderr_log" 262144 <"$stderr_pipe" &
+          stderr_pid=$!
+
+          cat >"$pipeline_script" <<'ROLLBACK_PIPELINE'
+          set -uo pipefail
+          run_bounded_rollback() {
+            local session_pid drill_status session_deadline
+            : >"$rollback_session_file"
+            setsid --wait timeout --signal=TERM --kill-after=30s 720s npm run verify:rollback 2>"$stderr_pipe" &
+            session_pid=$!
+            printf '%s\n' "$session_pid" >"$rollback_session_file"
+            wait "$session_pid"
+            drill_status=$?
+            if kill -0 -- "-$session_pid" 2>/dev/null; then
+              kill -TERM -- "-$session_pid" 2>/dev/null || true
+              for _ in {1..10}; do
+                if ! kill -0 -- "-$session_pid" 2>/dev/null; then break; fi
+                sleep 0.1
+              done
+              if kill -0 -- "-$session_pid" 2>/dev/null; then
+                kill -KILL -- "-$session_pid" 2>/dev/null || true
+                session_deadline=$((SECONDS + 5))
+                while kill -0 -- "-$session_pid" 2>/dev/null && (( SECONDS < session_deadline )); do sleep 0.1; done
+              fi
+              drill_status=124
+            fi
+            if ! kill -0 -- "-$session_pid" 2>/dev/null; then rm -f "$rollback_session_file"; fi
+            return "$drill_status"
+          }
+
+          set +e
+          run_bounded_rollback \
+            | tee "$stdout_log" \
+            | node scripts/rollback-drill-evidence.cjs \
+                --validate-result-stream \
+                --expected-version 1.3.3 \
+                --expected-commit "$GITHUB_SHA" \
+                --expected-mode standalone
+          pipeline_status=("${PIPESTATUS[@]}")
+          printf '%s\n' "${pipeline_status[@]}" >"$pipeline_status_file"
+          ROLLBACK_PIPELINE
+
+          export GITHUB_SHA pipeline_status_file rollback_session_file stderr_pipe stdout_log
+          set +e
+          setsid --wait timeout --signal=TERM --kill-after=30s 760s bash "$pipeline_script"
+          pipeline_guard_status=$?
+          pipeline_status=()
+          if (( pipeline_guard_status == 0 )) && [[ -s "$pipeline_status_file" ]]; then
+            mapfile -t pipeline_status <"$pipeline_status_file"
+            if (( ${#pipeline_status[@]} != 3 )); then pipeline_status=(1); fi
+          else
+            pipeline_status=("$pipeline_guard_status")
+          fi
+          stderr_status=0
+          stderr_deadline=$((SECONDS + 5))
+          while kill -0 "$stderr_pid" 2>/dev/null; do
+            if (( SECONDS >= stderr_deadline )); then
+              kill -TERM "$stderr_pid" 2>/dev/null || true
+              sleep 1
+              if kill -0 "$stderr_pid" 2>/dev/null; then
+                kill -KILL "$stderr_pid" 2>/dev/null || true
+              fi
+              wait "$stderr_pid" 2>/dev/null
+              stderr_status=124
+              break
+            fi
+            sleep 0.1
+          done
+          if (( stderr_status == 0 )); then
+            wait "$stderr_pid"
+            stderr_status=$?
+          fi
+          session_cleanup_status=0
+          terminate_rollback_session || session_cleanup_status=$?
+          container_cleanup_status=0
+          if (( session_cleanup_status == 0 )); then
+            cleanup_rollback_container || container_cleanup_status=$?
+          else
+            printf 'rollback session cleanup failed; container cleanup was skipped and control evidence remains at %s\n' "$rollback_control_dir" >&2
+          fi
+          if (( container_cleanup_status != 0 )); then
+            printf 'rollback container cleanup failed; control evidence remains at %s\n' "$rollback_control_dir" >&2
+          fi
+          rollback_execution_normal=1
+          if (( stderr_status != 0 )); then rollback_execution_normal=0; fi
+          for status in "${pipeline_status[@]}"; do
+            if (( status != 0 )); then rollback_execution_normal=0; fi
+          done
+          if (( rollback_execution_normal == 0 )); then
+            printf 'rollback execution did not complete normally; daemon completion is unproven and control evidence remains at %s\n' "$rollback_control_dir" >&2
+          fi
+          if (( rollback_execution_normal == 1 && session_cleanup_status == 0 && container_cleanup_status == 0 )); then
+            rm -f "$stderr_pipe" "$pipeline_script" "$pipeline_status_file"
+            rmdir "$rollback_control_dir" 2>/dev/null || true
+          fi
+          trap - EXIT INT TERM
+          set -e
+
+          for status in "${pipeline_status[@]}"; do
+            if (( status != 0 )); then exit "$status"; fi
+          done
+          if (( session_cleanup_status != 0 )); then exit "$session_cleanup_status"; fi
+          if (( container_cleanup_status != 0 )); then exit "$container_cleanup_status"; fi
+          exit "$stderr_status"
+      - name: Upload rollback evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-rollback-drill-${{ github.sha }}
+          path: |
+            artifacts/rollback-drill/
+            ${{ runner.temp }}/rollback-drill.stdout.log
+            ${{ runner.temp }}/rollback-drill.stderr.log
+            ${{ runner.temp }}/rollback-container.*
+            ${{ runner.temp }}/rollback-drill.pipeline.sh
+            ${{ runner.temp }}/rollback-drill.pipeline.status
+          if-no-files-found: warn
+          retention-days: 14
+
   build-windows:
     name: Build and smoke-test Windows release
-    needs: production-e2e
+    needs: [production-e2e, rollback-drill]
     runs-on: windows-latest
     timeout-minutes: 50
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          lfs: true
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
@@ -80,7 +527,15 @@ jobs:
           cache-dependency-path: |
             backend-node/package-lock.json
             frontweb/package-lock.json
-            desktop/package-lock.json
+
+      - name: Verify Git LFS example source
+        run: |
+          git lfs fsck
+          npm run verify:example-drama
+
+      - name: Install backend dependencies required by release contracts
+        working-directory: backend-node
+        run: npm ci
 
       - name: Verify tag, package versions and release contracts
         run: |
@@ -131,14 +586,18 @@ jobs:
 
       - name: Install and verify backend
         working-directory: backend-node
-        run: |
-          npm ci
-          npm run verify
+        run: npm run verify
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
 
       - name: Install and verify Electron runtime
         working-directory: desktop
         run: |
-          npm ci
+          npm ci --engine-strict
           npm run verify
 
       - name: Build NSIS and portable artifacts without publishing
@@ -172,127 +631,18 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  scan-windows-artifacts:
-    name: Independently scan Windows release payloads
+  windows-release-security:
+    name: Verify Windows release security
     needs: build-windows
-    runs-on: windows-latest
-    timeout-minutes: 45
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
-      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.2.4
-        with:
-          version: v0.64.1
-          cache: true
-
-      - name: Install artifact verification dependencies without lifecycle scripts
-        run: npm --prefix desktop ci --ignore-scripts
-
-      - name: Download unverified Windows build output
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: windows-release-unverified-${{ github.ref_name }}-${{ github.sha }}
-          path: desktop/release
-
-      - name: Extract Setup, Portable, Unpacked and ASAR payloads and verify Electron fuses
-        working-directory: desktop
-        run: npm run prepare:artifact-scan
-
-      - name: Scan extracted artifacts with checksum-pinned Gitleaks
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $version = '8.28.0'
-          $expectedSha256 = 'DA6458E8864AF553807DE1C46A7A8EAC0880BD6B99BA56288E87E86A45AF884F'
-          $archive = Join-Path $env:RUNNER_TEMP "gitleaks-$version-windows-x64.zip"
-          $destination = Join-Path $env:RUNNER_TEMP "gitleaks-$version"
-          Invoke-WebRequest -Uri "https://github.com/gitleaks/gitleaks/releases/download/v$version/gitleaks_${version}_windows_x64.zip" -OutFile $archive
-          $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash
-          if ($actualSha256 -ne $expectedSha256) { throw "Gitleaks archive checksum mismatch: $actualSha256" }
-          Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force
-          $gitleaks = Join-Path $destination 'gitleaks.exe'
-          & $gitleaks dir desktop/release --config .gitleaks-artifacts.toml --redact --no-banner
-          if ($LASTEXITCODE -ne 0) { throw 'Gitleaks found a secret or failed to scan the extracted release' }
-          node desktop/scripts/verify-windows-artifacts.js mark gitleaks $version
-
-      - name: Block high and critical vulnerabilities and source container misconfigurations with Trivy
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $desktopVersion = (Get-Content desktop/package.json | ConvertFrom-Json).version
-          $sboms = @(
-            "desktop/release/LocalMiniDrama-$desktopVersion.cdx.json",
-            'desktop/release/sbom-backend.cdx.json',
-            'desktop/release/sbom-frontend.cdx.json',
-            'desktop/release/sbom-desktop.cdx.json'
-          )
-          foreach ($sbom in $sboms) {
-            if (-not (Test-Path -LiteralPath $sbom)) { throw "Required SBOM is missing: $sbom" }
-            trivy sbom --skip-version-check --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed $sbom
-            if ($LASTEXITCODE -ne 0) { throw "Trivy found a blocking SBOM vulnerability or failed to scan: $sbom" }
-          }
-          trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL --ignorefile backend-node/.trivyignore.yaml backend-node/Dockerfile
-          if ($LASTEXITCODE -ne 0) { throw 'Trivy found a blocking container misconfiguration or failed to scan: backend-node/Dockerfile' }
-          $dockerfiles = @(
-            'frontweb/Dockerfile',
-            'frontweb/Dockerfile.prod'
-          )
-          foreach ($dockerfile in $dockerfiles) {
-            trivy config --skip-version-check --exit-code 1 --severity HIGH,CRITICAL $dockerfile
-            if ($LASTEXITCODE -ne 0) { throw "Trivy found a blocking container misconfiguration or failed to scan: $dockerfile" }
-          }
-          $version = ((trivy --version | Select-Object -First 1) -replace '^Version:\s*', '').Trim()
-          node desktop/scripts/verify-windows-artifacts.js mark trivy $version
-
-      - name: Scan release bundle and extracted payloads with Microsoft Defender
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $platformBinary = Get-ChildItem -Path "$env:ProgramData\Microsoft\Windows Defender\Platform\*\MpCmdRun.exe" -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1 -ExpandProperty FullName
-          $fallbackBinary = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
-          $defender = if ($platformBinary) { $platformBinary } elseif (Test-Path -LiteralPath $fallbackBinary) { $fallbackBinary } else { $null }
-          if (-not $defender) { throw 'Microsoft Defender command-line scanner is unavailable' }
-          $scanPath = (Resolve-Path -LiteralPath 'desktop/release').Path
-          & $defender -Scan -ScanType 3 -File $scanPath -DisableRemediation
-          if ($LASTEXITCODE -ne 0) { throw "Microsoft Defender scan failed or detected a threat: $LASTEXITCODE" }
-          $status = Get-MpComputerStatus
-          if (-not $status.AMEngineVersion -or -not $status.AntivirusSignatureVersion) { throw 'Microsoft Defender version evidence is unavailable' }
-          $version = "$($status.AMEngineVersion)-$($status.AntivirusSignatureVersion)"
-          node desktop/scripts/verify-windows-artifacts.js mark defender $version
-
-      - name: Record scan evidence and generate the verified release manifest
-        run: |
-          npm --prefix desktop run record:artifact-security
-          npm run release:manifest
-          npm run verify:release:artifacts
-
-      - name: Upload independently scanned Windows release bundle
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: windows-release-${{ github.ref_name }}-${{ github.sha }}
-          path: |
-            desktop/release/*.exe
-            desktop/release/*.exe.blockmap
-            desktop/release/*.zip
-            desktop/release/*.cdx.json
-            desktop/release/artifact-security.json
-            desktop/release/media-tools.json
-            desktop/release/release-manifest.json
-            desktop/release/SHA256SUMS
-          if-no-files-found: error
-          retention-days: 14
+    uses: ./.github/workflows/windows-release-security.yml
+    with:
+      artifact-key: ${{ github.ref_name }}-${{ github.sha }}
 
   verify-artifacts:
     name: Independently verify and attest release artifacts
-    needs: scan-windows-artifacts
+    needs: windows-release-security
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -318,30 +668,116 @@ jobs:
         with:
           subject-path: |
             desktop/release/*.exe
-            desktop/release/*.zip
+            desktop/release/LocalMiniDrama-Unpacked-*-x64.zip
             desktop/release/artifact-security.json
             desktop/release/release-manifest.json
 
   publish-release:
     name: Create draft GitHub release
-    needs: [production-e2e, scan-windows-artifacts, verify-artifacts]
+    needs: [production-e2e, rollback-drill, windows-release-security, verify-artifacts]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
       - name: Download independently verified release bundle
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: windows-release-${{ github.ref_name }}-${{ github.sha }}
           path: desktop/release
+      - name: Verify remote release tag still resolves to the release commit
+        run: node scripts/verify-release.cjs --verify-remote-tag
       - name: Create draft GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          body: |
+            ## Windows security notice
+
+            **Setup and Portable are not Authenticode signed.** Windows may show `Unknown Publisher` or a SmartScreen warning. Download only from the official `Shunlly/LocalMiniDrama` GitHub Release. Do not run a file when its source is unknown, its SHA-256 or manifest differs, or GitHub artifact attestation verification fails.
+
+            Release tag: `${{ github.ref_name }}`
+            Expected Git SHA: `${{ github.sha }}`
+
+            Verify the official download in Windows PowerShell before running it:
+
+            ```powershell
+            $repo = 'Shunlly/LocalMiniDrama'
+            $tag = '${{ github.ref_name }}'
+            $expectedGitSha = '${{ github.sha }}'
+            $downloadDir = Join-Path $PWD "LocalMiniDrama-$tag"
+            if (Test-Path -LiteralPath $downloadDir) { throw "Refusing to reuse existing directory: $downloadDir" }
+            New-Item -ItemType Directory -Path $downloadDir | Out-Null
+            gh release download $tag --repo $repo --dir $downloadDir
+            if ($LASTEXITCODE -ne 0) { throw 'Official GitHub Release download failed' }
+            $attestationArgs = @(
+              '--repo', $repo,
+              '--signer-workflow', "$repo/.github/workflows/release.yml",
+              '--source-ref', "refs/tags/$tag",
+              '--source-digest', $expectedGitSha,
+              '--deny-self-hosted-runners'
+            )
+
+            Push-Location $downloadDir
+            $manifestPath = Join-Path $PWD 'release-manifest.json'
+            gh attestation verify $manifestPath @attestationArgs
+            if ($LASTEXITCODE -ne 0) { throw 'Release manifest attestation mismatch' }
+            $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+            if ($manifest.tag -ne $tag -or $manifest.git_commit -ne $expectedGitSha) { throw 'Release manifest tag or git_commit mismatch' }
+            $manifestArtifacts = @($manifest.artifacts)
+            if ($manifestArtifacts.Count -eq 0) { throw 'Release manifest contains no artifacts' }
+            $seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            $expectedChecksumRows = @()
+            foreach ($artifact in $manifestArtifacts) {
+              $name = [string]$artifact.name
+              if ([string]::IsNullOrWhiteSpace($name) -or [IO.Path]::GetFileName($name) -ne $name -or -not $seenNames.Add($name)) { throw "Unsafe or duplicate manifest artifact name: $name" }
+              $expectedBytes = 0L
+              if (-not [long]::TryParse([string]$artifact.bytes, [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$expectedBytes) -or $expectedBytes -le 0) { throw "Invalid manifest byte count: $name" }
+              $expectedSha = [string]$artifact.sha256
+              if ($expectedSha -cnotmatch '^[a-f0-9]{64}$') { throw "Invalid manifest SHA-256: $name" }
+              $artifactPath = Join-Path $PWD $name
+              $file = Get-Item -LiteralPath $artifactPath -Force -ErrorAction Stop
+              if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Unsafe release artifact: $name" }
+              if ($file.Length -ne $expectedBytes) { throw "Manifest byte count mismatch: $name" }
+              $actualSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $artifactPath).Hash.ToLowerInvariant()
+              if ($actualSha -cne $expectedSha) { throw "Manifest SHA-256 mismatch: $name" }
+              $expectedChecksumRows += "$expectedSha  $name"
+            }
+            $expectedReleaseFiles = @($manifestArtifacts | ForEach-Object { [string]$_.name }) + @('release-manifest.json', 'SHA256SUMS')
+            $actualReleaseFiles = @(Get-ChildItem -LiteralPath $PWD -File | ForEach-Object { $_.Name })
+            if (Compare-Object ($expectedReleaseFiles | Sort-Object) ($actualReleaseFiles | Sort-Object)) { throw 'Downloaded Release file set does not match the attested manifest' }
+            $manifestSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $manifestPath).Hash.ToLowerInvariant()
+            $expectedChecksumRows += "$manifestSha  release-manifest.json"
+            $actualChecksumRows = @(Get-Content -LiteralPath 'SHA256SUMS')
+            if ($actualChecksumRows.Count -ne $expectedChecksumRows.Count) { throw 'SHA256SUMS does not exactly match the attested manifest' }
+            for ($index = 0; $index -lt $expectedChecksumRows.Count; $index += 1) {
+              if ($actualChecksumRows[$index] -cne $expectedChecksumRows[$index]) { throw 'SHA256SUMS does not exactly match the attested manifest' }
+            }
+            Pop-Location
+
+            $sourceDir = Join-Path $downloadDir 'source'
+            git clone --branch $tag --depth 1 "https://github.com/$repo.git" $sourceDir
+            if ($LASTEXITCODE -ne 0) { throw 'Official tagged source download failed' }
+            $sourceSha = (& git -C $sourceDir rev-parse HEAD).Trim()
+            if ($sourceSha -ne $expectedGitSha) { throw 'Downloaded source does not match the expected Git SHA' }
+
+            Get-ChildItem -LiteralPath $downloadDir -File |
+              Where-Object { $_.Name -match '\.(exe|zip)$' -or $_.Name -eq 'artifact-security.json' } |
+              ForEach-Object {
+                gh attestation verify $_.FullName @attestationArgs
+                if ($LASTEXITCODE -ne 0) { throw "Artifact attestation mismatch: $($_.Name)" }
+              }
+            ```
           files: |
             desktop/release/*.exe
             desktop/release/*.exe.blockmap
-            desktop/release/*.zip
+            desktop/release/LocalMiniDrama-Unpacked-*-x64.zip
             desktop/release/*.cdx.json
             desktop/release/artifact-security.json
             desktop/release/media-tools.json

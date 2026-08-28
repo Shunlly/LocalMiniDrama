@@ -1,13 +1,23 @@
 <template>
   <section class="readiness-panel" aria-labelledby="project-readiness-title">
     <div class="readiness-head">
-      <div>
-        <h2 id="project-readiness-title" class="readiness-title">成片交付就绪度</h2>
-        <p class="readiness-subtitle">从素材、五类 AI 服务到语音、逐集合成逐项核对，只保留一个下一步动作。</p>
-      </div>
-      <div class="readiness-score" :class="{ complete: readiness.complete }">
-        <strong>{{ readiness.readyCount }}</strong>
-        <span>/ {{ readiness.totalCount }} 项就绪</span>
+      <h2 id="project-readiness-title" class="readiness-title">成片交付就绪度</h2>
+      <div class="readiness-head-actions">
+        <div class="readiness-score" :class="{ complete: readiness.complete }">
+          <strong>{{ readiness.readyCount }}</strong>
+          <span>/ {{ readiness.totalCount }} 项就绪</span>
+        </div>
+        <button
+          type="button"
+          class="readiness-toggle"
+          data-testid="project-readiness-toggle"
+          :aria-expanded="expanded"
+          aria-controls="project-readiness-details"
+          @click="toggle"
+        >
+          {{ expanded ? '收起详情' : '查看详情' }}
+          <el-icon><ArrowUp v-if="expanded" /><ArrowDown v-else /></el-icon>
+        </button>
       </div>
     </div>
 
@@ -23,53 +33,66 @@
       </el-button>
     </div>
 
-    <el-progress :percentage="readiness.percent" :stroke-width="6" :show-text="false" />
+    <div
+      id="project-readiness-details"
+      v-show="expanded"
+      class="readiness-details"
+      data-testid="project-readiness-details"
+    >
+      <p class="readiness-subtitle">从素材、五类 AI 服务到语音、逐集合成逐项核对，只保留一个下一步动作。</p>
+      <el-progress :percentage="readiness.percent" :stroke-width="6" :show-text="false" />
 
-    <div class="summary-grid">
-      <div
-        v-for="item in readiness.summaryItems"
-        :key="item.id"
-        class="summary-item"
-        :class="[`is-${item.status}`, { ready: item.ready }]"
-      >
-        <span class="summary-dot" aria-hidden="true" />
-        <div class="summary-copy">
-          <strong>{{ item.label }}</strong>
-          <span>{{ item.detail }}</span>
-        </div>
-        <span class="summary-state">{{ stateLabel(item.status) }}</span>
-      </div>
-    </div>
-
-    <div class="service-strip">
-      <span class="service-strip-title">AI 默认服务</span>
-      <div class="service-chip-list">
-        <component
-          :is="service.ready ? 'span' : 'button'"
-          v-for="service in readiness.services"
-          :key="service.type"
-          :type="service.ready ? undefined : 'button'"
-          class="service-chip"
-          :class="{ ready: service.ready }"
-          :title="service.ready ? `${service.label}${service.verified ? '已验证' : '已配置'}：${service.detail}` : `前往配置${service.label}`"
-          @click="!service.ready && emit('action', serviceAction(service))"
+      <div class="summary-grid">
+        <div
+          v-for="item in readiness.summaryItems"
+          :key="item.id"
+          class="summary-item"
+          :class="[`is-${item.status}`, { ready: item.ready }]"
         >
-          <span class="service-chip-dot" aria-hidden="true" />
-          <span>{{ service.label }}</span>
-        </component>
+          <span class="summary-dot" aria-hidden="true" />
+          <div class="summary-copy">
+            <strong>{{ item.label }}</strong>
+            <span>{{ item.detail }}</span>
+          </div>
+          <span class="summary-state">{{ stateLabel(item.status) }}</span>
+        </div>
+      </div>
+
+      <div class="service-strip">
+        <span class="service-strip-title">AI 默认服务</span>
+        <div class="service-chip-list">
+          <component
+            :is="service.ready ? 'span' : 'button'"
+            v-for="service in readiness.services"
+            :key="service.type"
+            :type="service.ready ? undefined : 'button'"
+            class="service-chip"
+            :class="{ ready: service.ready }"
+            :title="service.ready ? `${service.label}${service.verified ? '已验证' : '已配置'}：${service.detail}` : `前往配置${service.label}`"
+            @click="!service.ready && emit('action', serviceAction(service))"
+          >
+            <span class="service-chip-dot" aria-hidden="true" />
+            <span>{{ service.label }}</span>
+          </component>
+        </div>
       </div>
     </div>
   </section>
 </template>
 
 <script setup>
-import { ArrowRight } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, ArrowUp } from '@element-plus/icons-vue'
+import { useDisclosureState } from '@/composables/useDisclosureState'
 
-defineProps({
+const props = defineProps({
   readiness: { type: Object, required: true },
+  defaultExpanded: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['action'])
+const { expanded, toggle } = useDisclosureState({
+  defaultExpanded: props.defaultExpanded,
+})
 
 function stateLabel(status) {
   if (status === 'done') return '已完成'
@@ -108,6 +131,11 @@ function serviceAction(service) {
   gap: 16px;
   margin-bottom: 14px;
 }
+.readiness-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
 .readiness-title {
   margin: 0;
   color: var(--text-bright);
@@ -115,9 +143,10 @@ function serviceAction(service) {
   font-weight: 600;
 }
 .readiness-subtitle {
-  margin: 4px 0 0;
+  margin: 0 0 12px;
   color: var(--text-subtle);
   font-size: 12px;
+  line-height: 1.5;
 }
 .readiness-score {
   display: flex;
@@ -132,6 +161,29 @@ function serviceAction(service) {
 }
 .readiness-score.complete strong {
   color: var(--status-success);
+}
+.readiness-toggle {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-inner);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.readiness-toggle:hover {
+  border-color: var(--accent-text);
+  color: var(--accent-text);
+}
+.readiness-toggle:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
 }
 .next-action {
   justify-content: space-between;
@@ -169,6 +221,9 @@ function serviceAction(service) {
   color: var(--accent-text);
   background: rgba(139, 92, 246, 0.2);
   font-size: 11px;
+}
+.readiness-details {
+  padding-top: 2px;
 }
 .summary-grid {
   display: grid;

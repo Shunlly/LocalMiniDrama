@@ -32,33 +32,35 @@ function routes(db, log) {
         response.internalError(res, err.message);
       }
     },
-    delete: (req, res) => {
+    delete: async (req, res) => {
       try {
-        const ok = videoService.deleteById(db, log, req.params.id);
+        const ok = await videoService.deleteById(db, log, req.params.id);
         if (!ok) return response.notFound(res, '记录不存在');
         response.success(res, { message: '删除成功' });
       } catch (err) {
         log.error('videos delete', { error: err.message });
+      if ([
+        'REMOTE_CANCEL_FAILED',
+        'REMOTE_CANCEL_UNCERTAIN',
+        'TASK_SCOPE_CONFLICT',
+      ].includes(err.code)) {
+          return response.error(res, 409, err.code, err.message);
+        }
         response.internalError(res, err.message);
       }
     },
-    fromImage: (req, res) => {
-      try {
-        const task = taskService.createTask(db, log, 'video_generation', req.params.image_gen_id);
-        response.success(res, { task_id: task.id });
-      } catch (err) {
-        log.error('videos fromImage', { error: err.message });
-        response.internalError(res, err.message);
-      }
-    },
-    episodeBatch: (req, res) => {
-      try {
-        response.success(res, []);
-      } catch (err) {
-        log.error('videos episode batch', { error: err.message });
-        response.internalError(res, err.message);
-      }
-    },
+    fromImage: (_req, res) => response.error(
+      res,
+      501,
+      'LEGACY_ENDPOINT_DISABLED',
+      '请改为调用 POST /api/v1/videos，并传入 storyboard_id 与帧参考'
+    ),
+    episodeBatch: (_req, res) => response.error(
+      res,
+      501,
+      'LEGACY_ENDPOINT_DISABLED',
+      '请改为对每个分镜单独调用 POST /api/v1/videos'
+    ),
   };
 }
 

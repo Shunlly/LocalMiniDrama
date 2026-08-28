@@ -1,6 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 const { loadConfig } = require('../config');
+const uploadService = require('./uploadService');
+const storageLayout = require('./storageLayout');
+const networkMediaService = require('./networkMediaService');
+const networkCleanupTimers = new WeakMap();
+const dramaWriteGuard = require('./dramaWriteGuard');
+const {
+  normalizeFreeCanvasAssetReferences,
+  normalizeFreeCanvasMediaReference,
+} = require('./freeCanvasValidation');
 
 const ASSET_SELECT = `
   SELECT
@@ -14,6 +23,9 @@ const ASSET_FROM = `
 `;
 
 function list(db, query) {
+  if (query.drama_id && !dramaWriteGuard.canReadDrama(db, Number(query.drama_id))) {
+    return { items: [], total: 0, page: 1, pageSize: Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20)) };
+  }
   let sql = 'WHERE a.deleted_at IS NULL';
   const params = [];
   if (query.drama_id) {
@@ -29,24 +41,29 @@ function list(db, query) {
     sql += ' AND a.name LIKE ?';
     params.push(`%${keyword}%`);
   }
-  const countRow = db.prepare('SELECT COUNT(*) as total ' + ASSET_FROM + ' ' + sql).get(...params);
-  const total = countRow.total || 0;
   const page = Math.max(1, parseInt(query.page, 10) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20));
   const offset = (page - 1) * pageSize;
   const rows = db.prepare(
-    ASSET_SELECT + ' ' + ASSET_FROM + ' ' + sql + ' ORDER BY a.created_at DESC LIMIT ? OFFSET ?'
-  ).all(...params, pageSize, offset);
-  return { items: rows.map(rowToItem), total, page, pageSize };
+    ASSET_SELECT + ' ' + ASSET_FROM + ' ' + sql + ' ORDER BY a.created_at DESC, a.id DESC'
+  ).all(...params);
+  const visible = rows.filter((row) => dramaWriteGuard.canReadResource(db, 'assets', row.id));
+  return {
+    items: visible.slice(offset, offset + pageSize).map(rowToItem),
+    total: visible.length,
+    page,
+    pageSize,
+  };
 }
 
 function rowToItem(r) {
+  const sourceMetadata = parseNetworkSourceMetadata(r.category);
   return {
     id: r.id,
     drama_id: r.drama_id,
     name: r.name,
     type: r.type,
-    category: r.category,
+    category: sourceMetadata ? 'network' : r.category,
     url: r.url,
     local_path: r.local_path,
     file_size: r.file_size,
@@ -57,30 +74,204 @@ function rowToItem(r) {
     image_gen_id: r.image_gen_id,
     video_gen_id: r.video_gen_id,
     source_drama_title: r.source_drama_title || null,
+    ...(sourceMetadata ? {
+      source_provider: sourceMetadata.source_provider,
+      source_url: sourceMetadata.source_url,
+      author: sourceMetadata.author,
+      license: sourceMetadata.license,
+      license_url: sourceMetadata.license_url,
+      source_metadata: sourceMetadata,
+    } : {}),
     created_at: r.created_at,
     updated_at: r.updated_at,
   };
 }
 
+function parseNetworkSourceMetadata(value) {
+  if (typeof value !== 'string' || !value.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (
+      parsed?.kind !== 'wikimedia_commons'
+      || parsed.source_provider !== 'Wikimedia Commons'
+      || typeof parsed.source_url !== 'string'
+      || typeof parsed.commons_title !== 'string'
+    ) return null;
+    const source = new URL(parsed.source_url);
+    if (source.protocol !== 'https:' || source.origin !== 'https://commons.wikimedia.org') return null;
+    return parsed;
+  } catch (_) {
+    return null;
+  }
+}
+
+function encodeNetworkSourceMetadata(item) {
+  return JSON.stringify({
+    kind: 'wikimedia_commons',
+    source_provider: 'Wikimedia Commons',
+    source_url: item.source_url,
+    author: item.author,
+    license: item.license,
+    license_url: item.license_url || '',
+    commons_title: item.commons_title,
+    commons_page_id: item.commons_page_id || null,
+    commons_revision_timestamp: item.commons_revision_timestamp || '',
+    commons_sha1: item.commons_sha1 || '',
+    resolved_download_url: item.resolved_download_url || '',
+    content_sha256: item.content_sha256 || '',
+  });
+}
+
+function findNetworkAssetBySource(db, dramaId, sourceUrl) {
+  const rows = dramaId == null
+    ? db.prepare('SELECT id, category FROM assets WHERE drama_id IS NULL AND deleted_at IS NULL').all()
+    : db.prepare('SELECT id, category FROM assets WHERE drama_id = ? AND deleted_at IS NULL').all(dramaId);
+  const match = rows.find((row) => parseNetworkSourceMetadata(row.category)?.source_url === sourceUrl);
+  return match ? getById(db, match.id) : null;
+}
+
 function getById(db, id) {
+  if (!dramaWriteGuard.canReadResource(db, 'assets', id)) return null;
   const r = db.prepare(
     ASSET_SELECT + ' ' + ASSET_FROM + ' WHERE a.id = ? AND a.deleted_at IS NULL'
   ).get(Number(id));
   return r ? rowToItem(r) : null;
 }
 
-function create(db, log, req) {
+function badRequest(message) {
+  const error = new Error(message);
+  error.code = 'BAD_REQUEST';
+  return error;
+}
+
+function isPlainObject(value) {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function resolveDramaScope(db, value, options = {}) {
+  if (value === undefined || value === null) return null;
+  const normalized = options.strictDramaId
+    ? value
+    : (typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value);
+  if (!Number.isSafeInteger(normalized) || normalized <= 0) {
+    throw badRequest('drama_id 必须为正整数');
+  }
+  dramaWriteGuard.assertDramaWritable(db, normalized);
+  let drama;
+  try {
+    drama = db.prepare(
+      'SELECT id, title, created_at, metadata, trash_state FROM dramas WHERE id = ? AND deleted_at IS NULL'
+    ).get(normalized);
+  } catch (error) {
+    if (!/no such column: trash_state/i.test(error?.message || '')) throw error;
+    drama = db.prepare(
+      'SELECT id, title, created_at, metadata, NULL AS trash_state FROM dramas WHERE id = ? AND deleted_at IS NULL'
+    ).get(normalized);
+  }
+  if (!drama) throw badRequest('drama_id 对应的项目不存在');
+  return drama;
+}
+
+function normalizeLocalReference(value, field) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') throw badRequest(`${field} 必须为安全的本地媒体引用`);
+  try {
+    const relative = value.startsWith('/static/') ? value.slice('/static/'.length) : value;
+    return uploadService.normalizeStorageRelativeReference(relative);
+  } catch (_) {
+    throw badRequest(`${field} 必须为安全的本地媒体引用`);
+  }
+}
+
+function isLoopbackHostname(hostname) {
+  const host = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+  return host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host);
+}
+
+function normalizeAssetUrlReference(value, localPath) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') throw badRequest('url 必须为安全的媒体 URL 或本地媒体引用');
+  if (!/^https?:\/\//i.test(value)) {
+    return normalizeLocalReference(value, 'url');
+  }
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch (_) {
+    throw badRequest('url 必须为安全的媒体 URL 或本地媒体引用');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+    throw badRequest('url 必须为安全的媒体 URL 或本地媒体引用');
+  }
+  if (isLoopbackHostname(parsed.hostname)) {
+    const local = parsed.pathname.startsWith('/static/')
+      ? normalizeLocalReference(parsed.pathname, 'url')
+      : null;
+    if (!local || local !== localPath || parsed.search || parsed.hash) {
+      throw badRequest('url 不支持外部 localhost 媒体地址');
+    }
+    return local;
+  }
+  throw badRequest('远程素材 URL 需要完整的异步 DNS/私网校验，当前同步接口拒绝持久化');
+}
+
+function isAllowedProjectPath(drama, localPath) {
+  if (!localPath) return true;
+  if (localPath === 'library' || localPath.startsWith('library/')) return true;
+  if (!drama) return localPath === 'uploads' || localPath.startsWith('uploads/');
+  const currentPrefix = storageLayout.buildProjectRelativeDir(drama);
+  const legacyPrefix = `dramas/${Number(drama.id)}`;
+  return localPath === currentPrefix
+    || localPath.startsWith(`${currentPrefix}/`)
+    || localPath === legacyPrefix
+    || localPath.startsWith(`${legacyPrefix}/`);
+}
+
+function assertProjectPathScope(drama, localPath, field) {
+  if (!localPath) return localPath;
+  if (!isAllowedProjectPath(drama, localPath)) {
+    throw badRequest(`${field} 不属于当前项目或公共素材库`);
+  }
+  return localPath;
+}
+
+function normalizeAssetMedia(db, drama, req) {
+  void db;
+  const localPath = normalizeLocalReference(req.local_path, 'local_path');
+  const hasRemoteTransportUrl = localPath
+    && typeof req.url === 'string'
+    && /^https?:\/\//i.test(req.url.trim());
+  const urlPath = hasRemoteTransportUrl
+    ? null
+    : normalizeAssetUrlReference(req.url, localPath);
+  if (localPath && urlPath && localPath !== urlPath) {
+    throw badRequest('url 与 local_path 必须引用同一本地素材');
+  }
+  const canonicalPath = assertProjectPathScope(drama, localPath || urlPath, '媒体路径');
+  return {
+    localPath: canonicalPath,
+    url: canonicalPath ? `/static/${canonicalPath}` : '',
+  };
+}
+
+function create(db, log, req, options = {}) {
+  if (!isPlainObject(req)) throw badRequest('素材请求必须为对象');
+  if (parseNetworkSourceMetadata(req.category) && options.allowNetworkMetadata !== true) {
+    throw badRequest('category 包含保留的网络素材来源元数据');
+  }
+  const drama = resolveDramaScope(db, req.drama_id, options);
+  const media = normalizeAssetMedia(db, drama, req);
   const now = new Date().toISOString();
   const info = db.prepare(
     `INSERT INTO assets (drama_id, name, type, category, url, local_path, file_size, mime_type, width, height, duration, image_gen_id, video_gen_id, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    req.drama_id ?? null,
+    drama?.id ?? null,
     req.name || '未命名',
     req.type || 'image',
     req.category ?? null,
-    req.url || '',
-    req.local_path ?? null,
+    media.url,
+    media.localPath,
     req.file_size ?? null,
     req.mime_type ?? null,
     req.width ?? null,
@@ -95,41 +286,82 @@ function create(db, log, req) {
 }
 
 function update(db, log, id, req) {
-  const row = db.prepare('SELECT id FROM assets WHERE id = ? AND deleted_at IS NULL').get(Number(id));
-  if (!row) return null;
-  const updates = [];
-  const params = [];
-  ['name', 'description', 'type', 'category', 'url', 'local_path', 'thumbnail_url', 'file_size', 'mime_type', 'width', 'height', 'duration', 'is_favorite'].forEach((key) => {
-    if (req[key] !== undefined) {
-      updates.push(key + ' = ?');
-      params.push(req[key]);
+  if (!isPlainObject(req)) throw badRequest('素材请求必须为对象');
+  return dramaWriteGuard.runResourceWrite(db, 'assets', id, (row) => {
+    if (parseNetworkSourceMetadata(row.category)) {
+      const allowedNetworkUpdates = new Set(['name', 'description', 'is_favorite']);
+      const protectedFields = Object.keys(req).filter((key) => !allowedNetworkUpdates.has(key));
+      if (protectedFields.length > 0) {
+        throw badRequest('网络素材的来源、内容和媒体属性不能通过通用更新接口修改');
+      }
     }
+    let isLegacyGlobalUpload = false;
+    if (Number(row.drama_id) === 0) {
+      try {
+        const relative = normalizeLocalReference(row.local_path, 'local_path');
+        isLegacyGlobalUpload = relative === 'uploads' || relative.startsWith('uploads/');
+      } catch (_) {}
+    }
+    const drama = row.drama_id == null || isLegacyGlobalUpload
+      ? null
+      : resolveDramaScope(db, Number(row.drama_id));
+    const hasMediaUpdate = req.url !== undefined || req.local_path !== undefined;
+    const media = hasMediaUpdate
+      ? normalizeAssetMedia(db, drama, {
+        ...(req.local_path !== undefined ? { local_path: req.local_path } : {}),
+        ...(req.url !== undefined ? { url: req.url } : {}),
+      })
+      : null;
+    const updates = [];
+    const params = [];
+    ['name', 'description', 'type', 'category', 'thumbnail_url', 'file_size', 'mime_type', 'width', 'height', 'duration', 'is_favorite'].forEach((key) => {
+      if (req[key] !== undefined) {
+        updates.push(key + ' = ?');
+        params.push(req[key]);
+      }
+    });
+    if (media) {
+      updates.push('url = ?', 'local_path = ?');
+      params.push(media.url, media.localPath);
+      if (
+        row.drama_id != null
+        && Number(row.drama_id) === 0
+        && isLegacyGlobalUpload
+        && (media.localPath === 'library' || media.localPath?.startsWith('library/'))
+      ) {
+        updates.push('drama_id = ?');
+        params.push(null);
+      }
+    }
+    if (updates.length === 0) return getById(db, id);
+    params.push(new Date().toISOString(), row.id);
+    db.prepare('UPDATE assets SET ' + updates.join(', ') + ', updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+      .run(...params);
+    return getById(db, row.id);
   });
-  if (updates.length === 0) return getById(db, id);
-  params.push(new Date().toISOString(), id);
-  db.prepare('UPDATE assets SET ' + updates.join(', ') + ', updated_at = ? WHERE id = ?').run(...params);
-  return getById(db, id);
 }
 
 function normalizeLocalPath(localPath) {
-  const raw = String(localPath || '').trim().replace(/\\/g, '/');
-  if (!raw || raw.includes('\0')) return null;
-  const normalized = path.posix.normalize(raw).replace(/^\.\//, '');
-  if (
-    !normalized
-    || normalized === '..'
-    || normalized.startsWith('../')
-    || path.posix.isAbsolute(normalized)
-    || /^[a-zA-Z]:\//.test(normalized)
-  ) {
+  if (typeof localPath !== 'string') return null;
+  const raw = localPath.trim();
+  if (!raw) return null;
+  const relative = raw.startsWith('/static/') ? raw.slice('/static/'.length) : raw;
+  try {
+    return uploadService.normalizeStorageRelativeReference(relative);
+  } catch (_) {
     return null;
   }
-  return normalized;
 }
 
 function localPathReferenceKey(localPath) {
   const normalized = normalizeLocalPath(localPath);
   return process.platform === 'win32' && normalized ? normalized.toLowerCase() : normalized;
+}
+
+function physicalPathKey(filePath) {
+  if (typeof filePath !== 'string' || !filePath) return null;
+  const resolved = path.resolve(filePath);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
 function isWithinRoot(rootPath, candidatePath) {
@@ -144,21 +376,45 @@ function configuredStorageRoot(options = {}) {
   return path.isAbsolute(rawStorage) ? rawStorage : path.join(process.cwd(), rawStorage);
 }
 
-function resolveControlledUploadPath(storageRoot, localPath) {
+function controlledUploadReference(localPath) {
   const normalized = normalizeLocalPath(localPath);
   if (!normalized) return null;
   const segments = normalized.split('/');
   if (segments.length < 2 || segments[segments.length - 2] !== 'uploads') return null;
+  return normalized;
+}
+
+function resolveControlledUploadPath(storageRoot, localPath) {
+  const normalized = controlledUploadReference(localPath);
+  if (!normalized) return null;
+  const segments = normalized.split('/');
 
   const root = path.resolve(storageRoot);
   const candidate = path.resolve(root, ...segments);
   if (!isWithinRoot(root, candidate)) return null;
-  if (fs.existsSync(candidate)) {
+  try {
     const realRoot = fs.realpathSync.native(root);
     const realCandidate = fs.realpathSync.native(candidate);
     if (!isWithinRoot(realRoot, realCandidate)) return null;
+    const candidateStat = fs.statSync(candidate);
+    const realCandidateStat = fs.statSync(realCandidate);
+    if (
+      !candidateStat.isFile()
+      || candidateStat.dev !== realCandidateStat.dev
+      || candidateStat.ino !== realCandidateStat.ino
+    ) {
+      return null;
+    }
+    return {
+      absolutePath: candidate,
+      normalizedPath: normalized,
+      realPath: realCandidate,
+      identity: `${candidateStat.dev}:${candidateStat.ino}`,
+    };
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
   }
-  return { absolutePath: candidate, normalizedPath: normalized };
 }
 
 function storyboardReferencesForAsset(db, asset) {
@@ -190,61 +446,160 @@ function storyboardReferencesForAsset(db, asset) {
   return storyboardIds;
 }
 
-function assetInUseError(storyboardIds) {
-  const error = new Error(`素材正在被 ${storyboardIds.length} 个分镜引用，请先从分镜中移除后再删除`);
+function nodeAssetIdMatches(node, dramaId, assetId) {
+  for (const field of ['assetId', 'asset_ref']) {
+    if (node[field] === undefined) continue;
+    try {
+      const reference = normalizeFreeCanvasAssetReferences({ [field]: node[field] }, dramaId);
+      if (reference.resolvedId === assetId) return true;
+    } catch (error) {
+      if (error?.code !== 'BAD_REQUEST') throw error;
+    }
+  }
+  return false;
+}
+
+function freeCanvasReferencesForAsset(db, asset) {
+  const assetId = Number(asset?.id);
+  const assetPath = normalizeLocalPath(asset?.local_path);
+  const assetPathKey = localPathReferenceKey(assetPath);
+  const isLegacyGlobalUpload = Number(asset?.drama_id) === 0
+    && (assetPath === 'uploads' || assetPath?.startsWith('uploads/'));
+  const isGlobalAsset = asset?.drama_id == null || isLegacyGlobalUpload;
+  const ownerDramaId = Number(asset?.drama_id);
+  const rows = db.prepare(
+    `SELECT id, metadata
+       FROM dramas
+      WHERE deleted_at IS NULL
+        AND metadata IS NOT NULL
+      ORDER BY id`
+  ).all();
+  const dramaIds = [];
+
+  for (const row of rows) {
+    const dramaId = Number(row.id);
+    if (!isGlobalAsset && dramaId !== ownerDramaId) continue;
+
+    let metadata;
+    try {
+      metadata = JSON.parse(row.metadata);
+    } catch (_) {
+      continue;
+    }
+    if (!isPlainObject(metadata)) continue;
+    if (!Object.prototype.hasOwnProperty.call(metadata, 'free_canvas')) continue;
+    const canvas = metadata.free_canvas;
+    if (!isPlainObject(canvas) || !Array.isArray(canvas.nodes)) continue;
+
+    let matched = false;
+    for (const node of canvas.nodes) {
+      if (!isPlainObject(node)) continue;
+      if (nodeAssetIdMatches(node, dramaId, assetId)) {
+        matched = true;
+        break;
+      }
+
+      if (!assetPathKey) continue;
+      const mediaFields = ['storageKey'];
+      if (['image', 'video'].includes(node.type)) mediaFields.unshift('content');
+      for (const field of mediaFields) {
+        if (node[field] === undefined) continue;
+        let candidate;
+        try {
+          candidate = normalizeFreeCanvasMediaReference(db, dramaId, node[field], {
+            allowLegacyGlobalUploads: isGlobalAsset,
+          });
+        } catch (error) {
+          if (error?.code !== 'BAD_REQUEST') throw error;
+          continue;
+        }
+        if (localPathReferenceKey(candidate) === assetPathKey) {
+          matched = true;
+          break;
+        }
+      }
+      if (matched) break;
+    }
+    if (matched) dramaIds.push(dramaId);
+  }
+  return dramaIds;
+}
+
+function sameControlledFile(left, right) {
+  if (!left || !right) return false;
+  return localPathReferenceKey(left.normalizedPath) === localPathReferenceKey(right.normalizedPath)
+    && physicalPathKey(left.realPath) === physicalPathKey(right.realPath)
+    && left.identity === right.identity;
+}
+
+function assetInUseError(storyboardIds, freeCanvasDramaIds = []) {
+  const referenceCount = storyboardIds.length + freeCanvasDramaIds.length;
+  const error = freeCanvasDramaIds.length
+    ? new Error(`素材正在被 ${referenceCount} 处引用，请先移除引用后再删除`)
+    : new Error(`素材正在被 ${storyboardIds.length} 个分镜引用，请先从分镜中移除后再删除`);
   error.code = 'ASSET_IN_USE';
   error.statusCode = 409;
   error.details = {
-    reference_count: storyboardIds.length,
+    reference_count: referenceCount,
     storyboard_ids: storyboardIds.slice(0, 20),
   };
+  if (freeCanvasDramaIds.length) {
+    error.details.free_canvas_drama_ids = freeCanvasDramaIds.slice(0, 20);
+  }
   return error;
 }
 
 function deleteById(db, log, id, options = {}) {
   const assetId = Number(id);
   let removedPath = null;
-  let removablePath = null;
+  let removableReference = null;
+  const storageRoot = configuredStorageRoot(options);
   const performDelete = db.transaction(() => {
-    const row = db.prepare(
-      'SELECT id, local_path FROM assets WHERE id = ? AND deleted_at IS NULL'
-    ).get(assetId);
+    const row = dramaWriteGuard.assertResourceWritable(db, 'assets', assetId);
+    if (!row || row.deleted_at) return false;
     if (!row) return false;
 
     const storyboardIds = storyboardReferencesForAsset(db, row);
-    if (storyboardIds.length) throw assetInUseError(storyboardIds);
+    const freeCanvasDramaIds = freeCanvasReferencesForAsset(db, row);
+    if (storyboardIds.length || freeCanvasDramaIds.length) {
+      throw assetInUseError(storyboardIds, freeCanvasDramaIds);
+    }
 
     const result = db.prepare(
       'UPDATE assets SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL'
     ).run(new Date().toISOString(), assetId);
     if (result.changes === 0) return false;
 
-    const storageRoot = configuredStorageRoot(options);
-    const controlled = resolveControlledUploadPath(storageRoot, row.local_path);
-    if (!controlled) return true;
+    const cleanupReference = controlledUploadReference(row.local_path);
+    if (!cleanupReference) return true;
 
     const sharedRows = db.prepare(
       'SELECT local_path FROM assets WHERE id <> ? AND deleted_at IS NULL AND local_path IS NOT NULL'
     ).all(assetId);
     const hasSharedReference = sharedRows.some(
-      (candidate) => localPathReferenceKey(candidate.local_path) === localPathReferenceKey(controlled.normalizedPath)
+      (candidate) => localPathReferenceKey(candidate.local_path) === localPathReferenceKey(cleanupReference)
     );
     if (hasSharedReference) return true;
 
-    removablePath = controlled.absolutePath;
+    removableReference = cleanupReference;
     return true;
   });
 
   const deleted = performDelete();
-  if (deleted && removablePath) {
+  if (deleted && removableReference) {
     try {
-      fs.unlinkSync(removablePath);
-      removedPath = removablePath;
+      const eligible = resolveControlledUploadPath(storageRoot, removableReference);
+      const revalidated = eligible
+        ? resolveControlledUploadPath(storageRoot, removableReference)
+        : null;
+      if (sameControlledFile(eligible, revalidated)) {
+        fs.unlinkSync(revalidated.absolutePath);
+        removedPath = revalidated.absolutePath;
+      }
     } catch (err) {
       if (err.code !== 'ENOENT') {
         log?.warn?.('Asset file cleanup failed after database commit', {
           asset_id: assetId,
-          path: removablePath,
           error: err.message,
         });
       }
@@ -260,7 +615,7 @@ function importFromImage(db, log, imageGenId) {
   const img = db.prepare('SELECT * FROM image_generations WHERE id = ? AND deleted_at IS NULL').get(Number(imageGenId));
   if (!img) return null;
   return create(db, log, {
-    drama_id: img.drama_id,
+    drama_id: img.drama_id === 0 ? null : img.drama_id,
     name: `图片 ${imageGenId}`,
     type: 'image',
     url: img.image_url || '',
@@ -273,13 +628,125 @@ function importFromVideo(db, log, videoGenId) {
   const vid = db.prepare('SELECT * FROM video_generations WHERE id = ? AND deleted_at IS NULL').get(Number(videoGenId));
   if (!vid) return null;
   return create(db, log, {
-    drama_id: vid.drama_id,
+    drama_id: vid.drama_id === 0 ? null : vid.drama_id,
     name: `视频 ${videoGenId}`,
     type: 'video',
     url: vid.video_url || '',
     local_path: vid.local_path,
     video_gen_id: vid.id,
   });
+}
+
+async function searchNetwork(query, options = {}) {
+  return networkMediaService.search(query, options.network || options);
+}
+
+async function importFromNetwork(db, log, req, options = {}) {
+  if (!isPlainObject(req)) throw badRequest('素材请求必须为对象');
+  const drama = resolveDramaScope(db, req.drama_id, { strictDramaId: true });
+  const prepared = await networkMediaService.prepareImport(req, options.network || options);
+  try {
+    let reused = false;
+    const persist = db.transaction(() => {
+      if (drama) resolveDramaScope(db, drama.id, { strictDramaId: true });
+      const existing = findNetworkAssetBySource(db, drama?.id ?? null, prepared.item.source_url);
+      if (existing) {
+        const previous = existing.source_metadata || {};
+        const unchanged = previous.commons_revision_timestamp === prepared.item.commons_revision_timestamp
+          && previous.commons_sha1 === prepared.item.commons_sha1
+          && previous.content_sha256 === prepared.item.content_sha256;
+        if (!unchanged) {
+          const error = new Error('该 Commons 来源已有本地素材，但远端修订或内容已经变化，请删除旧素材后重新导入');
+          error.code = 'NETWORK_MEDIA_SOURCE_CHANGED';
+          error.statusCode = 409;
+          throw error;
+        }
+        reused = true;
+        return existing;
+      }
+      prepared.finalize();
+      return create(db, log, {
+        drama_id: drama?.id ?? null,
+        name: prepared.item.title,
+        type: prepared.item.media_type,
+        category: encodeNetworkSourceMetadata(prepared.item),
+        local_path: prepared.localPath,
+        file_size: prepared.item.file_size,
+        mime_type: prepared.item.mime_type,
+        width: prepared.item.width,
+        height: prepared.item.height,
+      }, { allowNetworkMetadata: true, strictDramaId: true });
+    });
+    const asset = persist();
+    if (reused) prepared.cleanup();
+    log?.info?.('Network asset imported', {
+      asset_id: asset.id,
+      source_provider: 'Wikimedia Commons',
+      local_path: asset.local_path,
+      reused,
+    });
+    return asset;
+  } catch (error) {
+    try {
+      prepared.cleanup();
+    } catch (cleanupError) {
+      log?.warn?.('Network asset cleanup failed', { error: cleanupError.message });
+    }
+    throw error;
+  }
+}
+
+function cleanupNetworkImportOrphans(db, log, options = {}) {
+  let rows;
+  try {
+    rows = db.prepare(
+      `SELECT local_path FROM assets
+        WHERE local_path GLOB 'library/uploads/network_*'
+          AND deleted_at IS NULL`
+    ).all();
+  } catch (error) {
+    if (/no such table/i.test(error?.message || '')) return { removed: [], skipped: [] };
+    throw error;
+  }
+  const result = networkMediaService.cleanupOrphans(
+    rows.map((row) => row.local_path),
+    options.network || options
+  );
+  if (result.removed.length) {
+    log?.warn?.('Cleaned stale network media import files', {
+      count: result.removed.length,
+      files: result.removed,
+    });
+  }
+  if (options.schedule !== false && !networkCleanupTimers.has(db)) {
+    startNetworkImportOrphanCleanup(db, log, options);
+  }
+  return result;
+}
+
+function startNetworkImportOrphanCleanup(db, log, options = {}) {
+  const existing = networkCleanupTimers.get(db);
+  if (existing) return existing.controller;
+  const intervalMs = Math.max(1000, Number(options.intervalMs) || networkMediaService.ORPHAN_CLEANUP_INTERVAL_MS);
+  const timer = setInterval(() => {
+    try {
+      cleanupNetworkImportOrphans(db, log, { ...options, schedule: false });
+    } catch (error) {
+      log?.warn?.('Periodic network media cleanup failed', { error: error.message });
+    }
+  }, intervalMs);
+  timer.unref?.();
+  const controller = {
+    isReferenced() {
+      return timer.hasRef?.() ?? false;
+    },
+    close() {
+      clearInterval(timer);
+      networkCleanupTimers.delete(db);
+    },
+  };
+  networkCleanupTimers.set(db, { timer, controller });
+  return controller;
 }
 
 module.exports = {
@@ -290,5 +757,9 @@ module.exports = {
   deleteById,
   importFromImage,
   importFromVideo,
+  searchNetwork,
+  importFromNetwork,
+  cleanupNetworkImportOrphans,
+  startNetworkImportOrphanCleanup,
   storyboardReferencesForAsset,
 };

@@ -18,9 +18,13 @@ const { requestBounded } = require('../src/services/sourceMediaExtractionService
 const TEST_TOKEN = 'unit-test-token-not-a-real-key';
 const previousStorySourceRoot = process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT;
 const storySourceRoot = path.join(os.tmpdir(), `localminidrama-source-media-test-${process.pid}-${Date.now()}`);
+const fakeExtractionServers = [];
 process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT = storySourceRoot;
 
 after(async () => {
+  await Promise.all(fakeExtractionServers.splice(0).map(
+    (server) => new Promise((resolve) => server.close(resolve))
+  ));
   if (previousStorySourceRoot == null) delete process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT;
   else process.env.LOCALMINIDRAMA_TEST_STORY_SOURCE_ROOT = previousStorySourceRoot;
   await fsp.rm(storySourceRoot, { recursive: true, force: true });
@@ -206,6 +210,7 @@ async function startFakeExtractionService(options = {}) {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
   });
+  fakeExtractionServers.push(server);
   const address = server.address();
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
@@ -310,7 +315,7 @@ function assertSafeMetadata(metadata, extractedText) {
   assert.equal(Object.hasOwn(metadata, 'raw_text'), false);
 }
 
-describe('Source Intake media extraction', () => {
+describe('sourceMediaExtraction: Source Intake media extraction', () => {
   it('does not let a configured public extraction hostname rebind to loopback', async () => {
     await assert.rejects(
       requestBounded('http://ocr-provider.example/v1/chat/completions', {
@@ -324,7 +329,7 @@ describe('Source Intake media extraction', () => {
         trustedOrigins: ['http://ocr-provider.example'],
         networkLookup: async () => [{ address: '127.0.0.1', family: 4 }],
       }),
-      /could not be reached/
+      /无法连接/
     );
   });
 
@@ -614,7 +619,7 @@ describe('Source Intake media extraction', () => {
       }, res);
 
       assert.equal(res.statusCode, 400);
-      assert.match(res.body.error.message, /Transcription service returned HTTP 503/);
+      assert.match(res.body.error.message, /转写服务.*HTTP 503/);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM source_items').get().count, 0);
       assert.deepEqual(await fsp.readdir(tempRoot), []);
@@ -666,7 +671,7 @@ describe('Source Intake media extraction', () => {
       }, res);
 
       assert.equal(res.statusCode, 400);
-      assert.match(res.body.error.message, /extension.*signature/i);
+      assert.match(res.body.error.message, /扩展名.*文件签名/);
       assert.equal(fake.requests.length, 0);
       assert.equal(db.prepare('SELECT COUNT(*) AS count FROM story_sources').get().count, 0);
     } finally {

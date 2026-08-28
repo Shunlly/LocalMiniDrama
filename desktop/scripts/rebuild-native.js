@@ -23,7 +23,7 @@ function assertRuntimePackagesInstalled() {
   ];
   for (const name of required) {
     try {
-      require.resolve(`${name}/package.json`, { paths: [desktopRoot] });
+      require.resolve(name, { paths: [desktopRoot] });
     } catch (err) {
       throw new Error(`Missing desktop runtime dependency ${name}; run npm install first`, { cause: err });
     }

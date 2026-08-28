@@ -88,7 +88,12 @@ test('image references preserve the exact enabled private provider origin except
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
   const originalListConfigs = aiConfigService.listConfigs;
-  aiConfigService.listConfigs = () => [config({ base_url: origin })];
+  aiConfigService.listConfigs = () => [config({
+    provider: 'openai_compatible',
+    api_protocol: 'openai',
+    base_url: origin,
+    settings: JSON.stringify({ allow_local_http: true }),
+  })];
   t.after(async () => {
     aiConfigService.listConfigs = originalListConfigs;
     await new Promise((resolve) => server.close(resolve));

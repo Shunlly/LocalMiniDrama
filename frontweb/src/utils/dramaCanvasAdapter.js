@@ -139,9 +139,12 @@ function appendUniversalNode(nodes, edges, ctx) {
 
 function appendMediaImageNode(nodes, edges, ctx) {
   const {
-    savedLayout, sb, sbId, fromId, mediaX, mediaY, imgId, url, frameKind, frameLabel,
+    savedLayout, sb, fromId, mediaX, mediaY, imgId, url, frameKind, frameLabel,
+    allowEmpty = false,
   } = ctx
-  if (!url) return fromId
+  const resolvedUrl = url ? String(url).trim() : ''
+  // 首尾帧即使还没有图片也要留下占位节点，避免流水线把后续视频直接接到脚本上。
+  if (!resolvedUrl && !allowEmpty) return fromId
   nodes.push(makeNode({
     id: imgId,
     type: 'canvasMedia',
@@ -149,9 +152,10 @@ function appendMediaImageNode(nodes, edges, ctx) {
     data: {
       kind: 'image',
       storyboard: sb,
-      url,
+      url: resolvedUrl,
       frameKind: frameKind || null,
       frameLabel: frameLabel || null,
+      ...(allowEmpty ? { pending: !resolvedUrl } : {}),
     },
   }))
   edges.push(makeEdge({
@@ -262,14 +266,14 @@ function buildEpisodePipeline(episode, savedLayout, startY, options = {}) {
         const firstId = `sbimg-first:${sb.id}`
         pipelineTailId = appendMediaImageNode(nodes, edges, {
           savedLayout, sb, sbId, fromId: pipelineTailId, mediaX, mediaY, imgId: firstId, url: firstUrl,
-          frameKind: 'first', frameLabel: '首帧',
+          frameKind: 'first', frameLabel: '首帧', allowEmpty: true,
         })
         mediaX += MEDIA_GAP_X
         const lastUrl = imageRecordUrl(resolveSbLastImageRecord(sb, imagesBySbId))
         const lastId = `sbimg-last:${sb.id}`
         pipelineTailId = appendMediaImageNode(nodes, edges, {
           savedLayout, sb, sbId, fromId: pipelineTailId, mediaX, mediaY, imgId: lastId, url: lastUrl,
-          frameKind: 'last', frameLabel: '尾帧',
+          frameKind: 'last', frameLabel: '尾帧', allowEmpty: true,
         })
         mediaX += MEDIA_GAP_X
       } else {

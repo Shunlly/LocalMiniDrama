@@ -1,17 +1,16 @@
+// 本地烟测入口。CI 走 npm run verify:e2e（e2e-production.cjs）。
+// 剧集页可见文案必须同时出现在 production E2E，避免本脚本游离后假通过。
 const assert = require('node:assert/strict')
 const { execFile } = require('node:child_process')
-const fs = require('node:fs/promises')
+const fs = require('node:fs')
 const path = require('node:path')
 const { promisify } = require('node:util')
 const { chromium } = require('playwright')
+const { validateE2eDataDirectory } = require('../../scripts/docker-compose-with-revision.cjs')
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3013'
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5679'
 const COMPOSE_WORKDIR = path.resolve(process.env.COMPOSE_WORKDIR || path.join(__dirname, '..', '..'))
-const BACKEND_WORKDIR = path.resolve(
-  process.env.BACKEND_WORKDIR || path.join(__dirname, '..', '..', 'backend-node'),
-)
-const STORY_SOURCE_ROOT = path.join(BACKEND_WORKDIR, 'data', 'story_sources')
 const E2E_TITLE_PREFIX = 'E2E Novel2Anime '
 const execFileAsync = promisify(execFile)
 
@@ -57,29 +56,55 @@ function normalizeDramaId(value) {
   return dramaId
 }
 
-function resolveSourceFixtureDirectory(dramaId) {
-  const normalizedId = normalizeDramaId(dramaId)
-  const root = path.resolve(STORY_SOURCE_ROOT)
-  const target = path.resolve(root, String(normalizedId))
-  if (path.dirname(target) !== root || path.basename(target) !== String(normalizedId)) {
-    throw new Error(`Refusing to remove unexpected story source directory: ${target}`)
-  }
-  return target
+function requireE2eDataDirectory() {
+  return validateE2eDataDirectory(process.env.LOCALMINIDRAMA_DATA_DIR, { requireEmpty: false })
 }
 
-async function removeSourceFixtureDirectory(dramaId) {
-  const directory = resolveSourceFixtureDirectory(dramaId)
-  let stat
+async function verifyE2eContainerDataMount(execFileRunner = execFileAsync) {
+  const dataDirectory = requireE2eDataDirectory()
+  const commandOptions = {
+    cwd: COMPOSE_WORKDIR,
+    env: { ...process.env, LOCALMINIDRAMA_DATA_DIR: dataDirectory },
+    windowsHide: true,
+  }
+  const { stdout: containerOutput } = await execFileRunner(
+    'docker',
+    ['compose', 'ps', '-q', 'backend'],
+    commandOptions,
+  )
+  const containerId = String(containerOutput || '').trim()
+  if (!/^[a-f0-9]{12,64}$/i.test(containerId)) {
+    throw new Error('Docker E2E 未找到唯一运行中的 backend 容器')
+  }
+  const { stdout: inspectOutput } = await execFileRunner(
+    'docker',
+    ['container', 'inspect', containerId],
+    commandOptions,
+  )
+  let inspected
   try {
-    stat = await fs.lstat(directory)
-  } catch (error) {
-    if (error?.code === 'ENOENT') return
-    throw error
+    inspected = JSON.parse(String(inspectOutput || ''))?.[0]
+  } catch (_) {
+    throw new Error('Docker E2E 无法解析 backend 容器挂载信息')
   }
-  if (stat.isSymbolicLink()) {
-    throw new Error(`Refusing to remove symlinked story source directory: ${directory}`)
+  const dataMount = inspected?.Mounts?.find((mount) => mount?.Destination === '/app/data')
+  if (dataMount?.Type !== 'bind' || dataMount?.RW !== true || typeof dataMount?.Source !== 'string') {
+    throw new Error('Docker E2E 的 backend /app/data 必须是可写 bind mount')
   }
-  await fs.rm(directory, { recursive: true, force: true })
+  let mountedSource
+  try {
+    mountedSource = fs.realpathSync(dataMount.Source)
+  } catch (_) {
+    throw new Error('Docker E2E 的 backend 数据挂载源不可读取')
+  }
+  const normalize = (value) => {
+    const resolved = path.resolve(value)
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+  }
+  if (normalize(mountedSource) !== normalize(dataDirectory)) {
+    throw new Error('Docker E2E 的 backend 数据挂载源与 LOCALMINIDRAMA_DATA_DIR 不一致')
+  }
+  return { containerId, dataDirectory }
 }
 
 function parsePurgeResult(stdout) {
@@ -104,6 +129,7 @@ function parsePurgeResult(stdout) {
 
 async function runDockerFixturePurge({ dramaId, expectedTitle }, execFileRunner = execFileAsync) {
   const normalizedId = normalizeDramaId(dramaId)
+  const dataDirectory = requireE2eDataDirectory()
   if (typeof expectedTitle !== 'string' || !expectedTitle.startsWith(E2E_TITLE_PREFIX)) {
     throw new Error(`E2E cleanup title must start with ${JSON.stringify(E2E_TITLE_PREFIX)}`)
   }
@@ -127,6 +153,7 @@ async function runDockerFixturePurge({ dramaId, expectedTitle }, execFileRunner 
     expectedTitle,
   ], {
     cwd: COMPOSE_WORKDIR,
+    env: { ...process.env, LOCALMINIDRAMA_DATA_DIR: dataDirectory },
     windowsHide: true,
   })
   return parsePurgeResult(stdout)
@@ -136,7 +163,7 @@ async function main({
   apiRequest = apiFetch,
   launchBrowser = (options) => chromium.launch(options),
   fixturePurger = runDockerFixturePurge,
-  sourceDirectoryRemover = removeSourceFixtureDirectory,
+  containerMountVerifier = verifyE2eContainerDataMount,
   logger = console,
   now = Date.now,
 } = {}) {
@@ -144,6 +171,8 @@ async function main({
   let primaryError = null
 
   try {
+    requireE2eDataDirectory()
+    await containerMountVerifier()
     const stamp = now()
     const fixtureTitle = `${E2E_TITLE_PREFIX}${stamp}`
     const drama = await apiRequest('/dramas', {
@@ -162,9 +191,6 @@ async function main({
       ))
       registerCleanup(cleanupActions, `drama ${drama.id}`, () => (
         apiRequest(`/dramas/${drama.id}`, { method: 'DELETE' })
-      ))
-      registerCleanup(cleanupActions, `story source directory ${drama.id}`, () => (
-        sourceDirectoryRemover(drama.id)
       ))
     }
     assert.ok(drama?.id, 'created drama id is required')
@@ -225,10 +251,11 @@ module.exports = {
   E2E_TITLE_PREFIX,
   main,
   parsePurgeResult,
+  requireE2eDataDirectory,
   registerCleanup,
-  resolveSourceFixtureDirectory,
   runDockerFixturePurge,
   runCleanup,
+  verifyE2eContainerDataMount,
 }
 
 if (require.main === module) {

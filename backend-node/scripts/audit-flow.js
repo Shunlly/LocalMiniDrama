@@ -162,7 +162,8 @@ assert(!workflow.includes('setImmediate'), 'workflow scheduler must use the cent
 const qa = read('src/services/qaService.js');
 assertContainsAll(qa, [
   'isRealMediaPath',
-  'Final QA requires non-mock generated media',
+  "'media_timeline_incomplete'",
+  '正式交付检查要求每个分镜都有非占位的真实生成媒体',
   'story_event_edges',
   'provider_invocations',
   'skill_invocations',

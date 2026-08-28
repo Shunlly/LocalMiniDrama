@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const dramaService = require('./dramaService');
+const dramaWriteGuard = require('./dramaWriteGuard');
 const uploadService = require('./uploadService');
 const { detectChaptersByRules } = require('./novelImportService');
 
@@ -55,7 +56,7 @@ function persistRawSourceText(dramaId, hash, text) {
     if (error.code !== 'EEXIST') throw error;
     const existing = fs.lstatSync(filePath);
     if (existing.isSymbolicLink() || !existing.isFile()) {
-      const unsafe = new Error('The source text path is not a regular file.');
+      const unsafe = new Error('素材文本路径不是普通文件');
       unsafe.code = 'UNSAFE_SOURCE_STORAGE';
       throw unsafe;
     }
@@ -152,7 +153,7 @@ function splitSourceItems(sourceType, text, title) {
   }
 
   if (!chunks.length) {
-    chunks = [{ title: title || `${sourceType} source`, content: body }];
+    chunks = [{ title: title || `${sourceType} 素材`, content: body }];
   }
 
   return chunks
@@ -291,7 +292,7 @@ function buildStoryEvents(dramaId, sourceType, items) {
       drama_id: Number(dramaId),
       source_item_id: null,
       event_no: index + 1,
-      title: item.title || `${sourceType} event ${index + 1}`,
+      title: item.title || `素材事件 ${index + 1}`,
       detail: trimText(item.raw_text, 800),
       characters: extractCharacters(item.raw_text),
       location: extractLocation(item.raw_text),
@@ -305,7 +306,7 @@ function summarizeEpisodeBeats(bucketItems, bucketEvents) {
   const beats = bucketEvents.length ? bucketEvents : bucketItems;
   return beats.map((item, index) => ({
     beat_no: index + 1,
-    title: trimText(item.title || `Beat ${index + 1}`, 120),
+    title: trimText(item.title || `情节点 ${index + 1}`, 120),
     summary: trimText(item.detail || item.summary || item.raw_text || '', 260),
     tension: item.tension || undefined,
     hook_score: item.hook_score || undefined,
@@ -334,7 +335,7 @@ function buildAdaptationPlan({ dramaId, sourceId, sourceType, title, items, even
     const locations = Array.from(new Set(bucketEvents.map((event) => event.location).filter(Boolean)));
     episodes.push({
       episode_number: i + 1,
-      title: first.title || `Episode ${i + 1}`,
+      title: first.title || `第 ${i + 1} 集`,
       source_item_ids: bucketItems.map((item) => item.id).filter(Boolean),
       story_event_ids: bucketEvents.map((event) => event.id).filter(Boolean),
       source_trace: bucketItems.map((item) => ({ id: item.id, item_no: item.item_no, title: item.title })).filter((item) => item.id),
@@ -425,20 +426,16 @@ function rowToPlan(row) {
 
 function createStorySource(db, log, params) {
   const dramaId = Number(params.drama_id || params.dramaId);
-  if (!dramaId || !dramaService.getDramaById(db, dramaId)) {
-    const err = new Error('drama_id is required and must reference an existing drama');
-    err.code = 'BAD_REQUEST';
-    throw err;
-  }
+  dramaWriteGuard.assertDramaWritable(db, dramaId);
   const text = String(params.text || params.raw_text || '').trim();
   if (!text) {
-    const err = new Error('source text is required');
+    const err = new Error('素材文本不能为空');
     err.code = 'BAD_REQUEST';
     throw err;
   }
 
   const sourceType = normalizeSourceType(params.source_type, text);
-  const title = String(params.title || '').trim() || `${sourceType} source`;
+  const title = String(params.title || '').trim() || `${sourceType} 素材`;
   const items = splitSourceItems(sourceType, text, title);
   const createdAt = nowIso();
   const hash = contentHash(text);
@@ -588,7 +585,9 @@ function listSourcesByDrama(db, dramaId) {
 
 function getSourceById(db, sourceId) {
   const row = db.prepare('SELECT * FROM story_sources WHERE id = ? AND deleted_at IS NULL').get(Number(sourceId));
-  return row ? rowToSource(row) : null;
+  if (!row) return null;
+  dramaWriteGuard.assertDramaReadable(db, row.drama_id);
+  return rowToSource(row);
 }
 
 function getSourceDetail(db, sourceId) {
@@ -678,7 +677,7 @@ function insertEpisodesAppendOnly(db, dramaId, episodes) {
     const info = insert.run(
       Number(dramaId),
       nextNo,
-      episode.title || `Episode ${nextNo}`,
+      episode.title || `第 ${nextNo} 集`,
       episode.script_content || '',
       episode.description || null,
       now,
@@ -710,59 +709,69 @@ function markExistingStoryboardsStale(db, dramaId, episodes) {
 }
 
 function applyAdaptationPlanToEpisodes(db, log, planId, options = {}) {
-  const plan = getAdaptationPlanById(db, planId);
-  if (!plan) return null;
-  const episodes = Array.isArray(plan.plan_json?.episodes) ? plan.plan_json.episodes : [];
-  const savePayload = episodes.map((episode, index) => ({
-    episode_number: Number(episode.episode_number) || index + 1,
-    title: episode.title || `Episode ${index + 1}`,
-    script_content: [
-      episode.beat_summary || '',
-      episode.hook ? `\nHook: ${episode.hook}` : '',
-    ].join('').trim(),
-  }));
+  const apply = db.transaction(() => {
+    const plan = getAdaptationPlanById(db, planId);
+    if (!plan) return null;
 
-  const existingCount = db.prepare(
-    'SELECT COUNT(*) AS count FROM episodes WHERE drama_id = ? AND deleted_at IS NULL'
-  ).get(Number(plan.drama_id)).count || 0;
-  const overwrite = options.overwrite === true || options.overwrite_existing_episodes === true;
-  let savedEpisodes = [];
-  let staleStoryboardCount = 0;
+    // 计划行的 drama_id 才是本次写入的真实边界，不能用 plan_id 或来源 ID 代替。
+    dramaWriteGuard.assertDramaWritable(db, plan.drama_id);
+    const episodes = Array.isArray(plan.plan_json?.episodes) ? plan.plan_json.episodes : [];
+    const savePayload = episodes.map((episode, index) => ({
+      episode_number: Number(episode.episode_number) || index + 1,
+      title: episode.title || `第 ${index + 1} 集`,
+      script_content: [
+        episode.beat_summary || '',
+        episode.hook ? `\n悬念：${episode.hook}` : '',
+      ].join('').trim(),
+    }));
 
-  if (overwrite) {
-    staleStoryboardCount = markExistingStoryboardsStale(db, plan.drama_id, savePayload);
-    const ok = dramaService.saveEpisodes(db, log, plan.drama_id, { episodes: savePayload });
-    if (!ok) return null;
-    savedEpisodes = db.prepare(
-      'SELECT id, episode_number, title, script_content FROM episodes WHERE drama_id = ? AND deleted_at IS NULL ORDER BY episode_number ASC'
-    ).all(Number(plan.drama_id));
-  } else if (existingCount > 0) {
-    savedEpisodes = insertEpisodesAppendOnly(db, plan.drama_id, savePayload);
-  } else {
-    const ok = dramaService.saveEpisodes(db, log, plan.drama_id, { episodes: savePayload });
-    if (!ok) return null;
-    savedEpisodes = db.prepare(
-      'SELECT id, episode_number, title, script_content FROM episodes WHERE drama_id = ? AND deleted_at IS NULL ORDER BY episode_number ASC'
-    ).all(Number(plan.drama_id));
-  }
+    const existingCount = db.prepare(
+      'SELECT COUNT(*) AS count FROM episodes WHERE drama_id = ? AND deleted_at IS NULL'
+    ).get(Number(plan.drama_id)).count || 0;
+    const overwrite = options.overwrite === true || options.overwrite_existing_episodes === true;
+    let savedEpisodes = [];
+    let staleStoryboardCount = 0;
 
-  const now = nowIso();
-  db.prepare('UPDATE adaptation_plans SET status = ?, updated_at = ? WHERE id = ?').run('applied', now, plan.id);
-  log?.info?.('Adaptation plan applied to episodes', {
-    drama_id: plan.drama_id,
-    plan_id: plan.id,
-    overwrite,
-    episode_count: savedEpisodes.length,
-    stale_storyboard_count: staleStoryboardCount,
+    if (overwrite) {
+      staleStoryboardCount = markExistingStoryboardsStale(db, plan.drama_id, savePayload);
+      const ok = dramaService.saveEpisodes(db, log, plan.drama_id, { episodes: savePayload });
+      if (!ok) throw new Error('保存适配计划剧集失败');
+      savedEpisodes = db.prepare(
+        'SELECT id, episode_number, title, script_content FROM episodes WHERE drama_id = ? AND deleted_at IS NULL ORDER BY episode_number ASC'
+      ).all(Number(plan.drama_id));
+    } else if (existingCount > 0) {
+      savedEpisodes = insertEpisodesAppendOnly(db, plan.drama_id, savePayload);
+    } else {
+      const ok = dramaService.saveEpisodes(db, log, plan.drama_id, { episodes: savePayload });
+      if (!ok) throw new Error('保存适配计划剧集失败');
+      savedEpisodes = db.prepare(
+        'SELECT id, episode_number, title, script_content FROM episodes WHERE drama_id = ? AND deleted_at IS NULL ORDER BY episode_number ASC'
+      ).all(Number(plan.drama_id));
+    }
+
+    const now = nowIso();
+    db.prepare('UPDATE adaptation_plans SET status = ?, updated_at = ? WHERE id = ?').run('applied', now, plan.id);
+    return {
+      drama_id: plan.drama_id,
+      plan_id: plan.id,
+      episode_count: savedEpisodes.length,
+      overwrite,
+      stale_storyboard_count: staleStoryboardCount,
+      episodes: savedEpisodes,
+    };
   });
-  return {
-    drama_id: plan.drama_id,
-    plan_id: plan.id,
-    episode_count: savedEpisodes.length,
-    overwrite,
-    stale_storyboard_count: staleStoryboardCount,
-    episodes: savedEpisodes,
-  };
+
+  const result = typeof apply.immediate === 'function' ? apply.immediate() : apply();
+  if (result) {
+    log?.info?.('Adaptation plan applied to episodes', {
+      drama_id: result.drama_id,
+      plan_id: result.plan_id,
+      overwrite: result.overwrite,
+      episode_count: result.episode_count,
+      stale_storyboard_count: result.stale_storyboard_count,
+    });
+  }
+  return result;
 }
 
 module.exports = {

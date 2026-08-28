@@ -29,18 +29,19 @@ const workflowRoutes = require('./workflows');
 const storySourceRoutes = require('./storySources');
 const qaReportRoutes = require('./qaReports');
 const timelineRoutes = require('./timelines');
+const aiConfigService = require('../services/aiConfigService');
+const { validateHttpRequestTarget } = require('../services/secureHttpFetch');
 
-function createProviderNetworkBoundary(db) {
+function createProviderNetworkBoundary(db, options = {}) {
   return async (req, res, next) => {
     const body = req.body || {};
     const rawId = body.id ?? body.config_id;
     let saved = null;
-    let trustedOrigins = [];
     if (rawId != null && /^\d+$/.test(String(rawId))) {
       saved = db.prepare(
-        'SELECT base_url, is_active FROM ai_service_configs WHERE id = ? AND deleted_at IS NULL'
+        `SELECT base_url, is_active, provider, service_type, settings
+         FROM ai_service_configs WHERE id = ? AND deleted_at IS NULL`
       ).get(Number(rawId));
-      if (saved?.is_active) trustedOrigins = [saved.base_url].filter(Boolean);
     }
     const requestedBaseUrl = String(body.base_url || saved?.base_url || '').trim();
     if (!requestedBaseUrl) return next();
@@ -56,21 +57,24 @@ function createProviderNetworkBoundary(db) {
         res,
         400,
         'UNSAVED_PROVIDER_URL',
-        'Save and enable the provider configuration before making provider network requests.'
+        '请先保存并启用该 Provider 配置，再发起网络请求'
       );
     }
 
     try {
-      const uploadService = require('../services/uploadService');
-      await uploadService.validatePublicHttpUrl(requestedBaseUrl, { trustedOrigins });
-      req.providerNetworkTrustedOrigins = trustedOrigins;
+      const providerNetworkPolicy = aiConfigService.getProviderNetworkOptions(saved, {
+        lookup: options.lookup,
+      });
+      await validateHttpRequestTarget(requestedBaseUrl, providerNetworkPolicy);
+      req.providerNetworkPolicy = providerNetworkPolicy;
+      req.providerNetworkTrustedOrigins = providerNetworkPolicy.trustedOrigins;
       return next();
     } catch (error) {
       return response.error(
         res,
         400,
         error?.code || 'UNSAFE_PROVIDER_URL',
-        'Provider URL must match an enabled saved provider configuration.'
+        'Provider 地址必须与已保存且已启用的配置一致'
       );
     }
   };
@@ -136,6 +140,14 @@ function setupRouter(cfg, db, log) {
     }),
     limits: { fileSize: DEFAULT_IMPORT_LIMITS.maxArchiveBytes, files: 1, fields: 20 },
   });
+  const backupUploadTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-backup-upload-'));
+  const backupUpload = multer({
+    storage: multer.diskStorage({
+      destination(_req, _file, callback) { callback(null, backupUploadTempRoot); },
+      filename(_req, _file, callback) { callback(null, `${randomUUID()}.zip`); },
+    }),
+    limits: { fileSize: 8 * 1024 * 1024 * 1024, files: 1, fields: 20 },
+  });
   const novelUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1 } });
   const sourceUploadMaxBytes = 20 * 1024 * 1024;
   const sourceUpload = multer({
@@ -152,7 +164,7 @@ function setupRouter(cfg, db, log) {
     const contentLength = Number(req.headers?.['content-length']);
     const maxRequestBytes = DEFAULT_IMPORT_LIMITS.maxArchiveBytes + (2 * 1024 * 1024);
     if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
-      return response.error(res, 413, 'IMPORT_ARCHIVE_TOO_LARGE', 'ZIP upload exceeds 256MB');
+      return response.error(res, 413, 'IMPORT_ARCHIVE_TOO_LARGE', 'ZIP 上传超过 256MB 上限，请压缩或拆分后重试');
     }
     try {
       uploadService.assertUploadDiskCapacity(
@@ -165,7 +177,7 @@ function setupRouter(cfg, db, log) {
           res,
           507,
           'INSUFFICIENT_STORAGE',
-          'Insufficient temporary disk space for ZIP upload'
+          '临时磁盘空间不足，无法接收 ZIP 上传。请清理磁盘后重试'
         );
       }
       return next(error);
@@ -174,9 +186,9 @@ function setupRouter(cfg, db, log) {
       if (err) {
         if (req.file?.path) fs.rmSync(req.file.path, { force: true });
         if (err.code === 'LIMIT_FILE_SIZE') {
-          return response.error(res, 413, 'IMPORT_ARCHIVE_TOO_LARGE', 'ZIP upload exceeds 256MB');
+          return response.error(res, 413, 'IMPORT_ARCHIVE_TOO_LARGE', 'ZIP 上传超过 256MB 上限，请压缩或拆分后重试');
         }
-        return response.badRequest(res, err.message || 'ZIP upload failed');
+        return response.badRequest(res, err.message || 'ZIP 上传失败，请更换文件后重试');
       }
       if (req.file?.path) {
         const uploadedPath = req.file.path;
@@ -201,7 +213,7 @@ function setupRouter(cfg, db, log) {
         res,
         413,
         'SOURCE_UPLOAD_TOO_LARGE',
-        'Source Intake uploads are limited to 20MB.'
+        '素材导入文件不能超过 20MB，请拆分或压缩后重试'
       );
     }
     try {
@@ -218,7 +230,7 @@ function setupRouter(cfg, db, log) {
           res,
           507,
           'INSUFFICIENT_STORAGE',
-          'Insufficient storage capacity for the source original.'
+          '存储空间不足，无法保存原始素材。请清理磁盘后重试'
         );
       }
       return next(error);
@@ -230,10 +242,10 @@ function setupRouter(cfg, db, log) {
           res,
           413,
           'SOURCE_UPLOAD_TOO_LARGE',
-          'Source Intake uploads are limited to 20MB.'
+          '素材导入文件不能超过 20MB，请拆分或压缩后重试'
         );
       }
-      return response.badRequest(res, err.message || 'Source Intake upload failed');
+      return response.badRequest(res, err.message || '素材导入失败，请更换文件后重试');
     });
   };
   r.post('/dramas/import', importUploadSingle, drama.importDrama);
@@ -300,6 +312,7 @@ function setupRouter(cfg, db, log) {
   r.put('/dramas/:id/outline', drama.saveOutline);
   r.get('/dramas/:id/characters', drama.getCharacters);
   r.put('/dramas/:id/characters', drama.saveCharacters);
+  r.get('/dramas/:id/scenes', scenes.list);
   r.put('/dramas/:id/episodes', drama.saveEpisodes);
   r.put('/dramas/:id/progress', drama.saveProgress);
   r.put('/dramas/:id/canvas-layout', drama.saveCanvasLayout);
@@ -351,6 +364,7 @@ function setupRouter(cfg, db, log) {
       response.success(res, { task_id: taskId, status: 'pending' });
     } catch (err) {
       log.error('generation/characters', { error: err.message });
+      if (err.code === 'BAD_REQUEST') return response.badRequest(res, err.message);
       response.internalError(res, err.message || '创建任务失败');
     }
   });
@@ -502,6 +516,8 @@ function setupRouter(cfg, db, log) {
 
   // ---------- assets ----------
   r.get('/assets', assets.list);
+  r.get('/assets/network-search', assets.networkSearch);
+  r.post('/assets/network-import', assets.networkImport);
   r.post('/assets/upload', uploadModule.multerMediaSingle, uploadHandlers.uploadAsset);
   r.post('/assets', assets.create);
   r.post('/assets/import/image/:image_gen_id', assets.importImage);
@@ -546,6 +562,9 @@ function setupRouter(cfg, db, log) {
   r.put('/settings/language', settings.updateLanguage);
   r.get('/settings/generation', settings.getGenerationSettings);
   r.put('/settings/generation', settings.updateGenerationSettings);
+  r.get('/settings/backups', settings.listBackups);
+  r.post('/settings/backups', settings.createBackup);
+  r.post('/settings/backups/restore', backupUpload.single('file'), settings.restoreBackup);
 
   // ---------- prompt overrides ----------
   r.get('/settings/prompts', promptOverrides.list);

@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="panelRef"
     class="canvas-node-panel script-panel nodrag nopan nowheel"
     tabindex="-1"
     @pointerdown.stop
@@ -7,12 +8,13 @@
     @click.stop
     @mouseup.stop
     @wheel.stop
+    @keydown.esc.stop.prevent="closePanel"
   >
     <div class="panel-head">
       <span>剧本 · 第 {{ episode?.episode_number ?? '?' }} 集</span>
       <div class="head-right">
         <span v-if="busyLabel" class="busy-tag">{{ busyLabel }}</span>
-        <el-button link size="small" @click.stop="closePanel">收起</el-button>
+        <el-button link size="small" aria-label="收起面板" @click.stop="closePanel">收起</el-button>
       </div>
     </div>
 
@@ -20,7 +22,7 @@
 
     <el-form label-position="left" label-width="44px" size="small" class="compact-form">
       <el-form-item label="集标题">
-        <el-input v-model="form.title" placeholder="第 N 集" />
+        <el-input v-model="form.title" aria-label="集标题" placeholder="第 N 集" />
       </el-form-item>
       <el-form-item label="剧本">
         <el-input
@@ -28,6 +30,7 @@
           type="textarea"
           :rows="6"
           resize="vertical"
+          aria-label="本集剧本"
           placeholder="在此粘贴或编写本集剧本…"
           class="script-textarea"
         />
@@ -50,9 +53,10 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useCanvasContext } from '@/composables/useCanvasContext'
+import { canvasUserError } from '@/composables/useCanvasUserError'
 
 const props = defineProps({
   episode: { type: Object, required: true },
@@ -60,6 +64,7 @@ const props = defineProps({
 })
 
 const ctx = useCanvasContext()
+const panelRef = ref(null)
 const saving = ref(false)
 const extracting = ref(false)
 const form = reactive({
@@ -81,6 +86,10 @@ function syncForm(ep) {
   form.title = ep?.title || `第${ep?.episode_number ?? ''}集`
   form.scriptContent = ep?.script_content || ''
 }
+
+onMounted(() => {
+  panelRef.value?.focus?.()
+})
 
 watch(() => props.episode, (ep) => syncForm(ep), { immediate: true, deep: true })
 
@@ -104,7 +113,7 @@ async function onSave() {
       title: form.title,
     })
   } catch (e) {
-    ElMessage.error(e?.message || '保存失败')
+    ElMessage.error(canvasUserError(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -115,7 +124,7 @@ async function runExtract(fn) {
   try {
     await fn()
   } catch (e) {
-    if (e?.message) ElMessage.error(e.message)
+    ElMessage.error(canvasUserError(e, '提取失败'))
   } finally {
     extracting.value = false
   }

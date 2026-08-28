@@ -39,11 +39,27 @@ test('request context accepts only bounded safe correlation ids', () => {
 
 test('app initialization releases its maintenance guard when startup fails', () => {
   let releases = 0;
+  let databaseCloses = 0;
   const startupError = new Error('database startup failed');
   assert.throws(
     () => initializeWithMaintenanceGuard({ release() { releases += 1; } }, () => {
       throw startupError;
-    }),
+    }, () => { databaseCloses += 1; }),
+    (error) => error === startupError
+  );
+  assert.equal(databaseCloses, 1);
+  assert.equal(releases, 1);
+});
+
+test('app initialization preserves the startup error when cleanup also fails', () => {
+  const startupError = new Error('startup root cause');
+  let releases = 0;
+  assert.throws(
+    () => initializeWithMaintenanceGuard(
+      { release() { releases += 1; throw new Error('lock release failed'); } },
+      () => { throw startupError; },
+      () => { throw new Error('database close failed'); }
+    ),
     (error) => error === startupError
   );
   assert.equal(releases, 1);
@@ -51,18 +67,27 @@ test('app initialization releases its maintenance guard when startup fails', () 
 
 test('production 500 response hides details and returns its request id', () => {
   const entries = [];
-  const handler = createErrorHandler({ errorw(message, fields) { entries.push({ message, fields }); } }, { production: true });
+  const operations = [];
+  const handler = createErrorHandler({
+    errorw(message, fields) { entries.push({ message, fields }); },
+    operation(event) { operations.push(event); },
+  }, { production: true });
   const res = responseRecorder();
   const req = { requestId: 'req-500', method: 'GET', path: '/api/v1/fail' };
   handler(new Error('failed at C:\\private\\database.sqlite with upstream token'), req, res, () => {});
 
   assert.equal(res.statusCode, 500);
   assert.equal(res.body.error.code, 'INTERNAL_ERROR');
-  assert.equal(res.body.error.message, 'Internal server error');
+  assert.equal(res.body.error.message, '服务器内部错误');
   assert.equal(res.body.request_id, 'req-500');
   assert.doesNotMatch(JSON.stringify(res.body), /private|database\.sqlite|upstream token/);
   assert.match(entries[0].fields.error, /database\.sqlite/);
   assert.equal(entries[0].fields.request_id, 'req-500');
+  assert.equal(entries[0].fields.category, 'http_5xx');
+  assert.equal(operations[0].operation, 'http_request');
+  assert.equal(operations[0].phase, 'error');
+  assert.equal(operations[0].code, 'INTERNAL_ERROR');
+  assert.equal(operations[0].category, 'http_5xx');
 });
 
 test('expected client errors retain actionable messages', () => {
@@ -93,7 +118,7 @@ test('response internalError sanitizes production messages and preserves develop
   assert.equal(productionResponse.statusCode, 500);
   assert.equal(productionResponse.headers['x-request-id'], 'req-response-500');
   assert.equal(productionResponse.body.error.code, 'INTERNAL_ERROR');
-  assert.equal(productionResponse.body.error.message, 'Internal server error');
+  assert.equal(productionResponse.body.error.message, '服务器内部错误');
   assert.equal(productionResponse.body.error.request_id, 'req-response-500');
   assert.equal(productionResponse.body.request_id, 'req-response-500');
   assert.doesNotMatch(JSON.stringify(productionResponse.body), /private|database\.sqlite|upstream token/);
@@ -115,7 +140,7 @@ test('production sanitizer hides route-handled 500 messages but preserves client
   response500.statusCode = 500;
   middleware({ requestId: 'req-route-500' }, response500, () => {});
   response500.json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'C:\\private\\db.sqlite failed' } });
-  assert.equal(response500.body.error.message, 'Internal server error');
+  assert.equal(response500.body.error.message, '服务器内部错误');
   assert.equal(response500.body.request_id, 'req-route-500');
   assert.doesNotMatch(JSON.stringify(response500.body), /private|db\.sqlite/);
 
@@ -135,7 +160,80 @@ test('unknown API routes use the standard error envelope', () => {
   assert.equal(res.body.success, false);
   assert.deepEqual(res.body.error, {
     code: 'NOT_FOUND',
-    message: 'API endpoint not found',
+    message: '接口不存在',
   });
   assert.match(res.body.timestamp, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('user-facing errors strip stack frames even in development', () => {
+  const entries = [];
+  const handler = createErrorHandler({
+    errorw(message, fields) { entries.push({ message, fields }); },
+    operation() {},
+  }, { production: false });
+  const res = responseRecorder();
+  const error = new Error('failed to open file\n    at Database.open (C:\\private\\database.sqlite:1:1)');
+  handler(error, { requestId: 'req-dev-500', method: 'GET', path: '/api/v1/fail' }, res, () => {});
+
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.body.error.message, 'failed to open file');
+  assert.equal(res.body.error.stack, undefined);
+  assert.doesNotMatch(JSON.stringify(res.body), /private|database\.sqlite|at Database\.open/);
+  assert.match(entries[0].fields.stack, /database\.sqlite/);
+  assert.equal(entries[0].fields.category, 'http_5xx');
+});
+
+test('timeout failures keep generic production copy and classify logs as timeout', () => {
+  const entries = [];
+  const handler = createErrorHandler({
+    errorw(message, fields) { entries.push({ message, fields }); },
+    operation() {},
+  }, { production: true });
+  const res = responseRecorder();
+  const error = new Error('connect ETIMEDOUT 10.0.0.1');
+  error.code = 'ETIMEDOUT';
+  handler(error, { requestId: 'req-timeout', method: 'GET', path: '/api/v1/ai' }, res, () => {});
+
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.body.error.code, 'INTERNAL_ERROR');
+  assert.equal(res.body.error.message, '服务器内部错误');
+  assert.equal(res.body.request_id, 'req-timeout');
+  assert.equal(entries[0].fields.category, 'timeout');
+  assert.doesNotMatch(JSON.stringify(res.body), /ETIMEDOUT|10\.0\.0\.1/);
+});
+
+test('cancel failures classify logs as cancel without exposing stack', () => {
+  const entries = [];
+  const handler = createErrorHandler({
+    errorw(message, fields) { entries.push({ message, fields }); },
+    operation() {},
+  }, { production: true });
+  const res = responseRecorder();
+  const error = new Error('aborted\n    at abort (internal.js:1:1)');
+  error.code = 'ERR_CANCELED';
+  error.name = 'AbortError';
+  handler(error, { requestId: 'req-cancel', method: 'POST', path: '/api/v1/tasks' }, res, () => {});
+
+  assert.equal(res.body.error.message, '服务器内部错误');
+  assert.equal(res.body.error.stack, undefined);
+  assert.equal(entries[0].fields.category, 'cancel');
+  assert.doesNotMatch(JSON.stringify(res.body), /internal\.js|aborted/);
+});
+
+test('error sanitizer strips stack from development error envelopes', () => {
+  const middleware = createProductionErrorResponseSanitizer({ production: false });
+  const response500 = responseRecorder();
+  response500.statusCode = 500;
+  middleware({ requestId: 'req-dev-stack' }, response500, () => {});
+  response500.json({
+    success: false,
+    error: {
+      code: 'INTERNAL_ERROR',
+      message: 'boom\n    at open (C:\\private\\db.sqlite:1:1)',
+      stack: 'Error: boom\n    at open (C:\\private\\db.sqlite:1:1)',
+    },
+  });
+  assert.equal(response500.body.error.message, 'boom');
+  assert.equal(response500.body.error.stack, undefined);
+  assert.doesNotMatch(JSON.stringify(response500.body), /private|db\.sqlite/);
 });

@@ -97,4 +97,19 @@ describe('logger redaction', () => {
     assert.ok(formatted.length < 8300);
     assert.match(formatted, /truncated/);
   });
+
+  it('operation 记录统一生命周期字段并复用脱敏', () => {
+    const record = logger.sanitizeLogValue({
+      event: 'operation',
+      operation: 'task_cancel',
+      operationId: 'op-1',
+      phase: 'error',
+      api_key: 'sk-synthetic-placeholder',
+    });
+    assert.equal(record.event, 'operation');
+    assert.equal(record.operation, 'task_cancel');
+    assert.equal(record.operationId, 'op-1');
+    assert.equal(record.phase, 'error');
+    assert.equal(record.api_key, '[REDACTED]');
+  });
 });

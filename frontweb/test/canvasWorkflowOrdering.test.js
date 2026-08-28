@@ -92,11 +92,12 @@ test('workflow order rolls back when persistence reports a failure', async () =>
   const appliedSnapshots = []
   const failures = []
   const expectedError = new Error('network unavailable')
+  const failedResult = { ok: false, error: expectedError, operation: { operationId: 42 } }
   const { workflowOrderSaving, reorderWorkflowStoryboards } = useCanvasWorkflowOrder({
     workflowGroups: groups,
-    persist: async () => ({ ok: false, error: expectedError }),
+    persist: async () => failedResult,
     onOrderApplied: () => appliedSnapshots.push(groups.value[0].storyboard_ids.join(',')),
-    onSaveFailed: (error) => failures.push(error),
+    onSaveFailed: (error, result) => failures.push({ error, result }),
   })
 
   const saved = await reorderWorkflowStoryboards({ groupId: 'group-a', fromIndex: 1, toIndex: 0 })
@@ -106,7 +107,7 @@ test('workflow order rolls back when persistence reports a failure', async () =>
   assert.strictEqual(groups.value, previousGroups)
   assert.deepEqual(groups.value[0].storyboard_ids, [11, 12, 13])
   assert.deepEqual(appliedSnapshots, ['12,11,13', '11,12,13'])
-  assert.deepEqual(failures, [expectedError])
+  assert.deepEqual(failures, [{ error: expectedError, result: failedResult }])
 })
 
 test('workflow order also rolls back when persistence rejects', async () => {
@@ -147,10 +148,11 @@ test('workflow sidebar template compiles with drag handle and keyboard ordering 
   assert.match(sidebarSource, /:aria-label="dragHandleLabel/)
 })
 
-test('drama canvas enables Vue Flow visibility rendering and persists sidebar ordering', () => {
+test('drama canvas enables Vue Flow visibility rendering outside the focused inspector and persists sidebar ordering', () => {
   assert.equal(Boolean(VueFlow.props?.onlyRenderVisibleElements), true)
-  assert.match(canvasSource, /:only-render-visible-elements="true"/)
+  assert.match(canvasSource, /:only-render-visible-elements="!focusedNodeId && !selectedFreeNodeId"/)
   assert.match(canvasSource, /@reorder-storyboards="reorderWorkflowStoryboards"/)
   assert.match(canvasSource, /persist: \(\) => persistCanvasState\(\{ groupsOnly: true, reportError: false \}\)/)
   assert.match(canvasSource, /分镜排序保存失败，已恢复原顺序/)
+  assert.match(canvasSource, /onSaveFailed: \(error, result\)[\s\S]*?abandonCanvasSaveOperation\(result\?\.operation\)/)
 })

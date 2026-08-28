@@ -43,3 +43,16 @@ test('Source intake workflow remains a valid SFC with poll failure status and re
   assert.match(sourceWorkflowSource, /workflowDataError\.value = e\.message \|\| '加载素材流程状态失败，请稍后重试。'/)
   assert.match(sourceWorkflowSource, /@click="resumePolling"/)
 })
+
+test('剧集资源库失败与空搜索分开展示，无分集时进入制作会说明原因', () => {
+  assert.match(dramaDetailSource, /const charList = ref\(\[\]\), charLoading = ref\(false\), charError = ref\(''\)/)
+  assert.match(dramaDetailSource, /charError\.value = error\?\.message \|\| '角色库加载失败，请重试'/)
+  assert.doesNotMatch(dramaDetailSource, /catch \{ charList\.value = \[\] \}/)
+  assert.match(dramaDetailSource, /v-if="charError"[\s\S]*@click="loadCharList"[\s\S]*重试/)
+  assert.match(dramaDetailSource, /v-if="!charLoading && !charError && charList\.length === 0"/)
+  assert.match(dramaDetailSource, /charKw\.trim\(\) \? '没有匹配的角色' : '暂无本剧角色库记录'/)
+  assert.match(dramaDetailSource, /ElMessage\.warning\('请先新增一集，再进入制作'\)/)
+  assert.match(dramaDetailSource, /:disabled="!currentEpisodeId" @click="goCreate"/)
+  assert.match(dramaDetailSource, /ElMessage.warning\('请先新增一集，再进入画布'\)/)
+  assert.match(dramaDetailSource, /:disabled="!currentEpisodeId" @click="goCanvasMode"/)
+})

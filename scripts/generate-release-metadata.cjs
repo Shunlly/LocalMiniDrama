@@ -7,9 +7,22 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { validateMediaToolMetadata } = require('../desktop/scripts/media-tool-policy')
 const { FUSE_POLICY } = require('../desktop/scripts/electron-fuses')
+const { validateDefenderSignatureDetails } = require('../desktop/scripts/defender-signature-policy')
+const { validatePackagedApplications } = require('./packaged-applications-contract.cjs')
 const { assertReleaseVersion } = require('./verify-release-version.cjs')
+const { validateSbomDocument } = require('./verify-release.cjs')
 
 const root = path.resolve(__dirname, '..')
+const releaseMetadataUsage = 'Usage: generate-release-metadata.cjs [--verify] [output-directory]'
+const BACKEND_RUNTIME_BASE =
+  'node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0'
+const BACKEND_CONTAINER_USER_EXCEPTION_RATIONALE =
+  'Trivy evaluates Dockerfile Config.User before the reviewed entrypoint transition. The pinned Node runtime maps node to UID 1000; after a same-filesystem one-time ownership migration, the entrypoint replaces PID 1 with the requested command under that account. Release evidence validation rejects any change to this source contract.'
+const BACKEND_CONTAINER_USER_SOURCE_SHA256_LF = Object.freeze({
+  'backend-node/Dockerfile': 'be1f4f77bff7fd9a094772041a04cace503fb48fbca2cc1775d5c55dc84270e4',
+  'backend-node/docker-entrypoint.sh': 'e1bc2719bf21da00095f0380576092dcc590838fd8e02c88455dc98a2a79d972',
+  'backend-node/.trivyignore.yaml': '97f051b0f207fd354177c36671085f974f6d1a481b438e247889df58609485e4',
+})
 
 function sha256(filePath) {
   const descriptor = fs.openSync(filePath, 'r')
@@ -28,16 +41,61 @@ function sha256(filePath) {
 }
 
 function currentCommit(environment = process.env) {
-  const fromEnvironment = String(environment.GITHUB_SHA || '').trim()
-  if (fromEnvironment) {
-    assert.match(fromEnvironment, /^[a-f0-9]{40,64}$/i, 'GITHUB_SHA is not a full commit digest')
-    return fromEnvironment.toLowerCase()
-  }
   const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true })
   assert.equal(result.status, 0, 'release metadata requires a readable Git commit')
   const commit = String(result.stdout || '').trim().toLowerCase()
   assert.match(commit, /^[a-f0-9]{40,64}$/, 'Git HEAD is not a full commit digest')
+
+  const fromEnvironment = String(environment.GITHUB_SHA || '').trim()
+  if (fromEnvironment) {
+    assert.match(fromEnvironment, /^[a-f0-9]{40,64}$/i, 'GITHUB_SHA is not a full commit digest')
+    assert.equal(fromEnvironment.toLowerCase(), commit, 'GITHUB_SHA does not match Git HEAD')
+  }
   return commit
+}
+
+function normalizedSourceSha256(source, label) {
+  assert.equal(typeof source, 'string', `${label} source is unavailable`)
+  const normalized = source.replace(/\r\n/g, '\n')
+  assert.doesNotMatch(normalized, /\r/, `${label} contains unsupported carriage returns`)
+  return crypto.createHash('sha256').update(normalized, 'utf8').digest('hex')
+}
+
+function validateBackendContainerUserException(exception, {
+  dockerfileSource = fs.readFileSync(path.join(root, 'backend-node', 'Dockerfile'), 'utf8'),
+  entrypointSource = fs.readFileSync(path.join(root, 'backend-node', 'docker-entrypoint.sh'), 'utf8'),
+  ignorePolicySource = fs.readFileSync(path.join(root, 'backend-node', '.trivyignore.yaml'), 'utf8'),
+} = {}) {
+  const sourceSha256Lf = {
+    'backend-node/Dockerfile': normalizedSourceSha256(dockerfileSource, 'backend-node/Dockerfile'),
+    'backend-node/docker-entrypoint.sh': normalizedSourceSha256(
+      entrypointSource,
+      'backend-node/docker-entrypoint.sh',
+    ),
+    'backend-node/.trivyignore.yaml': normalizedSourceSha256(
+      ignorePolicySource,
+      'backend-node/.trivyignore.yaml',
+    ),
+  }
+  assert.deepEqual(
+    sourceSha256Lf,
+    BACKEND_CONTAINER_USER_SOURCE_SHA256_LF,
+    'backend container user source contract changed; review or remove the Trivy exception',
+  )
+  assert.deepEqual(exception, {
+    id: 'AVD-DS-0002',
+    path: 'backend-node/Dockerfile',
+    review_by: '2027-07-17',
+    rationale: BACKEND_CONTAINER_USER_EXCEPTION_RATIONALE,
+    source_contract: {
+      runtime_base: BACKEND_RUNTIME_BASE,
+      process_user: 'node',
+      process_uid: 1000,
+      privilege_transition: 'setpriv --reuid=node --regid=node --init-groups',
+      source_sha256_lf: sourceSha256Lf,
+    },
+  }, 'Trivy configuration exception is invalid')
+  return exception
 }
 
 function assertCleanSourceTree(environment = process.env) {
@@ -55,8 +113,7 @@ function assertCleanSourceTree(environment = process.env) {
 }
 
 function isReleaseArtifact(name) {
-  return /(?:\.exe(?:\.blockmap)?|\.cdx\.json)$/i.test(name)
-    || /^LocalMiniDrama-Unpacked-[0-9]+\.[0-9]+\.[0-9]+-x64\.zip$/i.test(name)
+  return /(?:\.exe(?:\.blockmap)?|\.cdx\.json|\.zip)$/i.test(name)
     || name === 'artifact-security.json'
     || name === 'media-tools.json'
 }
@@ -114,13 +171,48 @@ function releaseArtifactNames(output) {
     .sort((a, b) => a.localeCompare(b, 'en'))
 }
 
-function validateSboms(output, names) {
+function parseReleaseMetadataArguments(args = process.argv.slice(2)) {
+  assert.ok(Array.isArray(args), releaseMetadataUsage)
+  const verifyMode = args[0] === '--verify'
+  const remaining = verifyMode ? args.slice(1) : [...args]
+  if (remaining.length > 1 || remaining.some((argument) => (
+    typeof argument !== 'string' || !argument || argument.startsWith('-')
+  ))) {
+    assert.fail(releaseMetadataUsage)
+  }
+  return {
+    mode: verifyMode ? 'verify' : 'generate',
+    outputDirectory: remaining[0],
+  }
+}
+
+function assertNoUnexpectedTopLevelFiles(output, version) {
+  const allowedNames = new Set([
+    ...expectedReleaseArtifactNames(version),
+    'release-manifest.json',
+    'SHA256SUMS',
+  ])
+  for (const entry of fs.readdirSync(output, { withFileTypes: true })) {
+    if (entry.isFile() && !allowedNames.has(entry.name)) {
+      assert.fail(`unexpected top-level release file: ${entry.name}`)
+    }
+  }
+}
+
+function validateSboms(output, names, version) {
   const sbomNames = names.filter((name) => name.endsWith('.cdx.json'))
   assert.equal(sbomNames.length, 4, 'release bundle must contain exactly four CycloneDX SBOM files')
+  const packageDirectories = new Map([
+    ['sbom-backend.cdx.json', 'backend-node'],
+    ['sbom-frontend.cdx.json', 'frontweb'],
+    ['sbom-desktop.cdx.json', 'desktop'],
+    [`LocalMiniDrama-${version}.cdx.json`, 'desktop'],
+  ])
   for (const sbomName of sbomNames) {
+    const packageDirectory = packageDirectories.get(sbomName)
+    assert.ok(packageDirectory, `release SBOM has no package mapping: ${sbomName}`)
     const sbom = readJson(path.join(output, sbomName), sbomName)
-    assert.equal(sbom.bomFormat, 'CycloneDX', `${sbomName} is not a CycloneDX document`)
-    assert.ok(Array.isArray(sbom.components), `${sbomName} has no component inventory`)
+    validateSbomDocument(packageDirectory, sbom)
   }
 }
 
@@ -138,13 +230,28 @@ function validateArtifactSecurity(output, names, version) {
   assert.equal(evidence.version, version, 'artifact security version does not match the release version')
   assert.match(String(evidence.commit || ''), /^[a-f0-9]{40,64}$/, 'artifact security commit is invalid')
   assert.ok(Number.isFinite(Date.parse(evidence.generated_at)), 'artifact security generated_at is invalid')
-  assert.ok(Number.isInteger(evidence.extracted_applications) && evidence.extracted_applications >= 3,
-    'artifact security must verify Setup, Portable, and Unpacked applications')
+  validatePackagedApplications(evidence.packaged_applications)
+  assert.equal(evidence.extracted_applications, evidence.packaged_applications.length,
+    'artifact security extracted application count is invalid')
   assert.deepEqual(evidence.source_artifacts, [
     `LocalMiniDrama-Portable-${version}-x64.exe`,
     `LocalMiniDrama-Setup-${version}-x64.exe`,
     `LocalMiniDrama-Unpacked-${version}-x64.zip`,
   ], 'artifact security source inventory is invalid')
+  assert.deepEqual(
+    Object.keys(evidence.source_artifact_sha256 || {}),
+    evidence.source_artifacts,
+    'artifact security source hash inventory is invalid'
+  )
+  for (const name of evidence.source_artifacts) {
+    const digest = String(evidence.source_artifact_sha256[name] || '')
+    assert.match(digest, /^[a-f0-9]{64}$/, `${name} artifact security SHA-256 is invalid`)
+    assert.equal(
+      sha256(path.join(output, name)),
+      digest,
+      `${name} SHA-256 does not match the Windows artifact scan evidence`
+    )
+  }
   assert.deepEqual(evidence.fuses, FUSE_POLICY, 'artifact security Electron fuse policy is invalid')
   assert.deepEqual(Object.keys(evidence.scans || {}).sort(), ['defender', 'gitleaks', 'trivy'])
   for (const scanner of ['gitleaks', 'trivy', 'defender']) {
@@ -162,13 +269,39 @@ function validateArtifactSecurity(output, names, version) {
     'frontweb/Dockerfile',
     'frontweb/Dockerfile.prod',
   ], 'Trivy configuration inventory is invalid')
-  assert.deepEqual(evidence.scans.trivy.configuration_exceptions, [{
-    id: 'AVD-DS-0002',
-    path: 'backend-node/Dockerfile',
-    review_by: '2027-07-17',
-    rationale: 'The entrypoint repairs bind-mounted data ownership before immediately executing as node via setpriv.',
-  }], 'Trivy configuration exceptions are invalid')
+  assert.equal(
+    evidence.scans.trivy.configuration_exceptions?.length,
+    1,
+    'Trivy configuration exceptions are invalid',
+  )
+  validateBackendContainerUserException(evidence.scans.trivy.configuration_exceptions[0])
+  assert.ok(
+    Number.isInteger(evidence.scans.trivy.vulnerability_database?.schema_version)
+      && evidence.scans.trivy.vulnerability_database.schema_version > 0,
+    'Trivy vulnerability DB schema version is invalid',
+  )
+  assert.ok(
+    Number.isFinite(Date.parse(evidence.scans.trivy.vulnerability_database?.updated_at)),
+    'Trivy vulnerability DB updated_at is invalid',
+  )
+  assert.ok(
+    Number.isFinite(Date.parse(evidence.scans.trivy.vulnerability_database?.next_update)),
+    'Trivy vulnerability DB next_update is invalid',
+  )
+  assert.match(
+    String(evidence.scans.trivy.checks_bundle?.digest || ''),
+    /^sha256:[a-f0-9]{64}$/,
+    'Trivy checks bundle digest is invalid',
+  )
+  assert.ok(
+    Number.isFinite(Date.parse(evidence.scans.trivy.checks_bundle?.downloaded_at)),
+    'Trivy checks bundle downloaded_at is invalid',
+  )
   assert.equal(evidence.scans.defender.scope, 'release bundle and extracted payloads', 'Defender release scope is invalid')
+  validateDefenderSignatureDetails({
+    antivirus_signature_last_updated: evidence.scans.defender.antivirus_signature_last_updated,
+    maximum_age_hours: evidence.scans.defender.maximum_age_hours,
+  })
   return evidence
 }
 
@@ -176,7 +309,7 @@ function validateReleaseArtifacts(output, version) {
   assert.ok(fs.statSync(output, { throwIfNoEntry: false })?.isDirectory(), `release directory does not exist: ${output}`)
   const names = releaseArtifactNames(output)
   assertExactArtifactSet(names, version)
-  validateSboms(output, names)
+  validateSboms(output, names, version)
   validateMediaMetadata(output, names)
   validateArtifactSecurity(output, names, version)
   return names
@@ -215,6 +348,7 @@ function generate(outputDirectory, { environment = process.env } = {}) {
     version,
     tag: releaseTag(version, environment),
     commit,
+    git_commit: commit,
     source_dirty: sourceDirty,
     generated_at: new Date().toISOString(),
     artifacts,
@@ -234,6 +368,7 @@ function verify(outputDirectory, { environment = process.env } = {}) {
   const output = path.resolve(root, outputDirectory || 'desktop/release')
   const version = releaseVersion()
   const names = validateReleaseArtifacts(output, version)
+  assertNoUnexpectedTopLevelFiles(output, version)
   const manifestPath = path.join(output, 'release-manifest.json')
   const checksumPath = path.join(output, 'SHA256SUMS')
   assert.ok(fs.statSync(manifestPath, { throwIfNoEntry: false })?.isFile(), 'release-manifest.json is missing')
@@ -245,15 +380,14 @@ function verify(outputDirectory, { environment = process.env } = {}) {
   assert.equal(manifest.tag, releaseTag(version, environment), 'release manifest tag does not match the release tag')
   assert.equal(manifest.source_dirty, false, 'release manifest records a dirty source tree')
   assert.match(String(manifest.commit || ''), /^[a-f0-9]{40,64}$/, 'release manifest commit is invalid')
-  if (String(environment.GITHUB_SHA || '').trim()) {
-    assert.equal(manifest.commit, currentCommit(environment), 'release manifest commit does not match GITHUB_SHA')
-  }
+  assert.equal(manifest.commit, currentCommit(environment), 'release manifest commit does not match Git HEAD')
+  assert.equal(manifest.git_commit, manifest.commit, 'release manifest git_commit does not match commit')
   assert.ok(Number.isFinite(Date.parse(manifest.generated_at)), 'release manifest generated_at is invalid')
   assert.ok(Array.isArray(manifest.artifacts), 'release manifest artifacts must be an array')
   assert.deepEqual(manifest.artifacts.map((artifact) => artifact.name), names, 'release manifest artifact order or names differ')
   assert.equal(
     validateArtifactSecurity(output, names, version).commit,
-    manifest.commit,
+    manifest.git_commit,
     'artifact security evidence commit does not match the release manifest'
   )
 
@@ -288,13 +422,15 @@ module.exports = {
   readJson,
   releaseTag,
   sha256,
+  validateBackendContainerUserException,
   validateArtifactSecurity,
   validateReleaseArtifacts,
+  parseReleaseMetadataArguments,
   verify,
 }
 
 if (require.main === module) {
-  const args = process.argv.slice(2)
-  if (args[0] === '--verify') verify(args[1])
-  else generate(args[0])
+  const { mode, outputDirectory } = parseReleaseMetadataArguments()
+  if (mode === 'verify') verify(outputDirectory)
+  else generate(outputDirectory)
 }

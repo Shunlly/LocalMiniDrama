@@ -7,7 +7,7 @@
     <div class="group-body">
       <slot />
     </div>
-    <div v-if="helper" class="group-helper">{{ helper }}</div>
+    <div v-if="helper" class="group-helper" :title="helper">{{ helper }}</div>
   </section>
 </template>
 
@@ -23,12 +23,14 @@ defineProps({
 .canvas-toolbar-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  justify-content: center;
+  gap: 4px;
   min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border-color, #3f3f46);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-card, #18181b) 92%, transparent);
+  min-height: 68px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .group-header {
@@ -49,14 +51,18 @@ defineProps({
 .group-body {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   min-width: 0;
 }
 
 .group-helper {
-  font-size: 12px;
-  line-height: 1.5;
+  max-width: 360px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.35;
   color: var(--text-muted, #a1a1aa);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

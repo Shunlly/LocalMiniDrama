@@ -2,26 +2,44 @@
   <div class="drama-detail">
     <header class="header">
       <div class="header-inner">
-        <button type="button" class="logo" aria-label="返回项目列表" @click="router.push('/')">
+        <button type="button" class="logo" aria-label="返回项目列表" @click="goList">
           <span class="logo-main">本地短剧助手</span>
           <span class="logo-sub">LocalMiniDrama</span>
         </button>
         <span class="breadcrumb-sep">›</span>
         <span class="page-title">{{ dramaLoadState === 'error' ? '项目加载失败' : drama?.title || '剧集管理' }}</span>
-        <el-button class="btn-back-list" @click="router.push('/')">
+        <el-button class="btn-back-list" @click="goList">
           <el-icon><ArrowLeft /></el-icon>返回列表
         </el-button>
         <div class="header-actions">
-          <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
+          <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
             <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
             {{ isDark ? '浅色' : '暗色' }}
           </el-button>
-          <el-button v-if="isDramaReady" type="primary" @click="goCreate">
-            <el-icon><VideoPlay /></el-icon>进入制作
-          </el-button>
-          <el-button v-if="isDramaReady" type="primary" plain @click="goCanvasMode">
-            <el-icon><Grid /></el-icon>画布模式
-          </el-button>
+          <el-tooltip
+            v-if="isDramaReady"
+            content="请先新增一集，再进入制作"
+            :disabled="Boolean(currentEpisodeId)"
+            placement="bottom"
+          >
+            <span class="tooltip-trigger">
+              <el-button type="primary" :disabled="!currentEpisodeId" @click="goCreate">
+                <el-icon><VideoPlay /></el-icon>进入制作
+              </el-button>
+            </span>
+          </el-tooltip>
+          <el-tooltip
+            v-if="isDramaReady"
+            content="请先新增一集，再进入画布"
+            :disabled="Boolean(currentEpisodeId)"
+            placement="bottom"
+          >
+            <span class="tooltip-trigger">
+              <el-button type="primary" plain :disabled="!currentEpisodeId" @click="goCanvasMode">
+                <el-icon><Grid /></el-icon>画布模式
+              </el-button>
+            </span>
+          </el-tooltip>
         </div>
       </div>
     </header>
@@ -55,7 +73,7 @@
           <el-button v-if="!dramaLoadNotFound" type="primary" :loading="loading" @click="retryDramaLoad">
             <el-icon><Refresh /></el-icon>重试加载
           </el-button>
-          <el-button @click="router.push('/')">
+          <el-button @click="goList">
             <el-icon><ArrowLeft /></el-icon>返回项目列表
           </el-button>
         </div>
@@ -89,7 +107,7 @@
             </el-col>
             <el-col :span="12">
               <el-form-item label="图片/视频风格">
-                <el-select v-model="infoForm.style" placeholder="选择全剧统一风格" clearable style="width: 100%" @change="saveInfo">
+                <el-select v-model="infoForm.style" placeholder="选择全剧统一风格" aria-label="图片/视频风格" clearable style="width: 100%" @change="saveInfo">
                   <el-option-group label="写实 / 影视">
                     <el-option label="写实" value="realistic" />
                     <el-option label="电影感" value="cinematic" />
@@ -136,7 +154,7 @@
             </el-col>
             <el-col :span="12">
               <el-form-item label="画面比例">
-                <el-select v-model="infoForm.aspect_ratio" style="width: 100%" @change="saveInfo">
+                <el-select v-model="infoForm.aspect_ratio" aria-label="画面比例" style="width: 100%" @change="saveInfo">
                   <el-option label="16:9 横屏（默认）" value="16:9" />
                   <el-option label="9:16 竖屏（短视频）" value="9:16" />
                   <el-option label="3:4 竖版" value="3:4" />
@@ -187,16 +205,25 @@
         v-if="drama"
         :drama-id="dramaId"
         :drama="drama"
+        :source-import-intent="sourceImportIntent"
         @refresh="handleSourceWorkflowRefresh"
+        @enter-production="enterSourceWorkflowProduction"
+        @focus-episode-list="scrollToSection('episode-list')"
       />
 
       <!-- 分集列表 -->
-      <section id="episode-list" class="section card">
+      <section id="episode-list" class="section card" tabindex="-1">
         <div class="section-header">
           <div class="section-title">分集列表</div>
           <span class="section-count">共 {{ episodes.length }} 集</span>
-          <EpisodeBatchImportDialog ref="episodeBatchImportDialogRef" :start-episode-number="nextEpisodeNumber" style="margin-left: auto" @import="onBatchImportEpisodes" />
-          <el-button size="small" type="primary" :loading="addingEpisode" @click="onAddEpisode">
+          <EpisodeBatchImportDialog
+            ref="episodeBatchImportDialogRef"
+            :start-episode-number="nextEpisodeNumber"
+            :import-handler="onBatchImportEpisodes"
+            style="margin-left: auto"
+            @import="onBatchImportEpisodes"
+          />
+          <el-button size="small" type="primary" :loading="addingEpisode" aria-label="新增一集" @click="onAddEpisode">
             <el-icon><Plus /></el-icon>新增一集
           </el-button>
         </div>
@@ -215,45 +242,50 @@
               {{ episodeEmptyState.unblockAction.label }}
             </el-button>
             <el-button @click="openEpisodeBatchImport">批量导入剧本</el-button>
-            <el-button :loading="addingEpisode" @click="onAddEpisode">
+            <el-button :loading="addingEpisode" aria-label="新增空白集" @click="onAddEpisode">
               <el-icon><Plus /></el-icon>新增空白集
             </el-button>
           </div>
           <div v-if="episodeEmptyState.primaryDisabledReason" class="empty-state-note">{{ episodeEmptyState.primaryDisabledReason }}</div>
         </div>
         <div v-else class="episode-grid">
-          <div
+          <article
             v-for="ep in episodes"
             :key="ep.id"
             class="episode-card"
           >
-            <div class="episode-card-header">
+            <el-button
+              class="episode-card-delete"
+              size="small"
+              type="danger"
+              plain
+              circle
+              :icon="Delete"
+              :loading="deletingEpisodeId === ep.id"
+              :aria-label="`删除第 ${ep.episode_number ?? ep.number ?? '?'} 集`"
+              :title="`删除第 ${ep.episode_number ?? ep.number ?? '?'} 集`"
+              @click.stop="onDeleteEpisode(ep)"
+            />
+            <RouterLink
+              class="episode-card-main"
+              :to="{ path: `/film/${dramaId}`, query: withProjectListReturnTo({ episode: String(ep.id) }) }"
+              :aria-label="`进入${ep.title || `第 ${ep.episode_number ?? ep.number ?? '?'} 集`}制作`"
+            >
               <span class="episode-num">第 {{ ep.episode_number ?? ep.number ?? '?' }} 集</span>
-              <el-button
-                size="small"
-                type="danger"
-                plain
-                circle
-                :icon="Delete"
-                :loading="deletingEpisodeId === ep.id"
-                :aria-label="`删除第 ${ep.episode_number ?? ep.number ?? '?'} 集`"
-                :title="`删除第 ${ep.episode_number ?? ep.number ?? '?'} 集`"
-                @click.stop="onDeleteEpisode(ep)"
-              />
-            </div>
-            <div class="episode-title">{{ ep.title || '未命名' }}</div>
-            <div class="episode-preview">{{ (ep.script_content || '').slice(0, 20) || '暂无剧本' }}</div>
-            <div class="episode-stats">
-              <span class="ep-stat">
-                <span class="ep-stat-num">{{ ep.storyboards?.length ?? 0 }}</span> 分镜
+              <div class="episode-title">{{ ep.title || '未命名' }}</div>
+              <div class="episode-preview">{{ (ep.script_content || '').slice(0, 20) || '暂无剧本' }}</div>
+              <div class="episode-stats">
+                <span class="ep-stat">
+                  <span class="ep-stat-num">{{ ep.storyboards?.length ?? 0 }}</span> 分镜
+                </span>
+                <span v-if="ep.status" class="ep-stat ep-stat--status" :class="'ep-status--' + ep.status">{{ epStatusLabel(ep.status) }}</span>
+              </div>
+              <span class="episode-enter">
+                <el-icon class="episode-enter-icon"><VideoPlay /></el-icon>
+                进入制作
               </span>
-              <span v-if="ep.status" class="ep-stat ep-stat--status" :class="'ep-status--' + ep.status">{{ epStatusLabel(ep.status) }}</span>
-            </div>
-            <button type="button" class="episode-enter" :aria-label="`进入${ep.title || `第 ${ep.episode_number ?? ep.number ?? '?'} 集`}制作`" @click="goEpisode(ep.id)">
-              <el-icon class="episode-enter-icon"><VideoPlay /></el-icon>
-              进入制作
-            </button>
-          </div>
+            </RouterLink>
+          </article>
         </div>
       </section>
 
@@ -288,10 +320,14 @@
         <!-- 角色库 -->
         <template v-if="activeResTab === 'lib-char'">
           <div class="library-toolbar">
-            <el-input v-model="charKw" placeholder="搜索角色" clearable style="width: 200px" @input="onCharKwInput" />
+            <el-input v-model="charKw" placeholder="搜索角色" aria-label="搜索角色" clearable style="width: 200px" @input="onCharKwInput" />
             <el-button size="small" @click="openImport('char')">从素材库导入</el-button>
           </div>
           <div v-loading="charLoading" class="library-list">
+            <div v-if="charError" class="library-error" role="alert">
+              <span>{{ charError }}</span>
+              <el-button size="small" type="primary" plain :loading="charLoading" @click="loadCharList">重试</el-button>
+            </div>
             <div v-for="item in charList" :key="item.id" class="library-item">
               <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '角色'}图片`" @click="openPreview(assetImageUrl(item))">
                 <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '角色图片'" />
@@ -306,9 +342,10 @@
                 </div>
               </div>
             </div>
-            <div v-if="!charLoading && charList.length === 0" class="library-empty resource-empty-state">
-              <span>暂无本剧角色库记录</span>
-              <el-button size="small" type="primary" plain @click="openImport('char')">从素材库导入角色</el-button>
+            <div v-if="!charLoading && !charError && charList.length === 0" class="library-empty resource-empty-state">
+              <span>{{ charKw.trim() ? '没有匹配的角色' : '暂无本剧角色库记录' }}</span>
+              <el-button v-if="charKw.trim()" size="small" @click="charKw = ''; loadCharList()">清除搜索</el-button>
+              <el-button v-else size="small" type="primary" plain @click="openImport('char')">从素材库导入角色</el-button>
             </div>
           </div>
           <div class="library-pagination">
@@ -319,10 +356,14 @@
         <!-- 场景库 -->
         <template v-if="activeResTab === 'lib-scene'">
           <div class="library-toolbar">
-            <el-input v-model="sceneKw" placeholder="搜索场景" clearable style="width: 200px" @input="onSceneKwInput" />
+            <el-input v-model="sceneKw" placeholder="搜索场景" aria-label="搜索场景" clearable style="width: 200px" @input="onSceneKwInput" />
             <el-button size="small" @click="openImport('scene')">从素材库导入</el-button>
           </div>
           <div v-loading="sceneLoading" class="library-list">
+            <div v-if="sceneError" class="library-error" role="alert">
+              <span>{{ sceneError }}</span>
+              <el-button size="small" type="primary" plain :loading="sceneLoading" @click="loadSceneList">重试</el-button>
+            </div>
             <div v-for="item in sceneList" :key="item.id" class="library-item">
               <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.location || item.time || '场景'}图片`" @click="openPreview(assetImageUrl(item))">
                 <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.location || item.time || '场景图片'" />
@@ -337,9 +378,10 @@
                 </div>
               </div>
             </div>
-            <div v-if="!sceneLoading && sceneList.length === 0" class="library-empty resource-empty-state">
-              <span>暂无本剧场景库记录</span>
-              <el-button size="small" type="primary" plain @click="openImport('scene')">从素材库导入场景</el-button>
+            <div v-if="!sceneLoading && !sceneError && sceneList.length === 0" class="library-empty resource-empty-state">
+              <span>{{ sceneKw.trim() ? '没有匹配的场景' : '暂无本剧场景库记录' }}</span>
+              <el-button v-if="sceneKw.trim()" size="small" @click="sceneKw = ''; loadSceneList()">清除搜索</el-button>
+              <el-button v-else size="small" type="primary" plain @click="openImport('scene')">从素材库导入场景</el-button>
             </div>
           </div>
           <div class="library-pagination">
@@ -350,10 +392,14 @@
         <!-- 道具库 -->
         <template v-if="activeResTab === 'lib-prop'">
           <div class="library-toolbar">
-            <el-input v-model="propKw" placeholder="搜索道具" clearable style="width: 200px" @input="onPropKwInput" />
+            <el-input v-model="propKw" placeholder="搜索道具" aria-label="搜索道具" clearable style="width: 200px" @input="onPropKwInput" />
             <el-button size="small" @click="openImport('prop')">从素材库导入</el-button>
           </div>
           <div v-loading="propLoading" class="library-list">
+            <div v-if="propError" class="library-error" role="alert">
+              <span>{{ propError }}</span>
+              <el-button size="small" type="primary" plain :loading="propLoading" @click="loadPropList">重试</el-button>
+            </div>
             <div v-for="item in propList" :key="item.id" class="library-item">
               <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '道具'}图片`" @click="openPreview(assetImageUrl(item))">
                 <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '道具图片'" />
@@ -368,9 +414,10 @@
                 </div>
               </div>
             </div>
-            <div v-if="!propLoading && propList.length === 0" class="library-empty resource-empty-state">
-              <span>暂无本剧道具库记录</span>
-              <el-button size="small" type="primary" plain @click="openImport('prop')">从素材库导入道具</el-button>
+            <div v-if="!propLoading && !propError && propList.length === 0" class="library-empty resource-empty-state">
+              <span>{{ propKw.trim() ? '没有匹配的道具' : '暂无本剧道具库记录' }}</span>
+              <el-button v-if="propKw.trim()" size="small" @click="propKw = ''; loadPropList()">清除搜索</el-button>
+              <el-button v-else size="small" type="primary" plain @click="openImport('prop')">从素材库导入道具</el-button>
             </div>
           </div>
           <div class="library-pagination">
@@ -400,7 +447,7 @@
             </template>
             <div v-else class="library-empty resource-empty-state">
               <span>本剧暂无制作角色</span>
-              <el-button size="small" type="primary" @click="goCreate">进入制作页提取角色</el-button>
+              <el-button size="small" type="primary" @click="goCreate">{{ currentEpisodeId ? '进入制作页提取角色' : '先去新增一集' }}</el-button>
             </div>
           </div>
         </template>
@@ -428,7 +475,7 @@
             </template>
             <div v-else class="library-empty resource-empty-state">
               <span>本剧暂无制作场景</span>
-              <el-button size="small" type="primary" @click="goCreate">进入制作页提取场景</el-button>
+              <el-button size="small" type="primary" @click="goCreate">{{ currentEpisodeId ? '进入制作页提取场景' : '先去新增一集' }}</el-button>
             </div>
           </div>
         </template>
@@ -456,7 +503,7 @@
             </template>
             <div v-else class="library-empty resource-empty-state">
               <span>本剧暂无制作道具</span>
-              <el-button size="small" type="primary" @click="goCreate">进入制作页提取道具</el-button>
+              <el-button size="small" type="primary" @click="goCreate">{{ currentEpisodeId ? '进入制作页提取道具' : '先去新增一集' }}</el-button>
             </div>
           </div>
         </template>
@@ -466,7 +513,7 @@
 
     <template v-if="isDramaReady">
     <!-- 制作角色 编辑 -->
-    <el-dialog v-model="editDramaCharVisible" title="编辑制作角色" width="500px" @close="editDramaCharForm = null">
+    <AccessibleDialog v-model="editDramaCharVisible" title="编辑制作角色" width="500px" @close="editDramaCharForm = null">
       <el-form v-if="editDramaCharForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -483,7 +530,7 @@
         </el-form-item>
         <el-form-item label="名称"><el-input v-model="editDramaCharForm.name" /></el-form-item>
         <el-form-item label="角色类型">
-          <el-select v-model="editDramaCharForm.role" style="width:100%">
+          <el-select v-model="editDramaCharForm.role" aria-label="角色类型" style="width:100%">
             <el-option label="主角" value="main" />
             <el-option label="配角" value="supporting" />
             <el-option label="次要角色" value="minor" />
@@ -497,10 +544,10 @@
         <el-button @click="editDramaCharVisible = false">取消</el-button>
         <el-button type="primary" :loading="editDramaCharSaving" @click="saveDramaChar">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 制作场景 编辑 -->
-    <el-dialog v-model="editDramaSceneVisible" title="编辑制作场景" width="500px" @close="editDramaSceneForm = null">
+    <AccessibleDialog v-model="editDramaSceneVisible" title="编辑制作场景" width="500px" @close="editDramaSceneForm = null">
       <el-form v-if="editDramaSceneForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -524,10 +571,10 @@
         <el-button @click="editDramaSceneVisible = false">取消</el-button>
         <el-button type="primary" :loading="editDramaSceneSaving" @click="saveDramaScene">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 制作道具 编辑 -->
-    <el-dialog v-model="editDramaPropVisible" title="编辑制作道具" width="500px" @close="editDramaPropForm = null">
+    <AccessibleDialog v-model="editDramaPropVisible" title="编辑制作道具" width="500px" @close="editDramaPropForm = null">
       <el-form v-if="editDramaPropForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -551,10 +598,10 @@
         <el-button @click="editDramaPropVisible = false">取消</el-button>
         <el-button type="primary" :loading="editDramaPropSaving" @click="saveDramaProp">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 编辑角色 -->
-    <el-dialog v-model="editCharVisible" title="编辑角色库" width="480px" @close="editCharForm = null">
+    <AccessibleDialog v-model="editCharVisible" title="编辑角色库" width="480px" @close="editCharForm = null">
       <el-form v-if="editCharForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -578,10 +625,10 @@
         <el-button @click="editCharVisible = false">取消</el-button>
         <el-button type="primary" :loading="editCharSaving" @click="saveChar">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 编辑场景 -->
-    <el-dialog v-model="editSceneVisible" title="编辑场景库" width="480px" @close="editSceneForm = null">
+    <AccessibleDialog v-model="editSceneVisible" title="编辑场景库" width="480px" @close="editSceneForm = null">
       <el-form v-if="editSceneForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -606,10 +653,10 @@
         <el-button @click="editSceneVisible = false">取消</el-button>
         <el-button type="primary" :loading="editSceneSaving" @click="saveScene">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 编辑道具 -->
-    <el-dialog v-model="editPropVisible" title="编辑道具库" width="480px" @close="editPropForm = null">
+    <AccessibleDialog v-model="editPropVisible" title="编辑道具库" width="480px" @close="editPropForm = null">
       <el-form v-if="editPropForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -633,10 +680,10 @@
         <el-button @click="editPropVisible = false">取消</el-button>
         <el-button type="primary" :loading="editPropSaving" @click="saveProp">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 从素材库导入 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="importVisible"
       :title="`从素材库导入${importType === 'char' ? '角色' : importType === 'scene' ? '场景' : '道具'}`"
       width="760px"
@@ -644,10 +691,14 @@
       @open="loadImportList"
     >
       <div class="library-toolbar">
-        <el-input v-model="importKw" placeholder="搜索关键词" clearable style="width: 220px" @input="onImportKwInput" />
+        <el-input v-model="importKw" placeholder="搜索关键词" aria-label="搜索待导入素材" clearable style="width: 220px" @input="onImportKwInput" />
         <span class="import-tip">点击「导入」将素材复制到本剧资源库</span>
       </div>
       <div v-loading="importLoading" class="library-list import-list">
+        <div v-if="importError" class="library-error" role="alert">
+          <span>{{ importError }}</span>
+          <el-button size="small" type="primary" plain :loading="importLoading" @click="loadImportList">重试</el-button>
+        </div>
         <div v-for="item in importList" :key="item.id" class="library-item">
           <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" aria-label="预览待导入素材图片" @click="openPreview(assetImageUrl(item))">
             <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" alt="待导入素材图片" />
@@ -663,10 +714,11 @@
             </div>
           </div>
         </div>
-        <div v-if="!importLoading && importList.length === 0" class="library-empty resource-empty-state">
-          <span>素材库暂无内容</span>
-          <el-button size="small" type="primary" @click="importVisible = false; goCreate()">
-            前往制作页新增并入库
+        <div v-if="!importLoading && !importError && importList.length === 0" class="library-empty resource-empty-state">
+          <span>{{ importKw.trim() ? '没有匹配的素材' : '素材库暂无内容' }}</span>
+          <el-button v-if="importKw.trim()" size="small" @click="importKw = ''; loadImportList()">清除搜索</el-button>
+          <el-button v-else size="small" type="primary" @click="importVisible = false; goCreate()">
+            {{ currentEpisodeId ? '前往制作页新增并入库' : '先去新增一集' }}
           </el-button>
         </div>
       </div>
@@ -684,7 +736,7 @@
       <template #footer>
         <el-button @click="importVisible = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <ImagePreviewDialog
       :model-value="Boolean(previewUrl)"
@@ -698,32 +750,53 @@
 
 <script setup>
 import { ref, reactive, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue'
-import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
+import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, VideoPlay, Plus, Delete, Sunny, Moon, PictureFilled, Grid, Loading, Refresh, WarningFilled } from '@element-plus/icons-vue'
 import EpisodeBatchImportDialog from '@/components/EpisodeBatchImportDialog.vue'
 import ProjectReadinessPanel from '@/components/ProjectReadinessPanel.vue'
 import SourceIntakeWorkflowPanel from '@/components/SourceIntakeWorkflowPanel.vue'
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import { useTheme } from '@/composables/useTheme'
-import { dramaAPI } from '@/api/drama'
-import { aiAPI } from '@/api/ai'
-import { sourceIntakeAPI } from '@/api/sourceIntake'
-import { characterLibraryAPI } from '@/api/characterLibrary'
-import { sceneLibraryAPI } from '@/api/sceneLibrary'
-import { propLibraryAPI } from '@/api/propLibrary'
-import { uploadAPI } from '@/api/upload'
-import { imagesAPI } from '@/api/images'
-import { taskAPI } from '@/api/task'
-import { characterAPI } from '@/api/characters'
-import { sceneAPI } from '@/api/scenes'
-import { propAPI } from '@/api/props'
+import { dramaAPI as rawDramaAPI } from '@/api/drama'
+import { aiAPI as rawAiAPI } from '@/api/ai'
+import { sourceIntakeAPI as rawSourceIntakeAPI } from '@/api/sourceIntake'
+import { characterLibraryAPI as rawCharacterLibraryAPI } from '@/api/characterLibrary'
+import { sceneLibraryAPI as rawSceneLibraryAPI } from '@/api/sceneLibrary'
+import { propLibraryAPI as rawPropLibraryAPI } from '@/api/propLibrary'
+import { uploadAPI as rawUploadAPI } from '@/api/upload'
+import { imagesAPI as rawImagesAPI } from '@/api/images'
+import { taskAPI as rawTaskAPI } from '@/api/task'
+import { characterAPI as rawCharacterAPI } from '@/api/characters'
+import { sceneAPI as rawSceneAPI } from '@/api/scenes'
+import { propAPI as rawPropAPI } from '@/api/props'
 import { stylePromptMetadataForSave, backfillDramaStylePromptMetadataIfNeeded } from '@/constants/styleOptions'
 import { buildProjectReadiness } from '@/utils/projectReadiness'
+import { normalizeProjectListReturnTo, projectRouteInstanceKey, resolveProjectEpisodeId } from '@/utils/projectListRoute'
+import { scrollAndFocusSection } from '@/utils/sectionFocus.js'
+import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
+import { requestCoreJson as requestCoreDrama } from '@/utils/coreJsonRequest'
+
+const projectLifecycle = createProjectInstanceLifecycle()
+const ElMessage = projectLifecycle.guardNotifier(RawElMessage)
+const dramaAPI = projectLifecycle.guardApi(rawDramaAPI)
+const aiAPI = projectLifecycle.guardApi(rawAiAPI)
+const sourceIntakeAPI = projectLifecycle.guardApi(rawSourceIntakeAPI)
+const characterLibraryAPI = projectLifecycle.guardApi(rawCharacterLibraryAPI)
+const sceneLibraryAPI = projectLifecycle.guardApi(rawSceneLibraryAPI)
+const propLibraryAPI = projectLifecycle.guardApi(rawPropLibraryAPI)
+const uploadAPI = projectLifecycle.guardApi(rawUploadAPI)
+const imagesAPI = projectLifecycle.guardApi(rawImagesAPI)
+const taskAPI = projectLifecycle.guardApi(rawTaskAPI)
+const characterAPI = projectLifecycle.guardApi(rawCharacterAPI)
+const sceneAPI = projectLifecycle.guardApi(rawSceneAPI)
+const propAPI = projectLifecycle.guardApi(rawPropAPI)
 
 const route = useRoute()
 const { isDark, toggle: toggleTheme } = useTheme()
 const router = useRouter()
+const projectListReturnTo = computed(() => normalizeProjectListReturnTo(route.query.returnTo))
+const sourceImportIntent = computed(() => route.query.intake === 'source-url')
 const dramaId = Number(route.params.id)
 
 // 图片编辑 – 文件输入 refs（各资源类型独立）
@@ -1019,6 +1092,7 @@ async function generateDramaPropImg() {
 const loading = ref(false)
 const drama = ref(null)
 const episodes = ref([])
+const currentEpisodeId = computed(() => resolveProjectEpisodeId(episodes.value, route.query.episode))
 const aiConfigs = ref(null)
 const sourceCount = ref(null)
 const dramaLoadState = ref('loading')
@@ -1289,51 +1363,14 @@ function formatDate(val) {
   return new Date(val).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
-function coreDramaRequestError(status) {
-  const error = new Error('PROJECT_LOAD_FAILED')
-  error.status = Number(status) || 0
-  return error
-}
-
-async function requestCoreDrama(path, { method = 'GET', body, fetchImpl = globalThis.fetch } = {}) {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 15000)
-  let response
-  try {
-    response = await fetchImpl(`/api/v1${path}`, {
-      method,
-      credentials: 'same-origin',
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    })
-  } catch (_) {
-    throw coreDramaRequestError(0)
-  } finally {
-    clearTimeout(timeout)
-  }
-
-  let payload = null
-  try {
-    payload = response.status === 204 ? null : await response.json()
-  } catch (_) {
-    throw coreDramaRequestError(response.status)
-  }
-  if (!response.ok || payload?.success === false) throw coreDramaRequestError(response.status)
-  return payload?.data !== undefined ? payload.data : payload
-}
-
-const coreDramaAPI = {
+const coreDramaAPI = projectLifecycle.guardApi({
   get(id) {
     return requestCoreDrama(`/dramas/${encodeURIComponent(id)}`)
   },
   saveOutline(id, data) {
     return requestCoreDrama(`/dramas/${encodeURIComponent(id)}/outline`, { method: 'PUT', body: data })
   },
-}
+})
 
 function friendlyDramaLoadError(error) {
   const status = Number(error?.status || error?.response?.status)
@@ -1420,20 +1457,24 @@ async function retryReadinessDependencies() {
   await loadReadinessDependencies()
 }
 
-function scrollToSection(id) {
-  const target = document.getElementById(id)
-  if (!target) return
-  const stickyHeader = document.querySelector('.drama-detail > .header')
-  const headerHeight = Math.ceil(stickyHeader?.getBoundingClientRect?.().height || 0)
-  const top = Math.max(0, window.scrollY + target.getBoundingClientRect().top - headerHeight - 16)
-  window.scrollTo({ top, behavior: 'smooth' })
-  if (id === 'source-intake-workflow') {
-    window.setTimeout(() => target.focus({ preventScroll: true }), 250)
-  }
+function scrollToSection(id, { focus = true } = {}) {
+  scrollAndFocusSection(id, { focus, focusDelay: id === 'source-intake-workflow' ? 250 : 0 })
 }
 
 function scrollToSourceIntake() {
   scrollToSection('source-intake-workflow')
+}
+
+async function enterSourceWorkflowProduction() {
+  if (!currentEpisodeId.value) {
+    await loadDrama()
+  }
+  if (!currentEpisodeId.value) {
+    ElMessage.warning('请先新增一集，再进入制作')
+    scrollToSection('episode-list')
+    return
+  }
+  goEpisode(currentEpisodeId.value)
 }
 
 let handledRouteAnchor = ''
@@ -1446,7 +1487,7 @@ watch(
     if (handledRouteAnchor === key) return
     handledRouteAnchor = key
     await nextTick()
-    window.setTimeout(() => scrollToSection(id), 0)
+    window.setTimeout(() => scrollToSection(id, { focus: !(id === 'source-intake-workflow' && sourceImportIntent.value) }), 0)
   },
   { immediate: true },
 )
@@ -1483,27 +1524,49 @@ function handleReadinessAction(action) {
   const query = {}
   if (action.episodeId) query.episode = action.episodeId
   if (action.id) query.focus = action.id
-  router.push({ path: `/film/${dramaId}`, query })
+  router.push({ path: `/film/${dramaId}`, query: withProjectListReturnTo(query) })
 }
 
 function saveInfo() {
   scheduleInfoSave({ immediate: true })
 }
 
+function goList() {
+  router.push(projectListReturnTo.value || { name: 'list' })
+}
+
+function withProjectListReturnTo(query = {}) {
+  const nextQuery = { ...query }
+  if (projectListReturnTo.value) nextQuery.returnTo = projectListReturnTo.value
+  return nextQuery
+}
+
 function goCreate() {
-  router.push(`/film/${dramaId}`)
+  if (!currentEpisodeId.value) {
+    ElMessage.warning('请先新增一集，再进入制作')
+    scrollToSection('episode-list')
+    return
+  }
+  const query = { episode: String(currentEpisodeId.value) }
+  router.push({ path: `/film/${dramaId}`, query: withProjectListReturnTo(query) })
 }
 
 function goCanvasMode() {
-  router.push(`/film/${dramaId}/canvas`)
+  if (!currentEpisodeId.value) {
+    ElMessage.warning('请先新增一集，再进入画布')
+    scrollToSection('episode-list')
+    return
+  }
+  const query = { episode: String(currentEpisodeId.value) }
+  router.push({ path: `/film/${dramaId}/canvas`, query: withProjectListReturnTo(query) })
 }
 
 function goEpisode(epId) {
-  router.push(`/film/${dramaId}?episode=${epId}`)
+  router.push({ path: `/film/${dramaId}`, query: withProjectListReturnTo({ episode: epId }) })
 }
 
 function epStatusLabel(status) {
-  const map = { draft: '草稿', processing: '生成中', completed: '已完成', failed: '失败' }
+  const map = { draft: '草稿', processing: '生成中', completed: '剧本已就绪', failed: '失败' }
   return map[status] || status
 }
 
@@ -1565,9 +1628,9 @@ async function onAddEpisode() {
       duration: ep.duration ?? 0
     }))
     updated.push({ episode_number: nextNum, title: '第' + nextNum + '集', script_content: '', description: null, duration: 0 })
-    await dramaAPI.saveEpisodes(dramaId, updated)
+    await projectLifecycle.execute(() => dramaAPI.saveEpisodes(dramaId, updated))
     ElMessage.success('已添加第' + nextNum + '集')
-    await loadDrama()
+    await projectLifecycle.execute(() => loadDrama())
   } catch (e) {
     ElMessage.error(e.message || '添加失败')
   } finally {
@@ -1581,14 +1644,17 @@ const previewUrl = ref(null)
 function openPreview(url) { if (url) previewUrl.value = url }
 
 // 角色
-const charList = ref([]), charLoading = ref(false), charPage = ref(1), charPageSize = ref(20), charTotal = ref(0), charKw = ref('')
+const charList = ref([]), charLoading = ref(false), charError = ref(''), charPage = ref(1), charPageSize = ref(20), charTotal = ref(0), charKw = ref('')
 let charKwTimer = null
 async function loadCharList() {
   charLoading.value = true
   try {
     const res = await characterLibraryAPI.list({ drama_id: dramaId, page: charPage.value, page_size: charPageSize.value, keyword: charKw.value || undefined })
     charList.value = res?.items ?? []; charTotal.value = res?.pagination?.total ?? 0
-  } catch { charList.value = [] } finally { charLoading.value = false }
+    charError.value = ''
+  } catch (error) {
+    charError.value = error?.message || '角色库加载失败，请重试'
+  } finally { charLoading.value = false }
 }
 function onCharKwInput() { if (charKwTimer) clearTimeout(charKwTimer); charKwTimer = setTimeout(() => { charPage.value = 1; loadCharList() }, 300) }
 const editCharVisible = ref(false), editCharForm = ref(null), editCharSaving = ref(false)
@@ -1609,14 +1675,17 @@ async function deleteChar(item) {
 }
 
 // 场景
-const sceneList = ref([]), sceneLoading = ref(false), scenePage = ref(1), scenePageSize = ref(20), sceneTotal = ref(0), sceneKw = ref('')
+const sceneList = ref([]), sceneLoading = ref(false), sceneError = ref(''), scenePage = ref(1), scenePageSize = ref(20), sceneTotal = ref(0), sceneKw = ref('')
 let sceneKwTimer = null
 async function loadSceneList() {
   sceneLoading.value = true
   try {
     const res = await sceneLibraryAPI.list({ drama_id: dramaId, page: scenePage.value, page_size: scenePageSize.value, keyword: sceneKw.value || undefined })
     sceneList.value = res?.items ?? []; sceneTotal.value = res?.pagination?.total ?? 0
-  } catch { sceneList.value = [] } finally { sceneLoading.value = false }
+    sceneError.value = ''
+  } catch (error) {
+    sceneError.value = error?.message || '场景库加载失败，请重试'
+  } finally { sceneLoading.value = false }
 }
 function onSceneKwInput() { if (sceneKwTimer) clearTimeout(sceneKwTimer); sceneKwTimer = setTimeout(() => { scenePage.value = 1; loadSceneList() }, 300) }
 const editSceneVisible = ref(false), editSceneForm = ref(null), editSceneSaving = ref(false)
@@ -1638,14 +1707,17 @@ async function deleteScene(item) {
 }
 
 // 道具
-const propList = ref([]), propLoading = ref(false), propPage = ref(1), propPageSize = ref(20), propTotal = ref(0), propKw = ref('')
+const propList = ref([]), propLoading = ref(false), propError = ref(''), propPage = ref(1), propPageSize = ref(20), propTotal = ref(0), propKw = ref('')
 let propKwTimer = null
 async function loadPropList() {
   propLoading.value = true
   try {
     const res = await propLibraryAPI.list({ drama_id: dramaId, page: propPage.value, page_size: propPageSize.value, keyword: propKw.value || undefined })
     propList.value = res?.items ?? []; propTotal.value = res?.pagination?.total ?? 0
-  } catch { propList.value = [] } finally { propLoading.value = false }
+    propError.value = ''
+  } catch (error) {
+    propError.value = error?.message || '道具库加载失败，请重试'
+  } finally { propLoading.value = false }
 }
 function onPropKwInput() { if (propKwTimer) clearTimeout(propKwTimer); propKwTimer = setTimeout(() => { propPage.value = 1; loadPropList() }, 300) }
 const editPropVisible = ref(false), editPropForm = ref(null), editPropSaving = ref(false)
@@ -1670,6 +1742,7 @@ const importVisible = ref(false)
 const importType = ref('char') // 'char' | 'scene' | 'prop'
 const importList = ref([])
 const importLoading = ref(false)
+const importError = ref('')
 const importPage = ref(1)
 const importPageSize = ref(20)
 const importTotal = ref(0)
@@ -1693,7 +1766,10 @@ async function loadImportList() {
     const res = await api.list({ page: importPage.value, page_size: importPageSize.value, keyword: importKw.value || undefined, global: 1 })
     importList.value = res?.items ?? []
     importTotal.value = res?.pagination?.total ?? 0
-  } catch { importList.value = [] } finally { importLoading.value = false }
+    importError.value = ''
+  } catch (error) {
+    importError.value = error?.message || '全局素材库加载失败，请重试'
+  } finally { importLoading.value = false }
 }
 
 function onImportKwInput() {
@@ -1772,18 +1848,28 @@ watch(infoDraftFingerprint, () => {
 })
 
 onBeforeRouteLeave(() => confirmInfoLeave())
+onBeforeRouteUpdate((to, from) => {
+  if (projectRouteInstanceKey(to) === projectRouteInstanceKey(from)) return true
+  return confirmInfoLeave()
+})
+
+let dramaDetailUnmounted = false
 
 onMounted(async () => {
   await retryDramaLoad()
+  if (dramaDetailUnmounted) return
   window.addEventListener('beforeunload', handleInfoBeforeUnload)
   if (isDramaReady.value && route.query.importBatch) {
     setTimeout(() => {
+      if (dramaDetailUnmounted) return
       episodeBatchImportDialogRef.value?.openDialog?.()
     }, 0)
   }
 })
 
 onBeforeUnmount(() => {
+  dramaDetailUnmounted = true
+  projectLifecycle.dispose()
   clearInfoSaveTimer()
   window.removeEventListener('beforeunload', handleInfoBeforeUnload)
 })
@@ -2039,6 +2125,25 @@ html.light .dependency-status--error {
   position: relative;
   overflow: hidden;
 }
+.episode-card-delete {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+}
+.episode-card-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  padding-right: 36px;
+  color: inherit;
+  text-decoration: none;
+}
+.episode-card-main:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
 .episode-card::before {
   content: '';
   position: absolute;
@@ -2046,6 +2151,7 @@ html.light .dependency-status--error {
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.06), transparent 60%);
   opacity: 0;
   transition: opacity 0.25s;
+  pointer-events: none;
 }
 .episode-card:hover {
   border-color: rgba(139, 92, 246, 0.5);
@@ -2072,13 +2178,13 @@ html.light .dependency-status--error {
   border-top: 1px solid var(--border-color);
   background: transparent;
   font-size: 0.78rem;
-  color: var(--text-faint);
+  color: var(--el-color-primary);
   font-family: inherit;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 4px;
-  opacity: 0.7;
+  opacity: 1;
   transition: color 0.2s, opacity 0.2s;
 }
 .episode-enter:focus-visible {
@@ -2116,7 +2222,19 @@ html.light .dependency-status--error {
 .library-item-desc { font-size: 0.85rem; color: #a1a1aa; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .library-item-actions { display: flex; gap: 8px; }
 .library-empty { text-align: center; color: #71717a; padding: 40px 20px; }
+.library-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #f87171;
+  background: rgba(239, 68, 68, 0.08);
+  color: #fca5a5;
+}
 .resource-empty-state { display: grid; justify-items: center; gap: 12px; width: 100%; }
+.tooltip-trigger { display: inline-flex; }
 .library-pagination { margin-top: 12px; display: flex; justify-content: center; }
 
 /* ——— 编辑器风格 Tab 栏 ——— */
@@ -2187,7 +2305,7 @@ html.light .dependency-status--error {
 html.light .episode-card { background: rgba(255, 255, 255, 0.85); border-color: rgba(139, 92, 246, 0.12); }
 html.light .episode-card:hover { background: rgba(245, 243, 255, 0.95); border-color: rgba(139, 92, 246, 0.4); box-shadow: 0 8px 24px rgba(139, 92, 246, 0.12); }
 html.light .episode-card::before { background: linear-gradient(135deg, rgba(139, 92, 246, 0.05), transparent 60%); }
-html.light .episode-enter { border-top-color: #e4e4e7; color: #a1a1aa; }
+html.light .episode-enter { border-top-color: #e4e4e7; color: var(--el-color-primary); }
 html.light .episode-card:hover .episode-enter { color: var(--el-color-primary); }
 html.light .episode-title { color: #18181b; }
 html.light .res-tab:hover { background: rgba(0,0,0,0.04); }

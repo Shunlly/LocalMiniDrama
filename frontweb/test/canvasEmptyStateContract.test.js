@@ -255,5 +255,6 @@ test('parent only commits a validated confirmation event', () => {
   assert.doesNotMatch(canvasSource, /@update:selected-episode-id=/)
   assert.match(canvasSource, /@confirm-episode="confirmEpisodeSelection"/)
   assert.match(canvasSource, /const episodeId = resolveCanvasEpisodeId\(drama\.value\?\.episodes, value\)/)
-  assert.match(canvasSource, /filterEpisodeId\.value = episodeId/)
+  assert.match(canvasSource, /async function requestEpisodeFilterChange\([\s\S]*?router\.replace\(\{ query \}\)/)
+  assert.match(canvasSource, /async function confirmEpisodeSelection\([\s\S]*?await requestEpisodeFilterChange\(episodeId\)/)
 })

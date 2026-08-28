@@ -1,5 +1,8 @@
 const fs = require('node:fs');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
 const aiConfigService = require('./aiConfigService');
+const { assertServiceMaintenanceLockActiveSync } = require('./dataBackupService');
 const { validateFfmpegTools } = require('../utils/ffmpegPath');
 
 const NOVEL2ANIME_CAPABILITIES = Object.freeze([
@@ -16,32 +19,120 @@ const MODEL_OPTIONAL_SERVICE_PROTOCOLS = new Set([
   'storyboard_image:comfyui',
 ]);
 
+function runDatabaseRollbackProbe(db) {
+  const marker = `__localminidrama_ready_${randomUUID()}`;
+  const createdAt = new Date().toISOString();
+  const savepoint = `localminidrama_ready_${randomUUID().replaceAll('-', '')}`;
+  let savepointActive = false;
+  try {
+    const table = db.prepare(
+      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'dramas'"
+    ).get();
+    if (table?.ok !== 1) throw new Error('required database schema is unavailable');
+
+    db.exec(`SAVEPOINT ${savepoint}`);
+    savepointActive = true;
+    const result = db.prepare(
+      'INSERT INTO dramas (title, status, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(marker, 'draft', marker, createdAt, createdAt);
+    if (result.changes !== 1) throw new Error('database write probe did not insert one row');
+    const inserted = db.prepare(
+      'SELECT id FROM dramas WHERE title = ? AND metadata = ?'
+    ).get(marker, marker);
+    if (!inserted?.id) throw new Error('database write probe could not read its row');
+
+    db.exec(`ROLLBACK TO ${savepoint}`);
+    db.exec(`RELEASE ${savepoint}`);
+    savepointActive = false;
+    const residual = db.prepare(
+      'SELECT 1 AS present FROM dramas WHERE title = ? AND metadata = ? LIMIT 1'
+    ).get(marker, marker);
+    if (residual) throw new Error('database write probe left persistent data');
+  } catch (error) {
+    if (savepointActive) {
+      try { db.exec(`ROLLBACK TO ${savepoint}`); } catch (_) {}
+      try { db.exec(`RELEASE ${savepoint}`); } catch (_) {}
+    }
+    throw error;
+  }
+}
+
+function runStorageWriteProbe(storageRoot, fileSystem) {
+  const probePath = path.join(
+    storageRoot,
+    `.localminidrama-ready-${process.pid}-${randomUUID()}.tmp`
+  );
+  const constants = fileSystem.constants || fs.constants;
+  const noFollow = Number.isInteger(constants.O_NOFOLLOW) ? constants.O_NOFOLLOW : 0;
+  const flags = constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | noFollow;
+  const payload = Buffer.from('localminidrama-readiness-probe\n', 'utf8');
+  let fd;
+  let primaryError = null;
+  try {
+    fd = fileSystem.openSync(probePath, flags, 0o600);
+    let offset = 0;
+    while (offset < payload.length) {
+      const written = fileSystem.writeSync(fd, payload, offset, payload.length - offset, offset);
+      if (!Number.isInteger(written) || written <= 0) throw new Error('storage write probe stopped early');
+      offset += written;
+    }
+    fileSystem.fsyncSync(fd);
+  } catch (error) {
+    primaryError = error;
+  } finally {
+    if (fd !== undefined) {
+      try { fileSystem.closeSync(fd); } catch (error) { primaryError ||= error; }
+    }
+    try { fileSystem.unlinkSync(probePath); } catch (error) {
+      if (error?.code !== 'ENOENT') primaryError ||= error;
+    }
+  }
+  if (primaryError) throw primaryError;
+}
+
 function checkReadiness(db, storageRoot, options = {}) {
   const fileSystem = options.fs || fs;
   const checks = {
     database: { ok: false },
     storage: { ok: false },
+    maintenance: { ok: false },
   };
 
   try {
     const row = db.prepare('SELECT 1 AS ok').get();
-    checks.database.ok = row?.ok === 1;
-    if (!checks.database.ok) checks.database.error = 'database query failed';
+    if (row?.ok !== 1) {
+      checks.database.error = '数据库查询失败';
+    } else {
+      runDatabaseRollbackProbe(db);
+      checks.database.ok = true;
+    }
   } catch (_) {
-    checks.database.error = 'database unavailable';
+    checks.database.ok = false;
+    checks.database.error = '数据库不可用';
   }
 
   try {
-    const stat = fileSystem.statSync(storageRoot);
-    if (!stat.isDirectory()) throw new Error('not a directory');
+    const stat = fileSystem.lstatSync(storageRoot);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('not a regular directory');
     fileSystem.accessSync(storageRoot, fileSystem.constants.R_OK | fileSystem.constants.W_OK);
+    runStorageWriteProbe(storageRoot, fileSystem);
     checks.storage.ok = true;
   } catch (_) {
-    checks.storage.error = 'storage unavailable';
+    checks.storage.ok = false;
+    checks.storage.error = '存储目录不可用';
+  }
+
+  try {
+    const assertLease = options.assertMaintenanceLease || assertServiceMaintenanceLockActiveSync;
+    assertLease(options.maintenanceGuard);
+    checks.maintenance.ok = true;
+  } catch (_) {
+    checks.maintenance.ok = false;
+    checks.maintenance.error = '维护租约不可用';
   }
 
   return {
-    ready: checks.database.ok && checks.storage.ok,
+    ready: checks.database.ok && checks.storage.ok && checks.maintenance.ok,
     checks,
   };
 }
@@ -52,17 +143,14 @@ function workflowMode(params = {}) {
 
 function configModel(config) {
   if (!config) return '';
-  if (String(config.default_model || '').trim()) return String(config.default_model).trim();
-  const models = Array.isArray(config.model) ? config.model : [config.model];
-  return String(models.find((model) => String(model || '').trim()) || '').trim();
+  const normalized = aiConfigService.normalizeConfigModels(config);
+  return normalized.default_model || normalized.model[0] || '';
 }
 
 function configModels(config) {
   if (!config) return [];
-  const models = Array.isArray(config.model) ? config.model : [config.model];
-  return [...models, config.default_model]
-    .map((model) => String(model || '').trim())
-    .filter(Boolean);
+  const normalized = aiConfigService.normalizeConfigModels(config);
+  return [...normalized.model, normalized.default_model].filter(Boolean);
 }
 
 function selectedWorkflowOption(params, key) {
@@ -130,6 +218,9 @@ function serviceConfigReadiness(config) {
     };
   }
   const model = configModel(config);
+  const normalizedModels = aiConfigService.normalizeConfigModels(config);
+  const defaultModelReady = !normalizedModels.default_model
+    || normalizedModels.model.includes(normalizedModels.default_model);
   const modelOptional = isModelOptionalServiceConfig(config);
   const credentialOptional = aiConfigService.isApiKeyOptionalConnection(config);
   const credentialSet = aiConfigService.hasStoredCredentials(config);
@@ -137,10 +228,12 @@ function serviceConfigReadiness(config) {
   const modelReady = Boolean(model) || modelOptional;
   const credentialReady = credentialOptional || credentialSet;
   return {
-    ready: protocolReady && modelReady && credentialReady,
+    ready: protocolReady && defaultModelReady && modelReady && credentialReady,
     issue: !protocolReady
       ? 'missing_workflow'
-      : (!modelReady ? 'missing_model' : (!credentialReady ? 'missing_credentials' : '')),
+      : (!defaultModelReady
+          ? 'invalid_default_model'
+          : (!modelReady ? 'missing_model' : (!credentialReady ? 'missing_credentials' : ''))),
     model,
     modelOptional,
     credentialOptional,
@@ -224,13 +317,13 @@ function resolveWorkflowConfigs(db, params, options) {
 function assertDramaExists(db, params) {
   const dramaId = Number(params.drama_id || params.dramaId);
   if (!Number.isSafeInteger(dramaId) || dramaId <= 0) {
-    const error = new Error('drama_id is required and must reference an existing drama');
+    const error = new Error('drama_id 必填，且必须指向未删除的项目');
     error.code = 'BAD_REQUEST';
     throw error;
   }
   const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(dramaId);
   if (!drama) {
-    const error = new Error('drama_id is required and must reference an existing drama');
+    const error = new Error('drama_id 必填，且必须指向未删除的项目');
     error.code = 'BAD_REQUEST';
     throw error;
   }
@@ -286,6 +379,8 @@ function checkNovel2AnimeReadiness(db, params = {}, options = {}) {
           : `已选择 ${selected}`
         : configReadiness.issue === 'missing_model'
           ? `${definition.label}配置存在，但未选择可用模型`
+          : configReadiness.issue === 'invalid_default_model'
+            ? `${definition.label}配置的默认模型不在可用模型列表中，请在 AI 配置中重新选择默认模型`
           : configReadiness.issue === 'missing_workflow'
             ? `${definition.label}配置缺少 ComfyUI workflow 模板`
           : configReadiness.issue === 'missing_credentials'

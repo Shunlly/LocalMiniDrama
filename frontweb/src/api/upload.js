@@ -1,4 +1,5 @@
 import request from '@/utils/request'
+import { normalizeMediaItem } from '@/utils/mediaLibrary'
 
 export const uploadAPI = {
   /**
@@ -18,12 +19,18 @@ export const uploadAPI = {
     })
   },
   /** 上传图片或视频并写入全局素材中心。 */
-  uploadAsset(file) {
+  async uploadAsset(file, opts = {}) {
     const form = new FormData()
     form.append('file', file)
-    return request.post('/assets/upload', form, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+    const did = opts.dramaId
+    if (did != null && did !== '' && Number(did) > 0) {
+      form.append('drama_id', String(did))
+    }
+    const response = await request.post('/assets/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      suppressErrorToast: opts.suppressErrorToast === true,
     })
+    return normalizeMediaItem(response || {})
   },
   /**
    * 从图片（base64 data URL 或 http URL）提取实体特征描述，不依赖已有实体 ID。

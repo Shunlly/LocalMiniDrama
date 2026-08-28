@@ -2,6 +2,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const aiConfigService = require('../src/services/aiConfigService');
 
@@ -51,7 +52,7 @@ describe('TTS request reliability', () => {
     };
     await assert.rejects(
       synthesize(db, { info() {} }, { text: 'hello', storage_base: '.' }),
-      (error) => error?.code === 'BAD_REQUEST' && /No TTS provider/.test(error.message)
+      (error) => error?.code === 'BAD_REQUEST' && /未配置 TTS/.test(error.message)
     );
   });
 
@@ -144,6 +145,7 @@ describe('TTS request reliability', () => {
             provider: 'openai_compatible',
             api_key: 'test-key',
             base_url: `${baseUrl}/v1`,
+            model: ['tts-test'],
             default_model: 'tts-test',
             settings: JSON.stringify({ allow_local_http: true }),
           },
@@ -173,6 +175,7 @@ describe('TTS request reliability', () => {
         config: {
           api_key: 'stored-secret-must-not-be-sent',
           base_url: `${baseUrl}/v1`,
+          model: ['tts-test'],
           default_model: 'tts-test',
         },
       };
@@ -256,6 +259,71 @@ describe('TTS request reliability', () => {
     });
   });
 
+  it('真实挂起的 TTS 请求取消后及时中止，且不留下目标或临时文件', async () => {
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'localminidrama-tts-abort-'));
+    let requestStarted;
+    let requestClosed;
+    const started = new Promise((resolve) => { requestStarted = resolve; });
+    const closed = new Promise((resolve) => { requestClosed = resolve; });
+    const controller = new AbortController();
+    try {
+      await withServer((_request, response) => {
+        requestStarted();
+        response.once('close', requestClosed);
+      }, async (baseUrl) => {
+        const pending = synthesize(null, { info() {} }, {
+          text: '会被取消的旁白',
+          storyboard_id: 88,
+          storage_base: storageRoot,
+          signal: controller.signal,
+          config: {
+            provider: 'openai_compatible',
+            api_key: 'test-key',
+            base_url: `${baseUrl}/v1`,
+            model: ['tts-test'],
+            default_model: 'tts-test',
+            settings: JSON.stringify({ allow_local_http: true }),
+          },
+        });
+        await started;
+        const startedAt = Date.now();
+        controller.abort(new Error('TTS 请求取消'));
+        let timeout;
+        try {
+          await assert.rejects(
+            Promise.race([
+              pending,
+              new Promise((_, reject) => {
+                timeout = setTimeout(() => reject(new Error('TTS 取消未及时收敛')), 750);
+              }),
+            ]),
+            (error) => error?.message === 'TTS 请求取消'
+          );
+        } finally {
+          clearTimeout(timeout);
+        }
+        assert.ok(Date.now() - startedAt < 750, '挂起请求取消应在有界时间内返回');
+
+        let closeTimeout;
+        try {
+          await Promise.race([
+            closed,
+            new Promise((_, reject) => {
+              closeTimeout = setTimeout(() => reject(new Error('TTS socket 未及时关闭')), 750);
+            }),
+          ]);
+        } finally {
+          clearTimeout(closeTimeout);
+        }
+      });
+      const audioDir = path.join(storageRoot, 'audio');
+      assert.equal(fs.existsSync(audioDir), true);
+      assert.deepEqual(fs.readdirSync(audioDir), []);
+    } finally {
+      fs.rmSync(storageRoot, { recursive: true, force: true });
+    }
+  });
+
   it('does not include provider response bodies or secrets in errors', async () => {
     await withServer((_request, response) => {
       response.writeHead(401, { 'content-type': 'application/json' });
@@ -271,7 +339,7 @@ describe('TTS request reliability', () => {
           localProviderNetworkOptions(baseUrl)
         ),
         (error) => {
-          assert.equal(error.message, 'OpenAI TTS HTTP 401');
+          assert.equal(error.message, 'OpenAI TTS 请求失败（HTTP 401）');
           assert.doesNotMatch(error.message, /secret|private narration/i);
           return true;
         }

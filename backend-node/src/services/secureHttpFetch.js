@@ -9,16 +9,12 @@ const {
   isGloballyRoutableIp,
   validatePublicHttpUrl,
 } = require('./uploadService');
+const { isSensitiveFieldKey } = require('./sensitiveFieldPolicy');
+const { secureHttpsRequestOptions } = require('./tlsPolicy');
 
 const DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_REDIRECTS = 5;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-const SENSITIVE_REDIRECT_HEADERS = new Set([
-  'authorization',
-  'cookie',
-  'cookie2',
-  'proxy-authorization',
-]);
 const SENSITIVE_REDIRECT_OPTION_NAMES = [
   'auth',
   'credentials',
@@ -64,9 +60,7 @@ function deleteHeader(headers, expected) {
 }
 
 function isSensitiveRedirectHeader(name) {
-  const normalized = String(name || '').trim().toLowerCase();
-  if (SENSITIVE_REDIRECT_HEADERS.has(normalized)) return true;
-  return /(?:^|-)(?:auth(?:entication)?|api-?key|access-?key|client-?(?:key|secret)|private-?key|secret|token|credential|password|signature|signed)(?:-|$)/i.test(normalized);
+  return isSensitiveFieldKey(name);
 }
 
 function stripCrossOriginCredentials(options) {
@@ -198,7 +192,7 @@ async function requestOnce(url, options, networkOptions) {
     const onAbort = () => request?.destroy(abortError(signal));
     const transport = parsed.protocol === 'https:' ? https : http;
 
-    request = transport.request({
+    request = transport.request(secureHttpsRequestOptions({
       protocol: parsed.protocol,
       hostname: parsed.hostname,
       port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
@@ -207,7 +201,7 @@ async function requestOnce(url, options, networkOptions) {
       headers,
       servername: net.isIP(parsed.hostname) ? undefined : parsed.hostname,
       lookup: createPinnedDnsLookup(selected),
-    }, (res) => {
+    }), (res) => {
       const contentLength = Number(res.headers['content-length'] || 0);
       if (Number.isFinite(contentLength) && contentLength > maxBytes) {
         const error = new UnsafeMediaReferenceError('Remote response exceeds the size limit.');

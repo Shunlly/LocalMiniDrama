@@ -12,6 +12,39 @@ export function normalizeSourceType(value) {
   return SOURCE_TYPE_OPTIONS.some((item) => item.value === raw) ? raw : ''
 }
 
+export function sourceTypeLabel(value) {
+  const normalized = normalizeSourceType(value)
+  if (!String(value || '').trim()) return '自动识别'
+  return SOURCE_TYPE_OPTIONS.find((item) => item.value === normalized)?.label || '其他素材'
+}
+
+export function sourceProvenanceLabel(source) {
+  const metadata = source?.metadata && typeof source.metadata === 'object' ? source.metadata : {}
+  if (metadata.imported_from === 'source_intake_url') {
+    try {
+      const hostname = new URL(String(metadata.source_url || '')).hostname
+      return hostname ? `网页 · ${hostname}` : '网页'
+    } catch {
+      return '网页'
+    }
+  }
+  if (metadata.imported_from === 'source_intake_upload') return '本地文件'
+  if (metadata.imported_from === 'source_intake_panel') return '粘贴文本'
+  return ''
+}
+
+const SOURCE_RELATION_LABELS = Object.freeze({
+  next: '顺承',
+  cause: '因果',
+  conflict: '冲突',
+  reveal: '揭示',
+  hook: '悬念',
+})
+
+export function sourceRelationLabel(value) {
+  return SOURCE_RELATION_LABELS[String(value || '').trim().toLowerCase()] || '事件关系'
+}
+
 export function inferSourceTypeFromFilename(filename) {
   const name = String(filename || '').toLowerCase()
   if (!name) return ''
@@ -39,6 +72,14 @@ export function buildSourceIntakePayload(form, drama) {
     },
   }
   if (!payload.title) payload.title = drama?.title ? `${drama.title} 素材` : '故事素材'
+  return payload
+}
+
+export function buildWebSourceIntakePayload(form, drama) {
+  const payload = buildSourceIntakePayload({ ...form, text: '' }, drama)
+  const automaticTitle = drama?.title ? `${drama.title} 素材` : '故事素材'
+  if (payload.title === automaticTitle) delete payload.title
+  payload.source_url = String(form?.source_url || '').trim()
   return payload
 }
 

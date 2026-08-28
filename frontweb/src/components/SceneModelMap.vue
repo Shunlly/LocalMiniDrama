@@ -3,7 +3,7 @@
     <div class="page-header">
       <div class="header-left">
         <p class="page-desc">
-          配置不同业务场景使用的 AI 模型路由。当调用 generateText 时传入 scene_key，系统会优先使用此处配置的模型。
+          配置不同业务场景使用的 AI 模型路由。当文本生成请求传入场景键 scene_key 时，系统会优先使用此处配置的模型。
         </p>
       </div>
       <div class="header-right">
@@ -62,11 +62,12 @@
     </template>
 
     <!-- 添加/编辑对话框 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="dialogVisible"
       :title="editingKey ? '编辑业务场景映射' : '添加业务场景映射'"
       width="560px"
       :close-on-click-modal="false"
+      :before-close="confirmDialogClose"
       @closed="resetForm"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
@@ -148,10 +149,10 @@
       </el-form>
 
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button @click="requestDialogClose">取消</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
   </div>
 </template>
 
@@ -170,6 +171,7 @@ const configs = ref([])
 const dialogVisible = ref(false)
 const editingKey = ref(null)
 const formRef = ref(null)
+const formBaseline = ref('')
 
 const form = ref({
   key: '',
@@ -183,6 +185,46 @@ const rules = {
   key: [{ required: true, message: '请输入场景键', trigger: 'blur' }],
   service_type: [{ required: true, message: '请选择服务类型', trigger: 'change' }]
 }
+
+function formFingerprint() {
+  return JSON.stringify(form.value)
+}
+
+function hasUnsavedChanges() {
+  return dialogVisible.value
+    && Boolean(formBaseline.value)
+    && formFingerprint() !== formBaseline.value
+}
+
+async function confirmDiscard() {
+  try {
+    await ElMessageBox.confirm(
+      '当前业务场景映射尚未保存，关闭后本次修改会丢失。',
+      '放弃未保存修改？',
+      {
+        confirmButtonText: '放弃修改',
+        cancelButtonText: '继续编辑',
+        type: 'warning',
+        distinguishCancelAndClose: true,
+      },
+    )
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
+async function confirmDialogClose(done) {
+  if (!hasUnsavedChanges() || await confirmDiscard()) done()
+}
+
+async function requestDialogClose() {
+  if (!hasUnsavedChanges() || await confirmDiscard()) dialogVisible.value = false
+}
+
+defineExpose({
+  hasUnsavedChanges,
+})
 
 // 预定义场景键及其对应的服务类型
 const predefinedKeys = [
@@ -291,14 +333,14 @@ async function load() {
     
     // 合并配置名称
     list.value = (mapsData || []).map(item => {
-      const config = configs.value.find(c => c.id === item.config_id)
+      const config = configs.value.find(c => String(c.id) === String(item.config_id))
       return {
         ...item,
         config_name: config?.name || null
       }
     })
   } catch (err) {
-    ElMessage.error('加载场景模型映射失败: ' + (err.message || '未知错误'))
+    ElMessage.error('加载场景模型映射失败：' + (err.message || '未知错误'))
   } finally {
     loading.value = false
   }
@@ -313,6 +355,7 @@ function openAdd() {
     config_id: null,
     model_override: ''
   }
+  formBaseline.value = formFingerprint()
   dialogVisible.value = true
 }
 
@@ -325,6 +368,7 @@ function openEdit(row) {
     config_id: row.config_id || null,
     model_override: row.model_override || ''
   }
+  formBaseline.value = formFingerprint()
   dialogVisible.value = true
 }
 
@@ -348,10 +392,11 @@ async function save() {
       await sceneModelMapAPI.create({ ...body, key: form.value.key })
       ElMessage.success('创建成功')
     }
+    formBaseline.value = formFingerprint()
     dialogVisible.value = false
     await load()
   } catch (err) {
-    ElMessage.error('保存失败: ' + (err.message || '未知错误'))
+    ElMessage.error('保存失败：' + (err.message || '未知错误'))
   } finally {
     saving.value = false
   }
@@ -360,22 +405,23 @@ async function save() {
 async function onDelete(row) {
   try {
     await ElMessageBox.confirm(
-      `确定要删除场景 "${row.key}" 的模型映射配置吗？`,
+      `确定要删除场景「${row.key}」的模型映射配置吗？`,
       '确认删除',
-      { type: 'warning' }
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
     )
     await sceneModelMapAPI.delete(row.key)
     ElMessage.success('删除成功')
     await load()
   } catch (err) {
     if (err !== 'cancel') {
-      ElMessage.error('删除失败: ' + (err.message || '未知错误'))
+      ElMessage.error('删除失败：' + (err.message || '未知错误'))
     }
   }
 }
 
 function resetForm() {
   formRef.value?.resetFields()
+  formBaseline.value = ''
 }
 
 onMounted(() => {

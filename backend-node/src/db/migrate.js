@@ -438,6 +438,10 @@ function ensureAllColumns(database) {
     { name: 'created_at',     type: 'TEXT' },
     { name: 'updated_at',     type: 'TEXT' },
     { name: 'deleted_at',     type: 'TEXT' },
+    { name: 'trash_state',    type: 'TEXT' },
+    { name: 'recycle_operation_id', type: 'TEXT' },
+    { name: 'recycle_phase',  type: 'TEXT' },
+    { name: 'recycle_started_at', type: 'TEXT' },
   ]);
 
   // --- episodes ---
@@ -635,6 +639,13 @@ function ensureAllColumns(database) {
     { name: 'completed_at', type: 'TEXT' },
     { name: 'error',        type: 'TEXT' },
     { name: 'result',       type: 'TEXT' },
+    { name: 'cancel_context', type: 'TEXT' },
+    { name: 'cancel_operation_id', type: 'TEXT' },
+    { name: 'cancel_state', type: 'TEXT' },
+    { name: 'cancel_attempt', type: 'INTEGER DEFAULT 0' },
+    { name: 'cancel_next_retry_at', type: 'TEXT' },
+    { name: 'cancel_requested_at', type: 'TEXT' },
+    { name: 'cancel_confirmed_at', type: 'TEXT' },
     { name: 'created_at',   type: 'TEXT' },
     { name: 'updated_at',   type: 'TEXT' },
     { name: 'deleted_at',   type: 'TEXT' },

@@ -14,6 +14,11 @@ const { applyDeepSeekConnectivityOptions } = require('./deepseekConfig');
 const { probeComfyUiConnection, sanitizeProviderText } = require('./comfyUiClient');
 const uploadService = require('./uploadService');
 const { secureHttpFetch, validateHttpRequestTarget } = require('./secureHttpFetch');
+const { requireCompleteProviderNetworkPolicy } = require('./providerNetworkPolicy');
+const {
+  fieldKeyWords: settingKeyWords,
+  isSensitiveFieldKey: isSensitiveSettingKey,
+} = require('./sensitiveFieldPolicy');
 const MASKED_SECRET = '********';
 
 const LOCAL_ONLY_PROVIDERS = new Set([
@@ -48,6 +53,14 @@ function providerUrlValidationError(message) {
   const error = new Error(message);
   error.code = 'INVALID_PROVIDER_URL';
   error.status = 400;
+  return error;
+}
+
+function aiConfigValidationError(message, details) {
+  const error = new Error(message);
+  error.code = 'INVALID_AI_CONFIG';
+  error.status = 400;
+  error.details = details;
   return error;
 }
 
@@ -127,20 +140,20 @@ function normalizeProviderBaseUrl(value, config = {}) {
     || BLOCKED_PROVIDER_IPS.has(normalizedHost)
     || normalizedHost.endsWith('.metadata.google.internal')
     || (net.isIP(normalizedHost) && !localTarget && !uploadService.isGloballyRoutableIp(normalizedHost))) {
-    throw providerUrlValidationError('Provider URL targets a blocked or non-routable address');
+    throw providerUrlValidationError('服务地址指向被拦截或不可路由的网络位置');
   }
   if (localTarget && !localMode) {
-    throw providerUrlValidationError('Private or local provider URLs require an explicitly recognized local provider mode');
+    throw providerUrlValidationError('私有或本地服务地址需要使用已识别的本地 Provider 模式');
   }
   if (parsed.protocol === 'http:' && (!localTarget || !localMode)) {
-    throw providerUrlValidationError('Globally routable provider URLs must use HTTPS');
+    throw providerUrlValidationError('公网服务地址必须使用 HTTPS');
   }
   return parsed.toString().replace(/\/$/, '');
 }
 
 function getProviderNetworkOptions(config = {}, overrides = {}) {
   const baseUrl = normalizeProviderBaseUrl(config.base_url, config);
-  if (!baseUrl) throw providerUrlValidationError('base_url is required');
+  if (!baseUrl) throw providerUrlValidationError('base_url 必填');
   const parsed = new URL(baseUrl);
   const allowPrivate = isExplicitLocalProviderHost(parsed.hostname) && isExplicitLocalProviderConfig(config);
   return {
@@ -178,74 +191,6 @@ function hasSecret(value) {
 
 function maskSecretValue(value) {
   return hasSecret(value) ? MASKED_SECRET : '';
-}
-
-const SECRET_SETTING_WORDS = new Set([
-  'authorization',
-  'cookie',
-  'credential',
-  'credentials',
-  'key',
-  'keys',
-  'password',
-  'passwords',
-  'secret',
-  'secrets',
-  'sig',
-  'signature',
-  'signatures',
-  'token',
-  'tokens',
-]);
-
-const TOKEN_BUSINESS_WORDS = new Set([
-  'budget',
-  'cached',
-  'completion',
-  'cost',
-  'count',
-  'input',
-  'limit',
-  'max',
-  'min',
-  'output',
-  'price',
-  'prompt',
-  'rate',
-  'total',
-  'usage',
-]);
-
-function settingKeyWords(key) {
-  return String(key || '')
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-}
-
-function isTokenBusinessField(words) {
-  const compact = words.join('');
-  if (!compact.includes('token')) return false;
-  const hasSecretContext = [
-    'access', 'api', 'auth', 'authorization', 'bearer', 'client', 'credential',
-    'cookie', 'key', 'password', 'refresh', 'secret', 'session',
-  ].some((word) => compact.includes(word));
-  return !hasSecretContext && [...TOKEN_BUSINESS_WORDS].some((word) => compact.includes(word));
-}
-
-function isSensitiveSettingKey(key) {
-  const words = settingKeyWords(key);
-  if (isTokenBusinessField(words)) return false;
-  const compact = words.join('');
-  if (compact === 'auth' || compact === 'authentication' || compact === 'xauth' || compact.endsWith('authentication')) return true;
-  if (words.some((word) => word !== 'key' && word !== 'keys' && SECRET_SETTING_WORDS.has(word))) return true;
-  if (compact === 'sig' || /authorization|cookie|credential|secret|signature|token|password/.test(compact)) return true;
-  if (compact === 'key' || compact === 'keys') return true;
-  return compact.includes('key') && [
-    'access', 'api', 'auth', 'bearer', 'client', 'credential', 'encrypt',
-    'private', 'secret', 'session', 'signing', 'xapi',
-  ].some((context) => compact.includes(context));
 }
 
 const SAFE_RESPONSE_HEADER_NAMES = new Set([
@@ -514,11 +459,80 @@ function configForResponse(config) {
   };
 }
 
+function normalizeModelList(model) {
+  const source = Array.isArray(model) ? model : (model == null ? [] : [model]);
+  const seen = new Set();
+  const normalized = [];
+  for (const item of source) {
+    const value = String(item ?? '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
+function normalizeDefaultModel(defaultModel) {
+  const normalized = String(defaultModel ?? '').trim();
+  return normalized || null;
+}
+
+function nextConfigUpdatedAt(previous) {
+  const previousMs = Date.parse(String(previous || ''));
+  const nowMs = Date.now();
+  const nextMs = Number.isFinite(previousMs) ? Math.max(nowMs, previousMs + 1) : nowMs;
+  return new Date(nextMs).toISOString();
+}
+
+function aiConfigConflictError(id) {
+  const error = new Error('AI 配置已被其他操作更新，请刷新后重新确认修改');
+  error.code = 'AI_CONFIG_CONFLICT';
+  error.status = 409;
+  error.details = { config_id: Number(id) };
+  return error;
+}
+
+function normalizeConfigModels(config = {}) {
+  return {
+    model: normalizeModelList(config.model),
+    default_model: normalizeDefaultModel(config.default_model),
+  };
+}
+
+function assertDefaultModelMembership(config = {}) {
+  const normalized = normalizeConfigModels(config);
+  if (normalized.default_model && !normalized.model.includes(normalized.default_model)) {
+    throw aiConfigValidationError(
+      '默认模型不在可用模型列表中，请在 AI 配置中重新选择默认模型',
+      { field: 'default_model', issue: 'not_in_model_list' }
+    );
+  }
+  return normalized;
+}
+
+function resolveConfiguredModel(config = {}, preferredModel, fallback) {
+  const normalized = assertDefaultModelMembership(config);
+  const preferred = String(preferredModel ?? '').trim();
+  if (preferred && !normalized.model.includes(preferred)) {
+    throw aiConfigValidationError(
+      '请求的模型不在可用模型列表中，请在 AI 配置中重新选择模型',
+      { field: 'model', issue: 'not_in_model_list' }
+    );
+  }
+  return preferred
+    || normalized.default_model
+    || normalized.model[0]
+    || String(fallback ?? '').trim();
+}
+
+function normalizeWritableConfigModels(config = {}) {
+  const inactive = config.is_active === false || config.is_active === 0;
+  return inactive ? normalizeConfigModels(config) : assertDefaultModelMembership(config);
+}
+
 function modelToDb(model) {
   if (model == null) return null;
-  if (Array.isArray(model)) return JSON.stringify(model);
-  if (typeof model === 'string') return JSON.stringify([model]);
-  return JSON.stringify([]);
+  return JSON.stringify(normalizeModelList(model));
 }
 
 function modelFromDb(val) {
@@ -562,7 +576,12 @@ function getConfig(db, id) {
 
 function createConfig(db, log, req) {
   const now = new Date().toISOString();
-  const model = modelToDb(req.model);
+  const normalizedModels = normalizeWritableConfigModels({
+    model: req.model,
+    default_model: req.default_model,
+    is_active: true,
+  });
+  const model = modelToDb(normalizedModels.model);
   let endpoint = req.endpoint || '';
   let queryEndpoint = req.query_endpoint || '';
   if (!endpoint && req.provider) {
@@ -602,9 +621,12 @@ function createConfig(db, log, req) {
         endpoint = '/videos';
         queryEndpoint = '/videos/{taskId}';
       }
+    } else if (p === 'minimax' && st === 'video') {
+      endpoint = '/video_generation';
+      queryEndpoint = '/query/video_generation/{taskId}';
     }
   }
-  const defaultModel = req.default_model != null ? String(req.default_model).trim() || null : null;
+  const defaultModel = normalizedModels.default_model;
   const normalizedBaseUrl = normalizeProviderBaseUrl(req.base_url, req);
   endpoint = normalizeProviderEndpoint(endpoint, 'endpoint');
   queryEndpoint = normalizeProviderEndpoint(queryEndpoint, 'query_endpoint');
@@ -639,96 +661,125 @@ function createConfig(db, log, req) {
 }
 
 function updateConfig(db, log, id, req) {
-  const existing = getConfig(db, id);
-  if (!existing) return null;
-  const normalizedSettings = req.settings !== undefined
-    ? (req.settings == null ? null : preserveMaskedSettings(req.settings, existing.settings))
-    : existing.settings;
-  const candidate = {
-    ...existing,
-    ...req,
-    base_url: req.base_url != null ? req.base_url : existing.base_url,
-    api_key: req.api_key != null && !isMaskedSecret(req.api_key) ? req.api_key : existing.api_key,
-    settings: normalizedSettings,
-  };
-  const requiresNetworkValidation = req.base_url != null
-    || req.provider != null
-    || req.settings !== undefined
-    || (req.api_key != null && !isMaskedSecret(req.api_key));
-  const normalizedBaseUrl = requiresNetworkValidation
-    ? normalizeProviderBaseUrl(candidate.base_url, candidate)
-    : existing.base_url;
-  let originChanged = String(existing.base_url || '') !== normalizedBaseUrl;
-  try {
-    originChanged = new URL(existing.base_url).origin !== new URL(normalizedBaseUrl).origin;
-  } catch (_) {}
-  if (originChanged && new URL(normalizedBaseUrl).protocol === 'http:' && hasStoredCredentials(candidate)) {
-    throw providerUrlValidationError('Stored credentials cannot be moved automatically to a new HTTP provider origin');
-  }
-  const updates = [];
-  const params = [];
-  if (req.name != null) {
-    updates.push('name = ?');
-    params.push(req.name);
-  }
-  if (req.provider != null) {
-    updates.push('provider = ?');
-    params.push(req.provider);
-  }
-  if (req.api_protocol != null) {
-    updates.push('api_protocol = ?');
-    params.push(req.api_protocol);
-  }
-  if (req.base_url != null) {
-    updates.push('base_url = ?');
-    params.push(normalizedBaseUrl);
-  }
-  if (req.api_key != null && !isMaskedSecret(req.api_key)) {
-    updates.push('api_key = ?');
-    const st = req.service_type != null ? req.service_type : existing.service_type;
-    params.push(normalizeApiKeyForService(st, req.api_key));
-  }
-  if (req.model != null) {
-    updates.push('model = ?');
-    params.push(modelToDb(req.model));
-  }
-  if (req.default_model !== undefined) {
-    updates.push('default_model = ?');
-    params.push(req.default_model != null ? String(req.default_model).trim() || null : null);
-  }
-  if (req.priority != null) {
-    updates.push('priority = ?');
-    params.push(req.priority);
-  }
-  if (req.endpoint !== undefined) {
-    updates.push('endpoint = ?');
-    params.push(normalizeProviderEndpoint(req.endpoint, 'endpoint'));
-  }
-  if (req.query_endpoint !== undefined) {
-    updates.push('query_endpoint = ?');
-    params.push(normalizeProviderEndpoint(req.query_endpoint, 'query_endpoint'));
-  }
-  if (req.settings !== undefined) {
-    updates.push('settings = ?');
-    params.push(normalizedSettings);
-  }
-  if (typeof req.is_default === 'boolean') {
-    updates.push('is_default = ?');
-    params.push(req.is_default ? 1 : 0);
-  }
-  if (typeof req.is_active === 'boolean') {
-    updates.push('is_active = ?');
-    params.push(req.is_active ? 1 : 0);
-  }
-  if (updates.length === 0) return existing;
-  params.push(new Date().toISOString(), id);
   const applyUpdate = db.transaction(() => {
+    const existing = getConfig(db, id);
+    if (!existing) return null;
+
+    const expectedUpdatedAt = req.expected_updated_at == null
+      ? null
+      : String(req.expected_updated_at);
+    if (expectedUpdatedAt !== null && expectedUpdatedAt !== String(existing.updated_at || '')) {
+      throw aiConfigConflictError(id);
+    }
+    if (req.service_type != null
+      && String(req.service_type).trim() !== String(existing.service_type || '').trim()) {
+      throw aiConfigValidationError(
+        '已保存配置不能切换服务类型，请新建对应服务类型的配置',
+        { field: 'service_type', issue: 'immutable' }
+      );
+    }
+
+    const normalizedSettings = req.settings !== undefined
+      ? (req.settings == null ? null : preserveMaskedSettings(req.settings, existing.settings))
+      : existing.settings;
+    const candidate = {
+      ...existing,
+      ...req,
+      base_url: req.base_url != null ? req.base_url : existing.base_url,
+      api_key: req.api_key != null && !isMaskedSecret(req.api_key) ? req.api_key : existing.api_key,
+      settings: normalizedSettings,
+    };
+    const requiresNetworkValidation = req.base_url != null
+      || req.provider != null
+      || req.settings !== undefined
+      || (req.api_key != null && !isMaskedSecret(req.api_key));
+    const normalizedBaseUrl = requiresNetworkValidation
+      ? normalizeProviderBaseUrl(candidate.base_url, candidate)
+      : existing.base_url;
+    let originChanged = String(existing.base_url || '') !== normalizedBaseUrl;
+    try {
+      originChanged = new URL(existing.base_url).origin !== new URL(normalizedBaseUrl).origin;
+    } catch (_) {}
+    if (originChanged && new URL(normalizedBaseUrl).protocol === 'http:' && hasStoredCredentials(candidate)) {
+      throw providerUrlValidationError('已保存的凭据不能自动迁移到新的 HTTP 服务地址，请重新填写密钥');
+    }
+    const normalizedModels = normalizeWritableConfigModels({
+      model: req.model != null ? req.model : existing.model,
+      default_model: req.default_model !== undefined ? req.default_model : existing.default_model,
+      is_active: typeof req.is_active === 'boolean' ? req.is_active : existing.is_active,
+    });
+    const updates = [];
+    const params = [];
+    if (req.name != null) {
+      updates.push('name = ?');
+      params.push(req.name);
+    }
+    if (req.provider != null) {
+      updates.push('provider = ?');
+      params.push(req.provider);
+    }
+    if (req.api_protocol != null) {
+      updates.push('api_protocol = ?');
+      params.push(req.api_protocol);
+    }
+    if (req.base_url != null) {
+      updates.push('base_url = ?');
+      params.push(normalizedBaseUrl);
+    }
+    if (req.api_key != null && !isMaskedSecret(req.api_key)) {
+      updates.push('api_key = ?');
+      params.push(normalizeApiKeyForService(existing.service_type, req.api_key));
+    }
+    if (req.model != null) {
+      updates.push('model = ?');
+      params.push(modelToDb(normalizedModels.model));
+    }
+    if (req.default_model !== undefined) {
+      updates.push('default_model = ?');
+      params.push(normalizedModels.default_model);
+    }
+    if (req.priority != null) {
+      updates.push('priority = ?');
+      params.push(req.priority);
+    }
+    if (req.endpoint !== undefined) {
+      updates.push('endpoint = ?');
+      params.push(normalizeProviderEndpoint(req.endpoint, 'endpoint'));
+    }
+    if (req.query_endpoint !== undefined) {
+      updates.push('query_endpoint = ?');
+      params.push(normalizeProviderEndpoint(req.query_endpoint, 'query_endpoint'));
+    }
+    if (req.settings !== undefined) {
+      updates.push('settings = ?');
+      params.push(normalizedSettings);
+    }
+    if (typeof req.is_default === 'boolean') {
+      updates.push('is_default = ?');
+      params.push(req.is_default ? 1 : 0);
+    }
+    if (typeof req.is_active === 'boolean') {
+      updates.push('is_active = ?');
+      params.push(req.is_active ? 1 : 0);
+    }
+    if (updates.length === 0) return existing;
+
+    // 唯一索引要求先清理同服务类型的旧默认，再写入新的默认配置。
     if (req.is_default === true) clearOtherDefault(db, existing.service_type, id);
-    db.prepare('UPDATE ai_service_configs SET ' + updates.join(', ') + ', updated_at = ? WHERE id = ?').run(...params);
+    const updatedAt = nextConfigUpdatedAt(existing.updated_at);
+    const where = expectedUpdatedAt === null ? ' WHERE id = ?' : ' WHERE id = ? AND updated_at = ?';
+    const updateParams = [...params, updatedAt, id];
+    if (expectedUpdatedAt !== null) updateParams.push(expectedUpdatedAt);
+    const info = db.prepare(
+      'UPDATE ai_service_configs SET ' + updates.join(', ') + ', updated_at = ?' + where
+    ).run(...updateParams);
+    if (info.changes !== 1) throw aiConfigConflictError(id);
+    return getConfig(db, id);
   });
-  applyUpdate.immediate();
+  const updated = applyUpdate.immediate();
+  if (!updated) return null;
   log.info('AI config updated', { config_id: id });
-  return getConfig(db, id);
+  return updated;
 }
 
 function deleteConfig(db, log, id) {
@@ -779,17 +830,49 @@ const CONNECTION_TEST_TIMEOUT_MS = 15000;
 
 async function fetchConnectionProbe(url, options = {}, networkOptions = {}) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CONNECTION_TEST_TIMEOUT_MS);
+  const parentSignal = options.signal || networkOptions.signal;
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    const reason = Object.assign(new Error('连接测试超时，请检查服务地址或网络'), {
+      code: 'ETIMEDOUT',
+      isTimeout: true,
+    });
+    controller.abort(reason);
+  }, CONNECTION_TEST_TIMEOUT_MS);
+  const onParentAbort = () => {
+    if (!controller.signal.aborted) controller.abort(parentSignal?.reason);
+  };
+  parentSignal?.addEventListener('abort', onParentAbort);
+  if (parentSignal?.aborted) onParentAbort();
+  const requestOptions = { ...options, redirect: 'error', signal: controller.signal };
   try {
     if (typeof networkOptions.fetchImpl === 'function') {
       await validateHttpRequestTarget(url, networkOptions);
-      return await networkOptions.fetchImpl(url, {
-        ...options,
-        redirect: 'error',
-        signal: controller.signal,
+      if (controller.signal.aborted) {
+        throw controller.signal.reason || Object.assign(new Error('连接测试已取消'), { code: 'ERR_CANCELED', name: 'AbortError' });
+      }
+      const probe = networkOptions.fetchImpl(url, requestOptions);
+      return await new Promise((resolve, reject) => {
+        const onAbort = () => reject(controller.signal.reason || Object.assign(new Error('连接测试已取消'), { code: 'ERR_CANCELED', name: 'AbortError' }));
+        if (controller.signal.aborted) {
+          onAbort();
+          return;
+        }
+        controller.signal.addEventListener('abort', onAbort, { once: true });
+        Promise.resolve(probe).then(
+          (value) => {
+            controller.signal.removeEventListener('abort', onAbort);
+            resolve(value);
+          },
+          (error) => {
+            controller.signal.removeEventListener('abort', onAbort);
+            reject(error);
+          }
+        );
       });
     }
-    return await secureHttpFetch(url, { ...options, redirect: 'error', signal: controller.signal }, {
+    return await secureHttpFetch(url, requestOptions, {
       trustedOrigins: networkOptions.trustedOrigins,
       allowPrivateOrigins: networkOptions.allowPrivateOrigins,
       requireHttpsForPublic: true,
@@ -798,10 +881,20 @@ async function fetchConnectionProbe(url, options = {}, networkOptions = {}) {
       maxBytes: 2 * 1024 * 1024,
     });
   } catch (error) {
-    if (error?.name === 'AbortError') throw new Error('连接测试超时，请检查服务地址或网络');
+    const reason = controller.signal.reason || parentSignal?.reason || error;
+    if (timedOut || error?.isTimeout === true || reason?.isTimeout === true) {
+      throw new Error('连接测试超时，请检查服务地址或网络');
+    }
+    if (error?.name === 'AbortError' || reason?.name === 'AbortError' || error?.code === 'ERR_CANCELED' || reason?.code === 'ERR_CANCELED') {
+      const cancel = new Error('连接测试已取消');
+      cancel.code = 'ERR_CANCELED';
+      cancel.name = 'AbortError';
+      throw cancel;
+    }
     throw error;
   } finally {
     clearTimeout(timer);
+    parentSignal?.removeEventListener('abort', onParentAbort);
   }
 }
 
@@ -865,21 +958,25 @@ async function probeOllamaConnection(baseUrl, apiKey, networkOptions) {
 }
 
 async function testConnectionUnsafe(opts) {
-  const providerNetwork = getProviderNetworkOptions(opts, {
-    lookup: opts.provider_dns_lookup,
-  });
-  const base = providerNetwork.baseUrl;
+  const base = normalizeProviderBaseUrl(opts.base_url, opts);
   if (!base) throw new Error('base_url 必填');
-  const models = Array.isArray(opts.model) ? opts.model : opts.model != null ? [opts.model] : [];
-  const model = models[0] || '';
-  if (!model && (opts.provider === 'gemini' || opts.provider === 'google')) throw new Error('model 必填');
+  const providerNetwork = opts.provider_network_policy
+    ? requireCompleteProviderNetworkPolicy(opts.provider_network_policy, base)
+    : getProviderNetworkOptions(opts, { lookup: opts.provider_dns_lookup });
   const provider = (opts.provider || 'openai').toLowerCase();
   const apiProtocol = (opts.api_protocol || '').toLowerCase();
   const serviceType = (opts.service_type || '').toLowerCase();
   const networkOptions = {
     ...providerNetwork,
     fetchImpl: opts.fetch_impl,
+    signal: opts.signal,
   };
+  const normalizedModels = normalizeConfigModels(opts);
+  let model = '';
+  if (normalizedModels.default_model || normalizedModels.model.length) {
+    model = resolveConfiguredModel(opts);
+  }
+  if (!model && (opts.provider === 'gemini' || opts.provider === 'google')) throw new Error('model 必填');
   let endpoint = opts.endpoint || '';
   if (!opts.api_key && !isApiKeyOptionalConnection({ provider, api_protocol: apiProtocol })) {
     throw new Error('api_key 必填');
@@ -897,8 +994,8 @@ async function testConnectionUnsafe(opts) {
       settings: opts.settings,
     }, {
       fetch_impl: opts.fetch_impl,
-      network_lookup: opts.provider_dns_lookup,
-      trusted_origins: networkOptions.trustedOrigins,
+      provider_network_policy: providerNetwork,
+      signal: opts.signal,
     });
     return;
   }
@@ -1120,6 +1217,8 @@ async function testConnection(opts) {
     const message = sanitizeProviderText(error?.message, secrets) || '连接测试失败';
     const safeError = new Error(message);
     if (error?.code) safeError.code = error.code;
+    if (error?.status) safeError.status = error.status;
+    if (error?.details) safeError.details = error.details;
     throw safeError;
   }
 }
@@ -1145,6 +1244,11 @@ function normalizeVendorConfig(item, index) {
     throw new Error(`config at index ${index} must be an object`);
   }
   const serviceType = String(item.service_type || 'text').trim() || 'text';
+  const normalizedModels = normalizeWritableConfigModels({
+    model: item.model,
+    default_model: item.default_model,
+    is_active: true,
+  });
   const config = {
     service_type: serviceType,
     provider: String(item.provider || '').trim(),
@@ -1152,8 +1256,8 @@ function normalizeVendorConfig(item, index) {
     name: String(item.name || ''),
     base_url: String(item.base_url || ''),
     api_key: normalizeApiKeyForService(serviceType, String(item.api_key || '')),
-    model: modelToDb(item.model) || '[]',
-    default_model: item.default_model != null ? String(item.default_model).trim() || null : null,
+    model: modelToDb(normalizedModels.model) || '[]',
+    default_model: normalizedModels.default_model,
     endpoint: String(item.endpoint || ''),
     query_endpoint: String(item.query_endpoint || ''),
     priority: item.priority ?? 0,
@@ -1354,12 +1458,32 @@ function applyVendorLock(db, log, cfg) {
  * 批量替换所有配置的 api_key（仅限锁定模式下使用）
  */
 function bulkUpdateApiKey(db, log, newKey) {
-  const now = new Date().toISOString();
-  const info = db.prepare(
-    'UPDATE ai_service_configs SET api_key = ?, updated_at = ? WHERE deleted_at IS NULL'
-  ).run(newKey, now);
-  log.info('Bulk update api_key', { updated: info.changes });
-  return info.changes;
+  const updateAll = db.transaction(() => {
+    const rows = db.prepare(
+      'SELECT id, service_type, updated_at FROM ai_service_configs WHERE deleted_at IS NULL ORDER BY id'
+    ).all();
+    const update = db.prepare('UPDATE ai_service_configs SET api_key = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL');
+    const read = db.prepare('SELECT id, updated_at, api_key FROM ai_service_configs WHERE id = ? AND deleted_at IS NULL');
+    const confirmations = [];
+    let previousUpdatedAt = null;
+    for (const row of rows) {
+      const updatedAt = nextConfigUpdatedAt(previousUpdatedAt || row.updated_at);
+      previousUpdatedAt = updatedAt;
+      const apiKey = normalizeApiKeyForService(row.service_type, newKey);
+      const info = update.run(apiKey, updatedAt, row.id);
+      if (info.changes !== 1) throw aiConfigConflictError(row.id);
+      const saved = read.get(row.id);
+      confirmations.push({
+        id: Number(saved.id),
+        updated_at: String(saved.updated_at),
+        api_key_set: hasStoredCredentialValue(saved.api_key),
+      });
+    }
+    return { updated: confirmations.length, confirmations };
+  });
+  const result = updateAll.immediate();
+  log.info('Bulk update api_key', { updated: result.updated });
+  return result;
 }
 
 module.exports = {
@@ -1380,6 +1504,9 @@ module.exports = {
   bulkUpdateApiKey,
   configForResponse,
   hasStoredCredentials,
+  normalizeConfigModels,
+  assertDefaultModelMembership,
+  resolveConfiguredModel,
   getProviderNetworkOptions,
   isExplicitLocalProviderConfig,
   isExplicitLocalProviderHost,

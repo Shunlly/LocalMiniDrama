@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="panelRef"
     class="canvas-node-panel asset-panel nodrag nopan nowheel"
     tabindex="-1"
     :class="'kind-' + kind"
@@ -8,23 +9,29 @@
     @click.stop
     @mouseup.stop
     @wheel.stop
+    @keydown.esc.stop.prevent="closePanel"
   >
     <div class="panel-head">
       <span>{{ kindLabel }}</span>
-      <el-button link size="small" @click.stop="closePanel">收起</el-button>
+      <el-button link size="small" aria-label="收起面板" @click.stop="closePanel">收起</el-button>
     </div>
 
     <div class="panel-body">
       <div class="preview-col">
         <div class="preview-box">
-          <img v-if="previewUrl && !generating" :src="previewUrl" alt="" />
-          <div v-else-if="!generating" class="preview-empty">{{ kindIcon }}</div>
+          <img v-if="previewUrl && !generating" :src="previewUrl" :alt="`${displayName}${kindLabel}参考图`" />
+          <div v-else-if="!generating" class="preview-empty">
+            <span class="preview-empty-icon" aria-hidden="true">{{ kindIcon }}</span>
+            <span>暂无参考图</span>
+          </div>
           <div v-if="generating || nodeBusy" class="preview-loading">
             <span class="spinner" />
             <span>{{ nodeBusy?.message || '生成参考图…' }}</span>
           </div>
         </div>
-        <div v-if="entityStatus" class="entity-status" :class="'st-' + entityStatus">{{ entityStatusLabel }}</div>
+        <div class="entity-status" :class="'st-' + (entityStatus || (previewUrl ? 'completed' : 'empty'))">{{ entityStatusLabel }}</div>
+        <p class="preview-source">{{ previewSourceLabel }}</p>
+        <p v-if="generateError" class="generate-error" role="alert">{{ generateError }}</p>
       </div>
 
       <div class="form-col">
@@ -32,11 +39,12 @@
           <template v-if="kind === 'character'">
             <div class="form-row-2">
               <el-form-item label="名称" class="flex-1">
-                <el-input v-model="form.name" placeholder="角色名" />
+                <el-input v-model="form.name" aria-label="角色名称" placeholder="角色名" />
               </el-form-item>
               <el-form-item label="类型" class="type-field">
                 <el-select
                   v-model="form.role"
+                  :aria-label="`角色${form.name || '未命名角色'}类型`"
                   clearable
                   placeholder="类型"
                   teleported
@@ -54,6 +62,7 @@
                 type="textarea"
                 :rows="2"
                 resize="vertical"
+                aria-label="角色外貌"
                 placeholder="外貌描述"
               />
             </el-form-item>
@@ -63,6 +72,7 @@
                 type="textarea"
                 :rows="2"
                 resize="vertical"
+                aria-label="角色简介"
                 placeholder="角色简介"
               />
             </el-form-item>
@@ -71,10 +81,10 @@
           <template v-else-if="kind === 'scene'">
             <div class="form-row-2">
               <el-form-item label="地点" class="flex-1">
-                <el-input v-model="form.location" placeholder="场景地点" />
+                <el-input v-model="form.location" aria-label="场景地点" placeholder="场景地点" />
               </el-form-item>
               <el-form-item label="时间" class="time-field">
-                <el-input v-model="form.time" placeholder="白天/夜" />
+                <el-input v-model="form.time" aria-label="场景时间" placeholder="白天/夜" />
               </el-form-item>
             </div>
             <el-form-item label="描述">
@@ -83,6 +93,7 @@
                 type="textarea"
                 :rows="2"
                 resize="vertical"
+                aria-label="场景描述"
                 placeholder="场景描述"
               />
             </el-form-item>
@@ -122,7 +133,7 @@
 
           <template v-else>
             <el-form-item label="名称">
-              <el-input v-model="form.name" placeholder="道具名称" />
+              <el-input v-model="form.name" aria-label="道具名称" placeholder="道具名称" />
             </el-form-item>
             <el-form-item label="描述">
               <el-input
@@ -130,6 +141,7 @@
                 type="textarea"
                 :rows="2"
                 resize="vertical"
+                aria-label="道具描述"
                 placeholder="道具描述"
               />
             </el-form-item>
@@ -139,6 +151,7 @@
                 type="textarea"
                 :rows="2"
                 resize="vertical"
+                aria-label="道具提示词"
                 placeholder="生图提示词"
               />
             </el-form-item>
@@ -150,13 +163,14 @@
     <div class="panel-actions">
       <el-button size="small" :loading="saving" @click.stop="saveAsset">保存</el-button>
       <el-button
-        v-if="canGenerate || generating"
+        v-if="canGenerate || generating || entityStatus === 'failed'"
         size="small"
         type="primary"
         :loading="generating"
+        :aria-label="generateActionLabel"
         @click.stop="generateImage"
       >
-        生成参考图
+        {{ generateActionLabel }}
       </el-button>
       <el-button size="small" plain @click.stop="highlightRelated">关联分镜</el-button>
       <el-button size="small" type="danger" plain @click.stop="deleteAsset">删除</el-button>
@@ -165,7 +179,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Picture, Refresh } from '@element-plus/icons-vue'
 import { characterAPI } from '@/api/characters'
@@ -174,6 +188,8 @@ import { propAPI } from '@/api/props'
 import { taskAPI } from '@/api/task'
 import { useCanvasContext } from '@/composables/useCanvasContext'
 import { generateAssetReferenceImage } from '@/composables/useCanvasAssetGenerate'
+import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
+import { isRequestNetworkError, isRequestTimeout } from '@/utils/requestError'
 import CanvasActionGate from './CanvasActionGate.vue'
 import { assetImageUrl } from '@/utils/mediaUrl'
 
@@ -184,8 +200,10 @@ const props = defineProps({
 })
 
 const ctx = useCanvasContext()
+const panelRef = ref(null)
 const saving = ref(false)
 const generating = ref(false)
+const generateError = ref('')
 const panoramaGenerating = ref(false)
 const panoramaError = ref('')
 const panoramaScene = ref(null)
@@ -211,6 +229,7 @@ const kindIcon = computed(() => {
 })
 
 const previewUrl = computed(() => assetImageUrl(props.entity))
+const canGenerate = computed(() => !previewUrl.value)
 const panoramaPreviewUrl = computed(() => {
   const scene = Number(panoramaScene.value?.id) === Number(props.entity?.id)
     ? panoramaScene.value
@@ -226,12 +245,22 @@ const panoramaDisabledReason = computed(() => {
   if (generating.value) return '场景主图正在生成，请等待完成'
   return ''
 })
-const canGenerate = computed(() => !previewUrl.value)
+const displayName = computed(() => {
+  const entity = props.entity || {}
+  return entity.name || entity.location || '未命名'
+})
+const generateActionLabel = computed(() => (previewUrl.value ? '重新生成参考图' : '生成参考图'))
 const entityStatus = computed(() => props.entity?.status || '')
 const entityStatusLabel = computed(() => {
   const s = entityStatus.value
   const map = { pending: '待生成', processing: '生成中', completed: '已完成', failed: '失败' }
   return map[s] || (previewUrl.value ? '已有参考图' : '无参考图')
+})
+const previewSourceLabel = computed(() => {
+  if (generating.value || nodeBusy.value) return '正在生成参考图'
+  if (entityStatus.value === 'failed') return '参考图生成失败，可重试'
+  if (previewUrl.value) return '已有参考图，可重新生成'
+  return '还没有参考图，可在下方生成'
 })
 
 const nodeBusy = computed(() => {
@@ -248,6 +277,10 @@ function syncForm(entity) {
   form.time = entity?.time || ''
   form.prompt = entity?.prompt || entity?.polished_prompt || ''
 }
+
+onMounted(() => {
+  panelRef.value?.focus?.()
+})
 
 watch(() => props.entity, (e) => syncForm(e), { immediate: true, deep: true })
 watch(() => [props.kind, props.entity?.id], () => {
@@ -281,10 +314,12 @@ async function waitForPanoramaTask(taskId, maxAttempts = 450, interval = 2000) {
     try {
       const task = await taskAPI.get(taskId)
       if (task?.status === 'completed') return
-      if (task?.status === 'failed') throw new Error(panoramaTaskError(task))
+      if (task?.status === 'failed') throw new Error(canvasUserError(panoramaTaskError(task), '全景图生成失败'))
     } catch (error) {
-      if (error?.message && error.message !== 'Network Error') throw error
-      if (i === maxAttempts - 1) throw new Error(error?.message || '全景图任务轮询失败')
+      if (!isRequestNetworkError(error) && !isRequestTimeout(error) && error?.message) {
+        throw new Error(canvasUserError(error, '全景图生成失败'))
+      }
+      if (i === maxAttempts - 1) throw new Error(canvasUserError(error, '全景图任务轮询失败'))
     }
   }
   throw new Error('全景图生成超时，请稍后刷新查看')
@@ -338,7 +373,7 @@ async function saveAsset() {
     ElMessage.success('已保存')
     await ctx?.refreshDrama?.(true)
   } catch (e) {
-    ElMessage.error(e?.message || '保存失败')
+    ElMessage.error(canvasUserError(e, '保存失败'))
   } finally {
     saving.value = false
     if (!generating.value) ctx?.nodeStatus?.clear(props.nodeId)
@@ -366,13 +401,14 @@ async function deleteAsset() {
     ElMessage.success('已删除')
     await ctx?.refresh?.()
   } catch (e) {
-    if (e === 'cancel') return
-    ElMessage.error(e?.message || '删除失败')
+    if (isCanvasUserAbort(e)) return
+    ElMessage.error(canvasUserError(e, '删除失败'))
   }
 }
 
 async function generateImage() {
   generating.value = true
+  generateError.value = ''
   try {
     await generateAssetReferenceImage(ctx, {
       kind: props.kind,
@@ -381,7 +417,8 @@ async function generateImage() {
     })
     ElMessage.success('参考图已生成')
   } catch (e) {
-    ElMessage.error(e?.message || '生成失败')
+    generateError.value = canvasUserError(e, '参考图生成失败')
+    ElMessage.error(generateError.value)
   } finally {
     generating.value = false
   }
@@ -401,7 +438,7 @@ async function generatePanorama() {
     await ctx?.refresh?.(true)
     ElMessage.success('全景图已生成')
   } catch (error) {
-    panoramaError.value = error?.message || '全景图生成失败'
+    panoramaError.value = canvasUserError(error, '全景图生成失败')
     ElMessage.error(panoramaError.value)
   } finally {
     panoramaGenerating.value = false
@@ -459,10 +496,18 @@ function highlightRelated() {
   width: 100%;
   height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: 32px;
-  opacity: 0.65;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--canvas-text-muted, #a1a1aa);
+  text-align: center;
+  padding: 8px;
+}
+.preview-empty-icon {
+  font-size: 28px;
+  opacity: 0.7;
 }
 .preview-loading {
   position: absolute;
@@ -495,6 +540,21 @@ function highlightRelated() {
 .entity-status.st-processing { color: var(--canvas-info-text, #60a5fa); }
 .entity-status.st-completed { color: var(--canvas-success-text, #34d399); }
 .entity-status.st-failed { color: var(--canvas-danger-text, #f87171); }
+.entity-status.st-empty { color: var(--canvas-text-muted, #a1a1aa); }
+.preview-source,
+.generate-error {
+  margin: 4px 0 0;
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.preview-source {
+  color: var(--canvas-text-subtle, #71717a);
+}
+.generate-error {
+  color: var(--canvas-danger-text, #f87171);
+}
 .form-col {
   flex: 1;
   min-width: 0;

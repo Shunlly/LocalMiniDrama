@@ -5,11 +5,14 @@ const imageService = require('./imageService');
 const videoService = require('./videoService');
 const ttsService = require('./ttsService');
 const videoMergeService = require('./videoMergeService');
+const taskService = require('./taskService');
 const timelineService = require('./timelineService');
 const imageClient = require('./imageClient');
 const videoClient = require('./videoClient');
 const aiConfigService = require('./aiConfigService');
 const providerCostService = require('./providerCostService');
+const dramaService = require('./dramaService');
+const dramaWriteGuard = require('./dramaWriteGuard');
 const { getFfmpegPath, validateFfmpegTools } = require('../utils/ffmpegPath');
 
 function nowIso() {
@@ -44,6 +47,14 @@ function recordProviderInvocation(db, params) {
       params.status || 'success'
     );
     if (existing) {
+      if (params.refresh_existing_output === true) {
+        const refresh = db.prepare('UPDATE provider_invocations SET output_json = ? WHERE id = ?')
+          .run(toJson(output), existing.id);
+        if (refresh.changes !== 1) {
+          throw new Error(`供应商调用记录刷新异常（变更行数：${refresh.changes}）`);
+        }
+        return { id: Number(existing.id), output, reused: true };
+      }
       let existingOutput = {};
       try { existingOutput = JSON.parse(existing.output_json || '{}'); } catch (_) {}
       return { id: Number(existing.id), output: existingOutput, reused: true };
@@ -98,12 +109,14 @@ function findCompletedVideo(db, storyboardId) {
 }
 
 function generateStoryboardImagesMock(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const storyboards = getStoryboards(db, params.drama_id);
   const now = nowIso();
   let created = 0;
   let reused = 0;
 
   for (const sb of storyboards) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     const existing = findCompletedImage(db, sb.id);
     if (existing) {
       reused += 1;
@@ -147,12 +160,14 @@ function generateStoryboardImagesMock(db, log, params) {
 }
 
 function generateStoryboardVideosMock(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const storyboards = getStoryboards(db, params.drama_id);
   const now = nowIso();
   let created = 0;
   let reused = 0;
 
   for (const sb of storyboards) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     const existing = findCompletedVideo(db, sb.id);
     if (existing) {
       reused += 1;
@@ -200,11 +215,13 @@ function generateStoryboardVideosMock(db, log, params) {
 }
 
 function generateStoryboardAudioMock(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const storyboards = getStoryboards(db, params.drama_id);
   const now = nowIso();
   let updated = 0;
 
   for (const sb of storyboards) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     const voicePath = `mock://dramas/${params.drama_id}/storyboards/${sb.id}/voice.wav`;
     const narrationPath = `mock://dramas/${params.drama_id}/storyboards/${sb.id}/narration.wav`;
     db.prepare(
@@ -232,7 +249,99 @@ function generateStoryboardAudioMock(db, log, params) {
   return { storyboard_count: storyboards.length, audio_updated: updated };
 }
 
+function latestMergeId(db, episodeId) {
+  const row = db.prepare(
+    'SELECT id FROM video_merges WHERE episode_id = ? ORDER BY id DESC LIMIT 1'
+  ).get(Number(episodeId));
+  return row ? Number(row.id) : null;
+}
+
+function updateCompositorTaskResult(db, taskId, result) {
+  if (!taskId) return;
+  const task = taskService.getTask(db, taskId);
+  if (!task) return;
+  const updated = task.status === 'completed'
+    ? taskService.refreshCompletedTaskResult(db, taskId, result)
+    : taskService.updateTaskResult(db, taskId, result);
+  if (!updated) throw new Error('合成任务结果未能保存，请重试整集合成');
+}
+
+function persistOwnedCompositorMerge(db, log, params) {
+  const persist = db.transaction(() => {
+    // episode_id 是合成结果的真实归属键，不能信任调用方单独传入的 drama_id。
+    const episode = dramaWriteGuard.assertEpisodeWritable(db, params.episode_id, params.drama_id);
+    const episodeId = Number(episode.id);
+    const dramaId = Number(episode.drama_id);
+    const task = taskService.createTask(db, log, 'video_merge', String(episodeId));
+    const info = db.prepare(
+      `INSERT INTO video_merges
+       (episode_id, drama_id, title, provider, model, status, scenes, merge_options, task_id, merged_url, duration, completed_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      episodeId,
+      dramaId,
+      params.title ?? null,
+      params.provider,
+      params.model ?? null,
+      params.status,
+      typeof params.scenes === 'string' ? params.scenes : toJson(params.scenes || []),
+      typeof params.merge_options === 'string' ? params.merge_options : toJson(params.merge_options || {}),
+      task.id,
+      params.merged_url,
+      params.duration ?? null,
+      params.status === 'completed' ? params.now : null,
+      params.now
+    );
+    const mergeId = Number(info.lastInsertRowid);
+    const episodeUpdated = videoMergeService.updateCurrentMergeEpisodeOutput(
+      db,
+      mergeId,
+      episodeId,
+      params.merged_url,
+      params.status,
+      params.now
+    );
+    if (episodeUpdated.changes !== 1) throw new Error('合成结果未能绑定到该集，请重试整集合成');
+    updateCompositorTaskResult(db, task.id, {
+      merge_id: mergeId,
+      video_url: params.merged_url,
+      duration: params.duration ?? null,
+      mode: params.mode,
+      status: params.status,
+    });
+    return db.prepare('SELECT * FROM video_merges WHERE id = ?').get(mergeId);
+  });
+  return persist();
+}
+
+function stageCurrentCompositorMerge(db, merge, status, now, mode) {
+  const stage = db.transaction(() => {
+    db.prepare('UPDATE video_merges SET status = ?, completed_at = ? WHERE id = ?')
+      .run(status, status === 'completed' ? now : null, merge.id);
+    const episodeUpdated = videoMergeService.updateCurrentMergeEpisodeOutput(
+      db,
+      merge.id,
+      merge.episode_id,
+      merge.merged_url,
+      status,
+      now
+    );
+    if (episodeUpdated.changes !== 1) throw new Error('该集当前合成归属已变化，请刷新后重试整集合成');
+    updateCompositorTaskResult(db, merge.task_id, {
+      merge_id: Number(merge.id),
+      video_url: merge.merged_url,
+      duration: merge.duration ?? null,
+      mode,
+      status,
+    });
+    return db.prepare('SELECT * FROM video_merges WHERE id = ?').get(merge.id);
+  });
+  return stage();
+}
+
 function compositeEpisodesMock(db, log, params) {
+  const compose = db.transaction(() => {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const episodes = db.prepare(
     `SELECT id, episode_number, title
        FROM episodes
@@ -251,10 +360,27 @@ function compositeEpisodesMock(db, log, params) {
         ORDER BY id DESC LIMIT 1`
     ).get(episode.id);
     if (existing) {
-      db.prepare('UPDATE video_merges SET status = ?, completed_at = ? WHERE id = ?')
-        .run(completionStatus, completionStatus === 'completed' ? now : null, existing.id);
-      db.prepare('UPDATE episodes SET video_url = ?, status = ?, updated_at = ? WHERE id = ?')
-        .run(existing.merged_url, completionStatus, now, episode.id);
+      const historical = latestMergeId(db, episode.id) !== Number(existing.id);
+      const ownedMerge = historical
+        ? persistOwnedCompositorMerge(db, log, {
+          episode_id: episode.id,
+          drama_id: params.drama_id,
+          title: existing.title || episode.title || `Episode ${episode.episode_number}`,
+          provider: existing.provider || 'mock-compositor',
+          model: existing.model || 'mock-compositor-v1',
+          status: completionStatus,
+          scenes: existing.scenes,
+          merge_options: {
+            ...parseJsonObject(existing.merge_options),
+            reused_from_merge_id: Number(existing.id),
+            defer_qa_completion: !!params.defer_qa_completion,
+          },
+          merged_url: existing.merged_url,
+          duration: existing.duration,
+          mode: 'mock',
+          now,
+        })
+        : stageCurrentCompositorMerge(db, existing, completionStatus, now, 'mock');
       recordProviderInvocation(db, {
         workflow_step_id: params.workflow_step_id,
         run_id: params.run_id,
@@ -262,9 +388,10 @@ function compositeEpisodesMock(db, log, params) {
         provider_name: 'mock-compositor',
         model: 'mock-compositor-v1',
         mode: 'mock',
+        refresh_existing_output: true,
         idempotency_key: providerCallKey(params, 'compositor', 'episode', episode.id),
         input: { call_key: params.call_key || null, episode_id: episode.id, reused: true },
-        output: { merge_id: existing.id, merged_url: existing.merged_url, duration: existing.duration },
+        output: { merge_id: ownedMerge.id, merged_url: ownedMerge.merged_url, duration: ownedMerge.duration },
       });
       reused += 1;
       continue;
@@ -282,26 +409,21 @@ function compositeEpisodesMock(db, log, params) {
     }));
     const duration = scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0);
     const mergedUrl = `mock://dramas/${params.drama_id}/episodes/${episode.id}/merged.mp4`;
-    const insertedMerge = db.prepare(
-      `INSERT INTO video_merges
-       (episode_id, drama_id, title, provider, model, status, scenes, merge_options, task_id, merged_url, duration, completed_at, created_at)
-       VALUES (?, ?, ?, 'mock-compositor', 'mock-compositor-v1', ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      episode.id,
-      params.drama_id,
-      episode.title || `Episode ${episode.episode_number}`,
-      completionStatus,
-      toJson(scenes),
-      toJson({ workflow: 'novel2anime', mode: 'mock', defer_qa_completion: !!params.defer_qa_completion }),
-      `mock-merge-${episode.id}`,
-      mergedUrl,
-      Math.round(duration) || null,
-      completionStatus === 'completed' ? now : null,
-      now
-    );
-    const mergeId = Number(insertedMerge.lastInsertRowid);
-    db.prepare('UPDATE episodes SET video_url = ?, status = ?, updated_at = ? WHERE id = ?')
-      .run(mergedUrl, completionStatus, now, episode.id);
+    const ownedMerge = persistOwnedCompositorMerge(db, log, {
+      episode_id: episode.id,
+      drama_id: params.drama_id,
+      title: episode.title || `Episode ${episode.episode_number}`,
+      provider: 'mock-compositor',
+      model: 'mock-compositor-v1',
+      status: completionStatus,
+      scenes,
+      merge_options: { workflow: 'novel2anime', mode: 'mock', defer_qa_completion: !!params.defer_qa_completion },
+      merged_url: mergedUrl,
+      duration: Math.round(duration) || null,
+      mode: 'mock',
+      now,
+    });
+    const mergeId = Number(ownedMerge.id);
     recordProviderInvocation(db, {
       workflow_step_id: params.workflow_step_id,
       run_id: params.run_id,
@@ -309,6 +431,7 @@ function compositeEpisodesMock(db, log, params) {
       provider_name: 'mock-compositor',
       model: 'mock-compositor-v1',
       mode: 'mock',
+      refresh_existing_output: true,
       idempotency_key: providerCallKey(params, 'compositor', 'episode', episode.id),
       input: { call_key: params.call_key || null, episode_id: episode.id, scenes },
       output: { merge_id: mergeId, merged_url: mergedUrl, duration },
@@ -318,6 +441,8 @@ function compositeEpisodesMock(db, log, params) {
 
   log?.info?.('Mock episode composites prepared', { drama_id: params.drama_id, created, reused });
   return { episode_count: episodes.length, composite_created: created, composite_reused: reused };
+  });
+  return compose();
 }
 
 function isProductionMode(params) {
@@ -359,11 +484,7 @@ function localMediaExists(value) {
 }
 
 function configuredModel(config, preferred, fallback) {
-  if (preferred) return preferred;
-  const models = Array.isArray(config?.model)
-    ? config.model
-    : (config?.model != null ? [config.model] : []);
-  return config?.default_model || models[0] || fallback;
+  return aiConfigService.resolveConfiguredModel(config, preferred, fallback);
 }
 
 function getActiveTtsConfig(db, preferredModel, preferredProvider) {
@@ -405,14 +526,14 @@ function assertProductionReadiness(db, params = {}) {
   const ttsConfig = getActiveTtsConfig(db, params.tts_model, params.tts_provider);
   const mediaTools = validateFfmpegTools();
   const missing = [];
-  if (!storyboards.length) missing.push('storyboards');
-  if (!assetImageConfig) missing.push('asset image provider');
-  if (!imageConfig) missing.push('storyboard image provider');
-  if (!videoConfig) missing.push('video provider');
-  if (needsTts && !ttsConfig) missing.push('TTS provider');
+  if (!storyboards.length) missing.push('分镜');
+  if (!assetImageConfig) missing.push('素材图 Provider');
+  if (!imageConfig) missing.push('分镜图 Provider');
+  if (!videoConfig) missing.push('视频 Provider');
+  if (needsTts && !ttsConfig) missing.push('TTS Provider');
   if (!mediaTools.ok) missing.push('FFmpeg/FFprobe');
   if (missing.length) {
-    throw new Error(`Production workflow is not ready: missing ${missing.join(', ')}`);
+    throw new Error(`生产工作流尚未就绪，缺少：${missing.join('、')}`);
   }
   return {
     storyboards,
@@ -458,7 +579,7 @@ function recordFailedInvocation(db, params, providerType, providerName, model) {
     idempotency_key: params.call_key ? `${params.call_key}:${providerType}:failed` : null,
     input: { drama_id: params.drama_id, call_key: params.call_key || null },
     output: {},
-    error_message: `${providerType} provider request failed`,
+    error_message: `${providerType} Provider 请求失败`,
   });
 }
 
@@ -474,6 +595,30 @@ function parseJsonObject(value) {
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch (_) {
     return {};
+  }
+}
+
+// 时间线轨道类型的用户可见名称
+function timelineTrackTypeLabel(type) {
+  switch (String(type || '')) {
+    case 'video': return '视频';
+    case 'subtitle': return '字幕';
+    case 'voice': return '旁白';
+    case 'dialogue': return '对白';
+    case 'effect': return '音效';
+    case 'bgm': return '背景音乐';
+    case 'transition': return '转场';
+    default: return String(type || '未知');
+  }
+}
+
+// 素材类型的用户可见名称
+function productionAssetTypeLabel(type) {
+  switch (String(type || '')) {
+    case 'character': return '角色';
+    case 'scene': return '场景';
+    case 'prop': return '道具';
+    default: return String(type || '素材');
   }
 }
 
@@ -523,32 +668,32 @@ function normalizedTimelineTrack(track) {
 
 function buildProductionTimelineCompositePlan(db, episodeId) {
   const timeline = timelineService.getEpisodeTimeline(db, episodeId);
-  if (!timeline) throw productionCompositeError(`Episode ${episodeId} timeline was not found`);
+  if (!timeline) throw productionCompositeError(`第 ${episodeId} 集还没有时间线，请先生成时间线后再合成`);
   const requiredTypes = ['video', 'subtitle', 'voice', 'dialogue', 'effect', 'bgm', 'transition'];
   const byType = new Map();
   for (const type of requiredTypes) {
     const matching = timeline.tracks.filter((track) => track.type === type);
     if (matching.length !== 1) {
-      throw productionCompositeError(`Episode ${episodeId} requires exactly one ${type} timeline track`);
+      throw productionCompositeError(`第 ${episodeId} 集必须恰好有一条${timelineTrackTypeLabel(type)}时间线轨道`);
     }
     byType.set(type, matching[0]);
   }
 
   const videoItems = sortedTimelineItems(byType.get('video'));
   if (videoItems.length === 0) {
-    throw productionCompositeError(`Episode ${episodeId} video timeline is empty`);
+    throw productionCompositeError(`第 ${episodeId} 集的视频时间线为空，请先为分镜添加视频`);
   }
   const seenStoryboardIds = new Set();
   const scenes = videoItems.map((item, order) => {
     const storyboardId = Number(item.storyboard_id);
     if (!Number.isInteger(storyboardId) || storyboardId <= 0 || !item.storyboard) {
-      throw productionCompositeError(`Episode ${episodeId} video item ${item.id} has no valid storyboard`);
+      throw productionCompositeError(`第 ${episodeId} 集视频片段 ${item.id} 没有有效分镜，请检查时间线`);
     }
     if (seenStoryboardIds.has(storyboardId)) {
-      throw productionCompositeError(`Episode ${episodeId} video timeline repeats storyboard ${storyboardId}`);
+      throw productionCompositeError(`第 ${episodeId} 集视频时间线重复引用了分镜 ${storyboardId}`);
     }
     if (!hasPositiveTimelineDuration(item) || !hasRealTimelineSource(item)) {
-      throw productionCompositeError(`Episode ${episodeId} video item ${item.id} is not production-ready`);
+      throw productionCompositeError(`第 ${episodeId} 集视频片段 ${item.id} 尚未就绪，请确认已有本地视频且时长有效`);
     }
     seenStoryboardIds.add(storyboardId);
     const startSec = Number(item.start_sec);
@@ -569,17 +714,17 @@ function buildProductionTimelineCompositePlan(db, episodeId) {
   if (subtitleItems.length === 0 || subtitleItems.some((item) => (
     !hasPositiveTimelineDuration(item) || !String(item.source_path || '').trim()
   ))) {
-    throw productionCompositeError(`Episode ${episodeId} subtitle timeline is incomplete`);
+    throw productionCompositeError(`第 ${episodeId} 集字幕时间线不完整，请为每个分镜补齐字幕`);
   }
   const voiceItems = sortedTimelineItems(byType.get('voice'));
   const dialogueItems = sortedTimelineItems(byType.get('dialogue'));
   if ([...voiceItems, ...dialogueItems].some((item) => (
     !hasPositiveTimelineDuration(item) || !hasRealTimelineSource(item)
   ))) {
-    throw productionCompositeError(`Episode ${episodeId} voice/dialogue timeline contains invalid media`);
+    throw productionCompositeError(`第 ${episodeId} 集旁白或对白时间线的媒体无效，请重新生成配音并确认已保存到本地`);
   }
   if (voiceItems.length + dialogueItems.length === 0) {
-    throw productionCompositeError(`Episode ${episodeId} requires voice or dialogue timeline media`);
+    throw productionCompositeError(`第 ${episodeId} 集需要旁白或对白时间线媒体，请先生成配音`);
   }
 
   for (const type of ['effect', 'bgm', 'transition']) {
@@ -589,7 +734,7 @@ function buildProductionTimelineCompositePlan(db, episodeId) {
     if (items.length === 0 && !(
       track.status === 'unused' && metadata.optional === true && metadata.usage === 'unused'
     )) {
-      throw productionCompositeError(`Episode ${episodeId} optional ${type} track must be explicitly unused`);
+      throw productionCompositeError(`第 ${episodeId} 集的可选${timelineTrackTypeLabel(type)}轨道需明确标记为未使用，或补充该轨道内容`);
     }
   }
 
@@ -625,7 +770,7 @@ async function generateAssetBibleImagesProduction(db, log, params) {
     params.asset_image_provider,
     'image'
   );
-  if (!config) throw new Error('Production asset image provider is unavailable');
+  if (!config) throw new Error('素材图 Provider 不可用，请在「AI 配置」中启用图片模型');
   const provider = config.provider || params.asset_image_provider || 'openai';
   const model = configuredModel(config, params.asset_image_model, 'image');
   const targets = [
@@ -717,9 +862,9 @@ async function generateAssetBibleImagesProduction(db, log, params) {
         idempotency_key: callKey,
         input: { call_key: callKey, asset_type: target.type, asset_id: target.row.id },
         output: {},
-        error_message: error.message || 'Production asset image request failed',
+        error_message: error.message || '素材图请求失败',
       });
-      throw new Error(`Production asset image generation failed for ${target.type} ${target.row.id}`);
+      throw new Error(`${productionAssetTypeLabel(target.type)} ${target.row.id} 的素材图生成失败：${error.message || '未知错误'}`);
     }
   }
   return {
@@ -732,6 +877,7 @@ async function generateAssetBibleImagesProduction(db, log, params) {
 }
 
 async function generateStoryboardImagesProduction(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const readiness = assertProductionReadiness(db, params);
   const config = readiness.imageConfig;
   const provider = config.provider || params.image_provider || 'openai';
@@ -740,6 +886,7 @@ async function generateStoryboardImagesProduction(db, log, params) {
   let reused = 0;
 
   for (const storyboard of readiness.storyboards) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     let image = findReusableImage(db, storyboard.id);
     const wasReused = Boolean(image);
     try {
@@ -759,6 +906,7 @@ async function generateStoryboardImagesProduction(db, log, params) {
         });
         created += 1;
       }
+      dramaService.assertDramaWritable(db, params.drama_id);
       db.prepare(
         `UPDATE storyboards
             SET image_url = ?, local_path = ?, first_frame_image_id = COALESCE(first_frame_image_id, ?), updated_at = ?
@@ -784,13 +932,14 @@ async function generateStoryboardImagesProduction(db, log, params) {
         provider,
         error_type: error?.name || 'Error',
       });
-      throw new Error(`Production image generation failed for storyboard ${storyboard.id}`);
+      throw new Error(`分镜 ${storyboard.id} 的图片生成失败：${error.message || '未知错误'}`);
     }
   }
   return { storyboard_count: readiness.storyboards.length, image_created: created, image_reused: reused, mode: 'production' };
 }
 
 async function generateStoryboardVideosProduction(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const readiness = assertProductionReadiness(db, params);
   const config = readiness.videoConfig;
   const provider = config.provider || params.video_provider || 'openai';
@@ -799,6 +948,7 @@ async function generateStoryboardVideosProduction(db, log, params) {
   let reused = 0;
 
   for (const storyboard of readiness.storyboards) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     let video = findReusableVideo(db, storyboard.id);
     const wasReused = Boolean(video);
     try {
@@ -806,7 +956,7 @@ async function generateStoryboardVideosProduction(db, log, params) {
         reused += 1;
       } else {
         const image = findReusableImage(db, storyboard.id);
-        if (!image) throw new Error('No durable storyboard image is available');
+        if (!image) throw new Error('没有可用的本地分镜图，请先完成分镜图生成并确认已保存到本地');
         const firstFrame = image.local_path || image.image_url;
         video = await videoService.createAndProcessVideo(db, log, {
           drama_id: params.drama_id,
@@ -824,6 +974,7 @@ async function generateStoryboardVideosProduction(db, log, params) {
         });
         created += 1;
       }
+      dramaService.assertDramaWritable(db, params.drama_id);
       db.prepare(
         `UPDATE storyboards SET video_url = ?, video_local_path = ?, status = 'media_ready', updated_at = ? WHERE id = ?`
       ).run(video.video_url, video.local_path, nowIso(), storyboard.id);
@@ -847,13 +998,14 @@ async function generateStoryboardVideosProduction(db, log, params) {
         provider,
         error_type: error?.name || 'Error',
       });
-      throw new Error(`Production video generation failed for storyboard ${storyboard.id}`);
+      throw new Error(`分镜 ${storyboard.id} 的视频生成失败：${error.message || '未知错误'}`);
     }
   }
   return { storyboard_count: readiness.storyboards.length, video_created: created, video_reused: reused, mode: 'production' };
 }
 
 async function generateStoryboardAudioProduction(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   const readiness = assertProductionReadiness(db, params);
   if (!readiness.needsTts) {
     return { storyboard_count: readiness.storyboards.length, audio_created: 0, audio_reused: 0, audio_skipped: readiness.storyboards.length, mode: 'production' };
@@ -867,6 +1019,7 @@ async function generateStoryboardAudioProduction(db, log, params) {
   let skipped = 0;
 
   for (const storyboard of readiness.storyboards) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     const dialogue = String(storyboard.dialogue || '').trim();
     const narration = String(storyboard.narration || '').trim();
     if (!dialogue && !narration) {
@@ -904,8 +1057,9 @@ async function generateStoryboardAudioProduction(db, log, params) {
         reused += 1;
       }
       if ((dialogue && !localMediaExists(dialoguePath)) || (narration && !localMediaExists(narrationPath))) {
-        throw new Error('TTS output was not persisted locally');
+        throw new Error('TTS 音频未保存到本地，请重新生成配音后再继续');
       }
+      dramaService.assertDramaWritable(db, params.drama_id);
       db.prepare(
         `UPDATE storyboards SET audio_local_path = ?, narration_audio_local_path = ?, updated_at = ? WHERE id = ?`
       ).run(dialoguePath, narrationPath, nowIso(), storyboard.id);
@@ -932,7 +1086,7 @@ async function generateStoryboardAudioProduction(db, log, params) {
         provider,
         error_type: error?.name || 'Error',
       });
-      throw new Error(`Production TTS generation failed for storyboard ${storyboard.id}`);
+      throw new Error(`分镜 ${storyboard.id} 的 TTS 配音生成失败：${error.message || '未知错误'}`);
     }
   }
   return {
@@ -945,6 +1099,7 @@ async function generateStoryboardAudioProduction(db, log, params) {
 }
 
 async function compositeEpisodesProduction(db, log, params) {
+  dramaService.assertDramaWritable(db, params.drama_id);
   assertProductionReadiness(db, params);
   const episodes = db.prepare(
     `SELECT id, episode_number, title FROM episodes
@@ -954,6 +1109,7 @@ async function compositeEpisodesProduction(db, log, params) {
   let reused = 0;
 
   for (const episode of episodes) {
+    dramaService.assertDramaWritable(db, params.drama_id);
     const compositePlan = buildProductionTimelineCompositePlan(db, episode.id);
     const scenes = compositePlan.scenes;
     let merge = db.prepare(
@@ -966,18 +1122,69 @@ async function compositeEpisodesProduction(db, log, params) {
       parseJsonObject(row.merge_options).timeline_plan_hash === compositePlan.timeline_plan_hash
     ));
     const wasReused = Boolean(merge);
+    const recordCompositeEvidence = (currentMerge) => recordProviderInvocation(db, {
+      workflow_step_id: params.workflow_step_id,
+      run_id: params.run_id,
+      provider_type: 'compositor',
+      provider_name: currentMerge.provider || 'ffmpeg',
+      model: currentMerge.model || path.basename(getFfmpegPath()),
+      mode: 'production',
+      refresh_existing_output: true,
+      billable: !wasReused,
+      pricing: params.compositor_pricing,
+      usage: {
+        duration_seconds: wasReused
+          ? 0
+          : scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0),
+      },
+      idempotency_key: providerCallKey(params, 'compositor', 'episode', episode.id),
+      input: {
+        call_key: params.call_key || null,
+        episode_id: episode.id,
+        scene_count: scenes.length,
+        timeline_plan_hash: compositePlan.timeline_plan_hash,
+      },
+      output: {
+        merge_id: currentMerge.id,
+        merged_url: currentMerge.merged_url,
+        timeline_plan_hash: compositePlan.timeline_plan_hash,
+        timeline_plan: compositePlan.timeline_plan,
+        filter_plan: compositePlan.filter_plan,
+      },
+    });
     try {
       if (merge) {
-        if (params.defer_qa_completion) {
-          db.prepare("UPDATE video_merges SET status = 'qa_pending', completed_at = NULL WHERE id = ?").run(merge.id);
-          db.prepare("UPDATE episodes SET status = 'qa_pending', video_url = ?, updated_at = ? WHERE id = ?")
-            .run(merge.merged_url, nowIso(), episode.id);
-          merge = db.prepare('SELECT * FROM video_merges WHERE id = ?').get(merge.id);
-        }
+        const reuse = db.transaction(() => {
+          const completionStatus = params.defer_qa_completion ? 'qa_pending' : 'completed';
+          const now = nowIso();
+          const ownedMerge = latestMergeId(db, episode.id) !== Number(merge.id)
+            ? persistOwnedCompositorMerge(db, log, {
+              episode_id: episode.id,
+              drama_id: params.drama_id,
+              title: merge.title || episode.title || `Episode ${episode.episode_number}`,
+              provider: merge.provider || 'ffmpeg',
+              model: merge.model || path.basename(getFfmpegPath()),
+              status: completionStatus,
+              scenes: merge.scenes,
+              merge_options: {
+                ...parseJsonObject(merge.merge_options),
+                reused_from_merge_id: Number(merge.id),
+                defer_qa_completion: !!params.defer_qa_completion,
+              },
+              merged_url: merge.merged_url,
+              duration: merge.duration,
+              mode: 'strict_production',
+              now,
+            })
+            : stageCurrentCompositorMerge(db, merge, completionStatus, now, 'strict_production');
+          recordCompositeEvidence(ownedMerge);
+          return ownedMerge;
+        });
+        merge = reuse();
         reused += 1;
       } else {
         if (!scenes.length || scenes.some((scene) => !localMediaExists(scene.video_url))) {
-          throw new Error('Episode is missing one or more durable video clips');
+          throw new Error('该集缺少一个或多个已落盘的视频片段，请先完成分镜视频生成');
         }
         const createdMerge = videoMergeService.create(db, log, {
           episode_id: episode.id,
@@ -1005,46 +1212,18 @@ async function compositeEpisodesProduction(db, log, params) {
         merge = db.prepare('SELECT * FROM video_merges WHERE id = ?').get(createdMerge.merge_id);
         const expectedStatus = params.defer_qa_completion ? 'qa_pending' : 'completed';
         if (!merge || merge.status !== expectedStatus || !localMediaExists(merge.merged_url)) {
-          throw new Error(merge?.error_msg || 'Strict video merge did not complete');
+          throw new Error(merge?.error_msg || '严格模式视频合成未完成，请检查分镜视频与时间线后重试');
         }
+        recordCompositeEvidence(merge);
         created += 1;
       }
-      recordProviderInvocation(db, {
-        workflow_step_id: params.workflow_step_id,
-        run_id: params.run_id,
-        provider_type: 'compositor',
-        provider_name: merge.provider || 'ffmpeg',
-        model: merge.model || path.basename(getFfmpegPath()),
-        mode: 'production',
-        billable: !wasReused,
-        pricing: params.compositor_pricing,
-        usage: {
-          duration_seconds: wasReused
-            ? 0
-            : scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0),
-        },
-        idempotency_key: providerCallKey(params, 'compositor', 'episode', episode.id),
-        input: {
-          call_key: params.call_key || null,
-          episode_id: episode.id,
-          scene_count: scenes.length,
-          timeline_plan_hash: compositePlan.timeline_plan_hash,
-        },
-        output: {
-          merge_id: merge.id,
-          merged_url: merge.merged_url,
-          timeline_plan_hash: compositePlan.timeline_plan_hash,
-          timeline_plan: compositePlan.timeline_plan,
-          filter_plan: compositePlan.filter_plan,
-        },
-      });
     } catch (error) {
       recordFailedInvocation(db, params, 'compositor', 'ffmpeg', path.basename(getFfmpegPath()));
       log?.error?.('Production episode composite failed', {
         episode_id: episode.id,
         error_type: error?.name || 'Error',
       });
-      throw new Error(`Production episode composite failed for episode ${episode.id}`);
+      throw new Error(`第 ${episode.id} 集整集合成失败：${error.message || '未知错误'}`);
     }
   }
   return { episode_count: episodes.length, composite_created: created, composite_reused: reused, mode: 'production' };

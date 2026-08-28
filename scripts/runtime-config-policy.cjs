@@ -66,6 +66,27 @@ function safeBasename(value, fallback) {
   return path.basename(normalized) === normalized ? normalized : fallback
 }
 
+const credentialLikePatterns = [
+  /\b(?:sk|rk|pk)-[A-Za-z0-9_-]{8,}\b/i,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b/i,
+  /\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|authorization|client[_-]?secret|secret[_-]?access[_-]?key)\b\s*[:=]\s*[^\s,;]{4,}/i,
+  /https?:\/\/[^/\s:@]+:[^/\s@]+@/i,
+  /[?&](?:token|api[_-]?key|signature|sig|access[_-]?key)=[^&#\s]+/i,
+]
+
+function assertCredentialFree(value) {
+  const serialized = JSON.stringify(value)
+  if (credentialLikePatterns.some((pattern) => pattern.test(serialized))) {
+    throw new Error('sanitized runtime configuration still contains credential-like data')
+  }
+  return value
+}
+
+function isEnabledFlag(value) {
+  if (value === undefined || value === null) return false
+  return value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true'
+}
+
 function sanitizeRuntimeConfig(input = {}) {
   const source = asObject(input)
   const app = asObject(source.app)
@@ -78,7 +99,11 @@ function sanitizeRuntimeConfig(input = {}) {
   const vendorLock = asObject(source.vendor_lock)
   const imageProxy = asObject(source.image_proxy)
 
-  return {
+  if (isEnabledFlag(server.insecure_tls) || isEnabledFlag(server.INSECURE_TLS)) {
+    throw new Error('runtime configuration cannot disable TLS certificate verification')
+  }
+
+  return assertCredentialFree({
     app: {
       name: text(app.name, 'LocalMiniDrama API', 128),
       version: text(app.version, '0.0.0', 32),
@@ -133,7 +158,7 @@ function sanitizeRuntimeConfig(input = {}) {
       upload_timeout_seconds: number(imageProxy.upload_timeout_seconds, 180, 1),
       upload_max_attempts: number(imageProxy.upload_max_attempts, 2, 1),
     },
-  }
+  })
 }
 
 function sanitizeRuntimeConfigFile(sourcePath, destinationPath) {

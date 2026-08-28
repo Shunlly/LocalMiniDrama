@@ -35,6 +35,7 @@ function listDramas(db, log) {
     const status = req.query.status || '';
     const genre = req.query.genre || '';
     const keyword = req.query.keyword || '';
+    const sort = req.query.sort || '';
     try {
       const { dramas, total, page: p, pageSize: ps } = dramaService.listDramas(db, {
         page,
@@ -42,6 +43,7 @@ function listDramas(db, log) {
         status,
         genre,
         keyword,
+        sort,
       });
       response.successWithPagination(res, dramas, total, p, ps);
     } catch (err) {
@@ -76,14 +78,28 @@ function updateDrama(db, log) {
 }
 
 function moveDramaToTrash(db, log) {
-  return (req, res) => {
-    const drama = dramaService.moveDramaToTrash(db, log, req.params.id);
-    if (!drama) return response.notFound(res, '项目不存在或已在回收站中');
-    response.success(res, {
-      message: '项目已移入回收站',
-      project: drama,
-      retention: dramaService.getTrashRetentionPolicy(),
-    });
+  return async (req, res) => {
+    try {
+      const drama = await dramaService.moveDramaToTrash(db, log, req.params.id);
+      if (!drama) return response.notFound(res, '项目不存在或已在回收站中');
+      response.success(res, {
+        message: '项目已移入回收站',
+        project: drama,
+        retention: dramaService.getTrashRetentionPolicy(),
+      });
+    } catch (err) {
+      log.error('Move drama to trash failed', { error: err.message, drama_id: req.params.id });
+      if ([
+        'REMOTE_CANCEL_FAILED',
+        'REMOTE_CANCEL_UNCERTAIN',
+        'TASK_SCOPE_CONFLICT',
+        'DRAMA_RECYCLE_IN_PROGRESS',
+        'WORKFLOW_DRAIN_TIMEOUT',
+      ].includes(err.code)) {
+        return response.error(res, 409, err.code, err.message, err.details);
+      }
+      response.internalError(res, err.message);
+    }
   };
 }
 
@@ -185,6 +201,15 @@ function finalizeEpisode(db, log, cfg) {
     const baseUrl = cfg?.storage?.base_url || '';
     const result = dramaService.finalizeEpisode(db, log, episodeId, baseUrl, req.body || {});
     if (!result) return response.notFound(res, '剧集不存在');
+    if (result.scenes_count === 0 && result.merge_id == null) {
+      return response.error(
+        res,
+        409,
+        'EPISODE_NOT_READY',
+        '本集没有可合成的视频片段',
+        { reason: 'NO_VIDEO_CLIPS', episode_id: Number(episodeId) }
+      );
+    }
     response.success(res, result);
   };
 }

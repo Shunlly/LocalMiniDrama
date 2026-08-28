@@ -10,7 +10,7 @@
 
 > 遇到问题或有功能建议，欢迎在 [GitHub Issues](https://github.com/Shunlly/LocalMiniDrama/issues) 或 [Gitee Issues](https://gitee.com/bi_shang_a/localminidrama/issues) 提交反馈。
 
-> **本包版本：** `1.3.2`（与仓库根目录 [CHANGELOG](../CHANGELOG.md)、前端与桌面 `package.json` 对齐）
+> **本包版本：** `1.3.3`（与仓库根目录、前端与桌面 `package.json` 对齐）
 
 ---
 
@@ -32,7 +32,7 @@
 
 | 依赖 | 版本 |
 |------|------|
-| Node.js | >= 20；发布与 Docker 验证使用 20.x |
+| Node.js | 20.x（`engines` 为 `>=20.0.0 <21`）；Docker 与通用门禁同样固定 20.x |
 | npm | 随 Node.js 附带 |
 
 ---
@@ -55,18 +55,29 @@ npm start
 # 开发模式（Node.js --watch 热重载）
 npm run dev
 
+# 测试（Node.js 内置测试运行器）
+npm test
+
 # 静态检查、全部测试与流程审计
 npm run verify
 
-# 全量数据备份；恢复前必须停止后端
+# 全量数据备份或恢复前都必须停止后端
 npm run backup:data -- --output D:\backup\localminidrama.zip
 npm run restore:data -- --input D:\backup\localminidrama.zip --yes
+
+# 仅当异常退出留下维护租约时：先检查，再用检查到的精确作用域和 PID 恢复
+npm run maintenance:recover -- --inspect
+npm run maintenance:recover -- --owner-scope <scope> --pid <pid> --yes
 ```
 
-启动成功后终端输出：
+维护恢复前必须停止所有源码、桌面和 Docker 后端，并确认检查结果确实属于已终止的 LocalMiniDrama 进程。不要直接删除 `*.maintenance.lock`；租约仍新鲜、本机 PID 仍活跃或锁的作用域/PID 已变化时，恢复命令会拒绝接管。
+
+启动后以就绪端点为准；返回 HTTP 200 且 `status` 为 `ready` 才能接收业务请求：
+```bash
+curl.exe --fail http://127.0.0.1:5679/ready
 ```
-Server started on port 5679
-```
+
+开发前端默认在 `3013`。CORS 只允许 `http://localhost:3013` 与 `http://127.0.0.1:3013`。未配置外部 API Key 也可以启动服务；真正生成内容通过前端「AI 配置」写入数据库。
 
 ---
 
@@ -80,15 +91,10 @@ backend-node/
 │   ├── drama_generator.db      # SQLite 数据库
 │   ├── story_sources/          # 原始故事素材
 │   ├── backups/                # 默认备份归档
-│   └── storage/                # 生成的图片/视频本地文件
-│       ├── images/             # 分镜生成图
-│       ├── characters/         # 角色图
-│       ├── scenes/             # 场景图
-│       ├── videos/             # 生成的视频片段
-│       └── merged/             # 合成后的完整视频
+│   └── storage/                # 项目媒体 projects/、公共素材 library/ 及兼容旧目录
 ├── migrations/
 │   ├── 01_init.sql             # 初始建表
-│   └── 02_add_default_model.sql ... 34_ai_config_single_default.sql
+│   └── 02_add_default_model.sql ... 37_task_cancellation_state.sql
 ├── src/
 │   ├── app.js                  # Express 应用（路由注册、中间件）
 │   ├── server.js               # HTTP 服务入口
@@ -142,6 +148,10 @@ backend-node/
 ```yaml
 server:
   port: 5679                      # HTTP 服务端口
+  host: 127.0.0.1                 # 本机监听
+  cors_origins:                   # 只允许前端 3013
+    - http://localhost:3013
+    - http://127.0.0.1:3013
 
 database:
   path: ./data/drama_generator.db # SQLite 文件路径
@@ -214,26 +224,37 @@ style:
 | GET | `/dramas/:id` | 获取剧集详情（含集数、角色、场景等） |
 | PUT | `/dramas/:id` | 更新剧集信息 |
 | DELETE | `/dramas/:id` | 软删除剧集 |
+| PUT | `/dramas/:id/canvas-layout` | 分别保存生产布局、工作流组和/或验证后的 `free_canvas` 部分更新 |
 | GET | `/dramas/:id/export` | 导出工程 ZIP |
 | POST | `/dramas/import` | 导入工程 ZIP（multipart/form-data，字段名 `file`） |
 | GET | `/dramas/stats` | 统计信息 |
 
+自由画布只接受 `text`、`image`、`video`、`config`、`reference` 五类节点，并在 API 边界限制节点、连线、文本和嵌套数据规模。`free_canvas` 独立合并到 `drama.metadata`，不会替换现有 `canvas_layout`、`workflow_groups` 或未知 metadata。图片/视频引用继续执行项目隔离、素材身份和本地媒体策略；项目 ZIP 导出/导入会验证归档清单、媒体与引用并在导入时安全重映射身份。该 ZIP 合同已完成 `Spec PASS / Security PASS` 复审。
+
+自由画布的 E2E 代码和证据契约已完成 `Spec PASS / Quality PASS` 复审，但真实 Docker 生产 E2E 尚未执行，当前不能作为最终发布证据。自动化测试仅使用本地协议兼容测试服务，不调用外部真实 Provider。
+
 ### 集数（Episode）
+
+当前没有独立的 Episode CRUD。集数通过项目详情读取，批量保存走 `PUT /dramas/:id/episodes`。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/episodes/:id` | 获取集数详情 |
-| PUT | `/episodes/:id` | 更新集数（剧本内容、标题等） |
-| POST | `/dramas/:id/episodes` | 新增集数 |
-| DELETE | `/episodes/:id` | 删除集数 |
+| PUT | `/dramas/:id/episodes` | 批量保存项目集数 |
+| POST | `/episodes/:episode_id/finalize` | 从本集已完成分镜创建并启动 FFmpeg 合成 |
+| GET | `/episodes/:episode_id/download` | 获取最终视频地址 |
+| GET | `/episodes/:episode_id/timeline` | 读取本集时间线 |
+| GET | `/episodes/:episode_id/timeline/srt` | 导出本集字幕 |
 
 ### 分镜（Storyboard）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/episodes/:id/storyboards` | 获取集数所有分镜 |
-| POST | `/episodes/:id/generate-storyboard` | 触发分镜生成任务 |
+| GET | `/episodes/:episode_id/storyboards` | 获取集数所有分镜 |
+| POST | `/episodes/:episode_id/storyboards` | 触发分镜生成任务 |
+| GET | `/storyboards/:id` | 获取单个分镜 |
 | PUT | `/storyboards/:id` | 更新分镜字段 |
+| DELETE | `/storyboards/:id` | 删除分镜 |
+| POST | `/images/upload` | 上传图片生成记录；没有独立的 `/storyboards/:id/images` 上传接口 |
 
 ### 图片生成（Image）
 
@@ -241,8 +262,8 @@ style:
 |------|------|------|
 | POST | `/images` | 创建图片生成任务 |
 | GET | `/images/:id` | 查询任务状态 |
-| GET | `/storyboards/:id/images` | 获取分镜所有图片 |
-| POST | `/storyboards/:id/images/upload` | 手动上传图片 |
+| GET | `/images` | 查询图片生成记录；可按接口支持的条件筛选 |
+| POST | `/images/upload` | 手动上传图片生成记录 |
 
 ### 视频生成（Video）
 
@@ -250,8 +271,10 @@ style:
 |------|------|------|
 | POST | `/videos` | 创建视频生成任务 |
 | GET | `/videos/:id` | 查询任务状态 |
-| POST | `/episodes/:id/merge-video` | 触发视频合并 |
-| GET | `/episodes/:id/merge-status` | 查询合并进度 |
+| POST | `/episodes/:episode_id/finalize` | 从本集已完成分镜创建并启动 FFmpeg 合成 |
+| GET | `/video-merges?episode_id=:episode_id` | 查询本集合成记录 |
+| GET | `/video-merges/:merge_id` | 查询指定合成记录 |
+| GET | `/episodes/:episode_id/download` | 获取最终视频地址 |
 
 ### AI 配置（AI Config）
 
@@ -261,9 +284,7 @@ style:
 | POST | `/ai-configs` | 新增配置 |
 | PUT | `/ai-configs/:id` | 修改配置 |
 | DELETE | `/ai-configs/:id` | 删除配置 |
-| POST | `/ai-configs/:id/test` | 测试连接 |
-| POST | `/ai-configs/preset/dashscope` | 一键创建通义预设 |
-| POST | `/ai-configs/preset/volcengine` | 一键创建火山预设 |
+| POST | `/ai-configs/test` | 测试已保存配置；body 传 `id` 或 `config_id` |
 
 ### 异步任务（Task）
 
@@ -271,22 +292,27 @@ style:
 |------|------|------|
 | GET | `/tasks/:id` | 查询任务状态与进度 |
 | GET | `/tasks` | 获取任务列表 |
+| POST | `/tasks/:task_id/cancel` | 请求取消排队中或运行中的任务；重复请求保持幂等 |
 
 ### 角色与素材库
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/dramas/:id/characters` | 获取剧集角色 |
-| POST | `/dramas/:id/characters/extract` | 从剧本提取角色（触发任务） |
+| POST | `/episodes/:episode_id/characters/extract` | 从本集剧本提取角色 |
 | POST | `/characters/:id/generate-image` | 生成角色图片 |
 | GET | `/dramas/:id/scenes` | 获取剧集场景 |
-| POST | `/episodes/:id/extract-backgrounds` | 提取场景背景（触发任务） |
+| POST | `/images/episode/:episode_id/backgrounds/extract` | 提取场景背景（触发任务） |
 | GET | `/dramas/:id/props` | 获取剧集道具 |
-| POST | `/episodes/:id/extract-props` | 从剧本提取道具（触发任务） |
-| POST | `/props/:id/generate-image` | 生成道具图片 |
+| POST | `/episodes/:episode_id/props/extract` | 从本集剧本提取道具（触发任务） |
+| POST | `/props/:id/generate` | 生成道具图片 |
 | GET | `/assets` | 分页查询素材中心图片/视频 |
+| GET | `/assets/network-search` | 搜索 Wikimedia Commons 公开图片/视频并返回作者、许可和预览信息 |
+| POST | `/assets/network-import` | 校验远端来源并安全下载到项目或全局素材库；同项目同来源幂等复用 |
 | POST | `/assets/upload` | 上传图片或视频并写入素材中心（单文件最大 100MB；最多 2 个并发；保留磁盘空间；图片完整解码、视频 `ffprobe` 校验；失败清理） |
-| DELETE | `/assets/:id` | 软删除素材记录；无其他有效引用时同步删除受控 `uploads/` 文件 |
+| DELETE | `/assets/:id` | 软删除素材记录；无其他有效引用时同步删除受控素材文件 |
+
+素材 API 的 `drama_id` 必须是存在且未删除项目的正整数。当前项目媒体位于 `storage/projects/<固化项目目录>/...`，公共素材位于 `storage/library/...`，网络素材下载到 `storage/library/uploads/...`；`storage/dramas/<id>/...` 与根级 `storage/uploads/...` 仅为兼容旧数据。本地 `local_path` 和 `/static/...` URL 必须落在对应允许范围。外部 HTTP(S) URL 必须是无凭据的公网地址，`localhost` 地址不会接受为素材来源。自由画布的 image/video 节点采用相同范围，并在提供素材引用时以素材记录的 canonical `local_path` 为准。
 
 ### 静态文件
 
@@ -328,6 +354,7 @@ style:
 **数据库迁移：**
 - 每次服务启动时自动执行 `runMigrationsAndEnsure()`：先应用 `migrations/` SQL 文件，再执行表/列兼容性补齐（支持旧数据库升级）
 - `npm run migrate` — 手动运行同一迁移流程；通常用于首次手动初始化或显式迁移验证
+- 当前迁移序列到 `37_task_cancellation_state.sql`；迁移 37 为 `async_tasks` 增加取消状态、操作 ID、重试和确认时间字段及索引。迁移由服务启动自动执行，不应把“文件存在”写成某个现有数据库已经升级的证据；以目标实例启动成功和迁移记录/字段检查为准
 
 ---
 
@@ -342,6 +369,7 @@ style:
 **支持的图片 API：**
 - DashScope（通义万象）：`POST /api/v1/services/aigc/text2image/image-synthesis`
 - Volcengine（豆包）：`POST /api/v3/images/generations`（OpenAI 兼容格式）
+- Google Gemini 图片：`generateContent` 原生图片模型（如 `gemini-2.5-flash-image`），不是 Imagen API
 
 ### 即梦（Seedream）Volcengine 图生图与文生图
 
@@ -379,11 +407,11 @@ style:
 
 **可灵 Omni（`kling_omni`）** 同样支持分镜全能模式的多图参考与片段描述-only 提交逻辑，配置方式见前端 AI 配置页说明。
 
-> Novel2Anime 工作流与上述经典生图/生视频链路不同：当前媒体、配音和合成步骤仍使用本地 mock provider SDK 产物，production QA 会要求真实 image/video/tts/compositor provider audit 记录后才允许通过。真实 Novel2Anime 工作流 provider 路由、ComfyUI/Ollama/cloud model 编排和 FFmpeg-backed Novel2Anime compositor provider 集成仍属后续接入范围。
+> Novel2Anime 明确区分 Draft 与 Production：Draft 预演可以使用本地 mock provider SDK 产物；Production 工作流由 `workflowService.js` / `aiClient.js` 路由已配置的文本 Provider，由 `providerSdkService.js` 执行素材图、分镜图、视频、TTS 和本机 FFmpeg/FFprobe 合成与输出校验。production QA 会拒绝 mock/占位产物，并要求成功的非 mock text/asset_image/image/video/tts/compositor audit 记录。Ollama 兼容文本路由和 ComfyUI 工作流执行已接入公共适配层；但每个第三方厂商、账号、模型、区域和额度组合仍需在实际部署中单独配置并执行连接测试。
 
 ### 提示词国际化
 
-`promptI18n.js` 管理所有提示词模板，支持中文（zh）和英文（en）两套模板，通过 `config.yaml` 中的 `app.language` 字段切换。
+`promptI18n.js` 管理中文（`zh`）和英文（`en`）提示词模板。`config.yaml` 中的 `app.language` 是后端提示词默认语言，并可通过 `GET/PUT /api/v1/settings/language` 读取或持久化；部分制作入口会显式传入项目/脚本语言覆盖该默认值。它不是 Vue 界面语言开关，不能据此宣称整个界面已经国际化。
 
 ---
 

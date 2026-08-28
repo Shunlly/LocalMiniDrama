@@ -3,13 +3,20 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { compileScript, parse } from '@vue/compiler-sfc'
+import { useFilmCreateStoryboardAccessors } from '../src/composables/filmCreate/useFilmCreateStoryboardAccessors.js'
+import { useFilmCreateStoryboardBindings } from '../src/composables/filmCreate/useFilmCreateStoryboardBindings.js'
+import { useFilmCreateStoryboardCrud } from '../src/composables/filmCreate/useFilmCreateStoryboardCrud.js'
+import { remainingImportedFunctionSource } from './helpers/remainingSourceBetween.js'
 import { createRenderer, defineComponent, h, nextTick, ref } from 'vue'
 
 const vueUrl = import.meta.resolve('vue')
 const actionGateUrl = new URL('../src/components/filmCreate/ActionGate.vue', import.meta.url)
 const canvasActionGateUrl = new URL('../src/components/dramaCanvas/CanvasActionGate.vue', import.meta.url)
 const pipelinePanelUrl = new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url)
+const disclosureStateUrl = new URL('../src/composables/useDisclosureState.js', import.meta.url)
+const filmPipelineActionUrl = new URL('../src/utils/filmPipelineAction.js', import.meta.url)
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const storyboardPanelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 
 test('FilmCreate script compiles without duplicate bindings', () => {
   const parsed = parse(filmCreateSource, { filename: 'FilmCreate.vue' })
@@ -19,8 +26,8 @@ test('FilmCreate script compiles without duplicate bindings', () => {
 
 test('storyboard insertion command names the object it creates', () => {
   assert.doesNotMatch(filmCreateSource, />\s*＋ 新增\s*<\/el-button>/)
-  assert.match(filmCreateSource, /:aria-label="`在分镜\$\{i \+ 1\}前插入新分镜`"/)
-  assert.match(filmCreateSource, /<span>插入分镜<\/span>/)
+  assert.match(storyboardPanelSource, /:aria-label="`在分镜\$\{i \+ 1\}前插入新分镜`"/)
+  assert.match(storyboardPanelSource, /<span>插入分镜<\/span>/)
 })
 
 function dataModule(source) {
@@ -46,9 +53,19 @@ const iconStubUrl = dataModule(`
     name,
     setup() { return () => h('span', { 'data-icon': name }) },
   })
+  export const ArrowDown = icon('ArrowDown')
+  export const ArrowRight = icon('ArrowRight')
+  export const ArrowUp = icon('ArrowUp')
   export const Setting = icon('Setting')
   export const VideoPlay = icon('VideoPlay')
 `)
+
+const disclosureStateModuleUrl = dataModule(
+  readFileSync(disclosureStateUrl, 'utf8')
+    .replace("from 'vue'", `from ${JSON.stringify(vueUrl)}`),
+)
+
+const filmPipelineActionModuleUrl = dataModule(readFileSync(filmPipelineActionUrl, 'utf8'))
 
 const stylePickerStubUrl = dataModule(`
   import { defineComponent, h } from ${JSON.stringify(vueUrl)}
@@ -88,6 +105,8 @@ const compiledPipelinePanelUrl = compileSfc(
     ['@element-plus/icons-vue', iconStubUrl],
     ['@/components/StylePickerButton.vue', stylePickerStubUrl],
     ['@/components/filmCreate/ActionGate.vue', compiledActionGateUrl],
+    ['@/composables/useDisclosureState', disclosureStateModuleUrl],
+    ['@/utils/filmPipelineAction', filmPipelineActionModuleUrl],
   ]),
 )
 
@@ -96,19 +115,20 @@ const CanvasActionGate = (await import(compiledCanvasActionGateUrl)).default
 const FilmCreatePipelinePanel = (await import(compiledPipelinePanelUrl)).default
 
 test('FilmCreate never renders or forwards raw storyboard placeholder URLs', () => {
-  assert.match(filmCreateSource, /v-else-if="storyboardImageUrl\(sb\)"/)
-  assert.match(filmCreateSource, /return storyboardImageUrl\(sb\)/)
+  assert.match(storyboardPanelSource, /v-else-if="storyboardImageUrl\(sb\)"/)
+  assert.match(remainingImportedFunctionSource(useFilmCreateStoryboardAccessors), /return storyboardImageUrl\(sb\)/)
   assert.doesNotMatch(filmCreateSource, /v-else-if="sb\.(?:image_url|composed_image)/)
   assert.doesNotMatch(filmCreateSource, /imageUrl\(sb\.composed_image \|\| sb\.image_url\)/)
 })
 
 test('FilmCreate localizes legacy workflow camera movement values', () => {
-  assert.match(filmCreateSource, /'slow push in': '缓慢推镜'/)
-  assert.match(filmCreateSource, /'static hold': '固定镜头'/)
+  const bindings = useFilmCreateStoryboardBindings({ storyboards: { value: [] }, characters: { value: [] }, props: { value: [] }, scenes: { value: [] }, storyboardsAPI: {}, sbCharacterIds: { value: {} }, sbPropIds: { value: {} }, sbSceneId: { value: {} }, saveProjectSettings() {} })
+  assert.equal(bindings.getMovementLabel('slow push in'), '缓慢推镜')
+  assert.equal(bindings.getMovementLabel('static hold'), '固定镜头')
 })
 
 function createHostNode(type, text = '') {
-  return { type, text, props: {}, children: [], parent: null }
+  return { type, text, props: {}, style: {}, children: [], parent: null }
 }
 
 function insertHostNode(child, parent, anchor = null) {
@@ -308,9 +328,13 @@ const pipelineEventListeners = {
   onSaveSettings: (value, events) => events.push(['save-settings', value]),
   onStartOneClick: (_value, events) => events.push(['start-one-click']),
   onStartTextFramework: (_value, events) => events.push(['start-text-framework']),
+  onOpenAiConfig: (value, events) => events.push(['open-ai-config', value]),
   onPause: (_value, events) => events.push(['pause']),
   onResume: (_value, events) => events.push(['resume']),
+  onCancel: (_value, events) => events.push(['cancel']),
   onSkipCountdown: (_value, events) => events.push(['skip-countdown']),
+  onRetryReadiness: (_value, events) => events.push(['retry-readiness']),
+  onAddEpisode: (_value, events) => events.push(['add-episode']),
 }
 
 function mountPipeline(initialProps = {}) {
@@ -350,6 +374,97 @@ function mountPipeline(initialProps = {}) {
   app.mount(root)
   return { app, events, props, root }
 }
+
+test('pipeline disclosure starts compact, toggles, and auto-opens for running work', async () => {
+  const harness = mountPipeline({
+    productionDisabledReason: '缺少视频模型',
+    productionReadinessReason: '缺少视频模型',
+    productionReadinessState: 'missing',
+  })
+  try {
+    const [toggle] = findAll(
+      harness.root,
+      (node) => node.props['data-testid'] === 'film-pipeline-toggle',
+    )
+    const [details] = findAll(
+      harness.root,
+      (node) => node.props['data-testid'] === 'film-pipeline-details',
+    )
+    const [summary] = findAll(
+      harness.root,
+      (node) => node.props['data-testid'] === 'film-pipeline-summary',
+    )
+
+    assert.ok(toggle)
+    assert.ok(details)
+    assert.ok(summary)
+    assert.notEqual(summary.style.display, 'none')
+    assert.equal(findAll(harness.root, (node) => node.props.id === 'pipeline-title').length, 1)
+    assert.equal(findAll(harness.root, (node) => node.props.class === 'pipeline-heading').length, 1)
+    assert.match(textContent(summary), /当前阻断/)
+    assert.match(textContent(summary), /前往 AI 配置补齐完整成片能力/)
+    assert.equal(toggle.type, 'button')
+    assert.equal(toggle.props['aria-controls'], 'film-pipeline-details')
+    assert.equal(toggle.props['aria-expanded'], false)
+    assert.equal(details.style.display, 'none')
+
+    toggle.props.onClick()
+    await nextTick()
+    assert.equal(toggle.props['aria-expanded'], true)
+    assert.notEqual(details.style.display, 'none')
+    assert.equal(findAll(details, (node) => node.props.class === 'pipeline-heading').length, 0)
+    assert.equal(findAll(details, (node) => node.props.class === 'pipeline-focus-kicker').length, 0)
+    assert.equal(findAll(details, (node) => node.props.class === 'pipeline-focus-title').length, 0)
+    assert.equal(findAll(details, (node) => node.props.class === 'pipeline-next-step').length, 0)
+
+    toggle.props.onClick()
+    await nextTick()
+    assert.equal(toggle.props['aria-expanded'], false)
+
+    harness.props.value = { ...harness.props.value, running: true }
+    await nextTick()
+    assert.equal(toggle.props['aria-expanded'], true)
+    assert.notEqual(details.style.display, 'none')
+
+    harness.props.value = { ...harness.props.value, running: false }
+    await nextTick()
+    assert.equal(toggle.props['aria-expanded'], true)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('pipeline compact status exposes the next executable command', async () => {
+  const harness = mountPipeline({
+    productionDisabledReason: '缺少视频模型',
+    productionReadinessState: 'missing',
+    productionReadinessServiceType: 'video',
+  })
+  try {
+    const getAction = () => findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-action')[0]
+    let action = getAction()
+
+    assert.ok(action)
+    assert.equal(action.type, 'button')
+    assert.match(textContent(action), /配置缺失服务/)
+    action.props.onClick()
+    assert.deepEqual(harness.events, [['open-ai-config', 'video']])
+
+    harness.props.value = {
+      ...harness.props.value,
+      productionDisabledReason: '',
+      productionReadinessState: 'ready',
+    }
+    await nextTick()
+
+    action = getAction()
+    assert.match(textContent(action), /一键生成成片/)
+    action.props.onClick()
+    assert.deepEqual(harness.events, [['open-ai-config', 'video'], ['start-one-click']])
+  } finally {
+    harness.app.unmount()
+  }
+})
 
 test('ActionGate mounts a keyboard-focusable accessible reason and removes it when enabled', async () => {
   const harness = mountActionGate()
@@ -424,6 +539,62 @@ test('production video gate does not disable the Draft text framework', () => {
   }
 })
 
+test('pipeline keeps compact guidance visible and full reasons beside the primary CTA', () => {
+  const reason = '文本模型、素材图片、分镜图片、视频模型和语音合成配置均缺少生产凭据，需要逐项补齐并验证连接后才能开始完整成片生成。'
+  const harness = mountPipeline({
+    productionDisabledReason: reason,
+    productionReadinessReason: reason,
+    productionReadinessState: 'missing',
+  })
+  try {
+    const [summary] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-summary')
+    const [focus] = findAll(harness.root, (node) => node.props.class === 'pipeline-focus')
+    assert.ok(summary)
+    assert.ok(focus)
+    assert.match(textContent(summary), /当前阻断/)
+    assert.match(textContent(summary), /前往 AI 配置补齐完整成片能力/)
+    assert.doesNotMatch(textContent(focus), /当前阻断|下一步|前往 AI 配置补齐完整成片能力/)
+    assert.ok(findByType(focus, 'button').some((node) => textContent(node).trim() === '一键生成成片'))
+
+    const [details] = findByType(focus, 'details')
+    assert.ok(details)
+    assert.match(textContent(details), /查看完整原因/)
+    assert.match(textContent(details), new RegExp(reason))
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('pipeline distinguishes readiness failures from missing AI configuration', () => {
+  const harness = mountPipeline({
+    productionDisabledReason: '无法确认完整成片制作能力，请刷新后重试。',
+    productionReadinessReason: '无法确认完整成片制作能力，请刷新后重试。',
+    productionReadinessState: 'error',
+  })
+  try {
+    assert.match(textContent(harness.root), /重试检查/)
+    assert.doesNotMatch(textContent(harness.root), /前往 AI 配置/)
+    buttonByText(harness.root, '重试检查').props.onClick()
+    assert.deepEqual(harness.events, [['retry-readiness']])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('pipeline keeps readiness checking non-actionable until the check finishes', () => {
+  const harness = mountPipeline({
+    productionDisabledReason: '正在检查完整成片所需的 AI 服务与本地合成能力。',
+    productionReadinessReason: '正在检查完整成片所需的 AI 服务与本地合成能力。',
+    productionReadinessState: 'checking',
+  })
+  try {
+    assert.match(textContent(harness.root), /等待检查完成/)
+    assert.doesNotMatch(textContent(harness.root), /前往 AI 配置|重试检查/)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
 test('pipeline settings emit update events and persistence intent', () => {
   const harness = mountPipeline()
   try {
@@ -450,20 +621,26 @@ test('pipeline settings emit update events and persistence intent', () => {
   }
 })
 
-test('pipeline forwards start, pause, resume, and countdown skip commands', async () => {
+test('pipeline forwards start, pause, resume, stop, and countdown skip commands', async () => {
   const harness = mountPipeline()
   try {
-    buttonByText(harness.root, '一键生成成片').props.onClick()
-    buttonByText(harness.root, '仅生成文本框架').props.onClick()
+    const [toggle] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-toggle')
+    const [details] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-details')
+    toggle.props.onClick()
+    await nextTick()
+    assert.notEqual(details.style.display, 'none')
+    buttonByText(details, '一键生成成片').props.onClick()
+    buttonByText(details, '仅生成文本框架').props.onClick()
 
     harness.props.value = {
       ...harness.props.value,
       running: true,
       countdown: 5,
-      countdownMessage: 'Waiting for the next stage',
+      countdownMessage: '等待进入下一阶段',
     }
     await nextTick()
     buttonByText(harness.root, '暂停').props.onClick()
+    buttonByText(harness.root, '停止').props.onClick()
     buttonByText(harness.root, '立即开始下一阶段').props.onClick()
 
     harness.props.value = { ...harness.props.value, paused: true }
@@ -474,6 +651,7 @@ test('pipeline forwards start, pause, resume, and countdown skip commands', asyn
       ['start-one-click'],
       ['start-text-framework'],
       ['pause'],
+      ['cancel'],
       ['skip-countdown'],
       ['resume'],
     ])
@@ -482,34 +660,193 @@ test('pipeline forwards start, pause, resume, and countdown skip commands', asyn
   }
 })
 
+test('pipeline disables both launch commands while start checks are pending', async () => {
+  const harness = mountPipeline({ starting: true })
+  try {
+    const [toggle] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-toggle')
+    toggle.props.onClick()
+    await nextTick()
+
+    assert.equal(buttonByText(harness.root, '一键生成成片').props.disabled, true)
+    assert.equal(buttonByText(harness.root, '仅生成文本框架').props.disabled, true)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('pipeline cancellation failure exposes retry without pause or resume commands', async () => {
+  const harness = mountPipeline({ running: true, stopRequired: true })
+  try {
+    assert.match(textContent(harness.root), /全流程停止未完成/)
+    assert.ok(buttonByText(harness.root, '重试停止'))
+    assert.doesNotMatch(textContent(harness.root), /暂停|继续/)
+  } finally {
+    harness.app.unmount()
+  }
+})
+
 test('pipeline renders live progress, active tasks, countdown, and error details', () => {
   const harness = mountPipeline({
     running: true,
-    currentStep: '[步骤 2/5] Rendering storyboards',
+    currentStep: '[步骤 2/5] 正在生成分镜',
     stepIndex: 2,
     stepTotal: 5,
     countdown: 7,
-    countdownMessage: 'Waiting for provider capacity',
-    activeTasks: new Set(['Character task', 'Scene task']),
-    errorLog: [{ step: 'Image generation', message: 'Provider failed' }],
+    countdownMessage: '等待供应商资源就绪',
+    activeTasks: new Set(['角色任务', '场景任务']),
+    errorLog: [{ step: '分镜生图', message: '供应商调用失败' }],
   })
   try {
     const [status] = findAll(harness.root, (node) => node.props['aria-live'] === 'polite')
     assert.ok(status)
     const statusText = textContent(status)
     assert.match(statusText, /2\/5/)
-    assert.match(statusText, /Rendering storyboards/)
+    assert.match(statusText, /正在生成分镜/)
     assert.doesNotMatch(statusText, /\[步骤 2\/5\]/)
-    assert.match(statusText, /Waiting for provider capacity/)
-    assert.match(statusText, /Character task/)
-    assert.match(statusText, /Scene task/)
+    assert.match(statusText, /等待供应商资源就绪/)
+    assert.match(statusText, /角色任务/)
+    assert.match(statusText, /场景任务/)
 
     const [alert] = findAll(status, (node) => node.props.role === 'alert')
-    assert.match(textContent(alert), /Image generation/)
-    assert.match(textContent(alert), /Provider failed/)
+    assert.match(textContent(alert), /分镜生图/)
+    assert.match(textContent(alert), /供应商调用失败/)
     assert.equal(buttonByText(harness.root, '一键生成成片').props['data-loading'], true)
     assert.equal(buttonByText(harness.root, '仅生成文本框架').props['data-loading'], true)
   } finally {
     harness.app.unmount()
   }
+})
+
+test('pipeline shows pause disable reason while stopping and retry after failure', async () => {
+  const stopping = mountPipeline({ running: true, stopping: true })
+  try {
+    assert.match(textContent(stopping.root), /正在停止全流程，请稍候/)
+    assert.equal(buttonByText(stopping.root, '暂停').props.disabled, true)
+    assert.equal(buttonByText(stopping.root, '停止').props.disabled, true)
+  } finally {
+    stopping.app.unmount()
+  }
+
+  const failed = mountPipeline({
+    running: false,
+    errorLog: [{ step: '分镜视频', message: '生成失败' }],
+  })
+  try {
+    await nextTick()
+    assert.match(textContent(failed.root), /执行失败/)
+    assert.match(textContent(failed.root), /全流程生成未完成/)
+    const retry = buttonByText(failed.root, '重试全流程')
+    assert.ok(retry)
+    retry.props.onClick()
+    assert.deepEqual(failed.events, [['start-one-click']])
+  } finally {
+    failed.app.unmount()
+  }
+})
+test('pipeline compact action can add the first episode', async () => {
+  const harness = mountPipeline({
+    productionDisabledReason: '请先创建或选择剧集',
+    draftDisabledReason: '请先创建或选择剧集',
+    hasEpisode: false,
+    productionReadinessState: 'missing',
+    productionReadinessServiceType: 'video',
+  })
+  try {
+    const [action] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-action')
+    assert.ok(action)
+    assert.match(textContent(action), /添加一集/)
+    const [toggle] = findAll(harness.root, (node) => node.props['data-testid'] === 'film-pipeline-toggle')
+    toggle.props.onClick()
+    await nextTick()
+    assert.match(textContent(harness.root), /还没有剧集/)
+    action.props.onClick()
+    assert.deepEqual(harness.events, [['add-episode']])
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('FilmCreate 把视频配置交给独立面板并保留成片选项', () => {
+  const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateVideoSettingsPanel.vue', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /<FilmCreateVideoSettingsPanel/)
+  assert.match(filmCreateSource, /v-model:resolution="videoResolution"/)
+  assert.match(filmCreateSource, /@open-ai-config="openAiConfig"/)
+  assert.match(panel, /<el-form class="config-grid" label-position="top" @submit.prevent>/)
+  assert.match(panel, /aria-label="成片分辨率"/)
+  assert.match(panel, /aria-label="成片字幕"/)
+  assert.match(panel, /aria-label="对白烧录"/)
+  assert.match(panel, /aria-label="成片水印"/)
+  assert.match(panel, /aria-label="水印文字"/)
+  assert.match(panel, /label="字幕"/)
+  assert.match(panel, /label="对白烧录"/)
+  assert.match(panel, /label="水印"/)
+  assert.match(panel, /<button type="button" class="ai-config-text-button" @click="emit\('open-ai-config'\)">AI 配置<\/button>/)
+})
+
+test('FilmCreate 把剧本工作台交给独立面板并保留空剧集入口', () => {
+  const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateScriptWorkbench.vue', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /<FilmCreateScriptWorkbench/)
+  assert.match(filmCreateSource, /class="section card script-workbench-unified"/)
+  assert.match(filmCreateSource, /v-model:story-input="storyInput"/)
+  assert.match(filmCreateSource, /@generate-story="onGenerateStory"/)
+  assert.match(filmCreateSource, /@add-episode="onAddEpisode"/)
+  assert.match(filmCreateSource, /@go-to-drama="router\.push\('\/drama\/' \+ dramaId\)"/)
+  assert.match(panel, /label="创作剧本"/)
+  assert.match(panel, /label="选择剧本"/)
+  assert.match(panel, /class="empty-tip film-episode-empty"/)
+  assert.match(panel, /还没有剧集/)
+  assert.match(panel, /从已有剧本中选择/)
+  assert.match(panel, /emit\('generate-story'\)/)
+  assert.match(panel, /emit\('open-select-script'\)/)
+})
+
+test('交付面板为下载和导出提供可见的禁用原因', () => {
+  const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateDeliveryPanel.vue', import.meta.url), 'utf8')
+  assert.match(panel, /<ActionGate :reason="downloadVideoDisabledReason" label="下载成片">/)
+  assert.match(panel, /<ActionGate :reason="downloadSubtitleDisabledReason" label="下载字幕">/)
+  assert.match(panel, /<ActionGate :reason="exportProjectDisabledReason" label="导出项目包">/)
+  assert.match(panel, /请先合成成片后再下载/)
+  assert.match(panel, /当前集还没有可下载的字幕/)
+  assert.match(panel, /请先打开制作项目/)
+})
+
+test('FilmCreate 把资源管理交给独立面板并保留折叠与空状态', () => {
+  const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /<FilmCreateResourcePanel/)
+  assert.match(filmCreateSource, /class="section card resource-panel"/)
+  assert.match(filmCreateSource, /:prop-items="props"/)
+  assert.match(filmCreateSource, /@generate-characters="onGenerateCharacters"/)
+  assert.match(panel, /id="anchor-characters"/)
+  assert.match(panel, /id="anchor-props"/)
+  assert.match(panel, /id="anchor-scenes"/)
+  assert.match(panel, /class="collapse-header(?: resource-block-header)?"/)
+  assert.match(panel, /暂无角色/)
+  assert.match(panel, /emit\('generate-characters'\)/)
+})
+
+test('FilmCreate 把分镜生成交给独立面板并保留锚点', () => {
+  const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /<FilmCreateStoryboardPanel/)
+  assert.match(filmCreateSource, /:on-generate-storyboard="onGenerateStoryboard"/)
+  assert.match(panel, /id="anchor-storyboard"/)
+  assert.match(panel, /id="anchor-storyboard-images"/)
+  assert.match(panel, /label="批量生成分镜图"/)
+  assert.match(panel, /还没有分镜/)
+})
+
+
+test('FilmCreate 把资源弹窗和分镜弹窗交给独立面板', () => {
+  assert.match(filmCreateSource, /<FilmCreateResourceDialogs/)
+  assert.match(filmCreateSource, /<FilmCreateStoryboardDialogs/)
+  assert.match(filmCreateSource, /<FilmCreateNovelImportDialog/)
+  assert.match(filmCreateSource, /<FilmCreateAiConfigDialog/)
+  assert.match(filmCreateSource, /<ImagePreviewDialog/)
+  assert.match(filmCreateSource, /<GlobalMediaPickerDialog/)
+})
+
+test('FilmCreate 把导入小说弹窗交给独立面板，重新生成分镜需要确认', () => {
+  assert.match(filmCreateSource, /<FilmCreateNovelImportDialog/)
+  assert.match(filmCreateSource, /v-model:max-chapters="novelMaxChapters"/)
+  assert.match(remainingImportedFunctionSource(useFilmCreateStoryboardCrud), /重新生成会覆盖当前分镜脚本和已有分镜图、视频进度/)
+  assert.match(remainingImportedFunctionSource(useFilmCreateStoryboardCrud), /confirmButtonText: '重新生成'/)
 })

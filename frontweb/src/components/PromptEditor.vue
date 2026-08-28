@@ -30,7 +30,7 @@
         <!-- 右侧编辑区 -->
         <div class="right-content">
           <p class="page-desc">
-            可自定义 AI 生成各阶段使用的提示词（System Prompt）。蓝色锁定区为 JSON
+            可自定义 AI 生成各阶段使用的系统提示词（System Prompt）。蓝色锁定区为 JSON
             格式要求，不可修改以确保输出格式正确。
           </p>
 
@@ -146,6 +146,14 @@ function markDirty(key) {
   isDirty.value[key] = editState.value[key] !== current
 }
 
+function hasUnsavedChanges() {
+  return Object.values(isDirty.value).some(Boolean)
+}
+
+defineExpose({
+  hasUnsavedChanges,
+})
+
 async function save(p) {
   const content = editState.value[p.key]
   if (!content?.trim()) {
@@ -168,6 +176,8 @@ async function save(p) {
 async function reset(p) {
   await ElMessageBox.confirm(`确定将「${p.label}」恢复为系统默认提示词？`, '恢复默认', {
     type: 'warning',
+    confirmButtonText: '恢复默认',
+    cancelButtonText: '取消',
   })
   resettingKey.value = p.key
   try {

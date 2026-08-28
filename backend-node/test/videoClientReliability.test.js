@@ -2,8 +2,11 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
+const sharp = require('sharp');
 
 const videoClient = require('../src/services/videoClient');
+const aiConfigService = require('../src/services/aiConfigService');
 const providerDnsLookup = async () => [{ address: '93.184.216.34', family: 4 }];
 
 function createCapturingLogger() {
@@ -35,6 +38,162 @@ describe('video provider protocol resolution', () => {
       'agnes'
     );
   });
+
+  it('infers the dedicated MiniMax adapter protocol', () => {
+    assert.equal(
+      videoClient.resolveVideoProtocol({
+        provider: 'minimax',
+        base_url: 'https://api.minimax.example/v1',
+      }),
+      'minimax'
+    );
+  });
+});
+
+describe('dedicated video adapter delegation', () => {
+  it('routes a Sora reference through target-size normalization before multipart upload', async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-sora-reference-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const source = await sharp({
+      create: { width: 40, height: 30, channels: 3, background: '#336699' },
+    }).png().toBuffer();
+    fs.writeFileSync(path.join(root, 'reference.png'), source);
+    const config = {
+      provider: 'openai', api_protocol: 'sora', base_url: 'https://api.openai.example/v1',
+      api_key: 'sora-key', endpoint: '/v1/videos', is_active: 1, is_default: 1,
+      model: ['sora-2'], default_model: 'sora-2',
+    };
+    t.mock.method(aiConfigService, 'listConfigs', () => [config]);
+    let uploadedMetadata;
+    const result = await videoClient.callVideoApi(null, createCapturingLogger(), {
+      prompt: 'resize reference', model: 'sora-2', aspect_ratio: '16:9',
+      image_url: 'reference.png', storage_local_path: root,
+      provider_dns_lookup: providerDnsLookup,
+      fetch_impl: async (_url, options) => {
+        const file = options.body.get('input_reference');
+        uploadedMetadata = await sharp(Buffer.from(await file.arrayBuffer())).metadata();
+        assert.equal(file.type, 'image/jpeg');
+        return new Response(JSON.stringify({ id: 'sora-resized', status: 'queued' }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      },
+    });
+    assert.deepEqual(result, { status: 'queued', task_id: 'sora-resized' });
+    assert.deepEqual(
+      { width: uploadedMetadata.width, height: uploadedMetadata.height },
+      { width: 1280, height: 720 }
+    );
+  });
+
+  it('routes Sora polling through the adapter and exposes remote cancellation', async () => {
+    let remoteCancel;
+    const calls = [];
+    const config = {
+      provider: 'openai',
+      api_protocol: 'sora',
+      base_url: 'https://api.openai.example/v1',
+      api_key: 'sora-key',
+      endpoint: '/v1/videos',
+      cancel_endpoint: '/v1/videos/{taskId}',
+      register_remote_cancel: (callback) => { remoteCancel = callback; },
+      provider_dns_lookup: providerDnsLookup,
+      fetch_impl: async (url, options) => {
+        calls.push({ url, method: options.method });
+        if (options.method === 'DELETE') {
+          return new Response(JSON.stringify({ status: 'cancelled' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response(JSON.stringify({ status: 'processing' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    };
+
+    const result = await videoClient.pollVideoTask(
+      null,
+      createCapturingLogger(),
+      45,
+      'video_delegate_task',
+      config,
+      1,
+      0
+    );
+
+    assert.equal(typeof result.error, 'string');
+    assert.ok(result.error.length > 0);
+    assert.equal(typeof remoteCancel, 'function');
+    assert.deepEqual(await remoteCancel(), { confirmed: true });
+    assert.deepEqual(calls, [
+      { url: 'https://api.openai.example/v1/videos/video_delegate_task', method: 'GET' },
+      { url: 'https://api.openai.example/v1/videos/video_delegate_task', method: 'DELETE' },
+    ]);
+  });
+
+  it('accepts one Sora first-frame or reference-list image without dropping it', async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-sora-field-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    fs.writeFileSync(path.join(root, 'first.png'), await sharp({
+      create: { width: 24, height: 32, channels: 3, background: '#224466' },
+    }).png().toBuffer());
+    const config = {
+      provider: 'openai', api_protocol: 'sora', base_url: 'https://api.openai.example/v1',
+      api_key: 'sora-key', endpoint: '/v1/videos', is_active: 1, is_default: 1,
+      model: ['sora-2'], default_model: 'sora-2',
+    };
+    t.mock.method(aiConfigService, 'listConfigs', () => [config]);
+    for (const fields of [{ first_frame_url: 'first.png' }, { reference_urls: ['first.png'] }]) {
+      let uploaded = false;
+      await videoClient.callVideoApi(null, createCapturingLogger(), {
+        prompt: 'field selection', model: 'sora-2', aspect_ratio: '9:16',
+        storage_local_path: root, ...fields,
+        provider_dns_lookup: providerDnsLookup,
+        fetch_impl: async (_url, options) => {
+          uploaded = options.body.get('input_reference') instanceof Blob;
+          return new Response(JSON.stringify({ id: 'sora-field', status: 'queued' }), {
+            status: 200, headers: { 'content-type': 'application/json' },
+          });
+        },
+      });
+      assert.equal(uploaded, true);
+    }
+  });
+
+  it('rejects unsupported Sora ratios, ambiguous references, tail frames and corrupt images', async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-sora-invalid-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    fs.writeFileSync(path.join(root, 'bad.png'), Buffer.from('not-an-image'));
+    fs.writeFileSync(path.join(root, 'other.png'), await sharp({
+      create: { width: 20, height: 20, channels: 3, background: '#335577' },
+    }).png().toBuffer());
+    const config = {
+      provider: 'openai', api_protocol: 'sora', base_url: 'https://api.openai.example/v1',
+      api_key: 'sora-key', endpoint: '/v1/videos', is_active: 1, is_default: 1,
+      model: ['sora-2'], default_model: 'sora-2',
+    };
+    t.mock.method(aiConfigService, 'listConfigs', () => [config]);
+    let dispatches = 0;
+    const base = {
+      prompt: 'invalid', model: 'sora-2', aspect_ratio: '16:9', storage_local_path: root,
+      provider_dns_lookup: providerDnsLookup,
+      fetch_impl: async () => { dispatches += 1; return new Response('{}'); },
+    };
+    await assert.rejects(videoClient.callVideoApi(null, createCapturingLogger(), {
+      ...base, aspect_ratio: '1:1',
+    }), /请选择 16:9 或 9:16/);
+    await assert.rejects(videoClient.callVideoApi(null, createCapturingLogger(), {
+      ...base, image_url: 'bad.png', first_frame_url: 'other.png',
+    }), /只支持一张参考图/);
+    await assert.rejects(videoClient.callVideoApi(null, createCapturingLogger(), {
+      ...base, last_frame_url: 'bad.png',
+    }), /不支持尾帧参考/);
+    await assert.rejects(videoClient.callVideoApi(null, createCapturingLogger(), {
+      ...base, image_url: 'bad.png',
+    }), /无法解码或归一化/);
+    assert.equal(dispatches, 0);
+  });
 });
 
 describe('bounded provider requests', () => {
@@ -58,6 +217,9 @@ describe('bounded provider requests', () => {
         videoClient.fetchVideoWithTimeout('https://video.example.com/hang', {}, 15, {
           fetchImpl: globalThis.fetch,
           lookup: providerDnsLookup,
+          trustedOrigins: ['https://video.example.com'],
+          allowPrivateOrigins: [],
+          requireHttpsForPublic: true,
         }),
         (error) => error && (error.name === 'TimeoutError' || error.name === 'AbortError')
       );
@@ -74,6 +236,99 @@ describe('bounded provider requests', () => {
       'utf8'
     );
     assert.doesNotMatch(source, /\bfetch\s*\(/);
+  });
+});
+
+describe('video provider network policy', () => {
+  it('rejects public HTTP before DNS or credential-bearing fetch even with an injected fetch', async () => {
+    let dnsCalls = 0;
+    let fetchCalls = 0;
+    await assert.rejects(
+      videoClient.fetchVideoWithTimeout(
+        'http://93.184.216.34/v1/videos',
+        { headers: { Authorization: 'Bearer must-not-leave-process' } },
+        100,
+        {
+          fetchImpl: async () => {
+            fetchCalls += 1;
+            return new Response('{}');
+          },
+          lookup: async () => {
+            dnsCalls += 1;
+            return [{ address: '93.184.216.34', family: 4 }];
+          },
+          trustedOrigins: ['http://93.184.216.34'],
+          allowPrivateOrigins: [],
+          requireHttpsForPublic: true,
+        }
+      ),
+      /must use HTTPS/i
+    );
+    assert.equal(dnsCalls, 0);
+    assert.equal(fetchCalls, 0);
+  });
+
+  it('blocks historical public HTTP configs for Sora and MiniMax creation and polling before dispatch', async (t) => {
+    let currentConfig;
+    t.mock.method(aiConfigService, 'listConfigs', () => [currentConfig]);
+
+    for (const providerCase of [
+      { provider: 'openai', protocol: 'sora', model: 'sora-2', endpoint: '/v1/videos' },
+      { provider: 'minimax', protocol: 'minimax', model: 'MiniMax-Hailuo-2.3', endpoint: '/video_generation' },
+    ]) {
+      let dnsCalls = 0;
+      let fetchCalls = 0;
+      let remoteCancel;
+      const lookup = async () => {
+        dnsCalls += 1;
+        return [{ address: '93.184.216.34', family: 4 }];
+      };
+      const fetchImpl = async (_url, options) => {
+        fetchCalls += 1;
+        assert.equal(options.headers.Authorization, 'Bearer historical-secret');
+        return new Response('{}');
+      };
+      currentConfig = {
+        provider: providerCase.provider,
+        api_protocol: providerCase.protocol,
+        base_url: 'http://public-video.example/v1',
+        api_key: 'historical-secret',
+        endpoint: providerCase.endpoint,
+        model: [providerCase.model],
+        default_model: providerCase.model,
+        is_active: 1,
+        is_default: 1,
+        provider_dns_lookup: lookup,
+        fetch_impl: fetchImpl,
+        register_remote_cancel: (callback) => { remoteCancel = callback; },
+      };
+
+      await assert.rejects(
+        videoClient.callVideoApi(null, createCapturingLogger(), {
+          prompt: '不得发送',
+          model: providerCase.model,
+          preferred_provider: providerCase.provider,
+          provider_dns_lookup: lookup,
+          fetch_impl: fetchImpl,
+          register_remote_cancel: currentConfig.register_remote_cancel,
+        })
+      );
+      await assert.rejects(
+        videoClient.pollVideoTask(
+          null,
+          createCapturingLogger(),
+          99,
+          'historical_task',
+          currentConfig,
+          1,
+          0
+        )
+      );
+
+      assert.equal(remoteCancel, undefined);
+      assert.equal(dnsCalls, 0);
+      assert.equal(fetchCalls, 0);
+    }
   });
 });
 

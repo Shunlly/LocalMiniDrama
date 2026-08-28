@@ -173,6 +173,23 @@ test('arbitrary loopback origins are enabled only in explicit development mode',
   assert.equal(productionPolicy(req, 'http://localhost:49152'), false);
 });
 
+test('生产环境仅接受部署时注入的精确前端端口', () => {
+  const policy = createRequestOriginPolicy(
+    { host: '0.0.0.0', cors_origins: ['http://localhost:3013'] },
+    {
+      nodeEnv: 'production',
+      additionalOrigins: 'http://localhost:13013,http://127.0.0.1:13013,*,not-a-url',
+    }
+  );
+  const request = { method: 'POST', headers: { host: '127.0.0.1:5679' }, socket: {} };
+
+  assert.equal(policy(request, 'http://localhost:13013'), true);
+  assert.equal(policy(request, 'http://127.0.0.1:13013'), true);
+  assert.equal(policy(request, 'http://localhost:13014'), false);
+  assert.equal(policy(request, 'http://127.9.8.7:13013'), false);
+  assert.equal(policy(request, 'https://attacker.example'), false);
+});
+
 test('origin guard evaluates the Host policy when Origin is absent', () => {
   const req = {
     headers: { host: 'attacker.example:5679' },

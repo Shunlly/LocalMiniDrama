@@ -1,12 +1,55 @@
 <template>
   <section class="section card pipeline-section" aria-labelledby="pipeline-title">
-    <div class="pipeline-toolbar">
+    <div class="pipeline-disclosure-head">
       <div class="pipeline-heading">
         <el-icon><VideoPlay /></el-icon>
-        <span id="pipeline-title">全流程生成</span>
+        <h2 id="pipeline-title" class="pipeline-title">全流程生成</h2>
       </div>
+      <div
+        ref="summaryRef"
+        class="pipeline-compact-copy"
+        data-testid="film-pipeline-summary"
+        :data-state="focusState"
+        tabindex="-1"
+      >
+        <span>{{ focusKicker }}</span>
+        <strong>{{ focusTitle }}</strong>
+        <span class="pipeline-compact-next"><span>下一步</span>{{ focusNextStep }}</span>
+      </div>
+      <div class="pipeline-compact-actions">
+        <button
+          v-if="compactAction"
+          type="button"
+          class="pipeline-compact-action"
+          data-testid="film-pipeline-action"
+          :disabled="starting || stopping"
+          @click="runCompactAction"
+        >
+          <span>{{ compactAction.label }}</span>
+          <el-icon><ArrowRight /></el-icon>
+        </button>
+        <button
+          type="button"
+          class="pipeline-toggle"
+          data-testid="film-pipeline-toggle"
+          :aria-expanded="expanded"
+          aria-controls="film-pipeline-details"
+          @click="toggle"
+        >
+          {{ expanded ? '收起' : '展开' }}
+          <el-icon><ArrowUp v-if="expanded" /><ArrowDown v-else /></el-icon>
+        </button>
+      </div>
+    </div>
 
-      <div class="pipeline-actions">
+    <div
+      id="film-pipeline-details"
+      v-show="expanded"
+      class="pipeline-details"
+      data-testid="film-pipeline-details"
+    >
+    <div class="pipeline-toolbar">
+      <div class="pipeline-utility-actions">
         <el-popover placement="bottom-start" :width="390" trigger="click">
           <template #reference>
             <el-button plain>
@@ -19,6 +62,7 @@
               <span>画面比例</span>
               <el-select
                 :model-value="aspectRatio"
+                aria-label="生成设置：画面比例"
                 @update:model-value="updateSetting('aspectRatio', $event)"
               >
                 <el-option label="16:9 横屏" value="16:9" />
@@ -33,6 +77,7 @@
               <span>单镜时长</span>
               <el-select
                 :model-value="clipDuration"
+                aria-label="生成设置：单镜时长"
                 @update:model-value="updateSetting('clipDuration', $event)"
               >
                 <el-option label="4 秒" :value="4" />
@@ -47,6 +92,7 @@
               <span>分镜语言</span>
               <el-select
                 :model-value="scriptLanguage"
+                aria-label="生成设置：分镜语言"
                 clearable
                 @update:model-value="updateSetting('scriptLanguage', $event)"
               >
@@ -65,14 +111,32 @@
             </label>
           </div>
         </el-popover>
+      </div>
+    </div>
 
+    <div class="pipeline-focus" :data-state="focusState">
+      <div v-if="focusReason" class="pipeline-focus-copy">
+        <p v-if="!longFocusReason" class="pipeline-focus-reason" role="alert">{{ focusReason }}</p>
+        <details v-if="longFocusReason" class="pipeline-reason-details" role="alert">
+          <summary>
+            <span class="pipeline-reason-preview">{{ focusReason }}</span>
+            <span class="pipeline-reason-toggle">
+              <span class="when-closed">查看完整原因</span>
+              <span class="when-open">收起原因</span>
+            </span>
+          </summary>
+          <p class="pipeline-reason-full">{{ focusReason }}</p>
+        </details>
+      </div>
+
+      <div class="pipeline-actions">
         <div class="pipeline-mode-action">
           <span class="pipeline-mode-label is-production">完整成片</span>
           <ActionGate label="一键生成成片" :reason="productionReason">
             <el-button
               type="primary"
-              :loading="running && !paused"
-              :disabled="Boolean(productionReason)"
+              :loading="starting || (running && !paused && !stopping)"
+              :disabled="Boolean(productionReason) || starting"
               @click="$emit('start-one-click')"
             >
               一键生成成片
@@ -83,24 +147,48 @@
           <span class="pipeline-mode-label is-draft">草稿预演</span>
           <ActionGate label="仅生成文本框架" :reason="draftReason">
             <el-button
-              :loading="running && !paused"
-              :disabled="Boolean(draftReason)"
+              :loading="starting || (running && !paused && !stopping)"
+              :disabled="Boolean(draftReason) || starting"
               @click="$emit('start-text-framework')"
             >
               仅生成文本框架
             </el-button>
           </ActionGate>
         </div>
+        <el-button
+          v-if="showReadinessAction"
+          link
+          type="primary"
+          class="pipeline-config-action"
+          @click="$emit('open-ai-config', productionReadinessServiceType)"
+        >前往 AI 配置</el-button>
+        <el-button
+          v-if="showReadinessRetry"
+          plain
+          type="primary"
+          class="pipeline-config-action"
+          @click="$emit('retry-readiness')"
+        >重试检查</el-button>
         <template v-if="running">
-          <el-button v-if="!paused" type="warning" @click="$emit('pause')">暂停</el-button>
-          <el-button v-else type="success" @click="$emit('resume')">继续</el-button>
+          <ActionGate v-if="!stopRequired && !paused" label="暂停" :reason="pauseDisabledReason">
+            <el-button type="warning" :disabled="Boolean(pauseDisabledReason)" @click="$emit('pause')">暂停</el-button>
+          </ActionGate>
+          <ActionGate v-else-if="!stopRequired" label="继续" :reason="resumeDisabledReason">
+            <el-button type="success" :disabled="Boolean(resumeDisabledReason)" @click="$emit('resume')">继续</el-button>
+          </ActionGate>
+          <ActionGate :label="stopRequired ? '重试停止' : '停止'" :reason="cancelDisabledReason">
+            <el-button
+              type="danger"
+              plain
+              :loading="stopping"
+              :disabled="Boolean(cancelDisabledReason)"
+              @click="$emit('cancel')"
+            >
+              {{ stopRequired ? '重试停止' : '停止' }}
+            </el-button>
+          </ActionGate>
         </template>
       </div>
-    </div>
-
-    <div v-if="productionReadinessReason" class="production-readiness-alert" role="alert">
-      <span>{{ productionReadinessReason }}</span>
-      <el-button link type="primary" @click="$emit('open-ai-config', productionReadinessServiceType)">前往 AI 配置</el-button>
     </div>
 
     <div v-if="running || errorLog.length > 0" class="pipeline-status" aria-live="polite">
@@ -117,7 +205,9 @@
           <p class="pipeline-countdown-msg">{{ countdownMessage }}</p>
           <div class="pipeline-countdown-actions">
             <el-button size="small" type="success" @click="$emit('skip-countdown')">立即开始下一阶段</el-button>
-            <el-button v-if="!paused" size="small" type="warning" @click="$emit('pause')">暂停倒计时</el-button>
+            <ActionGate v-if="!paused" label="暂停倒计时" :reason="pauseDisabledReason">
+              <el-button size="small" type="warning" :disabled="Boolean(pauseDisabledReason)" @click="$emit('pause')">暂停倒计时</el-button>
+            </ActionGate>
             <span v-else class="pipeline-countdown-paused">已暂停，点击“继续”恢复</span>
           </div>
         </div>
@@ -132,16 +222,27 @@
         <div v-for="(entry, index) in errorLog" :key="index" class="pipeline-error-line">
           [{{ entry.step }}] {{ entry.message }}
         </div>
+        <ActionGate v-if="!running" label="重试全流程" :reason="retryDisabledReason">
+          <el-button type="primary" :disabled="Boolean(retryDisabledReason) || starting" @click="$emit('start-one-click')">
+            重试全流程
+          </el-button>
+        </ActionGate>
       </div>
+    </div>
+    <p v-else-if="hasEpisode === false" class="pipeline-empty" role="status">
+      还没有剧集。添加一集后即可保存剧本或启动全流程生成。
+    </p>
     </div>
   </section>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { Setting, VideoPlay } from '@element-plus/icons-vue'
+import { computed, ref } from 'vue'
+import { ArrowDown, ArrowRight, ArrowUp, Setting, VideoPlay } from '@element-plus/icons-vue'
 import StylePickerButton from '@/components/StylePickerButton.vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import { useDisclosureState } from '@/composables/useDisclosureState'
+import { getPipelineCompactAction, getPipelineControlReasons } from '@/utils/filmPipelineAction'
 
 const props = defineProps({
   aspectRatio: { type: String, default: '16:9' },
@@ -153,7 +254,12 @@ const props = defineProps({
   productionDisabledReason: { type: String, default: '' },
   draftDisabledReason: { type: String, default: '' },
   productionReadinessReason: { type: String, default: '' },
+  productionReadinessState: { type: String, default: 'ready' },
   productionReadinessServiceType: { type: String, default: '' },
+  hasEpisode: { type: Boolean, default: true },
+  starting: { type: Boolean, default: false },
+  stopping: { type: Boolean, default: false },
+  stopRequired: { type: Boolean, default: false },
   running: { type: Boolean, default: false },
   paused: { type: Boolean, default: false },
   errorLog: { type: Array, default: () => [] },
@@ -165,6 +271,11 @@ const props = defineProps({
   activeTasks: { type: [Array, Set], default: () => [] },
 })
 
+const { expanded, toggle } = useDisclosureState({
+  forceExpanded: computed(() => props.running || props.errorLog.length > 0),
+})
+const summaryRef = ref(null)
+
 const emit = defineEmits([
   'update:aspectRatio',
   'update:clipDuration',
@@ -174,15 +285,108 @@ const emit = defineEmits([
   'start-one-click',
   'start-text-framework',
   'open-ai-config',
+  'retry-readiness',
   'pause',
   'resume',
+  'cancel',
   'skip-countdown',
+  'add-episode',
 ])
 
 const activeTaskLabels = computed(() => Array.from(props.activeTasks || []))
 const cleanCurrentStep = computed(() => props.currentStep.replace(/^\[步骤 \d+\/\d+\] /, ''))
 const productionReason = computed(() => props.productionDisabledReason || props.disabledReason)
 const draftReason = computed(() => props.draftDisabledReason || props.disabledReason)
+const hasPipelineError = computed(() => props.errorLog.length > 0)
+const controlReasons = computed(() => getPipelineControlReasons({
+  running: props.running,
+  paused: props.paused,
+  stopping: props.stopping,
+  stopRequired: props.stopRequired,
+  productionReason: productionReason.value,
+}))
+const pauseDisabledReason = computed(() => (props.running && !props.stopRequired && !props.paused ? controlReasons.value.pause : ''))
+const resumeDisabledReason = computed(() => (props.running && !props.stopRequired && props.paused ? controlReasons.value.resume : ''))
+const cancelDisabledReason = computed(() => (props.running ? controlReasons.value.cancel : ''))
+const retryDisabledReason = computed(() => controlReasons.value.retry)
+const focusReason = computed(() => props.running ? '' : productionReason.value)
+const longFocusReason = computed(() => focusReason.value.length > 56)
+const focusState = computed(() => {
+  if (props.starting) return 'checking'
+  if (props.stopRequired) return 'error'
+  if (props.running) return props.paused ? 'paused' : 'running'
+  if (hasPipelineError.value) return 'error'
+  if (!draftReason.value && props.productionReadinessState === 'checking') return 'checking'
+  if (!draftReason.value && props.productionReadinessState === 'error') return 'error'
+  return focusReason.value ? 'blocked' : 'ready'
+})
+const focusKicker = computed(() => {
+  if (props.stopRequired) return '停止受阻'
+  if (props.running) return focusReason.value ? '当前阻断' : '当前任务'
+  if (hasPipelineError.value) return '执行失败'
+  if (!draftReason.value && props.productionReadinessState === 'checking') return '能力检查'
+  if (!draftReason.value && props.productionReadinessState === 'error') return '检查失败'
+  return focusReason.value ? '当前阻断' : '当前任务'
+})
+const focusTitle = computed(() => {
+  if (props.starting) return '正在确认完整成片的运行条件'
+  if (props.stopRequired) return '全流程停止未完成'
+  if (props.running) {
+    return cleanCurrentStep.value || (props.paused ? '全流程生成已暂停' : '正在执行全流程生成')
+  }
+  if (hasPipelineError.value) return '全流程生成未完成'
+  if (!draftReason.value && props.productionReadinessState === 'checking') return '正在检查完整成片能力'
+  if (!draftReason.value && props.productionReadinessState === 'error') return '完整成片能力检查失败'
+  return focusReason.value ? '完整成片暂不可生成' : '完整成片已可生成'
+})
+const focusNextStep = computed(() => {
+  if (props.starting) return '确认服务能力与本次调用范围'
+  if (props.stopRequired) return '重试停止剩余远端任务'
+  if (props.running) return props.paused ? '继续当前生成流程' : '等待当前阶段完成'
+  if (hasPipelineError.value) return '查看错误后重试全流程'
+  if (props.hasEpisode === false) return '添加一集后再保存剧本或启动生成'
+  if (draftReason.value) return '处理当前阻断后再启动生成'
+  if (props.productionReadinessState === 'checking') return '等待检查完成'
+  if (props.productionReadinessState === 'error') return '重试检查，确认本地服务与配置状态'
+  if (props.productionReadinessState === 'missing') return '前往 AI 配置补齐完整成片能力'
+  return '一键生成完整成片'
+})
+const showReadinessAction = computed(() => (
+  !props.running
+  && !draftReason.value
+  && props.productionReadinessState === 'missing'
+))
+const showReadinessRetry = computed(() => (
+  !props.running
+  && !draftReason.value
+  && props.productionReadinessState === 'error'
+))
+const compactAction = computed(() => getPipelineCompactAction({
+  readinessState: props.productionReadinessState,
+  serviceType: props.productionReadinessServiceType,
+  running: props.running,
+  paused: props.paused,
+  hasEpisode: props.hasEpisode,
+  draftReason: draftReason.value,
+  productionReason: productionReason.value,
+  hasError: hasPipelineError.value,
+}))
+
+function runCompactAction() {
+  if (props.starting || props.stopping) return
+  const action = compactAction.value
+  if (!action) return
+  if (action.event === 'open-ai-config') emit(action.event, action.payload, { source: 'compact-action' })
+  else emit(action.event)
+}
+
+function focusSummary() {
+  summaryRef.value?.focus({ preventScroll: true })
+}
+
+defineExpose({
+  focusSummary,
+})
 
 function updateSetting(name, value) {
   emit(`update:${name}`, value)
@@ -195,16 +399,115 @@ function updateSetting(name, value) {
   padding: 14px 16px;
 }
 
+.pipeline-disclosure-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.pipeline-compact-copy {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(180px, auto);
+  align-items: baseline;
+  min-width: 0;
+  gap: 6px 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.pipeline-compact-copy strong,
+.pipeline-compact-copy > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pipeline-compact-copy strong {
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+}
+
+.pipeline-compact-copy:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+
+.pipeline-compact-next {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.pipeline-compact-next > span {
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+
+.pipeline-compact-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.pipeline-compact-action,
+.pipeline-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-regular);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pipeline-compact-action {
+  max-width: 160px;
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary);
+  color: var(--el-color-white);
+  white-space: nowrap;
+}
+
+.pipeline-compact-action:hover {
+  border-color: var(--el-color-primary-dark-2);
+  background: var(--el-color-primary-dark-2);
+}
+
+.pipeline-toggle:hover {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+}
+
+.pipeline-compact-action:focus-visible,
+.pipeline-toggle:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+
+.pipeline-details {
+  margin-top: 12px;
+}
+
 .pipeline-toolbar,
 .pipeline-actions,
+.pipeline-utility-actions,
 .pipeline-heading {
   display: flex;
   align-items: center;
 }
 
 .pipeline-toolbar {
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
+  margin-bottom: 10px;
 }
 
 .pipeline-heading {
@@ -215,10 +518,128 @@ function updateSetting(name, value) {
   white-space: nowrap;
 }
 
+.pipeline-title {
+  margin: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: 0;
+}
+
 .pipeline-actions {
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.pipeline-utility-actions {
+  justify-content: flex-end;
+}
+
+.pipeline-focus {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px 20px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--el-color-primary);
+  background: var(--el-fill-color-light);
+}
+
+.pipeline-focus[data-state="blocked"] {
+  border-left-color: var(--el-color-warning);
+  background: var(--el-color-warning-light-9);
+}
+
+.pipeline-focus[data-state="checking"] {
+  border-left-color: var(--el-color-info);
+}
+
+.pipeline-focus[data-state="error"] {
+  border-left-color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+}
+
+.pipeline-focus[data-state="running"],
+.pipeline-focus[data-state="paused"] {
+  border-left-color: var(--el-color-success);
+}
+
+.pipeline-focus-copy {
+  display: grid;
+  flex: 1 1 360px;
+  min-width: 0;
+  gap: 4px;
+}
+
+.pipeline-focus-reason,
+.pipeline-reason-full {
+  margin: 0;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-reason-details {
+  min-width: 0;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+}
+
+.pipeline-reason-details summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.pipeline-reason-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.pipeline-reason-preview {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.pipeline-reason-toggle {
+  color: var(--el-color-primary);
+  white-space: nowrap;
+}
+
+.pipeline-reason-details .when-open,
+.pipeline-reason-details[open] .when-closed,
+.pipeline-reason-details[open] .pipeline-reason-preview {
+  display: none;
+}
+
+.pipeline-reason-details[open] .when-open {
+  display: inline;
+}
+
+.pipeline-reason-details[open] summary {
+  grid-template-columns: 1fr auto;
+}
+
+.pipeline-reason-full {
+  max-height: 120px;
+  margin-top: 6px;
+  padding-right: 4px;
+  overflow-y: auto;
+}
+
+.pipeline-config-action {
+  align-self: center;
 }
 
 .pipeline-mode-action {
@@ -241,18 +662,6 @@ function updateSetting(name, value) {
 
 .pipeline-mode-label.is-draft {
   color: var(--el-color-info);
-}
-
-.production-readiness-alert {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
-  color: var(--el-color-warning);
-  font-size: 12px;
-  line-height: 1.45;
-  text-align: right;
 }
 
 .pipeline-settings {
@@ -361,6 +770,17 @@ function updateSetting(name, value) {
 .pipeline-error-line {
   margin-bottom: 4px;
   word-break: break-word;
+}
+
+.pipeline-empty {
+  margin: 12px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.pipeline-error-log :deep(.el-button) {
+  margin-top: 8px;
 }
 
 .pipeline-countdown {

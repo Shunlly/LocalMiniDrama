@@ -108,7 +108,7 @@ test('real local media produces consistent image and video availability', () => 
 
 test('Vue Flow mounts only after its container reports a non-zero size', () => {
   const canvas = read('../src/views/DramaCanvas.vue')
-  assert.match(canvas, /v-if="nodes\.length && canvasViewportReady"/)
+  assert.match(canvas, /v-if="canvasViewportReady && \(nodes\.length \|\| canvasMode === 'free'\)"/)
   assert.match(canvas, /new ResizeObserver\(updateCanvasViewportReady\)/)
   assert.match(canvas, /rect\.width > 0 && rect\.height > 0/)
 })
@@ -127,12 +127,15 @@ test('canvas viewport controls are named and initial fitting keeps nodes readabl
   assert.match(canvas, /minZoom: MIN_READABLE_CANVAS_ZOOM/)
   assert.match(canvas, /FOCUSED_NODE_MIN_ZOOM = 0\.9/)
   assert.match(canvas, /nodes: \[nodeId\]/)
-  assert.match(canvas, /void setFocusedCanvasNode\(node\.id\)/)
+  assert.match(canvas, /const changed = await setFocusedCanvasNode\(node\.id\)/)
+  assert.match(canvas, /if \(!changed\) \{[\s\S]*restoreFocusedNodeSelection\(\)/)
   assert.match(canvas, /setFocusedNode: setFocusedCanvasNode/)
   assert.match(canvas, /querySelector\('\.canvas-node-panel'\)\?\.focus/)
   assert.match(canvas, /@nodes-initialized="onCanvasNodesInitialized"/)
   assert.match(canvas, /\.vue-flow__controls button:focus-visible/)
-  assert.match(aligner, /setInteractive, zoomIn, zoomOut/)
+  for (const name of ['setInteractive', 'setViewport', 'screenToFlowCoordinate', 'zoomIn', 'zoomOut']) {
+    assert.match(aligner, new RegExp(`\\b${name}\\b`))
+  }
 })
 
 test('canvas project header localizes stored style identifiers', () => {

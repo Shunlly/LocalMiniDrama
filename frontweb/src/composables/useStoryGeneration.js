@@ -44,12 +44,13 @@ export async function runGenerateStoryFromPremise({
     if (!dramaId) {
       const drama = await dramaAPI.create({
         title: scriptTitle || '新故事',
-        description: text,
+        description: '',
         genre: storyType || undefined,
         style: generationStyle || undefined,
         metadata: {
           ...stylePromptMetadataForSave(generationStyle),
           story_style: storyStyle || undefined,
+          story_generation_draft: text,
           aspect_ratio: projectAspectRatio || '16:9',
         },
       })
@@ -80,12 +81,12 @@ export async function runGenerateStoryFromPremise({
         type: storyType || undefined,
         episode_count: storyEpisodeCount || 1,
         title: scriptTitle || undefined,
-        summary: text,
         genre: storyType || undefined,
         drama_style: generationStyle || undefined,
         metadata: {
           ...stylePromptMetadataForSave(generationStyle),
           story_style: storyStyle || undefined,
+          story_generation_draft: text,
           aspect_ratio: projectAspectRatio || '16:9',
         },
       })

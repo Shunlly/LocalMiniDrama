@@ -1,0 +1,198 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { existsSync, readFileSync } from 'node:fs'
+
+import { useFilmCreateWorkspaceNav } from '../src/composables/filmCreate/useFilmCreateWorkspaceNav.js'
+import { ref } from 'vue'
+
+const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
+const routeUtilsUrl = new URL('../src/utils/projectListRoute.js', import.meta.url)
+const filmCreateSourceForCanvas = read('../src/views/FilmCreate.vue')
+const dramaDetailSourceForCanvas = read('../src/views/DramaDetail.vue')
+const dramaCanvasSourceForReturn = read('../src/views/DramaCanvas.vue')
+
+async function loadProjectListRouteUtils() {
+  assert.ok(existsSync(routeUtilsUrl), 'project list route helpers must exist')
+  return import(routeUtilsUrl.href)
+}
+
+test('project list filters normalize route query values and preserve unrelated query state', async () => {
+  const {
+    mergeProjectListFilters,
+    normalizeProjectListFilters,
+  } = await loadProjectListRouteUtils()
+
+  assert.deepEqual(
+    normalizeProjectListFilters({
+      q: ['  moon base  ', 'ignored'],
+      status: 'draft',
+      sort: 'title-asc',
+    }),
+    { q: 'moon base', status: 'draft', sort: 'title-asc' },
+  )
+  assert.deepEqual(
+    normalizeProjectListFilters({ q: '\n', status: 'unknown', sort: 'oldest' }),
+    { q: '', status: 'all', sort: 'updated-desc' },
+  )
+  assert.deepEqual(
+    normalizeProjectListFilters({ status: 'archived' }),
+    { q: '', status: 'all', sort: 'updated-desc' },
+  )
+
+  assert.deepEqual(
+    mergeProjectListFilters(
+      { new: '1', q: 'old', status: 'unknown', sort: 'oldest', keep: 'yes' },
+      { q: '  moon base  ', status: 'published', sort: 'created-desc' },
+    ),
+    {
+      new: '1',
+      keep: 'yes',
+      q: 'moon base',
+      status: 'published',
+      sort: 'created-desc',
+    },
+  )
+  assert.deepEqual(
+    mergeProjectListFilters(
+      { q: 'old', status: 'draft', sort: 'title-asc', keep: 'yes' },
+      { q: '', status: 'all', sort: 'updated-desc' },
+    ),
+    { keep: 'yes' },
+  )
+})
+
+test('project list returnTo keeps only safe first-party filter context', async () => {
+  const { normalizeProjectListReturnTo } = await loadProjectListRouteUtils()
+
+  assert.equal(normalizeProjectListReturnTo('/'), '/')
+  assert.equal(
+    normalizeProjectListReturnTo('/?q=moon%20base&status=draft&sort=title-asc&new=1#drop'),
+    '/?q=moon+base&status=draft&sort=title-asc',
+  )
+  assert.equal(
+    normalizeProjectListReturnTo(['/?status=published', 'https://evil.test/']),
+    '/?status=published',
+  )
+  assert.equal(
+    normalizeProjectListReturnTo('/?q=https%3A%2F%2Fevil.test%2Fstory'),
+    '/?q=https%3A%2F%2Fevil.test%2Fstory',
+  )
+  assert.equal(normalizeProjectListReturnTo('/?status=all&sort=updated-desc'), '/')
+  assert.equal(normalizeProjectListReturnTo('/?intent=source-import'), '/?intent=source-import')
+  assert.equal(
+    normalizeProjectListReturnTo('/?q=moon&intent=source-import'),
+    '/?q=moon&intent=source-import',
+  )
+
+  for (const value of [
+    '',
+    '/film/12?q=moon',
+    '/drama/12',
+    'https://evil.test/?q=moon',
+    '//evil.test/?q=moon',
+    'javascript:alert(1)',
+    '/%2e%2e/film/12',
+    '/%5c%5cevil.test/',
+    '/\nevil',
+    null,
+    undefined,
+  ]) {
+    assert.equal(normalizeProjectListReturnTo(value), '', String(value))
+  }
+})
+
+test('project detail resolves a valid current episode and falls back to the first episode', async () => {
+  const { resolveProjectEpisodeId } = await loadProjectListRouteUtils()
+  const episodes = [{ id: 21 }, { id: 22 }]
+
+  assert.equal(resolveProjectEpisodeId(episodes, '22'), 22)
+  assert.equal(resolveProjectEpisodeId(episodes, ['21', '22']), 21)
+  assert.equal(resolveProjectEpisodeId(episodes, '999'), 21)
+  assert.equal(resolveProjectEpisodeId([{ id: 31 }], undefined), 31)
+  assert.equal(resolveProjectEpisodeId([], '22'), null)
+})
+
+test('project route instance keys normalize route names and rotate only for positive project ids', async () => {
+  const routeUtils = await loadProjectListRouteUtils()
+  assert.equal(typeof routeUtils.projectRouteInstanceKey, 'function')
+
+  const projectA = { name: ' Drama-Detail ', params: { id: '101' }, query: {}, hash: '' }
+  const projectAQuery = {
+    name: 'drama-detail',
+    params: { id: 101 },
+    query: { intake: 'source-url' },
+    hash: '#source-intake-workflow',
+  }
+  const projectB = { name: 'drama-detail', params: { id: '202' } }
+
+  assert.equal(routeUtils.projectRouteInstanceKey(projectA), 'drama-detail:101')
+  assert.equal(routeUtils.projectRouteInstanceKey(projectAQuery), 'drama-detail:101')
+  assert.equal(routeUtils.projectRouteInstanceKey(projectB), 'drama-detail:202')
+  assert.notEqual(routeUtils.projectRouteInstanceKey(projectA), routeUtils.projectRouteInstanceKey(projectB))
+  assert.equal(routeUtils.projectRouteInstanceKey({ name: 'film-canvas', params: { id: '9' } }), 'film-canvas:9')
+  assert.equal(routeUtils.projectRouteInstanceKey({ name: 'drama-detail', params: { id: '0' } }), null)
+  assert.equal(routeUtils.projectRouteInstanceKey({ name: 'list', params: { id: '7' } }), null)
+})
+
+test('project list and project workspaces wire safe return navigation through the route', () => {
+  const filmListSource = read('../src/views/FilmList.vue')
+  const filmCreateSource = read('../src/views/FilmCreate.vue')
+  const dramaDetailSource = read('../src/views/DramaDetail.vue')
+  const routerSource = read('../src/router/index.js')
+
+  assert.match(filmListSource, /import \{[^}]*mergeProjectListFilters[^}]*normalizeProjectListFilters[^}]*normalizeProjectListReturnTo[^}]*\} from '@\/utils\/projectListRoute'/)
+  assert.match(filmListSource, /watch\(\s*\(\) => route\.query/)
+  assert.match(filmListSource, /router\.replace\(\{ path: route\.path, query: nextQuery, hash: route\.hash \}\)/)
+  assert.match(filmListSource, /const projectListReturnTo = computed\(\(\) => normalizeProjectListReturnTo\(route\.fullPath\) \|\| '\/'\)/)
+  assert.match(filmListSource, /projectCardDestination\(d, sourceImportIntent, projectListReturnTo\)/)
+  assert.match(filmListSource, /选择已有项目后导入网页 URL/)
+  assert.match(
+    filmListSource,
+    /router\.push\(newProjectDestination\(drama, sourceImportIntent\.value, projectListReturnTo\.value\)\)/,
+  )
+
+  assert.match(filmCreateSource, /normalizeProjectListReturnTo\(route\.query\.returnTo\)/)
+  const pushes = []
+  const { goList } = useFilmCreateWorkspaceNav({
+    router: { push(target) { pushes.push(target) } },
+    route: { fullPath: '/film/11' },
+    dramaId: ref(11),
+    selectedEpisodeId: ref(22),
+    projectListReturnTo: ref('/?q=rain'),
+    showGlobalMediaPicker: ref(false),
+  })
+  goList()
+  assert.deepEqual(pushes, ['/?q=rain'])
+  assert.match(dramaDetailSource, /normalizeProjectListReturnTo\(route\.query\.returnTo\)/)
+  assert.match(dramaDetailSource, /router\.push\(projectListReturnTo\.value \|\| \{ name: 'list' \}\)/)
+  assert.doesNotMatch(dramaDetailSource, /router\.push\('\/'\)/)
+  assert.match(dramaDetailSource, /withProjectListReturnTo\(query\)/)
+
+  assert.match(routerSource, /import \{ normalizeProjectListReturnTo \} from '@\/utils\/projectListRoute'/)
+  assert.match(routerSource, /\['drama-detail', 'film', 'film-canvas'\]\.includes\(to\.name\)/)
+  assert.match(routerSource, /delete query\.returnTo/)
+})
+
+test('entering canvas mode keeps the project-list return context', () => {
+  const canvasPushes = []
+  const nav = useFilmCreateWorkspaceNav({
+    router: { push(target) { canvasPushes.push(target) } },
+    route: { fullPath: '/film/11' },
+    dramaId: ref(11),
+    selectedEpisodeId: ref(22),
+    projectListReturnTo: ref('/?q=rain'),
+    showGlobalMediaPicker: ref(false),
+  })
+  nav.goCanvasMode()
+  assert.equal(canvasPushes[0].path, '/film/11/canvas')
+  assert.equal(canvasPushes[0].query.returnTo, '/?q=rain')
+  assert.equal(canvasPushes[0].query.episode, '22')
+  assert.match(dramaDetailSourceForCanvas, /const currentEpisodeId = computed\(\(\) => resolveProjectEpisodeId\(episodes\.value, route\.query\.episode\)\)/)
+  assert.equal((dramaDetailSourceForCanvas.match(/resolveProjectEpisodeId\(episodes\.value, route\.query\.episode\)/g) || []).length, 1)
+  assert.match(dramaDetailSourceForCanvas, /function goCanvasMode\(\)[\s\S]*episode: String\(currentEpisodeId\.value\)[\s\S]*router\.push\(\{ path: `\/film\/\$\{dramaId\}\/canvas`/)
+  assert.match(dramaCanvasSourceForReturn, /function goListMode\(\)[\s\S]*projectListReturnTo|normalizeProjectListReturnTo\(route\.query\.returnTo\)/)
+})
+
+test('entering production resolves an episode, keeps return context, and focuses the list when absent', () => {
+  assert.match(dramaDetailSourceForCanvas, /function goCreate\(\) \{[\s\S]*?if \(!currentEpisodeId\.value\) \{[\s\S]*?scrollToSection\('episode-list'\)[\s\S]*?return[\s\S]*?episode: String\(currentEpisodeId\.value\)[\s\S]*?withProjectListReturnTo\(query\)/)
+})

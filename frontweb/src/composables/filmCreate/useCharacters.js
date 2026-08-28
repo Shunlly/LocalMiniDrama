@@ -1,10 +1,10 @@
 import { ref, reactive, watch, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { characterAPI } from '@/api/characters'
-import { characterLibraryAPI } from '@/api/characterLibrary'
-import { dramaAPI } from '@/api/drama'
-import { generationAPI } from '@/api/generation'
-import { uploadAPI } from '@/api/upload'
+import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
+import { characterAPI as rawCharacterAPI } from '@/api/characters'
+import { characterLibraryAPI as rawCharacterLibraryAPI } from '@/api/characterLibrary'
+import { dramaAPI as rawDramaAPI } from '@/api/drama'
+import { generationAPI as rawGenerationAPI } from '@/api/generation'
+import { uploadAPI as rawUploadAPI } from '@/api/upload'
 import { useGenerationTaskStore, GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { buildExtractTaskMeta, isEpisodeExtractRunning } from '@/composables/useGenerationTaskSync'
 
@@ -21,7 +21,22 @@ import { buildExtractTaskMeta, isEpisodeExtractRunning } from '@/composables/use
  * @param {Function} deps.hasAssetImage - 判断资源是否有图片
  */
 export function useCharacters(deps) {
-  const { store, dramaId, currentEpisodeId, getSelectedStyle, loadDrama, pollTask, pollUntilResourceHasImage, hasAssetImage } = deps
+  const {
+    store,
+    dramaId,
+    currentEpisodeId,
+    getSelectedStyle,
+    loadDrama,
+    pollTask,
+    pollUntilResourceHasImage,
+    hasAssetImage,
+    ElMessage = RawElMessage,
+    characterAPI = rawCharacterAPI,
+    characterLibraryAPI = rawCharacterLibraryAPI,
+    dramaAPI = rawDramaAPI,
+    generationAPI = rawGenerationAPI,
+    uploadAPI = rawUploadAPI,
+  } = deps
   const genStore = useGenerationTaskStore()
 
   function buildCharImageMeta(char) {

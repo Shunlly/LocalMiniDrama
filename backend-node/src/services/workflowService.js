@@ -209,7 +209,23 @@ function getWorkflowRunDetail(db, runId) {
     ...step,
     provider_invocations: providersByStep.get(step.id) || [],
   }));
-  return { ...run, steps, provider_invocations: providerInvocations };
+  return {
+    ...run,
+    steps,
+    provider_invocations: providerInvocations,
+    worker_active: processingRunIds.has(String(run.id)),
+  };
+}
+
+function applyWorkflowTypeFilter(sql, params, type, column = 'type') {
+  const normalized = String(type || '').trim();
+  if (!normalized) return sql;
+  if (normalized.includes(':')) {
+    params.push(normalized);
+    return `${sql} AND ${column} = ?`;
+  }
+  params.push(normalized, `${normalized}:%`);
+  return `${sql} AND (${column} = ? OR ${column} LIKE ?)`;
 }
 
 function listWorkflowRuns(db, query = {}) {
@@ -220,8 +236,7 @@ function listWorkflowRuns(db, query = {}) {
     params.push(Number(query.drama_id));
   }
   if (query.type) {
-    sql += ' AND type = ?';
-    params.push(String(query.type));
+    sql = applyWorkflowTypeFilter(sql, params, query.type);
   }
   if (query.status) {
     sql += ' AND status = ?';
@@ -235,10 +250,11 @@ function listWorkflowRuns(db, query = {}) {
 function createWorkflowRun(db, log, params) {
   const dramaId = Number(params.drama_id || params.dramaId);
   if (!dramaId || !dramaService.getDramaById(db, dramaId)) {
-    const err = new Error('drama_id is required and must reference an existing drama');
+    const err = new Error('drama_id 必填，且必须指向未删除的项目');
     err.code = 'BAD_REQUEST';
     throw err;
   }
+  dramaService.assertDramaWritable(db, dramaId);
   const type = String(params.type || 'novel2anime').trim();
   const steps = params.steps && params.steps.length ? params.steps : NOVEL2ANIME_STEPS;
   const id = uuidv4();
@@ -279,6 +295,7 @@ function createWorkflowRun(db, log, params) {
   };
 
   const tx = db.transaction(() => {
+    dramaService.assertDramaWritable(db, dramaId);
     db.prepare(
       `INSERT INTO workflow_runs
        (id, drama_id, episode_id, type, status, progress, current_step, input_json, created_at, updated_at)
@@ -374,7 +391,7 @@ function splitScriptIntoBeats(script, count) {
     .map((s) => s.trim())
     .filter(Boolean);
   const desired = Math.max(1, Math.min(8, Number(count) || Math.ceil(sentences.length / 2) || 3));
-  if (!sentences.length) return ['Story beat'];
+  if (!sentences.length) return ['故事节拍'];
   const beats = [];
   for (let i = 0; i < desired; i++) {
     const start = Math.floor((i * sentences.length) / desired);
@@ -382,7 +399,7 @@ function splitScriptIntoBeats(script, count) {
     const chunk = sentences.slice(start, Math.max(start + 1, end)).join('');
     if (chunk.trim()) beats.push(chunk.trim());
   }
-  return beats.length ? beats : [String(script).slice(0, 400)];
+  return beats.length ? beats : [String(script).slice(0, 400) || '故事节拍'];
 }
 
 function ensureAssetBible(db, log, dramaId, mode = 'draft') {
@@ -422,9 +439,9 @@ function ensureAssetBible(db, log, dramaId, mode = 'draft') {
       Number(dramaId),
       name,
       index === 0 ? 'main' : 'supporting',
-      `${name} from the source story.`,
-      'Keep motivation, voice, and visual identity consistent across episodes.',
-      `${name} has a locked visual identity for storyboard and media generation.`,
+      `${name}来自原始故事，角色信息已进入制作资产。`,
+      '跨集保持角色动机、说话方式和行为逻辑一致。',
+      `${name}的外观身份已锁定，分镜和媒体生成时保持一致。`,
       referencePath,
       referencePath,
       toJson({ locked_name: name, source: 'workflow_asset_bible', consistency_rule: 'do not rewrite identity anchors in downstream steps' }),
@@ -455,7 +472,7 @@ function ensureAssetBible(db, log, dramaId, mode = 'draft') {
       'SELECT id FROM scenes WHERE drama_id = ? AND location = ? AND deleted_at IS NULL'
     ).get(Number(dramaId), location);
     if (exists) return;
-    insertScene.run(Number(dramaId), location, 'day', `${location}, cinematic short-drama environment, continuity locked`, now, now);
+    insertScene.run(Number(dramaId), location, 'day', `${location}，短剧电影感环境，空间与光线连续性保持一致`, now, now);
     sceneCreated += 1;
   });
 
@@ -512,7 +529,7 @@ function finalizeQaPendingComposites(db, run) {
       .all(Number(run.drama_id));
   const now = nowIso();
   let mergeCount = 0;
-  const completedTasks = [];
+  const videoMergeService = require('./videoMergeService');
   const scopedMergeIds = new Set();
   const compositorInvocations = db.prepare(
     `SELECT output_json FROM provider_invocations
@@ -529,31 +546,11 @@ function finalizeQaPendingComposites(db, run) {
         WHERE episode_id = ? AND status = 'qa_pending' AND deleted_at IS NULL
         ORDER BY id ASC`
     ).all(episode.id);
-    const scopedMerges = pendingMerges.filter((merge) => scopedMergeIds.has(Number(merge.id)));
-    const merges = scopedMerges.length
-      ? scopedMerges
-      : (compositorInvocations.length && pendingMerges.length ? [pendingMerges[pendingMerges.length - 1]] : []);
+    const merges = pendingMerges.filter((merge) => scopedMergeIds.has(Number(merge.id)));
     if (!merges.length) continue;
     for (const merge of merges) {
-      db.prepare(
-        `UPDATE video_merges
-            SET status = 'completed', completed_at = ?, error_msg = NULL
-          WHERE id = ? AND status = 'qa_pending'`
-      ).run(now, merge.id);
-      mergeCount += 1;
-      if (merge.task_id) completedTasks.push(merge);
+      if (videoMergeService.completeQaPendingMerge(db, merge.id, now)) mergeCount += 1;
     }
-    const selected = merges[merges.length - 1];
-    db.prepare('UPDATE episodes SET video_url = ?, status = ?, updated_at = ? WHERE id = ?')
-      .run(selected.merged_url, 'completed', now, episode.id);
-  }
-  for (const merge of completedTasks) {
-    require('./taskService').updateTaskResult(db, merge.task_id, {
-      merge_id: merge.id,
-      video_url: merge.merged_url,
-      duration: merge.duration,
-      mode: 'strict_production',
-    });
   }
   return { episode_count: episodes.length, merge_count: mergeCount };
 }
@@ -589,7 +586,7 @@ function ensureStoryboardDraft(db, log, dramaId) {
     const beats = splitScriptIntoBeats(episode.script_content, 4);
     beats.forEach((beat, index) => {
       const num = index + 1;
-      const title = `E${episode.episode_number || episode.id}-${num}`;
+      const title = `第 ${episode.episode_number || episode.id} 集 · 分镜 ${num}`;
       const referencedCharacters = characters.filter((character) => (
         String(character.name || '').trim() && beat.includes(String(character.name).trim())
       ));
@@ -603,16 +600,16 @@ function ensureStoryboardDraft(db, log, dramaId) {
         num,
         title,
         action,
-        'Stable composition with clear character blocking and readable action.',
+        '构图稳定，角色站位清楚，动作易于识别。',
         location,
         'day',
         5,
         '',
         action,
         action,
-        'dramatic, clear, production-ready',
-        `${action}, ${location || 'story location'}, consistent character design, clean cinematic anime frame`,
-        `${action}, camera movement follows the emotional beat, preserve character identity and scene continuity`,
+        '戏剧张力清晰，可直接进入制作',
+        `${action}，${location || '故事场景'}，角色造型一致，干净的电影感动画画面`,
+        `${action}，镜头运动跟随情绪节拍，保持角色身份与场景连续性`,
         index === 0 ? 'wide' : 'medium',
         'eye_level',
         index % 2 === 0 ? 'slow push in' : 'static hold',
@@ -792,7 +789,7 @@ function ensureTimelinePlan(db, log, dramaId, mode = 'draft') {
 
 async function requestProductionAdaptationText(db, log, run, step, sourceId, plan, providerOptions) {
   const sourceDetail = sourceIntakeService.getSourceDetail(db, sourceId);
-  if (!sourceDetail) throw new Error('Source not found for production text adaptation');
+  if (!sourceDetail) throw new Error('找不到用于生产文本改编的素材源，请确认素材源仍存在后重试');
   const sourcePrompt = skillRegistryService.renderSkillPrompt(db, 'localminidrama-source-intake', {
     drama_id: run.drama_id,
     source_id: sourceId,
@@ -811,7 +808,7 @@ async function requestProductionAdaptationText(db, log, run, step, sourceId, pla
     provider: providerOptions.text_provider,
   };
   const route = aiClient.resolveTextRoute(db, 'text', routeOptions);
-  if (!route) throw new Error('Production workflow is not ready: text provider route is unavailable');
+  if (!route) throw new Error('生产工作流尚未就绪：文本模型路由不可用，请在「AI 配置」中启用文本模型后重试');
   const model = aiClient.getModelFromConfig(route.config, route.modelOverride || routeOptions.model);
   const providerName = route.config.provider || route.config.name || 'text-provider';
   const promptEvidence = {
@@ -868,28 +865,29 @@ async function requestProductionAdaptationText(db, log, run, step, sourceId, pla
       idempotency_key: step.call_key,
       input: { call_key: step.call_key, source_id: sourceId, prompt_evidence: promptEvidence },
       output: { prompt_evidence: promptEvidence },
-      error_message: error.message || 'Production text provider request failed',
+      error_message: error.message || '生产文本模型请求失败，请检查「AI 配置」后重试',
     });
     throw error;
   }
 }
 
 async function executeStep(db, log, run, step, allSteps) {
+  dramaService.assertDramaWritable(db, run.drama_id);
   const executionMode = run.input_json?.qa_mode === 'production' ? 'production' : 'draft';
   const providerOptions = run.input_json?.options || {};
   if (step.step_key === 'source_intake') {
     const input = step.input_json || {};
     if (input.source_id) {
       const detail = sourceIntakeService.getSourceDetail(db, input.source_id);
-      if (!detail) throw new Error('Source not found');
+      if (!detail) throw new Error('找不到该素材源，请确认素材源仍存在后重试');
       if (Number(detail.source.drama_id) !== Number(run.drama_id)) {
-        throw new Error('Source does not belong to this drama');
+        throw new Error('该素材源不属于当前项目，请选择本项目下的素材源');
       }
       let adaptationPlanId = input.adaptation_plan_id || detail.adaptation_plans[0]?.id || null;
       if (adaptationPlanId) {
         const plan = sourceIntakeService.getAdaptationPlanById(db, adaptationPlanId);
         if (!plan || Number(plan.source_id) !== Number(detail.source.id)) {
-          throw new Error('Adaptation plan does not belong to this source');
+          throw new Error('该改编方案不属于当前素材源，请选择该素材源下的改编方案');
         }
       }
       const output = {
@@ -927,7 +925,7 @@ async function executeStep(db, log, run, step, allSteps) {
   if (step.step_key === 'adaptation_plan') {
     const sourceOut = previousOutput(allSteps, 'source_intake');
     const sourceId = sourceOut.source_id;
-    if (!sourceId) throw new Error('source_intake output missing source_id');
+    if (!sourceId) throw new Error('素材导入步骤未返回素材源 ID，请重新导入素材后再继续');
     let plan = sourceOut.adaptation_plan_id
       ? sourceIntakeService.getAdaptationPlanById(db, sourceOut.adaptation_plan_id)
       : sourceIntakeService.getLatestPlanForSource(db, sourceId);
@@ -997,14 +995,14 @@ async function executeStep(db, log, run, step, allSteps) {
 
   if (step.step_key === 'apply_episodes') {
     const planOut = previousOutput(allSteps, 'adaptation_plan');
-    if (!planOut.adaptation_plan_id) throw new Error('adaptation_plan output missing adaptation_plan_id');
+    if (!planOut.adaptation_plan_id) throw new Error('改编计划步骤未返回改编方案 ID，请重新生成改编方案后再继续');
     const applyOnce = db.transaction(() => {
       const existing = completedStepEffect(db, step.call_key);
       if (existing) return existing;
       const result = sourceIntakeService.applyAdaptationPlanToEpisodes(db, log, planOut.adaptation_plan_id, {
         overwrite_existing_episodes: run.input_json?.overwrite_existing_episodes === true,
       });
-      if (!result) throw new Error('Failed to apply adaptation plan');
+      if (!result) throw new Error('应用改编方案失败，请确认方案仍存在后重试');
       recordSkill(db, run, step, 'localminidrama-script-adapter', { adaptation_plan_id: planOut.adaptation_plan_id }, result);
       return recordStepEffect(db, run, step, result);
     });
@@ -1169,29 +1167,39 @@ async function executeStep(db, log, run, step, allSteps) {
     });
     const { report, output } = auditWithCompletionGate();
     if (!report.passed) {
-      const error = new Error(`QA gate failed with score ${report.score}`);
+      const error = new Error(`质量检查未通过，当前得分 ${report.score}，请根据 QA 报告修复后再重试`);
       error.report = report;
       throw error;
     }
     if (!output || output.score < 80 || output.passed !== true) {
-      const error = new Error(`QA gate failed with score ${report.score}`);
+      const error = new Error(`质量检查未通过，当前得分 ${report.score}，请根据 QA 报告修复后再重试`);
       error.report = report;
       throw error;
     }
     return output;
   }
 
-  throw new Error(`Unknown workflow step: ${step.step_key}`);
+  throw new Error(`未知的工作流步骤：${step.step_key}，请刷新后重试`);
 }
 
 async function processWorkflowRun(db, log, runId, options = {}) {
   if (processingRunIds.has(String(runId))) return getWorkflowRunDetail(db, runId);
   processingRunIds.add(String(runId));
+  let result;
   try {
+    result = await processWorkflowRunInner(db, log, runId, options);
+  } finally {
+    processingRunIds.delete(String(runId));
+  }
+  return result ? getWorkflowRunDetail(db, runId) : result;
+}
+
+async function processWorkflowRunInner(db, log, runId, options = {}) {
   let run = getWorkflowRun(db, runId);
   if (!run) return null;
   if (RUN_TERMINAL_STATUSES.has(run.status)) return getWorkflowRunDetail(db, runId);
   if (run.status === 'paused') return getWorkflowRunDetail(db, runId);
+  dramaService.assertDramaWritable(db, run.drama_id);
 
   setRunStatus(db, runId, 'processing', {
     progress: run.progress || 0,
@@ -1203,6 +1211,7 @@ async function processWorkflowRun(db, log, runId, options = {}) {
     run = getWorkflowRun(db, runId);
     if (!run || RUN_TERMINAL_STATUSES.has(run.status)) return getWorkflowRunDetail(db, runId);
     if (run.status === 'paused') return getWorkflowRunDetail(db, runId);
+    dramaService.assertDramaWritable(db, run.drama_id);
     const steps = getWorkflowSteps(db, runId);
     const failedStep = steps.find((step) => step.status === 'failed');
     if (failedStep) {
@@ -1212,7 +1221,7 @@ async function processWorkflowRun(db, log, runId, options = {}) {
     if (!step) {
       const qaStep = steps.find((item) => item.step_key === 'qa_audit');
       if (qaStep && (qaStep.output_json?.passed !== true || Number(qaStep.output_json?.score) < 80)) {
-        const message = 'Workflow cannot complete without a passing QA score of at least 80';
+        const message = '工作流无法完成：质量检查得分需至少 80 分，请根据 QA 报告修复后再重试';
         setRunStatus(db, runId, 'failed', {
           current_step: 'qa_audit',
           error: message,
@@ -1293,6 +1302,10 @@ async function processWorkflowRun(db, log, runId, options = {}) {
         error: null,
       });
     } catch (err) {
+      const cancelledRun = getWorkflowRun(db, runId);
+      if (!cancelledRun || RUN_TERMINAL_STATUSES.has(cancelledRun.status) || cancelledRun.status === 'paused') {
+        return getWorkflowRunDetail(db, runId);
+      }
       if (err?.workflow_process_crash === true) {
         log?.warn?.('Workflow process interrupted during step commit', {
           run_id: runId,
@@ -1320,15 +1333,12 @@ async function processWorkflowRun(db, log, runId, options = {}) {
       return getWorkflowRunDetail(db, runId);
     }
   }
-  } finally {
-    processingRunIds.delete(String(runId));
-  }
 }
 
 function resolveWorkflowBackgroundTasks(options = {}) {
   const tasks = options.backgroundTasks || defaultBackgroundTasks;
   if (!tasks || typeof tasks.schedule !== 'function' || typeof tasks.assertAccepting !== 'function') {
-    throw new Error('Workflow scheduling requires a background task scheduler');
+    throw new Error('工作流调度需要后台任务调度器，请检查服务状态后重试');
   }
   return tasks;
 }
@@ -1482,7 +1492,7 @@ function startNovel2AnimeRepairWorkflow(db, log, params = {}) {
   };
   const steps = stepsFromKeys(actionSteps[action] || actionSteps.repair_storyboards);
   if (!steps.length) {
-    const err = new Error(`Unsupported repair action: ${action}`);
+    const err = new Error(`不支持的修复操作：${action}，请选择有效的修复动作后重试`);
     err.code = 'BAD_REQUEST';
     throw err;
   }
@@ -1507,10 +1517,11 @@ function retryWorkflowRun(db, log, runId, options = {}) {
   const run = getWorkflowRun(db, runId);
   if (!run) return null;
   if (run.status !== 'failed') {
-    const err = new Error('Only failed workflow runs can be retried');
+    const err = new Error('只有失败的工作流可以重试');
     err.code = 'BAD_REQUEST';
     throw err;
   }
+  dramaService.assertDramaWritable(db, run.drama_id);
   assertProductionRunReadiness(db, run);
   defaultBackgroundTasks.assertAccepting();
   const now = nowIso();
@@ -1532,10 +1543,19 @@ function retryWorkflowRun(db, log, runId, options = {}) {
   return getWorkflowRunDetail(db, run.id);
 }
 
-function cancelWorkflowRun(db, log, runId, reason = 'User cancelled workflow') {
+function cancelWorkflowRun(db, log, runId, reason = '用户已取消工作流') {
   const run = getWorkflowRun(db, runId);
   if (!run) return null;
-  if (RUN_TERMINAL_STATUSES.has(run.status)) return getWorkflowRunDetail(db, runId);
+  if (RUN_TERMINAL_STATUSES.has(run.status)) {
+    log?.operation?.({
+      operation: 'workflow_cancel',
+      operationId: run.id,
+      phase: 'success',
+      status: 'already_terminal',
+      run_status: run.status,
+    });
+    return getWorkflowRunDetail(db, runId);
+  }
   const now = nowIso();
   db.prepare(
     `UPDATE workflow_steps
@@ -1544,10 +1564,16 @@ function cancelWorkflowRun(db, log, runId, reason = 'User cancelled workflow') {
   ).run(reason, now, now, run.id);
   setRunStatus(db, run.id, 'cancelled', { error: reason });
   log?.info?.('Workflow run cancelled', { run_id: run.id });
+  log?.operation?.({
+    operation: 'workflow_cancel',
+    operationId: run.id,
+    phase: 'cancel',
+    status: 'cancelled',
+  });
   return getWorkflowRunDetail(db, run.id);
 }
 
-function pauseWorkflowRun(db, log, runId, reason = 'User paused workflow') {
+function pauseWorkflowRun(db, log, runId, reason = '用户已暂停工作流') {
   const run = getWorkflowRun(db, runId);
   if (!run) return null;
   if (RUN_TERMINAL_STATUSES.has(run.status) || run.status === 'paused') return getWorkflowRunDetail(db, runId);
@@ -1566,10 +1592,11 @@ function resumeWorkflowRun(db, log, runId) {
   const run = getWorkflowRun(db, runId);
   if (!run) return null;
   if (run.status !== 'paused') {
-    const err = new Error('Only paused workflow runs can be resumed');
+    const err = new Error('只有已暂停的工作流可以继续');
     err.code = 'BAD_REQUEST';
     throw err;
   }
+  dramaService.assertDramaWritable(db, run.drama_id);
   assertProductionRunReadiness(db, run);
   defaultBackgroundTasks.assertAccepting();
   setRunStatus(db, run.id, 'pending', { error: null, completed_at: null });
@@ -1589,9 +1616,12 @@ function assertProductionRunReadiness(db, run) {
 
 function resumeActiveWorkflowRunsOnStartup(db, log) {
   const runs = db.prepare(
-    `SELECT id FROM workflow_runs
-     WHERE status IN ('pending', 'processing') AND deleted_at IS NULL
-     ORDER BY created_at ASC`
+    `SELECT run.id FROM workflow_runs run
+       JOIN dramas drama ON drama.id = run.drama_id
+     WHERE run.status IN ('pending', 'processing') AND run.deleted_at IS NULL
+       AND drama.deleted_at IS NULL
+       AND (drama.trash_state IS NULL OR drama.trash_state = '')
+     ORDER BY run.created_at ASC`
   ).all();
   if (runs.length) defaultBackgroundTasks.assertAccepting();
   for (const row of runs) {
@@ -1606,6 +1636,39 @@ function resumeActiveWorkflowRunsOnStartup(db, log) {
   return runs.length;
 }
 
+async function cancelAndDrainDramaWorkflows(db, log, dramaId, reason = '项目移入回收站') {
+  let rows;
+  try {
+    rows = db.prepare(
+      `SELECT id FROM workflow_runs
+        WHERE drama_id = ? AND status IN ('pending', 'processing', 'paused') AND deleted_at IS NULL`
+    ).all(Number(dramaId));
+  } catch (error) {
+    if (/no such table/i.test(error?.message || '')) return { cancelled_run_ids: [] };
+    throw error;
+  }
+  const cancelledRunIds = [];
+  for (const row of rows) {
+    const result = cancelWorkflowRun(db, log, row.id, reason);
+    if (result) cancelledRunIds.push(String(row.id));
+  }
+  const timeoutAt = Date.now() + 30_000;
+  while (cancelledRunIds.some((id) => processingRunIds.has(id))) {
+    if (Date.now() >= timeoutAt) {
+      const error = new Error('工作流取消后未能在限定时间内退出，项目保持回收锁定');
+      error.code = 'WORKFLOW_DRAIN_TIMEOUT';
+      error.statusCode = 409;
+      error.details = {
+        active_workflow_run_ids: cancelledRunIds.filter((id) => processingRunIds.has(id)),
+        project_remains_locked: true,
+      };
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return { cancelled_run_ids: cancelledRunIds };
+}
+
 module.exports = {
   NOVEL2ANIME_STEPS,
   createWorkflowRun,
@@ -1618,10 +1681,12 @@ module.exports = {
   pauseWorkflowRun,
   resumeWorkflowRun,
   assertProductionRunReadiness,
+  cancelAndDrainDramaWorkflows,
   resumeActiveWorkflowRunsOnStartup,
   getWorkflowRun,
   getWorkflowSteps,
   getWorkflowRunDetail,
+  applyWorkflowTypeFilter,
   listWorkflowRuns,
   rowToRun,
   rowToStep,

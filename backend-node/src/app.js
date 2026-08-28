@@ -10,9 +10,42 @@ const logger = require('./logger.js');
 const response = require('./response.js');
 const { setupRouter } = require('./routes/index.js');
 const uploadService = require('./services/uploadService.js');
+const dramaWriteGuard = require('./services/dramaWriteGuard.js');
 const { backgroundTasks } = require('./services/legacyAsyncSchedulerService.js');
+const {
+  createRuntimeInstanceId,
+  findWorkspaceRoot,
+} = require('./utils/runtimeInstanceId.js');
+
+const RUNTIME_INSTANCE_ID = createRuntimeInstanceId({
+  rootDirectory: findWorkspaceRoot(__dirname),
+});
 
 const READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+const STORAGE_MEDIA_MIME_TYPES = new Map([
+  ['.aac', 'audio/aac'],
+  ['.avi', 'video/x-msvideo'],
+  ['.bmp', 'image/bmp'],
+  ['.flac', 'audio/flac'],
+  ['.gif', 'image/gif'],
+  ['.jpeg', 'image/jpeg'],
+  ['.jpg', 'image/jpeg'],
+  ['.m4a', 'audio/mp4'],
+  ['.m4v', 'video/mp4'],
+  ['.mkv', 'video/x-matroska'],
+  ['.mov', 'video/quicktime'],
+  ['.mp3', 'audio/mpeg'],
+  ['.mp4', 'video/mp4'],
+  ['.ogg', 'audio/ogg'],
+  ['.png', 'image/png'],
+  ['.srt', 'text/plain; charset=utf-8'],
+  ['.txt', 'text/plain; charset=utf-8'],
+  ['.vtt', 'text/vtt; charset=utf-8'],
+  ['.wav', 'audio/wav'],
+  ['.webm', 'video/webm'],
+  ['.webp', 'image/webp'],
+]);
 
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -22,8 +55,8 @@ const CONTENT_SECURITY_POLICY = [
   "form-action 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "media-src 'self' data: blob:",
+  "img-src 'self' data: blob: https://upload.wikimedia.org",
+  "media-src 'self' data: blob: https://upload.wikimedia.org",
   "font-src 'self' data:",
   "connect-src 'self'",
   "worker-src 'self' blob:",
@@ -153,10 +186,15 @@ function createRequestOriginPolicy(serverConfig = {}, options = {}) {
   const configuredValues = Array.isArray(serverConfig.cors_origins)
     ? serverConfig.cors_origins
     : [serverConfig.cors_origins].filter(Boolean);
+  const runtimeValues = String(options.additionalOrigins ?? process.env.LOCALMINIDRAMA_CORS_ORIGINS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 32);
   const configuredOrigins = new Set();
   const trustedHostnames = new Set();
 
-  for (const value of configuredValues) {
+  for (const value of [...configuredValues, ...runtimeValues]) {
     const parsed = parseHttpOrigin(value);
     if (!parsed) continue;
     configuredOrigins.add(parsed.origin);
@@ -209,7 +247,7 @@ function createOriginGuard(originAllowed, log = logger) {
       success: false,
       error: {
         code: 'REQUEST_SOURCE_NOT_ALLOWED',
-        message: 'Request host or origin is not allowed',
+        message: '当前请求来源不被允许',
         request_id: req.requestId,
       },
       request_id: req.requestId,
@@ -247,18 +285,41 @@ function parseByteRange(value, size) {
   return { start, end: Math.min(end, size - 1) };
 }
 
-function createStorageStaticMiddleware(storageRoot, log = logger) {
+function createStorageStaticMiddleware(storageRoot, log = logger, db = null) {
   return (req, res, next) => {
     if (!['GET', 'HEAD'].includes(req.method)) return next();
-    const rawPath = String(req.url || '').split('?')[0].replace(/^\/+/, '');
-    if (!rawPath) return res.status(404).send('Not Found');
+    const encodedPath = String(req.url || '').split('?')[0].replace(/^\/+/, '');
+    if (!encodedPath) return res.status(404).send('未找到资源');
+    let rawPath;
+    try {
+      rawPath = uploadService.decodeReferencePath(encodedPath).replace(/\\/g, '/').replace(/^\/+/, '');
+    } catch (_) {
+      return res.status(400).send('资源路径无效');
+    }
+    if (!rawPath) return res.status(404).send('未找到资源');
+
+    if (db) {
+      try {
+        dramaWriteGuard.assertMediaPathReadable(db, rawPath);
+      } catch (error) {
+        if (error?.code === 'UNSAFE_STORAGE_PATH') {
+          return res.status(403).json({
+            success: false,
+            error: { code: 'UNSAFE_STORAGE_PATH', message: '静态资源路径不被允许' },
+            request_id: req.requestId,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        return res.status(404).send('未找到资源');
+      }
+    }
 
     let opened;
     try {
       opened = uploadService.openStorageFile(storageRoot, rawPath);
     } catch (error) {
       if (error?.code === 'UNSAFE_MEDIA_REFERENCE' && error?.reason === 'NOT_FOUND') {
-        return res.status(404).send('Not Found');
+        return res.status(404).send('未找到资源');
       }
       log.warnw?.('Rejected unsafe static storage path', {
         request_id: req.requestId,
@@ -267,7 +328,7 @@ function createStorageStaticMiddleware(storageRoot, log = logger) {
       });
       return res.status(403).json({
         success: false,
-        error: { code: 'UNSAFE_STORAGE_PATH', message: 'Static storage path is not allowed' },
+        error: { code: 'UNSAFE_STORAGE_PATH', message: '静态资源路径不被允许' },
         request_id: req.requestId,
         timestamp: new Date().toISOString(),
       });
@@ -290,7 +351,11 @@ function createStorageStaticMiddleware(storageRoot, log = logger) {
     const start = range?.start ?? 0;
     const end = range?.end ?? Math.max(0, size - 1);
     const responseBytes = size === 0 ? 0 : end - start + 1;
-    res.type(opened.absolutePath);
+    const extension = path.extname(opened.absolutePath).toLowerCase();
+    const mediaMimeType = STORAGE_MEDIA_MIME_TYPES.get(extension);
+    res.setHeader('Content-Type', mediaMimeType || 'application/octet-stream');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (!mediaMimeType) res.setHeader('Content-Disposition', 'attachment');
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Length', responseBytes);
     res.setHeader('Last-Modified', opened.stat.mtime.toUTCString());
@@ -318,16 +383,30 @@ function createStorageStaticMiddleware(storageRoot, log = logger) {
   };
 }
 
-function createAppCloseHandler(maintenanceGuard, closeDatabase = closeDb) {
+function createAppCloseHandler(maintenanceGuard, closeDatabase = closeDb, beforeDatabaseClose = []) {
   let closed = false;
   return () => {
     if (closed) return false;
     closed = true;
+    let firstError = null;
+    for (const closeResource of beforeDatabaseClose) {
+      try {
+        closeResource?.();
+      } catch (error) {
+        firstError ||= error;
+      }
+    }
     try {
       closeDatabase();
-    } finally {
-      maintenanceGuard?.release?.();
+    } catch (error) {
+      firstError ||= error;
     }
+    try {
+      maintenanceGuard?.release?.();
+    } catch (error) {
+      firstError ||= error;
+    }
+    if (firstError) throw firstError;
     return true;
   };
 }
@@ -335,39 +414,110 @@ function createAppCloseHandler(maintenanceGuard, closeDatabase = closeDb) {
 function createNotFoundHandler() {
   return (req, res) => {
     if (req.path.startsWith('/api')) {
-      return response.notFound(res, 'API endpoint not found');
+      return response.notFound(res, '接口不存在');
     }
-    return res.status(404).send('Not Found');
+    return res.status(404).send('未找到资源');
   };
 }
 
-function initializeWithMaintenanceGuard(maintenanceGuard, initialize) {
+function initializeWithMaintenanceGuard(maintenanceGuard, initialize, closeDatabase) {
   try {
     return initialize();
   } catch (error) {
-    maintenanceGuard?.release?.();
+    try {
+      closeDatabase?.();
+    } catch (_) {
+      // 保留原始启动错误，同时继续释放维护锁。
+    }
+    try {
+      maintenanceGuard?.release?.();
+    } catch (_) {
+      // 保留原始启动错误，避免清理异常掩盖根因。
+    }
     throw error;
   }
+}
+
+function stripUserFacingStack(message) {
+  // 用户可见错误只保留首行说明，堆栈留在服务端日志。
+  const text = String(message || '');
+  const index = text.search(/\r?\n\s+at\s+/);
+  if (index < 0) return text;
+  return text.slice(0, index).trim();
+}
+
+function omitStackFields(value, depth = 0) {
+  if (value == null || depth > 4) return value;
+  if (typeof value === 'string') return stripUserFacingStack(value);
+  if (typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((item) => omitStackFields(item, depth + 1));
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (/^stack$/i.test(key)) continue;
+    out[key] = omitStackFields(child, depth + 1);
+  }
+  return out;
+}
+
+function sanitizePublicErrorBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  if (body.success !== false && !body.error) return body;
+  return omitStackFields(body);
+}
+
+function classifyLogCategory(error, status) {
+  const code = String(error?.code || '');
+  const name = String(error?.name || '');
+  if (
+    error?.isTimeout === true
+    || code === 'ETIMEDOUT'
+    || code === 'ECONNABORTED'
+    || code === 'UND_ERR_CONNECT_TIMEOUT'
+    || code === 'TIMEOUT'
+  ) {
+    return 'timeout';
+  }
+  if (
+    code === 'ERR_CANCELED'
+    || code === 'ABORT_ERR'
+    || name === 'AbortError'
+    || name === 'CanceledError'
+  ) {
+    return 'cancel';
+  }
+  if (Number(status) >= 500) return 'http_5xx';
+  if (Number(status) >= 400) return 'http_4xx';
+  if (
+    code === 'ECONNREFUSED'
+    || code === 'ENOTFOUND'
+    || code === 'EAI_AGAIN'
+    || code === 'ECONNRESET'
+    || code === 'ERR_NETWORK'
+  ) {
+    return 'network';
+  }
+  return 'unknown';
 }
 
 function createProductionErrorResponseSanitizer(options = {}) {
   const production = options.production ?? process.env.NODE_ENV === 'production';
   return (req, res, next) => {
-    if (!production) return next();
     const sendJson = res.json.bind(res);
     res.json = (body) => {
-      if (res.statusCode !== 500) return sendJson(body);
       const requestId = req.requestId || randomUUID();
-      return sendJson({
-        success: false,
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Internal server error',
+      if (production && res.statusCode === 500) {
+        return sendJson({
+          success: false,
+          error: {
+            code: 'INTERNAL_ERROR',
+            message: '服务器内部错误',
+            request_id: requestId,
+          },
           request_id: requestId,
-        },
-        request_id: requestId,
-        timestamp: new Date().toISOString(),
-      });
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return sendJson(sanitizePublicErrorBody(body));
     };
     return next();
   };
@@ -378,11 +528,14 @@ function classifyExpectedError(error) {
   if (code === 'LEGACY_ASYNC_SCHEDULER_CLOSED') {
     return { status: 503, code, message: error.message };
   }
+  if (code === 'CONFIG_FILE_NOT_FOUND') {
+    return { status: 503, code, message: error.message || '配置文件不存在，设置未保存' };
+  }
   if (code === 'LIMIT_FILE_SIZE') {
-    return { status: 413, code: 'FILE_TOO_LARGE', message: 'Uploaded file exceeds the allowed size' };
+    return { status: 413, code: 'FILE_TOO_LARGE', message: '上传文件超过允许大小' };
   }
   if (code === 'INSUFFICIENT_STORAGE' || code === 'ENOSPC') {
-    return { status: 507, code: 'INSUFFICIENT_STORAGE', message: 'Insufficient storage space' };
+    return { status: 507, code: 'INSUFFICIENT_STORAGE', message: '存储空间不足' };
   }
   if ([
     'ARCHIVE_TOO_LARGE',
@@ -405,11 +558,11 @@ function classifyExpectedError(error) {
     code.startsWith('INVALID_') ||
     code.startsWith('UNSAFE_')
   ) {
-    return { status: 400, code: code || 'BAD_REQUEST', message: error.message || 'Invalid request' };
+    return { status: 400, code: code || 'BAD_REQUEST', message: error.message || '请求无效' };
   }
   const status = Number(error?.status || error?.statusCode);
   if (Number.isInteger(status) && status >= 400 && status < 500) {
-    return { status, code: code || 'REQUEST_REJECTED', message: error.message || 'Request rejected' };
+    return { status, code: code || 'REQUEST_REJECTED', message: error.message || '请求被拒绝' };
   }
   return null;
 }
@@ -418,19 +571,35 @@ function createErrorHandler(log, options = {}) {
   const production = options.production ?? process.env.NODE_ENV === 'production';
   return (err, req, res, next) => {
     const requestId = req.requestId || randomUUID();
+    const expected = classifyExpectedError(err);
+    const status = expected?.status || 500;
+    const code = expected?.code || 'INTERNAL_ERROR';
+    const category = classifyLogCategory(err, status);
+    const rawMessage = expected?.message || (production ? '服务器内部错误' : (err?.message || '服务器内部错误'));
+    const message = stripUserFacingStack(rawMessage) || (production ? '服务器内部错误' : '服务器内部错误');
     log.errorw?.('Unhandled request error', {
       request_id: requestId,
       method: req.method,
       path: req.path,
       code: err?.code,
+      category,
       error: err?.message,
       stack: err?.stack,
     });
     if (res.headersSent) return next(err);
-    const expected = classifyExpectedError(err);
-    const status = expected?.status || 500;
-    const code = expected?.code || 'INTERNAL_ERROR';
-    const message = expected?.message || (production ? 'Internal server error' : (err?.message || 'Internal server error'));
+    if (!expected || status >= 500) {
+      log.operation?.({
+        operation: 'http_request',
+        operationId: requestId,
+        phase: category === 'cancel' ? 'cancel' : 'error',
+        method: req.method,
+        path: req.path,
+        status,
+        code,
+        category,
+        error: err?.message,
+      });
+    }
     res.status(status).json({
       success: false,
       error: { code, message, request_id: requestId },
@@ -442,14 +611,11 @@ function createErrorHandler(log, options = {}) {
 
 function createApp() {
   const config = loadConfig();
-  const databasePath = path.isAbsolute(config.database?.path || '')
-    ? config.database.path
-    : path.resolve(process.cwd(), config.database?.path || './data/drama_generator.db');
-  const storageRoot = config.storage?.local_path
-    ? (path.isAbsolute(config.storage.local_path)
-        ? config.storage.local_path
-        : path.join(process.cwd(), config.storage.local_path))
-    : path.join(process.cwd(), 'data', 'storage');
+  const backupSettingsService = require('./services/backupSettingsService');
+  const paths = backupSettingsService.resolveRuntimeDataPaths(config);
+  backupSettingsService.applyPendingRestoreSync(paths, { log: logger });
+  const databasePath = paths.databasePath;
+  const storageRoot = paths.storagePath;
   const maintenanceGuard = require('./services/dataBackupService').acquireServiceMaintenanceLockSync({
     databasePath,
     storagePath: storageRoot,
@@ -467,10 +633,13 @@ function createApp() {
   const log = logger;
 
   const taskService = require('./services/taskService');
+  const assetService = require('./services/assetService');
+  assetService.cleanupNetworkImportOrphans(db, log, { schedule: false });
   taskService.failOrphanedAsyncTasksOnStartup(db, log);
 
   const { resumeProcessingVideoGenerations } = require('./services/videoService');
   resumeProcessingVideoGenerations(db, log);
+  require('./services/dramaService').recoverInterruptedTrashOperations(db, log);
 
   const workflowService = require('./services/workflowService');
   workflowService.resumeActiveWorkflowRunsOnStartup(db, log);
@@ -496,7 +665,7 @@ function createApp() {
   // 静态资源目录：统一转为绝对路径（打包 exe 下相对路径可能解析异常）
   try {
     if (!fs.existsSync(storageRoot)) fs.mkdirSync(storageRoot, { recursive: true });
-    app.use('/static', createStorageStaticMiddleware(storageRoot, log));
+    app.use('/static', createStorageStaticMiddleware(storageRoot, log, db));
   } catch (e) {
     console.warn('Static storage mount skipped:', e.message);
   }
@@ -506,11 +675,14 @@ function createApp() {
       status: 'ok',
       app: config.app.name,
       version: config.app.version,
+      instance_id: RUNTIME_INSTANCE_ID,
     });
   });
 
   app.get('/ready', (req, res) => {
-    const readiness = require('./services/readinessService').checkReadiness(db, storageRoot);
+    const readiness = require('./services/readinessService').checkReadiness(db, storageRoot, {
+      maintenanceGuard,
+    });
     res.status(readiness.ready ? 200 : 503).json({
       status: readiness.ready ? 'ready' : 'not_ready',
       checks: readiness.checks,
@@ -518,6 +690,17 @@ function createApp() {
   });
 
   app.use('/api/v1', createBackgroundTaskContextMiddleware(backgroundTasks, log));
+  app.use('/api/v1', (req, res, next) => {
+    if (req.method !== 'GET') return next();
+    const pathname = String(req.path || '');
+    const storyboardId = /^\/storyboards\/(\d+)$/.exec(pathname)?.[1];
+    const episodeId = /^\/episodes\/(\d+)\/storyboards$/.exec(pathname)?.[1];
+    if ((storyboardId && !dramaWriteGuard.canReadResource(db, 'storyboards', storyboardId))
+      || (episodeId && !dramaWriteGuard.canReadResource(db, 'episodes', episodeId))) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: '资源不存在' } });
+    }
+    return next();
+  });
   app.use('/api/v1', setupRouter(config, db, log));
 
   // 前端静态资源（sxy：web/dist）；Electron 打包时可设 WEB_DIST_PATH
@@ -543,8 +726,8 @@ function createApp() {
       res.send(
         '<!DOCTYPE html><html><head><meta charset="utf-8"><title>LocalMiniDrama</title></head><body>' +
           '<h1>LocalMiniDrama API</h1><p>后端已启动。请先构建前端：</p>' +
-          '<pre>cd web &amp;&amp; pnpm install &amp;&amp; pnpm build</pre>' +
-          '<p>然后将 <code>web/dist</code> 放到与 backend-node 同级的 <code>web/dist</code>，或访问 <a href="/health">/health</a> 检查接口。</p></body></html>'
+          '<pre>cd frontweb &amp;&amp; npm install &amp;&amp; npm run build</pre>' +
+          '<p>然后将 <code>frontweb/dist</code> 放到与 backend-node 同级的 <code>frontweb/dist</code>，或访问 <a href="/ready">/ready</a> 检查就绪状态。</p></body></html>'
       );
     });
   }
@@ -553,7 +736,10 @@ function createApp() {
 
   app.use(createErrorHandler(log));
 
-  const closeResources = createAppCloseHandler(maintenanceGuard);
+  const networkCleanupController = assetService.startNetworkImportOrphanCleanup(db, log);
+  const closeResources = createAppCloseHandler(maintenanceGuard, closeDb, [
+    () => networkCleanupController.close(),
+  ]);
   const closeOnExit = () => closeResources();
   process.prependOnceListener('exit', closeOnExit);
   const detachExitClose = () => process.removeListener('exit', closeOnExit);
@@ -571,12 +757,13 @@ function createApp() {
     close,
     detachExitClose,
   };
-  });
+  }, closeDb);
 }
 
 module.exports = {
   CONTENT_SECURITY_POLICY,
   classifyExpectedError,
+  classifyLogCategory,
   createApp,
   createAppCloseHandler,
   createBackgroundTaskContextMiddleware,
@@ -591,5 +778,7 @@ module.exports = {
   isLoopbackHostname,
   parseHttpOrigin,
   requestContext,
+  sanitizePublicErrorBody,
   securityHeaders,
+  stripUserFacingStack,
 };

@@ -3,8 +3,36 @@ const sceneService = require('../services/sceneService');
 const sceneLibraryService = require('../services/sceneLibraryService');
 const imageService = require('../services/imageService');
 
+function sendSceneServiceFailure(res, out, unauthorizedAsForbidden = false) {
+  if (!out || out.ok !== false) return false;
+  if (out.error === 'scene not found') {
+    response.notFound(res, '场景不存在');
+    return true;
+  }
+  if (out.error === 'unauthorized') {
+    if (unauthorizedAsForbidden) response.forbidden(res, '无权限');
+    else response.notFound(res, '剧集不存在或无权限');
+    return true;
+  }
+  response.badRequest(res, out.error);
+  return true;
+}
+
 function routes(db, log, cfg) {
   return {
+    list: (req, res) => {
+      try {
+        const dramaId = Number(req.params.id ?? req.params.drama_id);
+        if (!Number.isInteger(dramaId) || dramaId <= 0) {
+          return response.badRequest(res, '无效的剧集 ID');
+        }
+        const scenes = sceneService.listByDramaId(db, dramaId);
+        response.success(res, { scenes });
+      } catch (err) {
+        log.error('scenes list', { error: err.message });
+        response.internalError(res, err.message);
+      }
+    },
     getOne: (req, res) => {
       try {
         const scene = sceneService.getSceneById(db, Number(req.params.scene_id));
@@ -22,8 +50,7 @@ function routes(db, log, cfg) {
           db, log, cfg, req.params.scene_id, body.model || undefined, body.style || undefined
         );
         if (!out.ok) {
-          if (out.error === 'scene not found') return response.notFound(res, '场景不存在');
-          return response.badRequest(res, out.error);
+          return sendSceneServiceFailure(res, out);
         }
         response.success(res, { message: '提示词已生成', polished_prompt: out.polished_prompt });
       } catch (err) {
@@ -35,8 +62,7 @@ function routes(db, log, cfg) {
       try {
         const out = await sceneService.extractSceneFromImage(db, log, cfg, req.params.scene_id);
         if (!out.ok) {
-          if (out.error === 'scene not found') return response.notFound(res, '场景不存在');
-          return response.badRequest(res, out.error);
+          return sendSceneServiceFailure(res, out);
         }
         response.success(res, { message: '场景描述已提取', prompt: out.prompt });
       } catch (err) {
@@ -95,9 +121,7 @@ function routes(db, log, cfg) {
           db, log, cfg, sceneId, body.model || undefined, body.style || undefined
         );
         if (!out.ok) {
-          if (out.error === 'scene not found') return response.notFound(res, '场景不存在');
-          if (out.error === 'unauthorized') return response.notFound(res, '剧集不存在或无权限');
-          return response.badRequest(res, out.error);
+          return sendSceneServiceFailure(res, out);
         }
         response.success(res, {
           message: '场景四视图生成任务已提交',
@@ -112,9 +136,7 @@ function routes(db, log, cfg) {
       try {
         const out = sceneLibraryService.addSceneToLibrary(db, log, req.params.scene_id);
         if (!out.ok) {
-          if (out.error === 'scene not found') return response.notFound(res, '场景不存在');
-          if (out.error === 'unauthorized') return response.forbidden(res, '无权限');
-          return response.badRequest(res, out.error);
+          return sendSceneServiceFailure(res, out, true);
         }
         response.success(res, { message: '已加入本剧场景库', item: out.item });
       } catch (err) {
@@ -126,8 +148,7 @@ function routes(db, log, cfg) {
       try {
         const out = sceneLibraryService.addSceneToMaterialLibrary(db, log, req.params.scene_id);
         if (!out.ok) {
-          if (out.error === 'scene not found') return response.notFound(res, '场景不存在');
-          return response.badRequest(res, out.error);
+          return sendSceneServiceFailure(res, out);
         }
         response.success(res, { message: '已加入全局素材库', item: out.item });
       } catch (err) {
@@ -142,9 +163,7 @@ function routes(db, log, cfg) {
         const style = body.style || undefined;
         const out = await sceneService.generateSceneFourViewImage(db, log, cfg, req.params.scene_id, modelName, style);
         if (!out.ok) {
-          if (out.error === 'scene not found') return response.notFound(res, '场景不存在');
-          if (out.error === 'unauthorized') return response.notFound(res, '剧集不存在或无权限');
-          return response.badRequest(res, out.error);
+          return sendSceneServiceFailure(res, out);
         }
         response.success(res, { message: '场景四视图生成任务已提交', image_generation: out.image_generation });
       } catch (err) {
@@ -160,12 +179,7 @@ function routes(db, log, cfg) {
           db, log, req.params.scene_id, modelName, body.style || undefined
         );
         if (!out.ok) {
-          if (out.error === 'scene not found') return response.notFound(res, '场景不存在');
-          if (out.error === 'unauthorized') return response.notFound(res, '剧集不存在或无权限');
-          if (out.error === 'scene source image required') {
-            return response.badRequest(res, '请先为场景准备可用的主图，再生成全景图');
-          }
-          return response.badRequest(res, out.error);
+          return sendSceneServiceFailure(res, out);
         }
         response.success(res, {
           message: '场景全景图生成任务已提交',

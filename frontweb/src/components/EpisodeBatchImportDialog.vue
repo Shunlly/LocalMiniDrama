@@ -4,7 +4,7 @@
       <el-icon><Upload /></el-icon>批量导入剧集
     </el-button>
 
-    <el-dialog
+    <AccessibleDialog
       v-model="visible"
       title="批量导入剧集"
       width="920px"
@@ -36,7 +36,7 @@
               </el-form>
 
               <div class="batch-import-tip-block">
-                <div class="batch-import-tip">将提前准备好的小说原文或者剧本内容的.txt文件导入系统</div>
+                <div class="batch-import-tip">将提前准备好的小说原文或剧本内容的 TXT 文件导入系统</div>
                 <div class="batch-import-tip">请正确输入用于匹配章节标题的正则表达式。</div>
                 <div class="batch-import-tip">示例：<code class="batch-import-code">^\s*(第\d+章[^\n]*)</code>、<code class="batch-import-code">^\s*(第\d+集[^\n]*)</code></div>
                 <div class="batch-import-tip">点击“确认导入配置”后，会先解析章节并切换到预览页。</div>
@@ -89,19 +89,33 @@
           @click="confirmImport"
         >确认导入集数</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
+import { onBeforeUnmount, ref } from 'vue'
+import { ElMessage as RawElMessage } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
+import {
+  createProjectInstanceLifecycle,
+  isProjectInstanceDisposedError,
+} from '@/utils/projectInstanceLifecycle.js'
+
+const batchImportLifecycle = createProjectInstanceLifecycle()
+const ElMessage = batchImportLifecycle.guardNotifier(RawElMessage)
 
 const props = defineProps({
   startEpisodeNumber: {
     type: Number,
     default: 1,
+  },
+  // Event listeners are fire-and-forget in Vue; this callback lets the dialog
+  // wait for the parent's async persistence before closing or showing success.
+  importHandler: {
+    type: Function,
+    default: null,
   },
 })
 
@@ -126,6 +140,10 @@ function openDialog() {
 
 defineExpose({
   openDialog,
+})
+
+onBeforeUnmount(() => {
+  batchImportLifecycle.dispose()
 })
 
 function resetState() {
@@ -232,10 +250,11 @@ function confirmConfig() {
     activeTab.value = 'preview'
     ElMessage.success(`已识别 ${chapters.length} 章，可导入 ${episodes.length} 集`)
   } catch (e) {
+    if (isUserFacingAbort(e)) return
     previewReady.value = false
     previewChapters.value = []
     previewEpisodes.value = []
-    ElMessage.error(e.message || '章节预览失败')
+    ElMessage.error(toUserFacingError(e, '章节预览失败'))
   }
 }
 
@@ -246,19 +265,27 @@ async function confirmImport() {
   }
   importing.value = true
   try {
-    await emit('import', previewEpisodes.value.map((episode) => ({
+    const payload = previewEpisodes.value.map((episode) => ({
       episode_number: episode.episode_number,
       title: episode.title,
       script_content: episode.script_content,
       description: null,
       duration: 0,
-    })))
-    ElMessage.success(`已导入 ${previewEpisodes.value.length} 集`)
-    resetState()
+    }))
+    await batchImportLifecycle.execute(() => (
+      props.importHandler
+        ? props.importHandler(payload)
+        : emit('import', payload)
+    ))
+    batchImportLifecycle.run(() => {
+      ElMessage.success(`已导入 ${previewEpisodes.value.length} 集`)
+      resetState()
+    })
   } catch (e) {
-    ElMessage.error(e.message || '批量导入失败')
+    if (isUserFacingAbort(e) || isProjectInstanceDisposedError(e)) return
+    ElMessage.error(toUserFacingError(e, '批量导入失败'))
   } finally {
-    importing.value = false
+    batchImportLifecycle.run(() => { importing.value = false })
   }
 }
 </script>

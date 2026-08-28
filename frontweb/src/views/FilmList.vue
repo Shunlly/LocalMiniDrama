@@ -30,21 +30,26 @@
           <el-button class="btn-library" title="打开自由创作" @click="router.push({ name: 'free-create' })">
             <el-icon><MagicStick /></el-icon>自由创作
           </el-button>
-          <el-button class="btn-trash" title="打开项目回收站" @click="openTrash">
-            <el-icon><Delete /></el-icon>回收站
-          </el-button>
-          <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
-            <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
-            {{ isDark ? '浅色' : '暗色' }}
-          </el-button>
-          <el-button class="btn-settings" :disabled="listWriteLocked" @click="showAiConfigDialog = true">
+          <el-tooltip content="项目回收站" placement="bottom">
+            <el-button class="btn-trash utility-icon-button" title="项目回收站" aria-label="打开项目回收站" @click="openTrash">
+              <el-icon><Delete /></el-icon>
+              <span class="visually-hidden">打开项目回收站</span>
+            </el-button>
+          </el-tooltip>
+          <el-tooltip :content="isDark ? '切换到浅色模式' : '切换到暗色模式'" placement="bottom">
+            <el-button class="btn-theme utility-icon-button" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
+              <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
+              <span class="visually-hidden">{{ isDark ? '切换到浅色模式' : '切换到暗色模式' }}</span>
+            </el-button>
+          </el-tooltip>
+          <el-button class="btn-settings" title="打开 AI 配置" @click="showAiConfigDialog = true">
             <el-icon><Setting /></el-icon>AI配置
           </el-button>
-          <el-button class="btn-import" :loading="importing" :disabled="listWriteLocked" @click="triggerImport">
+          <el-button ref="importTriggerButton" class="btn-import" :loading="importing" :disabled="listWriteLocked" @click="triggerImport">
             <el-icon><Upload /></el-icon>导入项目包
           </el-button>
           <input ref="importFileInput" type="file" accept=".zip" style="display:none" @change="onImportFile" />
-          <el-button type="primary" class="btn-new" :disabled="listWriteLocked" @click="goNewProject">
+          <el-button type="primary" class="btn-new" :disabled="listWriteLocked" aria-label="新建项目" @click="goNewProject">
             <el-icon><Plus /></el-icon>新建项目
           </el-button>
         </div>
@@ -52,6 +57,12 @@
     </header>
 
     <main class="main">
+      <section v-if="sourceImportIntent" class="source-import-intent" role="status" aria-live="polite">
+        <span>选择已有项目后导入网页 URL，或新建项目后继续。</span>
+        <el-button type="primary" size="small" :disabled="listWriteLocked" aria-label="新建项目" @click="openSourceImportProject">
+          <el-icon><Plus /></el-icon>新建项目
+        </el-button>
+      </section>
       <div v-loading="loading" class="projects-wrap" :aria-busy="loading">
         <section
           v-if="listError"
@@ -93,14 +104,85 @@
           </el-button>
         </section>
 
+        <section
+          v-if="importFailure"
+          class="export-failure-state import-failure-state"
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+        >
+          <div>
+            <strong>项目包导入失败</strong>
+            <p class="import-failure-filename">文件：{{ importFailure.fileName }}</p>
+            <p>{{ importFailure.message }}</p>
+          </div>
+          <div class="import-failure-actions">
+            <el-button
+              type="primary"
+              plain
+              :loading="importing"
+              :disabled="listWriteLocked"
+              @click="triggerImport"
+            >
+              <el-icon><RefreshLeft /></el-icon>重新选择项目包
+            </el-button>
+            <el-button plain :disabled="importing" @click="dismissImportFailure">
+              关闭
+            </el-button>
+          </div>
+        </section>
+
+        <section
+          v-if="hasSuccessfulListLoad && !listError && (dramas.length > 0 || hasProjectFilters)"
+          class="workspace-overview"
+          aria-labelledby="project-list-title"
+        >
+            <div class="workspace-copy">
+              <h2 id="project-list-title" class="workspace-title">项目列表</h2>
+              <p class="workspace-count">
+              {{ projectListCountLabel }}
+              </p>
+            </div>
+          <div class="workspace-controls" role="search" aria-label="项目列表筛选">
+            <el-input
+              v-model="projectSearch"
+              class="workspace-search"
+              clearable
+              placeholder="搜索项目标题、描述、风格或类型"
+              aria-label="搜索项目"
+            >
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+            <el-select
+              v-model="projectStatusFilter"
+              class="workspace-status"
+              aria-label="按项目状态筛选"
+            >
+              <el-option label="全部状态" value="all" />
+              <el-option label="草稿" value="draft" />
+              <el-option label="生成中" value="generating" />
+              <el-option label="已发布" value="published" />
+            </el-select>
+            <el-select
+              v-model="projectSort"
+              class="workspace-sort"
+              aria-label="项目排序"
+            >
+              <el-option label="更新时间优先" value="updated-desc" />
+              <el-option label="创建时间优先" value="created-desc" />
+              <el-option label="标题升序" value="title-asc" />
+            </el-select>
+          </div>
+        </section>
+
         <div class="project-grid">
           <!-- 空项目时提供完整起步路径；已有项目时使用顶部主操作，避免重复入口。 -->
-          <section v-if="!loading && hasSuccessfulListLoad && !listError && dramas.length === 0" class="action-card action-card--empty">
+          <section v-if="!loading && hasSuccessfulListLoad && !listError && dramas.length === 0 && !hasProjectFilters" class="action-card action-card--empty">
             <div class="action-card-inner">
               <h2 class="action-card-title">还没有短剧项目</h2>
               <p class="action-card-desc">新建空白项目，或继续已有项目包。</p>
               <div class="action-card-buttons">
-                <el-button type="primary" size="large" class="action-btn action-btn-new" :disabled="listWriteLocked" @click="goNewProject">
+                <el-button type="primary" size="large" class="action-btn action-btn-new" :disabled="listWriteLocked" aria-label="新建项目" @click="goNewProject">
                   <el-icon><Plus /></el-icon>新建项目
                 </el-button>
                 <el-button size="large" class="action-btn action-btn-import" :loading="importing" :disabled="listWriteLocked" @click="triggerImport">
@@ -136,31 +218,83 @@
               </div>
             </div>
           </section>
+          <section
+            v-if="!loading && hasSuccessfulListLoad && !listError && hasProjectFilters && filteredDramas.length === 0"
+            class="action-card action-card--empty action-card--search-empty"
+            role="status"
+          >
+            <div class="action-card-inner">
+              <h2 class="action-card-title">没有匹配的项目</h2>
+              <p class="action-card-desc">换一个关键词或状态，或清除筛选后查看全部项目。</p>
+              <el-button class="action-btn" @click="clearProjectFilters">
+                清除筛选
+              </el-button>
+            </div>
+          </section>
           <article
-            v-for="d in dramas"
+            v-for="d in filteredDramas"
             :key="d.id"
             class="project-card"
           >
             <RouterLink
               class="project-card-link"
-              :to="{ name: 'drama-detail', params: { id: d.id } }"
+              :to="projectCardDestination(d, sourceImportIntent, projectListReturnTo)"
               :aria-label="`打开项目「${d.title || '未命名项目'}」`"
             >
               <div class="project-card-body">
-                <div class="project-card-header">
-                  <h3 class="project-title" :title="d.title || '未命名项目'">{{ d.title || '未命名项目' }}</h3>
+                <div class="project-card-layout">
+                  <div class="project-card-cover" :class="{ 'project-card-cover--empty': !projectCoverUrl(d) }">
+                    <img
+                      v-if="projectCoverUrl(d)"
+                      :src="projectCoverUrl(d)"
+                      :alt="projectCoverAlt(d)"
+                      loading="lazy"
+                      @error="markProjectCoverError(d)"
+                    />
+                    <div v-else class="project-card-cover-placeholder" aria-hidden="true">
+                      <el-icon><PictureFilled /></el-icon>
+                      <span>{{ totalStoryboards(d) > 0 ? '待生成画面' : '尚无画面' }}</span>
+                    </div>
+                  </div>
+                  <div class="project-card-content">
+                    <div class="project-card-topline">
+                      <span class="badge badge-status" :class="'badge-status--' + (d.status || 'draft')">{{ formatStatus(d.status) }}</span>
+                      <span class="project-updated">更新于 {{ formatDate(d.updated_at || d.created_at) }}</span>
+                    </div>
+                    <div class="project-card-header">
+                      <h3 class="project-title" :title="d.title || '未命名项目'">{{ d.title || '未命名项目' }}</h3>
+                    </div>
+                    <p class="project-desc">{{ d.description || '暂无描述' }}</p>
+                    <div class="project-card-stats" aria-label="项目概览">
+                      <span class="project-stat">
+                        <strong>{{ d.episodes?.length || 0 }}</strong>
+                        <span>集</span>
+                      </span>
+                      <span class="project-stat">
+                        <strong>{{ totalStoryboards(d) }}</strong>
+                        <span>分镜</span>
+                      </span>
+                      <span v-if="d.metadata?.aspect_ratio" class="project-stat project-stat--compact">{{ d.metadata.aspect_ratio }}</span>
+                    </div>
+                    <div class="project-badges">
+                      <span v-if="d.style" class="badge badge-style">{{ formatStyle(d.style) }}</span>
+                      <span v-if="d.genre" class="badge badge-genre">{{ formatGenre(d.genre) }}</span>
+                    </div>
+                    <div class="project-card-footer">
+                      <p class="project-meta">创建于 {{ formatDate(d.created_at) || '未知时间' }}</p>
+                      <span class="project-card-continue">{{ sourceImportIntent ? '导入网页 URL' : '继续制作' }} <el-icon aria-hidden="true"><ArrowRight /></el-icon></span>
+                    </div>
+                  </div>
                 </div>
-                <p class="project-desc">{{ d.description || '暂无描述' }}</p>
-                <div class="project-badges">
-                  <span class="badge badge-status" :class="'badge-status--' + (d.status || 'draft')">{{ formatStatus(d.status) }}</span>
-                  <span v-if="d.episodes?.length" class="badge badge-episodes">{{ d.episodes.length }} 集</span>
-                  <span v-if="totalStoryboards(d) > 0" class="badge badge-storyboards">{{ totalStoryboards(d) }} 分镜</span>
-                  <span v-if="d.metadata?.aspect_ratio" class="badge badge-ratio">{{ d.metadata.aspect_ratio }}</span>
-                  <span v-if="d.style" class="badge badge-style">{{ formatStyle(d.style) }}</span>
-                  <span v-if="d.genre" class="badge badge-genre">{{ formatGenre(d.genre) }}</span>
-                </div>
-                <p class="project-meta">{{ formatDate(d.updated_at) }}</p>
               </div>
+            </RouterLink>
+            <RouterLink
+              class="project-card-assets"
+              :to="{ name: 'drama-detail', params: { id: d.id }, query: { returnTo: projectListReturnTo }, hash: '#source-intake-workflow' }"
+              :aria-label="`打开项目「${d.title || '未命名项目'}」的故事素材流程`"
+              @click.stop
+            >
+              <el-icon><Files /></el-icon>故事素材
             </RouterLink>
             <el-dropdown
               class="project-card-menu"
@@ -194,10 +328,25 @@
             </el-dropdown>
           </article>
         </div>
+        <div
+          v-if="!loading && hasSuccessfulListLoad && !listError && total > projectPageSize"
+          class="project-pagination"
+          aria-label="项目列表分页"
+        >
+          <el-pagination
+            v-model:current-page="projectPage"
+            v-model:page-size="projectPageSize"
+            :total="total"
+            :page-sizes="[12, 24, 48]"
+            layout="total, sizes, prev, pager, next"
+            @current-change="loadProjectPage"
+            @size-change="handleProjectPageSizeChange"
+          />
+        </div>
       </div>
     </main>
 
-    <el-dialog
+    <AccessibleDialog
       v-model="showTrashDialog"
       title="项目回收站"
       width="680px"
@@ -213,16 +362,21 @@
         </div>
       </div>
       <div v-loading="trashLoading" class="trash-dialog-content">
-        <p v-if="trashError" class="trash-error" role="alert">{{ trashError }}</p>
+        <div v-if="trashError" class="trash-error" role="alert">
+          <p>{{ trashError }}</p>
+          <el-button type="primary" plain size="small" :loading="trashLoading" @click="loadTrash">
+            <el-icon><RefreshLeft /></el-icon>重试
+          </el-button>
+        </div>
         <div
-          v-else-if="!trashLoading && trashItems.length === 0"
+          v-if="!trashLoading && !trashError && trashItems.length === 0"
           class="trash-empty"
           role="status"
         >
           <el-icon aria-hidden="true"><Delete /></el-icon>
           <p>回收站中没有项目</p>
         </div>
-        <ul v-else-if="trashItems.length > 0" class="trash-list" aria-label="已移除项目">
+        <ul v-if="trashItems.length > 0" class="trash-list" aria-label="已移除项目">
           <li v-for="item in trashItems" :key="item.id" class="trash-list-item">
             <div class="trash-item-main">
               <h3 class="trash-item-title">{{ item.title || '未命名项目' }}</h3>
@@ -236,7 +390,7 @@
               type="primary"
               plain
               :loading="restoringId === item.id"
-              :disabled="listWriteLocked || (restoringId !== null && restoringId !== item.id)"
+              :disabled="restoringId !== null && restoringId !== item.id"
               :aria-label="`恢复项目「${item.title || '未命名项目'}」`"
               @click="restoreFromTrash(item)"
             >
@@ -261,10 +415,10 @@
       <template #footer>
         <el-button @click="showTrashDialog = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 新建项目：先填标题和描述 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="showNewDialog"
       title="新建项目"
       width="480px"
@@ -273,13 +427,13 @@
     >
       <el-form :model="newForm" label-width="80px" label-position="top">
         <el-form-item label="标题" required>
-          <el-input v-model="newForm.title" placeholder="输入项目标题" maxlength="100" show-word-limit />
+          <el-input v-model="newForm.title" autofocus aria-label="项目标题" placeholder="输入项目标题" maxlength="100" show-word-limit />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="newForm.description" type="textarea" :rows="3" placeholder="输入项目描述（选填）" />
         </el-form-item>
         <el-form-item label="画面比例">
-          <el-select v-model="newForm.aspect_ratio" style="width: 100%">
+          <el-select v-model="newForm.aspect_ratio" aria-label="画面比例" style="width: 100%">
             <el-option label="16:9 横屏（默认）" value="16:9" />
             <el-option label="9:16 竖屏（短视频）" value="9:16" />
             <el-option label="3:4 竖版" value="3:4" />
@@ -294,17 +448,23 @@
         <el-button @click="showNewDialog = false">取消</el-button>
         <el-button type="primary" :loading="newSaving" :disabled="listWriteLocked || !newForm.title?.trim()" @click="submitNew">确定</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- AI 配置弹窗 -->
-    <el-dialog v-model="showAiConfigDialog" title="AI 配置" width="90%" destroy-on-close>
-      <AIConfigContent v-if="showAiConfigDialog" />
-    </el-dialog>
+    <AccessibleDialog
+      v-model="showAiConfigDialog"
+      title="AI 配置"
+      width="90%"
+      destroy-on-close
+      :before-close="confirmAiConfigWorkspaceClose"
+    >
+      <AIConfigContent ref="aiConfigContentRef" v-if="showAiConfigDialog" />
+    </AccessibleDialog>
 
     <!-- 公共角色库 -->
-    <el-dialog v-model="showCharLibrary" title="素材库 · 角色" width="720px" destroy-on-close class="library-dialog" @open="loadCharLibraryList">
+    <AccessibleDialog v-model="showCharLibrary" title="素材库 · 角色" width="720px" destroy-on-close class="library-dialog" @open="loadCharLibraryList">
       <div class="library-toolbar">
-        <el-input v-model="charLibraryKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadCharLibrary()" />
+        <el-input v-model="charLibraryKeyword" placeholder="搜索名称或描述" aria-label="搜索角色素材" clearable style="width: 200px" @input="debouncedLoadCharLibrary()" />
       </div>
       <div v-loading="charLibraryLoading" class="library-list">
         <div v-for="item in charLibraryList" :key="item.id" class="library-item">
@@ -329,15 +489,19 @@
             </div>
           </div>
         </div>
-        <div v-if="!charLibraryLoading && charLibraryList.length === 0" class="library-empty">素材库暂无角色，可在项目中将角色「加入素材库」后在此查看</div>
+        <div v-if="charLibraryError" class="library-error" role="alert">
+          <p>{{ charLibraryError }}</p>
+          <el-button size="small" type="primary" plain :loading="charLibraryLoading" @click="loadCharLibraryList">重试</el-button>
+        </div>
+        <div v-if="!charLibraryLoading && !charLibraryError && charLibraryList.length === 0" class="library-empty">{{ charLibraryKeyword.trim() ? '没有匹配的角色，试试其他关键词。' : '素材库暂无角色，可在项目中将角色「加入素材库」后在此查看' }}</div>
       </div>
       <div class="library-pagination">
         <el-pagination v-model:current-page="charLibraryPage" v-model:page-size="charLibraryPageSize" :total="charLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadCharLibraryList" @size-change="loadCharLibraryList" />
       </div>
       <template #footer><el-button @click="showCharLibrary = false">关闭</el-button></template>
-    </el-dialog>
+    </AccessibleDialog>
     <!-- 编辑公共角色 -->
-    <el-dialog v-model="showEditCharLibrary" title="编辑素材角色" width="480px" @close="editCharLibraryForm = null">
+    <AccessibleDialog v-model="showEditCharLibrary" title="编辑素材角色" width="480px" @close="editCharLibraryForm = null">
       <el-form v-if="editCharLibraryForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -369,12 +533,12 @@
         <el-button @click="showEditCharLibrary = false">取消</el-button>
         <el-button type="primary" :loading="editCharLibrarySaving" :disabled="listWriteLocked" @click="submitEditCharLibrary">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 公共场景库 -->
-    <el-dialog v-model="showSceneLibrary" title="素材库 · 场景" width="720px" destroy-on-close class="library-dialog" @open="loadSceneLibraryList">
+    <AccessibleDialog v-model="showSceneLibrary" title="素材库 · 场景" width="720px" destroy-on-close class="library-dialog" @open="loadSceneLibraryList">
       <div class="library-toolbar">
-        <el-input v-model="sceneLibraryKeyword" placeholder="搜索地点或描述" clearable style="width: 200px" @input="debouncedLoadSceneLibrary()" />
+        <el-input v-model="sceneLibraryKeyword" placeholder="搜索地点或描述" aria-label="搜索场景素材" clearable style="width: 200px" @input="debouncedLoadSceneLibrary()" />
       </div>
       <div v-loading="sceneLibraryLoading" class="library-list">
         <div v-for="item in sceneLibraryList" :key="item.id" class="library-item">
@@ -399,15 +563,19 @@
             </div>
           </div>
         </div>
-        <div v-if="!sceneLibraryLoading && sceneLibraryList.length === 0" class="library-empty">素材库暂无场景，可在项目中将场景「加入素材库」后在此查看</div>
+        <div v-if="sceneLibraryError" class="library-error" role="alert">
+          <p>{{ sceneLibraryError }}</p>
+          <el-button size="small" type="primary" plain :loading="sceneLibraryLoading" @click="loadSceneLibraryList">重试</el-button>
+        </div>
+        <div v-if="!sceneLibraryLoading && !sceneLibraryError && sceneLibraryList.length === 0" class="library-empty">{{ sceneLibraryKeyword.trim() ? '没有匹配的场景，试试其他关键词。' : '素材库暂无场景，可在项目中将场景「加入素材库」后在此查看' }}</div>
       </div>
       <div class="library-pagination">
         <el-pagination v-model:current-page="sceneLibraryPage" v-model:page-size="sceneLibraryPageSize" :total="sceneLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadSceneLibraryList" @size-change="loadSceneLibraryList" />
       </div>
       <template #footer><el-button @click="showSceneLibrary = false">关闭</el-button></template>
-    </el-dialog>
+    </AccessibleDialog>
     <!-- 编辑公共场景 -->
-    <el-dialog v-model="showEditSceneLibrary" title="编辑素材场景" width="480px" @close="editSceneLibraryForm = null">
+    <AccessibleDialog v-model="showEditSceneLibrary" title="编辑素材场景" width="480px" @close="editSceneLibraryForm = null">
       <el-form v-if="editSceneLibraryForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -440,12 +608,12 @@
         <el-button @click="showEditSceneLibrary = false">取消</el-button>
         <el-button type="primary" :loading="editSceneLibrarySaving" :disabled="listWriteLocked" @click="submitEditSceneLibrary">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 公共道具库 -->
-    <el-dialog v-model="showPropLibrary" title="素材库 · 道具" width="720px" destroy-on-close class="library-dialog" @open="loadPropLibraryList">
+    <AccessibleDialog v-model="showPropLibrary" title="素材库 · 道具" width="720px" destroy-on-close class="library-dialog" @open="loadPropLibraryList">
       <div class="library-toolbar">
-        <el-input v-model="propLibraryKeyword" placeholder="搜索名称或描述" clearable style="width: 200px" @input="debouncedLoadPropLibrary()" />
+        <el-input v-model="propLibraryKeyword" placeholder="搜索名称或描述" aria-label="搜索道具素材" clearable style="width: 200px" @input="debouncedLoadPropLibrary()" />
       </div>
       <div v-loading="propLibraryLoading" class="library-list">
         <div v-for="item in propLibraryList" :key="item.id" class="library-item">
@@ -470,15 +638,19 @@
             </div>
           </div>
         </div>
-        <div v-if="!propLibraryLoading && propLibraryList.length === 0" class="library-empty">素材库暂无道具，可在项目中将道具「加入素材库」后在此查看</div>
+        <div v-if="propLibraryError" class="library-error" role="alert">
+          <p>{{ propLibraryError }}</p>
+          <el-button size="small" type="primary" plain :loading="propLibraryLoading" @click="loadPropLibraryList">重试</el-button>
+        </div>
+        <div v-if="!propLibraryLoading && !propLibraryError && propLibraryList.length === 0" class="library-empty">{{ propLibraryKeyword.trim() ? '没有匹配的道具，试试其他关键词。' : '素材库暂无道具，可在项目中将道具「加入素材库」后在此查看' }}</div>
       </div>
       <div class="library-pagination">
         <el-pagination v-model:current-page="propLibraryPage" v-model:page-size="propLibraryPageSize" :total="propLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @current-change="loadPropLibraryList" @size-change="loadPropLibraryList" />
       </div>
       <template #footer><el-button @click="showPropLibrary = false">关闭</el-button></template>
-    </el-dialog>
+    </AccessibleDialog>
     <!-- 编辑公共道具 -->
-    <el-dialog v-model="showEditPropLibrary" title="编辑素材道具" width="480px" @close="editPropLibraryForm = null">
+    <AccessibleDialog v-model="showEditPropLibrary" title="编辑素材道具" width="480px" @close="editPropLibraryForm = null">
       <el-form v-if="editPropLibraryForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -510,7 +682,7 @@
         <el-button @click="showEditPropLibrary = false">取消</el-button>
         <el-button type="primary" :loading="editPropLibrarySaving" :disabled="listWriteLocked" @click="submitEditPropLibrary">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <ImagePreviewDialog
       v-model="showImagePreview"
@@ -519,7 +691,7 @@
     />
 
     <!-- 编辑项目：修改标题和故事 -->
-    <el-dialog
+    <AccessibleDialog
       v-model="showEditDialog"
       title="编辑项目"
       width="480px"
@@ -528,7 +700,7 @@
     >
       <el-form :model="editForm" label-width="80px" label-position="top">
         <el-form-item label="标题" required>
-          <el-input v-model="editForm.title" placeholder="输入项目标题" maxlength="100" show-word-limit />
+          <el-input v-model="editForm.title" autofocus aria-label="项目标题" placeholder="输入项目标题" maxlength="100" show-word-limit />
         </el-form-item>
         <el-form-item label="故事">
           <el-input v-model="editForm.description" type="textarea" :rows="3" placeholder="输入故事梗概（选填）" />
@@ -538,16 +710,17 @@
         <el-button @click="showEditDialog = false">取消</el-button>
         <el-button type="primary" :loading="editSaving" :disabled="listWriteLocked || !editForm.title?.trim()" @click="submitEdit">保存</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files, Collection, ArrowDown, MoreFilled, RefreshLeft } from '@element-plus/icons-vue'
+import { Edit, Delete, Setting, Plus, User, PictureFilled, Box, Sunny, Moon, Download, Upload, QuestionFilled, FolderOpened, MagicStick, Files, Collection, ArrowDown, MoreFilled, RefreshLeft, Search, ArrowRight } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
+import { newProjectDestination, projectCardDestination } from '@/utils/sourceImportNavigation.js'
 import { dramaAPI } from '@/api/drama'
 import { characterLibraryAPI } from '@/api/characterLibrary'
 import { sceneLibraryAPI } from '@/api/sceneLibrary'
@@ -558,6 +731,11 @@ import { uploadAPI } from '@/api/upload'
 import { aiAPI } from '@/api/ai'
 import { imagesAPI } from '@/api/images'
 import { taskAPI } from '@/api/task'
+import { filterProjectList, getProjectCover } from '@/utils/projectList'
+import { mergeProjectListFilters, normalizeProjectListFilters, normalizeProjectListReturnTo } from '@/utils/projectListRoute'
+import { createOperationId, logOperation } from '@/utils/operationLog'
+import { describeServiceLoadError, isRequestCanceled, withRequestRetry } from '@/utils/requestError'
+import { sanitizeExportFilename, validateExportBlob, resolveExportFailureMessage } from '@/utils/projectExport'
 
 const router = useRouter()
 const route = useRoute()
@@ -634,14 +812,117 @@ async function doGenerateLibImg(form, prompt, api, reloadFn) {
 const loading = ref(false)
 const dramas = ref([])
 const total = ref(0)
+const projectPage = ref(1)
+const projectPageSize = ref(24)
 const listError = ref('')
 const hasSuccessfulListLoad = ref(false)
 const listIsStale = computed(() => Boolean(listError.value) && hasSuccessfulListLoad.value)
 const listWriteLocked = computed(() => loading.value || !hasSuccessfulListLoad.value || Boolean(listError.value))
 let listRequestSequence = 0
+let projectReloadTimer = null
+let projectListMounted = false
+const initialProjectListFilters = normalizeProjectListFilters(route.query)
+const projectSearch = ref(initialProjectListFilters.q)
+const projectSort = ref(initialProjectListFilters.sort)
+const projectStatusFilter = ref(initialProjectListFilters.status)
+const projectCoverErrors = ref(new Set())
+const projectListReturnTo = computed(() => normalizeProjectListReturnTo(route.fullPath) || '/')
+const sourceImportIntent = computed(() => route.query.intent === 'source-import')
+const normalizedProjectSearch = computed(() => projectSearch.value.trim().toLowerCase())
+const hasProjectFilters = computed(() => Boolean(normalizedProjectSearch.value) || projectStatusFilter.value !== 'all')
+const filteredDramas = computed(() => {
+  return filterProjectList(dramas.value, {
+    keyword: normalizedProjectSearch.value,
+    status: projectStatusFilter.value,
+    sort: 'server',
+    getSearchText: projectSearchText,
+  })
+})
+const projectListCountLabel = computed(() => {
+  const projectTotal = Number(total.value) || 0
+  if (projectTotal === 0) return hasProjectFilters.value ? '0 个项目' : '暂无项目'
+  if (projectTotal <= projectPageSize.value) return `${filteredDramas.value.length} / ${projectTotal} 个项目`
+  const start = (projectPage.value - 1) * projectPageSize.value + 1
+  const end = Math.min(projectTotal, start + projectPageSize.value - 1)
+  return `${start}-${end} / ${projectTotal} 个项目`
+})
+
+let applyingProjectListRoute = false
+
+function scheduleProjectListReload() {
+  projectPage.value = 1
+  listRequestSequence += 1
+  if (projectReloadTimer) clearTimeout(projectReloadTimer)
+  projectReloadTimer = setTimeout(() => {
+    projectReloadTimer = null
+    loadList({ page: 1 })
+  }, 240)
+}
+
+function resolvedProjectListPath(query) {
+  return router.resolve({ path: route.path, query, hash: route.hash }).fullPath
+}
+
+watch(
+  () => route.query,
+  (query) => {
+    const filters = normalizeProjectListFilters(query)
+    applyingProjectListRoute = true
+    projectSearch.value = filters.q
+    projectStatusFilter.value = filters.status
+    projectSort.value = filters.sort
+
+    const nextQuery = mergeProjectListFilters(query, filters)
+    if (resolvedProjectListPath(nextQuery) !== route.fullPath) {
+      router.replace({ path: route.path, query: nextQuery, hash: route.hash }).catch(() => {})
+    } else if (projectListMounted) {
+      scheduleProjectListReload()
+    }
+    nextTick(() => {
+      applyingProjectListRoute = false
+    })
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  [projectSearch, projectStatusFilter, projectSort],
+  () => {
+    if (applyingProjectListRoute) return
+    const nextQuery = mergeProjectListFilters(route.query, {
+      q: projectSearch.value,
+      status: projectStatusFilter.value,
+      sort: projectSort.value,
+    })
+    if (resolvedProjectListPath(nextQuery) === route.fullPath) return
+    router.replace({ path: route.path, query: nextQuery, hash: route.hash }).catch(() => {})
+  },
+  { flush: 'post' },
+)
 
 const showAiConfigDialog = ref(false)
+const aiConfigContentRef = ref(null)
 const vendorLockEnabled = ref(false)
+
+async function confirmAiConfigWorkspaceClose(done) {
+  const canClose = (await aiConfigContentRef.value?.requestClose?.()) !== false
+  if (canClose) done()
+}
+
+async function requestFilmListNavigation() {
+  if (!showAiConfigDialog.value) return true
+  return (await aiConfigContentRef.value?.requestClose?.()) !== false
+}
+
+function handleBeforeUnload(event) {
+  const hasUnsavedAiConfig = showAiConfigDialog.value
+    && aiConfigContentRef.value?.hasUnsavedChanges?.()
+  if (!hasUnsavedAiConfig) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onBeforeRouteLeave(requestFilmListNavigation)
 
 // 图片预览
 const showImagePreview = ref(false)
@@ -668,6 +949,7 @@ const charLibraryPage = ref(1)
 const charLibraryPageSize = ref(20)
 const charLibraryTotal = ref(0)
 const charLibraryKeyword = ref('')
+const charLibraryError = ref('')
 const showEditCharLibrary = ref(false)
 const editCharLibraryForm = ref(null)
 const editCharLibrarySaving = ref(false)
@@ -682,7 +964,10 @@ async function loadCharLibraryList() {
     charLibraryTotal.value = p.total ?? 0
     if (p.page != null) charLibraryPage.value = p.page
     if (p.page_size != null) charLibraryPageSize.value = p.page_size
-  } catch { charLibraryList.value = [] } finally { charLibraryLoading.value = false }
+    charLibraryError.value = ''
+  } catch (error) {
+    charLibraryError.value = describeServiceLoadError(error, { serviceLabel: '角色素材服务' })
+  } finally { charLibraryLoading.value = false }
 }
 function debouncedLoadCharLibrary() {
   if (charLibraryKeywordTimer) clearTimeout(charLibraryKeywordTimer)
@@ -718,6 +1003,7 @@ const sceneLibraryPage = ref(1)
 const sceneLibraryPageSize = ref(20)
 const sceneLibraryTotal = ref(0)
 const sceneLibraryKeyword = ref('')
+const sceneLibraryError = ref('')
 const showEditSceneLibrary = ref(false)
 const editSceneLibraryForm = ref(null)
 const editSceneLibrarySaving = ref(false)
@@ -732,7 +1018,10 @@ async function loadSceneLibraryList() {
     sceneLibraryTotal.value = p.total ?? 0
     if (p.page != null) sceneLibraryPage.value = p.page
     if (p.page_size != null) sceneLibraryPageSize.value = p.page_size
-  } catch { sceneLibraryList.value = [] } finally { sceneLibraryLoading.value = false }
+    sceneLibraryError.value = ''
+  } catch (error) {
+    sceneLibraryError.value = describeServiceLoadError(error, { serviceLabel: '场景素材服务' })
+  } finally { sceneLibraryLoading.value = false }
 }
 function debouncedLoadSceneLibrary() {
   if (sceneLibraryKeywordTimer) clearTimeout(sceneLibraryKeywordTimer)
@@ -769,6 +1058,7 @@ const propLibraryPage = ref(1)
 const propLibraryPageSize = ref(20)
 const propLibraryTotal = ref(0)
 const propLibraryKeyword = ref('')
+const propLibraryError = ref('')
 const showEditPropLibrary = ref(false)
 const editPropLibraryForm = ref(null)
 const editPropLibrarySaving = ref(false)
@@ -783,7 +1073,10 @@ async function loadPropLibraryList() {
     propLibraryTotal.value = p.total ?? 0
     if (p.page != null) propLibraryPage.value = p.page
     if (p.page_size != null) propLibraryPageSize.value = p.page_size
-  } catch { propLibraryList.value = [] } finally { propLibraryLoading.value = false }
+    propLibraryError.value = ''
+  } catch (error) {
+    propLibraryError.value = describeServiceLoadError(error, { serviceLabel: '道具素材服务' })
+  } finally { propLibraryLoading.value = false }
 }
 function debouncedLoadPropLibrary() {
   if (propLibraryKeywordTimer) clearTimeout(propLibraryKeywordTimer)
@@ -817,7 +1110,9 @@ const newSaving = ref(false)
 const exportingId = ref(null)
 const exportFailure = ref(null)
 const importing = ref(false)
+const importFailure = ref(null)
 const importFileInput = ref(null)
+const importTriggerButton = ref(null)
 
 const showTrashDialog = ref(false)
 const trashItems = ref([])
@@ -858,35 +1153,139 @@ const editForm = ref({ id: null, title: '', description: '' })
 const editSaving = ref(false)
 
 function describeProjectLoadError(error) {
-  const backendMessage = error?.response?.data?.error?.message
-  if (backendMessage) return backendMessage
-  const status = Number(error?.response?.status)
-  if (Number.isInteger(status) && status > 0) return `项目服务暂时不可用（HTTP ${status}）`
-  if (error?.code === 'ECONNABORTED') return '连接项目服务超时，请稍后重试'
-  return '无法连接项目服务，请检查服务是否已启动'
+  return describeServiceLoadError(error, { serviceLabel: '项目服务' })
 }
 
-async function loadList() {
+let listAbortController = null
+
+async function loadList(options = {}) {
+  const requestedPage = Math.max(1, Number(options.page ?? projectPage.value) || 1)
+  const requestedPageSize = Math.max(1, Number(options.pageSize ?? projectPageSize.value) || 24)
+  listAbortController?.abort()
+  const controller = new AbortController()
+  listAbortController = controller
   const requestId = ++listRequestSequence
+  const operationId = createOperationId('project_list_load')
   loading.value = true
   let loaded = false
+  logOperation({
+    operation: 'project_list_load',
+    operationId,
+    phase: 'start',
+    page: requestedPage,
+    pageSize: requestedPageSize,
+  })
+  const startedAt = Date.now()
   try {
-    const res = await dramaAPI.list({ page: 1, page_size: 50 })
-    if (requestId !== listRequestSequence) return false
+    const res = await withRequestRetry(
+      () => dramaAPI.list({
+        page: requestedPage,
+        page_size: requestedPageSize,
+        keyword: normalizedProjectSearch.value || undefined,
+        status: projectStatusFilter.value !== 'all' ? projectStatusFilter.value : undefined,
+        sort: projectSort.value,
+      }, { signal: controller.signal }),
+      { maxAttempts: 2, delayMs: 400, signal: controller.signal },
+    )
+    if (requestId !== listRequestSequence) {
+      logOperation({
+        operation: 'project_list_load',
+        operationId,
+        phase: 'cancel',
+        status: 'stale',
+        durationMs: Date.now() - startedAt,
+      })
+      return false
+    }
+    const pagination = res?.pagination ?? {}
+    const nextTotal = Number(pagination.total ?? 0) || 0
+    const nextPageSize = Number(pagination.page_size ?? requestedPageSize) || requestedPageSize
+    const lastPage = Math.max(1, Math.ceil(nextTotal / nextPageSize))
+    if (nextTotal > 0 && requestedPage > lastPage) {
+      projectPage.value = lastPage
+      return await loadList({ page: lastPage, pageSize: nextPageSize })
+    }
     dramas.value = res?.items ?? []
-    total.value = res?.pagination?.total ?? 0
+    total.value = nextTotal
+    projectPage.value = Math.min(Math.max(1, Number(pagination.page ?? requestedPage) || requestedPage), lastPage)
+    projectPageSize.value = nextPageSize
+    projectCoverErrors.value = new Set()
     hasSuccessfulListLoad.value = true
     listError.value = ''
     loaded = true
   } catch (error) {
+    if (isRequestCanceled(error) || requestId !== listRequestSequence) {
+      return false
+    }
     if (requestId === listRequestSequence) {
       listError.value = describeProjectLoadError(error)
+      logOperation({
+        operation: 'project_list_load',
+        operationId,
+        phase: 'error',
+        durationMs: Date.now() - startedAt,
+        error: listError.value,
+      })
     }
   } finally {
     if (requestId === listRequestSequence) loading.value = false
   }
-  if (loaded) maybeOpenNewDialogFromRoute()
+  if (loaded) {
+    logOperation({
+      operation: 'project_list_load',
+      operationId,
+      phase: 'success',
+      durationMs: Date.now() - startedAt,
+      page: projectPage.value,
+      total: total.value,
+    })
+    maybeOpenNewDialogFromRoute()
+  }
   return loaded
+}
+
+function loadProjectPage(page) {
+  return loadList({ page })
+}
+
+function handleProjectPageSizeChange(pageSize) {
+  projectPage.value = 1
+  return loadList({ page: 1, pageSize })
+}
+
+function projectSearchText(drama) {
+  return [
+    drama?.title,
+    drama?.description,
+    formatStatus(drama?.status),
+    formatStyle(drama?.style),
+    formatGenre(drama?.genre),
+    drama?.metadata?.aspect_ratio,
+  ].filter(Boolean).join(' ').toLowerCase()
+}
+
+function projectCoverUrl(drama) {
+  const id = String(drama?.id ?? '')
+  if (projectCoverErrors.value.has(id)) return ''
+  return getProjectCover(drama)?.url || ''
+}
+
+function projectCoverAlt(drama) {
+  const title = drama?.title || '未命名项目'
+  return `项目「${title}」画面预览`
+}
+
+function markProjectCoverError(drama) {
+  const id = String(drama?.id ?? '')
+  if (!id) return
+  const next = new Set(projectCoverErrors.value)
+  next.add(id)
+  projectCoverErrors.value = next
+}
+
+function clearProjectFilters() {
+  projectSearch.value = ''
+  projectStatusFilter.value = 'all'
 }
 
 function formatDate(val) {
@@ -975,8 +1374,6 @@ async function loadTrash() {
     trashTotal.value = res?.pagination?.total ?? 0
     if (res?.pagination?.page != null) trashPage.value = res.pagination.page
   } catch (error) {
-    trashItems.value = []
-    trashTotal.value = 0
     trashError.value = error.message || '回收站加载失败，请重试'
   } finally {
     trashLoading.value = false
@@ -984,7 +1381,6 @@ async function loadTrash() {
 }
 
 async function restoreFromTrash(item) {
-  if (listWriteLocked.value) return
   if (restoringId.value !== null) return
   restoringId.value = item.id
   trashError.value = ''
@@ -1031,7 +1427,7 @@ async function submitNew() {
     showNewDialog.value = false
     ElMessage.success('项目已创建')
     loadList()
-    router.push('/drama/' + drama.id)
+    router.push(newProjectDestination(drama, sourceImportIntent.value, projectListReturnTo.value))
   } catch (e) {
     ElMessage.error(e.message || '创建失败')
   } finally {
@@ -1072,62 +1468,6 @@ function handleProjectAction(action, drama) {
   if (action === 'trash') return moveToTrash(drama)
 }
 
-function sanitizeExportFilename(title) {
-  let stem = String(title || 'drama')
-    .replace(/\.zip$/i, '')
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
-    .replace(/^\.+/, '')
-    .replace(/[. ]+$/g, '')
-    .trim()
-    .slice(0, 80)
-  if (!stem) stem = 'drama'
-  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem)) stem = `project-${stem}`
-  return `${stem}.zip`
-}
-
-async function inspectExportJsonBlob(blob) {
-  const contentType = String(blob?.type || '').toLowerCase()
-  const prefix = await blob.slice(0, Math.min(blob.size, 2048)).text()
-  const trimmed = prefix.trimStart()
-  const looksLikeJson = contentType.includes('json') || trimmed.startsWith('{') || trimmed.startsWith('[')
-  if (!looksLikeJson) return null
-  try {
-    const payload = JSON.parse(await blob.text())
-    const message = payload?.error?.message || payload?.message || (typeof payload?.error === 'string' ? payload.error : '')
-    return message || '导出服务返回了 JSON，而不是项目压缩包'
-  } catch (_) {
-    return '导出服务返回了无法识别的错误内容'
-  }
-}
-
-async function validateExportBlob(blob) {
-  if (typeof Blob === 'undefined' || !(blob instanceof Blob)) throw new Error('导出服务未返回文件')
-  if (blob.size <= 0) throw new Error('导出的项目包为空')
-  const jsonError = await inspectExportJsonBlob(blob)
-  if (jsonError) throw new Error(jsonError)
-  const signature = new Uint8Array(await blob.slice(0, 4).arrayBuffer())
-  const isZip = signature[0] === 0x50 && signature[1] === 0x4b && (
-    (signature[2] === 0x03 && signature[3] === 0x04)
-    || (signature[2] === 0x05 && signature[3] === 0x06)
-    || (signature[2] === 0x07 && signature[3] === 0x08)
-  )
-  if (!isZip) throw new Error('导出文件格式无效，请重试')
-  return blob
-}
-
-async function resolveExportFailureMessage(error) {
-  const responseBody = error?.response?.data
-  if (typeof Blob !== 'undefined' && responseBody instanceof Blob && responseBody.size > 0) {
-    const blobMessage = await inspectExportJsonBlob(responseBody)
-    if (blobMessage) return blobMessage
-  }
-  if (responseBody && typeof responseBody === 'object') {
-    const responseMessage = responseBody?.error?.message || responseBody?.message
-    if (responseMessage) return responseMessage
-  }
-  return error?.message || '项目包导出失败，请重试'
-}
-
 async function onExport(d) {
   if (exportingId.value !== null) return
   exportingId.value = d.id
@@ -1158,6 +1498,75 @@ async function onExport(d) {
   }
 }
 
+function openSourceImportProject() {
+  if (listWriteLocked.value) return
+  showNewDialog.value = true
+}
+
+function clearImportFailure() {
+  importFailure.value = null
+}
+
+async function dismissImportFailure() {
+  clearImportFailure()
+  await nextTick()
+  const trigger = importTriggerButton.value?.$el || importTriggerButton.value
+  trigger?.focus?.()
+}
+
+function normalizeImportFailureFilename(name) {
+  let fileName = String(name || '')
+    .split(/[\\/]/)
+    .pop()
+    ?.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+    .replace(/^[. ]+/, '')
+    .replace(/[. ]+$/g, '')
+    .trim()
+    .slice(0, 120)
+  if (!fileName) fileName = '未命名项目包'
+  return fileName
+}
+
+function sanitizeImportFailureReason(message) {
+  const collapsed = String(message || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!collapsed) return '项目包导入失败，请重新选择项目包后重试'
+
+  const redacted = collapsed
+    .replace(/file:\/\/\/\S+/gi, '本地文件')
+    .replace(/[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]*/g, '本地文件')
+    .replace(/\/(?:[^/\s]+\/)+[^/\s]*/g, '服务器文件')
+    .trim()
+
+  if (/(traceback|stack|sqlite|sqlstate|sql\b|errno|exception|node_modules|backend-node|frontweb| at [A-Za-z_$][\w$]*\s*\()/i.test(redacted)) {
+    return '项目包解析失败，请确认文件完整且与当前版本兼容'
+  }
+
+  return redacted.slice(0, 160) || '项目包导入失败，请重新选择项目包后重试'
+}
+
+function resolveImportFailureMessage(error) {
+  const responseBody = error?.response?.data
+  if (typeof responseBody === 'string' && responseBody.trim()) {
+    return sanitizeImportFailureReason(responseBody)
+  }
+  if (responseBody && typeof responseBody === 'object') {
+    const responseMessage = responseBody?.error?.message
+      || responseBody?.message
+      || (typeof responseBody?.error === 'string' ? responseBody.error : '')
+    if (responseMessage) return sanitizeImportFailureReason(responseMessage)
+  }
+  return sanitizeImportFailureReason(error?.message)
+}
+
+function setImportFailure(fileName, error) {
+  importFailure.value = {
+    fileName: normalizeImportFailureFilename(fileName),
+    message: resolveImportFailureMessage(error),
+  }
+}
+
 function triggerImport() {
   if (listWriteLocked.value) return
   importFileInput.value?.click()
@@ -1171,18 +1580,19 @@ async function onImportFile(e) {
   const file = e.target.files?.[0]
   if (!file) return
   e.target.value = ''
-  if (!file.name.endsWith('.zip')) {
-    ElMessage.error('请选择 .zip 格式的文件')
+  clearImportFailure()
+  if (!/\.zip$/i.test(file.name || '')) {
+    setImportFailure(file.name, new Error('请选择 .zip 格式的项目包'))
     return
   }
   importing.value = true
   try {
     const data = await dramaAPI.importDrama(file)
+    importFailure.value = null
     ElMessage.success(`导入成功：${data?.title || '项目'}`) 
     loadList()
-  } catch (e) {
-    const msg = e.response?.data?.message || e.message || '导入失败'
-    ElMessage.error(msg)
+  } catch (error) {
+    setImportFailure(file.name, error)
   } finally {
     importing.value = false
   }
@@ -1210,12 +1620,21 @@ async function moveToTrash(d) {
 }
 
 onMounted(async () => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  projectListMounted = true
   loadList()
   loadExamples()
   try {
     const lock = await aiAPI.getVendorLock()
     vendorLockEnabled.value = !!lock?.enabled
   } catch (_) {}
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  projectListMounted = false
+  if (projectReloadTimer) clearTimeout(projectReloadTimer)
+  listAbortController?.abort()
 })
 </script>
 
@@ -1224,6 +1643,18 @@ onMounted(async () => {
   min-height: 100vh;
   background: #08080d;
   color: #e4e4e7;
+}
+.source-import-intent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  margin: 16px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--el-border-color-light);
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-regular);
 }
 .header {
   background: rgba(12, 12, 18, 0.82);
@@ -1246,7 +1677,7 @@ onMounted(async () => {
 }
 .logo {
   margin: 0;
-  cursor: pointer;
+  cursor: default;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -1291,6 +1722,22 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.utility-icon-button {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .btn-trash {
@@ -1389,6 +1836,66 @@ html.light .btn-import {
 .projects-wrap {
   min-height: 200px;
 }
+.project-pagination {
+  display: flex;
+  justify-content: center;
+  min-height: 56px;
+  margin-top: 18px;
+  padding: 10px 0 2px;
+}
+.workspace-overview {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+  padding: 4px 0 2px;
+}
+.workspace-copy {
+  min-width: 0;
+}
+.workspace-title {
+  margin: 0;
+  color: #f4f4f5;
+  font-size: 1.2rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+.workspace-count {
+  margin: 5px 0 0;
+  color: #8b8b97;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.workspace-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: min(520px, 100%);
+}
+.workspace-search {
+  width: 320px;
+}
+.workspace-status {
+  width: 124px;
+}
+.workspace-sort {
+  width: 150px;
+}
+html.dark .workspace-search :deep(.el-input__wrapper),
+html.dark .workspace-sort :deep(.el-select__wrapper) {
+  background: #18181b;
+  box-shadow: 0 0 0 1px #3f3f46;
+}
+html.dark .workspace-search :deep(.el-input__inner),
+html.dark .workspace-sort :deep(.el-select__selected-item),
+html.dark .workspace-sort :deep(.el-select__placeholder) {
+  color: #e4e4e7;
+}
+html.dark .workspace-search :deep(.el-input__inner::placeholder) {
+  color: #71717a;
+}
 .data-load-state,
 .export-failure-state {
   display: flex;
@@ -1412,6 +1919,16 @@ html.light .btn-import {
 .data-load-state__content,
 .export-failure-state > div {
   min-width: 0;
+}
+.import-failure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.import-failure-filename {
+  color: inherit;
+  overflow-wrap: anywhere;
 }
 .data-load-state h2,
 .export-failure-state strong {
@@ -1467,7 +1984,7 @@ html.light .btn-import {
 .project-card-link {
   display: block;
   height: 100%;
-  padding: 20px;
+  padding: 14px 16px;
   border-radius: inherit;
   color: inherit;
   text-decoration: none;
@@ -1475,7 +1992,8 @@ html.light .btn-import {
 }
 .project-card-link:focus-visible {
   outline: 2px solid #a5b4fc;
-  outline-offset: -3px;
+  outline-offset: -4px;
+  box-shadow: inset 0 0 0 1px rgba(165, 180, 252, 0.35), 0 0 0 4px rgba(99, 102, 241, 0.22);
 }
 .project-card:focus-within {
   border-color: rgba(129, 140, 248, 0.75);
@@ -1520,6 +2038,17 @@ html.light .btn-import {
   grid-column: 1 / -1;
   min-height: 260px;
   padding: 44px 12px;
+}
+.action-card--search-empty {
+  min-height: 210px;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(148, 163, 184, 0.34);
+  background: rgba(24, 24, 30, 0.42);
+}
+.action-card--search-empty .action-card-inner {
+  align-items: center;
+  text-align: center;
 }
 .action-card-title {
   font-size: 1.35rem;
@@ -1618,6 +2147,70 @@ html.light .btn-import {
 .project-card-body {
   min-width: 0;
 }
+.project-card-layout {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 182px;
+}
+.project-card-cover {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 182px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 7px;
+  background: #202028;
+  color: #71717a;
+}
+.project-card-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.project-card-cover-placeholder {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 12px 8px;
+  color: #8b8b97;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  text-align: center;
+}
+.project-card-cover-placeholder .el-icon {
+  color: #a5b4fc;
+  font-size: 22px;
+}
+.project-card-cover--empty {
+  border-style: dashed;
+  background: rgba(99, 102, 241, 0.06);
+}
+.project-card-content {
+  display: flex;
+  min-width: 0;
+  min-height: 100%;
+  flex-direction: column;
+}
+.project-card-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-right: 36px;
+}
+.project-updated {
+  overflow: hidden;
+  color: #8b8b97;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .project-card-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1640,12 +2233,46 @@ html.light .btn-import {
 .project-desc {
   font-size: 0.875rem;
   color: #a1a1aa;
-  margin: 0 0 12px;
+  margin: 0 0 14px;
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.project-card-stats {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.project-stat {
+  display: inline-flex;
+  min-width: 64px;
+  min-height: 42px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 7px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #a1a1aa;
+  font-size: 0.72rem;
+  line-height: 1.1;
+}
+.project-stat strong {
+  color: #f4f4f5;
+  font-size: 1rem;
+  font-weight: 680;
+  line-height: 1;
+}
+.project-stat--compact {
+  min-width: 58px;
+  align-items: center;
+  color: #fbbf24;
+  font-family: monospace;
+  font-size: 0.86rem;
 }
 .project-badges {
   display: flex;
@@ -1713,6 +2340,63 @@ html.light .btn-import {
   font-size: 0.75rem;
   color: #71717a;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+}
+.project-card-continue {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  color: #a5b4fc;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.project-card-assets {
+  position: absolute;
+  left: 28px;
+  bottom: 24px;
+  z-index: 3;
+  display: inline-flex;
+  width: 88px;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(199, 210, 254, 0.45);
+  border-radius: 6px;
+  background: rgba(9, 9, 14, 0.82);
+  color: #e0e7ff;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  backdrop-filter: blur(8px);
+}
+.project-card-assets:hover,
+.project-card-assets:focus-visible {
+  border-color: #a5b4fc;
+  background: rgba(49, 46, 129, 0.92);
+  color: #ffffff;
+}
+.project-card-assets:focus-visible {
+  outline: 2px solid #c7d2fe;
+  outline-offset: 2px;
+}
+.project-card-link:hover .project-card-continue,
+.project-card-link:focus-visible .project-card-continue {
+  color: #c7d2fe;
 }
 .project-menu-button {
   --el-button-size: 30px;
@@ -1819,10 +2503,29 @@ html.light .btn-import {
   margin: 0;
 }
 .trash-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px;
   border-left: 3px solid #f87171;
   background: rgba(239, 68, 68, 0.08);
   color: #fca5a5;
+}
+.library-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #f87171;
+  background: rgba(239, 68, 68, 0.08);
+  color: #fca5a5;
+}
+.library-error p,
+.trash-error p {
+  margin: 0;
 }
 .trash-live-status {
   min-height: 20px;
@@ -1942,6 +2645,36 @@ html.light .project-card:hover {
   background: #ffffff;
   box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
 }
+html.light .project-card-cover {
+  border-color: #e1e5eb;
+  background: #f3f4f6;
+  color: #6b7280;
+}
+html.light .project-card-cover--empty {
+  background: #f8f7ff;
+  border-color: #cfd3e1;
+}
+html.light .project-card-cover-placeholder .el-icon {
+  color: #6366f1;
+}
+html.light .project-card-continue {
+  color: #4f46e5;
+}
+html.light .project-card-assets {
+  border-color: rgba(79, 70, 229, 0.4);
+  background: rgba(255, 255, 255, 0.9);
+  color: #4338ca;
+}
+html.light .project-card-assets:hover,
+html.light .project-card-assets:focus-visible {
+  border-color: #4f46e5;
+  background: #eef2ff;
+  color: #312e81;
+}
+html.light .project-card-link:hover .project-card-continue,
+html.light .project-card-link:focus-visible .project-card-continue {
+  color: #3730a3;
+}
 html.light .action-card {
   background: transparent;
 }
@@ -1949,10 +2682,24 @@ html.light .action-card:hover {
   background: transparent;
 }
 html.light .action-card-title { color: #20242c; }
+html.light .workspace-title { color: #20242c; }
+html.light .workspace-count,
+html.light .project-updated { color: #6b7280; }
 html.light .project-title { color: #20242c; }
 html.light .project-desc { color: #4b5563; }
 html.light .project-meta { color: #6b7280; }
+html.light .action-card--search-empty {
+  background: #ffffff;
+  border-color: #d6dbe3;
+}
 html.light .action-card-desc { color: #6b7280; }
+html.light .project-stat {
+  background: #f8fafc;
+  border-color: #e1e5eb;
+  color: #6b7280;
+}
+html.light .project-stat strong { color: #20242c; }
+html.light .project-stat--compact { color: #92400e; }
 html.light .action-btn-import {
   --el-button-bg-color: #ffffff;
   --el-button-border-color: #b8c0cc;
@@ -1992,6 +2739,7 @@ html.light .library-item {
 html.light .library-item-name { color: #1e1b4b; }
 html.light .library-item-desc { color: #4b5563; }
 html.light .library-empty { color: #6b7280; }
+html.light .library-error { color: #b91c1c; background: #fef2f2; }
 html.light .lib-img-thumb {
   background: #f3f4f6;
   border-color: #e5e7eb;
@@ -2019,6 +2767,51 @@ html.light .badge-status--draft {
   background: rgba(107, 114, 128, 0.1);
   color: #4b5563;
   border-color: rgba(107, 114, 128, 0.25);
+}
+
+@media (max-width: 860px) {
+  .workspace-overview {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .workspace-controls {
+    justify-content: stretch;
+    min-width: 0;
+  }
+  .workspace-search {
+    flex: 1 1 auto;
+    width: auto;
+  }
+  .workspace-status,
+  .workspace-sort {
+    flex: 0 1 150px;
+  }
+}
+
+@media (max-width: 620px) {
+  .workspace-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .workspace-search,
+  .workspace-status,
+  .workspace-sort {
+    width: 100%;
+  }
+  .project-card-topline {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .project-card-layout {
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 12px;
+    min-height: 168px;
+  }
+  .project-card-cover {
+    min-height: 168px;
+  }
 }
 
 </style>

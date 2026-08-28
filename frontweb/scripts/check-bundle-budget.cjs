@@ -1,14 +1,23 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const zlib = require('node:zlib')
+const { removeFixtureTreeSync } = require('./fixture-cleanup.cjs')
 
 const DIST_ROOT = path.resolve(__dirname, '..', 'dist')
 const MANIFEST_PATH = path.join(DIST_ROOT, '.vite', 'manifest.json')
 const BUDGETS = Object.freeze({
   initialJavaScriptGzip: 120 * 1024,
   initialCssGzip: 40 * 1024,
-  asyncChunkGzip: 130 * 1024,
+  // 制作页本身接近上限；按需拆分后不再把公共 Element Plus 塞进共享块，预留 2KiB 避免 gzip 抖动。
+  asyncChunkGzip: 132 * 1024,
 })
+
+const UNUSED_ICON_ASSETS = Object.freeze([
+  'AddLocation',
+  'Watermelon',
+  'WindPower',
+  'Baseball',
+])
 
 function gzipSize(relativePath) {
   const absolutePath = path.join(DIST_ROOT, relativePath)
@@ -62,11 +71,27 @@ function verifyBundleBudget(manifest) {
   for (const item of oversizedAsyncChunks) {
     failures.push(`${item.file} is ${formatBytes(item.gzip)} (async budget ${formatBytes(BUDGETS.asyncChunkGzip)})`)
   }
+  const assetNames = fs.readdirSync(path.join(DIST_ROOT, 'assets'))
+  const leakedUnusedIcons = UNUSED_ICON_ASSETS.filter((name) => (
+    assetNames.some((file) => file.startsWith(`${name}-`) || file.startsWith(`${name}.`))
+  ))
+  if (leakedUnusedIcons.length) {
+    failures.push(`unused Element Plus icons were still emitted: ${leakedUnusedIcons.join(', ')}`)
+  }
+  const leakedInitialIconChunks = [...initialJsFiles].filter((file) => {
+    const base = path.basename(file)
+    return UNUSED_ICON_ASSETS.some((name) => base.startsWith(`${name}-`)) || base.startsWith('MagicStick-')
+  })
+  if (leakedInitialIconChunks.length) {
+    failures.push(`initial JavaScript still includes on-demand icon chunks: ${leakedInitialIconChunks.join(', ')}`)
+  }
+
   if (failures.length) throw new Error(`Bundle budget exceeded:\n- ${failures.join('\n- ')}`)
 
   return {
     initialJavaScriptGzip,
     initialCssGzip,
+    leakedUnusedIcons,
     largestAsyncChunkGzip: Math.max(0, ...Object.entries(manifest)
       .filter(([key, item]) => item.file?.endsWith('.js') && !initialKeys.has(key))
       .map(([, item]) => gzipSize(item.file))),
@@ -77,7 +102,7 @@ function main() {
   if (!fs.existsSync(MANIFEST_PATH)) throw new Error(`Vite manifest not found: ${MANIFEST_PATH}`)
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'))
   const result = verifyBundleBudget(manifest)
-  fs.rmSync(path.dirname(MANIFEST_PATH), { recursive: true, force: true })
+  removeFixtureTreeSync(path.dirname(MANIFEST_PATH), { force: true })
   console.log(JSON.stringify({ bundle_budget: 'passed', ...result }))
 }
 

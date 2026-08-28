@@ -1,16 +1,16 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawnSync } = require('child_process');
+const childProcess = require('child_process');
+const { randomUUID } = require('crypto');
 const {
   getFfmpegPath,
   getFfprobePath,
-  hasLocalFfmpeg,
-  validateFfmpegTools,
-  getAvailableFfmpegEncoders,
 } = require('../utils/ffmpegPath');
 const storageLayout = require('./storageLayout');
 const uploadService = require('./uploadService');
+const { finishOperation } = require('./operationRegistry');
+const dramaWriteGuard = require('./dramaWriteGuard');
 
 const STRICT_PRODUCTION_MODE = 'strict_production';
 const MAX_STRICT_SCENES = 100;
@@ -19,6 +19,31 @@ const MAX_REMOTE_MERGE_DOWNLOAD_BYTES = 1024 * 1024 * 1024;
 const MAX_REMOTE_VIDEO_REDIRECTS = 3;
 const REMOTE_VIDEO_TIMEOUT_MS = 60000;
 const FFMPEG_TIMEOUT_MS = 15 * 60 * 1000;
+const MEDIA_TOOL_CHECK_TIMEOUT_MS = 10000;
+const FFPROBE_TIMEOUT_MS = 30000;
+const FFMPEG_OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024;
+
+function operationCancelledError(reason) {
+  const error = reason instanceof Error ? reason : new Error(String(reason || '视频合成已取消'));
+  error.name = 'AbortError';
+  error.code = 'OPERATION_CANCELLED';
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw operationCancelledError(signal.reason);
+}
+
+function isOperationCancelled(error, signal) {
+  return signal?.aborted || error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
+}
+
+function removeFileIfPresent(filePath) {
+  if (!filePath) return;
+  try {
+    fs.rmSync(filePath, { force: true });
+  } catch (_) {}
+}
 
 function pathWithinStorage(storageRoot, relativePath) {
   const root = path.resolve(storageRoot);
@@ -28,6 +53,7 @@ function pathWithinStorage(storageRoot, relativePath) {
 }
 
 function list(db, query) {
+  if (query.drama_id && !require('./dramaWriteGuard').canReadDrama(db, Number(query.drama_id))) return [];
   let sql = 'FROM video_merges WHERE deleted_at IS NULL';
   const params = [];
   if (query.episode_id) {
@@ -38,8 +64,8 @@ function list(db, query) {
     sql += ' AND drama_id = ?';
     params.push(query.drama_id);
   }
-  const rows = db.prepare('SELECT * ' + sql + ' ORDER BY created_at DESC').all(...params);
-  return rows.map(rowToItem);
+  const rows = db.prepare('SELECT * ' + sql + ' ORDER BY created_at DESC, id DESC').all(...params);
+  return rows.filter((row) => require('./dramaWriteGuard').canReadResource(db, 'video_merges', row.id)).map(rowToItem);
 }
 
 function rowToItem(r) {
@@ -60,6 +86,7 @@ function rowToItem(r) {
 }
 
 function getById(db, id) {
+  if (!require('./dramaWriteGuard').canReadResource(db, 'video_merges', id)) return null;
   const r = db.prepare('SELECT * FROM video_merges WHERE id = ? AND deleted_at IS NULL').get(Number(id));
   return r ? rowToItem(r) : null;
 }
@@ -100,14 +127,14 @@ function normalizeMergeVideoReference(value, storageRoot, trustedOrigins = []) {
     return uploadService.assertPublicHttpUrlSyntax(text).toString();
   }
   const local = uploadService.resolveStorageReference(storageRoot, text);
-  if (!local) throw new uploadService.UnsafeMediaReferenceError('Video reference must be inside storage.');
+  if (!local) throw new uploadService.UnsafeMediaReferenceError('视频引用必须位于 storage 目录内');
   return local.relativePath;
 }
 
 function normalizeMergeScenes(reqScenes, db) {
   if (reqScenes == null) return [];
   if (!Array.isArray(reqScenes) || reqScenes.length > MAX_STRICT_SCENES) {
-    throw new uploadService.UnsafeMediaReferenceError('Video merge scene list is invalid or too large.');
+    throw new uploadService.UnsafeMediaReferenceError('合成分镜列表无效或数量过多');
   }
   const storageRoot = getStorageRoot();
   const trustedOrigins = configuredProviderOrigins(db);
@@ -121,7 +148,6 @@ function create(db, log, req) {
   const now = new Date().toISOString();
   const scenes = normalizeMergeScenes(req.scenes, db);
   const taskService = require('./taskService');
-  const task = taskService.createTask(db, log, 'video_merge', String(req.episode_id || ''));
   const mergeOptionsJson = (() => {
     const source = req.merge_options;
     const o = source && typeof source === 'object' && !Array.isArray(source) ? { ...source } : {};
@@ -129,27 +155,40 @@ function create(db, log, req) {
     if (req.strict_production === true && o.strict_production == null) o.strict_production = true;
     return JSON.stringify(o);
   })();
-  const info = db.prepare(
-    `INSERT INTO video_merges (episode_id, drama_id, title, provider, model, status, scenes, merge_options, task_id, created_at)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`
-  ).run(
-    Number(req.episode_id) || 0,
-    Number(req.drama_id) || 0,
-    req.title ?? null,
-    req.provider || 'ffmpeg',
-    req.model ?? null,
-    JSON.stringify(scenes),
-    mergeOptionsJson,
-    task.id,
-    now
-  );
-  return { merge_id: info.lastInsertRowid, task_id: task.id, ...getById(db, info.lastInsertRowid) };
+  const persist = db.transaction(() => {
+    const episode = dramaWriteGuard.assertEpisodeWritable(db, req.episode_id, req.drama_id);
+    const episodeId = Number(episode.id);
+    const dramaId = Number(episode.drama_id);
+    const task = taskService.createTask(db, log, 'video_merge', String(episodeId));
+    const info = db.prepare(
+      `INSERT INTO video_merges (episode_id, drama_id, title, provider, model, status, scenes, merge_options, task_id, created_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`
+    ).run(
+      episodeId,
+      dramaId,
+      req.title ?? null,
+      req.provider || 'ffmpeg',
+      req.model ?? null,
+      JSON.stringify(scenes),
+      mergeOptionsJson,
+      task.id,
+      now
+    );
+    return { mergeId: Number(info.lastInsertRowid), taskId: task.id };
+  });
+  const created = typeof persist.immediate === 'function' ? persist.immediate() : persist();
+  taskService.ensureTaskOperation(created.taskId);
+  return { merge_id: created.mergeId, task_id: created.taskId, ...getById(db, created.mergeId) };
 }
 
 function deleteById(db, log, id) {
   const now = new Date().toISOString();
-  const result = db.prepare('UPDATE video_merges SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL').run(now, Number(id));
-  return result.changes > 0;
+  return dramaWriteGuard.runResourceWrite(db, 'video_merges', id, (row) => {
+    const result = db.prepare(
+      'UPDATE video_merges SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL'
+    ).run(now, Number(row.id));
+    return result.changes > 0;
+  });
 }
 
 /** 获取 storage 根目录（绝对路径） */
@@ -162,6 +201,7 @@ function getStorageRoot() {
 
 /** 将 video_url 解析为受控 storage 文件，或安全下载到 temp。 */
 async function resolveVideoToLocalPath(videoUrl, baseUrl, storageRoot, tempDir, index, log, options = {}) {
+  throwIfAborted(options.signal);
   void baseUrl;
   if (!videoUrl || typeof videoUrl !== 'string') return null;
   const u = videoUrl.trim();
@@ -193,7 +233,7 @@ async function resolveVideoToLocalPath(videoUrl, baseUrl, storageRoot, tempDir, 
   try {
     const budget = options.downloadBudget || { remainingBytes: MAX_REMOTE_MERGE_DOWNLOAD_BYTES };
     const maxBytes = Math.min(MAX_REMOTE_VIDEO_BYTES, Math.max(0, Number(budget.remainingBytes) || 0));
-    if (maxBytes <= 0) throw new Error('remote video merge download budget exhausted');
+    if (maxBytes <= 0) throw new Error('远程视频下载配额已用完');
     uploadService.assertUploadDiskCapacity(tempDir, maxBytes);
     const downloaded = await uploadService.downloadBufferViaNodeHttp(u, REMOTE_VIDEO_TIMEOUT_MS, 0, {
       maxBytes,
@@ -201,10 +241,15 @@ async function resolveVideoToLocalPath(videoUrl, baseUrl, storageRoot, tempDir, 
       accept: 'video/*,application/octet-stream',
       trustedOrigins: options.trustedOrigins,
       lookup: options.lookup,
+      signal: options.signal,
     });
-    if (!downloaded.buffer.length) throw new Error('empty response body');
+    throwIfAborted(options.signal);
+    if (!downloaded.buffer.length) throw new Error('远程视频为空，无法合成');
     uploadService.assertUploadDiskCapacity(tempDir, downloaded.buffer.length);
-    fs.writeFileSync(destPath, downloaded.buffer, { flag: 'wx' });
+    uploadService.writeFileAtomically(destPath, (stagedPath) => {
+      fs.writeFileSync(stagedPath, downloaded.buffer, { flag: 'wx' });
+    });
+    throwIfAborted(options.signal);
     budget.remainingBytes -= downloaded.buffer.length;
     log.info('Video merge: downloaded to temp', { index, bytes: downloaded.buffer.length });
     return {
@@ -217,6 +262,7 @@ async function resolveVideoToLocalPath(videoUrl, baseUrl, storageRoot, tempDir, 
     try {
       if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
     } catch (_) {}
+    if (isOperationCancelled(e, options.signal)) throw operationCancelledError(options.signal?.reason || e);
     let source = u;
     try {
       const parsed = new URL(u);
@@ -322,16 +368,157 @@ function buildStrictSceneFilterPlan(scenes) {
   });
 }
 
-function ffprobeVideo(filePath) {
+async function runExternalProcess(command, args, options = {}) {
+  const signal = options.signal;
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    let child;
+    let settled = false;
+    let stdout = '';
+    let stderr = '';
+    let timer;
+    let terminationTimer;
+    let abortError = null;
+    let timeoutError = null;
+    const outputLimit = Math.max(1024, Number(options.outputLimitBytes) || FFMPEG_OUTPUT_LIMIT_BYTES);
+    const appendOutput = (current, chunk) => {
+      const next = current + String(chunk || '');
+      return next.length > outputLimit ? next.slice(-outputLimit) : next;
+    };
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(terminationTimer);
+      signal?.removeEventListener('abort', onAbort);
+      callback(value);
+    };
+    const killChild = () => {
+      if (!child || child.exitCode != null || child.signalCode) return;
+      try { child.kill('SIGKILL'); } catch (_) {}
+    };
+    const settleAfterTerminationGrace = (kind) => {
+      if (settled || terminationTimer) return;
+      const graceMs = Math.max(1, Number(options.terminationGraceMs) || 1000);
+      terminationTimer = setTimeout(() => {
+        if (kind === 'abort') {
+          finish(reject, abortError || operationCancelledError(signal?.reason));
+          return;
+        }
+        finish(resolve, {
+          ok: false,
+          error: timeoutError,
+          stdout,
+          stderr,
+          status: child?.exitCode ?? null,
+          signal: child?.signalCode ?? null,
+        });
+      }, graceMs);
+    };
+    const onAbort = () => {
+      abortError = operationCancelledError(signal?.reason);
+      killChild();
+      settleAfterTerminationGrace('abort');
+    };
+
+    try {
+      child = childProcess.spawn(command, args, {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      finish(resolve, { ok: false, error: error.message, stdout, stderr, status: null });
+      return;
+    }
+    child.stdout?.on('data', (chunk) => { stdout = appendOutput(stdout, chunk); });
+    child.stderr?.on('data', (chunk) => { stderr = appendOutput(stderr, chunk); });
+    child.once('error', (error) => {
+      if (abortError) finish(reject, abortError);
+      else finish(resolve, { ok: false, error: error.message, stdout, stderr, status: null });
+    });
+    child.once('close', (code, closeSignal) => {
+      if (abortError || signal?.aborted) {
+        finish(reject, abortError || operationCancelledError(signal.reason));
+        return;
+      }
+      if (timeoutError) {
+        finish(resolve, { ok: false, error: timeoutError, stdout, stderr, status: code, signal: closeSignal });
+        return;
+      }
+      finish(resolve, {
+        ok: code === 0,
+        error: code === 0 ? null : String(stderr || stdout || '').trim() || `${command} 退出码 ${code}`,
+        stdout,
+        stderr,
+        status: code,
+        signal: closeSignal,
+      });
+    });
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    timer = setTimeout(() => {
+      timeoutError = `${options.timeoutLabel || command} 执行超时（${options.timeoutMs}ms）`;
+      killChild();
+      settleAfterTerminationGrace('timeout');
+    }, Math.max(1, Number(options.timeoutMs) || FFMPEG_TIMEOUT_MS));
+  });
+}
+
+async function checkMediaBinary(command, expectedName, signal) {
+  const result = await runExternalProcess(command, ['-version'], {
+    signal,
+    timeoutMs: MEDIA_TOOL_CHECK_TIMEOUT_MS,
+    timeoutLabel: expectedName,
+    outputLimitBytes: 1024 * 1024,
+  });
+  if (!result.ok) return { ok: false, path: command, error: result.error };
+  const output = String(result.stdout || result.stderr || '').trim();
+  if (!new RegExp(`^${expectedName} version\\b`, 'i').test(output)) {
+    return { ok: false, path: command, error: `${command} 不是有效的 ${expectedName} 可执行文件` };
+  }
+  return { ok: true, path: command, version: output.split(/\r?\n/, 1)[0] };
+}
+
+async function validateFfmpegTools(signal) {
+  const ffmpeg = await checkMediaBinary(getFfmpegPath(), 'ffmpeg', signal);
+  const ffprobe = await checkMediaBinary(getFfprobePath(), 'ffprobe', signal);
+  const errors = [];
+  if (!ffmpeg.ok) errors.push(`ffmpeg 不可用：${ffmpeg.error}`);
+  if (!ffprobe.ok) errors.push(`ffprobe 不可用：${ffprobe.error}`);
+  return { ok: ffmpeg.ok && ffprobe.ok, ffmpeg, ffprobe, error: errors.length ? errors.join('; ') : null };
+}
+
+async function getAvailableFfmpegEncoders(signal) {
+  const result = await runExternalProcess(getFfmpegPath(), ['-hide_banner', '-encoders'], {
+    signal,
+    timeoutMs: MEDIA_TOOL_CHECK_TIMEOUT_MS,
+    timeoutLabel: 'FFmpeg 编码器探测',
+    outputLimitBytes: 8 * 1024 * 1024,
+  });
+  if (!result.ok) return { ok: false, encoders: [], error: result.error };
+  const encoders = [];
+  const output = String(result.stdout || result.stderr || '');
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.match(/^\s*[VAS][A-Z.]{5}\s+(\S+)/);
+    if (match) encoders.push(match[1]);
+  }
+  return { ok: true, encoders, error: null };
+}
+
+async function ffprobeVideo(filePath, options = {}) {
+  throwIfAborted(options.signal);
   let stat;
   try {
     stat = fs.statSync(filePath);
   } catch (error) {
     return { ok: false, error: error.message };
   }
-  if (!stat.isFile() || stat.size <= 0) return { ok: false, error: 'not a non-empty file' };
+  if (!stat.isFile() || stat.size <= 0) return { ok: false, error: '文件为空或不是普通文件' };
 
-  const result = spawnSync(
+  const result = await runExternalProcess(
     getFfprobePath(),
     [
       '-v', 'error',
@@ -339,18 +526,25 @@ function ffprobeVideo(filePath) {
       '-of', 'json',
       filePath,
     ],
-    { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout: 30000, windowsHide: true }
+    {
+      signal: options.signal,
+      timeoutMs: FFPROBE_TIMEOUT_MS,
+      timeoutLabel: 'FFprobe',
+      outputLimitBytes: 4 * 1024 * 1024,
+    }
   );
-  if (result.error) return { ok: false, error: result.error.message };
-  if (result.status !== 0) {
-    return { ok: false, error: String(result.stderr || '').trim().slice(-800) || `ffprobe exited with status ${result.status}` };
+  if (!result.ok) {
+    return {
+      ok: false,
+      error: String(result.stderr || result.error || '').trim().slice(-800) || `ffprobe 退出码 ${result.status}`,
+    };
   }
 
   let data;
   try {
     data = JSON.parse(result.stdout || '{}');
   } catch (error) {
-    return { ok: false, error: `invalid ffprobe output: ${error.message}` };
+    return { ok: false, error: `ffprobe 输出无效：${error.message}` };
   }
   const streams = Array.isArray(data.streams) ? data.streams : [];
   const video = streams.find((stream) => stream.codec_type === 'video');
@@ -358,10 +552,10 @@ function ffprobeVideo(filePath) {
   const width = Number(video?.width);
   const height = Number(video?.height);
   if (!video || !Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
-    return { ok: false, error: 'no usable video stream' };
+    return { ok: false, error: '没有可用的视频流' };
   }
   if (!Number.isFinite(duration) || duration <= 0.01) {
-    return { ok: false, error: 'video duration is unavailable or empty' };
+    return { ok: false, error: '视频时长无效或为空' };
   }
   return {
     ok: true,
@@ -425,26 +619,21 @@ function chooseProductionVideoEncoder(encoderNames, width, height, fps) {
   throw strictMergeError('当前 FFmpeg 缺少可用的软件 H.264 编码器（libx264/libopenh264）');
 }
 
-function runFfmpeg(args, log, tag) {
-  const result = spawnSync(getFfmpegPath(), args, {
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024,
-    timeout: FFMPEG_TIMEOUT_MS,
-    windowsHide: true,
+async function runFfmpeg(args, log, tag, options = {}) {
+  const result = await runExternalProcess(getFfmpegPath(), args, {
+    signal: options.signal,
+    timeoutMs: FFMPEG_TIMEOUT_MS,
+    timeoutLabel: 'FFmpeg',
   });
-  if (result.error) {
-    log.warn('Video merge: ffmpeg spawn error', { tag, error: result.error.message });
-    return { ok: false, error: result.error.message };
-  }
-  if (result.status !== 0) {
-    const detail = String(result.stderr || result.stdout || '').trim().slice(-1200);
-    log.warn('Video merge: ffmpeg failed', { tag, stderr: detail });
-    return { ok: false, error: detail || `ffmpeg exited with status ${result.status}` };
+  if (!result.ok) {
+    const detail = String(result.stderr || result.stdout || result.error || '').trim().slice(-1200);
+    log.warn('Video merge: ffmpeg failed', { tag, stderr: detail, signal: result.signal || null });
+    return { ok: false, error: detail || result.error };
   }
   return { ok: true, error: null };
 }
 
-function transcodeProductionClip(inputPath, probe, outputPath, dimensions, fps, videoEncoder, log, index, requestedDuration) {
+async function transcodeProductionClip(inputPath, probe, outputPath, dimensions, fps, videoEncoder, log, index, requestedDuration, options = {}) {
   const requested = Number(requestedDuration);
   const duration = Number.isFinite(requested) && requested > 0
     ? Math.max(0.02, requested)
@@ -482,26 +671,28 @@ function transcodeProductionClip(inputPath, probe, outputPath, dimensions, fps, 
     outputPath
   );
 
-  const result = runFfmpeg(args, log, `strict_transcode_${index}`);
+  const result = await runFfmpeg(args, log, `strict_transcode_${index}`, options);
   if (!result.ok) return result;
-  const outputProbe = ffprobeVideo(outputPath);
-  if (!outputProbe.ok) return { ok: false, error: `normalized clip is invalid: ${outputProbe.error}` };
-  if (!outputProbe.hasAudio) return { ok: false, error: 'normalized clip has no audio stream' };
+  const outputProbe = await ffprobeVideo(outputPath, options);
+  if (!outputProbe.ok) return { ok: false, error: `标准化片段无效：${outputProbe.error}` };
+  if (!outputProbe.hasAudio) return { ok: false, error: '标准化片段没有音频流' };
   if (outputProbe.width !== dimensions.width || outputProbe.height !== dimensions.height) {
-    return { ok: false, error: `normalized clip has unexpected size ${outputProbe.width}x${outputProbe.height}` };
+    return { ok: false, error: `标准化片段尺寸异常 ${outputProbe.width}x${outputProbe.height}` };
   }
   return { ok: true, probe: outputProbe };
 }
 
 /** 使用 ffmpeg concat 合并多个视频文件 */
-function runFfmpegConcatDetailed(localPaths, outputPath, log, tag = 'concat', strictProduction = false) {
-  const listFile = path.join(path.dirname(outputPath), `concat_list_${Date.now()}.txt`);
+async function runFfmpegConcatDetailed(localPaths, outputPath, log, tag = 'concat', strictProduction = false, options = {}) {
+  const listFile = path.join(options.workDir || path.dirname(outputPath), `.concat_list_${Date.now()}_${randomUUID()}.txt`);
   try {
     const lines = localPaths.map((p) => {
       const normalized = p.replace(/\\/g, '/');
       return `file '${normalized.replace(/'/g, "'\\''")}'`;
     });
-    fs.writeFileSync(listFile, lines.join('\n'), 'utf8');
+    uploadService.writeFileAtomically(listFile, (stagedPath) => {
+      fs.writeFileSync(stagedPath, lines.join('\n'), 'utf8');
+    });
     const args = strictProduction
       ? [
           '-hide_banner', '-loglevel', 'error', '-y',
@@ -510,47 +701,196 @@ function runFfmpegConcatDetailed(localPaths, outputPath, log, tag = 'concat', st
           outputPath,
         ]
       : ['-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', '-y', outputPath];
-    return runFfmpeg(args, log, tag);
+    return await runFfmpeg(args, log, tag, options);
   } finally {
     try { if (fs.existsSync(listFile)) fs.unlinkSync(listFile); } catch (_) {}
   }
 }
 
-function runFfmpegConcat(localPaths, outputPath, log) {
-  return runFfmpegConcatDetailed(localPaths, outputPath, log).ok;
+async function runFfmpegConcat(localPaths, outputPath, log, options = {}) {
+  return (await runFfmpegConcatDetailed(localPaths, outputPath, log, 'concat', false, options)).ok;
 }
 
-function markStrictMergeFailed(db, log, row, message) {
-  const now = new Date().toISOString();
-  const errorMessage = String(message || '严格生产合成失败').slice(0, 4000);
-  try {
-    const updateFailure = db.transaction(() => {
-      db.prepare(
-        `UPDATE video_merges
-            SET status = 'failed', merged_url = NULL, duration = NULL, completed_at = ?, error_msg = ?
-          WHERE id = ?`
-      ).run(now, errorMessage, row.id);
-      db.prepare('UPDATE episodes SET status = ?, updated_at = ? WHERE id = ?').run('failed', now, row.episode_id);
-    });
-    updateFailure();
-  } catch (error) {
-    log.error('Video merge: could not persist strict failure', {
-      merge_id: row.id,
-      error: error.message,
-    });
+function updateCurrentMergeEpisodeStatus(db, mergeId, episodeId, status, now) {
+  return db.prepare(
+    `UPDATE episodes
+        SET status = ?, updated_at = ?
+      WHERE id = ?
+        AND ? = (
+          SELECT id
+            FROM video_merges
+           WHERE episode_id = ?
+           ORDER BY id DESC
+           LIMIT 1
+        )`
+  ).run(status, now, episodeId, mergeId, episodeId);
+}
+
+function updateCurrentMergeEpisodeOutput(db, mergeId, episodeId, videoUrl, status, now) {
+  return db.prepare(
+    `UPDATE episodes
+        SET video_url = ?, status = ?, updated_at = ?
+      WHERE id = ?
+        AND ? = (
+          SELECT id
+            FROM video_merges
+           WHERE episode_id = ?
+           ORDER BY id DESC
+           LIMIT 1
+        )`
+  ).run(videoUrl, status, now, episodeId, mergeId, episodeId);
+}
+
+function createMergeExecution(log, row, externalSignal) {
+  const taskService = require('./taskService');
+  const controller = new AbortController();
+  const generatedFiles = new Set();
+  const temporaryDirectories = new Set();
+  const pendingPublications = new Set();
+  let stoppedResolve;
+  let stopped = false;
+  let cancellationPromise = null;
+  const stoppedPromise = new Promise((resolve) => { stoppedResolve = resolve; });
+  const forwardAbort = () => {
+    if (!controller.signal.aborted) controller.abort(operationCancelledError(externalSignal?.reason));
+  };
+  if (externalSignal?.aborted) forwardAbort();
+  else externalSignal?.addEventListener('abort', forwardAbort, { once: true });
+
+  const cleanup = () => {
+    for (const publication of pendingPublications) publication.rollback();
+    pendingPublications.clear();
+    for (const filePath of generatedFiles) removeFileIfPresent(filePath);
+    for (const directory of temporaryDirectories) {
+      try { fs.rmSync(directory, { recursive: true, force: true }); } catch (_) {}
+    }
+  };
+  const finish = () => {
+    if (stopped) return;
+    stopped = true;
+    externalSignal?.removeEventListener('abort', forwardAbort);
+    cleanup();
+    finishOperation('task', row.task_id);
+    stoppedResolve();
+  };
+  const cancel = () => {
+    if (cancellationPromise) return cancellationPromise;
+    cancellationPromise = (async () => {
+      if (!controller.signal.aborted) controller.abort(operationCancelledError());
+      await stoppedPromise;
+      cleanup();
+      log.info('Video merge worker stopped for cancellation', { merge_id: row.id, task_id: row.task_id });
+      return { outcome: 'confirmed', confirmed: true };
+    })();
+    return cancellationPromise;
+  };
+
+  taskService.ensureTaskOperation(row.task_id);
+  taskService.registerRemoteCancel(row.task_id, cancel);
+  return {
+    signal: controller.signal,
+    cancel,
+    finish,
+    trackPublication(publication) { if (publication) pendingPublications.add(publication); },
+    commitPublication(publication) {
+      if (!publication) return;
+      publication.commit();
+      pendingPublications.delete(publication);
+    },
+    rollbackPublication(publication) {
+      if (!publication) return;
+      publication.rollback();
+      pendingPublications.delete(publication);
+    },
+    keepFile(filePath) { generatedFiles.delete(path.resolve(filePath)); },
+    trackFile(filePath) { if (filePath) generatedFiles.add(path.resolve(filePath)); },
+    trackDirectory(directory) { if (directory) temporaryDirectories.add(path.resolve(directory)); },
+  };
+}
+
+function settleCancelledMergeBeforeWorker(db, log, row) {
+  const taskService = require('./taskService');
+  const task = taskService.getTask(db, row.task_id);
+  if (task?.status !== 'cancelled') return false;
+
+  const cancelledAt = task.completed_at || new Date().toISOString();
+  const settled = db.transaction(() => {
+    const mergeUpdate = db.prepare(
+      `UPDATE video_merges
+          SET status = 'cancelled', merged_url = NULL, duration = NULL, completed_at = ?, error_msg = ?
+        WHERE id = ? AND status IN ('pending', 'processing')`
+    ).run(cancelledAt, task.error || '用户已取消', row.id);
+    const currentMerge = db.prepare('SELECT status FROM video_merges WHERE id = ?').get(row.id);
+    if (mergeUpdate.changes === 1) {
+      updateCurrentMergeEpisodeStatus(db, row.id, row.episode_id, 'draft', cancelledAt);
+      return true;
+    }
+    if (currentMerge?.status === 'cancelled') {
+      updateCurrentMergeEpisodeStatus(db, row.id, row.episode_id, 'draft', cancelledAt);
+      return true;
+    }
+    return false;
+  })();
+  if (settled) {
+    log.info('Video merge cancelled before worker registration', { merge_id: row.id, task_id: row.task_id });
+  }
+  return settled;
+}
+
+async function settleCancelledMergeAfterWorker(db, log, row, execution) {
+  const taskService = require('./taskService');
+  await execution.cancel();
+  const pendingTask = taskService.getTask(db, row.task_id);
+  const cancellation = await taskService.cancelTask(
+    db,
+    log,
+    row.task_id,
+    pendingTask?.error || '用户已取消'
+  );
+  const task = taskService.getTask(db, row.task_id);
+  if (!cancellation.ok && task?.status !== 'cancelled') {
+    throw new Error(cancellation.error || '视频合成取消终态提交失败');
+  }
+  if (task?.status !== 'cancelled') {
+    throw new Error('视频合成任务未进入取消终态');
   }
 
-  if (row.task_id) {
-    try {
-      require('./taskService').updateTaskError(db, row.task_id, errorMessage);
-    } catch (error) {
-      log.error('Video merge: could not fail strict task', {
-        merge_id: row.id,
-        task_id: row.task_id,
-        error: error.message,
-      });
+  const cancelledAt = task.completed_at || new Date().toISOString();
+  db.transaction(() => {
+    const mergeUpdate = db.prepare(
+      `UPDATE video_merges
+          SET status = 'cancelled', merged_url = NULL, duration = NULL, completed_at = ?, error_msg = ?
+        WHERE id = ? AND task_id = ? AND status = 'cancelled'`
+    ).run(cancelledAt, task.error || '用户已取消', row.id, row.task_id);
+    if (mergeUpdate.changes !== 1) {
+      throw new Error('视频合成业务记录未与取消任务终态保持一致');
     }
-  }
+    updateCurrentMergeEpisodeStatus(db, row.id, row.episode_id, 'draft', cancelledAt);
+  })();
+  return cancellation;
+}
+
+function commitMergeFailure(db, row, message, signal) {
+  const now = new Date().toISOString();
+  const errorMessage = String(message || '视频合成失败').slice(0, 4000);
+  const taskService = require('./taskService');
+  db.transaction(() => {
+    throwIfAborted(signal);
+    const task = taskService.getTask(db, row.task_id);
+    if (!task || ['cancelling', 'cancelled', 'completed'].includes(task.status)) {
+      throw operationCancelledError(task?.error || '合成任务不再接受失败终态');
+    }
+    const mergeUpdate = db.prepare(
+      `UPDATE video_merges
+          SET status = 'failed', merged_url = NULL, duration = NULL, completed_at = ?, error_msg = ?
+        WHERE id = ? AND status IN ('pending', 'processing')`
+    ).run(now, errorMessage, row.id);
+    if (mergeUpdate.changes !== 1) throw operationCancelledError('视频合成业务记录不再处于活动状态');
+    updateCurrentMergeEpisodeStatus(db, row.id, row.episode_id, 'failed', now);
+    if (task.status !== 'failed' && !taskService.updateTaskError(db, row.task_id, errorMessage)) {
+      throw operationCancelledError('视频合成任务不再接受失败终态');
+    }
+  })();
   return errorMessage;
 }
 
@@ -562,24 +902,56 @@ function relativeStoragePath(storageRoot, absolutePath) {
   return relative.replace(/\\/g, '/');
 }
 
-async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, baseUrl) {
+function publishMergeOutput(stagedPath, finalPath, signal, execution) {
+  throwIfAborted(signal);
+  let publication = null;
+  try {
+    publication = uploadService.publishStagedFile(stagedPath, finalPath);
+    execution.trackPublication(publication);
+    // rename 前后的取消都必须回滚，不能把尚未入库的文件留在可服务路径。
+    throwIfAborted(signal);
+    return publication;
+  } catch (error) {
+    execution.rollbackPublication(publication);
+    throw error;
+  }
+}
+
+function persistMergeOutputAndCommitPublications(execution, publications, persist) {
+  persist();
+  for (const publication of publications) {
+    if (!publication) continue;
+    try {
+      execution.commitPublication(publication);
+    } catch (_) {
+      // 数据库已提交且最终文件已就位。丢掉备份失败不能再 rollback。
+    }
+  }
+}
+
+async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, baseUrl, execution) {
   const mergeId = row.id;
   const episodeId = row.episode_id;
   let tempRoot = null;
+  let outputPublication = null;
+  let postPublication = null;
   const generatedFiles = new Set();
+  const { signal } = execution;
 
   try {
     tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), `drama-video-merge-${mergeId}-`));
+    execution.trackDirectory(tempRoot);
+    throwIfAborted(signal);
     const strictScenes = validateStrictSceneCoverage(db, episodeId, scenes);
     const resolvedFilterPlan = buildStrictSceneFilterPlan(strictScenes);
     if (Array.isArray(mergeOpts.filter_plan) &&
         JSON.stringify(mergeOpts.filter_plan) !== JSON.stringify(resolvedFilterPlan)) {
-      throw strictMergeError('Production timeline filter plan does not match merge scenes');
+      throw strictMergeError('生产时间线滤镜计划与合成分镜不匹配');
     }
 
-    const toolCheck = validateFfmpegTools();
+    const toolCheck = await validateFfmpegTools(signal);
     if (!toolCheck.ok) throw strictMergeError(`严格生产合成工具校验失败：${toolCheck.error}`);
-    const encoderCheck = getAvailableFfmpegEncoders();
+    const encoderCheck = await getAvailableFfmpegEncoders(signal);
     if (!encoderCheck.ok) throw strictMergeError(`无法读取 FFmpeg 编码器能力：${encoderCheck.error}`);
     if (!encoderCheck.encoders.includes('aac')) {
       throw strictMergeError('当前 FFmpeg 缺少 AAC 编码器');
@@ -598,12 +970,12 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
         tempRoot,
         i,
         log,
-        { downloadBudget, trustedOrigins }
+        { downloadBudget, trustedOrigins, signal }
       );
       if (!resolvedVideo) {
         throw strictMergeError(`严格生产合成缺少可用本地片段：分镜 ${strictScenes[i].storyboard_id}`);
       }
-      const probe = ffprobeVideo(resolvedVideo.path);
+      const probe = await ffprobeVideo(resolvedVideo.path, { signal });
       if (!probe.ok) {
         throw strictMergeError(`严格生产合成片段无效：分镜 ${strictScenes[i].storyboard_id}（${probe.error}）`);
       }
@@ -627,7 +999,7 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
     let expectedOutputDuration = 0;
     for (let i = 0; i < localInputs.length; i++) {
       const normalizedPath = path.join(tempRoot, `normalized_${String(i).padStart(3, '0')}.mp4`);
-      const transcoded = transcodeProductionClip(
+      const transcoded = await transcodeProductionClip(
         localInputs[i],
         inputProbes[i],
         normalizedPath,
@@ -636,7 +1008,8 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
         videoEncoder,
         log,
         i,
-        strictScenes[i].duration
+        strictScenes[i].duration,
+        { signal }
       );
       if (!transcoded.ok) {
         throw strictMergeError(`严格生产片段转码失败：分镜 ${strictScenes[i].storyboard_id}（${transcoded.error}）`);
@@ -651,13 +1024,28 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
       ? path.join(storageRoot, sub, 'videos', 'merged')
       : path.join(storageRoot, 'videos', 'merged');
     fs.mkdirSync(mergedDir, { recursive: true });
-    const outputFileName = `merged_${mergeId}_${Date.now()}.mp4`;
-    let outputAbsPath = path.join(mergedDir, outputFileName);
-    generatedFiles.add(outputAbsPath);
+    const outputFileName = `merged_${mergeId}_${Date.now()}_${randomUUID().slice(0, 8)}.mp4`;
+    const finalOutputAbsPath = path.join(mergedDir, outputFileName);
+    // FFmpeg 依赖末尾扩展名推断容器；暂存名必须继续以 .mp4 结尾。
+    const outputStagePath = path.join(
+      mergedDir,
+      `.${path.basename(outputFileName, '.mp4')}.${randomUUID()}.tmp.mp4`
+    );
+    let outputAbsPath = outputStagePath;
+    let finalSrtPath = null;
+    generatedFiles.add(outputStagePath);
+    execution.trackFile(outputStagePath);
 
-    const concat = runFfmpegConcatDetailed(normalizedPaths, outputAbsPath, log, 'strict_concat', true);
+    const concat = await runFfmpegConcatDetailed(
+      normalizedPaths,
+      outputAbsPath,
+      log,
+      'strict_concat',
+      true,
+      { signal, workDir: tempRoot }
+    );
     if (!concat.ok) throw strictMergeError(`严格生产 FFmpeg concat 失败：${concat.error}`);
-    let outputProbe = ffprobeVideo(outputAbsPath);
+    let outputProbe = await ffprobeVideo(outputAbsPath, { signal });
     if (!outputProbe.ok || !outputProbe.hasAudio) {
       const reason = outputProbe.ok ? '最终视频缺少音轨' : outputProbe.error;
       throw strictMergeError(`严格生产 concat 输出无效：${reason}`);
@@ -674,14 +1062,14 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
       || !!(mergeOpts.watermark_text && String(mergeOpts.watermark_text).trim());
     if (postNeed) {
       const anticipatedPostPath = path.join(
-        path.dirname(outputAbsPath),
-        `${path.basename(outputAbsPath, path.extname(outputAbsPath))}_post.mp4`
+        path.dirname(finalOutputAbsPath),
+        `${path.basename(finalOutputAbsPath, path.extname(finalOutputAbsPath))}_post.mp4`
       );
-      generatedFiles.add(anticipatedPostPath);
-      generatedFiles.add(path.join(
-        path.dirname(outputAbsPath),
-        `${path.basename(outputAbsPath, path.extname(outputAbsPath))}_narration.srt`
-      ));
+      const anticipatedSrtPath = path.join(
+        path.dirname(finalOutputAbsPath),
+        `${path.basename(finalOutputAbsPath, path.extname(finalOutputAbsPath))}_narration.srt`
+      );
+      throwIfAborted(signal);
       const post = await require('./mergedEpisodePostProcess').runMergedEpisodePostProcess(db, log, {
         mergedAbsPath: outputAbsPath,
         storageRoot,
@@ -689,13 +1077,29 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
         episodeId,
         mergeOpts,
         videoEncoder,
+        signal,
+        outputPath: anticipatedPostPath,
+        srtOutputPath: anticipatedSrtPath,
+        deferPublication: true,
       });
+      postPublication = post.publication || null;
+      execution.trackPublication(postPublication);
+      throwIfAborted(signal);
       if (!post.ok || !post.relativePath) {
         throw strictMergeError(`严格生产后处理失败：${post.error || '未生成输出文件'}`);
       }
       outputAbsPath = path.join(storageRoot, post.relativePath.replace(/\//g, path.sep));
-      generatedFiles.add(outputAbsPath);
-      outputProbe = ffprobeVideo(outputAbsPath);
+      const returnedSrtPath = pathWithinStorage(storageRoot, post.srtRelativePath);
+      finalSrtPath = returnedSrtPath || (fs.existsSync(anticipatedSrtPath) ? anticipatedSrtPath : null);
+      if (!postPublication) {
+        generatedFiles.add(outputAbsPath);
+        execution.trackFile(outputAbsPath);
+        if (finalSrtPath) {
+          generatedFiles.add(finalSrtPath);
+          execution.trackFile(finalSrtPath);
+        }
+      }
+      outputProbe = await ffprobeVideo(outputAbsPath, { signal });
       if (!outputProbe.ok || !outputProbe.hasAudio) {
         const reason = outputProbe.ok ? '后处理视频缺少音轨' : outputProbe.error;
         throw strictMergeError(`严格生产后处理输出无效：${reason}`);
@@ -705,6 +1109,9 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
           `严格生产后处理输出不完整：预期约 ${expectedOutputDuration.toFixed(2)} 秒，实际 ${outputProbe.duration.toFixed(2)} 秒`
         );
       }
+    } else {
+      outputPublication = publishMergeOutput(outputStagePath, finalOutputAbsPath, signal, execution);
+      outputAbsPath = finalOutputAbsPath;
     }
 
     if (mergeOpts.enforce_qa_gate) try {
@@ -714,36 +1121,50 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
         mode: 'production',
       });
       if (!qaReport.passed) {
-        throw strictMergeError(`Production QA failed with score ${qaReport.score}`);
+        throw strictMergeError(`生产 QA 未通过，得分 ${qaReport.score}`);
       }
     } catch (error) {
       throw error.code === 'STRICT_PRODUCTION_MERGE_FAILED'
         ? error
-        : strictMergeError(`Production QA failed: ${error.message}`);
+        : strictMergeError(`生产 QA 失败：${error.message}`);
     }
 
     const mergedRelativePath = relativeStoragePath(storageRoot, outputAbsPath);
     const completedAt = new Date().toISOString();
     const duration = Math.max(1, Math.round(outputProbe.duration));
     const completionStatus = mergeOpts.defer_qa_completion ? 'qa_pending' : 'completed';
-    const completeMerge = db.transaction(() => {
-      db.prepare(
-        `UPDATE video_merges
-            SET status = ?, merged_url = ?, duration = ?, completed_at = ?, error_msg = NULL
-          WHERE id = ?`
-      ).run(completionStatus, mergedRelativePath, duration, completionStatus === 'completed' ? completedAt : null, mergeId);
-      db.prepare('UPDATE episodes SET video_url = ?, status = ?, updated_at = ? WHERE id = ?')
-        .run(mergedRelativePath, completionStatus, completedAt, episodeId);
-    });
-    completeMerge();
-    if (row.task_id && completionStatus === 'completed') {
-      require('./taskService').updateTaskResult(db, row.task_id, {
-        merge_id: mergeId,
-        video_url: mergedRelativePath,
-        duration,
-        mode: STRICT_PRODUCTION_MODE,
+    const taskService = require('./taskService');
+    persistMergeOutputAndCommitPublications(execution, [outputPublication, postPublication], () => {
+      taskService.runTaskMutation(db, row.task_id, signal, () => {
+        throwIfAborted(signal);
+        db.prepare(
+          `UPDATE video_merges
+              SET status = ?, merged_url = ?, duration = ?, completed_at = ?, error_msg = NULL
+            WHERE id = ?`
+        ).run(completionStatus, mergedRelativePath, duration, completionStatus === 'completed' ? completedAt : null, mergeId);
+        updateCurrentMergeEpisodeOutput(
+          db,
+          mergeId,
+          episodeId,
+          mergedRelativePath,
+          completionStatus,
+          completedAt
+        );
+        if (row.task_id) {
+          const taskUpdated = taskService.updateTaskResult(db, row.task_id, {
+            merge_id: mergeId,
+            video_url: mergedRelativePath,
+            duration,
+            mode: STRICT_PRODUCTION_MODE,
+            status: completionStatus,
+          });
+          if (!taskUpdated) throw strictMergeError('严格合成任务已不再接受完成状态');
+        }
+        throwIfAborted(signal);
       });
-    }
+    });
+    execution.keepFile(outputAbsPath);
+    if (finalSrtPath) execution.keepFile(finalSrtPath);
     log.info('Video merge output persisted (strict production)', {
       merge_id: mergeId,
       episode_id: episodeId,
@@ -752,13 +1173,16 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
     });
     return { ok: true, merge_id: mergeId, video_url: mergedRelativePath, duration, status: completionStatus };
   } catch (error) {
+    execution.rollbackPublication(outputPublication);
+    execution.rollbackPublication(postPublication);
     for (const filePath of generatedFiles) {
       try {
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       } catch (_) {}
     }
+    if (isOperationCancelled(error, signal)) throw operationCancelledError(signal.reason || error);
     const detail = error?.message || String(error);
-    const message = markStrictMergeFailed(db, log, row, detail);
+    const message = commitMergeFailure(db, row, detail, signal);
     const failure = strictMergeError(message);
     failure.cause = error;
     throw failure;
@@ -769,12 +1193,11 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
   }
 }
 
-/**
- * 异步处理视频合成：优先使用 ffmpeg 真正合并多段视频；失败或无 ffmpeg 时用首段作为 merged_url。
- */
-async function processVideoMerge(db, log, mergeId, baseUrl) {
+/** 异步处理视频合成；未生成可验证的合成文件时失败关闭。 */
+async function processVideoMergeWorker(db, log, mergeId, baseUrl, execution) {
   const r = db.prepare('SELECT * FROM video_merges WHERE id = ? AND deleted_at IS NULL').get(mergeId);
   if (!r) return;
+  const { signal } = execution;
   const taskId = r.task_id;
   const episodeId = r.episode_id;
   let scenes = [];
@@ -786,19 +1209,22 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
   const mergeOpts = parseMergeOptions(r.merge_options);
   const strictProduction = isStrictProductionMode(r, mergeOpts);
   const now = new Date().toISOString();
-  db.prepare('UPDATE video_merges SET status = ? WHERE id = ?').run('processing', mergeId);
-  if (strictProduction) {
-    return processStrictProductionMerge(db, log, r, scenes, mergeOpts, baseUrl);
-  }
   const taskService = require('./taskService');
+  taskService.runTaskMutation(db, taskId, signal, () => {
+    db.prepare('UPDATE video_merges SET status = ? WHERE id = ?').run('processing', mergeId);
+  });
+  if (strictProduction) {
+    return processStrictProductionMerge(db, log, r, scenes, mergeOpts, baseUrl, execution);
+  }
   if (scenes.length === 0) {
-    db.prepare('UPDATE video_merges SET status = ?, error_msg = ? WHERE id = ?').run('failed', '无有效视频片段', mergeId);
-    if (taskId) taskService.updateTaskError(db, taskId, '无有效视频片段');
-    return;
+    const message = '无有效视频片段';
+    commitMergeFailure(db, r, message, signal);
+    return { ok: false, merge_id: mergeId, status: 'failed', error: message };
   }
   const totalDuration = scenes.reduce((sum, s) => sum + (Number(s.duration) || 0), 0);
   const storageRoot = getStorageRoot();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `drama-video-merge-${mergeId}-`));
+  execution.trackDirectory(tempDir);
   const downloadBudget = { remainingBytes: MAX_REMOTE_MERGE_DOWNLOAD_BYTES };
   const trustedOrigins = configuredProviderOrigins(db);
 
@@ -811,21 +1237,22 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
       tempDir,
       i,
       log,
-      { downloadBudget, trustedOrigins }
+      { downloadBudget, trustedOrigins, signal }
     );
     if (resolved) resolvedVideos.push(resolved);
   }
-  if (resolvedVideos.length === 0) {
-    const message = '无安全且可用的视频片段';
+  if (resolvedVideos.length !== scenes.length) {
+    const message = resolvedVideos.length === 0
+      ? '无安全且可用的视频片段'
+      : '部分视频片段无法安全解析，已拒绝不完整合成';
     fs.rmSync(tempDir, { recursive: true, force: true });
-    db.prepare('UPDATE video_merges SET status = ?, error_msg = ? WHERE id = ?').run('failed', message, mergeId);
-    db.prepare('UPDATE episodes SET status = ?, updated_at = ? WHERE id = ?').run('failed', now, episodeId);
-    if (taskId) taskService.updateTaskError(db, taskId, message);
-    return;
+    commitMergeFailure(db, r, message, signal);
+    return { ok: false, merge_id: mergeId, status: 'failed', error: message };
   }
   const localPaths = resolvedVideos.map((item) => item.path);
 
-  const ffmpegAvailable = hasLocalFfmpeg();
+  const ffmpegCheck = await checkMediaBinary(getFfmpegPath(), 'ffmpeg', signal);
+  const ffmpegAvailable = ffmpegCheck.ok;
   log.info('Video merge: ffmpeg check', {
     merge_id: mergeId,
     has_ffmpeg: ffmpegAvailable,
@@ -835,6 +1262,10 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
   });
 
   let mergedRelativePath = null;
+  let mergedSrtPath = null;
+  let outputPublication = null;
+  let postPublication = null;
+  let publishedBaseOutputPath = null;
   if (localPaths.length > 0 && ffmpegAvailable && localPaths.length <= 100) {
     const projectSubdir = storageLayout.getProjectStorageSubdir(db, r.drama_id);
     const sub = projectSubdir && String(projectSubdir).trim();
@@ -842,14 +1273,27 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
       ? path.join(storageRoot, sub, 'videos', 'merged')
       : path.join(storageRoot, 'videos', 'merged');
     if (!fs.existsSync(mergedDir)) fs.mkdirSync(mergedDir, { recursive: true });
-    const outputFileName = `merged_${Date.now()}.mp4`;
-    const outputPath = path.join(mergedDir, outputFileName);
-    const ok = runFfmpegConcat(localPaths, outputPath, log);
+    const outputFileName = `merged_${Date.now()}_${randomUUID().slice(0, 8)}.mp4`;
+    const finalOutputPath = path.join(mergedDir, outputFileName);
+    const outputPath = path.join(
+      mergedDir,
+      `.${path.basename(outputFileName, '.mp4')}.${randomUUID()}.tmp.mp4`
+    );
+    execution.trackFile(outputPath);
+    const ok = await runFfmpegConcat(localPaths, outputPath, log, { signal, workDir: tempDir });
     if (ok && fs.existsSync(outputPath)) {
-      mergedRelativePath = sub
-        ? path.join(sub, 'videos', 'merged', outputFileName).replace(/\\/g, '/')
-        : path.join('videos', 'merged', outputFileName).replace(/\\/g, '/');
-      log.info('Video merge completed (ffmpeg)', { merge_id: mergeId, episode_id: episodeId, output: mergedRelativePath });
+      const outputProbe = await ffprobeVideo(outputPath, { signal });
+      if (outputProbe.ok) {
+        outputPublication = publishMergeOutput(outputPath, finalOutputPath, signal, execution);
+        publishedBaseOutputPath = finalOutputPath;
+        mergedRelativePath = sub
+          ? path.join(sub, 'videos', 'merged', outputFileName).replace(/\\/g, '/')
+          : path.join('videos', 'merged', outputFileName).replace(/\\/g, '/');
+        log.info('Video merge completed (ffmpeg)', { merge_id: mergeId, episode_id: episodeId, output: mergedRelativePath });
+      } else {
+        log.warn('Video merge: FFmpeg output validation failed', { merge_id: mergeId, error: outputProbe.error });
+        fs.rmSync(outputPath, { force: true });
+      }
     }
   }
 
@@ -861,28 +1305,72 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
     const mergedAbsPath = path.join(storageRoot, mergedRelativePath.replace(/\//g, path.sep));
     if (fs.existsSync(mergedAbsPath)) {
       const mergedPP = require('./mergedEpisodePostProcess');
+      throwIfAborted(signal);
       const post = await mergedPP.runMergedEpisodePostProcess(db, log, {
         mergedAbsPath,
         storageRoot,
         scenes,
         episodeId,
         mergeOpts,
+        signal,
+        deferPublication: true,
       });
+      postPublication = post.publication || null;
+      execution.trackPublication(postPublication);
+      // 后处理即使返回普通错误，也必须先让取消信号赢得竞态，避免继续提交失败/成功状态。
+      throwIfAborted(signal);
       if (post.ok && post.relativePath) {
-        mergedRelativePath = post.relativePath;
-        log.info('Video merge: merged episode post-process', { merge_id: mergeId, out: mergedRelativePath });
+        const postOutputPath = pathWithinStorage(storageRoot, post.relativePath);
+        const postSrtPath = pathWithinStorage(storageRoot, post.srtRelativePath);
+        if (!postPublication) {
+          if (postOutputPath) execution.trackFile(postOutputPath);
+          if (postSrtPath) execution.trackFile(postSrtPath);
+        }
+        if (postSrtPath) mergedSrtPath = postSrtPath;
+        throwIfAborted(signal);
+        const postProbe = postOutputPath
+          ? await ffprobeVideo(postOutputPath, { signal })
+          : { ok: false, error: '后处理输出不在存储目录内' };
+        if (postProbe.ok) {
+          mergedRelativePath = post.relativePath;
+          if (outputPublication && path.resolve(postOutputPath) !== path.resolve(publishedBaseOutputPath)) {
+            execution.rollbackPublication(outputPublication);
+            outputPublication = null;
+          }
+          log.info('Video merge: merged episode post-process', { merge_id: mergeId, out: mergedRelativePath });
+        } else {
+          log.warn('Video merge: post-process output validation failed', {
+            merge_id: mergeId,
+            error: postProbe.error,
+          });
+          const hadPostPublication = !!postPublication;
+          execution.rollbackPublication(postPublication);
+          postPublication = null;
+          // 有 publication 时 rollback 已删除新文件并恢复旧成品，不能再删目标路径。
+          if (!hadPostPublication && postOutputPath) fs.rmSync(postOutputPath, { force: true });
+          if (postSrtPath && !hadPostPublication) fs.rmSync(postSrtPath, { force: true });
+          mergedRelativePath = null;
+        }
       } else if (post.error && post.error !== 'NO_POST_OPTS') {
         log.warn('Video merge: post-process skipped', { merge_id: mergeId, err: post.error });
       }
     }
   }
 
-  const finalMergedUrl = mergedRelativePath || resolvedVideos[0].canonical;
-  fs.rmSync(tempDir, { recursive: true, force: true });
-  db.prepare(
-    'UPDATE video_merges SET status = ?, merged_url = ?, duration = ?, completed_at = ?, error_msg = ? WHERE id = ?'
-  ).run('completed', finalMergedUrl, Math.round(totalDuration) || null, now, null, mergeId);
-  db.prepare('UPDATE episodes SET video_url = ?, status = ?, updated_at = ? WHERE id = ?').run(finalMergedUrl, 'completed', now, episodeId);
+  if (!mergedRelativePath) {
+    const message = ffmpegAvailable
+      ? 'FFmpeg 未生成有效的合成视频文件'
+      : 'FFmpeg 不可用，无法合成视频';
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    execution.rollbackPublication(outputPublication);
+    execution.rollbackPublication(postPublication);
+    commitMergeFailure(db, r, message, signal);
+    return { ok: false, merge_id: mergeId, status: 'failed', error: message };
+  }
+
+  const finalMergedUrl = mergedRelativePath;
+  const finalOutputPath = pathWithinStorage(storageRoot, finalMergedUrl);
+  throwIfAborted(signal);
   try {
     const qaService = require('./qaService');
     const qaReport = qaService.auditDrama(db, log, {
@@ -891,21 +1379,125 @@ async function processVideoMerge(db, log, mergeId, baseUrl) {
       mode: 'production',
     });
     if (!qaReport.passed && mergeOpts.enforce_qa_gate) {
-      const msg = `Production QA failed with score ${qaReport.score}`;
-      db.prepare('UPDATE video_merges SET status = ?, error_msg = ? WHERE id = ?').run('failed', msg, mergeId);
-      db.prepare('UPDATE episodes SET status = ?, updated_at = ? WHERE id = ?').run('draft', now, episodeId);
-      if (taskId) taskService.updateTaskError(db, taskId, msg);
-      return;
+      throw new Error(`生产 QA 未通过，得分 ${qaReport.score}`);
     }
   } catch (e) {
+    if (mergeOpts.enforce_qa_gate) {
+      const message = `生产 QA 失败：${e.message}`;
+      const hadPostPublication = !!postPublication;
+      execution.rollbackPublication(outputPublication);
+      execution.rollbackPublication(postPublication);
+      // 后处理 publication 回滚后，最终路径可能已恢复为既有正确产物。
+      if (!hadPostPublication && (!publishedBaseOutputPath || path.resolve(finalOutputPath) !== path.resolve(publishedBaseOutputPath))) {
+        removeFileIfPresent(finalOutputPath);
+      }
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      commitMergeFailure(db, r, message, signal);
+      return { ok: false, merge_id: mergeId, status: 'failed', error: message };
+    }
     log.warn('Video merge: production QA skipped', { merge_id: mergeId, error: e.message });
   }
-  if (taskId) {
-    taskService.updateTaskResult(db, taskId, { merge_id: mergeId, video_url: finalMergedUrl, duration: Math.round(totalDuration) });
+  const duration = Math.round(totalDuration) || null;
+  try {
+    persistMergeOutputAndCommitPublications(execution, [outputPublication, postPublication], () => {
+      taskService.runTaskMutation(db, taskId, signal, () => {
+        throwIfAborted(signal);
+        db.prepare(
+          'UPDATE video_merges SET status = ?, merged_url = ?, duration = ?, completed_at = ?, error_msg = ? WHERE id = ?'
+        ).run('completed', finalMergedUrl, duration, now, null, mergeId);
+        updateCurrentMergeEpisodeOutput(db, mergeId, episodeId, finalMergedUrl, 'completed', now);
+        if (!taskService.updateTaskResult(db, taskId, { merge_id: mergeId, video_url: finalMergedUrl, duration })) {
+          throw new Error('视频合成任务已不再接受完成状态');
+        }
+        throwIfAborted(signal);
+      });
+    });
+  } catch (error) {
+    execution.rollbackPublication(outputPublication);
+    execution.rollbackPublication(postPublication);
+    throw error;
   }
-  if (!mergedRelativePath) {
-    log.info('Video merge completed (first-clip fallback)', { merge_id: mergeId, episode_id: episodeId });
+  execution.keepFile(finalOutputPath);
+  if (mergedSrtPath) execution.keepFile(mergedSrtPath);
+  return { ok: true, merge_id: mergeId, video_url: finalMergedUrl, duration, status: 'completed' };
+}
+
+async function processVideoMerge(db, log, mergeId, baseUrl, options = {}) {
+  const row = db.prepare('SELECT * FROM video_merges WHERE id = ? AND deleted_at IS NULL').get(Number(mergeId));
+  if (!row) return;
+  if (settleCancelledMergeBeforeWorker(db, log, row)) {
+    return { ok: false, merge_id: Number(mergeId), status: 'cancelled', cancelled: true };
   }
+  const execution = createMergeExecution(log, row, options.signal);
+  let cancelled = false;
+  try {
+    return await processVideoMergeWorker(db, log, mergeId, baseUrl, execution);
+  } catch (error) {
+    if (execution.signal.aborted) {
+      cancelled = true;
+    } else if (error?.code === 'OPERATION_CANCELLED') {
+      const task = require('./taskService').getTask(db, row.task_id);
+      if (task?.status === 'cancelling' || task?.status === 'cancelled') {
+        cancelled = true;
+      } else if (task?.status === 'failed') {
+        commitMergeFailure(db, row, task.error || error.message, execution.signal);
+        throw strictMergeError(task.error || error.message || '合成任务已失败');
+      } else {
+        throw strictMergeError(error.message || '合成任务不再处于活动状态');
+      }
+    } else {
+      throw error;
+    }
+  } finally {
+    execution.finish();
+  }
+  if (cancelled) {
+    await settleCancelledMergeAfterWorker(db, log, row, execution);
+    return { ok: false, merge_id: Number(mergeId), status: 'cancelled', cancelled: true };
+  }
+}
+
+function completeQaPendingMerge(db, mergeId, completedAt = new Date().toISOString()) {
+  const row = db.prepare(
+    `SELECT id, episode_id, task_id, merged_url, duration
+       FROM video_merges
+      WHERE id = ? AND status = 'qa_pending'`
+  ).get(Number(mergeId));
+  if (!row) return false;
+  const complete = db.transaction(() => {
+    const result = db.prepare(
+      `UPDATE video_merges
+          SET status = 'completed', completed_at = ?, error_msg = NULL
+        WHERE id = ? AND status = 'qa_pending'`
+    ).run(completedAt, row.id);
+    if (result.changes === 0) return false;
+    updateCurrentMergeEpisodeOutput(
+      db,
+      row.id,
+      row.episode_id,
+      row.merged_url,
+      'completed',
+      completedAt
+    );
+    if (row.task_id) {
+      const taskService = require('./taskService');
+      const task = taskService.getTask(db, row.task_id);
+      if (task && task.status !== 'completed') {
+        throw new Error('视频合成：QA 完成任务尚未完成');
+      }
+      if (task && !taskService.refreshCompletedTaskResult(db, row.task_id, {
+        merge_id: row.id,
+        video_url: row.merged_url,
+        duration: row.duration,
+        mode: STRICT_PRODUCTION_MODE,
+        status: 'completed',
+      })) {
+        throw new Error('视频合成：QA 完成任务结果未能刷新');
+      }
+    }
+    return true;
+  });
+  return complete();
 }
 
 module.exports = {
@@ -913,6 +1505,9 @@ module.exports = {
   getById,
   create,
   deleteById,
+  completeQaPendingMerge,
   processVideoMerge,
   buildStrictSceneFilterPlan,
+  updateCurrentMergeEpisodeOutput,
+  __test: { runExternalProcess },
 };

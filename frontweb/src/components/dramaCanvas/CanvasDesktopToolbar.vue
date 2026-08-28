@@ -1,7 +1,7 @@
 <template>
   <div class="canvas-desktop-toolbar">
     <div class="toolbar-main-row">
-      <CanvasToolbarGroup title="创建内容" aria-label="创建内容" :helper="contentHelper">
+      <CanvasToolbarGroup v-if="!isFreeMode" title="创建内容" aria-label="创建内容" :helper="contentHelper">
         <CanvasActionGate :reason="actionReasons.editScript" label="编辑剧本" description-id="canvas-reason-edit-script">
           <el-button
             size="small"
@@ -17,6 +17,7 @@
         <CanvasActionGate :reason="actionReasons.createStoryboard" label="新建分镜" description-id="canvas-reason-create-storyboard">
           <el-button
             size="small"
+            aria-label="新建分镜"
             :disabled="Boolean(actionReasons.createStoryboard)"
             @click="emit('create', 'storyboard')"
           >
@@ -47,6 +48,7 @@
       </CanvasToolbarGroup>
 
       <CanvasWorkflowToolbarGroup
+        v-if="!isFreeMode"
         class="workflow-group"
         :selected-storyboard-count="selectedStoryboardCount"
         :workflow-groups="workflowGroups"
@@ -62,7 +64,7 @@
         @delete-workflow="emit('delete-workflow')"
       />
 
-      <CanvasToolbarGroup title="批量生成" aria-label="本集批量生成" :helper="batchHelper">
+      <CanvasToolbarGroup v-if="!isFreeMode" title="批量生成" aria-label="本集批量生成" :helper="batchHelper">
         <CanvasActionGate :reason="actionReasons.generateStoryboards" label="AI 生成分镜" description-id="canvas-reason-generate-storyboards">
           <el-button
             size="small"
@@ -105,7 +107,21 @@
       </CanvasToolbarGroup>
 
       <div class="toolbar-utilities" aria-label="画布工具">
-        <el-tooltip content="自动对齐并适配全部节点" placement="bottom">
+        <div class="mode-switch" role="group" aria-label="画布模式">
+          <el-button
+            size="small"
+            :type="isFreeMode ? 'default' : 'primary'"
+            :aria-pressed="!isFreeMode"
+            @click="emit('set-mode', 'production')"
+          >制作</el-button>
+          <el-button
+            size="small"
+            :type="isFreeMode ? 'primary' : 'default'"
+            :aria-pressed="isFreeMode"
+            @click="emit('set-mode', 'free')"
+          >自由</el-button>
+        </div>
+        <el-tooltip v-if="!isFreeMode" content="自动对齐并适配全部节点" placement="bottom">
           <el-button size="small" :loading="aligningNodes" aria-label="对齐节点" @click="emit('align')">
             <el-icon><Grid /></el-icon>
           </el-button>
@@ -122,7 +138,7 @@
       </div>
     </div>
 
-    <div v-if="workflowProgress || episodeGenProgress" class="toolbar-progress" aria-live="polite">
+    <div v-if="!isFreeMode && (workflowProgress || episodeGenProgress)" class="toolbar-progress" aria-live="polite">
       <span v-if="workflowProgress">{{ workflowProgress }}</span>
       <span v-if="episodeGenProgress" class="episode-progress">{{ episodeGenProgress }}</span>
     </div>
@@ -163,6 +179,7 @@ const props = defineProps({
   actionConfigServices: { type: Object, default: () => ({}) },
   aligningNodes: { type: Boolean, default: false },
   isDark: { type: Boolean, default: false },
+  canvasMode: { type: String, default: 'production' },
 })
 
 const emit = defineEmits([
@@ -179,6 +196,7 @@ const emit = defineEmits([
   'generate-storyboards',
   'batch-images',
   'batch-videos',
+  'set-mode',
 ])
 
 const contentHelper = computed(() => (
@@ -194,11 +212,13 @@ const batchHelper = computed(() => (
   || props.actionReasons.batchVideos
   || ''
 ))
+
+const isFreeMode = computed(() => props.canvasMode === 'free')
 </script>
 
 <style scoped>
 .canvas-desktop-toolbar {
-  padding: 0 20px 12px;
+  padding: 0 20px 8px;
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
@@ -206,18 +226,27 @@ const batchHelper = computed(() => (
 
 .toolbar-main-row {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0;
+  flex-wrap: nowrap;
   min-width: 0;
+  border: 1px solid var(--border-color, #3f3f46);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-card, #18181b) 92%, transparent);
 }
 
 .toolbar-main-row > * {
   max-width: 100%;
+  border-right: 1px solid var(--border-color, #3f3f46);
+}
+
+.toolbar-main-row > :last-child {
+  border-right: 0;
 }
 
 .workflow-group {
-  flex: 1 1 340px;
+  min-width: 240px;
+  flex: 1 1 260px;
 }
 
 .dropdown-arrow {
@@ -226,12 +255,15 @@ const batchHelper = computed(() => (
 }
 
 .toolbar-utilities {
-  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  min-height: 0;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--bg-page, #0f0f12) 48%, transparent);
 }
 
 .theme-button {
@@ -250,6 +282,33 @@ const batchHelper = computed(() => (
 
 .episode-progress {
   color: var(--canvas-success-text, #34d399);
+}
+
+.mode-switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.mode-switch :deep(.el-button + .el-button) { margin-left: 0; }
+
+@media (max-width: 1120px) {
+  .toolbar-main-row {
+    flex-wrap: wrap;
+  }
+
+  .toolbar-main-row > * {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color, #3f3f46);
+  }
+
+  .toolbar-main-row > :last-child {
+    border-bottom: 0;
+  }
+
+  .toolbar-utilities {
+    margin-left: auto;
+  }
 }
 
 .canvas-desktop-toolbar :deep(.el-button:focus-visible) {

@@ -5,6 +5,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const net = require('node:net');
+const { spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
 const AdmZip = require('adm-zip');
 const { getGlobalSetting } = require('../src/services/settingsService');
@@ -12,10 +13,12 @@ const {
   __testing,
   FORMAT_VERSION,
   acquireServiceMaintenanceLockSync,
+  createExternalMaintenanceLease,
   createDataBackup,
   maintenancePaths,
   recoverInterruptedMaintenanceSync,
   restoreDataBackup,
+  resolveDataRoot,
 } = require('../src/services/dataBackupService');
 
 async function makeWorkspace(t) {
@@ -166,6 +169,196 @@ test('creates a consistent frozen backup and restores database plus media', asyn
   if (process.platform !== 'win32') {
     assert.equal((await fsp.stat(workspace.archivePath)).mode & 0o777, 0o600);
   }
+});
+
+test('caller-owned archive handle is the sole restore source and remains open', async (t) => {
+  const retained = await createFixtureBackup(t);
+  const alternate = await makeWorkspace(t);
+  const alternateDb = createDatabase(alternate.databasePath, 'alternate-state');
+  await seedStorage(alternate.storagePath, 'alternate');
+  const alternateBackup = await createDataBackup({
+    ...alternate,
+    outputPath: alternate.archivePath,
+    skipServiceCheck: true,
+  });
+  alternateDb.close();
+
+  replaceDatabaseValue(retained.databasePath, 'live-state');
+  const archiveHandle = await fsp.open(retained.archivePath, 'r');
+  const retainedAtAlternatePath = `${retained.archivePath}.retained`;
+  const originalStat = archiveHandle.stat.bind(archiveHandle);
+  let handleStatCalls = 0;
+  archiveHandle.stat = async (...args) => {
+    const stat = await originalStat(...args);
+    handleStatCalls += 1;
+    if (handleStatCalls === 1) {
+      await fsp.rename(retained.archivePath, retainedAtAlternatePath);
+      await fsp.copyFile(alternate.archivePath, retained.archivePath);
+    }
+    return stat;
+  };
+
+  try {
+    await restoreDataBackup({
+      ...retained,
+      archiveHandle,
+      confirmed: true,
+      skipServiceCheck: true,
+    });
+
+    assert.ok(handleStatCalls >= 2, 'restore must validate and revalidate the caller-owned archive handle');
+    assert.deepEqual(readDatabaseValues(retained.databasePath), ['backup-state']);
+    assert.equal((await archiveHandle.stat()).isFile(), true, 'restore must not close a caller-owned archive handle');
+    const pathManifest = JSON.parse(new AdmZip(retained.archivePath).readAsText('manifest.json'));
+    assert.equal(pathManifest.database.sha256, alternateBackup.manifest.database.sha256);
+    assert.notEqual(pathManifest.database.sha256, retained.result.manifest.database.sha256);
+  } finally {
+    await archiveHandle.close().catch(() => {});
+  }
+});
+
+test('descriptor publication writes and verifies the caller-owned archive without closing descriptors', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const liveDb = createDatabase(workspace.databasePath, 'descriptor-publication');
+  await seedStorage(workspace.storagePath, 'descriptor-publication');
+  liveDb.close();
+
+  const publicationPath = path.join(workspace.root, 'archives', 'data.zip');
+  const temporaryPath = path.join(workspace.root, 'archives', '.data.zip.retained.tmp');
+  await fsp.mkdir(path.dirname(publicationPath), { recursive: true });
+  const writeHandle = await fsp.open(temporaryPath, 'wx+', 0o600);
+  const readHandle = await fsp.open(temporaryPath, 'r+');
+
+  const readyMarkers = [];
+  let result;
+  try {
+    result = await createDataBackup({
+      ...workspace,
+      skipServiceCheck: true,
+      descriptorPublication: {
+        readFd: readHandle.fd,
+        writeFd: writeHandle.fd,
+        publicationPath,
+        publicationFile: 'data.zip',
+        operationId: '0123456789abcdef0123456789abcdef',
+        waitForPublication: async (marker) => {
+          readyMarkers.push(marker);
+          assert.equal(marker.phase, 'ready');
+          assert.equal((await readHandle.stat()).isFile(), true);
+          assert.equal((await writeHandle.stat()).isFile(), true);
+          await fsp.rename(temporaryPath, publicationPath);
+        },
+      },
+    });
+
+    assert.equal((await readHandle.stat()).isFile(), true, 'the read descriptor must remain caller-owned');
+    assert.equal((await writeHandle.stat()).isFile(), true, 'the write descriptor must remain caller-owned');
+  } finally {
+    await readHandle.close().catch(() => {});
+    await writeHandle.close().catch(() => {});
+  }
+
+  assert.equal(readyMarkers.length, 1);
+  assert.deepEqual(result.publication.ready, readyMarkers[0]);
+  assert.equal(result.publication.committed.phase, 'committed');
+  assert.equal(result.publication.committed.archive_sha256, result.publication.ready.archive_sha256);
+  assert.equal(result.publication.committed.archive_bytes, String(result.archiveBytes));
+  assert.equal(result.outputPath, publicationPath);
+  assert.deepEqual(new AdmZip(publicationPath).getEntries().map((entry) => entry.entryName).sort(), [
+    'database.sqlite',
+    'manifest.json',
+    'storage/images/cover.txt',
+    'storage/images/nested/clip.bin',
+  ]);
+});
+
+test('descriptor publication rejects the same archive bytes at a different filesystem identity', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const liveDb = createDatabase(workspace.databasePath, 'descriptor-copy');
+  await seedStorage(workspace.storagePath, 'descriptor-copy');
+  liveDb.close();
+
+  const publicationPath = path.join(workspace.root, 'archives', 'data.zip');
+  const temporaryPath = path.join(workspace.root, 'archives', '.data.zip.copy-source.tmp');
+  await fsp.mkdir(path.dirname(publicationPath), { recursive: true });
+  const writeHandle = await fsp.open(temporaryPath, 'wx+', 0o600);
+  const readHandle = await fsp.open(temporaryPath, 'r+');
+
+  try {
+    await assert.rejects(
+      createDataBackup({
+        ...workspace,
+        skipServiceCheck: true,
+        descriptorPublication: {
+          readFd: readHandle.fd,
+          writeFd: writeHandle.fd,
+          publicationPath,
+          publicationFile: 'data.zip',
+          operationId: '11111111111111111111111111111111',
+          waitForPublication: async () => {
+            await fsp.copyFile(temporaryPath, publicationPath);
+          },
+        },
+      }),
+      expectCode('PUBLICATION_IDENTITY_MISMATCH')
+    );
+    assert.equal((await readHandle.stat()).isFile(), true);
+    assert.equal((await writeHandle.stat()).isFile(), true);
+  } finally {
+    await readHandle.close().catch(() => {});
+    await writeHandle.close().catch(() => {});
+  }
+});
+
+test('descriptor publication rejects changed bytes at the retained filesystem identity', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const liveDb = createDatabase(workspace.databasePath, 'descriptor-mutation');
+  await seedStorage(workspace.storagePath, 'descriptor-mutation');
+  liveDb.close();
+
+  const publicationPath = path.join(workspace.root, 'archives', 'data.zip');
+  const temporaryPath = path.join(workspace.root, 'archives', '.data.zip.mutation.tmp');
+  await fsp.mkdir(path.dirname(publicationPath), { recursive: true });
+  const writeHandle = await fsp.open(temporaryPath, 'wx+', 0o600);
+  const readHandle = await fsp.open(temporaryPath, 'r+');
+
+  try {
+    await assert.rejects(
+      createDataBackup({
+        ...workspace,
+        skipServiceCheck: true,
+        descriptorPublication: {
+          readFd: readHandle.fd,
+          writeFd: writeHandle.fd,
+          publicationPath,
+          publicationFile: 'data.zip',
+          operationId: '22222222222222222222222222222222',
+          waitForPublication: async () => {
+            await fsp.rename(temporaryPath, publicationPath);
+            await writeHandle.write(Buffer.from([0x00]), 0, 1, 0);
+            await writeHandle.sync();
+          },
+        },
+      }),
+      expectCode('PUBLICATION_CONTENT_MISMATCH')
+    );
+    assert.equal((await readHandle.stat()).isFile(), true);
+    assert.equal((await writeHandle.stat()).isFile(), true);
+  } finally {
+    await readHandle.close().catch(() => {});
+    await writeHandle.close().catch(() => {});
+  }
+});
+
+test('descriptor physical identity uses canonical unsigned Windows-width fields', () => {
+  assert.equal(
+    __testing.canonicalPhysicalIdentity({ dev: -1n, ino: -1n }),
+    'ffffffff:ffffffffffffffff'
+  );
+  assert.equal(
+    __testing.canonicalPhysicalIdentity({ dev: 0x1234n, ino: 0x5678n }),
+    '00001234:0000000000005678'
+  );
 });
 
 test('backs up, hashes, and atomically restores Source Intake raw text', async (t) => {
@@ -862,6 +1055,209 @@ test('excludes provider credentials from backups by default', async (t) => {
   assert.equal(providerInvocation.error_message.includes(syntheticTableMarker), false);
 });
 
+test('excludes nested custom-provider secret aliases from backups by default', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'nested-secret-alias-policy');
+  const secretMarker = `LMD_NESTED_PROVIDER_SECRET_ALIAS_${'Z'.repeat(96)}`;
+  db.exec(`CREATE TABLE ai_service_configs (
+    id INTEGER PRIMARY KEY,
+    settings TEXT
+  )`);
+  db.prepare('INSERT INTO ai_service_configs (settings) VALUES (?)').run(JSON.stringify({
+    provider_name: 'custom-safe-provider',
+    key: `${secretMarker}:key`,
+    nested: {
+      keys: [`${secretMarker}:keys-array`, { value: `${secretMarker}:keys-object` }],
+      region: 'cn-north-1',
+    },
+    transports: [
+      { passwd: `${secretMarker}:passwd`, timeout_ms: 1200 },
+      {
+        tls: { passphrase: `${secretMarker}:passphrase`, verify_peer: true },
+        retry_count: 3,
+      },
+    ],
+    models: ['safe-model-a'],
+  }));
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  assert.equal(fs.readFileSync(workspace.databasePath).includes(Buffer.from(secretMarker)), true);
+
+  const backup = await createDataBackup({
+    ...workspace,
+    outputPath: workspace.archivePath,
+    skipServiceCheck: true,
+  });
+  assert.equal(backup.security.policy, 'excluded');
+  db.close();
+
+  const snapshotBytes = new AdmZip(workspace.archivePath).readFile('database.sqlite');
+  assert.equal(snapshotBytes.includes(Buffer.from(secretMarker)), false);
+  const snapshotPath = path.join(workspace.root, 'snapshot-without-nested-secret-aliases.db');
+  await fsp.writeFile(snapshotPath, snapshotBytes);
+  const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+  let settings;
+  try {
+    settings = JSON.parse(snapshot.prepare('SELECT settings FROM ai_service_configs').get().settings);
+  } finally {
+    snapshot.close();
+  }
+
+  assert.equal(settings.key, '');
+  assert.equal(settings.nested.keys, '');
+  assert.equal(settings.transports[0].passwd, '');
+  assert.equal(settings.transports[1].tls.passphrase, '');
+  assert.equal(settings.provider_name, 'custom-safe-provider');
+  assert.equal(settings.nested.region, 'cn-north-1');
+  assert.equal(settings.transports[0].timeout_ms, 1200);
+  assert.equal(settings.transports[1].tls.verify_peer, true);
+  assert.equal(settings.transports[1].retry_count, 3);
+  assert.deepEqual(settings.models, ['safe-model-a']);
+});
+
+test('preserves non-sensitive business key fields in default backups', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'business-key-policy');
+  const shortcutKeys = JSON.stringify(['Ctrl+K', 'Ctrl+Shift+P']);
+  db.exec(`CREATE TABLE workflow_preferences (
+    id INTEGER PRIMARY KEY,
+    business_key TEXT,
+    shortcut_keys TEXT
+  );
+  CREATE TABLE global_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`);
+  db.prepare('INSERT INTO workflow_preferences (business_key, shortcut_keys) VALUES (?, ?)')
+    .run('episode-routing-v2', shortcutKeys);
+  const insertGlobalSetting = db.prepare('INSERT INTO global_settings (key, value) VALUES (?, ?)');
+  insertGlobalSetting.run('business_key', JSON.stringify('tenant-routing-v3'));
+  insertGlobalSetting.run('shortcut_keys', JSON.stringify(['Ctrl+B', 'Ctrl+Alt+M']));
+  db.pragma('wal_checkpoint(TRUNCATE)');
+
+  const backup = await createDataBackup({
+    ...workspace,
+    outputPath: workspace.archivePath,
+    skipServiceCheck: true,
+  });
+  assert.equal(backup.security.policy, 'excluded');
+  db.close();
+
+  const snapshotBytes = new AdmZip(workspace.archivePath).readFile('database.sqlite');
+  const snapshotPath = path.join(workspace.root, 'snapshot-with-business-keys.db');
+  await fsp.writeFile(snapshotPath, snapshotBytes);
+  const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+  let preference;
+  let globalSettings;
+  try {
+    preference = snapshot.prepare(
+      'SELECT business_key, shortcut_keys FROM workflow_preferences'
+    ).get();
+    globalSettings = Object.fromEntries(
+      snapshot.prepare('SELECT key, value FROM global_settings').all()
+        .map((row) => [row.key, JSON.parse(row.value)])
+    );
+  } finally {
+    snapshot.close();
+  }
+
+  assert.deepEqual(preference, {
+    business_key: 'episode-routing-v2',
+    shortcut_keys: shortcutKeys,
+  });
+  assert.deepEqual(globalSettings, {
+    business_key: 'tenant-routing-v3',
+    shortcut_keys: ['Ctrl+B', 'Ctrl+Alt+M'],
+  });
+});
+
+test('preserves provider secret markers when includeSecrets is true', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'explicit-secret-policy');
+  const secretMarker = `LMD_EXPLICIT_PROVIDER_SECRET_${'I'.repeat(96)}`;
+  const originalSettings = {
+    key: `${secretMarker}:key`,
+    nested: [
+      { passwd: `${secretMarker}:passwd` },
+      { tls: { passphrase: `${secretMarker}:passphrase` } },
+    ],
+  };
+  db.exec(`CREATE TABLE ai_service_configs (
+    id INTEGER PRIMARY KEY,
+    api_key TEXT,
+    settings TEXT
+  )`);
+  db.prepare('INSERT INTO ai_service_configs (api_key, settings) VALUES (?, ?)')
+    .run(`${secretMarker}:api-key`, JSON.stringify(originalSettings));
+  db.pragma('wal_checkpoint(TRUNCATE)');
+
+  const backup = await createDataBackup({
+    ...workspace,
+    outputPath: workspace.archivePath,
+    skipServiceCheck: true,
+    includeSecrets: true,
+  });
+  assert.equal(backup.security.policy, 'included-by-explicit-request');
+  db.close();
+
+  const snapshotBytes = new AdmZip(workspace.archivePath).readFile('database.sqlite');
+  assert.equal(snapshotBytes.includes(Buffer.from(secretMarker)), true);
+  const snapshotPath = path.join(workspace.root, 'snapshot-with-explicit-secrets.db');
+  await fsp.writeFile(snapshotPath, snapshotBytes);
+  const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+  let row;
+  try {
+    row = snapshot.prepare('SELECT api_key, settings FROM ai_service_configs').get();
+  } finally {
+    snapshot.close();
+  }
+
+  assert.equal(row.api_key, `${secretMarker}:api-key`);
+  assert.deepEqual(JSON.parse(row.settings), originalSettings);
+});
+
+test('redacts header array values while preserving name and key metadata', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'header-array-policy');
+  const secretMarker = `LMD_HEADER_ARRAY_SECRET_${'H'.repeat(96)}`;
+  db.exec(`CREATE TABLE ai_service_configs (
+    id INTEGER PRIMARY KEY,
+    settings TEXT
+  )`);
+  db.prepare('INSERT INTO ai_service_configs (settings) VALUES (?)').run(JSON.stringify({
+    header_list: [
+      { key: 'Authorization', value: `${secretMarker}:key-form`, enabled: true },
+      { name: 'X-Auth', value: `${secretMarker}:name-form`, enabled: false },
+      { key: 'Content-Type', value: 'application/json' },
+    ],
+  }));
+  db.pragma('wal_checkpoint(TRUNCATE)');
+
+  await createDataBackup({
+    ...workspace,
+    outputPath: workspace.archivePath,
+    skipServiceCheck: true,
+  });
+  db.close();
+
+  const snapshotBytes = new AdmZip(workspace.archivePath).readFile('database.sqlite');
+  assert.equal(snapshotBytes.includes(Buffer.from(secretMarker)), false);
+  const snapshotPath = path.join(workspace.root, 'snapshot-with-redacted-header-array.db');
+  await fsp.writeFile(snapshotPath, snapshotBytes);
+  const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+  let settings;
+  try {
+    settings = JSON.parse(snapshot.prepare('SELECT settings FROM ai_service_configs').get().settings);
+  } finally {
+    snapshot.close();
+  }
+
+  assert.deepEqual(settings.header_list, [
+    { key: 'Authorization', value: '', enabled: true },
+    { name: 'X-Auth', value: '', enabled: false },
+    { key: 'Content-Type', value: 'application/json' },
+  ]);
+});
+
 test('maintenance lock rejects a concurrent backup in the same host contract', async (t) => {
   const workspace = await makeWorkspace(t);
   const db = createDatabase(workspace.databasePath, 'locked-backup');
@@ -906,6 +1302,491 @@ test('service maintenance guard removes its persistent lock on release', async (
   guard.release();
   guard.release();
   assert.equal(await fsp.stat(lockPath).catch(() => null), null);
+});
+
+test('abandoning a service maintenance guard leaves its persistent lock for fail-closed recovery', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+  });
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  t.after(() => fsp.rm(lockPath, { force: true }));
+
+  guard.abandon();
+  guard.release();
+
+  assert.ok((await fsp.stat(lockPath)).isFile());
+  assert.equal(JSON.parse(await fsp.readFile(lockPath, 'utf8')).token, guard.token);
+});
+
+test('process exit abandons a service guard after an external lease is issued', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const modulePath = path.resolve(__dirname, '../src/services/dataBackupService.js');
+  const script = `
+    const service = require(${JSON.stringify(modulePath)});
+    const guard = service.acquireServiceMaintenanceLockSync(${JSON.stringify({
+      databasePath: workspace.databasePath,
+      storagePath: workspace.storagePath,
+      storySourcesPath: workspace.storySourcesPath,
+    })});
+    service.createExternalMaintenanceLease(guard);
+    process.exit(0);
+  `;
+  const result = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', windowsHide: true });
+  assert.equal(result.status, 0, result.stderr);
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  t.after(() => fsp.rm(lockPath, { force: true }));
+  assert.ok((await fsp.stat(lockPath)).isFile());
+});
+
+test('process exit cleanup continues after one service guard release fails', async (t) => {
+  const first = await makeWorkspace(t);
+  const second = await makeWorkspace(t);
+  const firstLockPath = maintenancePaths(first.databasePath).lockPath;
+  const secondLockPath = maintenancePaths(second.databasePath).lockPath;
+  const displacedPath = `${firstLockPath}.exit-displaced`;
+  const modulePath = path.resolve(__dirname, '../src/services/dataBackupService.js');
+  const script = `
+    const fs = require('node:fs');
+    const service = require(${JSON.stringify(modulePath)});
+    service.acquireServiceMaintenanceLockSync(${JSON.stringify({
+      databasePath: first.databasePath,
+      storagePath: first.storagePath,
+      storySourcesPath: first.storySourcesPath,
+    })});
+    service.acquireServiceMaintenanceLockSync(${JSON.stringify({
+      databasePath: second.databasePath,
+      storagePath: second.storagePath,
+      storySourcesPath: second.storySourcesPath,
+    })});
+    fs.renameSync(${JSON.stringify(firstLockPath)}, ${JSON.stringify(displacedPath)});
+    process.exit(0);
+  `;
+
+  const result = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', windowsHide: true });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /maintenance guard cleanup failed for 1 lock/i);
+  assert.ok((await fsp.stat(displacedPath)).isFile());
+  assert.equal(await fsp.stat(secondLockPath).catch(() => null), null);
+});
+
+test('service guard release preserves an identical replacement installed at its atomic claim boundary', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+  });
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  const displacedPath = `${lockPath}.displaced`;
+  let injected = false;
+  const originalRenameSync = fs.renameSync;
+  t.after(async () => {
+    fs.renameSync = originalRenameSync;
+    await fsp.rm(lockPath, { force: true });
+    await fsp.rm(displacedPath, { force: true });
+  });
+  fs.renameSync = (source, destination) => {
+    if (!injected && path.resolve(source) === path.resolve(lockPath)) {
+      injected = true;
+      originalRenameSync(source, displacedPath);
+      fs.writeFileSync(lockPath, `${JSON.stringify(guard.payload)}\n`, { flag: 'wx' });
+    }
+    return originalRenameSync(source, destination);
+  };
+
+  assert.throws(
+    () => guard.release(),
+    expectCode('MAINTENANCE_LOCK_RELEASE_FAILED')
+  );
+
+  assert.equal(injected, true, 'release did not use an atomic pathname claim');
+  assert.deepEqual(JSON.parse(await fsp.readFile(lockPath, 'utf8')), guard.payload);
+  assert.ok((await fsp.stat(displacedPath)).isFile());
+});
+
+test('service guard closes its descriptor before the atomic release claim', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+  });
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  const originalRenameSync = fs.renameSync;
+  let observedClosedDescriptor = false;
+  t.after(async () => {
+    fs.renameSync = originalRenameSync;
+    guard.abandon();
+    await fsp.rm(lockPath, { recursive: true, force: true });
+  });
+  fs.renameSync = (source, destination) => {
+    if (path.resolve(source) === path.resolve(lockPath)) {
+      assert.throws(
+        () => fs.fstatSync(guard.fd),
+        (error) => error?.code === 'EBADF'
+      );
+      observedClosedDescriptor = true;
+    }
+    return originalRenameSync(source, destination);
+  };
+
+  guard.release();
+
+  assert.equal(observedClosedDescriptor, true);
+  assert.equal(await fsp.stat(lockPath).catch(() => null), null);
+});
+
+test('service heartbeat and release fail closed when the public lock path is displaced', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+    heartbeatIntervalMs: 100,
+  });
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  const displacedPath = `${lockPath}.heartbeat-displaced`;
+  t.after(async () => {
+    guard.abandon();
+    await fsp.rm(lockPath, { recursive: true, force: true });
+    await fsp.rm(displacedPath, { recursive: true, force: true });
+  });
+
+  await fsp.rename(lockPath, displacedPath);
+  const deadline = Date.now() + 2000;
+  while (!guard.heartbeatError && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  assert.equal(guard.heartbeatError?.code, 'MAINTENANCE_LEASE_INVALID');
+  assert.throws(
+    () => createExternalMaintenanceLease(guard),
+    expectCode('MAINTENANCE_LEASE_INVALID')
+  );
+  assert.throws(
+    () => guard.release(),
+    expectCode('MAINTENANCE_LOCK_RELEASE_FAILED')
+  );
+  assert.ok((await fsp.stat(displacedPath)).isFile());
+  assert.equal(await fsp.stat(lockPath).catch(() => null), null);
+});
+
+test('service release reports and preserves a directory replacement installed at its claim boundary', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+  });
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  const displacedPath = `${lockPath}.directory-displaced`;
+  const claimPrefix = `.${path.basename(lockPath)}.claim-`;
+  let injected = false;
+  const originalRenameSync = fs.renameSync;
+  t.after(async () => {
+    fs.renameSync = originalRenameSync;
+    guard.abandon();
+    await fsp.rm(lockPath, { recursive: true, force: true });
+    await fsp.rm(displacedPath, { recursive: true, force: true });
+    const parentEntries = await fsp.readdir(path.dirname(lockPath)).catch(() => []);
+    await Promise.all(parentEntries
+      .filter((name) => name.startsWith(claimPrefix))
+      .map((name) => fsp.rm(path.join(path.dirname(lockPath), name), { recursive: true, force: true })));
+  });
+  fs.renameSync = (source, destination) => {
+    if (!injected && path.resolve(source) === path.resolve(lockPath)) {
+      injected = true;
+      originalRenameSync(source, displacedPath);
+      fs.mkdirSync(lockPath);
+      fs.writeFileSync(path.join(lockPath, 'canary.txt'), 'unrelated directory replacement');
+    }
+    return originalRenameSync(source, destination);
+  };
+
+  assert.throws(
+    () => guard.release(),
+    expectCode('MAINTENANCE_LOCK_RELEASE_FAILED')
+  );
+
+  assert.equal(injected, true);
+  assert.ok((await fsp.stat(displacedPath)).isFile());
+  const claimDirectories = (await fsp.readdir(path.dirname(lockPath)))
+    .filter((name) => name.startsWith(claimPrefix));
+  assert.equal(claimDirectories.length, 1);
+  assert.deepEqual(JSON.parse(await fsp.readFile(lockPath, 'utf8')), {
+    schema: 'localminidrama.maintenance-quarantine.v1',
+    claimDirectory: claimDirectories[0],
+    claimEntry: 'owned',
+    replacementType: 'directory',
+    contract: 'manual-inspection-required',
+  });
+  assert.equal(
+    await fsp.readFile(path.join(path.dirname(lockPath), claimDirectories[0], 'owned', 'canary.txt'), 'utf8'),
+    'unrelated directory replacement'
+  );
+});
+
+test('service release surfaces descriptor close failure and restores the public lock path', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+  });
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  const originalCloseSync = fs.closeSync;
+  const closeFailure = new Error('injected maintenance descriptor close failure');
+  let injected = false;
+  try {
+    fs.closeSync = (fd) => {
+      if (!injected && fd === guard.fd) {
+        injected = true;
+        throw closeFailure;
+      }
+      return originalCloseSync(fd);
+    };
+
+    let releaseFailure;
+    assert.throws(
+      () => guard.release(),
+      (error) => {
+        releaseFailure = error;
+        return error?.code === 'MAINTENANCE_LOCK_RELEASE_FAILED';
+      }
+    );
+
+    assert.equal(injected, true);
+    assert.equal(releaseFailure.cause, closeFailure);
+    assert.ok((await fsp.stat(lockPath)).isFile());
+    assert.equal(JSON.parse(await fsp.readFile(lockPath, 'utf8')).token, guard.token);
+  } finally {
+    fs.closeSync = originalCloseSync;
+    try { originalCloseSync(guard.fd); } catch (_) {}
+    await fsp.rm(lockPath, { force: true });
+  }
+});
+
+test('external service lease rejects a path replacement installed after its read descriptor opens', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+  });
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  const displacedPath = `${lockPath}.read-displaced`;
+  let injected = false;
+  const originalOpenSync = fs.openSync;
+  t.after(async () => {
+    fs.openSync = originalOpenSync;
+    guard.abandon();
+    await fsp.rm(lockPath, { force: true });
+    await fsp.rm(displacedPath, { force: true });
+  });
+  fs.openSync = (target, flags, ...args) => {
+    const fd = originalOpenSync(target, flags, ...args);
+    if (!injected && path.resolve(String(target)) === path.resolve(lockPath)) {
+      injected = true;
+      fs.renameSync(lockPath, displacedPath);
+      fs.writeFileSync(lockPath, `${JSON.stringify(guard.payload)}\n`, { flag: 'wx' });
+    }
+    return fd;
+  };
+
+  assert.throws(
+    () => createExternalMaintenanceLease(guard),
+    expectCode('MAINTENANCE_LEASE_INVALID')
+  );
+  assert.equal(injected, true, 'lease validation did not open a path-bound read descriptor');
+  assert.ok((await fsp.stat(lockPath)).isFile());
+  assert.ok((await fsp.stat(displacedPath)).isFile());
+  fs.openSync = originalOpenSync;
+  guard.abandon();
+  await fsp.rm(lockPath, { force: true });
+  await fsp.rm(displacedPath, { force: true });
+});
+
+test('external service maintenance lease authorizes a backup without taking a second source lock', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'externally-locked-backup');
+  db.close();
+  await seedStorage(workspace.storagePath, 'externally-locked');
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+    storySourcesPath: workspace.storySourcesPath,
+  });
+  t.after(() => guard.release());
+  const lease = createExternalMaintenanceLease(guard);
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  const lockBefore = await fsp.readFile(lockPath, 'utf8');
+
+  const backup = await createDataBackup({
+    ...workspace,
+    outputPath: workspace.archivePath,
+    externalMaintenanceLease: lease,
+  });
+
+  assert.ok(backup.archiveBytes > 0);
+  assert.deepEqual(await fsp.readFile(lockPath, 'utf8'), lockBefore);
+  assert.deepEqual(JSON.parse(lockBefore), guard.payload);
+  guard.release();
+  assert.equal(await fsp.stat(lockPath).catch(() => null), null);
+});
+
+test('external service maintenance lease rejects mismatches and mutation after output link', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'mutated-external-lock');
+  db.close();
+  await seedStorage(workspace.storagePath, 'mutated-external-lock');
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+    storySourcesPath: workspace.storySourcesPath,
+  });
+  t.after(() => guard.release());
+  const lease = createExternalMaintenanceLease(guard);
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+
+  await assert.rejects(
+    createDataBackup({
+      ...workspace,
+      outputPath: workspace.archivePath,
+      externalMaintenanceLease: { ...lease, token: 'f'.repeat(16) },
+    }),
+    expectCode('MAINTENANCE_LEASE_INVALID')
+  );
+
+  await assert.rejects(
+    createDataBackup({
+      ...workspace,
+      outputPath: workspace.archivePath,
+      externalMaintenanceLease: lease,
+      async faultInjector(step) {
+        if (step !== 'after-backup-output-linked') return;
+        await fsp.writeFile(lockPath, `${JSON.stringify({ ...guard.payload, token: 'e'.repeat(16) })}\n`);
+      },
+    }),
+    expectCode('MAINTENANCE_LEASE_INVALID')
+  );
+  assert.equal(await fsp.stat(workspace.archivePath).catch(() => null), null);
+
+  await fsp.writeFile(lockPath, `${JSON.stringify(guard.payload)}\n`);
+  guard.release();
+  assert.equal(await fsp.stat(lockPath).catch(() => null), null);
+});
+
+test('backup failure compensation preserves an output replacement installed at its atomic claim boundary', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'replacement-safe-output-cleanup');
+  db.close();
+  await seedStorage(workspace.storagePath, 'replacement-safe-output-cleanup');
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+    storySourcesPath: workspace.storySourcesPath,
+  });
+  const lease = createExternalMaintenanceLease(guard);
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  const displacedOutputPath = `${workspace.archivePath}.displaced`;
+  let injected = false;
+  const originalRenameSync = fs.renameSync;
+  try {
+    fs.renameSync = (source, destination) => {
+      if (!injected && path.resolve(source) === path.resolve(workspace.archivePath)) {
+        injected = true;
+        originalRenameSync(source, displacedOutputPath);
+        fs.writeFileSync(workspace.archivePath, 'unrelated-output', { flag: 'wx' });
+      }
+      return originalRenameSync(source, destination);
+    };
+
+    let backupFailure;
+    await assert.rejects(
+      createDataBackup({
+        ...workspace,
+        outputPath: workspace.archivePath,
+        externalMaintenanceLease: lease,
+        async faultInjector(step) {
+          if (step === 'after-backup-output-linked') {
+            await fsp.writeFile(lockPath, `${JSON.stringify({ ...guard.payload, token: 'e'.repeat(16) })}\n`);
+          }
+        },
+      }),
+      (error) => {
+        backupFailure = error;
+        return expectCode('MAINTENANCE_LEASE_INVALID')(error);
+      }
+    );
+
+    assert.equal(injected, true, 'backup compensation did not atomically claim the output path');
+    assert.equal(await fsp.readFile(workspace.archivePath, 'utf8'), 'unrelated-output');
+    assert.ok((await fsp.stat(displacedOutputPath)).isFile());
+    assert.equal(Object.hasOwn(backupFailure, 'cleanupError'), false);
+    const cleanupDescriptor = Object.getOwnPropertyDescriptor(backupFailure, 'cleanupErrors');
+    assert.equal(cleanupDescriptor?.enumerable, false);
+    assert.equal(cleanupDescriptor?.value.length, 1);
+    assert.equal(cleanupDescriptor.value[0]?.code, 'OUTPUT_CLEANUP_FAILED');
+  } finally {
+    fs.renameSync = originalRenameSync;
+    guard.abandon();
+    await fsp.rm(workspace.archivePath, { force: true });
+    await fsp.rm(displacedOutputPath, { force: true });
+    await fsp.rm(lockPath, { force: true });
+  }
+});
+
+test('external service maintenance lease binds the original lock identity and requires a fresh heartbeat', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'identity-bound-external-lock');
+  db.close();
+  await seedStorage(workspace.storagePath, 'identity-bound-external-lock');
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+    storySourcesPath: workspace.storySourcesPath,
+    heartbeatIntervalMs: 60000,
+  });
+  t.after(() => guard.release());
+  const lease = createExternalMaintenanceLease(guard);
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  const displacedLockPath = `${lockPath}.displaced`;
+  t.after(async () => {
+    await fsp.rm(lockPath, { force: true });
+    await fsp.rm(displacedLockPath, { force: true });
+  });
+
+  assert.equal(lease.schema, 'localminidrama.maintenance-lease.v2');
+  assert.match(lease.device, /^(0|[1-9][0-9]*)$/);
+  assert.match(lease.inode, /^(0|[1-9][0-9]*)$/);
+
+  const staleHeartbeat = new Date(Date.now() - 120000).toISOString();
+  await fsp.writeFile(lockPath, `${JSON.stringify({ ...guard.payload, heartbeatAt: staleHeartbeat })}\n`);
+  await assert.rejects(
+    createDataBackup({
+      ...workspace,
+      outputPath: workspace.archivePath,
+      externalMaintenanceLease: lease,
+    }),
+    expectCode('MAINTENANCE_LEASE_INVALID')
+  );
+  assert.equal(await fsp.stat(workspace.archivePath).catch(() => null), null);
+
+  await fsp.writeFile(lockPath, `${JSON.stringify(guard.payload)}\n`);
+  await fsp.rename(lockPath, displacedLockPath);
+  await fsp.writeFile(lockPath, `${JSON.stringify(guard.payload)}\n`, { flag: 'wx' });
+  await assert.rejects(
+    createDataBackup({
+      ...workspace,
+      outputPath: workspace.archivePath,
+      externalMaintenanceLease: lease,
+    }),
+    expectCode('MAINTENANCE_LEASE_INVALID')
+  );
+
+  assert.throws(
+    () => guard.release(),
+    expectCode('MAINTENANCE_LOCK_RELEASE_FAILED')
+  );
+  assert.deepEqual(JSON.parse(await fsp.readFile(lockPath, 'utf8')), guard.payload);
+  assert.ok((await fsp.stat(displacedLockPath)).isFile());
 });
 
 test('stale dead version 1 maintenance locks upgrade to a version 2 service lease', async (t) => {
@@ -1062,6 +1943,29 @@ test('fresh and foreign-namespace maintenance leases are never reclaimed by PID 
   assert.ok(await fsp.stat(lockPath));
 });
 
+test('startup recovery still fails closed on a stale foreign Docker lock', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const { lockPath } = maintenancePaths(workspace.databasePath);
+  const stale = new Date(Date.now() - 120000);
+  const payload = {
+    version: 2,
+    pid: 7,
+    ownerScope: 'localminidrama-docker-backend',
+    operation: 'service',
+    token: 'c'.repeat(16),
+    createdAt: stale.toISOString(),
+    heartbeatAt: stale.toISOString(),
+    contract: 'exclusive-lease-owner-scope-and-heartbeat-required',
+  };
+  await fsp.writeFile(lockPath, `${JSON.stringify(payload)}\n`, { flag: 'wx' });
+  await fsp.utimes(lockPath, stale, stale);
+  assert.throws(
+    () => recoverInterruptedMaintenanceSync(workspace),
+    expectCode('MAINTENANCE_LOCK_FOREIGN')
+  );
+  assert.ok(await fsp.stat(lockPath));
+});
+
 test('explicit maintenance scopes persist and reclaim stale same-scope container leases', async (t) => {
   const workspace = await makeWorkspace(t);
   const ownerScope = 'localminidrama-docker-backend';
@@ -1086,7 +1990,7 @@ test('explicit maintenance scopes persist and reclaim stale same-scope container
   assert.equal(await fsp.stat(lockPath).catch(() => null), null);
 });
 
-test('explicit maintenance scopes only migrate stale legacy Docker owner scopes', async (t) => {
+test('explicit maintenance scopes fail closed on stale legacy Docker owner scopes', async (t) => {
   const workspace = await makeWorkspace(t);
   const { lockPath } = maintenancePaths(workspace.databasePath);
   const ownerScope = 'localminidrama-docker-backend';
@@ -1113,8 +2017,18 @@ test('explicit maintenance scopes only migrate stale legacy Docker owner scopes'
   legacyDockerLock.heartbeatAt = stale.toISOString();
   await fsp.writeFile(lockPath, `${JSON.stringify(legacyDockerLock)}\n`);
   await fsp.utimes(lockPath, stale, stale);
+  assert.throws(
+    () => recoverInterruptedMaintenanceSync({ ...workspace, ownerScope }),
+    expectCode('MAINTENANCE_LOCK_FOREIGN')
+  );
+  assert.ok(await fsp.stat(lockPath));
   assert.deepEqual(
-    recoverInterruptedMaintenanceSync({ ...workspace, ownerScope }),
+    recoverInterruptedMaintenanceSync({
+      ...workspace,
+      ownerScope,
+      expectedOwnerScope: legacyDockerLock.ownerScope,
+      expectedPid: legacyDockerLock.pid,
+    }),
     { recovered: false }
   );
   assert.equal(await fsp.stat(lockPath).catch(() => null), null);
@@ -1194,6 +2108,89 @@ test('recovery lease heartbeat advances while the main thread is synchronously b
   assert.equal(await fsp.stat(recoveryLockPath).catch(() => null), null);
 });
 
+test('recovery lease release preserves a fresh replacement installed at its claim boundary', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const ownerScope = 'localminidrama-docker-backend';
+  const claim = __testing.acquireMaintenanceRecoveryClaimSync(workspace.databasePath, { ownerScope });
+  const { recoveryLockPath } = maintenancePaths(workspace.databasePath);
+  const now = new Date().toISOString();
+  const freshPayload = {
+    ...claim.payload,
+    token: ['01234567', '89abcdef'].join(''),
+    createdAt: now,
+    heartbeatAt: now,
+  };
+  const displacedPath = `${recoveryLockPath}.release-displaced`;
+  const originalReadFileSync = fs.readFileSync;
+  const originalRenameSync = fs.renameSync;
+  let injected = false;
+  const installReplacement = () => {
+    injected = true;
+    originalRenameSync(recoveryLockPath, displacedPath);
+    fs.writeFileSync(recoveryLockPath, `${JSON.stringify(freshPayload)}\n`, { flag: 'wx' });
+  };
+  t.after(async () => {
+    fs.readFileSync = originalReadFileSync;
+    fs.renameSync = originalRenameSync;
+    try { fs.closeSync(claim.fd); } catch (_) {}
+    await fsp.rm(recoveryLockPath, { recursive: true, force: true });
+    await fsp.rm(displacedPath, { recursive: true, force: true });
+    const claimPrefix = `.${path.basename(recoveryLockPath)}.claim-`;
+    const parentEntries = await fsp.readdir(path.dirname(recoveryLockPath)).catch(() => []);
+    await Promise.all(parentEntries
+      .filter((name) => name.startsWith(claimPrefix))
+      .map((name) => fsp.rm(path.join(path.dirname(recoveryLockPath), name), { recursive: true, force: true })));
+  });
+  fs.readFileSync = (source, ...args) => {
+    const bytes = originalReadFileSync(source, ...args);
+    if (!injected && path.resolve(String(source)) === path.resolve(recoveryLockPath)) installReplacement();
+    return bytes;
+  };
+  fs.renameSync = (source, destination) => {
+    if (!injected && path.resolve(source) === path.resolve(recoveryLockPath)) installReplacement();
+    return originalRenameSync(source, destination);
+  };
+
+  assert.throws(
+    () => __testing.releaseMaintenanceRecoveryClaimSync(claim),
+    expectCode('MAINTENANCE_LOCK_RELEASE_FAILED')
+  );
+
+  assert.equal(injected, true);
+  assert.deepEqual(JSON.parse(await fsp.readFile(recoveryLockPath, 'utf8')), freshPayload);
+  assert.ok((await fsp.stat(displacedPath)).isFile());
+});
+
+test('recovery lease closes its descriptor before the atomic release claim', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const claim = __testing.acquireMaintenanceRecoveryClaimSync(workspace.databasePath, {
+    ownerScope: 'localminidrama-docker-backend',
+  });
+  const { recoveryLockPath } = maintenancePaths(workspace.databasePath);
+  const originalRenameSync = fs.renameSync;
+  let observedClosedDescriptor = false;
+  t.after(async () => {
+    fs.renameSync = originalRenameSync;
+    try { fs.closeSync(claim.fd); } catch (_) {}
+    await fsp.rm(recoveryLockPath, { recursive: true, force: true });
+  });
+  fs.renameSync = (source, destination) => {
+    if (path.resolve(source) === path.resolve(recoveryLockPath)) {
+      assert.throws(
+        () => fs.fstatSync(claim.fd),
+        (error) => error?.code === 'EBADF'
+      );
+      observedClosedDescriptor = true;
+    }
+    return originalRenameSync(source, destination);
+  };
+
+  __testing.releaseMaintenanceRecoveryClaimSync(claim);
+
+  assert.equal(observedClosedDescriptor, true);
+  assert.equal(await fsp.stat(recoveryLockPath).catch(() => null), null);
+});
+
 test('stale same-scope recovery leases are atomically reclaimed', async (t) => {
   const workspace = await makeWorkspace(t);
   const guard = acquireServiceMaintenanceLockSync({
@@ -1215,6 +2212,71 @@ test('stale same-scope recovery leases are atomically reclaimed', async (t) => {
   assert.equal(await fsp.stat(recoveryLockPath).catch(() => null), null);
 });
 
+test('stale recovery reclaim preserves a fresh lease installed at the atomic claim boundary', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const ownerScope = 'localminidrama-docker-backend';
+  const guard = acquireServiceMaintenanceLockSync({
+    databasePath: workspace.databasePath,
+    storagePath: workspace.storagePath,
+    ownerScope,
+  });
+  const { lockPath, recoveryLockPath } = maintenancePaths(workspace.databasePath);
+  const basePayload = JSON.parse(await fsp.readFile(lockPath, 'utf8'));
+  guard.release();
+
+  const staleTime = new Date(Date.now() - 120000);
+  const stalePayload = {
+    ...basePayload,
+    pid: 2147483647,
+    operation: 'restore',
+    heartbeatAt: staleTime.toISOString(),
+  };
+  const now = new Date().toISOString();
+  const freshPayload = {
+    ...basePayload,
+    operation: 'restore',
+    token: ['fedcba98', '76543210'].join(''),
+    createdAt: now,
+    heartbeatAt: now,
+  };
+  await fsp.writeFile(recoveryLockPath, `${JSON.stringify(stalePayload)}\n`, { flag: 'wx' });
+  await fsp.utimes(recoveryLockPath, staleTime, staleTime);
+
+  const displacedPath = `${recoveryLockPath}.stale-displaced`;
+  const originalRenameSync = fs.renameSync;
+  let injected = false;
+  t.after(async () => {
+    fs.renameSync = originalRenameSync;
+    await fsp.rm(recoveryLockPath, { recursive: true, force: true });
+    await fsp.rm(displacedPath, { recursive: true, force: true });
+    const claimPrefix = `.${path.basename(recoveryLockPath)}.claim-`;
+    const parentEntries = await fsp.readdir(path.dirname(recoveryLockPath)).catch(() => []);
+    await Promise.all(parentEntries
+      .filter((name) => name.startsWith(claimPrefix))
+      .map((name) => fsp.rm(path.join(path.dirname(recoveryLockPath), name), { recursive: true, force: true })));
+  });
+  fs.renameSync = (source, destination) => {
+    if (!injected && path.resolve(source) === path.resolve(recoveryLockPath)) {
+      injected = true;
+      originalRenameSync(source, displacedPath);
+      fs.writeFileSync(recoveryLockPath, `${JSON.stringify(freshPayload)}\n`, { flag: 'wx' });
+    }
+    return originalRenameSync(source, destination);
+  };
+
+  assert.throws(
+    () => {
+      const unexpected = __testing.acquireMaintenanceRecoveryClaimSync(workspace.databasePath, { ownerScope });
+      __testing.releaseMaintenanceRecoveryClaimSync(unexpected);
+    },
+    expectCode('MAINTENANCE_ACTIVE')
+  );
+
+  assert.equal(injected, true);
+  assert.deepEqual(JSON.parse(await fsp.readFile(recoveryLockPath, 'utf8')), freshPayload);
+  assert.ok((await fsp.stat(displacedPath)).isFile());
+});
+
 test('service lease heartbeat advances and stale same-scope dead locks recover', async (t) => {
   const workspace = await makeWorkspace(t);
   const guard = acquireServiceMaintenanceLockSync({
@@ -1225,16 +2287,20 @@ test('service lease heartbeat advances and stale same-scope dead locks recover',
   t.after(() => guard.release());
   const { lockPath } = maintenancePaths(workspace.databasePath);
   const first = JSON.parse(await fsp.readFile(lockPath, 'utf8'));
-  await new Promise((resolve) => setTimeout(resolve, 350));
+  await new Promise((resolve) => setTimeout(resolve, 175));
   const second = JSON.parse(await fsp.readFile(lockPath, 'utf8'));
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const third = JSON.parse(await fsp.readFile(lockPath, 'utf8'));
   assert.equal(second.ownerScope, first.ownerScope);
   assert.equal(second.token, first.token);
   assert.ok(Date.parse(second.heartbeatAt) > Date.parse(first.heartbeatAt));
+  assert.ok(Date.parse(third.heartbeatAt) > Date.parse(second.heartbeatAt));
+  assert.equal(guard.heartbeatError, undefined);
 
   guard.release();
   const stale = new Date(Date.now() - 120000);
   const deadOwner = {
-    ...second,
+    ...third,
     pid: 2147483647,
     heartbeatAt: stale.toISOString(),
   };
@@ -1242,6 +2308,34 @@ test('service lease heartbeat advances and stale same-scope dead locks recover',
   await fsp.utimes(lockPath, stale, stale);
   assert.deepEqual(recoverInterruptedMaintenanceSync(workspace), { recovered: false });
   assert.equal(await fsp.stat(lockPath).catch(() => null), null);
+});
+
+test('unwritable backup output is reported as PERMISSION_DENIED', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('Windows 无法用 chmod 稳定复现目录写权限失败');
+    return;
+  }
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'permission-denied');
+  await seedStorage(workspace.storagePath, 'permission-denied');
+  const outputDir = path.join(workspace.root, 'locked-output');
+  await fsp.mkdir(outputDir, { recursive: true });
+  await fsp.chmod(outputDir, 0o500);
+  t.after(async () => {
+    try { await fsp.chmod(outputDir, 0o700); } catch (_) {}
+  });
+  try {
+    await assert.rejects(
+      createDataBackup({
+        ...workspace,
+        outputPath: path.join(outputDir, 'backup.zip'),
+        skipServiceCheck: true,
+      }),
+      expectCode('PERMISSION_DENIED')
+    );
+  } finally {
+    db.close();
+  }
 });
 
 test('backup output commit never overwrites a path created during backup', async (t) => {
@@ -1264,6 +2358,37 @@ test('backup output commit never overwrites a path created during backup', async
     expectCode('OUTPUT_EXISTS')
   );
   assert.equal(await fsp.readFile(workspace.archivePath, 'utf8'), sentinel);
+  db.close();
+});
+
+test('aborted backup removes its internal snapshot, output, and maintenance lock', async (t) => {
+  const workspace = await makeWorkspace(t);
+  const db = createDatabase(workspace.databasePath, 'aborted-backup');
+  await seedStorage(workspace.storagePath, 'aborted-backup');
+  const before = new Set(
+    (await fsp.readdir(os.tmpdir())).filter((name) => name.startsWith('localminidrama-backup-'))
+  );
+  const controller = new AbortController();
+
+  await assert.rejects(
+    createDataBackup({
+      ...workspace,
+      outputPath: workspace.archivePath,
+      skipServiceCheck: true,
+      signal: controller.signal,
+      faultInjector(step) {
+        if (step === 'after-backup-database-snapshot') controller.abort();
+      },
+    }),
+    expectCode('OPERATION_ABORTED')
+  );
+
+  const after = (await fsp.readdir(os.tmpdir())).filter(
+    (name) => name.startsWith('localminidrama-backup-') && !before.has(name)
+  );
+  assert.deepEqual(after, []);
+  assert.equal(await fsp.stat(workspace.archivePath).catch(() => null), null);
+  assert.equal(await fsp.stat(maintenancePaths(workspace.databasePath).lockPath).catch(() => null), null);
   db.close();
 });
 
@@ -1412,4 +2537,103 @@ test('backup and restore CLIs pass the package-root story_sources directory', ()
       /storySourcesPath:\s*path\.join\(PACKAGE_ROOT, ['"]data['"], ['"]story_sources['"]\)/
     );
   }
+});
+
+test('backup and restore CLIs use the selected data root for every persistent target', async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-data-root-cli-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+
+  const dataRoot = path.join(root, 'selected-data');
+  const decoyRoot = path.join(root, 'decoy-data');
+  const archivePath = path.join(root, 'checkpoint.zip');
+  await fsp.mkdir(path.join(dataRoot, 'storage'), { recursive: true });
+  await fsp.mkdir(path.join(dataRoot, 'story_sources'), { recursive: true });
+  await fsp.mkdir(path.join(decoyRoot, 'storage'), { recursive: true });
+  await fsp.mkdir(path.join(decoyRoot, 'story_sources'), { recursive: true });
+
+  const selectedDatabase = path.join(dataRoot, 'drama_generator.db');
+  const decoyDatabase = path.join(decoyRoot, 'drama_generator.db');
+  createDatabase(selectedDatabase, 'selected-backup').close();
+  createDatabase(decoyDatabase, 'decoy-original').close();
+  await fsp.writeFile(path.join(dataRoot, 'storage', 'selected.txt'), 'selected-storage');
+  await fsp.writeFile(path.join(dataRoot, 'story_sources', 'selected.txt'), 'selected-source');
+  await fsp.writeFile(path.join(decoyRoot, 'storage', 'decoy.txt'), 'decoy-storage');
+  await fsp.writeFile(path.join(decoyRoot, 'story_sources', 'decoy.txt'), 'decoy-source');
+
+  const servicePort = await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close((error) => error ? reject(error) : resolve(port));
+    });
+  });
+  const cliEnvironment = {
+    ...process.env,
+    HOST: '127.0.0.1',
+    PORT: String(servicePort),
+  };
+
+  const scriptRoot = path.join(__dirname, '..', 'scripts');
+  const backupResult = spawnSync(process.execPath, [
+    path.join(scriptRoot, 'backup-data.js'),
+    '--output',
+    archivePath,
+    '--data-root',
+    dataRoot,
+  ], { cwd: root, encoding: 'utf8', windowsHide: true, env: cliEnvironment });
+  assert.equal(backupResult.status, 0, backupResult.stderr || backupResult.stdout);
+
+  replaceDatabaseValue(selectedDatabase, 'selected-mutated');
+  await fsp.rm(path.join(dataRoot, 'storage'), { recursive: true, force: true });
+  await fsp.rm(path.join(dataRoot, 'story_sources'), { recursive: true, force: true });
+  await fsp.mkdir(path.join(dataRoot, 'storage'), { recursive: true });
+  await fsp.mkdir(path.join(dataRoot, 'story_sources'), { recursive: true });
+  await fsp.writeFile(path.join(dataRoot, 'storage', 'mutated.txt'), 'mutated-storage');
+  await fsp.writeFile(path.join(dataRoot, 'story_sources', 'mutated.txt'), 'mutated-source');
+
+  const restoreResult = spawnSync(process.execPath, [
+    path.join(scriptRoot, 'restore-data.js'),
+    '--input',
+    archivePath,
+    '--yes',
+    '--data-root',
+    dataRoot,
+  ], {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true,
+    env: cliEnvironment,
+  });
+  assert.equal(restoreResult.status, 0, restoreResult.stderr || restoreResult.stdout);
+
+  assert.deepEqual(readDatabaseValues(selectedDatabase), ['selected-backup']);
+  assert.equal(await fsp.readFile(path.join(dataRoot, 'storage', 'selected.txt'), 'utf8'), 'selected-storage');
+  assert.equal(await fsp.readFile(path.join(dataRoot, 'story_sources', 'selected.txt'), 'utf8'), 'selected-source');
+  assert.equal(await fsp.stat(path.join(dataRoot, 'storage', 'mutated.txt')).catch(() => null), null);
+  assert.equal(await fsp.stat(path.join(dataRoot, 'story_sources', 'mutated.txt')).catch(() => null), null);
+  assert.deepEqual(readDatabaseValues(decoyDatabase), ['decoy-original']);
+  assert.equal(await fsp.readFile(path.join(decoyRoot, 'storage', 'decoy.txt'), 'utf8'), 'decoy-storage');
+  assert.equal(await fsp.readFile(path.join(decoyRoot, 'story_sources', 'decoy.txt'), 'utf8'), 'decoy-source');
+});
+
+test('resolveDataRoot rejects relative paths and symbolic-link data roots', async (t) => {
+  const { resolveDataRoot } = require('../src/services/dataBackupService');
+  assert.throws(() => resolveDataRoot('relative-data-root'), (error) => error?.code === 'INVALID_DATA_ROOT');
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'lmd-data-root-link-'));
+  t.after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+  const realRoot = path.join(root, 'real');
+  const linkedRoot = path.join(root, 'linked');
+  await fsp.mkdir(realRoot);
+  try {
+    await fsp.symlink(realRoot, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch (error) {
+    if (['EPERM', 'EACCES', 'ENOTSUP'].includes(error.code)) return;
+    throw error;
+  }
+  assert.throws(() => resolveDataRoot(linkedRoot), (error) => error?.code === 'INVALID_DATA_ROOT');
 });

@@ -63,6 +63,15 @@ function workflowSettings(overrides = {}) {
   };
 }
 
+function localNetworkPolicy(baseUrl) {
+  return {
+    trustedOrigins: [baseUrl],
+    allowPrivateOrigins: [baseUrl],
+    requireHttpsForPublic: true,
+    lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+  };
+}
+
 describe('ComfyUI production protocol', () => {
   it('uploads references, submits a replaced workflow, polls history, and downloads /view output', async () => {
     const state = { historyCalls: 0, uploaded: null, submitted: null, submitKey: null, viewQuery: null };
@@ -116,6 +125,7 @@ describe('ComfyUI production protocol', () => {
       seed: 42,
       reference_image_urls: ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB'],
       idempotency_key: 'workflow:test:comfyui:image',
+      provider_network_policy: localNetworkPolicy(baseUrl),
     });
 
     assert.match(state.uploaded.contentType, /^multipart\/form-data; boundary=/);
@@ -164,7 +174,12 @@ describe('ComfyUI production protocol', () => {
       generateComfyUiImage({
         base_url: baseUrl,
         settings: workflowSettings({ workflow: { 1: { class_type: 'EmptyLatentImage', inputs: {} } } }),
-      }, null, { prompt: 'slow', timeout_ms: 30, poll_interval_ms: 5 }),
+      }, null, {
+        prompt: 'slow',
+        timeout_ms: 30,
+        poll_interval_ms: 5,
+        provider_network_policy: localNetworkPolicy(baseUrl),
+      }),
       (error) => error.code === 'COMFYUI_TIMEOUT' && /超时/.test(error.message)
     );
     assert.deepEqual(cancelled.queue, { delete: ['slow-prompt'] });
@@ -198,7 +213,12 @@ describe('ComfyUI production protocol', () => {
       generateComfyUiImage({
         base_url: baseUrl,
         settings: workflowSettings({ workflow: { 1: { class_type: 'EmptyLatentImage', inputs: {} } } }),
-      }, null, { prompt: 'cancel', signal: controller.signal, poll_interval_ms: 5 }),
+      }, null, {
+        prompt: 'cancel',
+        signal: controller.signal,
+        poll_interval_ms: 5,
+        provider_network_policy: localNetworkPolicy(baseUrl),
+      }),
       (error) => error.code === 'COMFYUI_CANCELLED' && /已取消/.test(error.message)
     );
     assert.equal(queueDeletes, 1);
@@ -222,7 +242,7 @@ describe('ComfyUI production protocol', () => {
         base_url: baseUrl,
         api_key: secret,
         settings: workflowSettings({ workflow: { 1: { class_type: 'EmptyLatentImage', inputs: {} } } }),
-      }, null, { prompt: 'error' }),
+      }, null, { prompt: 'error', provider_network_policy: localNetworkPolicy(baseUrl) }),
       (error) => {
         assert.match(error.message, /HTTP 500/);
         assert.doesNotMatch(error.message, /sk-comfy-super-secret/);
@@ -230,6 +250,128 @@ describe('ComfyUI production protocol', () => {
         return true;
       }
     );
+  });
+
+  it('redacts credential-bearing custom headers without hiding token budgets', async () => {
+    const secretHeaders = {
+      'X-Client-Credential': 'synthetic-client-credential',
+      'X-Service-Password': 'synthetic-service-password',
+      'X-Request-Signature': 'synthetic-request-signature',
+      'X-Access-Key': 'synthetic-access-key',
+    };
+    const baseUrl = await startServer(async (req, res) => {
+      if (req.method === 'POST' && req.url === '/prompt') {
+        await readBody(req);
+        return json(res, 500, {
+          error: {
+            message: `provider echoed ${Object.values(secretHeaders).join(' ')}; token_budget=4096`,
+          },
+        });
+      }
+      return json(res, 404, {});
+    });
+
+    await assert.rejects(
+      generateComfyUiImage({
+        base_url: baseUrl,
+        settings: workflowSettings({
+          headers: {
+            ...secretHeaders,
+            'X-Token-Budget': '4096',
+          },
+          workflow: { 1: { class_type: 'EmptyLatentImage', inputs: {} } },
+        }),
+      }, null, { prompt: 'error', provider_network_policy: localNetworkPolicy(baseUrl) }),
+      (error) => {
+        for (const secret of Object.values(secretHeaders)) {
+          assert.doesNotMatch(error.message, new RegExp(secret));
+        }
+        assert.match(error.message, /token_budget=4096/);
+        return true;
+      }
+    );
+  });
+
+  it('treats signature token metrics as secrets when providers echo them', async () => {
+    const signatureHeaders = {
+      'X-Signature-Token-Usage': 'synthetic-signature-usage-secret',
+      'X-Sig-Token-Count': 'synthetic-sig-count-secret',
+    };
+    const baseUrl = await startServer(async (req, res) => {
+      if (req.method === 'POST' && req.url === '/prompt') {
+        await readBody(req);
+        return json(res, 500, {
+          error: {
+            message: `provider echoed ${Object.values(signatureHeaders).join(' ')}`,
+          },
+        });
+      }
+      return json(res, 404, {});
+    });
+
+    await assert.rejects(
+      generateComfyUiImage({
+        base_url: baseUrl,
+        settings: workflowSettings({
+          headers: signatureHeaders,
+          workflow: { 1: { class_type: 'EmptyLatentImage', inputs: {} } },
+        }),
+      }, null, { prompt: 'error', provider_network_policy: localNetworkPolicy(baseUrl) }),
+      (error) => {
+        for (const secret of Object.values(signatureHeaders)) {
+          assert.doesNotMatch(error.message, new RegExp(secret));
+        }
+        return true;
+      }
+    );
+  });
+
+  it('normalizes custom secret headers once and redacts every nonempty transmitted value', async () => {
+    const calls = [];
+    const fetchImpl = async (url, options) => {
+      calls.push({ url, headers: options.headers });
+      const received = Object.fromEntries(new Headers(options.headers).entries());
+      return new Response(JSON.stringify({
+        error: {
+          message: `provider echoed [${received['x-short-secret']}] [${received['x-padded-credential']}]`,
+        },
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    const baseUrl = 'https://comfy.example';
+
+    await assert.rejects(
+      generateComfyUiImage({
+        base_url: baseUrl,
+        settings: workflowSettings({
+          headers: {
+            'X-Short-Secret': ' Q ',
+            'X-Padded-Credential': ' padded-value ',
+          },
+          workflow: { 1: { class_type: 'EmptyLatentImage', inputs: {} } },
+        }),
+      }, null, {
+        prompt: 'error',
+        fetch_impl: fetchImpl,
+        provider_network_policy: {
+          trustedOrigins: [baseUrl],
+          allowPrivateOrigins: [],
+          requireHttpsForPublic: true,
+          lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+        },
+      }),
+      (error) => {
+        assert.doesNotMatch(error.message, /\[Q\]/);
+        assert.doesNotMatch(error.message, /padded-value/);
+        return true;
+      }
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].headers['X-Short-Secret'], 'Q');
+    assert.equal(calls[0].headers['X-Padded-Credential'], 'padded-value');
   });
 });
 
@@ -252,6 +394,9 @@ it('injected ComfyUI redirects strip credentials when the origin changes', async
       Authorization: 'Bearer synthetic-token',
       Cookie: 'session=synthetic-token',
       'X-Api-Key': 'synthetic-token',
+      'X-Request-Sig': 'synthetic-request-signature',
+      'X-Session-Cookie': 'synthetic-session-cookie',
+      'X-Trace-Id': 'trace-123',
     },
   }, {
     fetchImpl,
@@ -260,6 +405,10 @@ it('injected ComfyUI redirects strip credentials when the origin changes', async
     requestTimeoutMs: 5000,
     maxResponseBytes: 1024,
     secrets: [],
+    trustedOrigins: ['https://comfy.example', 'https://cdn.example'],
+    allowPrivateOrigins: [],
+    networkLookup: async () => [{ address: '93.184.216.34', family: 4 }],
+    requireHttpsForPublic: true,
   });
 
   assert.equal(await response.text(), 'ok');
@@ -267,6 +416,9 @@ it('injected ComfyUI redirects strip credentials when the origin changes', async
   assert.equal(calls[1].headers.authorization, undefined);
   assert.equal(calls[1].headers.cookie, undefined);
   assert.equal(calls[1].headers['x-api-key'], undefined);
+  assert.equal(calls[1].headers['x-request-sig'], undefined);
+  assert.equal(calls[1].headers['x-session-cookie'], undefined);
+  assert.equal(calls[1].headers['x-trace-id'], 'trace-123');
 });
 
 it('workflow replacement preserves exact placeholder value types', () => {

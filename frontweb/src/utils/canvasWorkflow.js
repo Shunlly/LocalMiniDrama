@@ -33,7 +33,7 @@ export function createWorkflowGroup(existingGroups, { title, storyboardIds, pipe
   const ids = [...new Set((storyboardIds || []).map(Number).filter(Number.isFinite))]
   if (!ids.length) throw new Error('请至少选择一个分镜')
   const normalizedPipeline = normalizePipeline(pipeline, { allowEmpty: true })
-  if (!normalizedPipeline.length) throw new Error('Please select at least one workflow step')
+  if (!normalizedPipeline.length) throw new Error('请至少选择一个工作流步骤')
   const group = {
     id: `wg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     title: title || `工作流 ${(existingGroups?.length || 0) + 1}`,

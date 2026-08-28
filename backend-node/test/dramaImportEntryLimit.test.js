@@ -75,6 +75,39 @@ function makeForgedZip64Eocd(entryCount) {
   return archive;
 }
 
+function makeFourGigabyteEntryDeclaration() {
+  const name = Buffer.from('project.json', 'ascii');
+  const localOffset = 0;
+  const dataOffset = LOCAL_HEADER_SIZE + name.length;
+  const centralOffset = dataOffset + 1;
+  const eocdOffset = centralOffset + CENTRAL_HEADER_SIZE + name.length;
+  const archive = Buffer.alloc(eocdOffset + EOCD_SIZE);
+
+  archive.writeUInt32LE(0x04034b50, localOffset);
+  archive.writeUInt16LE(20, localOffset + 4);
+  archive.writeUInt32LE(1, localOffset + 18);
+  archive.writeUInt32LE(0xffffffff, localOffset + 22);
+  archive.writeUInt16LE(name.length, localOffset + 26);
+  name.copy(archive, localOffset + LOCAL_HEADER_SIZE);
+  archive[dataOffset] = 0;
+
+  archive.writeUInt32LE(0x02014b50, centralOffset);
+  archive.writeUInt16LE(20, centralOffset + 4);
+  archive.writeUInt16LE(20, centralOffset + 6);
+  archive.writeUInt32LE(1, centralOffset + 20);
+  archive.writeUInt32LE(0xffffffff, centralOffset + 24);
+  archive.writeUInt16LE(name.length, centralOffset + 28);
+  archive.writeUInt32LE(localOffset, centralOffset + 42);
+  name.copy(archive, centralOffset + CENTRAL_HEADER_SIZE);
+
+  archive.writeUInt32LE(0x06054b50, eocdOffset);
+  archive.writeUInt16LE(1, eocdOffset + 8);
+  archive.writeUInt16LE(1, eocdOffset + 10);
+  archive.writeUInt32LE(CENTRAL_HEADER_SIZE + name.length, eocdOffset + 12);
+  archive.writeUInt32LE(centralOffset, eocdOffset + 16);
+  return archive;
+}
+
 function withObservedAdmZip(run) {
   const admZipPath = require.resolve('adm-zip');
   const servicePath = require.resolve('../src/services/dramaImportService');
@@ -137,4 +170,12 @@ test('rejects forged classic and ZIP64 high entry declarations before materializ
   await t.test('ZIP64 EOCD declaration', () => {
     assertRejectedBeforeMaterialization(makeForgedZip64Eocd(5001), 5001);
   });
+});
+
+test('rejects a forged four-gigabyte entry declaration without allocating its payload', () => {
+  const { parseZip } = require('../src/services/dramaImportService');
+  assert.throws(
+    () => parseZip(makeFourGigabyteEntryDeclaration()),
+    (error) => error?.code === 'ENTRY_SIZE_LIMIT' || error?.code === 'INVALID_ARCHIVE'
+  );
 });

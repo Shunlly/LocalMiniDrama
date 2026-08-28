@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { taskAPI } from '@/api/task'
 import { imagesAPI } from '@/api/images'
 import { videosAPI } from '@/api/videos'
+import { logOperation } from '@/utils/operationLog'
 
 /** 资源类型常量 */
 export const GEN_RESOURCE = {
@@ -50,11 +51,11 @@ function sbImageResourceType(frameType) {
 }
 
 function isActiveTaskStatus(status) {
-  return status === 'pending' || status === 'processing' || status === 'running'
+  return status === 'pending' || status === 'processing' || status === 'running' || status === 'cancelling'
 }
 
 function isOrphanedProcessingTask(remote, staleMs = ORPHAN_PROCESSING_MS) {
-  if (!remote || !isActiveTaskStatus(remote.status)) return false
+  if (!remote || remote.status === 'cancelling' || !isActiveTaskStatus(remote.status)) return false
   const updatedAt = remote.updated_at ? new Date(remote.updated_at).getTime() : 0
   if (!updatedAt) return false
   return Date.now() - updatedAt > staleMs
@@ -62,6 +63,7 @@ function isOrphanedProcessingTask(remote, staleMs = ORPHAN_PROCESSING_MS) {
 
 const ORPHAN_TASK_MSG = '任务长时间无进展，可能因服务重启而中断，请重新操作'
 const USER_CANCEL_TASK_MSG = '用户已取消'
+const REMOTE_CANCEL_RECONCILE_CODES = new Set(['REMOTE_CANCEL_UNCERTAIN', 'REMOTE_CANCEL_EXHAUSTED'])
 
 function taskFailMessage(t) {
   if (!t) return '任务失败'
@@ -77,9 +79,10 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
   const recoveredTaskIds = ref(new Set())
   /** 用户或系统主动停止轮询的 taskId */
   const cancelledPollTaskIds = ref(new Set())
+  const pollStopStatuses = ref(new Map())
 
   const runningTasks = computed(() => {
-    return [...tasks.value.values()].filter((t) => t.status === 'running')
+    return [...tasks.value.values()].filter((t) => t.status === 'running' || t.status === 'cancelling')
   })
 
   function _setTask(key, task) {
@@ -163,25 +166,99 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
     return runningTasks.value
   }
 
-  /** 停止指定 taskId 的轮询并清除 store 中的 running 状态 */
-  function stopPollingTask(taskId, reason) {
-    if (!taskId) return
-    cancelledPollTaskIds.value = new Set([...cancelledPollTaskIds.value, taskId])
-    markFailed({ taskId }, reason || '任务已停止')
+  function markCancelling(taskId, meta, error, code, details) {
+    const keys = _findKeysByTaskId(taskId)
+    if (!keys.length && meta) {
+      const key = taskKey({ ...meta, taskId })
+      if (key && !key.includes('undefined') && !key.includes('null')) keys.push(key)
+    }
+    for (const key of keys) {
+      const existing = tasks.value.get(key)
+      if (!existing) continue
+      _setTask(key, {
+        ...existing,
+        status: 'cancelling',
+        error: error || existing.error || '',
+        cancelCode: code || existing.cancelCode || '',
+        cancelDetails: details || existing.cancelDetails || null,
+        cancelObservedAt: Date.now(),
+      })
+    }
   }
 
-  /** 取消任务：通知后端并停止前端轮询 */
+  /** 停止指定 taskId 的轮询并清除 store 中的活动状态 */
+  function stopPollingTask(taskId, reason, terminalStatus = 'failed') {
+    if (!taskId) return
+    cancelledPollTaskIds.value = new Set([...cancelledPollTaskIds.value, taskId])
+    pollStopStatuses.value = new Map([...pollStopStatuses.value, [taskId, terminalStatus]])
+    if (terminalStatus === 'cancelled') {
+      _finishKeys(_findKeysByTaskId(taskId), 'cancelled', reason || USER_CANCEL_TASK_MSG)
+    } else {
+      markFailed({ taskId }, reason || '任务已停止')
+    }
+  }
+
+  /** 取消任务：确认取消后结束，远端不确定时保留 cancelling 并继续对账 */
   async function cancelTask(meta, options = {}) {
     const reason = options.reason || USER_CANCEL_TASK_MSG
     const taskId = typeof meta === 'string' ? meta : meta?.taskId
     if (taskId) {
+      const startedAt = Date.now()
+      logOperation({
+        operation: 'generation_task_cancel',
+        operationId: String(taskId),
+        phase: 'start',
+        taskId,
+      })
       try {
         await taskAPI.cancel(taskId, { reason })
+        stopPollingTask(taskId, reason, 'cancelled')
+        logOperation({
+          operation: 'generation_task_cancel',
+          operationId: String(taskId),
+          phase: 'cancel',
+          status: 'cancelled',
+          durationMs: Date.now() - startedAt,
+          taskId,
+        })
+        return { status: 'cancelled' }
       } catch (e) {
+        const code = e?.response?.data?.error?.code
+        if (REMOTE_CANCEL_RECONCILE_CODES.has(code)) {
+          const message = e?.response?.data?.error?.message || e?.message || '远端取消状态待确认'
+          const details = e?.response?.data?.error?.details || null
+          markCancelling(taskId, typeof meta === 'object' ? meta : null, message, code, details)
+          if (!pollPromises.value.has(taskId) && typeof meta === 'object') {
+            void pollTask(taskId, meta, options.onDone, {
+              ...options,
+              showErrorToast: false,
+              showTimeoutToast: false,
+            })
+          }
+          logOperation({
+            operation: 'generation_task_cancel',
+            operationId: String(taskId),
+            phase: 'cancel',
+            status: 'cancelling',
+            durationMs: Date.now() - startedAt,
+            taskId,
+            error: message,
+            code,
+          })
+          return { status: 'cancelling', code, error: message, details }
+        }
         console.warn('[generationTaskStore] cancel API failed:', e?.message)
+        stopPollingTask(taskId, e?.message || reason)
+        logOperation({
+          operation: 'generation_task_cancel',
+          operationId: String(taskId),
+          phase: 'error',
+          durationMs: Date.now() - startedAt,
+          taskId,
+          error: e?.message || reason,
+        })
+        return { status: 'failed', error: e?.message || reason }
       }
-      stopPollingTask(taskId, reason)
-      return
     }
     const key = typeof meta === 'string' ? meta : taskKey(meta)
     markFailed(key, reason)
@@ -220,6 +297,10 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
             markFailed(t, taskFailMessage(remote))
             continue
           }
+          if (remote.status === 'cancelled') {
+            stopPollingTask(t.taskId, taskFailMessage(remote) || USER_CANCEL_TASK_MSG, 'cancelled')
+            continue
+          }
           if (!isActiveTaskStatus(remote.status)) {
             markDone(t)
             continue
@@ -252,9 +333,10 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
    * 轮询异步任务；同一 taskId 只轮询一次，多路 await 共享结果。
    */
   function pollTask(taskId, meta, onDone, options = {}) {
-    if (!taskId) return Promise.resolve({ status: 'failed', error: '缺少 task_id' })
+    if (!taskId) return Promise.resolve({ status: 'failed', error: '缺少任务编号（task_id）' })
 
-    const key = markRunning({ ...meta, taskId })
+    const existingKey = _findKeysByTaskId(taskId)[0]
+    const key = existingKey || markRunning({ ...meta, taskId })
 
     if (pollPromises.value.has(taskId)) {
       return pollPromises.value.get(taskId)
@@ -270,8 +352,10 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
     const promise = new Promise((resolve) => {
       const tick = async () => {
         if (stopped || cancelledPollTaskIds.value.has(taskId)) {
-          markFailed(key, '任务轮询已停止')
-          return resolve({ status: 'cancelled', error: '任务轮询已停止' })
+          const terminalStatus = pollStopStatuses.value.get(taskId) || 'failed'
+          if (terminalStatus === 'cancelled') _finishKeys(_findKeysByTaskId(taskId), 'cancelled', USER_CANCEL_TASK_MSG)
+          else markFailed(key, '任务轮询已停止')
+          return resolve({ status: terminalStatus, error: terminalStatus === 'cancelled' ? USER_CANCEL_TASK_MSG : '任务轮询已停止' })
         }
         attempts++
         try {
@@ -302,6 +386,18 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
               options.ElMessage.error(errMsg)
             }
             return resolve({ status: 'failed', error: errMsg })
+          }
+          if (t.status === 'cancelled') {
+            stopPollingTask(taskId, taskFailMessage(t) || USER_CANCEL_TASK_MSG, 'cancelled')
+            return resolve({ status: 'cancelled', error: taskFailMessage(t) || USER_CANCEL_TASK_MSG })
+          }
+          if (t.status === 'cancelling') {
+            markCancelling(taskId, meta, t.error || t.message || '远端取消待确认', t.cancel_state, {
+              cancel_state: t.cancel_state,
+              cancel_attempt: t.cancel_attempt,
+              cancel_next_retry_at: t.cancel_next_retry_at,
+              cancel_context: t.cancel_context,
+            })
           }
         } catch (pollErr) {
           console.warn('[generationTaskStore] poll attempt failed:', pollErr?.message)
@@ -503,7 +599,7 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
         imagesAPI.list({ drama_id: dramaId, status: 'pending', page_size: 100 }).catch(() => ({ items: [] })),
         imagesAPI.list({ drama_id: dramaId, status: 'processing', page_size: 100 }).catch(() => ({ items: [] })),
         videosAPI.list({ drama_id: dramaId, status: 'processing', page_size: 100 }).catch(() => ({ items: [] })),
-        taskAPI.listByResource(String(episodeId)).catch(() => []),
+        taskAPI.listByResource(String(episodeId), { drama_id: dramaId }).catch(() => []),
       ])
 
       const seenImg = new Set()
@@ -556,7 +652,7 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
       }
 
       // 角色提取 task 挂在 dramaId 上，同一 taskId 只恢复一次（避免多集重复显示）
-      const dramaTasks = await taskAPI.listByResource(String(dramaId)).catch(() => [])
+      const dramaTasks = await taskAPI.listByResource(String(dramaId), { drama_id: dramaId }).catch(() => [])
       for (const t of dramaTasks || []) {
         if (!isActiveTaskStatus(t.status)) continue
         if (t.type !== 'character_generation') continue
@@ -596,7 +692,7 @@ export const useGenerationTaskStore = defineStore('generationTask', () => {
       }
 
       const attachResourceTask = (resourceId, resourceType, label) => {
-        return taskAPI.listByResource(String(resourceId)).then((tasks) => {
+        return taskAPI.listByResource(String(resourceId), { drama_id: dramaId }).then((tasks) => {
           for (const t of tasks || []) {
             if (!isActiveTaskStatus(t.status)) continue
             const meta = {

@@ -1,8 +1,14 @@
 import request from '@/utils/request'
 
 export const aiAPI = {
-  list(serviceType) {
-    return request.get('/ai-configs', { params: serviceType ? { service_type: serviceType } : {} })
+  list(serviceType, options = {}) {
+    return request.get('/ai-configs', {
+      ...options,
+      params: {
+        ...(options.params || {}),
+        ...(serviceType ? { service_type: serviceType } : {}),
+      },
+    })
   },
   get(id) {
     return request.get(`/ai-configs/${id}`)
@@ -16,8 +22,8 @@ export const aiAPI = {
   delete(id) {
     return request.delete(`/ai-configs/${id}`)
   },
-  testConnection(body) {
-    return request.post('/ai-configs/test', body)
+  testConnection(body, options = {}) {
+    return request.post('/ai-configs/test', body, options)
   },
   /** 即梦2角色认证：GET /api/business/v1/assets（body: base_url, api_key, limit?, cursor?） */
   listJimeng2MaterialAssets(body) {
@@ -27,8 +33,8 @@ export const aiAPI = {
   modelArkAsset(body) {
     return request.post('/ai-configs/model-ark-asset', body)
   },
-  getVendorLock() {
-    return request.get('/ai-configs/vendor-lock')
+  getVendorLock(options = {}) {
+    return request.get('/ai-configs/vendor-lock', options)
   },
   bulkUpdateKey(apiKey) {
     return request.put('/ai-configs/bulk-update-key', { api_key: apiKey })

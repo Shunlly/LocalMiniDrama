@@ -115,6 +115,10 @@ function requestReservationBytes(req, maxBytes) {
 }
 
 function sendUploadFailure(res, err, expectedMediaType = null, maxSizeMb = null) {
+  if (err?.code === 'BAD_REQUEST') {
+    response.error(res, 400, 'BAD_REQUEST', err.message || '上传请求参数无效');
+    return true;
+  }
   if (err?.code === 'LIMIT_FILE_SIZE') {
     const target = expectedMediaType === 'image' ? '图片' : '文件';
     response.error(res, 413, 'FILE_TOO_LARGE', `${target}大小不能超过 ${maxSizeMb}MB，请压缩后重试`);

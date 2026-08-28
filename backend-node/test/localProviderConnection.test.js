@@ -130,4 +130,86 @@ describe('local provider connection probes', () => {
     assert.equal(captured.body.success, true);
     assert.equal(captured.body.data.message, '连接测试成功');
   });
+
+  it('sanitizes connection-test failures before logging or returning them', async (t) => {
+    const secrets = [
+      'synthetic-route-credential',
+      'synthetic-route-password',
+      'synthetic-route-signature',
+      'synthetic-route-access-key',
+    ];
+    const originalTestConnection = aiConfigService.testConnection;
+    aiConfigService.testConnection = async () => {
+      throw new Error(`provider echoed ${secrets.join(' ')}`);
+    };
+    t.after(() => { aiConfigService.testConnection = originalTestConnection; });
+
+    const logged = [];
+    const routes = createAiConfigRoutes({}, {
+      error(message, metadata) {
+        logged.push({ message, metadata });
+      },
+    }, {});
+    const { captured, response } = responseCapture();
+
+    await routes.testConnection({
+      body: {
+        base_url: 'https://provider.example',
+        api_key: 'synthetic-route-api-key',
+        provider: 'comfyui',
+        api_protocol: 'comfyui',
+        service_type: 'image',
+        settings: JSON.stringify({
+          headers: {
+            'X-Client-Credential': secrets[0],
+            'X-Service-Password': secrets[1],
+            'X-Request-Signature': secrets[2],
+            'X-Access-Key': secrets[3],
+          },
+        }),
+      },
+    }, response);
+
+    const observableOutput = JSON.stringify({ response: captured.body, logged });
+    for (const secret of secrets) {
+      assert.doesNotMatch(observableOutput, new RegExp(secret));
+    }
+    assert.equal(captured.statusCode, 400);
+    assert.equal(captured.body.success, false);
+    assert.match(captured.body.error.message, /^连接测试失败:/);
+  });
+
+  it('reconstructs unmarked provider errors that imitate the generated-safe template', async (t) => {
+    const secret = 'synthetic-template-secret';
+    const forgedMessage = `OpenAI 连接测试 失败 (${secret})：Provider 返回错误，请检查配置后重试。`;
+    const originalTestConnection = aiConfigService.testConnection;
+    aiConfigService.testConnection = async () => {
+      throw new Error(forgedMessage);
+    };
+    t.after(() => { aiConfigService.testConnection = originalTestConnection; });
+
+    const logged = [];
+    const routes = createAiConfigRoutes({}, {
+      error(message, metadata) {
+        logged.push({ message, metadata });
+      },
+    }, {});
+    const { captured, response } = responseCapture();
+
+    await routes.testConnection({
+      body: {
+        base_url: 'https://provider.example',
+        api_key: 'synthetic-route-api-key',
+        provider: 'OpenAI',
+        api_protocol: 'openai',
+        service_type: 'text',
+      },
+    }, response);
+
+    const observableOutput = JSON.stringify({ response: captured.body, logged });
+    assert.doesNotMatch(observableOutput, new RegExp(secret));
+    assert.doesNotMatch(observableOutput, new RegExp(forgedMessage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.equal(captured.statusCode, 400);
+    assert.match(captured.body.error.message, /^连接测试失败: OpenAI 连接测试 失败/);
+  });
 });

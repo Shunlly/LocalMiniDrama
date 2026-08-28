@@ -32,6 +32,7 @@
           v-if="actions.primaryAction === 'create-episode'"
           type="primary"
           native-type="button"
+          aria-label="新建第一集"
           @click="emit('create-episode')"
         >
           <el-icon><Plus /></el-icon>
@@ -51,6 +52,7 @@
           link
           type="primary"
           native-type="button"
+          aria-label="返回列表模式"
           @click="emit('go-list')"
         >
           <el-icon><List /></el-icon>

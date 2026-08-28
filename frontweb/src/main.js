@@ -3,11 +3,9 @@ import './styles/theme.css'
 // 初始化主题（必须在挂载前执行）
 import './composables/useTheme.js'
 import { createPinia } from 'pinia'
-import { ElConfigProvider } from 'element-plus'
-import 'element-plus/es/components/message/style/css'
-import 'element-plus/es/components/message-box/style/css'
-import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
+import { ElConfigProvider, createElementPlusProviderProps } from './elementPlus/register.js'
 import App from './App.vue'
+import AccessibleDialog from './components/AccessibleDialog.vue'
 import router from './router'
 
 const app = createApp({
@@ -15,20 +13,14 @@ const app = createApp({
   render() {
     return h(
       ElConfigProvider,
-      {
-        locale: zhCn,
-        message: {
-          duration: 5000,
-          showClose: true,
-          offset: 28,
-        },
-      },
+      createElementPlusProviderProps(),
       () => h(App)
     )
   },
 })
 const pinia = createPinia()
 
+app.component('AccessibleDialog', AccessibleDialog)
 app.use(pinia)
 app.use(router)
 app.mount('#app')

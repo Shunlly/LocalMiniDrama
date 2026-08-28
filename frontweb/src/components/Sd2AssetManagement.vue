@@ -5,10 +5,10 @@
         <span>
           对接 BytePlus ModelArk / 火山方舟<strong>私有资产库</strong>（Seedance 2.0 等使用的 <code>Asset://</code> 素材）。
           配置完成后请点击下方<strong>「保存到 AI 配置」</strong>，创作页「SD2认证」将优先使用「即梦2角色认证」；若未配置则使用此处保存的官方资产库配置。
-          官方流程：<a href="https://docs.byteplus.com/en/docs/ModelArk/2318270" target="_blank" rel="noopener">CreateAssetGroup</a>
-          → CreateAsset → List / Get / Update / Delete。
+          官方流程：<a href="https://docs.byteplus.com/en/docs/ModelArk/2318270" target="_blank" rel="noopener">创建资产组（CreateAssetGroup）</a>
+          → 创建资产（CreateAsset）→ 列表 / 查询 / 更新 / 删除。
           带 <code>?Action=</code> 的接口为<strong>控制面 OpenAPI</strong>，须使用控制台
-          <a href="https://console.volcengine.com/iam/keymanage" target="_blank" rel="noopener">访问密钥（AK/SK）</a>签名，不能用推理用的 ARK API Key 当 Bearer，否则会报 Invalid Authorization（见
+          <a href="https://console.volcengine.com/iam/keymanage" target="_blank" rel="noopener">访问密钥（AK/SK）</a>签名，不能用推理用的 ARK API 密钥当 Bearer，否则会报 Invalid Authorization（见
           <a href="https://docs.byteplus.com/en/docs/ModelArk/1298459" target="_blank" rel="noopener">认证说明</a>）。
           若已能调通接口但返回 <strong>403</strong> 且含 <code>not authorized</code> / <code>ark:CreateAssetGroup</code>，说明 AK 对应 IAM 用户<strong>缺策略</strong>：在控制台为该用户绑定含 ModelArk 私有资产/资产组管理的权限（参见
           <a href="https://docs.byteplus.com/en/docs/ModelArk/1263493" target="_blank" rel="noopener">IAM 访问控制</a>），勿仅用「能推理」的极简权限。
@@ -17,7 +17,7 @@
     </el-alert>
 
     <el-form label-width="120px" class="sd2-form">
-      <el-form-item label="Base URL">
+      <el-form-item label="接口地址（Base URL）">
         <el-input
           v-model="baseUrl"
           placeholder="须含 /api/v3，如 https://ark.ap-southeast-1.byteplusapi.com/api/v3（仅域名时后端会尝试自动补全）"
@@ -28,21 +28,21 @@
       <el-form-item label="鉴权方式">
         <el-radio-group v-model="authMode">
           <el-radio-button value="volc_sign">AK/SK 签名（官方 OpenAPI）</el-radio-button>
-          <el-radio-button value="bearer">Bearer 推理 Key</el-radio-button>
+          <el-radio-button value="bearer">Bearer 推理密钥</el-radio-button>
         </el-radio-group>
         <p class="field-hint">选「官方 OpenAPI」路径时，请用本项并填写 AK/SK；选「Bearer」仅适合 <code>/asset/…</code> 等中转。</p>
       </el-form-item>
-      <el-form-item v-if="authMode === 'bearer'" label="API Key">
-        <el-input v-model="apiKey" type="password" show-password placeholder="推理用 ARK / 中转 API Key" clearable />
+      <el-form-item v-if="authMode === 'bearer'" label="API 密钥">
+        <el-input v-model="apiKey" type="password" show-password placeholder="推理用 ARK / 中转 API 密钥" clearable />
       </el-form-item>
       <template v-else>
-        <el-form-item label="Access Key ID">
-          <el-input v-model="accessKeyId" placeholder="控制台 IAM Access Key ID" clearable />
+        <el-form-item label="访问密钥 ID">
+          <el-input v-model="accessKeyId" placeholder="控制台 IAM 访问密钥 ID" clearable />
         </el-form-item>
-        <el-form-item label="Secret Key">
-          <el-input v-model="secretAccessKey" type="password" show-password placeholder="Secret Access Key" clearable />
+        <el-form-item label="私有密钥">
+          <el-input v-model="secretAccessKey" type="password" show-password placeholder="控制台 IAM 私有密钥" clearable />
         </el-form-item>
-        <el-form-item label="Region">
+        <el-form-item label="地域">
           <el-input v-model="signRegion" placeholder="可空：国内 ark 多为 cn-beijing；BytePlus 国际多为 ap-southeast-1" clearable />
         </el-form-item>
       </template>
@@ -54,7 +54,7 @@
         </el-select>
         <p class="field-hint">官方接口必须在 Query 里带 <code>Action</code>；若用 AnyFast 等自建路径再选中转模式。</p>
       </el-form-item>
-      <el-form-item label="API Version">
+      <el-form-item label="接口版本">
         <el-input v-model="apiVersion" placeholder="默认 2024-01-01（仅官方 OpenAPI 模式使用）" clearable />
       </el-form-item>
       <el-form-item v-if="pathMode === 'open_api_query'" label="工程 / 项目名">
@@ -68,7 +68,7 @@
           若仍报 403 且文案里是 <code>project/*</code>，多为 IAM 未授权该动作；请确认策略里资源是否包含你的工程（或 <code>project/*</code>），错误提示不一定替换为具体工程名。
         </p>
       </el-form-item>
-      <el-form-item label="model（可选）">
+      <el-form-item label="模型（可选）">
         <el-input v-model="billingModel" placeholder="部分中转要求计费模型，如 volc-asset；官方直连可留空" clearable />
       </el-form-item>
       <el-form-item label="从配置填入">
@@ -98,7 +98,7 @@
       </el-form-item>
       <el-form-item label=" ">
         <div class="sd2-save-row">
-          <el-button type="primary" :loading="savingConfig" @click="saveToAiConfig">
+          <el-button type="primary" :loading="savingConfig" :disabled="mutationLocked" @click="saveToAiConfig">
             保存到 AI 配置
           </el-button>
           <span v-if="savedConfigId" class="sd2-saved-hint">
@@ -113,7 +113,7 @@
         <div class="panel-title">资产组</div>
         <div class="panel-actions">
           <el-button type="primary" size="small" :loading="loadingGroups" @click="refreshGroups">刷新列表</el-button>
-          <el-button type="success" size="small" @click="openCreateGroup">新建组</el-button>
+          <el-button type="success" size="small" :disabled="mutationLocked" @click="openCreateGroup">新建组</el-button>
         </div>
         <el-table
           :data="groupRows"
@@ -123,13 +123,13 @@
           max-height="320"
           @current-change="onGroupRowChange"
         >
-          <el-table-column prop="Id" label="Id" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="Id" label="标识" min-width="120" show-overflow-tooltip />
           <el-table-column prop="Name" label="名称" min-width="100" show-overflow-tooltip />
           <el-table-column label="操作" width="168" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="getGroupDetail(row)">详情</el-button>
-              <el-button link type="primary" size="small" @click="openEditGroup(row)">编辑</el-button>
-              <el-button link type="danger" size="small" @click="deleteGroup(row)">删除</el-button>
+              <el-button link type="primary" size="small" :disabled="mutationLocked" @click="openEditGroup(row)">编辑</el-button>
+              <el-button link type="danger" size="small" :disabled="mutationLocked" @click="deleteGroup(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -139,17 +139,19 @@
         <div class="panel-actions row-gap">
           <el-input v-model="assetGroupIdInput" placeholder="组 Id，或左侧点选一行" clearable style="flex: 1; min-width: 140px" />
           <el-button type="primary" size="small" :loading="loadingAssets" @click="refreshAssets">刷新</el-button>
-          <el-button type="success" size="small" @click="openCreateAsset">新建资产</el-button>
+          <el-button type="success" size="small" :disabled="mutationLocked" @click="openCreateAsset">新建资产</el-button>
         </div>
         <el-table :data="assetRows" size="small" stripe max-height="320">
-          <el-table-column prop="Id" label="Id" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="Id" label="标识" min-width="120" show-overflow-tooltip />
           <el-table-column prop="Name" label="名称" min-width="90" show-overflow-tooltip />
-          <el-table-column prop="AssetType" label="类型" width="88" />
+          <el-table-column prop="AssetType" label="类型" width="88">
+            <template #default="{ row }">{{ assetTypeLabel(row.AssetType) }}</template>
+          </el-table-column>
           <el-table-column label="操作" width="168" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="getAssetDetail(row)">详情</el-button>
-              <el-button link type="primary" size="small" @click="openEditAsset(row)">编辑</el-button>
-              <el-button link type="danger" size="small" @click="deleteAsset(row)">删除</el-button>
+              <el-button link type="primary" size="small" :disabled="mutationLocked" @click="openEditAsset(row)">编辑</el-button>
+              <el-button link type="danger" size="small" :disabled="mutationLocked" @click="deleteAsset(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -160,9 +162,9 @@
     <el-input v-model="lastRawJson" type="textarea" :rows="6" readonly class="mono" />
 
     <!-- 新建资产组 -->
-    <el-dialog v-model="dlgGroupCreate" title="CreateAssetGroup" width="480px" destroy-on-close>
+    <AccessibleDialog v-model="dlgGroupCreate" title="创建资产组" width="480px" destroy-on-close>
       <el-form label-width="100px">
-        <el-form-item label="Name" required>
+        <el-form-item label="名称" required>
           <el-input v-model="formGroupName" placeholder="资产组名称" />
         </el-form-item>
         <el-form-item label="扩展 JSON">
@@ -171,18 +173,18 @@
       </el-form>
       <template #footer>
         <el-button @click="dlgGroupCreate = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" @click="submitCreateGroup">提交</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitCreateGroup">提交</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 编辑资产组 -->
-    <el-dialog v-model="dlgGroupEdit" title="UpdateAssetGroup" width="520px" destroy-on-close>
+    <AccessibleDialog v-model="dlgGroupEdit" title="更新资产组" width="520px" destroy-on-close>
       <el-alert type="warning" :closable="false" title="按官方文档填写需更新的字段；以下为常用名称修改。" style="margin-bottom: 12px" />
       <el-form label-width="100px">
-        <el-form-item label="Id" required>
+        <el-form-item label="标识" required>
           <el-input v-model="editGroupId" disabled />
         </el-form-item>
-        <el-form-item label="Name">
+        <el-form-item label="名称">
           <el-input v-model="editGroupName" />
         </el-form-item>
         <el-form-item label="完整 JSON">
@@ -191,46 +193,46 @@
       </el-form>
       <template #footer>
         <el-button @click="dlgGroupEdit = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" @click="submitUpdateGroup">提交</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitUpdateGroup">提交</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 新建资产 -->
-    <el-dialog v-model="dlgAssetCreate" title="CreateAsset" width="520px" destroy-on-close>
+    <AccessibleDialog v-model="dlgAssetCreate" title="创建资产" width="520px" destroy-on-close>
       <el-form label-width="110px">
-        <el-form-item label="GroupId" required>
+        <el-form-item label="资产组 Id" required>
           <el-input v-model="formAssetGroupId" placeholder="资产组 Id" />
         </el-form-item>
-        <el-form-item label="Name" required>
-          <el-input v-model="formAssetName" />
+        <el-form-item label="名称" required>
+          <el-input v-model="formAssetName" placeholder="资产名称" />
         </el-form-item>
-        <el-form-item label="AssetType">
+        <el-form-item label="资产类型">
           <el-select v-model="formAssetType" style="width: 100%">
-            <el-option label="Image" value="Image" />
-            <el-option label="Video" value="Video" />
-            <el-option label="Audio" value="Audio" />
+            <el-option label="图片" value="Image" />
+            <el-option label="视频" value="Video" />
+            <el-option label="音频" value="Audio" />
           </el-select>
         </el-form-item>
-        <el-form-item label="model">
+        <el-form-item label="模型">
           <el-input v-model="formAssetModel" placeholder="视频建议 volc-asset-video；音频 volc-asset-audio；图片可空" clearable />
         </el-form-item>
-        <el-form-item label="URL">
+        <el-form-item label="资源地址">
           <el-input v-model="formAssetUrl" type="textarea" :rows="2" placeholder="公网 URL / data:image/...;base64,..." />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dlgAssetCreate = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" @click="submitCreateAsset">提交</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitCreateAsset">提交</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 编辑资产 -->
-    <el-dialog v-model="dlgAssetEdit" title="UpdateAsset" width="520px" destroy-on-close>
+    <AccessibleDialog v-model="dlgAssetEdit" title="更新资产" width="520px" destroy-on-close>
       <el-form label-width="100px">
-        <el-form-item label="Id" required>
+        <el-form-item label="标识" required>
           <el-input v-model="editAssetId" disabled />
         </el-form-item>
-        <el-form-item label="Name">
+        <el-form-item label="名称">
           <el-input v-model="editAssetName" />
         </el-form-item>
         <el-form-item label="完整 JSON">
@@ -239,17 +241,17 @@
       </el-form>
       <template #footer>
         <el-button @click="dlgAssetEdit = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" @click="submitUpdateAsset">提交</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitUpdateAsset">提交</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
 
     <!-- 详情 JSON -->
-    <el-dialog v-model="dlgDetail" title="详情" width="640px" destroy-on-close>
+    <AccessibleDialog v-model="dlgDetail" title="详情" width="640px" destroy-on-close>
       <el-input :model-value="detailJson" type="textarea" :rows="16" readonly class="mono" />
       <template #footer>
         <el-button type="primary" @click="dlgDetail = false">关闭</el-button>
       </template>
-    </el-dialog>
+    </AccessibleDialog>
   </div>
 </template>
 
@@ -261,6 +263,7 @@ import { aiAPI } from '@/api/ai'
 const props = defineProps({
   /** AI 配置列表（与 AI 配置页同源），用于一键填入 Base / Key */
   configs: { type: Array, default: () => [] },
+  writeLocked: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['saved'])
@@ -339,6 +342,16 @@ const videoLikeConfigs = computed(() => {
 const savedModelArkConfigs = computed(() => {
   return (props.configs || []).filter((c) => c.service_type === 'model_ark_asset')
 })
+const mutationLocked = computed(() => props.writeLocked)
+
+const MUTATING_ACTIONS = new Set([
+  'CreateAssetGroup',
+  'UpdateAssetGroup',
+  'DeleteAssetGroup',
+  'CreateAsset',
+  'UpdateAsset',
+  'DeleteAsset',
+])
 
 function parseSettingsJson(raw) {
   if (!raw) return {}
@@ -394,6 +407,7 @@ onMounted(() => {
 })
 
 async function saveToAiConfig() {
+  if (mutationLocked.value) return
   const w = connWarn()
   if (!connReady() || w) {
     ElMessage.warning(w || '请先完成连接信息')
@@ -404,7 +418,7 @@ async function saveToAiConfig() {
     return
   }
   if (authMode.value === 'bearer' && isMaskedSecret(apiKey.value) && !savedConfigId.value) {
-    ElMessage.warning('当前 API Key 是掩码，请先更新已关联配置，或重新输入真实 Key 后再保存')
+    ElMessage.warning('当前 API 密钥是掩码，请先更新已关联配置，或重新输入真实密钥后再保存')
     return
   }
   const settings = {
@@ -460,6 +474,10 @@ function setLastJson(obj) {
   }
 }
 
+function assetTypeLabel(type) {
+  return ({ Image: '图片', Video: '视频', Audio: '音频' }[type] || type || '')
+}
+
 function extractRows(resp) {
   if (!resp) return []
   if (Array.isArray(resp)) return resp
@@ -493,7 +511,7 @@ function onFillFromSaved(id) {
   sourceConfigId.value = c.id
   baseUrl.value = (c.base_url || '').replace(/\/$/, '')
   apiKey.value = c.api_key || ''
-  ElMessage.success('已填入所选配置的 Base URL；密钥将复用该配置')
+  ElMessage.success('已填入所选配置的接口地址；密钥将复用该配置')
 }
 
 function onGroupRowChange(row) {
@@ -521,14 +539,14 @@ function connReady() {
 }
 
 function connWarn() {
-  if (!baseUrl.value.trim()) return '请先填写 Base URL'
+  if (!baseUrl.value.trim()) return '请先填写接口地址（Base URL）'
   if (savedConfigId.value) return ''
   if (authMode.value === 'volc_sign') {
     if (!accessKeyId.value.trim() || !secretAccessKey.value.trim()) {
-      return '官方 OpenAPI 请填写 Access Key ID 与 Secret Access Key（控制台 IAM，非推理 API Key）'
+      return '官方 OpenAPI 请填写访问密钥 ID 与私有密钥（控制台 IAM，非推理 API 密钥）'
     }
   } else if (!apiKey.value.trim()) {
-    return '请先填写 API Key'
+    return '请先填写 API 密钥'
   }
   if (authMode.value === 'volc_sign' && pathMode.value !== 'open_api_query') {
     return 'AK/SK 签名请配合「官方 OpenAPI」路径模式'
@@ -537,6 +555,9 @@ function connWarn() {
 }
 
 async function call(action, payload, opts = {}) {
+  if (mutationLocked.value && MUTATING_ACTIONS.has(action)) {
+    throw new Error('当前 AI 配置依赖未就绪或处于厂商锁定模式，资产写操作已暂停。')
+  }
   const { withBillingModel = false } = opts
   const body = {
     config_id: savedConfigId.value || sourceConfigId.value || undefined,
@@ -618,14 +639,16 @@ async function refreshAssets() {
 }
 
 function openCreateGroup() {
+  if (mutationLocked.value) return
   formGroupName.value = ''
   formGroupExtraJson.value = ''
   dlgGroupCreate.value = true
 }
 
 async function submitCreateGroup() {
+  if (mutationLocked.value) return
   if (!formGroupName.value.trim()) {
-    ElMessage.warning('请填写 Name')
+    ElMessage.warning('请填写名称')
     return
   }
   dlgLoading.value = true
@@ -663,6 +686,7 @@ async function getGroupDetail(row) {
 }
 
 function openEditGroup(row) {
+  if (mutationLocked.value) return
   editGroupId.value = row.Id
   editGroupName.value = row.Name || ''
   editGroupFullJson.value = ''
@@ -670,6 +694,7 @@ function openEditGroup(row) {
 }
 
 async function submitUpdateGroup() {
+  if (mutationLocked.value) return
   dlgLoading.value = true
   try {
     let payload
@@ -694,9 +719,12 @@ async function submitUpdateGroup() {
 }
 
 async function deleteGroup(row) {
+  if (mutationLocked.value) return
   try {
-    await ElMessageBox.confirm(`确定删除资产组「${row.Name || row.Id}」？`, 'DeleteAssetGroup', {
+    await ElMessageBox.confirm(`确定删除资产组「${row.Name || row.Id}」？`, '删除资产组', {
       type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
     })
   } catch (_) {
     return
@@ -714,6 +742,7 @@ async function deleteGroup(row) {
 }
 
 function openCreateAsset() {
+  if (mutationLocked.value) return
   formAssetGroupId.value = assetGroupIdInput.value.trim()
   formAssetName.value = ''
   formAssetType.value = 'Image'
@@ -723,8 +752,9 @@ function openCreateAsset() {
 }
 
 async function submitCreateAsset() {
+  if (mutationLocked.value) return
   if (!formAssetGroupId.value.trim() || !formAssetName.value.trim()) {
-    ElMessage.warning('请填写 GroupId 与 Name')
+    ElMessage.warning('请填写资产组 Id 与名称')
     return
   }
   dlgLoading.value = true
@@ -759,6 +789,7 @@ async function getAssetDetail(row) {
 }
 
 function openEditAsset(row) {
+  if (mutationLocked.value) return
   editAssetId.value = row.Id
   editAssetName.value = row.Name || ''
   editAssetFullJson.value = ''
@@ -766,6 +797,7 @@ function openEditAsset(row) {
 }
 
 async function submitUpdateAsset() {
+  if (mutationLocked.value) return
   dlgLoading.value = true
   try {
     let payload
@@ -790,8 +822,13 @@ async function submitUpdateAsset() {
 }
 
 async function deleteAsset(row) {
+  if (mutationLocked.value) return
   try {
-    await ElMessageBox.confirm(`确定删除资产「${row.Name || row.Id}」？`, 'DeleteAsset', { type: 'warning' })
+    await ElMessageBox.confirm(`确定删除资产「${row.Name || row.Id}」？`, '删除资产', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
   } catch (_) {
     return
   }

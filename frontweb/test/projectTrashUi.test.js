@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const filmListSource = read('../src/views/FilmList.vue')
@@ -23,7 +25,7 @@ test('project removal copy consistently describes a recoverable operation', () =
 })
 
 test('trash is discoverable and restoration is keyboard and screen-reader operable', () => {
-  assert.match(filmListSource, /class="header-actions"[\s\S]*class="btn-trash"[\s\S]*打开项目回收站/)
+  assert.match(filmListSource, /class="header-actions"[\s\S]*class="btn-trash[^"]*"[\s\S]*aria-label="打开项目回收站"/)
   assert.match(filmListSource, /title="项目回收站"/)
   assert.match(filmListSource, /role="note"[\s\S]*项目内容、剧集、分镜和关联素材会完整保留/)
   assert.match(filmListSource, /class="trash-list" aria-label="已移除项目"/)
@@ -31,4 +33,14 @@ test('trash is discoverable and restoration is keyboard and screen-reader operab
   assert.match(filmListSource, /@click="restoreFromTrash\(item\)"/)
   assert.match(filmListSource, /role="status" aria-live="polite"/)
   assert.match(filmListSource, /role="alert"/)
+})
+
+test('回收站加载失败会保留已有项目并提供重试', () => {
+  assert.match(filmListSource, /v-if="trashError"[\s\S]*@click="loadTrash"[\s\S]*重试/)
+  assert.match(filmListSource, /v-if="!trashLoading && !trashError && trashItems\.length === 0"/)
+  const loadTrashSource = remainingExtractNamedFunction(filmListSource, 'loadTrash')
+  assert.match(loadTrashSource, /trashError\.value = error\.message \|\| '回收站加载失败，请重试'/)
+  assert.doesNotMatch(loadTrashSource, /trashItems\.value = \[\]/)
+  assert.match(filmListSource, /async function restoreFromTrash\(item\) \{\s*if \(restoringId\.value !== null\) return/)
+  assert.doesNotMatch(filmListSource, /async function restoreFromTrash\(item\) \{\s*if \(listWriteLocked\.value\) return/)
 })

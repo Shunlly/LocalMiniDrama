@@ -9,9 +9,14 @@ const { Readable, Transform, Writable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { Worker } = require('node:worker_threads');
 const Database = require('better-sqlite3');
+const {
+  FORMAT_VERSION,
+  LEGACY_FORMAT_VERSION,
+  MINIMUM_ZIP_ARCHIVE_BYTES,
+  SUPPORTED_FORMAT_VERSIONS,
+} = require('./dataBackupFormatContract');
+const { updateMaintenanceHeartbeatFd } = require('./maintenanceLockFile');
 
-const LEGACY_FORMAT_VERSION = 1;
-const FORMAT_VERSION = 2;
 const MANIFEST_ENTRY = 'manifest.json';
 const DATABASE_ENTRY = 'database.sqlite';
 const STORAGE_PREFIX = 'storage/';
@@ -37,6 +42,9 @@ const ZIP_UTF8_FLAG = 0x0800;
 const ZIP_DATA_DESCRIPTOR_FLAG = 0x0008;
 const ZIP64_UINT32 = 0xffffffff;
 const ZIP64_UINT16 = 0xffff;
+const BACKUP_PUBLICATION_RESULT_SCHEMA = 'localminidrama.backup-publication-result.v1';
+const BACKUP_PUBLICATION_FILE = 'data.zip';
+const BACKUP_PUBLICATION_OPERATION_PATTERN = /^[a-f0-9]{32}$/;
 
 const DEFAULT_LIMITS = Object.freeze({
   maxFiles: 25000,
@@ -55,6 +63,9 @@ const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 const LEGACY_MAINTENANCE_JOURNAL_VERSION = 1;
 const MAINTENANCE_JOURNAL_VERSION = 2;
 const MAINTENANCE_LOCK_VERSION = 2;
+const EXTERNAL_MAINTENANCE_LEASE_SCHEMA = 'localminidrama.maintenance-lease.v2';
+const MAX_MAINTENANCE_LEASE_BYTES = 64 * 1024;
+const MAX_CLEANUP_ERROR_DETAILS = 8;
 const MAINTENANCE_HEARTBEAT_INTERVAL_MS = 5000;
 const MAINTENANCE_LOCK_STALE_MS = 30000;
 const LEGACY_MAINTENANCE_LOCK_CONTRACT = 'advisory-single-host-all-localminidrama-processes-must-honor';
@@ -87,6 +98,58 @@ class DataBackupError extends Error {
 
 function backupError(code, message, cause) {
   return new DataBackupError(code, message, cause);
+}
+
+function isPermissionDeniedError(error) {
+  const code = String(error?.code || '');
+  return code === 'EACCES' || code === 'EPERM' || code === 'EROFS';
+}
+
+function permissionDeniedError(cause) {
+  return backupError(
+    'PERMISSION_DENIED',
+    '当前路径没有读写权限，请检查数据目录或备份输出目录的权限后重试。',
+    cause
+  );
+}
+
+function wrapUnknownBackupError(error, fallbackCode, fallbackMessage) {
+  if (error instanceof DataBackupError) return error;
+  if (isPermissionDeniedError(error)) return permissionDeniedError(error);
+  return backupError(fallbackCode, fallbackMessage, error);
+}
+
+function attachCleanupErrors(primaryError, cleanupErrors) {
+  let existing = [];
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(primaryError, 'cleanupErrors');
+    if (descriptor && Object.hasOwn(descriptor, 'value') && Array.isArray(descriptor.value)) {
+      for (let index = 0; index < Math.min(MAX_CLEANUP_ERROR_DETAILS, descriptor.value.length); index += 1) {
+        const entry = Object.getOwnPropertyDescriptor(descriptor.value, String(index));
+        if (entry && Object.hasOwn(entry, 'value')) existing.push(entry.value);
+      }
+    }
+  } catch (_) {}
+  const bounded = existing.slice(0, MAX_CLEANUP_ERROR_DETAILS);
+  for (const cleanupError of cleanupErrors) {
+    if (bounded.length >= MAX_CLEANUP_ERROR_DETAILS) break;
+    bounded.push(cleanupError);
+  }
+  if (bounded.length === 0) return primaryError;
+  try {
+    Object.defineProperty(primaryError, 'cleanupErrors', {
+      configurable: true,
+      enumerable: false,
+      value: Object.freeze(bounded),
+    });
+  } catch (_) {}
+  return primaryError;
+}
+
+function assertOperationNotAborted(signal) {
+  if (signal?.aborted) {
+    throw backupError('OPERATION_ABORTED', 'The data maintenance operation was interrupted.');
+  }
 }
 
 function normalizeLimits(overrides = {}) {
@@ -128,6 +191,34 @@ function assertSafeTargetPaths(databasePath, storagePath, storySourcesPath) {
   ) {
     throw backupError('UNSAFE_TARGET', 'The configured data targets are not safe to replace.');
   }
+}
+
+function resolveDataRoot(value) {
+  if (typeof value !== 'string' || value.trim() === '' || !path.isAbsolute(value.trim())) {
+    throw backupError('INVALID_DATA_ROOT', '数据根目录必须是已存在的绝对路径。');
+  }
+  const resolved = path.resolve(value.trim());
+  if (resolved === path.parse(resolved).root) {
+    throw backupError('INVALID_DATA_ROOT', '数据根目录不能是文件系统根目录。');
+  }
+  let stat;
+  try {
+    stat = fs.lstatSync(resolved);
+  } catch (error) {
+    throw backupError('INVALID_DATA_ROOT', '数据根目录不存在或不可读取。', error);
+  }
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw backupError('INVALID_DATA_ROOT', '数据根目录必须是非符号链接目录。');
+  }
+  const realPath = path.resolve(fs.realpathSync(resolved));
+  const normalize = (pathValue) => {
+    const normalized = path.normalize(pathValue);
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  };
+  if (normalize(realPath) !== normalize(resolved)) {
+    throw backupError('INVALID_DATA_ROOT', '数据根目录不能通过符号链接或联接访问。');
+  }
+  return realPath;
 }
 
 function resolveStorySourcesPath(options = {}) {
@@ -212,9 +303,9 @@ async function lstatIfExists(target) {
   }
 }
 
-function lstatIfExistsSync(target) {
+function lstatIfExistsSync(target, options) {
   try {
-    return fs.lstatSync(target);
+    return fs.lstatSync(target, options);
   } catch (error) {
     if (error.code === 'ENOENT') return null;
     throw error;
@@ -364,10 +455,17 @@ function startMaintenanceHeartbeat(lock, options = {}) {
   lock.heartbeatTimer = setInterval(() => {
     if (lock.released) return;
     try {
-      lock.payload.heartbeatAt = new Date().toISOString();
-      writeMaintenanceLockFd(lock.fd, lock.payload);
+      assertServiceMaintenanceLockPath(lock);
+      lock.payload = updateMaintenanceHeartbeatFd(lock.fd, {
+        contract: MAINTENANCE_LOCK_CONTRACT,
+        pid: process.pid,
+        token: lock.token,
+      });
+      assertServiceMaintenanceLockPath(lock);
     } catch (error) {
-      lock.heartbeatError = error;
+      lock.heartbeatError = error instanceof DataBackupError
+        ? error
+        : backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard lost its public path.', error);
       options.log?.error?.('Maintenance lock heartbeat failed', { error: error.message });
     }
   }, intervalMs);
@@ -490,7 +588,17 @@ function assertMaintenanceLockRecoverable(lock, lockStat, options = {}) {
     return true;
   }
 
-  if (currentScope.explicit && LEGACY_DOCKER_OWNER_SCOPE_PATTERN.test(lock.ownerScope)) {
+  // 过期的 linux:<hex>:pid:[...] 锁只能由操作员确认后回收。
+  // Docker 默认显式作用域不得把容器 hostname 形态的 native 锁当成可自动迁移对象，
+  // 否则暂停中的旧容器仍可能与新实例双写同一数据目录。
+
+  // 操作员显式确认后，允许回收过期的跨命名空间服务/恢复租约；自动启动路径仍失败关闭。
+  if (
+    typeof options.expectedOwnerScope === 'string' && options.expectedOwnerScope &&
+    Number.isInteger(options.expectedPid) && options.expectedPid > 0 &&
+    lock.ownerScope === options.expectedOwnerScope &&
+    Number(lock.pid) === options.expectedPid
+  ) {
     return true;
   }
 
@@ -577,6 +685,304 @@ function readJsonFileSync(filePath, code) {
   }
 }
 
+function maintenanceLeaseFileIdentity(stat) {
+  return Object.freeze({
+    device: stat.dev.toString(10),
+    inode: stat.ino.toString(10),
+  });
+}
+
+function sameMaintenanceLeaseFile(stat, identity) {
+  return stat.isFile() && !stat.isSymbolicLink() &&
+    stat.dev.toString(10) === identity.device &&
+    stat.ino.toString(10) === identity.inode;
+}
+
+function assertServiceMaintenanceLockPath(lock) {
+  try {
+    const descriptorStat = fs.fstatSync(lock.fd, { bigint: true });
+    const pathStat = fs.lstatSync(lock.lockPath, { bigint: true });
+    if (
+      !sameMaintenanceLeaseFile(descriptorStat, lock.identity) ||
+      !sameMaintenanceLeaseFile(pathStat, lock.identity)
+    ) {
+      throw backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard lost its public path identity.');
+    }
+  } catch (error) {
+    if (error instanceof DataBackupError) throw error;
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard public path is unavailable.', error);
+  }
+  return lock;
+}
+
+function sameMaintenanceLeaseSnapshot(left, right) {
+  return left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.size === right.size &&
+    left.mtimeNs === right.mtimeNs;
+}
+
+function readExternalMaintenanceLeaseSync(lockPath, identity) {
+  let lastInstability = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let fd;
+    let unstable = false;
+    try {
+      fd = fs.openSync(lockPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const descriptorBefore = fs.fstatSync(fd, { bigint: true });
+      const pathBefore = fs.lstatSync(lockPath, { bigint: true });
+      if (
+        !sameMaintenanceLeaseFile(descriptorBefore, identity) ||
+        !sameMaintenanceLeaseFile(pathBefore, identity)
+      ) {
+        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease file identity changed.');
+      }
+      if (
+        descriptorBefore.size <= 0n ||
+        descriptorBefore.size > BigInt(MAX_MAINTENANCE_LEASE_BYTES)
+      ) {
+        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease file size is invalid.');
+      }
+      if (!sameMaintenanceLeaseSnapshot(descriptorBefore, pathBefore)) {
+        unstable = true;
+        lastInstability = 'The external maintenance lease changed before it was read.';
+        continue;
+      }
+
+      const data = Buffer.alloc(Number(descriptorBefore.size));
+      let offset = 0;
+      while (offset < data.length) {
+        const bytesRead = fs.readSync(fd, data, offset, data.length - offset, offset);
+        if (bytesRead === 0) {
+          throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease ended before its file boundary.');
+        }
+        offset += bytesRead;
+      }
+      if (fs.readSync(fd, Buffer.alloc(1), 0, 1, data.length) !== 0) {
+        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease grew while it was read.');
+      }
+
+      const descriptorAfter = fs.fstatSync(fd, { bigint: true });
+      const pathAfter = fs.lstatSync(lockPath, { bigint: true });
+      if (
+        !sameMaintenanceLeaseFile(descriptorAfter, identity) ||
+        !sameMaintenanceLeaseFile(pathAfter, identity)
+      ) {
+        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease file identity changed.');
+      }
+      if (
+        !sameMaintenanceLeaseSnapshot(descriptorBefore, descriptorAfter) ||
+        !sameMaintenanceLeaseSnapshot(descriptorAfter, pathAfter)
+      ) {
+        unstable = true;
+        lastInstability = 'The external maintenance lease changed while it was read.';
+        continue;
+      }
+      try {
+        return JSON.parse(data.toString('utf8'));
+      } catch (error) {
+        throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease is not valid JSON.', error);
+      }
+    } catch (error) {
+      if (error instanceof DataBackupError) throw error;
+      throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease file is unavailable.', error);
+    } finally {
+      if (fd != null) {
+        try { fs.closeSync(fd); } catch (_) {}
+      }
+    }
+    if (!unstable) break;
+  }
+  throw backupError(
+    'MAINTENANCE_LEASE_INVALID',
+    lastInstability || 'The external maintenance lease could not be read consistently.'
+  );
+}
+
+function restoreRegularClaimWithoutOverwriteSync(claimPath, targetPath, identity) {
+  const claimStat = fs.lstatSync(claimPath, { bigint: true });
+  if (!sameMaintenanceLeaseFile(claimStat, identity)) return false;
+  fs.linkSync(claimPath, targetPath);
+  const restoredStat = fs.lstatSync(targetPath, { bigint: true });
+  if (!sameMaintenanceLeaseFile(restoredStat, identity)) {
+    throw backupError('PATH_CLAIM_RESTORE_FAILED', 'A claimed replacement could not be restored safely.');
+  }
+  fs.rmSync(claimPath);
+  syncParentDirectoriesSync(claimPath, targetPath);
+  return true;
+}
+
+function maintenanceClaimReplacementType(stat) {
+  if (stat.isSymbolicLink()) return 'symbolic-link';
+  if (stat.isDirectory()) return 'directory';
+  return 'unsupported';
+}
+
+function writeMaintenanceQuarantineMarkerSync(targetPath, claim, claimStat) {
+  const payload = {
+    schema: 'localminidrama.maintenance-quarantine.v1',
+    claimDirectory: path.basename(claim.directoryPath),
+    claimEntry: path.basename(claim.claimPath),
+    replacementType: maintenanceClaimReplacementType(claimStat),
+    contract: 'manual-inspection-required',
+  };
+  let fd;
+  let primaryError = null;
+  try {
+    fd = fs.openSync(targetPath, 'wx', 0o600);
+    writeMaintenanceLockFd(fd, payload);
+  } catch (error) {
+    if (fd == null && error.code === 'EEXIST') return false;
+    primaryError = error;
+  }
+  if (fd != null) {
+    try {
+      fs.closeSync(fd);
+    } catch (error) {
+      if (!primaryError) primaryError = error;
+    }
+  }
+  if (primaryError) throw primaryError;
+  syncParentDirectoriesSync(targetPath);
+  return true;
+}
+
+function createPrivateClaimSync(targetPath, code, message) {
+  let directoryPath;
+  try {
+    directoryPath = fs.mkdtempSync(path.join(path.dirname(targetPath), `.${path.basename(targetPath)}.claim-`));
+    try { fs.chmodSync(directoryPath, 0o700); } catch (error) {
+      if (!['ENOSYS', 'ENOTSUP', 'EPERM', 'EINVAL'].includes(error.code)) throw error;
+    }
+    const directoryStat = fs.lstatSync(directoryPath, { bigint: true });
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) throw new Error('The private claim is not a directory.');
+    return {
+      claimPath: path.join(directoryPath, 'owned'),
+      directoryIdentity: maintenanceLeaseFileIdentity(directoryStat),
+      directoryPath,
+    };
+  } catch (error) {
+    if (directoryPath) {
+      try { fs.rmdirSync(directoryPath); } catch (_) {}
+    }
+    throw backupError(code, message, error);
+  }
+}
+
+function sameMaintenanceLeaseDirectory(stat, identity) {
+  return stat.isDirectory() && !stat.isSymbolicLink() &&
+    stat.dev.toString(10) === identity.device &&
+    stat.ino.toString(10) === identity.inode;
+}
+
+function removePrivateClaimDirectorySync(claim) {
+  const directoryStat = fs.lstatSync(claim.directoryPath, { bigint: true });
+  if (!sameMaintenanceLeaseDirectory(directoryStat, claim.directoryIdentity)) {
+    throw new Error('The private claim directory identity changed.');
+  }
+  fs.rmdirSync(claim.directoryPath);
+  syncParentDirectoriesSync(claim.directoryPath);
+}
+
+function claimOwnedRegularPathSync(targetPath, identity, code, message) {
+  const claim = createPrivateClaimSync(targetPath, code, message);
+  try {
+    renameDurablySync(targetPath, claim.claimPath);
+  } catch (error) {
+    try { removePrivateClaimDirectorySync(claim); } catch (_) {}
+    throw backupError(code, message, error);
+  }
+
+  let claimStat;
+  try {
+    claimStat = fs.lstatSync(claim.claimPath, { bigint: true });
+  } catch (error) {
+    throw backupError(code, message, error);
+  }
+  if (sameMaintenanceLeaseFile(claimStat, identity)) return claim;
+
+  const replacementIdentity = claimStat.isFile() && !claimStat.isSymbolicLink()
+    ? maintenanceLeaseFileIdentity(claimStat)
+    : null;
+  let restoreError = null;
+  if (replacementIdentity) {
+    try {
+      restoreRegularClaimWithoutOverwriteSync(claim.claimPath, targetPath, replacementIdentity);
+      removePrivateClaimDirectorySync(claim);
+    } catch (error) {
+      restoreError = error;
+    }
+  } else {
+    try {
+      writeMaintenanceQuarantineMarkerSync(targetPath, claim, claimStat);
+    } catch (error) {
+      restoreError = error;
+    }
+  }
+  throw backupError(code, message, restoreError || undefined);
+}
+
+function removeOwnedClaimSync(claim, identity, code, message) {
+  try {
+    const directoryStat = fs.lstatSync(claim.directoryPath, { bigint: true });
+    if (!sameMaintenanceLeaseDirectory(directoryStat, claim.directoryIdentity)) {
+      throw new Error('The private claim directory identity changed.');
+    }
+    const finalStat = fs.lstatSync(claim.claimPath, { bigint: true });
+    if (!sameMaintenanceLeaseFile(finalStat, identity)) throw new Error('The private claim identity changed.');
+    // The unpredictable 0700 directory excludes other OS identities. A process running as
+    // the same account remains inside the local-operator trust boundary and can alter it.
+    fs.rmSync(claim.claimPath);
+    removePrivateClaimDirectorySync(claim);
+  } catch (error) {
+    throw backupError(code, message, error);
+  }
+}
+
+function assertExternalMaintenanceLeaseState(lockPath, value) {
+  const persisted = readExternalMaintenanceLeaseSync(lockPath, value);
+  for (const field of ['contract', 'ownerScope', 'pid', 'token', 'version']) {
+    if (persisted?.[field] !== value[field]) {
+      throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease no longer matches its host guard.');
+    }
+  }
+  if (persisted.operation !== 'service') {
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease is not a service guard.');
+  }
+  const createdAt = Date.parse(String(persisted.createdAt || ''));
+  const heartbeatAt = Date.parse(String(persisted.heartbeatAt || ''));
+  const now = Date.now();
+  if (
+    !Number.isFinite(createdAt) || !Number.isFinite(heartbeatAt) ||
+    heartbeatAt < createdAt || now - heartbeatAt > MAINTENANCE_LOCK_STALE_MS ||
+    heartbeatAt - now > MAINTENANCE_LOCK_STALE_MS
+  ) {
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease heartbeat is not fresh.');
+  }
+  return value;
+}
+
+function assertExternalMaintenanceLease(databasePath, value) {
+  const expectedKeys = ['contract', 'device', 'inode', 'ownerScope', 'pid', 'schema', 'token', 'version'];
+  if (
+    !value || typeof value !== 'object' || Array.isArray(value) ||
+    Object.keys(value).sort().join('\0') !== expectedKeys.join('\0') ||
+    value.schema !== EXTERNAL_MAINTENANCE_LEASE_SCHEMA ||
+    value.contract !== MAINTENANCE_LOCK_CONTRACT ||
+    value.version !== MAINTENANCE_LOCK_VERSION ||
+    typeof value.token !== 'string' || !/^[0-9a-f]{16}$/.test(value.token) ||
+    typeof value.device !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value.device) ||
+    typeof value.inode !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value.inode) ||
+    typeof value.ownerScope !== 'string' || !value.ownerScope || value.ownerScope.length > 512 ||
+    !Number.isSafeInteger(value.pid) || value.pid <= 0
+  ) {
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'The external maintenance lease is invalid.');
+  }
+
+  const { lockPath } = maintenancePaths(databasePath);
+  return assertExternalMaintenanceLeaseState(lockPath, value);
+}
+
 function removeSqliteSidecarsSync(databasePath) {
   for (const suffix of SQLITE_SIDECAR_SUFFIXES) fs.rmSync(`${databasePath}${suffix}`, { force: true });
 }
@@ -587,12 +993,20 @@ function acquireMaintenanceRecoveryClaimSync(databasePath, options = {}) {
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const token = randomSuffix();
+    // 必须传未解析的 ownerScope。原生 Linux pid 命名空间含方括号，不能当作显式作用域。
     const payload = maintenanceLockPayload('restore', token, new Date(), options.ownerScope);
     let fd;
     try {
       fd = fs.openSync(recoveryLockPath, 'wx', 0o600);
       writeMaintenanceLockFd(fd, payload);
-      const claim = { fd, lockPath: recoveryLockPath, payload, token, released: false };
+      const claim = {
+        fd,
+        identity: maintenanceLeaseFileIdentity(fs.fstatSync(fd, { bigint: true })),
+        lockPath: recoveryLockPath,
+        payload,
+        token,
+        released: false,
+      };
       try {
         startMaintenanceRecoveryHeartbeat(claim, options);
       } catch (heartbeatError) {
@@ -609,22 +1023,40 @@ function acquireMaintenanceRecoveryClaimSync(databasePath, options = {}) {
         throw backupError('MAINTENANCE_LOCK_FAILED', 'The maintenance recovery lease could not be created.', error);
       }
 
-      const claimStat = lstatIfExistsSync(recoveryLockPath);
+      const claimStat = lstatIfExistsSync(recoveryLockPath, { bigint: true });
       if (!claimStat) continue;
       if (claimStat.isSymbolicLink() || !claimStat.isFile()) {
         throw backupError('MAINTENANCE_LOCK_INVALID', 'Maintenance recovery lease is not a regular file.');
       }
       const current = readJsonFileSync(recoveryLockPath, 'MAINTENANCE_LOCK_INVALID');
-      assertMaintenanceLockRecoverable(current, claimStat, options);
+      // 回收恢复租约时不得把原生 pid 命名空间当作显式作用域；过期租约按自身 owner/pid 确认。
+      assertMaintenanceLockRecoverable(current, claimStat, {
+        ownerScope: options.ownerScope,
+        expectedOwnerScope: current?.ownerScope,
+        expectedPid: Number(current?.pid),
+        lockStaleMs: options.lockStaleMs,
+        nowMs: options.nowMs,
+      });
 
-      const reclaimedPath = `${recoveryLockPath}.reclaimed.${randomSuffix()}`;
+      const staleIdentity = maintenanceLeaseFileIdentity(claimStat);
+      let staleClaim;
       try {
-        renameDurablySync(recoveryLockPath, reclaimedPath);
-        fs.rmSync(reclaimedPath, { force: true });
-      } catch (renameError) {
-        if (renameError.code === 'ENOENT') continue;
-        throw backupError('MAINTENANCE_LOCK_FAILED', 'A stale maintenance recovery lease could not be reclaimed.', renameError);
+        staleClaim = claimOwnedRegularPathSync(
+          recoveryLockPath,
+          staleIdentity,
+          'MAINTENANCE_ACTIVE',
+          'The maintenance recovery lease changed while it was being reclaimed.'
+        );
+      } catch (claimError) {
+        if (claimError?.cause?.code === 'ENOENT') continue;
+        throw claimError;
       }
+      removeOwnedClaimSync(
+        staleClaim,
+        staleIdentity,
+        'MAINTENANCE_LOCK_FAILED',
+        'The stale maintenance recovery lease could not be removed.'
+      );
     }
   }
 
@@ -635,18 +1067,76 @@ function releaseMaintenanceRecoveryClaimSync(claim) {
   if (!claim || claim.released) return;
   claim.released = true;
   stopMaintenanceRecoveryHeartbeat(claim);
-  try { fs.closeSync(claim.fd); } catch (_) {}
+  let ownedClaim = null;
+  let primaryError = null;
+  const cleanupErrors = [];
+  let descriptorValidated = false;
   try {
-    const current = JSON.parse(fs.readFileSync(claim.lockPath, 'utf8'));
-    if (current.token === claim.token && Number(current.pid) === process.pid) {
-      fs.rmSync(claim.lockPath, { force: true });
+    const descriptorStat = fs.fstatSync(claim.fd, { bigint: true });
+    if (!claim.identity || !sameMaintenanceLeaseFile(descriptorStat, claim.identity)) {
+      throw backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The maintenance recovery lease descriptor identity changed.');
     }
-  } catch (_) {}
+    descriptorValidated = true;
+  } catch (error) {
+    primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
+      ? error
+      : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The maintenance recovery lease could not be claimed for release.', error);
+  }
+  // Windows-host Docker bind mounts defer renaming an open file. The atomic claim below
+  // still verifies the persisted file identity after this descriptor is closed.
+  let descriptorClosed = false;
+  try {
+    fs.closeSync(claim.fd);
+    descriptorClosed = true;
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  if (!primaryError && descriptorValidated && descriptorClosed) {
+    try {
+      ownedClaim = claimOwnedRegularPathSync(
+        claim.lockPath,
+        claim.identity,
+        'MAINTENANCE_LOCK_RELEASE_FAILED',
+        'The maintenance recovery lease could not be claimed for release.'
+      );
+    } catch (error) {
+      primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
+        ? error
+        : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The maintenance recovery lease could not be claimed for release.', error);
+    }
+  }
+  if (ownedClaim) {
+    try {
+      removeOwnedClaimSync(
+        ownedClaim,
+        claim.identity,
+        'MAINTENANCE_LOCK_RELEASE_FAILED',
+        'The claimed maintenance recovery lease could not be removed.'
+      );
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  if (!primaryError && cleanupErrors.length > 0) {
+    primaryError = backupError(
+      'MAINTENANCE_LOCK_RELEASE_FAILED',
+      'The maintenance recovery lease cleanup failed.',
+      cleanupErrors.shift()
+    );
+  }
+  if (primaryError) throw attachCleanupErrors(primaryError, cleanupErrors);
 }
 
 function recoverInterruptedMaintenanceSync(options = {}) {
   if (!options.databasePath || !options.storagePath) {
     throw backupError('INVALID_ARGUMENT', 'Database and storage locations are required for maintenance recovery.');
+  }
+  const expectsOwner = options.expectedOwnerScope !== undefined || options.expectedPid !== undefined;
+  if (expectsOwner && (
+    typeof options.expectedOwnerScope !== 'string' || !options.expectedOwnerScope ||
+    !Number.isInteger(options.expectedPid) || options.expectedPid <= 0
+  )) {
+    throw backupError('INVALID_ARGUMENT', 'A valid expected maintenance owner scope and PID are required.');
   }
   const databasePath = path.resolve(options.databasePath);
   const storagePath = path.resolve(options.storagePath);
@@ -654,6 +1144,8 @@ function recoverInterruptedMaintenanceSync(options = {}) {
   assertSafeTargetPaths(databasePath, storagePath, storySourcesPath);
   const recoveryClaim = acquireMaintenanceRecoveryClaimSync(databasePath, options);
   const { lockPath, journalPath } = maintenancePaths(databasePath);
+  let recoveryFailed = false;
+  let recoveryError = null;
   try {
     const lockStat = lstatIfExistsSync(lockPath);
     if (lockStat) {
@@ -662,6 +1154,23 @@ function recoverInterruptedMaintenanceSync(options = {}) {
       }
       const lock = readJsonFileSync(lockPath, 'MAINTENANCE_LOCK_INVALID');
       assertMaintenanceLockRecoverable(lock, lockStat, options);
+      if (expectsOwner && (
+        lock.ownerScope !== options.expectedOwnerScope ||
+        Number(lock.pid) !== options.expectedPid
+      )) {
+        throw backupError(
+          'MAINTENANCE_OWNER_MISMATCH',
+          'The maintenance lock owner changed after inspection; inspect it again.'
+        );
+      }
+      if (
+        expectsOwner && lock.ownerScope === nativeMaintenanceOwnerScope() &&
+        processIsRunning(Number(lock.pid))
+      ) {
+        throw backupError('MAINTENANCE_ACTIVE', 'The native maintenance lease owner process is still running.');
+      }
+    } else if (expectsOwner) {
+      throw backupError('MAINTENANCE_LOCK_MISSING', 'No maintenance lock exists.');
     }
 
     const journalStat = lstatIfExistsSync(journalPath);
@@ -723,8 +1232,17 @@ function recoverInterruptedMaintenanceSync(options = {}) {
       if (error instanceof DataBackupError) throw error;
       throw backupError('RESTORE_RECOVERY_FAILED', 'Interrupted restore could not be recovered automatically.', error);
     }
+  } catch (error) {
+    recoveryFailed = true;
+    recoveryError = error;
+    throw error;
   } finally {
-    releaseMaintenanceRecoveryClaimSync(recoveryClaim);
+    try {
+      releaseMaintenanceRecoveryClaimSync(recoveryClaim);
+    } catch (releaseError) {
+      if (!recoveryFailed) throw releaseError;
+      try { attachCleanupErrors(recoveryError, [releaseError]); } catch (_) {}
+    }
   }
 }
 
@@ -733,11 +1251,140 @@ function releaseServiceMaintenanceLock(lock) {
   lock.released = true;
   if (lock.heartbeatTimer) clearInterval(lock.heartbeatTimer);
   runtimeServiceLocks.delete(lock.lockPath);
-  try { fs.closeSync(lock.fd); } catch (_) {}
+  let claim = null;
+  let primaryError = lock.heartbeatError
+    ? backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock lost its public path before release.', lock.heartbeatError)
+    : null;
+  const cleanupErrors = [];
+  let descriptorValidated = false;
   try {
-    const current = JSON.parse(fs.readFileSync(lock.lockPath, 'utf8'));
-    if (current.token === lock.token && Number(current.pid) === process.pid) fs.rmSync(lock.lockPath, { force: true });
-  } catch (_) {}
+    if (primaryError) throw primaryError;
+    const descriptorStat = fs.fstatSync(lock.fd, { bigint: true });
+    const current = readExternalMaintenanceLeaseSync(lock.lockPath, lock.identity);
+    if (!sameMaintenanceLeaseFile(descriptorStat, lock.identity) || current.token !== lock.token || Number(current.pid) !== process.pid) {
+      throw backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock no longer belongs to this guard.');
+    }
+    descriptorValidated = true;
+  } catch (error) {
+    if (!primaryError) {
+      primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
+        ? error
+        : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock could not be claimed for release.', error);
+    } else if (error !== primaryError) {
+      cleanupErrors.push(error);
+    }
+  }
+  // Keep the same close-before-claim order as the recovery lease for Docker bind mounts.
+  let descriptorClosed = false;
+  try {
+    fs.closeSync(lock.fd);
+    descriptorClosed = true;
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  if (!primaryError && descriptorValidated && descriptorClosed) {
+    try {
+      claim = claimOwnedRegularPathSync(
+        lock.lockPath,
+        lock.identity,
+        'MAINTENANCE_LOCK_RELEASE_FAILED',
+        'The service maintenance lock could not be claimed for release.'
+      );
+    } catch (error) {
+      primaryError = error instanceof DataBackupError && error.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
+        ? error
+        : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock could not be claimed for release.', error);
+    }
+  }
+  if (claim) {
+    try {
+      removeOwnedClaimSync(
+        claim,
+        lock.identity,
+        'MAINTENANCE_LOCK_RELEASE_FAILED',
+        'The claimed service maintenance lock could not be removed.'
+      );
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  if (!primaryError && cleanupErrors.length > 0) {
+    const cleanupError = cleanupErrors.shift();
+    primaryError = cleanupError instanceof DataBackupError && cleanupError.code === 'MAINTENANCE_LOCK_RELEASE_FAILED'
+      ? cleanupError
+      : backupError('MAINTENANCE_LOCK_RELEASE_FAILED', 'The service maintenance lock release cleanup failed.', cleanupError);
+  }
+  if (primaryError) throw attachCleanupErrors(primaryError, cleanupErrors);
+}
+
+function abandonServiceMaintenanceLock(lock) {
+  if (!lock || lock.released) return;
+  lock.released = true;
+  if (lock.heartbeatTimer) clearInterval(lock.heartbeatTimer);
+  runtimeServiceLocks.delete(lock.lockPath);
+  try { fs.closeSync(lock.fd); } catch (_) {}
+}
+
+function releaseRuntimeServiceLocksOnExit() {
+  let failureCount = 0;
+  for (const active of [...runtimeServiceLocks.values()]) {
+    try {
+      if (active.externalLeaseIssued) abandonServiceMaintenanceLock(active);
+      else releaseServiceMaintenanceLock(active);
+    } catch (_) {
+      failureCount += 1;
+    }
+  }
+  if (failureCount > 0) {
+    try {
+      fs.writeSync(2, `Maintenance guard cleanup failed for ${failureCount} lock(s); persistent evidence was retained.\n`);
+    } catch (_) {}
+  }
+}
+
+function serviceMaintenanceLease(lock) {
+  const payload = lock?.payload;
+  if (
+    !lock || lock.released || lock.heartbeatError || !payload || payload.version !== MAINTENANCE_LOCK_VERSION ||
+    payload.operation !== 'service' || payload.contract !== MAINTENANCE_LOCK_CONTRACT ||
+    typeof payload.token !== 'string' || !/^[0-9a-f]{16}$/.test(payload.token) ||
+    typeof payload.ownerScope !== 'string' || !payload.ownerScope ||
+    !Number.isSafeInteger(payload.pid) || payload.pid <= 0
+  ) {
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'An active service maintenance guard is required.');
+  }
+  assertServiceMaintenanceLockPath(lock);
+  let descriptorStat;
+  try {
+    descriptorStat = fs.fstatSync(lock.fd, { bigint: true });
+  } catch (error) {
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard descriptor is unavailable.', error);
+  }
+  const identity = maintenanceLeaseFileIdentity(descriptorStat);
+  if (!sameMaintenanceLeaseFile(descriptorStat, lock.identity || identity)) {
+    throw backupError('MAINTENANCE_LEASE_INVALID', 'The service maintenance guard descriptor identity changed.');
+  }
+  const lease = Object.freeze({
+    schema: EXTERNAL_MAINTENANCE_LEASE_SCHEMA,
+    contract: payload.contract,
+    device: identity.device,
+    inode: identity.inode,
+    ownerScope: payload.ownerScope,
+    pid: payload.pid,
+    token: payload.token,
+    version: payload.version,
+  });
+  return assertExternalMaintenanceLeaseState(lock.lockPath, lease);
+}
+
+function assertServiceMaintenanceLockActiveSync(lock) {
+  return serviceMaintenanceLease(lock);
+}
+
+function createExternalMaintenanceLease(lock) {
+  const validatedLease = serviceMaintenanceLease(lock);
+  lock.externalLeaseIssued = true;
+  return validatedLease;
 }
 
 function acquireServiceMaintenanceLockSync(options = {}) {
@@ -765,7 +1412,7 @@ function acquireServiceMaintenanceLockSync(options = {}) {
   const payload = maintenanceLockPayload('service', token, new Date(), options.ownerScope);
   try {
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-    fd = fs.openSync(lockPath, 'wx', 0o600);
+    fd = fs.openSync(lockPath, 'wx+', 0o600);
     writeMaintenanceLockFd(fd, payload);
   } catch (error) {
     if (fd != null) {
@@ -778,19 +1425,19 @@ function acquireServiceMaintenanceLockSync(options = {}) {
   }
   const lock = {
     fd,
+    identity: maintenanceLeaseFileIdentity(fs.fstatSync(fd, { bigint: true })),
     lockPath,
     payload,
     token,
     released: false,
+    abandon() { abandonServiceMaintenanceLock(lock); },
     release() { releaseServiceMaintenanceLock(lock); },
   };
   runtimeServiceLocks.set(lockPath, lock);
   startMaintenanceHeartbeat(lock, options);
   if (!runtimeExitHookInstalled) {
     runtimeExitHookInstalled = true;
-    process.once('exit', () => {
-      for (const active of [...runtimeServiceLocks.values()]) releaseServiceMaintenanceLock(active);
-    });
+    process.once('exit', releaseRuntimeServiceLocksOnExit);
   }
   return lock;
 }
@@ -821,7 +1468,7 @@ async function assertDiskAllocations(allocations, reserveBytes) {
     const statfs = await fsp.statfs(group.existing);
     const available = Number(statfs.bavail ?? statfs.bfree) * Number(statfs.bsize);
     if (Number.isFinite(available) && available - group.bytes < reserveBytes) {
-      throw backupError('INSUFFICIENT_STORAGE', 'Insufficient disk space for the requested backup or restore operation.');
+      throw backupError('INSUFFICIENT_STORAGE', '磁盘空间不足，无法完成备份或恢复。');
     }
   }
 }
@@ -1104,6 +1751,8 @@ async function createLockedDatabaseSnapshot(databasePath, snapshotPath) {
   sqliteIntegrityCheck(snapshotPath);
 }
 
+const SENSITIVE_BACKUP_STRUCTURED_KEY_ALIASES = new Set(['key', 'keys', 'passwd', 'passphrase']);
+
 function isSensitiveBackupKey(key) {
   const text = String(key || '');
   const compact = text.toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -1138,6 +1787,11 @@ function backupKeyWords(key) {
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
+}
+
+function isSensitiveBackupStructuredKey(key) {
+  return isSensitiveBackupKey(key) ||
+    SENSITIVE_BACKUP_STRUCTURED_KEY_ALIASES.has(backupKeyWords(key).join(''));
 }
 
 function isBackupHeaderContainerKey(key) {
@@ -1231,7 +1885,7 @@ function redactBackupHeaders(value) {
       for (const [key, child] of Object.entries(entry)) {
         if (key === 'name' || key === 'key') out[key] = child;
         else if (key === 'value' || key === 'values') out[key] = safe ? redactSecretObject(child, key) : '';
-        else out[key] = isSensitiveBackupKey(key) ? '' : redactSecretObject(child, key);
+        else out[key] = isSensitiveBackupStructuredKey(key) ? '' : redactSecretObject(child, key);
       }
       return out;
     });
@@ -1252,7 +1906,7 @@ function redactSecretObject(value, parentKey = '') {
   for (const [key, child] of Object.entries(value)) {
     out[key] = isBackupHeaderContainerKey(key)
       ? redactBackupHeaders(child)
-      : isSensitiveBackupKey(key) ? '' : redactSecretObject(child, key);
+      : isSensitiveBackupStructuredKey(key) ? '' : redactSecretObject(child, key);
   }
   return out;
 }
@@ -1411,24 +2065,65 @@ function excludeSecretsFromSnapshot(snapshotPath) {
   return { excludedValues: excluded, policy: 'excluded' };
 }
 
+function isReadonlySqliteError(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return code.includes('READONLY') || /readonly|read-only|EROFS/i.test(message);
+}
+
+function openExclusiveBackupFreeze(databasePath) {
+  const db = new Database(databasePath, { fileMustExist: true });
+  db.pragma('busy_timeout = 0');
+  db.exec('BEGIN EXCLUSIVE');
+  return db;
+}
+
+async function snapshotReadonlyDatabase(databasePath, snapshotPath) {
+  try {
+    await createOnlineDatabaseSnapshot(databasePath, snapshotPath);
+  } catch (_) {
+    await createLockedDatabaseSnapshot(databasePath, snapshotPath);
+  }
+}
+
 async function captureBackupView(databasePath, storagePath, storySourcesPath, snapshotPath, limits, options) {
   let freeze;
   let transactionStarted = false;
   try {
-    freeze = new Database(databasePath, { fileMustExist: true });
-    freeze.pragma('busy_timeout = 0');
-    const journalMode = String(freeze.pragma('journal_mode', { simple: true }) || '').toLowerCase();
-    freeze.exec('BEGIN EXCLUSIVE');
-    transactionStarted = true;
-    await runFaultInjector(options, 'after-backup-freeze-acquired');
-    if (journalMode === 'wal') {
-      await createOnlineDatabaseSnapshot(databasePath, snapshotPath);
-    } else {
-      await createLockedDatabaseSnapshot(databasePath, snapshotPath);
+    assertOperationNotAborted(options?.signal);
+    try {
+      freeze = openExclusiveBackupFreeze(databasePath);
+      transactionStarted = true;
+      const journalMode = String(freeze.pragma('journal_mode', { simple: true }) || '').toLowerCase();
+      await runFaultInjector(options, 'after-backup-freeze-acquired');
+      assertOperationNotAborted(options?.signal);
+      if (journalMode === 'wal') {
+        await createOnlineDatabaseSnapshot(databasePath, snapshotPath);
+      } else {
+        await createLockedDatabaseSnapshot(databasePath, snapshotPath);
+      }
+    } catch (error) {
+      if (freeze) {
+        if (transactionStarted) {
+          try { freeze.exec('ROLLBACK'); } catch (_) {}
+        }
+        try { freeze.close(); } catch (_) {}
+        freeze = null;
+        transactionStarted = false;
+      }
+      if (!isReadonlySqliteError(error) && !['EACCES', 'EPERM', 'SQLITE_READONLY', 'SQLITE_CANTOPEN'].includes(String(error?.code || ''))) {
+        throw error;
+      }
+      await snapshotReadonlyDatabase(databasePath, snapshotPath);
+      await runFaultInjector(options, 'after-backup-freeze-acquired');
+      assertOperationNotAborted(options?.signal);
     }
     await runFaultInjector(options, 'after-backup-database-snapshot');
+    assertOperationNotAborted(options?.signal);
     const storage = await hashStorageFiles(await collectStorageFiles(storagePath, limits));
+    assertOperationNotAborted(options?.signal);
     const storySources = await hashStorySourceFiles(await collectStorySourceFiles(storySourcesPath, limits));
+    assertOperationNotAborted(options?.signal);
     storySources.referenceCount = validateStorySourceReferences(
       snapshotPath,
       storySourcesPath,
@@ -1436,6 +2131,7 @@ async function captureBackupView(databasePath, storagePath, storySourcesPath, sn
       limits
     );
     await runFaultInjector(options, 'after-backup-storage-captured');
+    assertOperationNotAborted(options?.signal);
     return { storage, storySources };
   } catch (error) {
     if (isSqliteBusy(error)) {
@@ -1514,6 +2210,128 @@ async function writeAll(handle, buffer, startPosition) {
   return startPosition + buffer.length;
 }
 
+function descriptorCall(invoker) {
+  return new Promise((resolve, reject) => {
+    invoker((error, value, buffer) => {
+      if (error) reject(error);
+      else resolve({ value, buffer });
+    });
+  });
+}
+
+function descriptorHandle(fd) {
+  return Object.freeze({
+    async write(buffer, offset, length, position) {
+      const result = await descriptorCall((done) => fs.write(fd, buffer, offset, length, position, done));
+      return { bytesWritten: result.value, buffer: result.buffer };
+    },
+    async sync() {
+      await descriptorCall((done) => fs.fsync(fd, (error) => done(error, undefined)));
+    },
+  });
+}
+
+async function descriptorStat(fd) {
+  const result = await descriptorCall((done) => fs.fstat(fd, { bigint: true }, done));
+  return result.value;
+}
+
+async function descriptorRead(fd, buffer, offset, length, position) {
+  const result = await descriptorCall((done) => fs.read(fd, buffer, offset, length, position, done));
+  return { bytesRead: result.value, buffer: result.buffer };
+}
+
+function canonicalPhysicalIdentity(stat) {
+  const dev = BigInt.asUintN(32, BigInt(stat.dev));
+  const ino = BigInt.asUintN(64, BigInt(stat.ino));
+  return `${dev.toString(16).padStart(8, '0')}:${ino.toString(16).padStart(16, '0')}`;
+}
+
+function descriptorSize(stat, code = 'INVALID_DESCRIPTOR_PUBLICATION') {
+  if (typeof stat.size !== 'bigint' || stat.size < 0n || stat.size > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw backupError(code, 'The descriptor-backed archive size is unsupported.');
+  }
+  return Number(stat.size);
+}
+
+function assertRegularDescriptorStat(stat) {
+  if (!stat?.isFile?.()) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires regular file descriptors.');
+  }
+}
+
+function sameDescriptorIdentity(left, right) {
+  return canonicalPhysicalIdentity(left) === canonicalPhysicalIdentity(right);
+}
+
+async function sha256Descriptor(fd, expectedBytes, signal) {
+  const hash = crypto.createHash('sha256');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let position = 0;
+  while (position < expectedBytes) {
+    assertOperationNotAborted(signal);
+    const length = Math.min(buffer.length, expectedBytes - position);
+    const result = await descriptorRead(fd, buffer, 0, length, position);
+    if (result.bytesRead <= 0) {
+      throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The descriptor-backed archive changed while it was being verified.');
+    }
+    hash.update(buffer.subarray(0, result.bytesRead));
+    position += result.bytesRead;
+  }
+  return hash.digest('hex');
+}
+
+function normalizeDescriptorPublication(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication options are invalid.');
+  }
+  const {
+    readFd,
+    writeFd,
+    publicationPath,
+    publicationFile,
+    operationId,
+    waitForPublication,
+  } = value;
+  if (!Number.isInteger(readFd) || readFd < 0 || !Number.isInteger(writeFd) || writeFd < 0 || readFd === writeFd) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires distinct read and write descriptors.');
+  }
+  if (
+    typeof publicationPath !== 'string' || !path.isAbsolute(publicationPath) ||
+    typeof publicationFile !== 'string' || publicationFile !== BACKUP_PUBLICATION_FILE ||
+    path.basename(publicationPath) !== publicationFile
+  ) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires an absolute data.zip path.');
+  }
+  if (typeof operationId !== 'string' || !BACKUP_PUBLICATION_OPERATION_PATTERN.test(operationId)) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires a canonical operation identifier.');
+  }
+  if (typeof waitForPublication !== 'function') {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication requires a publication wait callback.');
+  }
+  return Object.freeze({
+    readFd,
+    writeFd,
+    publicationPath: path.resolve(publicationPath),
+    publicationFile,
+    operationId,
+    waitForPublication,
+  });
+}
+
+function descriptorPublicationMarker(publication, phase, archiveSha256, archiveBytes, filesystemIdentity) {
+  return Object.freeze({
+    schema: BACKUP_PUBLICATION_RESULT_SCHEMA,
+    operation_id: publication.operationId,
+    phase,
+    publication_file: publication.publicationFile,
+    archive_sha256: archiveSha256,
+    archive_bytes: String(archiveBytes),
+    filesystem_identity: filesystemIdentity,
+    format_version: FORMAT_VERSION,
+  });
+}
+
 function createLocalZip64Extra() {
   const extra = Buffer.alloc(20);
   extra.writeUInt16LE(0x0001, 0);
@@ -1533,7 +2351,8 @@ function createCentralZip64Extra(size, offset) {
   return extra;
 }
 
-async function writeStoredZipEntry(archiveHandle, position, source) {
+async function writeStoredZipEntry(archiveHandle, position, source, signal) {
+  assertOperationNotAborted(signal);
   const nameBuffer = Buffer.from(source.name, 'utf8');
   if (nameBuffer.length > ZIP64_UINT16) {
     throw backupError('UNSAFE_ARCHIVE_PATH', 'A storage path is too long for a ZIP archive.');
@@ -1576,6 +2395,7 @@ async function writeStoredZipEntry(archiveHandle, position, source) {
       const buffer = Buffer.allocUnsafe(1024 * 1024);
       let sourcePosition = 0;
       while (sourcePosition < source.identity.size) {
+        assertOperationNotAborted(signal);
         const length = Math.min(buffer.length, source.identity.size - sourcePosition);
         const result = await sourceHandle.read(buffer, 0, length, sourcePosition);
         if (result.bytesRead <= 0) {
@@ -1601,6 +2421,8 @@ async function writeStoredZipEntry(archiveHandle, position, source) {
     throw backupError('BACKUP_DATA_CHANGED', 'A backup data file changed while the backup was being created.');
   }
 
+  assertOperationNotAborted(signal);
+
   const finalCrc = finishCrc32(crc);
   const crcPatch = Buffer.alloc(4);
   crcPatch.writeUInt32LE(finalCrc, 0);
@@ -1615,20 +2437,21 @@ async function writeStoredZipEntry(archiveHandle, position, source) {
   };
 }
 
-async function writeZip64Archive(tempPath, sources) {
-  let handle;
+async function writeZip64ArchiveToHandle(handle, sources, signal) {
   try {
-    handle = await fsp.open(tempPath, 'wx', 0o600);
+    assertOperationNotAborted(signal);
     let position = 0;
     const centralEntries = [];
     for (const source of sources) {
-      const result = await writeStoredZipEntry(handle, position, source);
+      assertOperationNotAborted(signal);
+      const result = await writeStoredZipEntry(handle, position, source, signal);
       position = result.position;
       centralEntries.push(result.central);
     }
 
     const centralOffset = position;
     for (const entry of centralEntries) {
+      assertOperationNotAborted(signal);
       const extra = createCentralZip64Extra(entry.size, entry.localOffset);
       const header = Buffer.alloc(46);
       header.writeUInt32LE(ZIP_CENTRAL_SIGNATURE, 0);
@@ -1654,6 +2477,7 @@ async function writeZip64Archive(tempPath, sources) {
     }
 
     const centralSize = position - centralOffset;
+    assertOperationNotAborted(signal);
     const zip64EndOffset = position;
     const zip64End = Buffer.alloc(56);
     zip64End.writeUInt32LE(ZIP64_END_SIGNATURE, 0);
@@ -1684,23 +2508,145 @@ async function writeZip64Archive(tempPath, sources) {
     end.writeUInt32LE(ZIP64_UINT32, 12);
     end.writeUInt32LE(ZIP64_UINT32, 16);
     end.writeUInt16LE(0, 20);
-    await writeAll(handle, end, position);
+    position = await writeAll(handle, end, position);
     await handle.sync();
+    return position;
   } catch (error) {
     if (error instanceof DataBackupError) throw error;
     throw backupError('ARCHIVE_WRITE_FAILED', 'The backup archive could not be written.', error);
+  }
+}
+
+async function writeZip64Archive(tempPath, sources, signal) {
+  let handle;
+  try {
+    handle = await fsp.open(tempPath, 'wx', 0o600);
+    return await writeZip64ArchiveToHandle(handle, sources, signal);
   } finally {
     if (handle) await handle.close();
   }
 }
 
+async function createDescriptorArchive(publication, sources, limits, signal) {
+  let readStat;
+  let writeStat;
+  try {
+    [readStat, writeStat] = await Promise.all([
+      descriptorStat(publication.readFd),
+      descriptorStat(publication.writeFd),
+    ]);
+  } catch (error) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication handles could not be inspected.', error);
+  }
+  assertRegularDescriptorStat(readStat);
+  assertRegularDescriptorStat(writeStat);
+  if (!sameDescriptorIdentity(readStat, writeStat) || descriptorSize(readStat) !== 0 || descriptorSize(writeStat) !== 0) {
+    throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'Descriptor publication handles must refer to the same empty file.');
+  }
+  const filesystemIdentity = canonicalPhysicalIdentity(readStat);
+  const archiveBytesWritten = await writeZip64ArchiveToHandle(
+    descriptorHandle(publication.writeFd),
+    sources,
+    signal
+  );
+  assertOperationNotAborted(signal);
+
+  [readStat, writeStat] = await Promise.all([
+    descriptorStat(publication.readFd),
+    descriptorStat(publication.writeFd),
+  ]);
+  assertRegularDescriptorStat(readStat);
+  assertRegularDescriptorStat(writeStat);
+  const archiveBytes = descriptorSize(readStat);
+  if (
+    !sameDescriptorIdentity(readStat, writeStat) ||
+    canonicalPhysicalIdentity(readStat) !== filesystemIdentity ||
+    descriptorSize(writeStat) !== archiveBytes ||
+    archiveBytes !== archiveBytesWritten
+  ) {
+    throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The descriptor-backed archive changed while it was being written.');
+  }
+  if (archiveBytes > limits.maxArchiveBytes) {
+    throw backupError('ARCHIVE_LIMIT_EXCEEDED', 'The resulting backup exceeds the configured archive size limit.');
+  }
+  const archiveSha256 = await sha256Descriptor(publication.readFd, archiveBytes, signal);
+  const preReadyStat = await descriptorStat(publication.readFd);
+  if (
+    canonicalPhysicalIdentity(preReadyStat) !== filesystemIdentity ||
+    descriptorSize(preReadyStat, 'PUBLICATION_CONTENT_MISMATCH') !== archiveBytes
+  ) {
+    throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The descriptor-backed archive changed before publication.');
+  }
+
+  const ready = descriptorPublicationMarker(
+    publication,
+    'ready',
+    archiveSha256,
+    archiveBytes,
+    filesystemIdentity
+  );
+  await publication.waitForPublication(ready);
+  assertOperationNotAborted(signal);
+
+  let finalPathStat;
+  try {
+    finalPathStat = await fsp.lstat(publication.publicationPath, { bigint: true });
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      throw backupError('PUBLICATION_IDENTITY_MISMATCH', 'The descriptor-backed archive was not published at the expected path.');
+    }
+    throw backupError('PUBLICATION_IDENTITY_MISMATCH', 'The descriptor-backed archive path could not be inspected.', error);
+  }
+  const [finalReadStat, finalWriteStat] = await Promise.all([
+    descriptorStat(publication.readFd),
+    descriptorStat(publication.writeFd),
+  ]);
+  if (
+    !finalPathStat.isFile() || finalPathStat.isSymbolicLink() ||
+    !sameDescriptorIdentity(finalReadStat, finalWriteStat) ||
+    canonicalPhysicalIdentity(finalReadStat) !== filesystemIdentity ||
+    canonicalPhysicalIdentity(finalPathStat) !== filesystemIdentity
+  ) {
+    throw backupError('PUBLICATION_IDENTITY_MISMATCH', 'The published archive does not match the retained descriptor identity.');
+  }
+  if (descriptorSize(finalReadStat, 'PUBLICATION_CONTENT_MISMATCH') !== archiveBytes) {
+    throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The published archive size changed after publication.');
+  }
+  const committedSha256 = await sha256Descriptor(publication.readFd, archiveBytes, signal);
+  const committedReadStat = await descriptorStat(publication.readFd);
+  if (
+    committedSha256 !== archiveSha256 ||
+    canonicalPhysicalIdentity(committedReadStat) !== filesystemIdentity ||
+    descriptorSize(committedReadStat, 'PUBLICATION_CONTENT_MISMATCH') !== archiveBytes
+  ) {
+    throw backupError('PUBLICATION_CONTENT_MISMATCH', 'The published archive bytes changed after publication.');
+  }
+  const committed = descriptorPublicationMarker(
+    publication,
+    'committed',
+    committedSha256,
+    archiveBytes,
+    filesystemIdentity
+  );
+  return { archiveBytes, ready, committed };
+}
+
 async function createDataBackup(options) {
+  assertOperationNotAborted(options?.signal);
   const databasePath = path.resolve(options?.databasePath || '');
   const storagePath = path.resolve(options?.storagePath || '');
   const storySourcesPath = resolveStorySourcesPath(options);
-  const outputPath = path.resolve(options?.outputPath || '');
+  const descriptorPublication = options?.descriptorPublication == null
+    ? null
+    : normalizeDescriptorPublication(options.descriptorPublication);
+  if (descriptorPublication && options?.outputPath != null) {
+    throw backupError('INVALID_ARGUMENT', 'Descriptor publication and output paths are mutually exclusive.');
+  }
+  const outputPath = descriptorPublication
+    ? descriptorPublication.publicationPath
+    : path.resolve(options?.outputPath || '');
   const limits = normalizeLimits(options?.limits);
-  if (!options?.databasePath || !options?.storagePath || !options?.outputPath) {
+  if (!options?.databasePath || !options?.storagePath || (!descriptorPublication && !options?.outputPath)) {
     throw backupError('INVALID_ARGUMENT', 'Database, storage, and output locations are required.');
   }
   assertSafeTargetPaths(databasePath, storagePath, storySourcesPath);
@@ -1714,34 +2660,54 @@ async function createDataBackup(options) {
     throw backupError('OUTPUT_EXISTS', 'The requested backup output already exists.');
   }
 
-  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
-  await assertServiceStopped(options);
-  recoverInterruptedMaintenanceSync({
-    databasePath,
-    storagePath,
-    storySourcesPath,
-    log: options?.log,
-    ownerScope: options?.ownerScope,
-  });
+  if (descriptorPublication) {
+    const parentStat = await fsp.lstat(path.dirname(outputPath)).catch((error) => {
+      throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'The descriptor publication directory is unavailable.', error);
+    });
+    if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) {
+      throw backupError('INVALID_DESCRIPTOR_PUBLICATION', 'The descriptor publication directory must be a real directory.');
+    }
+  } else {
+    await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+  }
+  const externalMaintenanceLease = options?.externalMaintenanceLease == null
+    ? null
+    : assertExternalMaintenanceLease(databasePath, options.externalMaintenanceLease);
   let maintenanceLock;
-  try {
-    maintenanceLock = await acquireMaintenanceLock(databasePath, 'backup', {
-      heartbeatIntervalMs: options?.heartbeatIntervalMs,
+  if (!externalMaintenanceLease) {
+    await assertServiceStopped(options);
+    recoverInterruptedMaintenanceSync({
+      databasePath,
+      storagePath,
+      storySourcesPath,
       log: options?.log,
       ownerScope: options?.ownerScope,
     });
-  } catch (error) {
-    if (error instanceof DataBackupError) throw error;
-    throw backupError('MAINTENANCE_LOCK_FAILED', 'Backup maintenance lock could not be acquired.', error);
+    try {
+      maintenanceLock = await acquireMaintenanceLock(databasePath, 'backup', {
+        heartbeatIntervalMs: options?.heartbeatIntervalMs,
+        log: options?.log,
+        ownerScope: options?.ownerScope,
+      });
+    } catch (error) {
+      if (error instanceof DataBackupError) throw error;
+      throw backupError('MAINTENANCE_LOCK_FAILED', 'Backup maintenance lock could not be acquired.', error);
+    }
   }
   let workDir = null;
   let snapshotPath = null;
-  const tempArchivePath = path.join(path.dirname(outputPath), `.${path.basename(outputPath)}.${randomSuffix()}.tmp`);
+  let outputLinked = false;
+  let outputIdentity = null;
+  const tempArchivePath = descriptorPublication
+    ? null
+    : path.join(path.dirname(outputPath), `.${path.basename(outputPath)}.${randomSuffix()}.tmp`);
 
   try {
     workDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-backup-'));
+    assertOperationNotAborted(options?.signal);
     snapshotPath = path.join(workDir, 'database.sqlite');
-    await assertServiceStopped(options);
+    if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
+    else await assertServiceStopped(options);
     const sourceDatabaseStat = await fsp.stat(databasePath);
     const snapshotWorkingBytes = sourceDatabaseStat.size * (options?.includeSecrets === true ? 1 : 2);
     if (!Number.isSafeInteger(snapshotWorkingBytes)) {
@@ -1759,10 +2725,12 @@ async function createDataBackup(options) {
       limits,
       options
     );
+    assertOperationNotAborted(options?.signal);
     const { storage, storySources } = captured;
     const security = options?.includeSecrets === true
       ? { policy: 'included-by-explicit-request', excludedValues: 0 }
       : excludeSecretsFromSnapshot(snapshotPath);
+    assertOperationNotAborted(options?.signal);
     const databaseStat = await fsp.stat(snapshotPath);
     if (databaseStat.size > limits.maxFileBytes) {
       throw backupError('FILE_LIMIT_EXCEEDED', 'The SQLite snapshot exceeds the configured file size limit.');
@@ -1780,6 +2748,7 @@ async function createDataBackup(options) {
       limits.diskReserveBytes
     );
     const databaseSha256 = await sha256File(snapshotPath);
+    assertOperationNotAborted(options?.signal);
     const createdAt = new Date().toISOString();
     const manifest = {
       formatVersion: FORMAT_VERSION,
@@ -1831,27 +2800,87 @@ async function createDataBackup(options) {
         mtimeMs: file.identity.mtimeMs,
       })),
     ];
-    await writeZip64Archive(tempArchivePath, sources);
+    if (descriptorPublication) {
+      const publication = await createDescriptorArchive(
+        descriptorPublication,
+        sources,
+        limits,
+        options?.signal
+      );
+      if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
+      await runFaultInjector(options, 'after-backup-output-linked');
+      if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
+      return {
+        outputPath,
+        manifest,
+        archiveBytes: publication.archiveBytes,
+        security,
+        publication: {
+          ready: publication.ready,
+          committed: publication.committed,
+        },
+      };
+    }
+
+    await writeZip64Archive(tempArchivePath, sources, options?.signal);
+    assertOperationNotAborted(options?.signal);
     const archiveStat = await fsp.stat(tempArchivePath);
     if (archiveStat.size > limits.maxArchiveBytes) {
       throw backupError('ARCHIVE_LIMIT_EXCEEDED', 'The resulting backup exceeds the configured archive size limit.');
     }
     await chmodPrivate(tempArchivePath);
+    assertOperationNotAborted(options?.signal);
+    if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
     try {
       await fsp.link(tempArchivePath, outputPath);
+      outputLinked = true;
+      const outputStat = await fsp.lstat(outputPath, { bigint: true });
+      if (!outputStat.isFile() || outputStat.isSymbolicLink()) {
+        throw backupError('OUTPUT_COMMIT_FAILED', 'The backup output is not a regular file.');
+      }
+      outputIdentity = maintenanceLeaseFileIdentity(outputStat);
       await syncParentDirectories(outputPath);
     } catch (error) {
       if (error.code === 'EEXIST') throw backupError('OUTPUT_EXISTS', 'The requested backup output already exists.');
+      if (isPermissionDeniedError(error)) throw permissionDeniedError(error);
       throw backupError('OUTPUT_COMMIT_FAILED', 'The backup output could not be created atomically without overwrite.', error);
     }
+    await runFaultInjector(options, 'after-backup-output-linked');
+    if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
     await fsp.rm(tempArchivePath, { force: true });
     await chmodPrivate(outputPath);
+    if (externalMaintenanceLease) assertExternalMaintenanceLease(databasePath, externalMaintenanceLease);
     return { outputPath, manifest, archiveBytes: archiveStat.size, security };
   } catch (error) {
-    if (error instanceof DataBackupError) throw error;
-    throw backupError('BACKUP_FAILED', 'The data backup could not be completed.', error);
+    const primaryError = wrapUnknownBackupError(
+      error,
+      'BACKUP_FAILED',
+      'The data backup could not be completed.'
+    );
+    if (outputLinked) {
+      try {
+        const claim = claimOwnedRegularPathSync(
+          outputPath,
+          outputIdentity,
+          'OUTPUT_CLEANUP_FAILED',
+          'The failed backup output could not be claimed without touching a replacement.'
+        );
+        removeOwnedClaimSync(
+          claim,
+          outputIdentity,
+          'OUTPUT_CLEANUP_FAILED',
+          'The claimed failed backup output could not be removed.'
+        );
+        outputLinked = false;
+      } catch (cleanupError) {
+        try {
+          attachCleanupErrors(primaryError, [cleanupError]);
+        } catch (_) {}
+      }
+    }
+    throw primaryError;
   } finally {
-    await fsp.rm(tempArchivePath, { force: true }).catch(() => {});
+    if (tempArchivePath) await fsp.rm(tempArchivePath, { force: true }).catch(() => {});
     if (workDir) await fsp.rm(workDir, { recursive: true, force: true }).catch(() => {});
     await releaseMaintenanceLock(maintenanceLock);
   }
@@ -1938,7 +2967,7 @@ function assertRegularZipEntry(externalAttributes) {
   }
 }
 
-async function readArchiveDirectory(archivePath, limits) {
+async function readArchiveDirectory(archivePath, limits, archiveHandle = null) {
   const archiveStat = await lstatIfExists(archivePath);
   if (!archiveStat || archiveStat.isSymbolicLink() || !archiveStat.isFile()) {
     throw backupError('ARCHIVE_UNAVAILABLE', 'The requested backup archive is unavailable or unsafe.');
@@ -1947,14 +2976,17 @@ async function readArchiveDirectory(archivePath, limits) {
     throw backupError('ARCHIVE_LIMIT_EXCEEDED', 'The backup archive exceeds the configured size limit.');
   }
 
-  let handle;
+  let handle = archiveHandle;
+  const ownsHandle = !archiveHandle;
   try {
-    handle = await fsp.open(archivePath, 'r');
+    if (ownsHandle) handle = await fsp.open(archivePath, 'r');
     const openedStat = await handle.stat();
     if (!openedStat.isFile() || openedStat.size !== archiveStat.size || openedStat.dev !== archiveStat.dev || openedStat.ino !== archiveStat.ino) {
       throw backupError('ARCHIVE_CHANGED', 'The backup archive changed while it was being opened.');
     }
-    if (openedStat.size < 22) throw backupError('INVALID_ARCHIVE', 'The file is not a complete ZIP archive.');
+    if (openedStat.size < MINIMUM_ZIP_ARCHIVE_BYTES) {
+      throw backupError('INVALID_ARCHIVE', 'The file is not a complete ZIP archive.');
+    }
 
     const tailLength = Math.min(openedStat.size, 22 + ZIP64_UINT16 + 20);
     const tailOffset = openedStat.size - tailLength;
@@ -2204,9 +3236,9 @@ async function readArchiveDirectory(archivePath, limits) {
       }
     }
 
-    return { handle, entries, archiveStat: openedStat, payloadBytes };
+    return { handle, ownsHandle, entries, archiveStat: openedStat, payloadBytes };
   } catch (error) {
-    if (handle) await handle.close().catch(() => {});
+    if (ownsHandle && handle) await handle.close().catch(() => {});
     if (error instanceof DataBackupError) throw error;
     throw backupError('INVALID_ARCHIVE', 'The backup archive could not be parsed safely.', error);
   }
@@ -2292,7 +3324,7 @@ function validateManifest(value) {
   ) {
     throw backupError('INVALID_MANIFEST', 'The backup manifest has an invalid structure.');
   }
-  if (![LEGACY_FORMAT_VERSION, FORMAT_VERSION].includes(value.formatVersion)) {
+  if (!SUPPORTED_FORMAT_VERSIONS.includes(value.formatVersion)) {
     throw backupError('UNSUPPORTED_FORMAT', 'The backup format version is not supported.');
   }
   if (
@@ -2392,7 +3424,14 @@ function makeSiblingPath(targetPath, label) {
   );
 }
 
-async function prepareRestoreStages(archivePath, databasePath, storagePath, storySourcesPath, limits) {
+async function prepareRestoreStages(
+  archivePath,
+  databasePath,
+  storagePath,
+  storySourcesPath,
+  limits,
+  archiveHandle = null
+) {
   const databaseStage = makeSiblingPath(databasePath, 'restore-incoming');
   const storageStage = makeSiblingPath(storagePath, 'restore-incoming');
   let storySourcesStage = null;
@@ -2401,7 +3440,7 @@ async function prepareRestoreStages(archivePath, databasePath, storagePath, stor
     await fsp.mkdir(path.dirname(databasePath), { recursive: true });
     await fsp.mkdir(path.dirname(storagePath), { recursive: true });
     await fsp.mkdir(path.dirname(storySourcesPath), { recursive: true });
-    archive = await readArchiveDirectory(archivePath, limits);
+    archive = await readArchiveDirectory(archivePath, limits, archiveHandle);
     const validated = await readAndValidateManifest(archive, limits);
     const replaceStorySources = Boolean(validated.manifest.storySources);
     if (replaceStorySources) storySourcesStage = makeSiblingPath(storySourcesPath, 'restore-incoming');
@@ -2518,7 +3557,7 @@ async function prepareRestoreStages(archivePath, databasePath, storagePath, stor
     if (error instanceof DataBackupError) throw error;
     throw backupError('ARCHIVE_VALIDATION_FAILED', 'The backup archive could not be validated safely.', error);
   } finally {
-    if (archive?.handle) await archive.handle.close().catch(() => {});
+    if (archive?.ownsHandle && archive.handle) await archive.handle.close().catch(() => {});
   }
 }
 
@@ -3030,14 +4069,19 @@ async function restoreDataBackup(options) {
       databasePath,
       storagePath,
       storySourcesPath,
-      limits
+      limits,
+      options.archiveHandle || null
     );
     await assertServiceStopped(options);
     await assertDatabaseAvailable(databasePath);
     return await commitRestore(prepared, databasePath, storagePath, storySourcesPath, limits, options);
   } catch (error) {
     if (error instanceof DataBackupError) throw error;
-    throw backupError('RESTORE_FAILED', 'The data restore could not be completed.', error);
+    throw wrapUnknownBackupError(
+      error,
+      'RESTORE_FAILED',
+      'The data restore could not be completed.'
+    );
   } finally {
     const recoveryPending = Boolean(await lstatIfExists(maintenancePaths(databasePath).journalPath).catch(() => null));
     if (!recoveryPending) {
@@ -3057,12 +4101,19 @@ module.exports = {
   DEFAULT_LIMITS,
   DataBackupError,
   acquireServiceMaintenanceLockSync,
+  assertServiceMaintenanceLockActiveSync,
+  assertServiceStopped,
+  createExternalMaintenanceLease,
   createDataBackup,
+  writeZip64ArchiveToHandle,
   maintenancePaths,
+  nativeMaintenanceOwnerScope,
   recoverInterruptedMaintenanceSync,
   restoreDataBackup,
+  resolveDataRoot,
   __testing: Object.freeze({
     acquireMaintenanceRecoveryClaimSync,
+    canonicalPhysicalIdentity,
     releaseMaintenanceRecoveryClaimSync,
   }),
 };
