@@ -795,33 +795,14 @@
       @import="onImportNovel"
     />
 
-    <!-- AI 配置弹窗（不跳转，避免本页内容丢失） -->
-    <AccessibleDialog
+    <FilmCreateAiConfigDialog
+      ref="aiConfigContentRef"
       v-model="showAiConfigDialog"
-      title="AI 配置"
-      width="90%"
-      top="5vh"
-      :show-close="true"
-      destroy-on-close
-      class="ai-config-workspace-dialog ai-config-overlay"
+      :initial-service-type="aiConfigInitialServiceType"
       :before-close="confirmAiConfigWorkspaceClose"
-    >
-      <template #header="{ titleId, titleClass }">
-        <div class="ai-config-dialog-header">
-          <el-button class="ai-config-dialog-back" text @click="requestAiConfigWorkspaceClose">
-            <el-icon><ArrowLeft /></el-icon>
-            <span>返回制作</span>
-          </el-button>
-          <strong :id="titleId" :class="[titleClass, 'ai-config-dialog-title']">AI 配置</strong>
-        </div>
-      </template>
-      <AIConfigContent
-        ref="aiConfigContentRef"
-        v-if="showAiConfigDialog"
-        :initial-service-type="aiConfigInitialServiceType"
-        @configuration-changed="onAiConfigurationChanged"
-      />
-    </AccessibleDialog>
+      @back="requestAiConfigWorkspaceClose"
+      @configuration-changed="onAiConfigurationChanged"
+    />
 
     <ImagePreviewDialog
       :model-value="Boolean(previewImageUrl)"
@@ -900,7 +881,7 @@ import {
   videoConfigSupportsOmni,
 } from '@/utils/storyboardVideoRequest'
 import { exportStoryboardSheet } from '@/utils/exportStoryboardSheet'
-import AIConfigContent from '@/components/AIConfigContent.vue'
+import FilmCreateAiConfigDialog from '@/components/filmCreate/FilmCreateAiConfigDialog.vue'
 import GlobalMediaPickerDialog from '@/components/GlobalMediaPickerDialog.vue'
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import UniversalSegmentOmniAtEditor from '@/components/UniversalSegmentOmniAtEditor.vue'
@@ -7722,22 +7703,6 @@ watch(
 </script>
 
 <style scoped>
-.ai-config-dialog-header {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-right: 32px;
-}
-.ai-config-dialog-back {
-  min-height: 32px;
-  padding: 4px 8px;
-}
-.ai-config-dialog-title {
-  color: var(--text-primary);
-  font-size: 16px;
-  line-height: 24px;
-}
 .film-create {
   --film-nav-width: 180px;
   min-height: 100vh;

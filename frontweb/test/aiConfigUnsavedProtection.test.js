@@ -9,6 +9,7 @@ const contentSource = readFileSync(
 const pageSource = readFileSync(new URL('../src/views/AiConfig.vue', import.meta.url), 'utf8')
 const filmListSource = readFileSync(new URL('../src/views/FilmList.vue', import.meta.url), 'utf8')
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const aiConfigDialogSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateAiConfigDialog.vue', import.meta.url), 'utf8')
 const promptEditorSource = readFileSync(new URL('../src/components/PromptEditor.vue', import.meta.url), 'utf8')
 const sceneModelMapSource = readFileSync(new URL('../src/components/SceneModelMap.vue', import.meta.url), 'utf8')
 
@@ -78,11 +79,12 @@ test('project list AI config dialog delegates every close request to the content
 
 test('production AI config dialog uses the same guard for chrome and custom back controls', () => {
   assert.match(
-    filmCreateSource,
-    /<AccessibleDialog[\s\S]*?v-model="showAiConfigDialog"[\s\S]*?:before-close="confirmAiConfigWorkspaceClose"/,
+    aiConfigDialogSource,
+    /<AccessibleDialog[\s\S]*?v-model="visible"[\s\S]*?:before-close="beforeClose"/,
   )
-  assert.match(filmCreateSource, /@click="requestAiConfigWorkspaceClose"/)
-  assert.match(filmCreateSource, /<AIConfigContent\s+ref="aiConfigContentRef"/)
+  assert.match(filmCreateSource, /:before-close="confirmAiConfigWorkspaceClose"/)
+  assert.match(filmCreateSource, /@back="requestAiConfigWorkspaceClose"/)
+  assert.match(aiConfigDialogSource, /<AIConfigContent\s+ref="contentRef"/)
   assert.match(filmCreateSource, /const aiConfigContentRef = ref\(null\)/)
   assert.match(filmCreateSource, /async function confirmAiConfigWorkspaceClose\(done\)/)
   assert.match(filmCreateSource, /async function requestAiConfigWorkspaceClose\(\)/)

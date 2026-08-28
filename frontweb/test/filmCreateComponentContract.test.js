@@ -798,7 +798,7 @@ test('FilmCreate 把资源弹窗和分镜弹窗交给独立面板', () => {
   assert.match(filmCreateSource, /<FilmCreateResourceDialogs/)
   assert.match(filmCreateSource, /<FilmCreateStoryboardDialogs/)
   assert.match(filmCreateSource, /<FilmCreateNovelImportDialog/)
-  assert.match(filmCreateSource, /<AIConfigContent/)
+  assert.match(filmCreateSource, /<FilmCreateAiConfigDialog/)
   assert.match(filmCreateSource, /<ImagePreviewDialog/)
   assert.match(filmCreateSource, /<GlobalMediaPickerDialog/)
 })
