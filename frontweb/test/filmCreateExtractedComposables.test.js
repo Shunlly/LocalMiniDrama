@@ -15,6 +15,9 @@ import { useFilmCreateTaskPolling } from '../src/composables/filmCreate/useFilmC
 import { useFilmCreateScriptEstimates } from '../src/composables/filmCreate/useFilmCreateScriptEstimates.js'
 import { useFilmCreateFirstLastFrameSetting } from '../src/composables/filmCreate/useFilmCreateFirstLastFrameSetting.js'
 import { useFilmCreateStoryboardMedia } from '../src/composables/filmCreate/useFilmCreateStoryboardMedia.js'
+import { useFilmCreateDeliveryActions } from '../src/composables/filmCreate/useFilmCreateDeliveryActions.js'
+import { useFilmCreateScriptDraft } from '../src/composables/filmCreate/useFilmCreateScriptDraft.js'
+import { useFilmCreateStoryboardVideoFields } from '../src/composables/filmCreate/useFilmCreateStoryboardVideoFields.js'
 import { GEN_RESOURCE } from '../src/stores/generationTaskStore.js'
 
 test('trackFilmCreateAction maps action suffixes to log phases', () => {
@@ -228,4 +231,150 @@ test('drama refresh captures episode context so a later load cannot use the curr
   currentEpisodeId.value = 99
   await refresh()
   assert.deepEqual(loads, [{ expectedContext: { projectId: 4, episodeId: 40 } }])
+})
+
+test('delivery preview ignores placeholders and reports subtitle availability', () => {
+  const {
+    currentEpisodeVideoUrl,
+    deliveryCompositeStatusLabel,
+    deliverySubtitleAvailable,
+    deliveryFileCount,
+    buildDeliveryFilename,
+  } = useFilmCreateDeliveryActions({
+    store: { drama: { title: '月光基地' } },
+    ElMessage: { success() {}, error() {} },
+    dramaId: { value: 7 },
+    currentEpisode: { value: { episode_number: 2, video_url: 'placeholder://draft' } },
+    currentEpisodeId: { value: 21 },
+    storyboards: { value: [{ dialogue: '你好' }] },
+    videoStatus: { value: 'idle' },
+    videoProgress: { value: 0 },
+    timelinesAPI: {},
+    dramaAPI: {},
+  })
+  assert.equal(currentEpisodeVideoUrl.value, '')
+  assert.equal(deliveryCompositeStatusLabel.value, '待合成')
+  assert.equal(deliverySubtitleAvailable.value, true)
+  assert.equal(deliveryFileCount.value, 2)
+  assert.match(buildDeliveryFilename('字幕', 'srt'), /字幕\.srt$/)
+})
+
+test('delivery preview prefixes local files and shows generating progress', () => {
+  const currentEpisode = { value: { episode_number: 1, video_url: 'outputs/ep1.mp4' } }
+  const videoStatus = { value: 'generating' }
+  const videoProgress = { value: 42 }
+  const { currentEpisodeVideoUrl, deliveryCompositeStatusLabel } = useFilmCreateDeliveryActions({
+    store: { drama: { title: '项目' } },
+    ElMessage: { success() {}, error() {} },
+    dramaId: { value: 1 },
+    currentEpisode,
+    currentEpisodeId: { value: 1 },
+    storyboards: { value: [] },
+    videoStatus,
+    videoProgress,
+    timelinesAPI: {},
+    dramaAPI: {},
+  })
+  assert.equal(currentEpisodeVideoUrl.value, '/static/outputs/ep1.mp4')
+  assert.equal(deliveryCompositeStatusLabel.value, '42%')
+})
+
+test('subtitle export stays idle without an episode and records a Chinese error when the API fails', async () => {
+  const messages = []
+  const { downloadCurrentEpisodeSubtitle, deliveryExportStatus, deliveryExportError } = useFilmCreateDeliveryActions({
+    store: { drama: { title: '项目' } },
+    ElMessage: { success() {}, error: (text) => messages.push(text) },
+    dramaId: { value: 1 },
+    currentEpisode: { value: { episode_number: 1 } },
+    currentEpisodeId: { value: null },
+    storyboards: { value: [] },
+    videoStatus: { value: 'idle' },
+    videoProgress: { value: 0 },
+    timelinesAPI: { getEpisodeSrt: async () => { throw new Error('missing') } },
+    dramaAPI: {},
+  })
+  await downloadCurrentEpisodeSubtitle()
+  assert.equal(deliveryExportStatus.subtitle, 'idle')
+
+  const again = useFilmCreateDeliveryActions({
+    store: { drama: { title: '项目' } },
+    ElMessage: { success() {}, error: (text) => messages.push(text) },
+    dramaId: { value: 1 },
+    currentEpisode: { value: { episode_number: 1 } },
+    currentEpisodeId: { value: 9 },
+    storyboards: { value: [] },
+    videoStatus: { value: 'idle' },
+    videoProgress: { value: 0 },
+    timelinesAPI: { getEpisodeSrt: async () => { throw new Error('missing') } },
+    dramaAPI: {},
+  })
+  await again.downloadCurrentEpisodeSubtitle()
+  assert.equal(again.deliveryExportStatus.subtitle, 'error')
+  assert.match(again.deliveryExportError.value, /字幕下载失败/)
+  assert.equal(messages.at(-1), again.deliveryExportError.value)
+})
+
+test('script draft capture stays bound to the original project and refuses a switched drama', async () => {
+  const store = {
+    dramaId: 5,
+    currentEpisode: { id: 50, episode_number: 2, title: '旧标题', script_content: '旧正文' },
+    drama: { episodes: [{ id: 50, episode_number: 2, title: '旧标题', script_content: '旧正文' }] },
+  }
+  const saved = []
+  const { captureScriptDraft, persistScriptDraftSnapshot } = useFilmCreateScriptDraft({
+    store,
+    dramaAPI: { saveEpisodes: async (id, payload) => { saved.push({ id, payload }) } },
+    scriptTitle: { value: '新标题' },
+    scriptContent: { value: '新正文' },
+    scriptDraftStatus: { value: 'saved' },
+    currentEpisodeId: { value: 50 },
+  })
+  const snapshot = captureScriptDraft()
+  assert.equal(snapshot.dramaId, 5)
+  assert.equal(snapshot.episodeId, 50)
+  assert.equal(snapshot.title, '新标题')
+  store.dramaId = 9
+  await assert.rejects(() => persistScriptDraftSnapshot(snapshot), /项目已切换/)
+  assert.equal(saved.length, 0)
+  store.dramaId = 5
+  await persistScriptDraftSnapshot(snapshot)
+  assert.equal(saved[0].id, 5)
+  assert.equal(store.drama.episodes[0].title, '新标题')
+  assert.equal(store.currentEpisode.script_content, '新正文')
+})
+
+test('universal video submit requires a prompt or segment and explains the gap', () => {
+  const sbCreationMode = { value: { 8: 'universal' } }
+  const sbUniversalSegmentText = { value: { 8: '  @Image1 推门  ' } }
+  const storyboardMediaActionReason = { value: '' }
+  const videoCapabilityReason = { value: '' }
+  const {
+    isSbUniversalMode,
+    sbCanSubmitVideo,
+    sbVideoGenerationDisabledReason,
+    sbUniversalSegmentTrimmed,
+  } = useFilmCreateStoryboardVideoFields({
+    store: {},
+    storyboardsAPI: { update: async () => {} },
+    ElMessage: { success() {}, error() {} },
+    upscalingSbIds: new Set(),
+    refreshStoryboardMediaForCurrentContext: async () => {},
+    sbNarration: { value: {} },
+    sbCreationMode,
+    sbUniversalSegmentText,
+    sbDuration: { value: {} },
+    videoClipDuration: { value: 5 },
+    getSbFirstFrameUrl: () => '',
+    storyboardMediaActionReason,
+    isSbVideoGenerating: () => false,
+    videoCapabilityReason,
+  })
+  const sb = { id: 8, video_prompt: '' }
+  assert.equal(isSbUniversalMode(8), true)
+  assert.equal(sbUniversalSegmentTrimmed(sb), '@Image1 推门')
+  assert.equal(sbCanSubmitVideo(sb), true)
+  assert.equal(sbVideoGenerationDisabledReason(sb), '')
+  sbUniversalSegmentText.value[8] = ''
+  assert.equal(sbCanSubmitVideo(sb), false)
+  assert.equal(sbVideoGenerationDisabledReason(sb), '请先填写视频提示词或全能片段描述')
 })

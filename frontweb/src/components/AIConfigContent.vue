@@ -307,12 +307,12 @@
           </div>
         </div>
       </el-tab-pane>
-      <el-tab-pane label="高级设置（提示词）" name="prompts">
+      <el-tab-pane v-if="hasSavedConfigs" label="高级设置（提示词）" name="prompts">
         <div class="tab-content">
           <PromptEditor ref="promptEditorRef" />
         </div>
       </el-tab-pane>
-      <el-tab-pane label="高级设置（业务场景）" name="sceneModelMap">
+      <el-tab-pane v-if="hasSavedConfigs" label="高级设置（业务场景）" name="sceneModelMap">
         <div class="tab-content">
           <SceneModelMap ref="sceneModelMapRef" />
         </div>
@@ -412,7 +412,7 @@
           </div>
         </div>
       </el-tab-pane>
-      <el-tab-pane label="SD2 资产管理" name="sd2_assets">
+      <el-tab-pane v-if="hasSavedConfigs" label="SD2 资产管理" name="sd2_assets">
         <div class="tab-content">
         <Sd2AssetManagement :configs="list" :write-locked="configWriteLocked || vendorLock.enabled" @saved="handleSd2AssetSaved" />
         </div>
@@ -1760,6 +1760,13 @@ const loading = ref(false)
 const configLoadState = ref('idle')
 const configLoadError = ref('')
 const list = ref([])
+const hasSavedConfigs = computed(() => (list.value || []).length > 0)
+const ADVANCED_CONFIG_TABS = new Set(['prompts', 'sceneModelMap', 'sd2_assets'])
+watch(hasSavedConfigs, (hasConfigs) => {
+  if (!hasConfigs && ADVANCED_CONFIG_TABS.has(activeTab.value)) {
+    activeTab.value = 'configs'
+  }
+})
 let configListLoadSequence = 0
 const activeServiceFilter = ref(normalizeInitialServiceType(props.initialServiceType))
 const configListSectionRef = ref(null)

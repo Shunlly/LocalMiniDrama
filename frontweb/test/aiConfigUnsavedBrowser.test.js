@@ -88,7 +88,14 @@ async function installLocalApiFixtures(page) {
     else if (url.pathname === '/api/v1/settings/generation') data = { concurrency: 3, video_concurrency: 2 }
     else if (url.pathname === '/api/v1/scene-model-map') data = []
     else if (url.pathname === '/api/v1/ai-configs/vendor-lock') data = { enabled: false, config_file: '' }
-    else if (url.pathname === '/api/v1/ai-configs') data = []
+    else if (url.pathname === '/api/v1/ai-configs') data = [{
+      id: 1,
+      name: '文本默认',
+      service_type: 'text',
+      provider: 'openai',
+      enabled: true,
+      is_default: true,
+    }]
     else if (url.pathname === '/api/v1/dramas/examples') data = { examples: [] }
     else if (url.pathname === '/api/v1/dramas') data = { items: [], total: 0 }
     await route.fulfill({

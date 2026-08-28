@@ -347,3 +347,13 @@ test('AI 配置在 760px 和 520px 下重排且不会被固定双列撑宽', () 
   assert.match(pageSource, /@media \(max-width: 760px\) \{[\s\S]*?\.main \{[\s\S]*?width: calc\(100% - 24px\);[\s\S]*?overflow-x: hidden;/)
   assert.match(pageSource, /@media \(max-width: 520px\) \{[\s\S]*?\.page-title \{[\s\S]*?position: absolute;[\s\S]*?clip: rect\(0, 0, 0, 0\);/)
 })
+
+test('zero saved configs hide prompt, scene-map and SD2 tabs and fall back to the config list', () => {
+  assert.match(source, /const hasSavedConfigs = computed\(\(\) => \(list\.value \|\| \[\]\)\.length > 0\)/)
+  assert.match(source, /<el-tab-pane v-if="hasSavedConfigs" label="高级设置（提示词）" name="prompts">/)
+  assert.match(source, /<el-tab-pane v-if="hasSavedConfigs" label="高级设置（业务场景）" name="sceneModelMap">/)
+  assert.match(source, /<el-tab-pane v-if="hasSavedConfigs" label="SD2 资产管理" name="sd2_assets">/)
+  assert.match(source, /if \(!hasConfigs && ADVANCED_CONFIG_TABS\.has\(activeTab\.value\)\)/)
+  assert.match(source, /activeTab\.value = 'configs'/)
+  assert.match(source, /<el-tab-pane label="生成设置" name="generation">/)
+})
