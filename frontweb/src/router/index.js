@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { requireValidDramaId } from '@/utils/routeValidation'
 import { normalizeProjectListReturnTo } from '@/utils/projectListRoute'
+import { createLocationSanitizer } from './navigation.js'
+import { normalizeBackupReturnTo } from '@/composables/useBackupSettings.js'
 
 export function normalizeAiConfigReturnTo(value) {
   const rawValue = Array.isArray(value) ? value[0] : value
@@ -111,6 +113,16 @@ const router = createRouter({
       meta: { title: 'AI 配置', normalizeReturnTo: normalizeAiConfigReturnTo }
     },
     {
+      path: '/backup',
+      name: 'backup',
+      component: () => import('@/views/Backup.vue'),
+      meta: { title: '数据备份', normalizeReturnTo: normalizeBackupReturnTo }
+    },
+    {
+      path: '/settings',
+      redirect: '/backup'
+    },
+    {
       path: '/free-create',
       name: 'free-create',
       component: () => import('@/views/FreeCreate.vue'),
@@ -123,12 +135,25 @@ const router = createRouter({
       meta: { title: '素材中心', normalizeReturnTo: normalizeMediaLibraryReturnTo }
     },
     {
-      path: '/:pathMatch(.*)*',
+      path: '/not-found',
       name: 'not-found',
+      component: () => import('@/views/NotFound.vue'),
+      meta: { title: '页面不存在' }
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found-catchall',
       component: () => import('@/views/NotFound.vue'),
       meta: { title: '页面不存在' }
     }
   ]
+})
+
+const sanitizeAppLocation = createLocationSanitizer({
+  normalizeProjectListReturnTo,
+  normalizeAiConfigReturnTo,
+  normalizeMediaLibraryReturnTo,
+  normalizeBackupReturnTo,
 })
 
 router.beforeEach((to) => {
@@ -145,7 +170,7 @@ router.beforeEach((to) => {
   if (to.name === 'ai-config' && Object.prototype.hasOwnProperty.call(to.query, 'returnTo')) {
     const rawReturnTo = Array.isArray(to.query.returnTo) ? to.query.returnTo[0] : to.query.returnTo
     const returnTo = normalizeAiConfigReturnTo(to.query.returnTo)
-    if (returnTo !== rawReturnTo) {
+    if (Array.isArray(to.query.returnTo) || returnTo !== rawReturnTo) {
       const query = { ...to.query }
       if (returnTo) query.returnTo = returnTo
       else delete query.returnTo
@@ -155,13 +180,25 @@ router.beforeEach((to) => {
   if (to.name === 'media-library' && Object.prototype.hasOwnProperty.call(to.query, 'returnTo')) {
     const rawReturnTo = Array.isArray(to.query.returnTo) ? to.query.returnTo[0] : to.query.returnTo
     const returnTo = normalizeMediaLibraryReturnTo(to.query.returnTo)
-    if (returnTo !== rawReturnTo) {
+    if (Array.isArray(to.query.returnTo) || returnTo !== rawReturnTo) {
       const query = { ...to.query }
       if (returnTo) query.returnTo = returnTo
       else delete query.returnTo
       return { name: 'media-library', query, hash: to.hash, replace: true }
     }
   }
+  if (to.name === 'backup' && Object.prototype.hasOwnProperty.call(to.query, 'returnTo')) {
+    const rawReturnTo = Array.isArray(to.query.returnTo) ? to.query.returnTo[0] : to.query.returnTo
+    const returnTo = normalizeBackupReturnTo(to.query.returnTo)
+    if (Array.isArray(to.query.returnTo) || returnTo !== rawReturnTo) {
+      const query = { ...to.query }
+      if (returnTo) query.returnTo = returnTo
+      else delete query.returnTo
+      return { name: 'backup', query, hash: to.hash, replace: true }
+    }
+  }
+  const redirected = sanitizeAppLocation(to)
+  if (redirected) return redirected
   if (to.meta.title) {
     document.title = `${to.meta.title} - LocalMiniDrama`
   }

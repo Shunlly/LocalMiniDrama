@@ -7,6 +7,9 @@
           <span class="logo-sub">LocalMiniDrama</span>
         </button>
         <h1 class="page-title">AI 配置</h1>
+        <el-button class="btn-backup" aria-label="打开数据备份与维护" @click="goBackup">
+          数据备份
+        </el-button>
         <el-button class="btn-back" @click="goBack">
           <el-icon><ArrowLeft /></el-icon>
           {{ backButtonText }}
@@ -61,6 +64,16 @@ async function goBack() {
   skipNextRouteGuard = true
   try {
     await router.replace(returnTo.value || { name: 'list' })
+  } finally {
+    skipNextRouteGuard = false
+  }
+}
+
+async function goBackup() {
+  if (!await requestAiConfigPageClose()) return
+  skipNextRouteGuard = true
+  try {
+    await router.push({ name: 'backup', query: { returnTo: '/ai-config' } })
   } finally {
     skipNextRouteGuard = false
   }
@@ -234,6 +247,7 @@ html.light .main {
   .logo-main {
     font-size: 1rem;
   }
+  .btn-backup,
   .btn-back {
     flex: 0 0 auto;
     margin-left: 0;

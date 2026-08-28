@@ -21,9 +21,11 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { projectRouteInstanceKey } from '@/utils/projectListRoute.js'
+import { persistWorkspaceLocation } from '@/router/routeRestore.js'
+import { createRouteLeaveProtection } from '@/layouts/routeLeaveProtection.js'
 import { createRouteLoadingState } from '@/utils/routeLoadingState.js'
 
 const router = useRouter()
@@ -31,6 +33,13 @@ const routeLoading = ref(false)
 const routeLoadingRef = ref(null)
 const routeLoadingState = createRouteLoadingState()
 const navigationTokens = new WeakMap()
+const leaveProtection = createRouteLeaveProtection()
+provide('appRouteLeaveProtection', leaveProtection)
+function handleAppUnload(event) {
+  if (!leaveProtection.shouldBlockUnload()) return
+  event.preventDefault()
+  event.returnValue = ''
+}
 function syncRouteLoading() {
   routeLoading.value = routeLoadingState.loading
 }
@@ -51,6 +60,7 @@ const removeBeforeEach = router.beforeEach((to) => {
   syncRouteLoading()
 })
 const removeAfterEach = router.afterEach((to) => {
+  persistWorkspaceLocation(to)
   routeLoadingState.complete(navigationTokens.get(to))
   syncRouteLoading()
 })
@@ -59,7 +69,12 @@ const removeOnError = router.onError((_error, to) => {
   syncRouteLoading()
 })
 
+onMounted(() => {
+  window.addEventListener('beforeunload', handleAppUnload)
+})
+
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleAppUnload)
   removeBeforeEach()
   removeAfterEach()
   removeOnError()
