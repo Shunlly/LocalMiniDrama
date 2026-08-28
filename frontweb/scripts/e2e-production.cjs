@@ -1799,6 +1799,7 @@ async function startWorkflowModeFromUi(page, dramaId, {
     const workflow = page.locator('#source-intake-workflow')
     await workflow.waitFor({ state: 'visible', timeout: 30000 })
     await workflow.getByText(UI.workflowTitle, { exact: true }).waitFor({ timeout: 30000 })
+    await workflow.getByRole('navigation', { name: UI.intakeStepper }).waitFor({ timeout: 30000 })
     await revealWorkflowHistoryIfCompleted(workflow)
     await flowStepButton(workflow, UI.intakeStep).click()
     const modeGroup = workflow.getByRole('radiogroup', {
