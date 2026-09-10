@@ -40,10 +40,10 @@ npm run verify
 
 源码前端加入统一验证时使用 Node.js 20.x；桌面依赖安装、原生重建和打包使用 Node.js 22.12.0。请先启动 `backend-node`（如 `http://localhost:5679`），并确保 `vite.config.js` 中 proxy 的 target 与后端一致。
 
-依赖审计必须显式使用官方 npm registry：
+生产依赖审计必须显式使用官方 npm registry（不要用 npmmirror 的 audit，会 404）：
 
 ```bash
-npm audit --audit-level=high --registry=https://registry.npmjs.org
+npm audit --omit=dev --audit-level=high --registry=https://registry.npmjs.org
 ```
 
 生产 Docker E2E 不在本目录单独启动；从仓库根目录使用新建的仓库外空 `LOCALMINIDRAMA_DATA_DIR`，按 `npm run docker:e2e:up` → `npm run verify:e2e` 顺序执行，结束后销毁 `e2e` profile 和临时数据。当前候选未凭历史结果宣称通过。
