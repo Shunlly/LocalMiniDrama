@@ -1457,11 +1457,20 @@ import { useAiConfigOneKeyPresets } from '@/composables/useAiConfigOneKeyPresets
 import { useAiConfigImportExport } from '@/composables/useAiConfigImportExport.js'
 import { useAiConfigRowMutations } from '@/composables/useAiConfigRowMutations.js'
 import { useAiConfigDiscoverModels } from '@/composables/useAiConfigDiscoverModels.js'
+import { useAiConfigJimeng2Assets } from '@/composables/useAiConfigJimeng2Assets.js'
 import {
   parseModelText,
   isOpenAiCompatibleConfig,
   hasDiscoverableCredential,
 } from '@/utils/aiConfigDiscoverModels.js'
+import {
+  hidesApiProtocolField,
+  serviceTypeLabel,
+  configFieldDisplayLabel,
+  jimeng2AssetTypeLabel,
+  jimeng2AssetStatusLabel,
+  configActionLabel,
+} from '@/utils/aiConfigLabels.js'
 import { describeConnectionTestError } from '@/utils/aiConfigConnectionTest.js'
 import { buildAiServiceCoverage, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
 import { useAiConfigCoverage } from '@/composables/useAiConfigCoverage.js'
@@ -1714,6 +1723,21 @@ const {
 })
 abortDiscoverModelsRequest = abortDiscoverModelsRequestFromComposable
 resetDiscoverModelsState = resetDiscoverModelsStateFromComposable
+const {
+  onJimeng2AssetsDialogClosed,
+  openJimeng2MaterialAssetsDialog,
+  loadMoreJimeng2MaterialAssets,
+} = useAiConfigJimeng2Assets({
+  ElMessage,
+  aiAPI,
+  form,
+  editingId,
+  jimeng2AssetsDialogVisible,
+  jimeng2AssetsLoading,
+  jimeng2AssetsRows,
+  jimeng2AssetsHasMore,
+  jimeng2AssetsNextCursor,
+})
 const isDefaultModelUnavailable = computed(() => {
   const selected = String(form.value.default_model || '').trim()
   return Boolean(selected && !formModelList.value.includes(selected))
@@ -2187,11 +2211,6 @@ const providerModelEmptyHint = computed(() => {
   return ''
 })
 
-function configActionLabel(action, row) {
-  const name = String(row?.name || '').trim() || '未命名配置'
-  return `${action}「${name}」`
-}
-
 /** 根据当前厂商/协议/base_url 推算实际将使用的接口地址，供用户核对 */
 const endpointPreviewInfo = computed(() => {
   const { provider, api_protocol, base_url, service_type, endpoint, query_endpoint } = form.value
@@ -2386,59 +2405,6 @@ function onProviderChange(providerId) {
   if (!editingId.value) {
     form.value.name = (p.name || providerId) + ' ' + serviceTypeLabel(st)
   }
-}
-
-function hidesApiProtocolField(serviceType) {
-  return ['text', 'tts', 'ocr', 'transcription', 'jimeng2_character_auth'].includes(String(serviceType || ''))
-}
-
-function serviceTypeLabel(t) {
-  const map = {
-    text: '文本',
-    image: '文本生成图片',
-    storyboard_image: '分镜图片生成',
-    video: '视频',
-    tts: '语音合成 TTS',
-    ocr: '图片识别 OCR',
-    transcription: '语音转写',
-    jimeng2_character_auth: '即梦2角色认证',
-    model_ark_asset: '认证资产库',
-  }
-  return map[t] || t
-}
-
-function configFieldDisplayLabel(label) {
-  const map = {
-    'API Key': 'API 密钥',
-    'Base URL': '接口地址（Base URL）',
-    'Workflow JSON': '工作流 JSON',
-  }
-  return map[label] || label
-}
-
-function jimeng2AssetTypeLabel(type) {
-  const map = {
-    image: '图片',
-    video: '视频',
-    audio: '音频',
-    Image: '图片',
-    Video: '视频',
-    Audio: '音频',
-  }
-  const raw = String(type || '').trim()
-  return map[raw] || raw || '—'
-}
-
-function jimeng2AssetStatusLabel(status) {
-  const map = {
-    active: '可用',
-    failed: '失败',
-    pending: '处理中',
-    processing: '处理中',
-    inactive: '未启用',
-  }
-  const raw = String(status || '').trim()
-  return map[raw] || raw || '—'
 }
 
 function onRowEdit(row) {
@@ -2822,56 +2788,6 @@ async function submit() {
   } finally {
     saving.value = false
   }
-}
-
-function onJimeng2AssetsDialogClosed() {
-  jimeng2AssetsRows.value = []
-  jimeng2AssetsNextCursor.value = null
-  jimeng2AssetsHasMore.value = false
-}
-
-async function fetchJimeng2MaterialAssets(firstPage) {
-  if (!form.value.base_url?.trim() || !form.value.api_key?.trim()) {
-    ElMessage.warning('请先填写网关 URL 与 Token')
-    return
-  }
-  if (firstPage) {
-    jimeng2AssetsRows.value = []
-    jimeng2AssetsNextCursor.value = null
-    jimeng2AssetsHasMore.value = false
-    jimeng2AssetsDialogVisible.value = true
-  }
-  jimeng2AssetsLoading.value = true
-  try {
-    const data = await aiAPI.listJimeng2MaterialAssets({
-      id: editingId.value || undefined,
-      base_url: form.value.base_url.trim(),
-      api_key: isMaskedSecret(form.value.api_key) ? undefined : form.value.api_key,
-      limit: 20,
-      cursor: firstPage ? undefined : jimeng2AssetsNextCursor.value || undefined,
-    })
-    const items = Array.isArray(data?.items) ? data.items : []
-    if (firstPage) {
-      jimeng2AssetsRows.value = items
-    } else {
-      jimeng2AssetsRows.value = [...jimeng2AssetsRows.value, ...items]
-    }
-    jimeng2AssetsNextCursor.value = data?.next_cursor ?? null
-    jimeng2AssetsHasMore.value = !!data?.has_more
-  } catch (_) {
-    /* request 拦截器已 ElMessage */
-  } finally {
-    jimeng2AssetsLoading.value = false
-  }
-}
-
-function openJimeng2MaterialAssetsDialog() {
-  fetchJimeng2MaterialAssets(true)
-}
-
-function loadMoreJimeng2MaterialAssets() {
-  if (!jimeng2AssetsHasMore.value || !jimeng2AssetsNextCursor.value) return
-  fetchJimeng2MaterialAssets(false)
 }
 
 async function openTest(row) {

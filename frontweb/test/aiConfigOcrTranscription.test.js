@@ -19,6 +19,7 @@ function readSource(url) {
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const labelsSource = readSource(new URL('../src/utils/aiConfigLabels.js', import.meta.url))
 const connectionTestSource = readSource(new URL('../src/utils/aiConfigConnectionTest.js', import.meta.url))
 const coverageCardsSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCards.vue', import.meta.url))
 const pageSource = readSource(new URL('../src/views/AiConfig.vue', import.meta.url))
@@ -129,8 +130,8 @@ test('AI config form exposes OCR and transcription in Chinese without raw servic
   assert.match(vueSource, /<b>图片识别 OCR<\/b>：用于 PDF、扫描件和图片抽文字。本机也可安装 Tesseract/)
   assert.match(vueSource, /<b>语音转写<\/b>：用于音频、视频对白转成文字/)
   assert.match(vueSource, /预设只用于填表，不代表已跑通该厂商/)
-  assert.match(vueSource, /ocr: '图片识别 OCR'/)
-  assert.match(vueSource, /transcription: '语音转写'/)
+  assert.match(labelsSource, /ocr: '图片识别 OCR'/)
+  assert.match(labelsSource, /transcription: '语音转写'/)
   assert.doesNotMatch(vueSource, /service_type=ocr/)
   assert.doesNotMatch(vueSource, /service_type=transcription/)
   assert.doesNotMatch(pageSource, /service_type=ocr/)
