@@ -326,7 +326,7 @@ test('共享合同覆盖工作区入口、素材库空态、项目列表-制作�
     'CRITICAL_UI.notFoundTitle, exact: true })',
     'returnToProjectListFromNotFound(page)',
     "goto(`${fixture.frontendUrl}/e2e-missing-route`",
-    'CRITICAL_UI.mediaLoadFailed, exact: true })',
+    'CRITICAL_UI.mediaLoadFailedDetail, { exact: true }',
     'async function verifyWorkspaceEntries',
     'CRITICAL_UI.openMediaLibrary, exact: true }).click()',
     'CRITICAL_UI.openFreeCreate, exact: true }).click()',

@@ -531,13 +531,13 @@ async function verifyMissingProjectChineseFailurePages(page, options = {}) {
   await page.getByText(/地址可能已失效，或项目编号不正确/).waitFor({ timeout: 10000 })
   await returnToProjectListFromNotFound(page)
 
-  const assetsRoute = '**/api/v1/assets'
+  const assetsRoute = '**/api/v1/assets**'
   const assetsHandler = async (route) => {
-    if (isGetPathname(route.request(), '/api/v1/assets')) {
-      await fulfillJson(route, {
-        status: 503,
-        error: { code: 'E2E_MEDIA_UNAVAILABLE', message: CRITICAL_UI.mediaLoadFailed },
-      })
+    const method = String(route.request().method() || '').toUpperCase()
+    let pathname = ''
+    try { pathname = new URL(route.request().url()).pathname } catch (_) {}
+    if (method === 'GET' && pathname === '/api/v1/assets') {
+      await route.abort('failed')
       return
     }
     await route.continue()
@@ -545,9 +545,11 @@ async function verifyMissingProjectChineseFailurePages(page, options = {}) {
   await page.route(assetsRoute, assetsHandler)
   try {
     await page.goto(`${fixture.frontendUrl}/media-library`, { waitUntil: 'domcontentloaded' })
-    await page.getByRole('heading', { name: CRITICAL_UI.mediaLoadFailed, exact: true }).waitFor({ timeout: 30000 })
-    await page.getByText(CRITICAL_UI.mediaLoadFailedDetail, { exact: true }).waitFor({ timeout: 10000 })
-    await page.getByRole('button', { name: CRITICAL_UI.retryLoad, exact: true }).waitFor({ state: 'visible' })
+    const loadAlert = page.locator('.media-library-page .data-load-state')
+    await loadAlert.waitFor({ state: 'visible', timeout: 30000 })
+    await loadAlert.getByRole('heading', { name: /素材(数据加载|列表刷新)失败/ }).waitFor({ timeout: 10000 })
+    await loadAlert.getByText(CRITICAL_UI.mediaLoadFailedDetail, { exact: true }).waitFor({ timeout: 10000 })
+    await loadAlert.getByRole('button', { name: CRITICAL_UI.retryLoad, exact: true }).waitFor({ state: 'visible' })
   } finally {
     await page.unroute(assetsRoute, assetsHandler)
   }
