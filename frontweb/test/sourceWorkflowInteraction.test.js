@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 import { ElMessage as RawElMessage } from 'element-plus'
 import request from '../src/utils/request.js'
 
@@ -853,4 +854,25 @@ test('来源工作流空状态可操作，忙时按钮带中文禁用原因', ()
   assert.match(source, /:disabled="Boolean\(actionReasons\.import\)"/)
   assert.match(source, /:disabled="Boolean\(actionReasons\.start\)"/)
   assert.doesNotMatch(source, /Boolean\(actionReasons\.import\) \|\| sourceUploadBusy/)
+})
+
+test('素材流程时间格式化对无效日期不显示 Invalid Date', () => {
+  const formatTime = new Function(
+    `'use strict'; ${remainingExtractNamedFunction(source, 'formatTime')}; return formatTime;`,
+  )()
+  const formatted = formatTime('2026-09-11T08:00:00Z')
+  assert.match(formatted, /2026/)
+  assert.doesNotMatch(formatted, /Invalid Date/)
+  assert.doesNotMatch(formatted, /T08:00:00Z/)
+  for (const value of ['not-a-date', 'Invalid Date', '   ', 'foo']) {
+    const result = formatTime(value)
+    assert.equal(result, '', String(value))
+    assert.notEqual(result, 'Invalid Date', String(value))
+  }
+  assert.equal(formatTime(''), '')
+  assert.equal(formatTime(null), '')
+  assert.equal(formatTime(undefined), '')
+  assert.match(source, /formatTime\(selectedRun\.created_at\) \|\| '未知时间'/)
+  assert.match(source, /formatTime\(sourceDetail\.source\.created_at\) \|\| '未知时间'/)
+  assert.match(source, /if \(Number\.isNaN\(date\.getTime\(\)\)\) return ''/)
 })

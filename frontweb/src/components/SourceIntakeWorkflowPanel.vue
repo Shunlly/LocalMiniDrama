@@ -313,7 +313,7 @@
               <div class="run-meta">
                 <span>{{ workflowTypeLabel(selectedRun.type) }}</span>
                 <span>{{ runState.modeLabel }}</span>
-                <span>{{ formatTime(selectedRun.created_at) }}</span>
+                <span>{{ formatTime(selectedRun.created_at) || '未知时间' }}</span>
                 <span v-if="runState.activeStep">当前：{{ workflowStepLabel(runState.activeStep, selectedRun) }}</span>
                 <span v-if="runState.costLabel">{{ runState.costLabel }}</span>
                 <span v-if="runState.costSummary.unknownCount" class="cost-unconfigured">
@@ -543,7 +543,7 @@
       <template v-else-if="sourceDetail">
         <div class="detail-meta">
           <div><strong>{{ sourceDetail.source.title }}</strong></div>
-          <div>{{ sourceTypeLabel(sourceDetail.source.source_type) }} / {{ formatTime(sourceDetail.source.created_at) }}</div>
+          <div>{{ sourceTypeLabel(sourceDetail.source.source_type) }} / {{ formatTime(sourceDetail.source.created_at) || '未知时间' }}</div>
           <div>素材片段 {{ sourceDetail.items?.length || 0 }} / 故事事件 {{ sourceDetail.events?.length || 0 }} / 事件关系 {{ sourceDetail.event_edges?.length || 0 }}</div>
         </div>
 
@@ -1072,7 +1072,9 @@ function syncDefaults() {
 
 function formatTime(value) {
   if (!value) return ''
-  return new Date(value).toLocaleString('zh-CN', { hour12: false })
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('zh-CN', { hour12: false })
 }
 
 function stageStatusTagType(status) {

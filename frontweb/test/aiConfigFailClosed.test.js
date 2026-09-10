@@ -156,13 +156,33 @@ test('AI 配置写入锁定时可见按钮给出中文原因，隐藏文件选�
   assert.match(source, /async function openTest\(row\)/)
 
   const lockedButtons = []
-  const buttonTag = /<el-button\b[\s\S]*?>/g
-  let match
-  while ((match = buttonTag.exec(source))) {
-    const tag = match[0]
+  let searchFrom = 0
+  while (searchFrom < source.length) {
+    const start = source.indexOf('<el-button', searchFrom)
+    if (start === -1) break
+    let quote = ''
+    let end = -1
+    for (let i = start; i < source.length; i += 1) {
+      const ch = source[i]
+      if (quote) {
+        if (ch === quote) quote = ''
+        continue
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch
+        continue
+      }
+      if (ch === '>') {
+        end = i
+        break
+      }
+    }
+    if (end === -1) break
+    const tag = source.slice(start, end + 1)
     if (/:disabled="[^"]*configWriteLocked/.test(tag)) lockedButtons.push(tag)
+    searchFrom = end + 1
   }
-  assert.ok(lockedButtons.length >= 14, `expected locked visible buttons, got ${lockedButtons.length}`)
+  assert.ok(lockedButtons.length >= 15, `expected locked visible buttons, got ${lockedButtons.length}`)
   for (const tag of lockedButtons) {
     assert.match(tag, /:title="configWriteLocked \? configWriteLockReason : undefined"/)
   }

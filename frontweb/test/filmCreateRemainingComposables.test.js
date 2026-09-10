@@ -863,6 +863,19 @@ test('navigation guards block unload when draft or pipeline work is pending', ()
   assert.equal(idleGuards.hasActivePipelineWork(), false)
   assert.equal(idlePrevented, false)
   assert.equal(idleEvent.returnValue, 'preset')
+
+  const batchGuards = createNavigationGuards({
+    deps: { batchImageRunning: refOf(true) },
+  })
+  let batchPrevented = false
+  const batchEvent = {
+    preventDefault() { batchPrevented = true },
+    returnValue: 'preset',
+  }
+  batchGuards.handleBeforeUnload(batchEvent)
+  assert.equal(batchGuards.hasActivePipelineWork(), false)
+  assert.equal(batchGuards.hasActiveMediaWork(), true)
+  assert.equal(batchPrevented, true)
 })
 
 test('navigation guards keep the user on the page while pipeline is stopping or leave is cancelled', async () => {
@@ -881,6 +894,14 @@ test('navigation guards keep the user on the page while pipeline is stopping or 
     assert.equal(await running.confirmPipelineNavigation(), false)
     assert.equal(feedback.last('confirm').title, '全流程仍在执行')
     assert.equal(await running.allowNavigationAfterDraftFlush(), false)
+
+    feedback.setConfirm(async () => { throw 'cancel' })
+    const batchRunning = createNavigationGuards({
+      deps: { batchVideoRunning: refOf(true) },
+    })
+    assert.equal(await batchRunning.confirmPipelineNavigation(), false)
+    assert.equal(feedback.last('confirm').title, '生成任务仍在执行')
+    assert.match(feedback.last('confirm').message, /计费可能继续/)
 
     const flushFailed = createNavigationGuards({
       scriptDraftController: { hasPendingChanges: () => true, markSaved() {} },

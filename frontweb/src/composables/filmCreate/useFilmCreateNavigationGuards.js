@@ -12,7 +12,29 @@ export function useFilmCreateNavigationGuards(deps = {}) {
     scriptDraftController,
     flushScriptDraft,
     cancelPipelineRun,
+    batchImageRunning,
+    batchVideoRunning,
+    generatingSbImageIds,
+    generatingSbFirstImageIds,
+    generatingSbLastImageIds,
+    generatingUniversalSegmentIds,
+    ttsSbIds,
+    ttsSbNarrationIds,
+    upscalingSbIds,
   } = deps
+
+  function collectionSize(value) {
+    if (!value) return 0
+    if (typeof value.size === 'number') return value.size
+    if (typeof value.value?.size === 'number') return value.value.size
+    return 0
+  }
+
+  function flagEnabled(value) {
+    if (!value) return false
+    if (typeof value === 'object' && 'value' in value) return Boolean(value.value)
+    return Boolean(value)
+  }
 
   function hasActivePipelineWork() {
     return pipelineStarting.value
@@ -22,10 +44,26 @@ export function useFilmCreateNavigationGuards(deps = {}) {
       || pipelineOwnedTaskIds.size > 0
   }
 
+  function hasActiveMediaWork() {
+    return flagEnabled(batchImageRunning)
+      || flagEnabled(batchVideoRunning)
+      || collectionSize(generatingSbImageIds) > 0
+      || collectionSize(generatingSbFirstImageIds) > 0
+      || collectionSize(generatingSbLastImageIds) > 0
+      || collectionSize(generatingUniversalSegmentIds) > 0
+      || collectionSize(ttsSbIds) > 0
+      || collectionSize(ttsSbNarrationIds) > 0
+      || collectionSize(upscalingSbIds) > 0
+  }
+
+  function hasActiveGenerationWork() {
+    return hasActivePipelineWork() || hasActiveMediaWork()
+  }
+
   function handleBeforeUnload(event) {
     const hasUnsavedAiConfig = showAiConfigDialog.value
       && aiConfigContentRef.value?.hasUnsavedChanges?.()
-    if (!scriptDraftController.hasPendingChanges() && !hasActivePipelineWork() && !hasUnsavedAiConfig) return
+    if (!scriptDraftController.hasPendingChanges() && !hasActiveGenerationWork() && !hasUnsavedAiConfig) return
     event.preventDefault()
     event.returnValue = ''
   }
@@ -68,26 +106,46 @@ export function useFilmCreateNavigationGuards(deps = {}) {
     return { allowed: false, discard: false }
   }
 
-  async function confirmPipelineNavigation() {
-    if (!hasActivePipelineWork()) return true
-    if (pipelineStopping.value) {
-      ElMessage.info('全流程仍在停止中，请等待停止完成后再离开')
-      return false
-    }
+  async function confirmMediaNavigation() {
+    if (!hasActiveMediaWork()) return true
     try {
       await ElMessageBox.confirm(
-        '离开制作页面会停止本地全流程和前端等待；已提交的供应商任务和计费可能继续。',
-        '全流程仍在执行',
+        '离开制作页面不会停止已提交的生图、生视频或配音任务，供应商计费可能继续。',
+        '生成任务仍在执行',
         {
           type: 'warning',
-          confirmButtonText: '停止并离开',
+          confirmButtonText: '仍然离开',
           cancelButtonText: '继续制作',
         },
       )
     } catch (_) {
       return false
     }
-    return cancelPipelineRun()
+    return true
+  }
+
+  async function confirmPipelineNavigation() {
+    if (hasActivePipelineWork()) {
+      if (pipelineStopping.value) {
+        ElMessage.info('全流程仍在停止中，请等待停止完成后再离开')
+        return false
+      }
+      try {
+        await ElMessageBox.confirm(
+          '离开制作页面会停止本地全流程和前端等待；已提交的供应商任务和计费可能继续。',
+          '全流程仍在执行',
+          {
+            type: 'warning',
+            confirmButtonText: '停止并离开',
+            cancelButtonText: '继续制作',
+          },
+        )
+      } catch (_) {
+        return false
+      }
+      return cancelPipelineRun()
+    }
+    return confirmMediaNavigation()
   }
 
   async function allowNavigationAfterDraftFlush() {
@@ -101,6 +159,8 @@ export function useFilmCreateNavigationGuards(deps = {}) {
 
   return {
     hasActivePipelineWork,
+    hasActiveMediaWork,
+    hasActiveGenerationWork,
     handleBeforeUnload,
     requestAiConfigWorkspaceNavigation,
     flushDraftBeforeNavigation,

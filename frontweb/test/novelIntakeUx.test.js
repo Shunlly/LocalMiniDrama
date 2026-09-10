@@ -240,3 +240,16 @@ test('小说导入弹窗接入校验、确认文案和离开保护，且不写 s
   assert.match(filmCreateSource, /@file-change="onNovelFileChange"/)
   assert.match(filmCreateSource, /@import="onImportNovel"/)
 })
+
+test('小说导入弹窗取消按钮禁用时给出中文原因', () => {
+  assert.match(dialogSource, /const cancelDisabledReason = computed/)
+  assert.match(dialogSource, /if \(props\.importing\) return '正在导入小说，请稍候'/)
+  assert.match(dialogSource, /if \(fileReading\.value\) return '正在读取文本，请稍候'/)
+  assert.match(dialogSource, /:disabled="Boolean\(cancelDisabledReason\)"/)
+  assert.match(dialogSource, /:title="cancelDisabledReason \|\| undefined"/)
+  const cancelButton = dialogSource.match(/<el-button[\s\S]*?@click="requestClose"[\s\S]*?>取消<\/el-button>/)?.[0] || ''
+  assert.ok(cancelButton, '应定位到取消按钮')
+  assert.match(cancelButton, /:disabled="Boolean\(cancelDisabledReason\)"/)
+  assert.match(cancelButton, /:title="cancelDisabledReason \|\| undefined"/)
+  assert.doesNotMatch(cancelButton, /importing \|\| fileReading/)
+})

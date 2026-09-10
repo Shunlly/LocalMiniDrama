@@ -185,11 +185,12 @@ test('素材中心、剧详情、剧本生成和任务轮询的反馈文案保�
   assert.match(storyGenerationSource, /ElMessage\.error\(toUserFacingError\(e, '剧本生成失败'\)\)/)
   assert.match(storyGenerationSource, /ElMessage\.success\(n > 1 \? `剧本已生成，共 \$\{n\} 集/)
 
-  assert.match(generationTaskStoreSource, /error: '缺少任务编号（task_id）'/)
+  assert.match(generationTaskStoreSource, /error: '缺少任务编号'/)
   assert.match(generationTaskStoreSource, /const USER_CANCEL_TASK_MSG = '用户已取消'/)
   assert.match(generationTaskStoreSource, /const ORPHAN_TASK_MSG = '任务长时间无进展，可能因服务重启而中断，请重新操作'/)
   assert.match(generationTaskStoreSource, /生成任务已超时（超过15分钟），请刷新页面查看是否已完成/)
   assert.doesNotMatch(generationTaskStoreSource, /error: '缺少 task_id'/)
+  assert.doesNotMatch(generationTaskStoreSource, /error: '缺少任务编号（task_id）'/)
 
   assert.match(episodeBatchImportSource, /title="批量导入剧集"/)
   assert.match(episodeBatchImportSource, /将提前准备好的小说原文或剧本内容的 TXT 文件导入系统/)

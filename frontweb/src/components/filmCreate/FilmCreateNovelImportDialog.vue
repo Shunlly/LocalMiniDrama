@@ -49,7 +49,11 @@
       </div>
     </div>
     <template #footer>
-      <el-button :disabled="importing || fileReading" @click="requestClose">取消</el-button>
+      <el-button
+        :disabled="Boolean(cancelDisabledReason)"
+        :title="cancelDisabledReason || undefined"
+        @click="requestClose"
+      >取消</el-button>
       <el-button type="primary" :loading="importing || fileReading || confirming" @click="handleImport">开始导入</el-button>
     </template>
   </AccessibleDialog>
@@ -96,6 +100,11 @@ const confirming = ref(false)
 let fileReadToken = 0
 
 const displayFileName = computed(() => localFileName.value || props.fileName || '')
+const cancelDisabledReason = computed(() => {
+  if (props.importing) return '正在导入小说，请稍候'
+  if (fileReading.value) return '正在读取文本，请稍候'
+  return ''
+})
 const hasDraft = computed(() => novelIntakeHasDraft({
   text: text.value,
   fileName: displayFileName.value,

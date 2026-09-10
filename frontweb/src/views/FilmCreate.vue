@@ -1983,6 +1983,15 @@ const {
   scriptDraftController,
   flushScriptDraft,
   cancelPipelineRun,
+  batchImageRunning,
+  batchVideoRunning,
+  generatingSbImageIds,
+  generatingSbFirstImageIds,
+  generatingSbLastImageIds,
+  generatingUniversalSegmentIds,
+  ttsSbIds,
+  ttsSbNarrationIds,
+  upscalingSbIds,
 })
 
 onBeforeRouteLeave(allowNavigationAfterDraftFlush)
