@@ -1478,6 +1478,7 @@ import {
   isDeepSeekOfficial,
   resolveDeepSeekFormSettings,
 } from '@/utils/aiConfigFormSettings.js'
+import { applyProviderSelection } from '@/utils/aiConfigProviderSelection.js'
 import { buildAiServiceCoverage, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
 import { useAiConfigCoverage } from '@/composables/useAiConfigCoverage.js'
 import {
@@ -2314,59 +2315,7 @@ const endpointPreviewInfo = computed(() => {
 })
 
 function onProviderChange(providerId) {
-  if (providerId === CUSTOM_PROVIDER_SENTINEL) {
-    form.value.provider = ''
-    form.value.api_protocol = ''
-    form.value.base_url = ''
-    form.value.endpoint = ''
-    form.value.query_endpoint = ''
-    form.value.modelText = ''
-    form.value.default_model = ''
-    return
-  }
-  const st = form.value.service_type || 'text'
-  const p = (providerConfigs[st] || []).find((x) => x.id === providerId)
-  if (!p) {
-    form.value.base_url = ''
-    form.value.endpoint = ''
-    form.value.query_endpoint = ''
-    form.value.modelText = ''
-    form.value.default_model = ''
-    return
-  }
-  form.value.base_url = getBaseUrlForProvider(providerId, st)
-  form.value.modelText = (p.models || []).join('\n')
-  form.value.default_model = (p.models && p.models[0]) || ''
-  if (providerId === 'deepseek') {
-    form.value.deepseek_thinking = 'disabled'
-    form.value.deepseek_reasoning_effort = 'high'
-  }
-  // 自动填充接口规范与默认端点；先清理旧厂商残留的端点，避免切换后继续调用上一个厂商。
-  form.value.api_protocol = getProviderProtocol(providerId, st) || (st === 'text' ? '' : 'openai')
-  const endpointDefaults = getProviderEndpointDefaults(providerId, st, form.value.api_protocol)
-  form.value.endpoint = endpointDefaults.endpoint || ''
-  form.value.query_endpoint = endpointDefaults.query_endpoint || ''
-  if (st === 'video' && providerId === 'jimeng_ai_api') {
-    form.value.endpoint = ''
-    form.value.query_endpoint = ''
-  }
-  if (st === 'video' && (providerId === 'ffir' || providerId === 'klingai')) {
-    if (providerId === 'ffir') {
-      form.value.endpoint = '/kling/v1/videos/omni-video'
-      form.value.query_endpoint = '/kling/v1/images/omni-image/{taskId}'
-    } else {
-      form.value.endpoint = '/v1/videos/omni-video'
-      form.value.query_endpoint = '/v1/videos/omni-video/{taskId}'
-    }
-  }
-  if (st === 'video' && providerId === 'agnes') {
-    form.value.api_protocol = 'agnes'
-    form.value.endpoint = '/videos'
-    form.value.query_endpoint = '/videos/{taskId}'
-  }
-  if (!editingId.value) {
-    form.value.name = (p.name || providerId) + ' ' + serviceTypeLabel(st)
-  }
+  applyProviderSelection(form.value, providerId, { editingId: editingId.value })
 }
 
 function onRowEdit(row) {
