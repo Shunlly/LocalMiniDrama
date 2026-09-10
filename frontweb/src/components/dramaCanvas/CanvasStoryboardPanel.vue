@@ -134,6 +134,7 @@
               circle
               :loading="uploadingReference"
               :disabled="referenceSlots.length >= 10"
+              :title="referenceSlots.length >= 10 ? '每个分镜最多保存 10 张自由参考图' : undefined"
               :aria-label="storyboardControlLabel('上传自由参考图')"
               @click.stop="openReferenceUpload"
             />

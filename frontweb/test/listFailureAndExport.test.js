@@ -203,6 +203,41 @@ test('分类素材加载失败不会被伪装成空库，且 AI 配置在列表�
   assert.match(filmListSource, /const newSubmitDisabledReason = computed/)
   assert.match(filmListSource, /请先填写项目标题/)
   assert.match(filmListSource, /:title="listWriteLocked \? listWriteLockReason : '打开分类素材'"/)
+  assert.match(
+    filmListSource,
+    /class="action-btn action-btn-new" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked \? listWriteLockReason : undefined"/,
+  )
+  assert.match(
+    filmListSource,
+    /class="action-btn action-btn-import" :loading="importing" :disabled="listWriteLocked" aria-label="导入项目包" :title="listWriteLocked \? listWriteLockReason : undefined"/,
+  )
+  assert.match(
+    filmListSource,
+    /class="example-btn"[\s\S]*:disabled="listWriteLocked"\s*:title="listWriteLocked \? listWriteLockReason : undefined"\s*@click="onImportExample\(ex\)"/,
+  )
+  for (const click of [
+    'openEditCharLibrary(item)',
+    'onDeleteCharLibrary(item)',
+    'charLibFileRef.click()',
+    'submitEditCharLibrary',
+    'openEditSceneLibrary(item)',
+    'onDeleteSceneLibrary(item)',
+    'sceneLibFileRef.click()',
+    'submitEditSceneLibrary',
+    'openEditPropLibrary(item)',
+    'onDeletePropLibrary(item)',
+    'propLibFileRef.click()',
+    'submitEditPropLibrary',
+  ]) {
+    const escaped = click.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    assert.match(
+      filmListSource,
+      new RegExp(`:disabled="listWriteLocked" :title="listWriteLocked \\? listWriteLockReason : undefined" @click="${escaped}"`),
+    )
+  }
+  assert.match(filmListSource, /editCharLibraryForm\.imgGenerating" :disabled="listWriteLocked" :title="listWriteLocked \? listWriteLockReason : undefined"/)
+  assert.match(filmListSource, /editSceneLibraryForm\.imgGenerating" :disabled="listWriteLocked" :title="listWriteLocked \? listWriteLockReason : undefined"/)
+  assert.match(filmListSource, /editPropLibraryForm\.imgGenerating" :disabled="listWriteLocked" :title="listWriteLocked \? listWriteLockReason : undefined"/)
   assert.match(filmListSource, /Number.isNaN\(d\.getTime\(\)\)/)
   assert.equal(
     describeServiceLoadError({ response: { status: 502 } }, { serviceLabel: '角色素材服务' }),

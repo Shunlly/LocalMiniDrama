@@ -39,13 +39,13 @@
         </el-dropdown>
       </el-tooltip>
 
-      <el-tooltip content="撤销" placement="bottom">
-        <el-button size="small" circle :disabled="!canUndo" aria-label="撤销" title="撤销" @click="emit('undo')">
+      <el-tooltip :content="canUndo ? '撤销' : '没有可撤销的操作'" placement="bottom">
+        <el-button size="small" circle :disabled="!canUndo" :aria-label="canUndo ? '撤销' : '撤销不可用：没有可撤销的操作'" :title="canUndo ? '撤销' : '没有可撤销的操作'" @click="emit('undo')">
           <el-icon><RefreshLeft /></el-icon>
         </el-button>
       </el-tooltip>
-      <el-tooltip content="重做" placement="bottom">
-        <el-button size="small" circle :disabled="!canRedo" aria-label="重做" title="重做" @click="emit('redo')">
+      <el-tooltip :content="canRedo ? '重做' : '没有可重做的操作'" placement="bottom">
+        <el-button size="small" circle :disabled="!canRedo" :aria-label="canRedo ? '重做' : '重做不可用：没有可重做的操作'" :title="canRedo ? '重做' : '没有可重做的操作'" @click="emit('redo')">
           <el-icon><RefreshRight /></el-icon>
         </el-button>
       </el-tooltip>

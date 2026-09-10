@@ -123,6 +123,15 @@ test('分镜面板参考图用来源中文标签，空态和缺图占位可见',
   assert.match(storyboardPanelSource, /canvasUserError/)
 })
 
+test('分镜面板自由参考图达上限时给出中文禁用原因', () => {
+  assert.match(storyboardPanelSource, /:disabled="referenceSlots.length >= 10"/)
+  assert.match(
+    storyboardPanelSource,
+    /:title="referenceSlots.length >= 10 \? '每个分镜最多保存 10 张自由参考图' : undefined"/,
+  )
+  assert.doesNotMatch(storyboardPanelSource, /title="每个分镜最多保存 10 张自由参考图"/)
+})
+
 test('媒体面板区分生成与重新生成，音频空态和英文省略号已去掉', () => {
   assert.match(mediaPanelSource, /生成首帧/)
   assert.match(mediaPanelSource, /重新生成首帧/)

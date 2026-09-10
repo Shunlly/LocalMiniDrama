@@ -146,6 +146,7 @@ test('media panel and media node gate regeneration behind the same unknown-media
   assert.match(mediaPanelSource, /ctx\?\.getStoryboardMediaQueryStatus\?\./)
   assert.match(mediaPanelSource, /ctx\?\.retryStoryboardMedia\?\./)
   assert.match(mediaPanelSource, /重试媒体查询/)
+  assert.match(mediaPanelSource, /正在重试媒体查询，请稍候/)
   assert.match(mediaNodeSource, /showMediaQueryWarning/)
   assert.match(mediaNodeSource, /unknown-pill/)
   assert.match(mediaNodeSource, /媒体状态未知，可重试查询/)

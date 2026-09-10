@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
+import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 import {
   AI_EXTRACTION_COVERAGE_DEFINITIONS,
   AI_SERVICE_COVERAGE_DEFINITIONS,
@@ -318,4 +320,34 @@ test('missing OCR and transcription do not mark core production coverage unready
   assert.equal(coverage.ready, true)
   assert.equal(coverage.extractionServices.length, 2)
   assert.ok(coverage.extractionServices.every((item) => item.state === 'missing'))
+})
+
+const coverageCardSource = readFileSync(
+  new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url),
+  'utf8',
+).replace(/\r\n?/g, '\n')
+const coverageActionTitle = new Function(
+  `'use strict'; ${remainingExtractNamedFunction(coverageCardSource, 'coverageActionTitle')}; return coverageActionTitle;`,
+)()
+
+test('覆盖率动作按钮禁用时给出中文原因，未禁用不写空 title', () => {
+  const coverageAction = coverageCardSource.match(
+    /<el-button\s+v-for="action in coverageActions\(item\)"[\s\S]*?<\/el-button>/,
+  )?.[0]
+  assert.ok(coverageAction, '缺少覆盖率动作按钮')
+  assert.match(coverageAction, /:title="coverageActionTitle\(action, isCoverageActionDisabled\(item, action\)\)"/)
+  assert.match(coverageAction, /:aria-label="action\.label"/)
+  assert.match(coverageAction, /:aria-busy="isCoverageActionTesting\(item, action\)"/)
+  assert.match(coverageAction, /:loading="isCoverageActionTesting\(item, action\)"/)
+  assert.match(coverageAction, /:disabled="isCoverageActionDisabled\(item, action\)"/)
+  assert.doesNotMatch(coverageAction, /title=""/)
+  assert.doesNotMatch(coverageAction, /:title="[^"]*\|\| ''"/)
+
+  assert.equal(coverageActionTitle({ action: 'test' }, false), undefined)
+  assert.equal(coverageActionTitle({ action: 'add' }, false), undefined)
+  assert.equal(coverageActionTitle({ action: 'edit' }, false), undefined)
+  assert.equal(coverageActionTitle({ action: 'test' }, true), '正在测试连接，请稍候')
+  assert.equal(coverageActionTitle({ action: 'add' }, true), '配置尚未就绪或正在保存，暂时不能修改')
+  assert.equal(coverageActionTitle({ action: 'edit' }, true), '配置尚未就绪或正在保存，暂时不能修改')
+  assert.equal(coverageActionTitle({ action: 'view' }, true), undefined)
 })

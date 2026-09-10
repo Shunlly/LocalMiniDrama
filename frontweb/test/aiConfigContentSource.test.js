@@ -758,3 +758,39 @@ test('AI 配置厂商和模型选择保留中文空状态、无障碍名称，�
   assert.match(listMutationsSource, /if \(!success && failed\) ElMessage\.error\(`删除失败，\$\{failed\} 条未能删除`\)/)
   assert.doesNotMatch(listMutationsSource, /ElMessage\.success\(`已删除 \$\{success\} 条\$\{failed \? `，\$\{failed\} 条失败` : ''\}`\)/)
 })
+
+
+test('即梦素材库弹窗去掉接口路径，列名和时间改为中文', () => {
+  assert.match(vueSource, /v-model="jimeng2AssetsDialogVisible"\s+title="素材库列表"/)
+  assert.doesNotMatch(vueSource, /素材库列表（GET \/api\/business\/v1\/assets）/)
+  assert.doesNotMatch(vueSource, /<code>status=active<\/code>/)
+  assert.match(vueSource, /仅启用中的素材可用于 Seedance 2\.0 视频引用/)
+  assert.match(vueSource, /label="原始地址"/)
+  assert.doesNotMatch(vueSource, /label="原始 URL"/)
+  assert.match(vueSource, /formatJimeng2AssetCreatedAt\(row\.created_at\) \|\| '未知时间'/)
+  assert.doesNotMatch(vueSource, /<el-table-column prop="created_at" label="创建时间"[^/]*\/>/)
+
+  const start = vueSource.indexOf('function formatJimeng2AssetCreatedAt(value) {')
+  assert.notEqual(start, -1, 'formatJimeng2AssetCreatedAt must stay in AIConfigContent.vue')
+  let depth = 0
+  let end = -1
+  for (let i = vueSource.indexOf('{', start); i < vueSource.length; i += 1) {
+    if (vueSource[i] === '{') depth += 1
+    else if (vueSource[i] === '}') {
+      depth -= 1
+      if (depth === 0) {
+        end = i + 1
+        break
+      }
+    }
+  }
+  assert.notEqual(end, -1)
+  const formatJimeng2AssetCreatedAt = new Function(`${vueSource.slice(start, end)}; return formatJimeng2AssetCreatedAt;`)()
+  const formatted = formatJimeng2AssetCreatedAt('2026-08-29T00:00:00Z')
+  assert.match(formatted, /2026/)
+  assert.doesNotMatch(formatted, /T00:00:00Z/)
+  assert.equal(formatJimeng2AssetCreatedAt('not-a-date'), '')
+  assert.equal(formatJimeng2AssetCreatedAt(''), '')
+  assert.equal(formatJimeng2AssetCreatedAt(null), '')
+})
+

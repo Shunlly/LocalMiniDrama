@@ -143,6 +143,10 @@ function textContent(node) {
   return `${node.text || ''}${(node.children || []).map(textContent).join('')}`
 }
 
+function findConfirmButton(root) {
+  return findAll(root, 'button').find((button) => /进入这一集/.test(textContent(button)))
+}
+
 function mountEmptyState({ initialEpisodes = [], initialSelectedEpisodeId = null } = {}) {
   const episodes = ref(initialEpisodes)
   const selectedEpisodeId = ref(initialSelectedEpisodeId)
@@ -247,6 +251,38 @@ test('no episode options expose creation without a dead confirm action', async (
     assert.deepEqual(harness.creations, [true])
   } finally {
     harness.app.unmount()
+  }
+})
+
+test('disabled confirm action explains missing episode selection', async () => {
+  const missingSelection = mountEmptyState({
+    initialEpisodes: [{ id: 11, title: '第 1 集' }, { id: 12, title: '第 2 集' }],
+  })
+  try {
+    const disabledButton = findConfirmButton(missingSelection.root)
+    assert.equal(disabledButton.props.disabled, true)
+    assert.equal(disabledButton.props.title, '请先选择要进入的剧集')
+
+    findAll(missingSelection.root, 'select')[0].props.onChange({ target: { value: '12' } })
+    await nextTick()
+
+    const enabledAfterSelect = findConfirmButton(missingSelection.root)
+    assert.equal(enabledAfterSelect.props.disabled, false)
+    assert.equal(enabledAfterSelect.props.title, undefined)
+  } finally {
+    missingSelection.app.unmount()
+  }
+
+  const preselected = mountEmptyState({
+    initialEpisodes: [{ id: 11, title: '第 1 集' }, { id: 12, title: '第 2 集' }],
+    initialSelectedEpisodeId: 11,
+  })
+  try {
+    const enabledButton = findConfirmButton(preselected.root)
+    assert.equal(enabledButton.props.disabled, false)
+    assert.equal(enabledButton.props.title, undefined)
+  } finally {
+    preselected.app.unmount()
   }
 })
 

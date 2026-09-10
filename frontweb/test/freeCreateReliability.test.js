@@ -354,3 +354,35 @@ test('参考图上传禁用时给出中文原因', () => {
   assert.match(freeCreateSource, /正在上传参考图，请稍候/)
   assert.match(freeCreateSource, /:title="generateDisabledReason \|\| undefined"/)
 })
+
+test('结果区禁用按钮给出中文原因', () => {
+  assert.match(
+    freeCreateSource,
+    /const resultBusyDisabledReason = computed\(\(\) => \{[\s\S]*if \(cancelling\.value\) return '正在取消生成，请稍候'[\s\S]*if \(generating\.value\) return '正在生成，请稍候'/,
+  )
+  assert.equal(
+    (freeCreateSource.match(/:disabled="cancelling"\s*:title="cancelling \? resultBusyDisabledReason : undefined"/g) || []).length,
+    2,
+  )
+  assert.equal(
+    (freeCreateSource.match(/:disabled="generating \|\| cancelling"\s*:title="resultBusyDisabledReason \|\| undefined"/g) || []).length,
+    4,
+  )
+  assert.match(
+    freeCreateSource,
+    /:title="cancelling \? resultBusyDisabledReason : undefined"[\s\S]*\{\{ generating \? '取消并清空' : '清空' \}\}/,
+  )
+  assert.match(
+    freeCreateSource,
+    /:title="cancelling \? resultBusyDisabledReason : undefined"[\s\S]*取消生成/,
+  )
+  assert.match(
+    freeCreateSource,
+    /:disabled="generating \|\| cancelling"[\s\S]*:title="resultBusyDisabledReason \|\| undefined"[\s\S]*@click="downloadItem\(item\)"/,
+  )
+  assert.match(freeCreateSource, /:title="generateDisabledReason \|\| undefined"/)
+  assert.match(
+    freeCreateSource,
+    /const generateDisabledReason = computed\(\(\) => \{[\s\S]*if \(generating\.value\) return ''/,
+  )
+})

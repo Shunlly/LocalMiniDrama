@@ -30,7 +30,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showAddProp = false">取消</el-button>
-        <el-button type="primary" :loading="addPropSaving" :disabled="!addPropForm.name.trim()" @click="submitAddProp">确定</el-button>
+        <el-button type="primary" :loading="addPropSaving" :disabled="!addPropForm.name.trim()" :title="addPropForm.name.trim() ? undefined : '请先填写名称'" @click="submitAddProp">确定</el-button>
       </template>
     </AccessibleDialog>
 
@@ -148,7 +148,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditProp = false">取消</el-button>
-        <el-button type="primary" :loading="editPropSaving" :disabled="!editPropForm?.name?.trim()" @click="submitEditProp">保存</el-button>
+        <el-button type="primary" :loading="editPropSaving" :disabled="!editPropForm?.name?.trim()" :title="editPropForm?.name?.trim() ? undefined : '请先填写名称'" @click="submitEditProp">保存</el-button>
       </template>
     </AccessibleDialog>
 
@@ -232,7 +232,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditScene = false">取消</el-button>
-        <el-button type="primary" :loading="editSceneSaving" :disabled="!editSceneForm?.location?.trim()" @click="submitEditScene">{{ editSceneForm?.id ? '保存' : '添加' }}</el-button>
+        <el-button type="primary" :loading="editSceneSaving" :disabled="!editSceneForm?.location?.trim()" :title="editSceneForm?.location?.trim() ? undefined : '请先填写地点'" @click="submitEditScene">{{ editSceneForm?.id ? '保存' : '添加' }}</el-button>
       </template>
     </AccessibleDialog>
 
@@ -254,7 +254,7 @@
                 <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}{{ (item.description || '').length > 60 ? '…' : '' }}</div>
                 <div class="library-item-actions">
                   <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
-                    <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" @click="onAddCharFromLibrary(item)">加入本集</el-button>
+                    <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" @click="onAddCharFromLibrary(item)">加入本集</el-button>
                   </ActionGate>
                   <el-button size="small" @click="openEditCharLibrary(item)">编辑</el-button>
                   <el-button size="small" type="danger" plain @click="onDeleteCharLibrary(item)">删除</el-button>
@@ -297,7 +297,7 @@
                 <div class="library-item-desc">{{ (item.description || item.appearance || '').slice(0, 60) }}{{ (item.description || item.appearance || '').length > 60 ? '…' : '' }}</div>
                 <div class="library-item-actions">
                   <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
-                    <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" @click="onAddDramaCharToEpisode(item)">加入本集</el-button>
+                    <el-button size="small" type="primary" :loading="isCharAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" @click="onAddDramaCharToEpisode(item)">加入本集</el-button>
                   </ActionGate>
                 </div>
               </div>
@@ -365,7 +365,7 @@
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
                 <div class="library-item-actions">
                   <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
-                    <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" @click="onAddPropFromLibrary(item)">加入本集</el-button>
+                    <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" @click="onAddPropFromLibrary(item)">加入本集</el-button>
                   </ActionGate>
                   <el-button size="small" @click="openEditPropLibrary(item)">编辑</el-button>
                   <el-button size="small" type="danger" plain @click="onDeletePropLibrary(item)">删除</el-button>
@@ -396,7 +396,7 @@
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
                 <div class="library-item-actions">
                   <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
-                    <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" @click="onAddDramaPropToEpisode(item)">加入本集</el-button>
+                    <el-button size="small" type="primary" :loading="isPropAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" @click="onAddDramaPropToEpisode(item)">加入本集</el-button>
                   </ActionGate>
                 </div>
               </div>
@@ -455,7 +455,7 @@
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
                 <div class="library-item-actions">
                   <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
-                    <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" @click="onAddSceneFromLibrary(item)">加入本集</el-button>
+                    <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('library', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" @click="onAddSceneFromLibrary(item)">加入本集</el-button>
                   </ActionGate>
                   <el-button size="small" @click="openEditSceneLibrary(item)">编辑</el-button>
                   <el-button size="small" type="danger" plain @click="onDeleteSceneLibrary(item)">删除</el-button>
@@ -486,7 +486,7 @@
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
                 <div class="library-item-actions">
                   <ActionGate :reason="addToEpisodeDisabledReason" label="加入本集">
-                    <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" @click="onAddDramaSceneToEpisode(item)">加入本集</el-button>
+                    <el-button size="small" type="primary" :loading="isSceneAddToEpisodeLoading('drama', item.id)" :disabled="Boolean(addToEpisodeDisabledReason)" :title="addToEpisodeDisabledReason || undefined" @click="onAddDramaSceneToEpisode(item)">加入本集</el-button>
                   </ActionGate>
                 </div>
               </div>

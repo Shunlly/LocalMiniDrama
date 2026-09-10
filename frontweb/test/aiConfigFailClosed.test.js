@@ -72,10 +72,16 @@ test('AI config writes fail closed until the list and vendor lock dependencies a
     'submitBulkKey',
   ]
   for (const clickHandler of disabledMutationBindings) {
+    const opening = openingButtonFor(clickHandler)
     assert.match(
-      openingButtonFor(clickHandler),
+      opening,
       /:disabled="[^"]*configWriteLocked/,
       `${clickHandler} must be visibly disabled while configuration writes are locked`,
+    )
+    assert.match(
+      opening,
+      /:title="configWriteLocked \? configWriteLockReason : undefined"/,
+      `${clickHandler} must show a Chinese lock reason while configuration writes are locked`,
     )
   }
 
@@ -132,3 +138,37 @@ test('SD2 asset management receives the parent write lock and guards every mutat
   assert.match(sd2Source, /async function deleteGroup\([\s\S]*mutationLocked\.value/)
   assert.match(sd2Source, /async function deleteAsset\([\s\S]*mutationLocked\.value/)
 })
+
+test('AI 配置写入锁定时可见按钮给出中文原因，隐藏文件选择器不显示 title', () => {
+  assert.match(source, /const configWriteLockReason = computed\(\(\) => \{/)
+  assert.match(source, /配置列表尚未就绪/)
+  assert.match(source, /厂商锁定状态尚未解析/)
+  assert.match(source, /正在保存配置，请稍候/)
+  assert.match(source, /正在批量删除配置，请稍候/)
+  assert.match(source, /正在一键配置，请稍候/)
+  assert.match(source, /正在批量替换密钥，请稍候/)
+  assert.doesNotMatch(source, /useAiConfigList/)
+  assert.match(source, /title="素材库列表"/)
+  assert.doesNotMatch(source, /status=active/)
+  assert.match(source, /formatJimeng2AssetCreatedAt/)
+  assert.match(source, /label="原始地址"/)
+  assert.match(source, /async function loadList\(\)/)
+  assert.match(source, /async function openTest\(row\)/)
+
+  const lockedButtons = []
+  const buttonTag = /<el-button\b[\s\S]*?>/g
+  let match
+  while ((match = buttonTag.exec(source))) {
+    const tag = match[0]
+    if (/:disabled="[^"]*configWriteLocked/.test(tag)) lockedButtons.push(tag)
+  }
+  assert.ok(lockedButtons.length >= 14, `expected locked visible buttons, got ${lockedButtons.length}`)
+  for (const tag of lockedButtons) {
+    assert.match(tag, /:title="configWriteLocked \? configWriteLockReason : undefined"/)
+  }
+
+  const hiddenInput = source.match(/<input ref="importFileRef"[^>]*>/)?.[0] || ''
+  assert.match(hiddenInput, /:disabled="configWriteLocked"/)
+  assert.doesNotMatch(hiddenInput, /:title=/)
+})
+

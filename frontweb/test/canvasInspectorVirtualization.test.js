@@ -72,3 +72,20 @@ test('inspector chrome stays editable: focus restore, close, and blank-click ign
   assert.match(freeCanvasUxSource, /\.canvas-inspector-dock/)
   assert.match(freeCanvasUxSource, /\.free-canvas-inspector-dock/)
 })
+
+test('inspector navigation and media retry titles explain why controls are disabled', () => {
+  assert.match(
+    inspectorDockSource,
+    /:disabled="!inspectorNavigation\.previousId"\s*\n\s*aria-label="上一镜"\s*\n\s*:title="inspectorNavigation\.previousId \? '上一镜' : '已经是第一镜'"/,
+  )
+  assert.match(
+    inspectorDockSource,
+    /:disabled="!inspectorNavigation\.nextId"\s*\n\s*aria-label="下一镜"\s*\n\s*:title="inspectorNavigation\.nextId \? '下一镜' : '已经是最后一镜'"/,
+  )
+  assert.doesNotMatch(inspectorDockSource, /\stitle="上一镜"/)
+  assert.doesNotMatch(inspectorDockSource, /\stitle="下一镜"/)
+  assert.match(
+    inspectorDockSource,
+    /class="media-query-retry"\s*\n\s*:disabled="retryingMedia"\s*\n\s*:title="retryingMedia \? '正在重试媒体查询，请稍候' : undefined"/,
+  )
+})

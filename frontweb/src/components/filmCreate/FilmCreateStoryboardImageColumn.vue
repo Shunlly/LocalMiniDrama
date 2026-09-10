@@ -35,18 +35,27 @@
           <el-dropdown-menu>
             <el-dropdown-item command="generate">生成全能提示词</el-dropdown-item>
             <el-dropdown-item command="generate-force">不查图片强制生成</el-dropdown-item>
-            <el-dropdown-item command="polish" :disabled="!sbUniversalSegmentTrimmed(sb)">
+            <el-dropdown-item
+              command="polish"
+              :disabled="!sbUniversalSegmentTrimmed(sb)"
+              :title="universalSegmentActionDisabledReason"
+            >
               润色全能提示词
             </el-dropdown-item>
-            <el-dropdown-item command="polish-force" :disabled="!sbUniversalSegmentTrimmed(sb)">
+            <el-dropdown-item
+              command="polish-force"
+              :disabled="!sbUniversalSegmentTrimmed(sb)"
+              :title="universalSegmentActionDisabledReason"
+            >
               不查图片强制润色
             </el-dropdown-item>
             <el-dropdown-item
               command="to-grok-video-tags"
               divided
               :disabled="!sbUniversalSegmentTrimmed(sb)"
+              :title="universalSegmentActionDisabledReason"
             >
-              改为 grok视频格式
+              改为 Grok 视频格式
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -411,6 +420,10 @@ function describeUpscaleDisabledReason(hasLocalImage) {
   return hasLocalImage ? '' : '当前分镜没有可超分的本地图片'
 }
 
+function describeUniversalSegmentActionDisabledReason(hasSegment) {
+  return hasSegment ? '' : '请先生成全能提示词'
+}
+
 function describeStoryboardImageError(sb) {
   return toUserFacingError(sb?.error_msg || sb?.errorMsg, '生成失败')
 }
@@ -418,6 +431,9 @@ function describeStoryboardImageError(sb) {
 const imageGenerateDisabledReason = computed(() => describeImageGenerateDisabledReason(props.storyboardMediaActionReason))
 const upscaleDisabledReason = computed(() => describeUpscaleDisabledReason(Boolean(props.getSbLocalImage(props.sb))))
 const imageErrorText = computed(() => describeStoryboardImageError(props.sb))
+const universalSegmentActionDisabledReason = computed(() => (
+  describeUniversalSegmentActionDisabledReason(Boolean(props.sbUniversalSegmentTrimmed(props.sb)))
+))
 
 const sbFreeReferenceItems = computed(() => {
   const items = props.getSbFreeReferenceItems(props.sb)

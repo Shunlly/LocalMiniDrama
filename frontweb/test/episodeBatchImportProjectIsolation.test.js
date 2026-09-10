@@ -156,9 +156,14 @@ function mountDialog(importHandler) {
   })
   app.component('AccessibleDialog', DialogStub)
   app.component('el-button', ButtonStub)
-  for (const name of ['el-tabs', 'el-tab-pane', 'el-form', 'el-form-item', 'el-icon', 'el-table']) {
+  for (const name of ['el-tabs', 'el-form', 'el-form-item', 'el-icon', 'el-table']) {
     app.component(name, SlotStub)
   }
+  app.component('el-tab-pane', defineComponent({
+    setup(_props, { attrs, slots }) {
+      return () => h('tab-pane-stub', attrs, [slots.label?.(), slots.default?.()])
+    },
+  }))
   app.component('el-input', SlotStub)
   app.component('el-input-number', SlotStub)
   app.component('el-table-column', defineComponent({ render: () => null }))
@@ -282,12 +287,21 @@ test('批量导入空状态和禁用原因保持简体中文', () => {
   assert.match(source, /请先在「导入设置」中选择 TXT 文件，再点击「确认导入配置」/)
   assert.match(source, />返回导入设置</)
   assert.match(source, /const configConfirmDisabledReason = computed/)
+  assert.match(source, /const previewTabDisabledReason = computed/)
   assert.match(source, /请先选择包含章节文本的 TXT 文件/)
   assert.match(source, /请先完成预览确认/)
+  assert.match(source, /请先选择文件并确认导入配置/)
   assert.match(source, /正在导入剧集，请完成后再关闭/)
   assert.match(source, /:disabled="Boolean\(configConfirmDisabledReason\)"/)
   assert.match(source, /:disabled="Boolean\(importConfirmDisabledReason\)"/)
   assert.match(source, /:disabled="importing"/)
+  assert.match(source, /:disabled="!previewReady"/)
+  assert.match(source, /:title="previewTabDisabledReason"/)
+  assert.match(source, /:title="importing \? '正在导入剧集，请完成后再选择文件。' : ''"/)
+  assert.match(source, /:title="closeDisabledReason"/)
+  assert.match(source, /:title="importing \? '正在导入剧集，请完成后再返回。' : ''"/)
+  assert.match(source, /:title="configConfirmDisabledReason"/)
+  assert.match(source, /:title="importConfirmDisabledReason"/)
   assert.match(source, /ElMessage\.error\('文件内容为空，请选择包含章节文本的 TXT 文件'\)/)
   assert.match(source, /ElMessage\.warning\('请选择 TXT 文本文件'\)/)
   assert.match(source, /读取文件失败，请重新选择 TXT 文件/)
@@ -326,6 +340,70 @@ test('空 TXT 和非法扩展名给出中文失败，确认按钮保持禁用', 
     assert.ok(confirm, 'missing confirm config button')
     assert.equal(Boolean(confirm.props.disabled), true)
     assert.match(String(confirm.props.title || ''), /请先选择包含章节文本的 TXT 文件/)
+  } finally {
+    harness.app.unmount()
+    delete globalThis.__episodeBatchImportMessages
+    delete globalThis.FileReader
+  }
+})
+
+test('预览确认页签未就绪时给出中文禁用原因，且不改坏已有按钮 title', async () => {
+  globalThis.__episodeBatchImportMessages = []
+  globalThis.FileReader = class {
+    readAsText() {
+      this.onload?.({ target: { result: '第一章\n正文' } })
+    }
+  }
+  const harness = mountDialog(async () => {})
+  const findButton = (label) => findAll(harness.root, (node) => node.type === 'button' && textContent(node).includes(label))[0]
+  const findPreviewPane = () => findAll(harness.root, (node) => node.type === 'tab-pane-stub' && node.props.name === 'preview')[0]
+  const findPreviewTitle = () => findAll(harness.root, (node) => (
+    String(node.props.title || '').includes('请先选择文件并确认导入配置')
+    || (node.type === 'span' && textContent(node).includes('2. 预览确认'))
+  ))[0]
+  try {
+    clickButton(harness.root, '批量导入剧集')
+    await nextTick()
+
+    const previewPane = findPreviewPane()
+    assert.ok(previewPane, 'missing preview tab')
+    assert.equal(Boolean(previewPane.props.disabled), true)
+    const previewTitle = findPreviewTitle()
+    assert.ok(previewTitle, 'missing preview tab title')
+    assert.match(String(previewTitle.props.title || ''), /请先选择文件并确认导入配置/)
+    assert.match(textContent(harness.root), /请先选择文件并确认导入配置/)
+
+    const selectFile = findButton('选择 TXT 文件')
+    const cancel = findButton('取消')
+    const confirm = findButton('确认导入配置')
+    assert.ok(selectFile, 'missing select file button')
+    assert.ok(cancel, 'missing cancel button')
+    assert.ok(confirm, 'missing confirm config button')
+    assert.equal(selectFile.props.title, '')
+    assert.equal(cancel.props.title, '')
+    assert.match(String(confirm.props.title || ''), /请先选择包含章节文本的 TXT 文件/)
+    assert.equal(findButton('上一步'), undefined)
+
+    const fileInput = findAll(harness.root, (node) => node.type === 'input' && node.props.type === 'file')[0]
+    fileInput.props.onChange({ target: { files: [{ name: 'story.txt' }], value: 'story.txt' } })
+    await nextTick()
+    assert.equal(Boolean(findPreviewPane().props.disabled), true)
+    assert.match(String(findPreviewTitle().props.title || ''), /请先选择文件并确认导入配置/)
+    assert.equal(findButton('确认导入配置').props.title, '')
+    assert.match(textContent(harness.root), /请先选择文件并确认导入配置/)
+
+    clickButton(harness.root, '确认导入配置')
+    await nextTick()
+    assert.equal(Boolean(findPreviewPane().props.disabled), false)
+    assert.equal(findPreviewTitle().props.title, '')
+    assert.equal(textContent(harness.root).includes('请先选择文件并确认导入配置'), false)
+
+    const back = findButton('上一步')
+    const importConfirm = findButton('确认导入集数')
+    assert.ok(back, 'missing back button')
+    assert.ok(importConfirm, 'missing import confirm button')
+    assert.equal(back.props.title, '')
+    assert.equal(importConfirm.props.title, '')
   } finally {
     harness.app.unmount()
     delete globalThis.__episodeBatchImportMessages

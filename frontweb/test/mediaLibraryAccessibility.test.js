@@ -213,6 +213,7 @@ test('素材中心禁用按钮给出中文原因', () => {
   assert.match(source, /:title="mediaWriteLocked \? mediaWriteLockReason : undefined"/)
   assert.match(source, /const mediaNavigationLockReason = computed/)
   assert.match(source, /正在上传素材，请稍候/)
+  assert.equal((source.match(/:title="!networkKeyword.trim\(\) \? '请先输入搜索关键词' : undefined"/g) || []).length, 2)
 })
 
 test('素材预览时间用中文格式，无效时间不漏原文', () => {

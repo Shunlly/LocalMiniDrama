@@ -195,10 +195,10 @@
               <h2 class="action-card-title">还没有短剧项目</h2>
               <p class="action-card-desc">新建空白项目，或继续已有项目包。</p>
               <div class="action-card-buttons">
-                <el-button type="primary" size="large" class="action-btn action-btn-new" :disabled="listWriteLocked" aria-label="新建项目" @click="goNewProject">
+                <el-button type="primary" size="large" class="action-btn action-btn-new" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" @click="goNewProject">
                   <el-icon><Plus /></el-icon>新建项目
                 </el-button>
-                <el-button size="large" class="action-btn action-btn-import" :loading="importing" :disabled="listWriteLocked" aria-label="导入项目包" @click="triggerImport">
+                <el-button size="large" class="action-btn action-btn-import" :loading="importing" :disabled="listWriteLocked" aria-label="导入项目包" :title="listWriteLocked ? listWriteLockReason : undefined" @click="triggerImport">
                   <el-icon><Upload /></el-icon>导入项目包
                 </el-button>
               </div>
@@ -223,6 +223,7 @@
                     class="example-btn"
                     :loading="importingExample === ex.filename"
                     :disabled="listWriteLocked"
+                    :title="listWriteLocked ? listWriteLockReason : undefined"
                     @click="onImportExample(ex)"
                   >
                     <el-icon><FolderOpened /></el-icon>{{ ex.name }}
@@ -499,8 +500,8 @@
             <div class="library-item-name">{{ item.name || '未命名' }}</div>
             <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}{{ (item.description || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
-              <el-button size="small" :disabled="listWriteLocked" @click="openEditCharLibrary(item)">编辑</el-button>
-              <el-button size="small" type="danger" plain :disabled="listWriteLocked" @click="onDeleteCharLibrary(item)">删除</el-button>
+              <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="openEditCharLibrary(item)">编辑</el-button>
+              <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="onDeleteCharLibrary(item)">删除</el-button>
             </div>
           </div>
         </div>
@@ -536,8 +537,8 @@
               <div class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></div>
             </div>
             <div class="lib-img-btns">
-              <el-button size="small" :loading="editCharLibraryForm.imgUploading" :disabled="listWriteLocked" @click="charLibFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editCharLibraryForm.imgGenerating" :disabled="listWriteLocked" @click="doGenerateLibImg(editCharLibraryForm, (editCharLibraryForm.name + (editCharLibraryForm.description ? ', ' + editCharLibraryForm.description : '')), characterLibraryAPI, loadCharLibraryList)">AI 生成</el-button>
+              <el-button size="small" :loading="editCharLibraryForm.imgUploading" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="charLibFileRef.click()">上传图片</el-button>
+              <el-button size="small" type="primary" :loading="editCharLibraryForm.imgGenerating" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="doGenerateLibImg(editCharLibraryForm, (editCharLibraryForm.name + (editCharLibraryForm.description ? ', ' + editCharLibraryForm.description : '')), characterLibraryAPI, loadCharLibraryList)">AI 生成</el-button>
             </div>
           </div>
           <input ref="charLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editCharLibraryForm, characterLibraryAPI, loadCharLibraryList)" />
@@ -549,7 +550,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditCharLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editCharLibrarySaving" :disabled="listWriteLocked" @click="submitEditCharLibrary">保存</el-button>
+        <el-button type="primary" :loading="editCharLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="submitEditCharLibrary">保存</el-button>
       </template>
     </AccessibleDialog>
 
@@ -576,8 +577,8 @@
             <div class="library-item-name">{{ item.location || item.time || '未命名' }}</div>
             <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
-              <el-button size="small" :disabled="listWriteLocked" @click="openEditSceneLibrary(item)">编辑</el-button>
-              <el-button size="small" type="danger" plain :disabled="listWriteLocked" @click="onDeleteSceneLibrary(item)">删除</el-button>
+              <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="openEditSceneLibrary(item)">编辑</el-button>
+              <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="onDeleteSceneLibrary(item)">删除</el-button>
             </div>
           </div>
         </div>
@@ -613,8 +614,8 @@
               <div class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></div>
             </div>
             <div class="lib-img-btns">
-              <el-button size="small" :loading="editSceneLibraryForm.imgUploading" :disabled="listWriteLocked" @click="sceneLibFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editSceneLibraryForm.imgGenerating" :disabled="listWriteLocked" @click="doGenerateLibImg(editSceneLibraryForm, ([editSceneLibraryForm.location, editSceneLibraryForm.time, editSceneLibraryForm.description].filter(Boolean).join(', ')), sceneLibraryAPI, loadSceneLibraryList)">AI 生成</el-button>
+              <el-button size="small" :loading="editSceneLibraryForm.imgUploading" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="sceneLibFileRef.click()">上传图片</el-button>
+              <el-button size="small" type="primary" :loading="editSceneLibraryForm.imgGenerating" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="doGenerateLibImg(editSceneLibraryForm, ([editSceneLibraryForm.location, editSceneLibraryForm.time, editSceneLibraryForm.description].filter(Boolean).join(', ')), sceneLibraryAPI, loadSceneLibraryList)">AI 生成</el-button>
             </div>
           </div>
           <input ref="sceneLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editSceneLibraryForm, sceneLibraryAPI, loadSceneLibraryList)" />
@@ -627,7 +628,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditSceneLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editSceneLibrarySaving" :disabled="listWriteLocked" @click="submitEditSceneLibrary">保存</el-button>
+        <el-button type="primary" :loading="editSceneLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="submitEditSceneLibrary">保存</el-button>
       </template>
     </AccessibleDialog>
 
@@ -654,8 +655,8 @@
             <div class="library-item-name">{{ item.name || '未命名' }}</div>
             <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}{{ (item.description || item.prompt || '').length > 60 ? '…' : '' }}</div>
             <div class="library-item-actions">
-              <el-button size="small" :disabled="listWriteLocked" @click="openEditPropLibrary(item)">编辑</el-button>
-              <el-button size="small" type="danger" plain :disabled="listWriteLocked" @click="onDeletePropLibrary(item)">删除</el-button>
+              <el-button size="small" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="openEditPropLibrary(item)">编辑</el-button>
+              <el-button size="small" type="danger" plain :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="onDeletePropLibrary(item)">删除</el-button>
             </div>
           </div>
         </div>
@@ -691,8 +692,8 @@
               <div class="lib-img-empty"><el-icon aria-hidden="true"><PictureFilled /></el-icon></div>
             </div>
             <div class="lib-img-btns">
-              <el-button size="small" :loading="editPropLibraryForm.imgUploading" :disabled="listWriteLocked" @click="propLibFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editPropLibraryForm.imgGenerating" :disabled="listWriteLocked" @click="doGenerateLibImg(editPropLibraryForm, (editPropLibraryForm.name + (editPropLibraryForm.description ? ', ' + editPropLibraryForm.description : '')), propLibraryAPI, loadPropLibraryList)">AI 生成</el-button>
+              <el-button size="small" :loading="editPropLibraryForm.imgUploading" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="propLibFileRef.click()">上传图片</el-button>
+              <el-button size="small" type="primary" :loading="editPropLibraryForm.imgGenerating" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="doGenerateLibImg(editPropLibraryForm, (editPropLibraryForm.name + (editPropLibraryForm.description ? ', ' + editPropLibraryForm.description : '')), propLibraryAPI, loadPropLibraryList)">AI 生成</el-button>
             </div>
           </div>
           <input ref="propLibFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editPropLibraryForm, propLibraryAPI, loadPropLibraryList)" />
@@ -704,7 +705,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditPropLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editPropLibrarySaving" :disabled="listWriteLocked" @click="submitEditPropLibrary">保存</el-button>
+        <el-button type="primary" :loading="editPropLibrarySaving" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" @click="submitEditPropLibrary">保存</el-button>
       </template>
     </AccessibleDialog>
 

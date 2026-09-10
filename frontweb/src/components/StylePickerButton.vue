@@ -81,7 +81,10 @@
             </button>
           </div>
         </template>
-        <div v-if="filteredGroups.length === 0" class="spd-empty">没有匹配的风格</div>
+        <div v-if="filteredGroups.length === 0" class="spd-empty">
+          <p>没有匹配的风格</p>
+          <el-button size="small" aria-label="清除风格搜索" @click="search = ''">清除搜索</el-button>
+        </div>
       </div>
 
       <template #footer>
@@ -325,6 +328,9 @@ function clearAndClose() {
   padding: 40px;
   color: var(--el-text-color-placeholder);
   font-size: 13px;
+}
+.spd-empty p {
+  margin: 0 0 12px;
 }
 </style>
 

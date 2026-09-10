@@ -320,7 +320,7 @@
             type="primary"
             :loading="networkLoading"
             :disabled="!networkKeyword.trim()"
-            :title="!networkKeyword.trim() ? '请输入关键词后再搜索' : undefined"
+            :title="!networkKeyword.trim() ? '请先输入搜索关键词' : undefined"
             @click="searchNetworkMedia"
           >
             <el-icon><Search /></el-icon>搜索
@@ -341,7 +341,7 @@
           plain
           :loading="networkLoading"
           :disabled="!networkKeyword.trim()"
-          :title="!networkKeyword.trim() ? '请输入关键词后再搜索' : undefined"
+          :title="!networkKeyword.trim() ? '请先输入搜索关键词' : undefined"
           aria-label="重试搜索网络素材"
           @click="searchNetworkMedia"
         >

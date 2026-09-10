@@ -88,17 +88,17 @@
           />
         </el-select>
       </el-form-item>
-      <el-form-item label="默认资产组 Id">
+      <el-form-item label="默认资产组编号">
         <el-input
           v-model="assetGroupIdForCert"
           placeholder="创作页「认证资产」写入此组；可左侧点选资产组自动填入"
           clearable
         />
-        <p class="field-hint">保存到 AI 配置时必填。与下方「资产」列表使用的组 Id 一致。</p>
+        <p class="field-hint">保存到 AI 配置时必填。与下方「资产」列表使用的组编号一致。</p>
       </el-form-item>
       <el-form-item label=" ">
         <div class="sd2-save-row">
-          <el-button type="primary" :loading="savingConfig" :disabled="mutationLocked" @click="saveToAiConfig">
+          <el-button type="primary" :loading="savingConfig" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="saveToAiConfig">
             保存到 AI 配置
           </el-button>
           <span v-if="savedConfigId" class="sd2-saved-hint">
@@ -113,7 +113,7 @@
         <div class="panel-title">资产组</div>
         <div class="panel-actions">
           <el-button type="primary" size="small" :loading="loadingGroups" @click="refreshGroups">刷新列表</el-button>
-          <el-button type="success" size="small" :disabled="mutationLocked" @click="openCreateGroup">新建组</el-button>
+          <el-button type="success" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="openCreateGroup">新建组</el-button>
         </div>
         <el-table
           :data="groupRows"
@@ -128,18 +128,18 @@
           <el-table-column label="操作" width="168" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="getGroupDetail(row)">详情</el-button>
-              <el-button link type="primary" size="small" :disabled="mutationLocked" @click="openEditGroup(row)">编辑</el-button>
-              <el-button link type="danger" size="small" :disabled="mutationLocked" @click="deleteGroup(row)">删除</el-button>
+              <el-button link type="primary" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="openEditGroup(row)">编辑</el-button>
+              <el-button link type="danger" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="deleteGroup(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
       </el-col>
       <el-col :span="13">
-        <div class="panel-title">资产（需组 Id）</div>
+        <div class="panel-title">资产（需组编号）</div>
         <div class="panel-actions row-gap">
-          <el-input v-model="assetGroupIdInput" placeholder="组 Id，或左侧点选一行" clearable style="flex: 1; min-width: 140px" />
+          <el-input v-model="assetGroupIdInput" placeholder="组编号，或左侧点选一行" clearable style="flex: 1; min-width: 140px" />
           <el-button type="primary" size="small" :loading="loadingAssets" @click="refreshAssets">刷新</el-button>
-          <el-button type="success" size="small" :disabled="mutationLocked" @click="openCreateAsset">新建资产</el-button>
+          <el-button type="success" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="openCreateAsset">新建资产</el-button>
         </div>
         <el-table :data="assetRows" size="small" stripe max-height="320">
           <el-table-column prop="Id" label="标识" min-width="120" show-overflow-tooltip />
@@ -150,8 +150,8 @@
           <el-table-column label="操作" width="168" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="getAssetDetail(row)">详情</el-button>
-              <el-button link type="primary" size="small" :disabled="mutationLocked" @click="openEditAsset(row)">编辑</el-button>
-              <el-button link type="danger" size="small" :disabled="mutationLocked" @click="deleteAsset(row)">删除</el-button>
+              <el-button link type="primary" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="openEditAsset(row)">编辑</el-button>
+              <el-button link type="danger" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="deleteAsset(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -173,7 +173,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dlgGroupCreate = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitCreateGroup">提交</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="submitCreateGroup">提交</el-button>
       </template>
     </AccessibleDialog>
 
@@ -193,15 +193,15 @@
       </el-form>
       <template #footer>
         <el-button @click="dlgGroupEdit = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitUpdateGroup">提交</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="submitUpdateGroup">提交</el-button>
       </template>
     </AccessibleDialog>
 
     <!-- 新建资产 -->
     <AccessibleDialog v-model="dlgAssetCreate" title="创建资产" width="520px" destroy-on-close>
       <el-form label-width="110px">
-        <el-form-item label="资产组 Id" required>
-          <el-input v-model="formAssetGroupId" placeholder="资产组 Id" />
+        <el-form-item label="资产组编号" required>
+          <el-input v-model="formAssetGroupId" placeholder="资产组编号" />
         </el-form-item>
         <el-form-item label="名称" required>
           <el-input v-model="formAssetName" placeholder="资产名称" />
@@ -222,7 +222,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dlgAssetCreate = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitCreateAsset">提交</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="submitCreateAsset">提交</el-button>
       </template>
     </AccessibleDialog>
 
@@ -241,7 +241,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dlgAssetEdit = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" @click="submitUpdateAsset">提交</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="submitUpdateAsset">提交</el-button>
       </template>
     </AccessibleDialog>
 
@@ -343,6 +343,9 @@ const savedModelArkConfigs = computed(() => {
   return (props.configs || []).filter((c) => c.service_type === 'model_ark_asset')
 })
 const mutationLocked = computed(() => props.writeLocked)
+const mutationLockReason = computed(() => (
+  mutationLocked.value ? '配置尚未就绪，暂时不能修改资产' : undefined
+))
 
 const MUTATING_ACTIONS = new Set([
   'CreateAssetGroup',
@@ -414,7 +417,7 @@ async function saveToAiConfig() {
     return
   }
   if (!assetGroupIdForCert.value.trim()) {
-    ElMessage.warning('请填写默认资产组 Id（创作页「认证资产」需要）')
+    ElMessage.warning('请填写默认资产组编号（创作页「认证资产」需要）')
     return
   }
   if (authMode.value === 'bearer' && isMaskedSecret(apiKey.value) && !savedConfigId.value) {
@@ -615,7 +618,7 @@ async function refreshAssets() {
     return
   }
   if (!gid) {
-    ElMessage.warning('请填写或选择资产组 Id')
+    ElMessage.warning('请填写或选择资产组编号')
     return
   }
   loadingAssets.value = true
@@ -754,7 +757,7 @@ function openCreateAsset() {
 async function submitCreateAsset() {
   if (mutationLocked.value) return
   if (!formAssetGroupId.value.trim() || !formAssetName.value.trim()) {
-    ElMessage.warning('请填写资产组 Id 与名称')
+    ElMessage.warning('请填写资产组编号与名称')
     return
   }
   dlgLoading.value = true

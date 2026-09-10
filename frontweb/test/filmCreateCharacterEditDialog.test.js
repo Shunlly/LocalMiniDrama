@@ -163,11 +163,13 @@ const ElButton = defineComponent({
     size: String,
     loading: Boolean,
     disabled: Boolean,
+    title: String,
   },
   setup(props, { slots, attrs }) {
     return () => h('button', {
       type: 'button',
       disabled: Boolean(props.disabled || props.loading),
+      title: props.title || undefined,
       'data-loading': props.loading ? 'true' : 'false',
       ...attrs,
     }, slots.default?.())
@@ -287,6 +289,12 @@ test('抽出的角色弹窗保留上传、生成、空态和取消文案', () =>
   assert.match(characterDialogSource, />取消<\/el-button>/)
   assert.match(characterDialogSource, /ref="addCharRefFileInput"/)
   assert.match(characterDialogSource, /@change="onRefImageFileChange\('character', \$event\)"/)
+  assert.match(characterDialogSource, /请先填写角色名称/)
+  assert.match(characterDialogSource, /AI 正在生成提示词，请稍候/)
+  assert.match(characterDialogSource, /正在提取特征描述，请稍候/)
+  assert.match(characterDialogSource, /正在从参考图提取描述，请稍候/)
+  assert.match(characterDialogSource, /正在从主图提取描述，请稍候/)
+  assert.match(characterDialogSource, /请先填写角色外貌描述/)
 })
 
 test('打开角色弹窗后可取消，空表单会禁用提交', async () => {
@@ -317,6 +325,7 @@ test('打开角色弹窗后可取消，空表单会禁用提交', async () => {
 
     const submit = findAll(dialog, (node) => node.type === 'button' && collectText(node).includes('添加'))[0]
     assert.equal(submit.props.disabled, true)
+    assert.equal(submit.props.title, '请先填写角色名称')
 
     const cancel = findAll(dialog, (node) => node.type === 'button' && collectText(node).includes('取消'))[0]
     cancel.props.onClick()
@@ -364,6 +373,10 @@ test('缺少角色表单时给出可理解空态，生成中提示请等待', as
     const generateButton = findAll(generating.root, (node) => node.type === 'button' && collectText(node).includes('重新生成提示词'))[0]
     assert.equal(generateButton.props.disabled, true)
     assert.equal(generateButton.props['data-loading'], 'true')
+    assert.equal(generateButton.props.title, 'AI 正在生成提示词，请稍候')
+    const saveWhileGenerating = findAll(generating.root, (node) => node.type === 'button' && collectText(node).includes('保存'))[0]
+    assert.equal(saveWhileGenerating.props.disabled, false)
+    assert.equal(saveWhileGenerating.props.title, undefined)
   } finally {
     generating.app.unmount()
   }
@@ -383,6 +396,8 @@ test('缺少角色表单时给出可理解空态，生成中提示请等待', as
   try {
     const extractAnchors = findAll(missingAppearance.root, (node) => node.type === 'button' && collectText(node).includes('提炼视觉锚点'))[0]
     assert.equal(extractAnchors.props.disabled, true)
+    assert.equal(extractAnchors.props.title, '请先填写角色外貌描述')
+    assert.match(collectText(missingAppearance.root), /请先填写角色外貌描述/)
     assert.match(collectText(missingAppearance.root), /暂无锚点，点击「提炼视觉锚点」自动提炼/)
   } finally {
     missingAppearance.app.unmount()
@@ -432,6 +447,7 @@ test('参考图提取、提示词生成和视觉锚点都接到原回调', async
     extractAnchors.props.onClick()
     const save = findAll(root, (node) => node.type === 'button' && collectText(node).includes('保存'))[0]
     assert.equal(save.props.disabled, false)
+    assert.equal(save.props.title, undefined)
     save.props.onClick()
     assert.deepEqual(calls, [
       'extract-ref:character',
@@ -443,5 +459,107 @@ test('参考图提取、提示词生成和视觉锚点都接到原回调', async
     assert.match(collectText(root), /暂无锚点，点击「提炼视觉锚点」自动提炼/)
   } finally {
     app.unmount()
+  }
+})
+
+test('禁用的保存、提取和生成按钮给出中文原因', async () => {
+  const blankName = await mountCharacterDialog({
+    ...baseHandlers(),
+    showEditCharacter: true,
+    addCharRefImage: null,
+    editCharacterForm: {
+      name: '   ',
+      role: '',
+      appearance: '',
+      description: '',
+    },
+  })
+  try {
+    const submit = findAll(blankName.root, (node) => node.type === 'button' && collectText(node).includes('添加'))[0]
+    assert.equal(submit.props.disabled, true)
+    assert.equal(submit.props.title, '请先填写角色名称')
+  } finally {
+    blankName.app.unmount()
+  }
+
+  const missingForm = await mountCharacterDialog({
+    ...baseHandlers(),
+    showEditCharacter: true,
+    addCharRefImage: null,
+    editCharacterForm: null,
+  })
+  try {
+    const submit = findAll(missingForm.root, (node) => node.type === 'button' && (collectText(node).includes('添加') || collectText(node).includes('保存')))[0]
+    assert.equal(submit.props.disabled, true)
+    assert.equal(submit.props.title, '请先填写角色名称')
+  } finally {
+    missingForm.app.unmount()
+  }
+
+  const extractingNewRef = await mountCharacterDialog({
+    ...baseHandlers(),
+    showEditCharacter: true,
+    addCharRefImage: { dataUrl: 'data:image/png;base64,aaa', filename: 'ref.png' },
+    extractingCharAppearance: true,
+    editCharacterForm: {
+      name: '李华',
+      appearance: '短发',
+      description: '',
+    },
+  })
+  try {
+    const extractRef = findAll(extractingNewRef.root, (node) => node.type === 'button' && collectText(node).includes('提取特征描述'))[0]
+    assert.equal(extractRef.props.disabled, true)
+    assert.equal(extractRef.props.title, '正在提取特征描述，请稍候')
+    const add = findAll(extractingNewRef.root, (node) => node.type === 'button' && collectText(node).includes('添加'))[0]
+    assert.equal(add.props.disabled, false)
+    assert.equal(add.props.title, undefined)
+  } finally {
+    extractingNewRef.app.unmount()
+  }
+
+  const extractingSavedRef = await mountCharacterDialog({
+    ...baseHandlers(),
+    showEditCharacter: true,
+    addCharRefImage: null,
+    extractingCharAppearance: true,
+    editCharacterForm: {
+      id: 4,
+      name: '李华',
+      appearance: '短发',
+      description: '',
+      ref_image: 'chars/ref.png',
+    },
+  })
+  try {
+    const extractSaved = findAll(extractingSavedRef.root, (node) => node.type === 'button' && collectText(node).includes('从参考图提取描述'))[0]
+    assert.equal(extractSaved.props.disabled, true)
+    assert.equal(extractSaved.props.title, '正在从参考图提取描述，请稍候')
+  } finally {
+    extractingSavedRef.app.unmount()
+  }
+
+  const extractingMain = await mountCharacterDialog({
+    ...baseHandlers(),
+    showEditCharacter: true,
+    addCharRefImage: null,
+    extractingCharAppearance: true,
+    editCharacterForm: {
+      id: 5,
+      name: '李华',
+      appearance: '',
+      description: '',
+      image_url: '/static/char.png',
+    },
+  })
+  try {
+    const extractMain = findAll(extractingMain.root, (node) => node.type === 'button' && collectText(node).includes('从主图提取描述'))[0]
+    assert.equal(extractMain.props.disabled, true)
+    assert.equal(extractMain.props.title, '正在从主图提取描述，请稍候')
+    const extractAnchors = findAll(extractingMain.root, (node) => node.type === 'button' && collectText(node).includes('提炼视觉锚点'))[0]
+    assert.equal(extractAnchors.props.disabled, true)
+    assert.equal(extractAnchors.props.title, '请先填写角色外貌描述')
+  } finally {
+    extractingMain.app.unmount()
   }
 })

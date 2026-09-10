@@ -23,7 +23,11 @@ const viewportLogicSource = read('../src/composables/useDramaCanvasViewport.js')
 const dramaCanvasSource = `${dramaCanvasViewSource}\n${dramaCanvasStyleSource}\n${freeCanvasLogicSource}\n${persistLogicSource}\n${projectLoadLogicSource}\n${workflowLogicSource}\n${graphLogicSource}\n${viewportLogicSource}`
 
 test('free canvas toolbar names every icon-only action and exposes mode selection', () => {
-  for (const label of ['撤销', '重做', '适配视图', '切换背景']) {
+  assert.match(toolbarSource, /:title="canUndo \? '撤销' : '没有可撤销的操作'"/)
+  assert.match(toolbarSource, /:title="canRedo \? '重做' : '没有可重做的操作'"/)
+  assert.match(toolbarSource, /没有可撤销的操作/)
+  assert.match(toolbarSource, /没有可重做的操作/)
+  for (const label of ['适配视图', '切换背景']) {
     assert.match(toolbarSource, new RegExp(`aria-label="${label}"`))
     assert.match(toolbarSource, new RegExp(`title="${label}"`))
   }

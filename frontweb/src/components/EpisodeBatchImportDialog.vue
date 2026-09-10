@@ -18,6 +18,7 @@
         <el-tabs v-model="activeTab" class="batch-import-tabs">
           <el-tab-pane label="1. 导入设置" name="config">
             <div class="batch-import-panel">
+              <div v-if="previewTabDisabledReason" class="batch-import-disabled-reason">{{ previewTabDisabledReason }}</div>
               <div class="batch-import-toolbar">
                 <input ref="fileInputRef" type="file" accept=".txt,text/plain" style="display:none" @change="onFileChange" />
                 <el-button
@@ -52,6 +53,9 @@
           </el-tab-pane>
 
           <el-tab-pane label="2. 预览确认" name="preview" :disabled="!previewReady">
+            <template #label>
+              <span :title="previewTabDisabledReason">2. 预览确认</span>
+            </template>
             <div class="batch-import-panel">
               <template v-if="previewEpisodes.length">
                 <div class="batch-import-preview-header">
@@ -173,6 +177,9 @@ const importConfirmDisabledReason = computed(() => {
   if (!previewEpisodes.value.length) return '请先完成预览确认'
   return ''
 })
+const previewTabDisabledReason = computed(() => (
+  previewReady.value ? '' : '请先选择文件并确认导入配置'
+))
 
 function openDialog() {
   visible.value = true

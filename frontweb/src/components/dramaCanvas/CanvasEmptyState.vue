@@ -42,6 +42,7 @@
           v-else-if="actions.primaryAction === 'confirm-episode'"
           type="primary"
           :disabled="effectiveEpisodeId === null"
+          :title="effectiveEpisodeId === null ? '请先选择要进入的剧集' : undefined"
           native-type="submit"
         >
           <el-icon><Right /></el-icon>

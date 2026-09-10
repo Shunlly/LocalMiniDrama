@@ -139,7 +139,7 @@
           <!-- 普通模式操作栏 -->
           <div v-if="!vendorLock.enabled" class="content-actions">
             <div class="actions-left">
-              <el-button type="primary" :disabled="configWriteLocked" @click="openAdd">
+              <el-button type="primary" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openAdd">
                 <el-icon><Plus /></el-icon>
                 添加配置
               </el-button>
@@ -147,20 +147,20 @@
                 <el-icon><Download /></el-icon>
                 导出配置
               </el-button>
-              <el-button plain :disabled="configWriteLocked" @click="triggerImport">
+              <el-button plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="triggerImport">
                 <el-icon><Upload /></el-icon>
                 导入配置
               </el-button>
               <input ref="importFileRef" type="file" accept=".json" style="display:none" aria-hidden="true" tabindex="-1" :disabled="configWriteLocked" @change="importConfigs" />
-              <el-button type="success" plain :disabled="configWriteLocked" @click="openOneKeyVolc">
+              <el-button type="success" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openOneKeyVolc">
                 <el-icon><MagicStick /></el-icon>
                 一键配置火山
               </el-button>
-              <el-button type="success" plain :disabled="configWriteLocked" @click="openOneKeyAgnes">
+              <el-button type="success" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openOneKeyAgnes">
                 <el-icon><MagicStick /></el-icon>
                 一键配置 Agnes
               </el-button>
-              <el-button type="info" plain :disabled="configWriteLocked" @click="openOneKeyTongyi">
+              <el-button type="info" plain :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openOneKeyTongyi">
                 <el-icon><MagicStick /></el-icon>
                 一键配置通义
                 <span class="one-key-not-recommended">不推荐</span>
@@ -173,6 +173,7 @@
                   type="danger"
                   :loading="batchDeleting"
                   :disabled="configWriteLocked"
+                  :title="configWriteLocked ? configWriteLockReason : undefined"
                   @click="onBatchDelete"
                 >
                   <el-icon><Delete /></el-icon>
@@ -196,7 +197,7 @@
               <el-icon><Download /></el-icon>
               导出配置
             </el-button>
-            <el-button type="primary" size="small" class="vendor-bulk-key-btn" :disabled="configWriteLocked" @click="openBulkKey">
+            <el-button type="primary" size="small" class="vendor-bulk-key-btn" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="openBulkKey">
               <el-icon><Key /></el-icon>
               一键换密钥
             </el-button>
@@ -253,8 +254,8 @@
             <el-table-column label="操作" width="180" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" :aria-label="configActionLabel('测试', row)" @click="openTest(row)">测试</el-button>
-                <el-button link type="primary" size="small" :disabled="configWriteLocked" :aria-label="configActionLabel(vendorLock.enabled ? '修改密钥' : '编辑', row)" @click="onRowEdit(row)">{{ vendorLock.enabled ? '修改密钥' : '编辑' }}</el-button>
-                <el-button v-if="!vendorLock.enabled" link type="danger" size="small" :disabled="configWriteLocked" :aria-label="configActionLabel('删除', row)" @click="onDelete(row)">删除</el-button>
+                <el-button link type="primary" size="small" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configActionLabel(vendorLock.enabled ? '修改密钥' : '编辑', row)" @click="onRowEdit(row)">{{ vendorLock.enabled ? '修改密钥' : '编辑' }}</el-button>
+                <el-button v-if="!vendorLock.enabled" link type="danger" size="small" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" :aria-label="configActionLabel('删除', row)" @click="onDelete(row)">删除</el-button>
               </template>
             </el-table-column>
             <template #empty>
@@ -277,6 +278,7 @@
                     type="primary"
                     size="small"
                     :disabled="configWriteLocked"
+                    :title="configWriteLocked ? configWriteLockReason : undefined"
                     @click="openAddForService(activeServiceFilter || 'text')"
                   >
                     <el-icon><Plus /></el-icon>
@@ -1159,7 +1161,7 @@
       </div>
       <template #footer>
         <el-button @click="requestConfigDialogClose">取消</el-button>
-        <el-button type="primary" aria-label="保存配置" :loading="saving" :disabled="configWriteLocked" @click="submit">保存</el-button>
+        <el-button type="primary" aria-label="保存配置" :loading="saving" :disabled="configWriteLocked" :title="configWriteLocked ? configWriteLockReason : undefined" @click="submit">保存</el-button>
       </template>
     </AccessibleDialog>
 
@@ -1209,7 +1211,7 @@
       </el-form>
       <template #footer>
         <el-button @click="requestOneKeyTongyiClose">取消</el-button>
-        <el-button type="success" :loading="oneKeyTongyiSaving" :disabled="configWriteLocked || !oneKeyTongyiKey.trim()" @click="submitOneKeyTongyi">
+        <el-button type="success" :loading="oneKeyTongyiSaving" :disabled="configWriteLocked || !oneKeyTongyiKey.trim()" :title="configWriteLocked ? configWriteLockReason : undefined" @click="submitOneKeyTongyi">
           确定，一键创建配置
         </el-button>
       </template>
@@ -1261,7 +1263,7 @@
       </el-form>
       <template #footer>
         <el-button @click="requestOneKeyVolcClose">取消</el-button>
-        <el-button type="success" :loading="oneKeyVolcSaving" :disabled="configWriteLocked || !oneKeyVolcKey.trim()" @click="submitOneKeyVolc">
+        <el-button type="success" :loading="oneKeyVolcSaving" :disabled="configWriteLocked || !oneKeyVolcKey.trim()" :title="configWriteLocked ? configWriteLockReason : undefined" @click="submitOneKeyVolc">
           确定，一键创建配置
         </el-button>
       </template>
@@ -1312,7 +1314,7 @@
       </el-form>
       <template #footer>
         <el-button @click="requestOneKeyAgnesClose">取消</el-button>
-        <el-button type="success" :loading="oneKeyAgnesSaving" :disabled="configWriteLocked || !oneKeyAgnesKey.trim()" @click="submitOneKeyAgnes">
+        <el-button type="success" :loading="oneKeyAgnesSaving" :disabled="configWriteLocked || !oneKeyAgnesKey.trim()" :title="configWriteLocked ? configWriteLockReason : undefined" @click="submitOneKeyAgnes">
           确定，一键创建配置
         </el-button>
       </template>
@@ -1321,7 +1323,7 @@
     <!-- 即梦2角色认证：素材列表 -->
     <AccessibleDialog
       v-model="jimeng2AssetsDialogVisible"
-      title="素材库列表（GET /api/business/v1/assets）"
+      title="素材库列表"
       width="720px"
       class="jimeng2-assets-dialog ai-config-overlay"
       destroy-on-close
@@ -1330,7 +1332,7 @@
       <p class="field-tip" style="margin-top: 0">
         文档：
         <a href="https://83zi.com/sd2realperson.html" target="_blank" rel="noopener noreferrer">SilvaMux 素材管理 API</a>
-        ；仅 <code>status=active</code> 的素材可用于 Seedance 2.0 视频引用。
+        ；仅启用中的素材可用于 Seedance 2.0 视频引用。
       </p>
       <el-table v-loading="jimeng2AssetsLoading" :data="jimeng2AssetsRows" stripe max-height="420" empty-text="暂无数据或未加载">
         <el-table-column prop="id" label="素材 ID" min-width="120" show-overflow-tooltip />
@@ -1346,8 +1348,10 @@
           </template>
         </el-table-column>
         <el-table-column prop="asset_url" label="素材地址" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="url" label="原始 URL" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="created_at" label="创建时间" width="160" show-overflow-tooltip />
+        <el-table-column prop="url" label="原始地址" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="created_at" label="创建时间" width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatJimeng2AssetCreatedAt(row.created_at) || '未知时间' }}</template>
+        </el-table-column>
       </el-table>
       <div v-if="jimeng2AssetsHasMore" style="margin-top: 12px; text-align: center">
         <el-button :loading="jimeng2AssetsLoading" @click="loadMoreJimeng2MaterialAssets">加载更多</el-button>
@@ -1438,7 +1442,7 @@
       </el-form>
       <template #footer>
         <el-button @click="requestBulkKeyClose">取消</el-button>
-        <el-button type="primary" :loading="bulkKeySaving" :disabled="configWriteLocked || !bulkKeyInput.trim()" @click="submitBulkKey">确认替换</el-button>
+        <el-button type="primary" :loading="bulkKeySaving" :disabled="configWriteLocked || !bulkKeyInput.trim()" :title="configWriteLocked ? configWriteLockReason : undefined" @click="submitBulkKey">确认替换</el-button>
       </template>
     </AccessibleDialog>
   </div>
@@ -1963,6 +1967,31 @@ const configWriteLocked = computed(() => (
   || oneKeyVolcSaving.value
   || oneKeyAgnesSaving.value
 ))
+
+const configWriteLockReason = computed(() => {
+  if (saving.value) return '正在保存配置，请稍候'
+  if (bulkKeySaving.value) return '正在批量替换密钥，请稍候'
+  if (batchDeleting.value) return '正在批量删除配置，请稍候'
+  if (oneKeyTongyiSaving.value || oneKeyVolcSaving.value || oneKeyAgnesSaving.value) {
+    return '正在一键配置，请稍候'
+  }
+  if (configLoadState.value !== 'ready') return '配置列表尚未就绪'
+  if (!vendorLockResolved.value) return '厂商锁定状态尚未解析'
+  return ''
+})
+
+function formatJimeng2AssetCreatedAt(value) {
+  const timestamp = Date.parse(String(value ?? ''))
+  if (!Number.isFinite(timestamp)) return ''
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
 
 const {
   openOneKeyTongyi,

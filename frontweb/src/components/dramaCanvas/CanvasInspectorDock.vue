@@ -28,7 +28,7 @@
               :icon="ArrowLeft"
               :disabled="!inspectorNavigation.previousId"
               aria-label="上一镜"
-              title="上一镜"
+              :title="inspectorNavigation.previousId ? '上一镜' : '已经是第一镜'"
               @click.stop="navigateInspector(inspectorNavigation.previousId)"
             />
             <el-button
@@ -37,7 +37,7 @@
               :icon="ArrowRight"
               :disabled="!inspectorNavigation.nextId"
               aria-label="下一镜"
-              title="下一镜"
+              :title="inspectorNavigation.nextId ? '下一镜' : '已经是最后一镜'"
               @click.stop="navigateInspector(inspectorNavigation.nextId)"
             />
           </div>
@@ -66,6 +66,7 @@
             type="button"
             class="media-query-retry"
             :disabled="retryingMedia"
+            :title="retryingMedia ? '正在重试媒体查询，请稍候' : undefined"
             @click.stop="retryMedia"
           >
             {{ retryingMedia ? '重试中...' : '重试媒体查询' }}

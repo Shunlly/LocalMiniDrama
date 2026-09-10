@@ -39,6 +39,7 @@
         type="button"
         class="media-query-retry"
         :disabled="retryingMedia"
+        :title="retryingMedia ? '正在重试媒体查询，请稍候' : undefined"
         :aria-label="retryingMedia ? '正在重试媒体查询' : '重试媒体查询'"
         @click.stop="retryMedia"
       >

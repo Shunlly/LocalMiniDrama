@@ -22,6 +22,7 @@
           :model-value="draft.title"
           aria-label="节点标题"
           :disabled="editorDisabled"
+          :title="editorDisabled ? editorDisabledReason : undefined"
           @update:model-value="updateDraftField('title', $event)"
         />
       </el-form-item>
@@ -33,16 +34,33 @@
           :rows="6"
           aria-label="节点内容"
           :disabled="editorDisabled"
+          :title="editorDisabled ? editorDisabledReason : undefined"
           @update:model-value="updateDraftField('content', $event)"
         />
       </el-form-item>
       <el-form-item label="素材引用">
-        <el-select v-model="draft.asset_ref" aria-label="素材引用" clearable :disabled="editorDisabled" placeholder="不关联素材" @change="emitUpdate">
+        <el-select
+          v-model="draft.asset_ref"
+          aria-label="素材引用"
+          clearable
+          :disabled="editorDisabled"
+          :title="editorDisabled ? editorDisabledReason : undefined"
+          placeholder="不关联素材"
+          @change="emitUpdate"
+        >
           <el-option v-for="option in assetOptions" :key="option.id" :label="option.label" :value="option.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="分镜引用">
-        <el-select v-model="draft.storyboard_ref" aria-label="分镜引用" clearable :disabled="editorDisabled" placeholder="不关联分镜" @change="emitUpdate">
+        <el-select
+          v-model="draft.storyboard_ref"
+          aria-label="分镜引用"
+          clearable
+          :disabled="editorDisabled"
+          :title="editorDisabled ? editorDisabledReason : undefined"
+          placeholder="不关联分镜"
+          @change="emitUpdate"
+        >
           <el-option v-for="option in storyboardOptions" :key="option.id" :label="option.label" :value="option.id" />
         </el-select>
       </el-form-item>
@@ -65,7 +83,12 @@
       </dl>
       <p class="config-message" :class="`state-${configRuntime.status}`" role="status">{{ configRuntime.reason }}</p>
       <div class="inspector-actions">
-        <el-button v-if="configRuntime.canConfigure" :disabled="readonly || busy" @click="emit('configure', node.id)">
+        <el-button
+          v-if="configRuntime.canConfigure"
+          :disabled="readonly || busy"
+          :title="(readonly || busy) ? configActionDisabledReason : undefined"
+          @click="emit('configure', node.id)"
+        >
           <el-icon><Setting /></el-icon>
           AI 配置
         </el-button>
@@ -81,7 +104,13 @@
           <el-icon><CircleClose /></el-icon>
           停止等待
         </el-button>
-        <el-button v-if="configRuntime.canRetry" type="primary" :disabled="readonly || busy" @click="emit('retry-config', node.id)">
+        <el-button
+          v-if="configRuntime.canRetry"
+          type="primary"
+          :disabled="readonly || busy"
+          :title="(readonly || busy) ? configActionDisabledReason : undefined"
+          @click="emit('retry-config', node.id)"
+        >
           <el-icon><RefreshRight /></el-icon>
           重试检查
         </el-button>
@@ -90,13 +119,20 @@
 
     <section class="conversion-panel" aria-label="转换为制作内容">
       <h3>转换为制作内容</h3>
-      <el-select v-model="conversionTarget" aria-label="转换目标" :disabled="editorDisabled" placeholder="选择转换目标">
+      <el-select
+        v-model="conversionTarget"
+        aria-label="转换目标"
+        :disabled="editorDisabled"
+        :title="editorDisabled ? editorDisabledReason : undefined"
+        placeholder="选择转换目标"
+      >
         <el-option v-for="target in conversionTargets" :key="target.value" :label="target.label" :value="target.value" />
       </el-select>
       <div class="inspector-actions">
         <el-button
           :loading="converting"
           :disabled="editorDisabled || !conversionTarget"
+          :title="(editorDisabled || !conversionTarget) ? convertDisabledReason : undefined"
           @click="emitConvertReference"
         >
           转换引用
@@ -168,12 +204,40 @@ const emit = defineEmits([
   'retry-config',
 ])
 
+function describeFreeCanvasInspectorDisabledReason({
+  readonly = false,
+  busy = false,
+  configRunning = false,
+  missingConversionTarget = false,
+} = {}) {
+  if (readonly) return '当前为只读，不能编辑'
+  if (busy) return '节点忙碌时不能编辑'
+  if (configRunning) return '生成任务正在运行，不能编辑'
+  if (missingConversionTarget) return '请先选择转换目标'
+  return undefined
+}
+
 const draft = ref({ title: '', content: '', asset_ref: null, storyboard_ref: null })
 const conversionTarget = ref('')
 const isConfigNode = computed(() => props.node?.type === 'config')
 const editorDisabled = computed(() => (
   props.readonly || props.busy || (isConfigNode.value && props.configRuntime?.status === 'running')
 ))
+const editorDisabledReason = computed(() => describeFreeCanvasInspectorDisabledReason({
+  readonly: props.readonly,
+  busy: props.busy,
+  configRunning: isConfigNode.value && props.configRuntime?.status === 'running',
+}))
+const configActionDisabledReason = computed(() => describeFreeCanvasInspectorDisabledReason({
+  readonly: props.readonly,
+  busy: props.busy,
+}))
+const convertDisabledReason = computed(() => describeFreeCanvasInspectorDisabledReason({
+  readonly: props.readonly,
+  busy: props.busy,
+  configRunning: isConfigNode.value && props.configRuntime?.status === 'running',
+  missingConversionTarget: !conversionTarget.value,
+}))
 const saveAssetAriaLabel = computed(() => (
   props.saveAssetEligibility?.eligible
     ? '保存为素材'

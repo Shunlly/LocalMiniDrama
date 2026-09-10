@@ -234,6 +234,7 @@
             plain
             :loading="cancelling"
             :disabled="cancelling"
+            :title="cancelling ? resultBusyDisabledReason : undefined"
             @click="clearResults"
           >
             {{ generating ? '取消并清空' : '清空' }}
@@ -266,6 +267,7 @@
             plain
             :loading="cancelling"
             :disabled="cancelling"
+            :title="cancelling ? resultBusyDisabledReason : undefined"
             @click="cancelGeneration"
           >
             <el-icon v-if="!cancelling"><CircleClose /></el-icon>
@@ -305,6 +307,7 @@
                   type="primary"
                   plain
                   :disabled="generating || cancelling"
+                  :title="resultBusyDisabledReason || undefined"
                   @click="retryGeneration(item)"
                 >
                   重试
@@ -318,6 +321,7 @@
                   type="primary"
                   plain
                   :disabled="generating || cancelling"
+                  :title="resultBusyDisabledReason || undefined"
                   @click="retryGeneration(item)"
                 >
                   重试
@@ -332,6 +336,7 @@
                   type="primary"
                   plain
                   :disabled="generating || cancelling"
+                  :title="resultBusyDisabledReason || undefined"
                   @click="retryGeneration(item)"
                 >
                   重试
@@ -341,7 +346,14 @@
             <div class="result-meta">
               <span class="result-prompt">{{ item.prompt }}</span>
               <div class="result-actions">
-                <el-button v-if="item.url" size="small" plain @click="downloadItem(item)">下载</el-button>
+                <el-button
+                  v-if="item.url"
+                  size="small"
+                  plain
+                  :disabled="generating || cancelling"
+                  :title="resultBusyDisabledReason || undefined"
+                  @click="downloadItem(item)"
+                >下载</el-button>
               </div>
             </div>
           </div>
@@ -524,6 +536,11 @@ const generateDisabledReason = computed(() => {
   }
   if (referenceUploadBlockReason.value) return referenceUploadBlockReason.value
   if (!prompt.value.trim()) return '请先填写提示词'
+  return ''
+})
+const resultBusyDisabledReason = computed(() => {
+  if (cancelling.value) return '正在取消生成，请稍候'
+  if (generating.value) return '正在生成，请稍候'
   return ''
 })
 const emptyResultCopy = computed(() => {

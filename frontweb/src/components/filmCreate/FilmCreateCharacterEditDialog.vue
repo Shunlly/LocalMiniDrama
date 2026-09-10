@@ -24,15 +24,35 @@
             <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
           </button>
           <div v-if="addCharRefImage" class="ref-actions">
-            <el-button type="primary" size="small" :loading="extractingCharAppearance" @click="doExtractFromRef('character')">提取特征描述</el-button>
+            <el-button
+              type="primary"
+              size="small"
+              :loading="extractingCharAppearance"
+              :disabled="Boolean(extractCharAppearanceDisabledReason)"
+              :title="extractCharAppearanceDisabledReason || undefined"
+              @click="doExtractFromRef('character')"
+            >提取特征描述</el-button>
             <el-button size="small" @click="addCharRefImage = null">移除</el-button>
           </div>
           <div v-else-if="editCharacterForm.ref_image" class="ref-actions">
-            <el-button type="primary" size="small" :loading="extractingCharAppearance" @click="doExtractCharFromImage">从参考图提取描述</el-button>
+            <el-button
+              type="primary"
+              size="small"
+              :loading="extractingCharAppearance"
+              :disabled="Boolean(extractCharAppearanceDisabledReason)"
+              :title="extractCharAppearanceDisabledReason || undefined"
+              @click="doExtractCharFromImage"
+            >从参考图提取描述</el-button>
             <el-button size="small" @click="clearCharRefImage">移除参考图</el-button>
           </div>
           <div v-else-if="editCharacterForm.id && (editCharacterForm.image_url || editCharacterForm.local_path) && !editCharacterForm.appearance" class="ref-actions">
-            <el-button size="small" :loading="extractingCharAppearance" @click="doExtractCharFromImage">从主图提取描述</el-button>
+            <el-button
+              size="small"
+              :loading="extractingCharAppearance"
+              :disabled="Boolean(extractCharAppearanceDisabledReason)"
+              :title="extractCharAppearanceDisabledReason || undefined"
+              @click="doExtractCharFromImage"
+            >从主图提取描述</el-button>
           </div>
         </div>
       </el-form-item>
@@ -62,6 +82,8 @@
             <el-button
               size="small"
               :loading="editCharacterPromptGenerating"
+              :disabled="Boolean(generateCharacterPromptDisabledReason)"
+              :title="generateCharacterPromptDisabledReason || undefined"
               @click="doGenerateCharacterPrompt"
             >重新生成提示词</el-button>
           </div>
@@ -81,11 +103,12 @@
         <div style="width:100%">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             <span style="font-size:12px;color:#909399">AI 从外貌描述提炼的6层视觉特征，用于保持生成图片角色一致性</span>
-            <ActionGate :reason="editCharacterForm.appearance ? '' : '请先填写角色外貌描述'" label="提炼视觉锚点">
+            <ActionGate :reason="extractIdentityAnchorsDisabledReason" label="提炼视觉锚点">
               <el-button
                 size="small"
                 :loading="extractingAnchors"
-                :disabled="!editCharacterForm.appearance"
+                :disabled="Boolean(extractIdentityAnchorsDisabledReason)"
+                :title="extractIdentityAnchorsDisabledReason || undefined"
                 @click="extractIdentityAnchors"
               >提炼视觉锚点</el-button>
             </ActionGate>
@@ -125,13 +148,13 @@
     <p v-else class="char-edit-empty" role="status">角色信息还没有准备好。请点「取消」关闭后，再从角色列表重新打开。</p>
     <template #footer>
       <el-button @click="showEditCharacter = false">取消</el-button>
-      <el-button type="primary" :loading="editCharacterSaving" :disabled="!editCharacterForm?.name?.trim()" @click="submitEditCharacter">{{ editCharacterForm?.id ? '保存' : '添加' }}</el-button>
+      <el-button type="primary" :loading="editCharacterSaving" :disabled="Boolean(editCharacterSubmitDisabledReason)" :title="editCharacterSubmitDisabledReason || undefined" @click="submitEditCharacter">{{ editCharacterForm?.id ? '保存' : '添加' }}</el-button>
     </template>
   </AccessibleDialog>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import ActionGate from './ActionGate.vue'
 
 defineOptions({ inheritAttrs: false })
@@ -171,6 +194,28 @@ const {
 } = props
 
 const addCharRefFileInput = ref(null)
+
+const editCharacterSubmitDisabledReason = computed(() => {
+  if (!props.editCharacterForm?.name?.trim()) return '请先填写角色名称'
+  return ''
+})
+
+const generateCharacterPromptDisabledReason = computed(() => {
+  if (props.editCharacterPromptGenerating) return 'AI 正在生成提示词，请稍候'
+  return ''
+})
+
+const extractCharAppearanceDisabledReason = computed(() => {
+  if (!props.extractingCharAppearance) return ''
+  if (addCharRefImage.value) return '正在提取特征描述，请稍候'
+  if (props.editCharacterForm?.ref_image) return '正在从参考图提取描述，请稍候'
+  return '正在从主图提取描述，请稍候'
+})
+
+const extractIdentityAnchorsDisabledReason = computed(() => {
+  if (!props.editCharacterForm?.appearance) return '请先填写角色外貌描述'
+  return ''
+})
 </script>
 
 <style scoped>

@@ -58,6 +58,7 @@
         :aria-busy="isCoverageActionTesting(item, action)"
         :loading="isCoverageActionTesting(item, action)"
         :disabled="isCoverageActionDisabled(item, action)"
+        :title="coverageActionTitle(action, isCoverageActionDisabled(item, action))"
         @click.stop="$emit('action', item, action)"
       >
         {{ action.label }}
@@ -87,6 +88,13 @@ defineProps({
 })
 
 defineEmits(['select', 'action'])
+
+function coverageActionTitle(action, disabled) {
+  if (!disabled) return undefined
+  if (action.action === 'test') return '正在测试连接，请稍候'
+  if (action.action === 'add' || action.action === 'edit') return '配置尚未就绪或正在保存，暂时不能修改'
+  return undefined
+}
 </script>
 
 <style scoped>

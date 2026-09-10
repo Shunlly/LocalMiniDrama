@@ -9,6 +9,7 @@ import {
   getFreeCanvasNodeCapacityWarning,
   isFreeCanvasDeleteShortcutBlocked,
 } from '../src/components/dramaCanvas/freeCanvasUx.js'
+import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
 
 function read(path) {
   return readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -101,3 +102,60 @@ test('free canvas delete asks for Chinese confirmation before removing nodes', (
   assert.match(node, /free-canvas-node:focus-visible/)
 })
 
+test('inspector disabled controls expose Chinese reasons and stay untitled when enabled', () => {
+  const inspector = read('../src/components/dramaCanvas/FreeCanvasInspector.vue')
+  const describeFreeCanvasInspectorDisabledReason = new Function(
+    `'use strict'; ${remainingExtractNamedFunction(inspector, 'describeFreeCanvasInspectorDisabledReason')}; return describeFreeCanvasInspectorDisabledReason;`,
+  )()
+
+  assert.equal(describeFreeCanvasInspectorDisabledReason({ readonly: true }), '当前为只读，不能编辑')
+  assert.equal(describeFreeCanvasInspectorDisabledReason({ busy: true }), '节点忙碌时不能编辑')
+  assert.equal(
+    describeFreeCanvasInspectorDisabledReason({ configRunning: true }),
+    '生成任务正在运行，不能编辑',
+  )
+  assert.equal(
+    describeFreeCanvasInspectorDisabledReason({ missingConversionTarget: true }),
+    '请先选择转换目标',
+  )
+  assert.equal(describeFreeCanvasInspectorDisabledReason({}), undefined)
+  assert.equal(
+    describeFreeCanvasInspectorDisabledReason({
+      readonly: true,
+      busy: true,
+      configRunning: true,
+      missingConversionTarget: true,
+    }),
+    '当前为只读，不能编辑',
+  )
+  assert.equal(
+    describeFreeCanvasInspectorDisabledReason({
+      configRunning: true,
+      missingConversionTarget: true,
+    }),
+    '生成任务正在运行，不能编辑',
+  )
+
+  assert.equal(
+    (inspector.match(/:title="editorDisabled \? editorDisabledReason : undefined"/g) || []).length,
+    5,
+  )
+  assert.equal(
+    (inspector.match(/:title="\(readonly \|\| busy\) \? configActionDisabledReason : undefined"/g) || []).length,
+    2,
+  )
+  assert.match(
+    inspector,
+    /:title="\(editorDisabled \|\| !conversionTarget\) \? convertDisabledReason : undefined"/,
+  )
+  assert.match(inspector, /title="停止当前页面等待；已提交任务可能继续执行或计费"/)
+  assert.match(inspector, /:title="saveAssetEligibility\.reason \|\| '保存为素材'"/)
+  assert.match(
+    inspector,
+    /const configActionDisabledReason = computed\(\(\) => describeFreeCanvasInspectorDisabledReason\(\{\s*readonly: props\.readonly,\s*busy: props\.busy,\s*\}\)\)/,
+  )
+  assert.doesNotMatch(
+    inspector,
+    /configActionDisabledReason = computed\(\(\) => describeFreeCanvasInspectorDisabledReason\(\{[^}]*configRunning/,
+  )
+})

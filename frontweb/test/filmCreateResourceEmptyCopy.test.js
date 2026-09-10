@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { useFilmCreateNavSteps } from '../src/composables/filmCreate/useFilmCreateNavSteps.js'
 
 const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
+const dialogs = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourceDialogs.vue', import.meta.url), 'utf8')
 
 function refOf(value) {
   return { value }
@@ -55,4 +56,34 @@ test('资源面板标题与导航步骤一致，空态指向真实按钮', () =>
   assert.match(panel, /暂无道具，可用「从剧本提取道具」或「添加道具」/)
   assert.match(panel, /暂无场景，可用「从剧本提取场景」或「添加场景」/)
   assert.doesNotMatch(panel, /class="resource-block-title">角色生成<\/span>/)
+})
+
+test('资源弹窗空名称禁用确定保存时给出中文原因', () => {
+  const addPropTitle = dialogs.match(/:disabled="!addPropForm.name.trim\(\)" :title="([^"]+)"/)?.[1]
+  const editPropTitle = dialogs.match(/:disabled="!editPropForm\?\.name\?\.trim\(\)" :title="([^"]+)"/)?.[1]
+  const editSceneTitle = dialogs.match(/:disabled="!editSceneForm\?\.location\?\.trim\(\)" :title="([^"]+)"/)?.[1]
+  const addToEpisodeTitle = dialogs.match(/:disabled="Boolean\(addToEpisodeDisabledReason\)" :title="([^"]+)"/)?.[1]
+  assert.equal(addPropTitle, "addPropForm.name.trim() ? undefined : '请先填写名称'")
+  assert.equal(editPropTitle, "editPropForm?.name?.trim() ? undefined : '请先填写名称'")
+  assert.equal(editSceneTitle, "editSceneForm?.location?.trim() ? undefined : '请先填写地点'")
+  assert.equal(addToEpisodeTitle, 'addToEpisodeDisabledReason || undefined')
+  assert.equal(
+    [...dialogs.matchAll(/:disabled="Boolean\(addToEpisodeDisabledReason\)" :title="addToEpisodeDisabledReason \|\| undefined"/g)].length,
+    6,
+  )
+  assert.doesNotMatch(dialogs, /:disabled="!addPropForm.name.trim\(\)" @click="submitAddProp"/)
+  assert.doesNotMatch(dialogs, /:disabled="!editPropForm\?\.name\?\.trim\(\)" @click="submitEditProp"/)
+  assert.doesNotMatch(dialogs, /:disabled="!editSceneForm\?\.location\?\.trim\(\)" @click="submitEditScene"/)
+  assert.doesNotMatch(dialogs, /:disabled="Boolean\(addToEpisodeDisabledReason\)" @click=/)
+
+  const evalExpr = (expr, scope) => Function(...Object.keys(scope), `"use strict"; return (${expr});`)(...Object.values(scope))
+  assert.equal(evalExpr(addPropTitle, { addPropForm: { name: '' } }), '请先填写名称')
+  assert.equal(evalExpr(addPropTitle, { addPropForm: { name: '  ' } }), '请先填写名称')
+  assert.equal(evalExpr(addPropTitle, { addPropForm: { name: '茶杯' } }), undefined)
+  assert.equal(evalExpr(editPropTitle, { editPropForm: null }), '请先填写名称')
+  assert.equal(evalExpr(editPropTitle, { editPropForm: { name: '灯笼' } }), undefined)
+  assert.equal(evalExpr(editSceneTitle, { editSceneForm: { location: '' } }), '请先填写地点')
+  assert.equal(evalExpr(editSceneTitle, { editSceneForm: { location: '教室' } }), undefined)
+  assert.equal(evalExpr(addToEpisodeTitle, { addToEpisodeDisabledReason: '请先创建或选择剧集' }), '请先创建或选择剧集')
+  assert.equal(evalExpr(addToEpisodeTitle, { addToEpisodeDisabledReason: '' }), undefined)
 })
