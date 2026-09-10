@@ -175,7 +175,7 @@ test('TTS / \u7d20\u6750\u6e90 / \u573a\u666f\u5168\u666f / \u4e0a\u4f20\u9519\u
   try {
     await assert.rejects(
       () => ttsService.synthesize(db, silentLog, { text: '   ', storage_base: '.' }),
-      (error) => error.code === 'BAD_REQUEST' && error.message === 'text \u4e0d\u80fd\u4e3a\u7a7a'
+      (error) => error.code === 'BAD_REQUEST' && /\u5bf9\u767d\u4e3a\u7a7a/.test(error.message)
     );
     await assert.rejects(
       () => ttsService.synthesize(db, silentLog, { text: '\u65c1\u767d', storage_base: '.' }),
@@ -285,5 +285,7 @@ test('videoClient 用户错误不再是问号乱码', () => {
   assert.match(source, /Vidu 任务完成但未返回视频地址/);
   assert.match(source, /Gemini 任务完成但未返回视频地址/);
   assert.match(source, /视频生成超时，请稍后重试/);
+  assert.match(source, /视频任务已取消/);
+  assert.equal(source.includes('throw signal.reason'), false);
 });
 

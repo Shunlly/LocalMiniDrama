@@ -3,9 +3,14 @@
 const { fetchVideoWithTimeout, resolveVideoTimeoutMs } = require('./providerRuntime');
 const aiConfigService = require('../aiConfigService');
 const {
+  classifyHttpFailure,
   gatewayErrorResult,
+  isRequestCanceled,
+  isRequestTimeout,
   markSafeProviderError,
+  normalizeProviderRequestError,
   operationCancelledError,
+  requestTimeoutError,
 } = require('./requestError');
 
 const CANCELLED_STATES = new Set(['cancelled', 'canceled', 'cancelled_by_user', 'deleted']);
@@ -28,13 +33,47 @@ class VideoAdapterError extends Error {
   }
 }
 
+function configError(message) {
+  return markSafeProviderError(new TypeError(message));
+}
+
+function classifyMinimaxError(error, signal, operation = 'video request') {
+  if (isRequestTimeout(error, signal)) {
+    return requestTimeoutError(error, { provider: 'MiniMax', operation });
+  }
+  if (isRequestCanceled(error, signal)) {
+    return operationCancelledError(error);
+  }
+  return normalizeProviderRequestError(error, { signal, provider: 'MiniMax', operation });
+}
+
+function throwIfAborted(signal, operation = 'video request') {
+  if (!signal?.aborted) return;
+  throw classifyMinimaxError(signal.reason, signal, operation);
+}
+
+function minimaxHttpError(status, operation, responseBody, code) {
+  return classifyHttpFailure({
+    provider: 'MiniMax',
+    operation,
+    status,
+    responseBody,
+    code,
+  });
+}
+
 function requireConfig(config) {
   if (!config?.api_key || !config?.base_url) {
-    throw new TypeError('MiniMax 视频未配置 base_url 或 api_key');
+    throw configError('MiniMax 视频未配置 base_url 或 api_key');
   }
-  const baseUrl = new URL(config.base_url);
+  let baseUrl;
+  try {
+    baseUrl = new URL(config.base_url);
+  } catch (_) {
+    throw configError('MiniMax 视频 base_url 必须是不含凭据的 HTTP(S) 地址');
+  }
   if (!['http:', 'https:'].includes(baseUrl.protocol) || baseUrl.username || baseUrl.password) {
-    throw new TypeError('MiniMax 视频 base_url 必须是不含凭据的 HTTP(S) 地址');
+    throw configError('MiniMax 视频 base_url 必须是不含凭据的 HTTP(S) 地址');
   }
   return baseUrl;
 }
@@ -42,7 +81,7 @@ function requireConfig(config) {
 function endpointUrl(baseUrl, endpoint, fallback) {
   const raw = String(endpoint || fallback);
   if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\') || /[\r\n]/.test(raw)) {
-    throw new TypeError('MiniMax 视频接口路径必须是相对路径');
+    throw configError('MiniMax 视频接口路径必须是相对路径');
   }
   const result = new URL(baseUrl.href);
   const basePath = result.pathname.replace(/\/+$/, '');
@@ -70,7 +109,7 @@ function withTaskId(endpoint, fallback, taskId) {
 function requireTaskId(value) {
   const taskId = String(value ?? '');
   if (!taskId || taskId.length > 200 || !/^[A-Za-z0-9_-]+$/.test(taskId)) {
-    throw new TypeError('MiniMax 视频任务 ID 无效');
+    throw configError('MiniMax 视频任务 ID 无效');
   }
   return taskId;
 }
@@ -162,7 +201,7 @@ function createRemoteCancellation(runtime, config, baseUrl) {
           || (typeof AbortSignal?.timeout === 'function'
             ? AbortSignal.timeout(DEFAULT_CANCEL_TIMEOUT_MS)
             : undefined);
-        if (cancelSignal?.aborted) throw cancelSignal.reason;
+        if (cancelSignal?.aborted) throw classifyMinimaxError(cancelSignal.reason, cancelSignal, 'video request');
         const endpoint = withTaskId(
           config.cancel_endpoint,
           '/video_generation/{taskId}',
@@ -178,7 +217,7 @@ function createRemoteCancellation(runtime, config, baseUrl) {
         return { confirmed: cancellationConfirmed(response, data) };
       })().catch((error) => {
         cancellationPromise = null;
-        throw error;
+        throw classifyMinimaxError(error, options.signal, 'video request');
       });
     }
     return cancellationPromise;
@@ -205,7 +244,7 @@ async function createMinimaxVideo(config, input = {}, runtime = {}) {
   runtime = withProviderNetworkPolicy(config, runtime);
   const baseUrl = requireConfig(config);
   const signal = runtime.signal;
-  if (signal?.aborted) throw operationCancelledError(signal.reason);
+  throwIfAborted(signal);
   const remoteCancellation = createRemoteCancellation(runtime, config, baseUrl);
   const requestSignal = new AbortController().signal;
   signal?.addEventListener('abort', () => {
@@ -228,26 +267,28 @@ async function createMinimaxVideo(config, input = {}, runtime = {}) {
       runtime
     );
     if (!response.ok) {
-      throw new VideoAdapterError(`MiniMax 视频请求失败（HTTP ${response.status}）`, {
-        retryable: response.status === 408 || response.status === 429 || response.status >= 500,
-      });
+      throw minimaxHttpError(response.status, 'video request');
     }
     const data = await readJson(response);
     if (data?.base_resp?.status_code != null && Number(data.base_resp.status_code) !== 0) {
-      return gatewayErrorResult('MiniMax 视频请求失败');
+      return gatewayErrorResult(minimaxHttpError(response.status, 'video request', data, data.base_resp.status_code));
     }
     const status = pickStatus(data);
     if (CANCELLED_STATES.has(status)) throw operationCancelledError('视频生成已取消');
-    if (FAILED_STATES.has(status) || data?.error) return gatewayErrorResult('MiniMax 视频请求失败');
+    if (FAILED_STATES.has(status) || data?.error) {
+      return gatewayErrorResult(minimaxHttpError(response.status, 'video request', data));
+    }
     const videoUrl = pickVideoUrl(data);
     if (videoUrl) return { status: 'completed', video_url: videoUrl };
     taskId = requireTaskId(pickTaskId(data));
     remoteCancellation.settle(taskId);
     if (signal?.aborted) {
       await remoteCancellation.cancel();
-      throw operationCancelledError(signal.reason);
+      throw classifyMinimaxError(signal.reason, signal);
     }
     return { status: status || 'pending', task_id: taskId };
+  } catch (error) {
+    throw classifyMinimaxError(error, signal);
   } finally {
     remoteCancellation.settle(taskId);
   }
@@ -257,25 +298,29 @@ async function retrieveMinimaxFile(config, fileId, runtime = {}) {
   runtime = withProviderNetworkPolicy(config, runtime);
   const baseUrl = requireConfig(config);
   const value = String(fileId ?? '');
-  if (!/^\d{1,64}$/.test(value)) throw new TypeError('MiniMax 视频文件 ID 无效');
+  if (!/^\d{1,64}$/.test(value)) throw configError('MiniMax 视频文件 ID 无效');
   const parsed = new URL(String(config.file_endpoint || '/files/retrieve'), 'http://adapter.invalid');
   parsed.searchParams.set('file_id', value);
-  const response = await providerFetch(
-    endpointUrl(baseUrl, `${parsed.pathname}${parsed.search}`, parsed.pathname),
-    { method: 'GET', headers: { Authorization: `Bearer ${config.api_key}` }, signal: runtime.signal },
-    runtime
-  );
-  if (!response.ok) return gatewayErrorResult(`MiniMax 视频文件请求失败（HTTP ${response.status}）`);
-  const data = await readJson(response);
-  const videoUrl = pickVideoUrl(data);
-  return videoUrl ? { status: 'completed', video_url: videoUrl } : gatewayErrorResult('MiniMax 视频文件未返回地址');
+  try {
+    const response = await providerFetch(
+      endpointUrl(baseUrl, `${parsed.pathname}${parsed.search}`, parsed.pathname),
+      { method: 'GET', headers: { Authorization: `Bearer ${config.api_key}` }, signal: runtime.signal },
+      runtime
+    );
+    if (!response.ok) return gatewayErrorResult(minimaxHttpError(response.status, 'video response'));
+    const data = await readJson(response);
+    const videoUrl = pickVideoUrl(data);
+    return videoUrl ? { status: 'completed', video_url: videoUrl } : gatewayErrorResult('MiniMax 视频文件未返回地址');
+  } catch (error) {
+    throw classifyMinimaxError(error, runtime.signal, 'video response');
+  }
 }
 
 async function pollMinimaxVideo(config, taskId, runtime = {}) {
   runtime = withProviderNetworkPolicy(config, runtime);
   const baseUrl = requireConfig(config);
   const normalizedTaskId = requireTaskId(taskId);
-  if (runtime.signal?.aborted) throw operationCancelledError(runtime.signal.reason);
+  throwIfAborted(runtime.signal, 'video task');
   const remoteCancellation = createRemoteCancellation(runtime, config, baseUrl);
   remoteCancellation.settle(normalizedTaskId);
   const endpoint = withTaskId(
@@ -283,32 +328,36 @@ async function pollMinimaxVideo(config, taskId, runtime = {}) {
     '/query/video_generation?task_id=',
     normalizedTaskId
   );
-  const response = await providerFetch(
-    endpointUrl(baseUrl, endpoint, endpoint),
-    { method: 'GET', headers: { Authorization: `Bearer ${config.api_key}` }, signal: runtime.signal },
-    runtime
-  );
-  if (!response.ok) return gatewayErrorResult(`MiniMax 视频任务失败（HTTP ${response.status}）`);
-  const data = await readJson(response);
-  if (data?.base_resp?.status_code != null && Number(data.base_resp.status_code) !== 0) {
-    return gatewayErrorResult('MiniMax 视频任务失败');
+  try {
+    const response = await providerFetch(
+      endpointUrl(baseUrl, endpoint, endpoint),
+      { method: 'GET', headers: { Authorization: `Bearer ${config.api_key}` }, signal: runtime.signal },
+      runtime
+    );
+    if (!response.ok) return gatewayErrorResult(minimaxHttpError(response.status, 'video task'));
+    const data = await readJson(response);
+    if (data?.base_resp?.status_code != null && Number(data.base_resp.status_code) !== 0) {
+      return gatewayErrorResult(minimaxHttpError(response.status, 'video task', data, data.base_resp.status_code));
+    }
+    const status = pickStatus(data);
+    if (CANCELLED_STATES.has(status)) {
+      throw operationCancelledError('视频生成已取消');
+    }
+    if (FAILED_STATES.has(status) || data?.error) {
+      return gatewayErrorResult(minimaxHttpError(response.status, 'video task', data));
+    }
+    const videoUrl = pickVideoUrl(data);
+    if (videoUrl) return { status: 'completed', video_url: videoUrl };
+    const fileId = data?.file_id || data?.file?.file_id || data?.data?.file_id;
+    if (fileId && (COMPLETED_STATES.has(status) || !status)) {
+      return retrieveMinimaxFile(config, fileId, runtime);
+    }
+    if (PENDING_STATES.has(status)) return { status: 'pending', task_id: normalizedTaskId };
+    if (COMPLETED_STATES.has(status)) return gatewayErrorResult('MiniMax 视频任务已完成但未返回视频地址');
+    return gatewayErrorResult('MiniMax 视频任务返回了无法识别的状态');
+  } catch (error) {
+    throw classifyMinimaxError(error, runtime.signal, 'video task');
   }
-  const status = pickStatus(data);
-  if (CANCELLED_STATES.has(status)) {
-    throw operationCancelledError('视频生成已取消');
-  }
-  if (FAILED_STATES.has(status) || data?.error) {
-    return gatewayErrorResult('MiniMax 视频任务失败');
-  }
-  const videoUrl = pickVideoUrl(data);
-  if (videoUrl) return { status: 'completed', video_url: videoUrl };
-  const fileId = data?.file_id || data?.file?.file_id || data?.data?.file_id;
-  if (fileId && (COMPLETED_STATES.has(status) || !status)) {
-    return retrieveMinimaxFile(config, fileId, runtime);
-  }
-  if (PENDING_STATES.has(status)) return { status: 'pending', task_id: normalizedTaskId };
-  if (COMPLETED_STATES.has(status)) return gatewayErrorResult('MiniMax 视频任务已完成但未返回视频地址');
-  return gatewayErrorResult('MiniMax 视频任务返回了无法识别的状态');
 }
 
 module.exports = {

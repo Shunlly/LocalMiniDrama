@@ -1,21 +1,25 @@
 const fs = require('node:fs')
 const fsp = require('node:fs/promises')
 const path = require('node:path')
+const crypto = require('node:crypto')
 const { spawnSync } = require('node:child_process')
 const {
   DataBackupError,
   createDataBackup,
+  createExternalMaintenanceLease,
+  getRuntimeServiceMaintenanceLock,
   restoreDataBackup,
 } = require('./dataBackupService')
 
 const PENDING_RESTORE_SCHEMA = 'localminidrama.pending-restore.v1'
 const PENDING_RESTORE_FILE = '.restore-pending.json'
 const SAFE_BACKUP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,180}\.zip$/i
+const PENDING_RESTORE_MESSAGE = '已安排在下次启动时恢复，请重启应用。'
 
 const HTTP_BACKUP_MESSAGES = Object.freeze({
   CONFIRMATION_REQUIRED: '恢复需要明确确认，当前数据不会被覆盖。',
   INVALID_ARGUMENT: '备份参数不完整，请重新选择备份文件后再试。',
-  SERVICE_RUNNING: '请先停止本地短剧助手服务，再执行全量恢复。',
+  SERVICE_RUNNING: '请先停止本地短剧助手服务，再执行全量备份或恢复。',
   OUTPUT_EXISTS: '目标备份文件已存在，请更换输出位置后再试。',
   BACKUP_FAILED: '数据备份未能完成。',
   RESTORE_FAILED: '数据恢复未能完成，原有数据应仍可用。',
@@ -24,6 +28,12 @@ const HTTP_BACKUP_MESSAGES = Object.freeze({
   BACKUP_FILE_INVALID_NAME: '备份文件名无效，请重新选择。',
   NOT_FOUND: '找不到该备份文件。',
   PENDING_RESTORE_INVALID: '待恢复登记无效，请重新确认恢复。',
+  PERMISSION_DENIED: '当前路径没有读写权限，请检查数据目录或备份输出目录的权限后重试。',
+  MAINTENANCE_ACTIVE: '另一项维护操作正在进行，请等待结束后再试。',
+  MAINTENANCE_LOCKED: '维护锁仍有效，请完成或恢复中断的维护后再试。',
+  MAINTENANCE_LOCK_FAILED: '无法创建维护锁，请确认数据目录可写后重试。',
+  MAINTENANCE_LEASE_INVALID: '维护租约无效或已丢失，请稍后重试。',
+  DATABASE_BUSY: '数据库正在使用中，请停止相关进程后再试。',
 })
 
 function backupError(code, message) {
@@ -93,13 +103,65 @@ function pendingRestorePath(backupDir) {
 }
 
 function buildBackupFileName(now = new Date()) {
-  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
-  return `localminidrama-${stamp}.zip`
+  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\./g, '').replace(/Z$/, 'Z')
+  const entropy = crypto.randomBytes(4).toString('hex')
+  return `localminidrama-${stamp}-${entropy}.zip`
 }
 
 async function ensureBackupDir(backupDir) {
   await fsp.mkdir(backupDir, { recursive: true })
   return backupDir
+}
+
+async function placeBackupFile(sourcePath, destPath) {
+  const source = path.resolve(sourcePath)
+  const dest = path.resolve(destPath)
+  if (source === dest) return dest
+  try {
+    await fsp.rename(source, dest)
+  } catch (error) {
+    if (error?.code !== 'EXDEV') throw error
+    await fsp.copyFile(source, dest, fs.constants.COPYFILE_EXCL)
+    await fsp.rm(source, { force: true })
+  }
+  return dest
+}
+
+async function storeUploadedBackup(paths, uploadedPath) {
+  if (!uploadedPath) throw backupError('BACKUP_FILE_REQUIRED', HTTP_BACKUP_MESSAGES.BACKUP_FILE_REQUIRED)
+  const backupDir = await ensureBackupDir(resolveBackupDir(paths))
+  const name = buildBackupFileName()
+  const dest = backupFilePath(backupDir, name)
+  await placeBackupFile(uploadedPath, dest)
+  return name
+}
+
+function pendingRestoreResult(name) {
+  return {
+    pending_restart: true,
+    name,
+    message: PENDING_RESTORE_MESSAGE,
+  }
+}
+
+async function readPendingRestore(backupDir) {
+  const pendingPath = pendingRestorePath(backupDir)
+  let raw
+  try {
+    raw = await fsp.readFile(pendingPath, 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { pendingPath, exists: false }
+    throw error
+  }
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed?.format !== PENDING_RESTORE_SCHEMA || parsed?.confirmed === false || !parsed?.archiveName) {
+      return { pendingPath, exists: true, invalid: true }
+    }
+    return { pendingPath, exists: true, parsed }
+  } catch (_) {
+    return { pendingPath, exists: true, invalid: true }
+  }
 }
 
 async function listBackups(paths) {
@@ -128,24 +190,47 @@ async function listBackups(paths) {
   return { items }
 }
 
-async function createBackup(paths, options = {}) {
-  const backupDir = await ensureBackupDir(resolveBackupDir(paths))
-  const name = options.name || buildBackupFileName(options.now)
-  const outputPath = backupFilePath(backupDir, name)
+function resolveCreateLease(paths, options = {}) {
+  if (options.externalMaintenanceLease != null) return options.externalMaintenanceLease
+  const guard = getRuntimeServiceMaintenanceLock(paths.databasePath)
+  return guard ? createExternalMaintenanceLease(guard) : undefined
+}
+
+async function createBackupOnce(paths, outputPath, options = {}) {
   const result = await createDataBackup({
     databasePath: paths.databasePath,
     storagePath: paths.storagePath,
     storySourcesPath: paths.storySourcesPath,
     outputPath,
     skipServiceCheck: options.skipServiceCheck !== false,
+    externalMaintenanceLease: resolveCreateLease(paths, options),
     log: options.log,
     signal: options.signal,
   })
+  const fileName = path.basename(result.outputPath || outputPath)
   return {
-    name: path.basename(result.outputPath || outputPath),
+    id: fileName,
+    name: fileName,
     created_at: result.manifest?.createdAt || new Date().toISOString(),
     bytes: Number(result.archiveBytes) || 0,
   }
+}
+
+async function createBackup(paths, options = {}) {
+  const backupDir = await ensureBackupDir(resolveBackupDir(paths))
+  const maxAttempts = options.name ? 1 : 2
+  let lastError
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const name = options.name || buildBackupFileName(options.now)
+    const outputPath = backupFilePath(backupDir, name)
+    try {
+      return await createBackupOnce(paths, outputPath, options)
+    } catch (error) {
+      lastError = error
+      if (error?.code !== 'OUTPUT_EXISTS' || attempt === maxAttempts - 1) throw error
+    }
+  }
+  throw lastError
 }
 
 async function stagePendingRestore(paths, { name, confirmed } = {}) {
@@ -165,20 +250,20 @@ async function stagePendingRestore(paths, { name, confirmed } = {}) {
     if (error?.code === 'ENOENT') throw backupError('NOT_FOUND', HTTP_BACKUP_MESSAGES.NOT_FOUND)
     throw error
   }
-  const pendingPath = pendingRestorePath(backupDir)
-  const payload = `${JSON.stringify({
+  const existing = await readPendingRestore(backupDir)
+  if (existing.exists && !existing.invalid && existing.parsed.archiveName === safeName) {
+    return pendingRestoreResult(safeName)
+  }
+  const payload = JSON.stringify({
     format: PENDING_RESTORE_SCHEMA,
     archiveName: safeName,
+    confirmed: true,
     createdAt: new Date().toISOString(),
-  }, null, 2)}\n`
-  const tempPath = `${pendingPath}.${process.pid}.tmp`
+  }, null, 2) + '\n'
+  const tempPath = existing.pendingPath + '.tmp'
   await fsp.writeFile(tempPath, payload, { encoding: 'utf8', flag: 'w' })
-  await fsp.rename(tempPath, pendingPath)
-  return {
-    pending_restart: true,
-    name: safeName,
-    message: '已安排在下次启动时恢复，请重启应用。',
-  }
+  await fsp.rename(tempPath, existing.pendingPath)
+  return pendingRestoreResult(safeName)
 }
 
 async function applyPendingRestore(paths, options = {}) {
@@ -214,7 +299,6 @@ async function applyPendingRestore(paths, options = {}) {
   return { applied: true, name: parsed.archiveName }
 }
 
-
 function applyPendingRestoreSync(paths, options = {}) {
   const backupDir = resolveBackupDir(paths)
   const pendingPath = pendingRestorePath(backupDir)
@@ -244,7 +328,8 @@ async function applyPendingRestoreFromConfig(cfg, options = {}) {
 }
 
 function describeBackupHttpError(error) {
-  const code = String(error?.code || 'BACKUP_FAILED')
+  let code = String(error?.code || 'BACKUP_FAILED')
+  if (['EACCES', 'EPERM', 'EROFS'].includes(code)) code = 'PERMISSION_DENIED'
   const message = HTTP_BACKUP_MESSAGES[code]
     || (error instanceof DataBackupError ? error.publicMessage : '')
     || HTTP_BACKUP_MESSAGES.BACKUP_FAILED
@@ -253,7 +338,7 @@ function describeBackupHttpError(error) {
     status = 400
   } else if (code === 'NOT_FOUND') {
     status = 404
-  } else if (['SERVICE_RUNNING', 'OUTPUT_EXISTS', 'MAINTENANCE_ACTIVE', 'MAINTENANCE_LOCKED'].includes(code)) {
+  } else if (['SERVICE_RUNNING', 'OUTPUT_EXISTS', 'MAINTENANCE_ACTIVE', 'MAINTENANCE_LOCKED', 'MAINTENANCE_LEASE_INVALID', 'DATABASE_BUSY'].includes(code)) {
     status = 409
   } else if (code === 'PERMISSION_DENIED') {
     status = 503
@@ -271,7 +356,9 @@ module.exports = {
   createBackup,
   describeBackupHttpError,
   listBackups,
+  placeBackupFile,
   resolveBackupDir,
   resolveRuntimeDataPaths,
   stagePendingRestore,
+  storeUploadedBackup,
 }

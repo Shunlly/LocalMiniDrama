@@ -108,8 +108,7 @@ function providerLabel(provider) {
 function looksEnglishOnly(message) {
   const text = String(message || '').trim();
   if (!text) return true;
-  if (/[\u4e00-\u9fff]/.test(text)) return false;
-  return /abort|cancel|timeout|timed out|network error|fetch failed|operation was aborted/i.test(text);
+  return !/[\u4e00-\u9fff]/.test(text);
 }
 
 function userFacingCancelMessage(reason) {
@@ -211,7 +210,12 @@ function normalizeProviderRequestError(error, options = {}) {
     return error;
   }
   if (error?.code === 'UNSAFE_MEDIA_REFERENCE' || error?.name === 'UnsafeMediaReferenceError') {
-    return error;
+    if (!looksEnglishOnly(error.message)) return error;
+    const localized = new Error('图片请求的媒体地址不安全，请检查协议和访问范围');
+    localized.name = error.name || 'UnsafeMediaReferenceError';
+    localized.code = error.code || 'UNSAFE_MEDIA_REFERENCE';
+    if (error instanceof Error) localized.cause = error;
+    return markSafeProviderError(localized);
   }
   if (isRequestTimeout(error, signal)) return requestTimeoutError(error, options);
   if (isRequestCanceled(error, signal)) return operationCancelledError(error);
@@ -256,13 +260,16 @@ function gatewayErrorResult(error, options = {}) {
   return result;
 }
 
-function createTimeoutController(timeoutMs, parentSignal) {
+function createTimeoutController(timeoutMs, parentSignal, errorOptions = {}) {
   const controller = new AbortController();
   let timedOut = false;
   const timeout = Math.max(1, Number(timeoutMs) || DEFAULT_JSON_TIMEOUT_MS);
   const timer = setTimeout(() => {
     timedOut = true;
-    const reason = requestTimeoutError(null, { operation: 'request' });
+    const reason = requestTimeoutError(null, {
+      provider: errorOptions.provider,
+      operation: errorOptions.operation || 'request',
+    });
     controller.abort(reason);
   }, timeout);
   const onParentAbort = () => {

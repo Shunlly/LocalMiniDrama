@@ -1387,6 +1387,14 @@ function createExternalMaintenanceLease(lock) {
   return validatedLease;
 }
 
+function getRuntimeServiceMaintenanceLock(databasePath) {
+  if (!databasePath) return null;
+  const { lockPath } = maintenancePaths(path.resolve(databasePath));
+  const existing = runtimeServiceLocks.get(lockPath);
+  if (!existing || existing.released) return null;
+  return existing;
+}
+
 function acquireServiceMaintenanceLockSync(options = {}) {
   const databasePath = path.resolve(options.databasePath || '');
   const storagePath = path.resolve(options.storagePath || '');
@@ -2111,7 +2119,10 @@ async function captureBackupView(databasePath, storagePath, storySourcesPath, sn
         freeze = null;
         transactionStarted = false;
       }
-      if (!isReadonlySqliteError(error) && !['EACCES', 'EPERM', 'SQLITE_READONLY', 'SQLITE_CANTOPEN'].includes(String(error?.code || ''))) {
+      const canFallbackToOnlineSnapshot = isReadonlySqliteError(error)
+        || ['EACCES', 'EPERM', 'SQLITE_READONLY', 'SQLITE_CANTOPEN'].includes(String(error?.code || ''))
+        || (options?.externalMaintenanceLease && isSqliteBusy(error));
+      if (!canFallbackToOnlineSnapshot) {
         throw error;
       }
       await snapshotReadonlyDatabase(databasePath, snapshotPath);
@@ -4104,6 +4115,7 @@ module.exports = {
   assertServiceMaintenanceLockActiveSync,
   assertServiceStopped,
   createExternalMaintenanceLease,
+  getRuntimeServiceMaintenanceLock,
   createDataBackup,
   writeZip64ArchiveToHandle,
   maintenancePaths,

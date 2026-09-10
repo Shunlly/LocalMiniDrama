@@ -12,10 +12,14 @@ const {
   applyPendingRestoreSync,
   createBackup,
   listBackups,
+  placeBackupFile,
+  resolveBackupDir,
   resolveRuntimeDataPaths,
   stagePendingRestore,
 } = require('../src/services/backupSettingsService')
-const { DataBackupError } = require('../src/services/dataBackupService')
+const { acquireServiceMaintenanceLockSync, DataBackupError } = require('../src/services/dataBackupService')
+const { createApp } = require('../src/app')
+const { closeDb } = require('../src/db')
 
 async function makeWorkspace(t) {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'localminidrama-backup-settings-'))
@@ -49,7 +53,8 @@ function readValue(databasePath) {
 test('创建备份时跳过停服检查，列表只返回安全 zip 名', async (t) => {
   const workspace = await makeWorkspace(t)
   const created = await createBackup(workspace)
-  assert.match(created.name, /^localminidrama-\d{8}T\d{6}Z\.zip$/)
+  assert.match(created.name, /^localminidrama-\d{8}T\d{9}Z-[0-9a-f]{8}\.zip$/)
+  assert.equal(created.id, created.name)
   assert.ok(created.bytes > 0)
   await fsp.writeFile(path.join(path.dirname(workspace.databasePath), 'backups', 'ignore.txt'), 'no')
   const listed = await listBackups(workspace)

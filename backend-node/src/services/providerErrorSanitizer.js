@@ -250,8 +250,18 @@ function providerFailure(options = {}) {
   return { error: buildProviderErrorMessage(options) };
 }
 
+function isTrustedChineseUserError(value) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text || text.length > 240) return false;
+  if (!/[\u4e00-\u9fff]/.test(text)) return false;
+  if (/https?:\/\//i.test(text) || /response_bytes=|\bHTTP\s+\d+/i.test(text)) return false;
+  if (/\bsk-[A-Za-z0-9._-]{6,}\b/i.test(text)) return false;
+  return true;
+}
+
 function sanitizeProviderResult(result, options = {}) {
   if (!result || typeof result !== 'object' || !result.error) return result;
+  if (isTrustedChineseUserError(result.error)) return result;
   return {
     ...result,
     error: toSafeProviderErrorMessage(result.error, options),

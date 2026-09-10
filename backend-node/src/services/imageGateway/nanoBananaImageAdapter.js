@@ -11,6 +11,7 @@ const {
   postJSONWithTimeout,
   imageProviderFailure,
   imageProviderException,
+  imageProviderCaughtError,
   rethrowIfRequestCanceled,
 } = require('./runtime');
 const { nanoBananaAspectRatio } = require('./sizeAdapters');
@@ -112,13 +113,14 @@ async function callNanoBananaImageApi(config, log, opts) {
   let submitRaw;
   let submitStatus;
   try {
-    const out = await postJSONWithTimeout(submitUrl, headers, body, IMAGE_HTTP_TIMEOUT_MS);
+    const out = await postJSONWithTimeout(submitUrl, headers, body, IMAGE_HTTP_TIMEOUT_MS, {
+      signal: opts.signal,
+    });
     submitStatus = out.statusCode;
     submitRaw = out.raw;
   } catch (e) {
-    const safeError = imageProviderException(e, 'NanoBanana', 'image request', opts.signal);
-    log.error('NanoBanana submit network error', { image_gen_id, error: safeError });
-    return { error: safeError };
+    log.error('NanoBanana submit network error', { image_gen_id, error: e });
+    return imageProviderCaughtError(e, 'NanoBanana', 'image request', opts.signal);
   }
   if (submitStatus < 200 || submitStatus >= 300) {
     log.error('NanoBanana submit failed', {

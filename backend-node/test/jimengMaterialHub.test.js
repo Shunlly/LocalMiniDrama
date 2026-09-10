@@ -13,8 +13,11 @@ describe('jimengMaterialHub response parsing', () => {
     const msg = hubBusinessErrorMessage({
       error: '[Failed to download media from https://vendor.invalid/image?token=synthetic-private-value.]',
     });
-    assert.match(msg, /failed/i);
-    assert.doesNotMatch(msg, /synthetic-private-value|vendor\.invalid/);
+    assert.equal(typeof msg, 'string');
+    assert.match(msg, /失败/);
+    assert.match(msg, /HTTP 502/);
+    assert.match(msg, /暂时不可用/);
+    assert.doesNotMatch(msg, /synthetic-private-value|vendor\.invalid|Failed to download media/i);
   });
 
   it('unwrapMaterialHubAssetView parses flat AssetView', () => {

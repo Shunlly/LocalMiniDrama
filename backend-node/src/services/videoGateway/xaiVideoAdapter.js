@@ -4,10 +4,27 @@ const { summarizeProviderResponse } = require('../providerErrorSanitizer');
 const {
   fetchVideoWithTimeout,
   videoProviderFailure,
+  videoProviderException,
   pickProxyVideoUrl,
   normalizeAspectRatioForApi,
 } = require('./helpers');
+const {
+  isRequestCanceled,
+  isRequestTimeout,
+  operationCancelledError,
+  requestTimeoutError,
+} = require('./requestError');
 const { resolveVeo3ImageForApi } = require('./mediaRefs');
+
+function classifyXaiRequestError(error, signal) {
+  if (isRequestTimeout(error, signal)) {
+    throw requestTimeoutError(error, { provider: 'xAI', operation: 'video request' });
+  }
+  if (isRequestCanceled(error, signal)) {
+    throw operationCancelledError(error);
+  }
+  return videoProviderException(error, 'xAI', 'video request', signal);
+}
 
 function resolveXaiVideoResolution(resolution) {
   const s = String(resolution || '').toLowerCase();
@@ -163,15 +180,22 @@ async function callXaiVideoApi(config, log, opts) {
       : undefined,
   });
 
-  const res = await fetchVideoWithTimeout(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + (config.api_key || ''),
-    },
-    body: JSON.stringify(body),
-  });
-  const raw = await res.text();
+  let res;
+  let raw;
+  try {
+    res = await fetchVideoWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + (config.api_key || ''),
+      },
+      body: JSON.stringify(body),
+      signal: opts.signal,
+    });
+    raw = await res.text();
+  } catch (error) {
+    return { error: classifyXaiRequestError(error, opts.signal) };
+  }
   log.info('[xAI视频] 响应', {
     video_gen_id,
     status: res.status,
@@ -186,7 +210,7 @@ async function callXaiVideoApi(config, log, opts) {
   try {
     data = JSON.parse(raw);
   } catch (e) {
-    return videoProviderFailure('xAI', 'video response', res.status, raw);
+    return { error: 'xAI 视频返回格式异常' };
   }
 
   const direct = pickProxyVideoUrl(data);
@@ -201,7 +225,7 @@ async function callXaiVideoApi(config, log, opts) {
     return { task_id: String(reqId), status: 'submitted' };
   }
 
-  return videoProviderFailure('xAI', 'video response', res.status, data);
+  return { error: 'xAI 未返回 request_id 或 video_url' };
 }
 
 module.exports = {

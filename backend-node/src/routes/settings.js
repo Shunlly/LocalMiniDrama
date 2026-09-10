@@ -149,17 +149,12 @@ function restoreBackup(cfg, log) {
       const paths = backupSettingsService.resolveRuntimeDataPaths(cfg);
       let name = bodyName;
       if (uploadedPath) {
-        const backupDir = backupSettingsService.resolveBackupDir(paths);
-        await require('node:fs/promises').mkdir(backupDir, { recursive: true });
-        const safeName = backupSettingsService.buildBackupFileName();
-        const dest = require('node:path').join(backupDir, safeName);
-        await require('node:fs/promises').rename(uploadedPath, dest);
-        name = safeName;
+        name = await backupSettingsService.storeUploadedBackup(paths, uploadedPath);
         log?.operation?.({
           operation: 'backup_restore_upload',
           phase: 'success',
           originalName: uploadedName,
-          name: safeName,
+          name,
         });
       }
       const data = await backupSettingsService.stagePendingRestore(paths, { name, confirmed });

@@ -10,12 +10,44 @@ const { summarizeProviderResponse } = require('../providerErrorSanitizer');
 const {
   fetchVideoWithTimeout,
   videoProviderFailure,
+  videoProviderException,
   pickProxyVideoUrl,
   logVideoPostRequest,
   normalizeAspectRatioForApi,
   KLING_OMNI_ASPECT_RATIOS,
 } = require('./helpers');
+const {
+  isRequestCanceled,
+  isRequestTimeout,
+  operationCancelledError,
+  requestTimeoutError,
+} = require('./requestError');
 const { resolveImageInputForOmniAsync, loadStorageImage } = require('./mediaRefs');
+
+function classifyKlingRequestError(error, provider, signal) {
+  if (isRequestTimeout(error, signal)) {
+    throw requestTimeoutError(error, { provider, operation: 'video request' });
+  }
+  if (isRequestCanceled(error, signal)) {
+    throw operationCancelledError(error);
+  }
+  return videoProviderException(error, provider, 'video request', signal);
+}
+
+async function postKlingJson(url, headers, body, provider, signal) {
+  try {
+    const res = await fetchVideoWithTimeout(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal,
+    });
+    const raw = await res.text();
+    return { res, raw };
+  } catch (error) {
+    return { error: classifyKlingRequestError(error, provider, signal) };
+  }
+}
 
 /** 可灵 Omni / 多图生视频（飞儿 ffir.cn 等中转）：可用环境变量临时覆盖配置 */
 function applyKlingOmniEnvOverrides(config) {
@@ -333,8 +365,9 @@ async function callKlingOmniVideoApi(config, log, opts) {
     image_count: image_list.length,
   });
 
-  const res = await fetchVideoWithTimeout(createUrl, { method: 'POST', headers, body: JSON.stringify(body) });
-  const raw = await res.text();
+  const posted = await postKlingJson(createUrl, headers, body, 'KlingOmni', opts.signal);
+  if (posted.error) return { error: posted.error };
+  const { res, raw } = posted;
   log.info('[KlingOmni] 创建响应', {
     video_gen_id,
     status: res.status,
@@ -381,7 +414,7 @@ async function callKlingOmniVideoApi(config, log, opts) {
     data?.data?.task?.id ||
     data?.result?.task_id;
   if (!taskId) {
-    return videoProviderFailure('KlingOmni', 'video response', res.status, data);
+    return { error: '可灵 Omni 未返回 task_id' };
   }
 
   const encoded = 'omni:' + String(taskId);
@@ -506,8 +539,9 @@ async function callKlingVideoApi(config, log, opts) {
     ratio,
   });
 
-  const res = await fetchVideoWithTimeout(createUrl, { method: 'POST', headers, body: JSON.stringify(body) });
-  const raw = await res.text();
+  const posted = await postKlingJson(createUrl, headers, body, 'Kling', opts.signal);
+  if (posted.error) return { error: posted.error };
+  const { res, raw } = posted;
   log.info('[Kling视频] 响应摘要', {
     video_gen_id,
     status: res.status,
@@ -536,7 +570,7 @@ async function callKlingVideoApi(config, log, opts) {
 
   const taskId = data?.data?.task_id;
   if (!taskId) {
-    return videoProviderFailure('Kling', 'video response', res.status, data);
+    return { error: '可灵未返回 task_id' };
   }
 
   // 在 task_id 中编码任务类型，轮询时用于还原正确的查询端点

@@ -11,13 +11,30 @@ const { summarizeProviderResponse } = require('../providerErrorSanitizer');
 const {
   fetchVideoWithTimeout,
   videoProviderFailure,
+  videoProviderException,
   logVideoPostRequest,
 } = require('./helpers');
+const {
+  isRequestCanceled,
+  isRequestTimeout,
+  operationCancelledError,
+  requestTimeoutError,
+} = require('./requestError');
 const {
   loadStorageImage,
   loadReferenceImageBuffer,
   publicUrlFromLocalRef,
 } = require('./mediaRefs');
+
+function classifyViduRequestError(error, signal) {
+  if (isRequestTimeout(error, signal)) {
+    throw requestTimeoutError(error, { provider: 'Vidu', operation: 'video request' });
+  }
+  if (isRequestCanceled(error, signal)) {
+    throw operationCancelledError(error);
+  }
+  return videoProviderException(error, 'Vidu', 'video request', signal);
+}
 
 /** 解析 "16:9"、"21:9" 等为 宽/高 数值比 */
 function parseViduAspectRatio(aspectStr) {
@@ -164,11 +181,11 @@ function viduMismatchAspectPromptSuffix(targetRatioLabel) {
 }
 
 /**
- * ?? Vidu ???? API??? api.vidu.cn/ent/v2?
- * ???Authorization: Token {api_key}?? Bearer?
- * ???POST /ent/v2/tasks
- * ???GET /ent/v2/tasks/{id}/creations
- * ?????viduq2 / viduq2-pro / viduq2-turbo / viduq3-pro
+ * 调用 Vidu 视频生成 API（官方 api.vidu.cn/ent/v2）
+ * 鉴权：Authorization: Token {api_key}（官方）或 Bearer（中转）
+ * 创建：POST /ent/v2/tasks 或按是否有图选择 img2video / text2video
+ * 查询：GET /ent/v2/tasks/{id}/creations
+ * 模型：viduq2 / viduq2-pro / viduq2-turbo / viduq3-pro
  */
 async function callViduVideoApi(config, log, opts) {
   const { prompt, model, duration, aspect_ratio, resolution: resolutionOpt, image_url, video_gen_id, files_base_url, storage_local_path } = opts;
@@ -180,11 +197,11 @@ async function callViduVideoApi(config, log, opts) {
   const hasImage = !!(image_url && image_url.trim());
   const resolutionBody = pickViduResolutionParam(resolutionOpt, modelName, hasImage);
 
-  // ?? api.vidu.cn: Token ??????: Bearer ??
+  // 官方 api.vidu.cn 使用 Token 前缀，中转使用 Bearer
   const isOfficialVidu = /api\.vidu\.cn/i.test(base);
   const authHeader = (isOfficialVidu ? 'Token ' : 'Bearer ') + apiKey;
 
-  // ????????? /ent/v2/img2video ?????????
+  // 未自定义 endpoint 时，按是否有参考图选择 /ent/v2/img2video 或 /ent/v2/text2video
   const defaultEp = hasImage ? '/ent/v2/img2video' : '/ent/v2/text2video';
   let ep = config.endpoint || defaultEp;
   if (!ep.startsWith('/')) ep = '/' + ep;
@@ -233,12 +250,12 @@ async function callViduVideoApi(config, log, opts) {
       log.info('[Vidu] resolving storage reference image', { relative_path: localImage.relativePath, video_gen_id });
       publicImgUrl = await uploadLocalImageToProxy(storage_local_path, rawImgUrl, log, `vidu_vg${video_gen_id}`);
       if (publicImgUrl) {
-        log.info('[Vidu] ????????', { proxy: publicImgUrl, video_gen_id });
+        log.info('[Vidu] 已上传参考图到图床', { proxy: publicImgUrl, video_gen_id });
       } else if (files_base_url) {
         publicImgUrl = publicUrlFromLocalRef(rawImgUrl, files_base_url);
-        log.warn('[Vidu] ????????? files_base_url', { converted: publicImgUrl, video_gen_id });
+        log.warn('[Vidu] 图床上传失败，回退 files_base_url', { converted: publicImgUrl, video_gen_id });
       } else {
-        log.warn('[Vidu] ???????? URL??????', { video_gen_id });
+        log.warn('[Vidu] 无法得到公网参考图 URL，已跳过', { video_gen_id });
       }
     } else {
       try {
@@ -344,12 +361,19 @@ async function callViduVideoApi(config, log, opts) {
   });
   logVideoPostRequest(log, 'Vidu', url, body, video_gen_id, { model: modelName, auth: isOfficialVidu ? 'Token' : 'Bearer' });
 
-  const res = await fetchVideoWithTimeout(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: authHeader },
-    body: JSON.stringify(body),
-  });
-  const raw = await res.text();
+  let res;
+  let raw;
+  try {
+    res = await fetchVideoWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: authHeader },
+      body: JSON.stringify(body),
+      signal: opts.signal,
+    });
+    raw = await res.text();
+  } catch (error) {
+    return { error: classifyViduRequestError(error, opts.signal) };
+  }
   log.info('[Vidu] response summary', {
     status: res.status,
     video_gen_id,
@@ -367,13 +391,13 @@ async function callViduVideoApi(config, log, opts) {
 
   let data;
   try { data = JSON.parse(raw); } catch (_) {
-    return videoProviderFailure('Vidu', 'video response', res.status, raw);
+    return { error: 'Vidu 视频返回格式异常' };
   }
 
   const taskId = data?.task_id || data?.id;
   if (!taskId) {
     log.error('[Vidu] no task_id in response', { video_gen_id, ...summarizeProviderResponse(data) });
-    return videoProviderFailure('Vidu', 'video response', res.status, data);
+    return { error: 'Vidu 未返回 task_id' };
   }
   log.info('[Vidu] task created', {
     task_id: taskId,

@@ -11,6 +11,7 @@ const {
   postJSONWithTimeout,
   imageProviderFailure,
   imageProviderException,
+  imageProviderCaughtError,
   rethrowIfRequestCanceled,
 } = require('./runtime');
 const { klingImageAspectRatio } = require('./sizeAdapters');
@@ -66,13 +67,14 @@ async function callKlingImageApi(config, log, opts) {
   let submitRaw;
   let submitStatus;
   try {
-    const out = await postJSONWithTimeout(submitUrl, headers, body, IMAGE_HTTP_TIMEOUT_MS);
+    const out = await postJSONWithTimeout(submitUrl, headers, body, IMAGE_HTTP_TIMEOUT_MS, {
+      signal: opts.signal,
+    });
     submitStatus = out.statusCode;
     submitRaw = out.raw;
   } catch (e) {
-    const safeError = imageProviderException(e, 'Kling', 'image request', opts.signal);
-    log.error('[Kling图生] 网络错误', { image_gen_id, error: safeError });
-    return { error: safeError };
+    log.error('[Kling图生] 网络错误', { image_gen_id, error: e });
+    return imageProviderCaughtError(e, 'Kling', 'image request', opts.signal);
   }
 
   if (submitStatus < 200 || submitStatus >= 300) {

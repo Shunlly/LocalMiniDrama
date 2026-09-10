@@ -9,6 +9,7 @@ const {
   postJSONWithTimeout,
   imageProviderFailure,
   imageProviderException,
+  imageProviderCaughtError,
 } = require('./runtime');
 const {
   dashScopeSize,
@@ -68,13 +69,14 @@ async function callDashScopeImageApi(config, log, opts) {
     let raw;
     let httpStatus;
     try {
-      const out = await postJSONWithTimeout(url, qwenHeaders, body, IMAGE_HTTP_TIMEOUT_MS);
+      const out = await postJSONWithTimeout(url, qwenHeaders, body, IMAGE_HTTP_TIMEOUT_MS, {
+        signal: opts.signal,
+      });
       httpStatus = out.statusCode;
       raw = out.raw;
     } catch (e) {
-      const safeError = imageProviderException(e, 'Qwen-Image', 'image request', opts.signal);
-      log.error('Qwen-Image network error', { image_gen_id, error: safeError });
-      return { error: safeError };
+      log.error('Qwen-Image network error', { image_gen_id, error: e });
+      return imageProviderCaughtError(e, 'Qwen-Image', 'image request', opts.signal);
     }
     if (httpStatus < 200 || httpStatus >= 300) {
       log.error('Qwen-Image create failed', {
@@ -155,13 +157,14 @@ async function callDashScopeImageApi(config, log, opts) {
   let raw;
   let httpStatus;
   try {
-    const out = await postJSONWithTimeout(url, headers, body, IMAGE_HTTP_TIMEOUT_MS);
+    const out = await postJSONWithTimeout(url, headers, body, IMAGE_HTTP_TIMEOUT_MS, {
+      signal: opts.signal,
+    });
     httpStatus = out.statusCode;
     raw = out.raw;
   } catch (e) {
-    const safeError = imageProviderException(e, 'DashScope', 'image request', opts.signal);
-    log.error('DashScope network error', { image_gen_id, error: safeError });
-    return { error: safeError };
+    log.error('DashScope network error', { image_gen_id, error: e });
+    return imageProviderCaughtError(e, 'DashScope', 'image request', opts.signal);
   }
   if (httpStatus < 200 || httpStatus >= 300) {
     log.error('DashScope create failed', {

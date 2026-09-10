@@ -27,6 +27,7 @@ const {
   postJSONWithTimeout,
   imageProviderFailure,
   imageProviderException,
+  imageProviderCaughtError,
   ANTI_SPLIT_NEGATIVE_PROMPT,
   mergeNegativePromptFragments,
   inferProtocol,
@@ -228,10 +229,14 @@ async function callImageApiInternal(db, log, opts) {
   const providerNetworkPolicy = aiConfigService.getProviderNetworkOptions(config, {
     lookup: opts.provider_dns_lookup,
     signal: opts.signal,
+    fetchImpl: opts.fetch_impl || opts.fetchImpl,
   });
   const requestContext = imageRequestContext.getStore();
   if (requestContext) {
-    requestContext.networkOptions = providerNetworkPolicy;
+    requestContext.networkOptions = {
+      ...(requestContext.networkOptions || {}),
+      ...providerNetworkPolicy,
+    };
   }
   const safeReferenceImageUrls = await prepareImageReferences(reference_image_urls, opts, config);
 
@@ -339,8 +344,7 @@ async function callImageApiInternal(db, log, opts) {
         provider_network_policy: providerNetworkPolicy,
       });
     } catch (error) {
-      const safeError = imageProviderException(error, 'ComfyUI', 'image request');
-      return { error: safeError.message };
+      return imageProviderCaughtError(error, 'ComfyUI', 'image request', opts.signal);
     }
   }
 
@@ -398,17 +402,18 @@ async function callImageApiInternal(db, log, opts) {
   let raw;
   let httpStatus;
   try {
-    const out = await postJSONWithTimeout(url, openaiCompatHeaders, body, IMAGE_HTTP_TIMEOUT_MS);
+    const out = await postJSONWithTimeout(url, openaiCompatHeaders, body, IMAGE_HTTP_TIMEOUT_MS, {
+      signal: opts.signal,
+    });
     httpStatus = out.statusCode;
     raw = out.raw;
   } catch (e) {
-    const safeError = imageProviderException(e, 'Image provider', 'image request');
-    log.error('Image API network error', { image_gen_id, error: safeError, url });
-    return { error: safeError.message };
+    log.error('Image API network error', { image_gen_id, error: e, url });
+    return imageProviderCaughtError(e, '图片服务', 'image request', opts.signal);
   }
   if (httpStatus < 200 || httpStatus >= 300) {
     log.error('Image API failed', { status: httpStatus, ...summarizeProviderResponse(raw) });
-    return imageProviderFailure('Image provider', 'image request', httpStatus, raw);
+    return imageProviderFailure('图片服务', 'image request', httpStatus, raw);
   }
   let data;
   try {
@@ -445,12 +450,21 @@ async function callImageApiInternal(db, log, opts) {
 }
 
 async function callImageApi(db, log, opts = {}) {
-  const idempotencyKey = normalizeIdempotencyKey(opts.idempotency_key);
+  const imageGenId = opts.image_gen_id;
+  const idempotencyKey = normalizeIdempotencyKey(
+    opts.idempotency_key
+    || (imageGenId != null && String(imageGenId).trim() !== ''
+      ? `image-generation-${imageGenId}`
+      : '')
+  );
   return imageRequestContext.run({
     idempotencyKey,
-    networkOptions: opts.signal ? { signal: opts.signal } : {},
+    networkOptions: {
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      ...((opts.fetch_impl || opts.fetchImpl) ? { fetchImpl: opts.fetch_impl || opts.fetchImpl } : {}),
+    },
   }, async () => {
-    const provider = opts.preferred_provider || opts.preferredProvider || 'Image provider';
+    const provider = opts.preferred_provider || opts.preferredProvider || '图片服务';
     try {
       throwIfAborted(opts.signal);
       const result = await callImageApiInternal(db, log, opts);
@@ -616,11 +630,11 @@ function createAndGenerateImage(db, log, opts) {
       throwIfAborted(signal);
       if (result.error) {
         throw new Error(toSafeProviderErrorMessage(result.error, {
-          provider: provider || 'Image provider',
+          provider: provider || '图片服务',
           operation: '图片生成',
         }));
       }
-      if (!result.image_url) throw new Error('图片 Provider 未返回图片地址');
+      if (!result.image_url) throw new Error('图片服务未返回图片地址');
 
       const cfg = require('../config').loadConfig();
       storagePath = path.isAbsolute(cfg.storage?.local_path)
@@ -671,7 +685,7 @@ function createAndGenerateImage(db, log, opts) {
       }
 
       const errMsg = toSafeProviderErrorMessage(err, {
-        provider: provider || 'Image provider',
+        provider: provider || '图片服务',
         operation: '图片生成',
       });
       try {

@@ -30,6 +30,7 @@ const {
   buildQueryUrl,
   isPlausibleHttpVideoUrl,
   extractPollTaskStatus,
+  isPollTaskCancelled,
   isPollTaskFailed,
   extractPollFailureMessage,
   videoUrlFromRecord,
@@ -39,6 +40,11 @@ const {
   formatVideoPostBodyForLog,
   normalizeAspectRatioForApi,
 } = require('./videoGateway/helpers');
+const {
+  isRequestCanceled,
+  isRequestTimeout,
+  operationCancelledError,
+} = require('./videoGateway/requestError');
 const {
   validateVideoMediaReferences,
   validateProviderDispatch,
@@ -774,6 +780,44 @@ async function callVideoApi(db, log, opts = {}) {
   });
 }
 
+/** 本地 abort 与厂商 cancelled 都视为取消，不得落到超时。 */
+const VIDEO_TASK_CANCELLED_MESSAGE = '视频任务已取消';
+
+function isVideoPollCancelled(error, signal) {
+  return !isRequestTimeout(error, signal)
+    && (isRequestCanceled(error, signal) || signal?.aborted === true);
+}
+
+function throwVideoTaskCancelled() {
+  throw operationCancelledError(VIDEO_TASK_CANCELLED_MESSAGE);
+}
+
+function throwIfVideoPollAborted(signal) {
+  if (signal?.aborted) throwVideoTaskCancelled();
+}
+
+function delayVideoPoll(intervalMs, signal) {
+  throwIfVideoPollAborted(signal);
+  return new Promise((resolve, reject) => {
+    const finish = () => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    };
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      reject(operationCancelledError(VIDEO_TASK_CANCELLED_MESSAGE));
+    };
+    const timer = setTimeout(finish, intervalMs);
+    if (!signal) return;
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 /**
  * ??????????????????/ChatFire ? ???? DashScope?
  */
@@ -809,20 +853,8 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
   const queryUrl = () => buildQueryUrl(config, taskId);
   log.info('[poll] ????', { video_gen_id: videoGenId, task_id: taskId, protocol, poll_url: queryUrl() });
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (signal?.aborted) throw signal.reason;
-    await new Promise((resolve, reject) => {
-      const finish = () => {
-        signal?.removeEventListener('abort', abort);
-        resolve();
-      };
-      const abort = () => {
-        clearTimeout(timer);
-        signal.removeEventListener('abort', abort);
-        reject(signal.reason);
-      };
-      const timer = setTimeout(finish, intervalMs);
-      signal?.addEventListener('abort', abort, { once: true });
-    });
+    throwIfVideoPollAborted(signal);
+    await delayVideoPoll(intervalMs, signal);
     try {
       if (isSora || isMinimax) {
         const runtime = createAdapterRuntime(config, {
@@ -836,6 +868,15 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
           ? await pollSoraVideo(config, taskId, runtime)
           : await pollMinimaxVideo(config, taskId, runtime);
         if (result.status === 'pending') continue;
+        const adapterCancelledStatus = extractPollTaskStatus(result);
+        if (isPollTaskCancelled(adapterCancelledStatus)) {
+          log.info('[poll] 厂商任务已取消', {
+            video_gen_id: videoGenId,
+            task_id: taskId,
+            status: adapterCancelledStatus,
+          });
+          throwVideoTaskCancelled();
+        }
         return result;
       }
       let url, headers;
@@ -926,6 +967,16 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
           ...summarizeProviderResponse(raw),
         });
         continue;
+      }
+
+      const cancelledStatus = extractPollTaskStatus(data);
+      if (isPollTaskCancelled(cancelledStatus)) {
+        log.info('[poll] 厂商任务已取消', {
+          video_gen_id: videoGenId,
+          task_id: taskId,
+          status: cancelledStatus,
+        });
+        throwVideoTaskCancelled();
       }
 
       if (isKling) {
@@ -1132,7 +1183,7 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
         return videoProviderFailure(provider || 'Video provider', 'video task', res.status, data, data?.error?.code);
       }
     } catch (e) {
-      if (signal?.aborted) throw signal.reason;
+      if (isVideoPollCancelled(e, signal)) throwVideoTaskCancelled();
       log.warn('Video poll request failed', { attempt, error: e.message });
     }
   }
@@ -1154,6 +1205,7 @@ async function pollVideoTask(db, log, videoGenId, taskId, config, maxAttempts = 
     );
     return sanitizeProviderResult(result, { provider, operation: '视频任务' });
   } catch (error) {
+    if (isVideoPollCancelled(error, signal)) throwVideoTaskCancelled();
     throw sanitizeProviderException(error, { provider, operation: '视频任务' });
   }
 }

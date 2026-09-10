@@ -4,10 +4,27 @@ const { summarizeProviderResponse } = require('../providerErrorSanitizer');
 const {
   fetchVideoWithTimeout,
   videoProviderFailure,
+  videoProviderException,
   pickProxyVideoUrl,
   logVideoPostRequest,
 } = require('./helpers');
+const {
+  isRequestCanceled,
+  isRequestTimeout,
+  operationCancelledError,
+  requestTimeoutError,
+} = require('./requestError');
 const { resolveVeo3ImageForApi } = require('./mediaRefs');
+
+function classifyVeo3RequestError(error, signal) {
+  if (isRequestTimeout(error, signal)) {
+    throw requestTimeoutError(error, { provider: 'Veo3', operation: 'video request' });
+  }
+  if (isRequestCanceled(error, signal)) {
+    throw operationCancelledError(error);
+  }
+  return videoProviderException(error, 'Veo3', 'video request', signal);
+}
 
 /**
  * Veo3 (api_protocol = 'veo3')
@@ -49,15 +66,22 @@ async function callVeo3VideoApi(config, log, opts) {
   });
   logVideoPostRequest(log, 'Veo3', url, body, video_gen_id, { model });
 
-  const res = await fetchVideoWithTimeout(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + (config.api_key || ''),
-    },
-    body: JSON.stringify(body),
-  });
-  const raw = await res.text();
+  let res;
+  let raw;
+  try {
+    res = await fetchVideoWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + (config.api_key || ''),
+      },
+      body: JSON.stringify(body),
+      signal: opts.signal,
+    });
+    raw = await res.text();
+  } catch (error) {
+    return { error: classifyVeo3RequestError(error, opts.signal) };
+  }
   log.info('[Veo3] response summary', {
     status: res.status,
     video_gen_id,
@@ -70,7 +94,7 @@ async function callVeo3VideoApi(config, log, opts) {
 
   let data;
   try { data = JSON.parse(raw); } catch (e) {
-    return videoProviderFailure('Veo3', 'video response', res.status, raw);
+    return { error: 'Veo3 视频返回格式异常' };
   }
 
   const directUrl = pickProxyVideoUrl(data);
@@ -89,7 +113,7 @@ async function callVeo3VideoApi(config, log, opts) {
     video_gen_id,
     ...summarizeProviderResponse(data),
   });
-  return videoProviderFailure('Veo3', 'video response', res.status, data);
+  return { error: 'Veo3 未返回 task_id 或 video_url' };
 }
 
 module.exports = {
