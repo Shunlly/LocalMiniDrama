@@ -79,7 +79,7 @@ test('视频服务拒绝跨项目幂等键且不创建任务', () => {
       () => videoService.createVideoGeneration(db, log, {
         drama_id: 1, storyboard_id: 100, idempotency_key: 'cross-project-key',
       }, { defer_processing: true }),
-      (error) => error.code === 'BAD_REQUEST' && /idempotency_key/.test(error.message)
+      (error) => error.code === 'BAD_REQUEST' && /幂等键/.test(error.message)
     );
     assertNoTask(db);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM video_generations').get().count, 1);
@@ -121,7 +121,7 @@ test('视频服务拒绝软删除幂等记录和历史脏归属且不创建任�
         () => videoService.createVideoGeneration(db, log, {
           drama_id: 2, storyboard_id: 200, idempotency_key: fixture.key,
         }, { defer_processing: true }),
-        (error) => error.code === 'BAD_REQUEST' && /idempotency_key/.test(error.message)
+        (error) => error.code === 'BAD_REQUEST' && /幂等键/.test(error.message)
       );
       assertNoTask(db);
     } finally {

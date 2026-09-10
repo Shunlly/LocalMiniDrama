@@ -87,4 +87,10 @@ const testVisible = defineModel('testVisible', { type: Boolean, default: false }
   white-space: nowrap;
   border: 0;
 }
+.field-tip {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary, #909399);
+  line-height: 1.4;
+}
 </style>

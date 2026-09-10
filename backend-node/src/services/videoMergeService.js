@@ -133,7 +133,7 @@ function normalizeMergeVideoReference(value, storageRoot, trustedOrigins = []) {
     return uploadService.assertPublicHttpUrlSyntax(text).toString();
   }
   const local = uploadService.resolveStorageReference(storageRoot, text);
-  if (!local) throw new uploadService.UnsafeMediaReferenceError('视频引用必须位于 storage 目录内');
+  if (!local) throw new uploadService.UnsafeMediaReferenceError('视频引用必须位于本地存储目录内');
   return local.relativePath;
 }
 

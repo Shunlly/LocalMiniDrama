@@ -114,6 +114,12 @@ describe('剩余路由对用户返回中文错误', () => {
       '请改为对每个分镜单独调用 POST /api/v1/images',
       '请改为对每个分镜单独调用 POST /api/v1/videos',
       'POST /api/v1/',
+      '请提供 canvas_layout、free_canvas 或 workflow_groups',
+      'canvas_layout 必须为对象',
+      'workflow_groups 必须为数组',
+      '未返回 task_id 或 video_url',
+      'storage 内',
+      'storage 目录内',
     ];
     for (const file of fs.readdirSync(dir).filter((name) => name.endsWith('.js'))) {
       const source = fs.readFileSync(path.join(dir, file), 'utf8');
@@ -369,6 +375,34 @@ describe('剩余服务对用户返回中文错误', () => {
         return true;
       },
     );
+  });
+
+  it('画布布局缺少字段时返回不含英文字段名的中文', () => {
+    const dramaService = require('../src/services/dramaService');
+    const db = new Database(':memory:');
+    try {
+      runMigrationsAndEnsure(db);
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO dramas (id, title, status, created_at, updated_at, deleted_at)
+         VALUES (11, '可写项目', 'draft', ?, ?, NULL)`
+      ).run(now, now);
+      try {
+        dramaService.saveCanvasLayout(db, { info() {}, error() {} }, 11, {});
+        assert.fail('should throw');
+      } catch (error) {
+        assert.equal(error.code, 'BAD_REQUEST');
+        assert.equal(isTrustedChineseUserError(error.message), true);
+        assert.equal(error.message, '请提供画布布局、自由画布或工作流组');
+        assert.doesNotMatch(error.message, /canvas_layout|free_canvas|workflow_groups/);
+        const res = mockRes();
+        sendCaughtRouteError(res, error, '保存画布布局失败');
+        assert.equal(res.statusCode, 400);
+        assert.equal(res.body.error.message, '请提供画布布局、自由画布或工作流组');
+      }
+    } finally {
+      db.close();
+    }
   });
 
   it('自由画布校验错误是可操作中文，sendCaughtRouteError 会保留具体原因', () => {

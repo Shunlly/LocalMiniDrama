@@ -320,7 +320,7 @@ async function validatePublicHttpUrl(value, options = {}) {
     try {
       records = await lookup(host, { all: true, verbatim: true });
     } catch (error) {
-      throw new UnsafeMediaReferenceError(`媒体 URL DNS 解析失败：${error?.code || 'DNS_ERROR'}`);
+      throw new UnsafeMediaReferenceError('媒体地址无法解析，请检查链接是否正确');
     }
   }
   if (!Array.isArray(records)) records = records ? [records] : [];

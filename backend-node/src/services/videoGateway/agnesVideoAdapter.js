@@ -137,7 +137,7 @@ async function callAgnesVideoApi(db, config, log, opts) {
 
   if (rawRefList.length > 0 && resolvedRefs.length === 0) {
     return {
-      error: 'Agnes 视频参考图须为公网 URL，本地图上传图床失败（imageproxy.zhongzhuan.chat 可能无法访问）。请检查网络/代理，或将 storage.base_url 配置为 Agnes 可访问的公网地址后重试。',
+      error: 'Agnes 视频参考图须为公网地址。本地图上传图床失败，请检查网络或代理，或把本服务的静态资源公网地址配成 Agnes 可访问后再试。',
     };
   }
 

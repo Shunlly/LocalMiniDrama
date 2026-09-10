@@ -89,7 +89,7 @@ function removeUncommittedImage(storagePath, localPath, log) {
 }
 
 async function persistImageFailure(db, row, message) {
-  const errorMessage = String(message || '图片生成失败').slice(0, 500);
+  const errorMessage = toUserFacingProcessError(message, '图片生成失败').slice(0, 500);
   const mutation = (now) => {
     db.prepare(
       `UPDATE image_generations SET status = 'failed', error_msg = ?, updated_at = ?
@@ -1761,7 +1761,7 @@ async function processImageGeneration(db, log, imageGenId) {
       log.info('[图生] 已取消，未提交生成结果', { id: imageGenId, total_elapsed: elapsed() });
       return;
     }
-    await persistImageFailure(db, row, err.message);
+    await persistImageFailure(db, row, err);
     log.error('[图生] ✗ 异常', { id: imageGenId, error: err.message, stack: (err.stack || '').slice(0, 400), total_elapsed: elapsed() });
   }
 }

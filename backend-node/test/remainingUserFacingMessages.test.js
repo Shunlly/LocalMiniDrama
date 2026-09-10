@@ -186,6 +186,26 @@ const leftoverEnglish = [
   'MiniMax 视频文件 ID 无效',
   'Access Key ID 与 Secret Access Key',
   'Query 中带 Action',
+  '请提供 canvas_layout、free_canvas 或 workflow_groups',
+  'canvas_layout 必须为对象',
+  'workflow_groups 必须为数组',
+  '未返回 task_id 或 video_url',
+  '视频本地路径必须位于 storage 内',
+  '视频路径必须是 storage 内的相对路径',
+  '音频路径必须指向 storage 内已存在的普通文件',
+  '参考媒体本地路径必须位于 storage 内',
+  '视频引用必须位于 storage 目录内',
+  '张参考图不在 storage 内',
+  '将 storage.base_url 配置为 Agnes',
+  '未配置 storage.base_url',
+  'storage.local_path 下文件存在',
+  'image_proxy 配置可用',
+  'DNS_ERROR',
+  '未知的工作流步骤：${step.step_key}',
+  'workflow queue operation(s) failed',
+  'invalid audio file',
+  'persistImageFailure(db, row, err.message)',
+  'persistVideoFailure(db, row, err.message)',
 ];
 
 function leftoverScanText(source, phrase) {
@@ -313,6 +333,10 @@ test('\u5269\u4f59\u7528\u6237\u9519\u8bef\u6e90\u7801\u4e0d\u518d\u5305\u542b\u
     'services/videoGateway/klingVideoAdapter.js',
     'services/videoGateway/openAiSoraAdapter.js',
     'services/videoGateway/minimaxVideoAdapter.js',
+    'services/dramaService.js',
+    'services/storyboardService.js',
+    'services/workflowService.js',
+    'services/videoGateway/agnesVideoAdapter.js',
   ];
   for (const name of files) {
     const sourcePath = name.startsWith('scripts/')
@@ -496,6 +520,48 @@ test('从图片提取描述时非法地址返回不含英文字段名的中文',
   assert.equal(source.includes('imageUrl 必须是 http URL 或 base64 data URL'), false);
 });
 
+
+test('画布保存缺少布局时返回不含英文字段名的中文', () => {
+  const dramaService = require('../src/services/dramaService');
+  const dramaRoutes = require('../src/routes/drama');
+  const db = createDb();
+  try {
+    assert.throws(
+      () => dramaService.saveCanvasLayout(db, silentLog, DRAMA_ID, {}),
+      (error) => {
+        assert.equal(error.code, 'BAD_REQUEST');
+        assert.equal(error.message, '请提供画布布局、自由画布或工作流组');
+        assert.equal(isTrustedChineseUserError(error.message), true);
+        assert.doesNotMatch(error.message, /canvas_layout|free_canvas|workflow_groups/);
+        return true;
+      },
+    );
+    assert.throws(
+      () => dramaService.saveCanvasLayout(db, silentLog, DRAMA_ID, { canvas_layout: [], workflow_groups: [] }),
+      (error) => {
+        assert.equal(error.message, '画布布局必须为对象');
+        assert.equal(isTrustedChineseUserError(error.message), true);
+        return true;
+      },
+    );
+    assert.throws(
+      () => dramaService.saveCanvasLayout(db, silentLog, DRAMA_ID, { workflow_groups: {} }),
+      (error) => {
+        assert.equal(error.message, '工作流组必须为数组');
+        assert.equal(isTrustedChineseUserError(error.message), true);
+        return true;
+      },
+    );
+
+    const res = mockResponse();
+    dramaRoutes(db, {}, silentLog).saveCanvasLayout({ params: { id: String(DRAMA_ID) }, body: {} }, res);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error.message, '请提供画布布局、自由画布或工作流组');
+    assert.equal(isTrustedChineseUserError(res.body.error.message), true);
+  } finally {
+    db.close();
+  }
+});
 test('图片和视频幂等冲突返回不含英文字段名的中文', () => {
   const { isTrustedChineseUserError } = require('../src/services/providerErrorSanitizer');
   assert.equal(isTrustedChineseUserError('该幂等键属于其他项目或分镜'), true);
@@ -552,6 +618,13 @@ test('视频服务供应商任务编号对用户使用中文', () => {
   assert.equal(videoSource.includes('Provider 已返回任务 ID'), false);
   assert.equal(videoSource.includes('Provider 协议'), false);
   assert.equal(videoSource.includes('厂商任务 ID'), false);
+  assert.match(videoSource, /未返回任务编号或视频地址/);
+  assert.equal(videoSource.includes('未返回 task_id 或 video_url'), false);
+  assert.match(videoSource, /参考媒体本地路径必须位于本地存储目录内/);
+  assert.equal(videoSource.includes('参考媒体本地路径必须位于 storage 内'), false);
+  assert.match(videoSource, /persistVideoFailure\(db, row, err\)/);
+  assert.equal(videoSource.includes('persistVideoFailure(db, row, err.message)'), false);
+  assert.match(videoSource, /toUserFacingProcessError\(errorMessage, '视频生成失败'\)/);
 });
 
 test('图片持久化失败不会把英文系统错误漏给用户', () => {
@@ -559,6 +632,9 @@ test('图片持久化失败不会把英文系统错误漏给用户', () => {
   const { toUserFacingProcessError } = require('../src/services/providerErrorSanitizer');
   assert.equal(imageSource.includes('图片持久化失败: ${saveErr.message}'), false);
   assert.match(imageSource, /toUserFacingProcessError\(saveErr/);
+  assert.match(imageSource, /toUserFacingProcessError\(message, '图片生成失败'\)/);
+  assert.match(imageSource, /persistImageFailure\(db, row, err\)/);
+  assert.equal(imageSource.includes('persistImageFailure(db, row, err.message)'), false);
   assert.equal(
     toUserFacingProcessError(new Error('ENOENT: no such file or directory'), '图片保存到本地失败，请稍后重试'),
     '图片保存到本地失败，请稍后重试',

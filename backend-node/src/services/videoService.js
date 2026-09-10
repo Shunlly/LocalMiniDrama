@@ -106,7 +106,8 @@ function runVideoTaskMutation(db, row, signal, mutation) {
 }
 
 async function persistVideoFailure(db, row, errorMessage) {
-  const message = String(errorMessage || '视频生成失败').slice(0, 500);
+  const { toUserFacingProcessError } = require('./providerErrorSanitizer');
+  const message = toUserFacingProcessError(errorMessage, '视频生成失败').slice(0, 500);
   if (!row.task_id) {
     const now = new Date().toISOString();
     db.transaction(() => setVideoGenFailed(db, row.id, message, now))();
@@ -380,7 +381,7 @@ function normalizeSubmittedMediaReference(value) {
     catch (_) { throw badRequest('参考媒体 URL 必须是无凭据的公网 HTTP(S) 地址'); }
   }
   try { return `/static/${uploadService.normalizeStorageRelativeReference(text)}`; }
-  catch (_) { throw badRequest('参考媒体本地路径必须位于 storage 内'); }
+  catch (_) { throw badRequest('参考媒体本地路径必须位于本地存储目录内'); }
 }
 
 function loadVideoReferenceImage(db, storyboardId, dramaId, value) {
@@ -1186,7 +1187,7 @@ async function processVideoGeneration(db, log, videoGenId, options = {}) {
     }
     if (!directVideo.ok && !result.task_id) {
       if (row.task_id) taskService.closeRemoteCancelWindow(row.task_id, { outcome: 'unsupported' });
-      await persistVideoFailure(db, row, '未返回 task_id 或 video_url');
+      await persistVideoFailure(db, row, '未返回任务编号或视频地址');
       return;
     }
     if (row.task_id) {
@@ -1216,7 +1217,7 @@ async function processVideoGeneration(db, log, videoGenId, options = {}) {
       log.info('Video generation cancelled; skipping late writes', { id: videoGenId });
       return;
     }
-    await persistVideoFailure(db, row, err.message);
+    await persistVideoFailure(db, row, err);
     log.error('Video generation error', { id: videoGenId, error: err.message });
   } finally {
     activeVideoPolls.delete(videoGenId);

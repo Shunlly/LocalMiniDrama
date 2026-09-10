@@ -662,7 +662,7 @@ function buildCharacterPublicImageUrlForHub(charRow, cfg) {
     return {
       ok: false,
       error:
-        '角色主图非 http(s) 直链且未配置 storage.base_url，无法组成素材库可拉取的图片 URL（请将主图设为图床/即梦返回地址，或配置本服务静态资源公网 base_url）',
+        '角色主图不是公网图片地址，且未配置静态资源公网地址，无法生成素材库可拉取的图片链接。请将主图设为图床或即梦返回地址，或配置本服务静态资源公网地址。',
     };
   }
   if (lp) {
@@ -759,7 +759,7 @@ async function ensurePublicRegisterImageUrlForMaterialHub(db, log, cfg, charRow,
     return {
       ok: false,
       error:
-        '角色图为本机或内网地址，已尝试上传到中转图床失败（请确认 storage.local_path 下文件存在，且 image_proxy 配置可用）',
+        '角色图为本机或内网地址，上传到中转图床失败。请确认本地存储文件存在，且图床配置可用。',
     };
   }
   imageClient.setProxyCache(db, cacheKey, proxyUrl);

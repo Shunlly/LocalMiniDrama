@@ -208,7 +208,7 @@ function formatClassicVideoNeighborBlock(label, row) {
 
 /**
  * 分镜主图路径：storyboards.local_path 常与图生记录不同步（图在 image_generations），按存在性解析。
- * @returns {{ relativePath: string, absolutePath: string }|null} storage 内的安全图片路径
+ * @returns {{ relativePath: string, absolutePath: string }|null} 本地存储目录内的安全图片路径
  */
 function resolveStoryboardImageLocalPath(db, storageBase, storyboardId, sbRow) {
   const tryRel = (rel) => {

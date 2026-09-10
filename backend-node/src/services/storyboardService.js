@@ -74,7 +74,7 @@ function normalizeStoryboardVideoReference(value, localOnly = false) {
   if (value == null || String(value).trim() === '') return null;
   const text = String(value).trim();
   if (/^https?:\/\//i.test(text)) {
-    if (localOnly) throw badRequest('视频本地路径必须位于 storage 内');
+    if (localOnly) throw badRequest('视频本地路径必须位于本地存储目录内');
     try {
       return uploadService.assertPublicHttpUrlSyntax(text).toString();
     } catch (_) {
@@ -86,7 +86,7 @@ function normalizeStoryboardVideoReference(value, localOnly = false) {
     if (!resolved) throw new Error('not local');
     return resolved.relativePath;
   } catch (_) {
-    throw badRequest('视频路径必须是 storage 内的相对路径');
+    throw badRequest('视频路径必须是本地存储目录内的相对路径');
   }
 }
 
@@ -97,13 +97,13 @@ function normalizeStoryboardAudioReference(value) {
     if (!resolved) throw new Error('not local');
     const opened = uploadService.openStorageFile(storageRoot(), resolved.relativePath);
     try {
-      if (!opened.stat.isFile() || opened.stat.size <= 0) throw new Error('invalid audio file');
+      if (!opened.stat.isFile() || opened.stat.size <= 0) throw new Error('音频文件无效');
     } finally {
       require('fs').closeSync(opened.fd);
     }
     return resolved.relativePath;
   } catch (_) {
-    throw badRequest('音频路径必须指向 storage 内已存在的普通文件');
+    throw badRequest('音频路径必须指向本地存储目录内已存在的普通文件');
   }
 }
 

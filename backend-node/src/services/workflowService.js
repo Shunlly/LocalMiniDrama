@@ -1199,7 +1199,7 @@ async function executeStep(db, log, run, step, allSteps) {
     return output;
   }
 
-  throw new Error(`未知的工作流步骤：${step.step_key}，请刷新后重试`);
+  throw new Error('未知的工作流步骤，请刷新后重试');
 }
 
 async function processWorkflowRun(db, log, runId, options = {}) {
@@ -1400,7 +1400,7 @@ async function drainWorkflowQueue(queue) {
       }
     }
     if (failures.length) {
-      throw new AggregateError(failures, `${failures.length} workflow queue operation(s) failed`);
+      throw new AggregateError(failures, `${failures.length} 个工作流排队操作失败`);
     }
   } finally {
     queue.drainScheduled = false;

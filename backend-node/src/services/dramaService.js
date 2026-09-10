@@ -1453,13 +1453,13 @@ function saveCanvasLayoutUnsafe(db, log, dramaId, req) {
     freeCanvas === undefined &&
     workflowGroups === undefined
   ) {
-    throw canvasBadRequest('请提供 canvas_layout、free_canvas 或 workflow_groups');
+    throw canvasBadRequest('请提供画布布局、自由画布或工作流组');
   }
   if (layout != null && (typeof layout !== 'object' || Array.isArray(layout))) {
-    throw canvasBadRequest('canvas_layout 必须为对象');
+    throw canvasBadRequest('画布布局必须为对象');
   }
   if (workflowGroups !== undefined && !Array.isArray(workflowGroups)) {
-    throw canvasBadRequest('workflow_groups 必须为数组');
+    throw canvasBadRequest('工作流组必须为数组');
   }
   const validatedFreeCanvas = freeCanvas === undefined
     ? undefined

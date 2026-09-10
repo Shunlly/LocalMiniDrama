@@ -330,7 +330,7 @@ async function loadReference(value, index, opts, context) {
   } catch (error) {
     if (!/^https?:\/\//i.test(String(value || ''))) {
       if (error instanceof ComfyUiError) throw error;
-      throw new ComfyUiError(`ComfyUI 第 ${index + 1} 张参考图不在 storage 内`, 'INVALID_REFERENCE');
+      throw new ComfyUiError(`ComfyUI 第 ${index + 1} 张参考图不在本地存储目录内`, 'INVALID_REFERENCE');
     }
   }
   if (local) return local;
