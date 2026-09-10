@@ -306,7 +306,7 @@
       <el-tab-pane label="生成设置" name="generation">
         <div class="tab-content generation-settings">
           <div class="gs-section-title">⚡ 一键生成并发设置</div>
-          <p class="gs-desc">控制「一键生成视频」和「补全并生成」流水线中，各类任务同时并行生成的数量。并发数越高速度越快，但过高可能触发 API 限流（429 错误）。建议根据你的 API 额度选择。</p>
+          <p class="gs-desc">控制「一键生成视频」和「补全并生成」流水线中，各类任务同时并行生成的数量。并发数越高速度越快，但过高可能触发接口限流（请求过于频繁）。建议根据你的 API 额度选择。</p>
 
           <div
             v-if="generationSettingsLoadState === 'error'"
@@ -687,11 +687,9 @@
               列出素材
             </el-button>
             <span class="field-tip jimeng2-assets-tip">
-              调用网关
-              <code>GET /api/business/v1/assets</code>
-              ，与
+              调用网关的素材列表接口，与
               <a href="https://83zi.com/sd2realperson.html" target="_blank" rel="noopener noreferrer">素材管理 API 文档</a>
-              一致（使用当前表单中的网关 URL 与 Token，无需先保存）。
+              一致（使用当前表单中的网关地址与令牌，无需先保存）。
             </span>
           </div>
         </el-form-item>
@@ -1211,7 +1209,7 @@
       </el-form>
       <template #footer>
         <el-button @click="requestOneKeyTongyiClose">取消</el-button>
-        <el-button type="success" :loading="oneKeyTongyiSaving" :disabled="configWriteLocked || !oneKeyTongyiKey.trim()" :title="configWriteLocked ? configWriteLockReason : undefined" @click="submitOneKeyTongyi">
+        <el-button type="success" :loading="oneKeyTongyiSaving" :disabled="configWriteLocked || !oneKeyTongyiKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyTongyiKey.trim() ? '请先填写密钥' : undefined)" @click="submitOneKeyTongyi">
           确定，一键创建配置
         </el-button>
       </template>
@@ -1263,7 +1261,7 @@
       </el-form>
       <template #footer>
         <el-button @click="requestOneKeyVolcClose">取消</el-button>
-        <el-button type="success" :loading="oneKeyVolcSaving" :disabled="configWriteLocked || !oneKeyVolcKey.trim()" :title="configWriteLocked ? configWriteLockReason : undefined" @click="submitOneKeyVolc">
+        <el-button type="success" :loading="oneKeyVolcSaving" :disabled="configWriteLocked || !oneKeyVolcKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyVolcKey.trim() ? '请先填写密钥' : undefined)" @click="submitOneKeyVolc">
           确定，一键创建配置
         </el-button>
       </template>
@@ -1314,7 +1312,7 @@
       </el-form>
       <template #footer>
         <el-button @click="requestOneKeyAgnesClose">取消</el-button>
-        <el-button type="success" :loading="oneKeyAgnesSaving" :disabled="configWriteLocked || !oneKeyAgnesKey.trim()" :title="configWriteLocked ? configWriteLockReason : undefined" @click="submitOneKeyAgnes">
+        <el-button type="success" :loading="oneKeyAgnesSaving" :disabled="configWriteLocked || !oneKeyAgnesKey.trim()" :title="configWriteLocked ? configWriteLockReason : (!oneKeyAgnesKey.trim() ? '请先填写密钥' : undefined)" @click="submitOneKeyAgnes">
           确定，一键创建配置
         </el-button>
       </template>

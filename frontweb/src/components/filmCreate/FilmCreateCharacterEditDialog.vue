@@ -3,7 +3,7 @@
   <input ref="addCharRefFileInput" type="file" accept="image/*" style="display:none" tabindex="-1" aria-hidden="true" @change="onRefImageFileChange('character', $event)" />
 
   <!-- 添加/编辑角色弹窗 -->
-  <AccessibleDialog v-model="showEditCharacter" :title="editCharacterForm?.id ? '编辑角色' : '添加角色'" width="75%" @close="onCloseCharDialog">
+  <AccessibleDialog v-model="showEditCharacter" :title="editCharacterForm?.id ? '编辑角色' : '添加角色'" width="75%" :before-close="handleCharDialogBeforeClose" @close="onCloseCharDialog">
     <el-form v-if="editCharacterForm" label-width="90px">
       <!-- 参考图上传区（新增/编辑均显示） -->
       <el-form-item label="参考图">
@@ -147,14 +147,14 @@
     </el-form>
     <p v-else class="char-edit-empty" role="status">角色信息还没有准备好。请点「取消」关闭后，再从角色列表重新打开。</p>
     <template #footer>
-      <el-button @click="showEditCharacter = false">取消</el-button>
+      <el-button @click="requestCloseCharDialog">取消</el-button>
       <el-button type="primary" :loading="editCharacterSaving" :disabled="Boolean(editCharacterSubmitDisabledReason)" :title="editCharacterSubmitDisabledReason || undefined" @click="submitEditCharacter">{{ editCharacterForm?.id ? '保存' : '添加' }}</el-button>
     </template>
   </AccessibleDialog>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import ActionGate from './ActionGate.vue'
 
 defineOptions({ inheritAttrs: false })
@@ -194,6 +194,41 @@ const {
 } = props
 
 const addCharRefFileInput = ref(null)
+
+const CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE = '角色编辑还没有保存，关闭会丢失这些修改。'
+const characterDraftBaseline = ref('')
+
+function captureCharacterDraft(form, refImage) {
+  return JSON.stringify({
+    form: form ?? null,
+    refImageDataUrl: refImage?.dataUrl ?? '',
+    refImageFilename: refImage?.filename ?? '',
+  })
+}
+
+function hasUnsavedCharacterDraft() {
+  return captureCharacterDraft(props.editCharacterForm, addCharRefImage.value) !== characterDraftBaseline.value
+}
+
+function confirmCloseCharacterDialog() {
+  if (!hasUnsavedCharacterDraft()) return true
+  return window.confirm(CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE)
+}
+
+function handleCharDialogBeforeClose(done) {
+  if (typeof done !== 'function') return
+  if (confirmCloseCharacterDialog()) done()
+}
+
+function requestCloseCharDialog() {
+  if (!confirmCloseCharacterDialog()) return
+  showEditCharacter.value = false
+}
+
+watch(showEditCharacter, (open) => {
+  if (!open) return
+  characterDraftBaseline.value = captureCharacterDraft(props.editCharacterForm, addCharRefImage.value)
+}, { immediate: true, flush: 'sync' })
 
 const editCharacterSubmitDisabledReason = computed(() => {
   if (!props.editCharacterForm?.name?.trim()) return '请先填写角色名称'

@@ -5,12 +5,17 @@
       <div class="editor-layout">
         <!-- 左侧菜单 -->
         <div class="left-sidebar">
-          <div class="sidebar-menu">
-            <div
+          <nav class="sidebar-menu" aria-label="提示词列表">
+            <button
               v-for="p in prompts"
               :key="p.key"
+              type="button"
+              tabindex="0"
               :class="['menu-item', { active: currentKey === p.key }]"
+              :aria-current="currentKey === p.key ? 'true' : undefined"
               @click="selectPrompt(p.key)"
+              @keydown.enter.prevent="selectPrompt(p.key)"
+              @keydown.space.prevent="selectPrompt(p.key)"
             >
               <div class="menu-item-content">
                 <span class="menu-label">{{ p.label }}</span>
@@ -23,14 +28,14 @@
                 <el-tag v-else type="info" size="small" class="menu-tag">默认</el-tag>
               </div>
               <div v-if="isDirty[p.key]" class="dirty-indicator" />
-            </div>
-          </div>
+            </button>
+          </nav>
         </div>
 
         <!-- 右侧编辑区 -->
         <div class="right-content">
           <p class="page-desc">
-            可自定义 AI 生成各阶段使用的系统提示词（System Prompt）。蓝色锁定区为 JSON
+            可自定义 AI 生成各阶段使用的系统提示词。蓝色锁定区为 JSON
             格式要求，不可修改以确保输出格式正确。
           </p>
 
@@ -77,7 +82,8 @@
                 type="primary"
                 size="small"
                 :loading="savingKey === currentPrompt.key"
-                :disabled="!isDirty[currentPrompt.key]"
+                :disabled="Boolean(saveDisabledReason)"
+                :title="saveDisabledReason || undefined"
                 @click="save(currentPrompt)"
               >
                 保存
@@ -85,7 +91,8 @@
               <el-button
                 size="small"
                 :loading="resettingKey === currentPrompt.key"
-                :disabled="!currentPrompt.is_customized && !isDirty[currentPrompt.key]"
+                :disabled="Boolean(resetDisabledReason)"
+                :title="resetDisabledReason || undefined"
                 @click="reset(currentPrompt)"
               >
                 恢复默认
@@ -114,6 +121,28 @@ const currentKey = ref(null)
 
 const currentPrompt = computed(() => {
   return prompts.value.find((p) => p.key === currentKey.value)
+})
+
+function describeSaveDisabledReason(prompt, dirty) {
+  if (!prompt) return '当前没有可保存的提示词'
+  if (dirty) return ''
+  return '当前没有未保存的修改'
+}
+
+function describeResetDisabledReason(prompt, dirty) {
+  if (!prompt) return '当前没有可恢复的提示词'
+  if (prompt.is_customized || dirty) return ''
+  return '当前已是系统默认提示词，无需恢复'
+}
+
+const saveDisabledReason = computed(() => {
+  const prompt = currentPrompt.value
+  return describeSaveDisabledReason(prompt, Boolean(prompt && isDirty.value[prompt.key]))
+})
+
+const resetDisabledReason = computed(() => {
+  const prompt = currentPrompt.value
+  return describeResetDisabledReason(prompt, Boolean(prompt && isDirty.value[prompt.key]))
 })
 
 async function load() {
@@ -240,12 +269,23 @@ onMounted(() => load())
 }
 
 .menu-item {
+  display: block;
+  width: 100%;
   padding: 12px 16px;
+  border: 0;
   border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   transition: all 0.2s;
   margin-bottom: 4px;
   position: relative;
+}
+.menu-item:focus-visible {
+  outline: 2px solid var(--el-color-primary, #7c3aed);
+  outline-offset: 2px;
 }
 
 .menu-item:hover {

@@ -3,11 +3,11 @@
     <div class="page-header">
       <div class="header-left">
         <p class="page-desc">
-          配置不同业务场景使用的 AI 模型路由。当文本生成请求传入场景键 scene_key 时，系统会优先使用此处配置的模型。
+          配置不同业务场景使用的 AI 模型路由。当文本生成请求指定业务场景时，系统会优先使用此处配置的模型。
         </p>
       </div>
       <div class="header-right">
-        <el-button type="primary" :disabled="writeLocked" @click="openAdd">
+        <el-button type="primary" :disabled="writeLocked" :title="writeLocked ? writeLockReason : undefined" aria-label="添加业务场景配置" @click="openAdd">
           <el-icon><Plus /></el-icon>
           添加业务场景配置
         </el-button>
@@ -37,11 +37,10 @@
         stripe
         style="width: 100%"
       >
-        <el-table-column prop="key" label="场景键 (scene_key)" min-width="220">
+        <el-table-column prop="key" label="场景键" min-width="220">
           <template #default="{ row }">
             <div class="scene-key-cell">
-              <code class="scene-key">{{ row.key }}</code>
-              <span class="scene-key-label">{{ getSceneKeyLabel(row.key) }}</span>
+              <span class="scene-key-label">{{ getSceneKeyLabel(row.key) || row.key }}</span>
             </div>
           </template>
         </el-table-column>
@@ -74,14 +73,14 @@
         <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="onDelete(row)">删除</el-button>
+            <el-button link type="primary" size="small" :disabled="writeLocked" :title="writeLocked ? writeLockReason : undefined" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" size="small" :disabled="writeLocked" :title="writeLocked ? writeLockReason : undefined" @click="onDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
 
       <el-empty v-else-if="hasSuccessfulLoad && !loadError" description="暂无场景模型映射配置">
-        <el-button type="primary" @click="openAdd">添加业务场景配置</el-button>
+        <el-button type="primary" :disabled="writeLocked" :title="writeLocked ? writeLockReason : undefined" aria-label="添加业务场景配置" @click="openAdd">添加业务场景配置</el-button>
       </el-empty>
     </template>
 
@@ -105,6 +104,7 @@
             placeholder="选择或输入场景键"
             style="width: 100%"
             :disabled="!!editingKey"
+            :title="editingKey ? '已保存的业务场景不能修改标识' : undefined"
             @change="onKeyChange"
           >
             <el-option
@@ -114,11 +114,11 @@
               :value="k.value"
             />
           </el-select>
-          <p class="field-tip">用于在代码中标识业务场景，选择后会自动设置对应的服务类型</p>
+          <p class="field-tip">{{ editingKey ? '已保存的业务场景不能修改标识' : '选择后会自动设置对应的服务类型' }}</p>
         </el-form-item>
 
         <el-form-item prop="service_type" label="服务类型">
-          <el-select v-model="form.service_type" aria-label="服务类型" placeholder="选择服务类型" style="width: 100%" disabled>
+          <el-select v-model="form.service_type" aria-label="服务类型" placeholder="选择服务类型" style="width: 100%" disabled title="由场景键自动决定，不可更改">
             <el-option label="文本/对话" value="text" />
             <el-option label="文本生成图片" value="image" />
             <el-option label="分镜图片生成" value="storyboard_image" />
@@ -155,7 +155,8 @@
             clearable
             placeholder="选择模型（留空使用配置默认）"
             style="width: 100%"
-            :disabled="!selectedConfigModels.length && !form.model_override"
+            :disabled="Boolean(modelOverrideDisabledReason)"
+            :title="modelOverrideDisabledReason || undefined"
           >
             <el-option
               v-for="m in selectedConfigModels"
@@ -179,7 +180,7 @@
 
       <template #footer>
         <el-button @click="requestDialogClose">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button type="primary" :loading="saving" :disabled="saving" :title="saving ? '正在保存场景模型映射，请稍候' : undefined" @click="save">保存</el-button>
       </template>
     </AccessibleDialog>
   </div>
@@ -260,32 +261,42 @@ defineExpose({
 
 // 预定义场景键及其对应的服务类型
 const predefinedKeys = [
-  { value: 'image_polish', label: 'image_polish - 分镜图提示词润色', service_type: 'text' },
+  { value: 'image_polish', label: '分镜图提示词润色', service_type: 'text' },
   // 目前程序里只内置了一个场景键：image_polish
   // 以下为新增的场景键，已添加到对应的接口里
-  { value: 'role_image_polish', label: 'role_image_polish - 角色图提示词润色', service_type: 'text' },
-  { value: 'prop_image_polish', label: 'prop_image_polish - 道具图提示词润色', service_type: 'text' },
-  { value: 'scene_image_polish', label: 'scene_image_polish - 场景图提示词润色', service_type: 'text' },
-  { value: 'role_extraction', label: 'role_extraction - 角色提取', service_type: 'text' },
-  { value: 'prop_extraction', label: 'prop_extraction - 道具提取', service_type: 'text' },
-  { value: 'scene_extraction', label: 'scene_extraction - 场景提取', service_type: 'text' },
-  { value: 'storyboard_extraction', label: 'storyboard_extraction - 分镜生成', service_type: 'text' },
-  { value: 'identity_anchors', label: 'identity_anchors - 角色视觉锚点提炼', service_type: 'text' },
-  { value: 'frame_prompt', label: 'frame_prompt - 帧提示词生成', service_type: 'text' },
-  { value: 'novel_import', label: 'novel_import - 小说导入改写', service_type: 'text' },
-  { value: 'story_generation', label: 'story_generation - 故事生成', service_type: 'text' },
+  { value: 'role_image_polish', label: '角色图提示词润色', service_type: 'text' },
+  { value: 'prop_image_polish', label: '道具图提示词润色', service_type: 'text' },
+  { value: 'scene_image_polish', label: '场景图提示词润色', service_type: 'text' },
+  { value: 'role_extraction', label: '角色提取', service_type: 'text' },
+  { value: 'prop_extraction', label: '道具提取', service_type: 'text' },
+  { value: 'scene_extraction', label: '场景提取', service_type: 'text' },
+  { value: 'storyboard_extraction', label: '分镜生成', service_type: 'text' },
+  { value: 'identity_anchors', label: '角色视觉锚点提炼', service_type: 'text' },
+  { value: 'frame_prompt', label: '帧提示词生成', service_type: 'text' },
+  { value: 'novel_import', label: '小说导入改写', service_type: 'text' },
+  { value: 'story_generation', label: '故事生成', service_type: 'text' },
   //  以下是其他服务类型...未实现
   // 图片生成
-  // { value: 'role_image_gen', label: 'role_image_gen - 角色图片生成', service_type: 'image' },
-  // { value: 'prop_image_gen', label: 'prop_image_gen - 道具图片生成', service_type: 'image' },
-  // { value: 'scene_image_gen', label: 'scene_image_gen - 场景图片生成', service_type: 'image' },
-  // { value: 'storyboard_image_gen', label: 'storyboard_image_gen - 分镜图片生成', service_type: 'image' },
-  // { value: 'video_frame_gen', label: 'video_frame_gen - 视频帧生成', service_type: 'video' },// 首尾帧视频生成
-  // { value: 'video_full_gen', label: 'video_full_gen - 全能视频生成', service_type: 'video' },// 全能模式视频生成
+  // { value: 'role_image_gen', label: '角色图片生成', service_type: 'image' },
+  // { value: 'prop_image_gen', label: '道具图片生成', service_type: 'image' },
+  // { value: 'scene_image_gen', label: '场景图片生成', service_type: 'image' },
+  // { value: 'storyboard_image_gen', label: '分镜图片生成', service_type: 'image' },
+  // { value: 'video_frame_gen', label: '视频帧生成', service_type: 'video' },// 首尾帧视频生成
+  // { value: 'video_full_gen', label: '全能视频生成', service_type: 'video' },// 全能模式视频生成
 ]
 
 // 根据服务类型筛选配置
-const writeLocked = computed(() => loading.value && !hasSuccessfulLoad.value)
+const writeLocked = computed(() => loading.value || !hasSuccessfulLoad.value || Boolean(loadError.value))
+const writeLockReason = computed(() => {
+  if (loading.value) return '场景模型映射正在加载，请稍候'
+  if (loadError.value) {
+    return hasSuccessfulLoad.value
+      ? '场景模型映射刷新失败，成功重试前不能修改'
+      : '场景模型映射加载失败，成功重试前不能添加'
+  }
+  if (!hasSuccessfulLoad.value) return '场景模型映射尚未就绪'
+  return ''
+})
 
 const filteredConfigs = computed(() => {
   const currentServiceType = form.value.service_type
@@ -303,6 +314,11 @@ const selectedConfigModels = computed(() => {
   const current = String(form.value.model_override || '').trim()
   if (current && !models.includes(current)) return [current, ...models]
   return models
+})
+
+const modelOverrideDisabledReason = computed(() => {
+  if (selectedConfigModels.value.length || form.value.model_override) return ''
+  return '请先选择 AI 配置'
 })
 
 function serviceTypeLabel(type) {
@@ -329,12 +345,7 @@ function serviceTypeTagType(type) {
 
 // 获取场景键的 label
 function getSceneKeyLabel(key) {
-  const matched = predefinedKeys.find(k => k.value === key)
-  if (matched) {
-    // 从 label 中提取描述部分（去掉 key 前缀）
-    return matched.label.replace(matched.value + ' - ', '')
-  }
-  return ''
+  return predefinedKeys.find(k => k.value === key)?.label || ''
 }
 
 function configOptionLabel(item) {
@@ -390,6 +401,7 @@ async function load() {
 }
 
 function openAdd() {
+  if (writeLocked.value) return
   editingKey.value = null
   form.value = {
     key: '',
@@ -403,6 +415,7 @@ function openAdd() {
 }
 
 function openEdit(row) {
+  if (writeLocked.value) return
   editingKey.value = row.key
   form.value = {
     key: row.key,
@@ -447,9 +460,10 @@ async function save() {
 }
 
 async function onDelete(row) {
+  if (writeLocked.value) return
   try {
     await ElMessageBox.confirm(
-      `确定要删除场景「${row.key}」的模型映射配置吗？`,
+      `确定要删除场景「${getSceneKeyLabel(row.key) || row.key}」的模型映射配置吗？`,
       '确认删除',
       { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
     )

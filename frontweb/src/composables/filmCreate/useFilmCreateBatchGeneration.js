@@ -25,6 +25,33 @@ function recordBatchPollFailure(errorsRef, progressRef, sb, pollRes, stoppingRef
   return true
 }
 
+function readActiveFlag(value) {
+  if (value == null) return false
+  if (typeof value === 'object' && 'value' in value) return Boolean(value.value)
+  return Boolean(value)
+}
+
+function hasActiveIdCollection(value) {
+  if (value == null) return false
+  const collection = typeof value === 'object' && 'value' in value ? value.value : value
+  if (collection == null) return false
+  if (typeof collection.size === 'number') return collection.size > 0
+  if (typeof collection.length === 'number') return collection.length > 0
+  return false
+}
+
+/** 批量/单条生图生视频是否仍在前端等待；不含普通编辑和全流程。 */
+export function hasActiveMediaGenerationWork(state = {}) {
+  return readActiveFlag(state.batchImageRunning)
+    || readActiveFlag(state.batchImageStopping)
+    || readActiveFlag(state.batchVideoRunning)
+    || readActiveFlag(state.batchVideoStopping)
+    || hasActiveIdCollection(state.generatingSbImageIds)
+    || hasActiveIdCollection(state.generatingSbVideoIds)
+    || hasActiveIdCollection(state.generatingSbFirstImageIds)
+    || hasActiveIdCollection(state.generatingSbLastImageIds)
+}
+
 export function useFilmCreateBatchGeneration(deps = {}) {
   const {
     currentEpisodeId,

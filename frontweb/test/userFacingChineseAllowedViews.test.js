@@ -155,7 +155,8 @@ test('自由创作、项目列表、提示词和场景映射的用户可见句�
   assert.doesNotMatch(filmListSource, /微信我/)
   assert.match(filmListSource, /ElMessageBox\.confirm\(`确定删除公共角色「/)
 
-  assert.match(promptEditorSource, /系统提示词（System Prompt）/)
+  assert.match(promptEditorSource, /系统提示词/)
+  assert.doesNotMatch(promptEditorSource, /System Prompt/)
   assert.match(promptEditorSource, /confirmButtonText: '恢复默认'/)
   assert.match(promptEditorSource, /cancelButtonText: '取消'/)
   assert.match(promptEditorSource, /ElMessage\.error\('加载提示词失败'\)/)

@@ -18,6 +18,9 @@ function openingButtonFor(clickHandler) {
   return source.slice(start, source.indexOf('>', clickIndex) + 1)
 }
 
+// 所有 configWriteLocked 按钮 title 形态：写锁原因优先，一键配置空密钥才回落「请先填写密钥」
+const CONFIG_WRITE_LOCKED_TITLE_MORPHOLOGY = /:title="configWriteLocked \? configWriteLockReason : (?:undefined|\(!\w+\.trim\(\) \? '请先填写密钥' : undefined\))"/
+
 const mutationHandlers = [
   'openAdd',
   'openAddForService',
@@ -80,8 +83,8 @@ test('AI config writes fail closed until the list and vendor lock dependencies a
     )
     assert.match(
       opening,
-      /:title="configWriteLocked \? configWriteLockReason : undefined"/,
-      `${clickHandler} must show a Chinese lock reason while configuration writes are locked`,
+      CONFIG_WRITE_LOCKED_TITLE_MORPHOLOGY,
+      `${clickHandler} 必须保持写锁优先的 title 形态`,
     )
   }
 
@@ -183,8 +186,15 @@ test('AI 配置写入锁定时可见按钮给出中文原因，隐藏文件选�
     searchFrom = end + 1
   }
   assert.ok(lockedButtons.length >= 15, `expected locked visible buttons, got ${lockedButtons.length}`)
+  // 所有 configWriteLocked 按钮 title 形态
   for (const tag of lockedButtons) {
-    assert.match(tag, /:title="configWriteLocked \? configWriteLockReason : undefined"/)
+    assert.match(tag, CONFIG_WRITE_LOCKED_TITLE_MORPHOLOGY)
+  }
+  for (const key of ['oneKeyTongyiKey', 'oneKeyVolcKey', 'oneKeyAgnesKey']) {
+    assert.match(
+      source,
+      new RegExp(`:title="configWriteLocked \\? configWriteLockReason : \\(!${key}\\.trim\\(\\) \\? '请先填写密钥' : undefined\\)"`),
+    )
   }
 
   const hiddenInput = source.match(/<input ref="importFileRef"[^>]*>/)?.[0] || ''

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { compileScript, parse } from '@vue/compiler-sfc'
-import { createRenderer, defineComponent, h, nextTick, ref } from 'vue'
+import { createRenderer, defineComponent, h, nextTick, ref, watch } from 'vue'
 
 const vueUrl = import.meta.resolve('vue')
 const characterDialogUrl = new URL('../src/components/filmCreate/FilmCreateCharacterEditDialog.vue', import.meta.url)
@@ -143,12 +143,20 @@ const AccessibleDialogStub = defineComponent({
     modelValue: { type: Boolean, default: false },
     title: { type: String, default: '' },
     width: { type: [String, Number], default: '' },
+    beforeClose: { type: Function, default: undefined },
   },
   emits: ['update:modelValue', 'close'],
-  setup(props, { slots }) {
+  setup(props, { slots, emit }) {
+    watch(() => props.modelValue, (visible, wasVisible) => {
+      if (wasVisible && !visible) emit('close')
+    })
     return () => {
       if (!props.modelValue) return null
-      return h('div', { 'data-dialog': 'character-edit', 'data-title': props.title }, [
+      return h('div', {
+        'data-dialog': 'character-edit',
+        'data-title': props.title,
+        beforeClose: props.beforeClose,
+      }, [
         slots.default?.(),
         slots.footer?.(),
       ])
@@ -216,8 +224,34 @@ async function mountCharacterDialog(props) {
   const FilmCreateCharacterEditDialog = (await import(compileSfc(characterDialogUrl, 'character-edit-dialog', new Map([
     ['./ActionGate.vue', actionGateStubUrl],
   ])))).default
+  const showEditCharacter = ref(props.showEditCharacter)
+  const addCharRefImage = ref(props.addCharRefImage)
+  const passedProps = { ...props }
+  const onUpdateShowEditCharacter = passedProps['onUpdate:showEditCharacter']
+  const onUpdateAddCharRefImage = passedProps['onUpdate:addCharRefImage']
+  delete passedProps.showEditCharacter
+  delete passedProps.addCharRefImage
+  delete passedProps['onUpdate:showEditCharacter']
+  delete passedProps['onUpdate:addCharRefImage']
+  const Harness = defineComponent({
+    setup() {
+      return () => h(FilmCreateCharacterEditDialog, {
+        ...passedProps,
+        showEditCharacter: showEditCharacter.value,
+        'onUpdate:showEditCharacter': (value) => {
+          showEditCharacter.value = value
+          onUpdateShowEditCharacter?.(value)
+        },
+        addCharRefImage: addCharRefImage.value,
+        'onUpdate:addCharRefImage': (value) => {
+          addCharRefImage.value = value
+          onUpdateAddCharRefImage?.(value)
+        },
+      })
+    },
+  })
   const root = createHostNode('root')
-  const app = renderer.createApp(FilmCreateCharacterEditDialog, props)
+  const app = renderer.createApp(Harness)
   app.component('AccessibleDialog', AccessibleDialogStub)
   app.component('ElButton', ElButton)
   app.component('ElInput', ElInput)
@@ -227,7 +261,7 @@ async function mountCharacterDialog(props) {
   app.component('ElOption', ElOption)
   app.mount(root)
   await nextTick()
-  return { app, root }
+  return { app, root, showEditCharacter, addCharRefImage }
 }
 
 function noop() {}
@@ -245,6 +279,80 @@ function baseHandlers() {
     onRefImageFileChange: noop,
     submitEditCharacter: noop,
   }
+}
+
+const CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE = '角色编辑还没有保存，关闭会丢失这些修改。'
+
+function stubConfirm(impl) {
+  const calls = []
+  const hadWindow = Object.prototype.hasOwnProperty.call(globalThis, 'window')
+  const previousWindow = hadWindow ? globalThis.window : undefined
+  const hadConfirm = Object.prototype.hasOwnProperty.call(globalThis, 'confirm')
+  const previousConfirm = hadConfirm ? globalThis.confirm : undefined
+  const confirm = (message) => {
+    calls.push(message)
+    return typeof impl === 'function' ? impl(message) : impl
+  }
+  globalThis.confirm = confirm
+  globalThis.window = {
+    ...(previousWindow && typeof previousWindow === 'object' ? previousWindow : {}),
+    confirm,
+  }
+  return {
+    calls,
+    restore() {
+      if (hadConfirm) globalThis.confirm = previousConfirm
+      else delete globalThis.confirm
+      if (hadWindow) globalThis.window = previousWindow
+      else delete globalThis.window
+    },
+  }
+}
+
+function findDialog(root) {
+  return findAll(root, (node) => node.props && node.props['data-dialog'] === 'character-edit')[0]
+}
+
+function findCancelButton(root) {
+  return findAll(root, (node) => node.type === 'button' && collectText(node).includes('取消'))[0]
+}
+
+async function mountCharacterDialogHarness({
+  form,
+  addCharRefImage: initialRef = null,
+  onCloseCharDialog = noop,
+} = {}) {
+  const FilmCreateCharacterEditDialog = (await import(compileSfc(characterDialogUrl, 'character-edit-dialog-harness', new Map([
+    ['./ActionGate.vue', actionGateStubUrl],
+  ])))).default
+  const showEditCharacter = ref(true)
+  const addCharRefImage = ref(initialRef)
+  const editCharacterForm = ref(form)
+  const Harness = defineComponent({
+    setup() {
+      return () => h(FilmCreateCharacterEditDialog, {
+        ...baseHandlers(),
+        onCloseCharDialog,
+        showEditCharacter: showEditCharacter.value,
+        'onUpdate:showEditCharacter': (value) => { showEditCharacter.value = value },
+        addCharRefImage: addCharRefImage.value,
+        'onUpdate:addCharRefImage': (value) => { addCharRefImage.value = value },
+        editCharacterForm: editCharacterForm.value,
+      })
+    },
+  })
+  const root = createHostNode('root')
+  const app = renderer.createApp(Harness)
+  app.component('AccessibleDialog', AccessibleDialogStub)
+  app.component('ElButton', ElButton)
+  app.component('ElInput', ElInput)
+  app.component('ElForm', ElForm)
+  app.component('ElFormItem', ElFormItem)
+  app.component('ElSelect', ElSelect)
+  app.component('ElOption', ElOption)
+  app.mount(root)
+  await nextTick()
+  return { app, root, showEditCharacter, addCharRefImage, editCharacterForm }
 }
 
 test('角色弹窗已从资源弹窗集合抽出，制作页仍走原入口', () => {
@@ -295,6 +403,9 @@ test('抽出的角色弹窗保留上传、生成、空态和取消文案', () =>
   assert.match(characterDialogSource, /正在从参考图提取描述，请稍候/)
   assert.match(characterDialogSource, /正在从主图提取描述，请稍候/)
   assert.match(characterDialogSource, /请先填写角色外貌描述/)
+  assert.match(characterDialogSource, /角色编辑还没有保存，关闭会丢失这些修改。/)
+  assert.match(characterDialogSource, /:before-close="handleCharDialogBeforeClose"/)
+  assert.match(characterDialogSource, /@click="requestCloseCharDialog"/)
 })
 
 test('打开角色弹窗后可取消，空表单会禁用提交', async () => {
@@ -561,5 +672,236 @@ test('禁用的保存、提取和生成按钮给出中文原因', async () => {
     assert.equal(extractAnchors.props.title, '请先填写角色外貌描述')
   } finally {
     extractingMain.app.unmount()
+  }
+})
+
+
+test('无未保存修改时取消和 before-close 都直接关闭', async () => {
+  const confirm = stubConfirm(() => {
+    assert.fail('无修改关闭不应弹出确认')
+  })
+  const showEditCharacter = ref(true)
+  const closeCalls = []
+  const { app, root } = await mountCharacterDialog({
+    ...baseHandlers(),
+    onCloseCharDialog: () => { closeCalls.push('close') },
+    showEditCharacter: showEditCharacter.value,
+    'onUpdate:showEditCharacter': (value) => { showEditCharacter.value = value },
+    addCharRefImage: null,
+    editCharacterForm: {
+      name: '李华',
+      role: 'main',
+      appearance: '短发',
+      description: '',
+    },
+  })
+  try {
+    findCancelButton(root).props.onClick()
+    await nextTick()
+    assert.equal(showEditCharacter.value, false)
+    assert.deepEqual(confirm.calls, [])
+    assert.deepEqual(closeCalls, ['close'])
+  } finally {
+    confirm.restore()
+    app.unmount()
+  }
+
+  const confirmBeforeClose = stubConfirm(() => {
+    assert.fail('无修改关闭不应弹出确认')
+  })
+  let allowed = false
+  const opened = await mountCharacterDialog({
+    ...baseHandlers(),
+    showEditCharacter: true,
+    addCharRefImage: null,
+    editCharacterForm: {
+      name: '李华',
+      role: 'main',
+      appearance: '短发',
+      description: '',
+    },
+  })
+  try {
+    const dialog = findDialog(opened.root)
+    assert.equal(typeof dialog.props.beforeClose, 'function')
+    dialog.props.beforeClose(() => { allowed = true })
+    assert.equal(allowed, true)
+    assert.deepEqual(confirmBeforeClose.calls, [])
+  } finally {
+    confirmBeforeClose.restore()
+    opened.app.unmount()
+  }
+})
+
+test('有未保存修改时关闭需中文确认，取消确认则保持打开', async () => {
+  const confirm = stubConfirm(false)
+  const showEditCharacter = ref(true)
+  const closeCalls = []
+  const form = {
+    name: '李华',
+    role: 'main',
+    appearance: '短发',
+    description: '',
+  }
+  const { app, root } = await mountCharacterDialog({
+    ...baseHandlers(),
+    onCloseCharDialog: () => { closeCalls.push('close') },
+    showEditCharacter: showEditCharacter.value,
+    'onUpdate:showEditCharacter': (value) => { showEditCharacter.value = value },
+    addCharRefImage: null,
+    editCharacterForm: form,
+  })
+  try {
+    form.name = '李华改'
+    findCancelButton(root).props.onClick()
+    await nextTick()
+    assert.deepEqual(confirm.calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
+    assert.equal(showEditCharacter.value, true)
+    assert.deepEqual(closeCalls, [])
+    assert.ok(findDialog(root), '拒绝确认后弹窗应保持打开')
+    assert.equal(form.name, '李华改')
+  } finally {
+    confirm.restore()
+    app.unmount()
+  }
+})
+
+test('有未保存修改时确认关闭会丢掉草稿', async () => {
+  const confirm = stubConfirm(true)
+  const showEditCharacter = ref(true)
+  const closeCalls = []
+  const form = {
+    name: '李华',
+    role: 'main',
+    appearance: '短发',
+    description: '',
+  }
+  const { app, root } = await mountCharacterDialog({
+    ...baseHandlers(),
+    onCloseCharDialog: () => { closeCalls.push('close') },
+    showEditCharacter: showEditCharacter.value,
+    'onUpdate:showEditCharacter': (value) => { showEditCharacter.value = value },
+    addCharRefImage: null,
+    editCharacterForm: form,
+  })
+  try {
+    form.appearance = '长发'
+    findCancelButton(root).props.onClick()
+    await nextTick()
+    assert.deepEqual(confirm.calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
+    assert.equal(showEditCharacter.value, false)
+    assert.deepEqual(closeCalls, ['close'])
+  } finally {
+    confirm.restore()
+    app.unmount()
+  }
+})
+
+test('改回原值后关闭不再确认', async () => {
+  const confirm = stubConfirm(() => {
+    assert.fail('改回原值后关闭不应弹出确认')
+  })
+  const showEditCharacter = ref(true)
+  const form = {
+    name: '李华',
+    role: 'main',
+    appearance: '短发',
+    description: '',
+  }
+  const { app, root } = await mountCharacterDialog({
+    ...baseHandlers(),
+    showEditCharacter: showEditCharacter.value,
+    'onUpdate:showEditCharacter': (value) => { showEditCharacter.value = value },
+    addCharRefImage: null,
+    editCharacterForm: form,
+  })
+  try {
+    form.name = '李华改'
+    form.name = '李华'
+    findCancelButton(root).props.onClick()
+    await nextTick()
+    assert.equal(showEditCharacter.value, false)
+    assert.deepEqual(confirm.calls, [])
+  } finally {
+    confirm.restore()
+    app.unmount()
+  }
+})
+
+test('有未保存修改时 before-close 同样要中文确认', async () => {
+  const form = {
+    id: 3,
+    name: '李华',
+    role: 'main',
+    appearance: '短发',
+    description: '',
+    polished_prompt: '提示词',
+    stages: '',
+  }
+  const declined = stubConfirm(false)
+  const mounted = await mountCharacterDialog({
+    ...baseHandlers(),
+    showEditCharacter: true,
+    addCharRefImage: null,
+    editCharacterForm: form,
+  })
+  try {
+    form.polished_prompt = '改过的提示词'
+    let allowed = false
+    findDialog(mounted.root).props.beforeClose(() => { allowed = true })
+    assert.equal(allowed, false)
+    assert.deepEqual(declined.calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
+  } finally {
+    declined.restore()
+    mounted.app.unmount()
+  }
+
+  const accepted = stubConfirm(true)
+  const form2 = {
+    id: 3,
+    name: '李华',
+    role: 'main',
+    appearance: '短发',
+    description: '',
+    polished_prompt: '提示词',
+    stages: '',
+  }
+  const mounted2 = await mountCharacterDialog({
+    ...baseHandlers(),
+    showEditCharacter: true,
+    addCharRefImage: null,
+    editCharacterForm: form2,
+  })
+  try {
+    form2.stages = '[{"episode_range":[1,3],"appearance":"白衣"}]'
+    let allowed = false
+    findDialog(mounted2.root).props.beforeClose(() => { allowed = true })
+    assert.equal(allowed, true)
+    assert.deepEqual(accepted.calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
+  } finally {
+    accepted.restore()
+    mounted2.app.unmount()
+  }
+})
+
+test('未保存的角色参考图关闭时也要确认', async () => {
+  const confirm = stubConfirm(false)
+  const closeCalls = []
+  const harness = await mountCharacterDialogHarness({
+    form: { name: '李华', role: 'main', appearance: '短发', description: '' },
+    onCloseCharDialog: () => { closeCalls.push('close') },
+  })
+  try {
+    harness.addCharRefImage.value = { dataUrl: 'data:image/png;base64,aaa', filename: 'ref.png' }
+    await nextTick()
+    findCancelButton(harness.root).props.onClick()
+    await nextTick()
+    assert.deepEqual(confirm.calls, [CHARACTER_EDIT_UNSAVED_CLOSE_MESSAGE])
+    assert.equal(harness.showEditCharacter.value, true)
+    assert.deepEqual(closeCalls, [])
+    assert.equal(harness.addCharRefImage.value.filename, 'ref.png')
+  } finally {
+    confirm.restore()
+    harness.app.unmount()
   }
 })

@@ -794,3 +794,54 @@ test('即梦素材库弹窗去掉接口路径，列名和时间改为中文', ()
   assert.equal(formatJimeng2AssetCreatedAt(null), '')
 })
 
+test('AI 配置页 GET 帮助、429 说明和一键配置空密钥禁用改为中文，写锁优先', () => {
+  assert.doesNotMatch(vueSource, /GET \/api/)
+  assert.match(vueSource, /调用网关的素材列表接口/)
+  assert.match(vueSource, /网关地址与令牌/)
+  assert.doesNotMatch(vueSource, /429 错误/)
+  assert.match(vueSource, /接口限流（请求过于频繁）/)
+  assert.match(vueSource, /async function loadList\(\)/)
+  assert.match(vueSource, /async function openTest\(row\)/)
+  assert.doesNotMatch(vueSource, /useAiConfigList/)
+  assert.doesNotMatch(vueSource, /from '@\/composables\/useAiConfigList/)
+
+  const oneKeySubmitKeys = ['oneKeyTongyiKey', 'oneKeyVolcKey', 'oneKeyAgnesKey']
+  for (const key of oneKeySubmitKeys) {
+    assert.match(
+      vueSource,
+      new RegExp(`:disabled="configWriteLocked \\|\\| !${key}\\.trim\\(\\)"`),
+      `${key} 空密钥时必须禁用一键配置`,
+    )
+    const titleRe = new RegExp(`:title="(configWriteLocked \\? configWriteLockReason : \\(!${key}\\.trim\\(\\) \\? '请先填写密钥' : undefined\\))"`)
+    const matched = vueSource.match(titleRe)
+    assert.ok(matched, `${key} 必须给出空密钥中文原因，且写锁优先`)
+    const expr = matched[1]
+    const evalTitle = (env) => Function(
+      'configWriteLocked',
+      'configWriteLockReason',
+      key,
+      `"use strict"; return (${expr})`,
+    )(env.configWriteLocked, env.configWriteLockReason, env[key])
+
+    assert.equal(
+      evalTitle({ configWriteLocked: true, configWriteLockReason: '配置列表尚未就绪', [key]: '' }),
+      '配置列表尚未就绪',
+    )
+    assert.equal(
+      evalTitle({ configWriteLocked: true, configWriteLockReason: '正在一键配置，请稍候', [key]: 'sk-test' }),
+      '正在一键配置，请稍候',
+    )
+    assert.equal(
+      evalTitle({ configWriteLocked: false, configWriteLockReason: '配置列表尚未就绪', [key]: '' }),
+      '请先填写密钥',
+    )
+    assert.equal(
+      evalTitle({ configWriteLocked: false, configWriteLockReason: '配置列表尚未就绪', [key]: '   ' }),
+      '请先填写密钥',
+    )
+    assert.equal(
+      evalTitle({ configWriteLocked: false, configWriteLockReason: '配置列表尚未就绪', [key]: 'sk-test' }),
+      undefined,
+    )
+  }
+})

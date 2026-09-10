@@ -1,4 +1,14 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { hasActiveMediaGenerationWork } from './useFilmCreateBatchGeneration.js'
+
+function hasActiveIdCollection(value) {
+  if (value == null) return false
+  const collection = typeof value === 'object' && 'value' in value ? value.value : value
+  if (collection == null) return false
+  if (typeof collection.size === 'number') return collection.size > 0
+  if (typeof collection.length === 'number') return collection.length > 0
+  return false
+}
 
 export function useFilmCreateNavigationGuards(deps = {}) {
   const {
@@ -13,8 +23,11 @@ export function useFilmCreateNavigationGuards(deps = {}) {
     flushScriptDraft,
     cancelPipelineRun,
     batchImageRunning,
+    batchImageStopping,
     batchVideoRunning,
+    batchVideoStopping,
     generatingSbImageIds,
+    generatingSbVideoIds,
     generatingSbFirstImageIds,
     generatingSbLastImageIds,
     generatingUniversalSegmentIds,
@@ -22,19 +35,6 @@ export function useFilmCreateNavigationGuards(deps = {}) {
     ttsSbNarrationIds,
     upscalingSbIds,
   } = deps
-
-  function collectionSize(value) {
-    if (!value) return 0
-    if (typeof value.size === 'number') return value.size
-    if (typeof value.value?.size === 'number') return value.value.size
-    return 0
-  }
-
-  function flagEnabled(value) {
-    if (!value) return false
-    if (typeof value === 'object' && 'value' in value) return Boolean(value.value)
-    return Boolean(value)
-  }
 
   function hasActivePipelineWork() {
     return pipelineStarting.value
@@ -45,15 +45,20 @@ export function useFilmCreateNavigationGuards(deps = {}) {
   }
 
   function hasActiveMediaWork() {
-    return flagEnabled(batchImageRunning)
-      || flagEnabled(batchVideoRunning)
-      || collectionSize(generatingSbImageIds) > 0
-      || collectionSize(generatingSbFirstImageIds) > 0
-      || collectionSize(generatingSbLastImageIds) > 0
-      || collectionSize(generatingUniversalSegmentIds) > 0
-      || collectionSize(ttsSbIds) > 0
-      || collectionSize(ttsSbNarrationIds) > 0
-      || collectionSize(upscalingSbIds) > 0
+    return hasActiveMediaGenerationWork({
+      batchImageRunning,
+      batchImageStopping,
+      batchVideoRunning,
+      batchVideoStopping,
+      generatingSbImageIds,
+      generatingSbVideoIds,
+      generatingSbFirstImageIds,
+      generatingSbLastImageIds,
+    })
+      || hasActiveIdCollection(generatingUniversalSegmentIds)
+      || hasActiveIdCollection(ttsSbIds)
+      || hasActiveIdCollection(ttsSbNarrationIds)
+      || hasActiveIdCollection(upscalingSbIds)
   }
 
   function hasActiveGenerationWork() {
@@ -106,15 +111,15 @@ export function useFilmCreateNavigationGuards(deps = {}) {
     return { allowed: false, discard: false }
   }
 
-  async function confirmMediaNavigation() {
+  async function confirmMediaGenerationNavigation() {
     if (!hasActiveMediaWork()) return true
     try {
       await ElMessageBox.confirm(
-        '离开制作页面不会停止已提交的生图、生视频或配音任务，供应商计费可能继续。',
+        '离开制作页面会停止当前页面对生成进度的等待；已提交的供应商任务和计费可能继续。',
         '生成任务仍在执行',
         {
           type: 'warning',
-          confirmButtonText: '仍然离开',
+          confirmButtonText: '仍要离开',
           cancelButtonText: '继续制作',
         },
       )
@@ -145,7 +150,7 @@ export function useFilmCreateNavigationGuards(deps = {}) {
       }
       return cancelPipelineRun()
     }
-    return confirmMediaNavigation()
+    return confirmMediaGenerationNavigation()
   }
 
   async function allowNavigationAfterDraftFlush() {
@@ -165,6 +170,7 @@ export function useFilmCreateNavigationGuards(deps = {}) {
     requestAiConfigWorkspaceNavigation,
     flushDraftBeforeNavigation,
     confirmPipelineNavigation,
+    confirmMediaGenerationNavigation,
     allowNavigationAfterDraftFlush,
   }
 }

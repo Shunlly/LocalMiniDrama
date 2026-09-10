@@ -647,7 +647,7 @@
 
     <template v-if="isDramaReady">
     <!-- 制作角色 编辑 -->
-    <AccessibleDialog v-model="editDramaCharVisible" title="编辑制作角色" width="500px" :close-on-press-escape="true" @close="editDramaCharForm = null">
+    <AccessibleDialog v-model="editDramaCharVisible" title="编辑制作角色" width="500px" :close-on-press-escape="true" :before-close="(done) => requestResourceEditorClose('dramaChar', done)" @close="editDramaCharForm = null">
       <el-form v-if="editDramaCharForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -675,13 +675,13 @@
         <el-form-item label="外貌"><el-input v-model="editDramaCharForm.appearance" type="textarea" :rows="2" placeholder="外貌特征（影响图片生成）" aria-label="制作角色外貌" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editDramaCharVisible = false">取消</el-button>
+        <el-button @click="requestResourceEditorClose('dramaChar')">取消</el-button>
         <el-button type="primary" :loading="editDramaCharSaving" @click="saveDramaChar">保存</el-button>
       </template>
     </AccessibleDialog>
 
     <!-- 制作场景 编辑 -->
-    <AccessibleDialog v-model="editDramaSceneVisible" title="编辑制作场景" width="500px" :close-on-press-escape="true" @close="editDramaSceneForm = null">
+    <AccessibleDialog v-model="editDramaSceneVisible" title="编辑制作场景" width="500px" :close-on-press-escape="true" :before-close="(done) => requestResourceEditorClose('dramaScene', done)" @close="editDramaSceneForm = null">
       <el-form v-if="editDramaSceneForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -702,13 +702,13 @@
         <el-form-item label="图片提示词"><el-input v-model="editDramaSceneForm.prompt" type="textarea" :rows="2" placeholder="图片生成用的详细提示词" aria-label="制作场景图片提示词" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editDramaSceneVisible = false">取消</el-button>
+        <el-button @click="requestResourceEditorClose('dramaScene')">取消</el-button>
         <el-button type="primary" :loading="editDramaSceneSaving" @click="saveDramaScene">保存</el-button>
       </template>
     </AccessibleDialog>
 
     <!-- 制作道具 编辑 -->
-    <AccessibleDialog v-model="editDramaPropVisible" title="编辑制作道具" width="500px" :close-on-press-escape="true" @close="editDramaPropForm = null">
+    <AccessibleDialog v-model="editDramaPropVisible" title="编辑制作道具" width="500px" :close-on-press-escape="true" :before-close="(done) => requestResourceEditorClose('dramaProp', done)" @close="editDramaPropForm = null">
       <el-form v-if="editDramaPropForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -729,13 +729,13 @@
         <el-form-item label="图片提示词"><el-input v-model="editDramaPropForm.prompt" type="textarea" :rows="2" placeholder="图片生成用的详细提示词" aria-label="制作道具图片提示词" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editDramaPropVisible = false">取消</el-button>
+        <el-button @click="requestResourceEditorClose('dramaProp')">取消</el-button>
         <el-button type="primary" :loading="editDramaPropSaving" @click="saveDramaProp">保存</el-button>
       </template>
     </AccessibleDialog>
 
     <!-- 编辑角色 -->
-    <AccessibleDialog v-model="editCharVisible" title="编辑角色库" width="480px" :close-on-press-escape="true" @close="editCharForm = null">
+    <AccessibleDialog v-model="editCharVisible" title="编辑角色库" width="480px" :close-on-press-escape="true" :before-close="(done) => requestResourceEditorClose('char', done)" @close="editCharForm = null">
       <el-form v-if="editCharForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -756,13 +756,13 @@
         <el-form-item label="标签"><el-input v-model="editCharForm.tags" placeholder="逗号分隔" aria-label="角色标签" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editCharVisible = false">取消</el-button>
+        <el-button @click="requestResourceEditorClose('char')">取消</el-button>
         <el-button type="primary" :loading="editCharSaving" @click="saveChar">保存</el-button>
       </template>
     </AccessibleDialog>
 
     <!-- 编辑场景 -->
-    <AccessibleDialog v-model="editSceneVisible" title="编辑场景库" width="480px" :close-on-press-escape="true" @close="editSceneForm = null">
+    <AccessibleDialog v-model="editSceneVisible" title="编辑场景库" width="480px" :close-on-press-escape="true" :before-close="(done) => requestResourceEditorClose('scene', done)" @close="editSceneForm = null">
       <el-form v-if="editSceneForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -784,13 +784,13 @@
         <el-form-item label="标签"><el-input v-model="editSceneForm.tags" placeholder="逗号分隔" aria-label="场景标签" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editSceneVisible = false">取消</el-button>
+        <el-button @click="requestResourceEditorClose('scene')">取消</el-button>
         <el-button type="primary" :loading="editSceneSaving" @click="saveScene">保存</el-button>
       </template>
     </AccessibleDialog>
 
     <!-- 编辑道具 -->
-    <AccessibleDialog v-model="editPropVisible" title="编辑道具库" width="480px" :close-on-press-escape="true" @close="editPropForm = null">
+    <AccessibleDialog v-model="editPropVisible" title="编辑道具库" width="480px" :close-on-press-escape="true" :before-close="(done) => requestResourceEditorClose('prop', done)" @close="editPropForm = null">
       <el-form v-if="editPropForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -811,7 +811,7 @@
         <el-form-item label="标签"><el-input v-model="editPropForm.tags" placeholder="逗号分隔" aria-label="道具标签" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editPropVisible = false">取消</el-button>
+        <el-button @click="requestResourceEditorClose('prop')">取消</el-button>
         <el-button type="primary" :loading="editPropSaving" @click="saveProp">保存</el-button>
       </template>
     </AccessibleDialog>
@@ -1013,14 +1013,17 @@ const dramaPropFileRef  = ref(null)
 const editDramaCharVisible = ref(false)
 const editDramaCharForm    = ref(null)
 const editDramaCharSaving  = ref(false)
+const editDramaCharBaseline = ref('')
 
 const editDramaSceneVisible = ref(false)
 const editDramaSceneForm    = ref(null)
 const editDramaSceneSaving  = ref(false)
+const editDramaSceneBaseline = ref('')
 
 const editDramaPropVisible = ref(false)
 const editDramaPropForm    = ref(null)
 const editDramaPropSaving  = ref(false)
+const editDramaPropBaseline = ref('')
 const episodeBatchImportDialogRef = ref(null)
 
 // 共享：上传图片到库条目
@@ -1084,6 +1087,7 @@ function openEditDramaChar(item) {
     image_url: item.image_url ?? '', local_path: item.local_path ?? null,
     imgUploading: false, imgGenerating: false
   }
+  captureResourceEditorBaseline('dramaChar')
   editDramaCharVisible.value = true
 }
 async function saveDramaChar() {
@@ -1155,6 +1159,7 @@ function openEditDramaScene(item) {
     image_url: item.image_url ?? '', local_path: item.local_path ?? null,
     imgUploading: false, imgGenerating: false
   }
+  captureResourceEditorBaseline('dramaScene')
   editDramaSceneVisible.value = true
 }
 async function saveDramaScene() {
@@ -1227,6 +1232,7 @@ function openEditDramaProp(item) {
     image_url: item.image_url ?? '', local_path: item.local_path ?? null,
     imgUploading: false, imgGenerating: false
   }
+  captureResourceEditorBaseline('dramaProp')
   editDramaPropVisible.value = true
 }
 async function saveDramaProp() {
@@ -1537,6 +1543,139 @@ function describeInfoLeaveRisk() {
   return ''
 }
 
+/** 角色/场景/道具编辑弹窗的脏检查与未保存关闭确认 */
+function snapshotResourceEdit(form, keys) {
+  if (!form) return ''
+  const snapshot = {}
+  for (const key of keys) snapshot[key] = form[key] ?? ''
+  return JSON.stringify(snapshot)
+}
+
+function isResourceEditDirty(visible, form, baseline, keys) {
+  if (!visible || !form) return false
+  if (form.imgUploading || form.imgGenerating) return true
+  return snapshotResourceEdit(form, keys) !== baseline
+}
+
+function getResourceEditor(kind) {
+  switch (kind) {
+    case 'dramaChar':
+      return {
+        visible: editDramaCharVisible,
+        form: editDramaCharForm,
+        baseline: editDramaCharBaseline,
+        keys: ['name', 'role', 'description', 'personality', 'appearance'],
+      }
+    case 'dramaScene':
+      return {
+        visible: editDramaSceneVisible,
+        form: editDramaSceneForm,
+        baseline: editDramaSceneBaseline,
+        keys: ['location', 'time', 'description', 'prompt'],
+      }
+    case 'dramaProp':
+      return {
+        visible: editDramaPropVisible,
+        form: editDramaPropForm,
+        baseline: editDramaPropBaseline,
+        keys: ['name', 'type', 'description', 'prompt'],
+      }
+    case 'char':
+      return {
+        visible: editCharVisible,
+        form: editCharForm,
+        baseline: editCharBaseline,
+        keys: ['name', 'category', 'description', 'tags'],
+      }
+    case 'scene':
+      return {
+        visible: editSceneVisible,
+        form: editSceneForm,
+        baseline: editSceneBaseline,
+        keys: ['location', 'time', 'category', 'description', 'tags'],
+      }
+    case 'prop':
+      return {
+        visible: editPropVisible,
+        form: editPropForm,
+        baseline: editPropBaseline,
+        keys: ['name', 'category', 'description', 'tags'],
+      }
+    default:
+      return null
+  }
+}
+
+function captureResourceEditorBaseline(kind) {
+  const editor = getResourceEditor(kind)
+  if (!editor) return
+  editor.baseline.value = snapshotResourceEdit(editor.form.value, editor.keys)
+}
+
+function hasUnsavedResourceEditor(kind) {
+  const editor = getResourceEditor(kind)
+  if (!editor) return false
+  return isResourceEditDirty(
+    editor.visible.value,
+    editor.form.value,
+    editor.baseline.value,
+    editor.keys,
+  )
+}
+
+function hasUnsavedResourceEdits() {
+  return hasUnsavedResourceEditor('dramaChar')
+    || hasUnsavedResourceEditor('dramaScene')
+    || hasUnsavedResourceEditor('dramaProp')
+    || hasUnsavedResourceEditor('char')
+    || hasUnsavedResourceEditor('scene')
+    || hasUnsavedResourceEditor('prop')
+}
+
+let resourceEditConfirmOpen = false
+
+async function confirmResourceEditDiscard() {
+  await ElMessageBox.confirm(
+    '当前角色、场景或道具尚未保存，关闭后本次修改会丢失。',
+    '放弃未保存修改？',
+    {
+      confirmButtonText: '放弃修改',
+      cancelButtonText: '继续编辑',
+      type: 'warning',
+      ...MESSAGE_BOX_KEYBOARD,
+    },
+  )
+}
+
+async function confirmDiscardIfNeeded(hasUnsaved) {
+  if (!hasUnsaved()) return true
+  if (resourceEditConfirmOpen) return false
+  resourceEditConfirmOpen = true
+  try {
+    await confirmResourceEditDiscard()
+    return true
+  } catch {
+    return false
+  } finally {
+    resourceEditConfirmOpen = false
+  }
+}
+
+async function confirmResourceEditLeave() {
+  return confirmDiscardIfNeeded(() => hasUnsavedResourceEdits())
+}
+
+async function requestResourceEditorClose(kind, done) {
+  if (!await confirmDiscardIfNeeded(() => hasUnsavedResourceEditor(kind))) return false
+  if (typeof done === 'function') {
+    done()
+    return true
+  }
+  const editor = getResourceEditor(kind)
+  if (editor) editor.visible.value = false
+  return true
+}
+
 async function confirmBatchImportLeave() {
   if (episodeBatchImportDialogRef.value?.isImporting?.()) {
     ElMessage.warning('正在导入剧集，请完成后再离开。')
@@ -1548,6 +1687,7 @@ async function confirmBatchImportLeave() {
 
 async function confirmInfoLeave() {
   if ((await confirmBatchImportLeave()) === false) return false
+  if ((await confirmResourceEditLeave()) === false) return false
   if (!shouldProtectInfoLeave.value) return true
   if (infoSaveState.value !== 'error') {
     const saved = await flushInfoSave()
@@ -1575,7 +1715,7 @@ async function confirmInfoLeave() {
 }
 
 function handleInfoBeforeUnload(event) {
-  if (!shouldProtectInfoLeave.value && !episodeBatchImportDialogRef.value?.hasUnsavedWork?.()) return
+  if (!shouldProtectInfoLeave.value && !episodeBatchImportDialogRef.value?.hasUnsavedWork?.() && !hasUnsavedResourceEdits()) return
   event.preventDefault()
   event.returnValue = ''
 }
@@ -1897,8 +2037,10 @@ async function loadCharList() {
 }
 function onCharKwInput() { if (charKwTimer) clearTimeout(charKwTimer); charKwTimer = setTimeout(() => { charPage.value = 1; loadCharList() }, 300) }
 const editCharVisible = ref(false), editCharForm = ref(null), editCharSaving = ref(false)
+const editCharBaseline = ref('')
 function openEditChar(item) {
   editCharForm.value = { id: item.id, name: item.name ?? '', category: item.category ?? '', description: item.description ?? '', tags: item.tags ?? '', image_url: item.image_url ?? '', local_path: item.local_path ?? null, imgUploading: false, imgGenerating: false }
+  captureResourceEditorBaseline('char')
   editCharVisible.value = true
 }
 async function saveChar() {
@@ -1928,8 +2070,10 @@ async function loadSceneList() {
 }
 function onSceneKwInput() { if (sceneKwTimer) clearTimeout(sceneKwTimer); sceneKwTimer = setTimeout(() => { scenePage.value = 1; loadSceneList() }, 300) }
 const editSceneVisible = ref(false), editSceneForm = ref(null), editSceneSaving = ref(false)
+const editSceneBaseline = ref('')
 function openEditScene(item) {
   editSceneForm.value = { id: item.id, location: item.location ?? '', time: item.time ?? '', category: item.category ?? '', description: item.description ?? '', tags: item.tags ?? '', image_url: item.image_url ?? '', local_path: item.local_path ?? null, imgUploading: false, imgGenerating: false }
+  captureResourceEditorBaseline('scene')
   editSceneVisible.value = true
 }
 async function saveScene() {
@@ -1960,8 +2104,10 @@ async function loadPropList() {
 }
 function onPropKwInput() { if (propKwTimer) clearTimeout(propKwTimer); propKwTimer = setTimeout(() => { propPage.value = 1; loadPropList() }, 300) }
 const editPropVisible = ref(false), editPropForm = ref(null), editPropSaving = ref(false)
+const editPropBaseline = ref('')
 function openEditProp(item) {
   editPropForm.value = { id: item.id, name: item.name ?? '', category: item.category ?? '', description: item.description ?? '', tags: item.tags ?? '', image_url: item.image_url ?? '', local_path: item.local_path ?? null, imgUploading: false, imgGenerating: false }
+  captureResourceEditorBaseline('prop')
   editPropVisible.value = true
 }
 async function saveProp() {
