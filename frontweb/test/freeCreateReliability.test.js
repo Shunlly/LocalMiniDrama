@@ -348,3 +348,9 @@ test('自由创作提示词和风格输入有中文无障碍名称', () => {
   assert.match(freeCreateSource, /aria-label="提示词"/)
   assert.match(freeCreateSource, /aria-label="风格"/)
 })
+
+
+test('参考图上传禁用时给出中文原因', () => {
+  assert.match(freeCreateSource, /正在上传参考图，请稍候/)
+  assert.match(freeCreateSource, /:title="generateDisabledReason \|\| undefined"/)
+})

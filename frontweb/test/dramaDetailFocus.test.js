@@ -145,3 +145,9 @@ test('DramaDetail 禁用按钮外包可焦点且空封面不再是 disabled butt
   assert.equal(dramaDetailSource.includes('class="drama-res-cover" :disabled'), false)
 })
 
+
+
+test('编辑弹窗无图缩略图禁用时给出中文原因', () => {
+  assert.match(dramaDetailSource, /:title="assetImageUrl\(editDramaCharForm\) \? undefined : '暂无图片'"/)
+  assert.match(dramaDetailSource, /:title="assetImageUrl\(editPropForm\) \? undefined : '暂无图片'"/)
+})

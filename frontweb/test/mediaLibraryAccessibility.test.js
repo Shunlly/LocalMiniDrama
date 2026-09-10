@@ -212,4 +212,12 @@ test('素材中心禁用按钮给出中文原因', () => {
   assert.match(source, /素材数据加载失败，成功重试前不能上传、选择或删除/)
   assert.match(source, /:title="mediaWriteLocked \? mediaWriteLockReason : undefined"/)
   assert.match(source, /const mediaNavigationLockReason = computed/)
+  assert.match(source, /正在上传素材，请稍候/)
+})
+
+test('素材预览时间用中文格式，无效时间不漏原文', () => {
+  assert.match(source, /formatSourceTimestamp\(previewItem\?\.created_at\) \|\| '未知时间'/)
+  assert.match(source, /networkItemSourceLabel\(previewItem\)/)
+  assert.match(source, /if \(!Number\.isFinite\(timestamp\)\) return ''/)
+  assert.doesNotMatch(source, /previewItem\?\.created_at \}\}/)
 })

@@ -651,7 +651,7 @@
       <el-form v-if="editDramaCharForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
-            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editDramaCharForm)" aria-label="预览制作角色图片" @click="openPreview(assetImageUrl(editDramaCharForm))">
+            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editDramaCharForm)" :title="assetImageUrl(editDramaCharForm) ? undefined : '暂无图片'" aria-label="预览制作角色图片" @click="openPreview(assetImageUrl(editDramaCharForm))">
               <img v-if="editDramaCharForm.image_url || editDramaCharForm.local_path" :src="assetImageUrl(editDramaCharForm)" :alt="editDramaCharForm.name || '制作角色图片'" />
               <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
             </button>
@@ -685,7 +685,7 @@
       <el-form v-if="editDramaSceneForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
-            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editDramaSceneForm)" aria-label="预览制作场景图片" @click="openPreview(assetImageUrl(editDramaSceneForm))">
+            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editDramaSceneForm)" :title="assetImageUrl(editDramaSceneForm) ? undefined : '暂无图片'" aria-label="预览制作场景图片" @click="openPreview(assetImageUrl(editDramaSceneForm))">
               <img v-if="editDramaSceneForm.image_url || editDramaSceneForm.local_path" :src="assetImageUrl(editDramaSceneForm)" :alt="editDramaSceneForm.location || '制作场景图片'" />
               <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
             </button>
@@ -712,7 +712,7 @@
       <el-form v-if="editDramaPropForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
-            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editDramaPropForm)" aria-label="预览制作道具图片" @click="openPreview(assetImageUrl(editDramaPropForm))">
+            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editDramaPropForm)" :title="assetImageUrl(editDramaPropForm) ? undefined : '暂无图片'" aria-label="预览制作道具图片" @click="openPreview(assetImageUrl(editDramaPropForm))">
               <img v-if="editDramaPropForm.image_url || editDramaPropForm.local_path" :src="assetImageUrl(editDramaPropForm)" :alt="editDramaPropForm.name || '制作道具图片'" />
               <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
             </button>
@@ -739,7 +739,7 @@
       <el-form v-if="editCharForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
-            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editCharForm)" aria-label="预览角色库图片" @click="openPreview(assetImageUrl(editCharForm))">
+            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editCharForm)" :title="assetImageUrl(editCharForm) ? undefined : '暂无图片'" aria-label="预览角色库图片" @click="openPreview(assetImageUrl(editCharForm))">
               <img v-if="editCharForm.image_url || editCharForm.local_path" :src="assetImageUrl(editCharForm)" :alt="editCharForm.name || '角色库图片'" />
               <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
             </button>
@@ -766,7 +766,7 @@
       <el-form v-if="editSceneForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
-            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editSceneForm)" aria-label="预览场景库图片" @click="openPreview(assetImageUrl(editSceneForm))">
+            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editSceneForm)" :title="assetImageUrl(editSceneForm) ? undefined : '暂无图片'" aria-label="预览场景库图片" @click="openPreview(assetImageUrl(editSceneForm))">
               <img v-if="editSceneForm.image_url || editSceneForm.local_path" :src="assetImageUrl(editSceneForm)" :alt="editSceneForm.location || '场景库图片'" />
               <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
             </button>
@@ -794,7 +794,7 @@
       <el-form v-if="editPropForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
-            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editPropForm)" aria-label="预览道具库图片" @click="openPreview(assetImageUrl(editPropForm))">
+            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editPropForm)" :title="assetImageUrl(editPropForm) ? undefined : '暂无图片'" aria-label="预览道具库图片" @click="openPreview(assetImageUrl(editPropForm))">
               <img v-if="editPropForm.image_url || editPropForm.local_path" :src="assetImageUrl(editPropForm)" :alt="editPropForm.name || '道具库图片'" />
               <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
             </button>

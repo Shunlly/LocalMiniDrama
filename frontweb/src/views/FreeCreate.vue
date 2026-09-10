@@ -84,6 +84,7 @@
               :aria-label="refImageTriggerLabel"
               :aria-describedby="refImageUploadStatus === 'idle' ? undefined : 'ref-image-upload-status'"
               :disabled="refImageUploadStatus === 'uploading'"
+              :title="refImageUploadStatus === 'uploading' ? '正在上传参考图，请稍候' : undefined"
               @click="triggerRefImageUpload"
             >
               <template v-if="refImageUploadStatus === 'success' && refImageDataUrl">
@@ -149,6 +150,7 @@
           type="file"
           accept="image/*"
           :disabled="refImageUploadStatus === 'uploading'"
+          :title="refImageUploadStatus === 'uploading' ? '正在上传参考图，请稍候' : undefined"
           @change="onRefImageChange"
         />
 

@@ -203,6 +203,7 @@ test('分类素材加载失败不会被伪装成空库，且 AI 配置在列表�
   assert.match(filmListSource, /const newSubmitDisabledReason = computed/)
   assert.match(filmListSource, /请先填写项目标题/)
   assert.match(filmListSource, /:title="listWriteLocked \? listWriteLockReason : '打开分类素材'"/)
+  assert.match(filmListSource, /Number.isNaN\(d\.getTime\(\)\)/)
   assert.equal(
     describeServiceLoadError({ response: { status: 502 } }, { serviceLabel: '角色素材服务' }),
     '角色素材服务暂时不可用（HTTP 502）',
