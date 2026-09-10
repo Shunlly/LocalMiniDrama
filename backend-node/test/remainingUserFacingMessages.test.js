@@ -38,6 +38,8 @@ const leftoverEnglish = [
   'idempotency_key 引用了已删除的图片记录，请使用新 key',
   'reference_image_urls 必须是数组',
   '缺少 drama.title 字段',
+  'free_canvas_import ${field}',
+  'free_canvas_import 必须为对象',
   '${field} is invalid',
   'Image generation did not complete',
   'Video generation did not complete',

@@ -1357,8 +1357,74 @@ function restoreStoryboardReferenceImages(storagePath, projectDir, files, items)
   return storyboardService.normalizeReferenceImages(restored);
 }
 
+const FREE_CANVAS_IMPORT_FIELD_LABELS = Object.freeze({
+  source_drama_id: '源项目',
+  episode_ids: '剧集列表',
+  storyboard_ids: '分镜列表',
+  scene_refs: '场景引用',
+  'scene_refs.export_index': '场景导出序号',
+  'scene_refs.source_id': '场景源标识',
+  assets: '素材列表',
+  'assets.source_id': '素材源标识',
+  'assets.source_path': '素材本地路径',
+  'assets.name': '素材名称',
+  'assets.type': '素材类型',
+  'assets.category': '素材分类',
+  'assets.file_size': '素材文件大小',
+  'assets.mime_type': '素材媒体类型',
+  'assets.width': '素材宽度',
+  'assets.height': '素材高度',
+  'assets.duration': '素材时长',
+  'assets.image_gen_id': '素材图片生成引用',
+  'assets.video_gen_id': '素材视频生成引用',
+  video_generations: '视频生成记录',
+  'video_generations.source_id': '视频生成源标识',
+  'video_generations.storyboard_id': '视频生成分镜引用',
+  'video_generations.scene_id': '视频生成场景引用',
+  'video_generations.provider': '视频生成服务商',
+  'video_generations.prompt': '视频生成提示词',
+  'video_generations.model': '视频生成模型',
+  'video_generations.duration': '视频生成时长',
+  'video_generations.aspect_ratio': '视频生成画面比例',
+  'video_generations.status': '视频生成状态',
+  'video_generations.error_msg': '视频生成错误信息',
+  'video_generations.source_path': '视频生成本地路径',
+  media: '媒体记录',
+  'media.archive_path': '媒体归档路径',
+  'media.size': '媒体大小',
+  'media.sha256': '媒体哈希',
+  'media.source_path': '媒体本地路径',
+  'media.detected_format': '媒体检测格式',
+  'media.image_generation_id': '媒体图片生成引用',
+  'media.video_generation_id': '媒体视频生成引用',
+  'media.category': '媒体分类',
+  projectId: '项目 ID',
+  dramaId: '项目 ID',
+  episodeId: '剧集 ID',
+  assetId: '素材 ID',
+  asset_ref: '素材引用',
+  storyboardId: '分镜 ID',
+  storyboard_ref: '分镜引用',
+  sceneId: '场景 ID',
+  content: '节点内容',
+  storageKey: '节点存储路径',
+  'node content': '节点内容',
+  'node storageKey': '节点存储路径',
+  'node media': '节点媒体',
+});
+
+function freeCanvasImportFieldLabel(field) {
+  const raw = String(field || '').trim();
+  if (FREE_CANVAS_IMPORT_FIELD_LABELS[raw]) return FREE_CANVAS_IMPORT_FIELD_LABELS[raw];
+  const normalized = raw.replace(/\[\d+\]/g, '');
+  if (FREE_CANVAS_IMPORT_FIELD_LABELS[normalized]) return FREE_CANVAS_IMPORT_FIELD_LABELS[normalized];
+  const root = normalized.includes('.') ? normalized.slice(0, normalized.indexOf('.')) : normalized;
+  if (FREE_CANVAS_IMPORT_FIELD_LABELS[root]) return FREE_CANVAS_IMPORT_FIELD_LABELS[root];
+  return '数据';
+}
+
 function freeCanvasManifestArray(value, field) {
-  if (!Array.isArray(value)) throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为数组`);
+  if (!Array.isArray(value)) throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为数组`);
   return value;
 }
 
@@ -1368,7 +1434,7 @@ function freeCanvasManifestId(value, field, optional = false) {
     ? value
     : (typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : NaN);
   if (!Number.isSafeInteger(id) || id <= 0) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为正整数`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为正整数`);
   }
   return id;
 }
@@ -1376,7 +1442,7 @@ function freeCanvasManifestId(value, field, optional = false) {
 function freeCanvasManifestString(value, field, maxLength, fallback = null) {
   if (value === undefined || value === null || value === '') return fallback;
   if (typeof value !== 'string' || value.length > maxLength) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为受限字符串`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为受限字符串`);
   }
   return value;
 }
@@ -1384,20 +1450,20 @@ function freeCanvasManifestString(value, field, maxLength, fallback = null) {
 function freeCanvasAssetCategory(value, field) {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'string') {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为受限字符串`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为受限字符串`);
   }
   if (value.length > 4096) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为受限字符串`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为受限字符串`);
   }
   if (!value.trimStart().startsWith('{')) {
     if (value.length <= 128) return value;
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为受限字符串`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为受限字符串`);
   }
   let metadata;
   try {
     metadata = JSON.parse(value);
   } catch (_) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}包含无效的网络素材元数据`);
   }
   const allowed = new Set([
     'kind',
@@ -1423,7 +1489,7 @@ function freeCanvasAssetCategory(value, field) {
     || Array.isArray(metadata)
     || Object.keys(metadata).some((key) => !allowed.has(key))
   ) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}包含无效的网络素材元数据`);
   }
   if (metadata.kind === 'openverse') {
     const boundedOpenverse = [
@@ -1441,7 +1507,7 @@ function freeCanvasAssetCategory(value, field) {
       metadata[key] != null
       && (typeof metadata[key] !== 'string' || metadata[key].length > limit)
     ))) {
-      throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+      throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}包含无效的网络素材元数据`);
     }
     try {
       const source = new URL(metadata.source_url);
@@ -1470,7 +1536,7 @@ function freeCanvasAssetCategory(value, field) {
         throw new Error('invalid');
       }
     } catch (_) {
-      throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+      throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}包含无效的网络素材元数据`);
     }
     return value;
   }
@@ -1492,7 +1558,7 @@ function freeCanvasAssetCategory(value, field) {
     || typeof metadata.resolved_download_url !== 'string'
     || !metadata.resolved_download_url
   ) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}包含无效的网络素材元数据`);
   }
   const boundedStrings = [
     ['source_url', 4096],
@@ -1509,7 +1575,7 @@ function freeCanvasAssetCategory(value, field) {
     metadata[key] != null
     && (typeof metadata[key] !== 'string' || metadata[key].length > limit)
   ))) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}包含无效的网络素材元数据`);
   }
   try {
     const source = new URL(metadata.source_url);
@@ -1530,7 +1596,7 @@ function freeCanvasAssetCategory(value, field) {
       if (url.protocol !== 'https:' || url.username || url.password) throw new Error('素材 URL 不安全，仅支持不含凭据的 https 地址');
     }
   } catch (_) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 包含无效的网络素材元数据`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}包含无效的网络素材元数据`);
   }
   return value;
 }
@@ -1558,17 +1624,17 @@ function freeCanvasCommonsEvidence(category) {
 function freeCanvasManifestNumber(value, field, options = {}) {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为非负数值`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为非负数值`);
   }
   if (options.integer && !Number.isSafeInteger(value)) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为安全整数`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为安全整数`);
   }
   return value;
 }
 
 function normalizeFreeCanvasManifestSourcePath(value, field) {
   if (typeof value !== 'string' || !value.trim()) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为本地媒体引用`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为本地媒体引用`);
   }
   const reference = value.trim().startsWith('/static/')
     ? value.trim().slice('/static/'.length)
@@ -1576,7 +1642,7 @@ function normalizeFreeCanvasManifestSourcePath(value, field) {
   try {
     return uploadService.normalizeStorageRelativeReference(reference);
   } catch (_) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为安全的本地媒体引用`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为安全的本地媒体引用`);
   }
 }
 
@@ -1591,7 +1657,7 @@ function normalizeFreeCanvasArchivePath(value, field) {
     || path.posix.normalize(archivePath) !== archivePath
     || archivePath.split('/').some((segment) => !segment || segment === '.' || segment === '..')
   ) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 必须为安全归档路径`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为安全归档路径`);
   }
   return archivePath;
 }
@@ -1599,14 +1665,14 @@ function normalizeFreeCanvasArchivePath(value, field) {
 function normalizeFreeCanvasDetectedFormat(value, category, archivePath, field) {
   const detectedFormat = freeCanvasManifestString(value, field, 32);
   if (!FREE_CANVAS_MEDIA_FORMATS[category]?.has(detectedFormat)) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 媒体格式不受支持`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}媒体格式不受支持`);
   }
   const extension = path.posix.extname(archivePath).toLowerCase();
   const expectedFormat = extension === '.jpg' || extension === '.jpeg'
     ? 'jpeg'
     : extension.slice(1);
   if (detectedFormat !== expectedFormat) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} 与归档扩展名格式不一致`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}与归档扩展名格式不一致`);
   }
   return detectedFormat;
 }
@@ -1614,7 +1680,7 @@ function normalizeFreeCanvasDetectedFormat(value, category, archivePath, field) 
 function normalizeFreeCanvasVideoStatus(value, field) {
   const status = freeCanvasManifestString(value, field, 32);
   if (!FREE_CANVAS_VIDEO_STATUSES.has(status)) {
-    throw freeCanvasBadRequest(`free_canvas_import ${field} status 不受支持`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}不受支持`);
   }
   return status;
 }
@@ -1625,7 +1691,7 @@ function declaredFreeCanvasDramaId(canvas) {
     .map((field) => freeCanvasManifestId(canvas[field], field));
   if (rootIds.length === 0) return null;
   if (rootIds.some((id) => id !== rootIds[0])) {
-    throw freeCanvasBadRequest('free_canvas projectId 和 dramaId 必须引用同一项目');
+    throw freeCanvasBadRequest('自由画布项目标识必须引用同一项目');
   }
   return rootIds[0];
 }
@@ -1633,29 +1699,29 @@ function declaredFreeCanvasDramaId(canvas) {
 function normalizeFreeCanvasImportManifest(data, canvas) {
   const input = data.free_canvas_import;
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    throw freeCanvasBadRequest('free_canvas_import 必须为对象');
+    throw freeCanvasBadRequest('自由画布导入数据必须为对象');
   }
   if (input.manifest_version !== FREE_CANVAS_IMPORT_MANIFEST_VERSION) {
-    throw freeCanvasBadRequest('free_canvas_import manifest_version 不受支持');
+    throw freeCanvasBadRequest('自由画布导入清单版本不受支持');
   }
   if (
     input.hash_algorithm !== undefined && input.hash_algorithm !== 'sha256'
     || (Array.isArray(input.media) && input.media.length > 0 && input.hash_algorithm !== 'sha256')
   ) {
-    throw freeCanvasBadRequest('free_canvas_import hash_algorithm 不受支持');
+    throw freeCanvasBadRequest('自由画布导入哈希算法不受支持');
   }
 
   const sourceDramaId = freeCanvasManifestId(input.source_drama_id, 'source_drama_id');
   const declaredDramaId = declaredFreeCanvasDramaId(canvas);
   if (declaredDramaId != null && declaredDramaId !== sourceDramaId) {
-    throw freeCanvasBadRequest('free_canvas_import source_drama_id 与画布项目引用不一致');
+    throw freeCanvasBadRequest('自由画布导入源项目与画布项目引用不一致');
   }
 
   const episodeIds = freeCanvasManifestArray(input.episode_ids, 'episode_ids')
     .map((id, index) => freeCanvasManifestId(id, `episode_ids[${index}]`));
   const expectedEpisodeCount = Array.isArray(data.episodes) ? data.episodes.length : 0;
   if (episodeIds.length !== expectedEpisodeCount || new Set(episodeIds).size !== episodeIds.length) {
-    throw freeCanvasBadRequest('free_canvas_import episode_ids 与导出剧集不一致');
+    throw freeCanvasBadRequest('自由画布导入剧集列表与导出剧集不一致');
   }
 
   const storyboardIds = freeCanvasManifestArray(input.storyboard_ids, 'storyboard_ids')
@@ -1665,12 +1731,12 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
     0
   );
   if (storyboardIds.length !== expectedStoryboardCount || new Set(storyboardIds).size !== storyboardIds.length) {
-    throw freeCanvasBadRequest('free_canvas_import storyboard_ids 与导出分镜不一致');
+    throw freeCanvasBadRequest('自由画布导入分镜列表与导出分镜不一致');
   }
 
   const sceneRefs = freeCanvasManifestArray(input.scene_refs, 'scene_refs').map((entry, index) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw freeCanvasBadRequest(`free_canvas_import scene_refs[${index}] 必须为对象`);
+      throw freeCanvasBadRequest('自由画布导入场景引用必须为对象');
     }
     const exportIndex = entry.export_index;
     if (
@@ -1678,7 +1744,7 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
       || exportIndex < 0
       || exportIndex >= (Array.isArray(data.scenes) ? data.scenes.length : 0)
     ) {
-      throw freeCanvasBadRequest(`free_canvas_import scene_refs[${index}].export_index 无效`);
+      throw freeCanvasBadRequest('自由画布导入场景导出序号无效');
     }
     return {
       sourceId: freeCanvasManifestId(entry.source_id, `scene_refs[${index}].source_id`),
@@ -1686,7 +1752,7 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
     };
   });
   if (new Set(sceneRefs.map((entry) => entry.sourceId)).size !== sceneRefs.length) {
-    throw freeCanvasBadRequest('free_canvas_import scene_refs 包含重复源 ID');
+    throw freeCanvasBadRequest('自由画布导入场景引用包含重复源标识');
   }
 
   const referencedAssetIds = new Set();
@@ -1697,7 +1763,7 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
     const sourcePath = normalizeFreeCanvasManifestSourcePath(value, field);
     const existing = expectedMediaCategories.get(sourcePath);
     if (existing && existing !== category) {
-      throw freeCanvasBadRequest('free_canvas_import 同一本地媒体不能同时作为图片和视频');
+      throw freeCanvasBadRequest('自由画布导入同一本地媒体不能同时作为图片和视频');
     }
     expectedMediaCategories.set(sourcePath, category);
     return sourcePath;
@@ -1705,7 +1771,7 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
   const registerAssetCategory = (sourceId, category) => {
     const existing = assetCategories.get(sourceId);
     if (existing && existing !== category) {
-      throw freeCanvasBadRequest('free_canvas asset 不能同时作为图片和视频');
+      throw freeCanvasBadRequest('自由画布素材不能同时作为图片和视频');
     }
     assetCategories.set(sourceId, category);
   };
@@ -1728,7 +1794,7 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
 
   const assets = freeCanvasManifestArray(input.assets, 'assets').map((entry, index) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw freeCanvasBadRequest(`free_canvas_import assets[${index}] 必须为对象`);
+      throw freeCanvasBadRequest('自由画布导入素材必须为对象');
     }
     const sourceId = freeCanvasManifestId(entry.source_id, `assets[${index}].source_id`);
     const mediaCategory = assetCategories.get(sourceId)
@@ -1737,7 +1803,7 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
       ? null
       : registerExpectedMedia(entry.source_path, mediaCategory, `assets[${index}].source_path`);
     if (assetCategories.has(sourceId) && !sourcePath) {
-      throw freeCanvasBadRequest('free_canvas_import 画布媒体素材缺少本地路径');
+      throw freeCanvasBadRequest('自由画布导入画布媒体素材缺少本地路径');
     }
     return {
       sourceId,
@@ -1760,7 +1826,7 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
     || assetIds.some((id) => !referencedAssetIds.has(id))
     || [...referencedAssetIds].some((id) => !assetIds.includes(id))
   ) {
-    throw freeCanvasBadRequest('free_canvas_import assets 与画布素材引用不一致');
+    throw freeCanvasBadRequest('自由画布导入素材与画布素材引用不一致');
   }
 
   const expectedVideoGenerationIds = new Set(
@@ -1769,7 +1835,7 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
   const videoGenerations = freeCanvasManifestArray(input.video_generations, 'video_generations')
     .map((entry, index) => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-        throw freeCanvasBadRequest(`free_canvas_import video_generations[${index}] 必须为对象`);
+        throw freeCanvasBadRequest('自由画布导入视频生成记录必须为对象');
       }
       return {
         sourceId: freeCanvasManifestId(entry.source_id, `video_generations[${index}].source_id`),
@@ -1795,7 +1861,7 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
     || videoGenerationIds.some((id) => !expectedVideoGenerationIds.has(id))
     || [...expectedVideoGenerationIds].some((id) => !videoGenerationIds.includes(id))
   ) {
-    throw freeCanvasBadRequest('free_canvas_import video_generations 与素材引用不一致');
+    throw freeCanvasBadRequest('自由画布导入视频生成记录与素材引用不一致');
   }
   const videoGenerationById = new Map(
     videoGenerations.map((generation) => [generation.sourceId, generation])
@@ -1804,16 +1870,16 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
     if (asset.videoGenId == null) continue;
     const generation = videoGenerationById.get(asset.videoGenId);
     if (!asset.sourcePath || !generation || generation.sourcePath !== asset.sourcePath) {
-      throw freeCanvasBadRequest('free_canvas_import asset 与 video generation media 必须一致');
+      throw freeCanvasBadRequest('自由画布导入素材与视频生成媒体必须一致');
     }
   }
 
   const media = freeCanvasManifestArray(input.media, 'media').map((entry, index) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw freeCanvasBadRequest(`free_canvas_import media[${index}] 必须为对象`);
+      throw freeCanvasBadRequest('自由画布导入媒体记录必须为对象');
     }
     if (!['images', 'videos'].includes(entry.category)) {
-      throw freeCanvasBadRequest(`free_canvas_import media[${index}].category 不受支持`);
+      throw freeCanvasBadRequest('自由画布导入媒体分类不受支持');
     }
     const archivePath = normalizeFreeCanvasArchivePath(
       entry.archive_path,
@@ -1822,10 +1888,10 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
     const size = freeCanvasManifestNumber(entry.size, `media[${index}].size`, { integer: true });
     const sha256 = freeCanvasManifestString(entry.sha256, `media[${index}].sha256`, 64);
     if (!Number.isSafeInteger(size) || size <= 0) {
-      throw freeCanvasBadRequest(`free_canvas_import media[${index}].size 必须为正整数`);
+      throw freeCanvasBadRequest('自由画布导入媒体大小必须为正整数');
     }
     if (!/^[a-f0-9]{64}$/.test(String(sha256 || ''))) {
-      throw freeCanvasBadRequest(`free_canvas_import media[${index}].sha256 无效`);
+      throw freeCanvasBadRequest('自由画布导入媒体哈希无效');
     }
     return {
       sourcePath: normalizeFreeCanvasManifestSourcePath(entry.source_path, `media[${index}].source_path`),
@@ -1855,27 +1921,27 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
   const archivePaths = new Set();
   for (const entry of media) {
     if (mediaByPath.has(entry.sourcePath)) {
-      throw freeCanvasBadRequest('free_canvas_import media 包含重复源路径');
+      throw freeCanvasBadRequest('自由画布导入媒体包含重复源路径');
     }
     const archiveCollisionKey = entry.archivePath.normalize('NFC').toLowerCase();
     if (archivePaths.has(archiveCollisionKey)) {
-      throw freeCanvasBadRequest('free_canvas_import media 包含重复 archive path');
+      throw freeCanvasBadRequest('自由画布导入媒体包含重复归档路径');
     }
     archivePaths.add(archiveCollisionKey);
     const expectedCategory = expectedMediaCategories.get(entry.sourcePath);
     if (!expectedCategory || expectedCategory !== entry.category) {
-      throw freeCanvasBadRequest('free_canvas_import media 与画布媒体引用不一致');
+      throw freeCanvasBadRequest('自由画布导入媒体与画布媒体引用不一致');
     }
     if (entry.videoGenerationId != null) {
       const generation = videoGenerationById.get(entry.videoGenerationId);
       if (generation && generation.sourcePath !== entry.sourcePath) {
-        throw freeCanvasBadRequest('free_canvas_import video generation media 绑定不一致');
+        throw freeCanvasBadRequest('自由画布导入视频生成媒体绑定不一致');
       }
     }
     mediaByPath.set(entry.sourcePath, entry);
   }
   if ([...expectedMediaCategories].some(([sourcePath]) => !mediaByPath.has(sourcePath))) {
-    throw freeCanvasBadRequest('free_canvas_import 缺少画布引用的媒体归档');
+    throw freeCanvasBadRequest('自由画布导入缺少画布引用的媒体归档');
   }
   for (const asset of assets) {
     if (!asset.sourcePath) continue;
@@ -1883,11 +1949,11 @@ function normalizeFreeCanvasImportManifest(data, canvas) {
     if (!evidence) continue;
     const archivedMedia = mediaByPath.get(asset.sourcePath);
     if (evidence.contentSha256 !== archivedMedia?.sha256?.toLowerCase()) {
-      throw freeCanvasBadRequest('free_canvas_import 网络素材内容哈希与媒体归档不一致');
+      throw freeCanvasBadRequest('自由画布导入网络素材内容哈希与媒体归档不一致');
     }
     if (evidence.commonsSha1) {
       if (archivedMedia.commonsSha1 && archivedMedia.commonsSha1 !== evidence.commonsSha1) {
-        throw freeCanvasBadRequest('free_canvas_import 同一媒体包含冲突的 Commons SHA-1');
+        throw freeCanvasBadRequest('自由画布导入同一媒体包含冲突的网络素材校验值');
       }
       archivedMedia.commonsSha1 = evidence.commonsSha1;
     }
@@ -1910,15 +1976,15 @@ function parseFreeCanvasReferenceId(value, sourceDramaId, field, kind) {
     const id = Number(value);
     if (Number.isSafeInteger(id) && id > 0) return id;
   }
-  if (typeof value !== 'string') throw freeCanvasBadRequest(`${field} 必须为项目范围内的引用`);
+  if (typeof value !== 'string') throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为项目范围内的引用`);
   const direct = new RegExp(`^${kind}:(\\d+)$`).exec(value);
   if (direct) return Number(direct[1]);
   const scoped = new RegExp(`^project:(\\d+):${kind}:(\\d+)$`).exec(value);
   if (scoped) {
-    if (Number(scoped[1]) !== sourceDramaId) throw freeCanvasBadRequest(`${field} 不属于当前项目`);
+    if (Number(scoped[1]) !== sourceDramaId) throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}不属于当前项目`);
     return Number(scoped[2]);
   }
-  throw freeCanvasBadRequest(`${field} 必须为项目范围内的引用`);
+  throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}必须为项目范围内的引用`);
 }
 
 function freeCanvasSourceDramaId(canvas, dramaId) {
@@ -1930,11 +1996,11 @@ function freeCanvasSourceDramaId(canvas, dramaId) {
 function mapImportedFreeCanvasId(value, map, sourceDramaId, field, kind) {
   if (value === undefined) return undefined;
   if (sourceDramaId == null) {
-    throw freeCanvasBadRequest(`${field} 缺少可验证的源项目引用`);
+    throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}缺少可验证的源项目引用`);
   }
   const sourceId = parseFreeCanvasReferenceId(value, sourceDramaId, field, kind);
   const mapped = map.get(sourceId);
-  if (mapped == null) throw freeCanvasBadRequest(`${field} 引用无法映射到导入项目`);
+  if (mapped == null) throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(field)}无法映射到导入项目`);
   return mapped;
 }
 
@@ -1952,14 +2018,14 @@ function restoreImportedFreeCanvas(db, dramaId, metadata, maps, now) {
   const canvas = metadata?.free_canvas;
   if (canvas === undefined) return metadata;
   if (!canvas || typeof canvas !== 'object' || Array.isArray(canvas) || canvas.version !== 1) {
-    // This preserves the save-path error contract for malformed and unknown schemas.
+    // 畸形或未知结构仍走保存路径的错误约定。
     metadata.free_canvas = validateFreeCanvas(db, dramaId, canvas);
     return metadata;
   }
 
   const declaredDramaId = declaredFreeCanvasDramaId(canvas);
   if (maps.sourceDramaId != null && declaredDramaId != null && maps.sourceDramaId !== declaredDramaId) {
-    throw freeCanvasBadRequest('free_canvas_import source_drama_id 与画布项目引用不一致');
+    throw freeCanvasBadRequest('自由画布导入源项目与画布项目引用不一致');
   }
   const sourceDramaId = maps.sourceDramaId ?? freeCanvasSourceDramaId(canvas, dramaId);
   const remapped = { ...canvas, projectId: dramaId, dramaId };
@@ -2024,7 +2090,7 @@ function restoreImportedFreeCanvas(db, dramaId, metadata, maps, now) {
         if (node[field] === undefined) continue;
         const sourceValue = normalizeFreeCanvasManifestSourcePath(node[field], `node ${field}`);
         if (sourceValue !== sourceAssetPath) {
-          throw freeCanvasBadRequest(`free_canvas node ${field} 必须与素材本地路径一致`);
+          throw freeCanvasBadRequest(`自由画布导入${freeCanvasImportFieldLabel(`node ${field}`)}必须与素材本地路径一致`);
         }
       }
       next.content = asset.local_path;
@@ -2057,20 +2123,20 @@ function verifyFreeCanvasArchiveMedia(files, media) {
   try {
     buffer = files.read(media.archivePath);
   } catch (_) {
-    throw freeCanvasBadRequest('free_canvas_import media archive path 无效');
+    throw freeCanvasBadRequest('自由画布导入媒体归档路径无效');
   }
-  if (!buffer) throw freeCanvasBadRequest('free_canvas_import 缺少画布引用的媒体归档文件');
+  if (!buffer) throw freeCanvasBadRequest('自由画布导入缺少画布引用的媒体归档文件');
   if (buffer.length !== media.size) {
-    throw freeCanvasBadRequest('free_canvas_import media size 与归档实际大小不一致');
+    throw freeCanvasBadRequest('自由画布导入媒体大小与归档实际大小不一致');
   }
   const actualHash = createHash('sha256').update(buffer).digest('hex');
   if (actualHash !== media.sha256) {
-    throw freeCanvasBadRequest('free_canvas_import media SHA-256 hash 校验失败');
+    throw freeCanvasBadRequest('自由画布导入媒体哈希校验失败');
   }
   if (media.commonsSha1) {
     const actualSha1 = createHash('sha1').update(buffer).digest('hex');
     if (actualSha1 !== media.commonsSha1) {
-      throw freeCanvasBadRequest('free_canvas_import media Commons SHA-1 校验失败');
+      throw freeCanvasBadRequest('自由画布导入媒体完整性校验失败');
     }
   }
 
@@ -2081,13 +2147,13 @@ function verifyFreeCanvasArchiveMedia(files, media) {
       media.category === 'videos' ? 'video' : 'image'
     );
   } catch (_) {
-    throw freeCanvasBadRequest('free_canvas_import media format 或类型无效');
+    throw freeCanvasBadRequest('自由画布导入媒体格式或类型无效');
   }
   const detectedFormat = detected.extension === '.jpg' || detected.extension === '.jpeg'
     ? 'jpeg'
     : String(detected.extension || '').replace(/^\./, '');
   if (detectedFormat !== media.detectedFormat) {
-    throw freeCanvasBadRequest('free_canvas_import media detected format 与归档内容不一致');
+    throw freeCanvasBadRequest('自由画布导入媒体检测格式与归档内容不一致');
   }
   return {
     fileSize: buffer.length,
@@ -2102,17 +2168,17 @@ function buildPortableImportedFreeCanvasMaps(db, dramaId, imported, now) {
 
   manifest.episodeIds.forEach((sourceId, index) => {
     const targetId = imported.episodeIds[index];
-    if (targetId == null) throw freeCanvasBadRequest('free_canvas_import episode_ids 无法映射');
+    if (targetId == null) throw freeCanvasBadRequest('自由画布导入剧集列表无法映射');
     maps.episodes.set(sourceId, Number(targetId));
   });
   manifest.storyboardIds.forEach((sourceId, index) => {
     const targetId = imported.storyboardIds[index];
-    if (targetId == null) throw freeCanvasBadRequest('free_canvas_import storyboard_ids 无法映射');
+    if (targetId == null) throw freeCanvasBadRequest('自由画布导入分镜列表无法映射');
     maps.storyboards.set(sourceId, Number(targetId));
   });
   for (const sceneRef of manifest.sceneRefs) {
     const targetId = imported.sceneIds[sceneRef.exportIndex];
-    if (targetId == null) throw freeCanvasBadRequest('free_canvas_import scene_refs 无法映射');
+    if (targetId == null) throw freeCanvasBadRequest('自由画布导入场景引用无法映射');
     maps.scenes.set(sceneRef.sourceId, Number(targetId));
   }
 
@@ -2127,7 +2193,7 @@ function buildPortableImportedFreeCanvasMaps(db, dramaId, imported, now) {
       const candidate = imported.videos.get(media.videoGenerationId);
       if (candidate?.archivePath === media.archivePath && candidate.localPath) {
         if (restored && restored !== candidate.localPath) {
-          throw freeCanvasBadRequest('free_canvas_import media 生成记录映射不一致');
+          throw freeCanvasBadRequest('自由画布导入媒体生成记录映射不一致');
         }
         restored = candidate.localPath;
       }
@@ -2144,12 +2210,12 @@ function buildPortableImportedFreeCanvasMaps(db, dramaId, imported, now) {
         );
       } catch (error) {
         if (['UNSAFE_ARCHIVE_PATH', 'UNSUPPORTED_MEDIA_TYPE'].includes(error?.code)) {
-          throw freeCanvasBadRequest('free_canvas_import media 归档引用无效');
+          throw freeCanvasBadRequest('自由画布导入媒体归档引用无效');
         }
         throw error;
       }
     }
-    if (!restored) throw freeCanvasBadRequest('free_canvas_import 缺少画布媒体归档文件');
+    if (!restored) throw freeCanvasBadRequest('自由画布导入缺少画布媒体归档文件');
     maps.paths.set(media.sourcePath, restored);
   }
 
@@ -2172,13 +2238,13 @@ function buildPortableImportedFreeCanvasMaps(db, dramaId, imported, now) {
       : maps.storyboards.get(generation.storyboardId);
     const sceneId = generation.sceneId == null ? null : maps.scenes.get(generation.sceneId);
     if (generation.storyboardId != null && storyboardId == null) {
-      throw freeCanvasBadRequest('free_canvas_import video generation storyboard 引用无法映射');
+      throw freeCanvasBadRequest('自由画布导入视频生成分镜引用无法映射');
     }
     if (generation.sceneId != null && sceneId == null) {
-      throw freeCanvasBadRequest('free_canvas_import video generation scene 引用无法映射');
+      throw freeCanvasBadRequest('自由画布导入视频生成场景引用无法映射');
     }
     const localPath = maps.paths.get(generation.sourcePath);
-    if (!localPath) throw freeCanvasBadRequest('free_canvas_import video generation 媒体无法映射');
+    if (!localPath) throw freeCanvasBadRequest('自由画布导入视频生成媒体无法映射');
 
     const media = manifest.mediaByPath.get(generation.sourcePath);
     const candidate = imported.videos.get(generation.sourceId);
@@ -2198,7 +2264,7 @@ function buildPortableImportedFreeCanvasMaps(db, dramaId, imported, now) {
     const completedAt = generation.status === 'completed' ? now : null;
     if (candidate?.newId) {
       if (!canReuse) {
-        throw freeCanvasBadRequest('free_canvas_import video generation authoritative record 不一致');
+        throw freeCanvasBadRequest('自由画布导入视频生成记录不一致');
       }
       updateVideo.run(
         dramaId,
@@ -2247,14 +2313,14 @@ function buildPortableImportedFreeCanvasMaps(db, dramaId, imported, now) {
   for (const sourceAsset of manifest.assets) {
     const localPath = sourceAsset.sourcePath == null ? null : maps.paths.get(sourceAsset.sourcePath);
     if (sourceAsset.sourcePath != null && !localPath) {
-      throw freeCanvasBadRequest('free_canvas_import asset 媒体无法映射');
+      throw freeCanvasBadRequest('自由画布导入素材媒体无法映射');
     }
     const image = sourceAsset.imageGenId == null ? null : imported.images.get(sourceAsset.imageGenId);
     const videoGenerationId = sourceAsset.videoGenId == null
       ? null
       : maps.videos.get(sourceAsset.videoGenId);
     if (sourceAsset.videoGenId != null && videoGenerationId == null) {
-      throw freeCanvasBadRequest('free_canvas_import asset 视频生成引用无法映射');
+      throw freeCanvasBadRequest('自由画布导入素材视频生成引用无法映射');
     }
     const trustedMedia = sourceAsset.sourcePath == null
       ? null
@@ -2292,7 +2358,7 @@ function buildLegacyImportedFreeCanvasMaps(sourceDramaId, imported) {
   const hasProjectId = canvas?.projectId !== undefined;
   const hasDramaId = canvas?.dramaId !== undefined;
   if (hasProjectId !== hasDramaId) {
-    throw freeCanvasBadRequest('旧版 ZIP free_canvas 缺少一致的项目身份声明');
+    throw freeCanvasBadRequest('旧版 ZIP 自由画布缺少一致的项目身份声明');
   }
   const hasRootReference = canvas?.episodeId !== undefined;
   const hasNodeReference = Array.isArray(canvas?.nodes) && canvas.nodes.some((node) => (
@@ -2308,7 +2374,7 @@ function buildLegacyImportedFreeCanvasMaps(sourceDramaId, imported) {
     )
   ));
   if (hasRootReference || hasNodeReference) {
-    throw freeCanvasBadRequest('旧版 ZIP free_canvas 包含无法验证的引用，缺少 free_canvas_import');
+    throw freeCanvasBadRequest('旧版 ZIP 自由画布包含无法验证的引用，缺少导入清单');
   }
   return maps;
 }
