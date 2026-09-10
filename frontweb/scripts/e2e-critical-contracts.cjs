@@ -708,8 +708,9 @@ async function verifyStoryboardEmptyStates(page, options = {}) {
     )
     await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
     await page.getByText(CRITICAL_UI.storyboardEmpty, { exact: true }).waitFor({ timeout: 15000 })
-    await page.getByRole('button', { name: CRITICAL_UI.generateStoryboard, exact: true }).waitFor({ state: 'visible' })
-    await page.getByRole('button', { name: CRITICAL_UI.addStoryboard, exact: true }).waitFor({ state: 'visible' })
+    const emptyActions = page.locator('.empty-tip-actions')
+    await emptyActions.getByRole('button', { name: CRITICAL_UI.generateStoryboard, exact: true }).waitFor({ state: 'visible' })
+    await emptyActions.getByRole('button', { name: CRITICAL_UI.addStoryboard, exact: true }).waitFor({ state: 'visible' })
 
     await page.goto(
       `${fixture.frontendUrl}/film/${fixture.dramaId}/canvas?episode=${fixture.episodeId}`,
