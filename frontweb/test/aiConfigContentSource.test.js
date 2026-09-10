@@ -642,3 +642,16 @@ test('zero saved configs hide prompt, scene-map and SD2 tabs and fall back to th
   assert.match(vueSource, /activeTab\.value = 'configs'/)
   assert.match(vueSource, /<el-tab-pane label="生成设置" name="generation">/)
 })
+
+test('AI 配置保存、导入和连接测试失败不再直出 e.message', () => {
+  assert.match(vueSource, /import \{ toUserFacingError, isUserFacingAbort \} from '@\/utils\/userFacingError'/)
+  assert.match(vueSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
+  assert.match(vueSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '导入失败'\)\)/)
+  assert.match(vueSource, /toUserFacingError\(error, '暂时无法完成连接测试，请稍后重试。'/)
+  assert.match(vueSource, /isUserFacingAbort\(e, controller\.signal\)/)
+  assert.match(vueSource, /runWithOwnedRequestErrorToast\(\(\) => generationSettingsAPI\.update/)
+  assert.match(vueSource, /runWithOwnedRequestErrorToast\(async \(\) => \([\s\S]*await aiAPI\.update[\s\S]*await aiAPI\.create/)
+  assert.doesNotMatch(vueSource, /ElMessage\.error\('保存失败：'/)
+  assert.doesNotMatch(vueSource, /ElMessage\.error\('导入失败：' \+ \(e\.message/)
+  assert.doesNotMatch(vueSource, /ElMessage\.error\(e\??\.message/)
+})

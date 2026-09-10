@@ -676,3 +676,12 @@ test('AI coverage test actions are accessible secondary buttons with pending sta
   configWriteLocked.value = true
   assert.equal(api.isCoverageActionDisabled(textItem, editAction), true)
 })
+
+test('AI 配置失败反馈走 toUserFacingError，不直出 e.message', () => {
+  assert.match(aiConfigSource, /import \{ toUserFacingError, isUserFacingAbort \} from '@\/utils\/userFacingError'/)
+  assert.match(aiConfigSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
+  assert.match(aiConfigSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '导入失败'\)\)/)
+  assert.match(aiConfigSource, /isUserFacingAbort\(e, controller\.signal\)/)
+  assert.doesNotMatch(aiConfigSource, /ElMessage\.error\('保存失败：'/)
+  assert.doesNotMatch(aiConfigSource, /ElMessage\.error\('导入失败：' \+ \(e\.message/)
+})

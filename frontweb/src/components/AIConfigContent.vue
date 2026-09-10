@@ -1629,6 +1629,7 @@ input_reference = (图片文件，可选)</pre>
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
+import { runWithOwnedRequestErrorToast } from '@/utils/request'
 import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder } from '@element-plus/icons-vue'
 import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
@@ -1788,7 +1789,7 @@ async function saveGenerationSettings() {
   try {
     const concurrency = Math.round(n)
     const videoConcurrency = Math.round(nv)
-    await generationSettingsAPI.update({ concurrency, video_concurrency: videoConcurrency })
+    await runWithOwnedRequestErrorToast(() => generationSettingsAPI.update({ concurrency, video_concurrency: videoConcurrency }))
     genConcurrencyInput.value = concurrency
     genVideoConcurrencyInput.value = videoConcurrency
     generationSettingsBaseline.value = generationSettingsFingerprint()
@@ -2893,9 +2894,11 @@ async function submit() {
         : {}),
     }
     const wasEditing = Boolean(editingId.value)
-    const mutationResult = wasEditing
-      ? await aiAPI.update(editingId.value, payload)
-      : await aiAPI.create(payload)
+    const mutationResult = await runWithOwnedRequestErrorToast(async () => (
+      wasEditing
+        ? await aiAPI.update(editingId.value, payload)
+        : await aiAPI.create(payload)
+    ))
     const serverConfirmation = confirmAiConfigMutationResult(mutationResult, payload, previous || {})
     if (!serverConfirmation) {
       await loadList()
@@ -2912,10 +2915,13 @@ async function submit() {
     if (listMatches) ElMessage.success(wasEditing ? '保存成功' : '添加成功')
     else ElMessage.warning('服务端已确认保存，但配置列表刷新或并发校验未完全一致，请刷新后复核。')
   } catch (e) {
+    if (isUserFacingAbort(e)) return
     if (e?.response?.status === 409) {
       await loadList()
       ElMessage.warning('配置已被其他操作更新，本次修改未覆盖现有配置，请重新打开后再保存。')
+      return
     }
+    ElMessage.error(toUserFacingError(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -3036,15 +3042,14 @@ function describeConnectionTestError(error, signal) {
       detail: '请检查服务地址和网络后重试。如果只是模型目录不可用，仍可在配置中手工填写模型名。',
     }
   }
-  if (isRequestCanceled(error, signal)) {
+  if (isUserFacingAbort(error, signal)) {
     return {
       title: '连接测试已取消',
       detail: '本次测试已停止，可重新测试。',
     }
   }
-  const raw = describeServiceLoadError(error, {
+  const raw = toUserFacingError(error, '暂时无法完成连接测试，请稍后重试。', {
     serviceLabel: 'AI 配置服务',
-    fallback: '暂时无法完成连接测试，请稍后重试。',
     signal,
   })
   const cleaned = stripConnectionTestDecorations(raw)
@@ -3129,7 +3134,7 @@ async function openTest(row) {
       serviceType: row.service_type || 'text',
     })
   } catch (e) {
-    if (isRequestCanceled(e) || controller.signal.aborted) {
+    if (isUserFacingAbort(e, controller.signal) || controller.signal.aborted) {
       if (testVisible.value && testingConfigId.value === row.id) {
         testResultAnnouncement.value = ''
       }
