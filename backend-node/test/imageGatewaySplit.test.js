@@ -11,6 +11,8 @@ const { callKlingImageApi } = require('../src/services/imageGateway/klingImageAd
 const { callNanoBananaImageApi } = require('../src/services/imageGateway/nanoBananaImageAdapter');
 const { callDashScopeImageApi, parseDashScopeImageUrl } = require('../src/services/imageGateway/dashScopeImageAdapter');
 const { callGeminiImageApi } = require('../src/services/imageGateway/geminiImageAdapter');
+const { dispatchImageProtocol } = require('../src/services/imageGateway/protocolDispatch');
+const { parseOpenAiCompatibleImageUrl } = require('../src/services/imageGateway/openAiCompatibleImageApi');
 
 const PUBLIC_API = [
   'getDefaultImageConfig',
@@ -77,10 +79,23 @@ describe('imageGateway 客户端拆分', () => {
     }
     assert.equal(src.includes("require('./imageGateway/download')"), true);
     assert.equal(src.includes("require('./imageGateway/config')"), true);
-    assert.equal(src.includes("require('./imageGateway/klingImageAdapter')"), true);
-    assert.equal(src.includes("require('./imageGateway/nanoBananaImageAdapter')"), true);
-    assert.equal(src.includes("require('./imageGateway/dashScopeImageAdapter')"), true);
-    assert.equal(src.includes("require('./imageGateway/geminiImageAdapter')"), true);
+    assert.equal(src.includes("require('./imageGateway/protocolDispatch')"), true);
+    assert.equal(src.includes("if (protocol === 'dashscope')"), false);
+    assert.equal(src.includes("if (protocol === 'nano_banana')"), false);
+    assert.equal(src.includes("if (protocol === 'kling')"), false);
+    assert.equal(src.includes("if (protocol === 'gemini')"), false);
+    assert.equal(src.includes("if (protocol === 'comfyui')"), false);
+    assert.equal(typeof dispatchImageProtocol, 'function');
+    const dispatchSrc = fs.readFileSync(path.join(__dirname, '../src/services/imageGateway/protocolDispatch.js'), 'utf8');
+    for (const needle of [
+      "if (protocol === 'dashscope')",
+      "if (protocol === 'nano_banana')",
+      "if (protocol === 'kling')",
+      "if (protocol === 'gemini')",
+      "if (protocol === 'comfyui')",
+    ]) {
+      assert.equal(dispatchSrc.includes(needle), true, needle);
+    }
   });
 });
 
@@ -186,5 +201,24 @@ describe('imageGateway 厂商适配器请求拼装语义', () => {
       output: { choices: [{ message: { content: [{ type: 'image', image: 'https://img.example/a.png' }] } }] },
     }), 'https://img.example/a.png');
     assert.equal(parseDashScopeImageUrl({ output: {} }), null);
+  });
+
+  it('parseOpenAiCompatibleImageUrl 兼容 url / image_url / b64_json / images[]', () => {
+    assert.equal(parseOpenAiCompatibleImageUrl({
+      data: [{ url: 'https://cdn.example/a.png' }],
+    }), 'https://cdn.example/a.png');
+    assert.equal(parseOpenAiCompatibleImageUrl({
+      data: [{ image_url: 'https://cdn.example/b.png' }],
+    }), 'https://cdn.example/b.png');
+    assert.equal(parseOpenAiCompatibleImageUrl({
+      data: [{ b64_json: 'YWJj' }],
+    }), 'data:image/png;base64,YWJj');
+    assert.equal(parseOpenAiCompatibleImageUrl({
+      images: ['iVBORw0KGgo='],
+    }), 'data:image/png;base64,iVBORw0KGgo=');
+    assert.equal(parseOpenAiCompatibleImageUrl({
+      images: ['data:image/png;base64,abc'],
+    }), 'data:image/png;base64,abc');
+    assert.equal(parseOpenAiCompatibleImageUrl({ data: [{}] }), null);
   });
 });
