@@ -244,7 +244,8 @@ export function useFilmCreatePipelineRun(options = {}) {
       throw createPipelineAbortError()
     }
     const time = new Date().toLocaleTimeString('zh-CN')
-    pipelineErrorLog.value = [...pipelineErrorLog.value, { time, step, message }]
+    const text = toUserFacingError(message, '操作失败')
+    pipelineErrorLog.value = [...pipelineErrorLog.value, { time, step, message: text }]
   }
 
   async function checkPause() {

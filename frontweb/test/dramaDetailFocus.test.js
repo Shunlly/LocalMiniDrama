@@ -134,3 +134,14 @@ test('source-url intent keeps the URL input focused after the parent scroll dela
   await page.waitForTimeout(300)
   assert.equal(await page.evaluate(() => document.activeElement?.id), 'source-url')
 })
+
+test('DramaDetail 禁用按钮外包可焦点且空封面不再是 disabled button', () => {
+  assert.match(dramaDetailSource, /class="tooltip-trigger"[\s\S]*:tabindex="currentEpisodeId \? undefined : 0"/)
+  assert.match(dramaDetailSource, /:tabindex="episodeEmptyState.primaryDisabledReason \? 0 : undefined"/)
+  assert.match(dramaDetailSource, /v-if="assetImageUrl\(item\)"[\s\S]*class="library-item-cover"/)
+  assert.match(dramaDetailSource, /class="library-item-cover library-item-cover--empty"/)
+  assert.match(dramaDetailSource, /class="drama-res-cover drama-res-cover--empty"/)
+  assert.equal(dramaDetailSource.includes('class="library-item-cover" :disabled'), false)
+  assert.equal(dramaDetailSource.includes('class="drama-res-cover" :disabled'), false)
+})
+

@@ -68,8 +68,10 @@ test('FilmCreate and DramaDetail use the shared focus-managed preview for every 
     assert.doesNotMatch(source, /<img\b[^>]*@click/)
   }
 
-  assert.equal((dramaDetailSource.match(/type="button" class="library-item-cover"/g) || []).length, 4)
-  assert.equal((dramaDetailSource.match(/type="button" class="drama-res-cover"/g) || []).length, 3)
+  assert.equal((dramaDetailSource.match(/type="button"\s+class="library-item-cover"/g) || []).length, 4)
+  assert.equal((dramaDetailSource.match(/type="button"\s+class="drama-res-cover"/g) || []).length, 3)
+  assert.equal((dramaDetailSource.match(/class="library-item-cover library-item-cover--empty"/g) || []).length, 4)
+  assert.equal((dramaDetailSource.match(/class="drama-res-cover drama-res-cover--empty"/g) || []).length, 3)
   assert.equal((dramaDetailSource.match(/type="button" class="lib-img-thumb"/g) || []).length, 6)
   assert.equal((resourceDialogsSource.match(/type="button" class="library-item-cover"/g) || []).length, 6)
   assert.equal(

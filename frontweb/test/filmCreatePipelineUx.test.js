@@ -22,6 +22,11 @@ const describePipelinePanelUx = new Function(
   `'use strict'; ${remainingExtractNamedFunction(pipelinePanelSource, 'describePipelinePanelUx')}; return describePipelinePanelUx;`,
 )(getPipelineControlReasons, toPipelineDisabledReason)
 
+const describePipelineErrorLog = new Function(
+  'toPipelineDisabledReason',
+  `'use strict'; ${remainingExtractNamedFunction(pipelinePanelSource, 'describePipelineErrorLog')}; return describePipelineErrorLog;`,
+)(toPipelineDisabledReason)
+
 function compileVue(source, filename, id) {
   const parsed = parse(source, { filename })
   assert.deepEqual(parsed.errors.map((error) => String(error)), [])
@@ -85,6 +90,8 @@ test('\u6682\u505c\u3001\u7ee7\u7eed\u3001\u505c\u6b62\u7981\u7528\u539f\u56e0\u
   assert.match(pipelinePanelSource, /label="\u7ee7\u7eed" :reason="resumeDisabledReason"/)
   assert.match(pipelinePanelSource, /:reason="cancelDisabledReason"/)
   assert.match(pipelinePanelSource, /:title="compactDisabledReason"/)
+  assert.match(pipelinePanelSource, /class="pipeline-compact-gate"/)
+  assert.match(pipelinePanelSource, /:reason="compactDisabledReason"/)
 })
 
 test('\u8fdb\u884c\u4e2d\u72b6\u6001\u4e0e\u7a7a\u95f2\u6001\u533a\u5206\uff0c\u65e0\u6b65\u9aa4\u65f6\u4ecd\u6709\u4e2d\u6587\u8fdb\u5ea6', () => {
@@ -131,4 +138,17 @@ test('\u6ca1\u6709\u5267\u96c6\u65f6\u4e0b\u4e00\u6b65\u6307\u5411\u6dfb\u52a0\u
   assert.match(pipelinePanelSource, /data-testid="film-pipeline-empty-action"/)
   assert.match(pipelinePanelSource, /\$emit\('add-episode'\)/)
   assert.match(pipelinePanelSource, /white-space: normal/)
+})
+
+test('全流程错误日志和阻断原因把英文技术失败收成中文', () => {
+  const log = describePipelineErrorLog([
+    { time: '12:00:00', step: '提取角色', message: 'Network Error' },
+    { time: '12:00:01', step: '生成分镜', message: '请先配置图片模型' },
+  ])
+  assert.equal(log[0].message, '操作失败，请稍后重试')
+  assert.equal(log[1].message, '请先配置图片模型')
+  assert.doesNotMatch(JSON.stringify(log), /Network Error/)
+  assert.match(pipelinePanelSource, /displayErrorLog/)
+  assert.match(pipelinePanelSource, /toPipelineDisabledReason\(\s*props\.productionDisabledReason \|\| props\.disabledReason/)
+  assert.match(pipelinePanelSource, /toPipelineDisabledReason\(controlReasons\.value\.retry/)
 })

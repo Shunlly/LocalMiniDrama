@@ -17,19 +17,25 @@
         <span class="pipeline-compact-next"><span>下一步</span>{{ focusNextStep }}</span>
       </div>
       <div class="pipeline-compact-actions">
-        <button
-          v-if="compactAction"
-          type="button"
-          class="pipeline-compact-action"
-          data-testid="film-pipeline-action"
-          :disabled="starting || stopping"
-          :title="compactDisabledReason"
-          :aria-label="compactActionAriaLabel"
-          @click="runCompactAction"
-        >
-          <span>{{ compactAction.label }}</span>
-          <el-icon><ArrowRight /></el-icon>
-        </button>
+        <span v-if="compactAction" class="pipeline-compact-gate">
+          <ActionGate
+            :reason="compactDisabledReason"
+            :label="compactAction.label"
+          >
+            <button
+              type="button"
+              class="pipeline-compact-action"
+              data-testid="film-pipeline-action"
+              :disabled="starting || stopping"
+              :title="compactDisabledReason"
+              :aria-label="compactActionAriaLabel"
+              @click="runCompactAction"
+            >
+              <span>{{ compactAction.label }}</span>
+              <el-icon><ArrowRight /></el-icon>
+            </button>
+          </ActionGate>
+        </span>
         <button
           type="button"
           class="pipeline-toggle"
@@ -219,9 +225,9 @@
           <span class="pipeline-task-dot" />{{ label }}
         </span>
       </div>
-      <div v-if="errorLog.length > 0" class="pipeline-error-log" role="alert">
+      <div v-if="displayErrorLog.length > 0" class="pipeline-error-log" role="alert">
         <div class="pipeline-error-title">执行过程中的错误</div>
-        <div v-for="(entry, index) in errorLog" :key="index" class="pipeline-error-line">
+        <div v-for="(entry, index) in displayErrorLog" :key="index" class="pipeline-error-line">
           [{{ entry.step }}] {{ entry.message }}
         </div>
         <ActionGate v-if="!running" label="重试全流程" :reason="retryDisabledReason">
@@ -261,6 +267,14 @@ function toPipelineDisabledReason(value, fallback = '当前不可用') {
     return String(fallback || '当前不可用')
   }
   return text
+}
+
+function describePipelineErrorLog(errorLog = []) {
+  return (Array.isArray(errorLog) ? errorLog : []).map((entry) => ({
+    time: entry?.time,
+    step: entry?.step,
+    message: toPipelineDisabledReason(entry?.message, '操作失败，请稍后重试') || '操作失败，请稍后重试',
+  }))
 }
 
 function describePipelinePanelUx(input = {}) {
@@ -362,9 +376,16 @@ const emit = defineEmits([
 
 const activeTaskLabels = computed(() => Array.from(props.activeTasks || []))
 const cleanCurrentStep = computed(() => props.currentStep.replace(/^\[步骤 \d+\/\d+\] /, ''))
-const productionReason = computed(() => props.productionDisabledReason || props.disabledReason)
-const draftReason = computed(() => props.draftDisabledReason || props.disabledReason)
+const productionReason = computed(() => toPipelineDisabledReason(
+  props.productionDisabledReason || props.disabledReason,
+  '完整成片暂不可生成',
+))
+const draftReason = computed(() => toPipelineDisabledReason(
+  props.draftDisabledReason || props.disabledReason,
+  '草稿预演暂不可生成',
+))
 const hasPipelineError = computed(() => props.errorLog.length > 0)
+const displayErrorLog = computed(() => describePipelineErrorLog(props.errorLog))
 const locallyStopped = computed(() => isPipelineLocallyStopped({
   running: props.running,
   stopping: props.stopping,
@@ -398,7 +419,7 @@ const progressStatusText = computed(() => panelUx.value.progressStatusText)
 const emptyGuidanceText = computed(() => panelUx.value.emptyGuidanceText)
 const emptyActionLabel = computed(() => panelUx.value.emptyActionLabel)
 const emptyActionAriaLabel = computed(() => panelUx.value.emptyNextStep || panelUx.value.emptyActionLabel)
-const retryDisabledReason = computed(() => controlReasons.value.retry)
+const retryDisabledReason = computed(() => toPipelineDisabledReason(controlReasons.value.retry, '当前不能重试全流程'))
 const focusReason = computed(() => props.running ? '' : productionReason.value)
 const longFocusReason = computed(() => focusReason.value.length > 56)
 const focusState = computed(() => {
@@ -551,6 +572,14 @@ function updateSetting(name, value) {
   gap: 8px;
 }
 
+.pipeline-compact-gate {
+  display: inline-flex;
+  max-width: 220px;
+}
+.pipeline-compact-actions :deep(.action-gate-reason) {
+  display: none;
+}
+
 .pipeline-compact-action,
 .pipeline-toggle {
   display: inline-flex;
@@ -574,6 +603,10 @@ function updateSetting(name, value) {
   background: var(--el-color-primary);
   color: var(--el-color-white);
   white-space: nowrap;
+}
+.pipeline-compact-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 
 .pipeline-compact-action:hover {

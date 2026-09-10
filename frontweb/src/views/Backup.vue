@@ -120,6 +120,28 @@
         <h2>备份操作失败</h2>
         <p>{{ actionError }}</p>
       </div>
+      <div class="import-failure-actions">
+        <el-button
+          v-if="restoreDialogVisible"
+          type="primary"
+          :loading="restoring"
+          aria-label="重试恢复备份"
+          @click="onConfirmRestore"
+        >
+          重试恢复
+        </el-button>
+        <el-button
+          v-else
+          type="primary"
+          :loading="creating"
+          :disabled="accessState.createLocked"
+          aria-label="重试创建备份"
+          @click="onCreateBackup"
+        >
+          重试创建备份
+        </el-button>
+        <el-button plain :disabled="restoring || creating" aria-label="关闭备份操作错误" @click="dismissActionError">关闭</el-button>
+      </div>
     </section>
 
     <section v-if="selectedFile" class="selected-file" aria-live="polite">
@@ -144,6 +166,20 @@
       >
         <strong>还没有备份</strong>
         <span>可以创建新备份，或选择已有备份文件恢复。</span>
+        <div class="empty-state-actions">
+          <el-button
+            type="primary"
+            :loading="creating"
+            :disabled="accessState.createLocked"
+            aria-label="空态创建备份"
+            @click="onCreateBackup"
+          >创建备份</el-button>
+          <el-button
+            :disabled="accessState.writeLocked"
+            aria-label="空态选择备份文件"
+            @click="triggerFileSelect"
+          >选择已有备份</el-button>
+        </div>
       </section>
 
       <ul v-else-if="hasSuccessfulListLoad && backups.length" class="backup-list">
@@ -230,6 +266,7 @@ const {
   confirmRestore,
   cancelRestore,
   dismissFileError,
+  dismissActionError,
   dispose,
 } = useBackupSettings({
   downloadBackup(blob, filename) {
@@ -402,6 +439,12 @@ onBeforeUnmount(() => {
 .empty-state {
   flex-direction: column;
   align-items: flex-start;
+}
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 .backup-list {
   margin: 0;

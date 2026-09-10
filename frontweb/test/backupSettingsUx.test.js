@@ -368,3 +368,22 @@ test('备份页在创建或恢复时注册离开保护', () => {
   assert.match(source, /result\.message/)
 })
 
+test('备份操作失败可重试或关闭，空态也能创建或选择备份', () => {
+  const template = templateOnly(pageSource)
+  assert.match(template, /v-if="actionError"[\s\S]*备份操作失败[\s\S]*重试恢复/)
+  assert.match(template, /aria-label="关闭备份操作错误"/)
+  assert.match(template, /aria-label="重试创建备份"/)
+  assert.match(template, /v-if="accessState.showEmpty"[\s\S]*空态创建备份[\s\S]*空态选择备份文件/)
+  assert.match(template, /aria-label="确认恢复备份"/)
+  assert.match(template, /aria-label="创建全量备份"/)
+  assert.match(template, /aria-label="选择备份文件"/)
+  assert.doesNotMatch(template, /v-if="accessState.showEmpty"[\s\S]*aria-label="创建全量备份"/)
+  assert.doesNotMatch(template, /v-if="accessState.showEmpty"[\s\S]*aria-label="选择备份文件"/)
+})
+
+test('关闭备份操作错误会清掉失败条', () => {
+  const harness = useBackupSettings({ api: createApi() })
+  harness.actionError.value = '数据恢复未能完成，原有数据应仍可用。'
+  harness.dismissActionError()
+  assert.equal(harness.actionError.value, '')
+})

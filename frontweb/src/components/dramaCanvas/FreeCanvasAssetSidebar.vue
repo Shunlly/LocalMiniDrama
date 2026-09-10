@@ -74,7 +74,10 @@
         class="asset-item"
         @click="emit('add-entity', { kind: 'character', item })"
       >{{ item.name || '未命名角色' }}</button>
-      <p v-if="!filteredCharacters.length" class="asset-empty">暂无匹配角色</p>
+      <div v-if="!filteredCharacters.length" class="asset-empty" role="status">
+        <p>{{ assetEmptyText('角色') }}</p>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" @click="clearAssetFilters">清除筛选</button>
+      </div>
     </details>
 
     <details :open="Boolean(searchQuery)" class="asset-section" data-asset-section="scenes">
@@ -86,7 +89,10 @@
         class="asset-item"
         @click="emit('add-entity', { kind: 'scene', item })"
       >{{ item.location || item.name || '未命名场景' }}</button>
-      <p v-if="!filteredScenes.length" class="asset-empty">暂无匹配场景</p>
+      <div v-if="!filteredScenes.length" class="asset-empty" role="status">
+        <p>{{ assetEmptyText('场景') }}</p>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" @click="clearAssetFilters">清除筛选</button>
+      </div>
     </details>
 
     <details :open="Boolean(searchQuery)" class="asset-section" data-asset-section="props">
@@ -98,7 +104,10 @@
         class="asset-item"
         @click="emit('add-entity', { kind: 'prop', item })"
       >{{ item.name || '未命名道具' }}</button>
-      <p v-if="!filteredProps.length" class="asset-empty">暂无匹配道具</p>
+      <div v-if="!filteredProps.length" class="asset-empty" role="status">
+        <p>{{ assetEmptyText('道具') }}</p>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" @click="clearAssetFilters">清除筛选</button>
+      </div>
     </details>
 
     <details :open="Boolean(searchQuery)" class="asset-section" data-asset-section="storyboard-media">
@@ -115,7 +124,10 @@
         <span class="asset-kind">{{ item.type === 'video' ? '视频' : '图片' }}</span>
         <span>{{ item.label }}</span>
       </button>
-      <p v-if="!filteredStoryboardMedia.length" class="asset-empty">暂无匹配分镜媒体</p>
+      <div v-if="!filteredStoryboardMedia.length" class="asset-empty" role="status">
+        <p>{{ assetEmptyText('分镜媒体') }}</p>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" @click="clearAssetFilters">清除筛选</button>
+      </div>
     </details>
 
     <details ref="projectAssetsSectionRef" open class="asset-section" data-asset-section="project-assets">
@@ -132,7 +144,14 @@
         <span class="asset-kind">{{ item.type === 'video' ? '视频' : '图片' }}</span>
         <span>{{ item.name || `素材 ${item.id}` }}</span>
       </button>
-      <p v-if="!filteredAssets.length" class="asset-empty">暂无匹配项目素材</p>
+      <div v-if="!filteredAssets.length" class="asset-empty" role="status">
+        <p>{{ assetEmptyText('项目素材') }}</p>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" @click="clearAssetFilters">清除筛选</button>
+        <template v-else>
+          <button type="button" class="asset-empty-action" aria-label="空态上传素材" @click="fileInputRef?.click()">上传素材</button>
+          <button type="button" class="asset-empty-action" aria-label="空态从素材中心选择" @click="emit('open-picker')">从素材中心选择</button>
+        </template>
+      </div>
     </details>
   </aside>
 </template>
@@ -171,6 +190,18 @@ const filteredAssets = computed(() => filterFreeCanvasAssetItems(
   props.assets.filter((item) => item?.type === 'image' || item?.type === 'video'),
   filterOptions.value,
 ))
+const hasActiveAssetFilters = computed(() => Boolean(searchQuery.value.trim()) || mediaType.value !== 'all')
+
+function clearAssetFilters() {
+  searchQuery.value = ''
+  mediaType.value = 'all'
+}
+
+function assetEmptyText(kind) {
+  if (hasActiveAssetFilters.value) return `没有匹配的${kind}`
+  if (kind === '项目素材' || kind === '分镜媒体') return `暂无${kind}，可上传或从素材中心选择`
+  return `暂无${kind}，可先在制作页添加，或上传图片作为参考`
+}
 
 function emitFiles(files) {
   const values = Array.from(files || [])
@@ -315,6 +346,27 @@ async function revealProjectAssets() {
   color: var(--canvas-text-subtle, #71717a);
   font-size: 11px;
   line-height: 16px;
+}
+.asset-empty {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+.asset-empty p {
+  margin: 0;
+}
+.asset-empty-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--canvas-indigo-text, #a5b4fc);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.asset-empty-action:focus-visible {
+  outline: 2px solid var(--canvas-focus-ring, #818cf8);
+  outline-offset: 2px;
 }
 
 .upload-state { color: var(--canvas-info-text, #60a5fa); }

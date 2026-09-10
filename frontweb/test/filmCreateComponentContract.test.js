@@ -506,14 +506,15 @@ test('CanvasActionGate renders a runtime aria-describedby relationship', () => {
 })
 
 test('pipeline disabledReason produces accessible gates and disables both start buttons', () => {
-  const harness = mountPipeline({ disabledReason: 'Select an episode first' })
+  const reason = '请先创建或选择剧集'
+  const harness = mountPipeline({ disabledReason: reason })
   try {
     const gates = findAll(harness.root, (node) => node.props.role === 'group')
     assert.equal(gates.length, 2)
     for (const gate of gates) {
       assert.equal(gate.props.tabindex, '0')
       assert.equal(gate.props['aria-disabled'], 'true')
-      assert.match(gate.props['aria-label'], /Select an episode first/)
+      assert.match(gate.props['aria-label'], /请先创建或选择剧集/)
       const [button] = findByType(gate, 'button')
       assert.equal(button.props.disabled, true)
     }
@@ -521,8 +522,21 @@ test('pipeline disabledReason produces accessible gates and disables both start 
     assert.equal(buttonByText(harness.root, '仅生成文本框架').props.disabled, true)
     assert.deepEqual(
       findByType(harness.root, 'tooltip').map((node) => node.props['data-content']),
-      ['Select an episode first', 'Select an episode first'],
+      [reason, reason],
     )
+  } finally {
+    harness.app.unmount()
+  }
+})
+
+test('pipeline 英文技术失败会收成中文阻断原因', () => {
+  const harness = mountPipeline({ disabledReason: 'Network Error' })
+  try {
+    const gates = findAll(harness.root, (node) => node.props.role === 'group')
+    assert.equal(gates.length, 2)
+    assert.match(gates[0].props['aria-label'], /完整成片暂不可生成/)
+    assert.match(gates[1].props['aria-label'], /草稿预演暂不可生成/)
+    assert.doesNotMatch(JSON.stringify(gates.map((gate) => gate.props['aria-label'])), /Network Error/)
   } finally {
     harness.app.unmount()
   }

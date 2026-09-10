@@ -22,7 +22,11 @@
             :disabled="Boolean(currentEpisodeId)"
             placement="bottom"
           >
-            <span class="tooltip-trigger">
+            <span
+              class="tooltip-trigger"
+              :tabindex="currentEpisodeId ? undefined : 0"
+              :aria-label="currentEpisodeId ? undefined : '进入制作不可用：请先新增一集'"
+            >
               <el-button
                 type="primary"
                 :disabled="!currentEpisodeId"
@@ -39,7 +43,11 @@
             :disabled="Boolean(currentEpisodeId)"
             placement="bottom"
           >
-            <span class="tooltip-trigger">
+            <span
+              class="tooltip-trigger"
+              :tabindex="currentEpisodeId ? undefined : 0"
+              :aria-label="currentEpisodeId ? undefined : '画布模式不可用：请先新增一集'"
+            >
               <el-button
                 type="primary"
                 plain
@@ -243,8 +251,18 @@
           <div class="empty-state-copy">{{ episodeEmptyState.description }}</div>
           <div class="empty-state-actions">
             <el-tooltip :content="episodeEmptyState.primaryDisabledReason" :disabled="!episodeEmptyState.primaryDisabledReason" placement="top">
-              <span class="tooltip-trigger">
-                <el-button type="primary" :disabled="Boolean(episodeEmptyState.primaryDisabledReason)" @click="handleReadinessAction(episodeEmptyState.primaryAction)">
+              <span
+                class="tooltip-trigger"
+                :tabindex="episodeEmptyState.primaryDisabledReason ? 0 : undefined"
+                :aria-label="episodeEmptyState.primaryDisabledReason ? `${episodeEmptyState.primaryAction.label}不可用：${episodeEmptyState.primaryDisabledReason}` : undefined"
+              >
+                <el-button
+                  type="primary"
+                  :disabled="Boolean(episodeEmptyState.primaryDisabledReason)"
+                  :title="episodeEmptyState.primaryDisabledReason || undefined"
+                  :aria-describedby="episodeEmptyState.primaryDisabledReason || episodeEmptyState.note ? 'episode-empty-reason' : undefined"
+                  @click="handleReadinessAction(episodeEmptyState.primaryAction)"
+                >
                   {{ episodeEmptyState.primaryAction.label }}
                 </el-button>
               </span>
@@ -257,7 +275,7 @@
               <el-icon><Plus /></el-icon>新增空白集
             </el-button>
           </div>
-          <div v-if="episodeEmptyState.primaryDisabledReason || episodeEmptyState.note" class="empty-state-note">{{ episodeEmptyState.primaryDisabledReason || episodeEmptyState.note }}</div>
+          <div v-if="episodeEmptyState.primaryDisabledReason || episodeEmptyState.note" id="episode-empty-reason" class="empty-state-note">{{ episodeEmptyState.primaryDisabledReason || episodeEmptyState.note }}</div>
         </div>
         <div v-else class="episode-grid">
           <article
@@ -350,10 +368,23 @@
               <el-button size="small" type="primary" plain :loading="charLoading" @click="loadCharList">重试</el-button>
             </div>
             <div v-for="item in charList" :key="item.id" class="library-item">
-              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '角色'}图片`" @click="openPreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '角色图片'" />
-                <span v-else class="library-placeholder">暂无图</span>
+              <button
+                v-if="assetImageUrl(item)"
+                type="button"
+                class="library-item-cover"
+                :aria-label="`预览${item.name || '角色'}图片`"
+                @click="openPreview(assetImageUrl(item))"
+              >
+                <img :src="assetImageUrl(item)" :alt="item.name || '角色图片'" />
               </button>
+              <div
+                v-else
+                class="library-item-cover library-item-cover--empty"
+                role="img"
+                :aria-label="`${item.name || '角色'}暂无图片`"
+              >
+                <span class="library-placeholder">暂无图</span>
+              </div>
               <div class="library-item-info">
                 <div class="library-item-name">{{ item.name || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || '').slice(0, 60) }}</div>
@@ -392,10 +423,23 @@
               <el-button size="small" type="primary" plain :loading="sceneLoading" @click="loadSceneList">重试</el-button>
             </div>
             <div v-for="item in sceneList" :key="item.id" class="library-item">
-              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.location || item.time || '场景'}图片`" @click="openPreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.location || item.time || '场景图片'" />
-                <span v-else class="library-placeholder">暂无图</span>
+              <button
+                v-if="assetImageUrl(item)"
+                type="button"
+                class="library-item-cover"
+                :aria-label="`预览${item.location || item.time || '场景'}图片`"
+                @click="openPreview(assetImageUrl(item))"
+              >
+                <img :src="assetImageUrl(item)" :alt="item.location || item.time || '场景图片'" />
               </button>
+              <div
+                v-else
+                class="library-item-cover library-item-cover--empty"
+                role="img"
+                :aria-label="`${item.location || item.time || '场景'}暂无图片`"
+              >
+                <span class="library-placeholder">暂无图</span>
+              </div>
               <div class="library-item-info">
                 <div class="library-item-name">{{ item.location || item.time || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}</div>
@@ -434,10 +478,23 @@
               <el-button size="small" type="primary" plain :loading="propLoading" @click="loadPropList">重试</el-button>
             </div>
             <div v-for="item in propList" :key="item.id" class="library-item">
-              <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '道具'}图片`" @click="openPreview(assetImageUrl(item))">
-                <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '道具图片'" />
-                <span v-else class="library-placeholder">暂无图</span>
+              <button
+                v-if="assetImageUrl(item)"
+                type="button"
+                class="library-item-cover"
+                :aria-label="`预览${item.name || '道具'}图片`"
+                @click="openPreview(assetImageUrl(item))"
+              >
+                <img :src="assetImageUrl(item)" :alt="item.name || '道具图片'" />
               </button>
+              <div
+                v-else
+                class="library-item-cover library-item-cover--empty"
+                role="img"
+                :aria-label="`${item.name || '道具'}暂无图片`"
+              >
+                <span class="library-placeholder">暂无图</span>
+              </div>
               <div class="library-item-info">
                 <div class="library-item-name">{{ item.name || '未命名' }}</div>
                 <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 60) }}</div>
@@ -464,10 +521,23 @@
           <div id="drama-res-panel-drama-char" class="drama-res-list res-tabpanel" role="tabpanel" aria-labelledby="drama-res-tab-drama-char" tabindex="0">
             <template v-if="drama?.characters?.length">
               <div v-for="item in drama.characters" :key="item.id" class="drama-res-item">
-                <button type="button" class="drama-res-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '制作角色'}图片`" @click="openPreview(assetImageUrl(item))">
-                  <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '制作角色图片'" />
-                  <span v-else class="library-placeholder">暂无图</span>
+                <button
+                  v-if="assetImageUrl(item)"
+                  type="button"
+                  class="drama-res-cover"
+                  :aria-label="`预览${item.name || '制作角色'}图片`"
+                  @click="openPreview(assetImageUrl(item))"
+                >
+                  <img :src="assetImageUrl(item)" :alt="item.name || '制作角色图片'" />
                 </button>
+                <div
+                  v-else
+                  class="drama-res-cover drama-res-cover--empty"
+                  role="img"
+                  :aria-label="`${item.name || '制作角色'}暂无图片`"
+                >
+                  <span class="library-placeholder">暂无图</span>
+                </div>
                 <div class="drama-res-info">
                   <div class="drama-res-name">{{ item.name || '未命名' }}</div>
                   <div class="drama-res-meta" v-if="characterRoleLabel(item.role)">
@@ -493,10 +563,23 @@
           <div id="drama-res-panel-drama-scene" class="drama-res-list res-tabpanel" role="tabpanel" aria-labelledby="drama-res-tab-drama-scene" tabindex="0">
             <template v-if="drama?.scenes?.length">
               <div v-for="item in drama.scenes" :key="item.id" class="drama-res-item">
-                <button type="button" class="drama-res-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.location || '制作场景'}图片`" @click="openPreview(assetImageUrl(item))">
-                  <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.location || '制作场景图片'" />
-                  <span v-else class="library-placeholder">暂无图</span>
+                <button
+                  v-if="assetImageUrl(item)"
+                  type="button"
+                  class="drama-res-cover"
+                  :aria-label="`预览${item.location || '制作场景'}图片`"
+                  @click="openPreview(assetImageUrl(item))"
+                >
+                  <img :src="assetImageUrl(item)" :alt="item.location || '制作场景图片'" />
                 </button>
+                <div
+                  v-else
+                  class="drama-res-cover drama-res-cover--empty"
+                  role="img"
+                  :aria-label="`${item.location || '制作场景'}暂无图片`"
+                >
+                  <span class="library-placeholder">暂无图</span>
+                </div>
                 <div class="drama-res-info">
                   <div class="drama-res-name">{{ item.location || '未命名' }}</div>
                   <div class="drama-res-meta" v-if="item.time">
@@ -522,10 +605,23 @@
           <div id="drama-res-panel-drama-prop" class="drama-res-list res-tabpanel" role="tabpanel" aria-labelledby="drama-res-tab-drama-prop" tabindex="0">
             <template v-if="drama?.props?.length">
               <div v-for="item in drama.props" :key="item.id" class="drama-res-item">
-                <button type="button" class="drama-res-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '制作道具'}图片`" @click="openPreview(assetImageUrl(item))">
-                  <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" :alt="item.name || '制作道具图片'" />
-                  <span v-else class="library-placeholder">暂无图</span>
+                <button
+                  v-if="assetImageUrl(item)"
+                  type="button"
+                  class="drama-res-cover"
+                  :aria-label="`预览${item.name || '制作道具'}图片`"
+                  @click="openPreview(assetImageUrl(item))"
+                >
+                  <img :src="assetImageUrl(item)" :alt="item.name || '制作道具图片'" />
                 </button>
+                <div
+                  v-else
+                  class="drama-res-cover drama-res-cover--empty"
+                  role="img"
+                  :aria-label="`${item.name || '制作道具'}暂无图片`"
+                >
+                  <span class="library-placeholder">暂无图</span>
+                </div>
                 <div class="drama-res-info">
                   <div class="drama-res-name">{{ item.name || '未命名' }}</div>
                   <div class="drama-res-meta" v-if="propTypeLabel(item.type)">
@@ -742,10 +838,23 @@
           <el-button size="small" type="primary" plain :loading="importLoading" @click="loadImportList">重试</el-button>
         </div>
         <div v-for="item in importList" :key="item.id" class="library-item">
-          <button type="button" class="library-item-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览待导入素材「${importType === 'scene' ? (item.location || item.time || '未命名') : (item.name || '未命名')}」图片`" @click="openPreview(assetImageUrl(item))">
-            <img v-if="item.image_url || item.local_path" :src="assetImageUrl(item)" alt="待导入素材图片" />
-            <span v-else class="library-placeholder">暂无图</span>
+          <button
+            v-if="assetImageUrl(item)"
+            type="button"
+            class="library-item-cover"
+            :aria-label="`预览待导入素材「${importType === 'scene' ? (item.location || item.time || '未命名') : (item.name || '未命名')}」图片`"
+            @click="openPreview(assetImageUrl(item))"
+          >
+            <img :src="assetImageUrl(item)" alt="待导入素材图片" />
           </button>
+          <div
+            v-else
+            class="library-item-cover library-item-cover--empty"
+            role="img"
+            :aria-label="`待导入素材「${importType === 'scene' ? (item.location || item.time || '未命名') : (item.name || '未命名')}」暂无图片`"
+          >
+            <span class="library-placeholder">暂无图</span>
+          </div>
           <div class="library-item-info">
             <div class="library-item-name">
               {{ importType === 'scene' ? (item.location || item.time || '未命名') : (item.name || '未命名') }}
@@ -2346,6 +2455,7 @@ html.light .dependency-status--error {
 .library-item { display: flex; gap: 12px; padding: 10px; background: #1c1c1e; border: 1px solid #27272a; border-radius: 8px; }
 .library-item-cover { width: 72px; height: 72px; flex-shrink: 0; padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: #27272a; color: inherit; font: inherit; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .library-item-cover img { width: 100%; height: 100%; object-fit: cover; }
+.library-item-cover--empty { cursor: default; }
 .library-placeholder { font-size: 0.8rem; color: #71717a; }
 .library-item-info { flex: 1; min-width: 0; }
 .library-item-name { font-weight: 500; color: #fafafa; margin-bottom: 4px; }
@@ -2365,6 +2475,7 @@ html.light .dependency-status--error {
 }
 .resource-empty-state { display: grid; justify-items: center; gap: 12px; width: 100%; }
 .tooltip-trigger { display: inline-flex; }
+.tooltip-trigger:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
 .library-pagination { margin-top: 12px; display: flex; justify-content: center; }
 
 /* ——— 编辑器风格 Tab 栏 ——— */
@@ -2449,6 +2560,7 @@ html.light .res-tab--drama.active::after { background: #7c3aed; }
 .drama-res-item { display: flex; gap: 12px; width: calc(50% - 6px); background: var(--bg-inner, #1c1c1e); border: 1px solid var(--border-color, #27272a); border-radius: 8px; padding: 10px; box-sizing: border-box; }
 .drama-res-cover { width: 72px; height: 72px; padding: 0; border: 0; border-radius: 6px; overflow: hidden; flex-shrink: 0; cursor: zoom-in; background: var(--bg-page, #0f0f12); color: inherit; font: inherit; display: flex; align-items: center; justify-content: center; }
 .drama-res-cover img { width: 100%; height: 100%; object-fit: cover; }
+.drama-res-cover--empty { cursor: default; }
 .drama-res-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .drama-res-name { font-size: 14px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drama-res-meta { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -2467,7 +2579,9 @@ html.light .res-tab--drama.active::after { background: #7c3aed; }
 .drama-res-cover:focus-visible,
 .lib-img-thumb:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
 .library-item-cover:disabled,
+.library-item-cover--empty,
 .drama-res-cover:disabled,
+.drama-res-cover--empty,
 .lib-img-thumb:disabled { cursor: default; }
 
 /* 主题切换按钮 */

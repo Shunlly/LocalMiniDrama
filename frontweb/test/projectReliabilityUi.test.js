@@ -60,6 +60,26 @@ test('剧集资源库失败与空搜索分开展示，无分集时进入制作�
   assert.match(dramaDetailSource, /画布模式不可用：请先新增一集/)
 })
 
+test('DramaDetail 禁用操作和空封面提供可焦点的中文说明', () => {
+  assert.match(dramaDetailSource, /:tabindex="currentEpisodeId \? undefined : 0"/)
+  assert.match(
+    dramaDetailSource,
+    /:aria-label="currentEpisodeId \? undefined : '进入制作不可用：请先新增一集'"/,
+  )
+  assert.match(
+    dramaDetailSource,
+    /:aria-label="currentEpisodeId \? undefined : '画布模式不可用：请先新增一集'"/,
+  )
+  assert.match(dramaDetailSource, /:tabindex="episodeEmptyState.primaryDisabledReason \? 0 : undefined"/)
+  assert.match(dramaDetailSource, /id="episode-empty-reason"/)
+  assert.match(dramaDetailSource, /class="library-item-cover library-item-cover--empty"/)
+  assert.match(dramaDetailSource, /class="drama-res-cover drama-res-cover--empty"/)
+  assert.match(dramaDetailSource, /role="img"/)
+  assert.match(dramaDetailSource, /暂无图片/)
+  assert.match(dramaDetailSource, /tooltip-trigger:focus-visible/)
+  assert.equal(dramaDetailSource.includes(':disabled="!assetImageUrl(item)"'), false)
+})
+
 test('剧集详情离开保护会拦截未导入的批量剧集，并走统一中文错误', () => {
   assert.match(dramaDetailSource, /import \{ toUserFacingError \} from '@\/utils\/userFacingError'/)
   assert.match(dramaDetailSource, /async function confirmBatchImportLeave\(\)/)

@@ -375,6 +375,10 @@ export function useBackupSettings(options = {}) {
     fileErrorName.value = ''
   }
 
+  function dismissActionError() {
+    actionError.value = ''
+  }
+
   function clearSelectedFile() {
     selectedFile.value = null
     dismissFileError()
@@ -641,6 +645,7 @@ export function useBackupSettings(options = {}) {
     confirmRestore,
     cancelRestore,
     dismissFileError,
+    dismissActionError,
     clearSelectedFile,
     dispose,
   }
