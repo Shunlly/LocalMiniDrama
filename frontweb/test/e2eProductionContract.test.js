@@ -2895,6 +2895,8 @@ test('backend container gives Node PID 1 and uses a stable maintenance lease sco
   assert.match(backendDockerfile, /FROM runtime AS production[\s\S]*HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=12[\s\S]*5679\/ready[\s\S]*CMD \["node", "src\/server\.js"\]/)
   assert.match(productionDockerfile, /HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=12/)
   assert.match(productionDockerfile, /wget -q -O - http:\/\/127\.0\.0\.1:3013\/healthz/)
+  assert.match(productionNginxConfig, /location = \/ready/)
+  assert.match(productionNginxConfig, /proxy_pass http:\/\/backend:5679\/ready/)
   assert.match(backendEntrypoint, /exec setpriv --reuid=node --regid=node --init-groups -- "\$@"/)
   assert.doesNotMatch(backendEntrypoint, /exec runuser/)
   assert.match(

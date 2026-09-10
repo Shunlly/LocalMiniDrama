@@ -530,3 +530,25 @@ test('备份时间显示中文格式，无效值不漏原文', () => {
   assert.match(pageSource, /formatBackupTimestamp\(item\.createdAt\)/)
   assert.doesNotMatch(pageSource, /\{\{ item\.createdAt \}\}/)
 })
+
+test('空的 200 响应不能当成维护未就绪去锁恢复', () => {
+  const parsed = parseReadinessPayload({})
+  assert.equal(parsed.ready, false)
+  assert.equal(
+    backupAccessState({
+      loading: false,
+      hasSuccessfulLoad: true,
+      loadError: '',
+      itemCount: 1,
+      maintenanceBlocked: false,
+    }).restoreFromListLocked,
+    false,
+  )
+  const source = read('../src/composables/useBackupSettings.js')
+  assert.match(source, /if \(hasReadinessChecksPayload\(data\)\) return data/)
+  assert.match(source, /throw error/)
+  assert.doesNotMatch(
+    source,
+    /if \(hasReadinessChecksPayload\(data\)\) return data\s*if \(!response\.ok\) \{[\s\S]*return data/,
+  )
+})

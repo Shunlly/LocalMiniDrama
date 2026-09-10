@@ -329,14 +329,11 @@ async function defaultReadinessRequest({ signal } = {}) {
   })
   const data = await response.json().catch(() => ({}))
   if (hasReadinessChecksPayload(data)) return data
-  if (!response.ok) {
-    const error = new Error(data?.checks?.maintenance?.error || data?.error?.message || '维护状态读取失败')
-    error.status = response.status
-    error.response = { status: response.status, data }
-    error.code = data?.error?.code || data?.checks?.maintenance?.code || ''
-    throw error
-  }
-  return data
+  const error = new Error(data?.checks?.maintenance?.error || data?.error?.message || '维护状态读取失败')
+  error.status = response.status
+  error.response = { status: response.status, data }
+  error.code = data?.error?.code || data?.checks?.maintenance?.code || ''
+  throw error
 }
 
 export const backupSettingsAPI = {
