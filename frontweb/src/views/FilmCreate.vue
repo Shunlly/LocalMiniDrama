@@ -267,6 +267,7 @@ import { useFilmCreateProjectLoadSurface } from '@/composables/filmCreate/useFil
 import { useFilmCreateAiConfigDialogState } from '@/composables/filmCreate/useFilmCreateAiConfigDialogState'
 import { useFilmCreateResourcePanelState } from '@/composables/filmCreate/useFilmCreateResourcePanelState'
 import { useFilmCreateMediaPickerState } from '@/composables/filmCreate/useFilmCreateMediaPickerState'
+import { useFilmCreateMediaPickerCopy } from '@/composables/filmCreate/useFilmCreateMediaPickerCopy'
 import { useFilmCreateBatchMediaState } from '@/composables/filmCreate/useFilmCreateBatchMediaState'
 import { useFilmCreateUploadDragState } from '@/composables/filmCreate/useFilmCreateUploadDragState'
 import { useFilmCreateStoryboardGenerateSettings } from '@/composables/filmCreate/useFilmCreateStoryboardGenerateSettings'
@@ -522,23 +523,15 @@ const {
   projectListReturnTo,
   showGlobalMediaPicker,
 })
-const globalMediaPickerAccept = computed(() => 'image')
-const globalMediaPickerTitle = computed(() => (
-  globalMediaPickerMode.value === 'reference-primary'
-    ? '从素材中心选择视频主参考图'
-    : '从素材中心添加自由参考图'
-))
-const globalMediaPickerContext = computed(() => {
-  const sb = globalMediaPickerTarget.value
-  const epNum = currentEpisode.value?.episode_number
-  return {
-    projectTitle: store.drama?.title || '未命名项目',
-    episodeLabel: epNum != null ? `第${epNum}集` : '',
-    storyboardLabel: sb?.storyboard_number != null ? `分镜 #${sb.storyboard_number}` : '',
-    usageLabel: globalMediaPickerMode.value === 'reference-primary'
-      ? '将放到自由参考图首位，作为无主图时的视频主参考'
-      : '将追加到当前分镜的自由参考图',
-  }
+const {
+  globalMediaPickerAccept,
+  globalMediaPickerTitle,
+  globalMediaPickerContext,
+} = useFilmCreateMediaPickerCopy({
+  globalMediaPickerMode,
+  globalMediaPickerTarget,
+  currentEpisode,
+  store,
 })
 
 const {

@@ -113,6 +113,7 @@ describe('videoGateway 客户端拆分', () => {
       'openAiSoraAdapter.js',
       'providerRuntime.js',
       'requestError.js',
+      'seedanceCertifiedAssets.js',
       'veo3VideoAdapter.js',
       'viduVideoAdapter.js',
       'volcengineVideoAdapter.js',

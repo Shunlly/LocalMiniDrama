@@ -80,6 +80,11 @@ const {
 } = require('./videoGateway/jimengVideoAdapter');
 const { callXaiVideoApi } = require('./videoGateway/xaiVideoAdapter');
 const { resolveVideoTimeoutMs } = require('./videoGateway/providerRuntime');
+const {
+  VIDEO_PROTOCOLS_SUPPORT_SD2_ASSET_SCHEME,
+  applySeedance2CertifiedAssetUrlsToVideoOpts,
+  collectActiveCharacterVoiceRefs,
+} = require('./videoGateway/seedanceCertifiedAssets');
 
 function createAdapterRuntime(config, opts, log) {
   const requestContext = videoRequestContext.getStore();
@@ -151,7 +156,7 @@ function pickSoraReference(opts) {
   return unique.size === 1 ? unique.keys().next().value : null;
 }
 
-// ??????????????????listConfigs ?? is_default DESC, priority DESC ??
+// 按 is_default、priority 选择当前启用的视频配置。
 function getDefaultVideoConfig(db, preferredModel, preferredProvider) {
   const configs = aiConfigService.listConfigs(db, 'video');
   const selectedModel = String(preferredModel ?? '').trim();
@@ -175,151 +180,8 @@ function getDefaultVideoConfig(db, preferredModel, preferredProvider) {
   return defaultOne != null ? defaultOne : active[0];
 }
 
-const VIDEO_PROTOCOLS_SUPPORT_SD2_ASSET_SCHEME = new Set([
-  'volcengine_omni',
-  'volcengine',
-  'dashscope',
-  'kling_omni',
-  'kling',
-]);
-
-function parseJsonColumnForVideo(v) {
-  if (v == null || v === '') return null;
-  try {
-    return typeof v === 'string' ? JSON.parse(v) : v;
-  } catch (_) {
-    return null;
-  }
-}
-
-function normalizeMaterialHubAssetUrlForVideo(assetUrlOrId) {
-  const s = String(assetUrlOrId || '').trim();
-  if (!s) return null;
-  if (s.startsWith('asset://')) return s;
-  if (s.startsWith('asset-')) return `asset://${s}`;
-  return `asset://${s.replace(/^\/+/, '')}`;
-}
-
-function normalizeStorageRelativePath(p) {
-  let s = String(p || '').trim().replace(/^[/\\]+/, '').split('?')[0];
-  s = s.replace(/\\/g, '/').replace(/\/+$/, '');
-  return s;
-}
-
-function storageRelativeFromPublicUrl(urlStr) {
-  const s = String(urlStr || '').trim();
-  if (!/^https?:\/\//i.test(s)) return '';
-  try {
-    const u = new URL(s);
-    let p = u.pathname || '';
-    const marker = '/static/';
-    const idx = p.toLowerCase().indexOf(marker);
-    if (idx >= 0) p = p.slice(idx + marker.length);
-    else p = p.replace(/^\/+/, '');
-    return normalizeStorageRelativePath(decodeURIComponent(p));
-  } catch (_) {
-    return '';
-  }
-}
-
-function buildSd2ActiveAssetUrlLookup(db, dramaId) {
-  const urlToAsset = new Map();
-  const relPathToAsset = new Map();
-  if (!db || !dramaId) return { urlToAsset, relPathToAsset };
-  let rows = [];
-  try {
-    rows = db.prepare(
-      'SELECT image_url, local_path, seedance2_asset FROM characters WHERE drama_id = ? AND deleted_at IS NULL'
-    ).all(Number(dramaId));
-  } catch (_) {
-    return { urlToAsset, relPathToAsset };
-  }
-  for (const row of rows) {
-    const asset = parseJsonColumnForVideo(row.seedance2_asset);
-    if (!asset || String(asset.status || '').toLowerCase() !== 'active') continue;
-    const uri = normalizeMaterialHubAssetUrlForVideo(asset.hub_asset_id || asset.asset_url);
-    if (!uri) continue;
-    const certImg = String(asset.certified_image_url || '').trim();
-    const certLp = normalizeStorageRelativePath(asset.certified_local_path || '');
-    if (certImg) {
-      urlToAsset.set(certImg, uri);
-      urlToAsset.set(certImg.split('?')[0], uri);
-    }
-    if (certLp) relPathToAsset.set(certLp, uri);
-    const img = String(row.image_url || '').trim();
-    if (img) {
-      urlToAsset.set(img, uri);
-      urlToAsset.set(img.split('?')[0], uri);
-    }
-    const lp = normalizeStorageRelativePath(row.local_path || '');
-    if (lp) relPathToAsset.set(lp, uri);
-  }
-  return { urlToAsset, relPathToAsset };
-}
-
-function rewriteOneImageUrlForSd2(original, lookup) {
-  const s = String(original || '').trim();
-  if (!s || s.startsWith('asset://') || s.startsWith('data:')) return { next: s, changed: false };
-  const tries = [s, s.split('?')[0]];
-  for (const t of tries) {
-    if (lookup.urlToAsset.has(t)) return { next: lookup.urlToAsset.get(t), changed: true };
-  }
-  const rel = storageRelativeFromPublicUrl(s);
-  if (rel && lookup.relPathToAsset.has(rel)) {
-    return { next: lookup.relPathToAsset.get(rel), changed: true };
-  }
-  return { next: s, changed: false };
-}
-
 /**
- * 收集剧中所有 active 状态的 Seedance 2.0 角色音色参考
- * @returns {Map<number, string>} charId -> publicUrl
- */
-function collectActiveCharacterVoiceRefs(db, dramaId) {
-  const map = new Map();
-  if (!db || !dramaId) return map;
-  try {
-    const rows = db.prepare(
-      'SELECT id, seedance2_voice_asset FROM characters WHERE drama_id = ? AND deleted_at IS NULL'
-    ).all(Number(dramaId));
-    for (const row of rows) {
-      const asset = parseJsonColumnForVideo(row.seedance2_voice_asset);
-      if (!asset || String(asset.status || '').toLowerCase() !== 'active') continue;
-      const url = String(asset.url || '').trim();
-      if (url) map.set(Number(row.id), url);
-    }
-  } catch (_) {}
-  return map;
-}
-
-function applySeedance2CertifiedAssetUrlsToVideoOpts(db, log, opts) {
-  const out = { ...opts };
-  const lookup = buildSd2ActiveAssetUrlLookup(db, opts.drama_id);
-  if (lookup.urlToAsset.size === 0 && lookup.relPathToAsset.size === 0) return out;
-  const changes = [];
-  const patch = (field, val) => {
-    const r = rewriteOneImageUrlForSd2(val, lookup);
-    if (r.changed) changes.push(field);
-    return r.next;
-  };
-  if (opts.image_url != null) out.image_url = patch('image_url', opts.image_url);
-  if (opts.first_frame_url != null) out.first_frame_url = patch('first_frame_url', opts.first_frame_url);
-  if (opts.last_frame_url != null) out.last_frame_url = patch('last_frame_url', opts.last_frame_url);
-  if (Array.isArray(opts.reference_urls)) {
-    out.reference_urls = opts.reference_urls.map((u, i) => patch(`reference_urls[${i}]`, u));
-  }
-  if (changes.length && log?.info) {
-    log.info('[视频][SD2] 已将认证图片替换为 asset 引用', {
-      video_gen_id: opts.video_gen_id,
-      drama_id: opts.drama_id,
-      changed_fields: changes,
-    });
-  }
-  return out;
-}
-
-/**
- * ?????? API?ChatFire/?? ? ?????
+ * 调用视频生成 API。
  * @returns {Promise<{ task_id?: string, video_url?: string, error?: string }>}
  */
 async function callVideoApiInternal(db, log, opts) {
