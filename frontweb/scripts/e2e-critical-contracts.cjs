@@ -61,6 +61,7 @@ const CRITICAL_UI = Object.freeze({
   emptyGenerateStoryboard: '生成分镜',
   addStoryboard: '添加一个分镜',
   canvasEmptyStoryboard: '当前集还没有分镜，请先生成或新建分镜',
+  enterThisEpisode: '进入这一集',
   batchGenerateGroup: '本集批量生成',
   mediaLoadFailed: '素材数据加载失败',
   mediaLoadFailedDetail: '暂时无法确认服务器中的最新素材。您的素材数据没有被删除。',
@@ -721,6 +722,9 @@ async function verifyStoryboardEmptyStates(page, options = {}) {
     const modeSwitch = page.getByRole('group', { name: CRITICAL_UI.canvasModeGroup, exact: true })
     await modeSwitch.waitFor({ state: 'visible', timeout: 30000 })
     await modeSwitch.getByRole('button', { name: CRITICAL_UI.productionMode, exact: true }).click()
+    try {
+      await page.getByRole('button', { name: CRITICAL_UI.enterThisEpisode, exact: true }).click({ timeout: 2500 })
+    } catch (_) {}
     const batchGroup = page.getByRole('region', { name: CRITICAL_UI.batchGenerateGroup, exact: true })
     await batchGroup.waitFor({ state: 'visible', timeout: 15000 })
     const batchHelper = batchGroup.locator('.group-helper')
