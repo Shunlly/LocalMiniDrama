@@ -7,7 +7,7 @@ import {
 
 /**
  * 把制作页已有状态按工作台分区装配成绑定源。
- * 只搬家，不创建新状态，不改空剧本门闪和离开保护。
+ * 只搬家，不创建新状态，不改空剧本门闩和离开保护。
  */
 export function createFilmCreateWorkspaceBindingSources(ctx = {}) {
   const {

@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { effectScope, ref } from 'vue'
+import { createFilmCreateWorkspaceBindingSources } from '../src/components/filmCreate/filmCreateWorkspaceBindings.js'
 
 import { requestCoreJson } from '../src/utils/coreJsonRequest.js'
 import {
@@ -158,4 +160,27 @@ test('制作页把工作台绑定源交给独立装配函数', () => {
   assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*onAddEpisode, onAddSingleStoryboard/)
   assert.match(workspaceBindingsSource, /episodes: computed\(\(\) => store\.drama\?\.episodes \|\| \[\]\)/)
   assert.doesNotMatch(workspaceBindingsSource, /const currentEpisodeId = ref/)
+})
+
+test('工作台绑定源只映射已有状态，不改 episodeId', () => {
+  const currentEpisodeId = ref(22)
+  const props = ref([{ id: 3 }])
+  const store = { drama: { episodes: [{ id: 11 }] } }
+  const scope = effectScope()
+  try {
+    const bags = scope.run(() => createFilmCreateWorkspaceBindingSources({
+      store,
+      props,
+      currentEpisodeId,
+    }))
+    assert.equal(bags.resourcePanel.propItems, props)
+    assert.equal(bags.scriptWorkbench.episodes.value[0].id, 11)
+    assert.notEqual(bags.scriptWorkbench.episodes.value[0].id, currentEpisodeId.value)
+    assert.equal(bags.resourceDialogs.currentEpisodeId.value, 22)
+    assert.equal(currentEpisodeId.value, 22)
+    assert.equal(bags.resourceDialogModelKeys.includes('showAddProp'), true)
+    assert.equal(bags.storyboardDialogModelKeys.includes('showSbPromptDialog'), true)
+  } finally {
+    scope.stop()
+  }
 })
