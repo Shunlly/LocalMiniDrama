@@ -46,6 +46,8 @@ test('empty script blocks storyboard generation and script extraction', () => {
   assert.equal(emptyScript.propsExtractionDisabledReason.value, '当前集还没有剧本，请先编写或导入剧本')
   assert.equal(emptyScript.scenesExtractionDisabledReason.value, '当前集还没有剧本，请先编写或导入剧本')
   assert.equal(emptyScript.characterGenerationDisabledReason.value, '当前集还没有剧本，请先编写或导入剧本')
+  assert.equal(emptyScript.pipelineActionDisabledReason.value, '当前集还没有剧本，请先编写或导入剧本')
+  assert.equal(emptyScript.productionPipelineActionDisabledReason.value, '当前集还没有剧本，请先编写或导入剧本')
 })
 
 test('production pipeline combines media and readiness reasons without mixing ids', () => {

@@ -140,6 +140,15 @@ test('\u6ca1\u6709\u5267\u96c6\u65f6\u4e0b\u4e00\u6b65\u6307\u5411\u6dfb\u52a0\u
   assert.match(pipelinePanelSource, /white-space: normal/)
 })
 
+test('空剧本的全流程阻断原因保持中文', () => {
+  assert.equal(
+    toPipelineDisabledReason('当前集还没有剧本，请先编写或导入剧本'),
+    '当前集还没有剧本，请先编写或导入剧本',
+  )
+  assert.match(pipelinePanelSource, /<ActionGate label="一键生成成片" :reason="productionReason">/)
+  assert.match(pipelinePanelSource, /<ActionGate label="仅生成文本框架" :reason="draftReason">/)
+})
+
 test('全流程错误日志和阻断原因把英文技术失败收成中文', () => {
   const log = describePipelineErrorLog([
     { time: '12:00:00', step: '提取角色', message: 'Network Error' },

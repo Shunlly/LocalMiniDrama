@@ -33,6 +33,11 @@ const leftoverEnglish = [
   'text cannot be empty',
   'storyboard_id must belong to drama_id',
   'idempotency_key belongs to another drama or storyboard',
+  'idempotency_key 属于其他 drama 或 storyboard',
+  'idempotency_key 引用了已删除的视频记录，请使用新 key',
+  'idempotency_key 引用了已删除的图片记录，请使用新 key',
+  'reference_image_urls 必须是数组',
+  '缺少 drama.title 字段',
   '${field} is invalid',
   'Image generation did not complete',
   'Video generation did not complete',
@@ -392,6 +397,24 @@ test('Provider \u8131\u654f\u9519\u8bef\u548c\u9759\u6001 404 \u5bf9\u7528\u6237
   assert.match(appSource, /\u672a\u627e\u5230\u8d44\u6e90/);
   assert.match(appSource, /\u8d44\u6e90\u8def\u5f84\u65e0\u6548/);
   assert.equal(appSource.includes("send('Not Found')"), false);
+});
+
+test('图片和视频幂等冲突返回不含英文字段名的中文', () => {
+  const { isTrustedChineseUserError } = require('../src/services/providerErrorSanitizer');
+  assert.equal(isTrustedChineseUserError('该幂等键属于其他项目或分镜'), true);
+  assert.equal(isTrustedChineseUserError('该幂等键指向已删除的视频记录，请使用新的幂等键'), true);
+  assert.equal(isTrustedChineseUserError('该幂等键指向已删除的图片记录，请使用新的幂等键'), true);
+  assert.equal(isTrustedChineseUserError('参考图列表必须是数组'), true);
+  assert.equal(isTrustedChineseUserError('项目文件格式不正确：缺少剧名'), true);
+  const videoSource = fs.readFileSync(path.join(__dirname, '../src/services/videoService.js'), 'utf8');
+  const imageSource = fs.readFileSync(path.join(__dirname, '../src/services/imageService.js'), 'utf8');
+  const importSource = fs.readFileSync(path.join(__dirname, '../src/services/dramaImportService.js'), 'utf8');
+  assert.match(videoSource, /该幂等键属于其他项目或分镜/);
+  assert.match(imageSource, /该幂等键属于其他项目或分镜/);
+  assert.match(importSource, /项目文件格式不正确：缺少剧名/);
+  assert.equal(videoSource.includes('idempotency_key 属于其他 drama 或 storyboard'), false);
+  assert.equal(imageSource.includes('idempotency_key 属于其他 drama 或 storyboard'), false);
+  assert.equal(importSource.includes('缺少 drama.title 字段'), false);
 });
 
 test('videoClient 用户错误不再是问号乱码', () => {

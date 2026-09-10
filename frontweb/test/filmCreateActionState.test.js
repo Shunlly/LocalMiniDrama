@@ -56,6 +56,14 @@ test('保存当前集和入库按钮在缺剧集或缺图时给出中文原因',
 test('pipeline and storyboard actions expose the first blocking reason', () => {
   assert.equal(pipelineDisabledReason({ hasEpisode: false, pipelineRunning: false }), '请先创建或选择剧集')
   assert.match(pipelineDisabledReason({ hasEpisode: true, pipelineRunning: true }), /全流程任务/)
+  assert.equal(
+    pipelineDisabledReason({ hasEpisode: true, hasScript: false, pipelineRunning: false }),
+    '当前集还没有剧本，请先编写或导入剧本',
+  )
+  assert.match(
+    pipelineDisabledReason({ hasEpisode: true, hasScript: false, pipelineRunning: true }),
+    /全流程任务/,
+  )
   assert.match(
     storyboardDisabledReason({ hasEpisode: true, storyboardGenerating: true, omniPolishing: false }),
     /正在生成分镜/,

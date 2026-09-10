@@ -347,6 +347,25 @@ test('pipeline stages surface Chinese warnings for missing script, storyboard an
     }))
     await missingBoards.startRepairPipeline()
     assert.equal(feedback.last('warning').message, '当前集还没有分镜，请先生成分镜脚本')
+
+    const readinessCalls = []
+    const executeCalls = []
+    const emptyScript = useFilmCreatePipelineStages(createPipelineStageDeps({
+      store: { scriptContent: '   ' },
+      refreshProductionReadiness: async () => {
+        readinessCalls.push('ready')
+        return { ready: true, reason: '' }
+      },
+      executeOwnedPipelineRun: async () => {
+        executeCalls.push('run')
+      },
+      trackFilmCreateAction() {},
+    }))
+    await emptyScript.startOneClickPipeline()
+    await emptyScript.startTextFrameworkPipeline()
+    assert.equal(feedback.last('warning').message, '当前集还没有剧本，请先编写或导入剧本')
+    assert.equal(readinessCalls.length, 0)
+    assert.equal(executeCalls.length, 0)
   } finally {
     feedback.restore()
   }

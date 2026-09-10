@@ -100,8 +100,20 @@ export function useFilmCreatePipelineStages(deps = {}) {
     storyboardMediaActionReason,
   } = deps
 
+  // 测试桩可以不传 store；真实制作页有 store 时，空剧本不启动全流程。
+  function hasEpisodeScript() {
+    return Boolean(String(store?.scriptContent || '').trim())
+  }
+
+  function warnEmptyEpisodeScript() {
+    if (!store || hasEpisodeScript()) return false
+    ElMessage.warning('当前集还没有剧本，请先编写或导入剧本')
+    return true
+  }
+
   async function startOneClickPipeline() {
     if (!currentEpisodeId.value || pipelineStarting.value || pipelineRunning.value || pipelineStopping.value || activePipelineRunPromise.value) return
+    if (warnEmptyEpisodeScript()) return
     if (storyboardMediaActionReason.value) {
       ElMessage.warning(storyboardMediaActionReason.value)
       return
@@ -145,6 +157,7 @@ export function useFilmCreatePipelineStages(deps = {}) {
 
   async function startTextFrameworkPipeline() {
     if (!currentEpisodeId.value || pipelineStarting.value || pipelineRunning.value || pipelineStopping.value || activePipelineRunPromise.value) return
+    if (warnEmptyEpisodeScript()) return
     pipelineAbortRequested.value = false
     pipelineStarting.value = true
     try {

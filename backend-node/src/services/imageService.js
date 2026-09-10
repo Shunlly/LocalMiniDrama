@@ -675,15 +675,15 @@ function create(db, log, req) {
           storyboard_id: existing.storyboard_id,
         });
       } catch (_) {
-        throw imageBadRequest('idempotency_key 属于其他 drama 或 storyboard');
+        throw imageBadRequest('该幂等键属于其他项目或分镜');
       }
       const wrongDrama = existingScope.dramaId !== dramaId;
       const wrongStoryboard = existingScope.storyboardId !== storyboardId;
       if (wrongDrama || wrongStoryboard) {
-        throw imageBadRequest('idempotency_key 属于其他 drama 或 storyboard');
+        throw imageBadRequest('该幂等键属于其他项目或分镜');
       }
       if (existing.deleted_at) {
-        throw imageBadRequest('idempotency_key 引用了已删除的图片记录，请使用新 key');
+        throw imageBadRequest('该幂等键指向已删除的图片记录，请使用新的幂等键');
       }
       if ((Number(existing.drama_id) || 0) !== existingScope.dramaId) {
         db.prepare('UPDATE image_generations SET drama_id = ?, updated_at = ? WHERE id = ?')

@@ -64,6 +64,7 @@ export function useFilmCreateActionDisabledReasons(deps = {}) {
   }))
   const pipelineActionDisabledReason = computed(() => pipelineDisabledReason({
     hasEpisode: Boolean(currentEpisodeId.value),
+    hasScript: hasScript.value,
     pipelineRunning: pipelineRunning.value,
   }))
   const productionPipelineActionDisabledReason = computed(() => (

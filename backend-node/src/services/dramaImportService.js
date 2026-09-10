@@ -707,7 +707,7 @@ function parseZip(zipSource, options = {}) {
   }
 
   if (!data.drama || !data.drama.title) {
-    throw new Error('project.json 格式不正确：缺少 drama.title 字段');
+    throw new Error('项目文件格式不正确：缺少剧名');
   }
 
   const complexity = validateImportComplexity(data, limits);

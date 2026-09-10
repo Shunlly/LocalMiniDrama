@@ -119,9 +119,10 @@ export function episodeResourceDisabledReason({ hasEpisode, hasScript = true, ru
   return ''
 }
 
-export function pipelineDisabledReason({ hasEpisode, pipelineRunning }) {
+export function pipelineDisabledReason({ hasEpisode, hasScript = true, pipelineRunning }) {
   if (!hasEpisode) return '请先创建或选择剧集'
   if (pipelineRunning) return '全流程任务正在执行，可暂停后再调整操作'
+  if (!hasScript) return '当前集还没有剧本，请先编写或导入剧本'
   return ''
 }
 

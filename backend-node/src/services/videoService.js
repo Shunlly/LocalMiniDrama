@@ -283,7 +283,7 @@ function findIdempotentVideoGeneration(db, idempotencyKey, scope, now) {
       storyboard_id: existing.storyboard_id,
     });
   } catch (_) {
-    throw badRequest('idempotency_key 属于其他 drama 或 storyboard');
+    throw badRequest('该幂等键属于其他项目或分镜');
   }
 
   // 仅兼容旧数据将分镜任务的 drama_id 留为 0；其他不一致均为历史脏归属。
@@ -291,10 +291,10 @@ function findIdempotentVideoGeneration(db, idempotencyKey, scope, now) {
   if ((!legacyZeroDrama && storedDramaId !== existingScope.dramaId)
     || existingScope.dramaId !== scope.dramaId
     || existingScope.storyboardId !== scope.storyboardId) {
-    throw badRequest('idempotency_key 属于其他 drama 或 storyboard');
+    throw badRequest('该幂等键属于其他项目或分镜');
   }
   if (existing.deleted_at) {
-    throw badRequest('idempotency_key 引用了已删除的视频记录，请使用新 key');
+    throw badRequest('该幂等键指向已删除的视频记录，请使用新的幂等键');
   }
   if (storedDramaId !== existingScope.dramaId) {
     db.prepare('UPDATE video_generations SET drama_id = ?, updated_at = ? WHERE id = ?')
@@ -411,7 +411,7 @@ function loadVideoReferenceImage(db, storyboardId, dramaId, value) {
 
 function normalizeReferenceUrls(value) {
   if (value == null || value === '') return [];
-  if (!Array.isArray(value)) throw badRequest('reference_image_urls 必须是数组');
+  if (!Array.isArray(value)) throw badRequest('参考图列表必须是数组');
   const urls = [];
   const seen = new Set();
   for (const item of value) {
