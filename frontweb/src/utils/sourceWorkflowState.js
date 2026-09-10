@@ -214,6 +214,7 @@ export function selectInspectedWorkflowStep(flowState, currentStepId, requestedS
 }
 
 export function getNewWorkflowRunReason(runState = {}) {
+  if (!hasWorkflowId(runState?.id)) return ''
   if (runState.active) return '当前已有处理流程运行中，请等待完成或先取消。'
   if (normalizeWorkflowStatus(runState.status) === 'paused') return '当前处理已暂停，请先恢复或取消后再启动新流程。'
   return ''

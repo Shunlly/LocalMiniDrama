@@ -119,6 +119,17 @@ test('source and workflow technical enums have stable Chinese display labels', (
   assert.equal(timelineTrackTypeLabel('vendor_specific'), '其他轨道')
 })
 
+test('normalizeWorkflowRun does not treat a missing run as active', () => {
+  for (const run of [null, undefined, {}, { status: 'processing' }]) {
+    const empty = normalizeWorkflowRun(run)
+    assert.equal(empty.id, '')
+    assert.equal(empty.status, '')
+    assert.equal(empty.active, false)
+    assert.equal(empty.canPause, false)
+    assert.equal(empty.canCancel, false)
+  }
+})
+
 test('normalizeWorkflowRun exposes retry, pause, resume and cancel states', () => {
   const failed = normalizeWorkflowRun({
     id: 'run-1',

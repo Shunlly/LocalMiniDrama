@@ -142,18 +142,21 @@ export function classifyWorkflowStep(step, run) {
 }
 
 export function normalizeWorkflowRun(run) {
+  const hasRun = Boolean(run?.id)
   const steps = Array.isArray(run?.steps) ? run.steps : []
   const mode = runMode(run)
   const isNovel2Anime = String(run?.type || '').startsWith('novel2anime')
   const stepKinds = steps.map((step) => ({ step, kind: classifyWorkflowStep(step, run) }))
-  const status = normalizeWorkflowStatus(run?.status) || 'pending'
+  const status = hasRun
+    ? (normalizeWorkflowStatus(run?.status) || 'pending')
+    : ''
   const failedStep = steps.find((step) => normalizeWorkflowStatus(step.status) === 'failed') || null
   const activeStep = steps.find((step) => normalizeWorkflowStatus(step.status) === 'processing')
     || steps.find((step) => normalizeWorkflowStatus(step.status) === 'pending')
     || null
   const completedCount = steps.filter((step) => normalizeWorkflowStatus(step.status) === 'completed').length
   const totalCount = steps.length
-  const active = status === 'pending' || status === 'processing'
+  const active = hasRun && (status === 'pending' || status === 'processing')
   const costSummary = summarizeProviderCosts(run?.provider_invocations)
   const costDigits = costSummary.amount > 0 && costSummary.amount < 0.01 ? 4 : 2
   const progress = Math.max(0, Math.min(100, Number(run?.progress) || (totalCount ? Math.round((completedCount / totalCount) * 100) : 0)))

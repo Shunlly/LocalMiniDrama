@@ -151,7 +151,10 @@ test('workflow action reasons explain disabled controls', () => {
     qa: {},
   })
   assert.match(activeRun.start, /已有处理流程运行中/)
-  assert.match(getNewWorkflowRunReason({ status: 'paused' }), /恢复或取消/)
+  assert.match(getNewWorkflowRunReason({ id: 'run-paused', status: 'paused' }), /恢复或取消/)
+  assert.equal(getNewWorkflowRunReason({}), '')
+  assert.equal(getNewWorkflowRunReason({ active: true, status: 'pending' }), '')
+  assert.equal(getNewWorkflowRunReason({ id: 'run-6', active: true, status: 'processing' }), '当前已有处理流程运行中，请等待完成或先取消。')
 })
 
 test('automatic remediation requires a completed run and a matching QA owner', () => {
