@@ -205,8 +205,8 @@ function clearAssetFilters() {
 }
 
 function isAssetSectionOpen(filteredCount) {
-  if (String(searchQuery.value || '').trim()) return true
-  return hasActiveAssetFilters.value && Number(filteredCount) === 0
+  if (Number(filteredCount) === 0) return true
+  return Boolean(String(searchQuery.value || '').trim())
 }
 
 function assetEmptyText(kind) {
