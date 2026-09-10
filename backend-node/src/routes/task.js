@@ -32,7 +32,7 @@ function getTaskStatus(db, log) {
 function getResourceTasks(db, log) {
   return (req, res) => {
     const resourceId = req.query.resource_id;
-    if (!resourceId) return response.badRequest(res, '缺少resource_id参数');
+    if (!resourceId) return response.badRequest(res, '请提供资源编号');
     try {
       const tasks = taskService.getTasksByResource(db, resourceId, {
         dramaId: req.query.drama_id,

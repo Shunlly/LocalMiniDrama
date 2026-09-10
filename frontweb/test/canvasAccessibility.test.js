@@ -171,3 +171,10 @@ test('video nodes hide the player until positive metadata is available', () => {
   assert.match(mediaNode, /duration > 0 \? 'ready' : 'invalid'/)
   assert.match(mediaNode, /\.media-vid\.is-checking[\s\S]*visibility: hidden/)
 })
+
+test('删除工作流确认框使用中文按钮', () => {
+  const workflow = read('../src/composables/useDramaCanvasWorkflow.js')
+  assert.match(workflow, /确定删除该工作流？/)
+  assert.match(workflow, /confirmButtonText: '删除'/)
+  assert.match(workflow, /cancelButtonText: '取消'/)
+})

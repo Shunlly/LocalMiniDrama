@@ -65,8 +65,8 @@
               <p class="film-episode-empty-title">还没有剧集</p>
               <p>可以点「添加一集」开始手写剧本，或在上方输入故事梗概后生成剧本。</p>
               <div class="film-episode-empty-actions">
-                <el-button type="primary" @click="emit('add-episode')">添加一集</el-button>
-                <el-button @click="emit('go-to-drama')">返回剧集管理</el-button>
+                <el-button type="primary" aria-label="添加一集" @click="emit('add-episode')">添加一集</el-button>
+                <el-button aria-label="返回剧集管理" @click="emit('go-to-drama')">返回剧集管理</el-button>
               </div>
             </div>
             <template v-else>

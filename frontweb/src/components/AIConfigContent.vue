@@ -1118,7 +1118,7 @@ input_reference = (图片文件，可选)</pre>
               <a href="https://klingai.com/document-api/apiReference/commonInfo" target="_blank" rel="noopener noreferrer">commonInfo</a>
               （<a href="https://app.klingai.com/cn/dev/document-api/apiReference/commonInfo" target="_blank" rel="noopener noreferrer">中文版</a>）。
               后端使用与官方示例一致的 HS256（<code>iss</code>=AccessKey，<code>exp</code>、<code>nbf</code>）生成 Token。
-              若接口返回 <code>1000 Authorization signature is invalid</code>：请确认 AccessKey/SecretKey 未填反、无多余空格；并尝试勾选下方「SecretKey 为 Base64」；
+              若接口返回签名无效（错误码 <code>1000 Authorization signature is invalid</code>）：请确认访问密钥和私有密钥未填反、无多余空格；并尝试勾选下方「私有密钥为 Base64」；
               Base URL 区域（<code>api-beijing.klingai.com</code> / <code>api-singapore.klingai.com</code>）须与密钥所属区域一致。
             </p>
           </el-form-item>

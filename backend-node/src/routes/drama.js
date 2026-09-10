@@ -149,7 +149,7 @@ function getCharacters(db) {
 function saveCharacters(db, log) {
   return (req, res) => {
     const body = req.body || {};
-    if (!Array.isArray(body.characters)) return response.badRequest(res, 'characters 必填且为数组');
+    if (!Array.isArray(body.characters)) return response.badRequest(res, '角色列表必须是数组');
     const ok = dramaService.saveCharacters(db, log, req.params.id, body);
     if (!ok) return response.notFound(res, '剧本或章节不存在');
     response.success(res, { message: '保存成功' });
@@ -159,7 +159,7 @@ function saveCharacters(db, log) {
 function saveEpisodes(db, log) {
   return (req, res) => {
     const body = req.body || {};
-    if (!Array.isArray(body.episodes)) return response.badRequest(res, 'episodes 必填且为数组');
+    if (!Array.isArray(body.episodes)) return response.badRequest(res, '剧集列表必须是数组');
     const ok = dramaService.saveEpisodes(db, log, req.params.id, body);
     if (!ok) return response.notFound(res, '剧本不存在');
     response.success(res, { message: '保存成功' });
@@ -169,7 +169,7 @@ function saveEpisodes(db, log) {
 function saveProgress(db, log) {
   return (req, res) => {
     const body = req.body || {};
-    if (!body.current_step) return response.badRequest(res, 'current_step 必填');
+    if (!body.current_step) return response.badRequest(res, '请提供当前步骤');
     const ok = dramaService.saveProgress(db, log, req.params.id, body);
     if (!ok) return response.notFound(res, '剧本不存在');
     response.success(res, { message: '保存成功' });
@@ -200,7 +200,7 @@ function listProps(db) {
 function finalizeEpisode(db, log, cfg) {
   return (req, res) => {
     const episodeId = req.params.episode_id;
-    if (!episodeId) return response.badRequest(res, 'episode_id不能为空');
+    if (!episodeId) return response.badRequest(res, '请选择剧集');
     const baseUrl = cfg?.storage?.base_url || '';
     const result = dramaService.finalizeEpisode(db, log, episodeId, baseUrl, req.body || {});
     if (!result) return response.notFound(res, '剧集不存在');
@@ -220,7 +220,7 @@ function finalizeEpisode(db, log, cfg) {
 function downloadEpisodeVideo(db) {
   return (req, res) => {
     const episodeId = req.params.episode_id;
-    if (!episodeId) return response.badRequest(res, 'episode_id不能为空');
+    if (!episodeId) return response.badRequest(res, '请选择剧集');
     const result = dramaService.downloadEpisodeVideo(db, episodeId);
     if (!result) return response.notFound(res, '剧集不存在');
     if (result.error) return response.badRequest(res, result.error);

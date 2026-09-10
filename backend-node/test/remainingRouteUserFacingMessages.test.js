@@ -79,6 +79,36 @@ describe('剩余路由对用户返回中文错误', () => {
     assert.equal(hasCjk(empty.body.error.message), true);
     assert.doesNotMatch(empty.body.error.message, /^content /);
   });
+
+  it('路由校验错误不再夹英文字段名', () => {
+    const dir = path.join(__dirname, '../src/routes');
+    const leftover = [
+      '请提供 storyboard_id 或 text',
+      'episode_id不能为空',
+      'episode_id 必填',
+      'character_ids 不能为空',
+      'drama_id 和 name 必填',
+      'storyboard_ids 不能为空',
+      'characters 必填且为数组',
+      'episodes 必填且为数组',
+      'current_step 必填',
+      '缺少resource_id参数',
+      '缺少 drama_id',
+      '缺少 scene_id',
+      '缺少 library_id',
+      '缺少必填字段: key',
+      'image_prompt / action / dialogue',
+      'sharp 模块不可用',
+      '批量换Key',
+      '提供 text 参数',
+    ];
+    for (const file of fs.readdirSync(dir).filter((name) => name.endsWith('.js'))) {
+      const source = fs.readFileSync(path.join(dir, file), 'utf8');
+      for (const needle of leftover) {
+        assert.equal(source.includes(needle), false, `${file} still has ${needle}`);
+      }
+    }
+  });
 });
 
 const Database = require('better-sqlite3');

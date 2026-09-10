@@ -10,7 +10,7 @@
           带 <code>?Action=</code> 的接口为<strong>控制面 OpenAPI</strong>，须使用控制台
           <a href="https://console.volcengine.com/iam/keymanage" target="_blank" rel="noopener">访问密钥（AK/SK）</a>签名，不能用推理用的 ARK API 密钥当 Bearer，否则会报 Invalid Authorization（见
           <a href="https://docs.byteplus.com/en/docs/ModelArk/1298459" target="_blank" rel="noopener">认证说明</a>）。
-          若已能调通接口但返回 <strong>403</strong> 且含 <code>not authorized</code> / <code>ark:CreateAssetGroup</code>，说明 AK 对应 IAM 用户<strong>缺策略</strong>：在控制台为该用户绑定含 ModelArk 私有资产/资产组管理的权限（参见
+          若已能调通接口但返回 <strong>403 无权限</strong>（原文可能含 <code>not authorized</code> / <code>ark:CreateAssetGroup</code>），说明访问密钥对应的账号<strong>缺策略</strong>：在控制台为该用户绑定含 ModelArk 私有资产/资产组管理的权限（参见
           <a href="https://docs.byteplus.com/en/docs/ModelArk/1263493" target="_blank" rel="noopener">IAM 访问控制</a>），勿仅用「能推理」的极简权限。
         </span>
       </template>
@@ -52,7 +52,7 @@
           <el-option label="路径：POST {Base}/asset/{Action}（部分中转）" value="asset_subpath" />
           <el-option label="扁平：POST {Base}/{Action}" value="flat" />
         </el-select>
-        <p class="field-hint">官方接口必须在 Query 里带 <code>Action</code>；若用 AnyFast 等自建路径再选中转模式。</p>
+        <p class="field-hint">官方接口必须在查询参数里带动作名 <code>Action</code>；若用 AnyFast 等自建路径再选中转模式。</p>
       </el-form-item>
       <el-form-item label="接口版本">
         <el-input v-model="apiVersion" placeholder="默认 2024-01-01（仅官方 OpenAPI 模式使用）" clearable />
@@ -64,7 +64,7 @@
           clearable
         />
         <p class="field-hint">
-          会写入 <strong>Query</strong> 与 <strong>JSON Body</strong> 的 <code>ProjectName</code>（与 Action 一并签名）。
+          会写入查询参数和请求体里的工程名 <code>ProjectName</code>（与动作名一并签名）。
           若仍报 403 且文案里是 <code>project/*</code>，多为 IAM 未授权该动作；请确认策略里资源是否包含你的工程（或 <code>project/*</code>），错误提示不一定替换为具体工程名。
         </p>
       </el-form-item>

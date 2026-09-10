@@ -259,7 +259,7 @@ function setupRouter(cfg, db, log) {
       } else if (req.body && req.body.text) {
         text = req.body.text;
       }
-      if (!text.trim()) return response.badRequest(res, '请上传小说文本文件或提供 text 参数');
+      if (!text.trim()) return response.badRequest(res, '请上传小说文本文件或填写文本');
       const title = req.body?.title || '';
       const maxChapters = Number(req.body?.max_chapters) || 20;
       const aiSummarize = req.body?.ai_summarize === 'true' || req.body?.ai_summarize === true;

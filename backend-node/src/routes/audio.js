@@ -14,7 +14,7 @@ function routes(db, log, cfg) {
     /** 为单条分镜生成 TTS：对白 → audio_local_path；旁白 → narration_audio_local_path（body.tts_kind === 'narration'） */
     extract: async (req, res) => {
       const { storyboard_id, text, tts_kind } = req.body || {};
-      if (!text && !storyboard_id) return response.badRequest(res, '请提供 storyboard_id 或 text');
+      if (!text && !storyboard_id) return response.badRequest(res, '请提供分镜编号或配音文本');
       const kind = String(tts_kind || 'dialogue').toLowerCase() === 'narration' ? 'narration' : 'dialogue';
       let ttsText = text;
       if (kind === 'narration') {
@@ -73,7 +73,7 @@ function routes(db, log, cfg) {
     extractBatch: async (req, res) => {
       const { storyboard_ids } = req.body || {};
       if (!Array.isArray(storyboard_ids) || storyboard_ids.length === 0) {
-        return response.badRequest(res, 'storyboard_ids 不能为空');
+        return response.badRequest(res, '请至少选择一个分镜');
       }
       const results = [];
       const storagePath = getStoragePath();

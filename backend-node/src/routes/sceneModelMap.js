@@ -105,7 +105,7 @@ function create(db, log) {
     const { key, service_type = 'text', config_id, model_override, description } = body;
     
     if (!key) {
-      return response.badRequest(res, '缺少必填字段: key');
+      return response.badRequest(res, '请提供字段名');
     }
     
     const now = new Date().toISOString();

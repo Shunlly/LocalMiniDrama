@@ -193,7 +193,7 @@ function routes(db, cfg, log, uploadService) {
         const characterIds = body.character_ids;
         log.info('batch-generate-images request', { character_ids: characterIds, model: body.model, style: body.style });
         if (!Array.isArray(characterIds) || characterIds.length === 0) {
-          return response.badRequest(res, 'character_ids 不能为空');
+          return response.badRequest(res, '请至少选择一个角色');
         }
         if (characterIds.length > 10) {
           return response.badRequest(res, '单次最多生成10个角色');
@@ -335,7 +335,7 @@ function routes(db, cfg, log, uploadService) {
     imageFromLibrary: (req, res) => {
       try {
         const libraryId = (req.body || {}).library_id;
-        if (libraryId == null) return response.badRequest(res, '缺少 library_id');
+        if (libraryId == null) return response.badRequest(res, '请选择素材库项');
         const out = runResourceWrite(db, 'characters', req.params.id, () => (
           characterLibraryService.applyLibraryItemToCharacter(db, log, req.params.id, libraryId)
         ));

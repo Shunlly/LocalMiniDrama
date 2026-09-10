@@ -74,7 +74,11 @@ export function useDramaCanvasWorkflow(deps) {
     const requestedProjectId = currentCanvasProjectId()
     if (!requestedProjectId) return
     try {
-      await ElMessageBox.confirm('确定删除该工作流？', '删除工作流', { type: 'warning' })
+      await ElMessageBox.confirm('确定删除该工作流？', '删除工作流', {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      })
       if (!isCanvasProjectCurrent(requestedProjectId)) return
       workflowGroups.value = deleteWorkflowGroup(workflowGroups.value, activeGroupId.value)
       activeGroupId.value = workflowGroups.value[0]?.id || null

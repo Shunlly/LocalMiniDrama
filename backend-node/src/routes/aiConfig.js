@@ -100,7 +100,7 @@ function remove(db, log, cfg) {
 function bulkUpdateKey(db, log, cfg) {
   return (req, res) => {
     if (!aiConfigService.getVendorLockStatus(cfg).enabled) {
-      return response.badRequest(res, '批量换Key仅在厂商锁定模式下可用');
+      return response.badRequest(res, '批量换密钥仅在厂商锁定模式下可用');
     }
     const { api_key } = req.body || {};
     if (!api_key || !api_key.trim()) {
@@ -114,7 +114,7 @@ function bulkUpdateKey(db, log, cfg) {
       });
     } catch (err) {
       log.error('Bulk update api_key failed', { error: err.message });
-      response.internalError(res, '批量换Key失败');
+      response.internalError(res, '批量换密钥失败');
     }
   };
 }

@@ -416,7 +416,7 @@ function routes(db, log) {
         ).get(sbId);
         if (!sb) return response.notFound(res, '分镜不存在');
         if (!sb.image_prompt && !sb.action && !sb.dialogue) {
-          return response.badRequest(res, '该分镜暂无可优化的内容（image_prompt / action / dialogue 均为空）');
+          return response.badRequest(res, '该分镜暂无可优化的内容（画面提示词、动作和对白都为空）');
         }
 
         // 通过 episode 查 drama_id
@@ -1041,7 +1041,7 @@ function routes(db, log) {
         const localImage = resolveStoryboardImageLocalPath(db, storageBase, id, row);
         if (!localImage) return response.badRequest(res, '分镜没有可用的本地图片，无法超分');
         let sharp; try { sharp = require('sharp'); } catch (_) { sharp = null; }
-        if (!sharp) return response.badRequest(res, 'sharp 模块不可用，无法超分');
+        if (!sharp) return response.badRequest(res, '本地图片放大组件不可用，无法放大图片');
         const opened = uploadService.openStorageFile(storageBase, localImage.relativePath);
         let sourceBuffer;
         try {
@@ -1081,7 +1081,7 @@ function routes(db, log) {
       try {
         const episodeId = Number(req.body?.episode_id);
         const overwrite = !!req.body?.overwrite; // 是否覆盖已有值
-        if (!episodeId) return response.badRequest(res, 'episode_id 必填');
+        if (!episodeId) return response.badRequest(res, '请选择剧集');
 
         const rows = db.prepare(
           'SELECT id, angle_s, shot_type, atmosphere, time, description, action, movement, lighting_style, depth_of_field FROM storyboards WHERE episode_id = ? AND deleted_at IS NULL ORDER BY storyboard_number ASC'

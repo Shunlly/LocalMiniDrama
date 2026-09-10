@@ -14,7 +14,7 @@ function listProps(db) {
 function createProp(db, log) {
   return (req, res) => {
     const body = req.body || {};
-    if (!body.drama_id || !body.name) return response.badRequest(res, 'drama_id 和 name 必填');
+    if (!body.drama_id || !body.name) return response.badRequest(res, '请提供项目编号和名称');
     try {
       const prop = propService.create(db, log, body);
       response.created(res, prop);

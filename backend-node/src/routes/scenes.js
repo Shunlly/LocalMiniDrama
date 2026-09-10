@@ -100,7 +100,7 @@ function routes(db, log, cfg) {
       try {
         const body = req.body || {};
         const dramaId = body.drama_id;
-        if (dramaId == null) return response.badRequest(res, '缺少 drama_id');
+        if (dramaId == null) return response.badRequest(res, '请提供项目编号');
         const scene = sceneService.createScene(db, log, dramaId, body);
         response.created(res, scene);
       } catch (err) {
@@ -112,7 +112,7 @@ function routes(db, log, cfg) {
       try {
         const body = req.body || {};
         const sceneId = body.scene_id != null ? Number(body.scene_id) : null;
-        if (sceneId == null) return response.badRequest(res, '缺少 scene_id');
+        if (sceneId == null) return response.badRequest(res, '请提供场景编号');
         const out = await sceneService.generateSceneFourViewImage(
           db, log, cfg, sceneId, body.model || undefined, body.style || undefined
         );
