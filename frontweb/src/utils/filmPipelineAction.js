@@ -48,3 +48,9 @@ export function getPipelineControlReasons(state = {}) {
     retry: '全流程仍在执行，请等待完成或先停止。',
   }
 }
+
+/** 用户主动停止后的文案，不能当成红色失败态。 */
+export function isPipelineLocallyStopped(state = {}) {
+  if (state.running || state.stopping || state.stopRequired || state.hasError) return false
+  return /已停止/.test(String(state.currentStep || ''))
+}

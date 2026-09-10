@@ -6,8 +6,12 @@ import {
   cancelPipelineTasksAroundRun,
   createPipelineAbortError,
   createPipelinePauseGate,
+  isCanceledTaskSnapshot,
+  isCanceledTaskStatus,
   isPipelineAbortError,
+  isPipelineStopError,
   runPipelineTaskWithRetry,
+  toPipelineAbortError,
 } from '@/utils/filmPipelineControl'
 import { DEFAULT_POLL_TIMEOUT_MS } from '@/utils/requestError'
 import { isStoryboardMediaStateError } from '@/utils/storyboardMedia'
@@ -95,15 +99,16 @@ export function useFilmCreatePipelineRun(options = {}) {
           try {
             await taskAPI.cancel(taskId, { reason: '用户停止全流程' }, { suppressErrorToast: true })
           } catch (error) {
-            if (error?.response?.status !== 404) throw error
+            if (error?.response?.status === 404 || isPipelineStopError(error)) return
+            throw error
           }
         },
         onCancelled: (taskId) => {
-          genStore.stopPollingTask(taskId, '已停止本地等待')
+          genStore.stopPollingTask(taskId, '已停止本地等待', 'cancelled')
           pipelineOwnedTaskIds.delete(taskId)
         },
       })
-      if (cancellation.runError && !isPipelineAbortError(cancellation.runError)) {
+      if (cancellation.runError && !isPipelineStopError(cancellation.runError)) {
         console.warn('[pipeline] run failed while stopping:', cancellation.runError?.message)
       }
       cancellationComplete = cancellation.complete
@@ -119,8 +124,12 @@ export function useFilmCreatePipelineRun(options = {}) {
         ElMessage.error(`本地全流程已停止等待，但仍有 ${cancellation.failedTaskIds.length} 个任务状态未能标记为已停止；供应商任务和计费可能继续，请刷新后再处理`)
       }
     } catch (error) {
-      trackFilmCreateAction('pipeline_stop_failed', { extra: { message: error?.message || '停止全流程失败' } })
-      ElMessage.error(error?.message || '停止全流程失败，请重试')
+      if (isPipelineStopError(error)) {
+        cancellationComplete = true
+      } else {
+        trackFilmCreateAction('pipeline_stop_failed', { extra: { message: error?.message || '停止全流程失败' } })
+        ElMessage.error(error?.message || '停止全流程失败，请重试')
+      }
     } finally {
       pipelineStarting.value = false
       pipelineStopping.value = false
@@ -149,10 +158,25 @@ export function useFilmCreatePipelineRun(options = {}) {
     pipelineOwnedTaskIds.add(taskId)
     const maxAttempts = 450  // 450 × 2s = 15 分钟
     const interval = 2000
+    let settled = false
     const finishStore = (status, error) => {
-      if (!trackInStore || !taskId) return
-      if (status === 'completed') genStore.markDone({ ...resolvedMeta, taskId })
-      else genStore.markFailed({ ...resolvedMeta, taskId }, error || '任务失败')
+      if (settled || !taskId) return
+      settled = true
+      if (!trackInStore) return
+      if (status === 'completed') {
+        genStore.markDone({ ...resolvedMeta, taskId })
+        return
+      }
+      if (isCanceledTaskStatus(status) || status === 'stopped') {
+        genStore.stopPollingTask?.(taskId, error || '已停止', 'cancelled')
+        return
+      }
+      genStore.markFailed({ ...resolvedMeta, taskId }, error || '任务失败')
+    }
+
+    const stopNow = (error) => {
+      finishStore('cancelled', '已停止')
+      throw toPipelineAbortError(error)
     }
 
     try {
@@ -164,22 +188,25 @@ export function useFilmCreatePipelineRun(options = {}) {
         try {
           task = await taskAPI.get(taskId, { suppressErrorToast: true, timeout: DEFAULT_POLL_TIMEOUT_MS })
         } catch (pollErr) {
-          if (pipelineAbortRequested.value) throw createPipelineAbortError()
+          if (isPipelineStopError(pollErr) || pipelineAbortRequested.value) stopNow(pollErr)
           console.warn('[pollTaskWithPause] poll attempt failed:', pollErr?.message)
           continue
         }
 
         await pipelinePauseGate.wait()
+        if (pipelineAbortRequested.value || isCanceledTaskSnapshot(task)) {
+          stopNow()
+        }
         const status = String(task?.status || '').toLowerCase()
         if (status === 'completed') {
           if (onDone) await onDone()
           finishStore('completed')
           return { status: 'completed', result: task.result }
         }
-        if (status === 'failed' || status === 'cancelled' || status === 'canceled') {
-          const errMsg = (task?.error || task?.message || (status === 'failed' ? '任务失败' : '任务已取消')).trim()
+        if (status === 'failed') {
+          const errMsg = (task?.error || task?.message || '任务失败').trim()
           finishStore('failed', errMsg)
-          return { status, error: errMsg }
+          return { status: 'failed', error: errMsg }
         }
       }
 
@@ -187,9 +214,12 @@ export function useFilmCreatePipelineRun(options = {}) {
       finishStore('failed', timeoutMsg)
       return { status: 'timeout', error: timeoutMsg }
     } catch (error) {
-      if (isPipelineAbortError(error) || pipelineAbortRequested.value) {
-        finishStore('failed', '全流程已取消')
-        throw isPipelineAbortError(error) ? error : createPipelineAbortError()
+      if (isPipelineStopError(error) || pipelineAbortRequested.value) {
+        finishStore('cancelled', '已停止')
+        if (!pipelineStopping.value && !/已停止/.test(String(pipelineCurrentStep.value || ''))) {
+          pipelineCurrentStep.value = '本地全流程已停止'
+        }
+        throw toPipelineAbortError(error)
       }
       throw error
     } finally {
@@ -202,8 +232,16 @@ export function useFilmCreatePipelineRun(options = {}) {
     pipelinePauseGate.release()
   }
 
+  function isPipelineStopMessage(message) {
+    const text = String(message || '')
+    if (!text) return false
+    return /全流程已取消|请求已取消|任务已取消|The user aborted a request|AbortError|CanceledError|ERR_CANCELED/.test(text)
+  }
+
   function addPipelineError(step, message) {
-    if (pipelineAbortRequested.value) throw createPipelineAbortError()
+    if (pipelineAbortRequested.value || isPipelineStopMessage(message) || isPipelineStopError(message)) {
+      throw createPipelineAbortError()
+    }
     const time = new Date().toLocaleTimeString('zh-CN')
     pipelineErrorLog.value = [...pipelineErrorLog.value, { time, step, message }]
   }
@@ -306,7 +344,13 @@ export function useFilmCreatePipelineRun(options = {}) {
     try {
       await runPromise
     } catch (error) {
-      if (!isPipelineAbortError(error)) throw error
+      if (isPipelineStopError(error) || pipelineAbortRequested.value) {
+        if (!pipelineStopping.value && !/已停止/.test(String(pipelineCurrentStep.value || ''))) {
+          pipelineCurrentStep.value = '本地全流程已停止'
+        }
+        return
+      }
+      throw error
     } finally {
       if (activePipelineRunPromise.value === runPromise) activePipelineRunPromise.value = null
       pipelineRequiresStoryboardMedia = false

@@ -1,4 +1,5 @@
 import { createOperationId, logOperation } from './operationLog.js'
+import { isRequestCanceled } from './requestError.js'
 
 export function createPipelineAbortError(message = '全流程已取消') {
   return Object.assign(new Error(message), { pipelineAborted: true })
@@ -6,6 +7,25 @@ export function createPipelineAbortError(message = '全流程已取消') {
 
 export function isPipelineAbortError(error) {
   return error?.pipelineAborted === true
+}
+
+export function isCanceledTaskStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase()
+  return normalized === 'cancelled' || normalized === 'canceled'
+}
+
+export function isPipelineStopError(error, signal) {
+  return isPipelineAbortError(error) || isRequestCanceled(error, signal)
+}
+
+export function isCanceledTaskSnapshot(task = {}) {
+  if (isCanceledTaskStatus(task?.status)) return true
+  return String(task?.cancel_state || '').trim().toLowerCase() === 'confirmed'
+}
+
+export function toPipelineAbortError(error) {
+  if (isPipelineAbortError(error)) return error
+  return createPipelineAbortError()
 }
 
 export function createPipelinePauseGate({ isPaused, isAborted }) {
@@ -131,8 +151,9 @@ export async function runPipelineTaskWithRetry({
       if (result?.paused === true) return result
       return true
     } catch (error) {
-      if (isPipelineAbortError(error)) throw error
-      if (isAborted()) throw createPipelineAbortError()
+      if (isPipelineAbortError(error) || isRequestCanceled(error) || isAborted()) {
+        throw toPipelineAbortError(error)
+      }
       lastError = error
       if (attempt < attempts - 1) await rest()
     }

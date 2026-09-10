@@ -242,7 +242,7 @@ import { ArrowDown, ArrowRight, ArrowUp, Setting, VideoPlay } from '@element-plu
 import StylePickerButton from '@/components/StylePickerButton.vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import { useDisclosureState } from '@/composables/useDisclosureState'
-import { getPipelineCompactAction, getPipelineControlReasons } from '@/utils/filmPipelineAction'
+import { getPipelineCompactAction, getPipelineControlReasons, isPipelineLocallyStopped } from '@/utils/filmPipelineAction'
 
 const props = defineProps({
   aspectRatio: { type: String, default: '16:9' },
@@ -298,6 +298,13 @@ const cleanCurrentStep = computed(() => props.currentStep.replace(/^\[步骤 \d+
 const productionReason = computed(() => props.productionDisabledReason || props.disabledReason)
 const draftReason = computed(() => props.draftDisabledReason || props.disabledReason)
 const hasPipelineError = computed(() => props.errorLog.length > 0)
+const locallyStopped = computed(() => isPipelineLocallyStopped({
+  running: props.running,
+  stopping: props.stopping,
+  stopRequired: props.stopRequired,
+  hasError: hasPipelineError.value,
+  currentStep: props.currentStep,
+}))
 const controlReasons = computed(() => getPipelineControlReasons({
   running: props.running,
   paused: props.paused,
@@ -315,6 +322,7 @@ const focusState = computed(() => {
   if (props.starting) return 'checking'
   if (props.stopRequired) return 'error'
   if (props.running) return props.paused ? 'paused' : 'running'
+  if (locallyStopped.value) return 'stopped'
   if (hasPipelineError.value) return 'error'
   if (!draftReason.value && props.productionReadinessState === 'checking') return 'checking'
   if (!draftReason.value && props.productionReadinessState === 'error') return 'error'
@@ -323,6 +331,7 @@ const focusState = computed(() => {
 const focusKicker = computed(() => {
   if (props.stopRequired) return '停止受阻'
   if (props.running) return focusReason.value ? '当前阻断' : '当前任务'
+  if (locallyStopped.value) return '已停止'
   if (hasPipelineError.value) return '执行失败'
   if (!draftReason.value && props.productionReadinessState === 'checking') return '能力检查'
   if (!draftReason.value && props.productionReadinessState === 'error') return '检查失败'
@@ -334,6 +343,7 @@ const focusTitle = computed(() => {
   if (props.running) {
     return cleanCurrentStep.value || (props.paused ? '全流程生成已暂停' : '正在执行全流程生成')
   }
+  if (locallyStopped.value) return cleanCurrentStep.value || '全流程已停止'
   if (hasPipelineError.value) return '全流程生成未完成'
   if (!draftReason.value && props.productionReadinessState === 'checking') return '正在检查完整成片能力'
   if (!draftReason.value && props.productionReadinessState === 'error') return '完整成片能力检查失败'
@@ -343,6 +353,7 @@ const focusNextStep = computed(() => {
   if (props.starting) return '确认服务能力与本次调用范围'
   if (props.stopRequired) return '重试停止剩余远端任务'
   if (props.running) return props.paused ? '继续当前生成流程' : '等待当前阶段完成'
+  if (locallyStopped.value) return '可重新开始完整成片'
   if (hasPipelineError.value) return '查看错误后重试全流程'
   if (props.hasEpisode === false) return '添加一集后再保存剧本或启动生成'
   if (draftReason.value) return '处理当前阻断后再启动生成'
@@ -560,6 +571,10 @@ function updateSetting(name, value) {
 .pipeline-focus[data-state="error"] {
   border-left-color: var(--el-color-danger);
   background: var(--el-color-danger-light-9);
+}
+
+.pipeline-focus[data-state="stopped"] {
+  border-left-color: var(--el-color-info);
 }
 
 .pipeline-focus[data-state="running"],
