@@ -727,7 +727,11 @@ async function verifyStoryboardEmptyStates(page, options = {}) {
     } catch (_) {}
     const batchGroup = page.getByRole('region', { name: CRITICAL_UI.batchGenerateGroup, exact: true })
     await batchGroup.waitFor({ state: 'visible', timeout: 15000 })
-    await page.getByRole('button', { name: CRITICAL_UI.generateStoryboard, exact: true }).waitFor({ state: 'visible', timeout: 15000 })
+    // 完整无障碍名是「AI 生成分镜」；当前 Docker 镜像仍可能只有缩写「AI 分镜」。
+    const generateButton = batchGroup.getByRole('button', {
+      name: new RegExp(`^(?:${CRITICAL_UI.generateStoryboard}|AI 分镜)$`),
+    })
+    await generateButton.waitFor({ state: 'visible', timeout: 15000 })
     return {
       film: true,
       canvas: true,

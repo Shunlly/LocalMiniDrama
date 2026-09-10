@@ -335,7 +335,7 @@ test('共享合同覆盖工作区入口、素材库空态、项目列表-制作�
     'CRITICAL_UI.characterLibraryEmpty, { exact: true }',
     'async function verifyStoryboardEmptyStates',
     'CRITICAL_UI.storyboardEmpty, { exact: true }',
-    'CRITICAL_UI.generateStoryboard, exact: true }).waitFor({ state: \'visible\'',
+    'CRITICAL_UI.generateStoryboard}|AI 分镜)$',
     'async function runCriticalUiContracts',
     'verifyWorkspaceEntries(page, options)',
     'verifyMediaLibraryEmptyStates(page, options)',

@@ -7,6 +7,7 @@
             size="small"
             type="warning"
             plain
+            aria-label="编辑剧本"
             :disabled="Boolean(actionReasons.editScript)"
             @click="emit('edit-script')"
           >
@@ -25,13 +26,13 @@
             分镜
           </el-button>
         </CanvasActionGate>
-        <el-button size="small" @click="emit('create', 'episode')">
+        <el-button size="small" aria-label="新建剧集" @click="emit('create', 'episode')">
           <el-icon><Tickets /></el-icon>
           剧集
         </el-button>
         <CanvasActionGate :reason="actionReasons.createAsset" label="新建素材" description-id="canvas-reason-create-asset">
           <el-dropdown trigger="click" :disabled="Boolean(actionReasons.createAsset)" @command="emit('create', $event)">
-            <el-button size="small" :disabled="Boolean(actionReasons.createAsset)">
+            <el-button size="small" aria-label="新建素材" :disabled="Boolean(actionReasons.createAsset)">
               <el-icon><Box /></el-icon>
               素材
               <el-icon class="dropdown-arrow"><ArrowDown /></el-icon>
@@ -71,6 +72,7 @@
           <el-button
             size="small"
             type="primary"
+            aria-label="AI 生成分镜"
             :loading="episodeGenerating"
             :disabled="Boolean(actionReasons.generateStoryboards)"
             @click="emit('generate-storyboards')"
@@ -82,6 +84,7 @@
         <CanvasActionGate :reason="actionReasons.batchImages" label="批量生成图片" description-id="canvas-reason-batch-images">
           <el-button
             size="small"
+            aria-label="批量生成图片"
             :loading="episodeGenerating"
             :disabled="Boolean(actionReasons.batchImages)"
             @click="emit('batch-images')"
@@ -98,6 +101,7 @@
         >
           <el-button
             size="small"
+            aria-label="批量生成视频"
             :loading="episodeGenerating"
             :disabled="Boolean(actionReasons.batchVideos)"
             @click="emit('batch-videos')"
