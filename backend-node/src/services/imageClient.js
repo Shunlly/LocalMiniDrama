@@ -58,70 +58,14 @@ const {
   downloadImageToLocalAbortable,
   removeDownloadedImage,
 } = require('./imageGateway/download');
+const {
+  resolveAssetUserNegativeForApi,
+  getDefaultImageConfig,
+  buildImageUrl,
+  getModelFromConfig,
+} = require('./imageGateway/config');
 
 // 厂商适配与纯工具已拆到 imageGateway/，本文件只负责编排、配置解析与稳定导出。
-
-/** 角色/场景/道具资产生图：请求里显式传入 model 且资产上存有负面词时，与自动负面片段合并后传给图生 API */
-function resolveAssetUserNegativeForApi(explicitModelName, storedNegative) {
-  const hasModel = explicitModelName != null && String(explicitModelName).trim().length > 0;
-  const neg = storedNegative != null ? String(storedNegative).trim() : '';
-  return hasModel && neg ? neg : '';
-}
-
-/**
- * 获取默认图片配置：优先使用前端勾选的「默认」配置（is_default），同类型内按优先级（priority）排序；
- * 可选按 preferredProvider / preferredModel 进一步筛选。
- * @param {object} db
- * @param {string} [preferredModel] - 指定模型名时，在匹配到的配置中选含该模型的
- * @param {string} [preferredProvider] - 指定供应商（如 openai / dashscope），只在该 provider 的配置中选
- * @param {string} [imageServiceType] - 'image' 文本生成图片（角色/场景/道具），'storyboard_image' 分镜图片生成（支持参考图）；缺省为 'image'
- */
-function getDefaultImageConfig(db, preferredModel, preferredProvider, imageServiceType) {
-  const serviceType = imageServiceType || 'image';
-  const selectedModel = String(preferredModel ?? '').trim();
-  let configs = aiConfigService.listConfigs(db, serviceType);
-  if (configs.length === 0 && serviceType === 'storyboard_image') {
-    configs = aiConfigService.listConfigs(db, 'image');
-  }
-  let active = configs.filter((c) => c.is_active);
-  if (active.length === 0) return null;
-  if (preferredProvider && String(preferredProvider).trim()) {
-    const want = String(preferredProvider).trim().toLowerCase();
-    const byProvider = active.filter((c) => (c.provider || '').toLowerCase() === want);
-    if (byProvider.length === 0) return null;
-    active = byProvider;
-  }
-  if (selectedModel) {
-    const matches = active.filter((c) => {
-      const models = aiConfigService.normalizeConfigModels(c).model;
-      return models.includes(selectedModel);
-    });
-    if (matches.length === 1) return matches[0];
-    if (matches.length > 1) {
-      const defaultMatch = matches.find((c) => c.is_default);
-      if (defaultMatch) return defaultMatch;
-      const providers = new Set(matches.map((c) => String(c.provider || '').toLowerCase()));
-      if (providers.size === 1) return matches[0];
-      return null;
-    }
-  }
-  // 显式使用前端设置的「默认」：优先 is_default，再按 priority 降序（listConfigs 已按 is_default DESC, priority DESC 排序，取第一个即可）
-  const defaultOne = active.find((c) => c.is_default);
-  if (defaultOne) return defaultOne;
-  return active[0];
-}
-
-// 与 Go image_generation_service 一致：openai/chatfire 使用 "/images/generations"，base_url 通常已含 /v1
-function buildImageUrl(config) {
-  const base = (config.base_url || '').replace(/\/$/, '');
-  let ep = config.endpoint || '/images/generations';
-  if (!ep.startsWith('/')) ep = '/' + ep;
-  return base + ep;
-}
-
-function getModelFromConfig(config, preferredModel) {
-  return aiConfigService.resolveConfiguredModel(config, preferredModel, 'dall-e-3');
-}
 
 /**
  * 调用提供商图片生成 API（OpenAI /images/generations 风格 或 通义万象 multimodal-generation）

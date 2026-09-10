@@ -69,10 +69,14 @@ describe('imageGateway 客户端拆分', () => {
       'function resolveImageRef',
       'function downloadImageToLocalAbortable',
       'function removeDownloadedImage',
+      'function getDefaultImageConfig',
+      'function resolveAssetUserNegativeForApi',
+      'function buildImageUrl',
     ]) {
       assert.equal(src.includes(name), false, name);
     }
     assert.equal(src.includes("require('./imageGateway/download')"), true);
+    assert.equal(src.includes("require('./imageGateway/config')"), true);
     assert.equal(src.includes("require('./imageGateway/klingImageAdapter')"), true);
     assert.equal(src.includes("require('./imageGateway/nanoBananaImageAdapter')"), true);
     assert.equal(src.includes("require('./imageGateway/dashScopeImageAdapter')"), true);
