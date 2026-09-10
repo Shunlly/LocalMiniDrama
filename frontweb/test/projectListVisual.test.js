@@ -143,3 +143,12 @@ test('debounced project filters invalidate an in-flight list request immediately
     /function scheduleProjectListReload\(\)\s*\{[\s\S]{0,120}listRequestSequence \+= 1[\s\S]{0,220}setTimeout/,
   )
 })
+
+test('project list header keeps a visible data-backup command next to workspace actions', () => {
+  assert.match(
+    filmListSource,
+    /class="header-actions"[\s\S]*class="btn-settings"[\s\S]*class="btn-library btn-backup"[\s\S]*数据备份/,
+  )
+  assert.match(filmListSource, /v-if="backupNavItem"/)
+  assert.doesNotMatch(filmListSource, /微信我/)
+})

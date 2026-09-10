@@ -28,6 +28,10 @@ const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const deliveryPanelSource = read('../src/components/filmCreate/FilmCreateDeliveryPanel.vue')
 const resourceDialogsSource = read('../src/components/filmCreate/FilmCreateResourceDialogs.vue')
+const filmCreateHeaderSource = read('../src/components/filmCreate/FilmCreateHeader.vue')
+const filmCreateQuickNavSource = read('../src/components/filmCreate/FilmCreateQuickNav.vue')
+const filmCreateLoadStateSource = read('../src/components/filmCreate/FilmCreateProjectLoadState.vue')
+const filmCreateChromeSource = [filmCreateSource, filmCreateHeaderSource, filmCreateQuickNavSource, filmCreateLoadStateSource].join('\n')
 
 function refOf(value) {
   return { value }
@@ -169,9 +173,9 @@ function installBlobDownloadEnvironment() {
 test('project pages keep core load failures outside every editable project surface', () => {
   for (const [name, source] of [
     ['DramaDetail', dramaDetailSource],
-    ['FilmCreate', filmCreateSource],
+    ['FilmCreate', filmCreateChromeSource],
   ]) {
-    const parsed = parse(source, { filename: name + '.vue' })
+    const parsed = parse(name === 'FilmCreate' ? filmCreateSource : source, { filename: name + '.vue' })
     assert.deepEqual(parsed.errors, [], name + ' must remain a valid Vue SFC')
     assert.match(source, /role="alert"/)
     assert.match(source, /项目数据没有被删除/)
@@ -179,6 +183,7 @@ test('project pages keep core load failures outside every editable project surfa
     assert.match(source, /重试加载/)
     assert.match(source, /返回项目列表/)
   }
+  assert.deepEqual(parse(filmCreateLoadStateSource, { filename: 'FilmCreateProjectLoadState.vue' }).errors, [])
   assert.match(dramaDetailSource, /dramaLoadFailureRef\.value\?\.focus\(\)/)
   assert.match(remainingImportedFunctionSource(useFilmCreateProjectLoad), /LoadFailureRef\.value\?\.focus\(\)/)
 
@@ -186,14 +191,15 @@ test('project pages keep core load failures outside every editable project surfa
   assert.match(dramaDetailSource, /<template v-if="isDramaReady">\s*<!--[\s\S]*?<AccessibleDialog/)
   assert.match(dramaDetailSource, /<el-tooltip[\s\S]*v-if="isDramaReady"[\s\S]*请先新增一集，再进入制作[\s\S]*:disabled="!currentEpisodeId" @click="goCreate">/)
 
-  assert.match(filmCreateSource, /<nav v-if="projectLoadState === 'ready'"/)
-  assert.match(filmCreateSource, /<main v-if="projectLoadState === 'loading'"/)
-  assert.match(filmCreateSource, /<main v-else-if="projectLoadState === 'error'"/)
+  assert.match(filmCreateSource, /<FilmCreateQuickNav[\s\S]*v-if="projectLoadState === 'ready'"/)
+  assert.match(filmCreateLoadStateSource, /<main v-if="state === 'loading'"/)
+  assert.match(filmCreateLoadStateSource, /<main v-else-if="state === 'error'"/)
   assert.match(filmCreateSource, /<main v-else class="main">[\s\S]*FilmCreateScriptWorkbench/)
   assert.match(filmCreateSource, /<template v-if="projectLoadState === 'ready'">[\s\S]*?<FilmCreateResourceDialogs/)
   assert.match(resourceDialogsSource, /<AccessibleDialog/)
-  assert.match(filmCreateSource, /:disabled="projectLoadState !== 'ready'" @click="openAiConfig\(\)"/)
-  assert.match(filmCreateSource, /v-if="!projectLoadNotFound"[\s\S]*重试加载/)
+  assert.match(filmCreateSource, /@open-ai-config="openAiConfig"/)
+  assert.match(filmCreateHeaderSource, /:disabled="projectLoadState !== 'ready'"[\s\S]*open-ai-config/)
+  assert.match(filmCreateLoadStateSource, /v-if="!notFound"[\s\S]*重试加载/)
   assert.match(dramaDetailSource, /v-if="!dramaLoadNotFound"[\s\S]*重试加载/)
 })
 

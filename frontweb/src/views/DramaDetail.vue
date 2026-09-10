@@ -227,7 +227,7 @@
             <el-icon><Plus /></el-icon>新增一集
           </el-button>
         </div>
-        <div v-if="episodes.length === 0" class="empty-state">
+        <div v-if="episodes.length === 0" class="empty-state" role="status">
           <div class="empty-state-title">{{ episodeEmptyState.title }}</div>
           <div class="empty-state-copy">{{ episodeEmptyState.description }}</div>
           <div class="empty-state-actions">
@@ -296,36 +296,46 @@
           <button
             v-for="t in [{v:'lib-char',label:'角色'},{v:'lib-scene',label:'场景'},{v:'lib-prop',label:'道具'}]"
             :key="t.v"
+            :id="`drama-res-tab-${t.v}`"
             type="button"
             role="tab"
             class="res-tab res-tab--lib"
             :class="{ active: activeResTab === t.v }"
             :aria-selected="activeResTab === t.v"
+            :aria-controls="`drama-res-panel-${t.v}`"
             @click="activeResTab = t.v"
+            @keydown="onResourceTabKeydown"
           >{{ t.label }}</button>
           <span class="res-tab-spacer"></span>
           <span class="res-tab-group-label res-tab-group-label--prod">制作资源</span>
           <button
             v-for="t in [{v:'drama-char',label:'角色'},{v:'drama-scene',label:'场景'},{v:'drama-prop',label:'道具'}]"
             :key="t.v"
+            :id="`drama-res-tab-${t.v}`"
             type="button"
             role="tab"
             class="res-tab res-tab--drama"
             :class="{ active: activeResTab === t.v }"
             :aria-selected="activeResTab === t.v"
+            :aria-controls="`drama-res-panel-${t.v}`"
             @click="activeResTab = t.v"
+            @keydown="onResourceTabKeydown"
           >{{ t.label }}</button>
         </nav>
 
         <!-- 角色库 -->
         <template v-if="activeResTab === 'lib-char'">
+          <div id="drama-res-panel-lib-char" class="res-tabpanel" role="tabpanel" aria-labelledby="drama-res-tab-lib-char" tabindex="0">
           <div class="library-toolbar">
             <el-input v-model="charKw" placeholder="搜索角色" aria-label="搜索角色" clearable style="width: 200px" @input="onCharKwInput" />
             <el-button size="small" @click="openImport('char')">从素材库导入</el-button>
           </div>
           <div v-loading="charLoading" class="library-list">
             <div v-if="charError" class="library-error" role="alert">
-              <span>{{ charError }}</span>
+              <span>
+                {{ charError }}
+                <template v-if="charList.length">当前仍显示上次成功加载的角色。</template>
+              </span>
               <el-button size="small" type="primary" plain :loading="charLoading" @click="loadCharList">重试</el-button>
             </div>
             <div v-for="item in charList" :key="item.id" class="library-item">
@@ -342,8 +352,9 @@
                 </div>
               </div>
             </div>
-            <div v-if="!charLoading && !charError && charList.length === 0" class="library-empty resource-empty-state">
-              <span>{{ charKw.trim() ? '没有匹配的角色' : '暂无本剧角色库记录' }}</span>
+            <div v-if="!charLoading && !charError && charList.length === 0" class="library-empty resource-empty-state" role="status">
+              <div class="empty-state-title">{{ charKw.trim() ? '没有匹配的角色' : '暂无本剧角色库记录' }}</div>
+              <div class="empty-state-copy">{{ charKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : '可以从公共素材库导入角色，或先在制作页提取后再入库。' }}</div>
               <el-button v-if="charKw.trim()" size="small" @click="charKw = ''; loadCharList()">清除搜索</el-button>
               <el-button v-else size="small" type="primary" plain @click="openImport('char')">从素材库导入角色</el-button>
             </div>
@@ -351,17 +362,22 @@
           <div class="library-pagination">
             <el-pagination v-model:current-page="charPage" v-model:page-size="charPageSize" :total="charTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" @current-change="loadCharList" @size-change="loadCharList" />
           </div>
+          </div>
         </template>
 
         <!-- 场景库 -->
         <template v-if="activeResTab === 'lib-scene'">
+          <div id="drama-res-panel-lib-scene" class="res-tabpanel" role="tabpanel" aria-labelledby="drama-res-tab-lib-scene" tabindex="0">
           <div class="library-toolbar">
             <el-input v-model="sceneKw" placeholder="搜索场景" aria-label="搜索场景" clearable style="width: 200px" @input="onSceneKwInput" />
             <el-button size="small" @click="openImport('scene')">从素材库导入</el-button>
           </div>
           <div v-loading="sceneLoading" class="library-list">
             <div v-if="sceneError" class="library-error" role="alert">
-              <span>{{ sceneError }}</span>
+              <span>
+                {{ sceneError }}
+                <template v-if="sceneList.length">当前仍显示上次成功加载的场景。</template>
+              </span>
               <el-button size="small" type="primary" plain :loading="sceneLoading" @click="loadSceneList">重试</el-button>
             </div>
             <div v-for="item in sceneList" :key="item.id" class="library-item">
@@ -378,8 +394,9 @@
                 </div>
               </div>
             </div>
-            <div v-if="!sceneLoading && !sceneError && sceneList.length === 0" class="library-empty resource-empty-state">
-              <span>{{ sceneKw.trim() ? '没有匹配的场景' : '暂无本剧场景库记录' }}</span>
+            <div v-if="!sceneLoading && !sceneError && sceneList.length === 0" class="library-empty resource-empty-state" role="status">
+              <div class="empty-state-title">{{ sceneKw.trim() ? '没有匹配的场景' : '暂无本剧场景库记录' }}</div>
+              <div class="empty-state-copy">{{ sceneKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : '可以从公共素材库导入场景，或先在制作页提取后再入库。' }}</div>
               <el-button v-if="sceneKw.trim()" size="small" @click="sceneKw = ''; loadSceneList()">清除搜索</el-button>
               <el-button v-else size="small" type="primary" plain @click="openImport('scene')">从素材库导入场景</el-button>
             </div>
@@ -387,17 +404,22 @@
           <div class="library-pagination">
             <el-pagination v-model:current-page="scenePage" v-model:page-size="scenePageSize" :total="sceneTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" @current-change="loadSceneList" @size-change="loadSceneList" />
           </div>
+          </div>
         </template>
 
         <!-- 道具库 -->
         <template v-if="activeResTab === 'lib-prop'">
+          <div id="drama-res-panel-lib-prop" class="res-tabpanel" role="tabpanel" aria-labelledby="drama-res-tab-lib-prop" tabindex="0">
           <div class="library-toolbar">
             <el-input v-model="propKw" placeholder="搜索道具" aria-label="搜索道具" clearable style="width: 200px" @input="onPropKwInput" />
             <el-button size="small" @click="openImport('prop')">从素材库导入</el-button>
           </div>
           <div v-loading="propLoading" class="library-list">
             <div v-if="propError" class="library-error" role="alert">
-              <span>{{ propError }}</span>
+              <span>
+                {{ propError }}
+                <template v-if="propList.length">当前仍显示上次成功加载的道具。</template>
+              </span>
               <el-button size="small" type="primary" plain :loading="propLoading" @click="loadPropList">重试</el-button>
             </div>
             <div v-for="item in propList" :key="item.id" class="library-item">
@@ -414,8 +436,9 @@
                 </div>
               </div>
             </div>
-            <div v-if="!propLoading && !propError && propList.length === 0" class="library-empty resource-empty-state">
-              <span>{{ propKw.trim() ? '没有匹配的道具' : '暂无本剧道具库记录' }}</span>
+            <div v-if="!propLoading && !propError && propList.length === 0" class="library-empty resource-empty-state" role="status">
+              <div class="empty-state-title">{{ propKw.trim() ? '没有匹配的道具' : '暂无本剧道具库记录' }}</div>
+              <div class="empty-state-copy">{{ propKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : '可以从公共素材库导入道具，或先在制作页提取后再入库。' }}</div>
               <el-button v-if="propKw.trim()" size="small" @click="propKw = ''; loadPropList()">清除搜索</el-button>
               <el-button v-else size="small" type="primary" plain @click="openImport('prop')">从素材库导入道具</el-button>
             </div>
@@ -423,10 +446,11 @@
           <div class="library-pagination">
             <el-pagination v-model:current-page="propPage" v-model:page-size="propPageSize" :total="propTotal" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" @current-change="loadPropList" @size-change="loadPropList" />
           </div>
+          </div>
         </template>
         <!-- 本剧制作角色 -->
         <template v-if="activeResTab === 'drama-char'">
-          <div class="drama-res-list">
+          <div id="drama-res-panel-drama-char" class="drama-res-list res-tabpanel" role="tabpanel" aria-labelledby="drama-res-tab-drama-char" tabindex="0">
             <template v-if="drama?.characters?.length">
               <div v-for="item in drama.characters" :key="item.id" class="drama-res-item">
                 <button type="button" class="drama-res-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '制作角色'}图片`" @click="openPreview(assetImageUrl(item))">
@@ -435,8 +459,8 @@
                 </button>
                 <div class="drama-res-info">
                   <div class="drama-res-name">{{ item.name || '未命名' }}</div>
-                  <div class="drama-res-meta" v-if="item.role">
-                    <el-tag size="small" type="info">{{ item.role === 'main' ? '主角' : item.role === 'supporting' ? '配角' : item.role }}</el-tag>
+                  <div class="drama-res-meta" v-if="characterRoleLabel(item.role)">
+                    <el-tag size="small" type="info">{{ characterRoleLabel(item.role) }}</el-tag>
                   </div>
                   <div class="drama-res-desc">{{ (item.description || item.prompt || '').slice(0, 80) }}</div>
                   <div class="drama-res-actions">
@@ -445,8 +469,9 @@
                 </div>
               </div>
             </template>
-            <div v-else class="library-empty resource-empty-state">
-              <span>本剧暂无制作角色</span>
+            <div v-else class="library-empty resource-empty-state" role="status">
+              <div class="empty-state-title">本剧暂无制作角色</div>
+              <div class="empty-state-copy">{{ currentEpisodeId ? '可进入制作页，从当前剧集提取角色。' : '请先新增一集，再进入制作页提取角色。' }}</div>
               <el-button size="small" type="primary" @click="goCreate">{{ currentEpisodeId ? '进入制作页提取角色' : '先去新增一集' }}</el-button>
             </div>
           </div>
@@ -454,7 +479,7 @@
 
         <!-- 本剧制作场景 -->
         <template v-if="activeResTab === 'drama-scene'">
-          <div class="drama-res-list">
+          <div id="drama-res-panel-drama-scene" class="drama-res-list res-tabpanel" role="tabpanel" aria-labelledby="drama-res-tab-drama-scene" tabindex="0">
             <template v-if="drama?.scenes?.length">
               <div v-for="item in drama.scenes" :key="item.id" class="drama-res-item">
                 <button type="button" class="drama-res-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.location || '制作场景'}图片`" @click="openPreview(assetImageUrl(item))">
@@ -473,8 +498,9 @@
                 </div>
               </div>
             </template>
-            <div v-else class="library-empty resource-empty-state">
-              <span>本剧暂无制作场景</span>
+            <div v-else class="library-empty resource-empty-state" role="status">
+              <div class="empty-state-title">本剧暂无制作场景</div>
+              <div class="empty-state-copy">{{ currentEpisodeId ? '可进入制作页，从当前剧集提取场景。' : '请先新增一集，再进入制作页提取场景。' }}</div>
               <el-button size="small" type="primary" @click="goCreate">{{ currentEpisodeId ? '进入制作页提取场景' : '先去新增一集' }}</el-button>
             </div>
           </div>
@@ -482,7 +508,7 @@
 
         <!-- 本剧制作道具 -->
         <template v-if="activeResTab === 'drama-prop'">
-          <div class="drama-res-list">
+          <div id="drama-res-panel-drama-prop" class="drama-res-list res-tabpanel" role="tabpanel" aria-labelledby="drama-res-tab-drama-prop" tabindex="0">
             <template v-if="drama?.props?.length">
               <div v-for="item in drama.props" :key="item.id" class="drama-res-item">
                 <button type="button" class="drama-res-cover" :disabled="!assetImageUrl(item)" :aria-label="`预览${item.name || '制作道具'}图片`" @click="openPreview(assetImageUrl(item))">
@@ -491,8 +517,8 @@
                 </button>
                 <div class="drama-res-info">
                   <div class="drama-res-name">{{ item.name || '未命名' }}</div>
-                  <div class="drama-res-meta" v-if="item.type">
-                    <el-tag size="small" type="info">{{ item.type }}</el-tag>
+                  <div class="drama-res-meta" v-if="propTypeLabel(item.type)">
+                    <el-tag size="small" type="info">{{ propTypeLabel(item.type) }}</el-tag>
                   </div>
                   <div class="drama-res-desc">{{ (item.description || item.prompt || '').slice(0, 80) }}</div>
                   <div class="drama-res-actions">
@@ -501,8 +527,9 @@
                 </div>
               </div>
             </template>
-            <div v-else class="library-empty resource-empty-state">
-              <span>本剧暂无制作道具</span>
+            <div v-else class="library-empty resource-empty-state" role="status">
+              <div class="empty-state-title">本剧暂无制作道具</div>
+              <div class="empty-state-copy">{{ currentEpisodeId ? '可进入制作页，从当前剧集提取道具。' : '请先新增一集，再进入制作页提取道具。' }}</div>
               <el-button size="small" type="primary" @click="goCreate">{{ currentEpisodeId ? '进入制作页提取道具' : '先去新增一集' }}</el-button>
             </div>
           </div>
@@ -513,7 +540,7 @@
 
     <template v-if="isDramaReady">
     <!-- 制作角色 编辑 -->
-    <AccessibleDialog v-model="editDramaCharVisible" title="编辑制作角色" width="500px" @close="editDramaCharForm = null">
+    <AccessibleDialog v-model="editDramaCharVisible" title="编辑制作角色" width="500px" :close-on-press-escape="true" @close="editDramaCharForm = null">
       <el-form v-if="editDramaCharForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -547,7 +574,7 @@
     </AccessibleDialog>
 
     <!-- 制作场景 编辑 -->
-    <AccessibleDialog v-model="editDramaSceneVisible" title="编辑制作场景" width="500px" @close="editDramaSceneForm = null">
+    <AccessibleDialog v-model="editDramaSceneVisible" title="编辑制作场景" width="500px" :close-on-press-escape="true" @close="editDramaSceneForm = null">
       <el-form v-if="editDramaSceneForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -574,7 +601,7 @@
     </AccessibleDialog>
 
     <!-- 制作道具 编辑 -->
-    <AccessibleDialog v-model="editDramaPropVisible" title="编辑制作道具" width="500px" @close="editDramaPropForm = null">
+    <AccessibleDialog v-model="editDramaPropVisible" title="编辑制作道具" width="500px" :close-on-press-escape="true" @close="editDramaPropForm = null">
       <el-form v-if="editDramaPropForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -601,7 +628,7 @@
     </AccessibleDialog>
 
     <!-- 编辑角色 -->
-    <AccessibleDialog v-model="editCharVisible" title="编辑角色库" width="480px" @close="editCharForm = null">
+    <AccessibleDialog v-model="editCharVisible" title="编辑角色库" width="480px" :close-on-press-escape="true" @close="editCharForm = null">
       <el-form v-if="editCharForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -628,7 +655,7 @@
     </AccessibleDialog>
 
     <!-- 编辑场景 -->
-    <AccessibleDialog v-model="editSceneVisible" title="编辑场景库" width="480px" @close="editSceneForm = null">
+    <AccessibleDialog v-model="editSceneVisible" title="编辑场景库" width="480px" :close-on-press-escape="true" @close="editSceneForm = null">
       <el-form v-if="editSceneForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -656,7 +683,7 @@
     </AccessibleDialog>
 
     <!-- 编辑道具 -->
-    <AccessibleDialog v-model="editPropVisible" title="编辑道具库" width="480px" @close="editPropForm = null">
+    <AccessibleDialog v-model="editPropVisible" title="编辑道具库" width="480px" :close-on-press-escape="true" @close="editPropForm = null">
       <el-form v-if="editPropForm" label-width="80px">
         <el-form-item label="图片">
           <div class="lib-img-editor">
@@ -688,6 +715,7 @@
       :title="`从素材库导入${importType === 'char' ? '角色' : importType === 'scene' ? '场景' : '道具'}`"
       width="760px"
       destroy-on-close
+      :close-on-press-escape="true"
       @open="loadImportList"
     >
       <div class="library-toolbar">
@@ -696,7 +724,10 @@
       </div>
       <div v-loading="importLoading" class="library-list import-list">
         <div v-if="importError" class="library-error" role="alert">
-          <span>{{ importError }}</span>
+          <span>
+            {{ importError }}
+            <template v-if="importList.length">当前仍显示上次成功加载的素材。</template>
+          </span>
           <el-button size="small" type="primary" plain :loading="importLoading" @click="loadImportList">重试</el-button>
         </div>
         <div v-for="item in importList" :key="item.id" class="library-item">
@@ -714,10 +745,11 @@
             </div>
           </div>
         </div>
-        <div v-if="!importLoading && !importError && importList.length === 0" class="library-empty resource-empty-state">
-          <span>{{ importKw.trim() ? '没有匹配的素材' : '素材库暂无内容' }}</span>
+        <div v-if="!importLoading && !importError && importList.length === 0" class="library-empty resource-empty-state" role="status">
+          <div class="empty-state-title">{{ importKw.trim() ? '没有匹配的素材' : '素材库暂无内容' }}</div>
+          <div class="empty-state-copy">{{ importKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : (currentEpisodeId ? '可前往制作页新增素材并加入素材库。' : '请先新增一集，再去制作页提取素材。') }}</div>
           <el-button v-if="importKw.trim()" size="small" @click="importKw = ''; loadImportList()">清除搜索</el-button>
-          <el-button v-else size="small" type="primary" @click="importVisible = false; goCreate()">
+          <el-button v-else size="small" type="primary" @click="goCreate()">
             {{ currentEpisodeId ? '前往制作页新增并入库' : '先去新增一集' }}
           </el-button>
         </div>
@@ -776,6 +808,72 @@ import { normalizeProjectListReturnTo, projectRouteInstanceKey, resolveProjectEp
 import { scrollAndFocusSection } from '@/utils/sectionFocus.js'
 import { createProjectInstanceLifecycle } from '@/utils/projectInstanceLifecycle.js'
 import { requestCoreJson as requestCoreDrama } from '@/utils/coreJsonRequest'
+import { describeServiceLoadError, isRequestCanceled, isRequestTimeout } from '@/utils/requestError'
+
+const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|project_load_failed|err_network|econnaborted|etimedout|failed to fetch|load failed|internal server error/i
+const UNSET_ERROR = '\0'
+const RESOURCE_TABS = ['lib-char', 'lib-scene', 'lib-prop', 'drama-char', 'drama-scene', 'drama-prop']
+const MESSAGE_BOX_KEYBOARD = {
+  closeOnClickModal: false,
+  closeOnPressEscape: true,
+  distinguishCancelAndClose: true,
+}
+
+function errorText(error) {
+  if (typeof error === 'string') return error.trim()
+  return String(error?.message || '').trim()
+}
+
+function hasChinese(text) {
+  return /[\u4e00-\u9fff]/.test(text)
+}
+
+/** 把剧集详情操作的异常转成可展示的简体中文 */
+function dramaDetailUserError(error, fallback = '操作失败，请稍后重试', serviceLabel = '项目服务') {
+  if (error === 'cancel' || isRequestCanceled(error)) return '操作已取消'
+  const described = describeServiceLoadError(error, {
+    serviceLabel,
+    fallback: UNSET_ERROR,
+  })
+  if (described && described !== UNSET_ERROR && hasChinese(described)) return described
+  const raw = errorText(error)
+  if (raw && hasChinese(raw)) return raw
+  if (isRequestTimeout(error)) return `连接${serviceLabel}超时，请稍后重试`
+  if (described && described !== UNSET_ERROR && !TECHNICAL_ENGLISH_RE.test(described)) return described
+  if (raw && !TECHNICAL_ENGLISH_RE.test(raw) && !/^PROJECT_LOAD_FAILED$/i.test(raw)) return raw
+  return fallback
+}
+
+function characterRoleLabel(role) {
+  const map = { main: '主角', supporting: '配角', extra: '群演', minor: '次要' }
+  const key = String(role || '').trim()
+  if (!key) return ''
+  if (map[key]) return map[key]
+  return hasChinese(key) ? key : '其他'
+}
+
+function propTypeLabel(type) {
+  const map = { key: '关键道具', background: '背景物件', handheld: '手持道具', costume: '服饰' }
+  const key = String(type || '').trim()
+  if (!key) return ''
+  if (map[key]) return map[key]
+  return hasChinese(key) ? key : key
+}
+
+function onResourceTabKeydown(event) {
+  if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const index = Math.max(0, RESOURCE_TABS.indexOf(activeResTab.value))
+  let next = index
+  if (event.key === 'ArrowRight') next = (index + 1) % RESOURCE_TABS.length
+  else if (event.key === 'ArrowLeft') next = (index - 1 + RESOURCE_TABS.length) % RESOURCE_TABS.length
+  else if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = RESOURCE_TABS.length - 1
+  activeResTab.value = RESOURCE_TABS[next]
+  nextTick(() => {
+    document.getElementById(`drama-res-tab-${RESOURCE_TABS[next]}`)?.focus()
+  })
+}
 
 const projectLifecycle = createProjectInstanceLifecycle()
 const ElMessage = projectLifecycle.guardNotifier(RawElMessage)
@@ -838,7 +936,7 @@ async function doUploadLibImg(event, form, api, reloadFn) {
     await api.update(form.id, { image_url: url, local_path: null })
     reloadFn()
     ElMessage.success('图片已更新')
-  } catch (e) { ElMessage.error(e.message || '上传失败') }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '上传失败')) }
   finally { form.imgUploading = false }
 }
 
@@ -869,7 +967,7 @@ async function doGenerateLibImg(form, prompt, api, reloadFn) {
     await api.update(form.id, { image_url: imageUrl || null, local_path: localPath })
     reloadFn()
     ElMessage.success('AI 图片已生成')
-  } catch (e) { ElMessage.error(e.message || '生成失败') }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '生成失败')) }
   finally { form.imgGenerating = false }
 }
 
@@ -899,7 +997,7 @@ async function saveDramaChar() {
     ElMessage.success('已保存')
     editDramaCharVisible.value = false
     loadDrama()
-  } catch (e) { ElMessage.error(e.message || '保存失败') }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '保存失败')) }
   finally { editDramaCharSaving.value = false }
 }
 async function uploadDramaCharImg(event) {
@@ -918,7 +1016,7 @@ async function uploadDramaCharImg(event) {
     await characterAPI.putImage(form.id, { image_url: url, local_path: null })
     loadDrama()
     ElMessage.success('图片已更新')
-  } catch (e) { ElMessage.error(e.message || '上传失败') }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '上传失败')) }
   finally { form.imgUploading = false }
 }
 async function generateDramaCharImg() {
@@ -943,7 +1041,7 @@ async function generateDramaCharImg() {
     form.local_path = task.result?.local_path ?? null
     loadDrama()
     ElMessage.success('AI 图片已生成')
-  } catch (e) { ElMessage.error(e.message || '生成失败') }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '生成失败')) }
   finally { form.imgGenerating = false }
 }
 
@@ -969,7 +1067,7 @@ async function saveDramaScene() {
     ElMessage.success('已保存')
     editDramaSceneVisible.value = false
     loadDrama()
-  } catch (e) { ElMessage.error(e.message || '保存失败') }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '保存失败')) }
   finally { editDramaSceneSaving.value = false }
 }
 async function uploadDramaSceneImg(event) {
@@ -988,7 +1086,7 @@ async function uploadDramaSceneImg(event) {
     await sceneAPI.update(form.id, { image_url: url, local_path: null })
     loadDrama()
     ElMessage.success('图片已更新')
-  } catch (e) { ElMessage.error(e.message || '上传失败') }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '上传失败')) }
   finally { form.imgUploading = false }
 }
 async function generateDramaSceneImg() {
@@ -1015,7 +1113,7 @@ async function generateDramaSceneImg() {
     form.local_path = task.result?.local_path ?? null
     loadDrama()
     ElMessage.success('AI 图片已生成')
-  } catch (e) { ElMessage.error(e.message || '生成失败') }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '生成失败')) }
   finally { form.imgGenerating = false }
 }
 
@@ -1041,7 +1139,7 @@ async function saveDramaProp() {
     ElMessage.success('已保存')
     editDramaPropVisible.value = false
     loadDrama()
-  } catch (e) { ElMessage.error(e.message || '保存失败') }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '保存失败')) }
   finally { editDramaPropSaving.value = false }
 }
 async function uploadDramaPropImg(event) {
@@ -1060,7 +1158,7 @@ async function uploadDramaPropImg(event) {
     await propAPI.update(form.id, { image_url: url, local_path: null })
     loadDrama()
     ElMessage.success('图片已更新')
-  } catch (e) { ElMessage.error(e.message || '上传失败') }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '上传失败')) }
   finally { form.imgUploading = false }
 }
 async function generateDramaPropImg() {
@@ -1085,7 +1183,7 @@ async function generateDramaPropImg() {
     form.local_path = task.result?.local_path ?? null
     loadDrama()
     ElMessage.success('AI 图片已生成')
-  } catch (e) { ElMessage.error(e.message || '生成失败') }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '生成失败')) }
   finally { form.imgGenerating = false }
 }
 
@@ -1289,7 +1387,7 @@ async function flushInfoSave() {
       return true
     } catch (error) {
       infoSaveState.value = 'error'
-      infoSaveError.value = error?.message || '项目信息保存失败，请重试。'
+      infoSaveError.value = dramaDetailUserError(error, '项目信息保存失败，请重试。')
       return false
     } finally {
       infoSavePromise = null
@@ -1607,7 +1705,7 @@ async function onDeleteEpisode(ep) {
     ElMessage.success(`${label} 已删除`)
     await loadDrama()
   } catch (e) {
-    ElMessage.error(e.message || '删除失败')
+    ElMessage.error(dramaDetailUserError(e, '删除失败'))
   } finally {
     deletingEpisodeId.value = null
   }
@@ -1632,7 +1730,7 @@ async function onAddEpisode() {
     ElMessage.success('已添加第' + nextNum + '集')
     await projectLifecycle.execute(() => loadDrama())
   } catch (e) {
-    ElMessage.error(e.message || '添加失败')
+    ElMessage.error(dramaDetailUserError(e, '添加失败'))
   } finally {
     addingEpisode.value = false
   }
@@ -1653,7 +1751,7 @@ async function loadCharList() {
     charList.value = res?.items ?? []; charTotal.value = res?.pagination?.total ?? 0
     charError.value = ''
   } catch (error) {
-    charError.value = error?.message || '角色库加载失败，请重试'
+    charError.value = dramaDetailUserError(error, '角色库加载失败，请重试', '角色库')
   } finally { charLoading.value = false }
 }
 function onCharKwInput() { if (charKwTimer) clearTimeout(charKwTimer); charKwTimer = setTimeout(() => { charPage.value = 1; loadCharList() }, 300) }
@@ -1667,11 +1765,11 @@ async function saveChar() {
   try {
     await characterLibraryAPI.update(editCharForm.value.id, { name: editCharForm.value.name, category: editCharForm.value.category || null, description: editCharForm.value.description || null, tags: editCharForm.value.tags || null, image_url: editCharForm.value.image_url || null, local_path: editCharForm.value.local_path ?? null })
     ElMessage.success('已保存'); editCharVisible.value = false; loadCharList()
-  } catch (e) { ElMessage.error(e.message || '保存失败') } finally { editCharSaving.value = false }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '保存失败')) } finally { editCharSaving.value = false }
 }
 async function deleteChar(item) {
   try { await ElMessageBox.confirm(`确定删除「${(item.name || '未命名').slice(0, 20)}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
-  try { await characterLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadCharList() } catch (e) { ElMessage.error(e.message || '删除失败') }
+  try { await characterLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadCharList() } catch (e) { ElMessage.error(dramaDetailUserError(e, '删除失败')) }
 }
 
 // 场景
@@ -1684,7 +1782,7 @@ async function loadSceneList() {
     sceneList.value = res?.items ?? []; sceneTotal.value = res?.pagination?.total ?? 0
     sceneError.value = ''
   } catch (error) {
-    sceneError.value = error?.message || '场景库加载失败，请重试'
+    sceneError.value = dramaDetailUserError(error, '场景库加载失败，请重试', '场景库')
   } finally { sceneLoading.value = false }
 }
 function onSceneKwInput() { if (sceneKwTimer) clearTimeout(sceneKwTimer); sceneKwTimer = setTimeout(() => { scenePage.value = 1; loadSceneList() }, 300) }
@@ -1698,12 +1796,12 @@ async function saveScene() {
   try {
     await sceneLibraryAPI.update(editSceneForm.value.id, { location: editSceneForm.value.location, time: editSceneForm.value.time || null, category: editSceneForm.value.category || null, description: editSceneForm.value.description || null, tags: editSceneForm.value.tags || null, image_url: editSceneForm.value.image_url || null, local_path: editSceneForm.value.local_path ?? null })
     ElMessage.success('已保存'); editSceneVisible.value = false; loadSceneList()
-  } catch (e) { ElMessage.error(e.message || '保存失败') } finally { editSceneSaving.value = false }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '保存失败')) } finally { editSceneSaving.value = false }
 }
 async function deleteScene(item) {
   const n = (item.location || item.time || '未命名').slice(0, 20)
   try { await ElMessageBox.confirm(`确定删除「${n}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
-  try { await sceneLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadSceneList() } catch (e) { ElMessage.error(e.message || '删除失败') }
+  try { await sceneLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadSceneList() } catch (e) { ElMessage.error(dramaDetailUserError(e, '删除失败')) }
 }
 
 // 道具
@@ -1716,7 +1814,7 @@ async function loadPropList() {
     propList.value = res?.items ?? []; propTotal.value = res?.pagination?.total ?? 0
     propError.value = ''
   } catch (error) {
-    propError.value = error?.message || '道具库加载失败，请重试'
+    propError.value = dramaDetailUserError(error, '道具库加载失败，请重试', '道具库')
   } finally { propLoading.value = false }
 }
 function onPropKwInput() { if (propKwTimer) clearTimeout(propKwTimer); propKwTimer = setTimeout(() => { propPage.value = 1; loadPropList() }, 300) }
@@ -1730,11 +1828,11 @@ async function saveProp() {
   try {
     await propLibraryAPI.update(editPropForm.value.id, { name: editPropForm.value.name, category: editPropForm.value.category || null, description: editPropForm.value.description || null, tags: editPropForm.value.tags || null, image_url: editPropForm.value.image_url || null, local_path: editPropForm.value.local_path ?? null })
     ElMessage.success('已保存'); editPropVisible.value = false; loadPropList()
-  } catch (e) { ElMessage.error(e.message || '保存失败') } finally { editPropSaving.value = false }
+  } catch (e) { ElMessage.error(dramaDetailUserError(e, '保存失败')) } finally { editPropSaving.value = false }
 }
 async function deleteProp(item) {
   try { await ElMessageBox.confirm(`确定删除「${(item.name || '未命名').slice(0, 20)}」？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
-  try { await propLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadPropList() } catch (e) { ElMessage.error(e.message || '删除失败') }
+  try { await propLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadPropList() } catch (e) { ElMessage.error(dramaDetailUserError(e, '删除失败')) }
 }
 
 // ---------- 从素材库导入 ----------
@@ -1768,7 +1866,7 @@ async function loadImportList() {
     importTotal.value = res?.pagination?.total ?? 0
     importError.value = ''
   } catch (error) {
-    importError.value = error?.message || '全局素材库加载失败，请重试'
+    importError.value = dramaDetailUserError(error, '全局素材库加载失败，请重试', '素材库')
   } finally { importLoading.value = false }
 }
 
@@ -1822,7 +1920,7 @@ async function doImport(item) {
     }
     ElMessage.success('已导入到本剧资源库')
   } catch (e) {
-    ElMessage.error(e.message || '导入失败')
+    ElMessage.error(dramaDetailUserError(e, '导入失败', '素材库'))
   } finally {
     importingId.value = null
   }

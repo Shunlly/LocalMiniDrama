@@ -46,6 +46,17 @@
         <h2>{{ networkImportFeedback.title }}</h2>
         <p>{{ networkImportFeedback.detail }}</p>
       </div>
+      <el-button
+        v-if="networkImportRetryItem"
+        type="primary"
+        plain
+        :loading="isNetworkImporting(networkImportRetryItem)"
+        :disabled="isNetworkImporting(networkImportRetryItem) || !networkItemImportability(networkImportRetryItem).allowed"
+        aria-label="重试导入该网络素材"
+        @click="importNetworkItem(networkImportRetryItem)"
+      >
+        <el-icon><Refresh /></el-icon>重试导入
+      </el-button>
     </section>
 
     <template v-if="libraryMode === 'local'">
@@ -302,17 +313,21 @@
         {{ networkSearchAnnouncement }}
       </p>
 
-      <section v-if="networkError" class="network-state network-state--error" role="alert">
+      <section v-if="networkError" class="network-state network-state--error" role="alert" aria-live="assertive">
         <div>
           <h2>网络素材搜索失败</h2>
           <p>{{ networkError }}</p>
         </div>
         <el-button
+          type="primary"
           plain
           :loading="networkLoading"
           :disabled="!networkKeyword.trim()"
+          aria-label="重试搜索网络素材"
           @click="searchNetworkMedia"
-        >重试</el-button>
+        >
+          <el-icon><Refresh /></el-icon>重试
+        </el-button>
       </section>
 
       <div v-loading="networkLoading" class="network-grid" :aria-busy="networkLoading">
@@ -389,7 +404,7 @@
           <h2>没有找到匹配的网络素材</h2>
           <p>请更换关键词或素材类型后重试。</p>
         </div>
-        <div v-else-if="!networkLoading && !networkError && !networkSearched" class="network-empty">
+        <div v-else-if="!networkLoading && !networkError && !networkSearched" class="network-empty" role="status">
           <el-icon><Search /></el-icon>
           <h2>搜索可导入的网络素材</h2>
           <p>结果会在这里显示，并附带来源和许可信息。</p>
@@ -527,6 +542,7 @@ import { mediaLibraryAPI, importNetworkAssetAndConfirm } from '@/api/mediaLibrar
 import { uploadAPI } from '@/api/upload'
 import request from '@/utils/request'
 import { describeServiceLoadError, isRequestCanceled, withRequestRetry } from '@/utils/requestError'
+import { describeMediaLibraryUserError, isMediaLibraryUserAbort } from '@/utils/mediaLibraryUserError'
 import { normalizeMediaLibraryReturnTo } from '@/router'
 import {
   createLatestMediaRequestGuard,
@@ -565,6 +581,7 @@ const uploading = ref(false)
 const uploadProgress = ref({ current: 0, total: 0 })
 const uploadFeedback = ref(null)
 const networkImportFeedback = ref(null)
+const networkImportRetryItem = ref(null)
 const mediaItems = ref([])
 const mediaType = ref('all')
 const keyword = ref('')
@@ -796,7 +813,7 @@ async function loadMedia() {
 }
 
 function describeNetworkError(error, fallback) {
-  return describeServiceLoadError(error, { serviceLabel: '网络素材服务', fallback })
+  return describeMediaLibraryUserError(error, { serviceLabel: '网络素材服务', fallback })
 }
 
 function mediaOriginLabel(item) {
@@ -900,7 +917,7 @@ async function searchNetworkMedia() {
       networkSearched.value = true
     })
   } catch (error) {
-    if (isRequestCanceled(error)) return
+    if (isMediaLibraryUserAbort(error)) return
     networkRequestGuard.commit(requestId, () => {
       networkItems.value = []
       networkSearched.value = true
@@ -937,6 +954,7 @@ async function importNetworkItem(item) {
   }
   await runMediaOperationOnce(networkImportingKeys, key, async () => {
     networkImportFeedback.value = null
+    networkImportRetryItem.value = null
     try {
       const result = await importNetworkAssetAndConfirm({
         item,
@@ -954,6 +972,8 @@ async function importNetworkItem(item) {
         ElMessage.error(networkImportFeedback.value.detail)
       }
     } catch (error) {
+      if (isMediaLibraryUserAbort(error)) return
+      networkImportRetryItem.value = item
       networkImportFeedback.value = buildMediaLibraryNetworkImportFeedback({
         status: 'failed',
         item,
@@ -1529,6 +1549,11 @@ onBeforeUnmount(() => {
 
 .upload-feedback--error {
   border-left-color: var(--el-color-danger);
+}
+
+.network-state > .el-button,
+.upload-feedback > .el-button {
+  flex-shrink: 0;
 }
 
 .upload-feedback h2,

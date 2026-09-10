@@ -1,3 +1,4 @@
+import { finalizeFetchRequestFailure, prepareFetchRequest } from './coreJsonRequest.js'
 import {
   createTimeoutController,
   DEFAULT_DOWNLOAD_TIMEOUT_MS,
@@ -61,46 +62,99 @@ export async function fetchVerifiedVideoBlob(url, fetchImpl = globalThis.fetch, 
     options.timeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS,
     options.signal,
   )
+  const config = prepareFetchRequest({
+    method: 'GET',
+    url: source,
+    headers: { Accept: 'video/*, application/octet-stream;q=0.9' },
+    signal: timeout.signal,
+    suppressErrorToast: options.suppressErrorToast !== false,
+  })
+
+  const reportAndThrow = (error) => {
+    error.config = error.config || config
+    throw finalizeFetchRequestFailure(error, { signal: timeout.signal })
+  }
 
   try {
     let response
     try {
+      if (timeout.signal.aborted) {
+        const aborted = timeout.signal.reason instanceof Error
+          ? timeout.signal.reason
+          : new Error(timeout.didTimeout() ? '成片下载超时，请稍后重试。' : '成片下载已取消。')
+        throw aborted
+      }
       response = await fetchImpl(source, {
         method: 'GET',
         credentials: 'same-origin',
         signal: timeout.signal,
-        headers: { Accept: 'video/*, application/octet-stream;q=0.9' },
+        headers: config.headers,
       })
     } catch (error) {
-      if (timeout.didTimeout() || isRequestTimeout(error)) throw new Error('成片下载超时，请稍后重试。')
-      if (isRequestCanceled(error) || options.signal?.aborted) throw new Error('成片下载已取消。')
-      throw new Error('无法连接本地服务，成片下载未开始。')
+      if (timeout.didTimeout() || isRequestTimeout(error, timeout.signal)) {
+        const timeoutError = new Error('成片下载超时，请稍后重试。')
+        timeoutError.isTimeout = true
+        timeoutError.code = 'ECONNABORTED'
+        reportAndThrow(timeoutError)
+      }
+      if (isRequestCanceled(error, timeout.signal) || options.signal?.aborted) {
+        const cancelError = new Error('成片下载已取消。')
+        cancelError.name = 'AbortError'
+        cancelError.code = 'ERR_CANCELED'
+        reportAndThrow(cancelError)
+      }
+      const networkError = new Error('无法连接本地服务，成片下载未开始。')
+      networkError.code = 'ERR_NETWORK'
+      reportAndThrow(networkError)
     }
 
     if (!response?.ok) {
       const status = Number(response?.status)
       const suffix = Number.isFinite(status) && status > 0 ? `（HTTP ${status}）` : ''
-      throw new Error(`服务器暂时无法提供成片${suffix}。`)
+      const httpError = new Error(`服务器暂时无法提供成片${suffix}。`)
+      httpError.status = Number.isFinite(status) && status > 0 ? status : 0
+      httpError.response = { status: httpError.status, data: null, headers: response?.headers }
+      reportAndThrow(httpError)
     }
 
     const contentType = response.headers?.get?.('content-type') || ''
     if (isJsonVideoDownloadType(contentType)) {
-      throw new Error('服务器返回了错误信息，未下载任何文件。')
+      const jsonError = new Error('服务器返回了错误信息，未下载任何文件。')
+      jsonError.status = Number(response.status) || 0
+      jsonError.response = { status: jsonError.status, data: null, headers: response.headers }
+      reportAndThrow(jsonError)
     }
 
     let blob
     try {
       blob = await response.blob()
     } catch (error) {
-      if (timeout.didTimeout() || isRequestTimeout(error)) throw new Error('成片下载超时，请稍后重试。')
-      if (isRequestCanceled(error) || options.signal?.aborted) throw new Error('成片下载已取消。')
-      throw new Error('无法读取成片文件，请重试。')
+      if (timeout.didTimeout() || isRequestTimeout(error, timeout.signal)) {
+        const timeoutError = new Error('成片下载超时，请稍后重试。')
+        timeoutError.isTimeout = true
+        timeoutError.code = 'ECONNABORTED'
+        reportAndThrow(timeoutError)
+      }
+      if (isRequestCanceled(error, timeout.signal) || options.signal?.aborted) {
+        const cancelError = new Error('成片下载已取消。')
+        cancelError.name = 'AbortError'
+        cancelError.code = 'ERR_CANCELED'
+        reportAndThrow(cancelError)
+      }
+      const readError = new Error('无法读取成片文件，请重试。')
+      reportAndThrow(readError)
     }
     if (!blob || !Number.isFinite(blob.size) || blob.size <= 0) {
-      throw new Error('成片文件为空，未下载任何文件。')
+      const emptyError = new Error('成片文件为空，未下载任何文件。')
+      emptyError.status = Number(response.status) || 0
+      emptyError.response = { status: emptyError.status, data: null, headers: response.headers }
+      reportAndThrow(emptyError)
     }
     if (isJsonVideoDownloadType(blob.type) || await blobContainsJsonPayload(blob)) {
-      throw new Error('服务器返回了错误信息，未下载任何文件。')
+      const jsonError = new Error('服务器返回了错误信息，未下载任何文件。')
+      jsonError.status = Number(response.status) || 0
+      jsonError.response = { status: jsonError.status, data: null, headers: response.headers }
+      reportAndThrow(jsonError)
     }
     return blob
   } finally {

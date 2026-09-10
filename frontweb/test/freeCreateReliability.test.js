@@ -11,6 +11,11 @@ import {
   normalizeFreeCreateAspectRatio,
   parseFreeCreateTaskResult,
 } from '../src/utils/freeCreate.js'
+import {
+  describeServiceLoadError,
+  isRequestCanceled,
+  isRequestTimeout,
+} from '../src/utils/requestError.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
@@ -220,4 +225,87 @@ test('FreeCreate keeps retry and ratio controls keyboard operable', () => {
     /watch\(mode, \(nextMode\) => \{\s*aspectRatio\.value = normalizeFreeCreateAspectRatio\(nextMode, aspectRatio\.value\)\s*\}, \{ immediate: true \}\)/,
   )
   assert.match(videosApiSource, /get\(id\)\s*\{\s*return request\.get\(`\/videos\/\$\{id\}`\)\s*\}/)
+})
+
+function loadFreeCreateUserErrorHelper() {
+  const start = freeCreateSource.indexOf('const TECHNICAL_ENGLISH_RE')
+  const end = freeCreateSource.indexOf('const activeServiceType')
+  assert.ok(start >= 0 && end > start, '必须能提取自由创作错误转义函数')
+  const factory = new Function(
+    'describeServiceLoadError',
+    'isRequestCanceled',
+    'isRequestTimeout',
+    `${freeCreateSource.slice(start, end)}\nreturn { toFreeCreateUserError }`,
+  )
+  return factory(describeServiceLoadError, isRequestCanceled, isRequestTimeout)
+}
+
+test('自由创作空态区分加载、失败和未配置，失败时可重新检查', () => {
+  assert.match(freeCreateSource, /const emptyResultCopy = computed/)
+  assert.match(freeCreateSource, /填写提示词后，生成结果会显示在这里/)
+  assert.match(freeCreateSource, /暂时无法读取\$\{activeServiceLabel\.value\}服务配置，因此还不能生成。/)
+  assert.match(freeCreateSource, /请先配置可用的\$\{activeServiceLabel\.value\}服务，生成结果会显示在这里/)
+  assert.match(freeCreateSource, /v-if="generationCapability.status === 'error'"[\s\S]*重新检查服务/)
+  assert.match(freeCreateSource, /v-if="generationCapability.status === 'error'"[\s\S]*@click="loadServiceConfigs"[\s\S]*重新检查/)
+  assert.match(freeCreateSource, /results\.length === 0 && !generating/)
+})
+
+test('生成按钮禁用原因可见，而不是只写在 title 里', () => {
+  assert.match(freeCreateSource, /class="generate-disabled-reason"/)
+  assert.match(freeCreateSource, /data-testid="generate-disabled-reason"/)
+  assert.match(freeCreateSource, /id="free-create-generate-reason"/)
+  assert.match(
+    freeCreateSource,
+    /const generateDisabledReason = computed\(\(\) => \{[\s\S]*if \(generating\.value\) return ''[\s\S]*if \(!generationCapability\.value\.ready\) return generationCapability\.value\.message[\s\S]*if \(referenceUploadBlockReason\.value\) return referenceUploadBlockReason\.value[\s\S]*if \(!prompt\.value\.trim\(\)\) return '请先填写提示词'/,
+  )
+  assert.match(freeCreateSource, /mode\.value === 'video'[\s\S]*getReferenceUploadBlockReason/)
+})
+
+test('生成失败和取消后可以按原参数重试', () => {
+  assert.match(freeCreateSource, /async function retryGeneration\(item\)/)
+  assert.match(freeCreateSource, /async function runGeneration\(item\)/)
+  assert.match(freeCreateSource, /item\.status === 'failed'[\s\S]*@click="retryGeneration\(item\)"[\s\S]*>\s*重试\s*<\/el-button>/)
+  assert.match(freeCreateSource, /item\.status === 'cancelled'[\s\S]*@click="retryGeneration\(item\)"[\s\S]*>\s*重试\s*<\/el-button>/)
+  assert.match(freeCreateSource, /referenceImageLocalPath: mode\.value === 'video' \? \(refImageLocalPath\.value \|\| null\) : null/)
+  assert.match(freeCreateSource, /ElMessage\.warning\('请等待当前生成完成后再重试'\)/)
+  assert.equal(
+    (freeCreateSource.match(/freeCreateTaskOwner\.trackSubmission\(run,/g) || []).length,
+    2,
+  )
+})
+
+test('页面错误转义会吃掉英文技术信息，保留中文业务错误', () => {
+  const { toFreeCreateUserError } = loadFreeCreateUserErrorHelper()
+  assert.equal(toFreeCreateUserError('任务完成但未返回图片地址'), '任务完成但未返回图片地址')
+  assert.equal(toFreeCreateUserError(new Error('Network Error')), '无法连接自由创作服务，请检查服务是否已启动')
+  assert.equal(toFreeCreateUserError(new Error('timeout of 15000ms exceeded')), '连接自由创作服务超时，请稍后重试')
+  assert.equal(toFreeCreateUserError(new Error('Internal Server Error')), '生成失败，请稍后重试')
+  assert.equal(
+    toFreeCreateUserError({ response: { status: 502, data: { error: { message: 'Bad Gateway' } } } }),
+    '自由创作服务暂时不可用（HTTP 502）',
+  )
+  assert.equal(
+    toFreeCreateUserError({ response: { data: { error: { message: '当前模型额度不足' } } } }),
+    '当前模型额度不足',
+  )
+  assert.match(freeCreateSource, /failResultItem\(item, e\)/)
+  assert.match(freeCreateSource, /lastPollError = toFreeCreateUserError\(error, '任务状态读取失败'\)/)
+  assert.doesNotMatch(freeCreateSource, /newItem\.error = e\.message \|\| '生成失败'/)
+})
+
+test('离开保护会确认取消生成，并登记到应用级卸载拦截', () => {
+  assert.match(
+    freeCreateSource,
+    /window\.confirm\('正在生成，离开将取消当前任务。仍要离开吗？'\)/,
+  )
+  assert.match(
+    freeCreateSource,
+    /leaveProtection\?\.register\?\.\('free-create', \{[\s\S]*shouldBlockUnload:[\s\S]*confirmLeave:/,
+  )
+  assert.match(freeCreateSource, /unregisterLeaveProtection\?\.\(\)/)
+  assert.match(
+    freeCreateSource,
+    /onBeforeRouteLeave\(async \(\) =>[\s\S]*return cancelActiveGeneration\('用户离开自由创作页面'\)/,
+  )
+  assert.match(freeCreateSource, /window\.addEventListener\('beforeunload', handleBeforeUnload\)/)
 })

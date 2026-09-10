@@ -169,3 +169,33 @@ test('withRequestRetry aborts its retry delay without another attempt', async ()
   assert.equal(attempts, 1)
   assert.ok(Date.now() - startedAt < 200, 'abort must clear the pending retry timer')
 })
+
+test('4xx 业务中文错误保持原文，不会被当成无法连接服务', () => {
+  const error = {
+    status: 400,
+    response: {
+      status: 400,
+      data: { success: false, error: { code: 'BAD_REQUEST', message: '名称不能为空' } },
+    },
+  }
+  assert.equal(classifyRequestError(error), REQUEST_ERROR_CATEGORY.HTTP_4XX)
+  assert.equal(describeServiceLoadError(error, { serviceLabel: '服务' }), '名称不能为空')
+  assert.equal(isRequestCanceled(error), false)
+  assert.equal(isRequestTimeout(error), false)
+  assert.doesNotMatch(describeServiceLoadError(error), /无法连接服务/)
+})
+
+test('带 isTimeout 的 PROJECT_LOAD_FAILED 仍是超时而不是取消', () => {
+  const error = Object.assign(new Error('PROJECT_LOAD_FAILED'), {
+    status: 0,
+    isTimeout: true,
+    code: 'ECONNABORTED',
+  })
+  assert.equal(isRequestTimeout(error), true)
+  assert.equal(isRequestCanceled(error), false)
+  assert.equal(classifyRequestError(error), REQUEST_ERROR_CATEGORY.TIMEOUT)
+  assert.equal(
+    describeServiceLoadError(error, { serviceLabel: '服务' }),
+    '连接服务超时，请稍后重试',
+  )
+})

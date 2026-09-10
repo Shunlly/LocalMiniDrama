@@ -40,6 +40,14 @@
           </el-icon>
           <span>{{ generationCapability.message }}</span>
           <el-button
+            v-if="generationCapability.status === 'error'"
+            link
+            type="primary"
+            @click="loadServiceConfigs"
+          >
+            重新检查
+          </el-button>
+          <el-button
             v-if="generationCapability.status !== 'loading' && !generationCapability.ready"
             link
             type="primary"
@@ -184,17 +192,33 @@
           </div>
         </div>
 
-        <el-button
-          type="primary"
-          size="large"
-          :loading="generating"
-          :disabled="generateDisabled"
-          :title="generateDisabledReason"
-          class="generate-btn"
-          @click="generate"
+        <div
+          class="generate-action"
+          :tabindex="generateDisabledReason ? 0 : undefined"
+          :aria-label="generateDisabledReason ? `${mode === 'image' ? '生成图片' : '生成视频'}不可用：${generateDisabledReason}` : undefined"
         >
-          {{ generating ? '生成中...' : (mode === 'image' ? '生成图片' : '生成视频') }}
-        </el-button>
+          <el-button
+            type="primary"
+            size="large"
+            :loading="generating"
+            :disabled="generateDisabled"
+            :title="generateDisabledReason"
+            :aria-describedby="generateDisabledReason ? 'free-create-generate-reason' : undefined"
+            class="generate-btn"
+            @click="generate"
+          >
+            {{ generating ? '生成中...' : (mode === 'image' ? '生成图片' : '生成视频') }}
+          </el-button>
+          <p
+            v-if="generateDisabledReason"
+            id="free-create-generate-reason"
+            class="generate-disabled-reason"
+            data-testid="generate-disabled-reason"
+            role="status"
+          >
+            {{ generateDisabledReason }}
+          </p>
+        </div>
       </div>
 
       <!-- 右侧：结果展示 -->
@@ -218,7 +242,16 @@
             <Picture v-if="mode === 'image'" />
             <VideoCamera v-else />
           </el-icon>
-          <p>填写提示词后，生成结果会显示在这里</p>
+          <p>{{ emptyResultCopy }}</p>
+          <el-button
+            v-if="generationCapability.status === 'error'"
+            size="small"
+            type="primary"
+            plain
+            @click="loadServiceConfigs"
+          >
+            重新检查服务
+          </el-button>
         </div>
 
         <div v-if="generating" class="generating-tip">
@@ -263,10 +296,42 @@
               <div v-else-if="item.status === 'failed'" class="media-error">
                 <el-icon><CircleClose /></el-icon>
                 <span>{{ item.error || '生成失败' }}</span>
+                <el-button
+                  size="small"
+                  type="primary"
+                  plain
+                  :disabled="generating || cancelling"
+                  @click="retryGeneration(item)"
+                >
+                  重试
+                </el-button>
               </div>
               <div v-else-if="item.status === 'cancelled'" class="media-cancelled">
                 <el-icon><CircleClose /></el-icon>
                 <span>{{ item.error || '生成已取消' }}</span>
+                <el-button
+                  size="small"
+                  type="primary"
+                  plain
+                  :disabled="generating || cancelling"
+                  @click="retryGeneration(item)"
+                >
+                  重试
+                </el-button>
+              </div>
+              <div v-else class="media-error">
+                <el-icon><CircleClose /></el-icon>
+                <span>{{ item.error || '暂无生成结果' }}</span>
+                <el-button
+                  v-if="canRetryItem(item)"
+                  size="small"
+                  type="primary"
+                  plain
+                  :disabled="generating || cancelling"
+                  @click="retryGeneration(item)"
+                >
+                  重试
+                </el-button>
               </div>
             </div>
             <div class="result-meta">
@@ -289,7 +354,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, CircleCheck, Picture, Loading, CircleClose, VideoCamera, Warning } from '@element-plus/icons-vue'
@@ -301,6 +366,7 @@ import { uploadAPI } from '@/api/upload'
 import { generationSettingsAPI } from '@/api/prompts'
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import { getServiceConfigReadiness } from '@/utils/aiServiceReadiness'
+import { describeServiceLoadError, isRequestCanceled, isRequestTimeout } from '@/utils/requestError'
 import {
   buildFreeCreateGenerationPayload,
   createFreeCreateTaskOwner,
@@ -339,6 +405,53 @@ const configLoadState = ref('loading')
 const freeCreateTaskOwner = createFreeCreateTaskOwner((taskId, body) => (
   taskAPI.cancel(taskId, body, { suppressErrorToast: true })
 ))
+const leaveProtection = inject('appRouteLeaveProtection', null)
+let unregisterLeaveProtection = null
+const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|load failed|internal server error|econnrefused|enotfound/i
+const UNSET_ERROR = '\0'
+
+function hasChineseText(text) {
+  return /[\u4e00-\u9fff]/.test(String(text || ''))
+}
+
+function readErrorText(error) {
+  if (typeof error === 'string') return error.trim()
+  if (!error || typeof error !== 'object') return ''
+  return String(error.message || error.error || '').trim()
+}
+
+function toFreeCreateUserError(error, fallback = '生成失败，请稍后重试') {
+  if (error == null || error === '') return fallback
+  if (error === 'cancel' || isRequestCanceled(error)) return '操作已取消'
+
+  const raw = readErrorText(error)
+  if (raw && hasChineseText(raw) && !TECHNICAL_ENGLISH_RE.test(raw)) return raw
+
+  if (error && typeof error === 'object') {
+    const backendMessage = error?.response?.data?.error?.message
+    if (backendMessage && hasChineseText(backendMessage) && !TECHNICAL_ENGLISH_RE.test(String(backendMessage))) {
+      return String(backendMessage).trim()
+    }
+    const described = describeServiceLoadError(error, {
+      serviceLabel: '自由创作服务',
+      fallback: UNSET_ERROR,
+    })
+    if (described && described !== UNSET_ERROR && hasChineseText(described) && !TECHNICAL_ENGLISH_RE.test(described)) {
+      return described
+    }
+    const status = Number(error?.status || error?.response?.status)
+    if (Number.isInteger(status) && status > 0) return `自由创作服务暂时不可用（HTTP ${status}）`
+    if (isRequestTimeout(error)) return '连接自由创作服务超时，请稍后重试'
+  }
+
+  if (raw && TECHNICAL_ENGLISH_RE.test(raw)) {
+    if (/timeout/i.test(raw)) return '连接自由创作服务超时，请稍后重试'
+    if (/network error|failed to fetch|err_network|econnrefused|enotfound/i.test(raw)) {
+      return '无法连接自由创作服务，请检查服务是否已启动'
+    }
+  }
+  return fallback
+}
 
 const activeServiceType = computed(() => mode.value === 'video' ? 'video' : 'image')
 const activeServiceLabel = computed(() => mode.value === 'video' ? '视频' : '图片')
@@ -382,10 +495,14 @@ const generationCapability = computed(() => {
     message: issueMessage || `${activeServiceLabel.value}服务尚未就绪`,
   }
 })
-const referenceUploadBlockReason = computed(() => getReferenceUploadBlockReason(
-  refImageUploadStatus.value,
-  refImageUploadError.value,
-  refImageLocalPath.value,
+const referenceUploadBlockReason = computed(() => (
+  mode.value === 'video'
+    ? getReferenceUploadBlockReason(
+      refImageUploadStatus.value,
+      refImageUploadError.value,
+      refImageLocalPath.value,
+    )
+    : ''
 ))
 const refImageTriggerLabel = computed(() => {
   if (refImageUploadStatus.value === 'uploading') return '视频参考图正在上传'
@@ -409,10 +526,23 @@ const generateDisabled = computed(() => (
   || Boolean(referenceUploadBlockReason.value)
 ))
 const generateDisabledReason = computed(() => {
-  if (!prompt.value.trim()) return '请先填写提示词'
-  if (referenceUploadBlockReason.value) return referenceUploadBlockReason.value
+  if (generating.value) return ''
   if (!generationCapability.value.ready) return generationCapability.value.message
+  if (referenceUploadBlockReason.value) return referenceUploadBlockReason.value
+  if (!prompt.value.trim()) return '请先填写提示词'
   return ''
+})
+const emptyResultCopy = computed(() => {
+  if (generationCapability.value.status === 'loading') {
+    return `正在检查${activeServiceLabel.value}服务，就绪后即可在这里查看生成结果`
+  }
+  if (generationCapability.value.status === 'error') {
+    return `暂时无法读取${activeServiceLabel.value}服务配置，因此还不能生成。`
+  }
+  if (!generationCapability.value.ready) {
+    return `请先配置可用的${activeServiceLabel.value}服务，生成结果会显示在这里`
+  }
+  return '填写提示词后，生成结果会显示在这里'
 })
 
 watch(mode, (nextMode) => {
@@ -458,6 +588,12 @@ function openAiConfig() {
 
 onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
+  unregisterLeaveProtection = leaveProtection?.register?.('free-create', {
+    shouldBlockUnload: () => (
+      refImageUploadStatus.value === 'uploading' || freeCreateTaskOwner.hasActive()
+    ),
+    confirmLeave: () => confirmFreeCreateLeave(),
+  })
   const requestedMode = Array.isArray(route.query.mode) ? route.query.mode[0] : route.query.mode
   if (requestedMode === 'image' || requestedMode === 'video') mode.value = requestedMode
   await Promise.all([loadGenerationSettings(), loadServiceConfigs()])
@@ -465,6 +601,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  unregisterLeaveProtection?.()
+  unregisterLeaveProtection = null
 })
 
 onBeforeRouteLeave(async () => {
@@ -473,8 +611,19 @@ onBeforeRouteLeave(async () => {
     return false
   }
   if (!freeCreateTaskOwner.hasActive()) return true
+  if (!window.confirm('正在生成，离开将取消当前任务。仍要离开吗？')) return false
   return cancelActiveGeneration('用户离开自由创作页面')
 })
+
+async function confirmFreeCreateLeave() {
+  if (refImageUploadStatus.value === 'uploading') {
+    ElMessage.warning('参考图正在上传，请完成后再离开。')
+    return false
+  }
+  if (!freeCreateTaskOwner.hasActive()) return true
+  if (!window.confirm('正在生成，离开将取消当前任务。仍要离开吗？')) return false
+  return cancelActiveGeneration('用户离开自由创作页面')
+}
 
 function handleBeforeUnload(event) {
   if (refImageUploadStatus.value !== 'uploading' && !freeCreateTaskOwner.hasActive()) return
@@ -569,7 +718,7 @@ async function processRefImageFile(file) {
     refImageUploadStatus.value = 'success'
     return true
   } catch (error) {
-    await showReferenceUploadError(error?.message || '上传失败，请重试或移除', attemptId)
+    await showReferenceUploadError(toFreeCreateUserError(error, '上传失败，请重试或移除'), attemptId)
     return false
   }
 }
@@ -607,7 +756,7 @@ async function cancelActiveGeneration(reason = '用户取消生成') {
     return true
   } catch (error) {
     generating.value = true
-    ElMessage.error(`取消失败：${error?.message || '请稍后重试'}`)
+    ElMessage.error(`取消失败：${toFreeCreateUserError(error, '请稍后重试')}`)
     return false
   } finally {
     cancelling.value = false
@@ -635,6 +784,26 @@ function downloadItem(item) {
   a.click()
 }
 
+function canRetryItem(item) {
+  if (!item) return false
+  if (item.status === 'processing' || item.status === 'pending') return false
+  return item.status === 'failed' || item.status === 'cancelled' || !item.url
+}
+
+function createGenerationItem() {
+  return {
+    type: mode.value,
+    prompt: prompt.value,
+    style: style.value,
+    aspectRatio: aspectRatio.value,
+    duration: duration.value,
+    referenceImageLocalPath: mode.value === 'video' ? (refImageLocalPath.value || null) : null,
+    status: 'processing',
+    url: null,
+    error: null,
+  }
+}
+
 async function generate() {
   if (!prompt.value.trim()) return
   if (referenceUploadBlockReason.value) {
@@ -646,67 +815,81 @@ async function generate() {
     return
   }
   if (freeCreateTaskOwner.hasActive()) return
+  const item = createGenerationItem()
+  results.value.unshift(item)
+  await runGeneration(item)
+}
 
-  const generationMode = mode.value
-  const generationPrompt = prompt.value
-  const generationStyle = style.value
-  const newItem = {
-    type: generationMode,
-    prompt: generationPrompt,
-    style: generationStyle,
-    status: 'processing',
-    url: null,
-    error: null,
+async function retryGeneration(item) {
+  if (!canRetryItem(item)) return
+  if (generating.value || cancelling.value || freeCreateTaskOwner.hasActive()) {
+    ElMessage.warning('请等待当前生成完成后再重试')
+    return
   }
-  const run = freeCreateTaskOwner.begin({ item: newItem })
+  if (item.type === 'video' || item.type === 'image') mode.value = item.type
+  await nextTick()
+  if (!generationCapability.value.ready) {
+    ElMessage.warning(generationCapability.value.message)
+    return
+  }
+  if (item.type === 'video' && !item.referenceImageLocalPath && referenceUploadBlockReason.value) {
+    ElMessage.error(referenceUploadBlockReason.value)
+    return
+  }
+  await runGeneration(item)
+}
+
+async function runGeneration(item) {
+  if (freeCreateTaskOwner.hasActive()) return
+
+  const run = freeCreateTaskOwner.begin({ item })
   generating.value = true
-  results.value.unshift(newItem)
+  item.status = 'processing'
+  item.url = null
+  item.error = null
   try {
     const body = buildFreeCreateGenerationPayload({
-      mode: generationMode,
-      prompt: generationPrompt,
-      style: generationStyle,
-      aspectRatio: aspectRatio.value,
-      duration: duration.value,
-      referenceUploadStatus: refImageUploadStatus.value,
-      referenceUploadError: refImageUploadError.value,
-      referenceImageLocalPath: refImageLocalPath.value,
+      mode: item.type,
+      prompt: item.prompt,
+      style: item.style,
+      aspectRatio: item.aspectRatio,
+      duration: item.duration,
+      referenceUploadStatus: item.referenceImageLocalPath ? 'success' : 'idle',
+      referenceUploadError: '',
+      referenceImageLocalPath: item.referenceImageLocalPath,
     })
-    if (generationMode === 'image') {
+    if (item.type === 'image') {
       const res = await freeCreateTaskOwner.trackSubmission(run, imagesAPI.create(body))
       if (freeCreateTaskOwner.isActive(run)) activeTaskId.value = run.taskId
       if (await waitForPendingCancellation(run)) return
       if (res?.task_id) {
-        await pollImageTask(res.task_id, newItem, run)
+        await pollImageTask(res.task_id, item, run)
       } else if (res?.image_url || res?.local_path) {
         const localPath = String(res.local_path || '').replace(/^\/+/, '')
-        newItem.url = res.image_url || (localPath ? `/static/${localPath}` : null)
-        newItem.status = 'completed'
+        item.url = res.image_url || (localPath ? `/static/${localPath}` : null)
+        item.status = 'completed'
       } else {
-        newItem.status = 'failed'
-        newItem.error = '提交成功但未返回图片任务或结果'
+        failResultItem(item, '提交成功但未返回图片任务或结果')
       }
     } else {
       const res = await freeCreateTaskOwner.trackSubmission(run, videosAPI.create(body))
       if (freeCreateTaskOwner.isActive(run)) activeTaskId.value = run.taskId
       if (await waitForPendingCancellation(run)) return
       if (res?.task_id) {
-        await pollVideoTask(res.task_id, newItem, run)
+        await pollVideoTask(res.task_id, item, run)
       } else if (res?.video_url || res?.local_path) {
-        newItem.url = res.local_path ? `/static/${String(res.local_path).replace(/^\/+/, '')}` : res.video_url
-        newItem.status = 'completed'
+        item.url = res.local_path ? `/static/${String(res.local_path).replace(/^\/+/, '')}` : res.video_url
+        item.status = 'completed'
       } else {
-        newItem.status = 'failed'
-        newItem.error = '提交成功但未返回视频任务或结果'
+        failResultItem(item, '提交成功但未返回视频任务或结果')
       }
     }
   } catch (e) {
     if (run.cancelRequested || run.cancelConfirmed) {
       markRunCancelled(run)
     } else {
-      newItem.status = 'failed'
-      newItem.error = e.message || '生成失败'
-      ElMessage.error(newItem.error)
+      failResultItem(item, e)
+      ElMessage.error(item.error)
     }
   } finally {
     freeCreateTaskOwner.complete(run)
@@ -723,7 +906,7 @@ function isCancelledTaskStatus(status) {
 
 function failResultItem(item, message) {
   item.status = 'failed'
-  item.error = message || '生成失败'
+  item.error = toFreeCreateUserError(message, '生成失败，请稍后重试')
 }
 
 async function pollImageTask(taskId, item, run, maxMs = 180000) {
@@ -738,7 +921,7 @@ async function pollImageTask(taskId, item, run, maxMs = 180000) {
       res = await taskAPI.get(taskId, { suppressErrorToast: true })
       lastPollError = ''
     } catch (error) {
-      lastPollError = error?.message || '任务状态读取失败'
+      lastPollError = toFreeCreateUserError(error, '任务状态读取失败')
       continue
     }
     if (await waitForPendingCancellation(run)) return
@@ -753,13 +936,13 @@ async function pollImageTask(taskId, item, run, maxMs = 180000) {
         item.status = 'completed'
         return
       } catch (error) {
-        failResultItem(item, error?.message)
+        failResultItem(item, error)
         return
       }
     }
     if (isCancelledTaskStatus(status)) {
       item.status = 'cancelled'
-      item.error = res?.error || res?.message || '生成已取消'
+      item.error = toFreeCreateUserError(res?.error || res?.message, '生成已取消')
       return
     }
     if (status === 'failed') {
@@ -783,7 +966,7 @@ async function pollVideoTask(taskId, item, run) {
       res = await taskAPI.get(taskId, { suppressErrorToast: true })
       lastPollError = ''
     } catch (error) {
-      lastPollError = error?.message || '任务状态读取失败'
+      lastPollError = toFreeCreateUserError(error, '任务状态读取失败')
       continue
     }
     if (await waitForPendingCancellation(run)) return
@@ -801,7 +984,7 @@ async function pollVideoTask(taskId, item, run) {
             const localPath = String(vRes?.local_path || '').replace(/^\/+/, '')
             item.url = localPath ? `/static/${localPath}` : (vRes?.video_url || item.url)
           } catch (error) {
-            lastPollError = error?.message || '视频结果读取失败'
+            lastPollError = toFreeCreateUserError(error, '视频结果读取失败')
             continue
           }
         }
@@ -809,13 +992,13 @@ async function pollVideoTask(taskId, item, run) {
         item.status = 'completed'
         return
       } catch (error) {
-        failResultItem(item, error?.message)
+        failResultItem(item, error)
         return
       }
     }
     if (isCancelledTaskStatus(status)) {
       item.status = 'cancelled'
-      item.error = res?.error || res?.message || '生成已取消'
+      item.error = toFreeCreateUserError(res?.error || res?.message, '生成已取消')
       return
     }
     if (status === 'failed') {
@@ -1095,9 +1278,32 @@ async function pollVideoTask(taskId, item, run) {
   border: 0;
 }
 
-.generate-btn {
+.generate-action {
   width: 100%;
   margin-top: 4px;
+}
+
+.generate-action:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.generate-btn {
+  width: 100%;
+}
+
+.generate-disabled-reason {
+  margin: 8px 0 0;
+  color: #b45309;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.empty-result p {
+  margin: 0;
+  max-width: 22em;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .result-panel {

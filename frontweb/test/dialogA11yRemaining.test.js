@@ -79,6 +79,7 @@ function hasKeyboardSemantics(opening) {
 
 const resourcePanelSource = read('../src/components/filmCreate/FilmCreateResourcePanel.vue')
 const resourceDialogsSource = read('../src/components/filmCreate/FilmCreateResourceDialogs.vue')
+const characterEditDialogSource = read('../src/components/filmCreate/FilmCreateCharacterEditDialog.vue')
 const storyboardDialogsSource = read('../src/components/filmCreate/FilmCreateStoryboardDialogs.vue')
 const novelImportSource = read('../src/components/filmCreate/FilmCreateNovelImportDialog.vue')
 const stylePickerSource = read('../src/components/StylePickerButton.vue')
@@ -95,6 +96,7 @@ const dialogSources = [
   { name: 'CanvasCreateDialog.vue', source: canvasCreateSource },
   { name: 'FilmCreateNovelImportDialog.vue', source: novelImportSource },
   { name: 'FilmCreateResourceDialogs.vue', source: resourceDialogsSource },
+  { name: 'FilmCreateCharacterEditDialog.vue', source: characterEditDialogSource },
   { name: 'FilmCreateStoryboardDialogs.vue', source: storyboardDialogsSource },
   { name: 'FilmCreateScriptWorkbench.vue', source: scriptWorkbenchSource },
   { name: 'GlobalMediaPickerDialog.vue', source: read('../src/components/GlobalMediaPickerDialog.vue') },
@@ -166,6 +168,7 @@ test('表单弹窗禁止点遮罩关闭，图片预览允许遮罩和 ESC 关闭
   assert.doesNotMatch(stylePickerSource, /:close-on-click-modal="true"/)
   assert.doesNotMatch(canvasCreateSource, /:close-on-click-modal="true"/)
   assert.doesNotMatch(resourceDialogsSource, /:close-on-click-modal="true"/)
+  assert.doesNotMatch(characterEditDialogSource, /:close-on-click-modal="true"/)
   assert.doesNotMatch(storyboardDialogsSource, /:close-on-click-modal="true"/)
 })
 

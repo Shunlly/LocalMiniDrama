@@ -85,4 +85,7 @@ test('MediaLibrary 网络导入失败会留下常驻页内反馈', () => {
   assert.match(mediaLibrarySource, /networkImportFeedback\.value = buildMediaLibraryNetworkImportFeedback\(\{/)
   assert.match(mediaLibrarySource, /status: 'unconfirmed'/)
   assert.match(mediaLibrarySource, /status: 'failed'/)
+  assert.match(mediaLibrarySource, /v-if="networkImportRetryItem"/)
+  assert.match(mediaLibrarySource, /networkImportRetryItem\.value = item/)
+  assert.match(mediaLibrarySource, /aria-label="重试导入该网络素材"/)
 })

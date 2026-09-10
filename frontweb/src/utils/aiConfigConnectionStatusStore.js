@@ -1,3 +1,5 @@
+import { createRequestId } from './requestError.js'
+
 const STORAGE_PREFIX = 'lmd-ai-config-connection-status-v2'
 const VALID_STATUSES = new Set(['passed', 'failed'])
 const RUNTIME_SCOPE_PATTERN = /^[A-Za-z0-9._:-]{1,160}$/
@@ -46,7 +48,7 @@ export async function resolveAiConfigConnectionStatusScope({
   try {
     const response = await fetchImpl('/health', {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', 'X-Request-Id': createRequestId() },
       cache: 'no-store',
       signal,
     })

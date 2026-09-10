@@ -20,7 +20,7 @@ test('disabled action gates expose the action name and reason to keyboard users'
   assert.match(actionGateSource, /`\$\{props\.label\}不可用：\$\{props\.reason\}`/)
 
   assert.match(sourceWorkflowSource, /<ActionGate label="导入故事素材" :reason="actionReasons\.import">/)
-  assert.match(sourceWorkflowSource, /<ActionGate label="重试失败步骤" :reason="actionReasons\.retry">/)
+  assert.match(sourceWorkflowSource, /<ActionGate label="重试失败步骤" :reason="controlActionReasons\.retry">/)
   assert.match(sourceWorkflowSource, /<ActionGate label="执行 QA 审计" :reason="actionReasons\.qa">/)
   assert.doesNotMatch(sourceWorkflowSource, /<el-tooltip/)
 })

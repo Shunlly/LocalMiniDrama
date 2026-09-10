@@ -22,6 +22,7 @@ const aiConfigSource = readSource(new URL('../src/components/AIConfigContent.vue
 const pipelinePanelSource = readSource(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url))
 const videoSettingsSource = readSource(new URL('../src/components/filmCreate/FilmCreateVideoSettingsPanel.vue', import.meta.url))
 const aiConfigDialogSource = readSource(new URL('../src/components/filmCreate/FilmCreateAiConfigDialog.vue', import.meta.url))
+const aiConfigDialogStateSource = readSource(new URL('../src/composables/filmCreate/useFilmCreateAiConfigDialogState.js', import.meta.url))
 const themeSource = readSource(new URL('../src/styles/theme.css', import.meta.url))
 const mainSource = readSource(new URL('../src/main.js', import.meta.url))
 const aiDialogHostSelector = ':is(.el-dialog.ai-config-workspace-dialog, .el-dialog:has(> .el-dialog__body > .ai-config-content))'
@@ -553,7 +554,8 @@ test('FilmCreate AI config returns to production and refreshes changed readiness
   assert.match(aiConfigDialogSource, /<strong :id="titleId" :class="\[titleClass, 'ai-config-dialog-title'\]">AI 配置<\/strong>/)
   assert.match(filmCreateSource, /@back="requestAiConfigWorkspaceClose"/)
   assert.match(filmCreateSource, /@configuration-changed="onAiConfigurationChanged"/)
-  assert.match(filmCreateSource, /const aiConfigChanged = ref\(false\)/)
+  assert.match(aiConfigDialogStateSource, /const aiConfigChanged = ref\(false\)/)
+  assert.match(filmCreateSource, /aiConfigChanged,/)
 
   const videoGate = deferred()
   const productionGate = deferred()
@@ -620,8 +622,10 @@ test('pipeline-owned AI recovery restores focus to a stable exposed summary', as
   assert.match(pipelinePanelSource, /emit\(action\.event, action\.payload, \{ source: 'compact-action' \}\)/)
   assert.match(filmCreateSource, /<FilmCreatePipelinePanel\s+ref="pipelinePanelRef"/)
   assert.match(filmCreateSource, /@open-ai-config="openAiConfigFromPipeline"/)
-  assert.match(filmCreateSource, /const pipelinePanelRef = ref\(null\)/)
-  assert.match(filmCreateSource, /const aiConfigOpenedFromPipelineAction = ref\(false\)/)
+  assert.match(aiConfigDialogStateSource, /const pipelinePanelRef = ref\(null\)/)
+  assert.match(aiConfigDialogStateSource, /const aiConfigOpenedFromPipelineAction = ref\(false\)/)
+  assert.match(filmCreateSource, /pipelinePanelRef,/)
+  assert.match(filmCreateSource, /aiConfigOpenedFromPipelineAction,/)
 
   const scope = effectScope()
   try {

@@ -68,7 +68,12 @@
               <div>
                 <div class="coverage-title-row">
                   <h2 id="ai-service-coverage-title">AI 服务配置与验证</h2>
-                  <el-tag :type="serviceCoverage.ready ? 'success' : 'warning'" size="small" effect="light">
+                  <el-tag
+                    v-if="!configListPendingEmpty && !configListFailedEmpty"
+                    :type="serviceCoverage.ready ? 'success' : 'warning'"
+                    size="small"
+                    effect="light"
+                  >
                     {{ serviceCoverage.readyCount }}/{{ serviceCoverage.totalCount }} 类可用
                   </el-tag>
                 </div>
@@ -76,6 +81,28 @@
               </div>
               <span class="coverage-test-note">连接测试结果来自后端记录或此设备保存的最近结果</span>
             </div>
+            <div
+              v-if="configListPendingEmpty"
+              class="coverage-unresolved-state"
+              role="status"
+              aria-live="polite"
+            >
+              正在读取 AI 配置...
+            </div>
+            <div
+              v-else-if="configListFailedEmpty"
+              class="coverage-unresolved-state coverage-unresolved-state--error"
+              role="alert"
+            >
+              <div class="coverage-unresolved-copy">
+                <strong>暂时无法确认服务状态</strong>
+                <span>配置列表还没有成功加载，当前不能判断五类服务是否已配置。</span>
+              </div>
+              <el-button size="small" type="primary" plain :loading="loading || vendorLockLoading" @click="retryConfigDependencies">
+                重试
+              </el-button>
+            </div>
+            <template v-else>
             <div class="coverage-summary-strip">
               <div
                 v-for="card in coverageSummaryCards"
@@ -151,6 +178,7 @@
                 </span>
               </article>
             </div>
+            </template>
           </section>
           </div>
 
@@ -283,13 +311,20 @@
             <template #empty>
               <div class="config-empty-state">
                 <el-icon class="config-empty-icon"><MagicStick /></el-icon>
-                <strong>{{ activeServiceFilter ? `暂无${serviceTypeLabel(activeServiceFilter)}配置` : '还没有 AI 服务配置' }}</strong>
-                <span>
-                  {{ activeServiceFilter ? '添加一个配置并设为默认，即可用于对应生成环节。' : '先添加文本、图片或视频厂商，生成流程会自动使用默认配置。' }}
-                </span>
+                <strong>{{ configEmptyTitle }}</strong>
+                <span>{{ configEmptyDescription }}</span>
                 <div class="config-empty-actions">
                   <el-button
-                    v-if="!vendorLock.enabled"
+                    v-if="configListFailedEmpty"
+                    type="primary"
+                    size="small"
+                    :loading="loading || vendorLockLoading"
+                    @click="retryConfigDependencies"
+                  >
+                    重试
+                  </el-button>
+                  <el-button
+                    v-else-if="!vendorLock.enabled && !configListPendingEmpty"
                     type="primary"
                     size="small"
                     :disabled="configWriteLocked"
@@ -298,7 +333,7 @@
                     <el-icon><Plus /></el-icon>
                     {{ activeServiceFilter ? `添加${serviceTypeLabel(activeServiceFilter)}配置` : '添加第一个配置' }}
                   </el-button>
-                  <el-button v-if="activeServiceFilter" size="small" @click="clearServiceFilter">查看全部</el-button>
+                  <el-button v-if="activeServiceFilter && !configListFailedEmpty" size="small" @click="clearServiceFilter">查看全部</el-button>
                 </div>
               </div>
             </template>
@@ -476,6 +511,9 @@
               v-model="form.default_model"
               data-ai-config-field="default_model"
               clearable
+              filterable
+              default-first-option
+              placeholder="搜索或选择已有模型"
               style="width: 100%"
               :aria-invalid="isConfigFieldInvalid('default_model') || isDefaultModelUnavailable"
               :aria-describedby="configFieldDescriptionId('default_model')"
@@ -491,7 +529,7 @@
             <p v-if="isDefaultModelUnavailable" class="field-tip field-tip-warning" role="alert">
               当前默认模型已不在模型列表中，请显式选择有效模型后保存。
             </p>
-            <p v-else class="field-tip">实际调用时使用的模型，可从预设列表中选择。</p>
+            <p v-else class="field-tip">实际调用时使用的模型，可搜索已有模型名。锁定模式下不能新增模型列表。</p>
             <span :id="configFieldDescriptionId('default_model')" class="config-field-a11y-description">
               {{ configFieldDescription('default_model') }}
             </span>
@@ -1148,7 +1186,7 @@ input_reference = (图片文件，可选)</pre>
                 <template #content>
                   <div class="cfg-tip-content">
                     该厂商下可用的模型，多个用逗号或换行分隔。<br>
-                    可从上方「追加预设模型」下拉快速添加，也可手动输入。
+                    可搜索并追加预设模型，也可直接输入自定义模型名。
                   </div>
                 </template>
                 <el-icon class="tip-icon"><QuestionFilled /></el-icon>
@@ -1158,9 +1196,11 @@ input_reference = (图片文件，可选)</pre>
           <div class="model-row">
             <el-select
               v-model="presetModelPick"
-              placeholder="追加预设模型"
+              placeholder="追加或输入模型名"
               clearable
               filterable
+              allow-create
+              default-first-option
               style="width: 220px; margin-bottom: 8px"
               @change="onPresetModelSelect"
             >
@@ -1192,11 +1232,15 @@ input_reference = (图片文件，可选)</pre>
           <el-select
             v-model="form.default_model"
             data-ai-config-field="default_model"
-            :placeholder="formModelList.length ? '从上面模型列表中选一个作为生成时使用的默认' : '请先填写上方模型列表'"
+            placeholder="选择或输入默认模型名"
             clearable
+            filterable
+            allow-create
+            default-first-option
             style="width: 100%"
             :aria-invalid="isConfigFieldInvalid('default_model') || isDefaultModelUnavailable"
             :aria-describedby="configFieldDescriptionId('default_model')"
+            @change="onDefaultModelChange"
           >
             <el-option
               v-if="isDefaultModelUnavailable"
@@ -1209,7 +1253,7 @@ input_reference = (图片文件，可选)</pre>
           <p v-if="isDefaultModelUnavailable" class="field-tip field-tip-warning" role="alert">
             当前默认模型已不在模型列表中，请显式选择有效模型后保存。
           </p>
-          <p v-else class="field-tip">该配置被选为「默认」时，生成故事/图片/视频将使用此处指定的模型。</p>
+          <p v-else class="field-tip">可搜索已有模型，也可直接输入自定义模型名；输入后会加入上方模型列表。</p>
           <span :id="configFieldDescriptionId('default_model')" class="config-field-a11y-description">
             {{ configFieldDescription('default_model') }}
           </span>
@@ -1534,7 +1578,14 @@ input_reference = (图片文件，可选)</pre>
           :closable="false"
         />
       </template>
-      <el-alert v-else type="error" :title="testError || '连接失败'" show-icon :closable="false" />
+      <el-alert
+        v-else
+        type="error"
+        :title="testError || '连接失败'"
+        :description="testErrorDetail || undefined"
+        show-icon
+        :closable="false"
+      />
       <template #footer>
         <el-button
           v-if="testResult === false"
@@ -1615,6 +1666,7 @@ import {
   DEFAULT_JSON_TIMEOUT_MS,
   describeServiceLoadError,
   isRequestCanceled,
+  isRequestTimeout,
   withRequestRetry,
 } from '@/utils/requestError'
 import {
@@ -1892,13 +1944,17 @@ const defaultModelRules = [
   },
 ]
 
-// 新增配置延续首项默认值；编辑时保留已失效的历史值，等待用户显式修正。
+// 新增配置延续首项默认值；用户手填的自定义模型会同步进列表，避免被首项覆盖。编辑时保留已失效历史值。
 watch(
   () => [formModelList.value, form.value.default_model],
   () => {
     const list = formModelList.value
+    const current = String(form.value.default_model || '').trim()
+    if (current && !list.includes(current) && form.value.service_type !== 'jimeng2_character_auth') {
+      if (!editingId.value) ensureModelInList(current)
+      return
+    }
     if (editingId.value || list.length === 0) return
-    const current = form.value.default_model
     if (!current || !list.includes(current)) {
       form.value.default_model = list[0] || ''
     }
@@ -1940,16 +1996,27 @@ function onServiceTypeChange() {
   }
 }
 
-function onPresetModelSelect(value) {
+function ensureModelInList(modelName) {
+  const value = String(modelName || '').trim()
   if (!value) return
   const listParsed = parseModelText(form.value.modelText)
-  if (listParsed.includes(value)) {
-    presetModelPick.value = ''
-    return
+  if (listParsed.includes(value)) return
+  form.value.modelText = listParsed.length
+    ? `${String(form.value.modelText || '').trim()}\n${value}`
+    : value
+}
+
+function onPresetModelSelect(value) {
+  if (!value) return
+  ensureModelInList(value)
+  if (!String(form.value.default_model || '').trim()) {
+    form.value.default_model = String(value).trim()
   }
-  const append = listParsed.length ? '\n' + value : value
-  form.value.modelText = (form.value.modelText || '').trim() + append
   presetModelPick.value = ''
+}
+
+function onDefaultModelChange(value) {
+  ensureModelInList(value)
 }
 const rules = computed(() => ({
   service_type: [{ required: true, message: '请选择服务类型', trigger: 'change' }],
@@ -2027,6 +2094,7 @@ const testVisible = ref(false)
 const testResult = ref(null)
 const testServiceType = ref('')
 const testError = ref('')
+const testErrorDetail = ref('')
 const testResultAnnouncement = ref('')
 const testingConfigId = ref(null)
 const oneKeyTongyiVisible = ref(false)
@@ -2086,6 +2154,27 @@ const configWriteLocked = computed(() => (
   || oneKeyVolcSaving.value
   || oneKeyAgnesSaving.value
 ))
+
+const configListPendingEmpty = computed(() => (
+  !list.value.length && configLoadState.value !== 'ready' && configLoadState.value !== 'error'
+))
+const configListFailedEmpty = computed(() => (
+  !list.value.length && configLoadState.value === 'error'
+))
+const configEmptyTitle = computed(() => {
+  if (configListFailedEmpty.value) return '暂时无法读取配置列表'
+  if (configListPendingEmpty.value) return '正在读取配置列表'
+  if (activeServiceFilter.value) return `暂无${serviceTypeLabel(activeServiceFilter.value)}配置`
+  return '还没有 AI 服务配置'
+})
+const configEmptyDescription = computed(() => {
+  if (configListFailedEmpty.value) {
+    return configLoadError.value || '请点击重试后再查看或添加配置。'
+  }
+  if (configListPendingEmpty.value) return '正在从本地服务读取已保存的厂商配置。'
+  if (activeServiceFilter.value) return '添加一个配置并设为默认，即可用于对应生成环节。'
+  return '先添加文本、图片或视频厂商，生成流程会自动使用默认配置。'
+})
 
 const configDependencyError = computed(() => (
   [configLoadError.value, vendorLockError.value].filter(Boolean).join('；')
@@ -2913,6 +3002,68 @@ function loadMoreJimeng2MaterialAssets() {
   fetchJimeng2MaterialAssets(false)
 }
 
+const CONNECTION_TEST_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|failed to fetch|load failed|internal server error|err_network|econnaborted|etimedout|incorrect api key|invalid api key/i
+
+function stripConnectionTestDecorations(message) {
+  return String(message || '')
+    .replace(/^连接测试失败[:：]\s*/u, '')
+    .replace(/\bProvider\b/gi, '该厂商')
+    .replace(/[;；,]?\s*response_bytes=\d+/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([）)])/g, '$1')
+    .replace(/（\s*;?\s*）/g, '')
+    .replace(/\(\s*;?\s*\)/g, '')
+    .trim()
+}
+
+function pickConnectionTestTitle(message) {
+  const parts = String(message || '').split(/[:：]/).map((item) => item.trim()).filter(Boolean)
+  if (parts.length >= 2) {
+    const last = parts[parts.length - 1]
+    if (/[\u4e00-\u9fff]/.test(last) && last.length <= 80 && !CONNECTION_TEST_ENGLISH_RE.test(last)) {
+      return last
+    }
+  }
+  return message
+}
+
+function describeConnectionTestError(error, signal) {
+  if (isRequestTimeout(error, signal)) {
+    return {
+      title: '连接测试超时',
+      detail: '请检查服务地址和网络后重试。如果只是模型目录不可用，仍可在配置中手工填写模型名。',
+    }
+  }
+  if (isRequestCanceled(error, signal)) {
+    return {
+      title: '连接测试已取消',
+      detail: '本次测试已停止，可重新测试。',
+    }
+  }
+  const raw = describeServiceLoadError(error, {
+    serviceLabel: 'AI 配置服务',
+    fallback: '暂时无法完成连接测试，请稍后重试。',
+    signal,
+  })
+  const cleaned = stripConnectionTestDecorations(raw)
+  const probeLike = /模型列表探测|ollama 模型列表|\/v1\/models|\b\/models\b/i.test(`${cleaned}\n${raw}`)
+  if (probeLike) {
+    return {
+      title: '无法读取模型列表',
+      detail: '连接测试会向该厂商请求可用模型。失败常见原因是密钥无效、地址不正确，或该服务不提供模型目录。你可以稍后重试，或直接在配置里手工填写模型名。',
+    }
+  }
+  let title = pickConnectionTestTitle(cleaned)
+  if (!title || CONNECTION_TEST_ENGLISH_RE.test(title)) {
+    title = '暂时无法完成连接测试，请稍后重试。'
+  }
+  const authLike = /认证失败|凭据|API Key|密钥/i.test(`${title}\n${cleaned}`)
+  const detail = authLike
+    ? '请检查 API Key、Session 或 AccessKey 是否填写正确。如果该服务不提供模型目录，也可直接在配置里手工填写模型名。'
+    : '请检查厂商地址、密钥和网络后重试。连接测试有时会读取模型目录；若该服务不提供模型列表，可直接在配置里手工填写模型名。'
+  return { title, detail }
+}
+
 async function openTest(row) {
   if (row.service_type === 'jimeng2_character_auth') {
     ElMessage.info('即梦2角色认证无需在此联调；保存后请在创作页「角色」面板中点击「SD2认证」验证。')
@@ -2931,6 +3082,7 @@ async function openTest(row) {
   testVisible.value = true
   testResult.value = null
   testError.value = ''
+  testErrorDetail.value = ''
   testResultAnnouncement.value = '正在测试连接'
   testServiceType.value = row.service_type || 'text'
   const testModel = row.default_model || (Array.isArray(row.model) ? row.model[0] : row.model)
@@ -2982,11 +3134,9 @@ async function openTest(row) {
       return
     }
     testResult.value = false
-    testError.value = describeServiceLoadError(e, {
-      serviceLabel: 'AI 配置服务',
-      fallback: e?.message || '请求失败',
-      signal: controller.signal,
-    })
+    const described = describeConnectionTestError(e, controller.signal)
+    testError.value = described.title
+    testErrorDetail.value = described.detail
     const testedAt = new Date().toISOString()
     connectionStatusStore.set(row.id, 'failed', testedAt)
     sessionTestStatusById.value = {
@@ -3017,7 +3167,9 @@ function retryConnectionTest() {
 async function onDelete(row) {
   if (configWriteLocked.value) return
   await ElMessageBox.confirm(`确定删除配置「${row.name}」？`, '删除确认', {
-    type: 'warning'
+    type: 'warning',
+    confirmButtonText: '确定删除',
+    cancelButtonText: '取消',
   })
   try {
     await aiAPI.delete(row.id)
@@ -3038,7 +3190,7 @@ async function onBatchDelete() {
   await ElMessageBox.confirm(
     `确定删除选中的 ${selectedRows.value.length} 条配置？此操作不可恢复。`,
     '批量删除确认',
-    { type: 'warning', confirmButtonText: '确定删除', confirmButtonClass: 'el-button--danger' }
+    { type: 'warning', confirmButtonText: '确定删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
   )
   batchDeleting.value = true
   let success = 0, failed = 0
@@ -3584,6 +3736,38 @@ html.dark :is(.ai-config-content, .ai-config-overlay) :is(
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+.coverage-unresolved-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 88px;
+  padding: 12px 14px;
+  border: 1px solid var(--el-border-color-light, #e4e7ed);
+  border-radius: 8px;
+  background: var(--el-fill-color-light, #f5f7fa);
+  color: var(--el-text-color-regular, #606266);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.coverage-unresolved-state--error {
+  border-color: var(--ai-config-danger-border, #fbc4c4);
+  background: var(--ai-config-danger-surface, #fef0f0);
+  color: var(--ai-config-danger-text, #b42318);
+}
+.coverage-unresolved-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.coverage-unresolved-copy strong {
+  font-size: 13px;
+  line-height: 18px;
+}
+.coverage-unresolved-copy span,
+.config-empty-state > span {
+  overflow-wrap: anywhere;
 }
 .coverage-summary-strip {
   display: grid;

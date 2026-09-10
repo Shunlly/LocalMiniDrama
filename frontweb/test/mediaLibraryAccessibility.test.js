@@ -81,6 +81,8 @@ test('network and imported previews expose HTTPS license evidence', () => {
 test('网络搜索结果公告状态，操作名称包含素材标题', () => {
   assert.match(source, /role="status" aria-live="polite" aria-atomic="true"/)
   assert.match(source, /{{ networkSearchAnnouncement }}/)
+  assert.match(source, /aria-label="重试搜索网络素材"/)
+  assert.match(source, /aria-label="重试导入该网络素材"/)
   assert.ok(source.includes(':aria-label="`查看来源：${networkItemTitle(item)}`"'))
   assert.ok(source.includes(':aria-label="`查看许可：${networkItemTitle(item)}`"'))
   assert.ok(source.includes(':aria-label="`${networkImportButtonText}：${networkItemTitle(item)}`"'))

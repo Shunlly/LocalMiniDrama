@@ -353,7 +353,7 @@ test('删除确认和选择器范围会区分跨项目复用与当前项目权�
 })
 
 test('网络搜索失败可中止重试，空关键词重试会留下可见错误', () => {
-  assert.match(mediaLibrarySource, /if \(isRequestCanceled\(error\)\) return/)
+  assert.match(mediaLibrarySource, /if \(isMediaLibraryUserAbort\(error\)\) return/)
   assert.match(mediaLibrarySource, /networkAbortController\?\.abort\(\)/)
   assert.doesNotMatch(
     mediaLibrarySource,

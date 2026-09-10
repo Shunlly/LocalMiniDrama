@@ -39,14 +39,14 @@ test('Source intake workflow remains a valid SFC with poll failure status and re
   assert.match(sourceWorkflowSource, /class="poll-status-banner"/)
   assert.match(sourceWorkflowSource, /async function resumePolling\(\)/)
   assert.match(sourceWorkflowSource, /pollState\.value = 'error'/)
-  assert.match(sourceWorkflowSource, /pollError\.value = error\?\.message \|\| '处理状态刷新失败，自动轮询已暂停。'/)
-  assert.match(sourceWorkflowSource, /workflowDataError\.value = e\.message \|\| '加载素材流程状态失败，请稍后重试。'/)
+  assert.match(sourceWorkflowSource, /pollError\.value = describeServiceLoadError\(error, \{[\s\S]*?fallback: '处理状态刷新失败，自动轮询已暂停。'/)
+  assert.match(sourceWorkflowSource, /workflowDataError\.value = describeServiceLoadError\(e, \{[\s\S]*?fallback: '加载素材流程状态失败，请稍后重试。'/)
   assert.match(sourceWorkflowSource, /@click="resumePolling"/)
 })
 
 test('剧集资源库失败与空搜索分开展示，无分集时进入制作会说明原因', () => {
   assert.match(dramaDetailSource, /const charList = ref\(\[\]\), charLoading = ref\(false\), charError = ref\(''\)/)
-  assert.match(dramaDetailSource, /charError\.value = error\?\.message \|\| '角色库加载失败，请重试'/)
+  assert.match(dramaDetailSource, /charError\.value = dramaDetailUserError\(error, '角色库加载失败，请重试', '角色库'\)/)
   assert.doesNotMatch(dramaDetailSource, /catch \{ charList\.value = \[\] \}/)
   assert.match(dramaDetailSource, /v-if="charError"[\s\S]*@click="loadCharList"[\s\S]*重试/)
   assert.match(dramaDetailSource, /v-if="!charLoading && !charError && charList\.length === 0"/)
