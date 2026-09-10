@@ -723,7 +723,9 @@ async function verifyStoryboardEmptyStates(page, options = {}) {
     await modeSwitch.getByRole('button', { name: CRITICAL_UI.productionMode, exact: true }).click()
     const batchGroup = page.getByRole('region', { name: CRITICAL_UI.batchGenerateGroup, exact: true })
     await batchGroup.waitFor({ state: 'visible', timeout: 15000 })
-    await batchGroup.getByText(CRITICAL_UI.canvasEmptyStoryboard, { exact: true }).waitFor({ timeout: 15000 })
+    const batchHelper = batchGroup.locator('.group-helper')
+    await batchHelper.waitFor({ state: 'visible', timeout: 15000 })
+    assert.equal(String(await batchHelper.textContent() || '').trim(), CRITICAL_UI.canvasEmptyStoryboard)
     return {
       film: true,
       canvas: true,

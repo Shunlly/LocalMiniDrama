@@ -220,6 +220,10 @@ function createCriticalPageMock(options = {}) {
         if (name === 'aria-label' && meta.selector === '.library-tabs') return critical.CRITICAL_UI.mediaSourceTabs
         return null
       },
+      async textContent() {
+        if (meta.selector === '.group-helper') return critical.CRITICAL_UI.canvasEmptyStoryboard
+        return ''
+      },
       async count() {
         return 1
       },
@@ -331,7 +335,8 @@ test('共享合同覆盖工作区入口、素材库空态、项目列表-制作�
     'CRITICAL_UI.characterLibraryEmpty, { exact: true }',
     'async function verifyStoryboardEmptyStates',
     'CRITICAL_UI.storyboardEmpty, { exact: true }',
-    'CRITICAL_UI.canvasEmptyStoryboard, { exact: true }',
+    "batchGroup.locator('.group-helper')",
+    'CRITICAL_UI.canvasEmptyStoryboard',
     'async function runCriticalUiContracts',
     'verifyWorkspaceEntries(page, options)',
     'verifyMediaLibraryEmptyStates(page, options)',
