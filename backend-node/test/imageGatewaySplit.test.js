@@ -67,9 +67,12 @@ describe('imageGateway 客户端拆分', () => {
       'function geminiAspectRatio',
       'function getProxyCache',
       'function resolveImageRef',
+      'function downloadImageToLocalAbortable',
+      'function removeDownloadedImage',
     ]) {
       assert.equal(src.includes(name), false, name);
     }
+    assert.equal(src.includes("require('./imageGateway/download')"), true);
     assert.equal(src.includes("require('./imageGateway/klingImageAdapter')"), true);
     assert.equal(src.includes("require('./imageGateway/nanoBananaImageAdapter')"), true);
     assert.equal(src.includes("require('./imageGateway/dashScopeImageAdapter')"), true);
