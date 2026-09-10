@@ -1453,6 +1453,7 @@ import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRoun
 import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
 import { useAiConfigGenerationSettings } from '@/composables/useAiConfigGenerationSettings.js'
+import { useAiConfigOneKeyPresets } from '@/composables/useAiConfigOneKeyPresets.js'
 import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '@/utils/aiConfigExport.js'
 import { buildAiServiceCoverage, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
 import { useAiConfigCoverage } from '@/composables/useAiConfigCoverage.js'
@@ -1931,6 +1932,34 @@ const configWriteLocked = computed(() => (
   || oneKeyAgnesSaving.value
 ))
 
+const {
+  openOneKeyTongyi,
+  submitOneKeyTongyi,
+  openOneKeyVolc,
+  submitOneKeyVolc,
+  openOneKeyAgnes,
+  submitOneKeyAgnes,
+} = useAiConfigOneKeyPresets({
+  ElMessage,
+  aiAPI,
+  runAiConfigCreateBatch,
+  configWriteLocked,
+  oneKeyTongyiVisible,
+  oneKeyTongyiKey,
+  oneKeyTongyiSaving,
+  oneKeyVolcVisible,
+  oneKeyVolcKey,
+  oneKeyVolcSaving,
+  oneKeyAgnesVisible,
+  oneKeyAgnesKey,
+  oneKeyAgnesSaving,
+  loadList,
+  list,
+  configLoadError,
+  invalidateConnectionTestResults,
+  notifyConfigurationChanged,
+})
+
 const configListPendingEmpty = computed(() => (
   !list.value.length && configLoadState.value !== 'ready' && configLoadState.value !== 'error'
 ))
@@ -2300,31 +2329,6 @@ function onProviderChange(providerId) {
     form.value.name = (p.name || providerId) + ' ' + serviceTypeLabel(st)
   }
 }
-
-/** 通义一键配置用 */
-const TONGYI_CONFIGS = [
-  { service_type: 'text', name: '通义千问', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', provider: 'qwen', model: ['qwen-plus'] },
-  { service_type: 'image', name: '通义万象 文本生图', base_url: 'https://dashscope.aliyuncs.com', provider: 'dashscope', model: ['wan2.6-image'] },
-  { service_type: 'image', name: '通义千问 文本生图', base_url: 'https://dashscope.aliyuncs.com', provider: 'qwen_image', model: ['qwen-image-max', 'qwen-image-plus', 'qwen-image'] },
-  { service_type: 'storyboard_image', name: '通义万象 分镜图', base_url: 'https://dashscope.aliyuncs.com', provider: 'dashscope', model: ['wan2.6-image'] },
-  { service_type: 'video', name: '通义万相', base_url: 'https://dashscope.aliyuncs.com', provider: 'dashscope', model: ['wan2.2-kf2v-flash'] }
-]
-
-/** 火山引擎一键配置用 */
-const VOLCENGINE_CONFIGS = [
-  { service_type: 'text', name: '火山引擎 文本', base_url: 'https://ark.cn-beijing.volces.com/api/v3', provider: 'volcengine', model: ['deepseek-v3-2-251201', 'doubao-1-5-pro-32k-250115', 'kimi-k2-thinking-251104'] },
-  { service_type: 'image', name: '火山引擎 即梦 文本生图', base_url: 'https://ark.cn-beijing.volces.com/api/v3', provider: 'volcengine', model: ['doubao-seedream-4-5-251128'] },
-  { service_type: 'storyboard_image', name: '火山引擎 即梦 分镜图', base_url: 'https://ark.cn-beijing.volces.com/api/v3', provider: 'volcengine', model: ['doubao-seedream-4-5-251128'] },
-  { service_type: 'video', name: '火山引擎 即梦 视频', base_url: 'https://ark.cn-beijing.volces.com/api/v3', provider: 'volces', model: ['doubao-seedance-1-5-pro-251215'] }
-]
-
-/** Agnes 一键配置用 */
-const AGNES_CONFIGS = [
-  { service_type: 'text', name: 'Agnes 文本', base_url: 'https://apihub.agnes-ai.com/v1', provider: 'agnes', api_protocol: 'openai', model: ['agnes-2.0-flash'] },
-  { service_type: 'image', name: 'Agnes 文本生图', base_url: 'https://apihub.agnes-ai.com/v1', provider: 'agnes', api_protocol: 'openai', model: ['agnes-image-2.1-flash'] },
-  { service_type: 'storyboard_image', name: 'Agnes 分镜图', base_url: 'https://apihub.agnes-ai.com/v1', provider: 'agnes', api_protocol: 'openai', model: ['agnes-image-2.1-flash'] },
-  { service_type: 'video', name: 'Agnes 视频', base_url: 'https://apihub.agnes-ai.com/v1', provider: 'agnes', api_protocol: 'agnes', endpoint: '/videos', query_endpoint: '/videos/{taskId}', model: ['agnes-video-v2.0'] },
-]
 
 function hidesApiProtocolField(serviceType) {
   return ['text', 'tts', 'ocr', 'transcription', 'jimeng2_character_auth'].includes(String(serviceType || ''))
@@ -3202,109 +3206,6 @@ async function onBatchDelete() {
   else if (failed) ElMessage.warning(`已删除 ${success} 条，${failed} 条失败`)
   else ElMessage.success(`已删除 ${success} 条`)
   await loadList()
-}
-
-function openOneKeyTongyi() {
-  if (configWriteLocked.value) return
-  oneKeyTongyiKey.value = ''
-  oneKeyTongyiVisible.value = true
-}
-
-async function submitPresetConfigs(configs, apiKey, closeDialog) {
-  const createOne = (cfg) => {
-    const models = cfg.model || []
-    return aiAPI.create({
-      service_type: cfg.service_type,
-      name: cfg.name,
-      provider: cfg.provider,
-      api_protocol: cfg.api_protocol || '',
-      base_url: cfg.base_url,
-      api_key: apiKey,
-      model: models,
-      default_model: models[0] || null,
-      endpoint: cfg.endpoint || '',
-      query_endpoint: cfg.query_endpoint || '',
-      priority: 10,
-      is_default: true,
-    })
-  }
-  const result = await runAiConfigCreateBatch(configs, createOne)
-  const message = `预设配置完成：${result.success} 条成功，${result.failed} 条失败`
-  const createdIds = result.created.map((item) => Number(item?.id)).filter(Number.isFinite)
-  const listConfirmed = await loadList()
-  const createdVisible = createdIds.length === result.success
-    && createdIds.every((id) => list.value.some((item) => Number(item.id) === id))
-  if (result.success > 0 && (!listConfirmed || !createdVisible)) {
-    const unconfirmedMessage = '预设配置已写入但列表尚未确认，请勿重复提交。请点击“重试”刷新列表。'
-    configLoadError.value = configLoadError.value
-      ? `${unconfirmedMessage} ${configLoadError.value}`
-      : unconfirmedMessage
-    ElMessage.error(unconfirmedMessage)
-    return result
-  }
-  if (result.success > 0) {
-    invalidateConnectionTestResults()
-    notifyConfigurationChanged()
-    closeDialog()
-    ElMessage.success(message)
-  } else {
-    ElMessage.error(message)
-  }
-  return result
-}
-
-async function submitOneKeyTongyi() {
-  if (configWriteLocked.value) return
-  const apiKey = oneKeyTongyiKey.value.trim()
-  if (!apiKey) return
-  oneKeyTongyiSaving.value = true
-  try {
-    await submitPresetConfigs(TONGYI_CONFIGS, apiKey, () => {
-      oneKeyTongyiVisible.value = false
-    })
-  } finally {
-    oneKeyTongyiSaving.value = false
-  }
-}
-
-function openOneKeyVolc() {
-  if (configWriteLocked.value) return
-  oneKeyVolcKey.value = ''
-  oneKeyVolcVisible.value = true
-}
-
-async function submitOneKeyVolc() {
-  if (configWriteLocked.value) return
-  const apiKey = oneKeyVolcKey.value.trim()
-  if (!apiKey) return
-  oneKeyVolcSaving.value = true
-  try {
-    await submitPresetConfigs(VOLCENGINE_CONFIGS, apiKey, () => {
-      oneKeyVolcVisible.value = false
-    })
-  } finally {
-    oneKeyVolcSaving.value = false
-  }
-}
-
-function openOneKeyAgnes() {
-  if (configWriteLocked.value) return
-  oneKeyAgnesKey.value = ''
-  oneKeyAgnesVisible.value = true
-}
-
-async function submitOneKeyAgnes() {
-  if (configWriteLocked.value) return
-  const apiKey = oneKeyAgnesKey.value.trim()
-  if (!apiKey) return
-  oneKeyAgnesSaving.value = true
-  try {
-    await submitPresetConfigs(AGNES_CONFIGS, apiKey, () => {
-      oneKeyAgnesVisible.value = false
-    })
-  } finally {
-    oneKeyAgnesSaving.value = false
-  }
 }
 
 async function exportConfigs() {

@@ -29,6 +29,7 @@ function readSource(url) {
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
 const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
+const oneKeySource = readSource(new URL('../src/composables/useAiConfigOneKeyPresets.js', import.meta.url))
 const coverageCardsSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCards.vue', import.meta.url))
 const coverageCardSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url))
 const modelListSource = readSource(new URL('../src/components/aiConfig/AiConfigModelListSection.vue', import.meta.url))
@@ -191,7 +192,8 @@ test('AI config mutations emit one reliable change notification only after real 
   assert.match(vueSource, /const emit = defineEmits\(\['configuration-changed'\]\)/)
   assert.equal((vueSource.match(/emit\('configuration-changed'\)/g) || []).length, 1)
   assert.match(vueSource, /function notifyConfigurationChanged\(\) \{\s*emit\('configuration-changed'\)\s*\}/)
-  assert.equal((vueSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 7)
+  assert.equal((vueSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 6)
+  assert.equal((oneKeySource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
 
   assert.match(vueSource, /await aiAPI\.update[\s\S]*await aiAPI\.create[\s\S]*notifyConfigurationChanged\(\)/)
   assert.match(
@@ -221,17 +223,22 @@ test('AI config mutations emit one reliable change notification only after real 
     /if \(success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*\}/,
   )
 
-  assert.match(vueSource, /runAiConfigCreateBatch\(configs, createOne\)/)
-  assert.match(vueSource, /createdIds\.every\(\(id\) => list\.value\.some/)
-  assert.match(vueSource, /预设配置已写入但列表尚未确认，请勿重复提交。请点击“重试”刷新列表。/)
+  assert.match(oneKeySource, /runAiConfigCreateBatch\(configs, createOne\)/)
+  assert.match(oneKeySource, /createdIds\.every\(\(id\) => list\.value\.some/)
+  assert.match(oneKeySource, /预设配置已写入但列表尚未确认，请勿重复提交。请点击“重试”刷新列表。/)
   assert.match(
-    vueSource,
+    oneKeySource,
     /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*closeDialog\(\)/,
   )
-  assert.match(vueSource, /预设配置完成：\$\{result\.success\} 条成功，\$\{result\.failed\} 条失败/)
-  assert.match(vueSource, /await submitPresetConfigs\(TONGYI_CONFIGS, apiKey/)
-  assert.match(vueSource, /await submitPresetConfigs\(VOLCENGINE_CONFIGS, apiKey/)
-  assert.match(vueSource, /await submitPresetConfigs\(AGNES_CONFIGS, apiKey/)
+  assert.match(oneKeySource, /预设配置完成：\$\{result\.success\} 条成功，\$\{result\.failed\} 条失败/)
+  assert.match(oneKeySource, /await submitPresetConfigs\(TONGYI_CONFIGS, apiKey/)
+  assert.match(oneKeySource, /await submitPresetConfigs\(VOLCENGINE_CONFIGS, apiKey/)
+  assert.match(oneKeySource, /await submitPresetConfigs\(AGNES_CONFIGS, apiKey/)
+  assert.match(vueSource, /useAiConfigOneKeyPresets\(/)
+  assert.doesNotMatch(vueSource, /function openOneKeyTongyi\(/)
+  assert.doesNotMatch(vueSource, /async function submitPresetConfigs\(/)
+  assert.match(vueSource, /async function loadList\(\)/)
+  assert.match(vueSource, /async function openTest\(row\)/)
 
   assert.match(vueSource, /if \(listConfirmed && \(result\.success === 0 \|\| createdVisible\)\)/)
   assert.match(vueSource, /配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。/)
@@ -332,7 +339,7 @@ test('every successful configuration mutation invalidates persisted connection s
     /if \(success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)/,
   )
   assert.match(
-    vueSource,
+    oneKeySource,
     /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*closeDialog\(\)/,
   )
   assert.match(

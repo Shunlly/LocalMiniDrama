@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const source = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const oneKeySource = readFileSync(new URL('../src/composables/useAiConfigOneKeyPresets.js', import.meta.url), 'utf8')
 const coverageCardSource = readFileSync(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url), 'utf8')
 const sd2Source = readFileSync(new URL('../src/components/Sd2AssetManagement.vue', import.meta.url), 'utf8')
 
@@ -25,14 +26,16 @@ const mutationHandlers = [
   'submitBulkKey',
   'onDelete',
   'onBatchDelete',
+  'triggerImport',
+  'importConfigs',
+]
+const oneKeyMutationHandlers = [
   'openOneKeyTongyi',
   'submitOneKeyTongyi',
   'openOneKeyVolc',
   'submitOneKeyVolc',
   'openOneKeyAgnes',
   'submitOneKeyAgnes',
-  'triggerImport',
-  'importConfigs',
 ]
 
 test('AI config writes fail closed until the list and vendor lock dependencies are ready', () => {
@@ -73,6 +76,13 @@ test('AI config writes fail closed until the list and vendor lock dependencies a
   for (const handler of mutationHandlers) {
     assert.match(
       source,
+      new RegExp(`(?:async )?function ${handler}\\([^)]*\\) \\{\\s*if \\(configWriteLocked\\.value\\)`),
+      `${handler} must guard against programmatic writes while configuration dependencies are unavailable`,
+    )
+  }
+  for (const handler of oneKeyMutationHandlers) {
+    assert.match(
+      oneKeySource,
       new RegExp(`(?:async )?function ${handler}\\([^)]*\\) \\{\\s*if \\(configWriteLocked\\.value\\)`),
       `${handler} must guard against programmatic writes while configuration dependencies are unavailable`,
     )
