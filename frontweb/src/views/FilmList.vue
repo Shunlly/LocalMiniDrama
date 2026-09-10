@@ -744,6 +744,7 @@ import { filterProjectList, getProjectCover } from '@/utils/projectList'
 import { mergeProjectListFilters, normalizeProjectListFilters, normalizeProjectListReturnTo } from '@/utils/projectListRoute'
 import { createOperationId, logOperation } from '@/utils/operationLog'
 import { describeServiceLoadError, isRequestCanceled, withRequestRetry } from '@/utils/requestError'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { sanitizeExportFilename, validateExportBlob, resolveExportFailureMessage } from '@/utils/projectExport'
 import { normalizeBackupReturnTo } from '@/composables/useBackupSettings.js'
 import { listWorkspaceNavItems, openWorkspaceNavItem } from '@/layouts/AppWorkspaceNav.js'
@@ -784,7 +785,10 @@ async function doUploadLibImg(event, form, api, reloadFn) {
     await api.update(form.id, { image_url: url, local_path: null })
     reloadFn()
     ElMessage.success('图片已更新')
-  } catch (e) { ElMessage.error(e.message || '上传失败') }
+  } catch (e) {
+    if (isUserFacingAbort(e) || e === 'cancel') return
+    ElMessage.error(toUserFacingError(e, '上传失败'))
+  }
   finally { form.imgUploading = false }
 }
 
@@ -816,7 +820,10 @@ async function doGenerateLibImg(form, prompt, api, reloadFn) {
     await api.update(form.id, { image_url: imageUrl || null, local_path: localPath })
     reloadFn()
     ElMessage.success('AI 图片已生成')
-  } catch (e) { ElMessage.error(e.message || '生成失败') }
+  } catch (e) {
+    if (isUserFacingAbort(e) || e === 'cancel') return
+    ElMessage.error(toUserFacingError(e, '生成失败'))
+  }
   finally { form.imgGenerating = false }
 }
 
@@ -998,12 +1005,18 @@ async function submitEditCharLibrary() {
     ElMessage.success('已保存')
     showEditCharLibrary.value = false
     loadCharLibraryList()
-  } catch (e) { ElMessage.error(e.message || '保存失败') } finally { editCharLibrarySaving.value = false }
+  } catch (e) {
+    if (isUserFacingAbort(e) || e === 'cancel') return
+    ElMessage.error(toUserFacingError(e, '保存失败'))
+  } finally { editCharLibrarySaving.value = false }
 }
 async function onDeleteCharLibrary(item) {
   if (listWriteLocked.value) return
   try { await ElMessageBox.confirm(`确定删除公共角色「${(item.name || '未命名').slice(0, 20)}」吗？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
-  try { await characterLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadCharLibraryList() } catch (e) { ElMessage.error(e.message || '删除失败') }
+  try { await characterLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadCharLibraryList() } catch (e) {
+    if (isUserFacingAbort(e) || e === 'cancel') return
+    ElMessage.error(toUserFacingError(e, '删除失败'))
+  }
 }
 
 // 公共场景库
@@ -1052,13 +1065,19 @@ async function submitEditSceneLibrary() {
     ElMessage.success('已保存')
     showEditSceneLibrary.value = false
     loadSceneLibraryList()
-  } catch (e) { ElMessage.error(e.message || '保存失败') } finally { editSceneLibrarySaving.value = false }
+  } catch (e) {
+    if (isUserFacingAbort(e) || e === 'cancel') return
+    ElMessage.error(toUserFacingError(e, '保存失败'))
+  } finally { editSceneLibrarySaving.value = false }
 }
 async function onDeleteSceneLibrary(item) {
   if (listWriteLocked.value) return
   const name = (item.location || item.time || '未命名').slice(0, 20)
   try { await ElMessageBox.confirm(`确定删除公共场景「${name}」吗？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
-  try { await sceneLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadSceneLibraryList() } catch (e) { ElMessage.error(e.message || '删除失败') }
+  try { await sceneLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadSceneLibraryList() } catch (e) {
+    if (isUserFacingAbort(e) || e === 'cancel') return
+    ElMessage.error(toUserFacingError(e, '删除失败'))
+  }
 }
 
 // 公共道具库
@@ -1107,12 +1126,18 @@ async function submitEditPropLibrary() {
     ElMessage.success('已保存')
     showEditPropLibrary.value = false
     loadPropLibraryList()
-  } catch (e) { ElMessage.error(e.message || '保存失败') } finally { editPropLibrarySaving.value = false }
+  } catch (e) {
+    if (isUserFacingAbort(e) || e === 'cancel') return
+    ElMessage.error(toUserFacingError(e, '保存失败'))
+  } finally { editPropLibrarySaving.value = false }
 }
 async function onDeletePropLibrary(item) {
   if (listWriteLocked.value) return
   try { await ElMessageBox.confirm(`确定删除公共道具「${(item.name || '未命名').slice(0, 20)}」吗？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
-  try { await propLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadPropLibraryList() } catch (e) { ElMessage.error(e.message || '删除失败') }
+  try { await propLibraryAPI.delete(item.id); ElMessage.success('已删除'); loadPropLibraryList() } catch (e) {
+    if (isUserFacingAbort(e) || e === 'cancel') return
+    ElMessage.error(toUserFacingError(e, '删除失败'))
+  }
 }
 
 const showNewDialog = ref(false)
@@ -1152,8 +1177,8 @@ async function onImportExample(ex) {
     ElMessage.success(`示例导入成功：${data?.title || ex.name}`)
     loadList()
   } catch (e) {
-    const msg = e.response?.data?.message || e.message || '导入失败'
-    ElMessage.error(msg)
+    if (isUserFacingAbort(e) || e === 'cancel') return
+    ElMessage.error(toUserFacingError(e, '导入失败'))
   } finally {
     importingExample.value = null
   }
@@ -1448,7 +1473,8 @@ async function submitNew() {
     loadList()
     router.push(newProjectDestination(drama, sourceImportIntent.value, projectListReturnTo.value))
   } catch (e) {
-    ElMessage.error(e.message || '创建失败')
+    if (isUserFacingAbort(e) || e === 'cancel') return
+    ElMessage.error(toUserFacingError(e, '创建失败'))
   } finally {
     newSaving.value = false
   }
@@ -1475,7 +1501,8 @@ async function submitEdit() {
     ElMessage.success('已保存')
     loadList()
   } catch (e) {
-    ElMessage.error(e.message || '保存失败')
+    if (isUserFacingAbort(e) || e === 'cancel') return
+    ElMessage.error(toUserFacingError(e, '保存失败'))
   } finally {
     editSaving.value = false
   }
@@ -1634,7 +1661,8 @@ async function moveToTrash(d) {
     loadList()
     if (showTrashDialog.value) loadTrash()
   } catch (e) {
-    ElMessage.error(e.message || '移入回收站失败')
+    if (isUserFacingAbort(e) || e === 'cancel') return
+    ElMessage.error(toUserFacingError(e, '移入回收站失败'))
   }
 }
 
