@@ -66,6 +66,7 @@
 </template>
 
 <script setup>
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { computed, ref, useAttrs, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { DocumentCopy } from '@element-plus/icons-vue'
@@ -542,7 +543,8 @@ async function onCopyCanonical() {
       document.body.removeChild(ta)
       ElMessage.success('已复制（@图片N 格式）')
     } catch (e2) {
-      ElMessage.error(e2?.message || '复制失败')
+      if (isUserFacingAbort(e2)) return
+      ElMessage.error(toUserFacingError(e2, '复制失败'))
     }
   }
 }

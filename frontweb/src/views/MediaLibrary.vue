@@ -727,7 +727,7 @@ async function onUpload(e) {
       succeeded++
     } catch (err) {
       failedNames.push(file.name)
-      ElMessage.warning(`${file.name} 上传失败：${describeServiceLoadError(err, { serviceLabel: '素材服务', fallback: err.message || '请稍后重试' })}`)
+      ElMessage.warning(`${file.name} 上传失败：${describeMediaLibraryUserError(err, { serviceLabel: '素材服务', fallback: '请稍后重试' })}`)
     } finally {
       uploadProgress.value.current++
     }
@@ -1064,7 +1064,8 @@ async function deleteItem(item) {
     ElMessage.success('已删除')
     loadMedia()
   } catch (err) {
-    ElMessage.error(describeServiceLoadError(err, { serviceLabel: '素材服务', fallback: err.message || '删除失败' }))
+    if (isMediaLibraryUserAbort(err)) return
+    ElMessage.error(describeMediaLibraryUserError(err, { serviceLabel: '素材服务', fallback: '删除失败' }))
   }
 }
 

@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { dramaAPI } from '@/api/drama'
 import { storyboardsAPI } from '@/api/storyboards'
@@ -141,7 +142,8 @@ export function useCanvasEpisodeGenerate(deps) {
       const count = getStoryboardsForEpisode().length
       ElMessage.success(`分镜生成完成，共 ${count} 镜`)
     } catch (e) {
-      ElMessage.error(e?.message || 'AI 生成分镜失败')
+      if (isCanvasUserAbort(e)) return
+      ElMessage.error(canvasUserError(e, 'AI 生成分镜失败'))
     } finally {
       clearInterval(refreshTimer)
       clearEpisodeSbBusy()
@@ -187,8 +189,9 @@ export function useCanvasEpisodeGenerate(deps) {
           ok++
           await refreshCanvas(true)
         } catch (e) {
+          if (isCanvasUserAbort(e)) return
           failed++
-          ElMessage.error(`分镜 #${sb.storyboard_number ?? sb.id} 生图失败：${e?.message || e}`)
+          ElMessage.error(`分镜 #${sb.storyboard_number ?? sb.id} 生图失败：${canvasUserError(e, '生成失败')}`)
         } finally {
           clearSbBusy(sb)
         }
@@ -236,8 +239,9 @@ export function useCanvasEpisodeGenerate(deps) {
           ok++
           await refreshCanvas(true)
         } catch (e) {
+          if (isCanvasUserAbort(e)) return
           failed++
-          ElMessage.error(`分镜 #${sb.storyboard_number ?? sb.id} 生视频失败：${e?.message || e}`)
+          ElMessage.error(`分镜 #${sb.storyboard_number ?? sb.id} 生视频失败：${canvasUserError(e, '生成失败')}`)
         } finally {
           clearSbBusy(sb)
         }

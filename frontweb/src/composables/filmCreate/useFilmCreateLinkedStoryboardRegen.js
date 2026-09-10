@@ -1,4 +1,5 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { toUserFacingError } from '@/utils/userFacingError'
 import { isStoryboardMediaStateError } from '@/utils/storyboardMedia'
 
 export function useFilmCreateLinkedStoryboardRegen(deps = {}) {
@@ -24,7 +25,7 @@ export function useFilmCreateLinkedStoryboardRegen(deps = {}) {
     try {
       assertStoryboardMediaReady()
     } catch (error) {
-      ElMessage.warning(error.message)
+      ElMessage.warning(toUserFacingError(error, '操作失败'))
       return
     }
     try {
@@ -39,7 +40,7 @@ export function useFilmCreateLinkedStoryboardRegen(deps = {}) {
     try {
       assertStoryboardMediaReady()
     } catch (error) {
-      ElMessage.warning(error.message)
+      ElMessage.warning(toUserFacingError(error, '操作失败'))
       return
     }
     regenSbImagesForAsset.add(assetKey)
@@ -103,7 +104,7 @@ export function useFilmCreateLinkedStoryboardRegen(deps = {}) {
       else ElMessage.warning(`完成，${failed}/${affectedBoards.length} 条失败`)
     } catch (error) {
       if (isStoryboardMediaStateError(error)) {
-        ElMessage.warning(error.message)
+        ElMessage.warning(toUserFacingError(error, '操作失败'))
         return
       }
       throw error

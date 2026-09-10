@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
 import { ElMessage } from 'element-plus'
 import { dramaAPI } from '@/api/drama'
 import { generationAPI } from '@/api/generation'
@@ -187,7 +188,8 @@ export function useCanvasScript(deps) {
         )
       }
     } catch (e) {
-      ElMessage.error(e?.message || '提取失败')
+      if (isCanvasUserAbort(e)) return
+      ElMessage.error(canvasUserError(e, '提取失败'))
       throw e
     } finally {
       scriptBusy.value = false

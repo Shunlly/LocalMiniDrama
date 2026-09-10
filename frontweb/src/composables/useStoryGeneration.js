@@ -1,4 +1,5 @@
 import { ElMessage } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { dramaAPI } from '@/api/drama'
 import { generationAPI } from '@/api/generation'
 import { stylePromptMetadataForSave } from '@/constants/styleOptions'
@@ -128,14 +129,16 @@ export async function runGenerateStoryFromPremise({
       }
       return { ok: true, dramaId, episodeCount: n }
     } catch (e) {
-      ElMessage.error(e.message || '剧本生成失败')
-      return { ok: false, error: e.message }
+      if (isUserFacingAbort(e)) return
+      ElMessage.error(toUserFacingError(e, '剧本生成失败'))
+      return { ok: false, error: toUserFacingError(e, '操作失败') }
     } finally {
       scriptGenerating.value = false
     }
   } catch (e) {
-    ElMessage.error(e.message || '故事生成失败')
-    return { ok: false, error: e.message }
+    if (isUserFacingAbort(e)) return
+    ElMessage.error(toUserFacingError(e, '故事生成失败'))
+    return { ok: false, error: toUserFacingError(e, '操作失败') }
   } finally {
     storyGenerating.value = false
   }

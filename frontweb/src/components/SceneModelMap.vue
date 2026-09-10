@@ -157,6 +157,7 @@
 </template>
 
 <script setup>
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
@@ -340,7 +341,8 @@ async function load() {
       }
     })
   } catch (err) {
-    ElMessage.error('加载场景模型映射失败：' + (err.message || '未知错误'))
+    if (isUserFacingAbort(err)) return
+    ElMessage.error(toUserFacingError(err, '加载场景模型映射失败：'))
   } finally {
     loading.value = false
   }
@@ -396,7 +398,8 @@ async function save() {
     dialogVisible.value = false
     await load()
   } catch (err) {
-    ElMessage.error('保存失败：' + (err.message || '未知错误'))
+    if (isUserFacingAbort(err)) return
+    ElMessage.error(toUserFacingError(err, '保存失败：'))
   } finally {
     saving.value = false
   }
@@ -414,7 +417,7 @@ async function onDelete(row) {
     await load()
   } catch (err) {
     if (err !== 'cancel') {
-      ElMessage.error('删除失败：' + (err.message || '未知错误'))
+      ElMessage.error(toUserFacingError(err, '删除失败：'))
     }
   }
 }

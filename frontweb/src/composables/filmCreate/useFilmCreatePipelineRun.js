@@ -1,4 +1,5 @@
 import { reactive, ref } from 'vue'
+import { toUserFacingError } from '@/utils/userFacingError'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { requestCoreJson } from '@/utils/coreJsonRequest'
 import { runConcurrently as runConcurrentQueue } from '@/utils/filmCreateConcurrency'
@@ -128,7 +129,7 @@ export function useFilmCreatePipelineRun(options = {}) {
         cancellationComplete = true
       } else {
         trackFilmCreateAction('pipeline_stop_failed', { extra: { message: error?.message || '停止全流程失败' } })
-        ElMessage.error(error?.message || '停止全流程失败，请重试')
+        ElMessage.error(toUserFacingError(error, '停止全流程失败，请重试'))
       }
     } finally {
       pipelineStarting.value = false

@@ -256,7 +256,7 @@ async function runStep(step) {
     if (step === 'image' && props.frameKind) {
       await runFrameImageStep(drama, sb, genOpts, props.frameKind, {
         signal: generationRun.signal,
-        onWarning: (warning) => ElMessage.warning(warning?.message || '已改用本地帧提示词'),
+        onWarning: (warning) => ElMessage.warning(canvasUserError(warning, '已改用本地帧提示词')),
       })
     }
     else if (step === 'image') await runImageStep(drama, sb, genOpts, { signal: generationRun.signal })
@@ -264,7 +264,7 @@ async function runStep(step) {
     else if (step === 'audio') {
       const res = await runAudioStep(sb, { signal: generationRun.signal })
       if (res?.skipped) {
-        ElMessage.info(res.reason || '已跳过')
+        ElMessage.info(canvasUserError(res.reason, '已跳过'))
         return
       }
     }
