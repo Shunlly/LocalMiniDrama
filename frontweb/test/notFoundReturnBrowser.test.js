@@ -19,7 +19,7 @@ test('未知地址的 404 页焦点落在标题，项目列表按钮回到首页
   await page.waitForFunction(() => document.activeElement?.id === 'not-found-title', null, { timeout: 10000 })
   assert.equal(await page.getByRole('button', { name: '返回上一页', exact: true }).count(), 0)
 
-  await page.getByRole('button', { name: '项目列表', exact: true }).click()
+  await page.locator('.not-found-page').getByRole('button', { name: '返回项目列表', exact: true }).click()
   await page.locator('.film-list').waitFor({ state: 'visible', timeout: 20000 })
   await page.getByRole('heading', { name: '还没有短剧项目' }).waitFor({ timeout: 20000 })
 })
@@ -31,7 +31,7 @@ test('非法项目编号进入 404 后可回到项目列表', { timeout: 60_000 
 
   await page.goto(`${baseUrl}film/abc`, { waitUntil: 'domcontentloaded' })
   await page.getByRole('heading', { name: '页面不存在', exact: true }).waitFor({ timeout: 20000 })
-  await page.getByRole('button', { name: '项目列表', exact: true }).click()
+  await page.locator('.not-found-page').getByRole('button', { name: '返回项目列表', exact: true }).click()
   await page.locator('.film-list').waitFor({ state: 'visible', timeout: 20000 })
 })
 

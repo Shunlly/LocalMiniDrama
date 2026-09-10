@@ -228,8 +228,19 @@ async function waitForEnabled(locator, label, timeout = 30000) {
 }
 
 async function waitForPath(page, predicate, timeout = 30000) {
-  await page.waitForURL((url) => predicate(url), { timeout })
+  await page.waitForURL((url) => predicate(url), { timeout, waitUntil: 'domcontentloaded' })
   return currentUrl(page)
+}
+
+async function returnToProjectListFromNotFound(page) {
+  const homeButton = page.locator('.not-found-page').getByRole('button', {
+    name: CRITICAL_UI.backToList,
+    exact: true,
+  })
+  await homeButton.waitFor({ state: 'visible', timeout: 15000 })
+  await homeButton.click()
+  await page.locator('.film-list').waitFor({ state: 'visible', timeout: 30000 })
+  assert.equal(currentUrl(page).pathname, '/')
 }
 
 function buildAudioOnlyWorkflowGroup({
@@ -513,20 +524,12 @@ async function verifyMissingProjectChineseFailurePages(page, options = {}) {
   await page.goto(`${fixture.frontendUrl}/film/abc`, { waitUntil: 'domcontentloaded' })
   await page.getByRole('heading', { name: CRITICAL_UI.notFoundTitle, exact: true }).waitFor({ timeout: 30000 })
   await page.getByText(/地址可能已失效，或项目编号不正确/).waitFor({ timeout: 10000 })
-  await Promise.all([
-    waitForPath(page, (url) => url.pathname === '/'),
-    page.getByRole('button', { name: CRITICAL_UI.projectList, exact: true }).click(),
-  ])
-  await page.locator('.film-list').waitFor({ state: 'visible', timeout: 30000 })
+  await returnToProjectListFromNotFound(page)
 
   await page.goto(`${fixture.frontendUrl}/e2e-missing-route`, { waitUntil: 'domcontentloaded' })
   await page.getByRole('heading', { name: CRITICAL_UI.notFoundTitle, exact: true }).waitFor({ timeout: 30000 })
   await page.getByText(/地址可能已失效，或项目编号不正确/).waitFor({ timeout: 10000 })
-  await Promise.all([
-    waitForPath(page, (url) => url.pathname === '/'),
-    page.getByRole('button', { name: CRITICAL_UI.projectList, exact: true }).click(),
-  ])
-  await page.locator('.film-list').waitFor({ state: 'visible', timeout: 30000 })
+  await returnToProjectListFromNotFound(page)
 
   const assetsRoute = '**/api/v1/assets'
   const assetsHandler = async (route) => {
