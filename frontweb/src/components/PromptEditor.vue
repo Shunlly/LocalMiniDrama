@@ -27,7 +27,7 @@
                 >已自定义</el-tag>
                 <el-tag v-else type="info" size="small" class="menu-tag">默认</el-tag>
               </div>
-              <div v-if="isDirty[p.key]" class="dirty-indicator" />
+              <div v-if="isDirty[p.key]" class="dirty-indicator" aria-hidden="true" />
             </button>
           </nav>
         </div>
