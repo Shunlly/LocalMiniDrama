@@ -97,7 +97,7 @@ test('project import/export keep leftover English errors out of user-facing mess
   assert.match(importSrc, /项目包大小与清单不一致/);
   assert.match(importSrc, /素材 URL 不安全/);
   assert.match(importSrc, /素材导入清单必须是对象/);
-  assert.match(importSrc, /project.json 字段/);
+  assert.match(importSrc, /项目清单中的/);
   assert.match(validatorSrc, /图片像素数量超过上限/);
   assert.match(skillSrc, /找不到技能或技能模板/);
 });
@@ -124,7 +124,7 @@ test('项目导入结构错误返回可操作简体中文', () => {
       (error) => error?.name === 'DramaImportError'
         && error.code === 'INVALID_IMPORT_STRUCTURE'
         && hasCjk(error.message)
-        && /project.json/.test(error.message)
+        && /项目清单/.test(error.message)
         && /必须是数组/.test(error.message)
         && !/must be an array/i.test(error.message)
     );

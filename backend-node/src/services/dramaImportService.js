@@ -121,6 +121,33 @@ function importError(code, message, cause) {
   return new DramaImportError(code, message, cause);
 }
 
+const IMPORT_FIELD_LABELS = Object.freeze({
+  characters: '角色',
+  episodes: '剧集',
+  scenes: '场景',
+  props: '道具',
+  extra_image_files: '附加图片',
+  storyboards: '分镜',
+  frame_prompts: '分镜提示词',
+  image_generations: '图片生成记录',
+  video_generations: '视频生成记录',
+  reference_images: '参考图',
+  character_indices: '角色引用',
+  prop_indices: '道具引用',
+  episode_characters: '剧集角色关联',
+  source_intake: '故事素材',
+  media_references: '媒体引用',
+  media_reference: '媒体引用',
+});
+
+function importFieldLabel(field) {
+  const raw = String(field || '').trim();
+  if (IMPORT_FIELD_LABELS[raw]) return IMPORT_FIELD_LABELS[raw];
+  const last = raw.split('.').pop().replace(/\[\d+\]/g, '');
+  if (IMPORT_FIELD_LABELS[last]) return IMPORT_FIELD_LABELS[last];
+  return '该数据';
+}
+
 function importKindLabel(kind) {
   if (kind === 'entity') return '实体';
   if (kind === 'media_reference') return '媒体引用';
@@ -133,7 +160,7 @@ function normalizeImportLimits(overrides = {}) {
   for (const key of Object.keys(DEFAULT_IMPORT_LIMITS)) {
     if (overrides[key] === undefined) continue;
     const value = Number(overrides[key]);
-    if (!Number.isSafeInteger(value) || value <= 0) throw importError('INVALID_LIMIT', 'ZIP 格式限制必须是正整数');
+    if (!Number.isSafeInteger(value) || value <= 0) throw importError('INVALID_LIMIT', '压缩包限制必须是正整数');
     limits[key] = value;
   }
   return limits;
@@ -152,7 +179,7 @@ function importArrayField(container, field, location = field) {
   if (!Array.isArray(value)) {
     throw structuredImportError(
       'INVALID_IMPORT_STRUCTURE',
-      `project.json 字段 ${location} 必须是数组`,
+      `项目清单中的${importFieldLabel(location)}必须是数组`,
       { field: location, expected: 'array' }
     );
   }
@@ -163,7 +190,7 @@ function assertImportRecord(value, location) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw structuredImportError(
       'INVALID_IMPORT_STRUCTURE',
-      `project.json 条目 ${location} 必须是对象`,
+      `项目清单中的${importFieldLabel(location)}必须是对象`,
       { field: location, expected: 'object' }
     );
   }
@@ -173,7 +200,7 @@ function assertImportLimit(code, kind, name, actual, limit) {
   if (actual <= limit) return;
   throw structuredImportError(
     code,
-    `项目导入${importKindLabel(kind)} ${name} 超过配置上限`,
+    `项目导入${importKindLabel(kind)}${importFieldLabel(name)}超过配置上限`,
     { kind, name, actual, limit },
     413
   );
@@ -184,7 +211,7 @@ function addBoundedCount(current, increment, code, kind, name, limit) {
   if (!Number.isSafeInteger(next)) {
     throw structuredImportError(
       code,
-      `项目导入${importKindLabel(kind)} ${name} 超出安全整数范围`,
+      `项目导入${importKindLabel(kind)}${importFieldLabel(name)}超出安全整数范围`,
       { kind, name, actual: 'overflow', limit },
       413
     );
@@ -197,7 +224,7 @@ function validateImportComplexity(data, limits) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw structuredImportError(
       'INVALID_IMPORT_STRUCTURE',
-      'project.json 根节点必须是对象',
+      '项目清单根节点必须是对象',
       { field: 'project.json', expected: 'object' }
     );
   }
@@ -523,7 +550,7 @@ function ensureSafeDirectoryInside(root, directory) {
     if (!fs.existsSync(current)) fs.mkdirSync(current);
     const stat = fs.lstatSync(current);
     if (stat.isSymbolicLink() || !stat.isDirectory()) {
-      throw importError('UNSAFE_IMPORT_TARGET', 'ZIP 格式不安全：媒体目录不能包含符号链接');
+      throw importError('UNSAFE_IMPORT_TARGET', '压缩包不安全：媒体目录不能包含符号链接');
     }
     const currentReal = fs.realpathSync(current);
     const realRelation = path.relative(rootReal, currentReal);
@@ -559,25 +586,25 @@ function removeEmptyParentsInside(root, startDirectory) {
  */
 function readArchiveBuffer(source, limits) {
   if (Buffer.isBuffer(source)) {
-    if (source.length > limits.maxArchiveBytes) throw importError('ARCHIVE_TOO_LARGE', 'ZIP 格式不安全：上传文件超过大小限制');
+    if (source.length > limits.maxArchiveBytes) throw importError('ARCHIVE_TOO_LARGE', '压缩包不安全：上传文件超过大小限制');
     return source;
   }
-  if (typeof source !== 'string' || !source) throw importError('INVALID_ARCHIVE', 'ZIP 格式不正确：缺少归档数据');
+  if (typeof source !== 'string' || !source) throw importError('INVALID_ARCHIVE', '压缩包不正确：缺少归档数据');
   let fd;
   try {
     const before = fs.lstatSync(source);
-    if (before.isSymbolicLink() || !before.isFile()) throw importError('INVALID_ARCHIVE', 'ZIP 格式不安全：上传文件不是普通文件');
-    if (before.size > limits.maxArchiveBytes) throw importError('ARCHIVE_TOO_LARGE', 'ZIP 格式不安全：上传文件超过大小限制');
+    if (before.isSymbolicLink() || !before.isFile()) throw importError('INVALID_ARCHIVE', '压缩包不安全：上传文件不是普通文件');
+    if (before.size > limits.maxArchiveBytes) throw importError('ARCHIVE_TOO_LARGE', '压缩包不安全：上传文件超过大小限制');
     fd = fs.openSync(source, 'r');
     const opened = fs.fstatSync(fd);
     if (opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size) {
-      throw importError('ARCHIVE_CHANGED', 'ZIP 格式不安全：上传文件在读取时发生变化');
+      throw importError('ARCHIVE_CHANGED', '压缩包不安全：上传文件在读取时发生变化');
     }
     const buffer = Buffer.allocUnsafe(opened.size);
     let offset = 0;
     while (offset < buffer.length) {
       const bytes = fs.readSync(fd, buffer, offset, buffer.length - offset, offset);
-      if (bytes <= 0) throw importError('INVALID_ARCHIVE', 'ZIP 格式不正确：上传文件已截断');
+      if (bytes <= 0) throw importError('INVALID_ARCHIVE', '压缩包不正确：上传文件已截断');
       offset += bytes;
     }
     return buffer;
@@ -588,15 +615,15 @@ function readArchiveBuffer(source, limits) {
 
 function validateZipEntryName(name, limits, isDirectory = false) {
   if (typeof name !== 'string' || !name || name.includes('\\') || name.includes('\0') || name.startsWith('/') || /^[a-z]:/i.test(name)) {
-    throw importError('UNSAFE_ARCHIVE_PATH', 'ZIP 格式不安全：条目路径无效');
+    throw importError('UNSAFE_ARCHIVE_PATH', '压缩包不安全：条目路径无效');
   }
   const normalizedName = isDirectory ? name.replace(/\/+$/, '') : name;
   const segments = normalizedName.split('/');
   if (!normalizedName || segments.length > limits.maxPathDepth || segments.some((part) => !part || part === '.' || part === '..')) {
-    throw importError('UNSAFE_ARCHIVE_PATH', 'ZIP 格式不安全：条目路径会逃逸');
+    throw importError('UNSAFE_ARCHIVE_PATH', '压缩包不安全：条目路径会逃逸');
   }
   if (Buffer.byteLength(name, 'utf8') > limits.maxPathBytes || path.posix.normalize(normalizedName) !== normalizedName) {
-    throw importError('UNSAFE_ARCHIVE_PATH', 'ZIP 格式不安全：条目路径过长或未规范化');
+    throw importError('UNSAFE_ARCHIVE_PATH', '压缩包不安全：条目路径过长或未规范化');
   }
   return normalizedName;
 }
@@ -606,7 +633,7 @@ function assertRegularZipEntry(entry) {
   const unixMode = (attributes >>> 16) & 0xffff;
   const fileType = unixMode & 0xf000;
   if (!entry.isDirectory && fileType !== 0 && fileType !== 0x8000) {
-    throw importError('UNSAFE_ARCHIVE_ENTRY', 'ZIP 格式不安全：不允许符号链接或特殊文件');
+    throw importError('UNSAFE_ARCHIVE_ENTRY', '压缩包不安全：不允许符号链接或特殊文件');
   }
 }
 
@@ -629,9 +656,9 @@ class LazyZipFiles {
     if (!entry) return null;
     let data;
     try { data = entry.getData(); }
-    catch (error) { throw importError('INVALID_ARCHIVE', 'ZIP 格式损坏：条目无法安全解压', error); }
+    catch (error) { throw importError('INVALID_ARCHIVE', '压缩包损坏：条目无法安全解压', error); }
     if (!Buffer.isBuffer(data) || data.length !== Number(entry.header.size) || data.length > this.limits.maxEntryBytes) {
-      throw importError('INVALID_ARCHIVE', 'ZIP 格式损坏：条目解压大小不一致');
+      throw importError('INVALID_ARCHIVE', '压缩包损坏：条目解压大小不一致');
     }
     return data;
   }
@@ -639,7 +666,7 @@ class LazyZipFiles {
   reserveMaterialized(bytes) {
     this.materializedBytes += Number(bytes);
     if (!Number.isSafeInteger(this.materializedBytes) || this.materializedBytes > this.materializationBudget) {
-      throw importError('MATERIALIZED_SIZE_LIMIT', 'ZIP 格式不安全：导入媒体超过磁盘写入预算');
+      throw importError('MATERIALIZED_SIZE_LIMIT', '压缩包不安全：导入媒体超过磁盘写入预算');
     }
   }
 }
@@ -651,12 +678,12 @@ function parseZip(zipSource, options = {}) {
   try {
     zip = new AdmZip(zipBuffer, { readEntries: false });
   } catch (e) {
-    throw importError('INVALID_ARCHIVE', 'ZIP 文件损坏，无法解析', e);
+    throw importError('INVALID_ARCHIVE', '压缩包损坏，无法解析', e);
   }
 
   const entryCount = zip.getEntryCount();
   if (!Number.isSafeInteger(entryCount) || entryCount < 1 || entryCount > limits.maxEntries) {
-    throw importError('ENTRY_LIMIT_EXCEEDED', 'ZIP 格式不安全：条目数量超过限制');
+    throw importError('ENTRY_LIMIT_EXCEEDED', '压缩包不安全：条目数量超过限制');
   }
   const entries = zip.getEntries();
   const filesByName = new Map();
@@ -666,25 +693,25 @@ function parseZip(zipSource, options = {}) {
     assertRegularZipEntry(entry);
     const name = validateZipEntryName(entry.entryName, limits, entry.isDirectory);
     const collisionKey = name.normalize('NFC').toLowerCase();
-    if (collisionNames.has(collisionKey)) throw importError('DUPLICATE_ARCHIVE_PATH', 'ZIP 格式不安全：存在重复条目路径');
+    if (collisionNames.has(collisionKey)) throw importError('DUPLICATE_ARCHIVE_PATH', '压缩包不安全：存在重复条目路径');
     collisionNames.add(collisionKey);
     if (entry.isDirectory) continue;
     const size = Number(entry.header.size);
     const compressedSize = Number(entry.header.compressedSize);
     const method = Number(entry.header.method);
     if ((Number(entry.header.flags) & 0x0001) !== 0 || ![0, 8].includes(method)) {
-      throw importError('UNSUPPORTED_ARCHIVE', 'ZIP 格式不安全：不支持加密或未知压缩算法');
+      throw importError('UNSUPPORTED_ARCHIVE', '压缩包不安全：不支持加密或未知压缩算法');
     }
     if (!Number.isSafeInteger(size) || !Number.isSafeInteger(compressedSize) || size < 0 || compressedSize < 0 || size > limits.maxEntryBytes) {
-      throw importError('ENTRY_SIZE_LIMIT', 'ZIP 格式不安全：单个条目超过大小限制');
+      throw importError('ENTRY_SIZE_LIMIT', '压缩包不安全：单个条目超过大小限制');
     }
-    if (size > 0 && compressedSize === 0) throw importError('INVALID_ARCHIVE', 'ZIP 格式不安全：压缩条目大小无效');
+    if (size > 0 && compressedSize === 0) throw importError('INVALID_ARCHIVE', '压缩包不安全：压缩条目大小无效');
     if (compressedSize > 0 && size / compressedSize > limits.maxCompressionRatio) {
-      throw importError('COMPRESSION_RATIO_LIMIT', 'ZIP 格式不安全：条目压缩率超过限制');
+      throw importError('COMPRESSION_RATIO_LIMIT', '压缩包不安全：条目压缩率超过限制');
     }
     totalUncompressedBytes += size;
     if (!Number.isSafeInteger(totalUncompressedBytes) || totalUncompressedBytes > limits.maxTotalUncompressedBytes) {
-      throw importError('TOTAL_SIZE_LIMIT', 'ZIP 格式不安全：解压总量超过限制');
+      throw importError('TOTAL_SIZE_LIMIT', '压缩包不安全：解压总量超过限制');
     }
     filesByName.set(name, entry);
   }
@@ -917,7 +944,7 @@ function invalidImportMedia(code, mediaPath, reason, details = null) {
   const limitExceeded = code === 'IMPORT_IMAGE_LIMIT_EXCEEDED';
   return structuredImportError(
     code,
-    limitExceeded ? 'ZIP 格式不安全：图片解码资源超过限制' : 'ZIP 格式不安全：媒体内容无效',
+    limitExceeded ? '压缩包不安全：图片解码资源超过限制' : '压缩包不安全：媒体内容无效',
     {
       archive_path: mediaPath || null,
       reason: String(reason || '媒体校验失败').slice(0, 300),
@@ -1278,7 +1305,7 @@ function saveMediaFile(storagePath, projectDir, category, files, zipPath, prefix
   if (!buf) return null;
   const ext = path.extname(String(zipPath)).toLowerCase();
   if (!IMPORT_MEDIA_EXTENSIONS[category]?.has(ext)) {
-    throw importError('UNSUPPORTED_MEDIA_TYPE', 'ZIP 格式不安全：媒体扩展名不受支持');
+    throw importError('UNSUPPORTED_MEDIA_TYPE', '压缩包不安全：媒体扩展名不受支持');
   }
   files.reserveMaterialized(buf.length);
   const categoryPath = path.join(storagePath, projectDir, category);
@@ -2482,7 +2509,7 @@ function importDrama(db, cfg, log, zipSource, options = {}) {
       fs.rmSync(finalPath, { recursive: true, force: true });
       removeEmptyParentsInside(storagePath, path.dirname(finalPath));
     }
-    if (error?.code === 'ENOSPC') throw importError('INSUFFICIENT_STORAGE', 'ZIP 格式导入失败：磁盘空间不足', error);
+    if (error?.code === 'ENOSPC') throw importError('INSUFFICIENT_STORAGE', '压缩包导入失败：磁盘空间不足', error);
     throw error;
   } finally {
     fs.rmSync(stagingRoot, { recursive: true, force: true });
