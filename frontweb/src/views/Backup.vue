@@ -193,7 +193,7 @@
           <div class="backup-item-copy">
             <strong>{{ item.name }}</strong>
             <p>
-              <span v-if="item.createdAt">{{ item.createdAt }}</span>
+              <span v-if="formatBackupTimestamp(item.createdAt)">{{ formatBackupTimestamp(item.createdAt) }}</span>
               <span v-if="formatBackupSize(item.bytes)"> · {{ formatBackupSize(item.bytes) }}</span>
             </p>
           </div>
@@ -236,6 +236,7 @@ import { ArrowLeft, Download, Refresh, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import {
   formatBackupSize,
+  formatBackupTimestamp,
   normalizeBackupReturnTo,
   useBackupSettings,
 } from '@/composables/useBackupSettings.js'

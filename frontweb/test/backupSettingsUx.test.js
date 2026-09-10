@@ -7,6 +7,7 @@ import {
   backupAccessState,
   describeBackupError,
   formatBackupSize,
+  formatBackupTimestamp,
   normalizeBackupList,
   normalizeBackupReturnTo,
   restoreConfirmationCopy,
@@ -398,4 +399,15 @@ test('备份禁用按钮给出中文原因', () => {
   assert.match(pageSource, /:title="accessState.createLocked \? backupWriteLockReason : undefined"/)
   assert.match(pageSource, /:title="accessState.writeLocked \? backupWriteLockReason : undefined"/)
   assert.match(pageSource, /:title="accessState.restoreFromListLocked \? backupRestoreLockReason : undefined"/)
+})
+
+
+test('备份时间显示中文格式，无效值不漏原文', () => {
+  const formatted = formatBackupTimestamp('2026-08-29T00:00:00Z')
+  assert.match(formatted, /2026/)
+  assert.doesNotMatch(formatted, /T00:00:00Z/)
+  assert.equal(formatBackupTimestamp('not-a-date'), '')
+  assert.equal(formatBackupTimestamp(''), '')
+  assert.match(pageSource, /formatBackupTimestamp\(item\.createdAt\)/)
+  assert.doesNotMatch(pageSource, /\{\{ item\.createdAt \}\}/)
 })

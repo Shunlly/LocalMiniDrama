@@ -246,6 +246,20 @@ export function restoreConfirmationCopy(targetName = '') {
   }
 }
 
+export function formatBackupTimestamp(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export function formatBackupSize(size) {
   const bytes = Number(size)
   if (!Number.isFinite(bytes) || bytes <= 0) return ''
