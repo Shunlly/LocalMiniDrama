@@ -85,8 +85,10 @@ test('保存和恢复默认禁用时给出中文原因', () => {
   assert.ok(resetButton)
   assert.match(saveButton, /:disabled="Boolean\(saveDisabledReason\)"/)
   assert.match(saveButton, /:title="saveDisabledReason \|\| undefined"/)
+  assert.match(saveButton, /:aria-label="saveDisabledReason \? `保存不可用：\${saveDisabledReason}` : undefined"/)
   assert.match(resetButton, /:disabled="Boolean\(resetDisabledReason\)"/)
   assert.match(resetButton, /:title="resetDisabledReason \|\| undefined"/)
+  assert.match(resetButton, /:aria-label="resetDisabledReason \? `恢复默认不可用：\${resetDisabledReason}` : undefined"/)
 })
 
 test('说明文案使用系统提示词，不再出现 System Prompt', () => {

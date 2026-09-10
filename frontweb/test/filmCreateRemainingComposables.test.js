@@ -900,7 +900,7 @@ test('navigation guards keep the user on the page while pipeline is stopping or 
       deps: { batchVideoRunning: refOf(true) },
     })
     assert.equal(await batchRunning.confirmMediaGenerationNavigation(), false)
-    assert.equal(feedback.last('confirm').title, '生成任务仍在执行')
+    assert.equal(feedback.last('confirm').title, '媒体生成仍在执行')
     assert.match(feedback.last('confirm').message, /计费可能继续/)
 
     const flushFailed = createNavigationGuards({

@@ -84,6 +84,7 @@
                 :loading="savingKey === currentPrompt.key"
                 :disabled="Boolean(saveDisabledReason)"
                 :title="saveDisabledReason || undefined"
+                :aria-label="saveDisabledReason ? `保存不可用：${saveDisabledReason}` : undefined"
                 @click="save(currentPrompt)"
               >
                 保存
@@ -93,6 +94,7 @@
                 :loading="resettingKey === currentPrompt.key"
                 :disabled="Boolean(resetDisabledReason)"
                 :title="resetDisabledReason || undefined"
+                :aria-label="resetDisabledReason ? `恢复默认不可用：${resetDisabledReason}` : undefined"
                 @click="reset(currentPrompt)"
               >
                 恢复默认

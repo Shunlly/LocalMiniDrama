@@ -1,15 +1,6 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { hasActiveMediaGenerationWork } from './useFilmCreateBatchGeneration.js'
 
-function hasActiveIdCollection(value) {
-  if (value == null) return false
-  const collection = typeof value === 'object' && 'value' in value ? value.value : value
-  if (collection == null) return false
-  if (typeof collection.size === 'number') return collection.size > 0
-  if (typeof collection.length === 'number') return collection.length > 0
-  return false
-}
-
 export function useFilmCreateNavigationGuards(deps = {}) {
   const {
     pipelineStarting,
@@ -30,10 +21,6 @@ export function useFilmCreateNavigationGuards(deps = {}) {
     generatingSbVideoIds,
     generatingSbFirstImageIds,
     generatingSbLastImageIds,
-    generatingUniversalSegmentIds,
-    ttsSbIds,
-    ttsSbNarrationIds,
-    upscalingSbIds,
   } = deps
 
   function hasActivePipelineWork() {
@@ -55,10 +42,6 @@ export function useFilmCreateNavigationGuards(deps = {}) {
       generatingSbFirstImageIds,
       generatingSbLastImageIds,
     })
-      || hasActiveIdCollection(generatingUniversalSegmentIds)
-      || hasActiveIdCollection(ttsSbIds)
-      || hasActiveIdCollection(ttsSbNarrationIds)
-      || hasActiveIdCollection(upscalingSbIds)
   }
 
   function hasActiveGenerationWork() {
@@ -116,7 +99,7 @@ export function useFilmCreateNavigationGuards(deps = {}) {
     try {
       await ElMessageBox.confirm(
         '离开制作页面会停止当前页面对生成进度的等待；已提交的供应商任务和计费可能继续。',
-        '生成任务仍在执行',
+        '媒体生成仍在执行',
         {
           type: 'warning',
           confirmButtonText: '仍要离开',
