@@ -1410,7 +1410,7 @@ async function loadTrash() {
     trashTotal.value = res?.pagination?.total ?? 0
     if (res?.pagination?.page != null) trashPage.value = res.pagination.page
   } catch (error) {
-    trashError.value = error.message || '回收站加载失败，请重试'
+    trashError.value = toUserFacingError(error, '回收站加载失败，请重试')
   } finally {
     trashLoading.value = false
   }
@@ -1430,7 +1430,7 @@ async function restoreFromTrash(item) {
     trashAnnouncement.value = `项目「${title}」已恢复，内容与关联素材保持不变。`
     ElMessage.success('项目已恢复')
   } catch (error) {
-    trashError.value = error.message || '恢复失败，请重试'
+    trashError.value = toUserFacingError(error, '恢复失败，请重试')
   } finally {
     restoringId.value = null
   }
