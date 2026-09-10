@@ -109,7 +109,7 @@ function withTaskId(endpoint, fallback, taskId) {
 function requireTaskId(value) {
   const taskId = String(value ?? '');
   if (!taskId || taskId.length > 200 || !/^[A-Za-z0-9_-]+$/.test(taskId)) {
-    throw configError('Sora 视频任务 ID 无效');
+    throw configError('Sora 视频任务编号无效');
   }
   return taskId;
 }

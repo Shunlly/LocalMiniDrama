@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 import {
   buildCanvasReferenceDisplaySlots,
@@ -242,4 +243,50 @@ test('空剧本不能提取素材，并给出中文原因', async () => {
   await generate.aiGenerateStoryboards()
   assert.match(messages.map((item) => item[1]).join('|'), /当前集还没有剧本，请先编写或导入剧本/)
   assert.doesNotMatch(messages.map((item) => item[1]).join('|'), /列表模式编写/)
+})
+
+
+test('画布反馈按需引入，禁用按钮带中文 title，工作流步骤显示中文', () => {
+  const desktopToolbarSource = read('../src/components/dramaCanvas/CanvasDesktopToolbar.vue')
+  const workflowToolbarSource = read('../src/components/dramaCanvas/CanvasWorkflowToolbarGroup.vue')
+  const inspectorDockSource = read('../src/components/dramaCanvas/CanvasInspectorDock.vue')
+  const createDialogSource = read('../src/components/dramaCanvas/CanvasCreateDialog.vue')
+  const workflowSidebarSource = read('../src/components/dramaCanvas/CanvasWorkflowSidebarList.vue')
+  const canvasDir = new URL('../src/components/dramaCanvas/', import.meta.url)
+  const componentSources = readdirSync(fileURLToPath(canvasDir))
+    .filter((name) => name.endsWith('.vue'))
+    .map((name) => read(`../src/components/dramaCanvas/${name}`))
+
+  for (const source of [canvasSource, ...componentSources]) {
+    assert.doesNotMatch(source, /from 'element-plus'/)
+  }
+  for (const source of [
+    canvasSource,
+    assetPanelSource,
+    createDialogSource,
+    inspectorDockSource,
+    mediaPanelSource,
+    scriptPanelSource,
+    storyboardPanelSource,
+  ]) {
+    assert.match(source, /from '@\/utils\/elementPlusFeedback\.js'/)
+  }
+
+  assert.match(desktopToolbarSource, /aria-label="AI 生成分镜"/)
+  assert.match(desktopToolbarSource, />\s*AI 分镜\s*</)
+  assert.match(desktopToolbarSource, /:title="actionReasons.generateStoryboards \|\| undefined"/)
+  assert.match(desktopToolbarSource, /:title="actionReasons.editScript \|\| undefined"/)
+  assert.match(workflowToolbarSource, /:title="actionReasons.createWorkflow \|\| undefined"/)
+  assert.match(workflowToolbarSource, /:title="actionReasons.deleteWorkflow \|\| undefined"/)
+  assert.match(assetPanelSource, /:title="panoramaDisabledReason \|\| undefined"/)
+  assert.match(scriptPanelSource, /:title="emptyScriptReason \|\| undefined"/)
+  assert.match(mediaPanelSource, /:title="videoAction.reason \|\| undefined"/)
+  assert.match(storyboardPanelSource, /:title="videoAction.reason \|\| undefined"/)
+  assert.match(inspectorDockSource, /重试中…/)
+  assert.doesNotMatch(inspectorDockSource, /重试中\.\.\./)
+  assert.match(workflowSidebarSource, /function pipelineStepLabel/)
+  assert.match(workflowSidebarSource, /image: '生图'/)
+  assert.match(workflowSidebarSource, /video: '生视频'/)
+  assert.match(workflowSidebarSource, /audio: '配音'/)
+  assert.doesNotMatch(workflowSidebarSource, /\(group\.pipeline \|\| \[\]\)\.join\(' → '\)/)
 })

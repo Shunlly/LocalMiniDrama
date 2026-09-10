@@ -646,250 +646,7 @@
     </main>
 
     <template v-if="isDramaReady">
-    <!-- 制作角色 编辑 -->
-    <AccessibleDialog v-model="editDramaCharVisible" title="编辑制作角色" width="500px" :close-on-press-escape="true" :before-close="(done) => requestResourceEditorClose('dramaChar', done)" @close="editDramaCharForm = null">
-      <el-form v-if="editDramaCharForm" label-width="80px">
-        <el-form-item label="图片">
-          <div class="lib-img-editor">
-            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editDramaCharForm)" :title="assetImageUrl(editDramaCharForm) ? undefined : '暂无图片'" aria-label="预览制作角色图片" @click="openPreview(assetImageUrl(editDramaCharForm))">
-              <img v-if="editDramaCharForm.image_url || editDramaCharForm.local_path" :src="assetImageUrl(editDramaCharForm)" :alt="editDramaCharForm.name || '制作角色图片'" />
-              <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
-            </button>
-            <div class="lib-img-btns">
-              <el-button size="small" :loading="editDramaCharForm.imgUploading" @click="dramaCharFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editDramaCharForm.imgGenerating" @click="generateDramaCharImg">AI 生成</el-button>
-            </div>
-          </div>
-          <input ref="dramaCharFileRef" type="file" accept="image/*" style="display:none" @change="uploadDramaCharImg" />
-        </el-form-item>
-        <el-form-item label="名称"><el-input v-model="editDramaCharForm.name" aria-label="制作角色名称" /></el-form-item>
-        <el-form-item label="角色类型">
-          <el-select v-model="editDramaCharForm.role" aria-label="角色类型" style="width:100%">
-            <el-option label="主角" value="main" />
-            <el-option label="配角" value="supporting" />
-            <el-option label="次要角色" value="minor" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="描述"><el-input v-model="editDramaCharForm.description" type="textarea" :rows="3" placeholder="角色背景描述" aria-label="制作角色描述" /></el-form-item>
-        <el-form-item label="性格"><el-input v-model="editDramaCharForm.personality" placeholder="性格特征" aria-label="制作角色性格" /></el-form-item>
-        <el-form-item label="外貌"><el-input v-model="editDramaCharForm.appearance" type="textarea" :rows="2" placeholder="外貌特征（影响图片生成）" aria-label="制作角色外貌" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="requestResourceEditorClose('dramaChar')">取消</el-button>
-        <el-button type="primary" :loading="editDramaCharSaving" @click="saveDramaChar">保存</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 制作场景 编辑 -->
-    <AccessibleDialog v-model="editDramaSceneVisible" title="编辑制作场景" width="500px" :close-on-press-escape="true" :before-close="(done) => requestResourceEditorClose('dramaScene', done)" @close="editDramaSceneForm = null">
-      <el-form v-if="editDramaSceneForm" label-width="80px">
-        <el-form-item label="图片">
-          <div class="lib-img-editor">
-            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editDramaSceneForm)" :title="assetImageUrl(editDramaSceneForm) ? undefined : '暂无图片'" aria-label="预览制作场景图片" @click="openPreview(assetImageUrl(editDramaSceneForm))">
-              <img v-if="editDramaSceneForm.image_url || editDramaSceneForm.local_path" :src="assetImageUrl(editDramaSceneForm)" :alt="editDramaSceneForm.location || '制作场景图片'" />
-              <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
-            </button>
-            <div class="lib-img-btns">
-              <el-button size="small" :loading="editDramaSceneForm.imgUploading" @click="dramaSceneFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editDramaSceneForm.imgGenerating" @click="generateDramaSceneImg">AI 生成</el-button>
-            </div>
-          </div>
-          <input ref="dramaSceneFileRef" type="file" accept="image/*" style="display:none" @change="uploadDramaSceneImg" />
-        </el-form-item>
-        <el-form-item label="地点"><el-input v-model="editDramaSceneForm.location" aria-label="制作场景地点" /></el-form-item>
-        <el-form-item label="时间"><el-input v-model="editDramaSceneForm.time" placeholder="如：浅色/夜晚" aria-label="制作场景时间" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editDramaSceneForm.description" type="textarea" :rows="3" placeholder="场景描述" aria-label="制作场景描述" /></el-form-item>
-        <el-form-item label="图片提示词"><el-input v-model="editDramaSceneForm.prompt" type="textarea" :rows="2" placeholder="图片生成用的详细提示词" aria-label="制作场景图片提示词" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="requestResourceEditorClose('dramaScene')">取消</el-button>
-        <el-button type="primary" :loading="editDramaSceneSaving" @click="saveDramaScene">保存</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 制作道具 编辑 -->
-    <AccessibleDialog v-model="editDramaPropVisible" title="编辑制作道具" width="500px" :close-on-press-escape="true" :before-close="(done) => requestResourceEditorClose('dramaProp', done)" @close="editDramaPropForm = null">
-      <el-form v-if="editDramaPropForm" label-width="80px">
-        <el-form-item label="图片">
-          <div class="lib-img-editor">
-            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editDramaPropForm)" :title="assetImageUrl(editDramaPropForm) ? undefined : '暂无图片'" aria-label="预览制作道具图片" @click="openPreview(assetImageUrl(editDramaPropForm))">
-              <img v-if="editDramaPropForm.image_url || editDramaPropForm.local_path" :src="assetImageUrl(editDramaPropForm)" :alt="editDramaPropForm.name || '制作道具图片'" />
-              <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
-            </button>
-            <div class="lib-img-btns">
-              <el-button size="small" :loading="editDramaPropForm.imgUploading" @click="dramaPropFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editDramaPropForm.imgGenerating" @click="generateDramaPropImg">AI 生成</el-button>
-            </div>
-          </div>
-          <input ref="dramaPropFileRef" type="file" accept="image/*" style="display:none" @change="uploadDramaPropImg" />
-        </el-form-item>
-        <el-form-item label="名称"><el-input v-model="editDramaPropForm.name" aria-label="制作道具名称" /></el-form-item>
-        <el-form-item label="类型"><el-input v-model="editDramaPropForm.type" placeholder="如：关键道具、背景物件" aria-label="制作道具类型" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editDramaPropForm.description" type="textarea" :rows="3" placeholder="道具描述" aria-label="制作道具描述" /></el-form-item>
-        <el-form-item label="图片提示词"><el-input v-model="editDramaPropForm.prompt" type="textarea" :rows="2" placeholder="图片生成用的详细提示词" aria-label="制作道具图片提示词" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="requestResourceEditorClose('dramaProp')">取消</el-button>
-        <el-button type="primary" :loading="editDramaPropSaving" @click="saveDramaProp">保存</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 编辑角色 -->
-    <AccessibleDialog v-model="editCharVisible" title="编辑角色库" width="480px" :close-on-press-escape="true" :before-close="(done) => requestResourceEditorClose('char', done)" @close="editCharForm = null">
-      <el-form v-if="editCharForm" label-width="80px">
-        <el-form-item label="图片">
-          <div class="lib-img-editor">
-            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editCharForm)" :title="assetImageUrl(editCharForm) ? undefined : '暂无图片'" aria-label="预览角色库图片" @click="openPreview(assetImageUrl(editCharForm))">
-              <img v-if="editCharForm.image_url || editCharForm.local_path" :src="assetImageUrl(editCharForm)" :alt="editCharForm.name || '角色库图片'" />
-              <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
-            </button>
-            <div class="lib-img-btns">
-              <el-button size="small" :loading="editCharForm.imgUploading" @click="charFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editCharForm.imgGenerating" @click="doGenerateLibImg(editCharForm, (editCharForm.name + (editCharForm.description ? ', ' + editCharForm.description : '')), characterLibraryAPI, loadCharList)">AI 生成</el-button>
-            </div>
-          </div>
-          <input ref="charFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editCharForm, characterLibraryAPI, loadCharList)" />
-        </el-form-item>
-        <el-form-item label="名称"><el-input v-model="editCharForm.name" aria-label="角色名称" /></el-form-item>
-        <el-form-item label="分类"><el-input v-model="editCharForm.category" placeholder="可选" aria-label="角色分类" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editCharForm.description" type="textarea" :rows="3" placeholder="可选" aria-label="角色描述" /></el-form-item>
-        <el-form-item label="标签"><el-input v-model="editCharForm.tags" placeholder="逗号分隔" aria-label="角色标签" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="requestResourceEditorClose('char')">取消</el-button>
-        <el-button type="primary" :loading="editCharSaving" @click="saveChar">保存</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 编辑场景 -->
-    <AccessibleDialog v-model="editSceneVisible" title="编辑场景库" width="480px" :close-on-press-escape="true" :before-close="(done) => requestResourceEditorClose('scene', done)" @close="editSceneForm = null">
-      <el-form v-if="editSceneForm" label-width="80px">
-        <el-form-item label="图片">
-          <div class="lib-img-editor">
-            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editSceneForm)" :title="assetImageUrl(editSceneForm) ? undefined : '暂无图片'" aria-label="预览场景库图片" @click="openPreview(assetImageUrl(editSceneForm))">
-              <img v-if="editSceneForm.image_url || editSceneForm.local_path" :src="assetImageUrl(editSceneForm)" :alt="editSceneForm.location || '场景库图片'" />
-              <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
-            </button>
-            <div class="lib-img-btns">
-              <el-button size="small" :loading="editSceneForm.imgUploading" @click="sceneFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editSceneForm.imgGenerating" @click="doGenerateLibImg(editSceneForm, ([editSceneForm.location, editSceneForm.time, editSceneForm.description].filter(Boolean).join(', ')), sceneLibraryAPI, loadSceneList)">AI 生成</el-button>
-            </div>
-          </div>
-          <input ref="sceneFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editSceneForm, sceneLibraryAPI, loadSceneList)" />
-        </el-form-item>
-        <el-form-item label="地点"><el-input v-model="editSceneForm.location" aria-label="场景地点" /></el-form-item>
-        <el-form-item label="时间"><el-input v-model="editSceneForm.time" placeholder="如：浅色/夜晚" aria-label="场景时间" /></el-form-item>
-        <el-form-item label="分类"><el-input v-model="editSceneForm.category" placeholder="可选" aria-label="场景分类" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editSceneForm.description" type="textarea" :rows="3" placeholder="可选" aria-label="场景描述" /></el-form-item>
-        <el-form-item label="标签"><el-input v-model="editSceneForm.tags" placeholder="逗号分隔" aria-label="场景标签" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="requestResourceEditorClose('scene')">取消</el-button>
-        <el-button type="primary" :loading="editSceneSaving" @click="saveScene">保存</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 编辑道具 -->
-    <AccessibleDialog v-model="editPropVisible" title="编辑道具库" width="480px" :close-on-press-escape="true" :before-close="(done) => requestResourceEditorClose('prop', done)" @close="editPropForm = null">
-      <el-form v-if="editPropForm" label-width="80px">
-        <el-form-item label="图片">
-          <div class="lib-img-editor">
-            <button type="button" class="lib-img-thumb" :disabled="!assetImageUrl(editPropForm)" :title="assetImageUrl(editPropForm) ? undefined : '暂无图片'" aria-label="预览道具库图片" @click="openPreview(assetImageUrl(editPropForm))">
-              <img v-if="editPropForm.image_url || editPropForm.local_path" :src="assetImageUrl(editPropForm)" :alt="editPropForm.name || '道具库图片'" />
-              <span v-else class="lib-img-empty"><el-icon><PictureFilled /></el-icon></span>
-            </button>
-            <div class="lib-img-btns">
-              <el-button size="small" :loading="editPropForm.imgUploading" @click="propFileRef.click()">上传图片</el-button>
-              <el-button size="small" type="primary" :loading="editPropForm.imgGenerating" @click="doGenerateLibImg(editPropForm, (editPropForm.name + (editPropForm.description ? ', ' + editPropForm.description : '')), propLibraryAPI, loadPropList)">AI 生成</el-button>
-            </div>
-          </div>
-          <input ref="propFileRef" type="file" accept="image/*" style="display:none" @change="e => doUploadLibImg(e, editPropForm, propLibraryAPI, loadPropList)" />
-        </el-form-item>
-        <el-form-item label="名称"><el-input v-model="editPropForm.name" aria-label="道具名称" /></el-form-item>
-        <el-form-item label="分类"><el-input v-model="editPropForm.category" placeholder="可选" aria-label="道具分类" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="editPropForm.description" type="textarea" :rows="3" placeholder="可选" aria-label="道具描述" /></el-form-item>
-        <el-form-item label="标签"><el-input v-model="editPropForm.tags" placeholder="逗号分隔" aria-label="道具标签" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="requestResourceEditorClose('prop')">取消</el-button>
-        <el-button type="primary" :loading="editPropSaving" @click="saveProp">保存</el-button>
-      </template>
-    </AccessibleDialog>
-
-    <!-- 从素材库导入 -->
-    <AccessibleDialog
-      v-model="importVisible"
-      :title="`从素材库导入${importType === 'char' ? '角色' : importType === 'scene' ? '场景' : '道具'}`"
-      width="760px"
-      destroy-on-close
-      :close-on-press-escape="true"
-      @open="loadImportList"
-    >
-      <div class="library-toolbar">
-        <el-input v-model="importKw" placeholder="搜索关键词" aria-label="搜索待导入素材" clearable style="width: 220px" @input="onImportKwInput" />
-        <span class="import-tip">点击「导入」将素材复制到本剧资源库</span>
-      </div>
-      <div v-loading="importLoading" class="library-list import-list">
-        <div v-if="importError" class="library-error" role="alert">
-          <span>
-            {{ importError }}
-            <template v-if="importList.length">当前仍显示上次成功加载的素材。</template>
-          </span>
-          <el-button size="small" type="primary" plain :loading="importLoading" @click="loadImportList">重试</el-button>
-        </div>
-        <div v-for="item in importList" :key="item.id" class="library-item">
-          <button
-            v-if="assetImageUrl(item)"
-            type="button"
-            class="library-item-cover"
-            :aria-label="`预览待导入素材「${importType === 'scene' ? (item.location || item.time || '未命名') : (item.name || '未命名')}」图片`"
-            @click="openPreview(assetImageUrl(item))"
-          >
-            <img :src="assetImageUrl(item)" alt="待导入素材图片" />
-          </button>
-          <div
-            v-else
-            class="library-item-cover library-item-cover--empty"
-            role="img"
-            :aria-label="`待导入素材「${importType === 'scene' ? (item.location || item.time || '未命名') : (item.name || '未命名')}」暂无图片`"
-          >
-            <span class="library-placeholder">暂无图</span>
-          </div>
-          <div class="library-item-info">
-            <div class="library-item-name">
-              {{ importType === 'scene' ? (item.location || item.time || '未命名') : (item.name || '未命名') }}
-            </div>
-            <div class="library-item-desc">{{ (item.description || item.prompt || '').slice(0, 80) }}</div>
-            <div class="library-item-actions">
-              <el-button size="small" type="primary" :loading="importingId === item.id" @click="doImport(item)">导入</el-button>
-            </div>
-          </div>
-        </div>
-        <div v-if="!importLoading && !importError && importList.length === 0" class="library-empty resource-empty-state" role="status">
-          <div class="empty-state-title">{{ importKw.trim() ? '没有匹配的素材' : '素材库暂无内容' }}</div>
-          <div class="empty-state-copy">{{ importKw.trim() ? '试试其他关键词，或清除搜索后重新查看。' : (currentEpisodeId ? '可前往制作页新增素材并加入素材库。' : '请先新增一集，再去制作页提取素材。') }}</div>
-          <el-button v-if="importKw.trim()" size="small" @click="importKw = ''; loadImportList()">清除搜索</el-button>
-          <el-button v-else size="small" type="primary" :loading="!currentEpisodeId && addingEpisode" :aria-label="currentEpisodeId ? '前往制作页新增并入库' : '新增一集后再去制作页提取素材'" @click="goCreateOrAddEpisode">
-            {{ currentEpisodeId ? '前往制作页新增并入库' : '先去新增一集' }}
-          </el-button>
-        </div>
-      </div>
-      <div class="library-pagination">
-        <el-pagination
-          v-model:current-page="importPage"
-          v-model:page-size="importPageSize"
-          :total="importTotal"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next"
-          aria-label="导入素材分页"
-          @current-change="loadImportList"
-          @size-change="loadImportList"
-        />
-      </div>
-      <template #footer>
-        <el-button @click="importVisible = false">关闭</el-button>
-      </template>
-    </AccessibleDialog>
+    <DramaDetailResourceDialogs v-bind="resourceDialogsBindings" />
 
     <ImagePreviewDialog
       :model-value="Boolean(previewUrl)"
@@ -904,8 +661,10 @@
 <script setup>
 import { ref, reactive, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
-import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, VideoPlay, Plus, Delete, Sunny, Moon, PictureFilled, Grid, Loading, Refresh, WarningFilled } from '@element-plus/icons-vue'
+import { ElMessage as RawElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
+import { ArrowLeft, VideoPlay, Plus, Delete, Sunny, Moon, Grid, Loading, Refresh, WarningFilled } from '@element-plus/icons-vue'
+import DramaDetailResourceDialogs from '@/components/dramaDetail/DramaDetailResourceDialogs.vue'
+import { createDramaDetailResourceDialogBindings } from '@/components/dramaDetail/dramaDetailResourceDialogBindings.js'
 import EpisodeBatchImportDialog from '@/components/EpisodeBatchImportDialog.vue'
 import ProjectReadinessPanel from '@/components/ProjectReadinessPanel.vue'
 import SourceIntakeWorkflowPanel from '@/components/SourceIntakeWorkflowPanel.vue'
@@ -1000,16 +759,7 @@ const projectListReturnTo = computed(() => normalizeProjectListReturnTo(route.qu
 const sourceImportIntent = computed(() => route.query.intake === 'source-url')
 const dramaId = Number(route.params.id)
 
-// 图片编辑 – 文件输入 refs（各资源类型独立）
-const charFileRef  = ref(null)
-const sceneFileRef = ref(null)
-const propFileRef  = ref(null)
-
 // 制作资源编辑
-const dramaCharFileRef  = ref(null)
-const dramaSceneFileRef = ref(null)
-const dramaPropFileRef  = ref(null)
-
 const editDramaCharVisible = ref(false)
 const editDramaCharForm    = ref(null)
 const editDramaCharSaving  = ref(false)
@@ -2258,6 +2008,66 @@ onBeforeUnmount(() => {
   clearInfoSaveTimer()
   window.removeEventListener('beforeunload', handleInfoBeforeUnload)
 })
+
+const resourceDialogsBindings = createDramaDetailResourceDialogBindings({
+  addingEpisode,
+  currentEpisodeId,
+  editCharForm,
+  editCharSaving,
+  editCharVisible,
+  editDramaCharForm,
+  editDramaCharSaving,
+  editDramaCharVisible,
+  editDramaPropForm,
+  editDramaPropSaving,
+  editDramaPropVisible,
+  editDramaSceneForm,
+  editDramaSceneSaving,
+  editDramaSceneVisible,
+  editPropForm,
+  editPropSaving,
+  editPropVisible,
+  editSceneForm,
+  editSceneSaving,
+  editSceneVisible,
+  importError,
+  importKw,
+  importList,
+  importLoading,
+  importPage,
+  importPageSize,
+  importTotal,
+  importType,
+  importVisible,
+  importingId,
+  assetImageUrl,
+  characterLibraryAPI,
+  doGenerateLibImg,
+  doImport,
+  doUploadLibImg,
+  generateDramaCharImg,
+  generateDramaPropImg,
+  generateDramaSceneImg,
+  goCreateOrAddEpisode,
+  loadCharList,
+  loadImportList,
+  loadPropList,
+  loadSceneList,
+  onImportKwInput,
+  openPreview,
+  propLibraryAPI,
+  requestResourceEditorClose,
+  saveChar,
+  saveDramaChar,
+  saveDramaProp,
+  saveDramaScene,
+  saveProp,
+  saveScene,
+  sceneLibraryAPI,
+  uploadDramaCharImg,
+  uploadDramaPropImg,
+  uploadDramaSceneImg,
+})
 </script>
 
 <style scoped>
@@ -2595,8 +2405,6 @@ html.light .dependency-status--error {
 
 /* 资源库 */
 .library-toolbar { margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
-.import-tip { font-size: 0.8rem; color: #71717a; }
-.import-list { max-height: 480px; }
 .library-list { min-height: 120px; display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto; }
 .library-item { display: flex; gap: 12px; padding: 10px; background: #1c1c1e; border: 1px solid #27272a; border-radius: 8px; }
 .library-item-cover { width: 72px; height: 72px; flex-shrink: 0; padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: #27272a; color: inherit; font: inherit; display: flex; align-items: center; justify-content: center; cursor: pointer; }
@@ -2713,22 +2521,13 @@ html.light .res-tab--drama.active::after { background: #7c3aed; }
 .drama-res-desc { font-size: 12px; color: var(--text-secondary, #a1a1aa); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .drama-res-actions { margin-top: 6px; }
 
-/* 编辑弹框内图片区 */
-.lib-img-editor { display: flex; align-items: center; gap: 14px; }
-.lib-img-thumb { width: 88px; height: 88px; padding: 0; border-radius: 8px; overflow: hidden; cursor: zoom-in; background: var(--bg-inner, #1c1c1e); color: inherit; font: inherit; border: 1px solid var(--border-color, #27272a); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.lib-img-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.lib-img-empty { color: var(--text-faint, #52525b); font-size: 26px; }
-.lib-img-btns { display: flex; flex-direction: column; gap: 8px; }
-
 /* 图片预览 */
 .library-item-cover:focus-visible,
-.drama-res-cover:focus-visible,
-.lib-img-thumb:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+.drama-res-cover:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
 .library-item-cover:disabled,
 .library-item-cover--empty,
 .drama-res-cover:disabled,
-.drama-res-cover--empty,
-.lib-img-thumb:disabled { cursor: default; }
+.drama-res-cover--empty { cursor: default; }
 
 /* 主题切换按钮 */
 .btn-theme {

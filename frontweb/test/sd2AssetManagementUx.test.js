@@ -43,9 +43,21 @@ const template = templateOnly(source)
 const TITLE_BINDING = ':title="mutationLocked ? mutationLockReason : undefined"'
 
 test('写锁定按钮给出中文原因，隐藏输入不加 title', () => {
+  assert.match(source, /from ['"]@\/utils\/elementPlusFeedback\.js['"]/)
+  assert.doesNotMatch(source, /from ['"]element-plus['"]/)
   assert.match(source, /const mutationLocked = computed\(\(\) => props\.writeLocked\)/)
   assert.match(source, /const mutationLockReason = computed\(\(\) => \(/)
   assert.match(source, /配置尚未就绪，暂时不能修改资产/)
+  assert.match(source, /正在保存到 AI 配置，请稍候/)
+  assert.match(source, /正在提交资产请求，请稍候/)
+  assert.match(source, /正在刷新资产组，请稍候/)
+  assert.match(source, /正在刷新资产列表，请稍候/)
+  assert.match(source, /title="已保存的资产组标识不能修改"/)
+  assert.match(source, /title="已保存的资产标识不能修改"/)
+  assert.equal(
+    (source.match(/:disabled="dlgLoading" :title="dlgLoading \? '正在提交资产请求，请稍候' : undefined"/g) || []).length,
+    4,
+  )
   assert.match(source, /writeLocked:\s*\{\s*type:\s*Boolean,\s*default:\s*true/)
   assert.match(source, /if \(mutationLocked\.value && MUTATING_ACTIONS\.has\(action\)\)/)
   assert.match(source, /function openCreateGroup\([\s\S]*if \(mutationLocked\.value\) return/)
@@ -56,7 +68,19 @@ test('写锁定按钮给出中文原因，隐藏输入不加 title', () => {
   const lockedControls = openingTags(template, ['el-button', 'el-input', 'input', 'button']).filter((tag) => (
     tag.includes(':disabled="mutationLocked"')
   ))
-  assert.equal(lockedControls.length, 11)
+  assert.equal(lockedControls.length, 6)
+
+  const busyControls = openingTags(template, ['el-button']).filter((tag) => (
+    tag.includes('saveLockReason')
+    || tag.includes('submitLockReason')
+    || tag.includes('refreshGroupsLockReason')
+    || tag.includes('refreshAssetsLockReason')
+  ))
+  assert.equal(busyControls.length, 7)
+  for (const tag of busyControls) {
+    assert.match(tag, /:title="(?:saveLockReason|submitLockReason|refreshGroupsLockReason|refreshAssetsLockReason)"/)
+    assert.match(tag, /:disabled="Boolean\((?:saveLockReason|submitLockReason|refreshGroupsLockReason|refreshAssetsLockReason)\)"/)
+  }
 
   for (const tag of lockedControls) {
     if (isHiddenInput(tag)) {

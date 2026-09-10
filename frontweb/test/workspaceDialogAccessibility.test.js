@@ -70,16 +70,21 @@ function visibleButtonText(inner) {
 }
 
 const filmListSource = read('../src/views/FilmList.vue')
+const filmListLibrarySource = read('../src/components/filmList/FilmListLibraryDialogs.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailDialogsSource = read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue')
 const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
 const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
 const aiConfigSource = read('../src/views/AiConfig.vue')
 const backupSource = read('../src/views/Backup.vue')
 const accessibleDialogSource = read('../src/components/AccessibleDialog.vue')
+const readinessSource = read('../src/components/ProjectReadinessPanel.vue')
 
 const targetSources = [
   { name: '../src/views/FilmList.vue', source: filmListSource },
+  { name: '../src/components/filmList/FilmListLibraryDialogs.vue', source: filmListLibrarySource },
   { name: '../src/views/DramaDetail.vue', source: dramaDetailSource },
+  { name: '../src/components/dramaDetail/DramaDetailResourceDialogs.vue', source: dramaDetailDialogsSource },
   { name: '../src/views/MediaLibrary.vue', source: mediaLibrarySource },
   { name: '../src/views/DramaCanvas.vue', source: dramaCanvasSource },
   { name: '../src/views/AiConfig.vue', source: aiConfigSource },
@@ -139,12 +144,30 @@ test('表单弹窗禁止点遮罩关闭，素材预览允许遮罩和 ESC 关闭
   assert.match(mediaLibrarySource, /title="网络素材预览"[\s\S]*?:close-on-click-modal="true"[\s\S]*?:close-on-press-escape="true"/)
 })
 
+test('AI 配置入口返回文案与顶栏焦点环一致', () => {
+  assert.match(aiConfigSource, /<button type="button" class="logo" :aria-label="backButtonLabel" @click="goBack">/)
+  assert.match(aiConfigSource, /class="btn-back" :aria-label="backButtonLabel"/)
+  assert.match(aiConfigSource, /return returnTo\.value \? '返回原项目' : '返回项目列表'/)
+  assert.doesNotMatch(aiConfigSource, /返回首页/)
+  assert.match(aiConfigSource, /\.logo:focus-visible,[\s\S]*\.btn-backup:focus-visible,[\s\S]*\.btn-back:focus-visible/)
+})
+
+test('成片就绪度未就绪服务会说出原因，芯片可键盘看见焦点', () => {
+  assert.match(readinessSource, /function serviceChipText\(service\)/)
+  assert.match(readinessSource, /前往配置\$\{service\.label\}：\$\{detail\}/)
+  assert.match(readinessSource, /:title="serviceChipText\(service\)"/)
+  assert.match(readinessSource, /:aria-label="serviceChipText\(service\)"/)
+  assert.match(readinessSource, /aria-describedby="project-readiness-next-description"/)
+  assert.match(readinessSource, /button\.service-chip:focus-visible/)
+  assert.doesNotMatch(readinessSource, /:disabled/)
+})
+
 test('对话框搜索框和新建项目比例选择器有可访问名称', () => {
   assert.match(filmListSource, /aria-label="画面比例"/)
-  assert.match(filmListSource, /aria-label="搜索角色素材"/)
-  assert.match(filmListSource, /aria-label="搜索场景素材"/)
-  assert.match(filmListSource, /aria-label="搜索道具素材"/)
-  assert.match(dramaDetailSource, /aria-label="角色类型"/)
-  assert.match(dramaDetailSource, /aria-label="搜索待导入素材"/)
+  assert.match(filmListLibrarySource, /aria-label="搜索角色素材"/)
+  assert.match(filmListLibrarySource, /aria-label="搜索场景素材"/)
+  assert.match(filmListLibrarySource, /aria-label="搜索道具素材"/)
+  assert.match(dramaDetailDialogsSource, /aria-label="角色类型"/)
+  assert.match(dramaDetailDialogsSource, /aria-label="搜索待导入素材"/)
   assert.match(mediaLibrarySource, /aria-label="搜索素材"/)
 })

@@ -112,10 +112,10 @@ test('5xx failures keep requestId, classify as http_5xx, and toast in Chinese', 
     (error) => {
       assert.equal(error.category, REQUEST_ERROR_CATEGORY.HTTP_5XX)
       assert.match(String(error.requestId || ''), /^[A-Za-z0-9._:-]{1,128}$/)
-      assert.equal(error.message, '服务器内部错误')
+      assert.equal(error.message, `服务器内部错误（请求编号：${error.requestId}）`)
       assert.equal(toasts.length, 1)
       assert.match(toasts[0], /服务器内部错误/)
-      assert.match(toasts[0], new RegExp(`请求号 ${error.requestId}`))
+      assert.match(toasts[0], new RegExp(`请求编号：${error.requestId}`))
       const logs = httpLogs()
       assert.equal(logs.length, 1)
       assert.equal(logs[0].operationId, error.requestId)
@@ -137,8 +137,9 @@ test('4xx failures keep backend copy and do not treat cancel/timeout', async () 
     }),
     (error) => {
       assert.equal(error.category, REQUEST_ERROR_CATEGORY.HTTP_4XX)
-      assert.equal(error.message, '名称不能为空')
-      assert.equal(toasts[0], '名称不能为空')
+      assert.match(error.message, /^名称不能为空（请求编号：/)
+      assert.equal(toasts[0], error.message)
+      assert.match(toasts[0], /请求编号：/)
       assert.equal(isRequestCanceled(error), false)
       assert.equal(isRequestTimeout(error), false)
       assert.equal(shouldRetryRequest(error), false)
@@ -160,9 +161,9 @@ test('network failures toast Chinese copy and keep requestId in logs', async () 
     (error) => {
       assert.equal(error.category, REQUEST_ERROR_CATEGORY.NETWORK)
       assert.match(String(error.requestId || ''), /^[A-Za-z0-9._:-]{1,128}$/)
-      assert.equal(error.message, '无法连接服务，请检查服务是否已启动')
+      assert.match(error.message, /^无法连接服务，请检查服务是否已启动（请求编号：/)
       assert.match(toasts[0], /无法连接服务，请检查服务是否已启动/)
-      assert.match(toasts[0], /请求号/)
+      assert.match(toasts[0], /请求编号：/)
       assert.doesNotMatch(toasts[0], /Network Error/)
       const logs = httpLogs()
       assert.equal(logs[0].details.category, REQUEST_ERROR_CATEGORY.NETWORK)
@@ -244,7 +245,7 @@ test('timeout abort stays retryable timeout, not cancel', async () => {
         assert.equal(shouldRetryRequest(error, 1, timeout.signal), true)
         assert.equal(shouldShowRequestErrorToast(error), true)
         assert.match(toasts[0], /连接服务超时，请稍后重试/)
-        assert.match(toasts[0], /请求号/)
+        assert.match(toasts[0], /请求编号：/)
         return true
       },
     )
@@ -330,8 +331,9 @@ test('unknown failures keep actionable Chinese copy instead of generic network t
     }),
     (error) => {
       assert.equal(error.category, REQUEST_ERROR_CATEGORY.UNKNOWN)
-      assert.equal(error.message, '项目保存失败')
-      assert.equal(toasts[0], '项目保存失败')
+      assert.match(error.message, /^项目保存失败（请求编号：/)
+      assert.equal(toasts[0], error.message)
+      assert.match(toasts[0], /请求编号：/)
       assert.doesNotMatch(toasts[0], /无法连接服务/)
       return true
     },
@@ -390,7 +392,8 @@ test('coreJsonRequest 4xx keeps backend Chinese copy, logs requestId + category,
       assert.equal(logs[0].phase, 'error')
       assert.equal(logs[0].details.category, REQUEST_ERROR_CATEGORY.HTTP_4XX)
       assert.equal(logs[0].details.requestId, error.requestId)
-      assert.equal(logs[0].error, '名称不能为空')
+      assert.match(logs[0].error, /^名称不能为空/)
+      assert.match(logs[0].error, /请求编号：/)
       assert.doesNotMatch(JSON.stringify(logs), /无法连接服务/)
       return true
     },
@@ -412,7 +415,7 @@ test('coreJsonRequest 4xx toast keeps backend Chinese when the caller does not o
       assert.equal(error.category, REQUEST_ERROR_CATEGORY.HTTP_4XX)
       assert.equal(error.message, '名称不能为空')
       assert.equal(toasts.length, 1)
-      assert.equal(toasts[0], '名称不能为空')
+      assert.match(toasts[0], /^名称不能为空（请求编号：/)
       assert.doesNotMatch(toasts[0], /无法连接服务/)
       return true
     },
@@ -514,7 +517,8 @@ test('coreJsonRequest 5xx keeps requestId, classifies as http_5xx, and logs Chin
       const logs = httpLogs()
       assert.equal(logs[0].operationId, error.requestId)
       assert.equal(logs[0].details.category, REQUEST_ERROR_CATEGORY.HTTP_5XX)
-      assert.equal(logs[0].error, '服务器内部错误')
+      assert.match(logs[0].error, /^服务器内部错误/)
+      assert.match(logs[0].error, /请求编号：/)
       return true
     },
   )
@@ -570,6 +574,40 @@ test('verified video fetch user cancel does not toast', async () => {
       assert.equal(toasts.length, 0)
       const logs = httpLogs()
       assert.equal(logs[0].phase, 'cancel')
+      return true
+    },
+  )
+})
+
+
+test('successful requests do not toast request ids', async () => {
+  const data = await request.get('/ok', {
+    adapter: jsonAdapter(200, { success: true, data: { id: 1 } }),
+  })
+  assert.deepEqual(data, { id: 1 })
+  assert.equal(toasts.length, 0)
+  assert.equal(httpLogs().length, 0)
+})
+
+test('empty requestId does not add request-id parentheses to failure toast', async () => {
+  await assert.rejects(
+    request.get('/offline', {
+      adapter: async (config) => {
+        const error = new Error('Network Error')
+        error.code = 'ERR_NETWORK'
+        const headers = { ...(config.headers || {}) }
+        delete headers['X-Request-Id']
+        delete headers['x-request-id']
+        error.config = { ...config, headers }
+        delete error.config.requestId
+        throw error
+      },
+    }),
+    (error) => {
+      assert.equal(error.category, REQUEST_ERROR_CATEGORY.NETWORK)
+      assert.match(toasts[0], /无法连接服务/)
+      assert.doesNotMatch(toasts[0], /请求编号/)
+      assert.doesNotMatch(toasts[0], /（请求/)
       return true
     },
   )

@@ -94,6 +94,8 @@ test('保存和恢复默认禁用时给出中文原因', () => {
 test('说明文案使用系统提示词，不再出现 System Prompt', () => {
   assert.match(source, /可自定义 AI 生成各阶段使用的系统提示词。/)
   assert.doesNotMatch(source, /System Prompt/)
+  assert.match(source, /from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(source, /from 'element-plus'/)
   assert.match(source, /from '@\/api\/prompts'/)
   assert.match(source, /promptsAPI\.list\(\)/)
   assert.match(source, /promptsAPI\.update\(p\.key, content\.trim\(\)\)/)

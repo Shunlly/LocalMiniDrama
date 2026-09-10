@@ -1,5 +1,5 @@
 import { nextTick, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 
 import {
   alignFreeCanvasNodePositions,

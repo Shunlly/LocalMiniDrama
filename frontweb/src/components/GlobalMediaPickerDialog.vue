@@ -133,6 +133,8 @@
           <el-button
             type="primary"
             :disabled="confirmDisabled"
+            :title="confirmDisabledReason || undefined"
+            :aria-label="confirmDisabledReason ? `选择素材不可用：${confirmDisabledReason}` : '选择素材'"
             @click="confirmSelection"
           >
             选择素材
@@ -196,6 +198,14 @@ const confirmDisabled = computed(() => (
 const incompatibleMessage = computed(() => incompatibleReason(selectedItem.value) || (
   props.accept === 'video' ? '当前用途只接受视频素材' : '当前用途只接受图片素材'
 ))
+const confirmDisabledReason = computed(() => {
+  if (loading.value) return '正在加载素材，请稍候'
+  if (loadError.value) return '素材加载失败，请重试'
+  if (!selectedItem.value) return '请先选择素材'
+  if (!isCompatible(selectedItem.value)) return incompatibleMessage.value
+  return ''
+})
+
 const acceptHint = computed(() => {
   if (props.accept === 'video') return '可浏览全部素材，当前用途仅可确认视频素材。'
   if (props.accept === 'image') return '可浏览全部素材，当前用途仅可确认图片素材。'

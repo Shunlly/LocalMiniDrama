@@ -1,5 +1,5 @@
 import { watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 
 export function useFilmCreateUniversalSegment(deps = {}) {

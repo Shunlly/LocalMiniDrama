@@ -1,6 +1,6 @@
 /** 分镜列表排序：乐观调整顺序，经已有 update API 写入 storyboard_number，失败回滚。 */
 import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { storyboardsAPI as defaultStoryboardsAPI } from '@/api/storyboards'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 

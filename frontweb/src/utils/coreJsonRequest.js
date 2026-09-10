@@ -74,19 +74,8 @@ function logFetchRequestFailure(error, userMessage) {
 
 function toastFetchRequestFailure(error, userMessage) {
   if (!shouldShowRequestErrorToast(error)) return
-  let msg = userMessage
-  if (
-    error.requestId
-    && (
-      error.category === REQUEST_ERROR_CATEGORY.HTTP_5XX
-      || error.category === REQUEST_ERROR_CATEGORY.TIMEOUT
-      || error.category === REQUEST_ERROR_CATEGORY.NETWORK
-    )
-  ) {
-    msg = `${userMessage}（请求号 ${error.requestId}）`
-  }
   try {
-    ElMessage.error(msg)
+    ElMessage.error(userMessage)
   } catch (_) {
     // Node 测试或无 DOM 时不能阻断失败分类与日志。
   }

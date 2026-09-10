@@ -1,7 +1,7 @@
 /**
  * AI 配置列表的批量换密钥与删除。页面仍负责弹窗接线和 loadList。
  */
-import { ElMessage as defaultElMessage, ElMessageBox as defaultElMessageBox } from 'element-plus'
+import { ElMessage as defaultElMessage, ElMessageBox as defaultElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { aiAPI as defaultAiAPI } from '@/api/ai.js'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError.js'
 import {

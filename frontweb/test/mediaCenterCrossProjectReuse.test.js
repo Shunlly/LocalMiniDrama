@@ -35,6 +35,8 @@ test('media center SFCs stay parseable after cross-project reuse wiring', () => 
   assertValidVueSfc('MediaLibrary.vue', mediaLibrarySource)
   assertValidVueSfc('GlobalMediaPickerDialog.vue', pickerSource)
   assertValidVueSfc('FilmCreate.vue', filmCreateSource)
+  assert.match(mediaLibrarySource, /from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(mediaLibrarySource, /from 'element-plus'/)
 })
 
 test('assets API normalizes list items before the views consume them', () => {
@@ -122,7 +124,8 @@ test('FilmCreate wires the picker into storyboard free references with duplicate
   const workspaceDialogsSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateWorkspaceDialogs.vue', import.meta.url), 'utf8')
   assert.match(filmCreateSource, /<FilmCreateWorkspaceDialogs[\s\S]*@select="onGlobalMediaAssetSelected"[\s\S]*@open-library="openMediaLibraryFromPicker"/)
   assert.match(workspaceDialogsSource, /<GlobalMediaPickerDialog/)
-  assert.match(storyboardPanelSource, /:aria-label="`分镜 \$\{sb\.storyboard_number\} 视频预览`"/)
+  const storyboardVideoColumnSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardVideoColumn.vue', import.meta.url), 'utf8')
+  assert.match(storyboardVideoColumnSource, /:aria-label="`分镜 \$\{sb\.storyboard_number\} 视频预览`"/)
   assert.match(deliveryPanelSource, /aria-label="本集合成视频预览"/)
   assert.match(storyboardDialogsSource, /openGlobalMediaPicker\(videoParamsTarget, 'reference-primary'\)/)
   assert.match(storyboardDialogsSource, /onPromoteSbFreeReferenceImage\(videoParamsTarget, item\)/)

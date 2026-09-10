@@ -6,7 +6,9 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailDialogsSource = read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue')
 const filmListSource = read('../src/views/FilmList.vue')
+const filmListLibraryDialogsSource = read('../src/components/filmList/FilmListLibraryDialogs.vue')
 const freeCreateSource = read('../src/views/FreeCreate.vue')
 const generationTaskStoreSource = read('../src/stores/generationTaskStore.js')
 const storyGenerationSource = read('../src/composables/useStoryGeneration.js')
@@ -22,7 +24,9 @@ const notFoundSource = read('../src/views/NotFound.vue')
 const ALLOWED_SOURCES = {
   'MediaLibrary.vue': mediaLibrarySource,
   'DramaDetail.vue': dramaDetailSource,
+  'DramaDetailResourceDialogs.vue': dramaDetailDialogsSource,
   'FilmList.vue': filmListSource,
+  'FilmListLibraryDialogs.vue': filmListLibraryDialogsSource,
   'FreeCreate.vue': freeCreateSource,
   'generationTaskStore.js': generationTaskStoreSource,
   'useStoryGeneration.js': storyGenerationSource,
@@ -136,11 +140,18 @@ test('SD2 资产库对话框、表单和反馈文案改为简体中文，接口�
   assert.match(sd2Source, /call\('CreateAsset'/)
   assert.match(sd2Source, /call\('UpdateAsset'/)
   assert.match(sd2Source, /call\('DeleteAsset'/)
+  assert.match(sd2Source, /令牌推理密钥（Bearer）/)
+  assert.match(sd2Source, /无效授权，原文为 Invalid Authorization/)
+  assert.match(sd2Source, /from ['"]@\/utils\/elementPlusFeedback\.js['"]/)
+  assert.doesNotMatch(sd2Source, /from ['"]element-plus['"]/)
+  assert.doesNotMatch(sd2Source, /密钥当 Bearer，否则会报 Invalid Authorization/)
 })
 
 test('自由创作、项目列表、提示词和场景映射的用户可见句子是简体中文', () => {
   assert.match(freeCreateSource, /placeholder="例如：电影感 cinematic、日式动漫 anime…"/)
   assert.doesNotMatch(freeCreateSource, /placeholder="例如: cinematic, anime..."/)
+  assert.match(freeCreateSource, /import \{ ElMessage \} from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(freeCreateSource, /from 'element-plus'/)
   assert.match(freeCreateSource, /aria-label="返回项目首页"/)
   assert.match(freeCreateSource, /aria-label="视频画面比例"/)
   assert.match(freeCreateSource, /generating \? '生成中\.\.\.' : \(mode === 'image' \? '生成图片' : '生成视频'\)/)
@@ -153,7 +164,11 @@ test('自由创作、项目列表、提示词和场景映射的用户可见句�
   assert.match(filmListSource, /aria-label="打开数据备份与维护"/)
   assert.match(filmListSource, /<el-icon><Download \/><\/el-icon>数据备份/)
   assert.doesNotMatch(filmListSource, /微信我/)
-  assert.match(filmListSource, /ElMessageBox\.confirm\(`确定删除公共角色「/)
+  assert.match(filmListSource, /将移入回收站/)
+  assert.match(filmListSource, /confirmButtonText: '移入回收站'/)
+  assert.match(filmListLibraryDialogsSource, /ElMessageBox\.confirm\(`确定删除公共角色「/)
+  assert.match(filmListLibraryDialogsSource, /正在上传图片，请稍候/)
+  assert.match(filmListLibraryDialogsSource, /正在生成图片，请稍候/)
 
   assert.match(sceneModelMapSource, /当文本生成请求指定业务场景时/)
   assert.match(sceneModelMapSource, /description="暂无场景模型映射配置"/)
@@ -161,6 +176,8 @@ test('自由创作、项目列表、提示词和场景映射的用户可见句�
   assert.match(sceneModelMapSource, /ElMessage\.error\(toUserFacingError\(err, '加载场景模型映射失败'\)\)/)
   assert.doesNotMatch(sceneModelMapSource, /当调用 generateText 时传入 scene_key/)
   assert.doesNotMatch(sceneModelMapSource, /scene_key/)
+  assert.match(sceneModelMapSource, /from ['"]@\/utils\/elementPlusFeedback\.js['"]/)
+  assert.doesNotMatch(sceneModelMapSource, /from ['"]element-plus['"]/)
 })
 
 test('提示词编辑页用户可见句子是简体中文', () => {
@@ -177,13 +194,17 @@ test('素材中心、剧详情、剧本生成和任务轮询的反馈文案保�
   assert.match(mediaLibrarySource, /aria-label="素材来源"/)
   assert.match(mediaLibrarySource, /placeholder="搜索素材..."/)
   assert.match(mediaLibrarySource, /title="素材预览"/)
+  assert.match(mediaLibrarySource, /import \{ ElMessage, ElMessageBox \} from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(mediaLibrarySource, /from 'element-plus'/)
   assert.match(mediaLibrarySource, /ElMessageBox\.confirm\(`\$\{describeMediaDeleteImpact\(item\)\}确定删除？`, '删除确认'/)
   assert.match(mediaLibrarySource, /confirmButtonText: '删除'/)
   assert.match(mediaLibrarySource, /cancelButtonText: '取消'/)
+  assert.match(mediaLibrarySource, /当前项目（编号 \$\{scopedDramaId\.value\}）/)
+  assert.match(mediaLibrarySource, /Commons 页面编号/)
 
   assert.match(dramaDetailSource, /aria-label="新增空白集"/)
   assert.match(dramaDetailSource, /ElMessage\.warning\('请先新增一集，再进入制作'\)/)
-  assert.match(dramaDetailSource, /title="编辑制作角色"/)
+  assert.match(dramaDetailDialogsSource, /title="编辑制作角色"/)
   assert.match(dramaDetailSource, /draft: '草稿', processing: '生成中', completed: '剧本已就绪', failed: '失败'/)
 
   assert.match(storyGenerationSource, /ElMessage\.warning\('请先输入故事梗概'\)/)
@@ -255,4 +276,16 @@ test('允许修改的页面里，用户可见字符串都带有简体中文', ()
       return /[A-Za-z\u4e00-\u9fff]/.test(value)
     }))
   }
+})
+
+test('画布工作流轮询缺少任务编号时使用简体中文，不暴露 task_id', () => {
+  const canvasWorkflowRunnerSource = read('../src/composables/useCanvasWorkflowRunner.js')
+  assert.match(canvasWorkflowRunnerSource, /error: '缺少任务编号'/)
+  assert.doesNotMatch(canvasWorkflowRunnerSource, /缺少 task_id/)
+  assert.doesNotMatch(canvasWorkflowRunnerSource, /缺少任务编号（task_id）/)
+  assert.doesNotMatch(canvasWorkflowRunnerSource, /supports_grid_reference/)
+  const storyboardVideoSource = read('../src/composables/filmCreate/useFilmCreateStoryboardVideoGeneration.js')
+  assert.doesNotMatch(storyboardVideoSource, /supports_grid_reference/)
+  assert.match(storyboardVideoSource, /请在 AI 配置的高级设置中开启宫格整图参考/)
+  assert.match(canvasWorkflowRunnerSource, /请在 AI 配置的高级设置中开启宫格整图参考/)
 })

@@ -19,7 +19,7 @@
         description-id="canvas-reason-workflow-video-step"
         config-service-type="video"
       >
-        <el-checkbox value="video" :disabled="Boolean(videoStepGateReason)">生视频</el-checkbox>
+        <el-checkbox value="video" :disabled="Boolean(videoStepGateReason)" :title="videoStepGateReason || undefined">生视频</el-checkbox>
       </CanvasActionGate>
       <CanvasActionGate
         :reason="audioStepGateReason"
@@ -27,7 +27,7 @@
         description-id="canvas-reason-workflow-audio-step"
         config-service-type="tts"
       >
-        <el-checkbox value="audio" :disabled="Boolean(audioStepGateReason)">配音</el-checkbox>
+        <el-checkbox value="audio" :disabled="Boolean(audioStepGateReason)" :title="audioStepGateReason || undefined">配音</el-checkbox>
       </CanvasActionGate>
     </el-checkbox-group>
 
@@ -42,6 +42,7 @@
         size="small"
         aria-label="创建分组（工作流）"
         :disabled="Boolean(actionReasons.createWorkflow)"
+        :title="actionReasons.createWorkflow || undefined"
         @click="emit('create-workflow')"
       >
         <el-icon><Plus /></el-icon>
@@ -78,6 +79,7 @@
           type="primary"
           :loading="workflowRunning"
           :disabled="Boolean(actionReasons.runWorkflow)"
+          :title="actionReasons.runWorkflow || undefined"
           @click="emit('run-workflow')"
         >
           <el-icon><Refresh /></el-icon>
@@ -102,6 +104,7 @@
           type="danger"
           plain
           :disabled="Boolean(actionReasons.deleteWorkflow)"
+          :title="actionReasons.deleteWorkflow || undefined"
           @click="emit('delete-workflow')"
         >
           <el-icon><Delete /></el-icon>

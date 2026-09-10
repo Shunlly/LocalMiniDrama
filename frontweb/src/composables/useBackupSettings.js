@@ -172,6 +172,24 @@ export function describeMaintenanceLoadError(error, signal) {
   })
 }
 
+export function describeMaintenanceStatusError(raw) {
+  const text = String(raw || '').trim()
+  if (!text) return ''
+  if (HAN_RE.test(text)) return text
+  return describeBackupError({ message: text }, {
+    serviceLabel: '维护服务',
+    fallback: '当前不能安全执行备份或恢复。',
+  })
+}
+
+export function hasReadinessChecksPayload(payload) {
+  if (!payload || typeof payload !== 'object' || !payload.checks || typeof payload.checks !== 'object') return false
+  const status = String(payload.status || '')
+  if (status === 'ready' || status === 'not_ready') return true
+  if (typeof payload.ready === 'boolean') return true
+  return Boolean(payload.checks.maintenance || payload.checks.database || payload.checks.storage)
+}
+
 export function normalizeBackupItem(item = {}) {
   const name = String(item.name || item.filename || item.id || '').trim()
   const bytes = Number(item.archive_bytes ?? item.size ?? item.bytes ?? 0)
@@ -208,14 +226,17 @@ export function backupAccessState({
   hasSuccessfulLoad = false,
   loadError = '',
   itemCount = 0,
+  maintenanceBlocked = false,
 } = {}) {
   const error = Boolean(loadError)
+  const busy = Boolean(loading || creating || restoring)
   return {
     showEmpty: !loading && hasSuccessfulLoad && !error && Number(itemCount) === 0,
     showStale: error && hasSuccessfulLoad && Number(itemCount) > 0,
-    writeLocked: Boolean(loading || creating || restoring),
-    restoreFromListLocked: Boolean(loading || creating || restoring || !hasSuccessfulLoad || error),
-    createLocked: Boolean(loading || creating || restoring),
+    writeLocked: busy,
+    restoreLocked: Boolean(busy || maintenanceBlocked),
+    restoreFromListLocked: Boolean(busy || !hasSuccessfulLoad || error || maintenanceBlocked),
+    createLocked: Boolean(busy || maintenanceBlocked),
   }
 }
 
@@ -293,7 +314,7 @@ export function parseReadinessPayload(payload = {}) {
   return {
     ready,
     maintenanceOk: maintenance.ok === true,
-    maintenanceError: String(maintenance.error || '').trim(),
+    maintenanceError: describeMaintenanceStatusError(maintenance.error),
     databaseOk: checks.database?.ok === true,
     storageOk: checks.storage?.ok === true,
   }
@@ -307,6 +328,7 @@ async function defaultReadinessRequest({ signal } = {}) {
     signal,
   })
   const data = await response.json().catch(() => ({}))
+  if (hasReadinessChecksPayload(data)) return data
   if (!response.ok) {
     const error = new Error(data?.checks?.maintenance?.error || data?.error?.message || '维护状态读取失败')
     error.status = response.status
@@ -360,9 +382,11 @@ export function useBackupSettings(options = {}) {
   const fileError = ref('')
   const fileErrorName = ref('')
   const actionError = ref('')
+  const lastFailedAction = ref('')
   const selectedFile = ref(null)
   const restoreDialogVisible = ref(false)
   const restoreTarget = ref(null)
+  const lastRestoreTarget = ref(null)
   const readinessLoading = ref(false)
   const readinessError = ref('')
   const hasSuccessfulReadinessLoad = ref(false)
@@ -375,6 +399,7 @@ export function useBackupSettings(options = {}) {
     hasSuccessfulLoad: hasSuccessfulListLoad.value,
     loadError: listError.value,
     itemCount: backups.value.length,
+    maintenanceBlocked: Boolean(hasSuccessfulReadinessLoad.value && readiness.value && readiness.value.ready === false),
   }))
   const listIsStale = computed(() => Boolean(listError.value) && hasSuccessfulListLoad.value)
   const restoreCopy = computed(() => restoreConfirmationCopy(restoreTarget.value?.name))
@@ -391,11 +416,20 @@ export function useBackupSettings(options = {}) {
 
   function dismissActionError() {
     actionError.value = ''
+    lastFailedAction.value = ''
   }
 
   function clearSelectedFile() {
+    const current = selectedFile.value
     selectedFile.value = null
     dismissFileError()
+    if (restoreTarget.value?.kind === 'file') {
+      restoreDialogVisible.value = false
+      restoreTarget.value = null
+    }
+    if (lastRestoreTarget.value?.kind === 'file' && lastRestoreTarget.value?.file === current) {
+      lastRestoreTarget.value = null
+    }
   }
 
   function selectBackupFile(file) {
@@ -416,7 +450,7 @@ export function useBackupSettings(options = {}) {
   }
 
   function requestRestoreFromSelection() {
-    if (accessState.value.writeLocked) return false
+    if (accessState.value.restoreLocked) return false
     const validation = validateBackupFile(selectedFile.value)
     if (!validation.ok) {
       fileError.value = validation.message
@@ -434,6 +468,7 @@ export function useBackupSettings(options = {}) {
     const name = String(item?.name || '').trim()
     if (!name) {
       actionError.value = BACKUP_ERROR_MESSAGES.BACKUP_FILE_REQUIRED
+      lastFailedAction.value = 'restore'
       return false
     }
     restoreTarget.value = { kind: 'item', name, id: item.id }
@@ -531,6 +566,14 @@ export function useBackupSettings(options = {}) {
       return true
     } catch (error) {
       if (isRequestCanceled(error) || requestId !== readinessRequestSequence) return false
+      const failedPayload = error?.response?.data
+      if (hasReadinessChecksPayload(failedPayload)) {
+        readiness.value = parseReadinessPayload(failedPayload)
+        hasSuccessfulReadinessLoad.value = true
+        readinessError.value = ''
+        logOperation({ operation: 'maintenance_status_load', operationId, phase: 'success' })
+        return true
+      }
       readinessError.value = describeMaintenanceLoadError(error, controller.signal)
       logOperation({
         operation: 'maintenance_status_load',
@@ -559,11 +602,13 @@ export function useBackupSettings(options = {}) {
         downloadBackup(result, 'localminidrama-backup.zip')
       }
       logOperation({ operation: 'backup_create', operationId, phase: 'success' })
+      lastFailedAction.value = ''
       await loadBackups()
       return { ok: true, result }
     } catch (error) {
       const message = describeBackupError(error)
       actionError.value = message
+      lastFailedAction.value = 'create'
       logOperation({
         operation: 'backup_create',
         operationId,
@@ -579,11 +624,13 @@ export function useBackupSettings(options = {}) {
   async function confirmRestore() {
     if (!restoreDialogVisible.value) {
       actionError.value = BACKUP_ERROR_MESSAGES.CONFIRMATION_REQUIRED
+      lastFailedAction.value = 'restore'
       return { ok: false, message: actionError.value }
     }
     const target = restoreTarget.value
     if (!target) {
       actionError.value = BACKUP_ERROR_MESSAGES.BACKUP_FILE_REQUIRED
+      lastFailedAction.value = 'restore'
       return { ok: false, message: actionError.value }
     }
     restoring.value = true
@@ -598,7 +645,9 @@ export function useBackupSettings(options = {}) {
       })
       restoreDialogVisible.value = false
       restoreTarget.value = null
+      lastRestoreTarget.value = null
       selectedFile.value = null
+      lastFailedAction.value = ''
       logOperation({ operation: 'backup_restore', operationId, phase: 'success', name: target.name })
       await loadBackups()
       const pendingRestart = Boolean(result?.pending_restart)
@@ -612,6 +661,8 @@ export function useBackupSettings(options = {}) {
     } catch (error) {
       const message = describeBackupError(error)
       actionError.value = message
+      lastFailedAction.value = 'restore'
+      lastRestoreTarget.value = target
       logOperation({
         operation: 'backup_restore',
         operationId,
@@ -623,6 +674,22 @@ export function useBackupSettings(options = {}) {
     } finally {
       restoring.value = false
     }
+  }
+
+  async function retryRestore() {
+    const target = restoreTarget.value || lastRestoreTarget.value
+    if (!target) {
+      actionError.value = BACKUP_ERROR_MESSAGES.BACKUP_FILE_REQUIRED
+      lastFailedAction.value = 'restore'
+      return { ok: false, message: actionError.value }
+    }
+    restoreTarget.value = target
+    lastRestoreTarget.value = target
+    if (!restoreDialogVisible.value) {
+      restoreDialogVisible.value = true
+      return { ok: false, needsConfirmation: true }
+    }
+    return confirmRestore()
   }
 
   function dispose() {
@@ -641,6 +708,7 @@ export function useBackupSettings(options = {}) {
     fileError,
     fileErrorName,
     actionError,
+    lastFailedAction,
     selectedFile,
     restoreDialogVisible,
     restoreTarget,
@@ -657,6 +725,7 @@ export function useBackupSettings(options = {}) {
     requestRestoreFromSelection,
     requestRestoreFromItem,
     confirmRestore,
+    retryRestore,
     cancelRestore,
     dismissFileError,
     dismissActionError,

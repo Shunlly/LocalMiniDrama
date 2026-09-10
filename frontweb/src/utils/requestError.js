@@ -124,6 +124,17 @@ export function getRequestId(error, config) {
   return ''
 }
 
+/** 仅在确有安全 requestId 时追加用户可见的请求编号，空值不加括号 */
+export function appendRequestIdHint(message, error) {
+  const text = String(message ?? '')
+  if (!text) return text
+  const requestId = getRequestId(error)
+  if (!requestId) return text
+  const suffix = '（请求编号：' + requestId + '）'
+  if (text.includes(suffix) || text.includes('（请求号 ' + requestId + '）')) return text
+  return text + suffix
+}
+
 function httpStatusOf(error) {
   const status = Number(error?.response?.status || error?.status)
   return Number.isInteger(status) && status > 0 ? status : 0

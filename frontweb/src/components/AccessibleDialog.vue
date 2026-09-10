@@ -89,11 +89,32 @@ function ensureRegistered() {
   return accessibilityToken
 }
 
-function applyInitialFocus() {
+function focusDialogFallback() {
+  // 没有可聚焦字段时，把焦点放到对话框容器，避免焦点留在已被 inert 的页面上。
+  const dialog = resolveDialogElement()
+  if (!dialog) return false
+  if (typeof dialog.setAttribute === 'function' && typeof dialog.hasAttribute === 'function' && !dialog.hasAttribute('tabindex')) {
+    dialog.setAttribute('tabindex', '-1')
+  }
+  if (typeof dialog.focus !== 'function') return false
+  try {
+    dialog.focus({ preventScroll: true })
+  } catch {
+    dialog.focus()
+  }
+  return true
+}
+
+function applyInitialFocus(allowDialogFallback = false) {
   if (focusApplied || !props.modelValue) return
   const token = ensureRegistered()
   if (!token) return
-  if (dialogAccessibility.focus(token)) focusApplied = true
+  if (dialogAccessibility.focus(token)) {
+    focusApplied = true
+    return
+  }
+  if (!allowDialogFallback) return
+  if (focusDialogFallback()) focusApplied = true
 }
 
 function cancelScheduledFocus() {
@@ -140,7 +161,7 @@ function handleOpenAutoFocus(event, ...args) {
 }
 
 function handleOpened(...args) {
-  applyInitialFocus()
+  applyInitialFocus(true)
   emit('opened', ...args)
 }
 
@@ -148,8 +169,9 @@ function handleClose(...args) {
   emit('close', ...args)
 }
 
-function handleCloseAutoFocus(...args) {
-  emit('closeAutoFocus', ...args)
+function handleCloseAutoFocus(event, ...args) {
+  event?.preventDefault?.()
+  emit('closeAutoFocus', event, ...args)
 }
 
 function handleClosed(...args) {

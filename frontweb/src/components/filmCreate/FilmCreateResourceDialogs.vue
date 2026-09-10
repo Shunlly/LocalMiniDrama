@@ -10,7 +10,7 @@
               <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
             </button>
             <div v-if="addPropAddRefImage" class="ref-actions">
-              <el-button type="primary" size="small" :loading="extractingPropAddDesc" @click="doExtractFromRef2('addProp')">提取特征描述</el-button>
+              <el-button type="primary" size="small" :loading="extractingPropAddDesc" :title="extractingPropAddDesc ? '正在提取特征描述，请稍候' : undefined" @click="doExtractFromRef2('addProp')">提取特征描述</el-button>
               <el-button size="small" @click="addPropAddRefImage = null">移除</el-button>
             </div>
           </div>
@@ -30,7 +30,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showAddProp = false">取消</el-button>
-        <el-button type="primary" :loading="addPropSaving" :disabled="!addPropForm.name.trim()" :title="addPropForm.name.trim() ? undefined : '请先填写名称'" @click="submitAddProp">确定</el-button>
+        <el-button type="primary" :loading="addPropSaving" :disabled="!addPropForm.name.trim()" :title="addPropSaving ? '正在保存道具，请稍候' : (addPropForm.name.trim() ? undefined : '请先填写名称')" @click="submitAddProp">确定</el-button>
       </template>
     </AccessibleDialog>
 
@@ -108,15 +108,15 @@
               <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
             </button>
             <div v-if="addPropRefImage" class="ref-actions">
-              <el-button type="primary" size="small" :loading="extractingPropDesc" @click="doExtractFromRef('prop')">提取特征描述</el-button>
+              <el-button type="primary" size="small" :loading="extractingPropDesc" :title="extractingPropDesc ? '正在提取特征描述，请稍候' : undefined" @click="doExtractFromRef('prop')">提取特征描述</el-button>
               <el-button size="small" @click="addPropRefImage = null">移除</el-button>
             </div>
             <div v-else-if="editPropForm.ref_image" class="ref-actions">
-              <el-button type="primary" size="small" :loading="extractingPropDesc" @click="doExtractPropFromImage">从参考图提取描述</el-button>
+              <el-button type="primary" size="small" :loading="extractingPropDesc" :title="extractingPropDesc ? '正在提取描述，请稍候' : undefined" @click="doExtractPropFromImage">从参考图提取描述</el-button>
               <el-button size="small" @click="clearPropRefImage">移除参考图</el-button>
             </div>
             <div v-else-if="editPropForm.id && (editPropForm.image_url || editPropForm.local_path) && !editPropForm.description" class="ref-actions">
-              <el-button size="small" :loading="extractingPropDesc" @click="doExtractPropFromImage">从主图提取描述</el-button>
+              <el-button size="small" :loading="extractingPropDesc" :title="extractingPropDesc ? '正在提取描述，请稍候' : undefined" @click="doExtractPropFromImage">从主图提取描述</el-button>
             </div>
           </div>
         </el-form-item>
@@ -133,7 +133,7 @@
           <div style="width:100%">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
               <span style="font-size:12px;color:#909399">AI 润色后的图片提示词，生成图片时直接使用；可手动修改</span>
-              <el-button size="small" :loading="editPropPromptGenerating" @click="doGeneratePropPrompt">重新生成提示词</el-button>
+              <el-button size="small" :loading="editPropPromptGenerating" :title="editPropPromptGenerating ? '正在生成提示词，请稍候' : undefined" @click="doGeneratePropPrompt">重新生成提示词</el-button>
             </div>
             <el-input
               v-model="editPropForm.prompt"
@@ -148,7 +148,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditProp = false">取消</el-button>
-        <el-button type="primary" :loading="editPropSaving" :disabled="!editPropForm?.name?.trim()" :title="editPropForm?.name?.trim() ? undefined : '请先填写名称'" @click="submitEditProp">保存</el-button>
+        <el-button type="primary" :loading="editPropSaving" :disabled="!editPropForm?.name?.trim()" :title="editPropSaving ? '正在保存道具，请稍候' : (editPropForm?.name?.trim() ? undefined : '请先填写名称')" @click="submitEditProp">保存</el-button>
       </template>
     </AccessibleDialog>
 
@@ -169,15 +169,15 @@
               <span v-else class="ref-upload-hint"><span class="ref-upload-icon">🖼</span><span>点击或拖入参考图</span></span>
             </button>
             <div v-if="addSceneRefImage" class="ref-actions">
-              <el-button type="primary" size="small" :loading="extractingSceneDesc" @click="doExtractFromRef('scene')">提取特征描述</el-button>
+              <el-button type="primary" size="small" :loading="extractingSceneDesc" :title="extractingSceneDesc ? '正在提取特征描述，请稍候' : undefined" @click="doExtractFromRef('scene')">提取特征描述</el-button>
               <el-button size="small" @click="addSceneRefImage = null">移除</el-button>
             </div>
             <div v-else-if="editSceneForm.ref_image" class="ref-actions">
-              <el-button type="primary" size="small" :loading="extractingSceneDesc" @click="doExtractSceneFromImage">从参考图提取描述</el-button>
+              <el-button type="primary" size="small" :loading="extractingSceneDesc" :title="extractingSceneDesc ? '正在提取描述，请稍候' : undefined" @click="doExtractSceneFromImage">从参考图提取描述</el-button>
               <el-button size="small" @click="clearSceneRefImage">移除参考图</el-button>
             </div>
             <div v-else-if="editSceneForm.id && (editSceneForm.image_url || editSceneForm.local_path) && !editSceneForm.prompt" class="ref-actions">
-              <el-button size="small" :loading="extractingSceneDesc" @click="doExtractSceneFromImage">从主图提取描述</el-button>
+              <el-button size="small" :loading="extractingSceneDesc" :title="extractingSceneDesc ? '正在提取描述，请稍候' : undefined" @click="doExtractSceneFromImage">从主图提取描述</el-button>
             </div>
           </div>
         </el-form-item>
@@ -197,7 +197,7 @@
           <div style="width:100%">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
               <span style="font-size:12px;color:#909399">单图场景的完整图片提示词（不含四宫格布局），生图时直接使用；可手动修改</span>
-              <el-button size="small" :loading="editScenePromptGenerating" @click="doGenerateSceneSinglePrompt">重新生成提示词</el-button>
+              <el-button size="small" :loading="editScenePromptGenerating" :title="editScenePromptGenerating ? '正在生成提示词，请稍候' : undefined" @click="doGenerateSceneSinglePrompt">重新生成提示词</el-button>
             </div>
             <el-input
               v-model="editSceneForm.polished_prompt_single"
@@ -216,7 +216,7 @@
           <div style="width:100%">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
               <span style="font-size:12px;color:#909399">AI 生成的完整四视图图片提示词，生图时直接使用；可手动修改</span>
-              <el-button size="small" :loading="editScenePromptGenerating" @click="doGenerateScenePrompt">重新生成提示词</el-button>
+              <el-button size="small" :loading="editScenePromptGenerating" :title="editScenePromptGenerating ? '正在生成提示词，请稍候' : undefined" @click="doGenerateScenePrompt">重新生成提示词</el-button>
             </div>
             <el-input
               v-model="editSceneForm.polished_prompt"
@@ -232,7 +232,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditScene = false">取消</el-button>
-        <el-button type="primary" :loading="editSceneSaving" :disabled="!editSceneForm?.location?.trim()" :title="editSceneForm?.location?.trim() ? undefined : '请先填写地点'" @click="submitEditScene">{{ editSceneForm?.id ? '保存' : '添加' }}</el-button>
+        <el-button type="primary" :loading="editSceneSaving" :disabled="!editSceneForm?.location?.trim()" :title="editSceneSaving ? '正在保存场景，请稍候' : (editSceneForm?.location?.trim() ? undefined : '请先填写地点')" @click="submitEditScene">{{ editSceneForm?.id ? '保存' : '添加' }}</el-button>
       </template>
     </AccessibleDialog>
 
@@ -343,7 +343,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditCharLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editCharLibrarySaving" @click="submitEditCharLibrary">保存</el-button>
+        <el-button type="primary" :loading="editCharLibrarySaving" :title="editCharLibrarySaving ? '正在保存公共角色，请稍候' : undefined" @click="submitEditCharLibrary">保存</el-button>
       </template>
     </AccessibleDialog>
 
@@ -433,7 +433,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditPropLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editPropLibrarySaving" @click="submitEditPropLibrary">保存</el-button>
+        <el-button type="primary" :loading="editPropLibrarySaving" :title="editPropLibrarySaving ? '正在保存公共道具，请稍候' : undefined" @click="submitEditPropLibrary">保存</el-button>
       </template>
     </AccessibleDialog>
 
@@ -526,7 +526,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditSceneLibrary = false">取消</el-button>
-        <el-button type="primary" :loading="editSceneLibrarySaving" @click="submitEditSceneLibrary">保存</el-button>
+        <el-button type="primary" :loading="editSceneLibrarySaving" :title="editSceneLibrarySaving ? '正在保存公共场景，请稍候' : undefined" @click="submitEditSceneLibrary">保存</el-button>
       </template>
     </AccessibleDialog>
   </div>

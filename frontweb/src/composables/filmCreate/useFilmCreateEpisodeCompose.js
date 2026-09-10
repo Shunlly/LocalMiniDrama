@@ -1,4 +1,4 @@
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { isUserFacingAbort, toUserFacingError } from '@/utils/userFacingError'
 

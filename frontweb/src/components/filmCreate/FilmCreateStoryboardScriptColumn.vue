@@ -177,6 +177,7 @@
           size="small"
           :loading="ttsSbNarrationIds.has(sb.id)"
           :disabled="Boolean(ttsGenerationDisabledReason(sb.id, 'narration'))"
+          :title="ttsSbNarrationIds.has(sb.id) ? '正在生成解说配音，请稍候' : (ttsGenerationDisabledReason(sb.id, 'narration') || undefined)"
           @click="onTtsSbNarration(sb)"
         >
           解说配音

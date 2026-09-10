@@ -205,7 +205,7 @@
             size="large"
             :loading="generating"
             :disabled="generateDisabled"
-            :title="generateDisabledReason || undefined"
+            :title="(generating ? resultBusyDisabledReason : generateDisabledReason) || undefined"
             :aria-describedby="generateDisabledReason ? 'free-create-generate-reason' : undefined"
             class="generate-btn"
             @click="generate"
@@ -372,7 +372,7 @@
 <script setup>
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { ArrowLeft, CircleCheck, Picture, Loading, CircleClose, VideoCamera, Warning } from '@element-plus/icons-vue'
 import { aiAPI } from '@/api/ai'
 import { imagesAPI } from '@/api/images'

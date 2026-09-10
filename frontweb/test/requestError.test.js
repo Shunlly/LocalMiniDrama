@@ -1,9 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  appendRequestIdHint,
   classifyRequestError,
   createTimeoutController,
   describeServiceLoadError,
+  getRequestId,
   isRequestCanceled,
   isRequestNetworkError,
   isRequestTimeout,
@@ -224,5 +226,35 @@ test('带 isTimeout 的 PROJECT_LOAD_FAILED 仍是超时而不是取消', () => 
   assert.equal(
     describeServiceLoadError(error, { serviceLabel: '服务' }),
     '连接服务超时，请稍后重试',
+  )
+})
+
+test('appendRequestIdHint 仅在安全 requestId 时追加请求编号', () => {
+  assert.equal(
+    appendRequestIdHint('保存失败', { requestId: 'trace-ok-1' }),
+    '保存失败（请求编号：trace-ok-1）',
+  )
+  assert.equal(appendRequestIdHint('保存失败', { requestId: '' }), '保存失败')
+  assert.equal(appendRequestIdHint('保存失败', {}), '保存失败')
+  assert.equal(appendRequestIdHint('', { requestId: 'trace-ok-1' }), '')
+  assert.doesNotMatch(appendRequestIdHint('保存失败', { requestId: '' }), /（/)
+  assert.equal(
+    appendRequestIdHint('保存失败（请求编号：trace-ok-1）', { requestId: 'trace-ok-1' }),
+    '保存失败（请求编号：trace-ok-1）',
+  )
+  assert.equal(
+    getRequestId({ requestId: '../secret\r\nInjected: yes', config: { requestId: 'safe-trace-1' } }),
+    'safe-trace-1',
+  )
+  assert.equal(
+    appendRequestIdHint('保存失败', {
+      requestId: '../secret\r\nInjected: yes',
+      config: { requestId: 'safe-trace-1' },
+    }),
+    '保存失败（请求编号：safe-trace-1）',
+  )
+  assert.equal(
+    appendRequestIdHint('保存失败', { requestId: '../secret\r\nInjected: yes' }),
+    '保存失败',
   )
 })

@@ -57,7 +57,15 @@
         <p v-else>维护正常空态不会在连接恢复前显示。</p>
         <p class="data-load-state__detail">错误详情：{{ readinessError }}</p>
       </div>
-      <el-button type="primary" plain :loading="readinessLoading" aria-label="重试加载维护状态" @click="loadReadiness">
+      <el-button
+        type="primary"
+        plain
+        :loading="readinessLoading"
+        :disabled="readinessLoading"
+        :title="readinessLoading ? '维护状态正在加载，请稍候' : undefined"
+        aria-label="重试加载维护状态"
+        @click="loadReadiness"
+      >
         <el-icon><Refresh /></el-icon>重试加载
       </el-button>
     </section>
@@ -86,7 +94,15 @@
         <p v-else>备份空态不会在连接恢复前显示。</p>
         <p class="data-load-state__detail">错误详情：{{ listError }}</p>
       </div>
-      <el-button type="primary" plain :loading="loading" aria-label="重试加载备份列表" @click="loadBackups">
+      <el-button
+        type="primary"
+        plain
+        :loading="loading"
+        :disabled="loading"
+        :title="loading ? '备份列表正在加载，请稍候' : undefined"
+        aria-label="重试加载备份列表"
+        @click="loadBackups"
+      >
         <el-icon><Refresh /></el-icon>重试加载
       </el-button>
     </section>
@@ -124,11 +140,13 @@
       </div>
       <div class="import-failure-actions">
         <el-button
-          v-if="restoreDialogVisible"
+          v-if="lastFailedAction === 'restore'"
           type="primary"
           :loading="restoring"
+          :disabled="accessState.restoreLocked"
+          :title="accessState.restoreLocked ? backupWriteLockReason : undefined"
           aria-label="重试恢复备份"
-          @click="onConfirmRestore"
+          @click="onRetryRestore"
         >
           重试恢复
         </el-button>
@@ -149,16 +167,27 @@
 
     <section v-if="selectedFile" class="selected-file" aria-live="polite">
       <p>已选择：{{ selectedFile.name }}</p>
-      <el-button
-        type="danger"
-        plain
-        :disabled="accessState.writeLocked"
-        :title="accessState.writeLocked ? backupWriteLockReason : undefined"
-        aria-label="恢复所选备份文件"
-        @click="requestRestoreFromSelection"
-      >
-        恢复所选备份
-      </el-button>
+      <div class="import-failure-actions">
+        <el-button
+          type="danger"
+          plain
+          :disabled="accessState.restoreLocked"
+          :title="accessState.restoreLocked ? backupWriteLockReason : undefined"
+          aria-label="恢复所选备份文件"
+          @click="requestRestoreFromSelection"
+        >
+          恢复所选备份
+        </el-button>
+        <el-button
+          plain
+          :disabled="accessState.writeLocked"
+          :title="accessState.writeLocked ? backupWriteLockReason : undefined"
+          aria-label="清除所选备份文件"
+          @click="clearSelectedFile"
+        >
+          清除所选
+        </el-button>
+      </div>
     </section>
 
     <div v-loading="loading" class="backup-list-wrap" :aria-busy="loading">
@@ -186,6 +215,16 @@
             @click="triggerFileSelect"
           >选择已有备份</el-button>
         </div>
+      </section>
+
+      <section
+        v-else-if="loading && !hasSuccessfulListLoad"
+        class="empty-state"
+        role="status"
+        aria-live="polite"
+      >
+        <strong>正在加载备份列表</strong>
+        <span>请稍候，正在确认服务器中的备份。</span>
       </section>
 
       <ul v-else-if="hasSuccessfulListLoad && backups.length" class="backup-list">
@@ -221,7 +260,14 @@
       <p>{{ restoreCopy.body }}</p>
       <template #footer>
         <el-button :disabled="restoring" :title="restoring ? '正在恢复备份，请稍候' : undefined" @click="cancelRestore">{{ restoreCopy.cancelButtonText }}</el-button>
-        <el-button type="danger" :loading="restoring" aria-label="确认恢复备份" @click="onConfirmRestore">
+        <el-button
+          type="danger"
+          :loading="restoring"
+          :disabled="accessState.restoreLocked"
+          :title="accessState.restoreLocked ? backupWriteLockReason : undefined"
+          aria-label="确认恢复备份"
+          @click="onConfirmRestore"
+        >
           {{ restoreCopy.confirmButtonText }}
         </el-button>
       </template>
@@ -257,6 +303,7 @@ const {
   fileError,
   fileErrorName,
   actionError,
+  lastFailedAction,
   selectedFile,
   restoreDialogVisible,
   restoreCopy,
@@ -272,9 +319,11 @@ const {
   requestRestoreFromSelection,
   requestRestoreFromItem,
   confirmRestore,
+  retryRestore,
   cancelRestore,
   dismissFileError,
   dismissActionError,
+  clearSelectedFile,
   dispose,
 } = useBackupSettings({
   downloadBackup(blob, filename) {
@@ -293,6 +342,9 @@ const backupWriteLockReason = computed(() => {
   if (creating.value) return '正在创建备份，请稍候'
   if (restoring.value) return '正在恢复备份，请稍候'
   if (loading.value) return '备份列表正在加载，请稍候'
+  if (hasSuccessfulReadinessLoad.value && readiness.value && readiness.value.ready === false) {
+    return readiness.value.maintenanceError || '当前不能安全执行备份或恢复。'
+  }
   return ''
 })
 const backupRestoreLockReason = computed(() => {
@@ -329,6 +381,11 @@ async function onCreateBackup() {
 
 async function onConfirmRestore() {
   const result = await confirmRestore()
+  if (result.ok) ElMessage.success(result.message || '备份已恢复')
+}
+
+async function onRetryRestore() {
+  const result = await retryRestore()
   if (result.ok) ElMessage.success(result.message || '备份已恢复')
 }
 

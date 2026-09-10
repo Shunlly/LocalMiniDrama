@@ -200,6 +200,15 @@ test('交付按钮提供中文 aria-label，禁用时带上原因', () => {
   assert.match(deliveryPanelSource, /:aria-label="panelState\.downloadVideoButtonAriaLabel"/)
   assert.match(deliveryPanelSource, /:aria-label="panelState\.downloadSubtitleButtonAriaLabel"/)
   assert.match(deliveryPanelSource, /:aria-label="panelState\.exportProjectButtonAriaLabel"/)
+  assert.match(deliveryPanelSource, /:title="panelState\.composeButtonTitle"/)
+  assert.match(deliveryPanelSource, /:title="panelState\.downloadVideoButtonTitle"/)
+  assert.match(deliveryPanelSource, /:title="panelState\.downloadSubtitleButtonTitle"/)
+  assert.match(deliveryPanelSource, /:title="panelState\.exportProjectButtonTitle"/)
+  assert.equal(idle.composeButtonTitle, undefined)
+  assert.equal(blocked.composeButtonTitle, blocked.composeDisabledReason)
+  assert.equal(loading.composeButtonTitle, '正在合成成片，请稍候')
+  assert.match(blocked.composeButtonTitle, /请先为全部分镜生成可播放视频/)
+  assert.doesNotMatch(JSON.stringify(blocked), /Network Error|HTTP Error|Failed/i)
 })
 
 test('合成下载导出失败不展示英文 HTTP/Network Error', () => {

@@ -150,7 +150,7 @@ test('开始导入前校验空内容和确认文案', () => {
   assert.equal(copy.title, '确认导入文本')
   assert.equal(copy.confirmButtonText, '开始导入')
   assert.match(copy.message, /最多 6 集/)
-  assert.match(copy.message, /会消耗 Token/)
+  assert.match(copy.message, /会消耗额度/)
   assert.doesNotMatch(copy.message, /当前没有图片 OCR|service_type=ocr/)
   const plain = buildNovelIntakeConfirmCopy({ maxChapters: 3, aiSummarize: false })
   assert.match(plain.message, /请确认内容已有版权或授权/)

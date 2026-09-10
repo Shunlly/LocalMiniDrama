@@ -3,7 +3,7 @@
  * 组件负责接线 refs 和弹窗；关闭判定、指纹和校验摘要在这里完成。
  */
 import { nextTick as vueNextTick } from 'vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { hasUnsavedAiConfigChanges } from '@/utils/aiConfigUnsavedGuard.js'
 import {
   createAiConfigValidationSummary,

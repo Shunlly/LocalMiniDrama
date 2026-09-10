@@ -288,6 +288,7 @@
           type="primary"
           :loading="busyStep === 'video'"
           :disabled="Boolean(videoAction.reason)"
+          :title="videoAction.reason || undefined"
           @click.stop="runStep('video')"
         >生视频</el-button>
       </CanvasActionGate>
@@ -301,7 +302,8 @@
           size="small"
           type="warning"
           :loading="busyStep === 'audio'"
-          :disabled="Boolean(ttsAction.reason) || audioOutcomeUnknown"
+          :disabled="Boolean(audioActionDisabledReason)"
+          :title="audioActionDisabledReason || undefined"
           @click.stop="runStep('audio')"
         >配音</el-button>
       </CanvasActionGate>
@@ -313,7 +315,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { Close, MagicStick, Refresh, Upload } from '@element-plus/icons-vue'
 import { storyboardsAPI } from '@/api/storyboards'
 import { uploadAPI } from '@/api/upload'
@@ -390,6 +392,10 @@ const videoAction = computed(() => ctx?.productionActions?.value?.video || unava
 const ttsAction = computed(() => ctx?.productionActions?.value?.tts || unavailableProductionAction)
 const videoReasonId = computed(() => `canvas-storyboard-video-reason-${props.storyboard?.id || 'unknown'}`)
 const ttsReasonId = computed(() => `canvas-storyboard-tts-reason-${props.storyboard?.id || 'unknown'}`)
+const audioActionDisabledReason = computed(() => (
+  ttsAction.value.reason
+  || (audioOutcomeUnknown.value ? '请先刷新分镜状态，确认上一次配音结果后再重试' : '')
+))
 
 function storyboardControlLabel(control) {
   const number = props.storyboard?.storyboard_number ?? props.storyboard?.id ?? '未编号'

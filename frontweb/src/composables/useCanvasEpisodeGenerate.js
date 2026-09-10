@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { dramaAPI } from '@/api/drama'
 import { storyboardsAPI } from '@/api/storyboards'
 import { parseDramaMetadata } from '@/utils/canvasLayout'

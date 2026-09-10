@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { once } from 'node:events'
 
 const dramaDetailSource = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
+const dramaDetailDialogsSource = readFileSync(new URL('../src/components/dramaDetail/DramaDetailResourceDialogs.vue', import.meta.url), 'utf8')
 const sectionFocusSource = readFileSync(new URL('../src/utils/sectionFocus.js', import.meta.url), 'utf8')
 
 async function launchChromium(chromium) {
@@ -148,6 +149,6 @@ test('DramaDetail 禁用按钮外包可焦点且空封面不再是 disabled butt
 
 
 test('编辑弹窗无图缩略图禁用时给出中文原因', () => {
-  assert.match(dramaDetailSource, /:title="assetImageUrl\(editDramaCharForm\) \? undefined : '暂无图片'"/)
-  assert.match(dramaDetailSource, /:title="assetImageUrl\(editPropForm\) \? undefined : '暂无图片'"/)
+  assert.match(dramaDetailDialogsSource, /:title="assetImageUrl\(editDramaCharForm\) \? undefined : '暂无图片'"/)
+  assert.match(dramaDetailDialogsSource, /:title="assetImageUrl\(editPropForm\) \? undefined : '暂无图片'"/)
 })

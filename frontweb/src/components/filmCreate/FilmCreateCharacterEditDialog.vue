@@ -148,7 +148,7 @@
     <p v-else class="char-edit-empty" role="status">角色信息还没有准备好。请点「取消」关闭后，再从角色列表重新打开。</p>
     <template #footer>
       <el-button @click="requestCloseCharDialog">取消</el-button>
-      <el-button type="primary" :loading="editCharacterSaving" :disabled="Boolean(editCharacterSubmitDisabledReason)" :title="editCharacterSubmitDisabledReason || undefined" @click="submitEditCharacter">{{ editCharacterForm?.id ? '保存' : '添加' }}</el-button>
+      <el-button type="primary" :loading="editCharacterSaving" :disabled="Boolean(editCharacterSubmitDisabledReason)" :title="editCharacterSaving ? '正在保存角色，请稍候' : (editCharacterSubmitDisabledReason || undefined)" @click="submitEditCharacter">{{ editCharacterForm?.id ? '保存' : '添加' }}</el-button>
     </template>
   </AccessibleDialog>
 </template>

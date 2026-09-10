@@ -285,7 +285,7 @@ async function callKlingOmniVideoApi(config, log, opts) {
   if (!bearerToken) {
     return {
       error:
-        '可灵 Omni 未配置鉴权：请填写「API Key」（中转 Bearer），或在高级设置中填写官方 AccessKey + SecretKey（存 settings，自动生成 JWT）',
+        '可灵 Omni 未配置鉴权：请填写密钥（中转令牌），或在高级设置中填写官方访问密钥和签名密钥',
     };
   }
   logKlingOmniAuthDebug(cfg, bearerToken, log);

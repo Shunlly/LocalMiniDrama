@@ -190,7 +190,7 @@ test('AI 配置写入锁定时可见按钮给出中文原因，隐藏文件选�
   for (const tag of lockedButtons) {
     assert.match(tag, CONFIG_WRITE_LOCKED_TITLE_MORPHOLOGY)
   }
-  for (const key of ['oneKeyTongyiKey', 'oneKeyVolcKey', 'oneKeyAgnesKey']) {
+  for (const key of ['oneKeyTongyiKey', 'oneKeyVolcKey', 'oneKeyAgnesKey', 'bulkKeyInput']) {
     assert.match(
       source,
       new RegExp(`:title="configWriteLocked \\? configWriteLockReason : \\(!${key}\\.trim\\(\\) \\? '请先填写密钥' : undefined\\)"`),

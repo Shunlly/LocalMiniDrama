@@ -45,7 +45,7 @@
           <span>最多导入集数：</span>
           <el-input-number v-model="maxChapters" aria-label="最多导入集数" :min="1" :max="20" size="small" style="width:100px" />
         </div>
-        <el-checkbox v-model="aiSummarize" size="small">AI 转换为剧本格式（会消耗 Token）</el-checkbox>
+        <el-checkbox v-model="aiSummarize" size="small">AI 转换为剧本格式（会消耗额度）</el-checkbox>
       </div>
     </div>
     <template #footer>
@@ -54,7 +54,13 @@
         :title="cancelDisabledReason || undefined"
         @click="requestClose"
       >取消</el-button>
-      <el-button type="primary" :loading="importing || fileReading || confirming" @click="handleImport">开始导入</el-button>
+      <el-button
+        type="primary"
+        :loading="importing || fileReading || confirming"
+        :disabled="Boolean(importDisabledReason)"
+        :title="importDisabledReason || undefined"
+        @click="handleImport"
+      >开始导入</el-button>
     </template>
   </AccessibleDialog>
 </template>
@@ -62,7 +68,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { DocumentAdd } from '@element-plus/icons-vue'
 import {
   NOVEL_INTAKE_FILE_HELP,
@@ -103,6 +109,12 @@ const displayFileName = computed(() => localFileName.value || props.fileName || 
 const cancelDisabledReason = computed(() => {
   if (props.importing) return '正在导入小说，请稍候'
   if (fileReading.value) return '正在读取文本，请稍候'
+  return ''
+})
+const importDisabledReason = computed(() => {
+  if (props.importing) return '正在导入小说，请稍候'
+  if (fileReading.value) return '正在读取文本，请稍候'
+  if (confirming.value) return '正在确认导入内容，请稍候'
   return ''
 })
 const hasDraft = computed(() => novelIntakeHasDraft({

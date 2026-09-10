@@ -22,6 +22,10 @@ test('场景模型映射失败时不伪装成空列表，并标出配置可用�
 })
 
 test('场景模型映射禁用按钮给出中文原因', () => {
+  assert.match(source, /from ['"]@\/utils\/elementPlusFeedback\.js['"]/)
+  assert.doesNotMatch(source, /from ['"]element-plus['"]/)
+  assert.match(source, /:title="loading \? '正在重新加载场景模型映射，请稍候' : undefined"/)
+  assert.match(source, /:disabled="saving" :title="saving \? '正在保存场景模型映射，请稍候' : undefined"/)
   assert.match(source, /const writeLocked = computed\(\(\) => loading\.value \|\| !hasSuccessfulLoad\.value \|\| Boolean\(loadError\.value\)\)/)
   assert.match(source, /if \(loading\.value\) return '场景模型映射正在加载，请稍候'/)
   assert.match(source, /场景模型映射刷新失败，成功重试前不能修改/)

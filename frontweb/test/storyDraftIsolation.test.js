@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '../src/utils/elementPlusFeedback.js'
 
 import { dramaAPI } from '../src/api/drama.js'
 import { generationAPI } from '../src/api/generation.js'

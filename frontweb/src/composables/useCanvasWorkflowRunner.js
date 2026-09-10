@@ -117,7 +117,7 @@ function pollTaskOptions(options = {}) {
 }
 
 export async function pollTaskSimple(taskId, options = {}) {
-  if (!taskId) return { status: 'failed', error: '缺少 task_id' }
+  if (!taskId) return { status: 'failed', error: '缺少任务编号' }
   const maxAttempts = options.maxAttempts ?? 450
   const interval = options.interval ?? 2000
   const deadlineMs = Math.max(0, options.deadlineMs ?? POLL_DEADLINE_MS)
@@ -300,7 +300,7 @@ export async function runVideoStep(drama, sb, genOpts, options = {}) {
   }
   const universalOmni = universal && videoConfigSupportsOmni(activeVideoConfig)
   if (selectedGrid && !videoConfigSupportsGridReference(activeVideoConfig)) {
-    throw new Error('当前视频模型未声明支持宫格整图参考，请在 AI 配置中启用 supports_grid_reference')
+    throw new Error('当前视频模型未声明支持宫格整图参考，请在 AI 配置的高级设置中开启宫格整图参考，或改回主图/首帧。')
   }
   const allReferences = collectStoryboardReferenceUrls(drama, sb, { toAbsolute: toAbsoluteMediaUrl })
   const fallbackReferences = collectStoryboardReferenceUrls(drama, sb, {

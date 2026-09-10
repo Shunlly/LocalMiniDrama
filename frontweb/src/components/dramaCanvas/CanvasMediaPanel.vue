@@ -68,6 +68,7 @@
               type="primary"
               :loading="busy"
               :disabled="Boolean(videoAction.reason)"
+              :title="videoAction.reason || undefined"
               @click.stop="runStep('video')"
             >重新生成视频</el-button>
           </CanvasActionGate>
@@ -100,6 +101,7 @@
             type="primary"
             :loading="busy"
             :disabled="Boolean(videoAction.reason)"
+            :title="videoAction.reason || undefined"
             @click.stop="runStep('video')"
           >重新生成视频</el-button>
         </CanvasActionGate>
@@ -119,7 +121,8 @@
             size="small"
             type="warning"
             :loading="busy"
-            :disabled="Boolean(ttsAction.reason) || audioOutcomeUnknown"
+            :disabled="Boolean(audioActionDisabledReason)"
+            :title="audioActionDisabledReason || undefined"
             @click.stop="runStep('audio')"
           >重新配音</el-button>
         </CanvasActionGate>
@@ -130,7 +133,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { useCanvasContext } from '@/composables/useCanvasContext'
 import { canvasUserError } from '@/composables/useCanvasUserError'
 import { CANVAS_NODE_STATUS_LABELS } from '@/composables/useCanvasNodeStatus'
@@ -170,6 +173,10 @@ const videoAction = computed(() => ctx?.productionActions?.value?.video || unava
 const ttsAction = computed(() => ctx?.productionActions?.value?.tts || unavailableProductionAction)
 const videoReasonId = computed(() => `canvas-media-video-reason-${props.nodeId || props.storyboard?.id || 'unknown'}`)
 const ttsReasonId = computed(() => `canvas-media-tts-reason-${props.nodeId || props.storyboard?.id || 'unknown'}`)
+const audioActionDisabledReason = computed(() => (
+  ttsAction.value.reason
+  || (audioOutcomeUnknown.value ? '请先刷新分镜状态，确认上一次配音结果后再重试' : '')
+))
 const mediaQueryStatus = computed(() => ctx?.getStoryboardMediaQueryStatus?.(props.storyboard?.id) || {})
 const mediaQueryUnknown = computed(() => mediaQueryStatus.value?.state === 'unknown')
 const mediaQueryMessage = computed(() => mediaQueryStatus.value?.error || '媒体查询失败，请重试。')

@@ -135,6 +135,8 @@ test('空分镜列表下一步是可点击按钮，而不是一句空文案', ()
   assert.match(emptyBlock, />去创建剧集<\/el-button>/)
   assert.match(emptyBlock, /:disabled="Boolean\(storyboardActionDisabledReason\)"/)
   assert.match(emptyBlock, /:disabled="Boolean\(episodeActionDisabledReason\)"/)
+  assert.match(emptyBlock, /正在生成分镜，请稍候/)
+  assert.match(emptyBlock, /:title="episodeActionDisabledReason \|\| undefined"/)
   assert.doesNotMatch(emptyBlock, /disabled="true"/)
 })
 

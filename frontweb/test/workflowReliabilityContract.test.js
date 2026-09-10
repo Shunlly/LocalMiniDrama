@@ -279,3 +279,12 @@ test('canvas workflow execution remains cancellable from the page toolbar', () =
   assert.doesNotMatch(around, /:disabled=/)
   assert.match(workflowToolbar, /props\.workflowRunning && props\.workflowProgress/)
 })
+
+test('工作流轮询缺少任务编号时使用简体中文且不暴露字段名', async () => {
+  const source = read('../src/composables/useCanvasWorkflowRunner.js')
+  assert.doesNotMatch(source, /缺少 task_id/)
+  assert.doesNotMatch(source, /supports_grid_reference/)
+  assert.match(source, /error: '缺少任务编号'/)
+  const result = await pollTaskSimple('')
+  assert.deepEqual(result, { status: 'failed', error: '缺少任务编号' })
+})

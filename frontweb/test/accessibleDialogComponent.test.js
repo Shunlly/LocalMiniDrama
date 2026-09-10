@@ -35,6 +35,7 @@ async function compileAccessibleDialog() {
       },
       unregister(token) {
         globalThis.__accessibleDialogCalls.push(['unregister', token])
+        if (token?.opener) globalThis.document.activeElement = token.opener
       },
     }
   `)
@@ -298,9 +299,9 @@ test('包装器完整透传自动聚焦和关闭事件参数', async () => {
   const harness = await mountDialog()
   try {
     const [dialog] = findAll(harness.root, 'dialog-stub')
-    const openFocusEvent = { type: 'open-auto-focus' }
+    const openFocusEvent = { type: 'open-auto-focus', preventDefault() { this.prevented = true } }
     const closeEvent = { type: 'close' }
-    const closeFocusEvent = { type: 'close-auto-focus' }
+    const closeFocusEvent = { type: 'close-auto-focus', preventDefault() { this.prevented = true } }
 
     dialog.props.onTriggerOpen()
     dialog.props.onTriggerOpenAutoFocus(openFocusEvent)
@@ -309,6 +310,8 @@ test('包装器完整透传自动聚焦和关闭事件参数', async () => {
     await nextTick()
     await nextTick()
 
+    assert.equal(openFocusEvent.prevented, true)
+    assert.equal(closeFocusEvent.prevented, true)
     assert.deepEqual(harness.events, [
       'open',
       ['open-auto-focus', openFocusEvent],
@@ -395,6 +398,50 @@ test('初始焦点失败后 opened 会重试而不是锁死关闭按钮', async 
 
 test('打开自动聚焦会阻止默认焦点落到关闭按钮', () => {
   assert.match(componentSource, /function handleOpenAutoFocus\(event, \.\.\.args\)/)
-  assert.match(componentSource, /event\?\.preventDefault\?\.\(\)/)
+  assert.match(componentSource, /function handleCloseAutoFocus\(event, \.\.\.args\)/)
+  assert.equal((componentSource.match(/event\?\.preventDefault\?\.\(\)/g) || []).length, 2)
+  assert.match(componentSource, /applyInitialFocus\(true\)/)
   assert.match(componentSource, /:data-accessible-dialog-id="instanceId"/)
+})
+
+test('opened 时若没有可聚焦控件则把焦点放到对话框本身', async () => {
+  globalThis.__accessibleDialogCalls = []
+  globalThis.__accessibleDialogFocusResult = false
+  const opener = { id: 'launch-button' }
+  const dialogEl = {
+    nodeType: 1,
+    id: 'dialog-element',
+    hasAttribute() { return false },
+    setAttribute(name, value) { this.attrs = { ...(this.attrs || {}), [name]: value } },
+    focus() { globalThis.document.activeElement = this },
+  }
+  globalThis.__accessibleDialogContentRef = { $el: dialogEl }
+  globalThis.document = { activeElement: opener }
+  const harness = await mountDialog()
+  try {
+    const [dialog] = findAll(harness.root, 'dialog-stub')
+    dialog.props.onTriggerOpen()
+    dialog.props.onTriggerOpenAutoFocus()
+    await nextTick()
+    await nextTick()
+    assert.equal(globalThis.document.activeElement, focusTrapContainer)
+    assert.notEqual(globalThis.document.activeElement, dialogEl)
+    dialog.props.onTriggerOpened()
+    assert.equal(globalThis.document.activeElement, dialogEl)
+    assert.equal(dialogEl.attrs.tabindex, '-1')
+
+    const closeFocusEvent = { preventDefault() { this.prevented = true } }
+    dialog.props.onTriggerCloseAutoFocus(closeFocusEvent)
+    assert.equal(closeFocusEvent.prevented, true)
+    assert.equal(globalThis.document.activeElement, dialogEl)
+    dialog.props.onTriggerClosed()
+    assert.equal(globalThis.document.activeElement, opener)
+    assert.notEqual(globalThis.document.activeElement, focusTrapContainer)
+  } finally {
+    harness.app.unmount()
+    delete globalThis.__accessibleDialogCalls
+    delete globalThis.__accessibleDialogFocusResult
+    delete globalThis.__accessibleDialogContentRef
+    delete globalThis.document
+  }
 })

@@ -23,6 +23,7 @@ test('404 页焦点落在标题并按历史决定主按钮', () => {
   assert.match(notFoundSource, /titleRef\.value\?\.focus/)
   assert.match(notFoundSource, /v-if="canGoBack"[\s\S]*返回上一页/)
   assert.match(notFoundSource, /type="primary"[\s\S]*项目列表/)
+  assert.match(notFoundSource, />返回项目列表<\/el-button>/)
   assert.match(notFoundSource, /aria-label="返回上一页"/)
   assert.match(notFoundSource, /aria-label="返回项目列表"/)
 })

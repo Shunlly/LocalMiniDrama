@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { dramaAPI } from '@/api/drama'
 import { storyboardsAPI } from '@/api/storyboards'
 import { sceneAPI } from '@/api/scenes'

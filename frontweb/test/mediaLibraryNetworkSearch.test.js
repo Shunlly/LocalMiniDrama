@@ -104,8 +104,8 @@ test('\u7f51\u7edc\u7d20\u6750\u9875\u53ef\u7b5b\u9009 Commons \u4e0e Openverse\
   assert.match(source, /\u8bb8\u53ef\uff1a\{\{ item.license/)
   assert.match(source, /params = \{ keyword: query, source: networkSource.value \}/)
   assert.match(source, /function handleNetworkSourceChange\(\) \{[\s\S]*?invalidateNetworkSearch\(\)[\s\S]*?searchNetworkMedia\(\)/)
-  assert.equal((source.match(/:disabled="!networkKeyword.trim\(\)"/g) || []).length, 2)
-  assert.equal((source.match(/:title="!networkKeyword.trim\(\) \? '\u8bf7\u5148\u8f93\u5165\u641c\u7d22\u5173\u952e\u8bcd' : undefined"/g) || []).length, 2)
+  assert.equal((source.match(/:disabled="!networkKeyword.trim\(\) \|\| networkLoading"/g) || []).length, 2)
+  assert.equal((source.match(/:title="networkSearchDisableReason \|\| undefined"/g) || []).length, 2)
 })
 
 test('Openverse \u7f29\u7565\u56fe\u4e0d\u76f4\u8fde CDN\uff0c\u7a7a\u89c6\u9891\u7ed3\u679c\u4f1a\u8bf4\u660e\u800c\u4e0d\u4f2a\u9020', () => {

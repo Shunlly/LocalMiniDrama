@@ -61,6 +61,8 @@ test('generation settings save remains fail closed until a successful reload', (
     /const generationSettingsWriteLocked = computed\(\(\) => generationSettingsLoadState\.value !== 'ready' \|\| genSettingSaving\.value\)/,
   )
   assert.match(source, /:disabled="generationSettingsWriteLocked"[\s\S]*@click="saveGenerationSettings"/)
+  assert.match(source, /:title="generationSettingsWriteLocked \? generationSettingsWriteLockReason : undefined"/)
+  assert.match(composableSource, /generationSettingsWriteLockReason/)
   assert.match(composableSource, /validateGenerationConcurrency\(n, nv\)/)
   assert.match(composableSource, /generationSettingsWriteLocked\.value/)
   assert.ok(composableSource.indexOf('generationSettingsWriteLocked.value') < composableSource.indexOf('generationSettingsAPI.update'))

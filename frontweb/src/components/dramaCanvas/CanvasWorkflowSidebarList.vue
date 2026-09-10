@@ -15,7 +15,7 @@
       >
         <span class="wf-item-title">{{ group.title }}</span>
         <span class="wf-item-meta">
-          {{ (group.storyboard_ids || []).length }} 镜 · {{ (group.pipeline || []).join(' → ') }}
+          {{ (group.storyboard_ids || []).length }} 镜 · {{ pipelineLabel(group.pipeline) }}
         </span>
       </button>
 
@@ -43,7 +43,7 @@
             :draggable="!reorderDisabled"
             :disabled="reorderDisabled"
             :aria-label="dragHandleLabel(storyboardId, index, group.storyboard_ids.length)"
-            title="拖动排序；按上下方向键移动"
+            :title="reorderDisabled ? '当前不能调整工作流分镜顺序' : '拖动排序；按上下方向键移动'"
             @click.stop
             @dragstart.stop="onDragStart($event, group.id, index)"
             @dragend="clearDragState"
@@ -107,6 +107,15 @@ const props = defineProps({
 const emit = defineEmits(['select-group', 'reorder-storyboards'])
 const draggedItem = ref(null)
 const dragTarget = ref(null)
+
+function pipelineStepLabel(step) {
+  const map = { image: '生图', video: '生视频', audio: '配音' }
+  return map[step] || '未命名步骤'
+}
+
+function pipelineLabel(pipeline) {
+  return (pipeline || []).map(pipelineStepLabel).join(' → ')
+}
 
 function storyboardDetail(storyboardId) {
   return props.storyboardDetails[String(storyboardId)] || {}

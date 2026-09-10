@@ -41,6 +41,7 @@
           type="primary"
           :loading="videoStatus === 'generating'"
           :disabled="Boolean(visibleComposeDisabledReason)"
+          :title="panelState.composeButtonTitle"
           :aria-label="panelState.composeButtonAriaLabel"
           @click="$emit('generate-video')"
         >
@@ -54,6 +55,7 @@
           plain
           :loading="videoDownloadStatus === 'downloading'"
           :disabled="Boolean(downloadVideoDisabledReason)"
+          :title="panelState.downloadVideoButtonTitle"
           :aria-label="panelState.downloadVideoButtonAriaLabel"
           @click="$emit('download-video')"
         >
@@ -66,6 +68,7 @@
           plain
           :loading="deliveryExportStatus.subtitle === 'downloading'"
           :disabled="Boolean(downloadSubtitleDisabledReason)"
+          :title="panelState.downloadSubtitleButtonTitle"
           :aria-label="panelState.downloadSubtitleButtonAriaLabel"
           @click="$emit('download-subtitle')"
         >
@@ -78,6 +81,7 @@
           plain
           :loading="deliveryExportStatus.project === 'downloading'"
           :disabled="Boolean(exportProjectDisabledReason)"
+          :title="panelState.exportProjectButtonTitle"
           :aria-label="panelState.exportProjectButtonAriaLabel"
           @click="$emit('export-project')"
         >
@@ -167,6 +171,14 @@ function describeDeliveryPanelState(input = {}) {
     if (reason) return `${label}不可用：${reason}`
     return label
   }
+  function buttonTitle({ loading, loadingLabel, disabledReason }) {
+    if (loading) {
+      const text = String(loadingLabel || '').trim()
+      return text ? `${text}，请稍候` : '正在处理，请稍候'
+    }
+    const reason = String(disabledReason || '').trim()
+    return reason || undefined
+  }
 
   const playable = Math.max(0, Math.floor(Number(input.playableStoryboardVideoCount) || 0))
   const total = Math.max(0, Math.floor(Number(input.storyboardCount) || 0))
@@ -224,8 +236,18 @@ function describeDeliveryPanelState(input = {}) {
       loadingLabel: '正在合成成片',
       disabledReason: composeDisabledReason,
     }),
+    composeButtonTitle: buttonTitle({
+      loading: input.videoStatus === 'generating',
+      loadingLabel: '正在合成成片',
+      disabledReason: composeDisabledReason,
+    }),
     downloadVideoButtonAriaLabel: buttonAriaLabel({
       actionLabel: downloadVideoActionLabel,
+      loading: input.videoDownloadStatus === 'downloading',
+      loadingLabel: '正在下载成片',
+      disabledReason: downloadVideoDisabledReason,
+    }),
+    downloadVideoButtonTitle: buttonTitle({
       loading: input.videoDownloadStatus === 'downloading',
       loadingLabel: '正在下载成片',
       disabledReason: downloadVideoDisabledReason,
@@ -236,8 +258,18 @@ function describeDeliveryPanelState(input = {}) {
       loadingLabel: '正在下载字幕',
       disabledReason: downloadSubtitleDisabledReason,
     }),
+    downloadSubtitleButtonTitle: buttonTitle({
+      loading: input.deliveryExportStatus?.subtitle === 'downloading',
+      loadingLabel: '正在下载字幕',
+      disabledReason: downloadSubtitleDisabledReason,
+    }),
     exportProjectButtonAriaLabel: buttonAriaLabel({
       actionLabel: exportProjectActionLabel,
+      loading: input.deliveryExportStatus?.project === 'downloading',
+      loadingLabel: '正在导出项目包',
+      disabledReason: exportProjectDisabledReason,
+    }),
+    exportProjectButtonTitle: buttonTitle({
       loading: input.deliveryExportStatus?.project === 'downloading',
       loadingLabel: '正在导出项目包',
       disabledReason: exportProjectDisabledReason,

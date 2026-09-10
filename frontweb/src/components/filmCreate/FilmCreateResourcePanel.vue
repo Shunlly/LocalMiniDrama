@@ -41,12 +41,12 @@
             <div id="characters-block-body" v-show="!charactersBlockCollapsed" class="resource-block-body">
               <div class="asset-actions">
                 <ActionGate :reason="characterGenerationDisabledReason" label="剧本自动提取角色">
-                  <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" @click="emit('generate-characters')">
+                  <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" :title="charactersGenerating ? '正在提取角色，请稍候' : (characterGenerationDisabledReason || undefined)" @click="emit('generate-characters')">
                     剧本自动提取角色
                   </el-button>
                 </ActionGate>
                 <ActionGate :reason="projectActionDisabledReason" label="添加角色">
-                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" @click="emit('add-character')">添加角色</el-button>
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" @click="emit('add-character')">添加角色</el-button>
                 </ActionGate>
                 <el-button size="small" @click="emit('open-char-library')">本剧角色库</el-button>
               </div>
@@ -194,7 +194,7 @@
                       </div>
                     </div>
                     <div class="asset-cover-actions">
-                      <el-button type="primary" size="small" :loading="generatingCharIds.has(char.id)" @click="emit('generate-character-image', char)">
+                      <el-button type="primary" size="small" :loading="generatingCharIds.has(char.id)" :title="generatingCharIds.has(char.id) ? '正在生成角色图，请稍候' : undefined" @click="emit('generate-character-image', char)">
                         <el-icon v-if="!generatingCharIds.has(char.id)"><MagicStick /></el-icon>
                         AI 生成
                       </el-button>
@@ -218,10 +218,10 @@
                     </template>
                     <template v-else>
                       <ActionGate :reason="characterGenerationDisabledReason" label="剧本自动提取角色">
-                        <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" aria-label="剧本自动提取角色" @click="emit('generate-characters')">剧本自动提取角色</el-button>
+                        <el-button type="primary" size="small" :loading="charactersGenerating" :disabled="Boolean(characterGenerationDisabledReason)" :title="charactersGenerating ? '正在提取角色，请稍候' : (characterGenerationDisabledReason || undefined)" aria-label="剧本自动提取角色" @click="emit('generate-characters')">剧本自动提取角色</el-button>
                       </ActionGate>
                       <ActionGate :reason="projectActionDisabledReason" label="添加角色">
-                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" aria-label="添加角色" @click="emit('add-character')">添加角色</el-button>
+                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" aria-label="添加角色" @click="emit('add-character')">添加角色</el-button>
                       </ActionGate>
                     </template>
                   </div>
@@ -247,10 +247,10 @@
             <div id="props-block-body" v-show="!propsBlockCollapsed" class="resource-block-body">
               <div class="asset-actions">
                 <ActionGate :reason="propsExtractionDisabledReason" label="从剧本提取道具">
-                  <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" @click="emit('extract-props')">从剧本提取道具</el-button>
+                  <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" :title="propsExtracting ? '正在提取道具，请稍候' : (propsExtractionDisabledReason || undefined)" @click="emit('extract-props')">从剧本提取道具</el-button>
                 </ActionGate>
                 <ActionGate :reason="projectActionDisabledReason" label="添加道具">
-                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" @click="emit('add-prop')">添加道具</el-button>
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" @click="emit('add-prop')">添加道具</el-button>
                 </ActionGate>
                 <el-button size="small" @click="emit('open-prop-library')">本剧道具库</el-button>
               </div>
@@ -338,7 +338,7 @@
                     </div>
                     <div class="asset-cover-actions">
                       <el-tooltip :content="propUseQuadGrid ? '四视图道具（前/侧/后/顶，纯色无缝背景）' : '单图道具（纯色无缝背景）'" placement="top">
-                        <el-button type="primary" size="small" :loading="generatingPropIds.has(prop.id)" @click="emit('generate-prop-image', prop, propUseQuadGrid)">
+                        <el-button type="primary" size="small" :loading="generatingPropIds.has(prop.id)" :title="generatingPropIds.has(prop.id) ? '正在生成道具图，请稍候' : undefined" @click="emit('generate-prop-image', prop, propUseQuadGrid)">
                           <el-icon v-if="!generatingPropIds.has(prop.id)"><MagicStick /></el-icon>
                           AI 生成
                         </el-button>
@@ -363,10 +363,10 @@
                     </template>
                     <template v-else>
                       <ActionGate :reason="propsExtractionDisabledReason" label="从剧本提取道具">
-                        <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" aria-label="从剧本提取道具" @click="emit('extract-props')">从剧本提取道具</el-button>
+                        <el-button type="primary" size="small" :loading="propsExtracting" :disabled="Boolean(propsExtractionDisabledReason)" :title="propsExtracting ? '正在提取道具，请稍候' : (propsExtractionDisabledReason || undefined)" aria-label="从剧本提取道具" @click="emit('extract-props')">从剧本提取道具</el-button>
                       </ActionGate>
                       <ActionGate :reason="projectActionDisabledReason" label="添加道具">
-                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" aria-label="添加道具" @click="emit('add-prop')">添加道具</el-button>
+                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" aria-label="添加道具" @click="emit('add-prop')">添加道具</el-button>
                       </ActionGate>
                     </template>
                   </div>
@@ -392,12 +392,12 @@
             <div id="scenes-block-body" v-show="!scenesBlockCollapsed" class="resource-block-body">
               <div class="asset-actions">
                 <ActionGate :reason="scenesExtractionDisabledReason" label="从剧本提取场景">
-                  <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" @click="emit('extract-scenes')">
+                  <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" :title="scenesExtracting ? '正在提取场景，请稍候' : (scenesExtractionDisabledReason || undefined)" @click="emit('extract-scenes')">
                     从剧本提取场景
                   </el-button>
                 </ActionGate>
                 <ActionGate :reason="projectActionDisabledReason" label="添加场景">
-                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" @click="emit('add-scene')">添加场景</el-button>
+                  <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" @click="emit('add-scene')">添加场景</el-button>
                 </ActionGate>
                 <el-button size="small" @click="emit('open-scene-library')">本剧场景库</el-button>
               </div>
@@ -485,7 +485,7 @@
                     </div>
                     <div class="asset-cover-actions">
                       <el-tooltip :content="sceneUseQuadGrid ? '四宫格场景（正/侧/俯/仰）' : '单图场景'" placement="top">
-                        <el-button type="primary" size="small" :loading="generatingSceneIds.has(scene.id)" @click="emit('generate-scene-image', scene, sceneUseQuadGrid)">
+                        <el-button type="primary" size="small" :loading="generatingSceneIds.has(scene.id)" :title="generatingSceneIds.has(scene.id) ? '正在生成场景图，请稍候' : undefined" @click="emit('generate-scene-image', scene, sceneUseQuadGrid)">
                           <el-icon v-if="!generatingSceneIds.has(scene.id)"><MagicStick /></el-icon>
                           AI 生成
                         </el-button>
@@ -541,10 +541,10 @@
                     </template>
                     <template v-else>
                       <ActionGate :reason="scenesExtractionDisabledReason" label="从剧本提取场景">
-                        <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" aria-label="从剧本提取场景" @click="emit('extract-scenes')">从剧本提取场景</el-button>
+                        <el-button type="primary" size="small" :loading="scenesExtracting" :disabled="Boolean(scenesExtractionDisabledReason)" :title="scenesExtracting ? '正在提取场景，请稍候' : (scenesExtractionDisabledReason || undefined)" aria-label="从剧本提取场景" @click="emit('extract-scenes')">从剧本提取场景</el-button>
                       </ActionGate>
                       <ActionGate :reason="projectActionDisabledReason" label="添加场景">
-                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" aria-label="添加场景" @click="emit('add-scene')">添加场景</el-button>
+                        <el-button size="small" :disabled="Boolean(projectActionDisabledReason)" :title="projectActionDisabledReason || undefined" aria-label="添加场景" @click="emit('add-scene')">添加场景</el-button>
                       </ActionGate>
                     </template>
                   </div>

@@ -27,6 +27,7 @@
           size="small"
           class="sb-universal-gen-btn"
           :loading="generatingUniversalSegmentIds.has(sb.id)"
+          :title="generatingUniversalSegmentIds.has(sb.id) ? '正在生成全能提示词，请稍候' : undefined"
         >
           全能提示词
           <el-icon class="sb-universal-dd-caret"><ArrowDown /></el-icon>
@@ -118,7 +119,7 @@
           </div>
           <div class="sb-fl-slot-actions">
             <ActionGate :reason="imageGenerateDisabledReason" label="生成首帧">
-              <el-button type="primary" size="small" :loading="generatingSbFirstImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" @click="onGenerateSbFrameImage(sb, 'first')">生成</el-button>
+              <el-button type="primary" size="small" :loading="generatingSbFirstImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" :title="generatingSbFirstImageIds.has(sb.id) ? '正在生成首帧，请稍候' : (imageGenerateDisabledReason || undefined)" @click="onGenerateSbFrameImage(sb, 'first')">生成</el-button>
             </ActionGate>
             <el-tooltip v-if="canUsePrevTailAsFirst(sb)" content="直接使用上一分镜的尾帧图片（高清原图）替换本首帧，画面更清晰" placement="top">
               <el-button size="small" :loading="usingPrevTailAsFirstIds.has(sb.id)" @click="onUsePrevTailAsFirst(sb)">上镜尾帧</el-button>
@@ -145,7 +146,7 @@
           </div>
           <div class="sb-fl-slot-actions">
             <ActionGate :reason="imageGenerateDisabledReason" label="生成尾帧">
-              <el-button type="primary" size="small" :loading="generatingSbLastImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" @click="onGenerateSbFrameImage(sb, 'last')">生成</el-button>
+              <el-button type="primary" size="small" :loading="generatingSbLastImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" :title="generatingSbLastImageIds.has(sb.id) ? '正在生成尾帧，请稍候' : (imageGenerateDisabledReason || undefined)" @click="onGenerateSbFrameImage(sb, 'last')">生成</el-button>
             </ActionGate>
             <el-checkbox
               v-model="lastFrameUseFirstLayoutLock"
@@ -202,7 +203,7 @@
           <span>尚未生成可预览的分镜图，可切换到正式模式或手动上传。</span>
         </div>
         <ActionGate :reason="imageGenerateDisabledReason" label="生成分镜参考图">
-          <el-button type="primary" size="small" class="sb-gen-btn" :loading="generatingSbImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" @click="onGenerateSbImage(sb)">
+          <el-button type="primary" size="small" class="sb-gen-btn" :loading="generatingSbImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" :title="generatingSbImageIds.has(sb.id) ? '正在生成分镜图，请稍候' : (imageGenerateDisabledReason || undefined)" @click="onGenerateSbImage(sb)">
             <el-icon><MagicStick /></el-icon>
             生成分镜参考图
           </el-button>
@@ -212,7 +213,7 @@
       <template v-else-if="sb.error_msg || sb.errorMsg">
         <div class="sb-image-error" :title="imageErrorText">{{ imageErrorText }}</div>
         <ActionGate :reason="imageGenerateDisabledReason" label="重试">
-          <el-button type="primary" size="small" class="sb-gen-btn" :loading="generatingSbImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" @click="onGenerateSbImage(sb)">
+          <el-button type="primary" size="small" class="sb-gen-btn" :loading="generatingSbImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" :title="generatingSbImageIds.has(sb.id) ? '正在生成分镜图，请稍候' : (imageGenerateDisabledReason || undefined)" @click="onGenerateSbImage(sb)">
             <el-icon><Refresh /></el-icon>
             重试
           </el-button>
@@ -221,7 +222,7 @@
       </template>
       <template v-else>
         <ActionGate :reason="imageGenerateDisabledReason" label="生成分镜参考图">
-          <el-button type="primary" size="small" class="sb-gen-btn" :loading="generatingSbImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" @click="onGenerateSbImage(sb)">
+          <el-button type="primary" size="small" class="sb-gen-btn" :loading="generatingSbImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" :title="generatingSbImageIds.has(sb.id) ? '正在生成分镜图，请稍候' : (imageGenerateDisabledReason || undefined)" @click="onGenerateSbImage(sb)">
             <el-icon><MagicStick /></el-icon>
             生成分镜参考图
           </el-button>
@@ -255,11 +256,11 @@
   <div v-if="hasSbImage(sb) || storyboardUseFirstLastFrame" class="sb-image-actions">
     <template v-if="storyboardUseFirstLastFrame">
       <ActionGate :reason="imageGenerateDisabledReason" :label="hasSbFirstLastPair(sb) ? '重新生成首尾帧' : '一键生成首尾帧'">
-        <el-button size="small" :loading="generatingSbFirstImageIds.has(sb.id) || generatingSbLastImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" @click="onGenerateSbFramePair(sb)">{{ hasSbFirstLastPair(sb) ? '重新生成首尾帧' : '一键生成首尾帧' }}</el-button>
+        <el-button size="small" :loading="generatingSbFirstImageIds.has(sb.id) || generatingSbLastImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" :title="(generatingSbFirstImageIds.has(sb.id) || generatingSbLastImageIds.has(sb.id)) ? '正在生成首尾帧，请稍候' : (imageGenerateDisabledReason || undefined)" @click="onGenerateSbFramePair(sb)">{{ hasSbFirstLastPair(sb) ? '重新生成首尾帧' : '一键生成首尾帧' }}</el-button>
       </ActionGate>
       <ActionGate :reason="upscaleDisabledReason" label="超分(首帧)">
         <el-tooltip content="高清放大仅作用于首帧" placement="top">
-          <el-button size="small" :loading="upscalingSbIds.has(sb.id)" :disabled="Boolean(upscaleDisabledReason)" @click="onUpscaleSbImage(sb)">
+          <el-button size="small" :loading="upscalingSbIds.has(sb.id)" :disabled="Boolean(upscaleDisabledReason)" :title="upscalingSbIds.has(sb.id) ? '正在超分，请稍候' : (upscaleDisabledReason || undefined)" @click="onUpscaleSbImage(sb)">
             <el-icon><ZoomIn /></el-icon>超分(首帧)
           </el-button>
         </el-tooltip>
@@ -267,15 +268,16 @@
     </template>
     <template v-else>
     <ActionGate :reason="imageGenerateDisabledReason" label="重新生成">
-      <el-button size="small" :loading="generatingSbImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" @click="onGenerateSbImage(sb)">重新生成</el-button>
+      <el-button size="small" :loading="generatingSbImageIds.has(sb.id)" :disabled="Boolean(imageGenerateDisabledReason)" :title="generatingSbImageIds.has(sb.id) ? '正在生成分镜图，请稍候' : (imageGenerateDisabledReason || undefined)" @click="onGenerateSbImage(sb)">重新生成</el-button>
     </ActionGate>
     <el-button size="small" :loading="uploadingSbImageId === sb.id" @click="onUploadSbImageClick(sb)">上传</el-button>
     <ActionGate :reason="upscaleDisabledReason" label="超分">
-      <el-tooltip content="高清放大（2x超分辨率）" placement="top">
+      <el-tooltip content="高清放大（2 倍超分辨率）" placement="top">
         <el-button
           size="small"
           :loading="upscalingSbIds.has(sb.id)"
           :disabled="Boolean(upscaleDisabledReason)"
+          :title="upscalingSbIds.has(sb.id) ? '正在超分，请稍候' : (upscaleDisabledReason || undefined)"
           @click="onUpscaleSbImage(sb)"
         >
           <el-icon><ZoomIn /></el-icon>超分

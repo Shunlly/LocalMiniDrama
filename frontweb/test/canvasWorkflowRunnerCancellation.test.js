@@ -311,3 +311,10 @@ test('frame prompt fallback warns before a billable image request without exposi
   assert.match(events[0].warning.message, /本地提示词/)
   assert.doesNotMatch(events[0].warning.message, /provider secret detail/)
 })
+
+test('轮询缺少任务编号时返回简体中文错误', async () => {
+  const result = await runner.pollTaskSimple('')
+  assert.equal(result.status, 'failed')
+  assert.equal(result.error, '缺少任务编号')
+  assert.doesNotMatch(result.error, /task_id/)
+})

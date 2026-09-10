@@ -13,7 +13,7 @@
       </p>
       <div class="actions">
         <el-button v-if="canGoBack" :icon="ArrowLeft" aria-label="返回上一页" @click="goBack">返回上一页</el-button>
-        <el-button type="primary" :icon="HomeFilled" aria-label="返回项目列表" @click="goHome">项目列表</el-button>
+        <el-button type="primary" :icon="HomeFilled" aria-label="返回项目列表" @click="goHome">返回项目列表</el-button>
       </div>
     </section>
   </main>

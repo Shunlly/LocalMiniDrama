@@ -3,8 +3,17 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import {
+  describeMediaLibraryBatchDeleteDisableReason,
+  describeMediaLibraryNetworkSearchDisableReason,
+  describeMediaLibrarySourceImportDisableReason,
+  describeMediaLibraryUploadDisableReason,
+  describeMediaLibraryWriteLockReason,
+  MEDIA_LIBRARY_DISABLE_REASON,
+} from '../src/utils/mediaLibraryUserError.js'
 
 const source = readFileSync(new URL('../src/views/MediaLibrary.vue', import.meta.url), 'utf8')
+const userErrorSource = readFileSync(new URL('../src/utils/mediaLibraryUserError.js', import.meta.url), 'utf8')
 
 function mediaCardTemplate() {
   const match = source.match(/<article[\s\S]*?v-for="item in mediaItems"[\s\S]*?<\/article>/)
@@ -90,7 +99,7 @@ test('网络搜索结果公告状态，操作名称包含素材标题', () => {
 
 test('网络导入明确展示当前项目或全局素材库目标', () => {
   assert.match(source, /导入目标：<strong>{{ networkImportTargetLabel }}<\/strong>/)
-  assert.ok(source.includes('`当前项目（ID ${scopedDramaId.value}）`'))
+  assert.ok(source.includes('`当前项目（编号 ${scopedDramaId.value}）`'))
   assert.match(source, /: '全局素材库'/)
   assert.ok(source.includes("scopedDramaId.value ? '导入当前项目' : '导入全局素材库'"))
 })
@@ -208,12 +217,38 @@ test('顶栏上传按钮与筛选空态都提供明确的上传名称', () => {
 
 
 test('素材中心禁用按钮给出中文原因', () => {
+  assert.match(source, /from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(source, /from 'element-plus'/)
   assert.match(source, /const mediaWriteLockReason = computed/)
-  assert.match(source, /素材数据加载失败，成功重试前不能上传、选择或删除/)
-  assert.match(source, /:title="mediaWriteLocked \? mediaWriteLockReason : undefined"/)
+  assert.match(source, /describeMediaLibraryWriteLockReason/)
+  assert.match(userErrorSource, /素材数据加载失败，成功重试前不能上传、选择或删除/)
+  assert.match(source, /:title="mediaWriteLocked \? mediaWriteLockReason : selectionLabel\(item\)"/)
+  assert.match(source, /:title="mediaUploadDisableReason \|\| undefined"/)
+  assert.match(source, /:title="mediaRetryLoadDisableReason \|\| undefined"/)
+  assert.match(source, /:title="mediaBatchDeleteDisableReason \|\| undefined"/)
+  assert.match(source, /:title="mediaSourceImportDisableReason \|\| undefined"/)
   assert.match(source, /const mediaNavigationLockReason = computed/)
-  assert.match(source, /正在上传素材，请稍候/)
-  assert.equal((source.match(/:title="!networkKeyword.trim\(\) \? '请先输入搜索关键词' : undefined"/g) || []).length, 2)
+  assert.match(userErrorSource, /正在上传素材，请稍候/)
+  assert.equal((source.match(/:title="networkSearchDisableReason \|\| undefined"/g) || []).length, 2)
+  assert.equal((source.match(/:disabled="!networkKeyword.trim\(\) \|\| networkLoading"/g) || []).length, 2)
+  assert.match(source, /:disabled="mediaWriteLocked \|\| uploading"/)
+  assert.match(source, /:disabled="mediaWriteLocked \|\| visibleSelectedMediaCount <= 0"/)
+  assert.match(source, /:disabled="loading" :title="mediaRetryLoadDisableReason \|\| undefined"/)
+
+  assert.equal(describeMediaLibraryWriteLockReason({ loading: true, hasSuccessfulLoad: false }), MEDIA_LIBRARY_DISABLE_REASON.loading)
+  assert.equal(describeMediaLibraryWriteLockReason({ loadError: 'offline', isStale: false, hasSuccessfulLoad: false }), MEDIA_LIBRARY_DISABLE_REASON.loadFailedWrite)
+  assert.equal(describeMediaLibraryUploadDisableReason({ writeLocked: false, uploading: true }), MEDIA_LIBRARY_DISABLE_REASON.uploading)
+  assert.equal(describeMediaLibraryNetworkSearchDisableReason({ keyword: '  ', searching: false }), MEDIA_LIBRARY_DISABLE_REASON.keywordRequired)
+  assert.equal(describeMediaLibraryNetworkSearchDisableReason({ keyword: '夜雨', searching: true }), MEDIA_LIBRARY_DISABLE_REASON.searching)
+  assert.equal(describeMediaLibraryBatchDeleteDisableReason({ writeLocked: false, visibleSelectedCount: 0 }), MEDIA_LIBRARY_DISABLE_REASON.batchEmpty)
+  assert.equal(describeMediaLibraryBatchDeleteDisableReason({ writeLocked: false }), MEDIA_LIBRARY_DISABLE_REASON.batchEmpty)
+  assert.match(source, /MEDIA_LIBRARY_DISABLE_REASON\.importing/)
+  assert.match(userErrorSource, /正在导入该网络素材，请稍候/)
+  assert.equal(describeMediaLibrarySourceImportDisableReason({
+    writeLocked: false,
+    navigationLocked: true,
+    navigationLockReason: MEDIA_LIBRARY_DISABLE_REASON.uploading,
+  }), MEDIA_LIBRARY_DISABLE_REASON.uploading)
 })
 
 test('素材预览时间用中文格式，无效时间不漏原文', () => {

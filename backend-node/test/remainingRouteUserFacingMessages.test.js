@@ -102,10 +102,18 @@ describe('剩余路由对用户返回中文错误', () => {
       '该分镜暂无可优化的内容（image_prompt / action / dialogue 均为空）',
       'sharp 模块不可用',
       '批量换Key',
+      '请提供新的 API Key',
+      '条配置的 API Key',
+      '无效的分镜 id',
       '提供 text 参数',
       '请改为调用 POST /api/v1/scenes/generate-image，并传入 scene_id',
+      '请改为调用 POST /api/v1/scenes/generate-image，并传入场景 ID',
       '请改为调用 POST /api/v1/videos，并传入 storyboard_id 与帧参考',
+      '请改为调用 POST /api/v1/videos，并传入分镜 ID 与帧参考',
       '请改为调用 POST /api/v1/episodes/:episode_id/finalize 启动 FFmpeg 合成',
+      '请改为对每个分镜单独调用 POST /api/v1/images',
+      '请改为对每个分镜单独调用 POST /api/v1/videos',
+      'POST /api/v1/',
     ];
     for (const file of fs.readdirSync(dir).filter((name) => name.endsWith('.js'))) {
       const source = fs.readFileSync(path.join(dir, file), 'utf8');
@@ -113,6 +121,28 @@ describe('剩余路由对用户返回中文错误', () => {
         assert.equal(source.includes(needle), false, `${file} 仍包含：${needle}`);
       }
     }
+  });
+
+  it('停用的生图和视频快捷接口返回中文说明，不带 REST 路径', () => {
+    const imageRoutes = require('../src/routes/images');
+    const videoRoutes = require('../src/routes/videos');
+    const silent = { error() {}, info() {}, warn() {} };
+    const images = imageRoutes({}, {}, silent);
+    const videos = videoRoutes({}, silent);
+    function assertLegacyCopy(handler, req, message) {
+      const res = mockRes();
+      handler(req, res);
+      assert.equal(res.statusCode, 501);
+      assert.equal(res.body.error.code, 'LEGACY_ENDPOINT_DISABLED');
+      assert.equal(res.body.error.message, message);
+      assert.equal(isTrustedChineseUserError(message), true);
+      assert.doesNotMatch(message, /\/api\/v1\/|POST \//);
+      assert.doesNotMatch(message, /scene_id|storyboard_id|episode_id/);
+    }
+    assertLegacyCopy(images.scene, { params: { scene_id: '1' } }, '请改用场景生图接口，并传入场景 ID');
+    assertLegacyCopy(images.episodeBatch, { params: { episode_id: '1' }, body: {} }, '请改为对每个分镜单独调用生图接口');
+    assertLegacyCopy(videos.fromImage, { params: { image_gen_id: '1' }, body: {} }, '请改用视频生成接口，并传入分镜 ID 与帧参考');
+    assertLegacyCopy(videos.episodeBatch, { params: { episode_id: '1' }, body: {} }, '请改为对每个分镜单独调用视频生成接口');
   });
 
   it('分镜缺 ID 和空内容优化返回简体中文', async () => {
@@ -130,6 +160,13 @@ describe('剩余路由对用户返回中文错误', () => {
     await assertMissingStoryboardId(routes.regenerateLayoutDescription);
     await assertMissingStoryboardId(routes.rebuildVideoPrompt);
     await assertMissingStoryboardId(routes.splitByAudio);
+
+    const invalidSplit = mockRes();
+    routes.splitByAudio({ params: { id: '-1' } }, invalidSplit);
+    assert.equal(invalidSplit.statusCode, 400);
+    assert.equal(invalidSplit.body.error.message, '无效的分镜 ID');
+    assert.doesNotMatch(invalidSplit.body.error.message, /分镜 id|storyboard_id/);
+    assert.equal(isTrustedChineseUserError(invalidSplit.body.error.message), true);
 
     const storyboardId = 3301;
     const episodeId = 1101;
@@ -300,6 +337,15 @@ describe('剩余服务对用户返回中文错误', () => {
     assert.equal(missingAsset.ok, false);
     assert.equal(missingAsset.error, '缺少素材 ID');
     assert.doesNotMatch(missingAsset.error, /asset id/i);
+  });
+
+  it('批量换密钥缺密钥返回中文，不含 API Key 字段名', () => {
+    const res = mockRes();
+    aiConfigRoutes({}, { error() {} }, { vendor_lock: { enabled: true } }).bulkUpdateKey({ body: { api_key: '  ' } }, res);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error.message, '请提供新的密钥');
+    assert.doesNotMatch(res.body.error.message, /API Key|api_key/);
+    assert.equal(isTrustedChineseUserError(res.body.error.message), true);
   });
 
   it('连接测试缺少接口地址或模型返回中文，不含英文字段名', async () => {

@@ -702,7 +702,7 @@ function markExistingStoryboardsStale(db, dramaId, episodes) {
   const epPlaceholders = episodeIds.map(() => '?').join(',');
   const result = db.prepare(
     `UPDATE storyboards
-     SET status = 'stale', error_msg = 'stale after adaptation overwrite', updated_at = ?
+     SET status = 'stale', error_msg = '改编方案覆盖后，该分镜已过期', updated_at = ?
      WHERE episode_id IN (${epPlaceholders}) AND deleted_at IS NULL`
   ).run(nowIso(), ...episodeIds);
   return result.changes || 0;

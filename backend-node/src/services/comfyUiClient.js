@@ -683,7 +683,7 @@ async function generateComfyUiImage(config, log, opts = {}) {
     promptId = submitted?.prompt_id || submitted?.promptId;
     if (!promptId) {
       const nodeErrors = trustedChineseDetail(JSON.stringify(submitted?.node_errors || ''), context.secrets);
-      throw new ComfyUiError(nodeErrors ? `ComfyUI 任务提交未返回 prompt_id：${nodeErrors}` : 'ComfyUI 任务提交未返回 prompt_id', 'COMFYUI_RESPONSE');
+      throw new ComfyUiError(nodeErrors ? `ComfyUI 任务提交未返回任务编号：${nodeErrors}` : 'ComfyUI 任务提交未返回任务编号', 'COMFYUI_RESPONSE');
     }
     context.promptId = String(promptId);
     log?.info?.('ComfyUI image task submitted', {

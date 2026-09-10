@@ -8,7 +8,7 @@
           官方流程：<a href="https://docs.byteplus.com/en/docs/ModelArk/2318270" target="_blank" rel="noopener">创建资产组（CreateAssetGroup）</a>
           → 创建资产（CreateAsset）→ 列表 / 查询 / 更新 / 删除。
           带 <code>?Action=</code> 的接口为<strong>控制面 OpenAPI</strong>，须使用控制台
-          <a href="https://console.volcengine.com/iam/keymanage" target="_blank" rel="noopener">访问密钥（AK/SK）</a>签名，不能用推理用的 ARK API 密钥当 Bearer，否则会报 Invalid Authorization（见
+          <a href="https://console.volcengine.com/iam/keymanage" target="_blank" rel="noopener">访问密钥（AK/SK）</a>签名，不能用推理用的 ARK API 密钥当令牌（Bearer），否则会报无效授权，原文为 Invalid Authorization（见
           <a href="https://docs.byteplus.com/en/docs/ModelArk/1298459" target="_blank" rel="noopener">认证说明</a>）。
           若已能调通接口但返回 <strong>403 无权限</strong>（原文可能含 <code>not authorized</code> / <code>ark:CreateAssetGroup</code>），说明访问密钥对应的账号<strong>缺策略</strong>：在控制台为该用户绑定含 ModelArk 私有资产/资产组管理的权限（参见
           <a href="https://docs.byteplus.com/en/docs/ModelArk/1263493" target="_blank" rel="noopener">IAM 访问控制</a>），勿仅用「能推理」的极简权限。
@@ -28,9 +28,9 @@
       <el-form-item label="鉴权方式">
         <el-radio-group v-model="authMode">
           <el-radio-button value="volc_sign">AK/SK 签名（官方 OpenAPI）</el-radio-button>
-          <el-radio-button value="bearer">Bearer 推理密钥</el-radio-button>
+          <el-radio-button value="bearer">令牌推理密钥（Bearer）</el-radio-button>
         </el-radio-group>
-        <p class="field-hint">选「官方 OpenAPI」路径时，请用本项并填写 AK/SK；选「Bearer」仅适合 <code>/asset/…</code> 等中转。</p>
+        <p class="field-hint">选「官方 OpenAPI」路径时，请用本项并填写 AK/SK；选「令牌」仅适合 <code>/asset/…</code> 等中转。</p>
       </el-form-item>
       <el-form-item v-if="authMode === 'bearer'" label="API 密钥">
         <el-input v-model="apiKey" type="password" show-password placeholder="推理用 ARK / 中转 API 密钥" clearable />
@@ -98,7 +98,7 @@
       </el-form-item>
       <el-form-item label=" ">
         <div class="sd2-save-row">
-          <el-button type="primary" :loading="savingConfig" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="saveToAiConfig">
+          <el-button type="primary" :loading="savingConfig" :disabled="Boolean(saveLockReason)" :title="saveLockReason" @click="saveToAiConfig">
             保存到 AI 配置
           </el-button>
           <span v-if="savedConfigId" class="sd2-saved-hint">
@@ -112,7 +112,7 @@
       <el-col :span="11">
         <div class="panel-title">资产组</div>
         <div class="panel-actions">
-          <el-button type="primary" size="small" :loading="loadingGroups" @click="refreshGroups">刷新列表</el-button>
+          <el-button type="primary" size="small" :loading="loadingGroups" :disabled="Boolean(refreshGroupsLockReason)" :title="refreshGroupsLockReason" @click="refreshGroups">刷新列表</el-button>
           <el-button type="success" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="openCreateGroup">新建组</el-button>
         </div>
         <el-table
@@ -138,7 +138,7 @@
         <div class="panel-title">资产（需组编号）</div>
         <div class="panel-actions row-gap">
           <el-input v-model="assetGroupIdInput" placeholder="组编号，或左侧点选一行" clearable style="flex: 1; min-width: 140px" />
-          <el-button type="primary" size="small" :loading="loadingAssets" @click="refreshAssets">刷新</el-button>
+          <el-button type="primary" size="small" :loading="loadingAssets" :disabled="Boolean(refreshAssetsLockReason)" :title="refreshAssetsLockReason" @click="refreshAssets">刷新</el-button>
           <el-button type="success" size="small" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="openCreateAsset">新建资产</el-button>
         </div>
         <el-table :data="assetRows" size="small" stripe max-height="320">
@@ -168,12 +168,12 @@
           <el-input v-model="formGroupName" placeholder="资产组名称" />
         </el-form-item>
         <el-form-item label="扩展 JSON">
-          <el-input v-model="formGroupExtraJson" type="textarea" :rows="3" placeholder='可选，合并进请求体，如 {"Description":"..."}' />
+          <el-input v-model="formGroupExtraJson" type="textarea" :rows="3" placeholder="可选，合并进请求体，例如填写描述说明" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dlgGroupCreate = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="submitCreateGroup">提交</el-button>
+        <el-button :disabled="dlgLoading" :title="dlgLoading ? '正在提交资产请求，请稍候' : undefined" @click="dlgGroupCreate = false">取消</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="Boolean(submitLockReason)" :title="submitLockReason" @click="submitCreateGroup">提交</el-button>
       </template>
     </AccessibleDialog>
 
@@ -182,7 +182,7 @@
       <el-alert type="warning" :closable="false" title="按官方文档填写需更新的字段；以下为常用名称修改。" style="margin-bottom: 12px" />
       <el-form label-width="100px">
         <el-form-item label="标识" required>
-          <el-input v-model="editGroupId" disabled />
+          <el-input v-model="editGroupId" disabled title="已保存的资产组标识不能修改" />
         </el-form-item>
         <el-form-item label="名称">
           <el-input v-model="editGroupName" />
@@ -192,8 +192,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dlgGroupEdit = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="submitUpdateGroup">提交</el-button>
+        <el-button :disabled="dlgLoading" :title="dlgLoading ? '正在提交资产请求，请稍候' : undefined" @click="dlgGroupEdit = false">取消</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="Boolean(submitLockReason)" :title="submitLockReason" @click="submitUpdateGroup">提交</el-button>
       </template>
     </AccessibleDialog>
 
@@ -217,12 +217,12 @@
           <el-input v-model="formAssetModel" placeholder="视频建议 volc-asset-video；音频 volc-asset-audio；图片可空" clearable />
         </el-form-item>
         <el-form-item label="资源地址">
-          <el-input v-model="formAssetUrl" type="textarea" :rows="2" placeholder="公网 URL / data:image/...;base64,..." />
+          <el-input v-model="formAssetUrl" type="textarea" :rows="2" placeholder="公网资源地址，或图片的 Base64 数据" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dlgAssetCreate = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="submitCreateAsset">提交</el-button>
+        <el-button :disabled="dlgLoading" :title="dlgLoading ? '正在提交资产请求，请稍候' : undefined" @click="dlgAssetCreate = false">取消</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="Boolean(submitLockReason)" :title="submitLockReason" @click="submitCreateAsset">提交</el-button>
       </template>
     </AccessibleDialog>
 
@@ -230,7 +230,7 @@
     <AccessibleDialog v-model="dlgAssetEdit" title="更新资产" width="520px" destroy-on-close>
       <el-form label-width="100px">
         <el-form-item label="标识" required>
-          <el-input v-model="editAssetId" disabled />
+          <el-input v-model="editAssetId" disabled title="已保存的资产标识不能修改" />
         </el-form-item>
         <el-form-item label="名称">
           <el-input v-model="editAssetName" />
@@ -240,8 +240,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dlgAssetEdit = false">取消</el-button>
-        <el-button type="primary" :loading="dlgLoading" :disabled="mutationLocked" :title="mutationLocked ? mutationLockReason : undefined" @click="submitUpdateAsset">提交</el-button>
+        <el-button :disabled="dlgLoading" :title="dlgLoading ? '正在提交资产请求，请稍候' : undefined" @click="dlgAssetEdit = false">取消</el-button>
+        <el-button type="primary" :loading="dlgLoading" :disabled="Boolean(submitLockReason)" :title="submitLockReason" @click="submitUpdateAsset">提交</el-button>
       </template>
     </AccessibleDialog>
 
@@ -257,11 +257,11 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { aiAPI } from '@/api/ai'
 
 const props = defineProps({
-  /** AI 配置列表（与 AI 配置页同源），用于一键填入 Base / Key */
+  /** AI 配置列表（与 AI 配置页同源），用于一键填入接口地址与密钥 */
   configs: { type: Array, default: () => [] },
   writeLocked: { type: Boolean, default: true },
 })
@@ -345,6 +345,22 @@ const savedModelArkConfigs = computed(() => {
 const mutationLocked = computed(() => props.writeLocked)
 const mutationLockReason = computed(() => (
   mutationLocked.value ? '配置尚未就绪，暂时不能修改资产' : undefined
+))
+const saveLockReason = computed(() => {
+  if (mutationLocked.value) return mutationLockReason.value
+  if (savingConfig.value) return '正在保存到 AI 配置，请稍候'
+  return undefined
+})
+const submitLockReason = computed(() => {
+  if (mutationLocked.value) return mutationLockReason.value
+  if (dlgLoading.value) return '正在提交资产请求，请稍候'
+  return undefined
+})
+const refreshGroupsLockReason = computed(() => (
+  loadingGroups.value ? '正在刷新资产组，请稍候' : undefined
+))
+const refreshAssetsLockReason = computed(() => (
+  loadingAssets.value ? '正在刷新资产列表，请稍候' : undefined
 ))
 
 const MUTATING_ACTIONS = new Set([

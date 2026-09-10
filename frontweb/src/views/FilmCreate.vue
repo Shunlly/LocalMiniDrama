@@ -182,7 +182,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, reactive, nextTick } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage as RawElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { useTheme } from '@/composables/useTheme'
 import { useFilmStore } from '@/stores/film'
 import { useGenerationTaskStore, GEN_RESOURCE } from '@/stores/generationTaskStore'

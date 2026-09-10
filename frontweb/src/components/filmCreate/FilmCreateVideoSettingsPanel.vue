@@ -19,6 +19,7 @@
           :aria-invalid="Boolean(panelState.resolutionWarning)"
           placeholder="请选择成片分辨率"
           :disabled="panelState.settingsLocked"
+          :title="panelState.settingsLockedReason || undefined"
           style="width: 160px"
           @update:model-value="emit('update:resolution', $event)"
         >
@@ -56,6 +57,7 @@
             active-text="开"
             inactive-text="关"
             :disabled="panelState.settingsLocked"
+            :title="panelState.settingsLockedReason || undefined"
             @update:model-value="emit('update:subtitle', $event)"
           />
         </div>
@@ -72,6 +74,7 @@
             active-text="开"
             inactive-text="关"
             :disabled="panelState.settingsLocked"
+            :title="panelState.settingsLockedReason || undefined"
             @update:model-value="emit('update:burnDialogue', $event)"
           />
         </div>
@@ -88,6 +91,7 @@
             active-text="开"
             inactive-text="关"
             :disabled="panelState.settingsLocked"
+            :title="panelState.settingsLockedReason || undefined"
             @update:model-value="emit('update:watermark', $event)"
           />
           <el-input
@@ -102,6 +106,7 @@
             clearable
             class="video-watermark-input"
             :disabled="panelState.settingsLocked"
+            :title="panelState.settingsLockedReason || undefined"
             @update:model-value="emit('update:watermarkText', $event)"
           />
         </div>

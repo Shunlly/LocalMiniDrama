@@ -25,9 +25,9 @@
       <div class="next-copy">
         <span class="next-kicker">下一步</span>
         <strong>{{ readiness.nextAction.title }}</strong>
-        <span>{{ readiness.nextAction.description }}</span>
+        <span id="project-readiness-next-description">{{ readiness.nextAction.description }}</span>
       </div>
-      <el-button type="primary" @click="emit('action', readiness.nextAction)">
+      <el-button type="primary" aria-describedby="project-readiness-next-description" @click="emit('action', readiness.nextAction)">
         {{ readiness.nextAction.label }}
         <el-icon><ArrowRight /></el-icon>
       </el-button>
@@ -68,8 +68,8 @@
             :type="service.ready ? undefined : 'button'"
             class="service-chip"
             :class="{ ready: service.ready }"
-            :title="service.ready ? `${service.label}${service.verified ? '已验证' : '已配置'}：${service.detail}` : `前往配置${service.label}`"
-            :aria-label="service.ready ? `${service.label}${service.verified ? '已验证' : '已配置'}` : `前往配置${service.label}`"
+            :title="serviceChipText(service)"
+            :aria-label="serviceChipText(service)"
             v-on="service.ready ? {} : { click: () => emit('action', serviceAction(service)) }"
           >
             <span class="service-chip-dot" aria-hidden="true" />
@@ -99,6 +99,15 @@ function stateLabel(status) {
   if (status === 'done') return '已完成'
   if (status === 'partial') return '进行中'
   return '待处理'
+}
+
+function serviceChipText(service) {
+  const detail = String(service?.detail || '').trim()
+  if (service.ready) {
+    const state = service.verified ? '已验证' : '已配置'
+    return detail ? `${service.label}${state}：${detail}` : `${service.label}${state}`
+  }
+  return detail ? `前往配置${service.label}：${detail}` : `前往配置${service.label}`
 }
 
 function serviceAction(service) {
@@ -317,6 +326,10 @@ button.service-chip:not(.ready) {
 button.service-chip:not(.ready):hover {
   border-color: rgba(139, 92, 246, 0.4);
   color: var(--accent-text);
+}
+button.service-chip:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
 }
 .service-chip-dot {
   width: 6px;

@@ -1,4 +1,4 @@
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { hasActiveMediaGenerationWork } from './useFilmCreateBatchGeneration.js'
 
 export function useFilmCreateNavigationGuards(deps = {}) {

@@ -1,5 +1,5 @@
 import { nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { requestCoreJson } from '@/utils/coreJsonRequest'
 import { backfillDramaStylePromptMetadataIfNeeded } from '@/constants/styleOptions'
 

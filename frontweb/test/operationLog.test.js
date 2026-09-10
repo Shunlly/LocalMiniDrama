@@ -49,3 +49,22 @@ test('操作日志记录开始/成功/失败/取消，并脱敏敏感字段', as
   assert.equal(logs.some((item) => item.operation === 'demo_cancel' && item.phase === 'cancel'), true)
   assert.ok(createOperationId('pipeline').startsWith('pipeline-'))
 })
+
+test('操作日志继续记录 category 和 requestId', () => {
+  resetOperationLogs()
+  logOperation({
+    operation: 'http_request',
+    operationId: 'trace-ok-1',
+    phase: 'error',
+    status: 'http_5xx',
+    category: 'http_5xx',
+    requestId: 'trace-ok-1',
+    error: '服务器内部错误',
+  })
+  const rec = getOperationLogs()[0]
+  assert.equal(rec.operation, 'http_request')
+  assert.equal(rec.operationId, 'trace-ok-1')
+  assert.equal(rec.details.category, 'http_5xx')
+  assert.equal(rec.details.requestId, 'trace-ok-1')
+  assert.equal(rec.error, '服务器内部错误')
+})

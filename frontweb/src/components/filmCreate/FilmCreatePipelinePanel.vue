@@ -145,6 +145,7 @@
               type="primary"
               :loading="starting || (running && !paused && !stopping)"
               :disabled="Boolean(productionReason) || starting"
+              :title="productionButtonTitle"
               @click="$emit('start-one-click')"
             >
               一键生成成片
@@ -157,6 +158,7 @@
             <el-button
               :loading="starting || (running && !paused && !stopping)"
               :disabled="Boolean(draftReason) || starting"
+              :title="draftButtonTitle"
               @click="$emit('start-text-framework')"
             >
               仅生成文本框架
@@ -179,10 +181,10 @@
         >重试检查</el-button>
         <template v-if="running">
           <ActionGate v-if="!stopRequired && !paused" label="暂停" :reason="pauseDisabledReason">
-            <el-button type="warning" :disabled="Boolean(pauseDisabledReason)" @click="$emit('pause')">暂停</el-button>
+            <el-button type="warning" :disabled="Boolean(pauseDisabledReason)" :title="pauseDisabledReason || undefined" @click="$emit('pause')">暂停</el-button>
           </ActionGate>
           <ActionGate v-else-if="!stopRequired" label="继续" :reason="resumeDisabledReason">
-            <el-button type="success" :disabled="Boolean(resumeDisabledReason)" @click="$emit('resume')">继续</el-button>
+            <el-button type="success" :disabled="Boolean(resumeDisabledReason)" :title="resumeDisabledReason || undefined" @click="$emit('resume')">继续</el-button>
           </ActionGate>
           <ActionGate :label="stopRequired ? '重试停止' : '停止'" :reason="cancelDisabledReason">
             <el-button
@@ -190,6 +192,7 @@
               plain
               :loading="stopping"
               :disabled="Boolean(cancelDisabledReason)"
+              :title="cancelDisabledReason || (stopping ? '正在停止全流程，请稍候' : undefined)"
               @click="$emit('cancel')"
             >
               {{ stopRequired ? '重试停止' : '停止' }}
@@ -214,7 +217,7 @@
           <div class="pipeline-countdown-actions">
             <el-button size="small" type="success" @click="$emit('skip-countdown')">立即开始下一阶段</el-button>
             <ActionGate v-if="!paused" label="暂停倒计时" :reason="pauseDisabledReason">
-              <el-button size="small" type="warning" :disabled="Boolean(pauseDisabledReason)" @click="$emit('pause')">暂停倒计时</el-button>
+              <el-button size="small" type="warning" :disabled="Boolean(pauseDisabledReason)" :title="pauseDisabledReason || undefined" @click="$emit('pause')">暂停倒计时</el-button>
             </ActionGate>
             <span v-else class="pipeline-countdown-paused">已暂停，点击“继续”恢复</span>
           </div>
@@ -231,7 +234,7 @@
           [{{ entry.step }}] {{ entry.message }}
         </div>
         <ActionGate v-if="!running" label="重试全流程" :reason="retryDisabledReason">
-          <el-button type="primary" :disabled="Boolean(retryDisabledReason) || starting" @click="$emit('start-one-click')">
+          <el-button type="primary" :disabled="Boolean(retryDisabledReason) || starting" :title="retryDisabledReason || (starting ? '正在启动全流程，请稍候' : undefined)" @click="$emit('start-one-click')">
             重试全流程
           </el-button>
         </ActionGate>
@@ -300,8 +303,13 @@ function describePipelinePanelUx(input = {}) {
     ? toPipelineDisabledReason(controlReasons.cancel, '当前不能停止全流程')
     : ''
   const compactDisabledReason = stopping
-    ? toPipelineDisabledReason(controlReasons.cancel || '正在停止全流程，请稍候。', '正在停止全流程，请稍候。')
+    ? toPipelineDisabledReason(controlReasons.cancel || '正在停止全流程，请稍候', '正在停止全流程，请稍候')
     : (starting ? '正在确认完整成片的运行条件' : '')
+  const productionBusy = starting || (running && !paused && !stopping)
+  const productionButtonTitle = String(input.productionReason || '').trim()
+    || (productionBusy ? (starting ? '正在确认完整成片的运行条件' : '正在生成完整成片，请稍候') : '')
+  const draftButtonTitle = String(input.draftReason || '').trim()
+    || (productionBusy ? (starting ? '正在确认完整成片的运行条件' : '正在生成文本框架，请稍候') : '')
   const cleanCurrentStep = String(input.currentStep || '').replace(/^\[步骤 \d+\/\d+\] /, '')
   let progressKicker = ''
   if (stopRequired) progressKicker = '停止受阻'
@@ -317,6 +325,8 @@ function describePipelinePanelUx(input = {}) {
     resumeDisabledReason,
     cancelDisabledReason,
     compactDisabledReason,
+    productionButtonTitle,
+    draftButtonTitle,
     progressKicker,
     progressStatusText,
     emptyNextStep: isEmpty ? '添加一集后再保存剧本或启动生成' : '',
@@ -409,12 +419,15 @@ const panelUx = computed(() => describePipelinePanelUx({
   currentStep: props.currentStep,
   hasEpisode: props.hasEpisode,
   productionReason: productionReason.value,
+  draftReason: draftReason.value,
   controlReasons: controlReasons.value,
 }))
 const pauseDisabledReason = computed(() => panelUx.value.pauseDisabledReason)
 const resumeDisabledReason = computed(() => panelUx.value.resumeDisabledReason)
 const cancelDisabledReason = computed(() => panelUx.value.cancelDisabledReason)
 const compactDisabledReason = computed(() => panelUx.value.compactDisabledReason)
+const productionButtonTitle = computed(() => panelUx.value.productionButtonTitle || undefined)
+const draftButtonTitle = computed(() => panelUx.value.draftButtonTitle || undefined)
 const progressStatusText = computed(() => panelUx.value.progressStatusText)
 const emptyGuidanceText = computed(() => panelUx.value.emptyGuidanceText)
 const emptyActionLabel = computed(() => panelUx.value.emptyActionLabel)

@@ -127,7 +127,7 @@
 <script setup>
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage as RawElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { Upload } from '@element-plus/icons-vue'
 import {
   createProjectInstanceLifecycle,

@@ -43,6 +43,7 @@
                   type="primary"
                   :loading="isStoryGenRunning"
                   :disabled="Boolean(generateStoryDisabledReason)"
+                  :title="isStoryGenRunning ? '正在生成剧本，请稍候' : (generateStoryDisabledReason || undefined)"
                   @click="emit('generate-story')"
                 >
                   生成剧本
@@ -89,6 +90,7 @@
                   <el-button
                     :loading="scriptGenerating"
                     :disabled="Boolean(saveCurrentEpisodeDisabledReason)"
+                    :title="scriptGenerating ? '正在保存当前集，请稍候' : (saveCurrentEpisodeDisabledReason || undefined)"
                     @click="emit('generate-script')"
                   >
                     保存当前集

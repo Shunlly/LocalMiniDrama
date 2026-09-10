@@ -17,10 +17,17 @@ import {
 import * as sourceWorkflowController from '../src/utils/sourceImportOutcome.js'
 import { toUserFacingError, isUserFacingAbort } from '../src/utils/userFacingError.js'
 
-const source = readFileSync(
-  new URL('../src/components/SourceIntakeWorkflowPanel.vue', import.meta.url),
-  'utf8',
-)
+function readSourceIntakeWorkflowSources() {
+  const files = [
+    '../src/components/SourceIntakeWorkflowPanel.vue',
+    '../src/components/sourceIntake/SourceIntakeSourceTextPanel.vue',
+    '../src/components/sourceIntake/SourceIntakeRunRecordsPanel.vue',
+    '../src/components/sourceIntake/SourceIntakeSourceDetailDrawer.vue',
+  ]
+  return files.map((file) => readFileSync(new URL(file, import.meta.url), 'utf8')).join('\n')
+}
+
+const source = readSourceIntakeWorkflowSources()
 
 const completionVisibilityGateTokens = [
   ['loading', /\bloading\.value\b/],
@@ -831,6 +838,17 @@ test('源工作流空状态和失败文案保持简体中文', () => {
   assert.match(empty.sourceEmptyState.description, /语音转写/)
   assert.equal(localizeSourceIntakeFailure('Network Error'), SOURCE_MEDIA_EXTRACTION_CONFIG_GUIDANCE)
   assert.equal(localizeSourceIntakeFailure(''), '')
+})
+
+test('素材流程面板拆出源文本、运行记录和详情抽屉', () => {
+  assert.match(source, /from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeSourceTextPanel\.vue'/)
+  assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeRunRecordsPanel\.vue'/)
+  assert.match(source, /from '@\/components\/sourceIntake\/SourceIntakeSourceDetailDrawer\.vue'/)
+  assert.match(source, /<SourceIntakeSourceTextPanel v-model:text="form\.text" \/>/)
+  assert.match(source, /<SourceIntakeRunRecordsPanel/)
+  assert.match(source, /<SourceIntakeSourceDetailDrawer/)
+  assert.doesNotMatch(source, /from 'element-plus'/)
 })
 
 test('来源工作流空状态可操作，忙时按钮带中文禁用原因', () => {

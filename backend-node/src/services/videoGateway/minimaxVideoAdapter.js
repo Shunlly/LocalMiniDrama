@@ -109,7 +109,7 @@ function withTaskId(endpoint, fallback, taskId) {
 function requireTaskId(value) {
   const taskId = String(value ?? '');
   if (!taskId || taskId.length > 200 || !/^[A-Za-z0-9_-]+$/.test(taskId)) {
-    throw configError('MiniMax 视频任务 ID 无效');
+    throw configError('MiniMax 视频任务编号无效');
   }
   return taskId;
 }
@@ -298,7 +298,7 @@ async function retrieveMinimaxFile(config, fileId, runtime = {}) {
   runtime = withProviderNetworkPolicy(config, runtime);
   const baseUrl = requireConfig(config);
   const value = String(fileId ?? '');
-  if (!/^\d{1,64}$/.test(value)) throw configError('MiniMax 视频文件 ID 无效');
+  if (!/^\d{1,64}$/.test(value)) throw configError('MiniMax 视频文件编号无效');
   const parsed = new URL(String(config.file_endpoint || '/files/retrieve'), 'http://adapter.invalid');
   parsed.searchParams.set('file_id', value);
   try {

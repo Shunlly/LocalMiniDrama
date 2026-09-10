@@ -1,4 +1,4 @@
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { dramaAPI } from '@/api/drama'
 import { generationAPI } from '@/api/generation'

@@ -9,6 +9,7 @@
             plain
             aria-label="编辑剧本"
             :disabled="Boolean(actionReasons.editScript)"
+            :title="actionReasons.editScript || undefined"
             @click="emit('edit-script')"
           >
             <el-icon><Document /></el-icon>
@@ -20,6 +21,7 @@
             size="small"
             aria-label="新建分镜"
             :disabled="Boolean(actionReasons.createStoryboard)"
+            :title="actionReasons.createStoryboard || undefined"
             @click="emit('create', 'storyboard')"
           >
             <el-icon><Plus /></el-icon>
@@ -32,7 +34,7 @@
         </el-button>
         <CanvasActionGate :reason="actionReasons.createAsset" label="新建素材" description-id="canvas-reason-create-asset">
           <el-dropdown trigger="click" :disabled="Boolean(actionReasons.createAsset)" @command="emit('create', $event)">
-            <el-button size="small" aria-label="新建素材" :disabled="Boolean(actionReasons.createAsset)">
+            <el-button size="small" aria-label="新建素材" :disabled="Boolean(actionReasons.createAsset)" :title="actionReasons.createAsset || undefined">
               <el-icon><Box /></el-icon>
               素材
               <el-icon class="dropdown-arrow"><ArrowDown /></el-icon>
@@ -75,6 +77,7 @@
             aria-label="AI 生成分镜"
             :loading="episodeGenerating"
             :disabled="Boolean(actionReasons.generateStoryboards)"
+            :title="actionReasons.generateStoryboards || undefined"
             @click="emit('generate-storyboards')"
           >
             <el-icon><MagicStick /></el-icon>
@@ -87,6 +90,7 @@
             aria-label="批量生成图片"
             :loading="episodeGenerating"
             :disabled="Boolean(actionReasons.batchImages)"
+            :title="actionReasons.batchImages || undefined"
             @click="emit('batch-images')"
           >
             <el-icon><Picture /></el-icon>
@@ -104,6 +108,7 @@
             aria-label="批量生成视频"
             :loading="episodeGenerating"
             :disabled="Boolean(actionReasons.batchVideos)"
+            :title="actionReasons.batchVideos || undefined"
             @click="emit('batch-videos')"
           >
             <el-icon><VideoPlay /></el-icon>

@@ -344,15 +344,22 @@ test('能力说明只用显式中文，就绪详情不泄露密钥和英文异�
   assert.match(freeCreateSource, /getFreeCreateReadyMessage\(\{/)
 })
 
+test('自由创作按需加载消息反馈，不引入 Element Plus 全量入口', () => {
+  assert.match(freeCreateSource, /import \{ ElMessage \} from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(freeCreateSource, /from 'element-plus'/)
+})
+
 test('自由创作提示词和风格输入有中文无障碍名称', () => {
   assert.match(freeCreateSource, /aria-label="提示词"/)
   assert.match(freeCreateSource, /aria-label="风格"/)
 })
 
-
 test('参考图上传禁用时给出中文原因', () => {
   assert.match(freeCreateSource, /正在上传参考图，请稍候/)
-  assert.match(freeCreateSource, /:title="generateDisabledReason \|\| undefined"/)
+  assert.equal(
+    (freeCreateSource.match(/:disabled="refImageUploadStatus === 'uploading'"\s*:title="refImageUploadStatus === 'uploading' \? '正在上传参考图，请稍候' : undefined"/g) || []).length,
+    2,
+  )
 })
 
 test('结果区禁用按钮给出中文原因', () => {
@@ -380,7 +387,7 @@ test('结果区禁用按钮给出中文原因', () => {
     freeCreateSource,
     /:disabled="generating \|\| cancelling"[\s\S]*:title="resultBusyDisabledReason \|\| undefined"[\s\S]*@click="downloadItem\(item\)"/,
   )
-  assert.match(freeCreateSource, /:title="generateDisabledReason \|\| undefined"/)
+  assert.match(freeCreateSource, /:title="\(generating \? resultBusyDisabledReason : generateDisabledReason\) \|\| undefined"/)
   assert.match(
     freeCreateSource,
     /const generateDisabledReason = computed\(\(\) => \{[\s\S]*if \(generating\.value\) return ''/,

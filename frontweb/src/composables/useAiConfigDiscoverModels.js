@@ -2,7 +2,7 @@
  * AI 配置从服务读取模型。页面仍负责表单接线和 loadList/openTest。
  */
 import { ref } from 'vue'
-import { ElMessage as defaultElMessage } from 'element-plus'
+import { ElMessage as defaultElMessage } from '@/utils/elementPlusFeedback.js'
 import { aiAPI as defaultAiAPI } from '@/api/ai.js'
 import { isMaskedSecret } from '@/composables/useAiConfigUnsaved.js'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError.js'

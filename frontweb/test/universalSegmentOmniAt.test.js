@@ -55,3 +55,13 @@ test('全能编辑器会拦截复制粘贴并走规范 @图片N 转换', () => {
   assert.match(source, /toCanonicalOmniText/)
   assert.match(source, /onCompositionEnd/)
 })
+
+test('全能编辑器复制按钮在空内容时给出中文禁用原因，并走按需反馈封装', () => {
+  const source = readFileSync(new URL('../src/components/UniversalSegmentOmniAtEditor.vue', import.meta.url), 'utf8')
+  assert.match(source, /from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(source, /from 'element-plus'/)
+  assert.match(source, /当前没有可复制的提示词/)
+  assert.match(source, /:disabled="Boolean\(copyDisabledReason\)"/)
+  assert.match(source, /:title="copyDisabledReason \|\| undefined"/)
+  assert.match(source, /if \(copyDisabledReason\.value\) return/)
+})

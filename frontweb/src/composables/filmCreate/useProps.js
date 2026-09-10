@@ -1,6 +1,6 @@
 import { ref, reactive, computed } from 'vue'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
-import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage as RawElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { propAPI as rawPropAPI } from '@/api/props'
 import { propLibraryAPI as rawPropLibraryAPI } from '@/api/propLibrary'
 import { uploadAPI as rawUploadAPI } from '@/api/upload'

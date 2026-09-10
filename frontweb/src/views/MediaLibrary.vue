@@ -19,8 +19,8 @@
         <el-button
           :type="mediaItems.length === 0 && !loading ? 'default' : 'primary'"
           :loading="uploading"
-          :disabled="mediaWriteLocked"
-          :title="mediaWriteLocked ? mediaWriteLockReason : undefined"
+          :disabled="mediaWriteLocked || uploading"
+          :title="mediaUploadDisableReason || undefined"
           aria-label="上传图片或视频到素材中心"
           @click="triggerUpload"
         >
@@ -54,7 +54,7 @@
         plain
         :loading="isNetworkImporting(networkImportRetryItem)"
         :disabled="isNetworkImporting(networkImportRetryItem) || !networkItemImportability(networkImportRetryItem).allowed"
-        :title="isNetworkImporting(networkImportRetryItem) ? '正在导入该网络素材，请稍候' : (networkItemImportability(networkImportRetryItem).reason || undefined)"
+        :title="isNetworkImporting(networkImportRetryItem) ? MEDIA_LIBRARY_DISABLE_REASON.importing : (networkItemImportability(networkImportRetryItem).reason || undefined)"
         aria-label="重试导入该网络素材"
         @click="importNetworkItem(networkImportRetryItem)"
       >
@@ -77,7 +77,7 @@
         <p v-else>素材空态不会在连接恢复前显示，也不会执行任何素材写操作。</p>
         <p class="data-load-state__detail">错误详情：{{ loadError }}</p>
       </div>
-      <el-button type="primary" plain :loading="loading" @click="loadMedia">
+      <el-button type="primary" plain :loading="loading" :disabled="loading" :title="mediaRetryLoadDisableReason || undefined" @click="loadMedia">
         <el-icon><Refresh /></el-icon>重试加载
       </el-button>
     </section>
@@ -86,7 +86,7 @@
       <div class="entry-item">
         <span class="entry-label">上传到素材中心</span>
         <p class="entry-description">把不超过 100MB 的图片和视频放进全局素材，后续项目可以直接复用。</p>
-        <el-button text class="entry-action" :disabled="mediaWriteLocked" :title="mediaWriteLocked ? mediaWriteLockReason : undefined" @click="triggerUpload">立即上传</el-button>
+        <el-button text class="entry-action" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" @click="triggerUpload">立即上传</el-button>
       </div>
       <div class="entry-item">
         <span class="entry-label">网页 URL 导入</span>
@@ -228,15 +228,15 @@
         <div class="empty-actions">
           <template v-if="hasActiveFilters">
             <el-button @click="clearFilters">清除筛选</el-button>
-            <el-button type="primary" :disabled="mediaWriteLocked" :title="mediaWriteLocked ? mediaWriteLockReason : undefined" aria-label="上传图片或视频到素材中心" @click="triggerUpload">
+            <el-button type="primary" :disabled="mediaWriteLocked || uploading" :title="mediaUploadDisableReason || undefined" aria-label="上传图片或视频到素材中心" @click="triggerUpload">
               <el-icon><Upload /></el-icon>上传素材
             </el-button>
           </template>
           <template v-else>
             <el-button
               type="primary"
-              :disabled="mediaWriteLocked"
-              :title="mediaWriteLocked ? mediaWriteLockReason : undefined"
+              :disabled="mediaWriteLocked || uploading"
+              :title="mediaUploadDisableReason || undefined"
               aria-label="上传图片或视频到素材中心"
               @click="triggerUpload"
             >
@@ -250,8 +250,8 @@
             type="primary"
             plain
             class="empty-secondary-action"
-            :disabled="mediaWriteLocked"
-            :title="mediaWriteLocked ? mediaWriteLockReason : undefined"
+            :disabled="mediaWriteLocked || mediaAccessState.navigationLocked"
+            :title="mediaSourceImportDisableReason || undefined"
             aria-label="选择项目后导入网页 URL"
             @click="goSourceImport"
           >进入项目选择后导入网页 URL</el-button>
@@ -275,7 +275,7 @@
     <div v-if="selectedIds.size > 0" class="batch-bar">
       <span>已选 {{ selectedIds.size }} 项</span>
       <el-button size="small" @click="selectedIds.clear()">取消选择</el-button>
-      <el-button size="small" type="danger" plain :disabled="mediaWriteLocked" :title="mediaWriteLocked ? mediaWriteLockReason : undefined" @click="batchDelete">批量删除</el-button>
+      <el-button size="small" type="danger" plain :disabled="mediaWriteLocked || visibleSelectedMediaCount <= 0" :title="mediaBatchDeleteDisableReason || undefined" @click="batchDelete">批量删除</el-button>
     </div>
     </template>
 
@@ -319,8 +319,8 @@
           <el-button
             type="primary"
             :loading="networkLoading"
-            :disabled="!networkKeyword.trim()"
-            :title="!networkKeyword.trim() ? '请先输入搜索关键词' : undefined"
+            :disabled="!networkKeyword.trim() || networkLoading"
+            :title="networkSearchDisableReason || undefined"
             @click="searchNetworkMedia"
           >
             <el-icon><Search /></el-icon>搜索
@@ -340,8 +340,8 @@
           type="primary"
           plain
           :loading="networkLoading"
-          :disabled="!networkKeyword.trim()"
-          :title="!networkKeyword.trim() ? '请先输入搜索关键词' : undefined"
+          :disabled="!networkKeyword.trim() || networkLoading"
+          :title="networkSearchDisableReason || undefined"
           aria-label="重试搜索网络素材"
           @click="searchNetworkMedia"
         >
@@ -411,7 +411,7 @@
                 type="primary"
                 :loading="isNetworkImporting(item)"
                 :disabled="isNetworkImporting(item) || !networkItemImportability(item).allowed"
-                :title="isNetworkImporting(item) ? '正在导入该网络素材，请稍候' : (networkItemImportability(item).reason || networkImportButtonText)"
+                :title="isNetworkImporting(item) ? MEDIA_LIBRARY_DISABLE_REASON.importing : (networkItemImportability(item).reason || networkImportButtonText)"
                 :aria-label="`${networkImportButtonText}：${networkItemTitle(item)}`"
                 @click="importNetworkItem(item)"
               >{{ networkImportButtonText }}</el-button>
@@ -492,7 +492,7 @@
           >查看原始发布页</a>
         </div>
         <div v-if="sourceEvidence(previewItem, 'commons_page_id')" class="meta-row">
-          <span>Commons 页面 ID：</span>{{ sourceEvidence(previewItem, 'commons_page_id') }}
+          <span>Commons 页面编号：</span>{{ sourceEvidence(previewItem, 'commons_page_id') }}
         </div>
         <div v-if="sourceEvidence(previewItem, 'commons_revision_timestamp')" class="meta-row">
           <span>来源修订时间：</span>{{ formatSourceTimestamp(sourceEvidence(previewItem, 'commons_revision_timestamp')) }}
@@ -574,7 +574,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import {
   ArrowLeft, Upload, Search, Loading, CircleCheck,
   ZoomIn, Delete, Files, Plus, Refresh, CopyDocument
@@ -583,7 +583,16 @@ import { mediaLibraryAPI, importNetworkAssetAndConfirm } from '@/api/mediaLibrar
 import { uploadAPI } from '@/api/upload'
 import request from '@/utils/request'
 import { describeServiceLoadError, isRequestCanceled, withRequestRetry } from '@/utils/requestError'
-import { describeMediaLibraryUserError, isMediaLibraryUserAbort } from '@/utils/mediaLibraryUserError'
+import {
+  describeMediaLibraryUserError,
+  isMediaLibraryUserAbort,
+  describeMediaLibraryWriteLockReason,
+  describeMediaLibraryUploadDisableReason,
+  describeMediaLibraryNetworkSearchDisableReason,
+  describeMediaLibraryBatchDeleteDisableReason,
+  describeMediaLibrarySourceImportDisableReason,
+  MEDIA_LIBRARY_DISABLE_REASON,
+} from '@/utils/mediaLibraryUserError'
 import { normalizeMediaLibraryReturnTo } from '@/router'
 import { openWorkspaceNavItem } from '@/layouts/AppWorkspaceNav.js'
 import {
@@ -653,7 +662,7 @@ const hasActiveFilters = computed(() => hasActiveMediaFilters(mediaType.value, k
 const returnTo = computed(() => normalizeMediaLibraryReturnTo(route.query.returnTo))
 const scopedDramaId = computed(() => getMediaLibraryDramaId(returnTo.value))
 const networkImportTargetLabel = computed(() => scopedDramaId.value
-  ? `当前项目（ID ${scopedDramaId.value}）`
+  ? `当前项目（编号 ${scopedDramaId.value}）`
   : '全局素材库')
 const networkImportButtonText = computed(() => scopedDramaId.value ? '导入当前项目' : '导入全局素材库')
 const networkSearchAnnouncement = computed(() => {
@@ -673,19 +682,41 @@ const mediaAccessState = computed(() => mediaLibraryAccessState({
   itemCount: mediaItems.value.length,
 }))
 const mediaWriteLocked = computed(() => mediaAccessState.value.writeLocked)
-const mediaWriteLockReason = computed(() => {
-  if (loading.value) return '素材列表正在加载，请稍候'
-  if (loadError.value) {
-    return mediaIsStale.value
-      ? '素材列表刷新失败，成功重试前不能上传、选择或删除'
-      : '素材数据加载失败，成功重试前不能上传、选择或删除'
-  }
-  if (!hasSuccessfulMediaLoad.value) return '素材列表尚未就绪'
-  return ''
-})
+const mediaWriteLockReason = computed(() => describeMediaLibraryWriteLockReason({
+  loading: loading.value,
+  loadError: loadError.value,
+  isStale: mediaIsStale.value,
+  hasSuccessfulLoad: hasSuccessfulMediaLoad.value,
+}))
 const mediaNavigationLockReason = computed(() => (
-  uploading.value ? '正在上传素材，请稍候' : ''
+  uploading.value ? MEDIA_LIBRARY_DISABLE_REASON.uploading : ''
 ))
+const mediaUploadDisableReason = computed(() => describeMediaLibraryUploadDisableReason({
+  writeLocked: mediaWriteLocked.value,
+  writeLockReason: mediaWriteLockReason.value,
+  uploading: uploading.value,
+}))
+const mediaRetryLoadDisableReason = computed(() => (
+  loading.value ? MEDIA_LIBRARY_DISABLE_REASON.retryLoading : ''
+))
+const networkSearchDisableReason = computed(() => describeMediaLibraryNetworkSearchDisableReason({
+  keyword: networkKeyword.value,
+  searching: networkLoading.value,
+}))
+const visibleSelectedMediaCount = computed(() => (
+  getVisibleSelectedMediaIds(selectedIds, mediaItems.value).length
+))
+const mediaBatchDeleteDisableReason = computed(() => describeMediaLibraryBatchDeleteDisableReason({
+  writeLocked: mediaWriteLocked.value,
+  writeLockReason: mediaWriteLockReason.value,
+  visibleSelectedCount: visibleSelectedMediaCount.value,
+}))
+const mediaSourceImportDisableReason = computed(() => describeMediaLibrarySourceImportDisableReason({
+  writeLocked: mediaWriteLocked.value,
+  writeLockReason: mediaWriteLockReason.value,
+  navigationLocked: mediaAccessState.value.navigationLocked,
+  navigationLockReason: mediaNavigationLockReason.value,
+}))
 const mediaRequestGuard = createLatestMediaRequestGuard()
 const networkRequestGuard = createLatestMediaRequestGuard()
 let keywordTimer = null
@@ -756,7 +787,7 @@ function goSourceImport() {
 }
 
 function triggerUpload() {
-  if (mediaWriteLocked.value) return
+  if (mediaWriteLocked.value || uploading.value) return
   uploadInput.value?.click()
 }
 

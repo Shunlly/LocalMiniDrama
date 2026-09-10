@@ -29,7 +29,7 @@ function apiStub(name, methods) {
 
 const moduleUrls = new Map([
   ['vue', import.meta.resolve('vue')],
-  ['element-plus', elementPlusStubUrl],
+  ['@/utils/elementPlusFeedback.js', elementPlusStubUrl],
   ['@/api/drama', apiStub('dramaAPI', ['saveEpisodes', 'saveCharacters'])],
   ['@/api/storyboards', apiStub('storyboardsAPI', ['create'])],
   ['@/api/scenes', apiStub('sceneAPI', ['create'])],

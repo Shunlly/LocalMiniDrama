@@ -251,10 +251,10 @@ async function callModelArkAsset(opts, log) {
     const ak = String(access_key_id || '').trim();
     const sk = String(secret_access_key || '').trim();
     if (!ak || !sk) {
-      throw new Error('控制面 OpenAPI 须填写 Access Key ID 与 Secret Access Key（控制台 IAM 密钥，非推理 API Key）');
+      throw new Error('控制面 OpenAPI 须填写访问密钥和签名密钥（控制台 IAM 密钥，不是推理密钥）');
     }
     if (pathMode !== 'open_api_query') {
-      throw new Error('AK/SK 签名仅支持与「官方 OpenAPI」路径模式（Query 中带 Action）一起使用');
+      throw new Error('AK/SK 签名仅支持与「官方 OpenAPI」路径模式一起使用');
     }
     res = await fetchSignedOpenApi({
       base,

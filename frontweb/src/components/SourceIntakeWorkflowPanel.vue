@@ -235,15 +235,7 @@
                 </div>
               </el-form-item>
 
-              <el-form-item label="原始素材">
-                <el-input
-                  v-model="form.text"
-                  type="textarea"
-                  :rows="8"
-                  aria-label="原始素材"
-                  placeholder="粘贴小说、梗概、剧本、分镜表、漫画文字说明或转写文本"
-                />
-              </el-form-item>
+              <SourceIntakeSourceTextPanel v-model:text="form.text" />
 
               <div class="action-row">
                 <ActionGate label="导入故事素材" :reason="actionReasons.import">
@@ -309,95 +301,71 @@
             </div>
 
             <template v-if="selectedRun">
-              <el-progress :percentage="runState.progress" :status="runProgressStatus" />
-              <div class="run-meta">
-                <span>{{ workflowTypeLabel(selectedRun.type) }}</span>
-                <span>{{ runState.modeLabel }}</span>
-                <span>{{ formatTime(selectedRun.created_at) || '未知时间' }}</span>
-                <span v-if="runState.activeStep">当前：{{ workflowStepLabel(runState.activeStep, selectedRun) }}</span>
-                <span v-if="runState.costLabel">{{ runState.costLabel }}</span>
-                <span v-if="runState.costSummary.unknownCount" class="cost-unconfigured">
-                  {{ runState.costSummary.unknownCount }} 项未配置价格
-                </span>
-              </div>
-              <div
-                v-if="pollStatusMessage"
-                class="poll-status-banner"
-                :class="{ 'is-error': pollState === 'error' }"
-                :role="pollState === 'error' ? 'alert' : 'status'"
-                aria-live="polite"
+              <SourceIntakeRunRecordsPanel
+                :selected-run="selectedRun"
+                :run-state="runState"
+                :run-progress-status="runProgressStatus"
+                :displayed-run-error="displayedRunError"
+                :format-time="formatTime"
               >
-                <span>{{ pollStatusMessage }}</span>
-                <el-button
-                  v-if="pollState === 'error' || pollState === 'recovering'"
-                  size="small"
-                  type="primary"
-                  link
-                  :loading="pollState === 'recovering'"
-                  @click="resumePolling"
-                >
-                  恢复轮询
-                </el-button>
-              </div>
-              <div v-if="runState.mediaNotice" class="placeholder-note" :class="{ 'is-error': runState.productionPlaceholder }">
-                {{ runState.mediaNotice }}
-              </div>
-
-              <details class="run-detail" open>
-                <summary>步骤明细</summary>
-                <div class="step-list">
+                <template #status>
                   <div
-                    v-for="step in selectedRun.steps || []"
-                    :key="step.id"
-                    class="step-item"
-                    :class="'step-' + step.status"
+                    v-if="pollStatusMessage"
+                    class="poll-status-banner"
+                    :class="{ 'is-error': pollState === 'error' }"
+                    :role="pollState === 'error' ? 'alert' : 'status'"
+                    aria-live="polite"
                   >
-                    <span class="step-dot" />
-                    <span class="step-name">{{ workflowStepLabel(step, selectedRun) }}</span>
-                    <span class="step-status">{{ workflowStepStatusLabel(step.status) }}</span>
-                    <span class="step-attempts">#{{ step.attempts || 0 }}</span>
+                    <span>{{ pollStatusMessage }}</span>
+                    <el-button
+                      v-if="pollState === 'error' || pollState === 'recovering'"
+                      size="small"
+                      type="primary"
+                      link
+                      :loading="pollState === 'recovering'"
+                      @click="resumePolling"
+                    >
+                      恢复轮询
+                    </el-button>
                   </div>
-                </div>
-              </details>
-
-              <div v-if="runState.failedStep && displayedRunError" class="run-error">
-                {{ displayedRunError }}
-              </div>
-
-              <div class="action-row compact">
-                <ActionGate label="重试失败步骤" :reason="controlActionReasons.retry">
-                  <el-button size="small" :disabled="Boolean(controlActionReasons.retry)" :loading="retrying" @click="retryRun">
-                    {{ retrying ? '正在提交重试' : '重试失败步骤' }}
-                  </el-button>
-                </ActionGate>
-                <ActionGate label="暂停处理" :reason="controlActionReasons.pause">
-                  <el-button size="small" :disabled="Boolean(controlActionReasons.pause)" :loading="pausing" @click="pauseRun">
-                    {{ pausing ? '正在暂停' : '暂停' }}
-                  </el-button>
-                </ActionGate>
-                <ActionGate label="恢复处理" :reason="controlActionReasons.resume">
-                  <el-button size="small" type="primary" plain :disabled="Boolean(controlActionReasons.resume)" :loading="resuming" @click="resumeRun">
-                    {{ resuming ? '正在恢复' : '恢复' }}
-                  </el-button>
-                </ActionGate>
-                <ActionGate label="取消处理" :reason="controlActionReasons.cancel">
-                  <el-button size="small" type="danger" plain :disabled="Boolean(controlActionReasons.cancel)" :loading="cancelling" @click="cancelRun">
-                    {{ cancelling ? '正在取消' : '取消' }}
-                  </el-button>
-                </ActionGate>
-              </div>
-              <div v-if="canRestartFromLatestSource" class="action-row compact">
-                <ActionGate :label="`重新启动${workflowModeShortLabel}`" :reason="existingSourceLaunchReason">
-                  <el-button
-                    type="primary"
-                    :loading="startingSourceId === sources[0].id"
-                    :disabled="Boolean(existingSourceLaunchReason)"
-                    @click="startExistingSource(sources[0])"
-                  >
-                    {{ startingSourceId === sources[0].id ? '正在重新启动' : `重新启动${workflowModeShortLabel}` }}
-                  </el-button>
-                </ActionGate>
-              </div>
+                </template>
+                <template #actions>
+                  <div class="action-row compact">
+                    <ActionGate label="重试失败步骤" :reason="controlActionReasons.retry">
+                      <el-button size="small" :disabled="Boolean(controlActionReasons.retry)" :loading="retrying" @click="retryRun">
+                        {{ retrying ? '正在提交重试' : '重试失败步骤' }}
+                      </el-button>
+                    </ActionGate>
+                    <ActionGate label="暂停处理" :reason="controlActionReasons.pause">
+                      <el-button size="small" :disabled="Boolean(controlActionReasons.pause)" :loading="pausing" @click="pauseRun">
+                        {{ pausing ? '正在暂停' : '暂停' }}
+                      </el-button>
+                    </ActionGate>
+                    <ActionGate label="恢复处理" :reason="controlActionReasons.resume">
+                      <el-button size="small" type="primary" plain :disabled="Boolean(controlActionReasons.resume)" :loading="resuming" @click="resumeRun">
+                        {{ resuming ? '正在恢复' : '恢复' }}
+                      </el-button>
+                    </ActionGate>
+                    <ActionGate label="取消处理" :reason="controlActionReasons.cancel">
+                      <el-button size="small" type="danger" plain :disabled="Boolean(controlActionReasons.cancel)" :loading="cancelling" @click="cancelRun">
+                        {{ cancelling ? '正在取消' : '取消' }}
+                      </el-button>
+                    </ActionGate>
+                  </div>
+                  <div v-if="canRestartFromLatestSource" class="action-row compact">
+                    <ActionGate :label="`重新启动${workflowModeShortLabel}`" :reason="existingSourceLaunchReason">
+                      <el-button
+                        type="primary"
+                        :loading="startingSourceId === sources[0].id"
+                        :disabled="Boolean(existingSourceLaunchReason)"
+                        @click="startExistingSource(sources[0])"
+                      >
+                        {{ startingSourceId === sources[0].id ? '正在重新启动' : `重新启动${workflowModeShortLabel}` }}
+                      </el-button>
+                    </ActionGate>
+                  </div>
+                </template>
+              </SourceIntakeRunRecordsPanel>
             </template>
 
             <div v-else-if="sources.length > 0" class="stage-empty stage-empty--actionable">
@@ -538,56 +506,22 @@
     </div>
     </div>
 
-    <el-drawer v-model="sourceDetailVisible" title="素材详情" size="46%">
-      <div v-if="sourceDetailLoading" class="empty-line">加载中…</div>
-      <template v-else-if="sourceDetail">
-        <div class="detail-meta">
-          <div><strong>{{ sourceDetail.source.title }}</strong></div>
-          <div>{{ sourceTypeLabel(sourceDetail.source.source_type) }} / {{ formatTime(sourceDetail.source.created_at) || '未知时间' }}</div>
-          <div>素材片段 {{ sourceDetail.items?.length || 0 }} / 故事事件 {{ sourceDetail.events?.length || 0 }} / 事件关系 {{ sourceDetail.event_edges?.length || 0 }}</div>
-        </div>
-
-        <div class="detail-section">
-          <div class="detail-title">素材片段</div>
-          <div v-if="sourceDetail.items?.length">
-            <div v-for="item in sourceDetail.items" :key="item.id" class="detail-row">
-              <strong>#{{ item.item_no }} {{ item.title }}</strong>
-              <p>{{ item.summary }}</p>
-            </div>
-          </div>
-          <div v-else class="empty-line">暂无素材片段</div>
-        </div>
-
-        <div class="detail-section">
-          <div class="detail-title">故事事件</div>
-          <div v-if="sourceDetail.events?.length">
-            <div v-for="event in sourceDetail.events" :key="event.id" class="detail-row">
-              <strong>#{{ event.event_no }} {{ event.title }}</strong>
-              <p>{{ event.detail }}</p>
-            </div>
-          </div>
-          <div v-else class="empty-line">暂无故事事件</div>
-        </div>
-
-        <div class="detail-section">
-          <div class="detail-title">事件关系</div>
-          <div v-if="sourceDetail.event_edges?.length">
-            <div v-for="edge in sourceDetail.event_edges" :key="edge.id" class="detail-row compact-row">
-              {{ sourceRelationLabel(edge.relation_type) }}：{{ sourceEventLabel(edge.from_event_id) }} → {{ sourceEventLabel(edge.to_event_id) }}
-            </div>
-          </div>
-          <div v-else class="empty-line">暂无事件关系</div>
-        </div>
-      </template>
-      <div v-else class="empty-line">未找到素材详情，请稍后重试。</div>
-    </el-drawer>
+    <SourceIntakeSourceDetailDrawer
+      v-model:visible="sourceDetailVisible"
+      :loading="sourceDetailLoading"
+      :source-detail="sourceDetail"
+      :format-time="formatTime"
+    />
   </section>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
+import SourceIntakeRunRecordsPanel from '@/components/sourceIntake/SourceIntakeRunRecordsPanel.vue'
+import SourceIntakeSourceDetailDrawer from '@/components/sourceIntake/SourceIntakeSourceDetailDrawer.vue'
+import SourceIntakeSourceTextPanel from '@/components/sourceIntake/SourceIntakeSourceTextPanel.vue'
 import { ArrowDown, ArrowUp, Setting } from '@element-plus/icons-vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
 import { sourceIntakeAPI as rawSourceIntakeAPI } from '@/api/sourceIntake'
@@ -601,7 +535,6 @@ import {
   buildWebSourceIntakePayload,
   inferSourceTypeFromFilename,
   sourceProvenanceLabel,
-  sourceRelationLabel,
   sourceTypeLabel,
 } from '@/utils/sourceIntakeAdapter'
 import {
@@ -615,12 +548,7 @@ import {
   selectQaReportForRun,
   shouldIgnoreSourceWorkflowPollError,
 } from '@/utils/sourceImportOutcome'
-import {
-  normalizeWorkflowRun,
-  workflowStepLabel,
-  workflowStepStatusLabel,
-  workflowTypeLabel,
-} from '@/utils/workflowRunStatus'
+import { normalizeWorkflowRun } from '@/utils/workflowRunStatus'
 import { buildQaPresentation, normalizeQaReport, qaCheckLabel } from '@/utils/qaReport'
 import { formatDuration, normalizeTimelineSummary, timelineTrackTypeLabel } from '@/utils/timelineSummary'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
@@ -1092,11 +1020,6 @@ function selectFlowStep(stepId) {
   )
   persistInspectedFlowStep(selectedFlowStepId.value)
   revealInspectedHistoryIfNeeded(selectedFlowStepId.value)
-}
-
-function sourceEventLabel(eventId) {
-  const event = sourceDetail.value?.events?.find((item) => String(item.id) === String(eventId))
-  return `事件 ${event?.event_no ?? eventId ?? '?'}`
 }
 
 async function handleWorkflowModeChange() {

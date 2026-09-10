@@ -105,7 +105,7 @@ function pickSoraReference(opts) {
     if (!unique.has(normalized)) unique.set(normalized, field);
   }
   if (String(opts.last_frame_url || '').trim()) {
-    throw videoInputError('Sora 当前不支持尾帧参考，请移除 last_frame_url');
+    throw videoInputError('Sora 当前不支持尾帧参考，请移除尾帧');
   }
   if (unique.size > 1) {
     throw videoInputError('Sora 当前只支持一张参考图，请仅保留主图、首帧或参考图列表中的一项');

@@ -1,7 +1,7 @@
 /**
  * AI 配置页一键厂商预设。页面仍负责弹窗接线和 loadList。
  */
-import { ElMessage as defaultElMessage } from 'element-plus'
+import { ElMessage as defaultElMessage } from '@/utils/elementPlusFeedback.js'
 import { aiAPI as defaultAiAPI } from '@/api/ai.js'
 import { runAiConfigCreateBatch as defaultRunAiConfigCreateBatch } from '@/utils/aiConfigMutations.js'
 

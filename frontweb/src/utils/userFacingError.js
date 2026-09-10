@@ -1,4 +1,4 @@
-import { describeServiceLoadError, isRequestCanceled, isRequestTimeout, isSafeUserFacingMessage } from '@/utils/requestError'
+import { appendRequestIdHint, describeServiceLoadError, isRequestCanceled, isRequestTimeout, isSafeUserFacingMessage } from '@/utils/requestError'
 
 const UNSET = '\0'
 
@@ -11,8 +11,7 @@ function hasChinese(text) {
   return /[\u4e00-\u9fff]/.test(text)
 }
 
-/** 把操作异常转成可展示的简体中文 */
-export function toUserFacingError(error, fallback = '操作失败，请稍后重试', options = {}) {
+function resolveUserFacingError(error, fallback = '操作失败，请稍后重试', options = {}) {
   if (error === 'cancel' || isRequestCanceled(error, options.signal)) return '操作已取消'
   const described = describeServiceLoadError(error, {
     serviceLabel: options.serviceLabel || '服务',
@@ -27,6 +26,13 @@ export function toUserFacingError(error, fallback = '操作失败，请稍后重
   if (fallbackText === '') return ''
   if (hasChinese(fallbackText) && !/\bdrama_id\b/i.test(fallbackText)) return fallbackText
   return '操作失败，请稍后重试'
+}
+
+/** 把操作异常转成可展示的简体中文；失败文案在确有 requestId 时附带请求编号 */
+export function toUserFacingError(error, fallback = '操作失败，请稍后重试', options = {}) {
+  const message = resolveUserFacingError(error, fallback, options)
+  if (error === 'cancel' || isRequestCanceled(error, options.signal)) return message
+  return appendRequestIdHint(message, error)
 }
 
 export function isUserFacingAbort(error, signal) {

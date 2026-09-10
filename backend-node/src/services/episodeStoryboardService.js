@@ -1542,7 +1542,7 @@ function updateStoryboardAsSplitSegment(db, sbId, baseRow, plan, now) {
  */
 function splitStoryboardByAudio(db, log, storyboardId) {
   const sbId = Number(storyboardId);
-  if (!Number.isFinite(sbId) || sbId <= 0) throw new Error('无效的分镜 id');
+  if (!Number.isFinite(sbId) || sbId <= 0) throw new Error('无效的分镜 ID');
   dramaWriteGuard.assertResourceWritable(db, 'storyboards', sbId);
 
   const row = db

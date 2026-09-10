@@ -10,6 +10,7 @@ import {
   formatBackupTimestamp,
   normalizeBackupList,
   normalizeBackupReturnTo,
+  parseReadinessPayload,
   restoreConfirmationCopy,
   useBackupSettings,
   validateBackupFile,
@@ -139,6 +140,7 @@ test('失败空态与无备份空态互斥，加载失败时锁定列表恢复',
       showEmpty: false,
       showStale: false,
       writeLocked: false,
+      restoreLocked: false,
       restoreFromListLocked: true,
       createLocked: false,
     },
@@ -150,6 +152,23 @@ test('失败空态与无备份空态互斥，加载失败时锁定列表恢复',
   assert.equal(
     backupAccessState({ loading: false, hasSuccessfulLoad: true, loadError: '超时', itemCount: 2 }).showStale,
     true,
+  )
+  assert.deepEqual(
+    backupAccessState({
+      loading: false,
+      hasSuccessfulLoad: true,
+      loadError: '',
+      itemCount: 1,
+      maintenanceBlocked: true,
+    }),
+    {
+      showEmpty: false,
+      showStale: false,
+      writeLocked: false,
+      restoreLocked: true,
+      restoreFromListLocked: true,
+      createLocked: true,
+    },
   )
 })
 
@@ -312,10 +331,13 @@ test('备份页把失败、空态和恢复确认分成独立用户路径', () =>
   assert.match(template, /<h1 class="page-title">数据备份与维护<\/h1>/)
   assert.match(template, /v-if="listError"[\s\S]*备份列表加载失败[\s\S]*备份空态不会在连接恢复前显示/)
   assert.match(template, /v-if="accessState.showEmpty"[\s\S]*还没有备份/)
+  assert.match(template, /正在加载备份列表/)
+  assert.match(template, /aria-label="清除所选备份文件"/)
   assert.match(template, /v-if="fileError"[\s\S]*备份文件选择失败[\s\S]*重新选择备份文件/)
   assert.match(template, /<AccessibleDialog[\s\S]*:title="restoreCopy.title"/)
   assert.match(template, /type="danger"[\s\S]*aria-label="确认恢复备份"/)
   assert.match(template, /v-if="readinessError"[\s\S]*维护状态加载失败[\s\S]*维护正常空态不会在连接恢复前显示/)
+  assert.match(template, /lastFailedAction === 'restore'/)
 })
 
 test('路由、深链接和设置入口都接到备份页', () => {
@@ -388,19 +410,116 @@ test('备份操作失败可重试或关闭，空态也能创建或选择备份',
 test('关闭备份操作错误会清掉失败条', () => {
   const harness = useBackupSettings({ api: createApi() })
   harness.actionError.value = '数据恢复未能完成，原有数据应仍可用。'
+  harness.lastFailedAction.value = 'restore'
   harness.dismissActionError()
   assert.equal(harness.actionError.value, '')
+  assert.equal(harness.lastFailedAction.value, '')
+})
+
+test('维护租约不可用显示阻塞态而不是加载失败，并锁定写入', async () => {
+  const blockedPayload = {
+    status: 'not_ready',
+    ready: false,
+    checks: {
+      maintenance: { ok: false, error: '维护租约不可用' },
+      database: { ok: true },
+      storage: { ok: true },
+    },
+  }
+  const returned = useBackupSettings({
+    api: createApi({
+      readiness: async () => blockedPayload,
+    }),
+  })
+  await returned.loadReadiness()
+  assert.equal(returned.readinessError.value, '')
+  assert.equal(returned.hasSuccessfulReadinessLoad.value, true)
+  assert.equal(returned.readiness.value.ready, false)
+  assert.equal(returned.readiness.value.maintenanceError, '维护租约不可用')
+  assert.equal(returned.accessState.value.createLocked, true)
+  assert.equal(returned.accessState.value.restoreLocked, true)
+  assert.equal(returned.accessState.value.writeLocked, false)
+  returned.selectBackupFile(fileStub('keep.zip', 64))
+  assert.equal(returned.requestRestoreFromSelection(), false)
+  assert.equal((await returned.createBackup()).locked, true)
+
+  const thrown = useBackupSettings({
+    api: createApi({
+      readiness: async () => {
+        const error = new Error('Service unavailable')
+        error.response = { status: 503, data: blockedPayload }
+        throw error
+      },
+    }),
+  })
+  await thrown.loadReadiness()
+  assert.equal(thrown.readinessError.value, '')
+  assert.equal(thrown.hasSuccessfulReadinessLoad.value, true)
+  assert.equal(thrown.readiness.value.ready, false)
+  assert.equal(thrown.accessState.value.createLocked, true)
+})
+
+test('恢复失败后关闭确认框，重试仍走恢复而不是创建', async () => {
+  const api = createApi({
+    restore: async () => {
+      const error = new Error('restore failed')
+      error.code = 'RESTORE_FAILED'
+      throw error
+    },
+  })
+  const harness = useBackupSettings({ api })
+  harness.selectBackupFile(fileStub('keep.zip', 64))
+  assert.equal(harness.requestRestoreFromSelection(), true)
+  const failed = await harness.confirmRestore()
+  assert.equal(failed.ok, false)
+  assert.equal(harness.lastFailedAction.value, 'restore')
+  assert.match(harness.actionError.value, /数据恢复未能完成/)
+  harness.cancelRestore()
+  assert.equal(harness.restoreDialogVisible.value, false)
+  const retry = await harness.retryRestore()
+  assert.equal(retry.needsConfirmation, true)
+  assert.equal(harness.restoreDialogVisible.value, true)
+  assert.equal(api.calls.create, 0)
+  assert.equal(api.calls.restore.length, 1)
+})
+
+test('英文维护错误会映射成中文，不把原文漏到页面', () => {
+  const parsed = parseReadinessPayload({
+    status: 'not_ready',
+    checks: {
+      maintenance: { ok: false, error: 'another maintenance operation is active' },
+      database: { ok: true },
+      storage: { ok: true },
+    },
+  })
+  assert.equal(parsed.ready, false)
+  assert.equal(parsed.maintenanceError, BACKUP_ERROR_MESSAGES.MAINTENANCE_LOCKED)
+  assert.match(parsed.maintenanceError, /[㐀-鿿]/)
 })
 
 test('备份禁用按钮给出中文原因', () => {
   assert.match(pageSource, /const backupWriteLockReason = computed/)
   assert.match(pageSource, /正在创建备份，请稍候/)
   assert.match(pageSource, /备份列表加载失败，成功重试前不能从列表恢复/)
+  assert.match(pageSource, /当前不能安全执行备份或恢复/)
   assert.match(pageSource, /:title="accessState.createLocked \? backupWriteLockReason : undefined"/)
   assert.match(pageSource, /:title="accessState.writeLocked \? backupWriteLockReason : undefined"/)
   assert.match(pageSource, /:title="accessState.restoreFromListLocked \? backupRestoreLockReason : undefined"/)
+  assert.match(pageSource, /:title="accessState.restoreLocked \? backupWriteLockReason : undefined"/)
+  assert.match(pageSource, /:title="loading \? '备份列表正在加载，请稍候' : undefined"/)
+  assert.match(pageSource, /:title="readinessLoading \? '维护状态正在加载，请稍候' : undefined"/)
 })
 
+
+test('清除所选备份会关掉对应的恢复确认', () => {
+  const harness = useBackupSettings({ api: createApi() })
+  harness.selectBackupFile(fileStub('keep.zip', 64))
+  assert.equal(harness.requestRestoreFromSelection(), true)
+  assert.equal(harness.restoreDialogVisible.value, true)
+  harness.clearSelectedFile()
+  assert.equal(harness.selectedFile.value, null)
+  assert.equal(harness.restoreDialogVisible.value, false)
+})
 
 test('备份时间显示中文格式，无效值不漏原文', () => {
   const formatted = formatBackupTimestamp('2026-08-29T00:00:00Z')

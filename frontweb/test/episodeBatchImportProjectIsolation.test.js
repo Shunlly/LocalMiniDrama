@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { createRenderer, defineComponent, h, nextTick } from 'vue'
-import { ElMessage as RawElMessage } from 'element-plus'
+import { ElMessage as RawElMessage } from '../src/utils/elementPlusFeedback.js'
 
 import { createProjectInstanceLifecycle } from '../src/utils/projectInstanceLifecycle.js'
 import request from '../src/utils/request.js'
@@ -43,6 +43,7 @@ let compiledSource = compileScript(descriptor, {
 for (const [specifier, resolved] of [
   ['vue', import.meta.resolve('vue')],
   ['element-plus', elementPlusStubUrl],
+  ['@/utils/elementPlusFeedback.js', elementPlusStubUrl],
   ['@element-plus/icons-vue', iconsStubUrl],
   ['@/utils/projectInstanceLifecycle.js', new URL('../src/utils/projectInstanceLifecycle.js', import.meta.url).href],
 ]) {
@@ -283,6 +284,8 @@ test('a deferred project A HTTP failure cannot create a global toast after proje
 })
 
 test('批量导入空状态和禁用原因保持简体中文', () => {
+  assert.match(source, /from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(source, /from 'element-plus'/)
   assert.match(source, /还没有可导入的集数预览/)
   assert.match(source, /请先在「导入设置」中选择 TXT 文件，再点击「确认导入配置」/)
   assert.match(source, />返回导入设置</)

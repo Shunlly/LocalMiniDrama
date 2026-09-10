@@ -1,5 +1,5 @@
 import { computed } from 'vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { createLatestRequestGuard } from '@/utils/latestRequest.js'
 import { requestCoreJson } from '@/utils/coreJsonRequest'
 import { normalizeProductionReadiness } from '@/utils/sourceWorkflowLaunch'

@@ -90,6 +90,8 @@ test('\u6682\u505c\u3001\u7ee7\u7eed\u3001\u505c\u6b62\u7981\u7528\u539f\u56e0\u
   assert.match(pipelinePanelSource, /label="\u7ee7\u7eed" :reason="resumeDisabledReason"/)
   assert.match(pipelinePanelSource, /:reason="cancelDisabledReason"/)
   assert.match(pipelinePanelSource, /:title="compactDisabledReason"/)
+  assert.match(pipelinePanelSource, /:title="productionButtonTitle"/)
+  assert.match(pipelinePanelSource, /:title="draftButtonTitle"/)
   assert.match(pipelinePanelSource, /class="pipeline-compact-gate"/)
   assert.match(pipelinePanelSource, /:reason="compactDisabledReason"/)
 })
@@ -145,6 +147,16 @@ test('空剧本的全流程阻断原因保持中文', () => {
     toPipelineDisabledReason('当前集还没有剧本，请先编写或导入剧本'),
     '当前集还没有剧本，请先编写或导入剧本',
   )
+  const emptyScript = describePipelinePanelUx({
+    productionReason: '当前集还没有剧本，请先编写或导入剧本',
+    draftReason: '当前集还没有剧本，请先编写或导入剧本',
+  })
+  assert.equal(emptyScript.productionButtonTitle, '当前集还没有剧本，请先编写或导入剧本')
+  assert.equal(emptyScript.draftButtonTitle, '当前集还没有剧本，请先编写或导入剧本')
+  const starting = describePipelinePanelUx({ starting: true })
+  assert.equal(starting.productionButtonTitle, '正在确认完整成片的运行条件')
+  assert.match(starting.productionButtonTitle, /[\u4e00-\u9fff]/)
+  assert.doesNotMatch(starting.productionButtonTitle, /please|starting|network error/i)
   assert.match(pipelinePanelSource, /<ActionGate label="一键生成成片" :reason="productionReason">/)
   assert.match(pipelinePanelSource, /<ActionGate label="仅生成文本框架" :reason="draftReason">/)
   assert.match(pipelinePanelSource, /if \(draftReason\.value\) return draftReason\.value/)

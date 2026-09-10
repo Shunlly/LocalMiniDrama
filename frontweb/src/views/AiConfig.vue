@@ -10,7 +10,7 @@
         <el-button class="btn-backup" aria-label="打开数据备份与维护" @click="goBackup">
           数据备份
         </el-button>
-        <el-button class="btn-back" @click="goBack">
+        <el-button class="btn-back" :aria-label="backButtonLabel" @click="goBack">
           <el-icon><ArrowLeft /></el-icon>
           {{ backButtonText }}
         </el-button>
@@ -46,14 +46,11 @@ const returnTo = computed(() => {
   return typeof normalize === 'function' ? normalize(route.query.returnTo) : ''
 })
 const returnsToFreeCreate = computed(() => returnTo.value.startsWith('/free-create'))
-const backButtonText = computed(() => {
-  if (returnsToFreeCreate.value) return '返回自由创作'
-  return returnTo.value ? '返回项目' : '返回首页'
-})
 const backButtonLabel = computed(() => {
   if (returnsToFreeCreate.value) return '返回自由创作'
   return returnTo.value ? '返回原项目' : '返回项目列表'
 })
+const backButtonText = backButtonLabel
 
 async function requestAiConfigPageClose() {
   return (await aiConfigContentRef.value?.requestClose?.()) !== false
@@ -154,7 +151,9 @@ html.light .header {
 .logo:hover {
   filter: drop-shadow(0 0 10px rgba(139, 92, 246, 0.5));
 }
-.logo:focus-visible {
+.logo:focus-visible,
+.btn-backup:focus-visible,
+.btn-back:focus-visible {
   outline: 2px solid var(--el-color-primary);
   outline-offset: 4px;
   border-radius: 4px;

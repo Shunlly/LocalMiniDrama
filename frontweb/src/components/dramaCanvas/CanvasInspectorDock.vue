@@ -69,7 +69,7 @@
             :title="retryingMedia ? '正在重试媒体查询，请稍候' : undefined"
             @click.stop="retryMedia"
           >
-            {{ retryingMedia ? '重试中...' : '重试媒体查询' }}
+            {{ retryingMedia ? '重试中…' : '重试媒体查询' }}
           </button>
         </div>
       </template>
@@ -100,7 +100,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { useCanvasContext } from '@/composables/useCanvasContext'
 import { canvasUserError } from '@/composables/useCanvasUserError'

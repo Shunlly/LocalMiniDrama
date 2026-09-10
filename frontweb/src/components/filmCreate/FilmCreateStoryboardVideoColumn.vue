@@ -38,6 +38,7 @@
             class="sb-generate-video-btn"
             :loading="isSbVideoGenerating(sb.id)"
             :disabled="Boolean(sbVideoGenerationDisabledReason(sb))"
+            :title="isSbVideoGenerating(sb.id) ? '正在生成分镜视频，请稍候' : (sbVideoGenerationDisabledReason(sb) || undefined)"
             @click="onGenerateSbVideo(sb)"
           >
             生成分镜视频
@@ -64,16 +65,17 @@
     </div>
     <div v-if="getSbVideo(sb.id)" class="sb-video-actions">
       <ActionGate :reason="sbVideoGenerationDisabledReason(sb)" label="重新生成">
-        <el-button size="small" :loading="isSbVideoGenerating(sb.id)" :disabled="Boolean(sbVideoGenerationDisabledReason(sb))" @click="onGenerateSbVideo(sb)">重新生成</el-button>
+        <el-button size="small" :loading="isSbVideoGenerating(sb.id)" :disabled="Boolean(sbVideoGenerationDisabledReason(sb))" :title="isSbVideoGenerating(sb.id) ? '正在生成分镜视频，请稍候' : (sbVideoGenerationDisabledReason(sb) || undefined)" @click="onGenerateSbVideo(sb)">重新生成</el-button>
       </ActionGate>
       <el-tooltip v-if="getNextStoryboard(sb.id)" content="提取本视频尾帧，设为下一个分镜的首帧" placement="top">
-        <el-button size="small" :loading="linkingTailFrameIds.has(sb.id)" @click="onLinkTailFrameToNext(sb)">尾帧衔接</el-button>
+        <el-button size="small" :loading="linkingTailFrameIds.has(sb.id)" :title="linkingTailFrameIds.has(sb.id) ? '正在衔接尾帧，请稍候' : undefined" @click="onLinkTailFrameToNext(sb)">尾帧衔接</el-button>
       </el-tooltip>
       <ActionGate v-if="sb.dialogue" :reason="ttsGenerationDisabledReason(sb.id, 'dialogue')" label="对白配音">
         <el-button
           size="small"
           :loading="ttsSbIds.has(sb.id)"
           :disabled="Boolean(ttsGenerationDisabledReason(sb.id, 'dialogue'))"
+          :title="ttsSbIds.has(sb.id) ? '正在生成对白配音，请稍候' : (ttsGenerationDisabledReason(sb.id, 'dialogue') || undefined)"
           @click="onTtsSbDialogue(sb)"
         >
           对白配音

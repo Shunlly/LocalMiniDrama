@@ -57,7 +57,7 @@ export function novelIntakeLeaveReason({ importing, hasDraft } = {}) {
 export function buildNovelIntakeConfirmCopy({ maxChapters, aiSummarize } = {}) {
   const chapters = Math.max(1, Math.min(20, Math.floor(Number(maxChapters) || 10)))
   const extra = aiSummarize
-    ? '已开启 AI 转剧本，会消耗 Token。'
+    ? '已开启 AI 转剧本，会消耗额度。'
     : ''
   return {
     title: '确认导入文本',

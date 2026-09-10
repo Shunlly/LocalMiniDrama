@@ -796,8 +796,12 @@ test('即梦素材库弹窗去掉接口路径，列名和时间改为中文', ()
 
 test('AI 配置页 GET 帮助、429 说明和一键配置空密钥禁用改为中文，写锁优先', () => {
   assert.doesNotMatch(vueSource, /GET \/api/)
+  assert.doesNotMatch(vueSource, /POST \/api\/business/)
+  assert.doesNotMatch(vueSource, /storage\.base_url/)
   assert.match(vueSource, /调用网关的素材列表接口/)
   assert.match(vueSource, /网关地址与令牌/)
+  assert.match(vueSource, /素材登记接口/)
+  assert.match(vueSource, /对外访问地址/)
   assert.doesNotMatch(vueSource, /429 错误/)
   assert.match(vueSource, /接口限流（请求过于频繁）/)
   assert.match(vueSource, /async function loadList\(\)/)
@@ -805,7 +809,7 @@ test('AI 配置页 GET 帮助、429 说明和一键配置空密钥禁用改为�
   assert.doesNotMatch(vueSource, /useAiConfigList/)
   assert.doesNotMatch(vueSource, /from '@\/composables\/useAiConfigList/)
 
-  const oneKeySubmitKeys = ['oneKeyTongyiKey', 'oneKeyVolcKey', 'oneKeyAgnesKey']
+  const oneKeySubmitKeys = ['oneKeyTongyiKey', 'oneKeyVolcKey', 'oneKeyAgnesKey', 'bulkKeyInput']
   for (const key of oneKeySubmitKeys) {
     assert.match(
       vueSource,

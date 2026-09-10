@@ -21,7 +21,7 @@
       <p v-if="notFound" class="project-load-state-assurance">项目可能已移入回收站或被删除，请返回项目列表确认。</p>
       <p v-else class="project-load-state-assurance">项目数据没有被删除，当前页面已停止所有项目编辑和生成操作。</p>
       <div class="project-load-state-actions">
-        <el-button v-if="!notFound" type="primary" :loading="pending" @click="emit('retry')">
+        <el-button v-if="!notFound" type="primary" :loading="pending" :title="filmCreateActionTitle('', pending, '正在重新加载项目，请稍候')" @click="emit('retry')">
           <el-icon><Refresh /></el-icon>重试加载
         </el-button>
         <el-button @click="emit('go-list')">
@@ -35,6 +35,7 @@
 <script setup>
 import { ref } from 'vue'
 import { ArrowLeft, Loading, Refresh, WarningFilled } from '@element-plus/icons-vue'
+import { filmCreateActionTitle } from './filmCreateActionTitle.js'
 
 defineProps({
   state: { type: String, default: 'loading' },

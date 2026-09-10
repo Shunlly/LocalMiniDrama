@@ -1,6 +1,6 @@
 import { nextTick, watch } from 'vue'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { episodesListToPlainScript, parseScriptIntoEpisodes } from '@/utils/scriptEpisodes'
 
 export function useFilmCreateScriptWorkspace(deps = {}) {

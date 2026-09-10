@@ -2,7 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
+import { parse } from '@vue/compiler-sfc'
+
 const dramaDetailSource = readFileSync(new URL('../src/views/DramaDetail.vue', import.meta.url), 'utf8')
+const dramaDetailDialogsSource = readFileSync(new URL('../src/components/dramaDetail/DramaDetailResourceDialogs.vue', import.meta.url), 'utf8')
 
 function readTopLevelFunction(source, name) {
   const marker = `function ${name}(`
@@ -37,11 +40,11 @@ test('角色场景道具编辑弹窗未保存关闭和离开都要中文确认',
   ]
   for (const [visible, kind] of editors) {
     assert.match(
-      dramaDetailSource,
+      dramaDetailDialogsSource,
       new RegExp(`<AccessibleDialog v-model="${visible}"[^>]*:before-close="\\(done\\) => requestResourceEditorClose\\('${kind}', done\\)"`),
     )
     assert.match(
-      dramaDetailSource,
+      dramaDetailDialogsSource,
       new RegExp(`@click="requestResourceEditorClose\\('${kind}'\\)">取消`),
     )
     assert.match(
@@ -71,7 +74,7 @@ test('角色场景道具编辑弹窗未保存关闭和离开都要中文确认',
   ]
   for (const form of untitledForms) {
     assert.match(
-      dramaDetailSource,
+      dramaDetailDialogsSource,
       new RegExp(`:title="assetImageUrl\\(${form}\\) \\? undefined : '暂无图片'"`),
     )
   }
@@ -86,6 +89,7 @@ test('角色场景道具编辑弹窗未保存关闭和离开都要中文确认',
     'editPropVisible',
   ]) {
     assert.equal(dramaDetailSource.includes(`@click="${visible} = false"`), false)
+    assert.equal(dramaDetailDialogsSource.includes(`@click="${visible} = false"`), false)
   }
   assert.match(dramaDetailSource, /await characterAPI\.update\(editDramaCharForm\.value\.id/)
   assert.match(dramaDetailSource, /await sceneAPI\.update\(editDramaSceneForm\.value\.id/)
@@ -93,6 +97,9 @@ test('角色场景道具编辑弹窗未保存关闭和离开都要中文确认',
   assert.match(dramaDetailSource, /await characterLibraryAPI\.update\(editCharForm\.value\.id/)
   assert.match(dramaDetailSource, /editDramaCharVisible\.value = false/)
   assert.match(dramaDetailSource, /editCharVisible\.value = false/)
+  assert.match(dramaDetailSource, /<DramaDetailResourceDialogs v-bind="resourceDialogsBindings"/)
+  assert.match(dramaDetailSource, /from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(dramaDetailSource, /from 'element-plus'/)
 })
 
 test('资源编辑脏检查只看未保存字段，图片单独变更不算脏', () => {
@@ -123,4 +130,40 @@ test('资源编辑脏检查只看未保存字段，图片单独变更不算脏',
     isResourceEditDirty(false, { name: '阿宁改', description: '主角' }, baseline, keys),
     false,
   )
+})
+
+test('剧集详情资源弹窗互斥上传生成并给出中文禁用原因', () => {
+  const parsed = parse(dramaDetailDialogsSource, { filename: 'DramaDetailResourceDialogs.vue' })
+  assert.deepEqual(parsed.errors, [])
+  const forms = [
+    'editDramaCharForm',
+    'editDramaSceneForm',
+    'editDramaPropForm',
+    'editCharForm',
+    'editSceneForm',
+    'editPropForm',
+  ]
+  for (const form of forms) {
+    assert.match(
+      dramaDetailDialogsSource,
+      new RegExp(`:disabled="${form}\\.imgGenerating" :title="${form}\\.imgGenerating \\? '正在生成图片，请稍候' : undefined"`),
+    )
+    assert.match(
+      dramaDetailDialogsSource,
+      new RegExp(`:disabled="${form}\\.imgUploading" :title="${form}\\.imgUploading \\? '正在上传图片，请稍候' : undefined"`),
+    )
+  }
+  for (const saving of [
+    'editDramaCharSaving',
+    'editDramaSceneSaving',
+    'editDramaPropSaving',
+    'editCharSaving',
+    'editSceneSaving',
+    'editPropSaving',
+  ]) {
+    assert.match(
+      dramaDetailDialogsSource,
+      new RegExp(`:loading="${saving}" :disabled="${saving}" :title="${saving} \\? '正在保存，请稍候' : undefined"`),
+    )
+  }
 })

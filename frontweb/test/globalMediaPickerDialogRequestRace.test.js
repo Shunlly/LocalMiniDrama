@@ -163,11 +163,12 @@ const ElDialogStub = defineComponent({
 })
 
 const ElButtonStub = defineComponent({
-  props: ['disabled', 'size', 'type'],
+  props: ['disabled', 'size', 'type', 'title'],
   setup(props, { attrs, slots }) {
     return () => h('button', {
       ...attrs,
       disabled: Boolean(props.disabled),
+      title: props.title,
       'data-variant': props.type || '',
     }, slots.default?.())
   },
@@ -404,6 +405,8 @@ test('older failures cannot override a newer successful reopen request', async (
     assert.equal(pickerError(harness.root), null)
     assert.equal(pickerEmpty(harness.root), null)
     assert.equal(pickerGrid(harness.root).props['aria-busy'], false)
+    assert.equal(confirmButton(harness.root).props.disabled, true)
+    assert.match(String(confirmButton(harness.root).props.title || ''), /请先选择素材/)
   } finally {
     harness.app.unmount()
     delete globalThis.__globalMediaPickerDialogTestState
@@ -429,6 +432,7 @@ test('older successes cannot replace the latest error state, empty state stays h
     assert.equal(cardButtons(harness.root).length, 0)
     assert.equal(pickerEmpty(harness.root), null)
     assert.equal(confirmButton(harness.root).props.disabled, true)
+    assert.match(String(confirmButton(harness.root).props.title || ''), /素材加载失败，请重试/)
 
     controller.requests[0].resolve({
       items: [{ id: 1, type: 'image', name: 'older success' }],
@@ -460,11 +464,13 @@ test('older successes cannot replace the newest page result, and loading disable
     cardButtons(harness.root)[0].props.onClick()
     await nextTick()
     assert.equal(confirmButton(harness.root).props.disabled, false)
+    assert.equal(confirmButton(harness.root).props.title, undefined)
 
     pagination(harness.root).props.onSelectPage(2)
     await nextTick()
     assert.equal(controller.requests.length, 2)
     assert.equal(confirmButton(harness.root).props.disabled, true)
+    assert.match(String(confirmButton(harness.root).props.title || ''), /正在加载素材，请稍候/)
     assert.equal(footerStatus(harness.root), '正在加载素材')
     assert.equal(cardButtons(harness.root).every((button) => button.props['aria-pressed'] === false), true)
     assert.equal(pickerGrid(harness.root).props['aria-busy'], true)
@@ -548,4 +554,12 @@ test('closing and reopening resets filters back to the default query intent', as
     harness.app.unmount()
     delete globalThis.__globalMediaPickerDialogTestState
   }
+})
+
+test('确认按钮禁用时给出中文 title', () => {
+  assert.match(source, /:title="confirmDisabledReason \|\| undefined"/)
+  assert.match(source, /请先选择素材/)
+  assert.match(source, /正在加载素材，请稍候/)
+  assert.match(source, /素材加载失败，请重试/)
+  assert.match(source, /选择素材不可用/)
 })

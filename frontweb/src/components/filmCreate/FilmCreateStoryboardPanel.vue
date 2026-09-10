@@ -306,12 +306,14 @@
                   type="primary"
                   :loading="storyboardGenerating || universalOmniPolishRunning"
                   :disabled="Boolean(storyboardActionDisabledReason)"
+                  :title="storyboardGenerating || universalOmniPolishRunning ? '正在生成分镜，请稍候' : (storyboardActionDisabledReason || undefined)"
                   @click="onGenerateStoryboard"
                 >生成分镜</el-button>
               </ActionGate>
               <ActionGate :reason="episodeActionDisabledReason" label="添加一个分镜">
                 <el-button
                   :disabled="Boolean(episodeActionDisabledReason)"
+                  :title="episodeActionDisabledReason || undefined"
                   @click="onAddSingleStoryboard"
                 >添加一个分镜</el-button>
               </ActionGate>

@@ -25,7 +25,7 @@
         :closable="false"
         :title="loadError"
       >
-        <el-button size="small" type="primary" plain :loading="loading" aria-label="重新加载场景模型映射" @click="load">
+        <el-button size="small" type="primary" plain :loading="loading" :disabled="loading" :title="loading ? '正在重新加载场景模型映射，请稍候' : undefined" aria-label="重新加载场景模型映射" @click="load">
           重新加载
         </el-button>
       </el-alert>
@@ -179,7 +179,7 @@
       </el-form>
 
       <template #footer>
-        <el-button @click="requestDialogClose">取消</el-button>
+        <el-button :disabled="saving" :title="saving ? '正在保存场景模型映射，请稍候' : undefined" @click="requestDialogClose">取消</el-button>
         <el-button type="primary" :loading="saving" :disabled="saving" :title="saving ? '正在保存场景模型映射，请稍候' : undefined" @click="save">保存</el-button>
       </template>
     </AccessibleDialog>
@@ -189,7 +189,7 @@
 <script setup>
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { Plus } from '@element-plus/icons-vue'
 import { sceneModelMapAPI } from '@/api/sceneModelMap'
 import { aiAPI } from '@/api/ai'

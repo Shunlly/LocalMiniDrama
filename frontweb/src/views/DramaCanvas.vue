@@ -459,7 +459,7 @@ import { VueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { Document, FolderOpened, FullScreen, Lock, Setting, Unlock, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
 
 import '@vue-flow/core/dist/style.css'

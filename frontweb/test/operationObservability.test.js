@@ -91,6 +91,7 @@ test('core JSON 与成片下载失败都会留下带 requestId 和 category 的 
   assert.equal(logs[0].phase, 'error')
   assert.equal(logs[0].details.category, REQUEST_ERROR_CATEGORY.HTTP_4XX)
   assert.match(String(logs[0].operationId || logs[0].details.requestId || ''), /^[A-Za-z0-9._:-]{1,128}$/)
-  assert.equal(logs[0].error, '名称不能为空')
+  assert.match(logs[0].error, /^名称不能为空/)
+  assert.match(logs[0].error, /请求编号：/)
   assert.doesNotMatch(JSON.stringify(logs), /无法连接服务/)
 })

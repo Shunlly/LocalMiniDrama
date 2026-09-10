@@ -360,7 +360,7 @@ test('网络搜索失败可中止重试，空关键词重试会留下可见错�
     /async function searchNetworkMedia\(\) \{\s*const query = networkKeyword\.value\.trim\(\)\s*if \(!query \|\| networkLoading\.value\) return/,
   )
   assert.match(mediaLibrarySource, /networkError\.value = '请输入关键词后再搜索'/)
-  assert.match(mediaLibrarySource, /:disabled="!networkKeyword\.trim\(\)"/)
+  assert.match(mediaLibrarySource, /:disabled="!networkKeyword\.trim\(\) \|\| networkLoading"/)
   assert.match(mediaLibrarySource, /class="network-empty"\s*role="status"/)
 })
 

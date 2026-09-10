@@ -25,6 +25,7 @@
               type="warning"
               plain
               :loading="sbPromptPolishing"
+              :title="sbPromptPolishing ? '正在生成提示词，请稍候' : undefined"
               @click="onPolishSbPrompt"
             >{{ sbPromptPolishedText ? '重新生成' : '立即生成' }}</el-button>
             <span class="sb-prompt-polish-hint">只更新通用优化字段，不影响首尾帧专用提示词</span>
@@ -50,7 +51,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showSbPromptDialog = false">取消</el-button>
-        <el-button type="primary" :loading="sbPromptSaving" @click="onSaveSbPromptDialog">保存</el-button>
+        <el-button type="primary" :loading="sbPromptSaving" :title="sbPromptSaving ? '正在保存提示词，请稍候' : undefined" @click="onSaveSbPromptDialog">保存</el-button>
       </template>
     </AccessibleDialog>
 
@@ -84,8 +85,8 @@
       </div>
       <template #footer>
         <el-button @click="showFramePromptEditor = false">关闭</el-button>
-        <el-button :loading="editingFramePromptRegenerating" @click="regenerateEditingFramePrompt">重新生成</el-button>
-        <el-button type="primary" :loading="editingFramePromptSaving" @click="saveEditingFramePrompt">保存</el-button>
+        <el-button :loading="editingFramePromptRegenerating" :title="editingFramePromptRegenerating ? '正在重新生成提示词，请稍候' : undefined" @click="regenerateEditingFramePrompt">重新生成</el-button>
+        <el-button type="primary" :loading="editingFramePromptSaving" :title="editingFramePromptSaving ? '正在保存提示词，请稍候' : undefined" @click="saveEditingFramePrompt">保存</el-button>
       </template>
     </AccessibleDialog>
 
@@ -323,7 +324,7 @@
             />
             <el-button
               size="small"
-              :loading="regeneratingLayoutSbIds.has(videoParamsTarget.id)"
+              :loading="regeneratingLayoutSbIds.has(videoParamsTarget.id)" :title="regeneratingLayoutSbIds.has(videoParamsTarget.id) ? '正在重新生成布局描述，请稍候' : undefined"
               @click="onRegenerateLayoutDescription(videoParamsTarget)"
               style="margin-top:4px; white-space:nowrap"
             >
@@ -352,7 +353,7 @@
             <el-button
               type="warning"
               plain
-              :loading="splitByAudioLoading"
+              :loading="splitByAudioLoading" :title="splitByAudioLoading ? '正在按对白拆镜，请稍候' : undefined"
               @click="onSplitSbByAudio(videoParamsTarget)"
             >
               按对白拆镜
@@ -377,7 +378,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showVideoParamsDialog = false">取消</el-button>
-        <el-button type="primary" :loading="videoParamsSaving" @click="onSaveVideoParams">保存并更新</el-button>
+        <el-button type="primary" :loading="videoParamsSaving" :title="videoParamsSaving ? '正在保存视频参数，请稍候' : undefined" @click="onSaveVideoParams">保存并更新</el-button>
       </template>
     </AccessibleDialog>
   </div>

@@ -207,8 +207,7 @@ async function createImageAsset(ctx, params, log) {
 
   const asset = unwrapModelArkAssetView(data);
   if (!asset?.id) {
-    const keys = data && typeof data === 'object' ? Object.keys(data).join(', ') : typeof data;
-    return { ok: false, error: `ModelArk 未返回资产 Id（响应字段：${keys || '空'}）` };
+    return { ok: false, error: '资产库未返回素材 ID' };
   }
   if (!asset.asset_url) asset.asset_url = assetUrlForVideo(asset);
   return { ok: true, data: asset };

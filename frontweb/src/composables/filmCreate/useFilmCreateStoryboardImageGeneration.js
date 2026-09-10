@@ -1,4 +1,4 @@
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { storyboardImageUrl } from '@/utils/mediaUrl'

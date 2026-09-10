@@ -1,7 +1,7 @@
 /**
  * 即梦2素材资产弹窗。页面仍负责表单接线和 loadList/openTest。
  */
-import { ElMessage as defaultElMessage } from 'element-plus'
+import { ElMessage as defaultElMessage } from '@/utils/elementPlusFeedback.js'
 import { aiAPI as defaultAiAPI } from '@/api/ai.js'
 import { isMaskedSecret } from '@/composables/useAiConfigUnsaved.js'
 

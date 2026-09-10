@@ -154,18 +154,7 @@ function finalizeTransportError(error) {
     signal,
   })
   logRequestFailure(error, userMsg)
-  let msg = userMsg
-  if (
-    error.requestId
-    && (
-      error.category === REQUEST_ERROR_CATEGORY.HTTP_5XX
-      || error.category === REQUEST_ERROR_CATEGORY.TIMEOUT
-      || error.category === REQUEST_ERROR_CATEGORY.NETWORK
-    )
-  ) {
-    msg = `${userMsg}（请求号 ${error.requestId}）`
-  }
-  if (shouldShowRequestErrorToast(error)) ElMessage.error(msg)
+  if (shouldShowRequestErrorToast(error)) ElMessage.error(userMsg)
   if (userMsg && userMsg !== error.message) error.message = userMsg
   return Promise.reject(error)
 }

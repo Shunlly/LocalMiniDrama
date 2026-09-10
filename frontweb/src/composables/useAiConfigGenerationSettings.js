@@ -3,7 +3,7 @@
  * 页面负责模板接线和未保存保护；这里处理加载状态、取消与 fail-closed 写入。
  */
 import { computed, ref } from 'vue'
-import { ElMessage as defaultElMessage } from 'element-plus'
+import { ElMessage as defaultElMessage } from '@/utils/elementPlusFeedback.js'
 import { generationSettingsAPI as defaultGenerationSettingsAPI } from '@/api/prompts.js'
 import { generationSettingsFingerprint } from '@/composables/useAiConfigUnsaved.js'
 import { runWithOwnedRequestErrorToast as defaultRunWithOwnedRequestErrorToast } from '@/utils/request.js'
@@ -33,6 +33,14 @@ export function useAiConfigGenerationSettings(deps = {}) {
   const generationSettingsLoadState = ref('loading')
   const generationSettingsLoadError = ref('')
   const generationSettingsWriteLocked = computed(() => generationSettingsLoadState.value !== 'ready' || genSettingSaving.value)
+  const generationSettingsWriteLockReason = computed(() => {
+    if (genSettingSaving.value) return '正在保存生成设置，请稍候'
+    if (generationSettingsLoadState.value === 'loading') return '正在读取生成设置，请稍候'
+    if (generationSettingsLoadState.value !== 'ready') {
+      return generationSettingsLoadError.value || '生成设置尚未就绪，请稍后重试'
+    }
+    return ''
+  })
   const generationSettingsDirty = computed(() => (
     generationSettingsLoadState.value === 'ready'
     && Boolean(generationSettingsBaseline.value)
@@ -131,6 +139,7 @@ export function useAiConfigGenerationSettings(deps = {}) {
     generationSettingsLoadState,
     generationSettingsLoadError,
     generationSettingsWriteLocked,
+    generationSettingsWriteLockReason,
     generationSettingsDirty,
     loadGenerationSettings,
     saveGenerationSettings,

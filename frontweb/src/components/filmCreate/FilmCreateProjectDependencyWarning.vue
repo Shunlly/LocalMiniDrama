@@ -15,6 +15,7 @@
         size="small"
         type="primary"
         :loading="loading"
+        :title="loading ? '正在重试加载素材，请稍候' : undefined"
         aria-label="重试加载素材"
         @click="onRetry"
       >

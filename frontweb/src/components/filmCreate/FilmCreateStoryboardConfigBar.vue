@@ -57,6 +57,7 @@
           type="primary"
           :disabled="Boolean(episodeActionDisabledReason)"
           :loading="exportingStoryboardSheet"
+          :title="exportingStoryboardSheet ? '正在导出分镜表，请稍候' : (episodeActionDisabledReason || undefined)"
           @click="onExportStoryboardSheet"
         >
           导出分镜表
@@ -69,6 +70,7 @@
           plain
           type="primary"
           :disabled="Boolean(episodeActionDisabledReason)"
+          :title="episodeActionDisabledReason || undefined"
           @click="onExportNarrationSrt"
         >
           导出解说 SRT
@@ -86,13 +88,14 @@
             size="large"
             :loading="storyboardGenerating || universalOmniPolishRunning"
             :disabled="Boolean(storyboardActionDisabledReason)"
+            :title="storyboardGenerating || universalOmniPolishRunning ? '正在生成分镜，请稍候' : (storyboardActionDisabledReason || undefined)"
             @click="onGenerateStoryboard"
           >
             {{ storyboards.length > 0 ? '重新生成分镜' : 'AI 生成分镜' }}
           </el-button>
         </ActionGate>
         <ActionGate :reason="episodeActionDisabledReason" label="添加一个分镜">
-          <el-button type="info" plain size="large" :disabled="Boolean(episodeActionDisabledReason)" @click="onAddSingleStoryboard">
+          <el-button type="info" plain size="large" :disabled="Boolean(episodeActionDisabledReason)" :title="episodeActionDisabledReason || undefined" @click="onAddSingleStoryboard">
             添加一个分镜
           </el-button>
         </ActionGate>
@@ -106,6 +109,7 @@
               size="large"
               :loading="batchImageRunning"
               :disabled="Boolean(batchActionDisabledReason)"
+              :title="batchImageRunning ? '正在批量生成分镜图，请稍候' : (batchActionDisabledReason || undefined)"
               @click="startBatchImageGeneration"
             >
               批量生成分镜图
@@ -118,6 +122,7 @@
               size="large"
               :loading="batchVideoRunning"
               :disabled="Boolean(batchVideoActionDisabledReason)"
+              :title="batchVideoRunning ? '正在批量生成分镜视频，请稍候' : (batchVideoActionDisabledReason || undefined)"
               @click="startBatchVideoGeneration"
             >
               批量生成分镜视频

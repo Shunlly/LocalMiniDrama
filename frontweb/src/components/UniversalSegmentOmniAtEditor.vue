@@ -55,8 +55,17 @@
       </div>
     </teleport>
     <div class="omni-at-footer">
-      <el-tooltip content="复制为 @图片N 格式（与提交视频一致）" placement="top">
-        <el-button type="default" text size="small" class="omni-at-copy-btn" @click="onCopyCanonical">
+      <el-tooltip :content="copyDisabledReason || '复制为 @图片N 格式（与提交视频一致）'" placement="top">
+        <el-button
+          type="default"
+          text
+          size="small"
+          class="omni-at-copy-btn"
+          :disabled="Boolean(copyDisabledReason)"
+          :title="copyDisabledReason || undefined"
+          :aria-label="copyDisabledReason ? `复制提示词不可用：${copyDisabledReason}` : '复制提示词'"
+          @click="onCopyCanonical"
+        >
           <el-icon><DocumentCopy /></el-icon>
           复制提示词
         </el-button>
@@ -68,7 +77,7 @@
 <script setup>
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { computed, ref, useAttrs, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { DocumentCopy } from '@element-plus/icons-vue'
 import {
   canonicalAtToken,
@@ -525,7 +534,14 @@ function onDocClick(ev) {
   closeMenu()
 }
 
+const copyDisabledReason = computed(() => {
+  const text = toCanonicalOmniText(props.modelValue == null ? '' : String(props.modelValue), props.slots).trim()
+  if (!text) return '当前没有可复制的提示词'
+  return ''
+})
+
 async function onCopyCanonical() {
+  if (copyDisabledReason.value) return
   const el = editorRef.value
   const text = serializeEditor(el)
   try {

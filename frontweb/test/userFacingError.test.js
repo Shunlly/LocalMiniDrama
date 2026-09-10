@@ -137,3 +137,59 @@ test('请求拦截器和 fetch 失败 toast 走 toUserFacingError', () => {
   assert.match(coreSource, /import \{ toUserFacingError \} from '\.\/userFacingError\.js'/)
   assert.match(coreSource, /toUserFacingError\(error, described/)
 })
+
+test('失败文案在确有 requestId 时附带请求编号，空值不加括号', () => {
+  assert.equal(
+    toUserFacingError({ message: '请先填写名称', requestId: 'trace-ok-1' }, '保存失败'),
+    '请先填写名称（请求编号：trace-ok-1）',
+  )
+  assert.equal(
+    toUserFacingError({ message: '请先填写名称', requestId: '' }, '保存失败'),
+    '请先填写名称',
+  )
+  assert.doesNotMatch(
+    toUserFacingError({ message: '请先填写名称' }, '保存失败'),
+    /请求编号/,
+  )
+  const emptyId = toUserFacingError({ message: '请先填写名称', requestId: '   ' }, '保存失败')
+  assert.equal(emptyId, '请先填写名称')
+  assert.doesNotMatch(emptyId, /（/)
+})
+
+test('取消保持中文且不附带请求编号，超时保持中文并在有 id 时附带编号', () => {
+  assert.equal(
+    toUserFacingError({ code: 'ERR_CANCELED', name: 'CanceledError', requestId: 'trace-ok-1' }),
+    '操作已取消',
+  )
+  assert.doesNotMatch(
+    toUserFacingError({ name: 'AbortError', message: 'The user aborted a request.', requestId: 'trace-ok-1' }),
+    /请求编号/,
+  )
+  assert.equal(
+    toUserFacingError({ code: 'ECONNABORTED', requestId: 'trace-ok-1' }),
+    '连接服务超时，请稍后重试（请求编号：trace-ok-1）',
+  )
+  assert.equal(
+    toUserFacingError({ code: 'ECONNABORTED' }),
+    '连接服务超时，请稍后重试',
+  )
+  assert.doesNotMatch(toUserFacingError({ code: 'ECONNABORTED' }), /timeout of/i)
+})
+
+test('不安全 requestId 会被安全值替换，不会出现在用户文案里', () => {
+  assert.equal(
+    toUserFacingError({
+      message: '保存失败',
+      requestId: '../secret\r\nInjected: yes',
+      config: { requestId: 'safe-trace-1' },
+    }),
+    '保存失败（请求编号：safe-trace-1）',
+  )
+  const unsafeOnly = toUserFacingError({
+    message: '保存失败',
+    requestId: '../secret\r\nInjected: yes',
+  })
+  assert.equal(unsafeOnly, '保存失败')
+  assert.doesNotMatch(unsafeOnly, /secret/)
+  assert.doesNotMatch(unsafeOnly, /请求编号/)
+})

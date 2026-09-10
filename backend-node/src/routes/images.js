@@ -49,7 +49,7 @@ function routes(db, cfg, log) {
       res,
       501,
       'LEGACY_ENDPOINT_DISABLED',
-      '请改为调用 POST /api/v1/scenes/generate-image，并传入场景 ID'
+      '请改用场景生图接口，并传入场景 ID'
     ),
     episodeBackgrounds: (req, res) => {
       try {
@@ -82,7 +82,7 @@ function routes(db, cfg, log) {
       res,
       501,
       'LEGACY_ENDPOINT_DISABLED',
-      '请改为对每个分镜单独调用 POST /api/v1/images'
+      '请改为对每个分镜单独调用生图接口'
     ),
     upload: (req, res) => {
       try {

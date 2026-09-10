@@ -14,7 +14,9 @@ const uploadService = require('../src/services/uploadService');
 const ttsService = require('../src/services/ttsService');
 const sourceIntakeService = require('../src/services/sourceIntakeService');
 const sceneService = require('../src/services/sceneService');
-const { buildProviderErrorMessage, toSafeProviderErrorMessage } = require('../src/services/providerErrorSanitizer');
+const { buildProviderErrorMessage, toSafeProviderErrorMessage, isTrustedChineseUserError } = require('../src/services/providerErrorSanitizer');
+const klingJwt = require('../src/services/klingJwt');
+const aiConfigRoutes = require('../src/routes/aiConfig');
 
 const silentLog = { info() {}, warn() {}, error() {}, errorw() {} };
 
@@ -156,13 +158,34 @@ const leftoverEnglish = [
   'image_prompt / action / dialogue',
   '该分镜暂无可优化的内容（image_prompt / action / dialogue 均为空）',
   '请改为调用 POST /api/v1/scenes/generate-image，并传入 scene_id',
+  '请改为调用 POST /api/v1/scenes/generate-image，并传入场景 ID',
   '请改为调用 POST /api/v1/videos，并传入 storyboard_id 与帧参考',
+  '请改为调用 POST /api/v1/videos，并传入分镜 ID 与帧参考',
   '请改为调用 POST /api/v1/episodes/:episode_id/finalize 启动 FFmpeg 合成',
+  '请改为对每个分镜单独调用 POST /api/v1/images',
+  '请改为对每个分镜单独调用 POST /api/v1/videos',
   'Provider 任务 ID',
   '补偿取消迟到的 Provider 任务',
   'Provider 已返回任务 ID',
   'Provider 协议',
   '厂商任务 ID',
+  'stale after adaptation overwrite',
+  '无效的分镜 id',
+  'Sora 当前不支持尾帧参考，请移除 last_frame_url',
+  'ComfyUI 任务提交未返回 prompt_id',
+  '请提供新的 API Key',
+  '条配置的 API Key',
+  'AccessKey 与 SecretKey 不能为空',
+  'SecretKey 按 Base64 解码后为空',
+  '请填写「API Key」（中转 Bearer）',
+  '未返回资产 Id（响应字段：',
+  '未返回素材 id（响应字段：',
+  '素材库未返回素材 id',
+  'Sora 视频任务 ID 无效',
+  'MiniMax 视频任务 ID 无效',
+  'MiniMax 视频文件 ID 无效',
+  'Access Key ID 与 Secret Access Key',
+  'Query 中带 Action',
 ];
 
 function leftoverScanText(source, phrase) {
@@ -283,6 +306,13 @@ test('\u5269\u4f59\u7528\u6237\u9519\u8bef\u6e90\u7801\u4e0d\u518d\u5305\u542b\u
     'services/assetService.js',
     'services/jimengMaterialHubService.js',
     'routes/settings.js',
+    'services/episodeStoryboardService.js',
+    'services/videoGateway/protocolDispatch.js',
+    'services/comfyUiClient.js',
+    'services/klingJwt.js',
+    'services/videoGateway/klingVideoAdapter.js',
+    'services/videoGateway/openAiSoraAdapter.js',
+    'services/videoGateway/minimaxVideoAdapter.js',
   ];
   for (const name of files) {
     const sourcePath = name.startsWith('scripts/')
@@ -687,16 +717,25 @@ test('剩余路由缺参和空分镜优化返回简体中文用户错误', async
     '缺少 drama_id',
     '缺少 scene_id',
     '缺少分镜 id',
+    '无效的分镜 id',
+    '请提供新的 API Key',
+    '条配置的 API Key',
     '该分镜暂无可优化的内容（image_prompt / action / dialogue 均为空）',
     'episode_id 必填',
     '缺少resource_id参数',
     '请改为调用 POST /api/v1/episodes/:episode_id/finalize 启动 FFmpeg 合成',
     '请改为调用 POST /api/v1/videos，并传入 storyboard_id 与帧参考',
+    '请改为调用 POST /api/v1/scenes/generate-image，并传入场景 ID',
+    '请改为调用 POST /api/v1/videos，并传入分镜 ID 与帧参考',
+    '请改为对每个分镜单独调用 POST /api/v1/images',
+    '请改为对每个分镜单独调用 POST /api/v1/videos',
+    'POST /api/v1/',
   ];
   const files = [
     'routes/audio.js', 'routes/characters.js', 'routes/drama.js', 'routes/images.js',
     'routes/index.js', 'routes/prop.js', 'routes/sceneModelMap.js', 'routes/scenes.js',
     'routes/storyboards.js', 'routes/task.js', 'routes/videoMerges.js', 'routes/videos.js',
+    'routes/aiConfig.js',
   ];
   for (const name of files) {
     const source = fs.readFileSync(path.join(__dirname, '../src', name), 'utf8');
@@ -704,6 +743,33 @@ test('剩余路由缺参和空分镜优化返回简体中文用户错误', async
       assert.equal(source.includes(phrase), false, `${name} 仍包含：${phrase}`);
     }
   }
+
+  const imagesSource = fs.readFileSync(path.join(__dirname, '../src/routes/images.js'), 'utf8');
+  const videosSource = fs.readFileSync(path.join(__dirname, '../src/routes/videos.js'), 'utf8');
+  assert.match(imagesSource, /请改用场景生图接口，并传入场景 ID/);
+  assert.match(imagesSource, /请改为对每个分镜单独调用生图接口/);
+  assert.match(videosSource, /请改用视频生成接口，并传入分镜 ID 与帧参考/);
+  assert.match(videosSource, /请改为对每个分镜单独调用视频生成接口/);
+  assert.equal(imagesSource.includes('/api/v1/'), false);
+  assert.equal(videosSource.includes('/api/v1/'), false);
+
+  const images = imageRoutes({}, {}, silentLog);
+  const videoRoutes = require('../src/routes/videos');
+  const videos = videoRoutes({}, silentLog);
+  const sceneRes = mockResponse();
+  images.scene({ params: { scene_id: String(SCENE_ID) } }, sceneRes);
+  assert.equal(sceneRes.statusCode, 501);
+  assert.equal(sceneRes.body.error.code, 'LEGACY_ENDPOINT_DISABLED');
+  assert.equal(sceneRes.body.error.message, '请改用场景生图接口，并传入场景 ID');
+  const imageBatchRes = mockResponse();
+  images.episodeBatch({ params: { episode_id: String(EPISODE_ID) }, body: {} }, imageBatchRes);
+  assert.equal(imageBatchRes.body.error.message, '请改为对每个分镜单独调用生图接口');
+  const fromImageRes = mockResponse();
+  videos.fromImage({ params: { image_gen_id: '1' }, body: {} }, fromImageRes);
+  assert.equal(fromImageRes.body.error.message, '请改用视频生成接口，并传入分镜 ID 与帧参考');
+  const videoBatchRes = mockResponse();
+  videos.episodeBatch({ params: { episode_id: String(EPISODE_ID) }, body: {} }, videoBatchRes);
+  assert.equal(videoBatchRes.body.error.message, '请改为对每个分镜单独调用视频生成接口');
 
   assert.notEqual(STORYBOARD_ID, DRAMA_ID);
   assert.notEqual(STORYBOARD_ID, EPISODE_ID);
@@ -734,4 +800,40 @@ test('剩余路由缺参和空分镜优化返回简体中文用户错误', async
   assert.equal(missingId.statusCode, 400);
   assert.equal(missingId.body.error.message, '缺少分镜 ID');
   assert.equal(missingId.body.error.message.includes('缺少分镜 id'), false);
+
+  const invalidSplit = mockResponse();
+  storyboardRoutes({}, silentLog).splitByAudio({ params: { id: '-1' } }, invalidSplit);
+  assert.equal(invalidSplit.statusCode, 400);
+  assert.equal(invalidSplit.body.error.message, '无效的分镜 ID');
+  assert.doesNotMatch(invalidSplit.body.error.message, /分镜 id/);
+  assert.equal(isTrustedChineseUserError(invalidSplit.body.error.message), true);
+
+  const lockedBulk = mockResponse();
+  aiConfigRoutes({}, silentLog, { vendor_lock: { enabled: true } }).bulkUpdateKey({ body: {} }, lockedBulk);
+  assert.equal(lockedBulk.statusCode, 400);
+  assert.equal(lockedBulk.body.error.message, '请提供新的密钥');
+  assert.doesNotMatch(lockedBulk.body.error.message, /API Key|api_key/);
+  assert.equal(isTrustedChineseUserError(lockedBulk.body.error.message), true);
+
+  assert.throws(
+    () => klingJwt.signKlingOfficialJwt('', 'secret'),
+    (error) => {
+      assert.equal(error.message, '可灵官方访问密钥和签名密钥不能为空');
+      assert.doesNotMatch(error.message, /AccessKey|SecretKey/);
+      assert.equal(isTrustedChineseUserError(error.message), true);
+      return true;
+    },
+  );
+
+  const sourceIntakeSource = fs.readFileSync(path.join(__dirname, '../src/services/sourceIntakeService.js'), 'utf8');
+  assert.match(sourceIntakeSource, /改编方案覆盖后，该分镜已过期/);
+  assert.equal(sourceIntakeSource.includes('stale after adaptation overwrite'), false);
+
+  const protocolSource = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/protocolDispatch.js'), 'utf8');
+  assert.match(protocolSource, /Sora 当前不支持尾帧参考，请移除尾帧/);
+  assert.equal(protocolSource.includes('请移除 last_frame_url'), false);
+
+  const comfySource = fs.readFileSync(path.join(__dirname, '../src/services/comfyUiClient.js'), 'utf8');
+  assert.match(comfySource, /ComfyUI 任务提交未返回任务编号/);
+  assert.equal(comfySource.includes('未返回 prompt_id'), false);
 });

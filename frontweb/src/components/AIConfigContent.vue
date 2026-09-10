@@ -382,6 +382,7 @@
               aria-label="保存生成设置"
               :loading="genSettingSaving"
               :disabled="generationSettingsWriteLocked"
+              :title="generationSettingsWriteLocked ? generationSettingsWriteLockReason : undefined"
               @click="saveGenerationSettings"
             >保存</el-button>
           </div>
@@ -700,7 +701,7 @@
           show-icon
           style="margin-bottom: 12px"
           title="用于创作页「角色」面板的「认证资产」"
-          description="保存后，系统从此处读取网关与 Token 调用 POST /api/business/v1/assets 登记角色图；可用「列出素材」核对素材状态。角色主图需为外网可访问的 http(s) 地址（图床或本服务 storage.base_url）。"
+          description="保存后，系统从此处读取网关地址与令牌，调用素材登记接口登记角色图；可用「列出素材」核对素材状态。角色主图需为外网可访问的网址（图床或本服务对外访问地址）。"
         />
         <template v-if="form.service_type === 'video' && form.api_protocol === 'kling_omni'">
           <el-form-item>
@@ -1440,7 +1441,7 @@
       </el-form>
       <template #footer>
         <el-button @click="requestBulkKeyClose">取消</el-button>
-        <el-button type="primary" :loading="bulkKeySaving" :disabled="configWriteLocked || !bulkKeyInput.trim()" :title="configWriteLocked ? configWriteLockReason : undefined" @click="submitBulkKey">确认替换</el-button>
+        <el-button type="primary" :loading="bulkKeySaving" :disabled="configWriteLocked || !bulkKeyInput.trim()" :title="configWriteLocked ? configWriteLockReason : (!bulkKeyInput.trim() ? '请先填写密钥' : undefined)" @click="submitBulkKey">确认替换</el-button>
       </template>
     </AccessibleDialog>
   </div>
@@ -1448,7 +1449,7 @@
 
 <script setup>
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { runWithOwnedRequestErrorToast } from '@/utils/request'
 import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder, Document, Headset } from '@element-plus/icons-vue'
@@ -1586,6 +1587,7 @@ const {
   generationSettingsLoadState,
   generationSettingsLoadError,
   generationSettingsWriteLocked,
+  generationSettingsWriteLockReason,
   generationSettingsDirty,
   loadGenerationSettings,
   saveGenerationSettings,

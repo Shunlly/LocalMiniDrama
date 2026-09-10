@@ -112,6 +112,7 @@
                     :icon="panoramaPreviewUrl ? Refresh : Picture"
                     :loading="panoramaGenerating"
                     :disabled="Boolean(panoramaDisabledReason)"
+                    :title="panoramaDisabledReason || undefined"
                     :aria-label="panoramaPreviewUrl ? '重新生成场景全景图' : '生成场景全景图'"
                     @click.stop="generatePanorama"
                   >
@@ -188,7 +189,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { Picture, Refresh } from '@element-plus/icons-vue'
 import { characterAPI } from '@/api/characters'
 import { sceneAPI } from '@/api/scenes'

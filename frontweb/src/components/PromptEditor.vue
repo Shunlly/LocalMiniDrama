@@ -109,7 +109,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { Edit, Lock } from '@element-plus/icons-vue'
 import { promptsAPI } from '@/api/prompts'
 

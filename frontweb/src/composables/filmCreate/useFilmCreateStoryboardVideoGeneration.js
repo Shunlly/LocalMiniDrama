@@ -1,4 +1,4 @@
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from '@/utils/elementPlusFeedback.js'
 import { GEN_RESOURCE } from '@/stores/generationTaskStore'
 import { submitStoryboardVideoAfterAccepted } from '@/utils/storyboardMedia'
 import {
@@ -60,7 +60,7 @@ export function useFilmCreateStoryboardVideoGeneration(deps = {}) {
     const videoCfg = universal || selectedGrid ? await getActiveVideoAiConfig() : null
     if (selectedGrid && !videoConfigSupportsGridReference(videoCfg)) {
       await ElMessageBox.alert(
-        '当前视频模型未声明支持宫格整图参考。请在 AI 配置的高级设置中启用 supports_grid_reference，或改回主图/首帧。',
+        '当前视频模型未声明支持宫格整图参考。请在 AI 配置的高级设置中开启宫格整图参考，或改回主图/首帧。',
         '宫格参考不受支持',
         { confirmButtonText: '知道了', type: 'warning' }
       )

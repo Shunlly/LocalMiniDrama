@@ -104,13 +104,13 @@ function bulkUpdateKey(db, log, cfg) {
     }
     const { api_key } = req.body || {};
     if (!api_key || !api_key.trim()) {
-      return response.badRequest(res, '请提供新的 API Key');
+      return response.badRequest(res, '请提供新的密钥');
     }
     try {
       const result = aiConfigService.bulkUpdateApiKey(db, log, api_key.trim());
       response.success(res, {
         ...result,
-        message: `已更新 ${result.updated} 条配置的 API Key`,
+        message: `已更新 ${result.updated} 条配置的密钥`,
       });
     } catch (err) {
       log.error('Bulk update api_key failed', { error: err.message });

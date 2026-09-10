@@ -8,6 +8,7 @@ import { sanitizeExportFilename, validateExportBlob, resolveExportFailureMessage
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const filmListSource = read('../src/views/FilmList.vue')
+const filmListLibrarySource = read('../src/components/filmList/FilmListLibraryDialogs.vue')
 const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
 const dramaApiSource = read('../src/api/drama.js')
 
@@ -64,7 +65,10 @@ test('project writes stay locked until a successful list response', () => {
   assert.match(filmListSource, /command="trash" :disabled="listWriteLocked"/)
   assert.match(filmListSource, /async function submitNew\(\) \{\s*if \(listWriteLocked\.value\) return/)
   assert.match(filmListSource, /async function moveToTrash\(d\) \{\s*if \(listWriteLocked\.value\) return/)
-  assert.match(filmListSource, /async function doUploadLibImg[\s\S]*if \(listWriteLocked\.value\)/)
+  assert.match(filmListLibrarySource, /async function doUploadLibImg[\s\S]*if \(props\.listWriteLocked/)
+  assert.match(filmListSource, /<FilmListLibraryDialogs/)
+  assert.match(filmListSource, /from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(filmListSource, /from 'element-plus'/)
 })
 
 test('material center preserves stale data and blocks upload and deletion on load failure', () => {
@@ -190,14 +194,17 @@ test('project export waits for a validated blob and keeps failures retryable', a
 })
 
 test('分类素材加载失败不会被伪装成空库，且 AI 配置在列表失败时仍可打开', () => {
-  assert.match(filmListSource, /const charLibraryError = ref\(''\)/)
-  assert.match(filmListSource, /charLibraryError\.value = describeServiceLoadError/)
-  assert.doesNotMatch(filmListSource, /catch \{ charLibraryList\.value = \[\] \}/)
-  assert.match(filmListSource, /v-if="charLibraryError"[\s\S]*@click="loadCharLibraryList"[\s\S]*重试/)
-  assert.match(filmListSource, /v-if="!charLibraryLoading && !charLibraryError && charLibraryList\.length === 0"/)
-  assert.match(filmListSource, /没有匹配的角色，试试其他关键词/)
-  assert.match(filmListSource, /aria-label="清除角色素材搜索"/)
-  assert.match(filmListSource, /function clearCharLibraryKeyword/)
+  assert.match(filmListSource, /<FilmListLibraryDialogs/)
+  assert.match(filmListLibrarySource, /from '@\/utils\/elementPlusFeedback\.js'/)
+  assert.doesNotMatch(filmListLibrarySource, /from 'element-plus'/)
+  assert.match(filmListLibrarySource, /const charLibraryError = ref\(''\)/)
+  assert.match(filmListLibrarySource, /charLibraryError\.value = describeServiceLoadError/)
+  assert.doesNotMatch(filmListLibrarySource, /catch \{ charLibraryList\.value = \[\] \}/)
+  assert.match(filmListLibrarySource, /v-if="charLibraryError"[\s\S]*@click="loadCharLibraryList"[\s\S]*重试/)
+  assert.match(filmListLibrarySource, /v-if="!charLibraryLoading && !charLibraryError && charLibraryList\.length === 0"/)
+  assert.match(filmListLibrarySource, /没有匹配的角色，试试其他关键词/)
+  assert.match(filmListLibrarySource, /aria-label="清除角色素材搜索"/)
+  assert.match(filmListLibrarySource, /function clearCharLibraryKeyword/)
   assert.match(filmListSource, /class="btn-settings" title="打开 AI 配置" aria-label="打开 AI 配置" @click="showAiConfigDialog = true"/)
   assert.doesNotMatch(filmListSource, /class="btn-settings" :disabled="listWriteLocked"/)
   assert.match(filmListSource, /const newSubmitDisabledReason = computed/)
@@ -218,26 +225,35 @@ test('分类素材加载失败不会被伪装成空库，且 AI 配置在列表�
   for (const click of [
     'openEditCharLibrary(item)',
     'onDeleteCharLibrary(item)',
-    'charLibFileRef.click()',
     'submitEditCharLibrary',
     'openEditSceneLibrary(item)',
     'onDeleteSceneLibrary(item)',
-    'sceneLibFileRef.click()',
     'submitEditSceneLibrary',
     'openEditPropLibrary(item)',
     'onDeletePropLibrary(item)',
-    'propLibFileRef.click()',
     'submitEditPropLibrary',
   ]) {
     const escaped = click.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     assert.match(
-      filmListSource,
+      filmListLibrarySource,
       new RegExp(`:disabled="listWriteLocked" :title="listWriteLocked \\? listWriteLockReason : undefined" @click="${escaped}"`),
     )
   }
-  assert.match(filmListSource, /editCharLibraryForm\.imgGenerating" :disabled="listWriteLocked" :title="listWriteLocked \? listWriteLockReason : undefined"/)
-  assert.match(filmListSource, /editSceneLibraryForm\.imgGenerating" :disabled="listWriteLocked" :title="listWriteLocked \? listWriteLockReason : undefined"/)
-  assert.match(filmListSource, /editPropLibraryForm\.imgGenerating" :disabled="listWriteLocked" :title="listWriteLocked \? listWriteLockReason : undefined"/)
+  for (const form of ['editCharLibraryForm', 'editSceneLibraryForm', 'editPropLibraryForm']) {
+    assert.match(
+      filmListLibrarySource,
+      new RegExp(`libraryUploadDisabledReason\\(${form}\\)`),
+    )
+    assert.match(
+      filmListLibrarySource,
+      new RegExp(`libraryGenerateDisabledReason\\(${form}\\)`),
+    )
+  }
+  assert.match(filmListLibrarySource, /function libraryWriteReason\(\) \{\s*return props\.listWriteLocked \? props\.listWriteLockReason : ''/)
+  assert.match(filmListLibrarySource, /if \(form\?\.imgGenerating\) return '正在生成图片，请稍候'/)
+  assert.match(filmListLibrarySource, /if \(form\?\.imgUploading\) return '正在上传图片，请稍候'/)
+  assert.doesNotMatch(filmListLibrarySource, /return '正在上传'\n/)
+  assert.doesNotMatch(filmListLibrarySource, /return '正在生成'\n/)
   assert.match(filmListSource, /Number.isNaN\(d\.getTime\(\)\)/)
   assert.equal(
     describeServiceLoadError({ response: { status: 502 } }, { serviceLabel: '角色素材服务' }),

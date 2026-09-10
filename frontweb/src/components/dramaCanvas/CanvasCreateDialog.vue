@@ -74,7 +74,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },

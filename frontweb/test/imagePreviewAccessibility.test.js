@@ -15,6 +15,8 @@ const resourceDialogsSource = read('../src/components/filmCreate/FilmCreateResou
 const characterEditDialogSource = read('../src/components/filmCreate/FilmCreateCharacterEditDialog.vue')
 const resourcePanelSource = read('../src/components/filmCreate/FilmCreateResourcePanel.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailDialogsSource = read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue')
+const dramaDetailUiSource = dramaDetailSource + '\n' + dramaDetailDialogsSource
 const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
 
 test('shared image preview uses an accessible Element Plus dialog', () => {
@@ -24,10 +26,12 @@ test('shared image preview uses an accessible Element Plus dialog', () => {
   assert.match(dialogSource, /:show-close="true"/)
   assert.match(dialogSource, /:close-on-press-escape="true"/)
   assert.match(dialogSource, /@update:model-value="updateVisible"/)
-  assert.match(dialogSource, /:alt="resolvedAlt"/)
   assert.match(dialogSource, /imageHasRenderableDimensions\(event\.currentTarget\)/)
   assert.match(dialogSource, /@error="handleImageError"/)
   assert.match(dialogSource, /role="alert"/)
+  assert.match(dialogSource, /:aria-busy="loadState === 'loading'"/)
+  assert.match(dialogSource, /:aria-hidden="loadState === 'loading'"/)
+  assert.match(dialogSource, /:alt="loadState === 'loading' \? '' : resolvedAlt"/)
   assert.match(dialogSource, />关闭预览<\/el-button>/)
 })
 
@@ -68,11 +72,11 @@ test('FilmCreate and DramaDetail use the shared focus-managed preview for every 
     assert.doesNotMatch(source, /<img\b[^>]*@click/)
   }
 
-  assert.equal((dramaDetailSource.match(/type="button"\s+class="library-item-cover"/g) || []).length, 4)
+  assert.equal((dramaDetailUiSource.match(/type="button"\s+class="library-item-cover"/g) || []).length, 4)
   assert.equal((dramaDetailSource.match(/type="button"\s+class="drama-res-cover"/g) || []).length, 3)
-  assert.equal((dramaDetailSource.match(/class="library-item-cover library-item-cover--empty"/g) || []).length, 4)
+  assert.equal((dramaDetailUiSource.match(/class="library-item-cover library-item-cover--empty"/g) || []).length, 4)
   assert.equal((dramaDetailSource.match(/class="drama-res-cover drama-res-cover--empty"/g) || []).length, 3)
-  assert.equal((dramaDetailSource.match(/type="button" class="lib-img-thumb"/g) || []).length, 6)
+  assert.equal((dramaDetailUiSource.match(/type="button" class="lib-img-thumb"/g) || []).length, 6)
   assert.equal((resourceDialogsSource.match(/type="button" class="library-item-cover"/g) || []).length, 6)
   assert.equal(
     (resourceDialogsSource.match(/class="ref-image-box" aria-label=/g) || []).length

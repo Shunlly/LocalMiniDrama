@@ -438,7 +438,7 @@ async function createImageAsset(ctx, params, log) {
   return {
     ok: false,
     status: r.status,
-    error: `素材库未返回素材 id（响应字段：${keys || '空'}）`,
+    error: '素材库未返回素材 ID',
   };
 }
 

@@ -48,7 +48,7 @@
         size="small"
         :loading="extracting"
         :disabled="!hasScriptContent"
-        :title="emptyScriptReason"
+        :title="emptyScriptReason || undefined"
         :aria-label="hasScriptContent ? '提取角色' : '提取角色不可用：请先填写剧本内容'"
         @click.stop="onExtractChars"
       >提取角色</el-button>
@@ -56,7 +56,7 @@
         size="small"
         :loading="extracting"
         :disabled="!hasScriptContent"
-        :title="emptyScriptReason"
+        :title="emptyScriptReason || undefined"
         :aria-label="hasScriptContent ? '提取场景' : '提取场景不可用：请先填写剧本内容'"
         @click.stop="onExtractScenes"
       >提取场景</el-button>
@@ -64,7 +64,7 @@
         size="small"
         :loading="extracting"
         :disabled="!hasScriptContent"
-        :title="emptyScriptReason"
+        :title="emptyScriptReason || undefined"
         :aria-label="hasScriptContent ? '提取道具' : '提取道具不可用：请先填写剧本内容'"
         @click.stop="onExtractProps"
       >提取道具</el-button>
@@ -73,7 +73,7 @@
         type="warning"
         :loading="extracting"
         :disabled="!hasScriptContent"
-        :title="emptyScriptReason"
+        :title="emptyScriptReason || undefined"
         :aria-label="hasScriptContent ? '一键提取' : '一键提取不可用：请先填写剧本内容'"
         @click.stop="onExtractAll"
       >一键提取</el-button>
@@ -91,7 +91,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/utils/elementPlusFeedback.js'
 import { useCanvasContext } from '@/composables/useCanvasContext'
 import { canvasUserError, isCanvasUserAbort } from '@/composables/useCanvasUserError'
 
