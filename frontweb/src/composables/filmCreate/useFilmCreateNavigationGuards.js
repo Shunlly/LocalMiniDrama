@@ -21,6 +21,10 @@ export function useFilmCreateNavigationGuards(deps = {}) {
     generatingSbVideoIds,
     generatingSbFirstImageIds,
     generatingSbLastImageIds,
+    generatingUniversalSegmentIds,
+    ttsSbIds,
+    ttsSbNarrationIds,
+    upscalingSbIds,
   } = deps
 
   function hasActivePipelineWork() {
@@ -41,6 +45,10 @@ export function useFilmCreateNavigationGuards(deps = {}) {
       generatingSbVideoIds,
       generatingSbFirstImageIds,
       generatingSbLastImageIds,
+      generatingUniversalSegmentIds,
+      ttsSbIds,
+      ttsSbNarrationIds,
+      upscalingSbIds,
     })
   }
 

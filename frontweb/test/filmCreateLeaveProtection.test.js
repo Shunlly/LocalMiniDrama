@@ -106,11 +106,10 @@ test('批量/单条生图生视频才算媒体生成，普通编辑和空集合�
   assert.equal(hasActiveMediaGenerationWork({ generatingSbVideoIds: new Set([22]) }), true)
   assert.equal(hasActiveMediaGenerationWork({ generatingSbFirstImageIds: new Set([33]) }), true)
   assert.equal(hasActiveMediaGenerationWork({ generatingSbLastImageIds: new Set([44]) }), true)
-  assert.equal(hasActiveMediaGenerationWork({
-    generatingUniversalSegmentIds: new Set([1]),
-    ttsSbIds: new Set([2]),
-    upscalingSbIds: new Set([3]),
-  }), false)
+  assert.equal(hasActiveMediaGenerationWork({ generatingUniversalSegmentIds: new Set([1]) }), true)
+  assert.equal(hasActiveMediaGenerationWork({ ttsSbIds: new Set([2]) }), true)
+  assert.equal(hasActiveMediaGenerationWork({ ttsSbNarrationIds: new Set([5]) }), true)
+  assert.equal(hasActiveMediaGenerationWork({ upscalingSbIds: new Set([3]) }), true)
 })
 
 test('制作页把批量停止和单条生视频接到离开保护', () => {
@@ -123,7 +122,10 @@ test('制作页把批量停止和单条生视频接到离开保护', () => {
   assert.match(call, /generatingSbVideoIds/)
   assert.match(call, /generatingSbFirstImageIds/)
   assert.match(call, /generatingSbLastImageIds/)
-  assert.doesNotMatch(call, /ttsSbIds/)
+  assert.match(call, /ttsSbIds/)
+  assert.match(call, /ttsSbNarrationIds/)
+  assert.match(call, /upscalingSbIds/)
+  assert.match(call, /generatingUniversalSegmentIds/)
   assert.match(filmCreateSource, /onBeforeRouteLeave\(allowNavigationAfterDraftFlush\)/)
   assert.match(filmCreateSource, /handleBeforeUnload/)
 })
@@ -166,6 +168,9 @@ test('单条生图和生视频离开要确认，任务可能继续计费', async
       { generatingSbVideoIds: new Set([202]) },
       { generatingSbFirstImageIds: new Set([303]) },
       { generatingSbLastImageIds: new Set([404]) },
+      { ttsSbIds: new Set([505]) },
+      { ttsSbNarrationIds: new Set([606]) },
+      { upscalingSbIds: new Set([707]) },
     ]) {
       const { guards, cancelCalls } = createGuards(deps)
       const event = unloadEvent()

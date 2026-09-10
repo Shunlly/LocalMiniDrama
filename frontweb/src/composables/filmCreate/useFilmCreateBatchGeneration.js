@@ -40,7 +40,7 @@ function hasActiveIdCollection(value) {
   return false
 }
 
-/** 批量/单条生图生视频是否仍在前端等待；不含普通编辑和全流程。 */
+/** 批量/单条生图、生视频、配音、超分是否仍在前端等待；不含普通编辑和全流程。 */
 export function hasActiveMediaGenerationWork(state = {}) {
   return readActiveFlag(state.batchImageRunning)
     || readActiveFlag(state.batchImageStopping)
@@ -50,6 +50,10 @@ export function hasActiveMediaGenerationWork(state = {}) {
     || hasActiveIdCollection(state.generatingSbVideoIds)
     || hasActiveIdCollection(state.generatingSbFirstImageIds)
     || hasActiveIdCollection(state.generatingSbLastImageIds)
+    || hasActiveIdCollection(state.generatingUniversalSegmentIds)
+    || hasActiveIdCollection(state.ttsSbIds)
+    || hasActiveIdCollection(state.ttsSbNarrationIds)
+    || hasActiveIdCollection(state.upscalingSbIds)
 }
 
 export function useFilmCreateBatchGeneration(deps = {}) {

@@ -1991,6 +1991,10 @@ const {
   generatingSbVideoIds,
   generatingSbFirstImageIds,
   generatingSbLastImageIds,
+  generatingUniversalSegmentIds,
+  ttsSbIds,
+  ttsSbNarrationIds,
+  upscalingSbIds,
 })
 
 onBeforeRouteLeave(allowNavigationAfterDraftFlush)
