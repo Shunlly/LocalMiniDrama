@@ -459,7 +459,7 @@ const focusNextStep = computed(() => {
   if (locallyStopped.value) return '可重新开始完整成片'
   if (hasPipelineError.value) return '查看错误后重试全流程'
   if (props.hasEpisode === false) return '添加一集后再保存剧本或启动生成'
-  if (draftReason.value) return '处理当前阻断后再启动生成'
+  if (draftReason.value) return draftReason.value
   if (props.productionReadinessState === 'checking') return '等待检查完成'
   if (props.productionReadinessState === 'error') return '重试检查，确认本地服务与配置状态'
   if (props.productionReadinessState === 'missing') return '前往 AI 配置补齐完整成片能力'
