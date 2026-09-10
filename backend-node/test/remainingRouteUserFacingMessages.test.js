@@ -97,17 +97,64 @@ describe('剩余路由对用户返回中文错误', () => {
       '缺少 scene_id',
       '缺少 library_id',
       '缺少必填字段: key',
+      '缺少分镜 id',
       'image_prompt / action / dialogue',
+      '该分镜暂无可优化的内容（image_prompt / action / dialogue 均为空）',
       'sharp 模块不可用',
       '批量换Key',
       '提供 text 参数',
+      '请改为调用 POST /api/v1/scenes/generate-image，并传入 scene_id',
+      '请改为调用 POST /api/v1/videos，并传入 storyboard_id 与帧参考',
+      '请改为调用 POST /api/v1/episodes/:episode_id/finalize 启动 FFmpeg 合成',
     ];
     for (const file of fs.readdirSync(dir).filter((name) => name.endsWith('.js'))) {
       const source = fs.readFileSync(path.join(dir, file), 'utf8');
       for (const needle of leftover) {
-        assert.equal(source.includes(needle), false, `${file} still has ${needle}`);
+        assert.equal(source.includes(needle), false, `${file} 仍包含：${needle}`);
       }
     }
+  });
+
+  it('分镜缺 ID 和空内容优化返回简体中文', async () => {
+    const silent = { error() {}, info() {}, warn() {} };
+    const storyboardRoutes = require('../src/routes/storyboards');
+    async function assertMissingStoryboardId(handler) {
+      const res = mockRes();
+      await handler({ params: {} }, res);
+      assert.equal(res.statusCode, 400);
+      assert.equal(res.body.error.message, '缺少分镜 ID');
+      assert.equal(res.body.error.message.includes('缺少分镜 id'), false);
+      assert.equal(isTrustedChineseUserError(res.body.error.message), true);
+    }
+    const routes = storyboardRoutes({}, silent);
+    await assertMissingStoryboardId(routes.regenerateLayoutDescription);
+    await assertMissingStoryboardId(routes.rebuildVideoPrompt);
+    await assertMissingStoryboardId(routes.splitByAudio);
+
+    const storyboardId = 3301;
+    const episodeId = 1101;
+    assert.notEqual(storyboardId, episodeId);
+    const polishDb = {
+      prepare() {
+        return {
+          get() {
+            return {
+              id: storyboardId,
+              episode_id: episodeId,
+              image_prompt: null,
+              action: null,
+              dialogue: null,
+            };
+          },
+        };
+      },
+    };
+    const polish = mockRes();
+    await storyboardRoutes(polishDb, silent).polishPrompt({ params: { id: String(storyboardId) } }, polish);
+    assert.equal(polish.statusCode, 400);
+    assert.equal(polish.body.error.message, '该分镜暂无可优化的内容（画面提示词、动作和对白均为空）');
+    assert.doesNotMatch(polish.body.error.message, /image_prompt|action|dialogue/);
+    assert.equal(isTrustedChineseUserError(polish.body.error.message), true);
   });
 });
 

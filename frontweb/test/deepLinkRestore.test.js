@@ -285,6 +285,15 @@ test('non-FilmCreate pages keep leave protection and App wires shared unload', (
   assert.match(appSource, /provide\('appRouteLeaveProtection', leaveProtection\)/)
 })
 
+test('备份页离开保护走共享 inject，注册表必须标 true', () => {
+  assert.equal(APP_VIEW_DEFINITIONS.backup.leaveProtection, true)
+  const source = read('../src/views/Backup.vue')
+  assert.match(source, /inject\('appRouteLeaveProtection'/)
+  assert.match(source, /leaveProtection\?\.register\?\.\('backup'/)
+  assert.match(source, /onBeforeRouteLeave/)
+  assert.match(source, /正在备份或恢复，离开会中断当前操作/)
+})
+
 test('leave protection flushes auto-save then can block leave', async () => {
   const protection = createRouteLeaveProtection()
   const events = []

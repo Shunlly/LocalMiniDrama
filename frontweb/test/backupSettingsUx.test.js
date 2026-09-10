@@ -362,7 +362,9 @@ test('确认恢复若返回待重启，不会假装当前进程已经覆盖数�
 
 test('备份页在创建或恢复时注册离开保护', () => {
   const source = read('../src/views/Backup.vue')
-  assert.match(source, /appRouteLeaveProtection/)
+  assert.match(viewsSource, /backup:\s*\{[\s\S]*?name:\s*'backup'[\s\S]*?leaveProtection:\s*true/)
+  assert.match(source, /inject\('appRouteLeaveProtection'/)
+  assert.match(source, /leaveProtection\?\.register\?\.\('backup'/)
   assert.match(source, /正在备份或恢复，离开会中断当前操作/)
   assert.match(source, /onBeforeRouteLeave/)
   assert.match(source, /result\.message/)
@@ -370,10 +372,11 @@ test('备份页在创建或恢复时注册离开保护', () => {
 
 test('备份操作失败可重试或关闭，空态也能创建或选择备份', () => {
   const template = templateOnly(pageSource)
-  assert.match(template, /v-if="actionError"[\s\S]*备份操作失败[\s\S]*重试恢复/)
-  assert.match(template, /aria-label="关闭备份操作错误"/)
-  assert.match(template, /aria-label="重试创建备份"/)
-  assert.match(template, /v-if="accessState.showEmpty"[\s\S]*空态创建备份[\s\S]*空态选择备份文件/)
+  assert.match(template, /v-if="actionError"[\s\S]*备份操作失败[\s\S]*重试恢复[\s\S]*重试创建备份[\s\S]*关闭备份操作错误/)
+  assert.match(template, /aria-label="重试恢复备份"[\s\S]*>\s*重试恢复/)
+  assert.match(template, /aria-label="重试创建备份"[\s\S]*>\s*重试创建备份/)
+  assert.match(template, /aria-label="关闭备份操作错误"[\s\S]*>关闭/)
+  assert.match(template, /v-if="accessState.showEmpty"[\s\S]*空态创建备份[\s\S]*>创建备份[\s\S]*空态选择备份文件/)
   assert.match(template, /aria-label="确认恢复备份"/)
   assert.match(template, /aria-label="创建全量备份"/)
   assert.match(template, /aria-label="选择备份文件"/)

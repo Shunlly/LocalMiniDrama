@@ -55,7 +55,7 @@ function routes(db, log) {
       res,
       501,
       'LEGACY_ENDPOINT_DISABLED',
-      '请改为调用 POST /api/v1/videos，并传入 storyboard_id 与帧参考'
+      '请改为调用 POST /api/v1/videos，并传入分镜 ID 与帧参考'
     ),
     episodeBatch: (_req, res) => response.error(
       res,

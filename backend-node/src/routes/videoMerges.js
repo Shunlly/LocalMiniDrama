@@ -32,7 +32,7 @@ function routes(db, log) {
       res,
       501,
       'LEGACY_ENDPOINT_DISABLED',
-      '请改为调用 POST /api/v1/episodes/:episode_id/finalize 启动 FFmpeg 合成'
+      '请改为调用剧集成片接口启动 FFmpeg 合成'
     ),
     get: (req, res) => {
       try {

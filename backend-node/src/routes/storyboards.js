@@ -341,7 +341,7 @@ function routes(db, log) {
     regenerateLayoutDescription: async (req, res) => {
       try {
         const id = Number(req.params.id);
-        if (!id) return response.badRequest(res, '缺少分镜 id');
+        if (!id) return response.badRequest(res, '缺少分镜 ID');
         const newLayout = await framePromptService.regenerateLayoutDescription(db, log, id);
         response.success(res, {
           layout_description: newLayout,
@@ -355,7 +355,7 @@ function routes(db, log) {
     rebuildVideoPrompt: (req, res) => {
       try {
         const id = Number(req.params.id);
-        if (!id) return response.badRequest(res, '缺少分镜 id');
+        if (!id) return response.badRequest(res, '缺少分镜 ID');
         const sb = episodeStoryboardService.rebuildVideoPromptForStoryboard(db, log, id);
         if (!sb) return response.notFound(res, '分镜不存在');
         response.success(res, {
@@ -370,7 +370,7 @@ function routes(db, log) {
     splitByAudio: (req, res) => {
       try {
         const id = Number(req.params.id);
-        if (!id) return response.badRequest(res, '缺少分镜 id');
+        if (!id) return response.badRequest(res, '缺少分镜 ID');
         const result = episodeStoryboardService.splitStoryboardByAudio(db, log, id);
         response.success(res, {
           ...result,
@@ -407,7 +407,7 @@ function routes(db, log) {
       }
     },
 
-    // 独立触发单条分镜的 image prompt 优化，结果保存到 storyboards.polished_prompt 并返回
+    // 独立触发单条分镜的画面提示词优化，结果保存到 storyboards.polished_prompt 并返回
     polishPrompt: async (req, res) => {
       try {
         const sbId = Number(req.params.id);
@@ -416,10 +416,10 @@ function routes(db, log) {
         ).get(sbId);
         if (!sb) return response.notFound(res, '分镜不存在');
         if (!sb.image_prompt && !sb.action && !sb.dialogue) {
-          return response.badRequest(res, '该分镜暂无可优化的内容（画面提示词、动作和对白都为空）');
+          return response.badRequest(res, '该分镜暂无可优化的内容（画面提示词、动作和对白均为空）');
         }
 
-        // 通过 episode 查 drama_id
+        // 通过剧集查询项目 ID
         let dramaId = null;
         try {
           const ep = db.prepare('SELECT drama_id FROM episodes WHERE id = ? AND deleted_at IS NULL').get(sb.episode_id);

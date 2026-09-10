@@ -26,11 +26,7 @@ const {
   isPlausibleHttpVideoUrl,
   extractPollTaskStatus,
   isPollTaskCancelled,
-  isPollTaskFailed,
-  extractPollFailureMessage,
-  videoUrlFromRecord,
   pickProxyVideoUrl,
-  parseDashScopeVideoUrl,
   formatVideoPostBodyForLog,
   normalizeAspectRatioForApi,
 } = require('./videoGateway/helpers');
@@ -47,13 +43,6 @@ const {
   loadReferenceImageBuffer,
 } = require('./videoGateway/mediaRefs');
 const {
-  applyKlingOmniEnvOverrides,
-  resolveKlingOmniBaseUrl,
-  resolveKlingOmniQueryPathTemplate,
-  resolveKlingOmniBearerToken,
-  parseKlingOmniPollVideoUrl,
-} = require('./videoGateway/klingVideoAdapter');
-const {
   buildAgnesVideoImagePayload,
 } = require('./videoGateway/agnesVideoAdapter');
 const {
@@ -69,6 +58,11 @@ const {
   dispatchVideoProtocol,
   createAdapterRuntime,
 } = require('./videoGateway/protocolDispatch');
+const {
+  resolveVideoPollFlags,
+  buildVideoPollRequest,
+  interpretVideoPollResponse,
+} = require('./videoGateway/pollDispatch');
 
 // 按 is_default、priority 选择当前启用的视频配置。
 function getDefaultVideoConfig(db, preferredModel, preferredProvider) {
@@ -278,7 +272,7 @@ function delayVideoPoll(intervalMs, signal) {
 }
 
 /**
- * ??????????????????/ChatFire ? ???? DashScope?
+ * 轮询视频生成任务。OpenAI 兼容、ChatFire、火山、可灵、DashScope 等走查询接口；即梦同步协议在进入循环前短路。
  */
 async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAttempts = 300, intervalMs = 10000, signal) {
   log = createSafeVideoLogger(log);
@@ -288,34 +282,20 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
     signal,
   });
   await validateProviderDispatch(config, { provider_network_policy: providerNetworkOptions });
-  const provider = (config.provider || '').toLowerCase();
-  const protocol = resolveVideoProtocol(config);
-  const isDashScope = protocol === 'dashscope';
-  const isGemini = protocol === 'gemini';
-  const isVidu = protocol === 'vidu';
-  const isSora = protocol === 'sora';
-  const isMinimax = protocol === 'minimax';
-  const isAgnes = protocol === 'agnes';
-  const isKling = protocol === 'kling';
-  const isKlingOmni = protocol === 'kling_omni' || (typeof taskId === 'string' && taskId.startsWith('omni:'));
-  const isVeo3 = protocol === 'veo3';
-  const isVolcPoll =
-    provider === 'volces' ||
-    provider === 'volcengine' ||
-    provider === 'volc' ||
-    protocol === 'volcengine' ||
-    protocol === 'volcengine_omni';
+  const flags = resolveVideoPollFlags(config, taskId);
+  const provider = flags.provider;
+  const protocol = flags.protocol;
   if (protocol === 'jimeng_ai_api') {
     log.warn('[poll] Jimeng AI API 不应进入轮询', { video_gen_id: videoGenId, task_id: taskId });
     return { error: 'Jimeng AI API 为同步返回视频地址，不应进入轮询' };
   }
   const queryUrl = () => buildQueryUrl(config, taskId);
-  log.info('[poll] ????', { video_gen_id: videoGenId, task_id: taskId, protocol, poll_url: queryUrl() });
+  log.info('[poll] 开始轮询', { video_gen_id: videoGenId, task_id: taskId, protocol, poll_url: queryUrl() });
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     throwIfVideoPollAborted(signal);
     await delayVideoPoll(intervalMs, signal);
     try {
-      if (isSora || isMinimax) {
+      if (flags.isSora || flags.isMinimax) {
         const runtime = createAdapterRuntime(config, {
           signal,
           fetch_impl: config.fetch_impl,
@@ -323,7 +303,7 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
           register_remote_cancel: config.register_remote_cancel,
           provider_network_policy: providerNetworkOptions,
         }, log);
-        const result = isSora
+        const result = flags.isSora
           ? await pollSoraVideo(config, taskId, runtime)
           : await pollMinimaxVideo(config, taskId, runtime);
         if (result.status === 'pending') continue;
@@ -338,54 +318,7 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
         }
         return result;
       }
-      let url, headers;
-      if (isKling) {
-        // task_id 编码格式：`t2v:xxx` / `i2v:xxx` / `mc:xxx`
-        const klingBase = (config.base_url || 'https://api.klingai.com').replace(/\/$/, '');
-        let actualTaskId = taskId;
-        let videoType = 'text2video';
-        if (taskId.startsWith('i2v:')) { actualTaskId = taskId.slice(4); videoType = 'image2video'; }
-        else if (taskId.startsWith('t2v:')) { actualTaskId = taskId.slice(4); videoType = 'text2video'; }
-        else if (taskId.startsWith('mc:'))  { actualTaskId = taskId.slice(3); videoType = 'motion-control'; }
-        // 若用户配置了 query_endpoint，优先使用
-        let qep = config.query_endpoint || `/v1/videos/${videoType}/{taskId}`;
-        qep = String(qep).replace(/\{taskId\}/gi, encodeURIComponent(actualTaskId)).replace(/\{task_id\}/gi, encodeURIComponent(actualTaskId)).replace(/\{id\}/gi, encodeURIComponent(actualTaskId));
-        if (!qep.startsWith('/')) qep = '/' + qep;
-        url = klingBase + qep;
-        headers = { Authorization: 'Bearer ' + (config.api_key || '') };
-      } else if (isKlingOmni) {
-        const cfgOmni = applyKlingOmniEnvOverrides(config);
-        const omniBase = resolveKlingOmniBaseUrl(cfgOmni);
-        let actualId = String(taskId);
-        if (actualId.startsWith('omni:')) actualId = actualId.slice(5);
-        let qep = resolveKlingOmniQueryPathTemplate(cfgOmni, omniBase);
-        qep = String(qep)
-          .replace(/\{taskId\}/gi, encodeURIComponent(actualId))
-          .replace(/\{task_id\}/gi, encodeURIComponent(actualId))
-          .replace(/\{id\}/gi, encodeURIComponent(actualId));
-        if (!qep.startsWith('/')) qep = '/' + qep;
-        url = omniBase + qep;
-        const bt = resolveKlingOmniBearerToken(cfgOmni, log);
-        headers = bt
-          ? { Authorization: bt.startsWith('Bearer ') ? bt : `Bearer ${bt}` }
-          : {};
-      } else if (isGemini) {
-        const base = (config.base_url || 'https://generativelanguage.googleapis.com').replace(/\/$/, '');
-        url = `${base}/v1beta/${taskId}`;
-        headers = { 'x-goog-api-key': config.api_key || '' };
-      } else if (isVidu) {
-        const viduBase = (config.base_url || 'https://api.vidu.cn').replace(/\/$/, '');
-        const isOfficialVidu = /api\.vidu\.cn/i.test(viduBase);
-        const defaultQep = isOfficialVidu ? '/ent/v2/tasks/{taskId}/creations' : '/ent/v2/tasks/{taskId}/creations';
-        let qep = config.query_endpoint || defaultQep;
-        qep = String(qep).replace(/\{taskId\}/gi, encodeURIComponent(taskId)).replace(/\{task_id\}/gi, encodeURIComponent(taskId)).replace(/\{id\}/gi, encodeURIComponent(taskId));
-        if (!qep.startsWith('/')) qep = '/' + qep;
-        url = viduBase + qep;
-        headers = { Authorization: (isOfficialVidu ? 'Token ' : 'Bearer ') + (config.api_key || '') };
-      } else {
-        url = queryUrl();
-        headers = { Authorization: 'Bearer ' + (config.api_key || '') };
-      }
+      const { url, headers } = buildVideoPollRequest(config, taskId, flags, log);
       const pollRound = attempt + 1;
       await validateProviderRequestUrl(url, config, {
         provider_network_policy: providerNetworkOptions,
@@ -437,213 +370,22 @@ async function pollVideoTaskInternal(db, log, videoGenId, taskId, config, maxAtt
         });
         throwVideoTaskCancelled();
       }
-
-      if (isKling) {
-        if (data.code !== undefined && data.code !== 0) {
-          log.warn('[Kling poll] API 错误', { video_gen_id: videoGenId, code: data.code });
-          return videoProviderFailure('Kling', 'video task', res.status, data, data.code);
-        }
-        const status = (data?.data?.task_status || '').toLowerCase();
-        log.info('[Kling poll] 状态', { video_gen_id: videoGenId, attempt, status, task_id: taskId });
-        if (status === 'succeed') {
-          const videoUrl = data?.data?.task_result?.videos?.[0]?.url;
-          if (videoUrl) {
-            log.info('[Kling poll] 视频生成完成', { video_gen_id: videoGenId, video_url: videoUrl });
-            return { video_url: videoUrl };
-          }
-          return { error: '可灵任务完成但未返回视频地址' };
-        }
-        if (status === 'failed') {
-          log.warn('[Kling poll] 任务失败', {
-            video_gen_id: videoGenId,
-            ...summarizeProviderResponse(data),
-          });
-          return videoProviderFailure('Kling', 'video task', res.status, data, data.code);
-        }
-        // submitted / processing → 继续轮询
-        continue;
-      }
-
-      if (isKlingOmni) {
-        if (data.code !== undefined && Number(data.code) !== 0) {
-          log.warn('[KlingOmni poll] API 错误', { video_gen_id: videoGenId, code: data.code });
-          return videoProviderFailure('KlingOmni', 'video task', res.status, data, data.code);
-        }
-        const st = (data?.data?.task_status || data?.task_status || data?.status || '').toLowerCase();
-        const videoUrlOmni = parseKlingOmniPollVideoUrl(data);
-        log.info('[KlingOmni poll] 状态', { video_gen_id: videoGenId, attempt, status: st, has_url: !!videoUrlOmni });
-        if (videoUrlOmni) {
-          log.info('[KlingOmni poll] 完成', { video_gen_id: videoGenId });
-          return { video_url: videoUrlOmni };
-        }
-        if (st === 'succeed' || st === 'success' || st === 'completed' || st === 'succeeded' || st === 'done') {
-          return videoProviderFailure('KlingOmni', 'video task response', res.status, data);
-        }
-        if (st === 'failed' || st === 'error') {
-          return videoProviderFailure('KlingOmni', 'video task', res.status, data, data.code);
-        }
-        continue;
-      }
-
-      if (isVeo3) {
-        const status = extractPollTaskStatus(data);
-        log.info('[Veo3 poll] task status', { video_gen_id: videoGenId, attempt, status, id: data.task_id || data.id });
-        if (isPollTaskFailed(status)) {
-          log.warn('[Veo3 poll] task failed', {
-            video_gen_id: videoGenId,
-            ...summarizeProviderResponse(data),
-          });
-          return videoProviderFailure('Veo3', 'video task', res.status, data, data?.error?.code);
-        }
-        const videoUrl = pickProxyVideoUrl(data);
-        if (videoUrl) {
-          log.info('[Veo3 poll] video completed', { video_gen_id: videoGenId, video_url: videoUrl });
-          return { video_url: videoUrl };
-        }
-        if (status === 'succeeded' || status === 'completed' || status === 'done') {
-          log.warn('[Veo3 poll] completed but no video_url', summarizeProviderResponse(data));
-          return videoProviderFailure('Veo3', 'video task response', res.status, data);
-        }
-        continue;
-      }
-
-      if (isSora) {
-        const status = extractPollTaskStatus(data);
-        log.info('[Sora poll] ????', { video_gen_id: videoGenId, attempt, status, progress: data.progress, id: data.id });
-        if (isPollTaskFailed(status)) {
-          log.warn('[Sora poll] 任务失败', {
-            video_gen_id: videoGenId,
-            ...summarizeProviderResponse(data),
-          });
-          return videoProviderFailure('Sora', 'video task', res.status, data, data?.error?.code);
-        }
-        // succeeded / completed / done ? ??? URL
-        const videoUrl = pickProxyVideoUrl(data);
-        if (videoUrl && isPlausibleHttpVideoUrl(videoUrl)) {
-          log.info('[Sora poll] ????', { video_gen_id: videoGenId, video_url: videoUrl });
-          return { video_url: videoUrl };
-        }
-        if (status === 'succeeded' || status === 'completed' || status === 'done') {
-          log.warn('[Sora poll] ????????? video_url', {
-            video_gen_id: videoGenId,
-            ...summarizeProviderResponse(data),
-          });
-          return videoProviderFailure('Sora', 'video task response', res.status, data);
-        }
-        // queued / processing / running ? ????
-        continue;
-      }
-
-      if (isAgnes) {
-        const status = extractPollTaskStatus(data);
-        log.info('[Agnes poll] 状态', { video_gen_id: videoGenId, attempt, status, progress: data.progress, id: data.id });
-        if (isPollTaskFailed(status)) {
-          log.warn('[Agnes poll] 任务失败', {
-            video_gen_id: videoGenId,
-            ...summarizeProviderResponse(data),
-          });
-          return videoProviderFailure('Agnes', 'video task', res.status, data, data?.error?.code);
-        }
-        const videoUrl = pickProxyVideoUrl(data);
-        if (videoUrl && isPlausibleHttpVideoUrl(videoUrl)) {
-          log.info('[Agnes poll] 完成', { video_gen_id: videoGenId, video_url: videoUrl });
-          return { video_url: videoUrl };
-        }
-        if (status === 'succeeded' || status === 'completed' || status === 'done') {
-          log.warn('[Agnes poll] 标记完成但未返回 video_url', {
-            video_gen_id: videoGenId,
-            ...summarizeProviderResponse(data),
-          });
-          return videoProviderFailure('Agnes', 'video task response', res.status, data);
-        }
-        continue;
-      }
-
-      if (isVidu) {
-        const state = (data?.state || data?.status || data?.data?.status || '').toLowerCase();
-        log.info('[Vidu poll] ????', { video_gen_id: videoGenId, attempt, state, id: taskId });
-        if (state === 'failed' || state === 'error') {
-          log.warn('[Vidu poll] ????', { video_gen_id: videoGenId, ...summarizeProviderResponse(data) });
-          return videoProviderFailure('Vidu', 'video task', res.status, data, data?.err_code);
-        }
-        // ?? ent/v2 ???????? success???? creations[0].url
-        // ??????????????? succeeded/completed/done???? video_url/url ?
-        const videoUrl =
-          data?.creations?.[0]?.url ||
-          videoUrlFromRecord(data?.creations?.[0]) ||
-          pickProxyVideoUrl(data);
-        if (videoUrl) {
-          log.info('[Vidu poll] ????', { video_gen_id: videoGenId, video_url: videoUrl });
-          return { video_url: videoUrl };
-        }
-        if (state === 'success' || state === 'succeeded' || state === 'completed' || state === 'done') {
-          log.warn('[Vidu poll] ???????? video_url', summarizeProviderResponse(data));
-          return { error: 'Vidu 任务完成但未返回视频地址' };
-        }
-        continue;
-      }
-
-      if (isGemini) {
-        if (data.error) {
-          return videoProviderFailure('Gemini', 'video task', res.status, data, data.error?.code);
-        }
-        if (data.done === true) {
-          const videoUri = data.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri;
-          if (videoUri) return { video_url: videoUri };
-          return { error: 'Gemini 任务完成但未返回视频地址' };
-        }
-        continue;
-      }
-
-      if (isDashScope) {
-        const taskStatus = data?.output?.task_status;
-        const videoUrl = parseDashScopeVideoUrl(data);
-        if (videoUrl) return { video_url: videoUrl };
-        if (taskStatus === 'FAILED' || taskStatus === 'CANCELED') {
-          log.warn('DashScope ????????? download image failed????? URL ???????? localhost?', {
-            video_gen_id: videoGenId,
-            task_id: taskId,
-            task_status: taskStatus,
-            ...summarizeProviderResponse(data),
-          });
-          return videoProviderFailure('DashScope', 'video task', res.status, data, data?.code);
-        }
-        continue;
-      }
-      const status = extractPollTaskStatus(data);
-      const videoUrl = pickProxyVideoUrl(data);
-      const failMsg = extractPollFailureMessage(data);
-      const errMsg = data.error && (typeof data.error === 'string' ? data.error : data.error.message);
-      if (isVolcPoll) {
-        log.info('[poll] 方舟/火山 解析摘要', {
-          video_gen_id: videoGenId,
-          round: pollRound,
-          top_level_status: status,
-          has_video_url: !!videoUrl,
-          ...summarizeProviderResponse(data),
-        });
-      }
-      if (isPollTaskFailed(status) || errMsg) {
-        log.warn('[poll] 任务失败', {
-          video_gen_id: videoGenId,
-          round: pollRound,
-          status,
-          ...summarizeProviderResponse(data),
-        });
-        return videoProviderFailure(provider || 'Video provider', 'video task', res.status, data, data?.error?.code);
-      }
-      if (videoUrl && isPlausibleHttpVideoUrl(videoUrl)) return { video_url: videoUrl };
-      if (failMsg) {
-        log.warn('[poll] 上游返回失败文案', {
-          video_gen_id: videoGenId,
-          round: pollRound,
-          ...summarizeProviderResponse(data),
-        });
-        return videoProviderFailure(provider || 'Video provider', 'video task', res.status, data, data?.error?.code);
-      }
+      const interpreted = interpretVideoPollResponse({
+        flags,
+        data,
+        res,
+        log,
+        videoGenId,
+        taskId,
+        attempt,
+        pollRound,
+        provider,
+      });
+      if (interpreted.action === 'continue') continue;
+      return interpreted.value;
     } catch (e) {
       if (isVideoPollCancelled(e, signal)) throwVideoTaskCancelled();
-      log.warn('Video poll request failed', { attempt, error: e.message });
+      log.warn('[poll] 查询请求失败', { attempt, error: e.message });
     }
   }
   return { error: '视频生成超时，请稍后重试' };

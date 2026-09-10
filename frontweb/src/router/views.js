@@ -79,7 +79,7 @@ export const APP_VIEW_DEFINITIONS = {
     title: '数据备份',
     allowed: true,
     persist: true,
-    leaveProtection: false,
+    leaveProtection: true,
     resourceId: false,
     component: 'Backup.vue',
   },

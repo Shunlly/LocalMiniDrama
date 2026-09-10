@@ -9,6 +9,7 @@ const imageRoutes = require('../src/routes/images');
 const storySourceRoutes = require('../src/routes/storySources');
 const characterRoutes = require('../src/routes/characters');
 const sceneRoutes = require('../src/routes/scenes');
+const storyboardRoutes = require('../src/routes/storyboards');
 const uploadService = require('../src/services/uploadService');
 const ttsService = require('../src/services/ttsService');
 const sourceIntakeService = require('../src/services/sourceIntakeService');
@@ -124,6 +125,12 @@ const leftoverEnglish = [
   '请先填写网关 URL 与 Token',
   'ModelArk 返回缺少资产 Id',
   '填写 Token',
+  '缺少分镜 id',
+  'image_prompt / action / dialogue',
+  '该分镜暂无可优化的内容（image_prompt / action / dialogue 均为空）',
+  '请改为调用 POST /api/v1/scenes/generate-image，并传入 scene_id',
+  '请改为调用 POST /api/v1/videos，并传入 storyboard_id 与帧参考',
+  '请改为调用 POST /api/v1/episodes/:episode_id/finalize 启动 FFmpeg 合成',
 ];
 
 function hasCjk(text) {
@@ -214,6 +221,9 @@ test('\u5269\u4f59\u7528\u6237\u9519\u8bef\u6e90\u7801\u4e0d\u518d\u5305\u542b\u
     'services/skillRegistryService.js',
     'services/libraryDedup.js',
     'routes/storyboards.js',
+    'routes/images.js',
+    'routes/videos.js',
+    'routes/videoMerges.js',
     'routes/aiConfig.js',
     'app.js',
     'scripts/backup-data.js',
@@ -386,19 +396,19 @@ test('Provider \u8131\u654f\u9519\u8bef\u548c\u9759\u6001 404 \u5bf9\u7528\u6237
 
 test('videoClient 用户错误不再是问号乱码', () => {
   const source = fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8');
-  const userFacing = source
+  const pollSource = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollDispatch.js'), 'utf8');
+  const userFacing = [source, pollSource].join('\n')
     .split('\n')
     .filter((line) => /throw new Error\(|return \{ error:/.test(line))
     .join('\n');
   assert.equal(userFacing.includes('??????'), false);
   assert.match(source, /请先在 AI 配置中添加并启用视频服务/);
-  assert.match(source, /Vidu 任务完成但未返回视频地址/);
-  assert.match(source, /Gemini 任务完成但未返回视频地址/);
+  assert.match(pollSource, /Vidu 任务完成但未返回视频地址/);
+  assert.match(pollSource, /Gemini 任务完成但未返回视频地址/);
   assert.match(source, /视频生成超时，请稍后重试/);
   assert.match(source, /视频任务已取消/);
   assert.equal(source.includes('throw signal.reason'), false);
 });
-
 test('角色生成在 episode_id 与 drama_id 不相等时返回中文 BAD_REQUEST', () => {
   const characterGenerationService = require('../src/services/characterGenerationService');
   assert.notEqual(DRAMA_ID, OTHER_DRAMA_ID);
@@ -505,4 +515,70 @@ test('备份服务 publicMessage 对已映射错误码使用简体中文', () =>
   assert.equal(hasCjk(BACKUP_PUBLIC_MESSAGES.SERVICE_RUNNING), true);
   assert.equal(hasCjk(BACKUP_PUBLIC_MESSAGES.UNSAFE_ARCHIVE_PATH), true);
   assert.equal(BACKUP_PUBLIC_MESSAGES.SERVICE_RUNNING, require('../src/services/backupSettingsService').HTTP_BACKUP_MESSAGES.SERVICE_RUNNING);
+});
+
+test('剩余路由缺参和空分镜优化返回简体中文用户错误', async () => {
+  const leftoverMixedFieldErrors = [
+    '请提供 storyboard_id 或 text',
+    'storyboard_ids 不能为空',
+    'character_ids 不能为空',
+    '缺少 library_id',
+    'characters 必填且为数组',
+    'episodes 必填且为数组',
+    'current_step 必填',
+    'episode_id不能为空',
+    '请改为调用 POST /api/v1/scenes/generate-image，并传入 scene_id',
+    '请上传小说文本文件或提供 text 参数',
+    'drama_id 和 name 必填',
+    '缺少必填字段: key',
+    '缺少 drama_id',
+    '缺少 scene_id',
+    '缺少分镜 id',
+    '该分镜暂无可优化的内容（image_prompt / action / dialogue 均为空）',
+    'episode_id 必填',
+    '缺少resource_id参数',
+    '请改为调用 POST /api/v1/episodes/:episode_id/finalize 启动 FFmpeg 合成',
+    '请改为调用 POST /api/v1/videos，并传入 storyboard_id 与帧参考',
+  ];
+  const files = [
+    'routes/audio.js', 'routes/characters.js', 'routes/drama.js', 'routes/images.js',
+    'routes/index.js', 'routes/prop.js', 'routes/sceneModelMap.js', 'routes/scenes.js',
+    'routes/storyboards.js', 'routes/task.js', 'routes/videoMerges.js', 'routes/videos.js',
+  ];
+  for (const name of files) {
+    const source = fs.readFileSync(path.join(__dirname, '../src', name), 'utf8');
+    for (const phrase of leftoverMixedFieldErrors) {
+      assert.equal(source.includes(phrase), false, `${name} 仍包含：${phrase}`);
+    }
+  }
+
+  assert.notEqual(STORYBOARD_ID, DRAMA_ID);
+  assert.notEqual(STORYBOARD_ID, EPISODE_ID);
+  const polishDb = {
+    prepare() {
+      return {
+        get() {
+          return {
+            id: STORYBOARD_ID,
+            episode_id: EPISODE_ID,
+            image_prompt: null,
+            action: null,
+            dialogue: null,
+          };
+        },
+      };
+    },
+  };
+  const polish = mockResponse();
+  await storyboardRoutes(polishDb, silentLog).polishPrompt({ params: { id: String(STORYBOARD_ID) } }, polish);
+  assert.equal(polish.statusCode, 400);
+  assert.equal(polish.body.error.message, '该分镜暂无可优化的内容（画面提示词、动作和对白均为空）');
+  assert.doesNotMatch(polish.body.error.message, /image_prompt|action|dialogue/);
+  assert.equal(hasCjk(polish.body.error.message), true);
+
+  const missingId = mockResponse();
+  await storyboardRoutes({}, silentLog).regenerateLayoutDescription({ params: {} }, missingId);
+  assert.equal(missingId.statusCode, 400);
+  assert.equal(missingId.body.error.message, '缺少分镜 ID');
+  assert.equal(missingId.body.error.message.includes('缺少分镜 id'), false);
 });

@@ -17,11 +17,11 @@ const leftoverEnglish = [
 ];
 
 const expected = {
-  videosFromImage: '请改为调用 POST /api/v1/videos，并传入 storyboard_id 与帧参考',
+  videosFromImage: '请改为调用 POST /api/v1/videos，并传入分镜 ID 与帧参考',
   videosEpisodeBatch: '请改为对每个分镜单独调用 POST /api/v1/videos',
-  imagesScene: '请改为调用 POST /api/v1/scenes/generate-image，并传入 scene_id',
+  imagesScene: '请改为调用 POST /api/v1/scenes/generate-image，并传入场景 ID',
   imagesEpisodeBatch: '请改为对每个分镜单独调用 POST /api/v1/images',
-  videoMergesCreate: '请改为调用 POST /api/v1/episodes/:episode_id/finalize 启动 FFmpeg 合成',
+  videoMergesCreate: '请改为调用剧集成片接口启动 FFmpeg 合成',
 };
 
 function mockResponse() {
@@ -78,5 +78,8 @@ test('legacy route sources no longer return leftover English 501 copy', () => {
   assert.match(sources, /请改为对每个分镜单独调用 POST \/api\/v1\/videos/);
   assert.match(sources, /请改为调用 POST \/api\/v1\/scenes\/generate-image/);
   assert.match(sources, /请改为对每个分镜单独调用 POST \/api\/v1\/images/);
-  assert.match(sources, /请改为调用 POST \/api\/v1\/episodes\/:episode_id\/finalize/);
+  assert.match(sources, /请改为调用剧集成片接口启动 FFmpeg 合成/);
+  assert.equal(sources.includes('storyboard_id'), false);
+  assert.equal(sources.includes('scene_id'), false);
+  assert.equal(sources.includes(':episode_id/finalize'), false);
 });

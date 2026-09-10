@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 import { lstat, mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { normalizeWorkflowRun } from '../src/utils/workflowRunStatus.js'
 
 const require = createRequire(import.meta.url)
 const { createProviderServer } = require('../../backend-node/scripts/e2e-provider.js')
@@ -950,6 +951,36 @@ test('production upgrade waits briefly for and reopens compact workflow history 
     'await revealWorkflowHistoryIfCompleted(workflow)',
     'await flowStepButton(workflow, UI.intakeStep).click()',
   ])
+})
+
+test('生产 E2E 草稿启动必须点得了「以 草稿预演 启动」，空 run 不能当成 running', () => {
+  const startDraftMatch = productionSource.match(/startDraft:\s*'((?:\\u[0-9a-fA-F]{4}| )+)'/)
+  assert.ok(startDraftMatch, 'UI.startDraft 文案缺失')
+  assert.equal(JSON.parse(`"${startDraftMatch[1]}"`), '以 草稿预演 启动')
+
+  const startDraftStart = productionSource.indexOf('async function startDraftFromUi')
+  const startDraftEnd = productionSource.indexOf('\nasync function startProductionFromUi', startDraftStart)
+  assert.ok(startDraftStart >= 0 && startDraftEnd > startDraftStart, 'startDraftFromUi 缺失')
+  assertSourceOrder(productionSource.slice(startDraftStart, startDraftEnd), [
+    'modeLabel: UI.draftMode',
+    'startLabel: UI.startDraft',
+    "expectedMode: 'Draft'",
+  ])
+
+  const workflowStart = productionSource.indexOf('async function startWorkflowModeFromUi')
+  const workflowEnd = productionSource.indexOf('\nasync function startDraftFromUi', workflowStart)
+  assert.ok(workflowStart >= 0 && workflowEnd > workflowStart, 'startWorkflowModeFromUi 缺失')
+  assertSourceOrder(productionSource.slice(workflowStart, workflowEnd), [
+    "workflow.getByRole('button', { name: startLabel, exact: true })",
+    "await startButton.waitFor({ state: 'visible', timeout: 20000 })",
+    'await startButton.click({ trial: true, timeout: 30000 })',
+    'assert.equal(await startButton.isEnabled(), true',
+    'await startButton.click()',
+  ])
+
+  for (const run of [null, {}]) {
+    assert.equal(normalizeWorkflowRun(run).active, false)
+  }
 })
 
 test('focused desktop acceptance is isolated from expensive media workflows', () => {

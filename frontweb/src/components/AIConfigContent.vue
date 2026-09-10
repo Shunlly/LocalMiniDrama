@@ -1500,6 +1500,7 @@ import {
 import { buildEndpointPreviewInfo } from '@/utils/aiConfigEndpointPreview.js'
 import { buildAiServiceCoverage, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
 import { useAiConfigCoverage } from '@/composables/useAiConfigCoverage.js'
+import { useAiConfigWorkspaceView } from '@/composables/useAiConfigWorkspaceView.js'
 import {
   DEFAULT_MODEL_VALIDATION_MESSAGE,
   isMaskedSecret,
@@ -1519,7 +1520,7 @@ import {
 import { applyAiConfigRepairTarget } from '@/utils/aiConfigRepairTarget.js'
 import { CUSTOM_PROVIDER_SENTINEL, getBaseUrlForProvider, getProviderEndpointDefaults, getProviderProtocol, isApiKeyOptionalProvider, providerConfigs } from '@/utils/aiProviderPresets.js'
 import { buildProviderPricing, parseSettingsObject, readProviderPricingForm } from '@/utils/providerPricing.js'
-import { getConfigWorkspaceKeyTarget, shouldApplyConfigWorkspaceRequest } from '@/utils/aiConfigWorkspace.js'
+import { shouldApplyConfigWorkspaceRequest } from '@/utils/aiConfigWorkspace.js'
 import PromptEditor from '@/components/PromptEditor.vue'
 import SceneModelMap from '@/components/SceneModelMap.vue'
 import Sd2AssetManagement from '@/components/Sd2AssetManagement.vue'
@@ -1564,21 +1565,14 @@ const configWorkspaceView = ref(
 const coverageWorkspaceModeRef = ref(null)
 const configsWorkspaceModeRef = ref(null)
 
-function selectConfigWorkspaceView(view, { focus = false } = {}) {
-  configWorkspaceView.value = view
-  if (!focus) return
-  nextTick(() => {
-    const target = view === 'coverage' ? coverageWorkspaceModeRef.value : configsWorkspaceModeRef.value
-    target?.focus?.()
-  })
-}
-
-function onConfigWorkspaceKeydown(currentView, event) {
-  const target = getConfigWorkspaceKeyTarget(currentView, event.key)
-  if (!target) return
-  event.preventDefault()
-  selectConfigWorkspaceView(target, { focus: true })
-}
+const {
+  selectConfigWorkspaceView,
+  onConfigWorkspaceKeydown,
+} = useAiConfigWorkspaceView({
+  configWorkspaceView,
+  coverageWorkspaceModeRef,
+  configsWorkspaceModeRef,
+})
 const importFileRef = ref(null)
 
 // ---- 生成设置 ----

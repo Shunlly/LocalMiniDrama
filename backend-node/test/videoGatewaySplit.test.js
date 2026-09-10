@@ -23,6 +23,7 @@ const aiConfigService = require('../src/services/aiConfigService');
 
 const VIDEO_CLIENT_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8');
 const VIDEO_DISPATCH_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/protocolDispatch.js'), 'utf8');
+const VIDEO_POLL_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/pollDispatch.js'), 'utf8');
 const GATEWAY_DIR = path.join(__dirname, '../src/services/videoGateway');
 const PUBLIC_API = [
   'getDefaultVideoConfig',
@@ -137,6 +138,14 @@ describe('videoGateway 客户端拆分', () => {
     const pollSrc = VIDEO_CLIENT_SRC.slice(start);
     assert.match(pollSrc, /if \(protocol === 'jimeng_ai_api'\)/);
     assert.match(pollSrc, /Jimeng AI API 为同步返回视频地址，不应进入轮询/);
+    assert.match(pollSrc, /\[poll\] 开始轮询/);
+    assert.match(pollSrc, /buildVideoPollRequest/);
+    assert.match(pollSrc, /interpretVideoPollResponse/);
+    assert.doesNotMatch(pollSrc, /if \(isKling\)/);
+    assert.doesNotMatch(pollSrc, /if \(isVidu\)/);
+    assert.doesNotMatch(pollSrc, /if \(isDashScope\)/);
+    assert.match(VIDEO_POLL_SRC, /if \(flags\.isKling\)/);
+    assert.match(VIDEO_POLL_SRC, /if \(flags\.isVidu\)/);
     assert.match(VIDEO_DISPATCH_SRC, /if \(protocol === 'jimeng_ai_api'\)/);
   });
 
@@ -152,6 +161,7 @@ describe('videoGateway 客户端拆分', () => {
       'mediaRefs.js',
       'minimaxVideoAdapter.js',
       'openAiSoraAdapter.js',
+      'pollDispatch.js',
       'protocolDispatch.js',
       'providerRuntime.js',
       'requestError.js',
