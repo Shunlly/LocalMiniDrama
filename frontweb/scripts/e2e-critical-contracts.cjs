@@ -58,6 +58,7 @@ const CRITICAL_UI = Object.freeze({
   close: '关闭',
   storyboardEmpty: '还没有分镜，可生成分镜或添加一个分镜',
   generateStoryboard: 'AI 生成分镜',
+  emptyGenerateStoryboard: '生成分镜',
   addStoryboard: '添加一个分镜',
   canvasEmptyStoryboard: '当前集还没有分镜，请先生成或新建分镜',
   batchGenerateGroup: '本集批量生成',
@@ -709,7 +710,7 @@ async function verifyStoryboardEmptyStates(page, options = {}) {
     await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
     await page.getByText(CRITICAL_UI.storyboardEmpty, { exact: true }).waitFor({ timeout: 15000 })
     const emptyActions = page.locator('.empty-tip-actions')
-    await emptyActions.getByRole('button', { name: CRITICAL_UI.generateStoryboard, exact: true }).waitFor({ state: 'visible' })
+    await emptyActions.getByRole('button', { name: CRITICAL_UI.emptyGenerateStoryboard, exact: true }).waitFor({ state: 'visible' })
     await emptyActions.getByRole('button', { name: CRITICAL_UI.addStoryboard, exact: true }).waitFor({ state: 'visible' })
 
     await page.goto(
