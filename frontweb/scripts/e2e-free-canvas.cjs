@@ -914,6 +914,15 @@ async function clickUniqueButton(page, name) {
   await button.click()
 }
 
+async function confirmMessageBox(page, name = '删除') {
+  const dialog = page.locator('.el-message-box').filter({ hasText: '删除确认' })
+  await dialog.waitFor({ state: 'visible', timeout: DEFAULT_TIMEOUT_MS })
+  const confirm = dialog.getByRole('button', { name, exact: true })
+  await assertUniqueLocator(confirm, `message box ${name} button`)
+  await confirm.click()
+  await dialog.waitFor({ state: 'hidden', timeout: DEFAULT_TIMEOUT_MS })
+}
+
 async function waitForUiSaveSettled(page) {
   await delay(850)
   await waitForValue(
@@ -1381,6 +1390,7 @@ async function exerciseFreeCanvas({
     const fullEdgeIds = pasted.edges.map((edge) => String(edge.id))
     await page.bringToFront()
     await clickUniqueButton(page, '删除所选节点')
+    await confirmMessageBox(page, '删除')
     const deleted = await waitForPersistedFreeCanvas(
       apiRequest,
       primaryId,

@@ -775,3 +775,10 @@ test('production E2E gate serially runs free canvas E2E and its verifier after p
   )
   assert.equal(frontendPackage.scripts.verify.includes('free-canvas'), false)
 })
+
+test('自由画布删除所选节点后必须确认删除对话框', () => {
+  assert.match(e2eSource, /await clickUniqueButton\(page, '删除所选节点'\)/)
+  assert.match(e2eSource, /await confirmMessageBox\(page, '删除'\)/)
+  assert.match(e2eSource, /function confirmMessageBox\(page, name = '删除'\)/)
+  assert.match(e2eSource, /hasText: '删除确认'/)
+})
