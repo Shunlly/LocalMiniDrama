@@ -2005,6 +2005,8 @@ async function assertComponentHorizontalOverflow(page, label, selectors) {
   return records
 }
 
+const PRODUCTION_COVERAGE_CARD_SELECTOR = '#ai-config-coverage-panel .coverage-grid:not(.coverage-grid-extraction) .coverage-item'
+
 const FOCUSED_COVERAGE_MATRIX = Object.freeze([
   Object.freeze({ service: 'image', label: '\u7d20\u6750\u56fe\u7247', state: 'configured', test_status: 'unknown', action_count: 1, action_label: '\u8865\u9f50\u9ed8\u8ba4' }),
   Object.freeze({ service: 'video', label: '\u89c6\u9891\u751f\u6210', state: 'default', test_status: 'failed', action_count: 1, action_label: '\u91cd\u65b0\u6d4b\u8bd5' }),
@@ -2031,7 +2033,7 @@ function assertCoverageCardMatrix(records) {
 async function waitForCoverageCardMatrix(page) {
   const expected = FOCUSED_COVERAGE_MATRIX.map(({ service, state, test_status }) => ({ service, state, test_status }))
   await page.waitForFunction((expectedMatrix) => {
-    const records = [...document.querySelectorAll('#ai-config-coverage-panel .coverage-item')].map((element) => {
+    const records = [...document.querySelectorAll('#ai-config-coverage-panel .coverage-grid:not(.coverage-grid-extraction) .coverage-item')].map((element) => {
       const icon = element.querySelector('.coverage-icon')
       const serviceClass = [...(icon?.classList || [])].find((name) => /^coverage-icon-(?!$)/.test(name)) || ''
       const stateClass = ['coverage-default', 'coverage-configured', 'coverage-missing']
@@ -2054,7 +2056,7 @@ async function assertCoverageLayout(page, {
   columns,
   minimumCardWidth = 0,
 } = {}) {
-  const cards = page.locator('#ai-config-coverage-panel .coverage-item')
+  const cards = page.locator('#ai-config-coverage-panel .coverage-grid:not(.coverage-grid-extraction) .coverage-item')
   const snapshot = await cards.evaluateAll((elements) => {
     const grid = elements[0]?.closest('.coverage-grid')
     const dialog = document.querySelector('.el-dialog.ai-config-workspace-dialog')
@@ -2631,7 +2633,7 @@ async function waitForAcceptanceCaptureReadiness(page, capture, fixture = {}) {
         && JSON.stringify([...visibleNames].sort()) === JSON.stringify([...configNames].sort())
     }
     if (surface === 'ai-config-coverage') {
-      const records = [...document.querySelectorAll('#ai-config-coverage-panel .coverage-item')].map((element) => {
+      const records = [...document.querySelectorAll('#ai-config-coverage-panel .coverage-grid:not(.coverage-grid-extraction) .coverage-item')].map((element) => {
         const icon = element.querySelector('.coverage-icon')
         const serviceClass = [...(icon?.classList || [])].find((name) => /^coverage-icon-(?!$)/.test(name)) || ''
         const stateClass = ['coverage-default', 'coverage-configured', 'coverage-missing']
@@ -2987,7 +2989,7 @@ async function verifyFocusedDesktopAcceptance(browser, {
       '.ai-config-workspace-dialog .config-workspace-panel:visible',
       '#ai-config-coverage-panel .coverage-panel',
       '#ai-config-coverage-panel .coverage-grid',
-      '#ai-config-coverage-panel .coverage-item',
+      '#ai-config-coverage-panel .coverage-grid:not(.coverage-grid-extraction) .coverage-item',
       '#ai-config-coverage-panel .coverage-actions',
     ]
     const overflow1280 = await assertComponentHorizontalOverflow(page, 'focused 1280 coverage', componentSelectors)

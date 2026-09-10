@@ -1563,7 +1563,7 @@ function createCaptureReadinessPage({
     '.el-table__row': tableRows,
     '[data-testid="project-readiness-details"] .summary-item': Array.from({ length: summaryItems }, () => visible()),
     '[data-testid="project-readiness-details"] .service-chip': Array.from({ length: serviceChips }, () => visible()),
-    '#ai-config-coverage-panel .coverage-item': coverageRecords.map(createCoverageCard),
+    '#ai-config-coverage-panel .coverage-grid:not(.coverage-grid-extraction) .coverage-item': coverageRecords.map(createCoverageCard),
   }
   return {
     async waitForFunction(predicate, argument, options) {
@@ -1592,6 +1592,7 @@ function createCaptureReadinessPage({
 }
 
 test('coverage matrix waiter executes the exact service, state, and test-status predicate', async () => {
+  assert.match(productionSource, /coverage-grid:not\(\.coverage-grid-extraction\)/)
   assert.equal(typeof waitForCoverageCardMatrix, 'function', 'missing coverage matrix waiter')
   await waitForCoverageCardMatrix(createCaptureReadinessPage())
 
