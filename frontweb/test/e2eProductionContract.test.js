@@ -1305,8 +1305,10 @@ test('focused AI recovery decorates only the fixture and proves fail-closed keyb
     'is_default, false',
     'createdId',
   ])
-  assert.match(createConfig, /request\.method\(\) === 'POST'/)
-  assert.match(createConfig, /url\.pathname === '\/api\/v1\/ai-configs'/)
+  assert.match(createConfig, /UI\.saveConfig/)
+  assert.doesNotMatch(createConfig, /configDialog\.getByRole\('button', \{ name: UI\.confirm/)
+  assert.match(createConfig, /request.method\(\) === 'POST'/)
+  assert.match(createConfig, /url.pathname === '\/api\/v1\/ai-configs'/)
   assert.match(createConfig, /page\.waitForFunction/)
   assert.doesNotMatch(createConfig, /ai-configs\/test/)
 

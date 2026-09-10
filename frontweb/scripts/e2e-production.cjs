@@ -76,6 +76,7 @@ const UI = Object.freeze({
   importWebUrl: '\u5bfc\u5165\u7f51\u9875 URL',
   newProject: '\u65b0\u5efa\u9879\u76ee',
   confirm: '\u786e\u5b9a',
+  saveConfig: '\u4fdd\u5b58\u914d\u7f6e',
   importOnly: '\u5bfc\u5165\u6545\u4e8b\u7d20\u6750',
   retryLoad: '\u91cd\u8bd5\u52a0\u8f7d',
   downloadFinal: '\u4e0b\u8f7d\u6210\u7247',
@@ -2513,7 +2514,7 @@ async function createMissingServiceFromUi(page, fixture) {
     const url = new URL(request.url())
     return request.method() === 'POST' && url.pathname === '/api/v1/ai-configs'
   }, { timeout: 30000 })
-  await configDialog.getByRole('button', { name: UI.confirm, exact: true }).click()
+  await configDialog.getByRole('button', { name: UI.saveConfig, exact: true }).click()
   const response = await responsePromise
   assert.equal(response.ok(), true, `focused UI config create failed with HTTP ${response.status()}`)
   const requestBody = response.request().postDataJSON()
