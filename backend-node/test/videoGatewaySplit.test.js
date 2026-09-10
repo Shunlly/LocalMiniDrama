@@ -22,6 +22,7 @@ const sora = require('../src/services/videoGateway/openAiSoraAdapter');
 const aiConfigService = require('../src/services/aiConfigService');
 
 const VIDEO_CLIENT_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoClient.js'), 'utf8');
+const VIDEO_DISPATCH_SRC = fs.readFileSync(path.join(__dirname, '../src/services/videoGateway/protocolDispatch.js'), 'utf8');
 const GATEWAY_DIR = path.join(__dirname, '../src/services/videoGateway');
 const PUBLIC_API = [
   'getDefaultVideoConfig',
@@ -83,8 +84,38 @@ describe('videoGateway 客户端拆分', () => {
     for (const name of MOVED_FNS) {
       assert.doesNotMatch(VIDEO_CLIENT_SRC, new RegExp(`(?:async )?function ${name}\\s*\\(`));
     }
-    assert.match(VIDEO_CLIENT_SRC, /createSoraVideo/);
-    assert.match(VIDEO_CLIENT_SRC, /createMinimaxVideo/);
+    assert.doesNotMatch(VIDEO_CLIENT_SRC, /createSoraVideo/);
+    assert.doesNotMatch(VIDEO_CLIENT_SRC, /createMinimaxVideo/);
+    assert.match(VIDEO_DISPATCH_SRC, /createSoraVideo/);
+    assert.match(VIDEO_DISPATCH_SRC, /createMinimaxVideo/);
+    assert.match(VIDEO_CLIENT_SRC, /dispatchVideoProtocol/);
+    assert.match(VIDEO_CLIENT_SRC, /require\('\.\/videoGateway\/protocolDispatch'\)/);
+    const createSrc = (() => {
+      const marker = 'async function callVideoApiInternal(';
+      const start = VIDEO_CLIENT_SRC.indexOf(marker);
+      assert.notEqual(start, -1);
+      const next = VIDEO_CLIENT_SRC.indexOf('async function callVideoApi(', start + marker.length);
+      assert.notEqual(next, -1);
+      return VIDEO_CLIENT_SRC.slice(start, next);
+    })();
+    const createProtocolIfs = [
+      "if (protocol === 'jimeng_ai_api')",
+      "if (protocol === 'xai')",
+      "if (protocol === 'dashscope')",
+      "if (protocol === 'gemini')",
+      "if (protocol === 'vidu')",
+      "if (protocol === 'kling')",
+      "if (protocol === 'kling_omni')",
+      "if (protocol === 'volcengine_omni')",
+      "if (protocol === 'veo3')",
+      "if (protocol === 'sora')",
+      "if (protocol === 'minimax')",
+      "if (protocol === 'agnes')",
+    ];
+    for (const needle of createProtocolIfs) {
+      assert.equal(createSrc.includes(needle), false, needle);
+      assert.equal(VIDEO_DISPATCH_SRC.includes(needle), true, needle);
+    }
     assert.equal(typeof volcengine.callVolcengineOmniVideoApi, 'function');
     assert.equal(typeof kling.callKlingOmniVideoApi, 'function');
     assert.equal(typeof kling.callKlingVideoApi, 'function');
@@ -111,6 +142,7 @@ describe('videoGateway 客户端拆分', () => {
       'mediaRefs.js',
       'minimaxVideoAdapter.js',
       'openAiSoraAdapter.js',
+      'protocolDispatch.js',
       'providerRuntime.js',
       'requestError.js',
       'seedanceCertifiedAssets.js',
@@ -122,6 +154,7 @@ describe('videoGateway 客户端拆分', () => {
     assert.ok(!files.includes('soraVideoAdapter.js'));
     assert.doesNotMatch(VIDEO_CLIENT_SRC, /async function callSoraVideoApi/);
     assert.match(VIDEO_CLIENT_SRC, /require\('\.\/videoGateway\/openAiSoraAdapter'\)/);
+    assert.match(VIDEO_DISPATCH_SRC, /require\('\.\/openAiSoraAdapter'\)/);
   });
 
   it('本地参考图/音频不支持时返回简体中文错误', async (t) => {
