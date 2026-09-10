@@ -33,6 +33,7 @@ const oneKeySource = readSource(new URL('../src/composables/useAiConfigOneKeyPre
 const importExportSource = readSource(new URL('../src/composables/useAiConfigImportExport.js', import.meta.url))
 const listMutationsSource = readSource(new URL('../src/composables/useAiConfigRowMutations.js', import.meta.url))
 const connectionTestSource = readSource(new URL('../src/utils/aiConfigConnectionTest.js', import.meta.url))
+const formSettingsSource = readSource(new URL('../src/utils/aiConfigFormSettings.js', import.meta.url))
 const discoverModelsSource = readSource(new URL('../src/composables/useAiConfigDiscoverModels.js', import.meta.url))
 const coverageCardsSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCards.vue', import.meta.url))
 const coverageCardSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url))
@@ -499,7 +500,7 @@ test('project readiness service links are consumed as an AI configuration filter
 
 test('ComfyUI configuration exposes a validated workflow editor and persists the parsed object', () => {
   assert.match(vueSource, /v-if="isComfyUiForm" prop="comfy_workflow_json" label="工作流 JSON"/)
-  assert.match(vueSource, /function parseComfyWorkflowJson\(value\)/)
+  assert.match(formSettingsSource, /function parseComfyWorkflowJson\(value\)/)
   assert.match(vueSource, /settingsObject\.workflow = parseComfyWorkflowJson\(form\.value\.comfy_workflow_json\)/)
   assert.match(vueSource, /delete settingsObject\.workflow/)
 })

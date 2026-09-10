@@ -16,6 +16,7 @@ const promptEditorSource = read('../src/components/PromptEditor.vue')
 const sd2Source = read('../src/components/Sd2AssetManagement.vue')
 const aiConfigSource = read('../src/components/AIConfigContent.vue')
 const aiConfigRowMutationsSource = read('../src/composables/useAiConfigRowMutations.js')
+const aiConfigFormSettingsSource = read('../src/utils/aiConfigFormSettings.js')
 const notFoundSource = read('../src/views/NotFound.vue')
 
 const ALLOWED_SOURCES = {
@@ -214,7 +215,7 @@ test('AI 配置页按钮、占位、表单标签和错误提示改为简体中�
   assert.match(aiConfigRowMutationsSource, /ElMessage\.success\(res\?\.message \|\| '所有配置的 API 密钥已更新'\)/)
   assert.match(aiConfigSource, /jimeng2AssetStatusLabel\(row\.status\)/)
   assert.match(aiConfigSource, /jimeng2AssetTypeLabel\(row\.asset_type\)/)
-  assert.match(aiConfigSource, /throw new Error\('工作流 JSON 格式无效'\)/)
+  assert.match(aiConfigFormSettingsSource, /throw new Error\('工作流 JSON 格式无效'\)/)
   assert.doesNotMatch(aiConfigSource, /label="Base URL"/)
   assert.doesNotMatch(aiConfigSource, /label="Workflow JSON"/)
   assert.doesNotMatch(aiConfigSource, /label="asset_url"/)

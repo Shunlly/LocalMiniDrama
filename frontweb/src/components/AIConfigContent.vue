@@ -1472,6 +1472,12 @@ import {
   configActionLabel,
 } from '@/utils/aiConfigLabels.js'
 import { describeConnectionTestError } from '@/utils/aiConfigConnectionTest.js'
+import {
+  parseSettings,
+  parseComfyWorkflowJson,
+  isDeepSeekOfficial,
+  resolveDeepSeekFormSettings,
+} from '@/utils/aiConfigFormSettings.js'
 import { buildAiServiceCoverage, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
 import { useAiConfigCoverage } from '@/composables/useAiConfigCoverage.js'
 import {
@@ -2126,50 +2132,6 @@ function isConfigRowSelectable() {
 async function restoreTestedCoverageCardFocus() {
   connectionTestAbortController?.abort()
   await restoreCoverageCardFocus()
-}
-
-function parseSettings(settings) {
-  if (!settings) return {}
-  if (typeof settings === 'object') return settings
-  try {
-    const parsed = JSON.parse(settings)
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch (_) {
-    return {}
-  }
-}
-
-function parseComfyWorkflowJson(value) {
-  let parsed
-  try {
-    parsed = typeof value === 'string' ? JSON.parse(value) : value
-  } catch (_) {
-    throw new Error('工作流 JSON 格式无效')
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || Object.keys(parsed).length === 0) {
-    throw new Error('工作流 JSON 必须是非空对象')
-  }
-  return parsed
-}
-
-function isDeepSeekOfficial(provider, baseUrl) {
-  const p = String(provider || '').trim().toLowerCase()
-  const base = String(baseUrl || '').trim().toLowerCase()
-  return p === 'deepseek' || base.includes('api.deepseek.com')
-}
-
-function resolveDeepSeekFormSettings(row) {
-  const s = parseSettings(row?.settings)
-  const nested = s.deepseek && typeof s.deepseek === 'object' ? s.deepseek : {}
-  let thinking = s.deepseek_thinking || s.thinking || nested.thinking || nested.type || ''
-  const model = String(row?.default_model || '').toLowerCase()
-  if (!thinking && model === 'deepseek-chat') thinking = 'disabled'
-  if (!thinking && model === 'deepseek-reasoner') thinking = 'enabled'
-  if (thinking !== 'enabled' && thinking !== 'disabled') thinking = 'disabled'
-
-  let effort = s.deepseek_reasoning_effort || s.reasoning_effort || nested.reasoning_effort || nested.effort || 'high'
-  effort = String(effort).toLowerCase() === 'max' ? 'max' : 'high'
-  return { thinking, effort }
 }
 
 const isDeepSeekOfficialForm = computed(() => (
