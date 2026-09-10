@@ -34,6 +34,12 @@ function throwIfAborted(signal) {
   if (signal?.aborted) throw operationCancelledError(signal.reason);
 }
 
+function describePostProcessFailure(error) {
+  if (error === 'NO_POST_OPTS') return '当前没有可执行的成片后处理项';
+  if (error === 'NO_NARRATION') return '当前没有可烧录的旁白';
+  return error || '未生成输出文件';
+}
+
 function isOperationCancelled(error, signal) {
   return signal?.aborted || error?.code === 'OPERATION_CANCELLED' || error?.name === 'AbortError';
 }
@@ -1086,7 +1092,7 @@ async function processStrictProductionMerge(db, log, row, scenes, mergeOpts, bas
       execution.trackPublication(postPublication);
       throwIfAborted(signal);
       if (!post.ok || !post.relativePath) {
-        throw strictMergeError(`严格生产后处理失败：${post.error || '未生成输出文件'}`);
+        throw strictMergeError(`严格生产后处理失败：${describePostProcessFailure(post.error)}`);
       }
       outputAbsPath = path.join(storageRoot, post.relativePath.replace(/\//g, path.sep));
       const returnedSrtPath = pathWithinStorage(storageRoot, post.srtRelativePath);

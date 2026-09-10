@@ -312,7 +312,7 @@ async function runNarrationSubtitlePostProcess(db, log, opts) {
 
     if (srtLines.length === 0) {
       log.info('narration post: skip (no narration text in merged scenes)', { episode_id: episodeId });
-      return { ok: false, error: 'NO_NARRATION' };
+      return { ok: false, error: '当前没有可烧录的旁白' };
     }
 
     const narrConcat = path.join(tempRoot, 'narr_concat.mp3');

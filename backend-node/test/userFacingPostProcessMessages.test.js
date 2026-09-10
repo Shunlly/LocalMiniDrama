@@ -263,5 +263,8 @@ describe('后处理源码不再拼接英文堆栈给用户', () => {
       assert.match(source, /userFacingPostProcessError/);
       assert.match(source, /未找到 ffmpeg，请确认已安装 ffmpeg 后重试/);
     }
+    const narrationSource = fs.readFileSync(path.join(__dirname, '../src/services/narrationVideoPostProcess.js'), 'utf8');
+    assert.match(narrationSource, /当前没有可烧录的旁白/);
+    assert.equal(narrationSource.includes("'NO_NARRATION'"), false);
   });
 });
