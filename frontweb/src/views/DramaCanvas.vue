@@ -2014,7 +2014,8 @@ function goProjectList() {
 }
 
 function goListMode() {
-  const query = filterEpisodeId.value ? { episode: String(filterEpisodeId.value) } : {}
+  const episode = filterEpisodeId.value || routeEpisodeId()
+  const query = episode ? { episode: String(episode) } : {}
   if (projectListReturnTo.value) query.returnTo = projectListReturnTo.value
   router.push({ path: `/film/${dramaId.value}`, query })
 }

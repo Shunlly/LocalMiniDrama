@@ -297,7 +297,10 @@ async function verifyProjectListFilmCanvasRoundTrip(page, options = {}) {
   const listMode = page.getByRole('button', { name: CRITICAL_UI.listMode, exact: true }).first()
   await waitForEnabled(listMode, '列表模式')
   await Promise.all([
-    waitForPath(page, (url) => url.pathname === `/film/${fixture.dramaId}`),
+    waitForPath(page, (url) => (
+      url.pathname === `/film/${fixture.dramaId}`
+      && url.searchParams.get('episode') === episodeId
+    )),
     listMode.click(),
   ])
   await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })

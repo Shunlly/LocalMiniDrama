@@ -159,6 +159,7 @@ test('canvas guards same-route context changes and carries all return context', 
   assert.match(dramaCanvasSource, /routeFocusNodeId\(\), routeEpisodeId\(\)[\s\S]*startCanvasRouteSynchronization\(\{ resetProject \}\)/)
   assert.match(dramaCanvasSource, /const projectListReturnTo = computed\(\(\) => normalizeProjectListReturnTo\(route\.query\.returnTo\)\)/)
   assert.match(dramaCanvasSource, /function goProjectList\(\)/)
+  assert.match(dramaCanvasSource, /function goListMode\(\)[\s\S]*filterEpisodeId\.value \|\| routeEpisodeId\(\)/)
   assert.match(dramaCanvasSource, /function goListMode\(\)[\s\S]*returnTo/)
   assert.match(dramaCanvasSource, /function navigateToStoryboard\([\s\S]*returnTo/)
   assert.match(dramaCanvasSource, /function buildCanvasReturnTo\([\s\S]*routeEpisodeId\(\)[\s\S]*routeFocusNodeId\(\)[\s\S]*name: 'film-canvas'/)
