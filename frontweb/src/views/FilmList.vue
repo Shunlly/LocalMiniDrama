@@ -12,7 +12,7 @@
             <el-icon><Files /></el-icon>素材中心
           </el-button>
           <el-dropdown :disabled="listWriteLocked" trigger="click" placement="bottom-start" @command="openSemanticLibrary">
-            <el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked" aria-label="打开分类素材">
+            <el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked" aria-label="打开分类素材" :title="listWriteLocked ? listWriteLockReason : '打开分类素材'" :aria-describedby="listError ? 'project-list-load-error' : undefined">
               <el-icon><Collection /></el-icon>分类素材
               <el-icon class="dropdown-caret"><ArrowDown /></el-icon>
             </el-button>
@@ -68,7 +68,7 @@
     <main class="main">
       <section v-if="sourceImportIntent" class="source-import-intent" role="status" aria-live="polite">
         <span>选择已有项目后导入网页 URL，或新建项目后继续。</span>
-        <el-button type="primary" size="small" :disabled="listWriteLocked" aria-label="新建项目" @click="openSourceImportProject">
+        <el-button type="primary" size="small" :disabled="listWriteLocked" aria-label="新建项目" :title="listWriteLocked ? listWriteLockReason : undefined" :aria-describedby="listError ? 'project-list-load-error' : undefined" @click="openSourceImportProject">
           <el-icon><Plus /></el-icon>新建项目
         </el-button>
       </section>
@@ -108,6 +108,7 @@
             plain
             :loading="exportingId === exportFailure.drama.id"
             :disabled="exportingId !== null && exportingId !== exportFailure.drama.id"
+            :title="exportingId !== null && exportingId !== exportFailure.drama.id ? '正在导出其他项目，请稍候' : undefined"
             @click="onExport(exportFailure.drama)"
           >
             <el-icon><RefreshLeft /></el-icon>重试导出
@@ -132,11 +133,13 @@
               plain
               :loading="importing"
               :disabled="listWriteLocked"
+              :title="listWriteLocked ? listWriteLockReason : undefined"
+              :aria-describedby="listError ? 'project-list-load-error' : undefined"
               @click="triggerImport"
             >
               <el-icon><RefreshLeft /></el-icon>重新选择项目包
             </el-button>
-            <el-button plain :disabled="importing" @click="dismissImportFailure">
+            <el-button plain :disabled="importing" :title="importing ? '正在导入项目包，请稍候' : undefined" @click="dismissImportFailure">
               关闭
             </el-button>
           </div>
@@ -326,11 +329,11 @@
               </el-button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="export" :disabled="exportingId === d.id">
+                  <el-dropdown-item command="export" :disabled="exportingId === d.id" :title="exportingId === d.id ? '正在导出该项目，请稍候' : undefined">
                     <el-icon><Download /></el-icon>导出项目
                   </el-dropdown-item>
-                  <el-dropdown-item command="edit" :disabled="listWriteLocked"><el-icon><Edit /></el-icon>编辑项目</el-dropdown-item>
-                  <el-dropdown-item command="trash" :disabled="listWriteLocked" divided>
+                  <el-dropdown-item command="edit" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined"><el-icon><Edit /></el-icon>编辑项目</el-dropdown-item>
+                  <el-dropdown-item command="trash" :disabled="listWriteLocked" :title="listWriteLocked ? listWriteLockReason : undefined" divided>
                     <el-icon><Delete /></el-icon>移入回收站
                   </el-dropdown-item>
                 </el-dropdown-menu>
@@ -401,6 +404,7 @@
               plain
               :loading="restoringId === item.id"
               :disabled="restoringId !== null && restoringId !== item.id"
+              :title="restoringId !== null && restoringId !== item.id ? '正在恢复其他项目，请稍候' : undefined"
               :aria-label="`恢复项目「${item.title || '未命名项目'}」`"
               @click="restoreFromTrash(item)"
             >
@@ -456,7 +460,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showNewDialog = false">取消</el-button>
-        <el-button type="primary" :loading="newSaving" :disabled="listWriteLocked || !newForm.title?.trim()" @click="submitNew">确定</el-button>
+        <el-button type="primary" :loading="newSaving" :disabled="Boolean(newSubmitDisabledReason)" :title="newSubmitDisabledReason || undefined" @click="submitNew">确定</el-button>
       </template>
     </AccessibleDialog>
 
@@ -728,7 +732,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditDialog = false">取消</el-button>
-        <el-button type="primary" :loading="editSaving" :disabled="listWriteLocked || !editForm.title?.trim()" @click="submitEdit">保存</el-button>
+        <el-button type="primary" :loading="editSaving" :disabled="Boolean(editSubmitDisabledReason)" :title="editSubmitDisabledReason || undefined" @click="submitEdit">保存</el-button>
       </template>
     </AccessibleDialog>
   </div>
@@ -1237,6 +1241,16 @@ async function onImportExample(ex) {
 const showEditDialog = ref(false)
 const editForm = ref({ id: null, title: '', description: '' })
 const editSaving = ref(false)
+const newSubmitDisabledReason = computed(() => {
+  if (listWriteLocked.value) return listWriteLockReason.value
+  if (!newForm.value.title?.trim()) return '请先填写项目标题'
+  return ''
+})
+const editSubmitDisabledReason = computed(() => {
+  if (listWriteLocked.value) return listWriteLockReason.value
+  if (!editForm.value.title?.trim()) return '请先填写项目标题'
+  return ''
+})
 
 function describeProjectLoadError(error) {
   return describeServiceLoadError(error, { serviceLabel: '项目服务' })
@@ -1377,6 +1391,7 @@ function clearProjectFilters() {
 function formatDate(val) {
   if (!val) return ''
   const d = new Date(val)
+  if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 

@@ -200,6 +200,9 @@ test('分类素材加载失败不会被伪装成空库，且 AI 配置在列表�
   assert.match(filmListSource, /function clearCharLibraryKeyword/)
   assert.match(filmListSource, /class="btn-settings" title="打开 AI 配置" aria-label="打开 AI 配置" @click="showAiConfigDialog = true"/)
   assert.doesNotMatch(filmListSource, /class="btn-settings" :disabled="listWriteLocked"/)
+  assert.match(filmListSource, /const newSubmitDisabledReason = computed/)
+  assert.match(filmListSource, /请先填写项目标题/)
+  assert.match(filmListSource, /:title="listWriteLocked \? listWriteLockReason : '打开分类素材'"/)
   assert.equal(
     describeServiceLoadError({ response: { status: 502 } }, { serviceLabel: '角色素材服务' }),
     '角色素材服务暂时不可用（HTTP 502）',

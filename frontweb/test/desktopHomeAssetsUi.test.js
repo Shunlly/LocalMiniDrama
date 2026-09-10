@@ -46,7 +46,7 @@ test('desktop home exposes one material center entry and keeps semantic librarie
   )
   assert.match(
     headerLibrarySource,
-    /<el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked" aria-label="打开分类素材">\s*<el-icon><Collection \/><\/el-icon>分类素材\s*<el-icon class="dropdown-caret"><ArrowDown \/><\/el-icon>\s*<\/el-button>/,
+    /<el-button class="btn-library btn-semantic-library" :disabled="listWriteLocked" aria-label="打开分类素材"[^>]*>\s*<el-icon><Collection \/><\/el-icon>分类素材\s*<el-icon class="dropdown-caret"><ArrowDown \/><\/el-icon>\s*<\/el-button>/,
   )
   assert.match(headerLibrarySource, /<el-dropdown-item command="character"><el-icon><User \/><\/el-icon>角色素材库<\/el-dropdown-item>/)
   assert.match(headerLibrarySource, /<el-dropdown-item command="scene"><el-icon><PictureFilled \/><\/el-icon>场景素材库<\/el-dropdown-item>/)
