@@ -14,7 +14,8 @@ const desktopToolbarSource = read('../src/components/dramaCanvas/CanvasDesktopTo
 const contextMenuSource = read('../src/components/dramaCanvas/CanvasContextMenu.vue')
 const dramaCanvasViewSource = read('../src/views/DramaCanvas.vue')
 const freeCanvasLogicSource = read('../src/composables/useDramaCanvasFreeCanvas.js')
-const dramaCanvasSource = `${dramaCanvasViewSource}\n${freeCanvasLogicSource}`
+const persistLogicSource = read('../src/composables/useDramaCanvasPersist.js')
+const dramaCanvasSource = `${dramaCanvasViewSource}\n${freeCanvasLogicSource}\n${persistLogicSource}`
 
 test('free canvas toolbar names every icon-only action and exposes mode selection', () => {
   for (const label of ['撤销', '重做', '适配视图', '切换背景']) {

@@ -24,6 +24,7 @@ import { canvasUserError } from '../src/composables/useCanvasUserError.js'
 const canvasSource = [
   readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/composables/useDramaCanvasFreeCanvas.js', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasPersist.js', import.meta.url), 'utf8'),
 ].join('\n')
 
 function deferred() {
