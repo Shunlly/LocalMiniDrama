@@ -19,8 +19,12 @@ import {
 import * as freeCanvasMedia from '../src/utils/freeCanvasMedia.js'
 import { createCanvasSaveCoordinator } from '../src/utils/canvasSaveCoordinator.js'
 import { remainingExtractNamedFunction } from './helpers/remainingSourceBetween.js'
+import { canvasUserError } from '../src/composables/useCanvasUserError.js'
 
-const canvasSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
+const canvasSource = [
+  readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasFreeCanvas.js', import.meta.url), 'utf8'),
+].join('\n')
 
 function deferred() {
   let resolve
@@ -1217,7 +1221,7 @@ test('a stale unrelated failure keeps the retained retry state visible', async (
 })
 
 test('canvas errors never expose password, cookie, client_secret, or arbitrary backend text', () => {
-  const safeFreeCanvasError = loadCanvasFunction('safeFreeCanvasError', {})
+  const safeFreeCanvasError = loadCanvasFunction('safeFreeCanvasError', { canvasUserError })
   const fallback = '保存失败，请重试'
   for (const message of [
     'password=hunter2',

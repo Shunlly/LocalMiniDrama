@@ -1,6 +1,6 @@
 import { describeServiceLoadError, isRequestCanceled, isRequestTimeout } from '@/utils/requestError'
 
-const TECHNICAL_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|err_network|econnaborted|etimedout|failed to fetch|load failed|internal server error/i
+const SECRET_RE = /password\s*=|client_secret|cookie\s*:|authorization\s*:|api[_-]?key\s*[:=]/i
 const UNSET = '\0'
 
 function errorText(error) {
@@ -12,6 +12,10 @@ function hasChinese(text) {
   return /[\u4e00-\u9fff]/.test(text)
 }
 
+function isSafeChinese(text) {
+  return Boolean(text) && hasChinese(text) && !SECRET_RE.test(text) && !/https?:\/\//i.test(text)
+}
+
 /** 把操作异常转成可展示的简体中文 */
 export function toUserFacingError(error, fallback = '操作失败，请稍后重试', options = {}) {
   if (error === 'cancel' || isRequestCanceled(error, options.signal)) return '操作已取消'
@@ -20,12 +24,10 @@ export function toUserFacingError(error, fallback = '操作失败，请稍后重
     fallback: UNSET,
     signal: options.signal,
   })
-  if (described && described !== UNSET && hasChinese(described)) return described
+  if (described && described !== UNSET && isSafeChinese(described)) return described
   const raw = errorText(error)
-  if (raw && hasChinese(raw)) return raw
+  if (raw && isSafeChinese(raw)) return raw
   if (isRequestTimeout(error, options.signal)) return '连接超时，请稍后重试'
-  if (described && described !== UNSET && !TECHNICAL_ENGLISH_RE.test(described)) return described
-  if (raw && !TECHNICAL_ENGLISH_RE.test(raw)) return raw
   return fallback
 }
 
