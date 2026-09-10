@@ -9,7 +9,7 @@ import { fetchStoryboardMediaSnapshot } from '../src/composables/useCanvasStoryb
 import { generateAssetReferenceImage } from '../src/composables/useCanvasAssetGenerate.js'
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
-const canvasSource = [read('../src/views/DramaCanvas.vue'), read('../src/views/DramaCanvas.css'), read('../src/composables/useDramaCanvasProjectLoad.js'), read('../src/composables/useDramaCanvasGraph.js')].join('\n')
+const canvasSource = [read('../src/views/DramaCanvas.vue'), read('../src/components/dramaCanvas/CanvasPageHeader.vue'), read('../src/views/DramaCanvas.css'), read('../src/composables/useDramaCanvasProjectLoad.js'), read('../src/composables/useDramaCanvasGraph.js')].join('\n')
 const storyboardNodeSource = read('../src/components/dramaCanvas/CanvasStoryboardNode.vue')
 const inspectorDockSource = read('../src/components/dramaCanvas/CanvasInspectorDock.vue')
 const storyboardPanelSource = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')

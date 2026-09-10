@@ -16,6 +16,8 @@ function read(path) {
 }
 
 const canvasSource = read('../src/views/DramaCanvas.vue')
+const pageHeaderSource = read('../src/components/dramaCanvas/CanvasPageHeader.vue')
+const productionSidebarSource = read('../src/components/dramaCanvas/CanvasProductionSidebar.vue')
 const emptyStateSource = read('../src/components/dramaCanvas/CanvasEmptyState.vue')
 const assetNodeSource = read('../src/components/dramaCanvas/CanvasAssetNode.vue')
 const assetPanelSource = read('../src/components/dramaCanvas/CanvasAssetPanel.vue')
@@ -83,14 +85,16 @@ test('buildCanvasReferenceDisplaySlots 为空时给出可绑定提示数据，�
 })
 
 test('DramaCanvas 侧栏空态可键盘新建，自由画布空态有说明', () => {
-  assert.match(canvasSource, /class="sidebar-empty" role="status"/)
-  assert.match(canvasSource, /暂无角色/)
-  assert.match(canvasSource, /暂无场景/)
-  assert.match(canvasSource, /暂无道具/)
-  assert.match(canvasSource, /aria-label="新建角色"/)
-  assert.match(canvasSource, /aria-label="新建场景"/)
-  assert.match(canvasSource, /aria-label="新建道具"/)
-  assert.match(canvasSource, /:aria-label="`定位角色\$\{c\.name \|\| '未命名'\}`"/)
+  const chromeSource = `${canvasSource}\n${productionSidebarSource}`
+  assert.match(canvasSource, /<CanvasProductionSidebar/)
+  assert.match(chromeSource, /class="sidebar-empty" role="status"/)
+  assert.match(chromeSource, /暂无角色/)
+  assert.match(chromeSource, /暂无场景/)
+  assert.match(chromeSource, /暂无道具/)
+  assert.match(chromeSource, /aria-label="新建角色"/)
+  assert.match(chromeSource, /aria-label="新建场景"/)
+  assert.match(chromeSource, /aria-label="新建道具"/)
+  assert.match(chromeSource, /:aria-label="`定位角色\$\{c\.name \|\| '未命名'\}`"/)
   assert.match(canvasSource, /id="free-canvas-empty-desc"/)
   assert.match(canvasSource, /还没有自由节点/)
   assert.match(canvasSource, /@go-production="setCanvasMode\('production'\)"/)
@@ -173,8 +177,11 @@ test('画布页用户 toast 不再直出 e.message', () => {
 })
 
 test('批量生成、素材参考图和剧本提取都有可点的取消按钮', () => {
-  assert.match(canvasSource, /aria-label="取消批量生成"/)
-  assert.match(canvasSource, /@click="cancelEpisodeGenerate"/)
+  const chromeSource = `${canvasSource}\n${pageHeaderSource}`
+  assert.match(canvasSource, /<CanvasPageHeader/)
+  assert.match(canvasSource, /:cancel-episode-generate="cancelEpisodeGenerate"/)
+  assert.match(chromeSource, /aria-label="取消批量生成"/)
+  assert.match(chromeSource, /@click="cancelEpisodeGenerate"/)
   assert.match(canvasSource, /abortEpisodeGenerate/)
   assert.match(assetPanelSource, /aria-label="取消生成参考图"/)
   assert.match(assetPanelSource, />取消<\/el-button>/)

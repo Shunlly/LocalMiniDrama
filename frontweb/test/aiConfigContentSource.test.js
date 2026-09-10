@@ -28,6 +28,17 @@ function readSource(url) {
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const oneKeyDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigOneKeyDialogs.vue', import.meta.url))
+const bulkKeyDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigBulkKeyDialog.vue', import.meta.url))
+const connectionDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url))
+const jimeng2AssetsDialogSource = readSource(new URL('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue', import.meta.url))
+const overlaySource = [
+  vueSource,
+  oneKeyDialogSource,
+  bulkKeyDialogSource,
+  connectionDialogSource,
+  jimeng2AssetsDialogSource,
+].join('\n')
 const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
 const oneKeySource = readSource(new URL('../src/composables/useAiConfigOneKeyPresets.js', import.meta.url))
 const importExportSource = readSource(new URL('../src/composables/useAiConfigImportExport.js', import.meta.url))
@@ -145,7 +156,7 @@ test('AIConfigContent wires coverage, model list and preset help components with
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
   assert.match(vueSource, /useAiConfigGenerationSettings\(/)
-  assert.doesNotMatch(vueSource, /async function loadGenerationSettings\(\)/)
+  assert.doesNotMatch(overlaySource, /async function loadGenerationSettings\(\)/)
   assert.doesNotMatch(vueSource, /async function saveGenerationSettings\(\)/)
   assert.match(vueSource, /useAiConfigDiscoverModels\(/)
   assert.doesNotMatch(vueSource, /async function discoverModelsFromService\(\)/)
@@ -425,8 +436,9 @@ test('coverage testing restores the keyed service card and keeps results perceiv
   assert.match(coverageCardSource, /:ref="\(element\) => setCoverageCardRef\(item\.type, element\)"/)
   assert.match(coverageCardSource, /tabindex="-1"/)
   assert.match(coverageCardSource, /:aria-label="`\$\{item\.label\}，\$\{coverageStateLabel\(item\)\}，\$\{coverageTestLabel\(item\.test\)\}`"/)
-  assert.match(vueSource, /<AccessibleDialog v-model="testVisible"[\s\S]*@closed="restoreTestedCoverageCardFocus"/)
-  assert.match(vueSource, /role="status" aria-live="polite"[\s\S]*\{\{ testResultAnnouncement \}\}/)
+  assert.match(connectionDialogSource, /<AccessibleDialog v-model="testVisible"[\s\S]*@closed="restoreTestedCoverageCardFocus"/)
+  assert.match(vueSource, /<AiConfigConnectionTestDialog/)
+  assert.match(connectionDialogSource, /role="status" aria-live="polite"[\s\S]*\{\{ testResultAnnouncement \}\}/)
   assert.match(vueSource, /testResultAnnouncement\.value = '连接测试通过'/)
   assert.match(vueSource, /testResultAnnouncement\.value = `连接测试失败：\$\{testError\.value\}`/)
   assert.match(vueSource, /restoreTestedCoverageCardFocus: restoreCoverageCardFocus/)
@@ -761,14 +773,16 @@ test('AI 配置厂商和模型选择保留中文空状态、无障碍名称，�
 
 
 test('即梦素材库弹窗去掉接口路径，列名和时间改为中文', () => {
-  assert.match(vueSource, /v-model="jimeng2AssetsDialogVisible"\s+title="素材库列表"/)
-  assert.doesNotMatch(vueSource, /素材库列表（GET \/api\/business\/v1\/assets）/)
-  assert.doesNotMatch(vueSource, /<code>status=active<\/code>/)
-  assert.match(vueSource, /仅启用中的素材可用于 Seedance 2\.0 视频引用/)
-  assert.match(vueSource, /label="原始地址"/)
-  assert.doesNotMatch(vueSource, /label="原始 URL"/)
-  assert.match(vueSource, /formatJimeng2AssetCreatedAt\(row\.created_at\) \|\| '未知时间'/)
-  assert.doesNotMatch(vueSource, /<el-table-column prop="created_at" label="创建时间"[^/]*\/>/)
+  assert.match(vueSource, /<AiConfigJimeng2AssetsDialog/)
+  assert.match(vueSource, /v-model:jimeng2-assets-dialog-visible="jimeng2AssetsDialogVisible"/)
+  assert.match(jimeng2AssetsDialogSource, /v-model="jimeng2AssetsDialogVisible"\s+title="素材库列表"/)
+  assert.doesNotMatch(jimeng2AssetsDialogSource, /素材库列表（GET \/api\/business\/v1\/assets）/)
+  assert.doesNotMatch(jimeng2AssetsDialogSource, /<code>status=active<\/code>/)
+  assert.match(jimeng2AssetsDialogSource, /仅启用中的素材可用于 Seedance 2\.0 视频引用/)
+  assert.match(jimeng2AssetsDialogSource, /label="原始地址"/)
+  assert.doesNotMatch(jimeng2AssetsDialogSource, /label="原始 URL"/)
+  assert.match(jimeng2AssetsDialogSource, /formatJimeng2AssetCreatedAt\(row\.created_at\) \|\| '未知时间'/)
+  assert.doesNotMatch(jimeng2AssetsDialogSource, /<el-table-column prop="created_at" label="创建时间"[^/]*\/>/)
 
   const start = vueSource.indexOf('function formatJimeng2AssetCreatedAt(value) {')
   assert.notEqual(start, -1, 'formatJimeng2AssetCreatedAt must stay in AIConfigContent.vue')
@@ -806,18 +820,27 @@ test('AI 配置页 GET 帮助、429 说明和一键配置空密钥禁用改为�
   assert.match(vueSource, /接口限流（请求过于频繁）/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
+  assert.match(vueSource, /<AiConfigOneKeyDialogs/)
+  assert.match(vueSource, /<AiConfigBulkKeyDialog/)
+  assert.match(vueSource, /<AiConfigConnectionTestDialog/)
+  assert.match(vueSource, /<AiConfigJimeng2AssetsDialog/)
   assert.doesNotMatch(vueSource, /useAiConfigList/)
   assert.doesNotMatch(vueSource, /from '@\/composables\/useAiConfigList/)
+  for (const overlay of [oneKeyDialogSource, bulkKeyDialogSource, connectionDialogSource, jimeng2AssetsDialogSource]) {
+    assert.doesNotMatch(overlay, /async function loadList\(/)
+    assert.doesNotMatch(overlay, /async function openTest\(/)
+    assert.doesNotMatch(overlay, /useAiConfigList/)
+  }
 
   const oneKeySubmitKeys = ['oneKeyTongyiKey', 'oneKeyVolcKey', 'oneKeyAgnesKey', 'bulkKeyInput']
   for (const key of oneKeySubmitKeys) {
     assert.match(
-      vueSource,
+      overlaySource,
       new RegExp(`:disabled="configWriteLocked \\|\\| !${key}\\.trim\\(\\)"`),
       `${key} 空密钥时必须禁用一键配置`,
     )
     const titleRe = new RegExp(`:title="(configWriteLocked \\? configWriteLockReason : \\(!${key}\\.trim\\(\\) \\? '请先填写密钥' : undefined\\))"`)
-    const matched = vueSource.match(titleRe)
+    const matched = overlaySource.match(titleRe)
     assert.ok(matched, `${key} 必须给出空密钥中文原因，且写锁优先`)
     const expr = matched[1]
     const evalTitle = (env) => Function(

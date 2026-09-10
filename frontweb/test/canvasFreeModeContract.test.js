@@ -12,6 +12,8 @@ const storyboardPanelSource = read('../src/components/dramaCanvas/CanvasStoryboa
 const assetSidebarSource = read('../src/components/dramaCanvas/FreeCanvasAssetSidebar.vue')
 const desktopToolbarSource = read('../src/components/dramaCanvas/CanvasDesktopToolbar.vue')
 const contextMenuSource = read('../src/components/dramaCanvas/CanvasContextMenu.vue')
+const pageHeaderSource = read('../src/components/dramaCanvas/CanvasPageHeader.vue')
+const productionSidebarSource = read('../src/components/dramaCanvas/CanvasProductionSidebar.vue')
 const dramaCanvasViewSource = read('../src/views/DramaCanvas.vue')
 const dramaCanvasStyleSource = read('../src/views/DramaCanvas.css')
 const freeCanvasLogicSource = read('../src/composables/useDramaCanvasFreeCanvas.js')
@@ -20,7 +22,7 @@ const projectLoadLogicSource = read('../src/composables/useDramaCanvasProjectLoa
 const workflowLogicSource = read('../src/composables/useDramaCanvasWorkflow.js')
 const graphLogicSource = read('../src/composables/useDramaCanvasGraph.js')
 const viewportLogicSource = read('../src/composables/useDramaCanvasViewport.js')
-const dramaCanvasSource = `${dramaCanvasViewSource}\n${dramaCanvasStyleSource}\n${freeCanvasLogicSource}\n${persistLogicSource}\n${projectLoadLogicSource}\n${workflowLogicSource}\n${graphLogicSource}\n${viewportLogicSource}`
+const dramaCanvasSource = `${dramaCanvasViewSource}\n${pageHeaderSource}\n${productionSidebarSource}\n${dramaCanvasStyleSource}\n${freeCanvasLogicSource}\n${persistLogicSource}\n${projectLoadLogicSource}\n${workflowLogicSource}\n${graphLogicSource}\n${viewportLogicSource}`
 
 test('free canvas toolbar names every icon-only action and exposes mode selection', () => {
   assert.match(toolbarSource, /:title="canUndo \? '撤销' : '没有可撤销的操作'"/)
@@ -267,6 +269,9 @@ test('creating a free node suppresses the empty selection race until Vue Flow se
 })
 
 test('project-list return actions keep list-mode and project-list destinations distinct', () => {
+  assert.match(dramaCanvasViewSource, /<CanvasPageHeader/)
+  assert.match(dramaCanvasViewSource, /:go-project-list="goProjectList"/)
+  assert.match(dramaCanvasViewSource, /:go-list-mode="goListMode"/)
   assert.match(dramaCanvasSource, /<button type="button" class="logo" aria-label="返回项目列表" @click="goProjectList">/)
   assert.match(dramaCanvasSource, /canvas-load-actions[\s\S]*@click="goProjectList">返回项目列表/)
   assert.match(dramaCanvasSource, /free-canvas-version-warning[\s\S]*@click="goListMode">列表模式/)

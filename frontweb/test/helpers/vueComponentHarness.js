@@ -55,7 +55,16 @@ export function compileIconStub(names) {
 }
 
 export function createHostNode(type, text = '') {
-  return { type, text, props: {}, style: {}, children: [], parent: null }
+  return {
+    type,
+    text,
+    props: {},
+    style: {},
+    children: [],
+    parent: null,
+    focus() {},
+    blur() {},
+  }
 }
 
 function insertHostNode(child, parent, anchor = null) {
@@ -372,6 +381,35 @@ export function createElementPlusStubs() {
     },
   })
 
+  const ElCheckboxStub = defineComponent({
+    name: 'ElCheckboxStub',
+    props: ['modelValue', 'label', 'disabled'],
+    setup(props, { attrs, slots }) {
+      return () => h('checkbox', {
+        ...attrs,
+        checked: Boolean(props.modelValue),
+        disabled: Boolean(props.disabled),
+      }, slots.default?.() || props.label)
+    },
+  })
+
+  const ElInputNumberStub = defineComponent({
+    name: 'ElInputNumberStub',
+    props: ['modelValue', 'min', 'max', 'step', 'disabled', 'placeholder'],
+    setup(props, { attrs }) {
+      return () => h('input', {
+        ...attrs,
+        type: 'number',
+        value: props.modelValue ?? '',
+        min: props.min,
+        max: props.max,
+        step: props.step,
+        disabled: Boolean(props.disabled),
+        placeholder: props.placeholder,
+      })
+    },
+  })
+
   return {
     ElButtonStub,
     ElTooltipStub,
@@ -389,6 +427,8 @@ export function createElementPlusStubs() {
     ElDropdownStub,
     ElDropdownMenuStub,
     ElDropdownItemStub,
+    ElCheckboxStub,
+    ElInputNumberStub,
   }
 }
 
@@ -427,6 +467,10 @@ export function registerElementStubs(app, extra = {}) {
     ElDropdownMenu: stubs.ElDropdownMenuStub,
     'el-dropdown-item': stubs.ElDropdownItemStub,
     ElDropdownItem: stubs.ElDropdownItemStub,
+    'el-checkbox': stubs.ElCheckboxStub,
+    ElCheckbox: stubs.ElCheckboxStub,
+    'el-input-number': stubs.ElInputNumberStub,
+    ElInputNumber: stubs.ElInputNumberStub,
     ...extra,
   }
   for (const [name, component] of Object.entries(mapping)) {

@@ -11,8 +11,12 @@ import { reorderWorkflowGroupStoryboards } from '../src/utils/canvasWorkflow.js'
 
 const sidebarUrl = new URL('../src/components/dramaCanvas/CanvasWorkflowSidebarList.vue', import.meta.url)
 const canvasUrl = new URL('../src/views/DramaCanvas.vue', import.meta.url)
+const productionSidebarUrl = new URL('../src/components/dramaCanvas/CanvasProductionSidebar.vue', import.meta.url)
 const sidebarSource = readFileSync(sidebarUrl, 'utf8')
-const canvasSource = readFileSync(canvasUrl, 'utf8')
+const canvasSource = [
+  readFileSync(canvasUrl, 'utf8'),
+  readFileSync(productionSidebarUrl, 'utf8'),
+].join('\n')
 
 function workflowGroups() {
   return [
@@ -155,6 +159,8 @@ test('drama canvas enables Vue Flow visibility rendering outside the focused ins
   assert.equal(Boolean(VueFlow.props?.onlyRenderVisibleElements), true)
   assert.match(canvasSource, /:only-render-visible-elements="true"/)
   assert.doesNotMatch(canvasSource, /only-render-visible-elements="!focusedNodeId/)
+  assert.match(canvasSource, /<CanvasProductionSidebar/)
+  assert.match(canvasSource, /:reorder-workflow-storyboards="reorderWorkflowStoryboards"/)
   assert.match(canvasSource, /@reorder-storyboards="reorderWorkflowStoryboards"/)
   assert.match(canvasSource, /persist: \(\) => persistCanvasState\(\{ groupsOnly: true, reportError: false \}\)/)
   assert.match(canvasSource, /分镜排序保存失败，已恢复原顺序/)

@@ -8,14 +8,29 @@ const importExportSource = readFileSync(new URL('../src/composables/useAiConfigI
 const listMutationsSource = readFileSync(new URL('../src/composables/useAiConfigRowMutations.js', import.meta.url), 'utf8')
 const coverageCardSource = readFileSync(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url), 'utf8')
 const sd2Source = readFileSync(new URL('../src/components/Sd2AssetManagement.vue', import.meta.url), 'utf8')
+const oneKeyDialogsSource = readFileSync(new URL('../src/components/aiConfig/AiConfigOneKeyDialogs.vue', import.meta.url), 'utf8')
+const bulkKeyDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigBulkKeyDialog.vue', import.meta.url), 'utf8')
+const connectionTestDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigConnectionTestDialog.vue', import.meta.url), 'utf8')
+const jimeng2AssetsDialogSource = readFileSync(new URL('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue', import.meta.url), 'utf8')
+const writeSurfaceSources = [
+  source,
+  oneKeyDialogsSource,
+  bulkKeyDialogSource,
+  connectionTestDialogSource,
+  jimeng2AssetsDialogSource,
+]
+const writeSurfaceSource = writeSurfaceSources.join('\n')
 
 function openingButtonFor(clickHandler) {
   const marker = `@click="${clickHandler}"`
-  const clickIndex = source.indexOf(marker)
-  assert.notEqual(clickIndex, -1, `${clickHandler} button must exist`)
-  const start = source.lastIndexOf('<el-button', clickIndex)
-  assert.notEqual(start, -1, `${clickHandler} must be attached to an el-button`)
-  return source.slice(start, source.indexOf('>', clickIndex) + 1)
+  for (const haystack of writeSurfaceSources) {
+    const clickIndex = haystack.indexOf(marker)
+    if (clickIndex === -1) continue
+    const start = haystack.lastIndexOf('<el-button', clickIndex)
+    assert.notEqual(start, -1, `${clickHandler} must be attached to an el-button`)
+    return haystack.slice(start, haystack.indexOf('>', clickIndex) + 1)
+  }
+  assert.fail(`${clickHandler} button must exist`)
 }
 
 // 所有 configWriteLocked 按钮 title 形态：写锁原因优先，一键配置空密钥才回落「请先填写密钥」
@@ -151,22 +166,27 @@ test('AI 配置写入锁定时可见按钮给出中文原因，隐藏文件选�
   assert.match(source, /正在一键配置，请稍候/)
   assert.match(source, /正在批量替换密钥，请稍候/)
   assert.doesNotMatch(source, /useAiConfigList/)
-  assert.match(source, /title="素材库列表"/)
-  assert.doesNotMatch(source, /status=active/)
-  assert.match(source, /formatJimeng2AssetCreatedAt/)
-  assert.match(source, /label="原始地址"/)
+  assert.doesNotMatch(writeSurfaceSource, /useAiConfigList/)
+  assert.match(jimeng2AssetsDialogSource, /title="素材库列表"/)
+  assert.doesNotMatch(writeSurfaceSource, /status=active/)
+  assert.match(writeSurfaceSource, /formatJimeng2AssetCreatedAt/)
+  assert.match(jimeng2AssetsDialogSource, /label="原始地址"/)
   assert.match(source, /async function loadList\(\)/)
   assert.match(source, /async function openTest\(row\)/)
+  assert.match(source, /<AiConfigOneKeyDialogs/)
+  assert.match(source, /<AiConfigBulkKeyDialog/)
+  assert.match(source, /<AiConfigConnectionTestDialog/)
+  assert.match(source, /<AiConfigJimeng2AssetsDialog/)
 
   const lockedButtons = []
   let searchFrom = 0
-  while (searchFrom < source.length) {
-    const start = source.indexOf('<el-button', searchFrom)
+  while (searchFrom < writeSurfaceSource.length) {
+    const start = writeSurfaceSource.indexOf('<el-button', searchFrom)
     if (start === -1) break
     let quote = ''
     let end = -1
-    for (let i = start; i < source.length; i += 1) {
-      const ch = source[i]
+    for (let i = start; i < writeSurfaceSource.length; i += 1) {
+      const ch = writeSurfaceSource[i]
       if (quote) {
         if (ch === quote) quote = ''
         continue
@@ -181,7 +201,7 @@ test('AI 配置写入锁定时可见按钮给出中文原因，隐藏文件选�
       }
     }
     if (end === -1) break
-    const tag = source.slice(start, end + 1)
+    const tag = writeSurfaceSource.slice(start, end + 1)
     if (/:disabled="[^"]*configWriteLocked/.test(tag)) lockedButtons.push(tag)
     searchFrom = end + 1
   }
@@ -192,7 +212,7 @@ test('AI 配置写入锁定时可见按钮给出中文原因，隐藏文件选�
   }
   for (const key of ['oneKeyTongyiKey', 'oneKeyVolcKey', 'oneKeyAgnesKey', 'bulkKeyInput']) {
     assert.match(
-      source,
+      writeSurfaceSource,
       new RegExp(`:title="configWriteLocked \\? configWriteLockReason : \\(!${key}\\.trim\\(\\) \\? '请先填写密钥' : undefined\\)"`),
     )
   }

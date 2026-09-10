@@ -7,122 +7,57 @@
       'free-mode': canvasMode === 'free',
     }"
   >
-    <header class="header">
-      <div class="header-inner">
-        <button type="button" class="logo" aria-label="返回项目列表" @click="goProjectList">
-          <span class="logo-main">本地短剧助手</span>
-          <span class="logo-sub">画布模式</span>
-        </button>
-        <span class="breadcrumb-sep">›</span>
-        <span class="page-title">{{ drama?.title || '加载中…' }}</span>
-
-        <el-select
-          :model-value="filterEpisodeId"
-          aria-label="筛选画布集数"
-          @update:model-value="requestEpisodeFilterChange"
-          class="episode-select"
-          placeholder="全部集数"
-          clearable
-          size="small"
-          style="width: 150px"
-        >
-          <el-option
-            v-for="ep in (drama?.episodes || [])"
-            :key="ep.id"
-            :label="ep.title || '第' + (ep.episode_number || 0) + '集'"
-            :value="ep.id"
-          />
-        </el-select>
-
-        <span v-if="layoutSaveState === 'saving'" class="layout-status saving" aria-live="polite">保存中…</span>
-        <span v-else-if="layoutSaveState === 'saved'" class="layout-status saved" aria-live="polite">已保存</span>
-        <span v-else-if="layoutSaveState === 'error'" class="layout-status error" role="alert">保存失败</span>
-        <span
-          v-if="layoutSaveError"
-          class="layout-save-error"
-          role="alert"
-          :title="layoutSaveError"
-        >{{ layoutSaveError }}</span>
-        <el-button
-          v-if="layoutSaveState === 'error'"
-          link
-          size="small"
-          type="warning"
-          aria-label="重试保存画布"
-          @click="retryCanvasSave"
-        >
-          重试保存
-        </el-button>
-        <el-button
-          v-if="episodeGenerating"
-          type="warning"
-          plain
-          size="small"
-          aria-label="取消批量生成"
-          @click="cancelEpisodeGenerate"
-        >
-          取消
-        </el-button>
-
-      </div>
-      <CanvasDesktopToolbar
-        :selected-storyboard-count="selectedStoryboardIds.length"
-        :workflow-groups="workflowGroups"
-        :active-group-id="activeGroupId"
-        :pipeline-steps="pipelineSteps"
-        :workflow-running="workflowRunning"
-        :workflow-progress="workflowProgress"
-        :episode-generating="episodeGenerating"
-        :episode-gen-progress="episodeGenProgress"
-        :action-reasons="actionReasons"
-        :action-config-services="actionConfigServices"
-        :aligning-nodes="aligningNodes"
-        :is-dark="isDark"
-        :canvas-mode="canvasMode"
-        @edit-script="focusScriptNode"
-        @create="openCreateDialog"
-        @align="onAlignNodes"
-        @list-mode="goListMode"
-        @toggle-theme="toggleTheme"
-        @set-mode="setCanvasMode"
-        @update:pipeline-steps="setPipelineSteps"
-        @update:active-group-id="setActiveGroupId"
-        @create-workflow="onCreateWorkflowGroup"
-        @run-workflow="onRunActiveGroup"
-        @cancel-workflow="cancelActiveWorkflow"
-        @delete-workflow="onDeleteActiveGroup"
-        @generate-storyboards="aiGenerateStoryboards"
-        @batch-images="batchGenerateImages"
-        @batch-videos="batchGenerateVideos"
-      />
-      <div
-        v-if="freeCanvasReadOnly"
-        class="canvas-warning-bar free-canvas-version-warning"
-        role="alert"
-      >
-        <span>{{ freeCanvasCompatibilityMessage }}</span>
-        <div class="canvas-warning-actions">
-          <el-button link size="small" @click="goListMode">列表模式</el-button>
-        </div>
-      </div>
-      <div
-        v-if="scopedMediaWarning"
-        class="canvas-warning-bar"
-        role="alert"
-      >
-        <span>{{ scopedMediaWarning }}</span>
-        <div class="canvas-warning-actions">
-          <el-button
-            link
-            size="small"
-            :loading="mediaLoading"
-            @click="retryUnknownStoryboardMedia"
-          >
-            重试媒体查询
-          </el-button>
-        </div>
-      </div>
-    </header>
+    <CanvasPageHeader
+      :page-title="drama?.title || '加载中…'"
+      :episodes="drama?.episodes || []"
+      :filter-episode-id="filterEpisodeId"
+      :layout-save-state="layoutSaveState"
+      :layout-save-error="layoutSaveError"
+      :episode-generating="episodeGenerating"
+      :free-canvas-read-only="freeCanvasReadOnly"
+      :free-canvas-compatibility-message="freeCanvasCompatibilityMessage"
+      :scoped-media-warning="scopedMediaWarning"
+      :media-loading="mediaLoading"
+      :go-project-list="goProjectList"
+      :request-episode-filter-change="requestEpisodeFilterChange"
+      :retry-canvas-save="retryCanvasSave"
+      :cancel-episode-generate="cancelEpisodeGenerate"
+      :go-list-mode="goListMode"
+      :retry-unknown-storyboard-media="retryUnknownStoryboardMedia"
+    >
+      <template #toolbar>
+        <CanvasDesktopToolbar
+          :selected-storyboard-count="selectedStoryboardIds.length"
+          :workflow-groups="workflowGroups"
+          :active-group-id="activeGroupId"
+          :pipeline-steps="pipelineSteps"
+          :workflow-running="workflowRunning"
+          :workflow-progress="workflowProgress"
+          :episode-generating="episodeGenerating"
+          :episode-gen-progress="episodeGenProgress"
+          :action-reasons="actionReasons"
+          :action-config-services="actionConfigServices"
+          :aligning-nodes="aligningNodes"
+          :is-dark="isDark"
+          :canvas-mode="canvasMode"
+          @edit-script="focusScriptNode"
+          @create="openCreateDialog"
+          @align="onAlignNodes"
+          @list-mode="goListMode"
+          @toggle-theme="toggleTheme"
+          @set-mode="setCanvasMode"
+          @update:pipeline-steps="setPipelineSteps"
+          @update:active-group-id="setActiveGroupId"
+          @create-workflow="onCreateWorkflowGroup"
+          @run-workflow="onRunActiveGroup"
+          @cancel-workflow="cancelActiveWorkflow"
+          @delete-workflow="onDeleteActiveGroup"
+          @generate-storyboards="aiGenerateStoryboards"
+          @batch-images="batchGenerateImages"
+          @batch-videos="batchGenerateVideos"
+        />
+      </template>
+    </CanvasPageHeader>
 
     <main
       v-if="canvasLoadState === 'error'"
@@ -164,93 +99,23 @@
         @go-production="setCanvasMode('production')"
         @close="freeLibraryVisible = false"
       />
-      <aside v-if="drama && canvasMode === 'production'" class="canvas-sidebar">
-        <div v-if="canvasMode === 'production'" class="sidebar-section sidebar-script">
-          <div class="sec-label sec-label-row">
-            <span>📜 剧本</span>
-            <el-button link size="small" type="warning" @click="focusScriptNode">编辑</el-button>
-          </div>
-        </div>
-        <div class="sidebar-title">
-          素材库
-          <el-button v-if="highlightAssetId" link size="small" @click="clearAssetHighlight">清除</el-button>
-        </div>
-        <div class="sidebar-section">
-          <div class="sec-label sec-label-row">
-            <span>角色 {{ (drama.characters || []).length }}</span>
-            <el-button v-if="canvasMode === 'production'" link size="small" type="primary" aria-label="新建角色" @click="openCreateDialog('character')">+</el-button>
-          </div>
-          <button
-            type="button"
-            v-for="c in (drama.characters || [])"
-            :key="'c-' + c.id"
-            class="sidebar-item"
-            :class="{ active: highlightAssetId === 'char:' + c.id }"
-            :aria-label="`定位角色${c.name || '未命名'}`"
-            @click="selectSidebarAsset('char:' + c.id)"
-          >
-            {{ c.name || '未命名' }}
-          </button>
-          <p v-if="!(drama.characters || []).length" class="sidebar-empty" role="status">
-            暂无角色
-            <el-button link type="primary" size="small" aria-label="新建角色" @click="openCreateDialog('character')">新建</el-button>
-          </p>
-        </div>
-        <div class="sidebar-section">
-          <div class="sec-label sec-label-row">
-            <span>场景 {{ (drama.scenes || []).length }}</span>
-            <el-button v-if="canvasMode === 'production'" link size="small" type="primary" aria-label="新建场景" @click="openCreateDialog('scene')">+</el-button>
-          </div>
-          <button
-            type="button"
-            v-for="s in (drama.scenes || [])"
-            :key="'s-' + s.id"
-            class="sidebar-item"
-            :class="{ active: highlightAssetId === 'scene:' + s.id }"
-            :aria-label="`定位场景${s.location || '未命名'}`"
-            @click="selectSidebarAsset('scene:' + s.id)"
-          >
-            {{ s.location || '未命名' }}
-          </button>
-          <p v-if="!(drama.scenes || []).length" class="sidebar-empty" role="status">
-            暂无场景
-            <el-button link type="primary" size="small" aria-label="新建场景" @click="openCreateDialog('scene')">新建</el-button>
-          </p>
-        </div>
-        <div class="sidebar-section">
-          <div class="sec-label sec-label-row">
-            <span>道具 {{ (drama.props || []).length }}</span>
-            <el-button v-if="canvasMode === 'production'" link size="small" type="primary" aria-label="新建道具" @click="openCreateDialog('prop')">+</el-button>
-          </div>
-          <button
-            type="button"
-            v-for="p in (drama.props || [])"
-            :key="'p-' + p.id"
-            class="sidebar-item"
-            :class="{ active: highlightAssetId === 'prop:' + p.id }"
-            :aria-label="`定位道具${p.name || '未命名'}`"
-            @click="selectSidebarAsset('prop:' + p.id)"
-          >
-            {{ p.name || '未命名' }}
-          </button>
-          <p v-if="!(drama.props || []).length" class="sidebar-empty" role="status">
-            暂无道具
-            <el-button link type="primary" size="small" aria-label="新建道具" @click="openCreateDialog('prop')">新建</el-button>
-          </p>
-        </div>
-
-        <CanvasWorkflowSidebarList
-          v-if="canvasMode === 'production'"
-          :workflow-groups="workflowGroups"
-          :active-group-id="activeGroupId"
-          :storyboard-details="workflowStoryboardDetails"
-          :reorder-disabled="workflowOrderSaving || workflowRunning"
-          :reorder-pending="workflowOrderSaving"
-          @select-group="setActiveGroupId"
-          @reorder-storyboards="reorderWorkflowStoryboards"
-        />
-
-      </aside>
+      <CanvasProductionSidebar
+        v-if="drama && canvasMode === 'production'"
+        :drama="drama"
+        :canvas-mode="canvasMode"
+        :highlight-asset-id="highlightAssetId"
+        :workflow-groups="workflowGroups"
+        :active-group-id="activeGroupId"
+        :workflow-storyboard-details="workflowStoryboardDetails"
+        :workflow-order-saving="workflowOrderSaving"
+        :workflow-running="workflowRunning"
+        :focus-script-node="focusScriptNode"
+        :open-create-dialog="openCreateDialog"
+        :clear-asset-highlight="clearAssetHighlight"
+        :select-sidebar-asset="selectSidebarAsset"
+        :set-active-group-id="setActiveGroupId"
+        :reorder-workflow-storyboards="reorderWorkflowStoryboards"
+      />
 
       <div ref="canvasMainRef" class="canvas-main" @dragover="onFreeCanvasDragOver" @drop="onFreeCanvasDrop">
         <VueFlow
@@ -534,7 +399,8 @@ import CanvasAddButtonNode from '@/components/dramaCanvas/CanvasAddButtonNode.vu
 import CanvasFlowAligner from '@/components/dramaCanvas/CanvasFlowAligner.vue'
 import CanvasDesktopToolbar from '@/components/dramaCanvas/CanvasDesktopToolbar.vue'
 import CanvasEmptyState from '@/components/dramaCanvas/CanvasEmptyState.vue'
-import CanvasWorkflowSidebarList from '@/components/dramaCanvas/CanvasWorkflowSidebarList.vue'
+import CanvasPageHeader from '@/components/dramaCanvas/CanvasPageHeader.vue'
+import CanvasProductionSidebar from '@/components/dramaCanvas/CanvasProductionSidebar.vue'
 import CanvasInspectorDock from '@/components/dramaCanvas/CanvasInspectorDock.vue'
 import FreeCanvasInspector from '@/components/dramaCanvas/FreeCanvasInspector.vue'
 import FreeCanvasAssetSidebar from '@/components/dramaCanvas/FreeCanvasAssetSidebar.vue'
