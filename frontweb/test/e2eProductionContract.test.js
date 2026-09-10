@@ -796,6 +796,8 @@ test('production E2E verifies workflow-first disclosures and AI config modes', (
     "assert.equal(await coverageMode.getAttribute('aria-selected'), 'false'",
     "assert.equal(await configsMode.getAttribute('aria-selected'), 'true'",
   ])
+  assert.match(aiConfiguration, /getByRole\('button', \{ name: \/\^\\u6d4b\\u8bd5\\u300c\/ \}\)/)
+  assert.doesNotMatch(aiConfiguration, /name: '\\u6d4b\\u8bd5', exact: true/)
 })
 
 test('focused production E2E expands the 769px sidebar before checking every header control', () => {

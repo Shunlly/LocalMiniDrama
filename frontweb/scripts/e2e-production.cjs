@@ -1448,7 +1448,7 @@ async function verifyAiConfigurationUi(page) {
       .waitFor({ state: 'visible', timeout: 30000 })
   }
   const textConfigRow = page.locator('.el-table__row').filter({ hasText: `${CONFIG_PREFIX}text` }).first()
-  await textConfigRow.getByRole('button', { name: '\u6d4b\u8bd5', exact: true }).click()
+  await textConfigRow.getByRole('button', { name: /^\u6d4b\u8bd5\u300c/ }).click()
   const dialog = page.getByRole('dialog', { name: '\u6d4b\u8bd5\u8fde\u63a5', exact: true })
   await dialog.getByText('\u8fde\u63a5\u6210\u529f', { exact: true }).waitFor({ timeout: 30000 })
   await dialog.getByRole('button', { name: '\u5173\u95ed', exact: true }).click()

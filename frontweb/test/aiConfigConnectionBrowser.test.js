@@ -71,7 +71,7 @@ test('AI 配置连接测试失败会展示错误并留下 error 操作日志', {
   await page.locator('.config-list-section').waitFor({ state: 'visible', timeout: 30000 })
   const row = page.locator('.el-table__row').filter({ hasText: '本地文本' }).first()
   await row.waitFor({ state: 'visible', timeout: 30000 })
-  await row.getByRole('button', { name: '测试', exact: true }).click()
+  await row.getByRole('button', { name: /^测试「/ }).click()
 
   const dialog = page.getByRole('dialog', { name: '测试连接', exact: true })
   await dialog.getByText('连接测试失败：网关拒绝连接', { exact: true }).waitFor({ timeout: 30000 })
