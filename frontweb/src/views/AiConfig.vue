@@ -2,7 +2,7 @@
   <div class="ai-config">
     <header class="header">
       <div class="header-inner">
-        <button type="button" class="logo" :aria-label="backButtonLabel" @click="goBack">
+        <button type="button" class="logo" :aria-label="logoBackLabel" @click="goBack">
           <span class="logo-main">本地短剧助手</span>
           <span class="logo-sub">LocalMiniDrama</span>
         </button>
@@ -51,6 +51,7 @@ const backButtonLabel = computed(() => {
   return returnTo.value ? '返回原项目' : '返回项目列表'
 })
 const backButtonText = backButtonLabel
+const logoBackLabel = computed(() => '本地短剧助手，' + backButtonLabel.value)
 
 async function requestAiConfigPageClose() {
   return (await aiConfigContentRef.value?.requestClose?.()) !== false

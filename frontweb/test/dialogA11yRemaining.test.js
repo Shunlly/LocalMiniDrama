@@ -28,8 +28,12 @@ function collectVueFiles(directory) {
 
 function templateOnly(source) {
   const start = source.indexOf('<template')
-  const end = source.indexOf('<script', start)
-  assert.ok(start >= 0 && end > start, 'Vue 源码必须包含 template 与 script')
+  assert.ok(start >= 0, 'Vue 源码必须包含 template')
+  const scriptStart = source.indexOf('<script', start)
+  const templateEnd = source.indexOf('</template>', start)
+  const end = scriptStart > start
+    ? scriptStart
+    : (templateEnd > start ? templateEnd : source.length)
   return source
     .slice(start, end)
     .replace(/<!--[\s\S]*?-->/g, (comment) => comment.replace(/[^\n]/g, ' '))

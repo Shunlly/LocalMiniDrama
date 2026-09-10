@@ -145,7 +145,8 @@ test('表单弹窗禁止点遮罩关闭，素材预览允许遮罩和 ESC 关闭
 })
 
 test('AI 配置入口返回文案与顶栏焦点环一致', () => {
-  assert.match(aiConfigSource, /<button type="button" class="logo" :aria-label="backButtonLabel" @click="goBack">/)
+  assert.match(aiConfigSource, /<button type="button" class="logo" :aria-label="logoBackLabel" @click="goBack">/)
+  assert.match(aiConfigSource, /const logoBackLabel = computed\(\(\) => '本地短剧助手，' \+ backButtonLabel\.value\)/)
   assert.match(aiConfigSource, /class="btn-back" :aria-label="backButtonLabel"/)
   assert.match(aiConfigSource, /return returnTo\.value \? '返回原项目' : '返回项目列表'/)
   assert.doesNotMatch(aiConfigSource, /返回首页/)

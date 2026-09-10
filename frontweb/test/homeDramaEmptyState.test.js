@@ -8,6 +8,7 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const filmListSource = read('../src/views/FilmList.vue')
 const filmListLibrarySource = read('../src/components/filmList/FilmListLibraryDialogs.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailDialogsSource = read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue')
 const readinessPanelSource = read('../src/components/ProjectReadinessPanel.vue')
 const CHINESE_RE = /[\u4e00-\u9fff]/
 
@@ -133,7 +134,7 @@ test('无剧集时资源空状态会新增一集，而不是点页头或只滚�
     /本剧暂无制作道具[\s\S]*@click="goCreateOrAddEpisode">\{\{ currentEpisodeId \? '进入制作页提取道具' : '先去新增一集' \}\}/,
   )
   assert.match(
-    dramaDetailSource,
+    dramaDetailDialogsSource,
     /@click="goCreateOrAddEpisode">\s*\{\{ currentEpisodeId \? '前往制作页新增并入库' : '先去新增一集' \}\}/,
   )
   assert.doesNotMatch(

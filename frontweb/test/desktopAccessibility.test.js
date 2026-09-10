@@ -10,6 +10,7 @@ const aiConfigViewSource = read('../src/views/AiConfig.vue')
 const aiConfigContentSource = read('../src/components/AIConfigContent.vue')
 const readinessSource = read('../src/components/ProjectReadinessPanel.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
+const dramaDetailDialogsSource = read('../src/components/dramaDetail/DramaDetailResourceDialogs.vue')
 const themeSource = read('../src/styles/theme.css')
 
 test('disabled action gates expose the action name and reason to keyboard users', () => {
@@ -26,7 +27,7 @@ test('disabled action gates expose the action name and reason to keyboard users'
 })
 
 test('AI configuration uses a real page heading and keyboard-operable help control', () => {
-  assert.match(aiConfigViewSource, /<button type="button" class="logo" :aria-label="backButtonLabel" @click="goBack">/)
+  assert.match(aiConfigViewSource, /<button type="button" class="logo" :aria-label="logoBackLabel" @click="goBack">/)
   assert.match(aiConfigViewSource, /router\.replace\(returnTo\.value \|\| \{ name: 'list' \}\)/)
   assert.match(aiConfigViewSource, /<h1 class="page-title">AI 配置<\/h1>/)
   assert.match(aiConfigContentSource, /<h2 id="ai-service-coverage-title">AI 服务配置与验证<\/h2>/)
@@ -44,7 +45,7 @@ test('project readiness and detail controls avoid dead or mouse-only interaction
   assert.match(dramaDetailSource, /:aria-label="`删除第 /)
   assert.match(dramaDetailSource, /role="tablist" aria-label="项目资源分类"/)
   assert.match(dramaDetailSource, /role="tab"/)
-  assert.match(dramaDetailSource, /前往制作页新增并入库/)
+  assert.match(dramaDetailDialogsSource, /前往制作页新增并入库/)
 })
 
 test('project readiness keeps the next action visible while diagnostics are collapsible', () => {
