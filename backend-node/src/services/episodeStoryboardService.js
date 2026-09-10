@@ -1140,7 +1140,7 @@ function generateStoryboard(db, log, episodeId, model, style, storyboardCount, v
       ? String(episode.description)
       : '';
   if (!scriptContent) {
-    throw new Error('剧本内容为空，请先生成剧集内容');
+    throw new Error('当前集还没有剧本，请先编写或导入剧本');
   }
 
   const characters = db.prepare(

@@ -26,6 +26,7 @@ function createReasons(overrides = {}) {
     assetVideoUrl: (url) => url,
     getSbVideo: () => '',
     videoStatus: ref('idle'),
+    scriptContent: ref('示例剧本'),
     ...overrides,
   })
 }
@@ -37,6 +38,14 @@ test('missing project or episode blocks resource actions in Chinese', () => {
   assert.equal(noProject.episodeActionDisabledReason.value, '请先创建或选择剧集')
   assert.equal(noProject.propsExtractionDisabledReason.value, '请先创建或选择剧集')
   assert.equal(noProject.scenesExtractionDisabledReason.value, '请先创建或选择剧集')
+})
+
+test('empty script blocks storyboard generation and script extraction', () => {
+  const emptyScript = createReasons({ scriptContent: ref('   ') })
+  assert.equal(emptyScript.storyboardActionDisabledReason.value, '当前集还没有剧本，请先编写或导入剧本')
+  assert.equal(emptyScript.propsExtractionDisabledReason.value, '当前集还没有剧本，请先编写或导入剧本')
+  assert.equal(emptyScript.scenesExtractionDisabledReason.value, '当前集还没有剧本，请先编写或导入剧本')
+  assert.equal(emptyScript.characterGenerationDisabledReason.value, '当前集还没有剧本，请先编写或导入剧本')
 })
 
 test('production pipeline combines media and readiness reasons without mixing ids', () => {

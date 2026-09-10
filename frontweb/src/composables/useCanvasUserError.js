@@ -13,7 +13,11 @@ function hasChinese(text) {
 }
 
 function isSafeChinese(text) {
-  return Boolean(text) && hasChinese(text) && !SECRET_RE.test(text) && !/https?:\/\//i.test(text)
+  return Boolean(text)
+    && hasChinese(text)
+    && !SECRET_RE.test(text)
+    && !/https?:\/\//i.test(text)
+    && !/(Internal Server Error|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|TypeError|ReferenceError)/i.test(text)
 }
 
 /** 把画布操作的异常转成可展示的简体中文 */

@@ -112,8 +112,9 @@ export function projectResourceDisabledReason({ hasProject, running = false, lab
   return ''
 }
 
-export function episodeResourceDisabledReason({ hasEpisode, running = false, label = '资源' }) {
+export function episodeResourceDisabledReason({ hasEpisode, hasScript = true, running = false, label = '资源' }) {
   if (!hasEpisode) return '请先创建或选择剧集'
+  if (!hasScript) return '当前集还没有剧本，请先编写或导入剧本'
   if (running) return `正在处理${label}，请等待完成`
   return ''
 }
@@ -124,8 +125,9 @@ export function pipelineDisabledReason({ hasEpisode, pipelineRunning }) {
   return ''
 }
 
-export function storyboardDisabledReason({ hasEpisode, storyboardGenerating, omniPolishing }) {
+export function storyboardDisabledReason({ hasEpisode, hasScript = true, storyboardGenerating, omniPolishing }) {
   if (!hasEpisode) return '请先创建或选择剧集'
+  if (!hasScript) return '当前集还没有剧本，请先编写或导入剧本'
   return firstBusyReason({ storyboardGenerating, omniPolishing })
 }
 

@@ -64,6 +64,14 @@ test('pipeline and storyboard actions expose the first blocking reason', () => {
     storyboardDisabledReason({ hasEpisode: true, storyboardGenerating: false, omniPolishing: false }),
     '',
   )
+  assert.equal(
+    storyboardDisabledReason({ hasEpisode: true, hasScript: false, storyboardGenerating: false, omniPolishing: false }),
+    '当前集还没有剧本，请先编写或导入剧本',
+  )
+  assert.equal(
+    episodeResourceDisabledReason({ hasEpisode: true, hasScript: false, label: '道具' }),
+    '当前集还没有剧本，请先编写或导入剧本',
+  )
 })
 
 test('batch generation prioritizes the active pipeline and generation tasks', () => {

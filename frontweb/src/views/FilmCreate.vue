@@ -1123,6 +1123,7 @@ const {
 } = useFilmCreateActionDisabledReasons({
   dramaId,
   currentEpisodeId,
+  scriptContent,
   charactersGenerating,
   propsExtracting,
   scenesExtracting,

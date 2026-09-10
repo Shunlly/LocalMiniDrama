@@ -74,7 +74,7 @@ test('userFacingGeneration messages 抽取/生成/合成错误为可操作简体
       silentLog,
       1
     ),
-    (error) => error.message === '剧集剧本内容为空，无法提取场景'
+    (error) => error.message === '当前集还没有剧本，无法提取场景。请先编写或导入剧本'
   );
 
   assert.throws(
@@ -225,6 +225,11 @@ test('providerNetworkPolicy 与 serviceFailure 用户错误为简体中文', () 
   assert.equal(missing.statusCode, 404);
   assert.match(missing.body.error.message, /[\u4e00-\u9fff]/);
   assert.doesNotMatch(missing.body.error.message, /character not found/i);
+
+  const chineseMissing = mockRes();
+  assert.equal(sendMappedServiceFailure(chineseMissing, { ok: false, error: '角色不存在' }), true);
+  assert.equal(chineseMissing.statusCode, 404);
+  assert.equal(chineseMissing.body.error.message, '角色不存在');
 
   const aborted = mockRes();
   assert.equal(sendMappedServiceFailure(aborted, { ok: false, error: 'The operation was aborted.' }), true);

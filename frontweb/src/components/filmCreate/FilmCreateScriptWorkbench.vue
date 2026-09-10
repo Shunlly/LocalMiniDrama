@@ -81,7 +81,7 @@
                 type="textarea"
                 :rows="8"
                 aria-label="剧本内容"
-                placeholder="剧本内容将显示在这里，可直接编辑..."
+                placeholder="先编写或导入剧本，也可以直接在这里编辑。"
                 class="story-textarea"
               />
               <div class="row gap script-save-row">

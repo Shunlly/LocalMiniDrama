@@ -12,6 +12,7 @@ export function useFilmCreateActionDisabledReasons(deps = {}) {
   const {
     dramaId,
     currentEpisodeId,
+    scriptContent,
     charactersGenerating,
     propsExtracting,
     scenesExtracting,
@@ -29,24 +30,35 @@ export function useFilmCreateActionDisabledReasons(deps = {}) {
     videoStatus,
   } = deps
 
+  const hasScript = computed(() => Boolean(String(scriptContent?.value || '').trim()))
   const projectActionDisabledReason = computed(() => projectResourceDisabledReason({
     hasProject: Boolean(dramaId.value),
   }))
   const episodeActionDisabledReason = computed(() => episodeResourceDisabledReason({
     hasEpisode: Boolean(currentEpisodeId.value),
   }))
-  const characterGenerationDisabledReason = computed(() => projectResourceDisabledReason({
-    hasProject: Boolean(dramaId.value),
-    running: charactersGenerating.value,
-    label: '角色',
-  }))
+  const characterGenerationDisabledReason = computed(() => (
+    projectResourceDisabledReason({
+      hasProject: Boolean(dramaId.value),
+      running: charactersGenerating.value,
+      label: '角色',
+    })
+    || episodeResourceDisabledReason({
+      hasEpisode: Boolean(currentEpisodeId.value),
+      hasScript: hasScript.value,
+      running: charactersGenerating.value,
+      label: '角色',
+    })
+  ))
   const propsExtractionDisabledReason = computed(() => episodeResourceDisabledReason({
     hasEpisode: Boolean(currentEpisodeId.value),
+    hasScript: hasScript.value,
     running: propsExtracting.value,
     label: '道具',
   }))
   const scenesExtractionDisabledReason = computed(() => episodeResourceDisabledReason({
     hasEpisode: Boolean(currentEpisodeId.value),
+    hasScript: hasScript.value,
     running: scenesExtracting.value,
     label: '场景',
   }))
@@ -61,6 +73,7 @@ export function useFilmCreateActionDisabledReasons(deps = {}) {
   ))
   const storyboardActionDisabledReason = computed(() => storyboardDisabledReason({
     hasEpisode: Boolean(currentEpisodeId.value),
+    hasScript: hasScript.value,
     storyboardGenerating: storyboardGenerating.value,
     omniPolishing: universalOmniPolishRunning.value,
   }))

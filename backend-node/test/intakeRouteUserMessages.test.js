@@ -30,11 +30,11 @@ test('intake routes keep leftover English errors out of user-facing responses', 
   assert.match(sourceSrc, /存储空间不足，无法保存原始素材/);
 });
 
-test('scene/prop extract routes still treat missing episode as 400 after Chinese errors', () => {
-  const imagesSrc = fs.readFileSync(path.join(__dirname, '../src/routes/images.js'), 'utf8');
-  const propSrc = fs.readFileSync(path.join(__dirname, '../src/routes/prop.js'), 'utf8');
-  assert.match(imagesSrc, /includes\('剧本内容为空'\)/);
-  assert.match(imagesSrc, /includes\('剧集不存在'\)/);
-  assert.match(propSrc, /includes\('剧集不存在'\)/);
-  assert.match(propSrc, /includes\('剧本内容为空'\)/);
+test('scene/prop extract empty-script errors stay Chinese and actionable', () => {
+  const sceneSrc = fs.readFileSync(path.join(__dirname, '../src/services/backgroundExtractionService.js'), 'utf8');
+  const propSrc = fs.readFileSync(path.join(__dirname, '../src/services/propExtractionService.js'), 'utf8');
+  assert.match(sceneSrc, /当前集还没有剧本，无法提取场景/);
+  assert.match(sceneSrc, /剧集不存在，无法提取场景/);
+  assert.match(propSrc, /当前集还没有剧本，无法提取道具/);
+  assert.match(propSrc, /剧集不存在，无法提取道具/);
 });

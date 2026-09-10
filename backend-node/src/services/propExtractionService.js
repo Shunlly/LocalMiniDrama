@@ -44,7 +44,7 @@ async function processPropExtraction(db, log, taskId, episodeId) {
 
   const scriptContent = episode.script_content;
   if (!scriptContent || !String(scriptContent).trim()) {
-    taskService.updateTaskError(db, taskId, '剧本内容为空');
+    taskService.updateTaskError(db, taskId, '当前集还没有剧本，请先编写或导入剧本');
     return;
   }
 
@@ -178,7 +178,7 @@ function extractPropsForEpisode(db, log, episodeId, cfg) {
   ).get(Number(episodeId));
   if (!episode) throw new Error('剧集不存在，无法提取道具');
   if (!episode.script_content || !String(episode.script_content).trim()) {
-    throw new Error('剧集剧本内容为空，无法提取道具');
+    throw new Error('当前集还没有剧本，无法提取道具。请先编写或导入剧本');
   }
 
   const task = taskService.createTask(db, log, 'prop_extraction', String(episodeId));

@@ -112,7 +112,7 @@ async function processBackgroundExtraction(db, cfg, log, taskID, episodeId, mode
   }
   const scriptContent = episode.script_content;
   if (!scriptContent || !String(scriptContent).trim()) {
-    taskService.updateTaskStatus(db, taskID, 'failed', 0, '剧本内容为空');
+    taskService.updateTaskStatus(db, taskID, 'failed', 0, '当前集还没有剧本，请先编写或导入剧本');
     return;
   }
 
@@ -227,7 +227,7 @@ function extractBackgroundsForEpisode(db, cfg, log, episodeId, model, style, lan
   const episode = db.prepare('SELECT id, drama_id, script_content FROM episodes WHERE id = ? AND deleted_at IS NULL').get(Number(episodeId));
   if (!episode) throw new Error('剧集不存在，无法提取场景');
   if (!episode.script_content || !String(episode.script_content).trim()) {
-    throw new Error('剧集剧本内容为空，无法提取场景');
+    throw new Error('当前集还没有剧本，无法提取场景。请先编写或导入剧本');
   }
   // 读取项目的 aspect_ratio，覆盖全局 cfg 中的 default_image_ratio，使 promptI18n 生成正确比例的提示词
   let runCfg = cfg;
