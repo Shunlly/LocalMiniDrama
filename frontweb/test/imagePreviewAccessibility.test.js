@@ -10,8 +10,9 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const dialogSource = read('../src/components/ImagePreviewDialog.vue')
 const filmListSource = read('../src/views/FilmList.vue')
 const freeCreateSource = read('../src/views/FreeCreate.vue')
-const filmCreateSource = read('../src/views/FilmCreate.vue')
+const filmCreateSource = read('../src/views/FilmCreate.vue') + '\n' + read('../src/components/filmCreate/FilmCreateHeader.vue')
 const resourceDialogsSource = read('../src/components/filmCreate/FilmCreateResourceDialogs.vue')
+const characterEditDialogSource = read('../src/components/filmCreate/FilmCreateCharacterEditDialog.vue')
 const resourcePanelSource = read('../src/components/filmCreate/FilmCreateResourcePanel.vue')
 const dramaDetailSource = read('../src/views/DramaDetail.vue')
 const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
@@ -71,7 +72,11 @@ test('FilmCreate and DramaDetail use the shared focus-managed preview for every 
   assert.equal((dramaDetailSource.match(/type="button" class="drama-res-cover"/g) || []).length, 3)
   assert.equal((dramaDetailSource.match(/type="button" class="lib-img-thumb"/g) || []).length, 6)
   assert.equal((resourceDialogsSource.match(/type="button" class="library-item-cover"/g) || []).length, 6)
-  assert.equal((resourceDialogsSource.match(/class="ref-image-box" aria-label=/g) || []).length, 4)
+  assert.equal(
+    (resourceDialogsSource.match(/class="ref-image-box" aria-label=/g) || []).length
+      + (characterEditDialogSource.match(/class="ref-image-box" aria-label=/g) || []).length,
+    4,
+  )
   assert.match(remainingImportedFunctionSource(useFilmCreateMediaPreview), /await probeImageSource\(source\)/)
   assert.match(filmCreateSource, /hasSbDraftImagePlaceholder/)
   assert.match(remainingImportedFunctionSource(useFilmCreateMediaPreview), /草稿占位/)

@@ -25,6 +25,7 @@ const routerSource = read('../src/router/index.js')
 const aiConfigSource = read('../src/views/AiConfig.vue')
 const viewsSource = read('../src/router/views.js')
 const navigationSource = read('../src/router/navigation.js')
+const routeRestoreSource = read('../src/router/routeRestore.js')
 
 function templateOnly(source) {
   const start = source.indexOf('<template')
@@ -332,6 +333,15 @@ test('路由、深链接和设置入口都接到备份页', () => {
   assert.match(viewsSource, /id: 'backup', view: 'backup', label: '数据备份'/)
   assert.match(navigationSource, /to.name === 'backup'/)
   assert.match(navigationSource, /normalizeBackupReturnTo/)
+  assert.match(routerSource, /export function normalizeBackupReturnTo/)
+  assert.doesNotMatch(routerSource, /from ['"][^'"]*useBackupSettings/)
+  assert.doesNotMatch(routerSource, /from ['"][^'"]*utils\/request/)
+  assert.doesNotMatch(navigationSource, /from ['"][^'"]*useBackupSettings/)
+  assert.doesNotMatch(navigationSource, /from ['"][^'"]*utils\/request/)
+  assert.doesNotMatch(viewsSource, /from ['"][^'"]*useBackupSettings/)
+  assert.doesNotMatch(viewsSource, /from ['"][^'"]*utils\/request/)
+  assert.doesNotMatch(routeRestoreSource, /from ['"][^'"]*useBackupSettings/)
+  assert.doesNotMatch(routeRestoreSource, /from ['"][^'"]*utils\/request/)
 })
 
 test('确认恢复若返回待重启，不会假装当前进程已经覆盖数据', async () => {

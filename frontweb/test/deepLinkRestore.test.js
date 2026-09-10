@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { normalizeProjectListReturnTo } from '../src/utils/projectListRoute.js'
-import { normalizeBackupReturnTo } from '../src/composables/useBackupSettings.js'
 import {
   APP_VIEW_DEFINITIONS,
   APP_NAV_ITEMS,
@@ -37,7 +36,11 @@ async function loadReturnToNormalizers() {
 }
 
 async function createSanitizer() {
-  const { normalizeAiConfigReturnTo, normalizeMediaLibraryReturnTo } = await loadReturnToNormalizers()
+  const {
+    normalizeAiConfigReturnTo,
+    normalizeMediaLibraryReturnTo,
+    normalizeBackupReturnTo,
+  } = await loadReturnToNormalizers()
   return createLocationSanitizer({
     normalizeProjectListReturnTo,
     normalizeAiConfigReturnTo,
@@ -85,6 +88,73 @@ test('router shares returnTo sanitizing including array values', () => {
   assert.equal(routerSource.split('Array.isArray(to.query.returnTo) || returnTo !== rawReturnTo').length >= 4, true)
   assert.match(routerSource, /const redirected = sanitizeAppLocation\(to\)/)
 })
+
+test('router does not statically import backup request layer', () => {
+  assert.match(routerSource, /component: \(\) => import\('@\/views\/Backup\.vue'\)/)
+  assert.match(routerSource, /export function normalizeBackupReturnTo/)
+  assert.doesNotMatch(routerSource, /from ['"][^'"]*useBackupSettings/)
+  assert.doesNotMatch(routerSource, /from ['"][^'"]*utils\/request/)
+  assert.doesNotMatch(routerSource, /from ['"][^'"]*elementPlusFeedback/)
+  assert.doesNotMatch(routerSource, /from ['"]axios['"]/)
+})
+
+test('refresh restore keeps backup returnTo and drops unsafe values', async () => {
+  const { normalizeBackupReturnTo } = await loadReturnToNormalizers()
+  assert.equal(normalizeBackupReturnTo('/ai-config'), '/ai-config')
+  assert.equal(normalizeBackupReturnTo('/'), '/')
+  assert.equal(normalizeBackupReturnTo('/ai-config?x=1'), '/ai-config')
+  assert.equal(normalizeBackupReturnTo('https://evil.test/'), '')
+  assert.equal(normalizeBackupReturnTo('/film/12'), '')
+  assert.equal(normalizeBackupReturnTo(['/ai-config', '/film/12']), '/ai-config')
+
+  const sanitize = await createSanitizer()
+  const storage = new Map()
+  const fakeStorage = {
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => { storage.set(key, value) },
+  }
+  const location = {
+    name: 'backup',
+    params: {},
+    query: { returnTo: '/ai-config' },
+    hash: '',
+  }
+  assert.equal(sanitize(location), null)
+  assert.equal(persistWorkspaceLocation(location, fakeStorage), true)
+  const restored = restoreWorkspaceLocation(fakeStorage, sanitize)
+  assert.equal(restored.name, 'backup')
+  assert.equal(restored.query.returnTo, '/ai-config')
+  assert.equal(isPersistableView('backup'), true)
+
+  const rejected = sanitize({
+    name: 'backup',
+    query: { returnTo: 'https://evil.test/' },
+  })
+  assert.equal(rejected.query.returnTo, undefined)
+})
+
+test('router backup returnTo helper stays aligned with backup page helper', async () => {
+  const { normalizeBackupReturnTo } = await loadReturnToNormalizers()
+  const { normalizeBackupReturnTo: pageHelper } = await import('../src/composables/useBackupSettings.js')
+  const cases = [
+    '/ai-config',
+    '/',
+    'https://evil.test/',
+    '/film/12',
+    ['/ai-config', '/'],
+    ['/film/12', '/ai-config'],
+    '',
+    null,
+    '/ai-config?x=1',
+    '/ai-config#h',
+    '//evil.test',
+    '/../ai-config',
+  ]
+  for (const value of cases) {
+    assert.equal(normalizeBackupReturnTo(value), pageHelper(value), String(value))
+  }
+})
+
 
 test('refresh restore keeps distinct project episode and focus ids', async () => {
   const sanitize = await createSanitizer()

@@ -1,245 +1,51 @@
 <template>
   <div class="film-create" :class="{ 'sidebar-collapsed': navCollapsed, 'project-state-active': projectLoadState !== 'ready' }">
     <!-- 顶部 -->
-    <header class="header">
-      <div class="header-inner">
-        <button type="button" class="logo" aria-label="返回项目列表" @click="goList">
-          <span class="logo-main">本地短剧助手</span>
-          <span class="logo-sub">LocalMiniDrama</span>
-        </button>
-        <span class="breadcrumb-sep">›</span>
-        <div class="header-context">
-          <span class="header-context-label">项目</span>
-          <h1 class="page-title" :title="projectPageTitle">{{ projectPageTitle }}</h1>
-        </div>
-        <div class="workspace-actions">
-        <div v-if="projectLoadState === 'ready' && dramaId" class="header-context">
-          <span class="header-context-label">当前集</span>
-          <el-select
-            v-if="hasAnyEpisode"
-            class="header-episode-select"
-            :model-value="selectedEpisodeId"
-            aria-label="当前集"
-            :aria-busy="episodeSwitching"
-            :title="selectedEpisodeContextLabel"
-            :loading="episodeSwitching"
-            :disabled="episodeSwitching"
-            placeholder="选择集数"
-            @change="onEpisodeSelect"
-          >
-            <el-option
-              v-for="(ep, index) in (store.drama?.episodes || [])"
-              :key="ep.id"
-              :label="formatEpisodeContextLabel(ep, index)"
-              :value="ep.id"
-            />
-          </el-select>
-          <el-button
-            v-else
-            type="primary"
-            plain
-            class="header-add-episode"
-            aria-label="添加一集"
-            @click="onAddEpisode"
-          >
-            <el-icon><Plus /></el-icon>添加一集
-          </el-button>
-        </div>
-        <el-button v-if="projectLoadState === 'ready' && dramaId" class="btn-back-drama" @click="router.push('/drama/' + dramaId)">
-          <el-icon><ArrowLeft /></el-icon>
-          返回剧集
-        </el-button>
-        <el-button v-if="projectLoadState === 'ready' && dramaId" type="primary" plain class="btn-canvas-mode" @click="goCanvasMode">
-          <el-icon><Grid /></el-icon>
-          画布模式
-        </el-button>
-        <div class="header-actions">
-          <el-button class="btn-theme" :title="isDark ? '切换到浅色模式' : '切换到暗色模式'" :aria-label="isDark ? '切换到浅色模式' : '切换到暗色模式'" @click="toggleTheme">
-            <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
-            {{ isDark ? '浅色' : '暗色' }}
-          </el-button><el-button class="btn-ai-config" :disabled="projectLoadState !== 'ready'" @click="openAiConfig()">
-            <el-icon><Setting /></el-icon>
-            AI配置
-          </el-button>
-        </div>
-        </div>
-      </div>
-    </header>
+    <FilmCreateHeader
+      :project-page-title="projectPageTitle"
+      :project-load-state="projectLoadState"
+      :drama-id="dramaId"
+      :has-any-episode="hasAnyEpisode"
+      :selected-episode-id="selectedEpisodeId"
+      :episode-switching="episodeSwitching"
+      :selected-episode-context-label="selectedEpisodeContextLabel"
+      :episodes="store.drama?.episodes || []"
+      :is-dark="isDark"
+      @go-list="goList"
+      @episode-select="onEpisodeSelect"
+      @add-episode="onAddEpisode"
+      @go-to-drama="router.push('/drama/' + dramaId)"
+      @go-canvas-mode="goCanvasMode"
+      @toggle-theme="toggleTheme"
+      @open-ai-config="openAiConfig"
+    />
 
     <!-- 左侧固定侧边栏 -->
-    <nav v-if="projectLoadState === 'ready'" id="film-create-quick-nav" class="quick-nav" :class="{ collapsed: navCollapsed }" aria-label="快捷导航">
-      <div class="nav-sidebar-header">
-        <span v-if="!navCollapsed" class="nav-sidebar-title">导航</span>
-        <button
-          type="button"
-          class="nav-toggle"
-          :title="navCollapsed ? '展开导航' : '收起导航'"
-          :aria-label="navCollapsed ? '展开导航' : '收起导航'"
-          :aria-expanded="!navCollapsed"
-          aria-controls="film-create-quick-nav"
-          @click="toggleNav()"
-        >
-          <el-icon><Expand v-if="navCollapsed" /><Fold v-else /></el-icon>
-        </button>
-      </div>
+    <FilmCreateQuickNav
+      v-if="projectLoadState === 'ready'"
+      :nav-collapsed="navCollapsed"
+      :nav-steps="navSteps"
+      :active-nav-anchor="activeNavAnchor"
+      v-model:storyboard-menu-expanded="storyboardMenuExpanded"
+      :storyboards="storyboards"
+      :all-active-task-items="allActiveTaskItems"
+      :all-active-task-labels="allActiveTaskLabels"
+      :pipeline-stopping="pipelineStopping"
+      @toggle-nav="toggleNav"
+      @scroll-to-anchor="scrollToAnchor"
+      @cancel-active-task="cancelActiveTask"
+    />
 
-      <!-- 步骤列表 -->
-      <div class="nav-steps">
-        <button
-          v-for="(step, idx) in navSteps"
-          :key="step.key"
-          type="button"
-          class="nav-step"
-          :class="['status-' + step.status, { 'is-current': activeNavAnchor === step.anchor }]"
-          :aria-current="activeNavAnchor === step.anchor ? 'step' : undefined"
-          :title="`跳转到${step.label}`"
-          @click="scrollToAnchor(step.anchor, step.anchor)"
-        >
-          <!-- 左侧连接线 -->
-          <span class="step-connector-wrap">
-            <span v-if="idx > 0" class="step-line step-line-top" :class="{ filled: navSteps[idx - 1].status === 'done' }" />
-            <span
-              class="step-dot"
-              :class="['dot-' + step.status]"
-            >
-              <el-icon v-if="step.status === 'done'" class="dot-icon"><Check /></el-icon>
-              <el-icon v-else-if="step.status === 'generating'" class="dot-icon spin"><Loading /></el-icon>
-              <span v-else class="dot-num">{{ idx + 1 }}</span>
-            </span>
-            <span v-if="idx < navSteps.length - 1" class="step-line step-line-bottom" :class="{ filled: step.status === 'done' }" />
-          </span>
-
-          <!-- 右侧文字 + 状态徽章 -->
-          <span class="step-body">
-            <span class="step-label">{{ step.label }}</span>
-            <span v-if="step.count > 0 && step.status !== 'done'" class="step-count">{{ step.count }}</span>
-            <span v-if="step.status === 'partial'" class="step-badge partial-badge" title="部分完成">
-              <el-icon><WarningFilled /></el-icon>
-            </span>
-            <span v-else-if="step.status === 'generating'" class="step-badge gen-badge" title="生成中">
-              <el-icon class="spin"><Loading /></el-icon>
-            </span>
-          </span>
-        </button>
-      </div>
-
-      <!-- 分镜子列表 -->
-      <div v-if="!navCollapsed && storyboards.length > 0" class="nav-group">
-        <button
-          type="button"
-          class="nav-sub-toggle"
-          :aria-label="storyboardMenuExpanded ? '收起分镜列表' : '展开分镜列表'"
-          :aria-expanded="storyboardMenuExpanded"
-          aria-controls="storyboard-nav-list"
-          @click="storyboardMenuExpanded = !storyboardMenuExpanded"
-        >
-          <el-icon><Minus v-if="storyboardMenuExpanded" /><Plus v-else /></el-icon>
-          <span>分镜列表</span>
-        </button>
-        <div id="storyboard-nav-list" v-show="storyboardMenuExpanded" class="nav-sub-list">
-          <template v-for="(sb, i) in storyboards" :key="sb.id">
-            <!-- 段落标题行 -->
-            <div
-              v-if="sb.segment_title && (i === 0 || sb.segment_index !== storyboards[i - 1].segment_index)"
-              class="nav-segment-label"
-            >
-              <span class="nav-segment-dot" />
-              {{ sb.segment_title }}
-            </div>
-            <button
-              type="button"
-              class="nav-sub-item"
-              :title="sb.title || '分镜 ' + (i + 1)"
-              @click="scrollToAnchor('sb-' + sb.id, 'anchor-storyboard-images')"
-            >
-              {{ i + 1 }}. {{ sb.title || '分镜' }}
-            </button>
-          </template>
-        </div>
-      </div>
-
-      <!-- 当前任务面板 -->
-      <div v-if="allActiveTaskItems.length > 0" class="atp-panel">
-        <!-- 折叠态：只显示旋转点和数量 -->
-        <div v-if="navCollapsed" class="atp-collapsed-badge" role="status" aria-live="polite" :aria-label="`进行中任务 ${allActiveTaskItems.length} 个：${allActiveTaskLabels.join('、')}`" :title="allActiveTaskLabels.join('\n')">
-          <span class="atp-spin-dot" />
-          <span class="atp-collapsed-count">{{ allActiveTaskItems.length }}</span>
-        </div>
-        <!-- 展开态：标题 + 任务列表 -->
-        <template v-else>
-          <div class="atp-header">
-            <span class="atp-spin-dot" />
-            <span class="atp-title">进行中</span>
-            <span class="atp-count-badge">{{ allActiveTaskItems.length }}</span>
-          </div>
-          <div class="atp-list">
-            <div
-              v-for="item in allActiveTaskItems.slice(0, 8)"
-              :key="item.id"
-              class="atp-item"
-            >
-              <span class="atp-item-dot" />
-              <el-tooltip :content="item.label" placement="right" :show-after="300" :enterable="false">
-                <span class="atp-item-label">{{ item.label }}</span>
-              </el-tooltip>
-              <button
-                type="button"
-                class="atp-item-close"
-                title="取消任务"
-                :aria-label="`取消任务${item.label || ''}`"
-                :disabled="item.kind === 'pipeline' && pipelineStopping"
-                @click.stop="cancelActiveTask(item)"
-              >
-                <el-icon v-if="item.kind === 'pipeline' && pipelineStopping" :size="12" class="is-loading"><Loading /></el-icon>
-                <el-icon v-else :size="12"><Close /></el-icon>
-              </button>
-            </div>
-            <el-tooltip
-              v-if="allActiveTaskItems.length > 8"
-              :content="allActiveTaskItems.slice(8).map((t) => t.label).join('\n')"
-              placement="right"
-              :show-after="200"
-            >
-              <div class="atp-more">
-                还有 {{ allActiveTaskItems.length - 8 }} 个任务...
-              </div>
-            </el-tooltip>
-          </div>
-        </template>
-      </div>
-    </nav>
-
-    <main v-if="projectLoadState === 'loading'" class="main project-state-main" aria-busy="true">
-      <section class="project-load-state" role="status" aria-live="polite">
-        <el-icon class="project-load-state-icon is-loading"><Loading /></el-icon>
-        <h1>正在加载制作项目</h1>
-        <p>正在读取剧本、制作资源和分镜媒体。</p>
-      </section>
-    </main>
-
-    <main v-else-if="projectLoadState === 'error'" class="main project-state-main">
-      <section
-        ref="projectLoadFailureRef"
-        class="project-load-state project-load-state--error"
-        role="alert"
-        aria-labelledby="film-project-load-error-title"
-        tabindex="-1"
-      >
-        <el-icon class="project-load-state-icon"><WarningFilled /></el-icon>
-        <h1 id="film-project-load-error-title">{{ projectLoadNotFound ? '制作项目不存在' : '暂时无法打开制作项目' }}</h1>
-        <p>{{ projectLoadError }}</p>
-        <p v-if="projectLoadNotFound" class="project-load-state-assurance">项目可能已移入回收站或被删除，请返回项目列表确认。</p>
-        <p v-else class="project-load-state-assurance">项目数据没有被删除，当前页面已停止所有项目编辑和生成操作。</p>
-        <div class="project-load-state-actions">
-          <el-button v-if="!projectLoadNotFound" type="primary" :loading="projectLoadPending" @click="retryFilmProjectLoad">
-            <el-icon><Refresh /></el-icon>重试加载
-          </el-button>
-          <el-button @click="goList">
-            <el-icon><ArrowLeft /></el-icon>返回项目列表
-          </el-button>
-        </div>
-      </section>
-    </main>
+    <FilmCreateProjectLoadState
+      v-if="projectLoadState !== 'ready'"
+      ref="projectLoadFailureRef"
+      :state="projectLoadState"
+      :error-text="projectLoadError"
+      :not-found="projectLoadNotFound"
+      :pending="projectLoadPending"
+      @retry="retryFilmProjectLoad"
+      @go-list="goList"
+    />
 
     <main v-else class="main">
       <section
@@ -827,7 +633,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, reactive, nextTick } 
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { ElMessage as RawElMessage, ElMessageBox } from 'element-plus'
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Setting, Plus, Minus, Sunny, Moon, MagicStick, Upload, Delete, Check, Loading, WarningFilled, User, Box, Picture, Film, VideoCamera, Document, InfoFilled, Refresh, ZoomIn, QuestionFilled, DocumentAdd, Expand, Fold, VideoPlay, Grid, Close, Download } from '@element-plus/icons-vue'
+import { WarningFilled, Refresh } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import { useFilmStore } from '@/stores/film'
 import { useGenerationTaskStore, GEN_RESOURCE } from '@/stores/generationTaskStore'
@@ -846,12 +652,14 @@ import { uploadAPI as rawUploadAPI } from '@/api/upload'
 import { characterLibraryAPI as rawCharacterLibraryAPI } from '@/api/characterLibrary'
 import { sceneLibraryAPI as rawSceneLibraryAPI } from '@/api/sceneLibrary'
 import { propLibraryAPI as rawPropLibraryAPI } from '@/api/propLibrary'
-import { formatEpisodeContextLabel } from '@/utils/filmCreateContext'
 import {
   createEpisodeSwitchController,
 } from '@/utils/scriptDraft'
 import { isPlaceholderMediaUrl, storyboardImageUrl } from '@/utils/mediaUrl'
 import FilmCreateAiConfigDialog from '@/components/filmCreate/FilmCreateAiConfigDialog.vue'
+import FilmCreateHeader from '@/components/filmCreate/FilmCreateHeader.vue'
+import FilmCreateProjectLoadState from '@/components/filmCreate/FilmCreateProjectLoadState.vue'
+import FilmCreateQuickNav from '@/components/filmCreate/FilmCreateQuickNav.vue'
 import GlobalMediaPickerDialog from '@/components/GlobalMediaPickerDialog.vue'
 import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import UniversalSegmentOmniAtEditor from '@/components/UniversalSegmentOmniAtEditor.vue'

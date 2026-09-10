@@ -196,3 +196,20 @@ test('entering canvas mode keeps the project-list return context', () => {
 test('entering production resolves an episode, keeps return context, and focuses the list when absent', () => {
   assert.match(dramaDetailSourceForCanvas, /function goCreate\(\) \{[\s\S]*?if \(!currentEpisodeId\.value\) \{[\s\S]*?scrollToSection\('episode-list'\)[\s\S]*?return[\s\S]*?episode: String\(currentEpisodeId\.value\)[\s\S]*?withProjectListReturnTo\(query\)/)
 })
+
+test('project list backup entry carries a safe returnTo through shared navigation dispatch', () => {
+  const filmListSource = read('../src/views/FilmList.vue')
+  const viewsSource = read('../src/router/views.js')
+  const navigationSource = read('../src/router/navigation.js')
+
+  assert.match(filmListSource, /import \{ normalizeBackupReturnTo \} from '@\/composables\/useBackupSettings\.js'/)
+  assert.match(filmListSource, /import \{ listWorkspaceNavItems, openWorkspaceNavItem \} from '@\/layouts\/AppWorkspaceNav\.js'/)
+  assert.match(
+    filmListSource,
+    /function goBackup\(\) \{[\s\S]*const returnTo = normalizeBackupReturnTo\(projectListReturnTo\.value\) \|\| '\/'[\s\S]*openWorkspaceNavItem\(router, backupNavItem\.id, \{ query: \{ returnTo \} \}/,
+  )
+  assert.doesNotMatch(filmListSource, /openWorkspaceNavItem\(router, backupNavItem\.id, \{ query: \{ returnTo: route\.fullPath \} \}/)
+  assert.match(viewsSource, /id: 'backup', view: 'backup', label: '数据备份'/)
+  assert.match(navigationSource, /to\.name === 'backup'/)
+  assert.match(navigationSource, /normalizeBackupReturnTo\(query\.returnTo\)/)
+})

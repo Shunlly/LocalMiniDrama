@@ -3,14 +3,16 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const storyboardPanel = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
+const storyboardConfigBar = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardConfigBar.vue', import.meta.url), 'utf8')
 const scriptWorkbench = readFileSync(new URL('../src/components/filmCreate/FilmCreateScriptWorkbench.vue', import.meta.url), 'utf8')
 const resourcePanel = readFileSync(new URL('../src/components/filmCreate/FilmCreateResourcePanel.vue', import.meta.url), 'utf8')
 
 test('分镜导出按钮在没有剧集时展示禁用原因', () => {
-  assert.match(storyboardPanel, /<ActionGate[\s\S]*?label="导出分镜表"/)
-  assert.match(storyboardPanel, /<ActionGate[\s\S]*?label="导出解说 SRT"/)
-  assert.match(storyboardPanel, /:disabled="Boolean\(episodeActionDisabledReason\)"/)
-  assert.match(storyboardPanel, /首尾帧模式下使用单张图，序列宫格暂不可用/)
+  assert.match(storyboardPanel, /<FilmCreateStoryboardConfigBar/)
+  assert.match(storyboardConfigBar, /<ActionGate[\s\S]*?label="导出分镜表"/)
+  assert.match(storyboardConfigBar, /<ActionGate[\s\S]*?label="导出解说 SRT"/)
+  assert.match(storyboardConfigBar, /:disabled="Boolean\(episodeActionDisabledReason\)"/)
+  assert.match(storyboardConfigBar, /首尾帧模式下使用单张图，序列宫格暂不可用/)
 })
 
 test('保存当前集在未选剧集时展示禁用原因', () => {

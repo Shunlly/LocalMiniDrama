@@ -52,6 +52,18 @@ test('desktop home exposes one material center entry and keeps semantic librarie
   assert.match(filmListSource, /function goMaterialCenter\(\) \{\s*router\.push\('\/media-library'\)\s*\}/)
 })
 
+test('project list exposes a reachable Chinese backup entry on the home header', () => {
+  assert.match(
+    filmListSource,
+    /class="btn-library btn-backup"[\s\S]*title="打开数据备份"[\s\S]*aria-label="打开数据备份与维护"[\s\S]*@click="goBackup"[\s\S]*数据备份/,
+  )
+  assert.match(filmListSource, /function goBackup\(\)/)
+  assert.match(filmListSource, /openWorkspaceNavItem\(router, backupNavItem\.id, \{ query: \{ returnTo \} \}/)
+  assert.doesNotMatch(filmListSource, /微信我/)
+  assert.match(routerSource, /path: '\/backup'[\s\S]*name: 'backup'/)
+  assert.match(routerSource, /meta: \{ title: '数据备份',/)
+})
+
 test('story-source actions use the scoped story-material terminology', () => {
   assert.match(sourceIntakeWorkflowSource, /<ActionGate label="导入故事素材" :reason="actionReasons.import">/)
   assert.match(sourceIntakeWorkflowSource, /<el-button\b[^>]*>\s*导入故事素材\s*<\/el-button>/)

@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { requireValidDramaId } from '@/utils/routeValidation'
 import { normalizeProjectListReturnTo } from '@/utils/projectListRoute'
 import { createLocationSanitizer } from './navigation.js'
-import { normalizeBackupReturnTo } from '@/composables/useBackupSettings.js'
 
 export function normalizeAiConfigReturnTo(value) {
   const rawValue = Array.isArray(value) ? value[0] : value
@@ -71,6 +70,25 @@ export function normalizeMediaLibraryReturnTo(value) {
     }
     const search = query.toString()
     return `${parsed.pathname}${search ? `?${search}` : ''}`
+  } catch (_) {
+    return ''
+  }
+}
+
+// 备份返回地址校验保持纯函数，避免把请求层打进首屏。
+export function normalizeBackupReturnTo(value) {
+  const rawValue = Array.isArray(value) ? value[0] : value
+  if (typeof rawValue !== 'string') return ''
+  const candidate = rawValue.trim()
+  if (!candidate || candidate.length > 2048 || !candidate.startsWith('/') || /[\u0000-\u001f\u007f]/.test(candidate)) return ''
+  try {
+    const decodedPath = decodeURIComponent(candidate.split(/[?#]/, 1)[0])
+    if (decodedPath.includes('\\') || decodedPath.split('/').some((segment) => segment === '.' || segment === '..')) return ''
+    const parsed = new URL(candidate, 'https://localminidrama.invalid')
+    if (parsed.origin !== 'https://localminidrama.invalid') return ''
+    if (parsed.pathname === '/ai-config') return '/ai-config'
+    if (parsed.pathname === '/') return '/'
+    return ''
   } catch (_) {
     return ''
   }

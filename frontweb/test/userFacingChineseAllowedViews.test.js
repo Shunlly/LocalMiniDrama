@@ -145,6 +145,10 @@ test('自由创作、项目列表、提示词和场景映射的用户可见句�
   assert.doesNotMatch(filmListSource, /标题 A-Z/)
   assert.match(filmListSource, /placeholder="搜索项目标题、描述、风格或类型"/)
   assert.match(filmListSource, /title="新建项目"/)
+  assert.match(filmListSource, /title="打开数据备份"/)
+  assert.match(filmListSource, /aria-label="打开数据备份与维护"/)
+  assert.match(filmListSource, /<el-icon><Download \/><\/el-icon>数据备份/)
+  assert.doesNotMatch(filmListSource, /微信我/)
   assert.match(filmListSource, /ElMessageBox\.confirm\(`确定删除公共角色「/)
 
   assert.match(promptEditorSource, /系统提示词（System Prompt）/)

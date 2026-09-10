@@ -54,27 +54,46 @@ const storyboardPanelSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url),
   'utf8',
 )
+const storyboardConfigBarSource = readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateStoryboardConfigBar.vue', import.meta.url),
+  'utf8',
+)
 const resourceDialogsSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateResourceDialogs.vue', import.meta.url),
   'utf8',
 )
+const headerSource = readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateHeader.vue', import.meta.url),
+  'utf8',
+)
+const quickNavSource = readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateQuickNav.vue', import.meta.url),
+  'utf8',
+)
+const projectLoadStateSource = readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateProjectLoadState.vue', import.meta.url),
+  'utf8',
+)
 
 test('film create navigation and resource disclosure controls use native buttons', () => {
-  assert.match(filmCreateSource, /<button[\s\S]*?class="nav-toggle"[\s\S]*?:aria-expanded="!navCollapsed"/)
-  assert.match(filmCreateSource, /<button[\s\S]*?class="nav-step"[\s\S]*?:aria-current="activeNavAnchor === step\.anchor \? 'step' : undefined"/)
-  assert.match(filmCreateSource, /<button[\s\S]*?class="nav-step"[\s\S]*?@click="scrollToAnchor\(step\.anchor, step\.anchor\)"/)
-  assert.match(filmCreateSource, /<button[\s\S]*?class="nav-sub-toggle"[\s\S]*?:aria-expanded="storyboardMenuExpanded"/)
-  assert.match(filmCreateSource, /<button[\s\S]*?class="nav-sub-item"[\s\S]*?@click="scrollToAnchor\('sb-' \+ sb\.id, 'anchor-storyboard-images'\)"/)
-  assert.equal((filmCreateSource.match(/:aria-current=/g) || []).length, 1)
-  assert.match(filmCreateSource, /\{ 'is-current': activeNavAnchor === step\.anchor \}/)
+  assert.match(filmCreateSource, /<FilmCreateQuickNav/)
+  assert.match(filmCreateSource, /@scroll-to-anchor="scrollToAnchor"/)
+  assert.match(quickNavSource, /<button[\s\S]*?class="nav-toggle"[\s\S]*?:aria-expanded="!navCollapsed"/)
+  assert.match(quickNavSource, /<button[\s\S]*?class="nav-step"[\s\S]*?:aria-current="activeNavAnchor === step\.anchor \? 'step' : undefined"/)
+  assert.match(quickNavSource, /<button[\s\S]*?class="nav-step"[\s\S]*?@click="emit\('scroll-to-anchor', step\.anchor, step\.anchor\)"/)
+  assert.match(quickNavSource, /<button[\s\S]*?class="nav-sub-toggle"[\s\S]*?:aria-expanded="storyboardMenuExpanded"/)
+  assert.match(quickNavSource, /<button[\s\S]*?class="nav-sub-item"[\s\S]*?@click="emit\('scroll-to-anchor', 'sb-' \+ sb\.id, 'anchor-storyboard-images'\)"/)
+  assert.equal((quickNavSource.match(/:aria-current=/g) || []).length, 1)
+  assert.match(quickNavSource, /\{ 'is-current': activeNavAnchor === step\.anchor \}/)
 
   const storyboardScriptAnchors = storyboardPanelSource.match(/id="anchor-storyboard"/g) || []
-  const storyboardImageAnchors = storyboardPanelSource.match(/id="anchor-storyboard-images"/g) || []
+  const storyboardImageAnchors = storyboardConfigBarSource.match(/id="anchor-storyboard-images"/g) || []
   assert.equal(storyboardScriptAnchors.length, 1)
   assert.equal(storyboardImageAnchors.length, 1)
+  assert.match(storyboardPanelSource, /<FilmCreateStoryboardConfigBar/)
   assert.ok(
-    storyboardPanelSource.indexOf('id="anchor-storyboard-images"')
-      < storyboardPanelSource.indexOf('label="批量生成分镜图"'),
+    storyboardConfigBarSource.indexOf('id="anchor-storyboard-images"')
+      < storyboardConfigBarSource.indexOf('label="批量生成分镜图"'),
   )
 
   const disclosureButtons = resourcePanelSource.match(
@@ -88,16 +107,19 @@ test('film create navigation and resource disclosure controls use native buttons
 })
 
 test('film create keeps the episode selector only in the page header', () => {
+  assert.match(filmCreateSource, /<FilmCreateHeader/)
   assert.equal((filmCreateSource.match(/v-model="selectedEpisodeId"/g) || []).length, 0)
-  assert.equal((filmCreateSource.match(/class="header-episode-select"/g) || []).length, 1)
+  assert.equal((headerSource.match(/class="header-episode-select"/g) || []).length, 1)
+  assert.equal((filmCreateSource.match(/class="header-episode-select"/g) || []).length, 0)
 
-  const selectStart = filmCreateSource.indexOf('class="header-episode-select"')
-  const selectEnd = filmCreateSource.indexOf('</el-select>', selectStart)
-  const episodeSelectSource = filmCreateSource.slice(selectStart, selectEnd)
+  const selectStart = headerSource.indexOf('class="header-episode-select"')
+  const selectEnd = headerSource.indexOf('</el-select>', selectStart)
+  const episodeSelectSource = headerSource.slice(selectStart, selectEnd)
 
-  assert.match(filmCreateSource, /class="header-context-label">项目<\/span>/)
-  assert.match(filmCreateSource, /class="header-context-label">当前集<\/span>/)
-  assert.match(filmCreateSource, /<h1 class="page-title"\s+:title="projectPageTitle">\{\{ projectPageTitle \}\}<\/h1>/)
+  assert.match(headerSource, /class="header-context-label">项目<\/span>/)
+  assert.match(headerSource, /class="header-context-label">当前集<\/span>/)
+  assert.match(headerSource, /<h1 class="page-title"\s+:title="projectPageTitle">\{\{ projectPageTitle \}\}<\/h1>/)
+  assert.doesNotMatch(headerSource, /<span class="page-title"/)
   assert.doesNotMatch(filmCreateSource, /<span class="page-title"/)
   assert.match(filmCreateStyleSource, /\.page-title\s*\{[\s\S]*?margin:\s*0;/)
   assert.match(episodeSelectSource, /aria-label="当前集"/)
@@ -105,7 +127,7 @@ test('film create keeps the episode selector only in the page header', () => {
   assert.match(episodeSelectSource, /:loading="episodeSwitching"/)
   assert.match(episodeSelectSource, /:disabled="episodeSwitching"/)
   assert.match(episodeSelectSource, /:aria-busy="episodeSwitching"/)
-  assert.match(episodeSelectSource, /v-for="\(ep, index\) in \(store\.drama\?\.episodes \|\| \[\]\)"/)
+  assert.match(episodeSelectSource, /v-for="\(ep, index\) in episodes"/)
   assert.match(episodeSelectSource, /:label="formatEpisodeContextLabel\(ep, index\)"/)
   assert.doesNotMatch(episodeSelectSource, /\bclearable\b/)
 })
@@ -157,7 +179,7 @@ test('script and character library empty states provide direct actions', () => {
 })
 
 test('every FilmCreate ActionGate identifies its button action', () => {
-  const actionGates = [filmCreateSource, deliveryPanelSource, scriptWorkbenchSource, resourcePanelSource, storyboardPanelSource]
+  const actionGates = [filmCreateSource, deliveryPanelSource, scriptWorkbenchSource, resourcePanelSource, storyboardPanelSource, storyboardConfigBarSource]
     .flatMap((source) => source.match(/<ActionGate\b[^>]*>/g) || [])
   assert.ok(actionGates.length >= 13)
   for (const gate of actionGates) {
@@ -195,7 +217,7 @@ test('制作页空剧集提供可执行入口', () => {
   assert.match(filmCreateSource, /const hasAnyEpisode = computed\(\(\) => \(store\.drama\?\.episodes \|\| \[\]\)\.length > 0\)/)
   assert.match(filmCreateSource, /:has-episode="hasAnyEpisode"/)
   assert.match(filmCreateSource, /@add-episode="onAddEpisode"/)
-  assert.match(filmCreateSource, /class="header-add-episode"/)
+  assert.match(headerSource, /class="header-add-episode"/)
   assert.match(scriptWorkbenchSource, /class="empty-tip film-episode-empty"/)
   assert.match(scriptWorkbenchSource, /还没有剧集/)
   assert.match(scriptWorkbenchSource, /返回剧集管理/)
@@ -210,4 +232,19 @@ test('storyboard prompt dialogs name every editable field', () => {
   assert.match(storyboardDialogsSource, /<el-form-item label="视频提示词">/)
   assert.match(storyboardDialogsSource, /aria-label="视频提示词"/)
     assert.match(storyboardDialogsSource, /editingFramePromptSlot === 'last' \? '尾帧' : '首帧'\}图生提示词/)
+})
+
+test('制作页加载失败面保持可读状态和重试入口', () => {
+  assert.match(filmCreateSource, /<FilmCreateProjectLoadState/)
+  assert.match(filmCreateSource, /ref="projectLoadFailureRef"/)
+  assert.match(filmCreateSource, /@retry="retryFilmProjectLoad"/)
+  assert.match(projectLoadStateSource, /role="status"/)
+  assert.match(projectLoadStateSource, /role="alert"/)
+  assert.match(projectLoadStateSource, /正在加载制作项目/)
+  assert.match(projectLoadStateSource, /制作项目不存在/)
+  assert.match(projectLoadStateSource, /暂时无法打开制作项目/)
+  assert.match(projectLoadStateSource, /项目数据没有被删除/)
+  assert.match(projectLoadStateSource, /v-if="!notFound"[\s\S]*重试加载/)
+  assert.match(projectLoadStateSource, /返回项目列表/)
+  assert.match(projectLoadStateSource, /focus: \(\) => errorSectionRef\.value\?\.focus\?\.\(\)/)
 })

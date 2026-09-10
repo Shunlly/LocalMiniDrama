@@ -45,6 +45,15 @@
           <el-button class="btn-settings" title="打开 AI 配置" @click="showAiConfigDialog = true">
             <el-icon><Setting /></el-icon>AI配置
           </el-button>
+          <el-button
+            v-if="backupNavItem"
+            class="btn-library btn-backup"
+            title="打开数据备份"
+            aria-label="打开数据备份与维护"
+            @click="goBackup"
+          >
+            <el-icon><Download /></el-icon>数据备份
+          </el-button>
           <el-button ref="importTriggerButton" class="btn-import" :loading="importing" :disabled="listWriteLocked" @click="triggerImport">
             <el-icon><Upload /></el-icon>导入项目包
           </el-button>
@@ -736,6 +745,8 @@ import { mergeProjectListFilters, normalizeProjectListFilters, normalizeProjectL
 import { createOperationId, logOperation } from '@/utils/operationLog'
 import { describeServiceLoadError, isRequestCanceled, withRequestRetry } from '@/utils/requestError'
 import { sanitizeExportFilename, validateExportBlob, resolveExportFailureMessage } from '@/utils/projectExport'
+import { normalizeBackupReturnTo } from '@/composables/useBackupSettings.js'
+import { listWorkspaceNavItems, openWorkspaceNavItem } from '@/layouts/AppWorkspaceNav.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -1402,6 +1413,14 @@ async function restoreFromTrash(item) {
 
 function goMaterialCenter() {
   router.push('/media-library')
+}
+
+const backupNavItem = listWorkspaceNavItems().find((item) => item.id === 'backup') || null
+
+function goBackup() {
+  if (!backupNavItem) return
+  const returnTo = normalizeBackupReturnTo(projectListReturnTo.value) || '/'
+  openWorkspaceNavItem(router, backupNavItem.id, { query: { returnTo } })
 }
 
 function maybeOpenNewDialogFromRoute() {

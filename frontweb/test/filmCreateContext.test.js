@@ -8,6 +8,10 @@ const filmCreateSource = readFileSync(
   new URL('../src/views/FilmCreate.vue', import.meta.url),
   'utf8',
 )
+const headerSource = readFileSync(
+  new URL('../src/components/filmCreate/FilmCreateHeader.vue', import.meta.url),
+  'utf8',
+)
 const filmCreateStyleSource = readFileSync(
   new URL('../src/views/FilmCreate.css', import.meta.url),
   'utf8',
@@ -34,16 +38,18 @@ test('episode context does not duplicate a default episode title', () => {
 })
 
 test('episode context selector keeps the desktop interaction height', () => {
-  const selectStart = filmCreateSource.indexOf('class="header-episode-select"')
-  const selectEnd = filmCreateSource.indexOf('</el-select>', selectStart)
-  const episodeSelectSource = filmCreateSource.slice(selectStart, selectEnd)
+  assert.match(filmCreateSource, /<FilmCreateHeader/)
+  const selectStart = headerSource.indexOf('class="header-episode-select"')
+  const selectEnd = headerSource.indexOf('</el-select>', selectStart)
+  const episodeSelectSource = headerSource.slice(selectStart, selectEnd)
 
   assert.ok(selectStart >= 0)
   assert.doesNotMatch(episodeSelectSource, /\bsize="small"/)
 })
 
 test('desktop production header groups commands into a non-overlapping actions workspace', () => {
-  assert.match(filmCreateSource, /class="workspace-actions"/)
+  assert.match(filmCreateSource, /<FilmCreateHeader/)
+  assert.match(headerSource, /class="workspace-actions"/)
   assert.match(filmCreateStyleSource, /@media \(min-width: 769px\) and \(max-width: 1400px\) \{[\s\S]*?\.header-inner\s*\{[\s\S]*?grid-template-columns:/)
   assert.match(filmCreateStyleSource, /\.workspace-actions\s*\{[\s\S]*?min-height:\s*32px;/)
   assert.match(filmCreateStyleSource, /@media \(min-width: 769px\) and \(max-width: 1400px\) \{[\s\S]*?\.workspace-actions\s*\{[\s\S]*?grid-column:/)

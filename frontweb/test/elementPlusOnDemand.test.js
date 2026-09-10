@@ -18,6 +18,7 @@ import {
 import { clipSecondsForStoryboardEstimate } from '../src/utils/filmCreateEstimates.js'
 
 const mainSource = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+const routerSource = readFileSync(new URL('../src/router/index.js', import.meta.url), 'utf8')
 const registerSource = readFileSync(new URL('../src/elementPlus/register.js', import.meta.url), 'utf8')
 const viteSource = readFileSync(new URL('../vite.config.js', import.meta.url), 'utf8')
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
@@ -102,4 +103,16 @@ test('FilmCreate delivery panel owns export actions and imports split helpers', 
   assert.match(deliveryPanelSource, /<section id="anchor-video" class="section card delivery-section">/)
   assert.match(deliveryPanelSource, /@click="\$emit\('download-video'\)"/)
   assert.match(deliveryPanelSource, /videoDownloadStatus === 'error' \? '重试下载' : '下载成片'/)
+})
+
+test('router keeps axios request feedback out of the initial graph', () => {
+  assert.match(mainSource, /import router from '\.\/router'/)
+  assert.match(routerSource, /component: \(\) => import\('@\/views\/Backup\.vue'\)/)
+  assert.doesNotMatch(routerSource, /from ['"][^'"]*useBackupSettings/)
+  assert.doesNotMatch(routerSource, /from ['"][^'"]*utils\/request/)
+  assert.doesNotMatch(routerSource, /from ['"][^'"]*elementPlusFeedback/)
+  assert.doesNotMatch(routerSource, /from ['"]axios['"]/)
+  assert.doesNotMatch(routerSource, /from ['"]element-plus['"]/)
+  assert.doesNotMatch(mainSource, /from ['"][^'"]*utils\/request/)
+  assert.doesNotMatch(mainSource, /from ['"][^'"]*useBackupSettings/)
 })

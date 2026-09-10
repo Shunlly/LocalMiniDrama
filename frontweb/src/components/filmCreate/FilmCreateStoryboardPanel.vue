@@ -15,143 +15,41 @@
           <span>分镜生成</span>
           <span class="step-desc">根据剧本、角色、场景自动生成分镜头脚本</span>
         </h2>
-        <div class="sb-config-row">
-          <label class="sb-config-item">
-            <span class="sb-config-label">分镜数量</span>
-            <el-input-number v-model="storyboardCount" aria-label="分镜数量（生成设置）" :min="1" :max="200" :step="5" placeholder="自动" class="sb-config-input" />
-            <span class="sb-config-hint sb-config-hint--estimate" :title="scriptEstimateStoryboardTitle">留空则按剧本体量估算{{ scriptEstimateStoryboardHint }}</span>
-          </label>
-          <span class="sb-config-divider">｜</span>
-          <label class="sb-config-item">
-            <span class="sb-config-label">视频总时长(秒)</span>
-            <el-input-number v-model="videoDuration" aria-label="分镜视频总时长（秒）" :min="10" :max="600" :step="5" placeholder="自动" class="sb-config-input" />
-            <span class="sb-config-hint sb-config-hint--estimate" :title="scriptEstimateVideoDurationTitle">留空则按剧本体量估算{{ scriptEstimateVideoDurationHint }}</span>
-          </label>
-          <span class="sb-config-divider">｜</span>
-          <label class="sb-config-item">
-            <span class="sb-config-label">序列图模式</span>
-            <el-select v-model="gridMode" aria-label="分镜序列图模式" size="small" style="width:110px" :disabled="storyboardUseFirstLastFrame">
-              <el-option label="单张" value="single" />
-              <el-option label="四宫格" value="quad_grid" />
-              <el-option label="九宫格" value="nine_grid" />
-            </el-select>
-            <span class="sb-config-hint">{{ storyboardUseFirstLastFrame ? '首尾帧模式下使用单张图，序列宫格暂不可用' : '四/九宫格自动按视角拆分' }}</span>
-          </label>
-        </div>
-        <div class="sb-config-row sb-narration-export-row" style="margin-top:10px;flex-wrap:wrap;align-items:center;gap:12px">
-          <el-checkbox v-model="storyboardUseFirstLastFrame" @change="onStoryboardUseFirstLastFrameChange">
-            首尾帧参考图（生成首帧和尾帧，帮助视频保持镜头衔接）
-          </el-checkbox>
-          <el-checkbox v-model="storyboardUniversalOmni" @change="emit('save-settings')">
-            多段分镜模式（每镜生成可直接用于长提示词的分段描述）
-          </el-checkbox>
-          <el-checkbox v-model="storyboardIncludeNarration" @change="emit('save-settings')">
-            同时生成解说旁白（与对白分轨，便于配音和字幕）
-          </el-checkbox>
-          <ActionGate v-if="storyboards.length" :reason="episodeActionDisabledReason" label="导出分镜表">
-            <el-button
-              class="sb-export-srt-btn"
-              size="small"
-              plain
-              type="primary"
-              :disabled="Boolean(episodeActionDisabledReason)"
-              :loading="exportingStoryboardSheet"
-              @click="onExportStoryboardSheet"
-            >
-              导出分镜表
-            </el-button>
-          </ActionGate>
-          <ActionGate v-if="storyboards.length" :reason="episodeActionDisabledReason" label="导出解说 SRT">
-            <el-button
-              class="sb-export-srt-btn"
-              size="small"
-              plain
-              type="primary"
-              :disabled="Boolean(episodeActionDisabledReason)"
-              @click="onExportNarrationSrt"
-            >
-              导出解说 SRT
-            </el-button>
-          </ActionGate>
-        </div>
-        <div id="anchor-storyboard-images" class="asset-actions sb-batch-actions">
-          <div class="flex">
-            <ActionGate
-              :reason="storyboardActionDisabledReason"
-              :label="storyboards.length > 0 ? '重新生成分镜' : 'AI 生成分镜'"
-            >
-              <el-button
-                type="primary"
-                size="large"
-                :loading="storyboardGenerating || universalOmniPolishRunning"
-                :disabled="Boolean(storyboardActionDisabledReason)"
-                @click="onGenerateStoryboard"
-              >
-                {{ storyboards.length > 0 ? '重新生成分镜' : 'AI 生成分镜' }}
-              </el-button>
-            </ActionGate>
-            <ActionGate :reason="episodeActionDisabledReason" label="添加一个分镜">
-              <el-button type="info" plain size="large" :disabled="Boolean(episodeActionDisabledReason)" @click="onAddSingleStoryboard">
-                添加一个分镜
-              </el-button>
-            </ActionGate>
-          </div>
-          <template v-if="storyboards.length > 0">
-            <div class="sb-batch-right">
-              <ActionGate :reason="batchActionDisabledReason" label="批量生成分镜图">
-                <el-button
-                  type="success"
-                  plain
-                  size="large"
-                  :loading="batchImageRunning"
-                  :disabled="Boolean(batchActionDisabledReason)"
-                  @click="startBatchImageGeneration"
-                >
-                  批量生成分镜图
-                </el-button>
-              </ActionGate>
-              <ActionGate :reason="batchVideoActionDisabledReason" label="批量生成分镜视频">
-                <el-button
-                  type="warning"
-                  plain
-                  size="large"
-                  :loading="batchVideoRunning"
-                  :disabled="Boolean(batchVideoActionDisabledReason)"
-                  @click="startBatchVideoGeneration"
-                >
-                  批量生成分镜视频
-                </el-button>
-              </ActionGate>
-              <el-button v-if="batchImageRunning" size="large" type="danger" plain @click="batchImageStopping = true">停止图片</el-button>
-              <el-button v-if="batchVideoRunning" size="large" type="danger" plain @click="batchVideoStopping = true">停止视频</el-button>
-            </div>
-            <div v-if="videoCapabilityReason" class="batch-video-capability" role="alert">
-              <span>{{ videoCapabilityReason }}</span>
-              <el-button link type="primary" @click="openAiConfig('video')">前往 AI 配置</el-button>
-            </div>
-            <!-- 连贯帧模式 UI 暂时隐藏（保留变量与批量生成逻辑，后续可快速恢复） -->
-            <div v-if="false" class="batch-video-options" style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:13px;">
-              <el-checkbox v-model="videoFrameContiguity" size="small">
-                连贯帧模式（自动衔接相邻视频帧）
-              </el-checkbox>
-              <el-tooltip placement="top" :show-after="100">
-                <template #content>
-                  <div style="max-width:320px;line-height:1.7">
-                    <div style="font-weight:600;margin-bottom:4px">连贯帧模式说明</div>
-                    <div>启用后批量视频顺序生成，每条视频的<b>末帧</b>自动截取并作为下一条视频的<b>首帧参考图</b>，减少镜头切换的跳跃感。</div>
-                    <div style="margin-top:8px;font-weight:600">⚠️ 需要模型支持图生视频（i2v）</div>
-                    <div style="margin-top:4px">
-                      ✅ 支持：kling-video、kling-omni-video、wan2.2-kf2v-flash、wan2.6-i2v-flash<br/>
-                      ❌ 不支持（末帧将被忽略）：wan2.6-t2v、wan2.6-r2v-flash、wanx2.1-vace-plus 等纯文生视频模型
-                    </div>
-                    <div style="margin-top:8px;color:#faad14">如当前视频模型不支持 i2v，启用此选项不会报错，但末帧衔接不会生效。</div>
-                  </div>
-                </template>
-                <el-icon style="color:#9ca3af;cursor:help"><QuestionFilled /></el-icon>
-              </el-tooltip>
-            </div>
-          </template>
-        </div>
+        <FilmCreateStoryboardConfigBar
+          v-model:storyboard-count="storyboardCount"
+          v-model:video-duration="videoDuration"
+          v-model:grid-mode="gridMode"
+          v-model:storyboard-use-first-last-frame="storyboardUseFirstLastFrame"
+          v-model:storyboard-universal-omni="storyboardUniversalOmni"
+          v-model:storyboard-include-narration="storyboardIncludeNarration"
+          v-model:video-frame-contiguity="videoFrameContiguity"
+          v-model:batch-image-stopping="batchImageStopping"
+          v-model:batch-video-stopping="batchVideoStopping"
+          :storyboards="storyboards"
+          :storyboard-generating="storyboardGenerating"
+          :universal-omni-polish-running="universalOmniPolishRunning"
+          :exporting-storyboard-sheet="exportingStoryboardSheet"
+          :batch-image-running="batchImageRunning"
+          :batch-video-running="batchVideoRunning"
+          :storyboard-action-disabled-reason="storyboardActionDisabledReason"
+          :episode-action-disabled-reason="episodeActionDisabledReason"
+          :batch-action-disabled-reason="batchActionDisabledReason"
+          :batch-video-action-disabled-reason="batchVideoActionDisabledReason"
+          :video-capability-reason="videoCapabilityReason"
+          :script-estimate-storyboard-hint="scriptEstimateStoryboardHint"
+          :script-estimate-storyboard-title="scriptEstimateStoryboardTitle"
+          :script-estimate-video-duration-hint="scriptEstimateVideoDurationHint"
+          :script-estimate-video-duration-title="scriptEstimateVideoDurationTitle"
+          :on-add-single-storyboard="onAddSingleStoryboard"
+          :on-export-narration-srt="onExportNarrationSrt"
+          :on-export-storyboard-sheet="onExportStoryboardSheet"
+          :on-generate-storyboard="onGenerateStoryboard"
+          :on-storyboard-use-first-last-frame-change="onStoryboardUseFirstLastFrameChange"
+          :open-ai-config="openAiConfig"
+          :start-batch-image-generation="startBatchImageGeneration"
+          :start-batch-video-generation="startBatchVideoGeneration"
+          @save-settings="emit('save-settings')"
+        />
         <!-- 批量生成进度 -->
         <div v-if="batchImageRunning || batchVideoRunning || batchImageErrors.length || batchVideoErrors.length" class="batch-status">
           <div v-if="batchImageRunning" class="batch-progress">
@@ -826,6 +724,7 @@
 import { ArrowDown, Delete, InfoFilled, Loading, MagicStick, Plus, QuestionFilled, Refresh, VideoPlay, WarningFilled, ZoomIn } from '@element-plus/icons-vue'
 import { ref } from 'vue'
 import ActionGate from '@/components/filmCreate/ActionGate.vue'
+import FilmCreateStoryboardConfigBar from '@/components/filmCreate/FilmCreateStoryboardConfigBar.vue'
 import UniversalSegmentOmniAtEditor from '@/components/UniversalSegmentOmniAtEditor.vue'
 
 defineOptions({ inheritAttrs: false })
@@ -1078,7 +977,6 @@ html.light .section-title { color: #1e1b4b; }
 .step-desc { margin-left: 8px; font-size: 0.82rem; font-weight: 400; color: #71717a; }
 .empty-tip { color: #5a5a66; font-size: 0.9rem; padding: 16px 0; }
 html.light .empty-tip { color: #9ca3af; }
-.flex { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 [id^="anchor-"], [id^="sb-"] { scroll-margin-top: 84px; }
 @media (min-width: 769px) {
   .film-create {
@@ -1088,32 +986,6 @@ html.light .empty-tip { color: #9ca3af; }
   .main :is([id^="anchor-"], [id^="sb-"]) {
     scroll-margin-top: var(--film-create-sticky-offset);
   }
-}
-
-.sb-batch-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.sb-batch-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.batch-video-capability {
-  flex: 1 0 100%;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  color: var(--el-color-warning);
-  font-size: 12px;
-  line-height: 1.45;
 }
 
 .batch-stopping {
@@ -2264,76 +2136,6 @@ html.light .sb-video-placeholder {
 @keyframes sb-dot-bounce {
   0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
   40%            { transform: scale(1);   opacity: 1;   }
-}
-
-.sb-config-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-
-.sb-config-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sb-config-label {
-  font-size: 0.85rem;
-  color: #a1a1aa;
-  white-space: nowrap;
-}
-
-.sb-config-input {
-  width: 110px;
-}
-
-.sb-config-hint {
-  font-size: 0.78rem;
-  color: #52525b;
-  white-space: nowrap;
-}
-
-.sb-config-hint--estimate {
-  white-space: normal;
-  max-width: 220px;
-  line-height: 1.35;
-}
-
-.sb-config-divider {
-  color: #3a3a44;
-  font-size: 0.85rem;
-  margin: 0 4px;
-}
-
-.sb-narration-export-row :deep(.el-checkbox__label) {
-  color: #e4e4e7;
-  font-size: 0.875rem;
-  line-height: 1.45;
-}
-
-html.light .sb-narration-export-row :deep(.el-checkbox__label) {
-  color: #374151;
-}
-
-.sb-export-srt-btn.el-button--primary.is-plain {
-  --el-button-bg-color: rgba(124, 58, 237, 0.75);
-  --el-button-border-color: #a78bfa;
-  --el-button-text-color: #fff;
-  --el-button-hover-text-color: #fff;
-  --el-button-hover-bg-color: #8b5cf6;
-  --el-button-hover-border-color: #c4b5fd;
-}
-
-html.light .sb-export-srt-btn.el-button--primary.is-plain {
-  --el-button-bg-color: #7c3aed;
-  --el-button-border-color: #6d28d9;
-  --el-button-text-color: #fff;
-  --el-button-hover-text-color: #fff;
-  --el-button-hover-bg-color: #6d28d9;
-  --el-button-hover-border-color: #5b21b6;
 }
 
 .sb-narration-actions {
