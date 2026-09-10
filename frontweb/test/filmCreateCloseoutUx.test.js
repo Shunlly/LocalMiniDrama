@@ -10,6 +10,7 @@ const resourceDialogs = readFileSync(new URL('../src/components/filmCreate/FilmC
 const imageColumn = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardImageColumn.vue', import.meta.url), 'utf8').replace(/\r\n?/g, '\n')
 const panel = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 const filmCreate = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
 const novelUx = readFileSync(new URL('../src/components/filmCreate/novelIntakeUx.js', import.meta.url), 'utf8')
 const composeSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateEpisodeCompose.js', import.meta.url), 'utf8')
 const charactersSource = readFileSync(new URL('../src/composables/filmCreate/useCharacters.js', import.meta.url), 'utf8')
@@ -65,7 +66,7 @@ test('分镜生图和超分禁用时给出中文原因，制作页把媒体原�
   assert.match(imageColumn, /<ActionGate :reason="imageGenerateDisabledReason" label="生成分镜参考图">/)
   assert.match(imageColumn, /<ActionGate :reason="upscaleDisabledReason" label="超分">/)
   assert.match(panel, /:storyboard-media-action-reason="storyboardMediaActionReason"/)
-  assert.match(filmCreate, /storyboardPanel: \{[\s\S]*storyboardMediaActionReason/)
+  assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*storyboardMediaActionReason/)
 })
 
 test('分镜图失败文案和成片/音色成功提示不会把英文原文弹给用户', () => {

@@ -57,13 +57,14 @@ function nineGrid(id = OTHER_GRID_IMAGE_ID) {
 
 const panelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
 
 test('制作页把宫格参考回调接到分镜视频列', () => {
   assert.match(panelSource, /:get-sb-grid-images="getSbGridImages"/)
   assert.match(panelSource, /:get-sb-video-reference-grid="getSbVideoReferenceGrid"/)
   assert.match(panelSource, /:on-open-video-params="onOpenVideoParamsDialog"/)
-  assert.match(filmCreateSource, /storyboardPanel: \{[\s\S]*getSbGridImages/)
-  assert.match(filmCreateSource, /storyboardPanel: \{[\s\S]*getSbVideoReferenceGrid/)
+  assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*getSbGridImages/)
+  assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*getSbVideoReferenceGrid/)
 })
 
 test('分镜视频列可独立编译', () => {

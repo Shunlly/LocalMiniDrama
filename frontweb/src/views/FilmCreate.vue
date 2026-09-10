@@ -2041,7 +2041,7 @@ const {
     storyStyle, storyType, storyEpisodeCount, scriptTitle,
     scriptContent, showSelectScriptDialog, selectPreviewEpisodeId, isStoryGenRunning,
     dramaId, hasAnyEpisode, scriptGenerating, currentEpisodeId,
-    drama, episodes, scriptDraftStatus, scriptDraftStatusLabel,
+    scriptDraftStatus, scriptDraftStatusLabel,
     selectScriptLoading, selectScriptImporting, selectableScriptDramas, selectScriptDramas,
     saveProjectSettings, showNovelImport, router, onGenerateStory,
     onAddEpisode, onGenerateScript, openSelectScriptDialog, loadSelectScriptList,

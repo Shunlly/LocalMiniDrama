@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { requestCoreJson } from '../src/utils/coreJsonRequest.js'
 import {
@@ -140,4 +141,21 @@ test('script estimate and concurrent runner keep pipeline semantics', async () =
   }, { getLabel: (item) => item, activeTasks: active })
   assert.deepEqual(seen.sort(), ['a', 'b', 'c'])
   assert.equal(active.size, 0)
+})
+
+test('制作页把工作台绑定源交给独立装配函数', () => {
+  const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+  const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
+  assert.match(filmCreateSource, /createFilmCreateWorkspaceBindingSources\(/)
+  assert.match(filmCreateSource, /useFilmCreateWorkspaceBootstrap\(\{/)
+  assert.match(filmCreateSource, /v-bind="resourcePanelBindings"/)
+  assert.match(filmCreateSource, /v-bind="storyboardPanelBindings"/)
+  assert.doesNotMatch(filmCreateSource, /resourcePanel: \{/)
+  assert.doesNotMatch(filmCreateSource, /storyboardPanel: \{/)
+  assert.match(workspaceBindingsSource, /export function createFilmCreateWorkspaceBindingSources/)
+  assert.match(workspaceBindingsSource, /resourcePanel: \{[\s\S]*propItems: props[\s\S]*onGenerateCharacters/)
+  assert.match(workspaceBindingsSource, /resourcePanel: \{[\s\S]*onAddEpisode, onSelectEpisode, onGenerateCharacters/)
+  assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*onAddEpisode, onAddSingleStoryboard/)
+  assert.match(workspaceBindingsSource, /episodes: computed\(\(\) => store\.drama\?\.episodes \|\| \[\]\)/)
+  assert.doesNotMatch(workspaceBindingsSource, /const currentEpisodeId = ref/)
 })

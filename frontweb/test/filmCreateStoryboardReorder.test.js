@@ -20,6 +20,7 @@ import {
 const panelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 const crudSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateStoryboardCrud.js', import.meta.url), 'utf8')
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
 
 function board(id, number, title) {
   return { id, episode_id: 21, storyboard_number: number, title }
@@ -148,7 +149,7 @@ test('分镜面板行头接线不依赖制作页绑定袋', () => {
   assert.match(crudSource, /onMoveStoryboardUp/)
   assert.doesNotMatch(panelSource, /onMoveStoryboard:\s*\{\s*type:\s*Function,\s*required:\s*true/)
   assert.match(panelSource, /getStoryboardsAPI:\s*\(\)\s*=>\s*props\.storyboardsAPI/)
-  assert.match(filmCreateSource, /storyboardPanel: \{[\s\S]*storyboardsAPI/)
+  assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*storyboardsAPI/)
 })
 
 test('面板排序在保存时才读取 API，不在 setup 时钉死', async () => {

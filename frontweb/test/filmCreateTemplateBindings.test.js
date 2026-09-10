@@ -17,6 +17,7 @@ import { createResourcePanelBindings, createStoryboardPanelBindings } from '../s
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const productionBindingsSource = read('../src/components/filmCreate/filmCreateProductionBindings.js')
+const workspaceBindingsSource = read('../src/components/filmCreate/filmCreateWorkspaceBindings.js')
 const warningSource = read('../src/components/filmCreate/FilmCreateProjectDependencyWarning.vue')
 const outputSource = read('../src/components/filmCreate/FilmCreateOutputSection.vue')
 const workspaceSource = read('../src/components/filmCreate/FilmCreateWorkspaceDialogs.vue')
@@ -103,8 +104,8 @@ test('只装配已有 ref，不创建新状态', () => {
   })
   assert.match(productionBindingsSource, /createTemplateModelBindings\(/)
   assert.match(filmCreateSource, /useFilmCreateWorkspaceBootstrap\(/)
-  assert.match(filmCreateSource, /FILM_CREATE_RESOURCE_DIALOG_MODEL_KEYS/)
-  assert.match(filmCreateSource, /FILM_CREATE_STORYBOARD_DIALOG_MODEL_KEYS/)
+  assert.match(workspaceBindingsSource, /FILM_CREATE_RESOURCE_DIALOG_MODEL_KEYS/)
+  assert.match(workspaceBindingsSource, /FILM_CREATE_STORYBOARD_DIALOG_MODEL_KEYS/)
   assert.doesNotMatch(filmCreateSource, /const showAddProp = ref\(false\)/)
   assert.ok(FILM_CREATE_RESOURCE_DIALOG_MODEL_KEYS.includes('showAddProp'))
   assert.ok(FILM_CREATE_STORYBOARD_DIALOG_MODEL_KEYS.includes('showSbPromptDialog'))
@@ -315,7 +316,7 @@ test('资源面板绑定袋透出 onAddEpisode / onSelectEpisode，不把它们�
   assert.equal(FILM_CREATE_RESOURCE_PANEL_MODEL_KEYS.includes('onSelectEpisode'), false)
   assert.equal(FILM_CREATE_RESOURCE_PANEL_MODEL_KEYS.includes('currentEpisodeId'), false)
   assert.match(productionBindingsSource, /createResourcePanelBindings\([\s\S]*onAddEpisode,[\s\S]*onSelectEpisode,[\s\S]*FILM_CREATE_RESOURCE_PANEL_MODEL_KEYS/)
-  assert.match(filmCreateSource, /resourcePanel: \{[\s\S]*onAddEpisode, onSelectEpisode, onGenerateCharacters/)
+  assert.match(workspaceBindingsSource, /resourcePanel: \{[\s\S]*onAddEpisode, onSelectEpisode, onGenerateCharacters/)
 
   const currentEpisodeId = ref(EPISODE_ID)
   let added = 0
@@ -363,7 +364,7 @@ test('分镜面板绑定袋透出 onAddEpisode，不把它当成 v-model，也�
   assert.equal(FILM_CREATE_STORYBOARD_PANEL_MODEL_KEYS.includes('onAddEpisode'), false)
   assert.equal(FILM_CREATE_STORYBOARD_PANEL_MODEL_KEYS.includes('currentEpisodeId'), false)
   assert.match(productionBindingsSource, /onAddEpisode,/)
-  assert.match(filmCreateSource, /storyboardPanel: \{[\s\S]*onAddEpisode, onAddSingleStoryboard/)
+  assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*onAddEpisode, onAddSingleStoryboard/)
 
   const currentEpisodeId = ref(EPISODE_ID)
   let added = 0

@@ -17,6 +17,7 @@ const EPISODE_ID = 22
 assert.notEqual(DRAMA_ID, EPISODE_ID)
 
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
 const productionBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateProductionBindings.js', import.meta.url), 'utf8')
 const bootstrapSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateWorkspaceBootstrap.js', import.meta.url), 'utf8')
 const workspaceNavSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateWorkspaceNav.js', import.meta.url), 'utf8')
@@ -70,7 +71,7 @@ test('制作页把加载失败面、AI 弹窗、资源折叠和选择器交给 c
   assert.doesNotMatch(filmCreateSource, /const resourcePanelCollapsed = ref\(false\)/)
   assert.doesNotMatch(filmCreateSource, /const showGlobalMediaPicker = ref\(false\)/)
   assert.match(filmCreateSource, /v-bind="resourcePanelBindings"/)
-  assert.match(filmCreateSource, /resourcePanel: \{[\s\S]*resourcePanelCollapsed/)
+  assert.match(workspaceBindingsSource, /resourcePanel: \{[\s\S]*resourcePanelCollapsed/)
   assert.doesNotMatch(filmCreateSource, /v-model:resource-panel-collapsed="resourcePanelCollapsed"/)
   assert.match(filmCreateSource, /v-model="showAiConfigDialog"/)
   assert.match(filmCreateSource, /v-model:show-global-media-picker="showGlobalMediaPicker"/)

@@ -30,14 +30,15 @@ function propLine(name) {
 
 const panelSource = readFileSync(new URL('../src/components/filmCreate/FilmCreateStoryboardPanel.vue', import.meta.url), 'utf8')
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
+const workspaceBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateWorkspaceBindings.js', import.meta.url), 'utf8')
 
 test('制作页把自由参考图回调接到分镜图列', () => {
   assert.match(panelSource, /:get-sb-free-reference-items="getSbFreeReferenceItems"/)
   assert.match(panelSource, /:open-global-media-picker="openGlobalMediaPicker"/)
   assert.match(panelSource, /:on-promote-sb-free-reference-image="onPromoteSbFreeReferenceImage"/)
   assert.match(panelSource, /:on-remove-sb-free-reference-image="onRemoveSbFreeReferenceImage"/)
-  assert.match(filmCreateSource, /storyboardPanel: \{[\s\S]*getSbFreeReferenceItems/)
-  assert.match(filmCreateSource, /storyboardPanel: \{[\s\S]*openGlobalMediaPicker/)
+  assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*getSbFreeReferenceItems/)
+  assert.match(workspaceBindingsSource, /storyboardPanel: \{[\s\S]*openGlobalMediaPicker/)
 })
 
 test('ImageColumn 模板含自由参考图行内入口', () => {

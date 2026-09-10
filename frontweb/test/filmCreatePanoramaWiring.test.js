@@ -11,6 +11,7 @@ const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
 const filmCreateSource = read('../src/views/FilmCreate.vue')
 const resourcePanelSource = read('../src/components/filmCreate/FilmCreateResourcePanel.vue')
 const productionBindingsSource = read('../src/components/filmCreate/filmCreateProductionBindings.js')
+const workspaceBindingsSource = read('../src/components/filmCreate/filmCreateWorkspaceBindings.js')
 const bootstrapSource = read('../src/composables/filmCreate/useFilmCreateWorkspaceBootstrap.js')
 
 function resourcePanelStub(extra = {}) {
@@ -43,7 +44,7 @@ function resourcePanelStub(extra = {}) {
 
 test('制作页资源袋把全景图生成函数透成 Vue 事件监听', () => {
   assert.match(filmCreateSource, /v-bind="resourcePanelBindings"/)
-  assert.match(filmCreateSource, /resourcePanel: \{[\s\S]*generatingPanoramaIds[\s\S]*onGenerateScenePanorama/)
+  assert.match(workspaceBindingsSource, /resourcePanel: \{[\s\S]*generatingPanoramaIds[\s\S]*onGenerateScenePanorama/)
   assert.match(bootstrapSource, /createResourcePanelBindings\(resourcePanel\)/)
   assert.match(productionBindingsSource, /export function createResourcePanelBindings/)
   assert.match(resourcePanelSource, /'generate-scene-panorama'/)
