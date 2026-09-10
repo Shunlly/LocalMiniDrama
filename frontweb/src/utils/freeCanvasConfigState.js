@@ -2,7 +2,7 @@ const STATUS_LABELS = Object.freeze({
   blocked: '需要配置',
   checking: '检查中',
   error: '检查失败',
-  mock: 'Mock 预演',
+  mock: '预演配置',
   ready: '配置就绪',
   running: '生成中',
   failed: '生成失败',
@@ -97,7 +97,7 @@ export function buildFreeCanvasConfigRuntime(nodeId, canvas, options = {}) {
   if (['blocked', 'checking', 'error'].includes(status)) {
     reason = cleanText(gateReason, 300) || '视频生成未就绪，请前往 AI 配置完成配置。'
   } else if (status === 'mock') {
-    reason = `${label || '当前 Mock Provider'}仅用于流程预演，不会产生正式视频。`
+    reason = `${label || '当前预演配置'}仅用于流程预演，不会产生正式视频。`
   } else if (status === 'ready') {
     reason = label ? `当前使用 ${label}，生成前请确认上游输入。` : '视频生成配置已就绪。'
   }

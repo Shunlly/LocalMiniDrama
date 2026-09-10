@@ -147,6 +147,8 @@ test('空剧本的全流程阻断原因保持中文', () => {
   )
   assert.match(pipelinePanelSource, /<ActionGate label="一键生成成片" :reason="productionReason">/)
   assert.match(pipelinePanelSource, /<ActionGate label="仅生成文本框架" :reason="draftReason">/)
+  assert.match(pipelinePanelSource, /if \(draftReason\.value\) return draftReason\.value/)
+  assert.doesNotMatch(pipelinePanelSource, /处理当前阻断后再启动生成/)
 })
 
 test('全流程错误日志和阻断原因把英文技术失败收成中文', () => {

@@ -44,8 +44,9 @@ test('config runtime labels mock providers without reporting a completed generat
   })
 
   assert.equal(runtime.status, 'mock')
-  assert.equal(runtime.statusLabel, 'Mock 预演')
+  assert.equal(runtime.statusLabel, '预演配置')
   assert.match(runtime.reason, /不会产生正式视频/)
+  assert.doesNotMatch(runtime.reason, /Mock Provider/)
   assert.equal(runtime.providerLabel, '本地 Mock')
   assert.equal(runtime.canConfigure, true)
 })
