@@ -412,7 +412,7 @@ function validateImportComplexity(data, limits) {
   if (!Number.isSafeInteger(episodeCharacterLinks)) {
     throw structuredImportError(
       'IMPORT_RELATIONSHIP_LIMIT_EXCEEDED',
-      '项目导入关联 episode_characters 超出安全整数范围',
+      '项目导入关联的剧集角色超出安全整数范围',
       {
         kind: 'relationship',
         name: 'episode_characters',
@@ -768,7 +768,7 @@ function normalizeSourceIntakeManifest(data, limits, now) {
     }
     const sourceRef = String(source.source_ref || '');
     if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(sourceRef) || sourceRefs.has(sourceRef)) {
-      throw importError('INVALID_SOURCE_MANIFEST', '素材导入 source_ref 无效或重复');
+      throw importError('INVALID_SOURCE_MANIFEST', '素材导入来源引用无效或重复');
     }
     sourceRefs.add(sourceRef);
 
@@ -834,14 +834,14 @@ function restoreSourceIntakeOriginals(db, storagePath, files, dramaId, entries, 
   for (const entry of entries) {
     const buffer = files.read(entry.original.archive_path);
     if (!buffer) {
-      throw importError('SOURCE_ORIGINAL_MISSING', `素材导入原始文件 ${entry.source_ref} 不在压缩包中`);
+      throw importError('SOURCE_ORIGINAL_MISSING', '素材导入原始文件不在压缩包中');
     }
     if (buffer.length !== entry.original.size) {
-      throw importError('SOURCE_ORIGINAL_SIZE_MISMATCH', `素材导入原始文件 ${entry.source_ref} 大小校验失败`);
+      throw importError('SOURCE_ORIGINAL_SIZE_MISMATCH', '素材导入原始文件大小校验失败');
     }
     const actualHash = createHash('sha256').update(buffer).digest('hex');
     if (actualHash !== entry.original.sha256) {
-      throw importError('SOURCE_ORIGINAL_HASH_MISMATCH', `素材导入原始文件 ${entry.source_ref} 的 SHA-256 校验失败`);
+      throw importError('SOURCE_ORIGINAL_HASH_MISMATCH', '素材导入原始文件哈希校验失败');
     }
 
     let descriptor;
@@ -855,7 +855,7 @@ function restoreSourceIntakeOriginals(db, storagePath, files, dramaId, entries, 
     } catch (error) {
       throw importError(
         'SOURCE_ORIGINAL_MIME_MISMATCH',
-        `素材导入原始文件 ${entry.source_ref} 与路径或 MIME 类型不一致`,
+        '素材导入原始文件与路径或类型不一致',
         error
       );
     }

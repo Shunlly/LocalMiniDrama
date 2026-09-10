@@ -504,7 +504,10 @@
           <p>{{ charLibraryError }}</p>
           <el-button size="small" type="primary" plain :loading="charLibraryLoading" @click="loadCharLibraryList">重试</el-button>
         </div>
-        <div v-if="!charLibraryLoading && !charLibraryError && charLibraryList.length === 0" class="library-empty" role="status">{{ charLibraryKeyword.trim() ? '没有匹配的角色，试试其他关键词。' : '素材库暂无角色，可在项目中将角色「加入素材库」后在此查看' }}</div>
+        <div v-if="!charLibraryLoading && !charLibraryError && charLibraryList.length === 0" class="library-empty" role="status">
+          <p>{{ charLibraryKeyword.trim() ? '没有匹配的角色，试试其他关键词。' : '素材库暂无角色，可在项目中将角色「加入素材库」后在此查看' }}</p>
+          <el-button v-if="charLibraryKeyword.trim()" size="small" aria-label="清除角色素材搜索" @click="clearCharLibraryKeyword">清除搜索</el-button>
+        </div>
       </div>
       <div class="library-pagination">
         <el-pagination v-model:current-page="charLibraryPage" v-model:page-size="charLibraryPageSize" :total="charLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" aria-label="角色素材分页" @current-change="loadCharLibraryList" @size-change="loadCharLibraryList" />
@@ -578,7 +581,10 @@
           <p>{{ sceneLibraryError }}</p>
           <el-button size="small" type="primary" plain :loading="sceneLibraryLoading" @click="loadSceneLibraryList">重试</el-button>
         </div>
-        <div v-if="!sceneLibraryLoading && !sceneLibraryError && sceneLibraryList.length === 0" class="library-empty" role="status">{{ sceneLibraryKeyword.trim() ? '没有匹配的场景，试试其他关键词。' : '素材库暂无场景，可在项目中将场景「加入素材库」后在此查看' }}</div>
+        <div v-if="!sceneLibraryLoading && !sceneLibraryError && sceneLibraryList.length === 0" class="library-empty" role="status">
+          <p>{{ sceneLibraryKeyword.trim() ? '没有匹配的场景，试试其他关键词。' : '素材库暂无场景，可在项目中将场景「加入素材库」后在此查看' }}</p>
+          <el-button v-if="sceneLibraryKeyword.trim()" size="small" aria-label="清除场景素材搜索" @click="clearSceneLibraryKeyword">清除搜索</el-button>
+        </div>
       </div>
       <div class="library-pagination">
         <el-pagination v-model:current-page="sceneLibraryPage" v-model:page-size="sceneLibraryPageSize" :total="sceneLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" aria-label="场景素材分页" @current-change="loadSceneLibraryList" @size-change="loadSceneLibraryList" />
@@ -653,7 +659,10 @@
           <p>{{ propLibraryError }}</p>
           <el-button size="small" type="primary" plain :loading="propLibraryLoading" @click="loadPropLibraryList">重试</el-button>
         </div>
-        <div v-if="!propLibraryLoading && !propLibraryError && propLibraryList.length === 0" class="library-empty" role="status">{{ propLibraryKeyword.trim() ? '没有匹配的道具，试试其他关键词。' : '素材库暂无道具，可在项目中将道具「加入素材库」后在此查看' }}</div>
+        <div v-if="!propLibraryLoading && !propLibraryError && propLibraryList.length === 0" class="library-empty" role="status">
+          <p>{{ propLibraryKeyword.trim() ? '没有匹配的道具，试试其他关键词。' : '素材库暂无道具，可在项目中将道具「加入素材库」后在此查看' }}</p>
+          <el-button v-if="propLibraryKeyword.trim()" size="small" aria-label="清除道具素材搜索" @click="clearPropLibraryKeyword">清除搜索</el-button>
+        </div>
       </div>
       <div class="library-pagination">
         <el-pagination v-model:current-page="propLibraryPage" v-model:page-size="propLibraryPageSize" :total="propLibraryTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" aria-label="道具素材分页" @current-change="loadPropLibraryList" @size-change="loadPropLibraryList" />
@@ -1017,6 +1026,11 @@ function debouncedLoadCharLibrary() {
   if (charLibraryKeywordTimer) clearTimeout(charLibraryKeywordTimer)
   charLibraryKeywordTimer = setTimeout(() => { charLibraryPage.value = 1; loadCharLibraryList() }, 300)
 }
+function clearCharLibraryKeyword() {
+  charLibraryKeyword.value = ''
+  charLibraryPage.value = 1
+  loadCharLibraryList()
+}
 function openEditCharLibrary(item) {
   if (listWriteLocked.value) return
   editCharLibraryForm.value = { id: item.id, name: item.name ?? '', category: item.category ?? '', description: item.description ?? '', tags: item.tags ?? '', image_url: item.image_url ?? '', local_path: item.local_path ?? null, imgUploading: false, imgGenerating: false }
@@ -1076,6 +1090,11 @@ async function loadSceneLibraryList() {
 function debouncedLoadSceneLibrary() {
   if (sceneLibraryKeywordTimer) clearTimeout(sceneLibraryKeywordTimer)
   sceneLibraryKeywordTimer = setTimeout(() => { sceneLibraryPage.value = 1; loadSceneLibraryList() }, 300)
+}
+function clearSceneLibraryKeyword() {
+  sceneLibraryKeyword.value = ''
+  sceneLibraryPage.value = 1
+  loadSceneLibraryList()
 }
 function openEditSceneLibrary(item) {
   if (listWriteLocked.value) return
@@ -1137,6 +1156,11 @@ async function loadPropLibraryList() {
 function debouncedLoadPropLibrary() {
   if (propLibraryKeywordTimer) clearTimeout(propLibraryKeywordTimer)
   propLibraryKeywordTimer = setTimeout(() => { propLibraryPage.value = 1; loadPropLibraryList() }, 300)
+}
+function clearPropLibraryKeyword() {
+  propLibraryKeyword.value = ''
+  propLibraryPage.value = 1
+  loadPropLibraryList()
 }
 function openEditPropLibrary(item) {
   if (listWriteLocked.value) return
@@ -2671,6 +2695,8 @@ button.library-item-cover { cursor: zoom-in; }
 .library-item-desc { font-size: 0.85rem; color: #a1a1aa; margin-bottom: 8px; }
 .library-item-actions { display: flex; gap: 8px; }
 .library-empty { text-align: center; color: #71717a; padding: 40px 20px; }
+.library-empty p { margin: 0; }
+.library-empty .el-button { margin-top: 12px; }
 .library-pagination { margin-top: 12px; display: flex; justify-content: center; }
 
 /* ===== 亮色模式适配 ===== */

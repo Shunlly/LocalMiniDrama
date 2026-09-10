@@ -55,6 +55,9 @@ test('首页空项目和下一步入口是中文，且空态按钮可点', () =>
   assert.match(filmListSource, /@click="clearProjectFilters"/)
   assert.match(filmListSource, /回收站中没有项目/)
   assert.equal((filmListSource.match(/class="library-empty" role="status"/g) || []).length, 3)
+  assert.match(filmListSource, /aria-label="清除角色素材搜索"/)
+  assert.match(filmListSource, /aria-label="清除场景素材搜索"/)
+  assert.match(filmListSource, /aria-label="清除道具素材搜索"/)
   assert.doesNotMatch(filmListSource, /No projects|Get started|Create project|Next step|Empty state/i)
 })
 

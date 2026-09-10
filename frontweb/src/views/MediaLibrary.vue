@@ -421,6 +421,7 @@
           <el-icon><Files /></el-icon>
           <h2>没有找到匹配的网络素材</h2>
           <p>请更换关键词或素材类型后重试。</p>
+          <el-button aria-label="清除网络素材搜索" @click="clearNetworkSearch">清除搜索</el-button>
         </div>
         <div v-else-if="!networkLoading && !networkError && !networkSearched" class="network-empty" role="status">
           <el-icon><Search /></el-icon>
@@ -861,6 +862,13 @@ function describeNetworkError(error, fallback) {
 
 function mediaOriginLabel(item) {
   return getMediaOriginLabel(item)
+}
+
+function clearNetworkSearch() {
+  networkKeyword.value = ''
+  networkMediaType.value = 'all'
+  networkSource.value = 'all'
+  invalidateNetworkSearch()
 }
 
 function invalidateNetworkSearch() {
@@ -1510,6 +1518,9 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
+.network-empty .el-button {
+  margin-top: 12px;
+}
 .network-empty h2 {
   color: var(--text-bright);
   font-size: 17px;

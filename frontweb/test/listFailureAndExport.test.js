@@ -196,7 +196,9 @@ test('分类素材加载失败不会被伪装成空库，且 AI 配置在列表�
   assert.match(filmListSource, /v-if="charLibraryError"[\s\S]*@click="loadCharLibraryList"[\s\S]*重试/)
   assert.match(filmListSource, /v-if="!charLibraryLoading && !charLibraryError && charLibraryList\.length === 0"/)
   assert.match(filmListSource, /没有匹配的角色，试试其他关键词/)
-  assert.match(filmListSource, /class="btn-settings" title="打开 AI 配置" @click="showAiConfigDialog = true"/)
+  assert.match(filmListSource, /aria-label="清除角色素材搜索"/)
+  assert.match(filmListSource, /function clearCharLibraryKeyword/)
+  assert.match(filmListSource, /class="btn-settings" title="打开 AI 配置" aria-label="打开 AI 配置" @click="showAiConfigDialog = true"/)
   assert.doesNotMatch(filmListSource, /class="btn-settings" :disabled="listWriteLocked"/)
   assert.equal(
     describeServiceLoadError({ response: { status: 502 } }, { serviceLabel: '角色素材服务' }),

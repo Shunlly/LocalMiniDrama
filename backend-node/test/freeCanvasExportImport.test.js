@@ -830,7 +830,7 @@ test('portable canvas import rejects a video-generation storyboard binding misma
     manifest.video_generations[0].storyboard_id = null;
   });
 
-  assertImportBadRequestRollback(target, tampered, /video|storyboard|\u5206\u955c/i);
+  assertImportBadRequestRollback(target, tampered, /视频|分镜/);
 });
 
 test('portable canvas import rejects an unbounded video-generation status', (t) => {
