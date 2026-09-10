@@ -1357,6 +1357,7 @@ function restoreStoryboardReferenceImages(storagePath, projectDir, files, items)
   return storyboardService.normalizeReferenceImages(restored);
 }
 
+// 用户错误只展示中文标签，内部 JSON 字段名保持不变。
 const FREE_CANVAS_IMPORT_FIELD_LABELS = Object.freeze({
   source_drama_id: '源项目',
   episode_ids: '剧集列表',
