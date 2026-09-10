@@ -40,6 +40,7 @@ const leftoverEnglish = [
   '缺少 drama.title 字段',
   'free_canvas_import ${field}',
   'free_canvas_import 必须为对象',
+  'free_canvas_import ',
   '${field} is invalid',
   'Image generation did not complete',
   'Video generation did not complete',
@@ -139,6 +140,15 @@ const leftoverEnglish = [
   '请改为调用 POST /api/v1/videos，并传入 storyboard_id 与帧参考',
   '请改为调用 POST /api/v1/episodes/:episode_id/finalize 启动 FFmpeg 合成',
 ];
+
+function leftoverScanText(source, phrase) {
+  // 内部赋值 data.free_canvas_import 不是用户错误，只扫描 throw 文案里的旧前缀。
+  if (phrase !== 'free_canvas_import ') return source;
+  return source
+    .split('\n')
+    .filter((line) => /\bthrow\b/.test(line))
+    .join('\n');
+}
 
 function hasCjk(text) {
   return /[\u4e00-\u9fff]/.test(String(text || ''));
@@ -256,7 +266,7 @@ test('\u5269\u4f59\u7528\u6237\u9519\u8bef\u6e90\u7801\u4e0d\u518d\u5305\u542b\u
       : path.join(__dirname, '../src', name);
     const source = fs.readFileSync(sourcePath, 'utf8');
     for (const phrase of leftoverEnglish) {
-      assert.equal(source.includes(phrase), false, `${name} \u4ecd\u5305\u542b\uff1a${phrase}`);
+      assert.equal(leftoverScanText(source, phrase).includes(phrase), false, `${name} \u4ecd\u5305\u542b\uff1a${phrase}`);
     }
   }
 });
@@ -408,6 +418,20 @@ test('图片和视频幂等冲突返回不含英文字段名的中文', () => {
   assert.equal(isTrustedChineseUserError('该幂等键指向已删除的图片记录，请使用新的幂等键'), true);
   assert.equal(isTrustedChineseUserError('参考图列表必须是数组'), true);
   assert.equal(isTrustedChineseUserError('项目文件格式不正确：缺少剧名'), true);
+  const trustedImportMessages = [
+    '自由画布导入数据必须为对象',
+    '自由画布导入清单版本不受支持',
+    '自由画布导入剧集列表无法映射',
+    '自由画布导入分镜列表无法映射',
+    '自由画布导入源项目与画布项目引用不一致',
+    '自由画布导入媒体包含重复归档路径',
+    '自由画布导入媒体哈希校验失败',
+    '旧版 ZIP 自由画布包含无法验证的引用，缺少导入清单',
+  ];
+  for (const message of trustedImportMessages) {
+    assert.equal(isTrustedChineseUserError(message), true, message);
+  }
+  assert.equal(isTrustedChineseUserError('自由画布导入视频生成状态不受支持'), true);
   const videoSource = fs.readFileSync(path.join(__dirname, '../src/services/videoService.js'), 'utf8');
   const imageSource = fs.readFileSync(path.join(__dirname, '../src/services/imageService.js'), 'utf8');
   const importSource = fs.readFileSync(path.join(__dirname, '../src/services/dramaImportService.js'), 'utf8');
@@ -417,6 +441,11 @@ test('图片和视频幂等冲突返回不含英文字段名的中文', () => {
   assert.equal(videoSource.includes('idempotency_key 属于其他 drama 或 storyboard'), false);
   assert.equal(imageSource.includes('idempotency_key 属于其他 drama 或 storyboard'), false);
   assert.equal(importSource.includes('缺少 drama.title 字段'), false);
+  const importThrows = leftoverScanText(importSource, 'free_canvas_import ');
+  assert.equal(importThrows.includes('free_canvas_import '), false);
+  for (const message of trustedImportMessages) {
+    assert.equal(importSource.includes(message), true, message);
+  }
 });
 
 test('videoClient 用户错误不再是问号乱码', () => {

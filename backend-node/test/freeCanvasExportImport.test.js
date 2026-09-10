@@ -13,6 +13,7 @@ const sharp = require('sharp');
 const { runMigrationsAndEnsure } = require('../src/db/migrate');
 const dramaExportService = require('../src/services/dramaExportService');
 const dramaImportService = require('../src/services/dramaImportService');
+const { isTrustedChineseUserError } = require('../src/services/providerErrorSanitizer');
 const storageLayout = require('../src/services/storageLayout');
 const { getFfmpegPath } = require('../src/utils/ffmpegPath');
 const { VALID_PNG_BYTES, writeFixtureVideoFile } = require('./mediaFixture');
@@ -130,6 +131,7 @@ function assertImportBadRequestRollback(target, archiveBuffer, messagePattern = 
   }
   assert.ok(caught, 'expected project import to fail');
   assert.equal(caught.code, 'BAD_REQUEST');
+  assert.equal(isTrustedChineseUserError(caught.message), true, caught.message);
   if (messagePattern) assert.match(caught.message, messagePattern);
   for (const table of tables) {
     assert.equal(
@@ -307,7 +309,7 @@ test('项目导入拒绝 Commons SHA-1 与归档媒体不一致', (t) => {
     manifest.assets[0].category = JSON.stringify(metadata);
   });
 
-  assertImportBadRequestRollback(target, tampered, /Commons SHA-1|网络素材/i);
+  assertImportBadRequestRollback(target, tampered, /完整性校验|网络素材/);
 });
 
 test('项目导入拒绝缺少可验证字段或标题错配的 Commons 证据', async (t) => {
@@ -838,7 +840,7 @@ test('portable canvas import rejects an unbounded video-generation status', (t) 
     manifest.video_generations[0].status = 'administrator-controlled';
   });
 
-  assertImportBadRequestRollback(target, tampered, /status/i);
+  assertImportBadRequestRollback(target, tampered, /状态/);
 });
 
 test('portable canvas import rejects media with a tampered SHA-256', async (t) => {
