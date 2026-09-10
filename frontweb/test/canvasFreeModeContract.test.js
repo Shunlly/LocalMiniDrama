@@ -12,7 +12,9 @@ const storyboardPanelSource = read('../src/components/dramaCanvas/CanvasStoryboa
 const assetSidebarSource = read('../src/components/dramaCanvas/FreeCanvasAssetSidebar.vue')
 const desktopToolbarSource = read('../src/components/dramaCanvas/CanvasDesktopToolbar.vue')
 const contextMenuSource = read('../src/components/dramaCanvas/CanvasContextMenu.vue')
-const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
+const dramaCanvasViewSource = read('../src/views/DramaCanvas.vue')
+const freeCanvasLogicSource = read('../src/composables/useDramaCanvasFreeCanvas.js')
+const dramaCanvasSource = `${dramaCanvasViewSource}\n${freeCanvasLogicSource}`
 
 test('free canvas toolbar names every icon-only action and exposes mode selection', () => {
   for (const label of ['撤销', '重做', '适配视图', '切换背景']) {
@@ -229,7 +231,8 @@ test('asset sidebar exposes one upload stop plus keyword type filtering and proj
 test('context menu moves focus into the menu and restores it on close', () => {
   assert.match(contextMenuSource, /ref="menuRef"/)
   assert.match(contextMenuSource, /tabindex="-1"/)
-  assert.match(contextMenuSource, /@keydown\.esc\.prevent="close"/)
+  assert.match(contextMenuSource, /@keydown="onMenuKeydown"/)
+  assert.match(contextMenuSource, /event\.key === 'Escape'[\s\S]*close\(\)/)
   assert.match(contextMenuSource, /menuRef\.value\?\.focus\(\)/)
   assert.match(contextMenuSource, /returnFocus\?\.focus\(\)/)
   assert.match(contextMenuSource, /watch\(\(\) => props\.visible/)
@@ -271,7 +274,8 @@ test('free-mode controls sit above the bottom toolbar and hide the minimap on sm
 
 test('first and last frame generation remains reachable from media and storyboard inspectors', () => {
   assert.match(inspectorMediaSource, /frameKind === 'first'/)
-  assert.match(inspectorMediaSource, /重新生成\$\{frameTitle\.value\}/)
+  assert.match(inspectorMediaSource, /重新生成首帧/)
+  assert.match(inspectorMediaSource, /重新生成尾帧/)
   assert.match(storyboardPanelSource, /runStep\('first-frame'\)/)
   assert.match(storyboardPanelSource, /runStep\('last-frame'\)/)
   assert.match(storyboardPanelSource, /runFrameImageStep/)
