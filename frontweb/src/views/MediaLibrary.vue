@@ -12,7 +12,7 @@
         </div>
       </div>
       <div class="header-actions">
-        <el-button :disabled="mediaAccessState.navigationLocked" aria-label="新建项目" @click="goNewProject">
+        <el-button :disabled="mediaAccessState.navigationLocked" aria-label="新建项目" :title="mediaAccessState.navigationLocked ? mediaNavigationLockReason : undefined" @click="goNewProject">
           <el-icon><Plus /></el-icon>
           新建项目
         </el-button>
@@ -20,6 +20,7 @@
           :type="mediaItems.length === 0 && !loading ? 'default' : 'primary'"
           :loading="uploading"
           :disabled="mediaWriteLocked"
+          :title="mediaWriteLocked ? mediaWriteLockReason : undefined"
           aria-label="上传图片或视频到素材中心"
           @click="triggerUpload"
         >
@@ -53,6 +54,7 @@
         plain
         :loading="isNetworkImporting(networkImportRetryItem)"
         :disabled="isNetworkImporting(networkImportRetryItem) || !networkItemImportability(networkImportRetryItem).allowed"
+        :title="isNetworkImporting(networkImportRetryItem) ? '正在导入该网络素材，请稍候' : (networkItemImportability(networkImportRetryItem).reason || undefined)"
         aria-label="重试导入该网络素材"
         @click="importNetworkItem(networkImportRetryItem)"
       >
@@ -84,7 +86,7 @@
       <div class="entry-item">
         <span class="entry-label">上传到素材中心</span>
         <p class="entry-description">把不超过 100MB 的图片和视频放进全局素材，后续项目可以直接复用。</p>
-        <el-button text class="entry-action" :disabled="mediaWriteLocked" @click="triggerUpload">立即上传</el-button>
+        <el-button text class="entry-action" :disabled="mediaWriteLocked" :title="mediaWriteLocked ? mediaWriteLockReason : undefined" @click="triggerUpload">立即上传</el-button>
       </div>
       <div class="entry-item">
         <span class="entry-label">网页 URL 导入</span>
@@ -94,6 +96,7 @@
           plain
           class="entry-action"
           :disabled="mediaAccessState.navigationLocked"
+          :title="mediaAccessState.navigationLocked ? mediaNavigationLockReason : undefined"
           aria-label="选择项目后导入网页 URL"
           @click="goSourceImport"
         >进入项目选择后导入网页 URL</el-button>
@@ -169,12 +172,13 @@
             muted
           />
           <img v-else :src="itemUrl(item)" :alt="thumbnailAlt(item)" class="thumb-img" />
-          <label class="selection-control" :title="selectionLabel(item)">
+          <label class="selection-control" :title="mediaWriteLocked ? mediaWriteLockReason : selectionLabel(item)">
             <input
               type="checkbox"
               class="selection-input"
               :checked="selectedIds.has(item.id)"
               :disabled="mediaWriteLocked"
+              :title="mediaWriteLocked ? mediaWriteLockReason : selectionLabel(item)"
               :aria-label="selectionLabel(item)"
               @change="setItemSelected(item, $event.target.checked)"
             />
@@ -199,7 +203,7 @@
                 size="small"
                 type="danger"
                 plain
-                :title="actionLabel('删除', item)"
+                :title="mediaWriteLocked ? mediaWriteLockReason : actionLabel('删除', item)"
                 :aria-label="actionLabel('删除', item)"
                 :disabled="mediaWriteLocked"
                 :tabindex="isActionLayerVisible(item.id) ? 0 : -1"
@@ -224,7 +228,7 @@
         <div class="empty-actions">
           <template v-if="hasActiveFilters">
             <el-button @click="clearFilters">清除筛选</el-button>
-            <el-button type="primary" :disabled="mediaWriteLocked" aria-label="上传图片或视频到素材中心" @click="triggerUpload">
+            <el-button type="primary" :disabled="mediaWriteLocked" :title="mediaWriteLocked ? mediaWriteLockReason : undefined" aria-label="上传图片或视频到素材中心" @click="triggerUpload">
               <el-icon><Upload /></el-icon>上传素材
             </el-button>
           </template>
@@ -232,6 +236,7 @@
             <el-button
               type="primary"
               :disabled="mediaWriteLocked"
+              :title="mediaWriteLocked ? mediaWriteLockReason : undefined"
               aria-label="上传图片或视频到素材中心"
               @click="triggerUpload"
             >
@@ -246,6 +251,7 @@
             plain
             class="empty-secondary-action"
             :disabled="mediaWriteLocked"
+            :title="mediaWriteLocked ? mediaWriteLockReason : undefined"
             aria-label="选择项目后导入网页 URL"
             @click="goSourceImport"
           >进入项目选择后导入网页 URL</el-button>
@@ -269,7 +275,7 @@
     <div v-if="selectedIds.size > 0" class="batch-bar">
       <span>已选 {{ selectedIds.size }} 项</span>
       <el-button size="small" @click="selectedIds.clear()">取消选择</el-button>
-      <el-button size="small" type="danger" plain :disabled="mediaWriteLocked" @click="batchDelete">批量删除</el-button>
+      <el-button size="small" type="danger" plain :disabled="mediaWriteLocked" :title="mediaWriteLocked ? mediaWriteLockReason : undefined" @click="batchDelete">批量删除</el-button>
     </div>
     </template>
 
@@ -405,7 +411,7 @@
                 type="primary"
                 :loading="isNetworkImporting(item)"
                 :disabled="isNetworkImporting(item) || !networkItemImportability(item).allowed"
-                :title="networkItemImportability(item).reason || networkImportButtonText"
+                :title="isNetworkImporting(item) ? '正在导入该网络素材，请稍候' : (networkItemImportability(item).reason || networkImportButtonText)"
                 :aria-label="`${networkImportButtonText}：${networkItemTitle(item)}`"
                 @click="importNetworkItem(item)"
               >{{ networkImportButtonText }}</el-button>
@@ -454,8 +460,8 @@
       <div class="preview-meta">
         <div class="meta-row"><span>名称：</span>{{ previewItem?.name || '未命名' }}</div>
         <div class="meta-row"><span>大小：</span>{{ formatSize(mediaItemFileSize(previewItem)) }}</div>
-        <div class="meta-row"><span>创建时间：</span>{{ previewItem?.created_at }}</div>
-        <div v-if="previewItem?.source_provider" class="meta-row"><span>来源：</span>{{ previewItem.source_provider }}</div>
+        <div class="meta-row"><span>创建时间：</span>{{ formatSourceTimestamp(previewItem?.created_at) || '未知时间' }}</div>
+        <div v-if="previewItem?.source_provider" class="meta-row"><span>来源：</span>{{ networkItemSourceLabel(previewItem) }}</div>
         <div v-if="previewItem?.author" class="meta-row"><span>作者：</span>{{ previewItem.author }}</div>
         <div v-if="previewItem?.license" class="meta-row"><span>许可：</span>{{ previewItem.license }}</div>
         <div v-if="safeExternalUrl(previewItem?.license_url, true)" class="meta-row">
@@ -667,6 +673,19 @@ const mediaAccessState = computed(() => mediaLibraryAccessState({
   itemCount: mediaItems.value.length,
 }))
 const mediaWriteLocked = computed(() => mediaAccessState.value.writeLocked)
+const mediaWriteLockReason = computed(() => {
+  if (loading.value) return '素材列表正在加载，请稍候'
+  if (loadError.value) {
+    return mediaIsStale.value
+      ? '素材列表刷新失败，成功重试前不能上传、选择或删除'
+      : '素材数据加载失败，成功重试前不能上传、选择或删除'
+  }
+  if (!hasSuccessfulMediaLoad.value) return '素材列表尚未就绪'
+  return ''
+})
+const mediaNavigationLockReason = computed(() => (
+  uploading.value ? '正在上传素材，请稍候' : ''
+))
 const mediaRequestGuard = createLatestMediaRequestGuard()
 const networkRequestGuard = createLatestMediaRequestGuard()
 let keywordTimer = null
@@ -958,7 +977,7 @@ async function copySourceEvidence(value, label) {
 
 function formatSourceTimestamp(value) {
   const timestamp = Date.parse(String(value || ''))
-  if (!Number.isFinite(timestamp)) return String(value || '')
+  if (!Number.isFinite(timestamp)) return ''
   return new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'medium',
     timeStyle: 'medium',

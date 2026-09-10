@@ -205,3 +205,11 @@ test('上传失败保留可见反馈，网络空结果不会伪装成成功列�
 test('顶栏上传按钮与筛选空态都提供明确的上传名称', () => {
   assert.equal((source.match(/aria-label="上传图片或视频到素材中心"/g) || []).length >= 2, true)
 })
+
+
+test('素材中心禁用按钮给出中文原因', () => {
+  assert.match(source, /const mediaWriteLockReason = computed/)
+  assert.match(source, /素材数据加载失败，成功重试前不能上传、选择或删除/)
+  assert.match(source, /:title="mediaWriteLocked \? mediaWriteLockReason : undefined"/)
+  assert.match(source, /const mediaNavigationLockReason = computed/)
+})
