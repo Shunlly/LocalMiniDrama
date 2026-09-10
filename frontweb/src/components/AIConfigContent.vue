@@ -1628,6 +1628,7 @@ input_reference = (图片文件，可选)</pre>
 <script setup>
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { toUserFacingError, isUserFacingAbort } from '@/utils/userFacingError'
 import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder } from '@element-plus/icons-vue'
 import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
@@ -1794,7 +1795,8 @@ async function saveGenerationSettings() {
     genSettingSaved.value = true
     setTimeout(() => { genSettingSaved.value = false }, 2000)
   } catch (e) {
-    ElMessage.error('保存失败：' + (e?.message || ''))
+    if (isUserFacingAbort(e)) return
+    ElMessage.error(toUserFacingError(e, '保存失败'))
   } finally {
     genSettingSaving.value = false
   }
@@ -3388,7 +3390,8 @@ async function importConfigs(event) {
       ElMessage.error(message)
     }
   } catch (e) {
-    ElMessage.error('导入失败：' + (e.message || '文件解析错误'))
+    if (isUserFacingAbort(e)) return
+    ElMessage.error(toUserFacingError(e, '导入失败'))
   } finally {
     event.target.value = ''
   }
