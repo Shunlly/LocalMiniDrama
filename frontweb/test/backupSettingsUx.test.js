@@ -390,3 +390,11 @@ test('关闭备份操作错误会清掉失败条', () => {
   harness.dismissActionError()
   assert.equal(harness.actionError.value, '')
 })
+
+
+test('备份页禁用按钮给出中文原因', () => {
+  assert.match(pageSource, /const backupWriteLockReason = computed/)
+  assert.match(pageSource, /正在创建备份，请稍候/)
+  assert.match(pageSource, /备份列表加载失败，成功重试前不能从列表恢复/)
+  assert.match(pageSource, /:title="accessState.writeLocked \? backupWriteLockReason : undefined"/)
+})

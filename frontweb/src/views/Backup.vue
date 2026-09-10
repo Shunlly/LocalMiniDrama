@@ -15,6 +15,7 @@
         <el-button
           :loading="creating"
           :disabled="accessState.createLocked"
+          :title="accessState.createLocked ? backupWriteLockReason : undefined"
           aria-label="创建全量备份"
           @click="onCreateBackup"
         >
@@ -24,6 +25,7 @@
         <el-button
           type="primary"
           :disabled="accessState.writeLocked"
+          :title="accessState.writeLocked ? backupWriteLockReason : undefined"
           aria-label="选择备份文件"
           @click="triggerFileSelect"
         >
@@ -102,10 +104,10 @@
         <p>{{ fileError }}</p>
       </div>
       <div class="import-failure-actions">
-        <el-button type="primary" plain :disabled="accessState.writeLocked" aria-label="重新选择备份文件" @click="triggerFileSelect">
+        <el-button type="primary" plain :disabled="accessState.writeLocked" :title="accessState.writeLocked ? backupWriteLockReason : undefined" aria-label="重新选择备份文件" @click="triggerFileSelect">
           <el-icon><Refresh /></el-icon>重新选择备份文件
         </el-button>
-        <el-button plain :disabled="restoring" aria-label="关闭备份文件错误" @click="dismissFileError">关闭</el-button>
+        <el-button plain :disabled="restoring" :title="restoring ? '正在恢复备份，请稍候' : undefined" aria-label="关闭备份文件错误" @click="dismissFileError">关闭</el-button>
       </div>
     </section>
 
@@ -135,12 +137,13 @@
           type="primary"
           :loading="creating"
           :disabled="accessState.createLocked"
+          :title="accessState.createLocked ? backupWriteLockReason : undefined"
           aria-label="重试创建备份"
           @click="onCreateBackup"
         >
           重试创建备份
         </el-button>
-        <el-button plain :disabled="restoring || creating" aria-label="关闭备份操作错误" @click="dismissActionError">关闭</el-button>
+        <el-button plain :disabled="restoring || creating" :title="(restoring || creating) ? backupWriteLockReason : undefined" aria-label="关闭备份操作错误" @click="dismissActionError">关闭</el-button>
       </div>
     </section>
 
@@ -150,6 +153,7 @@
         type="danger"
         plain
         :disabled="accessState.writeLocked"
+        :title="accessState.writeLocked ? backupWriteLockReason : undefined"
         aria-label="恢复所选备份文件"
         @click="requestRestoreFromSelection"
       >
@@ -171,11 +175,13 @@
             type="primary"
             :loading="creating"
             :disabled="accessState.createLocked"
+            :title="accessState.createLocked ? backupWriteLockReason : undefined"
             aria-label="空态创建备份"
             @click="onCreateBackup"
           >创建备份</el-button>
           <el-button
             :disabled="accessState.writeLocked"
+            :title="accessState.writeLocked ? backupWriteLockReason : undefined"
             aria-label="空态选择备份文件"
             @click="triggerFileSelect"
           >选择已有备份</el-button>
@@ -196,6 +202,7 @@
             plain
             size="small"
             :disabled="accessState.restoreFromListLocked"
+            :title="accessState.restoreFromListLocked ? backupRestoreLockReason : undefined"
             :aria-label="`恢复备份 ${item.name}`"
             @click="requestRestoreFromItem(item)"
           >
@@ -213,7 +220,7 @@
     >
       <p>{{ restoreCopy.body }}</p>
       <template #footer>
-        <el-button :disabled="restoring" @click="cancelRestore">{{ restoreCopy.cancelButtonText }}</el-button>
+        <el-button :disabled="restoring" :title="restoring ? '正在恢复备份，请稍候' : undefined" @click="cancelRestore">{{ restoreCopy.cancelButtonText }}</el-button>
         <el-button type="danger" :loading="restoring" aria-label="确认恢复备份" @click="onConfirmRestore">
           {{ restoreCopy.confirmButtonText }}
         </el-button>
@@ -281,6 +288,22 @@ const {
 
 const returnTo = computed(() => normalizeBackupReturnTo(route.query.returnTo))
 const backButtonText = computed(() => (returnTo.value === '/ai-config' ? '返回 AI 配置' : '返回首页'))
+const backupWriteLockReason = computed(() => {
+  if (creating.value) return '正在创建备份，请稍候'
+  if (restoring.value) return '正在恢复备份，请稍候'
+  if (loading.value) return '备份列表正在加载，请稍候'
+  return ''
+})
+const backupRestoreLockReason = computed(() => {
+  if (backupWriteLockReason.value) return backupWriteLockReason.value
+  if (listError.value) {
+    return listIsStale.value
+      ? '备份列表刷新失败，成功重试前不能从列表恢复'
+      : '备份列表加载失败，成功重试前不能从列表恢复'
+  }
+  if (!hasSuccessfulListLoad.value) return '备份列表尚未就绪'
+  return ''
+})
 
 async function goBack() {
   await router.replace(returnTo.value || { name: 'list' })
