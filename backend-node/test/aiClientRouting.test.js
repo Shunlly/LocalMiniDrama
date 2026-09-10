@@ -1,9 +1,6 @@
 const { afterEach, describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { EventEmitter } = require('node:events');
 const http = require('http');
-const https = require('https');
-const { PassThrough } = require('node:stream');
 
 const aiClient = require('../src/services/aiClient');
 const aiConfigService = require('../src/services/aiConfigService');
@@ -428,30 +425,9 @@ describe('AI production routing', () => {
     assert.equal(submitted.body.prompt['1'].inputs.text, 'render the verified route');
   });
 
-  it('dispatches an OpenAI-compatible image request to a validated public HTTPS endpoint', async (t) => {
-    const originalHttpsRequest = https.request;
+  it('dispatches an OpenAI-compatible image request to a validated public HTTPS endpoint', async () => {
     let lookupCalls = 0;
     let captured = null;
-    https.request = (options, callback) => {
-      const request = new EventEmitter();
-      const chunks = [];
-      request.write = (chunk) => chunks.push(Buffer.from(chunk));
-      request.destroy = () => {};
-      request.end = () => {
-        captured = {
-          options,
-          body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
-        };
-        const response = new PassThrough();
-        response.statusCode = 200;
-        response.headers = { 'content-type': 'application/json' };
-        callback(response);
-        response.end(JSON.stringify({ data: [{ url: 'https://cdn.example/verified.png' }] }));
-        request.emit('close');
-      };
-      return request;
-    };
-    t.after(() => { https.request = originalHttpsRequest; });
     aiConfigService.listConfigs = () => [config({
       id: 55,
       service_type: 'image',
@@ -474,15 +450,29 @@ describe('AI production routing', () => {
         lookupCalls += 1;
         return [{ address: '93.184.216.34', family: 4 }];
       },
+      fetch_impl: async (url, options = {}) => {
+        captured = {
+          url: String(url),
+          method: options.method,
+          headers: options.headers || {},
+          body: JSON.parse(String(options.body || '{}')),
+        };
+        return new Response(JSON.stringify({ data: [{ url: 'https://cdn.example/verified.png' }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      },
     });
 
+    const parsedUrl = new URL(captured.url);
     assert.equal(result.image_url, 'https://cdn.example/verified.png');
     assert.equal(lookupCalls, 1);
-    assert.equal(captured.options.protocol, 'https:');
-    assert.equal(captured.options.hostname, 'provider.example');
-    assert.equal(captured.options.path, '/v1/images/generations');
-    assert.equal(captured.options.method, 'POST');
-    assert.equal(captured.options.headers.Authorization, 'Bearer synthetic-public-image-key');
+    assert.equal(captured.url, 'https://provider.example/v1/images/generations');
+    assert.equal(parsedUrl.protocol, 'https:');
+    assert.equal(parsedUrl.hostname, 'provider.example');
+    assert.equal(parsedUrl.pathname, '/v1/images/generations');
+    assert.equal(captured.method, 'POST');
+    assert.equal(captured.headers.Authorization, 'Bearer synthetic-public-image-key');
     assert.deepEqual(captured.body, {
       model: 'image-model',
       prompt: 'public HTTPS route',
