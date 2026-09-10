@@ -216,6 +216,10 @@ function createCriticalPageMock(options = {}) {
       async isVisible() {
         return true
       },
+      async getAttribute(name) {
+        if (name === 'aria-label' && meta.selector === '.library-tabs') return critical.CRITICAL_UI.mediaSourceTabs
+        return null
+      },
       async count() {
         return 1
       },

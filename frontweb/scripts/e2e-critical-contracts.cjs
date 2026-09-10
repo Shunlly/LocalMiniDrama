@@ -48,6 +48,8 @@ const CRITICAL_UI = Object.freeze({
   aiConfigManage: '配置管理',
   mediaLibraryTitle: '素材中心',
   mediaSourceTabs: '素材来源',
+  localMediaTab: '本地素材',
+  networkMediaTab: '网络素材',
   mediaLibraryEmpty: '素材中心还是空的',
   mediaLibraryEmptyHint: '上传图片或视频，后续项目可以直接复用。',
   uploadMediaAria: '上传图片或视频到素材中心',
@@ -645,7 +647,12 @@ async function verifyMediaLibraryEmptyStates(page, options = {}) {
     await page.goto(`${fixture.frontendUrl}/media-library`, { waitUntil: 'domcontentloaded' })
     await page.locator('.media-library-page').waitFor({ state: 'visible', timeout: 30000 })
     await page.getByRole('heading', { name: CRITICAL_UI.mediaLibraryTitle, exact: true }).waitFor({ timeout: 15000 })
-    await page.getByRole('tablist', { name: CRITICAL_UI.mediaSourceTabs, exact: true }).waitFor({ state: 'visible', timeout: 15000 })
+    const sourceTabsRoot = page.locator('.library-tabs')
+    await sourceTabsRoot.waitFor({ state: 'visible', timeout: 15000 })
+    assert.equal(await sourceTabsRoot.getAttribute('aria-label'), CRITICAL_UI.mediaSourceTabs)
+    await sourceTabsRoot.getByRole('tablist').waitFor({ state: 'visible', timeout: 15000 })
+    await page.getByRole('tab', { name: CRITICAL_UI.localMediaTab, exact: true }).waitFor({ state: 'visible', timeout: 15000 })
+    await page.getByRole('tab', { name: CRITICAL_UI.networkMediaTab, exact: true }).waitFor({ state: 'visible', timeout: 15000 })
     await page.locator('.empty-media').waitFor({ state: 'visible', timeout: 30000 })
     await page.getByRole('heading', { name: CRITICAL_UI.mediaLibraryEmpty, exact: true }).waitFor({ timeout: 15000 })
     await page.getByText(CRITICAL_UI.mediaLibraryEmptyHint, { exact: true }).waitFor({ timeout: 10000 })
