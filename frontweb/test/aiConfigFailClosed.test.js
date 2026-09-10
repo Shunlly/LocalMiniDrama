@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 
 const source = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
 const oneKeySource = readFileSync(new URL('../src/composables/useAiConfigOneKeyPresets.js', import.meta.url), 'utf8')
+const importExportSource = readFileSync(new URL('../src/composables/useAiConfigImportExport.js', import.meta.url), 'utf8')
 const coverageCardSource = readFileSync(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url), 'utf8')
 const sd2Source = readFileSync(new URL('../src/components/Sd2AssetManagement.vue', import.meta.url), 'utf8')
 
@@ -26,6 +27,8 @@ const mutationHandlers = [
   'submitBulkKey',
   'onDelete',
   'onBatchDelete',
+]
+const importExportMutationHandlers = [
   'triggerImport',
   'importConfigs',
 ]
@@ -87,6 +90,13 @@ test('AI config writes fail closed until the list and vendor lock dependencies a
       `${handler} must guard against programmatic writes while configuration dependencies are unavailable`,
     )
   }
+  for (const handler of importExportMutationHandlers) {
+    assert.match(
+      importExportSource,
+      new RegExp(`(?:async )?function ${handler}\\([^)]*\\) \\{\\s*if \\(configWriteLocked\\.value\\)`),
+      `${handler} must guard against programmatic writes while configuration dependencies are unavailable`,
+    )
+  }
 })
 
 test('retry, viewing, connection tests, and sanitized export remain available while writes are locked', () => {
@@ -96,9 +106,9 @@ test('retry, viewing, connection tests, and sanitized export remain available wh
   assert.match(source, /@click="openTest\(row\)"/)
   assert.match(source, /@click="exportConfigs"/)
   assert.match(source, /<div v-else class="vendor-lock-bar">[\s\S]*?@click="exportConfigs"/)
-  assert.match(source, /const exportData = configs\.map\(sanitizeConfigForExport\)/)
+  assert.match(importExportSource, /const exportData = configs\.map\(sanitizeConfigForExport\)/)
   assert.doesNotMatch(source, /async function openTest\(row\) \{\s*if \(configWriteLocked\.value\)/)
-  assert.doesNotMatch(source, /async function exportConfigs\(\) \{\s*if \(configWriteLocked\.value\)/)
+  assert.doesNotMatch(importExportSource, /async function exportConfigs\(\) \{\s*if \(configWriteLocked\.value\)/)
 })
 
 test('SD2 asset management receives the parent write lock and guards every mutation path', () => {

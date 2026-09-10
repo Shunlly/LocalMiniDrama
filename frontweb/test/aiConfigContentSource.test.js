@@ -30,6 +30,7 @@ function readSource(url) {
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
 const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
 const oneKeySource = readSource(new URL('../src/composables/useAiConfigOneKeyPresets.js', import.meta.url))
+const importExportSource = readSource(new URL('../src/composables/useAiConfigImportExport.js', import.meta.url))
 const coverageCardsSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCards.vue', import.meta.url))
 const coverageCardSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url))
 const modelListSource = readSource(new URL('../src/components/aiConfig/AiConfigModelListSection.vue', import.meta.url))
@@ -192,8 +193,9 @@ test('AI config mutations emit one reliable change notification only after real 
   assert.match(vueSource, /const emit = defineEmits\(\['configuration-changed'\]\)/)
   assert.equal((vueSource.match(/emit\('configuration-changed'\)/g) || []).length, 1)
   assert.match(vueSource, /function notifyConfigurationChanged\(\) \{\s*emit\('configuration-changed'\)\s*\}/)
-  assert.equal((vueSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 6)
+  assert.equal((vueSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 5)
   assert.equal((oneKeySource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
+  assert.equal((importExportSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
 
   assert.match(vueSource, /await aiAPI\.update[\s\S]*await aiAPI\.create[\s\S]*notifyConfigurationChanged\(\)/)
   assert.match(
@@ -240,8 +242,8 @@ test('AI config mutations emit one reliable change notification only after real 
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
 
-  assert.match(vueSource, /if \(listConfirmed && \(result\.success === 0 \|\| createdVisible\)\)/)
-  assert.match(vueSource, /配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。/)
+  assert.match(importExportSource, /if \(listConfirmed && \(result\.success === 0 \|\| createdVisible\)\)/)
+  assert.match(importExportSource, /配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。/)
   assert.match(vueSource, /async function retryConfigDependencies\(\) \{\s*await Promise\.all\(\[loadVendorLock\(\), loadList\(\)\]\)\s*\}/)
   assert.doesNotMatch(
     vueSource,
@@ -343,7 +345,7 @@ test('every successful configuration mutation invalidates persisted connection s
     /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*closeDialog\(\)/,
   )
   assert.match(
-    vueSource,
+    importExportSource,
     /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*ElMessage\.success\(message\)/,
   )
 
@@ -524,17 +526,22 @@ test('AI config list preserves prior data on load failure and blocks auto-open w
 })
 
 test('AI config import keeps a successful server import unconfirmed until list refresh succeeds', async () => {
-  assert.match(vueSource, /async function importConfigs\(event\)/)
-  assert.match(vueSource, /const result = await runAiConfigCreateBatch\(configs, \(cfg\) => \{/)
+  assert.match(importExportSource, /async function importConfigs\(event\)/)
+  assert.match(importExportSource, /const result = await runAiConfigCreateBatch\(configs, \(cfg\) => \{/)
   assert.match(
-    vueSource,
-    /const listConfirmed = await loadList\(\)\n    const createdIds = result\.created\.map\(\(item\) => Number\(item\?\.id\)\)\.filter\(Number\.isFinite\)/,
+    importExportSource,
+    /const listConfirmed = await loadList\(\)\s*const createdIds = result\.created\.map\(\(item\) => Number\(item\?\.id\)\)\.filter\(Number\.isFinite\)/,
   )
-  assert.match(vueSource, /createdIds\.every\(\(id\) => list\.value\.some\(\(item\) => Number\(item\.id\) === id\)\)/)
-  assert.match(vueSource, /if \(listConfirmed && \(result\.success === 0 \|\| createdVisible\)\)/)
-  assert.match(vueSource, /配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。/)
+  assert.match(importExportSource, /createdIds\.every\(\(id\) => list\.value\.some\(\(item\) => Number\(item\.id\) === id\)\)/)
+  assert.match(importExportSource, /if \(listConfirmed && \(result\.success === 0 \|\| createdVisible\)\)/)
+  assert.match(importExportSource, /配置已导入但列表未确认，请勿重复导入。请点击“重试”刷新列表。/)
+  assert.match(vueSource, /useAiConfigImportExport\(/)
+  assert.doesNotMatch(vueSource, /async function importConfigs\(event\)/)
+  assert.doesNotMatch(vueSource, /async function exportConfigs\(\)/)
+  assert.match(vueSource, /async function loadList\(\)/)
+  assert.match(vueSource, /async function openTest\(row\)/)
   assert.match(
-    vueSource,
+    importExportSource,
     /if \(result\.success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*ElMessage\.success\(message\)/,
   )
 
@@ -685,7 +692,7 @@ test('zero saved configs hide prompt, scene-map and SD2 tabs and fall back to th
 test('AI 配置保存、导入和连接测试失败不再直出 e.message', () => {
   assert.match(vueSource, /import \{ toUserFacingError, isUserFacingAbort \} from '@\/utils\/userFacingError'/)
   assert.match(generationSettingsSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
-  assert.match(vueSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '导入失败'\)\)/)
+  assert.match(importExportSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '导入失败'\)\)/)
   assert.match(vueSource, /toUserFacingError\(error, '删除失败'/)
   assert.match(vueSource, /configFieldDisplayLabel\(item\.label\)/)
   assert.match(vueSource, /toUserFacingError\(error, '暂时无法完成连接测试，请稍后重试。'/)
