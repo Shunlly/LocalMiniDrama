@@ -121,6 +121,20 @@ test('serialization contains no runtime URLs or undefined fields', () => {
   assert.deepEqual(value.nodes[0].description, ['kept'])
 })
 
+test('serialization drops null optional references', () => {
+  const value = serializeFreeCanvas({
+    nodes: [{
+      type: 'text',
+      asset_ref: null,
+      assetId: null,
+      storyboard_ref: null,
+    }],
+  })
+  assert.equal(Object.prototype.hasOwnProperty.call(value.nodes[0], 'asset_ref'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(value.nodes[0], 'assetId'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(value.nodes[0], 'storyboard_ref'), false)
+})
+
 test('drops nested credentials, headers, and provider responses from public state', () => {
   const state = normalizeFreeCanvas({
     apiKey: 'top-secret',

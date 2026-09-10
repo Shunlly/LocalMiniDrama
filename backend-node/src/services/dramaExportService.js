@@ -882,7 +882,7 @@ function collectFreeCanvasImportManifest({
   for (const node of canvas.nodes) {
     if (!node || typeof node !== 'object' || Array.isArray(node)) continue;
     for (const field of ['assetId', 'asset_ref']) {
-      if (node[field] === undefined) continue;
+      if (node[field] == null || node[field] === '') continue;
       const assetId = parseFreeCanvasExportReference(node[field], sourceDramaId, field, 'asset');
       referencedAssetIds.add(assetId);
       if (node.type === 'image') registerAssetCategory(assetId, 'images');

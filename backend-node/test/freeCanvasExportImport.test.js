@@ -983,6 +983,16 @@ test('portable canvas manifest round-trips supported string asset references', a
   }
 });
 
+test('free canvas export skips null asset_ref instead of failing the project', (t) => {
+  const fixture = createSingleImageExport(t, {
+    assetRef: null,
+    prefix: 'lmd-canvas-null-ref-',
+  });
+  assert.ok(Buffer.isBuffer(fixture.exported.buffer) && fixture.exported.buffer.length > 0);
+  const packaged = JSON.parse(new AdmZip(fixture.exported.buffer).readAsText('project.json'));
+  assert.equal(packaged.drama.title, 'Portable Canvas Image');
+});
+
 test('free canvas export rejects mismatched assetId and asset_ref before writing a manifest', (t) => {
   assert.throws(
     () => createTwoImageExport(t, { dualMismatch: true, prefix: 'lmd-canvas-dual-export-' }),

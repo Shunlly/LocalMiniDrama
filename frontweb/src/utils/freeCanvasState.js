@@ -180,7 +180,7 @@ function copyAllowedFields(source, fields) {
   const result = {}
   for (const key of fields) {
     const value = sanitizeJsonValue(source[key])
-    if (value !== undefined) result[key] = value
+    if (value !== undefined && value !== null) result[key] = value
   }
   return result
 }
