@@ -35,6 +35,7 @@ const listMutationsSource = readSource(new URL('../src/composables/useAiConfigRo
 const connectionTestSource = readSource(new URL('../src/utils/aiConfigConnectionTest.js', import.meta.url))
 const formSettingsSource = readSource(new URL('../src/utils/aiConfigFormSettings.js', import.meta.url))
 const providerOptionsSource = readSource(new URL('../src/utils/aiConfigProviderOptions.js', import.meta.url))
+const submitPayloadSource = readSource(new URL('../src/utils/aiConfigSubmitPayload.js', import.meta.url))
 const discoverModelsSource = readSource(new URL('../src/composables/useAiConfigDiscoverModels.js', import.meta.url))
 const coverageCardsSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCards.vue', import.meta.url))
 const coverageCardSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url))
@@ -502,8 +503,8 @@ test('project readiness service links are consumed as an AI configuration filter
 test('ComfyUI configuration exposes a validated workflow editor and persists the parsed object', () => {
   assert.match(vueSource, /v-if="isComfyUiForm" prop="comfy_workflow_json" label="工作流 JSON"/)
   assert.match(formSettingsSource, /function parseComfyWorkflowJson\(value\)/)
-  assert.match(vueSource, /settingsObject\.workflow = parseComfyWorkflowJson\(form\.value\.comfy_workflow_json\)/)
-  assert.match(vueSource, /delete settingsObject\.workflow/)
+  assert.match(submitPayloadSource, /settingsObject\.workflow = parseComfyWorkflowJson\(form\.comfy_workflow_json\)/)
+  assert.match(submitPayloadSource, /delete settingsObject\.workflow/)
 })
 
 test('AI config dialog confirms before discarding unsaved provider or model changes', () => {
@@ -739,8 +740,9 @@ test('AI 配置厂商和模型选择保留中文空状态、无障碍名称，�
   assert.match(vueSource, /:aria-label="configActionLabel\('删除', row\)"/)
   assert.match(vueSource, /aria-label="保存配置"/)
   assert.match(vueSource, /@click="submit">保存<\/el-button>/)
-  assert.match(vueSource, /'保存确认'/)
-  assert.match(vueSource, /confirmButtonText: '确认保存'/)
+  assert.match(submitPayloadSource, /title: '保存确认'/)
+  assert.match(submitPayloadSource, /confirmButtonText: '确认保存'/)
+  assert.match(vueSource, /copy.title/)
   assert.match(vueSource, /if \(!await confirmReplaceDefaultConfig\(\)\) return\s*if \(configWriteLocked\.value\) return/)
   assert.match(listMutationsSource, /确定删除配置「\$\{name\}」？此操作不可恢复。/)
   assert.match(listMutationsSource, /catch \(error\) \{\s*if \(isUserFacingAbort\(error\)\) return\s*ElMessage\.error\(toUserFacingError\(error, '删除失败'\)/)

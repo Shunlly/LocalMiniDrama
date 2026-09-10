@@ -1482,6 +1482,11 @@ import {
 import { applyProviderSelection } from '@/utils/aiConfigProviderSelection.js'
 import { createBlankAiConfigForm, hydrateAiConfigForm } from '@/utils/aiConfigFormState.js'
 import {
+  findExistingDefaultConfig,
+  buildReplaceDefaultConfirmCopy,
+  buildAiConfigSubmitPayload,
+} from '@/utils/aiConfigSubmitPayload.js'
+import {
   buildAvailableProviderOptions,
   buildAvailableModels,
   providerModelEmptyHint as describeProviderModelEmptyHint,
@@ -2330,21 +2335,14 @@ async function openEdit(row, { repairIssue = '' } = {}) {
 
 async function confirmReplaceDefaultConfig() {
   if (!form.value.is_default) return true
-  const serviceType = form.value.service_type
-  const currentId = editingId.value
-  const existing = list.value.find((row) => (
-    row.service_type === serviceType
-    && row.is_default
-    && String(row.id) !== String(currentId || '')
-  ))
+  const existing = findExistingDefaultConfig(list.value, form.value.service_type, editingId.value)
   if (!existing) return true
-  const nextName = String(form.value.name || '').trim() || '未命名配置'
-  const previousName = String(existing.name || '').trim() || '未命名配置'
+  const copy = buildReplaceDefaultConfirmCopy(form.value, existing)
   try {
     await ElMessageBox.confirm(
-      `确定将「${nextName}」设为${serviceTypeLabel(serviceType)}的默认配置？当前默认「${previousName}」会被替换。`,
-      '保存确认',
-      { type: 'warning', confirmButtonText: '确认保存', cancelButtonText: '取消' },
+      copy.message,
+      copy.title,
+      { type: 'warning', confirmButtonText: copy.confirmButtonText, cancelButtonText: copy.cancelButtonText },
     )
     return true
   } catch (error) {
@@ -2368,64 +2366,16 @@ async function submit() {
   if (configWriteLocked.value) return
   saving.value = true
   try {
-    let modelList = parseModelText(form.value.modelText)
-    if (form.value.service_type === 'jimeng2_character_auth' && modelList.length === 0) {
-      modelList = ['-']
-    }
-    const defaultModel = form.value.default_model || null
-    // TTS / 可灵 Omni 官方 AKSK / DeepSeek V4 / 成本单价统一打包进 settings。
     const previous = editingId.value
       ? list.value.find((row) => String(row.id) === String(editingId.value))
       : null
-    const settingsObject = parseSettingsObject(previous?.settings)
-    if (isComfyUiForm.value) settingsObject.workflow = parseComfyWorkflowJson(form.value.comfy_workflow_json)
-    else {
-      delete settingsObject.workflow
-      delete settingsObject.workflow_json
-      delete settingsObject.workflow_template
-    }
-    if (form.value.service_type === 'tts') {
-      if (form.value.voice_id) settingsObject.voice_id = form.value.voice_id
-      else delete settingsObject.voice_id
-      if (form.value.group_id) settingsObject.group_id = form.value.group_id
-      else delete settingsObject.group_id
-    } else if (form.value.service_type === 'video' && form.value.api_protocol === 'kling_omni') {
-      if ((form.value.kling_access_key || '').trim()) settingsObject.kling_access_key = form.value.kling_access_key.trim()
-      else delete settingsObject.kling_access_key
-      if ((form.value.kling_secret_key || '').trim()) settingsObject.kling_secret_key = form.value.kling_secret_key.trim()
-      else delete settingsObject.kling_secret_key
-      if (form.value.kling_secret_key_base64) settingsObject.kling_secret_key_base64 = true
-      else delete settingsObject.kling_secret_key_base64
-    } else if (isDeepSeekOfficialForm.value) {
-      settingsObject.deepseek_thinking = form.value.deepseek_thinking === 'enabled' ? 'enabled' : 'disabled'
-      if (settingsObject.deepseek_thinking === 'enabled') {
-        settingsObject.deepseek_reasoning_effort = form.value.deepseek_reasoning_effort === 'max' ? 'max' : 'high'
-      } else {
-        delete settingsObject.deepseek_reasoning_effort
-      }
-    }
-    const pricing = buildProviderPricing(form.value.service_type, form.value)
-    if (pricing) settingsObject.pricing = pricing
-    else delete settingsObject.pricing
-    const settings = Object.keys(settingsObject).length ? JSON.stringify(settingsObject) : null
-    const payload = {
-      service_type: form.value.service_type,
-      name: form.value.name,
-      provider: form.value.provider,
-      api_protocol: form.value.api_protocol || '',
-      base_url: form.value.base_url,
-      api_key: form.value.api_key,
-      endpoint: form.value.endpoint || '',
-      query_endpoint: form.value.query_endpoint || '',
-      model: modelList,
-      default_model: defaultModel,
-      priority: form.value.priority,
-      is_default: form.value.is_default,
-      settings,
-      ...(editingId.value && editingUpdatedAt.value
-        ? { expected_updated_at: editingUpdatedAt.value }
-        : {}),
-    }
+    const payload = buildAiConfigSubmitPayload(form.value, {
+      editingId: editingId.value,
+      editingUpdatedAt: editingUpdatedAt.value,
+      previous,
+      isComfyUi: isComfyUiForm.value,
+      isDeepSeekOfficial: isDeepSeekOfficialForm.value,
+    })
     const wasEditing = Boolean(editingId.value)
     const mutationResult = await runWithOwnedRequestErrorToast(async () => (
       wasEditing
