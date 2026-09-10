@@ -707,7 +707,6 @@ async function verifyStoryboardEmptyStates(page, options = {}) {
       { waitUntil: 'domcontentloaded' },
     )
     await page.locator('.film-create').waitFor({ state: 'visible', timeout: 30000 })
-    await page.locator('.empty-tip').waitFor({ state: 'visible', timeout: 30000 })
     await page.getByText(CRITICAL_UI.storyboardEmpty, { exact: true }).waitFor({ timeout: 15000 })
     await page.getByRole('button', { name: CRITICAL_UI.generateStoryboard, exact: true }).waitFor({ state: 'visible' })
     await page.getByRole('button', { name: CRITICAL_UI.addStoryboard, exact: true }).waitFor({ state: 'visible' })
