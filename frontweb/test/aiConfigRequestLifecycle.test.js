@@ -7,6 +7,7 @@ function readSource(url) {
 }
 
 const source = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
 const requestError = readSource(new URL('../src/utils/requestError.js', import.meta.url))
 
 function sourceBetween(start, end) {
@@ -33,7 +34,12 @@ test('AI 配置页在卸载和重新加载时取消过期请求', () => {
     assert.match(loader, /isRequestCanceled/)
     assert.match(loader, /describeServiceLoadError/)
   }
-  const generationLoader = sourceBetween('async function loadGenerationSettings', 'function onConcurrencyChange')
+  assert.match(source, /abortGenerationSettingsRequest\(\)/)
+  assert.doesNotMatch(source, /generationSettingsAbortController/)
+  const generationStart = generationSettingsSource.indexOf('async function loadGenerationSettings')
+  const generationEnd = generationSettingsSource.indexOf('function onConcurrencyChange', generationStart)
+  assert.ok(generationStart >= 0 && generationEnd > generationStart)
+  const generationLoader = generationSettingsSource.slice(generationStart, generationEnd)
   assert.match(generationLoader, /AbortController/)
   assert.match(generationLoader, /loadGenerationSettingsPayload/)
   assert.match(generationLoader, /shouldIgnoreGenerationSettingsError/)

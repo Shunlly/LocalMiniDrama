@@ -12,15 +12,16 @@ import {
 } from '../src/utils/aiConfigGenerationSettings.js'
 
 const source = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const composableSource = readFileSync(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url), 'utf8')
 
 function canceledError() {
   return Object.assign(new Error('aborted'), { name: 'AbortError', code: 'ERR_CANCELED' })
 }
 
 test('generation settings expose loading, persistent error, and retry states', async () => {
-  assert.match(source, /loadGenerationSettingsPayload\(generationSettingsAPI/)
-  assert.match(source, /shouldIgnoreGenerationSettingsError\(error, controller\.signal\)/)
-  assert.match(source, /describeGenerationSettingsLoadError\(error, controller\.signal\)/)
+  assert.match(composableSource, /loadGenerationSettingsPayload\(generationSettingsAPI/)
+  assert.match(composableSource, /shouldIgnoreGenerationSettingsError\(error, controller\.signal\)/)
+  assert.match(composableSource, /describeGenerationSettingsLoadError\(error, controller\.signal\)/)
   assert.match(
     source,
     /v-if="generationSettingsLoadState === 'error'"[\s\S]*role="alert"[\s\S]*generationSettingsLoadError[\s\S]*@click="loadGenerationSettings"/,
@@ -56,14 +57,14 @@ test('generation settings expose loading, persistent error, and retry states', a
 
 test('generation settings save remains fail closed until a successful reload', () => {
   assert.match(
-    source,
+    composableSource,
     /const generationSettingsWriteLocked = computed\(\(\) => generationSettingsLoadState\.value !== 'ready' \|\| genSettingSaving\.value\)/,
   )
   assert.match(source, /:disabled="generationSettingsWriteLocked"[\s\S]*@click="saveGenerationSettings"/)
-  assert.match(source, /validateGenerationConcurrency\(n, nv\)/)
-  assert.match(source, /generationSettingsWriteLocked\.value/)
-  assert.ok(source.indexOf('generationSettingsWriteLocked.value') < source.indexOf('generationSettingsAPI.update'))
-  assert.match(source, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
+  assert.match(composableSource, /validateGenerationConcurrency\(n, nv\)/)
+  assert.match(composableSource, /generationSettingsWriteLocked\.value/)
+  assert.ok(composableSource.indexOf('generationSettingsWriteLocked.value') < composableSource.indexOf('generationSettingsAPI.update'))
+  assert.match(composableSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
   assert.doesNotMatch(source, /保存失败：/)
   assert.equal(validateGenerationConcurrency(0, 3), '图片并发数请填写 1-20 之间的整数')
   assert.equal(validateGenerationConcurrency(3, 99), '视频并发数请填写 1-20 之间的整数')

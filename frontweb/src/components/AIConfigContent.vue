@@ -1452,6 +1452,7 @@ import { runWithOwnedRequestErrorToast } from '@/utils/request'
 import { Plus, MagicStick, QuestionFilled, Download, Upload, Delete, ChatDotRound, Picture, Film, VideoCamera, Key, Microphone, Folder, Document, Headset } from '@element-plus/icons-vue'
 import { aiAPI } from '@/api/ai'
 import { generationSettingsAPI } from '@/api/prompts'
+import { useAiConfigGenerationSettings } from '@/composables/useAiConfigGenerationSettings.js'
 import { sanitizeConfigForExport, stripMaskedSecretsFromSettings } from '@/utils/aiConfigExport.js'
 import { buildAiServiceCoverage, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
 import { useAiConfigCoverage } from '@/composables/useAiConfigCoverage.js'
@@ -1460,7 +1461,6 @@ import {
   isMaskedSecret,
   isDefaultModelSelectionValid as isValidDefaultModelSelection,
   configFormFingerprint as fingerprintConfigForm,
-  generationSettingsFingerprint as fingerprintGenerationSettings,
   useAiConfigUnsaved,
 } from '@/composables/useAiConfigUnsaved.js'
 import {
@@ -1493,14 +1493,6 @@ import {
   isRequestTimeout,
   withRequestRetry,
 } from '@/utils/requestError'
-import {
-  clampGenerationConcurrency,
-  describeGenerationSettingsLoadError,
-  loadGenerationSettingsPayload,
-  shouldIgnoreGenerationSettingsError,
-  validateGenerationConcurrency,
-} from '@/utils/aiConfigGenerationSettings'
-
 const props = defineProps({
   initialServiceType: {
     type: String,
@@ -1548,82 +1540,25 @@ function onConfigWorkspaceKeydown(currentView, event) {
 const importFileRef = ref(null)
 
 // ---- 生成设置 ----
-const genConcurrencyInput = ref(null)
-const genVideoConcurrencyInput = ref(null)
-const genSettingSaving = ref(false)
-const genSettingSaved = ref(false)
-const generationSettingsBaseline = ref('')
-const generationSettingsLoadState = ref('loading')
-const generationSettingsLoadError = ref('')
-const generationSettingsWriteLocked = computed(() => generationSettingsLoadState.value !== 'ready' || genSettingSaving.value)
-
-async function loadGenerationSettings() {
-  generationSettingsAbortController?.abort()
-  const controller = new AbortController()
-  generationSettingsAbortController = controller
-  generationSettingsLoadState.value = 'loading'
-  try {
-    const payload = await loadGenerationSettingsPayload(generationSettingsAPI, {
-      signal: controller.signal,
-      timeout: DEFAULT_JSON_TIMEOUT_MS,
-    })
-    if (payload.aborted || controller.signal.aborted) return
-    genConcurrencyInput.value = payload.concurrency
-    genVideoConcurrencyInput.value = payload.videoConcurrency
-    generationSettingsBaseline.value = generationSettingsFingerprint()
-    generationSettingsLoadError.value = ''
-    generationSettingsLoadState.value = 'ready'
-  } catch (error) {
-    if (shouldIgnoreGenerationSettingsError(error, controller.signal)) return
-    generationSettingsLoadError.value = describeGenerationSettingsLoadError(error, controller.signal)
-    generationSettingsLoadState.value = 'error'
-  } finally {
-    if (generationSettingsAbortController === controller) {
-      generationSettingsAbortController = null
-    }
-  }
-}
-
-function onConcurrencyChange(val) {
-  const next = clampGenerationConcurrency(val)
-  if (next != null) genConcurrencyInput.value = next
-}
-
-function onVideoConcurrencyChange(val) {
-  const next = clampGenerationConcurrency(val)
-  if (next != null) genVideoConcurrencyInput.value = next
-}
-
-async function saveGenerationSettings() {
-  if (generationSettingsWriteLocked.value) {
-    ElMessage.warning('生成设置尚未成功读取，请重试后再保存。')
-    return
-  }
-  const n = Number(genConcurrencyInput.value)
-  const nv = Number(genVideoConcurrencyInput.value)
-  const invalid = validateGenerationConcurrency(n, nv)
-  if (invalid) {
-    ElMessage.warning(invalid)
-    return
-  }
-  genSettingSaving.value = true
-  genSettingSaved.value = false
-  try {
-    const concurrency = Math.round(n)
-    const videoConcurrency = Math.round(nv)
-    await runWithOwnedRequestErrorToast(() => generationSettingsAPI.update({ concurrency, video_concurrency: videoConcurrency }))
-    genConcurrencyInput.value = concurrency
-    genVideoConcurrencyInput.value = videoConcurrency
-    generationSettingsBaseline.value = generationSettingsFingerprint()
-    genSettingSaved.value = true
-    setTimeout(() => { genSettingSaved.value = false }, 2000)
-  } catch (e) {
-    if (isUserFacingAbort(e)) return
-    ElMessage.error(toUserFacingError(e, '保存失败'))
-  } finally {
-    genSettingSaving.value = false
-  }
-}
+const {
+  genConcurrencyInput,
+  genVideoConcurrencyInput,
+  genSettingSaving,
+  genSettingSaved,
+  generationSettingsLoadState,
+  generationSettingsLoadError,
+  generationSettingsWriteLocked,
+  generationSettingsDirty,
+  loadGenerationSettings,
+  saveGenerationSettings,
+  onConcurrencyChange,
+  onVideoConcurrencyChange,
+  abortGenerationSettingsRequest,
+} = useAiConfigGenerationSettings({
+  generationSettingsAPI,
+  ElMessage,
+  runWithOwnedRequestErrorToast,
+})
 const loading = ref(false)
 const configLoadState = ref('idle')
 const configLoadError = ref('')
@@ -1654,7 +1589,6 @@ const sessionTestStatusById = ref({})
 let connectionStatusStore = createAiConfigConnectionStatusStore()
 let configListAbortController = null
 let vendorLockAbortController = null
-let generationSettingsAbortController = null
 let connectionTestAbortController = null
 let connectionStatusScopeAbortController = null
 let discoverModelsAbortController = null
@@ -1664,13 +1598,12 @@ let lastTestedConfig = null
 function abortAiConfigPageRequests() {
   configListAbortController?.abort()
   vendorLockAbortController?.abort()
-  generationSettingsAbortController?.abort()
+  abortGenerationSettingsRequest()
   connectionTestAbortController?.abort()
   connectionStatusScopeAbortController?.abort()
   discoverModelsAbortController?.abort()
   configListAbortController = null
   vendorLockAbortController = null
-  generationSettingsAbortController = null
   connectionTestAbortController = null
   connectionStatusScopeAbortController = null
   discoverModelsAbortController = null
@@ -2654,19 +2587,10 @@ function configFormFingerprint() {
   return fingerprintConfigForm(form.value)
 }
 
-function generationSettingsFingerprint() {
-  return fingerprintGenerationSettings(genConcurrencyInput.value, genVideoConcurrencyInput.value)
-}
-
 const configFormDirty = computed(() => (
   dialogVisible.value
   && Boolean(configFormBaseline.value)
   && configFormFingerprint() !== configFormBaseline.value
-))
-const generationSettingsDirty = computed(() => (
-  generationSettingsLoadState.value === 'ready'
-  && Boolean(generationSettingsBaseline.value)
-  && generationSettingsFingerprint() !== generationSettingsBaseline.value
 ))
 const credentialDraftDirty = computed(() => (
   (oneKeyTongyiVisible.value && Boolean(oneKeyTongyiKey.value.trim()))

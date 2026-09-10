@@ -28,6 +28,7 @@ function readSource(url) {
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
 const coverageCardsSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCards.vue', import.meta.url))
 const coverageCardSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url))
 const modelListSource = readSource(new URL('../src/components/aiConfig/AiConfigModelListSection.vue', import.meta.url))
@@ -134,6 +135,9 @@ test('AIConfigContent wires coverage, model list and preset help components with
   assert.match(vueSource, /<AiConfigPresetHelpCollapse/)
   assert.match(vueSource, /async function loadList\(\)/)
   assert.match(vueSource, /async function openTest\(row\)/)
+  assert.match(vueSource, /useAiConfigGenerationSettings\(/)
+  assert.doesNotMatch(vueSource, /async function loadGenerationSettings\(\)/)
+  assert.doesNotMatch(vueSource, /async function saveGenerationSettings\(\)/)
   assert.match(vueSource, /async function discoverModelsFromService\(\)/)
   assert.doesNotMatch(vueSource, /from '@\/composables\/useAiConfigList/)
   assert.doesNotMatch(vueSource, /from '@\/composables\/useAiConfigConnection/)
@@ -673,13 +677,13 @@ test('zero saved configs hide prompt, scene-map and SD2 tabs and fall back to th
 
 test('AI 配置保存、导入和连接测试失败不再直出 e.message', () => {
   assert.match(vueSource, /import \{ toUserFacingError, isUserFacingAbort \} from '@\/utils\/userFacingError'/)
-  assert.match(vueSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
+  assert.match(generationSettingsSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
   assert.match(vueSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '导入失败'\)\)/)
   assert.match(vueSource, /toUserFacingError\(error, '删除失败'/)
   assert.match(vueSource, /configFieldDisplayLabel\(item\.label\)/)
   assert.match(vueSource, /toUserFacingError\(error, '暂时无法完成连接测试，请稍后重试。'/)
   assert.match(vueSource, /isUserFacingAbort\(e, controller\.signal\)/)
-  assert.match(vueSource, /runWithOwnedRequestErrorToast\(\(\) => generationSettingsAPI\.update/)
+  assert.match(generationSettingsSource, /runWithOwnedRequestErrorToast\(\(\) => generationSettingsAPI\.update/)
   assert.match(vueSource, /runWithOwnedRequestErrorToast\(async \(\) => \([\s\S]*await aiAPI\.update[\s\S]*await aiAPI\.create/)
   assert.doesNotMatch(vueSource, /ElMessage\.error\('保存失败：'/)
   assert.doesNotMatch(vueSource, /ElMessage\.error\('导入失败：' \+ \(e\.message/)
