@@ -1480,6 +1480,11 @@ import {
   resolveDeepSeekFormSettings,
 } from '@/utils/aiConfigFormSettings.js'
 import { applyProviderSelection } from '@/utils/aiConfigProviderSelection.js'
+import {
+  applyServiceTypeChange,
+  appendModelToList,
+  applyPresetModelSelect,
+} from '@/utils/aiConfigServiceTypeChange.js'
 import { buildEndpointPreviewInfo } from '@/utils/aiConfigEndpointPreview.js'
 import { buildAiServiceCoverage, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
 import { useAiConfigCoverage } from '@/composables/useAiConfigCoverage.js'
@@ -1796,61 +1801,22 @@ watch(
 )
 
 function onServiceTypeChange() {
-  const st = form.value.service_type || 'text'
-  if (st === 'jimeng2_character_auth') {
-    if (!form.value.provider || form.value.provider === CUSTOM_PROVIDER_SENTINEL) {
-      form.value.provider = 'jimeng_material_api'
-    }
-    const p = form.value.provider
-    const pcfg = (providerConfigs.jimeng2_character_auth || []).find((x) => x.id === p)
-    if (pcfg) {
-      if (!form.value.base_url?.trim()) form.value.base_url = getBaseUrlForProvider(p, st)
-      form.value.modelText = '-'
-      form.value.default_model = '-'
-      form.value.endpoint = ''
-      form.value.query_endpoint = ''
-      form.value.api_protocol = ''
-    }
-    if (!editingId.value && !form.value.name?.trim()) {
-      form.value.name = '即梦2角色认证'
-    }
-    return
-  }
-  const listByType = providerConfigs[st] || []
-  const current = form.value.provider
-  if (!current || !listByType.some((p) => p.id === current)) {
-    form.value.provider = ''
-    form.value.api_protocol = ''
-    form.value.base_url = ''
-    form.value.endpoint = ''
-    form.value.query_endpoint = ''
-    form.value.modelText = ''
-    form.value.default_model = ''
-  }
+  applyServiceTypeChange(form.value, { editingId: editingId.value })
 }
 
 function ensureModelInList(modelName) {
-  const value = String(modelName || '').trim()
-  if (!value) return
-  const listParsed = parseModelText(form.value.modelText)
-  if (listParsed.includes(value)) return
-  form.value.modelText = listParsed.length
-    ? `${String(form.value.modelText || '').trim()}\n${value}`
-    : value
+  appendModelToList(form.value, modelName)
 }
 
 function onPresetModelSelect(value) {
-  if (!value) return
-  ensureModelInList(value)
-  if (!String(form.value.default_model || '').trim()) {
-    form.value.default_model = String(value).trim()
-  }
+  applyPresetModelSelect(form.value, value)
   presetModelPick.value = ''
 }
 
 function onDefaultModelChange(value) {
-  ensureModelInList(value)
+  appendModelToList(form.value, value)
 }
+
 const rules = computed(() => ({
   service_type: [{ required: true, message: '请选择服务类型', trigger: 'change' }],
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
