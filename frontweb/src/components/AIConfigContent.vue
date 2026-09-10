@@ -1481,6 +1481,12 @@ import {
 } from '@/utils/aiConfigFormSettings.js'
 import { applyProviderSelection } from '@/utils/aiConfigProviderSelection.js'
 import {
+  buildAvailableProviderOptions,
+  buildAvailableModels,
+  providerModelEmptyHint as describeProviderModelEmptyHint,
+  describeConfigEditTarget,
+} from '@/utils/aiConfigProviderOptions.js'
+import {
   applyServiceTypeChange,
   appendModelToList,
   applyPresetModelSelect,
@@ -2122,33 +2128,20 @@ const isComfyUiForm = computed(() => (
 ))
 
 /** 当前服务类型下的预设厂商列表（编辑时若当前 provider 不在列表则补一项；末尾始终附一项自定义入口） */
-const availableProviderOptions = computed(() => {
-  const st = form.value.service_type || 'text'
-  const listByType = providerConfigs[st] || []
-  const current = form.value.provider
-  let result = [...listByType]
-  if (editingId.value && current && current !== CUSTOM_PROVIDER_SENTINEL && !listByType.some((p) => p.id === current)) {
-    result = [{ id: current, name: current + '（当前）', models: [] }, ...result]
-  }
-  result.push({ id: CUSTOM_PROVIDER_SENTINEL, name: '✏️ 自定义（直接输入厂商名）', models: [] })
-  return result
-})
+const availableProviderOptions = computed(() => buildAvailableProviderOptions(
+  form.value.service_type,
+  form.value.provider,
+  { editingId: editingId.value },
+))
 
 /** 当前厂商的预设模型列表（用于追加预设模型） */
-const availableModels = computed(() => {
-  const st = form.value.service_type
-  const provider = form.value.provider
-  if (!st || !provider) return []
-  const p = (providerConfigs[st] || []).find((x) => x.id === provider)
-  return p?.models || []
-})
+const availableModels = computed(() => buildAvailableModels(form.value.service_type, form.value.provider))
 
-const providerModelEmptyHint = computed(() => {
-  if (form.value.service_type === 'jimeng2_character_auth') return ''
-  if (!String(form.value.provider || '').trim()) return '请先选择厂商，或直接输入模型名。'
-  if (!availableModels.value.length) return '当前厂商没有预设模型，可直接输入模型名。'
-  return ''
-})
+const providerModelEmptyHint = computed(() => describeProviderModelEmptyHint(
+  form.value.service_type,
+  form.value.provider,
+  availableModels.value,
+))
 
 const endpointPreviewInfo = computed(() => buildEndpointPreviewInfo(form.value))
 
@@ -2158,9 +2151,10 @@ function onProviderChange(providerId) {
 
 function onRowEdit(row) {
   if (configWriteLocked.value) return
-  if (row.service_type === 'model_ark_asset') {
-    activeTab.value = 'sd2_assets'
-    ElMessage.info('请在「认证资产管理」标签页编辑此配置')
+  const target = describeConfigEditTarget(row)
+  if (target.tab) {
+    activeTab.value = target.tab
+    ElMessage.info(target.message)
     return
   }
   openEdit(row)

@@ -19,6 +19,11 @@ function readSource(url) {
 const filmCreateSource = readSource(new URL('../src/views/FilmCreate.vue', import.meta.url))
 const filmListSource = readSource(new URL('../src/views/FilmList.vue', import.meta.url))
 const aiConfigSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const coverageCardSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url))
+const presetHelpSource = readSource(new URL('../src/components/aiConfig/AiConfigPresetHelpCollapse.vue', import.meta.url))
+const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
+const importExportSource = readSource(new URL('../src/composables/useAiConfigImportExport.js', import.meta.url))
+const rowMutationsSource = readSource(new URL('../src/composables/useAiConfigRowMutations.js', import.meta.url))
 const pipelinePanelSource = readSource(new URL('../src/components/filmCreate/FilmCreatePipelinePanel.vue', import.meta.url))
 const videoSettingsSource = readSource(new URL('../src/components/filmCreate/FilmCreateVideoSettingsPanel.vue', import.meta.url))
 const aiConfigDialogSource = readSource(new URL('../src/components/filmCreate/FilmCreateAiConfigDialog.vue', import.meta.url))
@@ -644,7 +649,7 @@ test('pipeline-owned AI recovery restores focus to a stable exposed summary', as
 })
 
 test('AI coverage test actions are accessible secondary buttons with pending state', () => {
-  const coverageAction = aiConfigSource.match(
+  const coverageAction = coverageCardSource.match(
     /<el-button\s+v-for="action in coverageActions\(item\)"[\s\S]*?<\/el-button>/,
   )?.[0]
   assert.ok(coverageAction, 'missing service coverage action button')
@@ -681,26 +686,26 @@ test('AI coverage test actions are accessible secondary buttons with pending sta
 
 test('AI 配置失败反馈走 toUserFacingError，不直出 e.message', () => {
   assert.match(aiConfigSource, /import \{ toUserFacingError, isUserFacingAbort \} from '@\/utils\/userFacingError'/)
-  assert.match(aiConfigSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
-  assert.match(aiConfigSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '导入失败'\)\)/)
-  assert.match(aiConfigSource, /toUserFacingError\(error, '删除失败'\)/)
+  assert.match(generationSettingsSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
+  assert.match(importExportSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '导入失败'\)\)/)
+  assert.match(rowMutationsSource, /toUserFacingError\(error, '删除失败'\)/)
   assert.match(aiConfigSource, /isUserFacingAbort\(e, controller\.signal\)/)
   assert.doesNotMatch(aiConfigSource, /ElMessage\.error\('保存失败：'/)
   assert.doesNotMatch(aiConfigSource, /ElMessage\.error\('导入失败：' \+ \(e\.message/)
 })
 
 test('AI 配置帮助区覆盖新增厂商预设，并保留自定义入口', () => {
-  assert.match(aiConfigSource, /选择预设只会自动填入公开 Base URL 和常见模型名/)
-  assert.match(aiConfigSource, /不代表本应用已真实接入或跑通对应厂商/)
-  assert.match(aiConfigSource, /el-collapse-item name="openrouter-text"/)
-  assert.match(aiConfigSource, /el-collapse-item name="siliconflow-text"/)
-  assert.match(aiConfigSource, /el-collapse-item name="cn-cloud-text"/)
-  assert.match(aiConfigSource, /el-collapse-item name="ollama-text"/)
-  assert.match(aiConfigSource, /el-collapse-item name="comfyui-img"/)
-  assert.match(aiConfigSource, /el-collapse-item name="minimax-vid"/)
-  assert.match(aiConfigSource, /el-collapse-item name="runway-vid"/)
-  assert.match(aiConfigSource, /el-collapse-item name="luma-vid"/)
-  assert.match(aiConfigSource, /el-collapse-item name="siliconflow-tts"/)
-  assert.match(aiConfigSource, /id: CUSTOM_PROVIDER_SENTINEL, name: '✏️ 自定义（直接输入厂商名）'/)
+  assert.match(presetHelpSource, /选择预设只会自动填入公开 Base URL 和常见模型名/)
+  assert.match(presetHelpSource, /不代表本应用已真实接入或跑通对应厂商/)
+  assert.match(presetHelpSource, /el-collapse-item name="openrouter-text"/)
+  assert.match(presetHelpSource, /el-collapse-item name="siliconflow-text"/)
+  assert.match(presetHelpSource, /el-collapse-item name="cn-cloud-text"/)
+  assert.match(presetHelpSource, /el-collapse-item name="ollama-text"/)
+  assert.match(presetHelpSource, /el-collapse-item name="comfyui-img"/)
+  assert.match(presetHelpSource, /el-collapse-item name="minimax-vid"/)
+  assert.match(presetHelpSource, /el-collapse-item name="runway-vid"/)
+  assert.match(presetHelpSource, /el-collapse-item name="luma-vid"/)
+  assert.match(presetHelpSource, /el-collapse-item name="siliconflow-tts"/)
+  assert.match(readFileSync(new URL('../src/utils/aiConfigProviderOptions.js', import.meta.url), 'utf8'), /id: CUSTOM_PROVIDER_SENTINEL, name: '✏️ 自定义（直接输入厂商名）'/)
   assert.match(aiConfigSource, /预设只用于填表，不代表对应厂商已在本应用中真实跑通生成/)
 })
