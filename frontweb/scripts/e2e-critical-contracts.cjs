@@ -656,7 +656,7 @@ async function verifyMediaLibraryEmptyStates(page, options = {}) {
     await page.locator('.empty-media').waitFor({ state: 'visible', timeout: 30000 })
     await page.getByRole('heading', { name: CRITICAL_UI.mediaLibraryEmpty, exact: true }).waitFor({ timeout: 15000 })
     await page.getByText(CRITICAL_UI.mediaLibraryEmptyHint, { exact: true }).waitFor({ timeout: 10000 })
-    await page.getByRole('button', { name: CRITICAL_UI.uploadMediaAria, exact: true }).waitFor({ state: 'visible' })
+    await page.locator('.empty-media').getByRole('button', { name: CRITICAL_UI.uploadMediaAria, exact: true }).waitFor({ state: 'visible' })
 
     await page.goto(`${fixture.frontendUrl}/`, { waitUntil: 'domcontentloaded' })
     await page.locator('.film-list').waitFor({ state: 'visible', timeout: 30000 })
