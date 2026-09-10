@@ -19,9 +19,6 @@ const {
   operationCancelledError,
   throwIfAborted,
   isOperationCancelled,
-  ANTI_SPLIT_NEGATIVE_PROMPT,
-  mergeNegativePromptFragments,
-  inferProtocol,
 } = require('./imageGateway/runtime');
 const {
   fixAgnesImageSize,
@@ -51,6 +48,7 @@ const {
   getModelFromConfig,
 } = require('./imageGateway/config');
 const { dispatchImageProtocol } = require('./imageGateway/protocolDispatch');
+const { assembleImageProtocolRequest } = require('./imageGateway/requestAssembly');
 
 // 厂商适配与纯工具已拆到 imageGateway/，本文件只负责编排、配置解析与稳定导出。
 
@@ -87,8 +85,6 @@ async function callImageApiInternal(db, log, opts) {
   }
   const model = getModelFromConfig(config, preferredModel);
   const provider = (config.provider || '').toLowerCase();
-  // api_protocol 显式指定接口规范，优先级高于 provider 推断；未设置时按 provider 自动判断
-  const protocol = (config.api_protocol || '').toLowerCase() || inferProtocol(provider, model);
   const providerNetworkPolicy = aiConfigService.getProviderNetworkOptions(config, {
     lookup: opts.provider_dns_lookup,
     signal: opts.signal,
@@ -102,25 +98,19 @@ async function callImageApiInternal(db, log, opts) {
     };
   }
   const safeReferenceImageUrls = await prepareImageReferences(reference_image_urls, opts, config);
-
-  // ── 参考图标签注入：为所有非 Gemini 模型将标签注入 prompt 文本 ─────────────────────────────
-  // Gemini 通过 parts 结构处理（interleaved text+image），不需要文字注入。
-  // 其他所有模型（Doubao/DashScope/NanoBanana/OpenAI-compat 等）通过文字告知模型各参考图用途，
-  // 避免模型模仿参考图的宫格/四视图布局，同时抑制生成分割画面。
-  let effectivePrompt = prompt || '';
-  if (
-    protocol !== 'gemini' &&
-    safeReferenceImageUrls.length > 0 &&
-    system_prompt
-  ) {
-    const refLines = String(system_prompt).split('\n').filter(l => /^Image\s+\d+:/i.test(l));
-    if (refLines.length > 0) {
-      const refHeader = refLines
-        .map(l => `[${l} — FOR REFERENCE ONLY, DO NOT copy its layout or framing]`)
-        .join('\n');
-      effectivePrompt = `${refHeader}\n\n[GENERATE THIS SCENE — single continuous image, no grid, no split panels]:\n${effectivePrompt}`;
-    }
-  }
+  const {
+    protocol,
+    effectivePrompt,
+    mergedNegativePrompt,
+    refLabelInjected,
+  } = assembleImageProtocolRequest({
+    config,
+    model,
+    prompt,
+    systemPrompt: system_prompt,
+    referenceUrls: safeReferenceImageUrls,
+    userNegativePrompt: user_negative_prompt,
+  });
 
   log.info('[图生] callImageApi 路由', {
     image_gen_id,
@@ -131,17 +121,9 @@ async function callImageApiInternal(db, log, opts) {
     size,
     imageServiceType,
     ref_count: safeReferenceImageUrls.length,
-    ref_label_injected: effectivePrompt !== (prompt || ''),
+    ref_label_injected: refLabelInjected,
     prompt_length: String(effectivePrompt).length,
   });
-
-  // 多参考图时统一生成 negative_prompt（供各子函数使用）
-  const refCountForNeg = safeReferenceImageUrls.length;
-  // Seedream/Volcengine 模型强制启用安全词负面提示，其他模型仅在多参考图时启用
-  const isVolcOrSeedream = (protocol === 'volcengine' || /seedream|doubao/i.test(model));
-  const autoNegativePrompt = (refCountForNeg > 1 || isVolcOrSeedream) ? ANTI_SPLIT_NEGATIVE_PROMPT : '';
-  const userNegFragment = (user_negative_prompt && String(user_negative_prompt).trim()) || '';
-  const mergedNegativePrompt = mergeNegativePromptFragments(autoNegativePrompt, userNegFragment);
 
   return dispatchImageProtocol(db, config, log, {
     protocol,

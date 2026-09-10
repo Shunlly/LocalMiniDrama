@@ -12,6 +12,7 @@ const { callNanoBananaImageApi } = require('../src/services/imageGateway/nanoBan
 const { callDashScopeImageApi, parseDashScopeImageUrl } = require('../src/services/imageGateway/dashScopeImageAdapter');
 const { callGeminiImageApi } = require('../src/services/imageGateway/geminiImageAdapter');
 const { dispatchImageProtocol } = require('../src/services/imageGateway/protocolDispatch');
+const { assembleImageProtocolRequest } = require('../src/services/imageGateway/requestAssembly');
 const { parseOpenAiCompatibleImageUrl } = require('../src/services/imageGateway/openAiCompatibleImageApi');
 
 const PUBLIC_API = [
@@ -80,12 +81,17 @@ describe('imageGateway 客户端拆分', () => {
     assert.equal(src.includes("require('./imageGateway/download')"), true);
     assert.equal(src.includes("require('./imageGateway/config')"), true);
     assert.equal(src.includes("require('./imageGateway/protocolDispatch')"), true);
+    assert.equal(src.includes("require('./imageGateway/requestAssembly')"), true);
+    assert.equal(src.includes('FOR REFERENCE ONLY'), false);
+    assert.equal(src.includes('ANTI_SPLIT_NEGATIVE_PROMPT'), false);
+    assert.equal(src.includes('inferProtocol'), false);
     assert.equal(src.includes("if (protocol === 'dashscope')"), false);
     assert.equal(src.includes("if (protocol === 'nano_banana')"), false);
     assert.equal(src.includes("if (protocol === 'kling')"), false);
     assert.equal(src.includes("if (protocol === 'gemini')"), false);
     assert.equal(src.includes("if (protocol === 'comfyui')"), false);
     assert.equal(typeof dispatchImageProtocol, 'function');
+    assert.equal(typeof assembleImageProtocolRequest, 'function');
     const dispatchSrc = fs.readFileSync(path.join(__dirname, '../src/services/imageGateway/protocolDispatch.js'), 'utf8');
     for (const needle of [
       "if (protocol === 'dashscope')",
