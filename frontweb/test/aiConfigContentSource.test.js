@@ -28,6 +28,10 @@ function readSource(url) {
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const coverageCardsSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCards.vue', import.meta.url))
+const coverageCardSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url))
+const modelListSource = readSource(new URL('../src/components/aiConfig/AiConfigModelListSection.vue', import.meta.url))
+const presetHelpSource = readSource(new URL('../src/components/aiConfig/AiConfigPresetHelpCollapse.vue', import.meta.url))
 const pageSource = readSource(new URL('../src/views/AiConfig.vue', import.meta.url))
 const detailSource = readSource(new URL('../src/views/DramaDetail.vue', import.meta.url))
 const viteSource = readSource(new URL('../vite.config.js', import.meta.url))
@@ -121,6 +125,22 @@ function createMemoryStorage() {
   }
 }
 
+test('AIConfigContent wires coverage, model list and preset help components without extracting loadList', () => {
+  assert.match(vueSource, /import AiConfigCoverageCards from '@\/components\/aiConfig\/AiConfigCoverageCards\.vue'/)
+  assert.match(vueSource, /import AiConfigModelListSection from '@\/components\/aiConfig\/AiConfigModelListSection\.vue'/)
+  assert.match(vueSource, /import AiConfigPresetHelpCollapse from '@\/components\/aiConfig\/AiConfigPresetHelpCollapse\.vue'/)
+  assert.match(vueSource, /<AiConfigCoverageCards/)
+  assert.match(vueSource, /<AiConfigModelListSection/)
+  assert.match(vueSource, /<AiConfigPresetHelpCollapse/)
+  assert.match(vueSource, /async function loadList\(\)/)
+  assert.match(vueSource, /async function openTest\(row\)/)
+  assert.match(vueSource, /async function discoverModelsFromService\(\)/)
+  assert.doesNotMatch(vueSource, /from '@\/composables\/useAiConfigList/)
+  assert.doesNotMatch(vueSource, /from '@\/composables\/useAiConfigConnection/)
+  assert.match(presetHelpSource, /class="protocol-help"/)
+  assert.match(modelListSource, /@click="discoverModelsFromService"/)
+})
+
 test('AI config dialog keeps advanced API settings collapsed by default', () => {
   assert.match(vueSource, /const advancedFormSections = ref\(\[\]\)/)
   assert.match(vueSource, /<el-collapse v-model="advancedFormSections" class="advanced-config-collapse">/)
@@ -137,13 +157,17 @@ test('AI config dialog stays grouped into basic, provider, model, and policy sec
 test('service coverage panel exposes summary cards and per-service action links', () => {
   assert.match(vueSource, /coverageSummaryCards/)
   assert.match(vueSource, /const orderedCoverageServices = computed\(\(\) => sortAiServiceCoverage\(serviceCoverage\.value\.services\)\)/)
-  assert.match(vueSource, /v-for="item in orderedCoverageServices"/)
-  assert.match(vueSource, /coverageInventoryLabel\(item\)/)
-  assert.match(vueSource, /coverageActions\(item\)/)
-  assert.match(vueSource, /onCoverageAction\(item, action\)/)
-  assert.doesNotMatch(vueSource, /<button[^>]*class="coverage-item"/)
-  assert.match(vueSource, /<article[\s\S]*class="coverage-item"/)
-  assert.match(vueSource, /class="coverage-select"/)
+  assert.match(vueSource, /<AiConfigCoverageCards/)
+  assert.match(vueSource, /@select="onCoverageSelect"/)
+  assert.match(vueSource, /@action="onCoverageAction"/)
+  assert.match(coverageCardsSource, /v-for="item in orderedCoverageServices"/)
+  assert.match(coverageCardSource, /coverageInventoryLabel\(item\)/)
+  assert.match(coverageCardSource, /coverageActions\(item\)/)
+  assert.match(coverageCardSource, /\$emit\('action', item, action\)/)
+  assert.doesNotMatch(vueSource, /<article[\s\S]*class="coverage-item"/)
+  assert.doesNotMatch(coverageCardSource, /<button[^>]*class="coverage-item"/)
+  assert.match(coverageCardSource, /<article[\s\S]*class="coverage-item"/)
+  assert.match(coverageCardSource, /class="coverage-select"/)
   assert.equal(coverageInventoryLabel({ state: 'missing' }), '未配置')
   assert.equal(coverageInventoryLabel({ configuredCount: 2, activeCount: 1 }), '已配置 2 条 · 启用 1')
 })
@@ -151,7 +175,7 @@ test('service coverage panel exposes summary cards and per-service action links'
 test('coverage copy defines usable readiness and names missing credentials', () => {
   assert.match(vueSource, /类可用/)
   assert.match(vueSource, /默认配置还需凭据、模型或工作流完整/)
-  assert.match(vueSource, /\{\{ coverageStateLabel\(item\) \}\}/)
+  assert.match(coverageCardSource, /\{\{ coverageStateLabel\(item\) \}\}/)
   assert.equal(coverageStateLabel({ ready: true }), '可用')
   assert.equal(coverageStateLabel({ issue: 'missing_credentials' }), '缺少凭据')
   assert.equal(coverageStateLabel({ issue: 'missing_model' }), '缺少模型')
@@ -366,9 +390,10 @@ test('coverage actions receive both vendor and dependency write locks', () => {
 })
 
 test('coverage testing restores the keyed service card and keeps results perceivable after sorting', async () => {
-  assert.match(vueSource, /:ref="\(element\) => setCoverageCardRef\(item\.type, element\)"/)
-  assert.match(vueSource, /tabindex="-1"/)
-  assert.match(vueSource, /:aria-label="`\$\{item\.label\}，\$\{coverageStateLabel\(item\)\}，\$\{coverageTestLabel\(item\.test\)\}`"/)
+  assert.match(vueSource, /:set-coverage-card-ref="setCoverageCardRef"/)
+  assert.match(coverageCardSource, /:ref="\(element\) => setCoverageCardRef\(item\.type, element\)"/)
+  assert.match(coverageCardSource, /tabindex="-1"/)
+  assert.match(coverageCardSource, /:aria-label="`\$\{item\.label\}，\$\{coverageStateLabel\(item\)\}，\$\{coverageTestLabel\(item\.test\)\}`"/)
   assert.match(vueSource, /<AccessibleDialog v-model="testVisible"[\s\S]*@closed="restoreTestedCoverageCardFocus"/)
   assert.match(vueSource, /role="status" aria-live="polite"[\s\S]*\{\{ testResultAnnouncement \}\}/)
   assert.match(vueSource, /testResultAnnouncement\.value = '连接测试通过'/)
@@ -400,12 +425,12 @@ test('coverage testing restores the keyed service card and keeps results perceiv
 })
 
 test('coverage grid stays readable on desktop and identity columns retain tooltips', () => {
-  assert.match(vueSource, /\.coverage-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit, minmax\(220px, 1fr\)\);/)
-  assert.match(vueSource, /\.coverage-item\s*\{[\s\S]*?min-height:\s*132px;[\s\S]*?padding:\s*10px;/)
-  assert.match(vueSource, /\.coverage-select\s*\{[\s\S]*?min-height:\s*32px;/)
-  assert.match(vueSource, /\.coverage-action-link\s*\{[\s\S]*?min-height:\s*32px;/)
-  assert.match(vueSource, /\.coverage-config-detail\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
-  assert.match(vueSource, /@media \(max-width: 1120px\) \{[\s\S]*?\.coverage-grid\s*\{[\s\S]*?repeat\(2, minmax\(0, 1fr\)\)/)
+  assert.match(coverageCardsSource, /\.coverage-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit, minmax\(220px, 1fr\)\);/)
+  assert.match(coverageCardSource, /\.coverage-item\s*\{[\s\S]*?min-height:\s*132px;[\s\S]*?padding:\s*10px;/)
+  assert.match(coverageCardSource, /\.coverage-select\s*\{[\s\S]*?min-height:\s*32px;/)
+  assert.match(coverageCardSource, /\.coverage-action-link\s*\{[\s\S]*?min-height:\s*32px;/)
+  assert.match(coverageCardSource, /\.coverage-config-detail\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
+  assert.match(coverageCardsSource, /@media \(max-width: 1120px\) \{[\s\S]*?\.coverage-grid\s*\{[\s\S]*?repeat\(2, minmax\(0, 1fr\)\)/)
   assert.match(vueSource, /<el-table-column prop="name"[^>]*min-width="220"[^>]*show-overflow-tooltip/)
   assert.match(vueSource, /<el-table-column prop="provider"[^>]*min-width="180"[^>]*show-overflow-tooltip/)
 })
@@ -536,7 +561,9 @@ test('AI config import keeps a successful server import unconfirmed until list r
 
 test('coverage repair actions open and focus the concrete missing configuration field', async () => {
   assert.match(vueSource, /ref="apiKeyInputRef"[\s\S]*v-model="form\.api_key"/)
-  assert.match(vueSource, /ref="modelListInputRef"[\s\S]*v-model="form\.modelText"/)
+  assert.match(vueSource, /function setModelListInputRef\(element\)/)
+  assert.match(vueSource, /model: modelListInputRef/)
+  assert.match(modelListSource, /:ref="setModelListInputRef"[\s\S]*v-model="form\.modelText"/)
   assert.match(vueSource, /ref="workflowInputRef"[\s\S]*v-model="form\.comfy_workflow_json"/)
   assert.match(vueSource, /async function openEdit\(row, \{ repairIssue = '' \} = \{\}\)[\s\S]*applyAiConfigRepairTarget\(repairIssue/)
   assert.match(vueSource, /credentials: apiKeyInputRef/)
@@ -594,7 +621,8 @@ test('AI configuration workspace modes expose a visible keyboard focus state', a
   assert.match(vueSource, /getConfigWorkspaceKeyTarget\(currentView, event\.key\)/)
   assert.match(vueSource, /shouldApplyConfigWorkspaceRequest\(/)
   assert.match(vueSource, /focusServiceConfigs,/)
-  assert.match(vueSource, /onCoverageSelect\(item\)/)
+  assert.match(vueSource, /@select="onCoverageSelect"/)
+  assert.match(coverageCardSource, /\$emit\('select', item\)/)
   assert.match(
     vueSource,
     /\.config-workspace-mode:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--accent-text\);[\s\S]*?outline-offset:\s*2px;/,
@@ -623,7 +651,7 @@ test('AI configuration workspace modes expose a visible keyboard focus state', a
 
 test('AI 配置在 760px 和 520px 下重排且不会被固定双列撑宽', () => {
   assert.match(vueSource, /@media \(max-width: 760px\) \{[\s\S]*?\.ai-config-content,[\s\S]*?max-width: 100%;[\s\S]*?min-width: 0;/)
-  assert.match(vueSource, /@media \(max-width: 760px\) \{[\s\S]*?\.coverage-grid,[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
+  assert.match(coverageCardsSource, /@media \(max-width: 760px\) \{[\s\S]*?\.coverage-grid,[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
   assert.match(vueSource, /@media \(max-width: 760px\) \{[\s\S]*?\.content-actions,[\s\S]*?flex-direction: column;/)
   assert.match(vueSource, /@media \(max-width: 760px\) \{[\s\S]*?\.config-workspace-mode \{[\s\S]*?min-width: 0;/)
   assert.match(vueSource, /@media \(max-width: 520px\) \{[\s\S]*?\.config-workspace-switch \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/)
@@ -661,7 +689,7 @@ test('AI 配置保存、导入和连接测试失败不再直出 e.message', () =
 
 test('AI 配置厂商和模型选择保留中文空状态、无障碍名称，以及删除/保存确认', () => {
   const providerTag = vueSource.match(/<el-select[^>]*data-ai-config-field="provider"[^>]*>/)?.[0]
-  const modelPickTag = vueSource.match(/<el-select[^>]*aria-label="追加预设模型"[^>]*>/)?.[0]
+  const modelPickTag = modelListSource.match(/<el-select[^>]*aria-label="追加预设模型"[^>]*>/)?.[0]
   const defaultModelTags = [...vueSource.matchAll(/<el-select[^>]*data-ai-config-field="default_model"[^>]*>/g)].map((item) => item[0])
   assert.ok(providerTag, 'missing provider select')
   assert.ok(modelPickTag, 'missing preset model select')

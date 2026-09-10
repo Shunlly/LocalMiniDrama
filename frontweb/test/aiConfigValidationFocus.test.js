@@ -6,6 +6,11 @@ const componentSource = readFileSync(
   new URL('../src/components/AIConfigContent.vue', import.meta.url),
   'utf8',
 )
+const modelListSource = readFileSync(
+  new URL('../src/components/aiConfig/AiConfigModelListSection.vue', import.meta.url),
+  'utf8',
+)
+const formSource = `${componentSource}\n${modelListSource}`
 const validationUtilityUrl = new URL('../src/utils/aiConfigValidationFocus.js', import.meta.url)
 
 test('AI config dialog exposes a sticky live validation summary and an owned scroll container', () => {
@@ -46,12 +51,12 @@ test('critical AI config fields expose explicit invalid state and descriptions',
     let start = 0
     let found = 0
     while (true) {
-      start = componentSource.indexOf(marker, start)
+      start = formSource.indexOf(marker, start)
       if (start === -1) break
       found += 1
-      const tagStart = componentSource.lastIndexOf('<el-', start)
-      const tagEnd = componentSource.indexOf('>', start)
-      const fieldTag = componentSource.slice(tagStart, tagEnd + 1)
+      const tagStart = formSource.lastIndexOf('<el-', start)
+      const tagEnd = formSource.indexOf('>', start)
+      const fieldTag = formSource.slice(tagStart, tagEnd + 1)
       assert.match(fieldTag, /:aria-invalid="isConfigFieldInvalid\('[^']+'\)(?: \|\| isDefaultModelUnavailable)?"/)
       assert.match(fieldTag, /:aria-describedby="configFieldDescriptionId\('[^']+'\)"/)
       if (field === 'provider') assert.match(fieldTag, /aria-label="厂商"/)
@@ -61,7 +66,7 @@ test('critical AI config fields expose explicit invalid state and descriptions',
     assert.ok(found >= 1, `${field} should have a stable field marker`)
   }
 
-  assert.match(componentSource, /<el-form-item[^>]*prop="modelText"/)
+  assert.match(modelListSource, /<el-form-item[^>]*prop="modelText"/)
   assert.match(componentSource, /<el-form-item[^>]*prop="api_protocol"/)
   assert.match(componentSource, /<el-form-item[^>]*prop="endpoint"/)
 })

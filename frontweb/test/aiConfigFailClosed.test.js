@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const source = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
+const coverageCardSource = readFileSync(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url), 'utf8')
 const sd2Source = readFileSync(new URL('../src/components/Sd2AssetManagement.vue', import.meta.url), 'utf8')
 
 function openingButtonFor(clickHandler) {
@@ -41,7 +42,8 @@ test('AI config writes fail closed until the list and vendor lock dependencies a
   )
   assert.match(source, /v-if="configDependencyError"[\s\S]*@click="retryConfigDependencies"/)
   assert.match(source, /function isCoverageActionDisabled\(item, action\)/)
-  assert.match(source, /:disabled="isCoverageActionDisabled\(item, action\)"/)
+  assert.match(source, /:is-coverage-action-disabled="isCoverageActionDisabled"/)
+  assert.match(coverageCardSource, /:disabled="isCoverageActionDisabled\(item, action\)"/)
 
   const disabledMutationBindings = [
     'openAdd',
@@ -79,7 +81,8 @@ test('AI config writes fail closed until the list and vendor lock dependencies a
 
 test('retry, viewing, connection tests, and sanitized export remain available while writes are locked', () => {
   assert.match(source, /@click="retryConfigDependencies"/)
-  assert.match(source, /@click="onCoverageSelect\(item\)"/)
+  assert.match(source, /@select="onCoverageSelect"/)
+  assert.match(coverageCardSource, /\$emit\('select', item\)/)
   assert.match(source, /@click="openTest\(row\)"/)
   assert.match(source, /@click="exportConfigs"/)
   assert.match(source, /<div v-else class="vendor-lock-bar">[\s\S]*?@click="exportConfigs"/)

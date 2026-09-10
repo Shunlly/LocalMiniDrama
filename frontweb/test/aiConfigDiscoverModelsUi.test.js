@@ -7,6 +7,7 @@ function readSource(url) {
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const modelListSource = readSource(new URL('../src/components/aiConfig/AiConfigModelListSection.vue', import.meta.url))
 const sd2Source = readSource(new URL('../src/components/Sd2AssetManagement.vue', import.meta.url))
 const apiSource = readSource(new URL('../src/api/ai.js', import.meta.url))
 
@@ -76,16 +77,17 @@ const mergeModelTextWithDiscovered = loadHelper('mergeModelTextWithDiscovered')
 
 test('AI 配置页提供从服务读取模型按钮，并接上 discoverModels API', () => {
   assert.match(apiSource, /discoverModels\(body, options = \{\}\) \{\s*return request\.post\('\/ai-configs\/discover-models', body, options\)/)
-  assert.match(vueSource, /@click="discoverModelsFromService"/)
-  assert.match(vueSource, />从服务读取模型</)
-  assert.match(vueSource, /:disabled="discoverModelsDisabled"/)
-  assert.match(vueSource, /:loading="discoverModelsLoading"/)
+  assert.match(vueSource, /:discover-models-from-service="discoverModelsFromService"/)
+  assert.match(modelListSource, /@click="discoverModelsFromService"/)
+  assert.match(modelListSource, />从服务读取模型</)
+  assert.match(modelListSource, /:disabled="discoverModelsDisabled"/)
+  assert.match(modelListSource, /:loading="discoverModelsLoading"/)
   assert.match(vueSource, /请先填写接口地址/)
   assert.match(vueSource, /请先填写 API 密钥后再读取模型/)
-  assert.match(vueSource, /正在从服务读取模型/)
-  assert.match(vueSource, /aria-label="模型列表"/)
-  assert.doesNotMatch(vueSource, /<el-input[^>]*data-ai-config-field="model"[^>]*readonly/)
-  assert.match(vueSource, /aria-label="追加预设模型"/)
+  assert.match(modelListSource, /正在从服务读取模型/)
+  assert.match(modelListSource, /aria-label="模型列表"/)
+  assert.doesNotMatch(modelListSource, /<el-input[^>]*data-ai-config-field="model"[^>]*readonly/)
+  assert.match(modelListSource, /aria-label="追加预设模型"/)
   assert.match(vueSource, /<el-option label="Fal\.ai" value="fal" \/>/)
   assert.match(vueSource, /<el-option label="Replicate" value="replicate" \/>/)
 })
