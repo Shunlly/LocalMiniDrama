@@ -704,6 +704,15 @@ function parseSbChars(raw) {
   } catch (_) { return []; }
 }
 
+function tryNormalizeFreeCanvasExportPath(value, field) {
+  try {
+    return normalizeFreeCanvasExportPath(value, field);
+  } catch (error) {
+    if (error?.code === 'INVALID_FREE_CANVAS_REFERENCE') return null;
+    throw error;
+  }
+}
+
 function normalizeFreeCanvasExportPath(value, field) {
   if (typeof value !== 'string' || !value.trim()) {
     throw exportError(
@@ -892,25 +901,23 @@ function collectFreeCanvasImportManifest({
 
   const reusableMedia = new Map();
   for (const item of imageFilesToPack) {
-    const sourcePath = normalizeFreeCanvasExportPath(item.localRelPath, 'media path');
-    if (!reusableMedia.has(sourcePath)) {
-      reusableMedia.set(sourcePath, {
-        archive_path: item.zipPath,
-        category: 'images',
-        image_generation_id: Number(item.sourceGenerationId),
-      });
-    }
+    const sourcePath = tryNormalizeFreeCanvasExportPath(item.localRelPath, 'media path');
+    if (!sourcePath || reusableMedia.has(sourcePath)) continue;
+    reusableMedia.set(sourcePath, {
+      archive_path: item.zipPath,
+      category: 'images',
+      image_generation_id: Number(item.sourceGenerationId),
+    });
   }
   for (const [storyboardId, video] of Object.entries(videosBySb)) {
     if (!video.local_path) continue;
-    const sourcePath = normalizeFreeCanvasExportPath(video.local_path, 'media path');
-    if (!reusableMedia.has(sourcePath)) {
-      reusableMedia.set(sourcePath, {
-        archive_path: `media/videos/sb_${storyboardId}${extOf(video.local_path)}`,
-        category: 'videos',
-        video_generation_id: video.original_id || undefined,
-      });
-    }
+    const sourcePath = tryNormalizeFreeCanvasExportPath(video.local_path, 'media path');
+    if (!sourcePath || reusableMedia.has(sourcePath)) continue;
+    reusableMedia.set(sourcePath, {
+      archive_path: `media/videos/sb_${storyboardId}${extOf(video.local_path)}`,
+      category: 'videos',
+      video_generation_id: video.original_id || undefined,
+    });
   }
 
   const mediaByPath = new Map();

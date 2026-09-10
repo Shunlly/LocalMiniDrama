@@ -993,6 +993,30 @@ test('free canvas export skips null asset_ref instead of failing the project', (
   assert.equal(packaged.drama.title, 'Portable Canvas Image');
 });
 
+test('free canvas export skips unsafe unused storyboard media paths', (t) => {
+  const source = createWorkspace(t, 'lmd-canvas-skip-unsafe-media-');
+  const ids = { drama: 501, episode: 510, storyboard: 520, scene: 530, title: 'Skip Unsafe Media' };
+  insertProjectGraph(source.db, ids, {
+    free_canvas: {
+      version: 1,
+      projectId: ids.drama,
+      nodes: [{
+        id: 'free:text:safe',
+        type: 'text',
+        position: { x: 0, y: 0 },
+        content: 'safe',
+      }],
+      edges: [],
+    },
+  });
+  source.db.prepare(
+    `INSERT INTO image_generations (id, drama_id, storyboard_id, provider, status, local_path, created_at, updated_at)
+     VALUES (901, ?, ?, 'e2e', 'completed', 'http://e2e-provider:5688/v1/images/placeholder.png', ?, ?)`
+  ).run(ids.drama, ids.storyboard, now, now);
+  const exported = exportProject(source, ids.drama);
+  assert.ok(Buffer.isBuffer(exported.buffer) && exported.buffer.length > 0);
+});
+
 test('free canvas export rejects mismatched assetId and asset_ref before writing a manifest', (t) => {
   assert.throws(
     () => createTwoImageExport(t, { dualMismatch: true, prefix: 'lmd-canvas-dual-export-' }),

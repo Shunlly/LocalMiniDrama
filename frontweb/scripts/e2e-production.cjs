@@ -1636,7 +1636,8 @@ async function verifyProjectExportUi(page, title, evidenceRecorder = null) {
     if (!response.ok()) {
       const payload = await response.json().catch(() => ({}))
       const code = payload?.error?.code || payload?.code || `HTTP_${response.status()}`
-      throw new Error(`UI project export request failed: ${code}`)
+      const detail = payload?.error?.message || payload?.message || ''
+      throw new Error(`UI project export request failed: ${code}${detail ? ` (${detail})` : ''}`)
     }
     const download = await downloadPromise
     const bytes = await readDownloadBytes(download, 'project export UI download')
