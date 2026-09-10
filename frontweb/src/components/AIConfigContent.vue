@@ -1455,12 +1455,14 @@ import { generationSettingsAPI } from '@/api/prompts'
 import { useAiConfigGenerationSettings } from '@/composables/useAiConfigGenerationSettings.js'
 import { useAiConfigOneKeyPresets } from '@/composables/useAiConfigOneKeyPresets.js'
 import { useAiConfigImportExport } from '@/composables/useAiConfigImportExport.js'
+import { useAiConfigRowMutations } from '@/composables/useAiConfigRowMutations.js'
 import { useAiConfigDiscoverModels } from '@/composables/useAiConfigDiscoverModels.js'
 import {
   parseModelText,
   isOpenAiCompatibleConfig,
   hasDiscoverableCredential,
 } from '@/utils/aiConfigDiscoverModels.js'
+import { describeConnectionTestError } from '@/utils/aiConfigConnectionTest.js'
 import { buildAiServiceCoverage, sortAiServiceCoverage } from '@/utils/aiConfigCoverage.js'
 import { useAiConfigCoverage } from '@/composables/useAiConfigCoverage.js'
 import {
@@ -1475,10 +1477,8 @@ import {
   resolveAiConfigConnectionStatusScope,
 } from '@/utils/aiConfigConnectionStatusStore.js'
 import {
-  confirmAiConfigBulkKeyResult,
   confirmAiConfigMutationInList,
   confirmAiConfigMutationResult,
-  isAiConfigBulkKeyResult,
   runAiConfigCreateBatch,
 } from '@/utils/aiConfigMutations.js'
 import { applyAiConfigRepairTarget } from '@/utils/aiConfigRepairTarget.js'
@@ -1992,6 +1992,28 @@ const {
   loadList,
   list,
   configLoadError,
+  invalidateConnectionTestResults,
+  notifyConfigurationChanged,
+})
+
+const {
+  openBulkKey,
+  submitBulkKey,
+  onDelete,
+  onSelectionChange,
+  onBatchDelete,
+} = useAiConfigRowMutations({
+  ElMessage,
+  ElMessageBox,
+  aiAPI,
+  configWriteLocked,
+  bulkKeyInput,
+  bulkKeyVisible,
+  bulkKeySaving,
+  selectedRows,
+  batchDeleting,
+  loadList,
+  list,
   invalidateConnectionTestResults,
   notifyConfigurationChanged,
 })
@@ -2802,39 +2824,6 @@ async function submit() {
   }
 }
 
-function openBulkKey() {
-  if (configWriteLocked.value) return
-  bulkKeyInput.value = ''
-  bulkKeyVisible.value = true
-}
-
-async function submitBulkKey() {
-  if (configWriteLocked.value) return
-  const key = bulkKeyInput.value.trim()
-  if (!key) return
-  bulkKeySaving.value = true
-  try {
-    const res = await aiAPI.bulkUpdateKey(key)
-    if (!isAiConfigBulkKeyResult(res)) {
-      await loadList()
-      ElMessage.error('服务端未返回完整的批量换密钥确认结果，请刷新后复核。')
-      return
-    }
-    const listConfirmed = await loadList()
-    const listMatches = listConfirmed && confirmAiConfigBulkKeyResult(res, list.value)
-    if (Number(res?.updated) > 0) {
-      invalidateConnectionTestResults()
-      notifyConfigurationChanged()
-    }
-    bulkKeyVisible.value = false
-    if (listMatches) ElMessage.success(res?.message || '所有配置的 API 密钥已更新')
-    else ElMessage.warning('服务端已确认批量换密钥，但配置列表刷新或并发校验未完全一致，请刷新后复核。')
-  } catch (_) {
-  } finally {
-    bulkKeySaving.value = false
-  }
-}
-
 function onJimeng2AssetsDialogClosed() {
   jimeng2AssetsRows.value = []
   jimeng2AssetsNextCursor.value = null
@@ -2883,73 +2872,6 @@ function openJimeng2MaterialAssetsDialog() {
 function loadMoreJimeng2MaterialAssets() {
   if (!jimeng2AssetsHasMore.value || !jimeng2AssetsNextCursor.value) return
   fetchJimeng2MaterialAssets(false)
-}
-
-const CONNECTION_TEST_ENGLISH_RE = /network error|timeout of \d+ms|request failed with status code|failed to fetch|load failed|internal server error|err_network|econnaborted|etimedout|incorrect api key|invalid api key/i
-
-function stripConnectionTestDecorations(message) {
-  return String(message || '')
-    .replace(/^连接测试失败[:：]\s*/u, '')
-    .replace(/\bProvider\b/gi, '该厂商')
-    .replace(/[;；,]?\s*response_bytes=\d+/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/\s+([）)])/g, '$1')
-    .replace(/（\s*;?\s*）/g, '')
-    .replace(/\(\s*;?\s*\)/g, '')
-    .trim()
-}
-
-function pickConnectionTestTitle(message) {
-  const parts = String(message || '').split(/[:：]/).map((item) => item.trim()).filter(Boolean)
-  if (parts.length >= 2) {
-    const last = parts[parts.length - 1]
-    if (/[\u4e00-\u9fff]/.test(last) && last.length <= 80 && !CONNECTION_TEST_ENGLISH_RE.test(last)) {
-      return last
-    }
-  }
-  return message
-}
-
-function describeConnectionTestError(error, signal, serviceType = '') {
-  if (isRequestTimeout(error, signal)) {
-    return {
-      title: '连接测试超时',
-      detail: '请检查服务地址和网络后重试。如果只是模型目录不可用，仍可在配置中手工填写模型名。',
-    }
-  }
-  if (isUserFacingAbort(error, signal)) {
-    return {
-      title: '连接测试已取消',
-      detail: '本次测试已停止，可重新测试。',
-    }
-  }
-  const raw = toUserFacingError(error, '暂时无法完成连接测试，请稍后重试。', {
-    serviceLabel: 'AI 配置服务',
-    signal,
-  })
-  const cleaned = stripConnectionTestDecorations(raw)
-  const probeLike = /模型列表探测|ollama 模型列表|\/v1\/models|\b\/models\b/i.test(`${cleaned}\n${raw}`)
-  if (probeLike) {
-    return {
-      title: '无法读取模型列表',
-      detail: '连接测试会向该厂商请求可用模型。失败常见原因是密钥无效、地址不正确，或该服务不提供模型目录。你可以稍后重试，或直接在配置里手工填写模型名。',
-    }
-  }
-  let title = pickConnectionTestTitle(cleaned)
-  if (!title || CONNECTION_TEST_ENGLISH_RE.test(title)) {
-    title = '暂时无法完成连接测试，请稍后重试。'
-  }
-  const authLike = /认证失败|凭据|API Key|密钥/i.test(`${title}\n${cleaned}`)
-  const st = String(serviceType || '').toLowerCase()
-  let detail = authLike
-    ? '请检查 API 密钥、Session 或 AccessKey 是否填写正确。如果该服务不提供模型目录，也可直接在配置里手工填写模型名。'
-    : '请检查厂商地址、密钥和网络后重试。连接测试有时会读取模型目录；若该服务不提供模型列表，可直接在配置里手工填写模型名。'
-  if (!authLike && st === 'ocr') {
-    detail = '请检查厂商地址、密钥和网络后重试。图片识别用于 PDF/图片抽文字，通常走视觉对话接口；若该服务不提供模型列表，可直接在配置里手工填写模型名。'
-  } else if (!authLike && st === 'transcription') {
-    detail = '请检查厂商地址、密钥和网络后重试。语音转写用于音频/视频，通常走音频转写接口；若该服务不提供模型列表，可直接在配置里手工填写模型名。'
-  }
-  return { title, detail }
 }
 
 async function openTest(row) {
@@ -3051,75 +2973,6 @@ async function openTest(row) {
 function retryConnectionTest() {
   if (!lastTestedConfig || testingConfigId.value !== null) return
   openTest(lastTestedConfig)
-}
-
-async function onDelete(row) {
-  if (configWriteLocked.value) return
-  const name = String(row?.name || '').trim() || '未命名配置'
-  try {
-    await ElMessageBox.confirm(`确定删除配置「${name}」？此操作不可恢复。`, '删除确认', {
-      type: 'warning',
-      confirmButtonText: '确定删除',
-      cancelButtonText: '取消',
-      confirmButtonClass: 'el-button--danger',
-    })
-  } catch (error) {
-    if (!isUserFacingAbort(error)) {
-      ElMessage.error(toUserFacingError(error, '无法确认删除'))
-    }
-    return
-  }
-  if (configWriteLocked.value) return
-  try {
-    await aiAPI.delete(row.id)
-    ElMessage.success('已删除')
-    invalidateConnectionTestResults()
-    notifyConfigurationChanged()
-    await loadList()
-  } catch (error) {
-    if (isUserFacingAbort(error)) return
-    ElMessage.error(toUserFacingError(error, '删除失败'))
-  }
-}
-
-function onSelectionChange(rows) {
-  selectedRows.value = rows
-}
-
-async function onBatchDelete() {
-  if (configWriteLocked.value) return
-  if (!selectedRows.value.length) return
-  try {
-    await ElMessageBox.confirm(
-      `确定删除选中的 ${selectedRows.value.length} 条配置？此操作不可恢复。`,
-      '批量删除确认',
-      { type: 'warning', confirmButtonText: '确定删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' },
-    )
-  } catch (error) {
-    if (!isUserFacingAbort(error)) {
-      ElMessage.error(toUserFacingError(error, '无法确认删除'))
-    }
-    return
-  }
-  if (configWriteLocked.value) return
-  batchDeleting.value = true
-  let success = 0, failed = 0
-  for (const row of selectedRows.value) {
-    try {
-      await aiAPI.delete(row.id)
-      success++
-    } catch (_) { failed++ }
-  }
-  batchDeleting.value = false
-  selectedRows.value = []
-  if (success > 0) {
-    invalidateConnectionTestResults()
-    notifyConfigurationChanged()
-  }
-  if (!success && failed) ElMessage.error(`删除失败，${failed} 条未能删除`)
-  else if (failed) ElMessage.warning(`已删除 ${success} 条，${failed} 条失败`)
-  else ElMessage.success(`已删除 ${success} 条`)
-  await loadList()
 }
 
 async function loadVendorLock() {

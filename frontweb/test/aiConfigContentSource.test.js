@@ -31,6 +31,8 @@ const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', im
 const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
 const oneKeySource = readSource(new URL('../src/composables/useAiConfigOneKeyPresets.js', import.meta.url))
 const importExportSource = readSource(new URL('../src/composables/useAiConfigImportExport.js', import.meta.url))
+const listMutationsSource = readSource(new URL('../src/composables/useAiConfigRowMutations.js', import.meta.url))
+const connectionTestSource = readSource(new URL('../src/utils/aiConfigConnectionTest.js', import.meta.url))
 const discoverModelsSource = readSource(new URL('../src/composables/useAiConfigDiscoverModels.js', import.meta.url))
 const coverageCardsSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCards.vue', import.meta.url))
 const coverageCardSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url))
@@ -196,9 +198,10 @@ test('AI config mutations emit one reliable change notification only after real 
   assert.match(vueSource, /const emit = defineEmits\(\['configuration-changed'\]\)/)
   assert.equal((vueSource.match(/emit\('configuration-changed'\)/g) || []).length, 1)
   assert.match(vueSource, /function notifyConfigurationChanged\(\) \{\s*emit\('configuration-changed'\)\s*\}/)
-  assert.equal((vueSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 5)
+  assert.equal((vueSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 2)
   assert.equal((oneKeySource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
   assert.equal((importExportSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 1)
+  assert.equal((listMutationsSource.match(/^[ \t]*notifyConfigurationChanged\(\)$/gm) || []).length, 3)
 
   assert.match(vueSource, /await aiAPI\.update[\s\S]*await aiAPI\.create[\s\S]*notifyConfigurationChanged\(\)/)
   assert.match(
@@ -215,18 +218,21 @@ test('AI config mutations emit one reliable change notification only after real 
     /notifyConfigurationChanged\(\)\s*configDialogSaved\.value = true[\s\S]*dialogVisible\.value = false/,
   )
 
-  assert.match(vueSource, /isAiConfigBulkKeyResult\(res\)/)
-  assert.match(vueSource, /confirmAiConfigBulkKeyResult\(res, list\.value\)/)
+  assert.match(listMutationsSource, /isAiConfigBulkKeyResult\(res\)/)
+  assert.match(listMutationsSource, /confirmAiConfigBulkKeyResult\(res, list\.value\)/)
   assert.match(
-    vueSource,
+    listMutationsSource,
     /if \(Number\(res\?\.updated\) > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*\}\s*bulkKeyVisible\.value = false/,
   )
 
-  assert.match(vueSource, /ElMessage\.success\('已删除'\)\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*await loadList\(\)/)
+  assert.match(listMutationsSource, /ElMessage\.success\('已删除'\)\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*await loadList\(\)/)
   assert.match(
-    vueSource,
+    listMutationsSource,
     /if \(success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)\s*\}/,
   )
+  assert.match(vueSource, /useAiConfigRowMutations\(/)
+  assert.doesNotMatch(vueSource, /function openBulkKey\(/)
+  assert.doesNotMatch(vueSource, /async function onDelete\(row\)/)
 
   assert.match(oneKeySource, /runAiConfigCreateBatch\(configs, createOne\)/)
   assert.match(oneKeySource, /createdIds\.every\(\(id\) => list\.value\.some/)
@@ -332,15 +338,15 @@ test('every successful configuration mutation invalidates persisted connection s
     /const listMatches = listConfirmed && confirmAiConfigMutationInList\(serverConfirmation, list\.value\)\s*invalidateConnectionTestResults\(\)/,
   )
   assert.match(
-    vueSource,
+    listMutationsSource,
     /const listMatches = listConfirmed && confirmAiConfigBulkKeyResult\(res, list\.value\)[\s\S]{0,80}invalidateConnectionTestResults\(\)/,
   )
   assert.match(
-    vueSource,
+    listMutationsSource,
     /await aiAPI\.delete\(row\.id\)[\s\S]{0,120}invalidateConnectionTestResults\(\)/,
   )
   assert.match(
-    vueSource,
+    listMutationsSource,
     /if \(success > 0\) \{\s*invalidateConnectionTestResults\(\)\s*notifyConfigurationChanged\(\)/,
   )
   assert.match(
@@ -696,9 +702,9 @@ test('AI 配置保存、导入和连接测试失败不再直出 e.message', () =
   assert.match(vueSource, /import \{ toUserFacingError, isUserFacingAbort \} from '@\/utils\/userFacingError'/)
   assert.match(generationSettingsSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '保存失败'\)\)/)
   assert.match(importExportSource, /if \(isUserFacingAbort\(e\)\) return\s*ElMessage\.error\(toUserFacingError\(e, '导入失败'\)\)/)
-  assert.match(vueSource, /toUserFacingError\(error, '删除失败'/)
+  assert.match(listMutationsSource, /toUserFacingError\(error, '删除失败'/)
   assert.match(vueSource, /configFieldDisplayLabel\(item\.label\)/)
-  assert.match(vueSource, /toUserFacingError\(error, '暂时无法完成连接测试，请稍后重试。'/)
+  assert.match(connectionTestSource, /toUserFacingError\(error, '暂时无法完成连接测试，请稍后重试。'/)
   assert.match(vueSource, /isUserFacingAbort\(e, controller\.signal\)/)
   assert.match(generationSettingsSource, /runWithOwnedRequestErrorToast\(\(\) => generationSettingsAPI\.update/)
   assert.match(vueSource, /runWithOwnedRequestErrorToast\(async \(\) => \([\s\S]*await aiAPI\.update[\s\S]*await aiAPI\.create/)
@@ -733,8 +739,8 @@ test('AI 配置厂商和模型选择保留中文空状态、无障碍名称，�
   assert.match(vueSource, /'保存确认'/)
   assert.match(vueSource, /confirmButtonText: '确认保存'/)
   assert.match(vueSource, /if \(!await confirmReplaceDefaultConfig\(\)\) return\s*if \(configWriteLocked\.value\) return/)
-  assert.match(vueSource, /确定删除配置「\$\{name\}」？此操作不可恢复。/)
-  assert.match(vueSource, /catch \(error\) \{\s*if \(isUserFacingAbort\(error\)\) return\s*ElMessage\.error\(toUserFacingError\(error, '删除失败'\)/)
-  assert.match(vueSource, /if \(!success && failed\) ElMessage\.error\(`删除失败，\$\{failed\} 条未能删除`\)/)
-  assert.doesNotMatch(vueSource, /ElMessage\.success\(`已删除 \$\{success\} 条\$\{failed \? `，\$\{failed\} 条失败` : ''\}`\)/)
+  assert.match(listMutationsSource, /确定删除配置「\$\{name\}」？此操作不可恢复。/)
+  assert.match(listMutationsSource, /catch \(error\) \{\s*if \(isUserFacingAbort\(error\)\) return\s*ElMessage\.error\(toUserFacingError\(error, '删除失败'\)/)
+  assert.match(listMutationsSource, /if \(!success && failed\) ElMessage\.error\(`删除失败，\$\{failed\} 条未能删除`\)/)
+  assert.doesNotMatch(listMutationsSource, /ElMessage\.success\(`已删除 \$\{success\} 条\$\{failed \? `，\$\{failed\} 条失败` : ''\}`\)/)
 })

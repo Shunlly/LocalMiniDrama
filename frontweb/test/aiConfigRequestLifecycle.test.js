@@ -8,6 +8,7 @@ function readSource(url) {
 
 const source = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
 const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
+const connectionTestSource = readSource(new URL('../src/utils/aiConfigConnectionTest.js', import.meta.url))
 const requestError = readSource(new URL('../src/utils/requestError.js', import.meta.url))
 
 function sourceBetween(start, end) {
@@ -51,11 +52,11 @@ test('AI 配置页在卸载和重新加载时取消过期请求', () => {
 })
 
 test('连接测试失败可重试且取消不会记成失败', () => {
-  const connectionTest = sourceBetween('async function openTest', 'async function onDelete')
+  const connectionTest = sourceBetween('async function openTest', 'async function loadVendorLock')
   assert.match(connectionTest, /function retryConnectionTest/)
   assert.match(source, /@click="retryConnectionTest"/)
   assert.match(connectionTest, /if \(isUserFacingAbort\(e, controller\.signal\) \|\| controller\.signal\.aborted\) \{[\s\S]*?return/)
-  assert.match(source, /toUserFacingError\(error, '暂时无法完成连接测试，请稍后重试。'/)
+  assert.match(connectionTestSource, /toUserFacingError\(error, '暂时无法完成连接测试，请稍后重试。'/)
   const cancelIdx = connectionTest.indexOf('isUserFacingAbort(e, controller.signal)')
   const returnIdx = connectionTest.indexOf('return', cancelIdx)
   const failedIdx = connectionTest.indexOf("connectionStatusStore.set(row.id, 'failed'")

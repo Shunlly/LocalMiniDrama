@@ -19,6 +19,7 @@ function readSource(url) {
 }
 
 const vueSource = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
+const connectionTestSource = readSource(new URL('../src/utils/aiConfigConnectionTest.js', import.meta.url))
 const coverageCardsSource = readSource(new URL('../src/components/aiConfig/AiConfigCoverageCards.vue', import.meta.url))
 const pageSource = readSource(new URL('../src/views/AiConfig.vue', import.meta.url))
 const coverageSource = readSource(new URL('../src/utils/aiConfigCoverage.js', import.meta.url))
@@ -173,8 +174,8 @@ test('connection tests stay in the page and remain available for OCR and transcr
   )
   assert.match(vueSource, /图片识别接口已正常响应/)
   assert.match(vueSource, /语音转写接口已正常响应/)
-  assert.match(vueSource, /图片识别用于 PDF\/图片抽文字/)
-  assert.match(vueSource, /语音转写用于音频\/视频/)
+  assert.match(connectionTestSource, /图片识别用于 PDF\/图片抽文字/)
+  assert.match(connectionTestSource, /语音转写用于音频\/视频/)
   assert.match(vueSource, /hidesApiProtocolField\(form\.service_type\)/)
   assert.match(pageSource, /'ocr', 'transcription'/)
   assert.match(

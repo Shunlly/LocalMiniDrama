@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 const source = readFileSync(new URL('../src/components/AIConfigContent.vue', import.meta.url), 'utf8')
 const oneKeySource = readFileSync(new URL('../src/composables/useAiConfigOneKeyPresets.js', import.meta.url), 'utf8')
 const importExportSource = readFileSync(new URL('../src/composables/useAiConfigImportExport.js', import.meta.url), 'utf8')
+const listMutationsSource = readFileSync(new URL('../src/composables/useAiConfigRowMutations.js', import.meta.url), 'utf8')
 const coverageCardSource = readFileSync(new URL('../src/components/aiConfig/AiConfigCoverageCard.vue', import.meta.url), 'utf8')
 const sd2Source = readFileSync(new URL('../src/components/Sd2AssetManagement.vue', import.meta.url), 'utf8')
 
@@ -23,6 +24,8 @@ const mutationHandlers = [
   'onRowEdit',
   'openEdit',
   'submit',
+]
+const listMutationHandlers = [
   'openBulkKey',
   'submitBulkKey',
   'onDelete',
@@ -93,6 +96,13 @@ test('AI config writes fail closed until the list and vendor lock dependencies a
   for (const handler of importExportMutationHandlers) {
     assert.match(
       importExportSource,
+      new RegExp(`(?:async )?function ${handler}\\([^)]*\\) \\{\\s*if \\(configWriteLocked\\.value\\)`),
+      `${handler} must guard against programmatic writes while configuration dependencies are unavailable`,
+    )
+  }
+  for (const handler of listMutationHandlers) {
+    assert.match(
+      listMutationsSource,
       new RegExp(`(?:async )?function ${handler}\\([^)]*\\) \\{\\s*if \\(configWriteLocked\\.value\\)`),
       `${handler} must guard against programmatic writes while configuration dependencies are unavailable`,
     )
