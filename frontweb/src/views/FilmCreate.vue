@@ -504,17 +504,12 @@ const {
   globalMediaPickerTarget,
 } = useFilmCreateMediaPickerState()
 
-const filmCreateHeaderRef = ref(null)
-function onSelectEpisode() {
-  if (filmCreateHeaderRef.value?.focusEpisodeSelect?.()) return
-  if (typeof document === 'undefined') return
-  document.querySelector('.header')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
 const {
+  filmCreateHeaderRef,
   goList,
   goCanvasMode,
   openMediaLibraryFromPicker,
+  onSelectEpisode,
 } = useFilmCreateWorkspaceNav({
   router,
   route,

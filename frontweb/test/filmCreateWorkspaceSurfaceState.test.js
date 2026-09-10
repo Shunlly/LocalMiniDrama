@@ -9,6 +9,7 @@ import { useFilmCreateProjectLoadSurface } from '../src/composables/filmCreate/u
 import { useFilmCreateAiConfigDialogState } from '../src/composables/filmCreate/useFilmCreateAiConfigDialogState.js'
 import { useFilmCreateResourcePanelState } from '../src/composables/filmCreate/useFilmCreateResourcePanelState.js'
 import { useFilmCreateMediaPickerState } from '../src/composables/filmCreate/useFilmCreateMediaPickerState.js'
+import { useFilmCreateWorkspaceNav } from '../src/composables/filmCreate/useFilmCreateWorkspaceNav.js'
 import { FILM_CREATE_RESOURCE_PANEL_MODEL_KEYS } from '../src/utils/filmCreateTemplateBindings.js'
 
 const DRAMA_ID = 11
@@ -18,6 +19,7 @@ assert.notEqual(DRAMA_ID, EPISODE_ID)
 const filmCreateSource = readFileSync(new URL('../src/views/FilmCreate.vue', import.meta.url), 'utf8')
 const productionBindingsSource = readFileSync(new URL('../src/components/filmCreate/filmCreateProductionBindings.js', import.meta.url), 'utf8')
 const bootstrapSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateWorkspaceBootstrap.js', import.meta.url), 'utf8')
+const workspaceNavSource = readFileSync(new URL('../src/composables/filmCreate/useFilmCreateWorkspaceNav.js', import.meta.url), 'utf8')
 
 test('项目加载失败面标题不把 episodeId 当成项目 id', () => {
   const store = { dramaId: DRAMA_ID, drama: { title: '月光基地', episodes: [{ id: EPISODE_ID }] } }
@@ -131,5 +133,62 @@ test('资源面板折叠仍走属性袋 v-model，不会改到 episodeId', () =>
     assert.equal(showCharLibrary.value, false)
   } finally {
     scope.stop()
+  }
+})
+
+test('选择剧集先聚焦页头选择器，失败再滚到页头，且页面不再内联这段逻辑', () => {
+  assert.match(filmCreateSource, /ref="filmCreateHeaderRef"/)
+  assert.match(filmCreateSource, /useFilmCreateWorkspaceNav\(/)
+  assert.match(filmCreateSource, /filmCreateHeaderRef,/)
+  assert.match(filmCreateSource, /onSelectEpisode,/)
+  assert.doesNotMatch(filmCreateSource, /function onSelectEpisode\(/)
+  assert.doesNotMatch(filmCreateSource, /const filmCreateHeaderRef = ref\(null\)/)
+  assert.match(workspaceNavSource, /const filmCreateHeaderRef = ref\(null\)/)
+  assert.match(workspaceNavSource, /function onSelectEpisode\(/)
+  assert.match(workspaceNavSource, /filmCreateHeaderRef\.value\?\.focusEpisodeSelect/)
+  assert.match(workspaceNavSource, /querySelector\('\.header'\)\?\.scrollIntoView/)
+
+  const { filmCreateHeaderRef, onSelectEpisode } = useFilmCreateWorkspaceNav({})
+  let focused = 0
+  const scrolled = []
+  filmCreateHeaderRef.value = {
+    focusEpisodeSelect() {
+      focused += 1
+      return true
+    },
+  }
+  onSelectEpisode()
+  assert.equal(focused, 1)
+  assert.equal(scrolled.length, 0)
+
+  filmCreateHeaderRef.value = {
+    focusEpisodeSelect() {
+      focused += 1
+      return false
+    },
+  }
+  const originalDocument = globalThis.document
+  globalThis.document = {
+    querySelector(selector) {
+      assert.equal(selector, '.header')
+      return {
+        scrollIntoView(options) {
+          scrolled.push(options)
+        },
+      }
+    },
+  }
+  try {
+    onSelectEpisode()
+    assert.equal(focused, 2)
+    assert.deepEqual(scrolled, [{ behavior: 'smooth', block: 'start' }])
+
+    delete globalThis.document
+    filmCreateHeaderRef.value = { focusEpisodeSelect: () => false }
+    assert.doesNotThrow(() => onSelectEpisode())
+    assert.equal(scrolled.length, 1)
+  } finally {
+    if (originalDocument === undefined) delete globalThis.document
+    else globalThis.document = originalDocument
   }
 })

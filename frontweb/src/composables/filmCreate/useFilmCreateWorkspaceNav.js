@@ -1,3 +1,5 @@
+import { ref } from 'vue'
+
 export function useFilmCreateWorkspaceNav(deps = {}) {
   const {
     router,
@@ -7,6 +9,8 @@ export function useFilmCreateWorkspaceNav(deps = {}) {
     projectListReturnTo,
     showGlobalMediaPicker,
   } = deps
+  const filmCreateHeaderRef = ref(null)
+
   function goList() {
     router.push(projectListReturnTo.value || { name: 'list' })
   }
@@ -22,9 +26,18 @@ export function useFilmCreateWorkspaceNav(deps = {}) {
     showGlobalMediaPicker.value = false
     router.push({ name: 'media-library', query: { returnTo: route.fullPath } })
   }
+
+  function onSelectEpisode() {
+    if (filmCreateHeaderRef.value?.focusEpisodeSelect?.()) return
+    if (typeof document === 'undefined') return
+    document.querySelector('.header')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return {
+    filmCreateHeaderRef,
     goList,
     goCanvasMode,
     openMediaLibraryFromPicker,
+    onSelectEpisode,
   }
 }

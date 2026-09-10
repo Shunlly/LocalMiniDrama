@@ -72,6 +72,10 @@ const headerSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateHeader.vue', import.meta.url),
   'utf8',
 )
+const workspaceNavSource = readFileSync(
+  new URL('../src/composables/filmCreate/useFilmCreateWorkspaceNav.js', import.meta.url),
+  'utf8',
+)
 const quickNavSource = readFileSync(
   new URL('../src/components/filmCreate/FilmCreateQuickNav.vue', import.meta.url),
   'utf8',
@@ -140,9 +144,11 @@ test('film create keeps the episode selector only in the page header', () => {
   assert.match(headerSource, /function focusEpisodeSelect\(/)
   assert.match(headerSource, /defineExpose\(\{\s*focusEpisodeSelect\s*\}\)/)
   assert.match(filmCreateSource, /ref="filmCreateHeaderRef"/)
-  assert.match(filmCreateSource, /function onSelectEpisode\(/)
-  assert.match(filmCreateSource, /filmCreateHeaderRef\.value\?\.focusEpisodeSelect/)
-  assert.match(filmCreateSource, /querySelector\('\.header'\)\?\.scrollIntoView/)
+  assert.doesNotMatch(filmCreateSource, /function onSelectEpisode\(/)
+  assert.match(filmCreateSource, /useFilmCreateWorkspaceNav\(/)
+  assert.match(workspaceNavSource, /function onSelectEpisode\(/)
+  assert.match(workspaceNavSource, /filmCreateHeaderRef\.value\?\.focusEpisodeSelect/)
+  assert.match(workspaceNavSource, /querySelector\('\.header'\)\?\.scrollIntoView/)
 })
 
 test('制作页头没有微信我联系入口', () => {
