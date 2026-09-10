@@ -954,7 +954,7 @@ async function resumePollForVideoGeneration(db, log, videoGenId) {
     if (!supportsRestoredCancellation) {
       operation.closeRemoteCancelWindow({
         outcome: 'failed',
-        error: `当前 Provider 协议 ${protocol} 不支持重启后恢复远端取消`,
+        error: `当前供应商协议 ${protocol} 不支持重启后恢复远端取消`,
       });
     }
   }
@@ -1022,7 +1022,7 @@ function resumeProcessingVideoGenerations(db, log) {
          AND (provider_task_id IS NULL OR TRIM(provider_task_id) = '')`
     )
     .all();
-  const stuckMsg = '服务重启后无法恢复轮询（缺少厂商任务 ID），请重新生成';
+  const stuckMsg = '服务重启后无法恢复轮询（缺少供应商任务编号），请重新生成';
   for (const s of stuck) {
     const now = new Date().toISOString();
     setVideoGenFailed(db, s.id, stuckMsg, now);

@@ -161,6 +161,8 @@ const leftoverEnglish = [
   'Provider 任务 ID',
   '补偿取消迟到的 Provider 任务',
   'Provider 已返回任务 ID',
+  'Provider 协议',
+  '厂商任务 ID',
 ];
 
 function leftoverScanText(source, phrase) {
@@ -512,9 +514,14 @@ test('视频服务供应商任务编号对用户使用中文', () => {
   assert.match(videoSource, /供应商任务编号持久化失败/);
   assert.match(videoSource, /补偿取消迟到的供应商任务/);
   assert.match(videoSource, /供应商已返回任务编号，但未注册远端取消函数/);
+  assert.match(videoSource, /当前供应商协议 /);
+  assert.match(videoSource, /不支持重启后恢复远端取消/);
+  assert.match(videoSource, /服务重启后无法恢复轮询（缺少供应商任务编号），请重新生成/);
   assert.equal(videoSource.includes('Provider 任务 ID'), false);
   assert.equal(videoSource.includes('补偿取消迟到的 Provider 任务'), false);
   assert.equal(videoSource.includes('Provider 已返回任务 ID'), false);
+  assert.equal(videoSource.includes('Provider 协议'), false);
+  assert.equal(videoSource.includes('厂商任务 ID'), false);
 });
 
 test('图片持久化失败不会把英文系统错误漏给用户', () => {
