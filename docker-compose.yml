@@ -1,6 +1,6 @@
 # 生产 Compose：不挂载应用源码。后端/前端生产镜像基于 Node.js 20。
 # 改完代码必须重建：docker compose up -d --build --wait
-# 默认宿主机端口 127.0.0.1:3013 与 127.0.0.1:5679。23013/25679 只属于旧 candidate 覆盖，不是本文件默认值。
+# 默认宿主机端口 127.0.0.1:3013 与 127.0.0.1:5679，可用 LOCALMINIDRAMA_FRONTEND_HOST_PORT / LOCALMINIDRAMA_BACKEND_HOST_PORT 覆盖。23013/25679 只属于旧 candidate 覆盖，不是本文件默认值。
 # 后端 healthcheck 探测 /ready（可接业务）；不要改成存活探针 /health。
 # 前端 /healthz 由 Nginx 代理到 backend /ready。
 # 备份/恢复相关环境变量：LOCALMINIDRAMA_DATA_DIR、LOCALMINIDRAMA_CONFIG_DIR、LOCALMINIDRAMA_CONFIG_SOURCE、LOCALMINIDRAMA_CONFIG_PATH、LOCALMINIDRAMA_MAINTENANCE_SCOPE。
@@ -48,7 +48,7 @@ services:
       LOCALMINIDRAMA_CONFIG_SOURCE: /app/config-source/config.yaml
       LOCALMINIDRAMA_CONFIG_PATH: /tmp/localminidrama-config/config.yaml
     ports:
-      - "127.0.0.1:5679:5679"
+      - "127.0.0.1:${LOCALMINIDRAMA_BACKEND_HOST_PORT:-5679}:5679"
     volumes:
       - type: bind
         source: ${LOCALMINIDRAMA_DATA_DIR:-./backend-node/data}

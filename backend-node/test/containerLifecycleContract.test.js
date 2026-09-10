@@ -108,7 +108,7 @@ test('Compose 生产探针走 /ready，默认端口 3013/5679，并保留备份�
   assert.match(composeSource, /23013\/25679 只属于旧 candidate/);
   assert.doesNotMatch(JSON.stringify({ ports: [backend.ports, frontend.ports], env: backend.environment }), /23013|25679/);
   assert.doesNotMatch(composeSource, /NODE_TLS_REJECT_UNAUTHORIZED|insecure_tls|REJECT_UNAUTHORIZED=0/);
-  assert.deepEqual(backend.ports, ['127.0.0.1:5679:5679']);
+  assert.deepEqual(backend.ports, ['127.0.0.1:${LOCALMINIDRAMA_BACKEND_HOST_PORT:-5679}:5679']);
   assert.deepEqual(frontend.ports, ['127.0.0.1:${LOCALMINIDRAMA_FRONTEND_HOST_PORT:-3013}:3013']);
   assert.equal(backend.environment.NODE_ENV, 'production');
   assert.equal(backend.environment.PORT, '5679');
