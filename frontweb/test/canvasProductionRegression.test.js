@@ -6,7 +6,10 @@ import { buildCanvasLayoutPayload } from '../src/utils/canvasLayout.js'
 import { buildFreeCanvasGraph, mergeCanvasGraphs } from '../src/utils/freeCanvasAdapter.js'
 import { normalizeFreeCanvas, serializeFreeCanvas } from '../src/utils/freeCanvasState.js'
 
-const canvasSource = readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8')
+const canvasSource = [
+  readFileSync(new URL('../src/views/DramaCanvas.vue', import.meta.url), 'utf8'),
+  readFileSync(new URL('../src/composables/useDramaCanvasPersist.js', import.meta.url), 'utf8'),
+].join('\n')
 
 test('production graph remains intact when the hybrid free layer is merged', () => {
   const productionGraph = {
