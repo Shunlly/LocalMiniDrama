@@ -74,6 +74,12 @@ function loadCanvasFunctions(names, dependencies) {
       ...sourceNames,
     ]
   }
+  if (names.some((name) => ['deleteFreeCanvasNode', 'deleteFreeCanvasSelection', 'handleFreeCanvasKeydown'].includes(name))) {
+    sourceNames = [
+      ...['confirmFreeCanvasDeletion'].filter((name) => !sourceNames.includes(name)),
+      ...sourceNames,
+    ]
+  }
   return new Function(
     ...dependencyNames,
     `'use strict'; ${sourceNames.map(extractFunction).join('\n')}; return { ${names.join(', ')} };`,
@@ -353,6 +359,7 @@ function keyboardControllerHarness() {
     'removeFreeCanvasItems',
     'currentVisualFreeCanvasSelection',
     'syncVisualFreeCanvasSelection',
+    'confirmFreeCanvasDeletion',
     'deleteFreeCanvasSelection',
     'copyFreeCanvasSelection',
     'pasteFreeCanvasSelection',
@@ -377,6 +384,7 @@ function keyboardControllerHarness() {
     serializeFreeCanvas,
     normalizeFreeCanvas,
     ElMessage: { warning() {} },
+    ElMessageBox: { confirm: async () => true },
     isDeleteShortcutBlockedByUx,
     isFreeCanvasNodeId: (id) => freeCanvas.value.nodes.some((node) => String(node.id) === String(id)),
     synchronizeFreeCanvasSelection,
@@ -439,7 +447,7 @@ function keyboardControllerHarness() {
 }
 
 for (const activationKey of ['Enter', ' ']) {
-  test(`keyboard ${JSON.stringify(activationKey)} keeps focus on B, deletes only B, and undo restores B`, () => {
+  test(`keyboard ${JSON.stringify(activationKey)} keeps focus on B, deletes only B, and undo restores B`, async () => {
     const harness = keyboardControllerHarness()
     const activation = harness.keyEvent(activationKey, harness.nodeTarget)
 
@@ -456,7 +464,7 @@ for (const activationKey of ['Enter', ' ']) {
     )
 
     const deletion = harness.keyEvent('Delete')
-    harness.handleFreeCanvasKeydown(deletion)
+    await harness.handleFreeCanvasKeydown(deletion)
 
     assert.equal(deletion.defaultPrevented, true)
     assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), ['config-a'])
@@ -466,7 +474,7 @@ for (const activationKey of ['Enter', ' ']) {
   })
 }
 
-test('shared deletion uses current visual selection instead of stale internal ids', () => {
+test('shared deletion uses current visual selection instead of stale internal ids', async () => {
   const harness = keyboardControllerHarness()
   harness.nodes.value = harness.nodes.value.map((node) => ({
     ...node,
@@ -475,8 +483,40 @@ test('shared deletion uses current visual selection instead of stale internal id
   harness.selectedFreeNodeIds.value = ['config-a']
   harness.selectedFreeNodeId.value = 'config-a'
 
-  assert.equal(harness.deleteFreeCanvasSelection(), true)
+  assert.equal(await harness.deleteFreeCanvasSelection(), true)
   assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), ['config-a'])
+})
+
+test('cancelling free-canvas delete confirmation keeps the current nodes', async () => {
+  const harness = keyboardControllerHarness()
+  harness.nodes.value = harness.nodes.value.map((node) => ({
+    ...node,
+    selected: node.id === 'text-b',
+  }))
+  const originalIds = harness.freeCanvas.value.nodes.map((node) => node.id)
+  const controller = loadCanvasFunctions([
+    'deleteFreeCanvasSelection',
+    'syncVisualFreeCanvasSelection',
+    'currentVisualFreeCanvasSelection',
+    'removeFreeCanvasItems',
+  ], {
+    canvasMode: { value: 'free' },
+    freeCanvas: harness.freeCanvas,
+    nodes: harness.nodes,
+    edges: harness.edges,
+    selectedFreeNodeIds: harness.selectedFreeNodeIds,
+    selectedFreeEdgeIds: harness.selectedFreeEdgeIds,
+    selectedFreeNodeId: harness.selectedFreeNodeId,
+    ElMessageBox: { confirm: async () => { throw new Error('cancel') } },
+    isFreeCanvasNodeId: (id) => harness.freeCanvas.value.nodes.some((node) => String(node.id) === String(id)),
+    normalizeFreeCanvasForProject: normalizeFreeCanvas,
+    removeFreeSelection,
+    cancelScheduledCanvasSave() {},
+    persistCanvasState() { return Promise.resolve({ ok: true }) },
+    commitFreeCanvasState(nextState) { harness.freeCanvas.value = nextState },
+  })
+  assert.equal(await controller.deleteFreeCanvasSelection(), false)
+  assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), originalIds)
 })
 
 test('copy and paste use current visual selection even when a toolbar button is focused', () => {
@@ -508,7 +548,7 @@ test('copy and paste use current visual selection even when a toolbar button is 
   assert.equal(harness.freeCanvas.value.edges.length, 2)
 })
 
-test('delete shortcut uses current visual selection even when internal ids are empty', () => {
+test('delete shortcut uses current visual selection even when internal ids are empty', async () => {
   const harness = keyboardControllerHarness()
   harness.nodes.value = harness.nodes.value.map((node) => ({ ...node, selected: true }))
   harness.selectedFreeNodeIds.value = []
@@ -521,13 +561,13 @@ test('delete shortcut uses current visual selection even when internal ids are e
     },
   }
   const deletion = harness.keyEvent('Delete', buttonTarget)
-  harness.handleFreeCanvasKeydown(deletion)
+  await harness.handleFreeCanvasKeydown(deletion)
   assert.equal(deletion.defaultPrevented, true)
   assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), [])
 })
 
 
-test('inspector chrome blocks delete even when the selected node is still in the graph', () => {
+test('inspector chrome blocks delete even when the selected node is still in the graph', async () => {
   const harness = keyboardControllerHarness()
   harness.nodes.value = harness.nodes.value.map((node) => ({
     ...node,
@@ -543,13 +583,13 @@ test('inspector chrome blocks delete even when the selected node is still in the
   }
   harness.document.activeElement = inspectorTarget
   const deletion = harness.keyEvent('Backspace', inspectorTarget)
-  harness.handleFreeCanvasKeydown(deletion)
+  await harness.handleFreeCanvasKeydown(deletion)
 
   assert.equal(deletion.defaultPrevented, false)
   assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), ['config-a', 'text-b'])
 })
 
-test('inspector activeElement blocks delete when the event target is the canvas pane', () => {
+test('inspector activeElement blocks delete when the event target is the canvas pane', async () => {
   const harness = keyboardControllerHarness()
   harness.nodes.value = harness.nodes.value.map((node) => ({ ...node, selected: true }))
   harness.selectedFreeNodeIds.value = ['config-a', 'text-b']
@@ -564,13 +604,13 @@ test('inspector activeElement blocks delete when the event target is the canvas 
   }
   harness.document.activeElement = inspectorTarget
   const deletion = harness.keyEvent('Delete', paneTarget)
-  harness.handleFreeCanvasKeydown(deletion)
+  await harness.handleFreeCanvasKeydown(deletion)
 
   assert.equal(deletion.defaultPrevented, false)
   assert.equal(harness.freeCanvas.value.nodes.length, 2)
 })
 
-test('delete shortcut falls back to internal ids when the flow has not marked selected flags', () => {
+test('delete shortcut falls back to internal ids when the flow has not marked selected flags', async () => {
   const harness = keyboardControllerHarness()
   harness.nodes.value = harness.nodes.value.map((node) => ({ ...node, selected: false }))
   harness.selectedFreeNodeIds.value = ['text-b']
@@ -578,7 +618,7 @@ test('delete shortcut falls back to internal ids when the flow has not marked se
   harness.selectedFreeNodeId.value = 'text-b'
 
   const deletion = harness.keyEvent('Delete')
-  harness.handleFreeCanvasKeydown(deletion)
+  await harness.handleFreeCanvasKeydown(deletion)
   assert.equal(deletion.defaultPrevented, true)
   assert.deepEqual(harness.freeCanvas.value.nodes.map((node) => node.id), ['config-a'])
 })

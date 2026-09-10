@@ -143,7 +143,7 @@ export function useCanvasEpisodeGenerate(deps) {
       return
     }
     if (!(ep.script_content || '').trim()) {
-      notify.warning('该集暂无剧本，请先在列表模式编写或导入剧本')
+      notify.warning('当前集还没有剧本，请先编写或导入剧本')
       return
     }
     const existing = getStoryboardsForEpisode()

@@ -65,7 +65,7 @@
       </el-button>
     </div>
 
-    <details :open="Boolean(searchQuery)" class="asset-section" data-asset-section="characters">
+    <details :open="isAssetSectionOpen(filteredCharacters.length)" class="asset-section" data-asset-section="characters">
       <summary>角色 <span>{{ filteredCharacters.length }}</span></summary>
       <button
         v-for="item in filteredCharacters"
@@ -76,11 +76,12 @@
       >{{ item.name || '未命名角色' }}</button>
       <div v-if="!filteredCharacters.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('角色') }}</p>
-        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" @click="clearAssetFilters">清除筛选</button>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
+        <button v-else type="button" class="asset-empty-action" aria-label="去制作页添加角色" @click="emit('go-production')">去制作页添加</button>
       </div>
     </details>
 
-    <details :open="Boolean(searchQuery)" class="asset-section" data-asset-section="scenes">
+    <details :open="isAssetSectionOpen(filteredScenes.length)" class="asset-section" data-asset-section="scenes">
       <summary>场景 <span>{{ filteredScenes.length }}</span></summary>
       <button
         v-for="item in filteredScenes"
@@ -91,11 +92,12 @@
       >{{ item.location || item.name || '未命名场景' }}</button>
       <div v-if="!filteredScenes.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('场景') }}</p>
-        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" @click="clearAssetFilters">清除筛选</button>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
+        <button v-else type="button" class="asset-empty-action" aria-label="去制作页添加场景" @click="emit('go-production')">去制作页添加</button>
       </div>
     </details>
 
-    <details :open="Boolean(searchQuery)" class="asset-section" data-asset-section="props">
+    <details :open="isAssetSectionOpen(filteredProps.length)" class="asset-section" data-asset-section="props">
       <summary>道具 <span>{{ filteredProps.length }}</span></summary>
       <button
         v-for="item in filteredProps"
@@ -106,11 +108,12 @@
       >{{ item.name || '未命名道具' }}</button>
       <div v-if="!filteredProps.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('道具') }}</p>
-        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" @click="clearAssetFilters">清除筛选</button>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
+        <button v-else type="button" class="asset-empty-action" aria-label="去制作页添加道具" @click="emit('go-production')">去制作页添加</button>
       </div>
     </details>
 
-    <details :open="Boolean(searchQuery)" class="asset-section" data-asset-section="storyboard-media">
+    <details :open="isAssetSectionOpen(filteredStoryboardMedia.length)" class="asset-section" data-asset-section="storyboard-media">
       <summary>分镜媒体 <span>{{ filteredStoryboardMedia.length }}</span></summary>
       <button
         v-for="item in filteredStoryboardMedia"
@@ -126,7 +129,11 @@
       </button>
       <div v-if="!filteredStoryboardMedia.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('分镜媒体') }}</p>
-        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" @click="clearAssetFilters">清除筛选</button>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
+        <template v-else>
+          <button type="button" class="asset-empty-action" aria-label="空态上传素材" @click="fileInputRef?.click()">上传素材</button>
+          <button type="button" class="asset-empty-action" aria-label="空态从素材中心选择" @click="emit('open-picker')">从素材中心选择</button>
+        </template>
       </div>
     </details>
 
@@ -146,7 +153,7 @@
       </button>
       <div v-if="!filteredAssets.length" class="asset-empty" role="status">
         <p>{{ assetEmptyText('项目素材') }}</p>
-        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" @click="clearAssetFilters">清除筛选</button>
+        <button v-if="hasActiveAssetFilters" type="button" class="asset-empty-action" aria-label="清除素材筛选" @click="clearAssetFilters">清除筛选</button>
         <template v-else>
           <button type="button" class="asset-empty-action" aria-label="空态上传素材" @click="fileInputRef?.click()">上传素材</button>
           <button type="button" class="asset-empty-action" aria-label="空态从素材中心选择" @click="emit('open-picker')">从素材中心选择</button>
@@ -176,7 +183,7 @@ const props = defineProps({
   uploadStatus: { type: String, default: '' },
 })
 
-const emit = defineEmits(['add-entity', 'add-media', 'upload-files', 'open-picker', 'close'])
+const emit = defineEmits(['add-entity', 'add-media', 'upload-files', 'open-picker', 'go-production', 'close'])
 const fileInputRef = ref(null)
 const projectAssetsSectionRef = ref(null)
 const searchQuery = ref('')
@@ -195,6 +202,11 @@ const hasActiveAssetFilters = computed(() => Boolean(searchQuery.value.trim()) |
 function clearAssetFilters() {
   searchQuery.value = ''
   mediaType.value = 'all'
+}
+
+function isAssetSectionOpen(filteredCount) {
+  if (String(searchQuery.value || '').trim()) return true
+  return hasActiveAssetFilters.value && Number(filteredCount) === 0
 }
 
 function assetEmptyText(kind) {

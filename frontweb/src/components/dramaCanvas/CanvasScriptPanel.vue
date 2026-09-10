@@ -44,10 +44,39 @@
 
     <div class="panel-actions">
       <el-button size="small" type="primary" :loading="saving" @click.stop="onSave">保存剧本</el-button>
-      <el-button size="small" :loading="extracting" @click.stop="onExtractChars">提取角色</el-button>
-      <el-button size="small" :loading="extracting" @click.stop="onExtractScenes">提取场景</el-button>
-      <el-button size="small" :loading="extracting" @click.stop="onExtractProps">提取道具</el-button>
-      <el-button size="small" type="warning" :loading="extracting" @click.stop="onExtractAll">一键提取</el-button>
+      <el-button
+        size="small"
+        :loading="extracting"
+        :disabled="!hasScriptContent"
+        :title="emptyScriptReason"
+        :aria-label="hasScriptContent ? '提取角色' : '提取角色不可用：请先填写剧本内容'"
+        @click.stop="onExtractChars"
+      >提取角色</el-button>
+      <el-button
+        size="small"
+        :loading="extracting"
+        :disabled="!hasScriptContent"
+        :title="emptyScriptReason"
+        :aria-label="hasScriptContent ? '提取场景' : '提取场景不可用：请先填写剧本内容'"
+        @click.stop="onExtractScenes"
+      >提取场景</el-button>
+      <el-button
+        size="small"
+        :loading="extracting"
+        :disabled="!hasScriptContent"
+        :title="emptyScriptReason"
+        :aria-label="hasScriptContent ? '提取道具' : '提取道具不可用：请先填写剧本内容'"
+        @click.stop="onExtractProps"
+      >提取道具</el-button>
+      <el-button
+        size="small"
+        type="warning"
+        :loading="extracting"
+        :disabled="!hasScriptContent"
+        :title="emptyScriptReason"
+        :aria-label="hasScriptContent ? '一键提取' : '一键提取不可用：请先填写剧本内容'"
+        @click.stop="onExtractAll"
+      >一键提取</el-button>
       <el-button
         v-if="extracting"
         size="small"
@@ -85,6 +114,14 @@ const charCount = computed(() => (ctx?.drama?.value?.characters || []).length)
 const sceneCount = computed(() => (ctx?.drama?.value?.scenes || []).length)
 const propCount = computed(() => (ctx?.drama?.value?.props || []).length)
 const scriptLen = computed(() => (form.scriptContent || '').length)
+const hasScriptContent = computed(() => Boolean(String(form.scriptContent || '').trim()))
+const emptyScriptReason = computed(() => (hasScriptContent.value ? '' : '请先填写剧本内容'))
+
+function requireScriptContent() {
+  if (hasScriptContent.value) return true
+  ElMessage.warning(emptyScriptReason.value)
+  return false
+}
 
 const busyLabel = computed(() => {
   const map = ctx?.nodeStatus?.map
@@ -156,24 +193,24 @@ async function runExtract(fn) {
 }
 
 async function onExtractChars() {
+  if (!requireScriptContent()) return
   await runExtract((signal) =>
     getScriptApi()?.extractCharacters?.(props.episode.id, form.scriptContent, { signal })
   )
 }
 
 async function onExtractScenes() {
+  if (!requireScriptContent()) return
   await runExtract((signal) => getScriptApi()?.extractScenes?.(props.episode.id, { signal }))
 }
 
 async function onExtractProps() {
+  if (!requireScriptContent()) return
   await runExtract((signal) => getScriptApi()?.extractProps?.(props.episode.id, { signal }))
 }
 
 async function onExtractAll() {
-  if (!form.scriptContent.trim()) {
-    ElMessage.warning('请先填写剧本')
-    return
-  }
+  if (!requireScriptContent()) return
   await runExtract((signal) =>
     getScriptApi()?.extractAll?.(props.episode.id, form.scriptContent, { signal })
   )

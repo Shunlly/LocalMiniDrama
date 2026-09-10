@@ -92,6 +92,7 @@ test('DramaCanvas 侧栏空态可键盘新建，自由画布空态有说明', ()
   assert.match(canvasSource, /:aria-label="`定位角色\$\{c\.name \|\| '未命名'\}`"/)
   assert.match(canvasSource, /id="free-canvas-empty-desc"/)
   assert.match(canvasSource, /还没有自由节点/)
+  assert.match(canvasSource, /@go-production="setCanvasMode\('production'\)"/)
   assert.match(emptyStateSource, /aria-label="返回列表模式"/)
 })
 
@@ -144,6 +145,9 @@ test('剧本面板提取失败不再静默，右键菜单键盘可达', () => {
   assert.match(scriptPanelSource, /canvasUserError\(e, '提取失败'\)/)
   assert.match(scriptPanelSource, /aria-label="收起面板"/)
   assert.match(scriptPanelSource, /@keydown\.esc\.stop\.prevent="closePanel"/)
+  assert.match(scriptPanelSource, /function requireScriptContent/)
+  assert.match(scriptPanelSource, /if \(!requireScriptContent\(\)\) return/)
+  assert.match(scriptPanelSource, /:disabled="!hasScriptContent"/)
   assert.match(contextMenuSource, /role="menu"/)
   assert.match(contextMenuSource, /role="menuitem"/)
 })
@@ -154,6 +158,8 @@ test('画布页用户 toast 不再直出 e.message', () => {
   assert.doesNotMatch(canvasSource, /ElMessage\.(error|warning)\(e\?\.message/)
   assert.doesNotMatch(canvasSource, /ElMessage\.(error|warning)\((?:error\?\.message|`[^`]*\$\{error\?\.message)/)
   assert.match(canvasSource, /if \(isCanvasUserAbort\(e\)\) return/)
+  assert.match(canvasSource, /当前集还没有剧本，请先编写或导入剧本/)
+  assert.match(canvasSource, /await focusScriptNode\(\)/)
 })
 
 test('批量生成、素材参考图和剧本提取都有可点的取消按钮', () => {
@@ -178,3 +184,53 @@ test('\u6574\u7ec4\u5de5\u4f5c\u6d41\u6267\u884c\u4e2d\u53ef\u4ece\u5de5\u5177\u
   assert.match(desktopToolbarSource, /<span v-if="workflowProgress">\{\{ workflowProgress \}\}<\/span>/)
 })
 
+
+
+test('空剧本不能提取素材，并给出中文原因', async () => {
+  const { ref } = await import('vue')
+  const { useCanvasScript } = await import('../src/composables/useCanvasScript.js')
+  const { useCanvasEpisodeGenerate } = await import('../src/composables/useCanvasEpisodeGenerate.js')
+  const messages = []
+  const drama = ref({
+    id: 7,
+    episodes: [{ id: 11, script_content: '   ', storyboards: [] }],
+  })
+  const script = useCanvasScript({
+    drama,
+    dramaId: ref(7),
+    refreshCanvas: async () => {},
+    nodeStatus: { set() {}, clear() {} },
+    ElMessage: {
+      warning(message) { messages.push(['warning', message]) },
+      error(message) { messages.push(['error', message]) },
+      success(message) { messages.push(['success', message]) },
+      info(message) { messages.push(['info', message]) },
+    },
+    generationAPIImpl: {
+      generateCharacters: async () => { throw new Error('should not generate') },
+    },
+  })
+  await assert.rejects(script.extractCharacters(11, '  '), /请先填写剧本内容/)
+  await assert.rejects(script.extractScenes(11), /请先填写剧本内容/)
+
+  const generate = useCanvasEpisodeGenerate({
+    drama,
+    filterEpisodeId: ref(11),
+    imagesBySbId: ref({}),
+    videosBySbId: ref({}),
+    refreshCanvas: async () => {},
+    nodeStatus: { set() {}, clear() {} },
+    ElMessage: {
+      warning(message) { messages.push(['warning', message]) },
+      error(message) { messages.push(['error', message]) },
+      success(message) { messages.push(['success', message]) },
+      info(message) { messages.push(['info', message]) },
+    },
+    dramaAPIImpl: {
+      generateStoryboard: async () => { throw new Error('should not generate') },
+    },
+  })
+  await generate.aiGenerateStoryboards()
+  assert.match(messages.map((item) => item[1]).join('|'), /当前集还没有剧本，请先编写或导入剧本/)
+  assert.doesNotMatch(messages.map((item) => item[1]).join('|'), /列表模式编写/)
+})

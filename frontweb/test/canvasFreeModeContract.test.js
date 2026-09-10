@@ -166,7 +166,7 @@ test('keyboard node activation synchronizes selection before destructive shortcu
   assert.match(dramaCanvasSource, /event\.key === 'Delete' \|\| event\.key === 'Backspace'[\s\S]*deleteFreeCanvasSelection\(\)/)
   assert.match(
     dramaCanvasSource,
-    /function deleteFreeCanvasSelection\(\) \{[\s\S]*removeFreeCanvasItems\(nodeIds, edgeIds\)[\s\S]*persistCanvasState\(\{ freeOnly: true \}\)/,
+    /async function deleteFreeCanvasSelection\(\) \{[\s\S]*confirmFreeCanvasDeletion[\s\S]*removeFreeCanvasItems\(nodeIds, edgeIds\)[\s\S]*persistCanvasState\(\{ freeOnly: true \}\)/,
   )
 })
 

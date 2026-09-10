@@ -161,6 +161,7 @@
         @add-media="createFreeNodeFromLibraryItem"
         @upload-files="uploadFreeCanvasFiles"
         @open-picker="openFreeCanvasMediaPicker"
+        @go-production="setCanvasMode('production')"
         @close="freeLibraryVisible = false"
       />
       <aside v-if="drama && canvasMode === 'production'" class="canvas-sidebar">
@@ -1920,6 +1921,15 @@ function cancelEpisodeGenerate() {
 
 async function aiGenerateStoryboards() {
   if (canvasMode.value !== 'production') return
+  if (!currentEpisode.value) {
+    await focusScriptNode()
+    if (!currentEpisode.value) return
+  }
+  if (!String(currentEpisode.value?.script_content || '').trim()) {
+    ElMessage.warning('当前集还没有剧本，请先编写或导入剧本')
+    await focusScriptNode()
+    return
+  }
   await runAiGenerateStoryboards()
 }
 

@@ -84,4 +84,20 @@ test('toolbar empty next steps and generation cancel remain Chinese and clickabl
   assert.match(inspector, /aria-label="停止等待"/)
   assert.match(desktop, /正在对齐节点，请稍候/)
   assert.match(desktop, /description-id="canvas-reason-align-nodes"/)
+  assert.match(desktop, /aria-label="AI 生成分镜"/)
+  assert.match(desktop, />\s*AI 分镜\s*</)
 })
+
+test('free canvas delete asks for Chinese confirmation before removing nodes', () => {
+  const composable = read('../src/composables/useDramaCanvasFreeCanvas.js')
+  const node = read('../src/components/dramaCanvas/FreeCanvasNode.vue')
+  assert.match(composable, /确定删除/)
+  assert.match(composable, /此操作不可恢复/)
+  assert.match(composable, /confirmButtonText: '删除'/)
+  assert.match(composable, /cancelButtonText: '取消'/)
+  assert.match(composable, /async function deleteFreeCanvasSelection/)
+  assert.match(composable, /isEditableKeyTarget\(event.target\)/)
+  assert.match(node, /tabindex="0"/)
+  assert.match(node, /free-canvas-node:focus-visible/)
+})
+

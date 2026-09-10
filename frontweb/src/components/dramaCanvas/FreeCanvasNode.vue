@@ -3,7 +3,7 @@
     class="free-canvas-node"
     :class="[`type-${node.type}`, configStateClass, { readonly, loading: isLoading, failed: hasError }]"
     :data-free-node-id="String(node.id)"
-    tabindex="-1"
+    tabindex="0"
     :aria-label="`${typeLabel}：${displayTitle}`"
   >
     <Handle
@@ -390,6 +390,7 @@ watch(
   justify-content: flex-end;
 }
 
+.free-canvas-node:focus-visible,
 .free-canvas-node :deep(.el-button:focus-visible),
 .node-editor :deep(.el-textarea__inner:focus) {
   outline: 2px solid var(--canvas-focus-ring, #818cf8);

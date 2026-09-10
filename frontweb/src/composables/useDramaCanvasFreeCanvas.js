@@ -326,8 +326,35 @@ export function useDramaCanvasFreeCanvas(deps) {
     return true
   }
 
-  function deleteFreeCanvasNode(nodeId) {
-    removeFreeCanvasItems([nodeId])
+  /** 删除前弹出中文确认，避免快捷键或误点直接丢掉节点 */
+  async function confirmFreeCanvasDeletion({ nodeIds = [], edgeIds = [] } = {}) {
+    const nodeCount = (nodeIds || []).length
+    const edgeCount = (edgeIds || []).length
+    if (!nodeCount && !edgeCount) return false
+    let subject = '所选内容'
+    if (nodeCount && !edgeCount) {
+      subject = nodeCount === 1 ? '该节点' : ('所选 ' + nodeCount + ' 个节点')
+    } else if (!nodeCount && edgeCount) {
+      subject = edgeCount === 1 ? '该连线' : ('所选 ' + edgeCount + ' 条连线')
+    } else {
+      subject = '所选 ' + nodeCount + ' 个节点和 ' + edgeCount + ' 条连线'
+    }
+    try {
+      await ElMessageBox.confirm(
+        '确定删除' + subject + '？此操作不可恢复。',
+        '删除确认',
+        { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async function deleteFreeCanvasNode(nodeId) {
+    if (!isFreeCanvasNodeId(nodeId)) return false
+    if (!await confirmFreeCanvasDeletion({ nodeIds: [nodeId] })) return false
+    return removeFreeCanvasItems([nodeId])
   }
 
   function readDomSelectedFreeNodeIds() {
@@ -369,8 +396,9 @@ export function useDramaCanvasFreeCanvas(deps) {
     return selection
   }
 
-  function deleteFreeCanvasSelection() {
+  async function deleteFreeCanvasSelection() {
     const { nodeIds, edgeIds } = syncVisualFreeCanvasSelection()
+    if (!await confirmFreeCanvasDeletion({ nodeIds, edgeIds })) return false
     const removed = removeFreeCanvasItems(nodeIds, edgeIds)
     if (removed) {
       cancelScheduledCanvasSave()
@@ -679,7 +707,7 @@ export function useDramaCanvasFreeCanvas(deps) {
     return true
   }
 
-  function handleFreeCanvasKeydown(event) {
+  async function handleFreeCanvasKeydown(event) {
     if (canvasMode.value !== 'free') return
     if (event.key === 'Escape') {
       if (isEditableKeyTarget(event.target)) return
@@ -699,6 +727,7 @@ export function useDramaCanvasFreeCanvas(deps) {
     const modifier = event.ctrlKey || event.metaKey
     const key = String(event.key || '').toLowerCase()
     if (!modifier && (event.key === 'Enter' || event.key === ' ')) {
+      if (isEditableKeyTarget(event.target)) return
       const nodeId = event.target?.closest?.('.vue-flow__node')?.dataset?.id
       if (isFreeCanvasNodeId(nodeId)) {
         event.preventDefault()
@@ -738,7 +767,7 @@ export function useDramaCanvasFreeCanvas(deps) {
       if (nodeIds.length || edgeIds.length) {
         event.preventDefault()
         event.stopPropagation()
-        deleteFreeCanvasSelection()
+        await deleteFreeCanvasSelection()
       }
     }
   }

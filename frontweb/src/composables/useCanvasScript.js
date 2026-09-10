@@ -156,13 +156,23 @@ export function useCanvasScript(deps) {
     await runExtractTask(res?.task_id, '提取道具', signal)
   }
 
+  function requireScriptContent(episodeId, scriptContent) {
+    const fromArg = String(scriptContent || '').trim()
+    if (fromArg) return fromArg
+    const episode = (drama.value?.episodes || []).find((item) => Number(item.id) === Number(episodeId))
+    const saved = String(episode?.script_content || '').trim()
+    if (saved) return saved
+    throw new Error('请先填写剧本内容')
+  }
+
   async function extractCharacters(episodeId, scriptContent, options = {}) {
     const signal = resolveSignal(options)
     if (!dramaId.value || !episodeId) throw new Error('请先选择集数')
     scriptBusy.value = true
     setScriptBusy(episodeId, 'extract_chars', CANVAS_NODE_STATUS_LABELS.extract_chars)
     try {
-      await _extractCharacters(episodeId, scriptContent, signal)
+      const content = requireScriptContent(episodeId, scriptContent)
+      await _extractCharacters(episodeId, content, signal)
       notify.success('角色提取完成')
     } catch (error) {
       rethrowScriptError(error, '提取角色失败', signal)
@@ -178,6 +188,7 @@ export function useCanvasScript(deps) {
     scriptBusy.value = true
     setScriptBusy(episodeId, 'extract_scenes', CANVAS_NODE_STATUS_LABELS.extract_scenes)
     try {
+      requireScriptContent(episodeId)
       await _extractScenes(episodeId, signal)
       notify.success('场景提取完成')
     } catch (error) {
@@ -194,6 +205,7 @@ export function useCanvasScript(deps) {
     scriptBusy.value = true
     setScriptBusy(episodeId, 'extract_props', CANVAS_NODE_STATUS_LABELS.extract_props)
     try {
+      requireScriptContent(episodeId)
       await _extractProps(episodeId, signal)
       notify.success('道具提取完成')
     } catch (error) {
