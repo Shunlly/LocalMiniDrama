@@ -22,6 +22,19 @@ test('completed workflow source-import intent reveals intake and focuses the URL
   assert.equal(historyExpanded.value, true)
   assert.equal(selectedStepId.value, 'intake')
   assert.deepEqual(focused, ['source-url'])
+
+  const delayed = []
+  const timers = []
+  await revealSourceImportIntent({
+    historyExpanded: { value: false },
+    selectedStepId: { value: 'delivery' },
+    sourceUrlInput: { value: { focus: () => delayed.push('source-url') } },
+    nextTickFn: async () => {},
+    windowRef: { setTimeout: (callback, delay) => { timers.push(delay); callback() } },
+    refocusDelay: 300,
+  })
+  assert.deepEqual(delayed, ['source-url', 'source-url'])
+  assert.deepEqual(timers, [300])
 })
 
 test('DramaDetail forwards source URL intent and the workflow applies it after loading completed state', () => {
@@ -31,4 +44,7 @@ test('DramaDetail forwards source URL intent and the workflow applies it after l
   assert.match(panelSource, /sourceImportIntent: \{ type: Boolean, default: false \}/)
   assert.match(panelSource, /ref="sourceUrlInput"[\s\S]*v-model="form\.source_url"/)
   assert.match(panelSource, /await loadData\(\)[\s\S]*if \(props\.sourceImportIntent\) await openSourceImportIntent\(\)/)
+  assert.match(panelSource, /persistInspectedFlowStep\(selectedFlowStepId\.value\)[\s\S]*sourceUrlInput\.value\?\.focus\?\.\(\)/)
+  assert.match(detailSource, /route\.path, route\.hash, Boolean\(drama\.value\), sourceImportIntent\.value/)
+  assert.doesNotMatch(detailSource, /\(\) => \[route\.fullPath, Boolean\(drama\.value\)\]/)
 })

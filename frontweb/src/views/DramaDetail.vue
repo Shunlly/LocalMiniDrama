@@ -1599,11 +1599,11 @@ async function enterSourceWorkflowProduction() {
 
 let handledRouteAnchor = ''
 watch(
-  () => [route.fullPath, Boolean(drama.value)],
-  async ([fullPath, ready]) => {
+  () => [route.path, route.hash, Boolean(drama.value), sourceImportIntent.value],
+  async ([, , ready]) => {
     const id = String(route.hash || '').replace(/^#/, '')
     if (!ready || !['source-intake-workflow', 'episode-list', 'project-resources'].includes(id)) return
-    const key = `${fullPath}:${id}`
+    const key = `${route.path}#${id}:${sourceImportIntent.value ? 'source-url' : ''}`
     if (handledRouteAnchor === key) return
     handledRouteAnchor = key
     await nextTick()

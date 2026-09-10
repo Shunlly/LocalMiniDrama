@@ -1377,6 +1377,8 @@ async function openSourceImportIntent() {
     nextTickFn: nextTick,
   })
   persistInspectedFlowStep(selectedFlowStepId.value)
+  await nextTick()
+  sourceUrlInput.value?.focus?.()
 }
 
 async function createSourceFromForm() {
