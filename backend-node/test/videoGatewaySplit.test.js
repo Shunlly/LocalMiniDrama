@@ -130,6 +130,16 @@ describe('videoGateway 客户端拆分', () => {
     assert.equal(typeof sora.pollSoraVideo, 'function');
   });
 
+  it('即梦同步协议的轮询短路仍留在 videoClient', () => {
+    const marker = 'async function pollVideoTaskInternal';
+    const start = VIDEO_CLIENT_SRC.indexOf(marker);
+    assert.notEqual(start, -1);
+    const pollSrc = VIDEO_CLIENT_SRC.slice(start);
+    assert.match(pollSrc, /if \(protocol === 'jimeng_ai_api'\)/);
+    assert.match(pollSrc, /Jimeng AI API 为同步返回视频地址，不应进入轮询/);
+    assert.match(VIDEO_DISPATCH_SRC, /if \(protocol === 'jimeng_ai_api'\)/);
+  });
+
   it('不复制第二套 Sora adapter，创建路径复用 openAiSoraAdapter', () => {
     const files = fs.readdirSync(GATEWAY_DIR).filter((name) => name.endsWith('.js')).sort();
     assert.deepEqual(files, [
