@@ -514,7 +514,7 @@ function ensureSafeDirectoryInside(root, directory) {
   const resolvedDirectory = path.resolve(directory);
   const relative = path.relative(resolvedRoot, resolvedDirectory);
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw importError('UNSAFE_IMPORT_TARGET', 'ZIP 格式不安全：媒体目录会逃逸 storage');
+    throw importError('UNSAFE_IMPORT_TARGET', '压缩包不安全：媒体目录会逃出存储目录');
   }
   const rootReal = fs.realpathSync(resolvedRoot);
   let current = resolvedRoot;
@@ -528,7 +528,7 @@ function ensureSafeDirectoryInside(root, directory) {
     const currentReal = fs.realpathSync(current);
     const realRelation = path.relative(rootReal, currentReal);
     if (realRelation === '..' || realRelation.startsWith(`..${path.sep}`) || path.isAbsolute(realRelation)) {
-      throw importError('UNSAFE_IMPORT_TARGET', 'ZIP 格式不安全：媒体目录会逃逸 storage');
+      throw importError('UNSAFE_IMPORT_TARGET', '压缩包不安全：媒体目录会逃出存储目录');
     }
   }
 }
@@ -691,10 +691,10 @@ function parseZip(zipSource, options = {}) {
 
   const projectEntry = filesByName.get('project.json');
   if (!projectEntry) {
-    throw importError('PROJECT_JSON_MISSING', 'ZIP 格式不正确：缺少 project.json');
+    throw importError('PROJECT_JSON_MISSING', '压缩包不正确：缺少项目清单');
   }
   if (Number(projectEntry.header.size) > limits.maxProjectJsonBytes) {
-    throw importError('PROJECT_JSON_TOO_LARGE', 'ZIP 格式不安全：project.json 超过大小限制');
+    throw importError('PROJECT_JSON_TOO_LARGE', '压缩包不安全：项目清单超过大小限制');
   }
 
   let data;
@@ -703,7 +703,7 @@ function parseZip(zipSource, options = {}) {
     if (projectData.length !== Number(projectEntry.header.size)) throw new Error('项目包大小与清单不一致，请重新导出后导入');
     data = JSON.parse(projectData.toString('utf8'));
   } catch (e) {
-    throw importError('INVALID_PROJECT_JSON', 'project.json 格式错误，无法解析 JSON', e);
+    throw importError('INVALID_PROJECT_JSON', '项目清单格式错误，无法解析', e);
   }
 
   if (!data.drama || !data.drama.title) {
@@ -793,13 +793,13 @@ function normalizeSourceIntakeManifest(data, limits, now) {
       size > sourceMediaExtractionService.MAX_SOURCE_UPLOAD_BYTES ||
       !/^[a-f0-9]{64}$/.test(sha256)
     ) {
-      throw importError('INVALID_SOURCE_ORIGINAL_INTEGRITY', '素材导入原始文件大小或 SHA-256 无效');
+      throw importError('INVALID_SOURCE_ORIGINAL_INTEGRITY', '素材导入原始文件大小或哈希无效');
     }
     if (
       mime.length > 200 ||
       !/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(mime)
     ) {
-      throw importError('INVALID_SOURCE_ORIGINAL_MIME', '素材导入原始文件 MIME 类型无效');
+      throw importError('INVALID_SOURCE_ORIGINAL_MIME', '素材导入原始文件媒体类型无效');
     }
 
     const sourceType = String(source.source_type || '').trim().toLowerCase();
@@ -1178,7 +1178,7 @@ function validateStagedImportMedia(stagingRoot, projectDir, limits) {
   const projectPath = path.resolve(stagingRoot, ...String(projectDir || '').split('/'));
   const relation = path.relative(resolvedStagingRoot, projectPath);
   if (!relation || relation === '..' || relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation)) {
-    throw importError('UNSAFE_IMPORT_TARGET', 'ZIP 格式不安全：媒体校验目录会逃逸 staging');
+    throw importError('UNSAFE_IMPORT_TARGET', '压缩包不安全：媒体校验目录会逃出临时导入目录');
   }
 
   const trustedMetadata = new Map();
@@ -1286,7 +1286,7 @@ function saveMediaFile(storagePath, projectDir, category, files, zipPath, prefix
   const resolvedCategory = path.resolve(categoryPath);
   const relation = path.relative(storageRoot, resolvedCategory);
   if (!relation || relation === '..' || relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation)) {
-    throw importError('UNSAFE_IMPORT_TARGET', 'ZIP 格式不安全：媒体目标会逃逸 staging');
+    throw importError('UNSAFE_IMPORT_TARGET', '压缩包不安全：媒体目标会逃出临时导入目录');
   }
   ensureDir(categoryPath);
   const name = `${prefix}_${randomUUID().slice(0, 8)}${ext}`;
@@ -2390,7 +2390,7 @@ function importDrama(db, cfg, log, zipSource, options = {}) {
   ensureDir(storagePath);
   const storageStat = fs.lstatSync(storagePath);
   if (storageStat.isSymbolicLink() || !storageStat.isDirectory()) {
-    throw importError('UNSAFE_STORAGE', 'ZIP 格式不安全：storage 根目录不是普通目录');
+    throw importError('UNSAFE_STORAGE', '压缩包不安全：存储根目录不是普通目录');
   }
   const parsed = parseZip(zipSource, { limits: options.limits });
   const { data, files, limits } = parsed;
@@ -2459,11 +2459,11 @@ function importDrama(db, cfg, log, zipSource, options = {}) {
         !stageRelation || stageRelation.startsWith(`..${path.sep}`) || path.isAbsolute(stageRelation) ||
         !finalRelation || finalRelation.startsWith(`..${path.sep}`) || path.isAbsolute(finalRelation)
       ) {
-        throw importError('UNSAFE_IMPORT_TARGET', 'ZIP 格式不安全：导入目录会逃逸 storage');
+        throw importError('UNSAFE_IMPORT_TARGET', '压缩包不安全：导入目录会逃出存储目录');
       }
       if (relativeDirectory === result.project_dir) ensureDir(stagedPath);
       if (!fs.existsSync(stagedPath) || !fs.lstatSync(stagedPath).isDirectory()) {
-        throw importError('IMPORT_STAGE_MISSING', 'ZIP 格式导入失败：staging 目录不完整');
+        throw importError('IMPORT_STAGE_MISSING', '压缩包导入失败：临时导入目录不完整');
       }
       ensureSafeDirectoryInside(storagePath, path.dirname(finalPath));
       if (fs.existsSync(finalPath)) {

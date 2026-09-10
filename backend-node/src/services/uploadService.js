@@ -990,7 +990,7 @@ function sourceOriginalMime(value) {
     mime.length > 200 ||
     !/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(mime)
   ) {
-    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', '检测到的素材 MIME 类型无效');
+    throw new StorySourceStorageError('UNSAFE_SOURCE_STORAGE', '检测到的素材媒体类型无效');
   }
   return mime;
 }
