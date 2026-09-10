@@ -38,6 +38,9 @@ const leftoverEnglish = [
   'idempotency_key 引用了已删除的图片记录，请使用新 key',
   'reference_image_urls 必须是数组',
   '缺少 drama.title 字段',
+  'storyboards 导入列数不匹配',
+  'cols=',
+  'vals=',
   'free_canvas_import ${field}',
   'free_canvas_import 必须为对象',
   '项目导入关联 episode_characters 超出安全整数范围',
@@ -57,6 +60,7 @@ const leftoverEnglish = [
   'free_canvas_import ',
   '${field} is invalid',
   'Image generation did not complete',
+  '图片持久化失败: ${saveErr.message}',
   'Video generation did not complete',
   'source text is required',
   'unsafe scene source image',
@@ -68,6 +72,7 @@ const leftoverEnglish = [
   'provider reported an error; check provider configuration and retry',
   'Unsafe media reference.',
   'Vision reference image is required.',
+  'imageUrl 必须是 http URL 或 base64 data URL',
   'Vision reference image exceeds the size limit.',
   'AI request body exceeds the size limit.',
   'episode_id must belong to drama_id',
@@ -153,6 +158,9 @@ const leftoverEnglish = [
   '请改为调用 POST /api/v1/scenes/generate-image，并传入 scene_id',
   '请改为调用 POST /api/v1/videos，并传入 storyboard_id 与帧参考',
   '请改为调用 POST /api/v1/episodes/:episode_id/finalize 启动 FFmpeg 合成',
+  'Provider 任务 ID',
+  '补偿取消迟到的 Provider 任务',
+  'Provider 已返回任务 ID',
 ];
 
 function leftoverScanText(source, phrase) {
@@ -425,6 +433,37 @@ test('Provider \u8131\u654f\u9519\u8bef\u548c\u9759\u6001 404 \u5bf9\u7528\u6237
   assert.equal(appSource.includes("send('Not Found')"), false);
 });
 
+test('从图片提取描述时非法地址返回不含英文字段名的中文', async () => {
+  const { extractDescriptionFromImage } = require('../src/services/aiClient');
+  const { isTrustedChineseUserError } = require('../src/services/providerErrorSanitizer');
+  const { sendCaughtRouteError } = require('../src/routes/serviceFailure');
+  const message = '请提供可访问的图片地址或本地图片数据';
+  assert.equal(isTrustedChineseUserError(message), true);
+  await assert.rejects(
+    () => extractDescriptionFromImage({}, silentLog, 'character', 'file:///tmp/ref.png', '林夏'),
+    (err) => {
+      assert.equal(err.message, message);
+      assert.doesNotMatch(err.message, /imageUrl|http URL|base64 data URL/);
+      assert.equal(isTrustedChineseUserError(err.message), true);
+      const res = mockResponse();
+      sendCaughtRouteError(res, err, '从图片提取描述失败，请稍后重试');
+      assert.equal(res.statusCode, 400);
+      assert.equal(res.body.error.message, message);
+      return true;
+    }
+  );
+  const source = fs.readFileSync(path.join(__dirname, '../src/services/aiClient.js'), 'utf8');
+  const throws = source
+    .split('\n')
+    .filter((line) => /\bthrow\b/.test(line))
+    .join('\n');
+  assert.match(throws, /请提供可访问的图片地址或本地图片数据/);
+  assert.equal(throws.includes('imageUrl'), false);
+  assert.equal(throws.includes('http URL'), false);
+  assert.equal(throws.includes('base64 data URL'), false);
+  assert.equal(source.includes('imageUrl 必须是 http URL 或 base64 data URL'), false);
+});
+
 test('图片和视频幂等冲突返回不含英文字段名的中文', () => {
   const { isTrustedChineseUserError } = require('../src/services/providerErrorSanitizer');
   assert.equal(isTrustedChineseUserError('该幂等键属于其他项目或分镜'), true);
@@ -432,6 +471,7 @@ test('图片和视频幂等冲突返回不含英文字段名的中文', () => {
   assert.equal(isTrustedChineseUserError('该幂等键指向已删除的图片记录，请使用新的幂等键'), true);
   assert.equal(isTrustedChineseUserError('参考图列表必须是数组'), true);
   assert.equal(isTrustedChineseUserError('项目文件格式不正确：缺少剧名'), true);
+  assert.equal(isTrustedChineseUserError('foo_bar'), false);
   const trustedImportMessages = [
     '自由画布导入数据必须为对象',
     '自由画布导入清单版本不受支持',
@@ -441,6 +481,7 @@ test('图片和视频幂等冲突返回不含英文字段名的中文', () => {
     '自由画布导入媒体包含重复归档路径',
     '自由画布导入媒体哈希校验失败',
     '旧版 ZIP 自由画布包含无法验证的引用，缺少导入清单',
+    '分镜导入数据列数不匹配，请重新导出后再导入',
   ];
   for (const message of trustedImportMessages) {
     assert.equal(isTrustedChineseUserError(message), true, message);
@@ -457,9 +498,46 @@ test('图片和视频幂等冲突返回不含英文字段名的中文', () => {
   assert.equal(importSource.includes('缺少 drama.title 字段'), false);
   const importThrows = leftoverScanText(importSource, 'free_canvas_import ');
   assert.equal(importThrows.includes('free_canvas_import '), false);
+  assert.equal(importThrows.includes('storyboards 导入列数不匹配'), false);
+  assert.equal(importThrows.includes('cols='), false);
+  assert.equal(importThrows.includes('vals='), false);
   for (const message of trustedImportMessages) {
     assert.equal(importSource.includes(message), true, message);
   }
+});
+
+test('视频服务供应商任务编号对用户使用中文', () => {
+  const videoSource = fs.readFileSync(path.join(__dirname, '../src/services/videoService.js'), 'utf8');
+  assert.match(videoSource, /视频任务归属已变化，拒绝写入供应商任务编号/);
+  assert.match(videoSource, /供应商任务编号持久化失败/);
+  assert.match(videoSource, /补偿取消迟到的供应商任务/);
+  assert.match(videoSource, /供应商已返回任务编号，但未注册远端取消函数/);
+  assert.equal(videoSource.includes('Provider 任务 ID'), false);
+  assert.equal(videoSource.includes('补偿取消迟到的 Provider 任务'), false);
+  assert.equal(videoSource.includes('Provider 已返回任务 ID'), false);
+});
+
+test('图片持久化失败不会把英文系统错误漏给用户', () => {
+  const imageSource = fs.readFileSync(path.join(__dirname, '../src/services/imageService.js'), 'utf8');
+  const { toUserFacingProcessError } = require('../src/services/providerErrorSanitizer');
+  assert.equal(imageSource.includes('图片持久化失败: ${saveErr.message}'), false);
+  assert.match(imageSource, /toUserFacingProcessError\(saveErr/);
+  assert.equal(
+    toUserFacingProcessError(new Error('ENOENT: no such file or directory'), '图片保存到本地失败，请稍后重试'),
+    '图片保存到本地失败，请稍后重试',
+  );
+  assert.equal(
+    toUserFacingProcessError(new Error('Input file is missing'), '图片保存到本地失败，请稍后重试'),
+    '图片保存到本地失败，请稍后重试',
+  );
+  assert.doesNotMatch(
+    toUserFacingProcessError(new Error('EACCES: permission denied'), '图片保存到本地失败，请稍后重试'),
+    /EACCES|permission denied/i,
+  );
+  assert.equal(
+    toUserFacingProcessError(new Error('图片下载到本地失败'), '图片保存到本地失败，请稍后重试'),
+    '图片下载到本地失败',
+  );
 });
 
 test('videoClient 用户错误不再是问号乱码', () => {

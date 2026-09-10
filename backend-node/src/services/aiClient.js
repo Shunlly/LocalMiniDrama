@@ -908,7 +908,7 @@ async function extractDescriptionFromImage(db, log, entityType, imageUrl, entity
   if (imageUrl && (imageUrl.startsWith('http') || imageUrl.startsWith('data:'))) {
     imageSource = { imageUrl };
   } else {
-    throw new Error('imageUrl 必须是 http URL 或 base64 data URL');
+    throw new Error('请提供可访问的图片地址或本地图片数据');
   }
 
   try {

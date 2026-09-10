@@ -70,6 +70,7 @@ const storageLayout = require('./storageLayout');
 const aiClient = require('./aiClient');
 const promptI18n = require('./promptI18n');
 const { scheduleLegacyAsync } = require('./legacyAsyncSchedulerService');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 
 const LAST_FRAME_TYPES = new Set(['last', 'storyboard_last', 'tail', 'last_frame']);
 
@@ -1668,7 +1669,7 @@ async function processImageGeneration(db, log, imageGenId) {
       }
     } catch (saveErr) {
       if (imageTaskCancelled(saveErr, signal)) throw saveErr;
-      throw new Error(`图片持久化失败: ${saveErr.message}`);
+      throw new Error(toUserFacingProcessError(saveErr, '图片保存到本地失败，请稍后重试'));
     }
 
     // 入库的 image_url：优先指向本地静态路径，避免前端仍用 Gemini 返回的 data URL

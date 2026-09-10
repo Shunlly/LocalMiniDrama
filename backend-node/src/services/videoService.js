@@ -123,7 +123,7 @@ function persistProviderTaskId(db, row, providerTaskId, now) {
       'SELECT task_id, deleted_at FROM video_generations WHERE id = ?'
     ).get(row.id);
     if (!current || current.deleted_at || String(current.task_id || '') !== String(row.task_id || '')) {
-      throw new Error('视频任务归属已变化，拒绝写入 Provider 任务 ID');
+      throw new Error('视频任务归属已变化，拒绝写入供应商任务编号');
     }
     const updated = db.prepare(
       `UPDATE video_generations
@@ -132,7 +132,7 @@ function persistProviderTaskId(db, row, providerTaskId, now) {
               updated_at = ?
         WHERE id = ?`
     ).run(String(providerTaskId), now, row.id);
-    if (updated.changes !== 1) throw new Error('Provider 任务 ID 持久化失败');
+    if (updated.changes !== 1) throw new Error('供应商任务编号持久化失败');
   });
   persist();
 }
@@ -1162,7 +1162,7 @@ async function processVideoGeneration(db, log, videoGenId, options = {}) {
       const currentTask = row.task_id ? taskService.getTask(db, row.task_id) : null;
       if (currentTask?.status === 'cancelling') {
         const cancellation = await taskService.cancelTask(
-          db, log, row.task_id, currentTask.error || '补偿取消迟到的 Provider 任务'
+          db, log, row.task_id, currentTask.error || '补偿取消迟到的供应商任务'
         );
         if (cancellation.ok) return;
         if (cancellation.reason === 'remote_cancel_uncertain') {
@@ -1203,7 +1203,7 @@ async function processVideoGeneration(db, log, videoGenId, options = {}) {
       if (row.task_id && !operation.hasRemoteCancel()) {
         taskService.closeRemoteCancelWindow(row.task_id, {
           outcome: 'failed',
-          error: 'Provider 已返回任务 ID，但未注册远端取消函数',
+          error: '供应商已返回任务编号，但未注册远端取消函数',
         });
       }
       await pollProviderTaskAndFinalize(

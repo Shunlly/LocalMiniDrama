@@ -2756,7 +2756,7 @@ function _doImport(
         now
       ];
       if (sbCols.length !== sbVals.length) {
-        throw new Error(`storyboards 导入列数不匹配: cols=${sbCols.length}, vals=${sbVals.length}`);
+        throw new Error('分镜导入数据列数不匹配，请重新导出后再导入');
       }
       const sbInfo = db.prepare(
         `INSERT INTO storyboards (${sbCols.join(', ')})
