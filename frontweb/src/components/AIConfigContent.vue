@@ -1457,6 +1457,7 @@ import { useAiConfigOneKeyPresets } from '@/composables/useAiConfigOneKeyPresets
 import { useAiConfigImportExport } from '@/composables/useAiConfigImportExport.js'
 import { useAiConfigRowMutations } from '@/composables/useAiConfigRowMutations.js'
 import { useAiConfigDiscoverModels } from '@/composables/useAiConfigDiscoverModels.js'
+import { useAiConfigVendorLock } from '@/composables/useAiConfigVendorLock.js'
 import { useAiConfigJimeng2Assets } from '@/composables/useAiConfigJimeng2Assets.js'
 import {
   parseModelText,
@@ -1612,22 +1613,21 @@ watch(
 const sessionTestStatusById = ref({})
 let connectionStatusStore = createAiConfigConnectionStatusStore()
 let configListAbortController = null
-let vendorLockAbortController = null
 let connectionTestAbortController = null
 let connectionStatusScopeAbortController = null
 let lastTestedConfig = null
 let abortDiscoverModelsRequest = () => {}
 let resetDiscoverModelsState = () => {}
+let abortVendorLockRequest = () => {}
 
 function abortAiConfigPageRequests() {
   configListAbortController?.abort()
-  vendorLockAbortController?.abort()
+  abortVendorLockRequest()
   abortGenerationSettingsRequest()
   connectionTestAbortController?.abort()
   connectionStatusScopeAbortController?.abort()
   abortDiscoverModelsRequest()
   configListAbortController = null
-  vendorLockAbortController = null
   connectionTestAbortController = null
   connectionStatusScopeAbortController = null
 }
@@ -1635,6 +1635,19 @@ function abortAiConfigPageRequests() {
 function jsonRequestOptions(signal, timeout = DEFAULT_JSON_TIMEOUT_MS) {
   return { signal, timeout, suppressErrorToast: true }
 }
+
+const {
+  vendorLock,
+  vendorLockResolved,
+  vendorLockLoading,
+  vendorLockError,
+  loadVendorLock,
+  abortVendorLockRequest: abortVendorLockFromComposable,
+} = useAiConfigVendorLock({
+  aiAPI,
+  jsonRequestOptions,
+})
+abortVendorLockRequest = abortVendorLockFromComposable
 
 async function initializeConnectionStatusStore() {
   connectionStatusScopeAbortController?.abort()
@@ -1654,10 +1667,6 @@ function invalidateConnectionTestResults() {
 }
 const selectedRows = ref([])
 const batchDeleting = ref(false)
-const vendorLock = ref({ enabled: false, config_file: '' })
-const vendorLockResolved = ref(false)
-const vendorLockLoading = ref(false)
-const vendorLockError = ref('')
 const dialogVisible = ref(false)
 const editingId = ref(null)
 const editingUpdatedAt = ref('')
@@ -2663,36 +2672,6 @@ async function openTest(row) {
 function retryConnectionTest() {
   if (!lastTestedConfig || testingConfigId.value !== null) return
   openTest(lastTestedConfig)
-}
-
-async function loadVendorLock() {
-  vendorLockAbortController?.abort()
-  const controller = new AbortController()
-  vendorLockAbortController = controller
-  vendorLockLoading.value = true
-  vendorLockResolved.value = false
-  try {
-    vendorLock.value = await withRequestRetry(
-      () => aiAPI.getVendorLock(jsonRequestOptions(controller.signal)),
-      { maxAttempts: 2, delayMs: 400, signal: controller.signal },
-    )
-    if (controller.signal.aborted) return
-    vendorLockError.value = ''
-    vendorLockResolved.value = true
-  } catch (error) {
-    if (isRequestCanceled(error) || controller.signal.aborted) return
-    vendorLockError.value = describeServiceLoadError(error, {
-      serviceLabel: '厂商锁定服务',
-      fallback: '暂时无法确认厂商锁定状态，请稍后重试。',
-      signal: controller.signal,
-    })
-    vendorLockResolved.value = false
-  } finally {
-    if (vendorLockAbortController === controller) {
-      vendorLockAbortController = null
-      vendorLockLoading.value = false
-    }
-  }
 }
 
 async function retryConfigDependencies() {

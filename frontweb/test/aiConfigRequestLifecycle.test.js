@@ -9,6 +9,7 @@ function readSource(url) {
 const source = readSource(new URL('../src/components/AIConfigContent.vue', import.meta.url))
 const generationSettingsSource = readSource(new URL('../src/composables/useAiConfigGenerationSettings.js', import.meta.url))
 const connectionTestSource = readSource(new URL('../src/utils/aiConfigConnectionTest.js', import.meta.url))
+const vendorLockSource = readSource(new URL('../src/composables/useAiConfigVendorLock.js', import.meta.url))
 const requestError = readSource(new URL('../src/utils/requestError.js', import.meta.url))
 
 function sourceBetween(start, end) {
@@ -25,16 +26,19 @@ test('AI 配置页在卸载和重新加载时取消过期请求', () => {
   assert.match(source, /onBeforeUnmount\(\(\) => \{\s*abortAiConfigPageRequests\(\)/)
   assert.match(source, /restoreTestedCoverageCardFocus\(\) \{\s*connectionTestAbortController\?\.abort\(\)/)
 
-  const loaders = [
-    sourceBetween('async function loadList()', 'function resetForm'),
-    sourceBetween('async function loadVendorLock()', 'async function retryConfigDependencies'),
-  ]
-  for (const loader of loaders) {
+  const listLoader = sourceBetween('async function loadList()', 'function resetForm')
+  const vendorStart = vendorLockSource.indexOf('async function loadVendorLock')
+  const vendorEnd = vendorLockSource.indexOf('return {', vendorStart)
+  assert.ok(vendorStart >= 0 && vendorEnd > vendorStart)
+  const vendorLoader = vendorLockSource.slice(vendorStart, vendorEnd)
+  for (const loader of [listLoader, vendorLoader]) {
     assert.match(loader, /AbortController/)
     assert.match(loader, /withRequestRetry/)
     assert.match(loader, /isRequestCanceled/)
     assert.match(loader, /describeServiceLoadError/)
   }
+  assert.match(source, /abortVendorLockRequest\(\)/)
+  assert.doesNotMatch(source, /vendorLockAbortController/)
   assert.match(source, /abortGenerationSettingsRequest\(\)/)
   assert.doesNotMatch(source, /generationSettingsAbortController/)
   assert.match(source, /abortDiscoverModelsRequest\(\)/)
@@ -52,7 +56,7 @@ test('AI 配置页在卸载和重新加载时取消过期请求', () => {
 })
 
 test('连接测试失败可重试且取消不会记成失败', () => {
-  const connectionTest = sourceBetween('async function openTest', 'async function loadVendorLock')
+  const connectionTest = sourceBetween('async function openTest', 'async function retryConfigDependencies')
   assert.match(connectionTest, /function retryConnectionTest/)
   assert.match(source, /@click="retryConnectionTest"/)
   assert.match(connectionTest, /if \(isUserFacingAbort\(e, controller\.signal\) \|\| controller\.signal\.aborted\) \{[\s\S]*?return/)
