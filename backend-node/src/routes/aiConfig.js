@@ -341,13 +341,13 @@ function listJimeng2MaterialAssets(db, log) {
     let api_key = body.api_key && !aiConfigService.isMaskedSecret(body.api_key) ? body.api_key : savedConfig?.api_key || '';
     api_key = normalizeMaterialHubToken(api_key || '');
     if (!base_url || !api_key) {
-      return response.badRequest(res, '请先填写网关 URL 与 Token');
+      return response.badRequest(res, '请先填写网关地址与密钥');
     }
     const jimengMaterialHubService = require('../services/jimengMaterialHubService');
     const ctx = { baseUrl: base_url, token: api_key, networkPolicy: req.providerNetworkPolicy };
     const r = await jimengMaterialHubService.listAssets(ctx, { limit: body.limit, cursor: body.cursor }, log);
     if (!r.ok) {
-      return response.badRequest(res, String(r.error || '列出素材失败').slice(0, 800));
+      return response.badRequest(res, publicErrorMessage({ message: r.error }, '列出素材失败'));
     }
     response.success(res, r.data);
   };

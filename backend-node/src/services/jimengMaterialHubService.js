@@ -458,7 +458,7 @@ async function listAssets(ctx, opts = {}, log) {
 
 async function getAsset(ctx, assetId, log) {
   const id = encodeURIComponent(String(assetId || '').trim());
-  if (!id) return { ok: false, error: '缺少 asset id' };
+  if (!id) return { ok: false, error: '缺少素材 ID' };
   const r = await hubJson(`/assets/${id}`, ctx, { method: 'GET', log });
   if (!r.ok) return r;
   const asset = unwrapMaterialHubAssetView(r.data);

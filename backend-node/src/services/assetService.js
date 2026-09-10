@@ -242,7 +242,7 @@ function isLoopbackHostname(hostname) {
 
 function normalizeAssetUrlReference(value, localPath) {
   if (value === undefined || value === null || value === '') return null;
-  if (typeof value !== 'string') throw badRequest('url 必须为安全的媒体 URL 或本地媒体引用');
+  if (typeof value !== 'string') throw badRequest('媒体地址必须为安全的网址或本地媒体引用');
   if (!/^https?:\/\//i.test(value)) {
     return normalizeLocalReference(value, 'url');
   }
@@ -250,21 +250,21 @@ function normalizeAssetUrlReference(value, localPath) {
   try {
     parsed = new URL(value);
   } catch (_) {
-    throw badRequest('url 必须为安全的媒体 URL 或本地媒体引用');
+    throw badRequest('媒体地址必须为安全的网址或本地媒体引用');
   }
   if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
-    throw badRequest('url 必须为安全的媒体 URL 或本地媒体引用');
+    throw badRequest('媒体地址必须为安全的网址或本地媒体引用');
   }
   if (isLoopbackHostname(parsed.hostname)) {
     const local = parsed.pathname.startsWith('/static/')
       ? normalizeLocalReference(parsed.pathname, 'url')
       : null;
     if (!local || local !== localPath || parsed.search || parsed.hash) {
-      throw badRequest('url 不支持外部 localhost 媒体地址');
+      throw badRequest('媒体地址不支持外部本机地址');
     }
     return local;
   }
-  throw badRequest('远程素材 URL 需要完整的异步 DNS/私网校验，当前同步接口拒绝持久化');
+  throw badRequest('远程素材地址需要完整的域名解析和私网校验，当前同步接口拒绝持久化');
 }
 
 function isAllowedProjectPath(drama, localPath) {
@@ -309,7 +309,7 @@ function normalizeAssetMedia(db, drama, req) {
 function create(db, log, req, options = {}) {
   if (!isPlainObject(req)) throw badRequest('素材请求必须为对象');
   if (parseNetworkSourceMetadata(req.category) && options.allowNetworkMetadata !== true) {
-    throw badRequest('category 包含保留的网络素材来源元数据');
+    throw badRequest('分类包含保留的网络素材来源元数据');
   }
   const drama = resolveDramaScope(db, req.drama_id, options);
   const media = normalizeAssetMedia(db, drama, req);

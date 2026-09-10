@@ -28,8 +28,8 @@ const ALLOWED_ACTIONS = new Set([
 
 function normalizeBaseUrl(raw) {
   let s = String(raw || '').trim().replace(/\/$/, '');
-  if (!s) throw new Error('缺少 base_url');
-  if (!/^https?:\/\//i.test(s)) throw new Error('base_url 须以 http:// 或 https:// 开头');
+  if (!s) throw new Error('缺少接口地址');
+  if (!/^https?:\/\//i.test(s)) throw new Error('接口地址须以 HTTP 或 HTTPS 开头');
   return s;
 }
 
@@ -93,7 +93,7 @@ function buildRequestUrl(base, pathMode, act, apiVersion, projectName) {
   try {
     u = new URL(base);
   } catch (e) {
-    throw new Error('base_url 不是合法 URL');
+    throw new Error('接口地址不是合法网址');
   }
   u.searchParams.set('Action', act);
   u.searchParams.set('Version', ver);
@@ -225,9 +225,9 @@ async function callModelArkAsset(opts, log) {
     network_policy,
   } = opts;
 
-  if (!action || typeof action !== 'string') throw new Error('缺少 action');
+  if (!action || typeof action !== 'string') throw new Error('缺少操作名称');
   const act = action.trim();
-  if (!ALLOWED_ACTIONS.has(act)) throw new Error('不支持的 action: ' + act);
+  if (!ALLOWED_ACTIONS.has(act)) throw new Error('不支持的资产库操作：' + act);
 
   const base = normalizeBaseUrl(ensureArkOpenApiBasePath(base_url));
   const pathMode = (path_mode || 'open_api_query').toString();
@@ -235,7 +235,7 @@ async function callModelArkAsset(opts, log) {
 
   const method = String(http_method || 'POST').toUpperCase();
   if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    throw new Error('不支持的 http_method');
+    throw new Error('不支持的请求方法');
   }
 
   const pnScope = (project_name || '').toString().trim();

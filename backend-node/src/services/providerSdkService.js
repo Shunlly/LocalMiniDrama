@@ -14,6 +14,7 @@ const providerCostService = require('./providerCostService');
 const dramaService = require('./dramaService');
 const dramaWriteGuard = require('./dramaWriteGuard');
 const { getFfmpegPath, validateFfmpegTools } = require('../utils/ffmpegPath');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 
 function nowIso() {
   return new Date().toISOString();
@@ -862,9 +863,9 @@ async function generateAssetBibleImagesProduction(db, log, params) {
         idempotency_key: callKey,
         input: { call_key: callKey, asset_type: target.type, asset_id: target.row.id },
         output: {},
-        error_message: error.message || '素材图请求失败',
+        error_message: toUserFacingProcessError(error, '素材图请求失败'),
       });
-      throw new Error(`${productionAssetTypeLabel(target.type)} ${target.row.id} 的素材图生成失败：${error.message || '未知错误'}`);
+      throw new Error(`${productionAssetTypeLabel(target.type)} ${target.row.id} 的素材图生成失败：${toUserFacingProcessError(error, '请检查图片服务配置后重试')}`);
     }
   }
   return {
@@ -932,7 +933,7 @@ async function generateStoryboardImagesProduction(db, log, params) {
         provider,
         error_type: error?.name || 'Error',
       });
-      throw new Error(`分镜 ${storyboard.id} 的图片生成失败：${error.message || '未知错误'}`);
+      throw new Error(`分镜 ${storyboard.id} 的图片生成失败：${toUserFacingProcessError(error, '请检查图片服务配置后重试')}`);
     }
   }
   return { storyboard_count: readiness.storyboards.length, image_created: created, image_reused: reused, mode: 'production' };
@@ -998,7 +999,7 @@ async function generateStoryboardVideosProduction(db, log, params) {
         provider,
         error_type: error?.name || 'Error',
       });
-      throw new Error(`分镜 ${storyboard.id} 的视频生成失败：${error.message || '未知错误'}`);
+      throw new Error(`分镜 ${storyboard.id} 的视频生成失败：${toUserFacingProcessError(error, '请检查视频服务配置后重试')}`);
     }
   }
   return { storyboard_count: readiness.storyboards.length, video_created: created, video_reused: reused, mode: 'production' };
@@ -1086,7 +1087,7 @@ async function generateStoryboardAudioProduction(db, log, params) {
         provider,
         error_type: error?.name || 'Error',
       });
-      throw new Error(`分镜 ${storyboard.id} 的 TTS 配音生成失败：${error.message || '未知错误'}`);
+      throw new Error(`分镜 ${storyboard.id} 的配音生成失败：${toUserFacingProcessError(error, '请检查配音服务配置后重试')}`);
     }
   }
   return {
@@ -1223,7 +1224,7 @@ async function compositeEpisodesProduction(db, log, params) {
         episode_id: episode.id,
         error_type: error?.name || 'Error',
       });
-      throw new Error(`第 ${episode.id} 集整集合成失败：${error.message || '未知错误'}`);
+      throw new Error(`第 ${episode.id} 集整集合成失败：${toUserFacingProcessError(error, '请检查视频合成环境后重试')}`);
     }
   }
   return { episode_count: episodes.length, composite_created: created, composite_reused: reused, mode: 'production' };

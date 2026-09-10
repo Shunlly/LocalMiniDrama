@@ -28,7 +28,7 @@ function applySceneStyleOverride(cfg, styleOverride) {
 }
 function updateScene(db, log, sceneId, req) {
   const row = db.prepare('SELECT id FROM scenes WHERE id = ? AND deleted_at IS NULL').get(Number(sceneId));
-  if (!row || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
+  if (!row || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: '场景不存在' };
   const changed = runResourceWrite(db, 'scenes', sceneId, () => {
     const updates = [];
     const params = [];
@@ -51,7 +51,7 @@ function updateScene(db, log, sceneId, req) {
 
 function updateScenePrompt(db, log, sceneId, req) {
   const row = db.prepare('SELECT id FROM scenes WHERE id = ? AND deleted_at IS NULL').get(Number(sceneId));
-  if (!row || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
+  if (!row || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: '场景不存在' };
   const prompt = req.prompt != null ? req.prompt : '';
   runResourceWrite(db, 'scenes', sceneId, () => db.prepare(
     'UPDATE scenes SET prompt = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
@@ -61,11 +61,11 @@ function updateScenePrompt(db, log, sceneId, req) {
 }
 
 function deleteScene(db, log, sceneId) {
-  if (!canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
+  if (!canReadResource(db, 'scenes', sceneId)) return { ok: false, error: '场景不存在' };
   const result = runResourceWrite(db, 'scenes', sceneId, () => db.prepare(
     'UPDATE scenes SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL'
   ).run(new Date().toISOString(), Number(sceneId)));
-  if (result.changes === 0) return { ok: false, error: 'scene not found' };
+  if (result.changes === 0) return { ok: false, error: '场景不存在' };
   log.info('Scene deleted', { scene_id: sceneId });
   return { ok: true };
 }
@@ -230,7 +230,7 @@ async function generateScenePromptOnly(db, log, cfg, sceneId, modelName, style) 
   const sceneRow = db.prepare(
     'SELECT id, drama_id, location, time, prompt FROM scenes WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(sceneId));
-  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
+  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: '场景不存在' };
 
   const dramaFull = db.prepare('SELECT id, style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(sceneRow.drama_id);
   let mergedCfg = mergeCfgStyleWithDrama(cfg, dramaFull || {});
@@ -287,7 +287,7 @@ async function generateSceneSinglePromptOnly(db, log, cfg, sceneId, modelName, s
   const sceneRow = db.prepare(
     'SELECT id, drama_id, location, time, prompt FROM scenes WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(sceneId));
-  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
+  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: '场景不存在' };
 
   const dramaFull = db.prepare('SELECT id, style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(sceneRow.drama_id);
   let mergedCfg = mergeCfgStyleWithDrama(cfg, dramaFull || {});
@@ -344,9 +344,9 @@ async function generateSceneFourViewImage(db, log, cfg, sceneId, modelName, styl
   const sceneRow = db.prepare(
     'SELECT id, drama_id, location, time, prompt, polished_prompt FROM scenes WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(sceneId));
-  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
+  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: '场景不存在' };
   const dramaFull = db.prepare('SELECT id, style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(sceneRow.drama_id);
-  if (!dramaFull) return { ok: false, error: 'unauthorized' };
+  if (!dramaFull) return { ok: false, error: '无权限' };
 
   let mergedCfg = mergeCfgStyleWithDrama(cfg, dramaFull);
   mergedCfg = applySceneStyleOverride(mergedCfg, style);
@@ -418,9 +418,9 @@ async function generateSceneSingleImage(db, log, cfg, sceneId, modelName, style)
   const sceneRow = db.prepare(
     'SELECT id, drama_id, location, time, prompt, polished_prompt, polished_prompt_single FROM scenes WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(sceneId));
-  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
+  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: '场景不存在' };
   const dramaFull = db.prepare('SELECT id, style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(sceneRow.drama_id);
-  if (!dramaFull) return { ok: false, error: 'unauthorized' };
+  if (!dramaFull) return { ok: false, error: '无权限' };
 
   let mergedCfg = mergeCfgStyleWithDrama(cfg, dramaFull);
   mergedCfg = applySceneStyleOverride(mergedCfg, style);
@@ -522,10 +522,10 @@ function generateScenePanoramaImage(db, log, sceneId, modelName, style) {
     `SELECT id, drama_id, location, time, image_url, local_path
        FROM scenes WHERE id = ? AND deleted_at IS NULL`
   ).get(Number(sceneId));
-  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
+  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: '场景不存在' };
 
   const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(sceneRow.drama_id);
-  if (!drama) return { ok: false, error: 'unauthorized' };
+  if (!drama) return { ok: false, error: '无权限' };
 
   let sourceImage;
   try {
@@ -564,7 +564,7 @@ async function extractSceneFromImage(db, log, cfg, sceneId) {
   const sceneRow = db.prepare(
     'SELECT id, drama_id, location, time, image_url, local_path, extra_images, ref_image FROM scenes WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(sceneId));
-  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: 'scene not found' };
+  if (!sceneRow || !canReadResource(db, 'scenes', sceneId)) return { ok: false, error: '场景不存在' };
 
   const imgSrc = resolveEntityImageSource(sceneRow, cfg);
   if (!imgSrc) return { ok: false, error: '该场景暂无参考图片，请先上传图片' };

@@ -48,9 +48,9 @@ function generateCharacterImage(db, log, cfg, characterId, modelName, style) {
   const charRow = db.prepare(
     'SELECT id, drama_id, name, appearance, description, negative_prompt FROM characters WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(characterId));
-  if (!charRow) return { ok: false, error: 'character not found' };
+  if (!charRow) return { ok: false, error: '角色不存在' };
   const drama = db.prepare('SELECT id, style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(charRow.drama_id);
-  if (!drama) return { ok: false, error: 'unauthorized' };
+  if (!drama) return { ok: false, error: '无权限' };
 
   let effectiveCfg = { ...cfg, style: { ...(cfg?.style || {}) } };
   try {
@@ -189,13 +189,13 @@ function deleteLibraryItem(db, log, id) {
 
 function applyLibraryItemToCharacter(db, log, characterId, libraryItemId) {
   const item = getLibraryItem(db, libraryItemId);
-  if (!item) return { ok: false, error: 'library item not found' };
+  if (!item) return { ok: false, error: '角色库项不存在' };
   const charRow = db
     .prepare('SELECT id, drama_id, local_path, image_url, seedance2_asset FROM characters WHERE id = ? AND deleted_at IS NULL')
     .get(Number(characterId));
-  if (!charRow) return { ok: false, error: 'character not found' };
+  if (!charRow) return { ok: false, error: '角色不存在' };
   const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(charRow.drama_id);
-  if (!drama) return { ok: false, error: 'unauthorized' };
+  if (!drama) return { ok: false, error: '无权限' };
   seedance2AssetGuards.markStaleOnCharacterMainImageDrift(db, log, charRow, {
     image_url: item.image_url || null,
     local_path: item.local_path || null,
@@ -215,9 +215,9 @@ function uploadCharacterImage(db, log, characterId, imageUrl, opts = {}) {
   const charRow = db
     .prepare('SELECT id, drama_id, local_path, image_url, seedance2_asset FROM characters WHERE id = ? AND deleted_at IS NULL')
     .get(Number(characterId));
-  if (!charRow) return { ok: false, error: 'character not found' };
+  if (!charRow) return { ok: false, error: '角色不存在' };
   const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(charRow.drama_id);
-  if (!drama) return { ok: false, error: 'unauthorized' };
+  if (!drama) return { ok: false, error: '无权限' };
   if (!opts.skipStaleMark) {
     seedance2AssetGuards.markStaleOnCharacterMainImageDrift(db, log, charRow, { image_url: imageUrl });
   }
@@ -237,9 +237,9 @@ function resolveImageUrl(image_url, local_path) {
 // 加入本剧资源库（带 drama_id）
 function addCharacterToLibrary(db, log, characterId, category) {
   const charRow = db.prepare('SELECT * FROM characters WHERE id = ? AND deleted_at IS NULL').get(Number(characterId));
-  if (!charRow) return { ok: false, error: 'character not found' };
+  if (!charRow) return { ok: false, error: '角色不存在' };
   const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(charRow.drama_id);
-  if (!drama) return { ok: false, error: 'unauthorized' };
+  if (!drama) return { ok: false, error: '无权限' };
   if (!charRow.image_url && !charRow.local_path) return { ok: false, error: '角色还没有形象图片' };
   const now = new Date().toISOString();
   const imageUrl = resolveImageUrl(charRow.image_url, charRow.local_path);
@@ -274,7 +274,7 @@ function addCharacterToLibrary(db, log, characterId, category) {
 // 加入全局素材库（drama_id = NULL）
 function addCharacterToMaterialLibrary(db, log, characterId) {
   const charRow = db.prepare('SELECT * FROM characters WHERE id = ? AND deleted_at IS NULL').get(Number(characterId));
-  if (!charRow) return { ok: false, error: 'character not found' };
+  if (!charRow) return { ok: false, error: '角色不存在' };
   if (!charRow.image_url && !charRow.local_path) return { ok: false, error: '角色还没有形象图片' };
   const now = new Date().toISOString();
   const imageUrl = resolveImageUrl(charRow.image_url, charRow.local_path);
@@ -309,9 +309,9 @@ function updateCharacter(db, log, characterId, req) {
   const charRow = db
     .prepare('SELECT id, drama_id, local_path, image_url, seedance2_asset FROM characters WHERE id = ? AND deleted_at IS NULL')
     .get(Number(characterId));
-  if (!charRow) return { ok: false, error: 'character not found' };
+  if (!charRow) return { ok: false, error: '角色不存在' };
   const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(charRow.drama_id);
-  if (!drama) return { ok: false, error: 'unauthorized' };
+  if (!drama) return { ok: false, error: '无权限' };
   const updates = [];
   const params = [];
   if (req.name != null) { updates.push('name = ?'); params.push(req.name); }
@@ -339,9 +339,9 @@ function updateCharacter(db, log, characterId, req) {
 
 function deleteCharacter(db, log, characterId) {
   const charRow = db.prepare('SELECT id, drama_id FROM characters WHERE id = ? AND deleted_at IS NULL').get(Number(characterId));
-  if (!charRow) return { ok: false, error: 'character not found' };
+  if (!charRow) return { ok: false, error: '角色不存在' };
   const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(charRow.drama_id);
-  if (!drama) return { ok: false, error: 'unauthorized' };
+  if (!drama) return { ok: false, error: '无权限' };
   const now = new Date().toISOString();
   db.prepare('UPDATE characters SET deleted_at = ? WHERE id = ?').run(now, Number(characterId));
   log.info('Character deleted', { id: characterId });
@@ -353,7 +353,7 @@ function deleteCharacter(db, log, characterId) {
  */
 function batchGenerateCharacterImages(db, log, cfg, characterIds, modelName, style) {
   const ids = Array.isArray(characterIds) ? characterIds.map((id) => String(id)) : [];
-  if (ids.length === 0) return { ok: false, error: 'character_ids 不能为空' };
+  if (ids.length === 0) return { ok: false, error: '角色 ID 列表不能为空' };
   if (ids.length > 10) return { ok: false, error: '单次最多生成10个角色' };
   log.info('Starting batch character four-view generation', { count: ids.length, model: modelName, character_ids: ids });
   // 每个角色单独起一个异步任务，不阻塞响应
@@ -485,7 +485,7 @@ async function generateCharacterPromptOnly(db, log, cfg, characterId, modelName,
   const charRow = db.prepare(
     'SELECT id, drama_id, name, appearance, description FROM characters WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(characterId));
-  if (!charRow) return { ok: false, error: 'character not found' };
+  if (!charRow) return { ok: false, error: '角色不存在' };
 
   const dramaFull = db.prepare('SELECT id, style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(charRow.drama_id);
   let mergedCfg = mergeCfgStyleWithDrama(cfg, dramaFull || {});
@@ -534,9 +534,9 @@ async function generateCharacterFourViewImage(db, log, cfg, characterId, modelNa
   const charRow = db.prepare(
     'SELECT id, drama_id, name, appearance, description, polished_prompt, negative_prompt FROM characters WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(characterId));
-  if (!charRow) return { ok: false, error: 'character not found' };
+  if (!charRow) return { ok: false, error: '角色不存在' };
   const dramaFull = db.prepare('SELECT id, style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(charRow.drama_id);
-  if (!dramaFull) return { ok: false, error: 'unauthorized' };
+  if (!dramaFull) return { ok: false, error: '无权限' };
 
   let mergedCfg = mergeCfgStyleWithDrama(cfg, dramaFull);
   mergedCfg = applyStyleOverrideToCfg(mergedCfg, style);
@@ -614,7 +614,7 @@ async function extractAppearanceFromImage(db, log, cfg, characterId) {
   const charRow = db.prepare(
     'SELECT id, name, image_url, local_path, extra_images, ref_image FROM characters WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(characterId));
-  if (!charRow) return { ok: false, error: 'character not found' };
+  if (!charRow) return { ok: false, error: '角色不存在' };
 
   const imgSrc = resolveEntityImageSource(charRow, cfg);
   if (!imgSrc) return { ok: false, error: '该角色暂无参考图片，请先上传图片' };
@@ -678,7 +678,7 @@ function buildCharacterPublicImageUrlForHub(charRow, cfg) {
   }
   const fallback = resolveImageUrl(charRow.image_url, charRow.local_path);
   if (/^https?:\/\//i.test(fallback)) return { ok: true, url: fallback };
-  return { ok: false, error: '角色缺少素材库可用的图片（需 http(s) 图链或 local_path + 公网 base_url）' };
+  return { ok: false, error: '角色缺少素材库可用的图片（需公网图链或已上传的本地图片）' };
 }
 
 function storageRootPath(cfg) {
@@ -801,7 +801,7 @@ function sd2ConfigMissingError(hubCtx, arkCtx) {
 
 async function prepareCharacterRegisterImage(db, log, cfg, characterId) {
   const charRow = db.prepare('SELECT * FROM characters WHERE id = ? AND deleted_at IS NULL').get(Number(characterId));
-  if (!charRow) return { ok: false, error: 'character not found' };
+  if (!charRow) return { ok: false, error: '角色不存在' };
   if (!charRow.image_url && !charRow.local_path) {
     return { ok: false, error: '角色还没有形象图片' };
   }
@@ -809,7 +809,7 @@ async function prepareCharacterRegisterImage(db, log, cfg, characterId) {
   if (!urlOut.ok) return urlOut;
   const imageUrl = urlOut.url;
   if (String(imageUrl).startsWith('data:')) {
-    return { ok: false, error: '不支持 base64 图片注册，请先使用上传或外网图链' };
+    return { ok: false, error: '不支持内嵌图片注册，请先使用上传或外网图链' };
   }
   const pub = await ensurePublicRegisterImageUrlForMaterialHub(db, log, cfg, charRow, imageUrl);
   if (!pub.ok) return pub;
@@ -879,7 +879,7 @@ async function registerCharacterViaJimengHub(db, log, cfg, characterId, hubCtx, 
   }
   const created = createRes.data;
   const assetId = created.id;
-  if (!assetId) return { ok: false, error: '素材库返回缺少素材 id' };
+  if (!assetId) return { ok: false, error: '素材库返回缺少素材 ID' };
 
   const basePayload = buildSeedance2BasePayload(charRow, assetId, created, registerImageUrl, 'hub');
   db.prepare('UPDATE characters SET seedance2_asset = ?, updated_at = ? WHERE id = ?').run(
@@ -951,7 +951,7 @@ async function registerCharacterViaModelArk(db, log, cfg, characterId, arkCtx, p
   }
   const created = createRes.data;
   const assetId = created.id;
-  if (!assetId) return { ok: false, error: 'ModelArk 返回缺少资产 Id' };
+  if (!assetId) return { ok: false, error: '资产库返回缺少资产 ID' };
 
   const basePayload = buildSeedance2BasePayload(charRow, assetId, created, registerImageUrl, 'model_ark');
   db.prepare('UPDATE characters SET seedance2_asset = ?, updated_at = ? WHERE id = ?').run(
@@ -998,11 +998,11 @@ async function registerCharacterJimengMaterialAsset(db, log, cfg, characterId) {
 
 async function refreshCharacterJimengMaterialAsset(db, log, cfg, characterId) {
   const charRow = db.prepare('SELECT id, seedance2_asset FROM characters WHERE id = ? AND deleted_at IS NULL').get(Number(characterId));
-  if (!charRow) return { ok: false, error: 'character not found' };
+  if (!charRow) return { ok: false, error: '角色不存在' };
   const prev = readSeedance2AssetJson(charRow.seedance2_asset);
   const assetId = prev?.hub_asset_id;
   if (!assetId) {
-    return { ok: false, error: '暂未取得素材 id，请先完成 SD2 认证' };
+    return { ok: false, error: '暂未取得素材 ID，请先完成即梦认证' };
   }
 
   const provider = String(prev?.sd2_provider || '').toLowerCase() === 'model_ark' ? 'model_ark' : 'hub';
@@ -1010,7 +1010,7 @@ async function refreshCharacterJimengMaterialAsset(db, log, cfg, characterId) {
   if (provider === 'model_ark') {
     const arkCtx = modelArkAssetConfigService.buildModelArkContext(db, log);
     if (!arkCtx.ready) {
-      return { ok: false, error: '未找到有效的 ModelArk 资产库配置，无法刷新认证状态' };
+      return { ok: false, error: '未找到有效的资产库配置，无法刷新认证状态' };
     }
     const r = await modelArkAssetConfigService.getAsset(arkCtx, assetId, log);
     if (!r.ok) return { ok: false, error: r.error };
@@ -1018,7 +1018,7 @@ async function refreshCharacterJimengMaterialAsset(db, log, cfg, characterId) {
   } else {
     const hubCtx = jimengMaterialHubService.buildHubContext(cfg, db, log);
     if (!hubCtx.token) {
-      return { ok: false, error: '未配置即梦2角色认证：请在「AI 配置」中填写 Token' };
+      return { ok: false, error: '未配置即梦2角色认证：请在「AI 配置」中填写密钥' };
     }
     const r = await jimengMaterialHubService.getAsset(hubCtx, assetId, log);
     if (!r.ok) return { ok: false, error: r.error };

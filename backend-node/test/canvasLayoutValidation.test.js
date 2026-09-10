@@ -190,22 +190,22 @@ for (const probe of [
   {
     name: 'an unsupported node type',
     canvas: validFreeCanvas({ nodes: [{ ...validFreeCanvas().nodes[0], type: 'provider' }] }),
-    message: /node type/i,
+    message: /节点类型/,
   },
   {
     name: 'a non-finite coordinate',
     canvas: validFreeCanvas({ nodes: [{ ...validFreeCanvas().nodes[0], position: { x: Infinity, y: 0 } }] }),
-    message: /position/i,
+    message: /坐标/,
   },
   {
     name: 'a non-positive bounded dimension',
     canvas: validFreeCanvas({ nodes: [{ ...validFreeCanvas().nodes[0], width: 0 }] }),
-    message: /width/i,
+    message: /宽度/,
   },
   {
     name: 'an edge with an unknown endpoint',
     canvas: validFreeCanvas({ edges: [{ id: 'free:edge:one', source: 'free:text:one', target: 'missing' }] }),
-    message: /edge/i,
+    message: /连线/,
   },
   {
     name: 'more than 500 free nodes',
@@ -216,7 +216,7 @@ for (const probe of [
         position: { x: index, y: 0 },
       })),
     }),
-    message: /node|节点/i,
+    message: /节点/,
   },
   {
     name: 'more than 1000 free edges',
@@ -227,14 +227,14 @@ for (const probe of [
         target: 'free:text:one',
       })),
     }),
-    message: /edge|边/i,
+    message: /连线/,
   },
   {
     name: 'text longer than 50000 characters',
     canvas: validFreeCanvas({
       nodes: [{ ...validFreeCanvas().nodes[0], content: 'x'.repeat(50001) }],
     }),
-    message: /content/i,
+    message: /节点内容/,
   },
 ]) {
   test(`free canvas rejects ${probe.name}`, () => {
@@ -255,19 +255,19 @@ test('free canvas rejects project and media references belonging to another proj
     seedDb(db);
     expectBadRequest(
       () => dramaService.saveCanvasLayout(db, log, 1, { free_canvas: validFreeCanvas({ projectId: 2 }) }),
-      /projectId/i,
+      /项目 ID/,
     );
     expectBadRequest(
       () => dramaService.saveCanvasLayout(db, log, 1, {
         free_canvas: validFreeCanvas({ nodes: [{ ...validFreeCanvas().nodes[0], assetId: 2000 }] }),
       }),
-      /asset/i,
+      /素材/,
     );
     expectBadRequest(
       () => dramaService.saveCanvasLayout(db, log, 1, {
         free_canvas: validFreeCanvas({ nodes: [{ ...validFreeCanvas().nodes[0], storyboardId: 200 }] }),
       }),
-      /storyboard/i,
+      /分镜/,
     );
 
     assert.equal(dramaService.getDramaById(db, 1).metadata.free_canvas, undefined);
@@ -291,7 +291,7 @@ test('canvas layout route exposes invalid free canvas as the existing HTTP 400 r
     assert.equal(res.statusCode, 400);
     assert.equal(res.body.success, false);
     assert.equal(res.body.error.code, 'BAD_REQUEST');
-    assert.match(res.body.error.message, /node type/i);
+    assert.match(res.body.error.message, /节点类型/);
   } finally {
     db.close();
   }

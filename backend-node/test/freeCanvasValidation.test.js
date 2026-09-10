@@ -51,15 +51,15 @@ test('free canvas validator rejects nested, sensitive, oversized, and cyclic all
   try {
     expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({
       nodes: [{ ...validCanvas().nodes[0], content: { payload: 'x'.repeat(50001) } }],
-    })), /content/i);
+    })), /节点内容/);
     expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({
       nodes: [{ ...validCanvas().nodes[0], description: { accessToken: 'secret', providerResponse: { body: 'raw' } } }],
-    })), /description/i);
+    })), /节点描述/);
     const cyclic = {};
     cyclic.self = cyclic;
     expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({
       nodes: [{ ...validCanvas().nodes[0], prompt: cyclic }],
-    })), /prompt/i);
+    })), /节点提示词/);
   } finally {
     db.close();
   }
@@ -77,10 +77,10 @@ test('free canvas validator rejects cross-project root episodes and opaque story
     }));
     assert.equal(valid.nodes[0].asset_ref, 'project:1:asset:1000');
     assert.equal(valid.nodes[0].storyboard_ref, 'storyboard:100');
-    expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({ episodeId: 20 })), /episode/i);
+    expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({ episodeId: 20 })), /剧集/);
     expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({
       nodes: [{ ...validCanvas().nodes[0], storyboard_ref: 'storyboard:200' }],
-    })), /storyboard/i);
+    })), /分镜/);
     expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({
       nodes: [{ ...validCanvas().nodes[0], storyboard_ref: 'project:2:storyboard:200' }],
     })), /project|项目/i);
@@ -99,7 +99,7 @@ test('free canvas validator rejects mismatched storyboardId and storyboard_ref',
         storyboardId: 100,
         storyboard_ref: 'storyboard:101',
       }],
-    })), /storyboardId|storyboard_ref/i);
+    })), /分镜 ID|分镜引用/);
   } finally {
     db.close();
   }
@@ -120,14 +120,14 @@ test('free canvas validator normalizes local image media and rejects unsafe medi
     for (const value of ['../outside.png', 'C:\\outside.png', 'http://127.0.0.1/frame.png']) {
       expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({
         nodes: [{ ...validCanvas().nodes[0], content: value }],
-      })), /media|content/i);
+      })), /媒体|节点内容|本地/);
     }
     expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({
       nodes: [{ ...validCanvas().nodes[0], content: 'https://example.test/frame.png' }],
-    })), /external|外部/i);
+    })), /外部媒体地址/);
     expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({
       nodes: [{ ...validCanvas().nodes[0], storageKey: '../outside.png' }],
-    })), /media|storageKey/i);
+    })), /存储路径|媒体|本地/);
   } finally {
     db.close();
   }
@@ -159,7 +159,7 @@ test('free canvas permits legacy uploads only through a global asset record', ()
         content: 'uploads/unreferenced.png',
         storageKey: 'uploads/unreferenced.png',
       }],
-    })), /media|content|project|\u9879\u76ee/i);
+    })), /节点内容|本地|项目/);
     expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({
       nodes: [{
         ...validCanvas().nodes[0],
@@ -167,7 +167,7 @@ test('free canvas permits legacy uploads only through a global asset record', ()
         content: undefined,
         storageKey: undefined,
       }],
-    })), /asset|media|project|\u9879\u76ee/i);
+    })), /素材|本地|项目/);
   } finally {
     db.close();
   }
@@ -185,11 +185,11 @@ test('free canvas validator preserves bounded mode, background, and viewport sta
     assert.equal(valid.background, 'lines');
     assert.deepEqual(valid.viewport, { x: 12, y: -24, zoom: 1.25 });
 
-    expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({ mode: 'provider' })), /mode/i);
-    expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({ background: 'gradient' })), /background/i);
+    expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({ mode: 'provider' })), /模式/);
+    expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({ background: 'gradient' })), /背景/);
     expectBadRequest(
       () => validateFreeCanvas(db, 1, validCanvas({ viewport: { x: 0, y: 0, zoom: 3 } })),
-      /viewport/i,
+      /视口/,
     );
   } finally {
     db.close();
@@ -227,7 +227,7 @@ test('free canvas validator preserves only bounded config operation state', () =
         position: { x: 0, y: 0 },
         status: 'completed',
       }],
-    })), /status/i);
+    })), /状态/);
     expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({
       nodes: [{
         id: 'free:config:secret',
@@ -235,7 +235,7 @@ test('free canvas validator preserves only bounded config operation state', () =
         position: { x: 0, y: 0 },
         metadata: { apiKey: 'secret' },
       }],
-    })), /metadata/i);
+    })), /元数据/);
     expectBadRequest(() => validateFreeCanvas(db, 1, validCanvas({
       nodes: [{
         id: 'free:text:status',
@@ -243,7 +243,7 @@ test('free canvas validator preserves only bounded config operation state', () =
         position: { x: 0, y: 0 },
         status: 'running',
       }],
-    })), /status/i);
+    })), /状态/);
   } finally {
     db.close();
   }

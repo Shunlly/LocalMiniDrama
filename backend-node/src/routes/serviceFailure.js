@@ -3,11 +3,18 @@ const { isTrustedChineseUserError } = require('../services/providerErrorSanitize
 
 const NOT_FOUND_MESSAGES = Object.freeze({
   'character not found': '角色不存在',
+  '角色不存在': '角色不存在',
   'scene not found': '场景不存在',
+  '场景不存在': '场景不存在',
   'prop not found': '道具不存在',
+  '道具不存在': '道具不存在',
   'library item not found': '角色库项不存在',
+  '角色库项不存在': '角色库项不存在',
   'episode not found': '剧集不存在',
+  '剧集不存在': '剧集不存在',
 });
+
+const UNAUTHORIZED_ERRORS = new Set(['unauthorized', '无权限']);
 
 const CANCEL_MESSAGES = Object.freeze({
   'The operation was aborted.': '操作已取消',
@@ -23,7 +30,7 @@ function sendMappedServiceFailure(res, out, options = {}) {
     response.notFound(res, notFoundMessage);
     return true;
   }
-  if (error === 'unauthorized') {
+  if (UNAUTHORIZED_ERRORS.has(error)) {
     if (options.unauthorizedAsForbidden) response.forbidden(res, '无权限');
     else response.notFound(res, options.unauthorizedMessage || '剧集不存在或无权限');
     return true;

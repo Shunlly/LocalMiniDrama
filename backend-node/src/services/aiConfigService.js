@@ -120,19 +120,19 @@ function normalizeProviderBaseUrl(value, config = {}) {
   try {
     parsed = new URL(raw);
   } catch (_) {
-    throw providerUrlValidationError('base_url 必须是合法的 HTTP(S) URL');
+    throw providerUrlValidationError('接口地址必须是合法的 HTTP 或 HTTPS 网址');
   }
   if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw providerUrlValidationError('base_url 仅支持 HTTP(S)');
+    throw providerUrlValidationError('接口地址仅支持 HTTP 或 HTTPS');
   }
   if (parsed.username || parsed.password) {
-    throw providerUrlValidationError('base_url 不得包含用户名或密码，请使用认证字段');
+    throw providerUrlValidationError('接口地址不得包含用户名或密码，请使用认证字段');
   }
   if (parsed.search) {
-    throw providerUrlValidationError('base_url 不得包含查询参数，请使用 endpoint 或认证字段');
+    throw providerUrlValidationError('接口地址不得包含查询参数，请使用接口路径或认证字段');
   }
   if (parsed.hash) {
-    throw providerUrlValidationError('base_url 不得包含 URL 片段');
+    throw providerUrlValidationError('接口地址不得包含网址片段');
   }
   const localTarget = isExplicitLocalProviderHost(parsed.hostname);
   const localMode = isExplicitLocalProviderConfig(config);
@@ -154,7 +154,7 @@ function normalizeProviderBaseUrl(value, config = {}) {
 
 function getProviderNetworkOptions(config = {}, overrides = {}) {
   const baseUrl = normalizeProviderBaseUrl(config.base_url, config);
-  if (!baseUrl) throw providerUrlValidationError('base_url 必填');
+  if (!baseUrl) throw providerUrlValidationError('请填写接口地址');
   const parsed = new URL(baseUrl);
   const allowPrivate = isExplicitLocalProviderHost(parsed.hostname) && isExplicitLocalProviderConfig(config);
   return {
@@ -1187,7 +1187,7 @@ async function probeOllamaConnection(baseUrl, apiKey, networkOptions) {
 
 async function testConnectionUnsafe(opts) {
   const base = normalizeProviderBaseUrl(opts.base_url, opts);
-  if (!base) throw new Error('base_url 必填');
+  if (!base) throw new Error('请填写接口地址');
   const providerNetwork = opts.provider_network_policy
     ? requireCompleteProviderNetworkPolicy(opts.provider_network_policy, base)
     : getProviderNetworkOptions(opts, { lookup: opts.provider_dns_lookup });
@@ -1204,7 +1204,7 @@ async function testConnectionUnsafe(opts) {
   if (normalizedModels.default_model || normalizedModels.model.length) {
     model = resolveConfiguredModel(opts);
   }
-  if (!model && (opts.provider === 'gemini' || opts.provider === 'google')) throw new Error('model 必填');
+  if (!model && (opts.provider === 'gemini' || opts.provider === 'google')) throw new Error('请填写模型名称');
   let endpoint = opts.endpoint || '';
   if (!opts.api_key && !isApiKeyOptionalConnection({ provider, api_protocol: apiProtocol })) {
     throw new Error('密钥必填');
@@ -1519,7 +1519,7 @@ function normalizeVendorSettings(settings) {
 
 function normalizeVendorConfig(item, index) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) {
-    throw new Error(`config at index ${index} must be an object`);
+    throw new Error(`第 ${Number(index) + 1} 项配置必须是对象`);
   }
   const serviceType = String(item.service_type || 'text').trim() || 'text';
   const normalizedModels = normalizeWritableConfigModels({
@@ -1627,7 +1627,7 @@ function applyVendorLock(db, log, cfg) {
   let configs;
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) throw new Error('config file must be a JSON array');
+    if (!Array.isArray(parsed)) throw new Error('配置文件必须是 JSON 数组');
     configs = reconcileVendorConfigDefaults(parsed.map(normalizeVendorConfig));
   } catch (e) {
     log?.error?.('[vendor_lock] failed to parse config file', { error: e.message });

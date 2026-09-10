@@ -1,6 +1,7 @@
 'use strict';
 
 const { callModelArkAsset } = require('./modelArkAssetProxyService');
+const { toUserFacingProcessError } = require('./providerErrorSanitizer');
 const aiConfigService = require('./aiConfigService');
 
 function loadModelArkAssetRow(db) {
@@ -201,7 +202,7 @@ async function createImageAsset(ctx, params, log) {
   try {
     data = await callModelArkAsset({ ...callOpts, action: 'CreateAsset', body: payload }, log);
   } catch (err) {
-    return { ok: false, error: String(err.message || err).slice(0, 2000) };
+    return { ok: false, error: toUserFacingProcessError(err, '资产库请求失败，请稍后重试') };
   }
 
   const asset = unwrapModelArkAssetView(data);
@@ -215,12 +216,12 @@ async function createImageAsset(ctx, params, log) {
 
 async function getAsset(ctx, assetId, log) {
   const id = String(assetId || '').trim();
-  if (!id) return { ok: false, error: '缺少 asset id' };
+  if (!id) return { ok: false, error: '缺少素材 ID' };
   let data;
   try {
     data = await callModelArkAsset({ ...ctx.callOpts, action: 'GetAsset', body: { Id: id } }, log);
   } catch (err) {
-    return { ok: false, error: String(err.message || err).slice(0, 2000) };
+    return { ok: false, error: toUserFacingProcessError(err, '资产库请求失败，请稍后重试') };
   }
   const asset = unwrapModelArkAssetView(data);
   if (asset?.id) {

@@ -155,7 +155,7 @@ function associateWithStoryboard(db, log, storyboardId, propIds) {
  */
 async function generatePropPromptOnly(db, log, cfg, propId, modelName, style) {
   const prop = getById(db, propId);
-  if (!prop) return { ok: false, error: 'prop not found' };
+  if (!prop) return { ok: false, error: '道具不存在' };
 
   const dramaRow = prop.drama_id
     ? db.prepare('SELECT style, metadata FROM dramas WHERE id = ? AND deleted_at IS NULL').get(prop.drama_id)
@@ -216,7 +216,7 @@ async function extractPropFromImage(db, log, cfg, propId) {
   const prop = db.prepare(
     'SELECT id, name, type, image_url, local_path, extra_images, ref_image FROM props WHERE id = ? AND deleted_at IS NULL'
   ).get(Number(propId));
-  if (!prop || !canReadResource(db, 'props', propId)) return { ok: false, error: 'prop not found' };
+  if (!prop || !canReadResource(db, 'props', propId)) return { ok: false, error: '道具不存在' };
 
   const imgSrc = resolveEntityImageSource(prop, cfg);
   if (!imgSrc) return { ok: false, error: '该道具暂无参考图片，请先上传图片' };

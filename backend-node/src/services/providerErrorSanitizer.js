@@ -323,6 +323,9 @@ function isTrustedChineseUserError(value) {
   if (/\b(unauthorized|forbidden|not found|bad request|internal server error|too many requests|service unavailable|gateway timeout|timed?\s*out|fetch failed)\b/i.test(text)) {
     return false;
   }
+  if (/\b(ECONNREFUSED|ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|EPROTO|ENOENT|EACCES|EPERM|EPIPE|ENOSPC|SQLITE_[A-Z0-9]+|getaddrinfo|socket hang up)\b/i.test(text)) {
+    return false;
+  }
   if (/[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+/.test(text)) return false;
   if (/^[A-Za-z][A-Za-z0-9_]*\s*不能为空/.test(text)) return false;
   if (/不支持的\s+[A-Za-z_]+/.test(text)) return false;

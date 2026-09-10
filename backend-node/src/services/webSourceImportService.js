@@ -1,6 +1,7 @@
 const dns = require('dns').promises;
 const net = require('net');
 const uploadService = require('./uploadService');
+const { isTrustedChineseUserError, toUserFacingProcessError } = require('./providerErrorSanitizer');
 
 const MAX_WEB_SOURCE_BYTES = 2 * 1024 * 1024;
 const MAX_WEB_SOURCE_TEXT_CHARS = 200000;
@@ -11,6 +12,12 @@ function badRequest(message) {
   const err = new Error(message);
   err.code = 'BAD_REQUEST';
   return err;
+}
+
+function toUserFacingWebError(error, fallback) {
+  const raw = String(error?.message || '').trim();
+  if (raw && isTrustedChineseUserError(raw)) return badRequest(raw);
+  return badRequest(toUserFacingProcessError(error, fallback));
 }
 
 function ipv4ToNumber(ip) {
@@ -83,7 +90,7 @@ async function assertPublicHttpUrl(rawUrl, resolver = dns.lookup) {
     validated.parsed.hash = '';
     return validated.parsed;
   } catch (error) {
-    throw badRequest(error?.message || '网页 URL 不安全');
+    throw toUserFacingWebError(error, '网页地址不安全，请更换后重试');
   }
 }
 
@@ -180,7 +187,7 @@ async function fetchWebSource(rawUrl, opts = {}) {
       accept: 'text/html,text/plain,application/json;q=0.8,*/*;q=0.2',
     });
   } catch (error) {
-    throw badRequest(`网页请求失败：${error?.message || '网络错误'}`);
+    throw toUserFacingWebError(error, '网页请求失败，请检查网址后重试');
   }
   const contentType = downloaded.contentType || '';
   if (contentType && !/(text\/|html|json|xml|csv|markdown)/i.test(contentType)) {

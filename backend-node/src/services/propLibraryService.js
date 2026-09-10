@@ -134,9 +134,9 @@ function propLibraryFields(prop, dramaId, imageUrl, now) {
 
 function addPropToLibrary(db, log, propId) {
   const prop = propService.getById(db, Number(propId));
-  if (!prop) return { ok: false, error: 'prop not found' };
+  if (!prop) return { ok: false, error: '道具不存在' };
   const drama = db.prepare('SELECT id FROM dramas WHERE id = ? AND deleted_at IS NULL').get(prop.drama_id);
-  if (!drama) return { ok: false, error: 'unauthorized' };
+  if (!drama) return { ok: false, error: '无权限' };
   if (!prop.image_url && !prop.local_path) return { ok: false, error: '道具还没有形象图片' };
   const now = new Date().toISOString();
   const imageUrl = resolveImageUrl(prop.image_url, prop.local_path);
@@ -160,7 +160,7 @@ function addPropToLibrary(db, log, propId) {
 
 function addPropToMaterialLibrary(db, log, propId) {
   const prop = propService.getById(db, Number(propId));
-  if (!prop) return { ok: false, error: 'prop not found' };
+  if (!prop) return { ok: false, error: '道具不存在' };
   if (!prop.image_url && !prop.local_path) return { ok: false, error: '道具还没有形象图片' };
   const now = new Date().toISOString();
   const imageUrl = resolveImageUrl(prop.image_url, prop.local_path);

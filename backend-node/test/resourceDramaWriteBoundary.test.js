@@ -137,11 +137,11 @@ test('回收、人工介入、历史回收和已删除项目的子资源业务�
     assert.equal(sceneService.getSceneById(db, state.sceneId), null);
     assert.deepEqual(sceneService.updateScene(db, log, state.sceneId, { location: '越权修改' }), {
       ok: false,
-      error: 'scene not found',
+      error: '场景不存在',
     });
     assert.deepEqual(sceneService.deleteScene(db, log, state.sceneId), {
       ok: false,
-      error: 'scene not found',
+      error: '场景不存在',
     });
     assert.throws(
       () => propService.create(db, log, { drama_id: state.dramaId, name: '越权新增' }),
@@ -203,7 +203,7 @@ test('场景空更新保持原有成功语义，同时仍校验资源所属项�
   assert.deepEqual(sceneService.updateScene(db, log, 11002, {}), { ok: true });
   assert.deepEqual(sceneService.updateScene(db, log, 22002, {}), {
     ok: false,
-    error: 'scene not found',
+    error: '场景不存在',
   });
 
   db.close();

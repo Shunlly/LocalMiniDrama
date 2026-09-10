@@ -25,7 +25,7 @@ function updateLanguage(cfg, log) {
         phase: 'success',
         language: lang,
       });
-      const message = lang === 'en' ? 'Language switched to English' : '语言已切换为中文';
+      const message = lang === 'en' ? '语言已切换为英文' : '语言已切换为中文';
       response.success(res, { message, language: lang });
     } catch (err) {
       log?.operation?.({

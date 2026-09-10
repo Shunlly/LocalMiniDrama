@@ -2,6 +2,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('path');
+const os = require('node:os');
 
 const promptOverrides = require('../src/routes/promptOverrides');
 const { publicErrorMessage, uploadFormErrorMessage } = require('../src/routes/serviceFailure');
@@ -77,5 +78,243 @@ describe('剩余路由对用户返回中文错误', () => {
     assert.equal(empty.statusCode, 400);
     assert.equal(hasCjk(empty.body.error.message), true);
     assert.doesNotMatch(empty.body.error.message, /^content /);
+  });
+});
+
+const Database = require('better-sqlite3');
+const { sendMappedServiceFailure, sendCaughtRouteError } = require('../src/routes/serviceFailure');
+const settingsRoutes = require('../src/routes/settings');
+const aiConfigRoutes = require('../src/routes/aiConfig');
+const aiConfigService = require('../src/services/aiConfigService');
+const sceneService = require('../src/services/sceneService');
+const characterLibraryService = require('../src/services/characterLibraryService');
+const { fetchWebSource } = require('../src/services/webSourceImportService');
+const { callModelArkAsset } = require('../src/services/modelArkAssetProxyService');
+const jimengMaterialHubService = require('../src/services/jimengMaterialHubService');
+const { validateFreeCanvas } = require('../src/services/freeCanvasValidation');
+const { toUserFacingProcessError } = require('../src/services/providerErrorSanitizer');
+const assetService = require('../src/services/assetService');
+const { runMigrationsAndEnsure } = require('../src/db/migrate');
+
+function assertUserFacingChinese(message) {
+  assert.equal(hasCjk(message), true);
+  assert.doesNotMatch(String(message), /SQLITE_|ENOENT|sk-|unauthorized|ECONNREFUSED|ENOTFOUND|character not found|scene not found|prop not found|base_url|free_canvas|http_method/i);
+}
+
+describe('剩余服务对用户返回中文错误', () => {
+  it('服务层中英文 not-found 都映射为 404 中文，而不会降成 400', () => {
+    for (const error of ['character not found', '角色不存在', 'scene not found', '场景不存在', 'prop not found', '道具不存在']) {
+      const res = mockRes();
+      assert.equal(sendMappedServiceFailure(res, { ok: false, error }), true);
+      assert.equal(res.statusCode, 404, error);
+      assertUserFacingChinese(res.body.error.message);
+    }
+    const unauthorized = mockRes();
+    assert.equal(sendMappedServiceFailure(unauthorized, { ok: false, error: '无权限' }), true);
+    assert.equal(unauthorized.statusCode, 404);
+    assert.match(unauthorized.body.error.message, /剧集不存在或无权限|无权限/);
+    const forbidden = mockRes();
+    assert.equal(sendMappedServiceFailure(forbidden, { ok: false, error: 'unauthorized' }, { unauthorizedAsForbidden: true }), true);
+    assert.equal(forbidden.statusCode, 403);
+    assert.equal(forbidden.body.error.message, '无权限');
+  });
+
+  it('跨项目 ID 不相等时场景服务返回中文不存在而不是英文', () => {
+    const dramaId = 11;
+    const otherDramaId = 22;
+    const sceneId = 11002;
+    assert.notEqual(dramaId, otherDramaId);
+    assert.notEqual(dramaId, sceneId);
+    const db = new Database(':memory:');
+    try {
+      runMigrationsAndEnsure(db);
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO dramas (id, title, status, created_at, updated_at, deleted_at)
+         VALUES (?, ?, 'draft', ?, ?, NULL)`
+      ).run(dramaId, '可写项目', now, now);
+      db.prepare(
+        `INSERT INTO dramas (id, title, status, created_at, updated_at, deleted_at)
+         VALUES (?, ?, 'draft', ?, ?, NULL)`
+      ).run(otherDramaId, '其他项目', now, now);
+      db.prepare(
+        `INSERT INTO scenes (id, drama_id, location, status, created_at, updated_at, deleted_at)
+         VALUES (?, ?, '本项目场景', 'draft', ?, ?, NULL)`
+      ).run(sceneId, dramaId, now, now);
+      const silent = { info() {}, warn() {}, error() {} };
+      assert.deepEqual(sceneService.updateScene(db, silent, 999001, { location: '不存在' }), {
+        ok: false,
+        error: '场景不存在',
+      });
+      const missingCharacter = characterLibraryService.generateCharacterImage(db, silent, {}, 888001);
+      assert.equal(missingCharacter.ok, false);
+      assert.equal(missingCharacter.error, '角色不存在');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('网页导入不会把 ECONNREFUSED 等英文异常拼进用户错误', async () => {
+    await assert.rejects(
+      () => fetchWebSource('https://example.com/source', {
+        resolver: async () => [{ address: '93.184.216.34' }],
+        downloadImpl: async () => {
+          const error = new Error('connect ECONNREFUSED 127.0.0.1:80');
+          error.code = 'ECONNREFUSED';
+          throw error;
+        },
+      }),
+      (error) => {
+        assert.equal(error.code, 'BAD_REQUEST');
+        assertUserFacingChinese(error.message);
+        assert.doesNotMatch(error.message, /ECONNREFUSED|127\.0\.0\.1/i);
+        return true;
+      },
+    );
+  });
+
+  it('即梦素材列表失败走 publicErrorMessage，不回传英文原句', async () => {
+    const originalGet = aiConfigService.getConfig;
+    const originalList = jimengMaterialHubService.listAssets;
+    aiConfigService.getConfig = () => ({
+      id: 11,
+      base_url: 'https://hub.example/v1',
+      api_key: 'token-value',
+    });
+    jimengMaterialHubService.listAssets = async () => ({
+      ok: false,
+      error: 'connect ECONNREFUSED 10.0.0.1:443',
+    });
+    try {
+      const res = mockRes();
+      await aiConfigRoutes({}, { error() {} }).listJimeng2MaterialAssets(
+        { body: { id: 11 }, providerNetworkPolicy: { trustedOrigins: ['https://hub.example/v1'] } },
+        res,
+      );
+      assert.equal(res.statusCode, 400);
+      assertUserFacingChinese(res.body.error.message);
+      assert.doesNotMatch(res.body.error.message, /ECONNREFUSED|token-value|10\.0\.0\.1/i);
+    } finally {
+      aiConfigService.getConfig = originalGet;
+      jimengMaterialHubService.listAssets = originalList;
+    }
+  });
+
+  it('资产库缺少接口地址和素材 ID 返回可信中文', async () => {
+    await assert.rejects(
+      () => callModelArkAsset({ action: 'ListAssets' }),
+      (error) => {
+        assertUserFacingChinese(error.message);
+        assert.match(error.message, /接口地址/);
+        assert.doesNotMatch(error.message, /base_url|action|http_method/);
+        return true;
+      },
+    );
+    await assert.rejects(
+      () => callModelArkAsset({ base_url: 'https://ark.example/api/v3', action: 'Nope', api_key: 'k' }),
+      (error) => {
+        assertUserFacingChinese(error.message);
+        assert.match(error.message, /不支持的资产库操作/);
+        assert.doesNotMatch(error.message, /\baction\b/);
+        return true;
+      },
+    );
+    const missingAsset = await jimengMaterialHubService.getAsset({ baseUrl: 'https://hub.example', token: 't' }, '');
+    assert.equal(missingAsset.ok, false);
+    assert.equal(missingAsset.error, '缺少素材 ID');
+    assert.doesNotMatch(missingAsset.error, /asset id/i);
+  });
+
+  it('连接测试缺少接口地址或模型返回中文，不含英文字段名', async () => {
+    await assert.rejects(
+      () => aiConfigService.testConnection({ provider: 'openai' }),
+      (error) => {
+        assertUserFacingChinese(error.message);
+        assert.doesNotMatch(error.message, /base_url|model 必填/);
+        return true;
+      },
+    );
+    await assert.rejects(
+      () => aiConfigService.testConnection({
+        provider: 'gemini',
+        base_url: 'https://generativelanguage.googleapis.com',
+        api_key: 'test-key',
+      }),
+      (error) => {
+        assert.equal(error.message, '请填写模型名称');
+        assertUserFacingChinese(error.message);
+        return true;
+      },
+    );
+  });
+
+  it('自由画布校验错误是可操作中文，sendCaughtRouteError 会保留具体原因', () => {
+    try {
+      validateFreeCanvas(null, 1, null);
+      assert.fail('should throw');
+    } catch (error) {
+      assert.equal(error.code, 'BAD_REQUEST');
+      assert.equal(isTrustedChineseUserError(error.message), true);
+      assert.match(error.message, /自由画布必须为对象/);
+      const res = mockRes();
+      sendCaughtRouteError(res, error, '保存画布布局失败');
+      assert.equal(res.statusCode, 400);
+      assert.equal(res.body.error.message, '自由画布必须为对象');
+    }
+  });
+
+  it('素材字段校验不再夹杂 url/category 英文字段名', () => {
+    const db = new Database(':memory:');
+    try {
+      runMigrationsAndEnsure(db);
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO dramas (id, title, status, created_at, updated_at, deleted_at)
+         VALUES (11, '可写项目', 'draft', ?, ?, NULL)`
+      ).run(now, now);
+      assert.throws(
+        () => assetService.create(db, { warn() {} }, { drama_id: 11, url: 123 }),
+        (error) => {
+          assert.equal(error.code, 'BAD_REQUEST');
+          assertUserFacingChinese(error.message);
+          assert.doesNotMatch(error.message, /\burl\b|category/);
+          return true;
+        },
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it('语言切换成功文案是中文', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lmd-lang-'));
+    const configPath = path.join(tmp, 'config.yaml');
+    fs.writeFileSync(configPath, 'app:\n  language: zh\n');
+    const previous = process.env.LOCALMINIDRAMA_CONFIG_PATH;
+    process.env.LOCALMINIDRAMA_CONFIG_PATH = configPath;
+    try {
+      const res = mockRes();
+      settingsRoutes({}, { app: { language: 'zh' } }, { operation() {}, warnw() {}, infow() {} })
+        .updateLanguage({ body: { language: 'en' } }, res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.data.message, '语言已切换为英文');
+      assert.doesNotMatch(res.body.data.message, /Language switched/i);
+    } finally {
+      if (previous == null) delete process.env.LOCALMINIDRAMA_CONFIG_PATH;
+      else process.env.LOCALMINIDRAMA_CONFIG_PATH = previous;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('生产失败文案会清洗英文异常，不会把 sk- 或 ECONNREFUSED 存进用户错误', () => {
+    const wrapped = toUserFacingProcessError(new Error('connect ECONNREFUSED 127.0.0.1:443'), '请检查图片服务配置后重试');
+    assert.equal(wrapped, '请检查图片服务配置后重试');
+    assert.doesNotMatch(
+      toUserFacingProcessError(new Error('Invalid API key sk-secret-value'), '请检查图片服务配置后重试'),
+      /sk-secret/,
+    );
+    const source = fs.readFileSync(path.join(__dirname, '../src/services/providerSdkService.js'), 'utf8');
+    assert.match(source, /toUserFacingProcessError\(error/);
+    assert.equal(source.includes("error.message || '未知错误'"), false);
   });
 });
