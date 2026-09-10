@@ -1,3 +1,13 @@
+export function focusSourceUrlInput(sourceUrlInput) {
+  const target = sourceUrlInput?.value
+  if (!target) return false
+  if (typeof target.focus === 'function') target.focus()
+  const root = target.$el || target
+  const native = root?.querySelector?.('input,textarea')
+  if (native && typeof native.focus === 'function') native.focus()
+  return true
+}
+
 export async function revealSourceImportIntent({
   historyExpanded,
   selectedStepId,
@@ -9,7 +19,8 @@ export async function revealSourceImportIntent({
   historyExpanded.value = true
   selectedStepId.value = 'intake'
   await nextTickFn()
-  const focusInput = () => sourceUrlInput.value?.focus?.()
+  await nextTickFn()
+  const focusInput = () => focusSourceUrlInput(sourceUrlInput)
   focusInput()
   if (windowRef?.setTimeout && Number(refocusDelay) > 0) {
     windowRef.setTimeout(focusInput, Number(refocusDelay))

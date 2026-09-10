@@ -43,7 +43,7 @@ test('DramaDetail forwards source URL intent and the workflow applies it after l
   assert.match(detailSource, /scrollToSection\(id, \{ focus: !\(id === 'source-intake-workflow' && sourceImportIntent\.value\) \}\)/)
   assert.match(panelSource, /sourceImportIntent: \{ type: Boolean, default: false \}/)
   assert.match(panelSource, /ref="sourceUrlInput"[\s\S]*v-model="form\.source_url"/)
-  assert.match(panelSource, /await loadData\(\)[\s\S]*if \(props\.sourceImportIntent\) await openSourceImportIntent\(\)/)
+  assert.match(panelSource, /if \(props\.sourceImportIntent\) await openSourceImportIntent\(\)[\s\S]*await loadData\(\)[\s\S]*if \(props\.sourceImportIntent\) await openSourceImportIntent\(\)/)
   assert.match(panelSource, /persistInspectedFlowStep\(selectedFlowStepId\.value\)[\s\S]*sourceUrlInput\.value\?\.focus\?\.\(\)/)
   assert.match(detailSource, /route\.path, route\.hash, Boolean\(drama\.value\), sourceImportIntent\.value/)
   assert.doesNotMatch(detailSource, /\(\) => \[route\.fullPath, Boolean\(drama\.value\)\]/)

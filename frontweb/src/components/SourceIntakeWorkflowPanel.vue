@@ -1782,6 +1782,7 @@ onBeforeRouteUpdate((to, from) => {
 })
 
 onMounted(async () => {
+  if (props.sourceImportIntent) await openSourceImportIntent()
   await loadData()
   if (!sourceWorkflowLifecycle.isActive()) return
   if (props.sourceImportIntent) await openSourceImportIntent()
