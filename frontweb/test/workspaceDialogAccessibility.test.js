@@ -76,6 +76,10 @@ const dramaDetailDialogsSource = read('../src/components/dramaDetail/DramaDetail
 const mediaLibrarySource = read('../src/views/MediaLibrary.vue')
 const dramaCanvasSource = read('../src/views/DramaCanvas.vue')
 const aiConfigSource = read('../src/views/AiConfig.vue')
+const aiConfigOneKeyDialogsSource = read('../src/components/aiConfig/AiConfigOneKeyDialogs.vue')
+const aiConfigBulkKeyDialogSource = read('../src/components/aiConfig/AiConfigBulkKeyDialog.vue')
+const aiConfigConnectionTestDialogSource = read('../src/components/aiConfig/AiConfigConnectionTestDialog.vue')
+const aiConfigJimeng2AssetsDialogSource = read('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue')
 const backupSource = read('../src/views/Backup.vue')
 const accessibleDialogSource = read('../src/components/AccessibleDialog.vue')
 const readinessSource = read('../src/components/ProjectReadinessPanel.vue')
@@ -88,6 +92,10 @@ const targetSources = [
   { name: '../src/views/MediaLibrary.vue', source: mediaLibrarySource },
   { name: '../src/views/DramaCanvas.vue', source: dramaCanvasSource },
   { name: '../src/views/AiConfig.vue', source: aiConfigSource },
+  { name: '../src/components/aiConfig/AiConfigOneKeyDialogs.vue', source: aiConfigOneKeyDialogsSource },
+  { name: '../src/components/aiConfig/AiConfigBulkKeyDialog.vue', source: aiConfigBulkKeyDialogSource },
+  { name: '../src/components/aiConfig/AiConfigConnectionTestDialog.vue', source: aiConfigConnectionTestDialogSource },
+  { name: '../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue', source: aiConfigJimeng2AssetsDialogSource },
   { name: '../src/views/Backup.vue', source: backupSource },
 ]
 

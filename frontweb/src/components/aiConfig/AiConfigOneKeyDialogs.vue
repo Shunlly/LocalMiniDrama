@@ -37,7 +37,7 @@
           <el-input
             v-model="oneKeyTongyiKey"
             type="password"
-            aria-label="通义 API Key"
+            aria-label="通义密钥"
             placeholder="请输入通义（DashScope）API Key，格式：sk-xxxxxxxx"
             show-password-on="click"
             clearable
@@ -89,7 +89,7 @@
           <el-input
             v-model="oneKeyVolcKey"
             type="password"
-            aria-label="火山引擎 API Key"
+            aria-label="火山引擎密钥"
             placeholder="请输入火山引擎（方舟）API Key"
             show-password-on="click"
             clearable
@@ -140,7 +140,7 @@
           <el-input
             v-model="oneKeyAgnesKey"
             type="password"
-            aria-label="Agnes API Key"
+            aria-label="Agnes 密钥"
             placeholder="请输入 Agnes API Key"
             show-password-on="click"
             clearable

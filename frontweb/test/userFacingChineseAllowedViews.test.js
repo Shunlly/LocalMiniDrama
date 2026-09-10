@@ -17,6 +17,17 @@ const sceneModelMapSource = read('../src/components/SceneModelMap.vue')
 const promptEditorSource = read('../src/components/PromptEditor.vue')
 const sd2Source = read('../src/components/Sd2AssetManagement.vue')
 const aiConfigSource = read('../src/components/AIConfigContent.vue')
+const aiConfigOneKeyDialogsSource = read('../src/components/aiConfig/AiConfigOneKeyDialogs.vue')
+const aiConfigBulkKeyDialogSource = read('../src/components/aiConfig/AiConfigBulkKeyDialog.vue')
+const aiConfigConnectionTestDialogSource = read('../src/components/aiConfig/AiConfigConnectionTestDialog.vue')
+const aiConfigJimeng2AssetsDialogSource = read('../src/components/aiConfig/AiConfigJimeng2AssetsDialog.vue')
+const aiConfigOverlaySource = [
+  aiConfigSource,
+  aiConfigOneKeyDialogsSource,
+  aiConfigBulkKeyDialogSource,
+  aiConfigConnectionTestDialogSource,
+  aiConfigJimeng2AssetsDialogSource,
+].join('\n')
 const aiConfigRowMutationsSource = read('../src/composables/useAiConfigRowMutations.js')
 const aiConfigFormSettingsSource = read('../src/utils/aiConfigFormSettings.js')
 const notFoundSource = read('../src/views/NotFound.vue')
@@ -34,6 +45,10 @@ const ALLOWED_SOURCES = {
   'SceneModelMap.vue': sceneModelMapSource,
   'PromptEditor.vue': promptEditorSource,
   'Sd2AssetManagement.vue': sd2Source,
+  'AiConfigOneKeyDialogs.vue': aiConfigOneKeyDialogsSource,
+  'AiConfigBulkKeyDialog.vue': aiConfigBulkKeyDialogSource,
+  'AiConfigConnectionTestDialog.vue': aiConfigConnectionTestDialogSource,
+  'AiConfigJimeng2AssetsDialog.vue': aiConfigJimeng2AssetsDialogSource,
 }
 
 const CHINESE_RE = /[\u4e00-\u9fff]/
@@ -233,16 +248,16 @@ test('AI 配置页按钮、占位、表单标签和错误提示改为简体中�
   assert.doesNotMatch(aiConfigSource, /修改Key/)
   assert.match(aiConfigSource, /label="接口地址（Base URL）"/)
   assert.match(aiConfigSource, /label="工作流 JSON"/)
-  assert.match(aiConfigSource, /label="素材地址"/)
+  assert.match(aiConfigJimeng2AssetsDialogSource, /label="素材地址"/)
   assert.match(aiConfigSource, /请输入 Bearer 令牌/)
   assert.match(aiConfigSource, /<span class="form-label-tip">API 密钥<\/span>/)
   assert.match(aiConfigSource, /访问密钥（AccessKey）/)
   assert.match(aiConfigSource, /私有密钥（SecretKey）/)
   assert.match(aiConfigSource, /组 ID（GroupId）/)
-  assert.match(aiConfigSource, /placeholder="粘贴新的 API 密钥"/)
+  assert.match(aiConfigBulkKeyDialogSource, /placeholder="粘贴新的 API 密钥"/)
   assert.match(aiConfigRowMutationsSource, /ElMessage\.success\(res\?\.message \|\| '所有配置的 API 密钥已更新'\)/)
-  assert.match(aiConfigSource, /jimeng2AssetStatusLabel\(row\.status\)/)
-  assert.match(aiConfigSource, /jimeng2AssetTypeLabel\(row\.asset_type\)/)
+  assert.match(aiConfigJimeng2AssetsDialogSource, /jimeng2AssetStatusLabel\(row\.status\)/)
+  assert.match(aiConfigJimeng2AssetsDialogSource, /jimeng2AssetTypeLabel\(row\.asset_type\)/)
   assert.match(aiConfigFormSettingsSource, /throw new Error\('工作流 JSON 格式无效'\)/)
   assert.doesNotMatch(aiConfigSource, /label="Base URL"/)
   assert.doesNotMatch(aiConfigSource, /label="Workflow JSON"/)

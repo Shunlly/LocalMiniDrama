@@ -20,7 +20,7 @@ const sourceWorkflowSource = read('../src/components/SourceIntakeWorkflowPanel.v
 const storyboardPanelSource = read('../src/components/dramaCanvas/CanvasStoryboardPanel.vue')
 const storyboardNodeSource = read('../src/components/dramaCanvas/CanvasStoryboardNode.vue')
 const inspectorDockSource = read('../src/components/dramaCanvas/CanvasInspectorDock.vue')
-const dramaCanvasSource = [read('../src/views/DramaCanvas.vue'), read('../src/views/DramaCanvas.css'), read('../src/composables/useDramaCanvasFreeCanvas.js'), read('../src/composables/useDramaCanvasPersist.js'), read('../src/composables/useDramaCanvasProjectLoad.js'), read('../src/composables/useDramaCanvasWorkflow.js')].join('\n')
+const dramaCanvasSource = [read('../src/views/DramaCanvas.vue'), read('../src/components/dramaCanvas/CanvasPageHeader.vue'), read('../src/views/DramaCanvas.css'), read('../src/composables/useDramaCanvasFreeCanvas.js'), read('../src/composables/useDramaCanvasPersist.js'), read('../src/composables/useDramaCanvasProjectLoad.js'), read('../src/composables/useDramaCanvasWorkflow.js')].join('\n')
 
 test('storyboard draft fingerprint distinguishes unsaved text and relation changes', () => {
   const saved = createStoryboardDraftFingerprint({
